@@ -61,6 +61,15 @@
 
 (ns re-frame2-pair.runtime
   (:require [re-frame.core :as rf]
+            ;; The genuinely-pure core of this runtime — cascade/consequence
+            ;; projections, the multi-frame operating-frame resolver, the
+            ;; id-validation core, the streaming queue transforms, the epoch
+            ;; timing + matcher, the snapshot-scope resolver, and the orient
+            ;; assembler. The stateful/DOM wrappers below thread the live gates
+            ;; (raw-state posture, privacy posture, operating frame, frame-ids)
+            ;; into these pure fns, so the SHIPPED decision logic is exactly the
+            ;; code the `:node-test` build exercises directly (rf2-etsj8p).
+            [re-frame2-pair.pure :as pure]
             ;; sub-cache-snapshot lives in re-frame.subs.tooling
             ;; (production-DCE split). re-frame2-pair is dev-tier — loading the
             ;; tooling sibling here is bundle-isolation-safe (the
@@ -77,11 +86,10 @@
             ;; bundle-isolation-safe.
             [re-frame.trace.tooling :as trace-tooling]
             ;; The canonical RAW trace-event frame reader
-            ;; (`re-frame.trace/trace-event-frame`). Owned by the trace
-            ;; contract ns; `re-frame.trace` is already loaded via
-            ;; `re-frame.core` above, so this require adds no bundle weight
-            ;; (dev-tier preload — bundle-isolation-safe).
-            [re-frame.trace :as trace]
+            ;; (`re-frame.trace/trace-event-frame`) is consumed by the pure
+            ;; streaming filter (`re-frame2-pair.pure/trace-matches?`), which
+            ;; requires `re-frame.trace` itself — the runtime no longer
+            ;; references the alias directly.
             ;; `flush-render!` (the SYNCHRONOUS render-commit contract fn,
             ;; Spec 006 §`flush-render!`) lives in
             ;; re-frame.substrate.adapter, not re-frame.core. It resolves
@@ -103,7 +111,6 @@
             ;; Dev-tier preload, so the direct require is bundle-isolation-safe.
             [re-frame.source-coords :as source-coords]
             [clojure.data :as data]
-            [clojure.set :as set]
             [clojure.string :as str]
             ;; cljs.reader is load-bearing for the eval-cljs typed result
             ;; codec: both `re-frame2-pair-mcp.tools.result-envelope/
@@ -288,16 +295,14 @@
    Non-keyword / un-namespaced ids (a user's `:stories`, `:sandbox`) are
    app frames and return false."
   [frame-id]
-  (and (keyword? frame-id)
-       (= "rf" (namespace frame-id))
-       (not= :rf/default frame-id)))
+  (pure/reserved-tool-frame? frame-id))
 
 (defn app-frame-ids
   "The registered APP frame ids — `(rf/frame-ids)` with `:rf/*` reserved TOOL
    frames removed. `:rf/default` is retained (it is an app frame;
    see `reserved-tool-frame?`). The order/source mirrors `(rf/frame-ids)`."
   []
-  (vec (remove reserved-tool-frame? (rf/frame-ids))))
+  (pure/app-frame-ids (rf/frame-ids)))
 
 (defn current-frame
   "Resolve the operating frame: explicit override -> session pin ->
@@ -314,11 +319,7 @@
    override, or get a clear refusal."
   ([] (current-frame nil))
   ([override]
-   (or override
-       @selected-frame
-       (let [app-fids (app-frame-ids)]
-         (when (= 1 (count app-fids))
-           (first app-fids))))))
+   (pure/resolve-operating-frame override @selected-frame (app-frame-ids))))
 
 (defn frames-list
   "All registered, non-destroyed frame ids plus the operating frame (the
@@ -380,18 +381,7 @@
    pin, and the concrete fix in `:hint`."
   ([operation] (ambiguous-frame-error operation nil))
   ([operation extra]
-   (let [frames (app-frame-ids)]
-     (merge
-       {:ok?              false
-        :reason           :ambiguous-frame
-        :operation        operation
-        :available-frames frames
-        :selected-frame   @selected-frame
-        :hint             (str "multiple app frames are registered and no frame is "
-                               "selected, so " (name operation) " cannot pick a target. "
-                               "Pass `frame` (one of " (pr-str frames) ") or pin one with "
-                               "`select-frame!` / set-operating-frame, then retry.")}
-       extra))))
+   (pure/ambiguous-frame-envelope operation (app-frame-ids) @selected-frame extra)))
 
 ;; ---------------------------------------------------------------------------
 ;; app-db read/write
@@ -636,43 +626,13 @@
 ;; This is the CALL-TIME VALUE check; it complements the attach-time pass
 ;; that generates and validates tool DESCRIPTORS from the registries.
 
-(defn- levenshtein
-  "Edit distance between two strings — the nearest-match ranking metric.
-   Small bounded DP; ids are short keyword names so the O(mn) cost is
-   negligible. Pure; no allocation beyond the rolling rows."
-  [a b]
-  (let [a (vec a) b (vec b)
-        m (count a) n (count b)]
-    (cond
-      (zero? m) n
-      (zero? n) m
-      :else
-      (loop [i 1
-             prev (vec (range (inc n)))]
-        (if (> i m)
-          (peek prev)
-          (let [cur (reduce
-                      (fn [row j]
-                        (let [cost (if (= (nth a (dec i)) (nth b (dec j))) 0 1)]
-                          (conj row (min (inc (peek row))           ; deletion
-                                         (inc (nth prev j))          ; insertion
-                                         (+ (nth prev (dec j)) cost))))) ; substitution
-                      [i]
-                      (range 1 (inc n)))]
-            (recur (inc i) cur)))))))
-
 (defn nearest-ids
   "Up to `n` registered ids closest to `id` by edit distance over their
    `pr-str` rendering, nearest first. `known` is the seq of registered
    ids to rank against. Ties broken by `pr-str` for stable output. Used
    to build the 'unknown X; did you mean …?' hint."
-  ([id known] (nearest-ids id known 3))
-  ([id known n]
-   (let [target (pr-str id)]
-     (->> known
-          (sort-by (juxt #(levenshtein target (pr-str %)) pr-str))
-          (take n)
-          vec))))
+  ([id known] (pure/nearest-ids id known))
+  ([id known n] (pure/nearest-ids id known n)))
 
 (defn validate-registered
   "Validate that `id` is registered under registrar `kind` against the
@@ -688,22 +648,8 @@
    doesn't exist yields an empty known set, so an unknown id there still
    reports structured-unknown with `:known-count 0`."
   [kind id]
-  (let [known (try (keys (rf/registrations kind)) (catch :default _ nil))
-        known (vec (or known []))]
-    (if (some #(= id %) known)
-      {:ok? true :kind kind :id id}
-      (let [near (nearest-ids id known)]
-        {:ok?         false
-         :reason      :unknown-id
-         :kind        kind
-         :id          id
-         :nearest     near
-         :known-count (count known)
-         :hint        (if (seq near)
-                        (str "unknown " kind " " (pr-str id) "; did you mean "
-                             (clojure.string/join ", " (map pr-str near)) "?")
-                        (str "unknown " kind " " (pr-str id)
-                             "; nothing is registered under " kind "."))}))))
+  (let [known (vec (or (try (keys (rf/registrations kind)) (catch :default _ nil)) []))]
+    (pure/validate-against-known kind id known)))
 
 (defn validate-event-id
   "Validate the head of an event vector against the `:event` registrar.
@@ -1592,17 +1538,11 @@
   ;; sub-id -> subscription map (see above)
   (atom {}))
 
-(def ^:private default-max-buffered-events 500)
-(def ^:private default-max-buffered-bytes
-  ;; ~5 MB — sized to match the 5,000-token wire-cap posture of the
-  ;; MCP egress boundary scaled up by the per-tick batching ratio.
-  ;; The streaming progress payload is metered per-tick, but the
-  ;; underlying runtime queue is the upstream bound: it must be big
-  ;; enough that a normal drain cadence (~100 ms server poll) drains
-  ;; bursts before they back up, while small enough that an idle
-  ;; subscription forgotten for hours doesn't accumulate hundreds of
-  ;; megabytes of stale events.
-  5000000)
+;; Buffer budget defaults live in `re-frame2-pair.pure` (the pure streaming
+;; core) — aliased here so any runtime-side reference resolves to the same
+;; constant the eviction transforms use.
+(def ^:private default-max-buffered-events pure/default-max-buffered-events)
+(def ^:private default-max-buffered-bytes  pure/default-max-buffered-bytes)
 
 ;; ---------------------------------------------------------------------------
 ;; Privacy posture for the streaming surface
@@ -1653,26 +1593,13 @@
   (swap! privacy-config merge (select-keys opts [:include-sensitive?]))
   (assoc @privacy-config :ok? true))
 
-(defn- streaming-drop?
-  "True when the streaming surface should drop `ev` for privacy reasons.
-   Today: any trace event stamped `:sensitive? true` at the top level
-   unless the operator has opted in via `configure-privacy!`."
-  [ev]
-  (and (true? (:sensitive? ev))
-       (not (true? (:include-sensitive? @privacy-config)))))
-
-(defn- topic->base-filter
-  "Map a topic keyword to its base trace-filter constraints. `:fx` and
-   `:error` are sugar over `:op-type`; `:trace`, `:epoch`, `:frameless`
-   add no base constraint here (the user-supplied filter is the only
-   constraint). `:frameless` is gated additionally by
-   `frameless-event?` at dispatch time — the base filter doesn't model
-   the dispatch-id-absence test."
-  [topic]
-  (case topic
-    :fx    {:op-type :rf.fx}
-    :error {:op-type :error}
-    {}))
+;; The privacy drop-decision (`pure/streaming-drop?`), the topic→base-filter
+;; sugar (`pure/topic->base-filter`), the filter matcher (`pure/trace-matches?`),
+;; the frameless gate (`pure/frameless-event?`), and the byte+event eviction
+;; (`pure/event-byte-size` / `pure/evict-oldest` / `pure/enqueue`) are the pure
+;; streaming core in `re-frame2-pair.pure`. The stateful dispatchers below thread
+;; the live privacy posture in and swap the pure transforms over the
+;; `subscriptions` atom.
 
 ;; ---------------------------------------------------------------------------
 ;; Cascade-bundle projection
@@ -1695,14 +1622,6 @@
 ;; event-bundle topics — `dispatch-trace-to-subs!` filters them out
 ;; for those topics. The `:frameless` topic exists to deliver them
 ;; explicitly (Tool-Pair §Frameless trace events — live channel only).
-
-(defn- frameless-event?
-  "True when `ev` carries no `:rf.trace/dispatch-id` tag — a registration
-   emit, REPL eval, or lifecycle event that never rode a dispatch
-   run. The event-bundle topics filter these out; the `:frameless`
-   topic accepts only these."
-  [ev]
-  (nil? (get-in ev [:tags :rf.trace/dispatch-id])))
 
 (defn- event-bundle-events
   "Group a vector of raw trace events into event-bundle maps matching
@@ -1729,169 +1648,21 @@
        (remove #(= :ungrouped (:dispatch-id %)))
        vec))
 
-(defn- compose-trace-filter
-  "Compose the topic's base trace-filter with the user-supplied filter.
-   User keys win on conflict — the topic is a default, not a lock."
-  [topic user-filter]
-  (merge (topic->base-filter topic) (or user-filter {})))
-
-(declare epoch-matches?) ;; resolved below
-
-(defn- trace-matches?
-  "Test a raw trace event against a filter map. Mirrors the filter
-   vocabulary of `(re-frame.trace.tooling/trace-buffer frame-id opts)` (the
-   `:flat-only` keys :operation / :op-type / :since / :severity included) —
-   composes AND-wise, absent key means no constraint on that axis."
-  [filter-map ev]
-  (let [{:keys [operation op-type frame severity
-                event-id handler-id source origin
-                dispatch-id since-ms between]}
-        filter-map
-        [t0 t1] (when (and (sequential? between) (= 2 (count between)))
-                  between)]
-    (boolean
-      (and (or (nil? operation)  (= operation (:operation ev)))
-           (or (nil? op-type)    (= op-type   (:op-type ev)))
-           (or (nil? severity)   (= severity  (:op-type ev)))
-           (or (nil? frame)      (= frame (trace/trace-event-frame ev)))
-           (or (nil? event-id)   (= event-id
-                                    (get-in ev [:tags :rf.trace/event-id])))
-           (or (nil? handler-id) (= handler-id
-                                    (get-in ev [:tags :handler-id])))
-           (or (nil? source)     (= source
-                                    (or (:source ev)
-                                        (get-in ev [:tags :source]))))
-           (or (nil? origin)     (= origin
-                                    (get-in ev [:tags :rf.event/origin])))
-           (or (nil? dispatch-id)(= dispatch-id
-                                    (get-in ev [:tags :rf.trace/dispatch-id])))
-           (or (nil? since-ms)   (and (number? (:time ev))
-                                      (> (:time ev) since-ms)))
-           (or (nil? t0)         (and (number? (:time ev))
-                                      (<= t0 (:time ev) t1)))))))
-
-(defn- event-byte-size
-  "Cheap, monotonic estimate of an event's on-wire byte cost. Uses the
-   same `pr-str`-char-count discipline as the wire-cap helper in
-   `tools.cljs` (`token-estimate`) — keeps the runtime queue's budget
-   in the same units as the egress cap, so the two budgets stay
-   coherent. `pr-str` failure (a reader-unfriendly value somehow on
-   the bus) falls back to `0` rather than blowing up enqueue."
-  [event]
-  (try (count (pr-str event))
-       (catch :default _ 0)))
-
-(defn- evict-oldest
-  "Drop events from the FRONT of `sub`'s queue until BOTH budgets
-   hold (or the queue is empty). Returns the updated sub with the
-   queue/byte-running-total trimmed and `:dropped-events` /
-   `:dropped-bytes` / `:overflow-reason` updated. Drop-oldest is the
-   only sensible policy for a byte budget — see the namespace docs
-   above."
-  [sub max-events max-bytes]
-  (loop [q       (:queue sub)
-         bytes   (:queue-bytes sub 0)
-         dropped-n 0
-         dropped-b 0
-         reason    nil]
-    (let [n (count q)
-          over-events? (> n max-events)
-          over-bytes?  (> bytes max-bytes)]
-      (if (and (or over-events? over-bytes?)
-               (pos? n))
-        (let [head     (nth q 0)
-              head-bs  (event-byte-size head)]
-          (recur (subvec q 1)
-                 (max 0 (- bytes head-bs))
-                 (inc dropped-n)
-                 (+ dropped-b head-bs)
-                 ;; bytes wins ties — if both budgets trip on the
-                 ;; same enqueue, the byte budget is the one the
-                 ;; agent likely needs to know about. (Event-count
-                 ;; alone tripping is the easy case; bytes tripping
-                 ;; signals a large-payload storm.)
-                 (cond over-bytes?  :max-buffered-bytes
-                       over-events? :max-buffered-events
-                       :else        reason)))
-        (cond-> (assoc sub :queue q :queue-bytes bytes)
-          (pos? dropped-n)
-          (-> (update :dropped-events (fnil + 0) dropped-n)
-              (update :dropped-bytes  (fnil + 0) dropped-b)
-              (assoc :overflow-reason reason)))))))
-
-(defn- enqueue!
-  "Append an event to a subscription's queue, honouring the byte+event
-   buffer budget. Drop-oldest semantics: we always admit
-   the new event first, then evict from the FRONT until both budgets
-   hold. A single fat newcomer can therefore evict an arbitrary
-   number of small predecessors — that's correct: the byte budget is
-   a hard upstream bound, and the agent draining the sub gets the
-   most recent state of the world."
-  [sub-state sub-id event]
-  (update sub-state sub-id
-          (fn [sub]
-            (when sub
-              (let [max-events (:max-buffered-events sub default-max-buffered-events)
-                    max-bytes  (:max-buffered-bytes  sub default-max-buffered-bytes)
-                    ev-bytes   (event-byte-size event)
-                    sub'       (-> sub
-                                   (update :queue       conj event)
-                                   (update :queue-bytes (fnil + 0) ev-bytes))]
-                (evict-oldest sub' max-events max-bytes))))))
-
 (defn- dispatch-trace-to-subs!
-  "Called from the raw-trace listener — iterates active subscriptions of
-   trace-like topics, matches, enqueues. Cheap when no subs exist (the
-   common path).
-
-   Channel split:
-   - Cascade-bundle topics (`:trace`/`:fx`/`:error`) receive events
-     carrying a `:rf.trace/dispatch-id` tag. The bundling happens at
-     drain time; the queue stays per-event for the byte+event budget.
-   - The `:frameless` topic receives only events whose
-     `:rf.trace/dispatch-id` tag is absent (registration / REPL /
-     lifecycle emits outside any cascade)."
+  "Fan a raw trace event into the matching trace-like subscriptions —
+   swaps the pure routing transform (`pure/dispatch-trace-to-subs`, which
+   applies the frameless gate, the topic filter matcher, and the byte+event
+   eviction budget) over the live `subscriptions` atom. Cheap when no subs
+   exist (the common path)."
   [ev]
-  (let [frameless? (frameless-event? ev)]
-    (swap! subscriptions
-           (fn [m]
-             (reduce-kv
-               (fn [acc sub-id sub]
-                 (let [topic (:topic sub)
-                       routes? (cond
-                                 (contains? #{:trace :fx :error} topic)
-                                 ;; Cascade-bundle topics — never deliver
-                                 ;; frameless events; consumers wanting
-                                 ;; those opt into the `:frameless` topic.
-                                 (and (not frameless?)
-                                      (trace-matches? (:compiled-filter sub) ev))
-
-                                 (= :frameless topic)
-                                 ;; The frameless channel — only frameless
-                                 ;; events, then filter-matched.
-                                 (and frameless?
-                                      (trace-matches? (:compiled-filter sub) ev))
-
-                                 :else
-                                 false)]
-                   (if routes?
-                     (enqueue! acc sub-id ev)
-                     acc)))
-               m m)))))
+  (swap! subscriptions #(pure/dispatch-trace-to-subs % ev)))
 
 (defn- dispatch-epoch-to-subs!
-  "Called from the assembled-epoch listener — iterates active epoch
-   subscriptions, matches, enqueues."
+  "Fan an assembled epoch record into the matching `:epoch` subscriptions —
+   swaps the pure epoch-routing transform over the live `subscriptions` atom,
+   threading `pure/epoch-matches?` as the per-sub predicate."
   [record]
-  (swap! subscriptions
-         (fn [m]
-           (reduce-kv
-             (fn [acc sub-id sub]
-               (if (and (= :epoch (:topic sub))
-                        (epoch-matches? (or (:filter sub) {}) record))
-                 (enqueue! acc sub-id record)
-                 acc))
-             m m))))
+  (swap! subscriptions #(pure/dispatch-epoch-to-subs % pure/epoch-matches? record)))
 
 (defn- on-trace-streaming
   "Raw-trace listener that drives both the last-trace-id cursor and the
@@ -1906,7 +1677,7 @@
   [ev]
   (when-let [id (:id ev)]
     (when (number? id) (reset! last-trace-id id)))
-  (when-not (streaming-drop? ev)
+  (when-not (pure/streaming-drop? (:include-sensitive? @privacy-config) ev)
     (dispatch-trace-to-subs! ev)))
 
 (defn- on-epoch-streaming
@@ -1958,7 +1729,7 @@
                              `:rf.trace/dispatch-id` tag (registration
                              emits, REPL evals, lifecycle outside any
                              run)."
-  [{:keys [topic filter max-buffered-events max-buffered-bytes] :as opts}]
+  [{:keys [topic] :as opts}]
   (cond
     (not (contains? #{:trace :epoch :fx :error :frameless} topic))
     {:ok? false :reason :unknown-topic
@@ -1967,22 +1738,10 @@
 
     :else
     (let [sub-id (str (random-uuid))
-          compiled (when (#{:trace :fx :error :frameless} topic)
-                     (compose-trace-filter topic filter))
-          sub {:id              sub-id
-               :topic           topic
-               :filter          (or filter {})
-               :compiled-filter compiled
-               :queue           []
-               :queue-bytes     0
-               :dropped-events  0
-               :dropped-bytes   0
-               :overflow-reason nil
-               :created-at      (js/Date.now)
-               :max-buffered-events (or max-buffered-events
-                                        default-max-buffered-events)
-               :max-buffered-bytes  (or max-buffered-bytes
-                                        default-max-buffered-bytes)}]
+          ;; The pure subscription builder composes the topic base-filter
+          ;; and applies the buffer-budget defaults; the runtime supplies the
+          ;; load-time `js/Date.now` stamp (the one non-pure input).
+          sub    (pure/make-subscription sub-id opts (js/Date.now))]
       ;; Make sure the upgraded listeners are wired (idempotent — same
       ;; id, replaces the basic listeners installed by `health`).
       (trace-tooling/register-listener! :re-frame2-pair on-trace-streaming)
@@ -2032,46 +1791,35 @@
    reconstructing a run should be tolerant of partially-truncated
    bundles when `:dropped-events` is non-zero."
   [sub-id]
-  ;; Atomically reset the drained sub's queue + counters and capture the
-  ;; PRE-drain state in one shot via `swap-vals!` (returns [old new]) — no
-  ;; scratch atom threaded out of the swap closure. The reset is a pure
-  ;; `update`-of-the-sub; the drained snapshot is just the old map's entry.
-  (let [[old _] (swap-vals! subscriptions
-                            (fn [m]
-                              (if (contains? m sub-id)
-                                (update m sub-id #(-> %
-                                                      (assoc :queue [])
-                                                      (assoc :queue-bytes 0)
-                                                      (assoc :dropped-events 0)
-                                                      (assoc :dropped-bytes 0)
-                                                      (assoc :overflow-reason nil)))
-                                m)))]
-    (if-let [{:keys [queue topic dropped-events dropped-bytes overflow-reason]}
-             (get old sub-id)]
-      (let [base {:ok?             true
-                  :sub-id          sub-id
-                  :dropped-events  (or dropped-events 0)
-                  :dropped-bytes   (or dropped-bytes  0)
-                  :overflow-reason overflow-reason
-                  :gone?           false}]
-        (cond
-          ;; Event-bundle delivery — group raw queued
-          ;; trace events by `:rf.trace/dispatch-id` into bundles. The
-          ;; event-bundle topics never enqueue frameless events
-          ;; (`dispatch-trace-to-subs!` filters them out at the gate),
-          ;; so `event-bundle-events`'s `:ungrouped`-drop is purely
-          ;; defensive.
-          (contains? #{:trace :fx :error} topic)
-          (assoc base :event-bundles (event-bundle-events queue))
+  ;; The pure `drain` computes the drained envelope (raw `:events` + the
+  ;; eviction counters + `:gone?`) and the reset subs-map in one shot; we
+  ;; swap the reset over the atom, then post-project the raw `:events` into
+  ;; `:event-bundles` for the cascade-bundle topics (the projection rides
+  ;; `rf/group-by-event-with-events`, a framework surface). `swap-vals!`
+  ;; captures the PRE-drain map so the pure drain reads the un-reset queue.
+  (let [[old _] (swap-vals! subscriptions #(second (pure/drain % sub-id)))
+        [{:keys [events topic dropped-events dropped-bytes overflow-reason gone?]} _]
+        (pure/drain old sub-id)
+        base {:ok?             true
+              :sub-id          sub-id
+              :dropped-events  dropped-events
+              :dropped-bytes   dropped-bytes
+              :overflow-reason overflow-reason
+              :gone?           gone?}]
+    (cond
+      gone?
+      (assoc base :events [])
 
-          ;; Flat delivery — :epoch and :frameless.
-          :else
-          (assoc base :events queue)))
-      {:ok? true :sub-id sub-id :events []
-       :dropped-events 0
-       :dropped-bytes  0
-       :overflow-reason nil
-       :gone? true})))
+      ;; Event-bundle delivery — group raw queued trace events by
+      ;; `:rf.trace/dispatch-id` into bundles. The event-bundle topics never
+      ;; enqueue frameless events (the pure router filters them out at the
+      ;; gate), so `event-bundle-events`'s `:ungrouped`-drop is defensive.
+      (contains? #{:trace :fx :error} topic)
+      (assoc base :event-bundles (event-bundle-events events))
+
+      ;; Flat delivery — :epoch and :frameless.
+      :else
+      (assoc base :events events))))
 
 (defn subscription-info
   "Return active STREAMING-tap subscription metadata — the trace / epoch
@@ -2222,22 +1970,7 @@
   via `get-path` for the full subtree. Bounded by the depth-1 walk so
   cascade-summary stays under the wire cap regardless of db size."
   [db-before db-after]
-  (cond
-    (and (map? db-before) (map? db-after))
-    (let [ks-b   (set (keys db-before))
-          ks-a   (set (keys db-after))
-          common (set/intersection ks-b ks-a)]
-      {:added-paths   (vec (sort (map vector (set/difference ks-a ks-b))))
-       :removed-paths (vec (sort (map vector (set/difference ks-b ks-a))))
-       :changed-paths (vec (sort (for [k common
-                                       :when (not= (get db-before k) (get db-after k))]
-                                   [k])))})
-
-    (= db-before db-after)
-    {:added-paths [] :removed-paths [] :changed-paths []}
-
-    :else
-    {:added-paths [] :removed-paths [] :changed-paths [[]]}))
+  (pure/db-diff-summary db-before db-after))
 
 (defn- machine-transitions-summary
   "Project machine-transition trace events out of an epoch's
@@ -2246,16 +1979,7 @@
   machine-step trace stream uses `:rf.machine/transition` ops with
   `:tags {:machine-id :from :to :phase}`."
   [trace-events]
-  (let [picks (->> trace-events
-                   (filter (fn [ev] (= :rf.machine/transition (:operation ev))))
-                   (mapv (fn [ev]
-                           (let [t (:tags ev)]
-                             (cond-> {}
-                               (:machine-id t) (assoc :machine-id (:machine-id t))
-                               (:from t)       (assoc :from (:from t))
-                               (:to t)         (assoc :to (:to t))
-                               (:phase t)      (assoc :phase (:phase t)))))))]
-    (when (seq picks) picks)))
+  (pure/machine-transitions-summary trace-events))
 
 (defn- outcome-tier
   "Project the epoch's detailed `:outcome` cause onto the consumer-
@@ -2263,12 +1987,7 @@
   `re-frame.epoch.assembly/outcome->consumer-facing` (the same projection
   pinned in the framework). When `:outcome` is absent, defaults to `:ok`."
   [outcome]
-  (case outcome
-    :ok                       :ok
-    :halted-depth             :blocked
-    :halted-destroy           :blocked
-    :halted-handler-exception :error
-    :ok))
+  (pure/outcome-tier outcome))
 
 ;; ---- contained cascade errors --------------------------------------------
 ;;
@@ -2302,13 +2021,7 @@
   whose cascade contained a thrown handler / machine action.
   Mirrors Xray's `cascade-exception-ops` so the structured summary and the
   human Epoch panel agree on what counts as a throw."
-  #{:rf.error/coeffect-exception
-    :rf.error/interceptor-exception
-    :rf.error/handler-exception
-    :rf.error/fx-handler-exception
-    :rf.error/no-such-fx
-    :rf.error/flow-eval-exception
-    :rf.error/machine-action-exception})
+  pure/cascade-error-ops)
 
 (defn- cascade-errors
   "Project the contained cascade-exception trace events out of an epoch's
@@ -2323,16 +2036,7 @@
   (stack / ex-data) reads the epoch's `:trace-events` directly or opens
   the Xray Epoch panel."
   [trace-events]
-  (let [picks (->> trace-events
-                   (filter (fn [ev] (contains? cascade-error-ops (:operation ev))))
-                   (mapv (fn [ev]
-                           (let [t (:tags ev)]
-                             (cond-> {:operation (:operation ev)}
-                               (string? (:exception-message t))
-                               (assoc :message (:exception-message t))
-                               (:machine-id t) (assoc :machine-id (:machine-id t))
-                               (:action-id t)  (assoc :action-id (:action-id t)))))))]
-    (when (seq picks) picks)))
+  (pure/cascade-errors trace-events))
 
 (defn- redact-sensitive-event-vector
   "Egress guard for the cascade-summary `:event-vector` slot — the
@@ -2387,16 +2091,8 @@
   re-redacts the (already-`:rf/redacted`) tail to the same sentinels.
   Nil-preserving."
   [trigger-event sensitive?]
-  (cond
-    ;; Gate ON ⇒ the operator opted into raw reads; ship verbatim.
-    (:allow-raw-state? @raw-state-config) trigger-event
-    (nil? trigger-event)                  trigger-event
-    ;; The canonical shape: retain the head event-id, fail-close the args.
-    (and (vector? trigger-event) (seq trigger-event))
-    (into [(first trigger-event)]
-          (repeat (dec (count trigger-event)) :rf/redacted))
-    ;; Degenerate non-vector / empty slot — nothing safe to expose.
-    :else :rf/redacted))
+  (pure/redact-sensitive-event-vector trigger-event sensitive?
+                                      (:allow-raw-state? @raw-state-config)))
 
 (defn cascade-summary
   "Project an assembled `:rf/epoch-record` into the compact wire shape
@@ -2406,43 +2102,10 @@
 
   Pure data — `(epoch-record) -> cascade-summary-map`. Returns nil for a
   nil record so callers can `(when summary ...)` without an explicit
-  nil-check at each call site."
-  [{:keys [epoch-id event-id trigger-event frame outcome
-           db-before db-after effects sub-runs renders trace-events]
-    :as record}]
-  (when record
-    (let [diff       (db-diff-summary db-before db-after)
-          fx-fired   (->> effects (map :fx-id) distinct vec)
-          transitions (machine-transitions-summary trace-events)
-          elapsed    (epoch-elapsed-ms record)
-          sensitive? (:rf.epoch/sensitive? record)
-          ;; A contained throw (handler / machine action) rides the trace
-          ;; stream while the epoch settles `:outcome :ok`. When present it
-          ;; OVERRIDES the outcome tier to `:error` and surfaces under
-          ;; `:errors` so a non-visual consumer detects the failure.
-          errors     (cascade-errors trace-events)]
-      (cond-> {:epoch-id        epoch-id
-               :frame           frame
-               :outcome         (if errors :error (outcome-tier outcome))
-               :db-diff         diff
-               :fx-fired        fx-fired
-               :subs-recomputed (count (or sub-runs []))
-               :renders         (count (or renders []))}
-        event-id      (assoc :event-id event-id)
-        ;; The trigger-event's ARGS fail closed off-box under the OFF
-        ;; gate (head event-id retained, args → `:rf/redacted`) for EVERY
-        ;; epoch — the event args are registration-owned transient
-        ;; payloads the app-db classification walker cannot prove safe,
-        ;; so a secret carried IN the vector redacts whether or not the
-        ;; epoch is declared sensitive. Raw only
-        ;; on the operator's `--allow-sensitive-reads` opt-in. See
-        ;; `redact-sensitive-event-vector`.
-        trigger-event (assoc :event-vector
-                             (redact-sensitive-event-vector trigger-event sensitive?))
-        transitions   (assoc :machine-transitions transitions)
-        elapsed       (assoc :elapsed-ms elapsed)
-        errors        (assoc :errors errors)
-        sensitive?    (assoc :sensitive? true)))))
+  nil-check at each call site. Delegates to `pure/cascade-summary`, threading
+  in the live raw-state gate that governs the `:event-vector` fail-close."
+  [record]
+  (pure/cascade-summary record (:allow-raw-state? @raw-state-config)))
 
 (defn- attach-cascade
   "Attach a `:cascade-summary` slot to `result` when `epoch-id` resolves
@@ -2592,28 +2255,7 @@
    feed the consequence's `:changed-paths` / `:effects-fired`. A cascade
    that changed NO app-db path AND fired NO effect is a visible no-op."
   [result]
-  (let [{:keys [cascade-summary]} result
-        {:keys [db-diff fx-fired outcome errors]} cascade-summary
-        changed (vec (concat (:changed-paths db-diff)
-                             (:added-paths db-diff)
-                             (:removed-paths db-diff)))
-        effects (vec (or fx-fired []))
-        db-changed? (boolean (seq changed))
-        ;; A contained throw (handler / machine action) is NOT
-        ;; a no-op even though it committed no db-change and fired no fx:
-        ;; the cascade did nothing PRECISELY BECAUSE the action aborted.
-        ;; The `:errors` slot (set by `cascade-summary` when the trace
-        ;; carried a `:rf.error/*` exception) excludes the epoch from the
-        ;; quiescence heuristic so a non-visual consumer reads the throw,
-        ;; not a clean no-op.
-        threw?  (boolean (seq errors))
-        no-op?  (and (not threw?) (not db-changed?) (empty? effects))]
-    (-> result
-        (assoc :db-changed?   db-changed?
-               :changed-paths changed
-               :effects-fired effects
-               :no-op?        no-op?)
-        (cond-> (= :error outcome) (assoc :outcome :error)))))
+  (pure/consequence-from-summary result))
 
 (defn dispatch-consequence!
   "Synchronous dispatch returning the re-frame2 CONSEQUENCE by default.
@@ -2905,38 +2547,8 @@
    to know which side-effects already escaped the framework."
   [pre-db frame-id target-epoch-id]
   (when-let [target (epoch-by-id target-epoch-id frame-id)]
-    (let [diff       (db-diff-summary pre-db (:db-after target))
-          fx-fired   (->> (:effects target) (map :fx-id) distinct vec)
-          transitions (machine-transitions-summary (:trace-events target))
-          ;; A restore of a SENSITIVE historical
-          ;; epoch must not ship the target's raw trigger-event under the
-          ;; default off-box posture. Read the target epoch's
-          ;; `:rf.epoch/sensitive?` rollup and redact the `:event-vector`
-          ;; through the same fail-closed gate cascade-summary uses.
-          sensitive?  (:rf.epoch/sensitive? target)
-          ;; Every fx in the target's :effects fired BEFORE the restore;
-          ;; the restore rewinds db only. They are unreplayable by
-          ;; construction.
-          unreplayable (mapv (fn [eff]
-                               (cond-> {:fx-id (:fx-id eff)}
-                                 (:coord eff) (assoc :coord (:coord eff))))
-                             (:effects target))]
-      {:cascade-summary
-       (cond-> {:epoch-id       target-epoch-id
-                :frame          frame-id
-                :outcome        :ok
-                :db-diff        diff
-                :fx-fired       fx-fired
-                :subs-recomputed (count (or (:sub-runs target) []))
-                :renders         (count (or (:renders target) []))
-                :restore?       true}
-         (:event-id target)      (assoc :event-id (:event-id target))
-         (:trigger-event target) (assoc :event-vector
-                                        (redact-sensitive-event-vector
-                                          (:trigger-event target) sensitive?))
-         sensitive?              (assoc :sensitive? true)
-         transitions             (assoc :machine-transitions transitions))
-       :unreplayable-effects unreplayable})))
+    (pure/restore-cascade-projection pre-db target frame-id target-epoch-id
+                                     (:allow-raw-state? @raw-state-config))))
 
 (defn restore-epoch
   "(rf/restore-epoch! frame-id epoch-id). Returns a structured envelope:
@@ -4162,50 +3774,8 @@
    Returns nil when neither bracket is present (degenerate cascades, or
    epochs whose `:trace-events` slot was elided for ring-buffer age —
    see Spec-Schemas §`:rf/epoch-record`)."
-  [{:keys [trace-events]}]
-  (let [run-event? (fn [op ev]
-                     (and (= :rf.event (:op-type ev))
-                          (= op (:operation ev))))
-        first-time (some (fn [ev] (when (run-event? :rf.event/run-start ev) (:time ev))) trace-events)
-        last-time  (reduce (fn [acc ev]
-                             (if (run-event? :rf.event/run-end ev)
-                               (let [t (:time ev)] (if (and (number? t) (or (nil? acc) (> t acc))) t acc))
-                               acc))
-                           nil
-                           trace-events)]
-    (when (and (number? first-time) (number? last-time) (>= last-time first-time))
-      (- last-time first-time))))
-
-(defn ^:private parse-timing-pred
-  "Parse a `:timing-ms` predicate value into a one-arg matcher fn.
-
-   Accepts:
-     - a number `N` — sugar for `>= N` (the common 'slow events'
-       intuition: `100` ≡ '100 ms or slower').
-     - a string `\">N\"`, `\">=N\"`, `\"<N\"`, `\"<=N\"`, `\"=N\"` —
-       comparison against the parsed numeric threshold.
-
-   Returns `nil` for unparseable inputs; callers treat nil as
-   'predicate absent' so a malformed filter doesn't accidentally
-   match everything."
-  [v]
-  (cond
-    (number? v)
-    (fn [ms] (and (number? ms) (>= ms v)))
-
-    (string? v)
-    (let [m (re-matches #"\s*(>=|<=|>|<|=)?\s*(-?\d+(?:\.\d+)?)\s*" v)]
-      (when m
-        (let [op (or (nth m 1) ">=")
-              n  (js/parseFloat (nth m 2))]
-          (when-not (js/isNaN n)
-            (case op
-              ">"  (fn [ms] (and (number? ms) (> ms n)))
-              ">=" (fn [ms] (and (number? ms) (>= ms n)))
-              "<"  (fn [ms] (and (number? ms) (< ms n)))
-              "<=" (fn [ms] (and (number? ms) (<= ms n)))
-              "="  (fn [ms] (and (number? ms) (= ms n)))
-              nil)))))))
+  [record]
+  (pure/epoch-elapsed-ms record))
 
 (defn epoch-matches?
   "Test an epoch record against a predicate map built from
@@ -4228,36 +3798,8 @@
 
    Prefix matching uses `str` on both sides so `:cart` matches
    `:cart/apply-coupon`."
-  [pred {:keys [event-id trigger-event sub-runs renders effects
-                trace-events frame db-before db-after] :as epoch}]
-  (let [{p-eid    :event-id
-         p-prefix :event-id-prefix
-         p-fx     :effects
-         p-path   :touches-path
-         p-sub    :sub-ran
-         p-render :render
-         p-origin :origin
-         p-frame  :frame
-         p-timing :timing-ms} pred
-        timing-fn (when (some? p-timing) (parse-timing-pred p-timing))]
-    (boolean
-     (and
-      (if p-eid    (= p-eid event-id) true)
-      (if p-prefix (some-> event-id str (str/starts-with? (str p-prefix))) true)
-      (if p-fx     (some #(= p-fx (:fx-id %)) effects) true)
-      (if p-path   (or (some? (get-in db-before p-path))
-                       (some? (get-in db-after p-path)))
-                   true)
-      (if p-sub    (some #(or (= p-sub (:sub-id %))
-                              (= p-sub (first (:query-v %))))
-                         sub-runs) true)
-      (if p-render (some #(= p-render (str (:render-key %))) renders) true)
-      (if p-origin (some (fn [t] (and (= :rf.event/dispatched (:operation t))
-                                      (= p-origin (get-in t [:tags :rf.event/origin]))))
-                         trace-events)
-                   true)
-      (if p-frame  (= p-frame frame) true)
-      (if timing-fn (timing-fn (epoch-elapsed-ms epoch)) true)))))
+  [pred epoch]
+  (pure/epoch-matches? pred epoch))
 
 ;; ---------------------------------------------------------------------------
 ;; Dispatch-and-collect
@@ -4431,7 +3973,7 @@
 ;; that legitimately points at `nil` from one that doesn't resolve.
 
 (def ^:private all-snapshot-slices
-  [:app-db :sub-cache :machines :epochs :traces])
+  pure/all-snapshot-slices)
 
 (defn- snapshot-frame-slice
   "Compute one slice for one frame-id. Delegates to the existing per-slice
@@ -4515,14 +4057,7 @@
    (install-last-click-capture!)
    (ensure-trace-listener!)
    (ensure-epoch-listener!)
-   (let [fids       (cond
-                      ;; The DEFAULT scope is the APP frames (reserved
-                      ;; `:rf/*` tool frames excluded). `:all` is the
-                      ;; explicit opt-in to tool-frame state.
-                      (= :app frames)      (app-frame-ids)
-                      (= :all frames)      (vec (rf/frame-ids))
-                      (sequential? frames) (vec frames)
-                      :else                (app-frame-ids))
+   (let [fids       (pure/resolve-snapshot-frames frames (rf/frame-ids) (app-frame-ids))
          slices     (vec include)]
      (reduce (fn [m fid]
                (assoc m fid (snapshot-frame fid slices)))
@@ -4611,8 +4146,7 @@
    'what can I drive / read'); the rest contribute counts only so the
    summary stays compact and under the wire cap. Drill via `list-handlers
    {kind ...}` for the full ids of any kind."
-  [:event :sub :fx :cofx :interceptor :view :frame :route :flow :head
-   :error-projector :resource :mutation :resource-scope])
+  pure/orient-registrar-kinds)
 
 (defn- registrar-count
   "Count of registered ids under `kind`, defensively zero on a registrar
@@ -4727,20 +4261,18 @@
         ;; registrar counts otherwise (ambiguous multi-frame session, or an
         ;; operating frame with no sealed image generation).
         registry (or (frame-registry-view op-frame) (process-registry-view))]
-    {:ok?      true
-     :liveness {:debug-enabled?      (:debug-enabled? h)
-                :frame-count         (count (:frames h))
-                :app-frame-count     (count app-fids)
-                :ambiguous-frame?    (:ambiguous-frame? h)
-                :runtime-instance-id (:runtime-instance-id h)}
-     :frames   {:all             (:frames h)
-                :app             app-fids
-                :operating       (:operating-frame h)}
-     :app-db-top-keys
-     (into {}
-           (map (fn [fid]
-                  [fid (let [db (rf/app-db-value fid)]
-                         (when (map? db) (vec (sort-by pr-str (keys db)))))]))
-           app-fids)
-     :registry registry
-     :machines (vec (machines/machines))}))
+    ;; The live reads (health, per-app-frame app-db top-keys, registry-view,
+    ;; machines) assemble into the compact summary shape via `pure/assemble-
+    ;; orient` — the pure assembler the node-test exercises directly.
+    (pure/assemble-orient
+      {:debug-enabled?      (:debug-enabled? h)
+       :all-frames          (:frames h)
+       :operating-frame     (:operating-frame h)
+       :ambiguous-frame?    (:ambiguous-frame? h)
+       :runtime-instance-id (:runtime-instance-id h)
+       :app-fids            app-fids
+       :app-db-top-keys     (into {}
+                                  (map (fn [fid] [fid (pure/top-keys (rf/app-db-value fid))]))
+                                  app-fids)
+       :registry            registry
+       :machines            (machines/machines)})))
