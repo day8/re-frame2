@@ -4,8 +4,7 @@
   This namespace is the home for resources test-only fixtures and reset
   helpers — kept OUT of the always-on `re-frame.resources` production
   façade so a test-runner-internal surface never reaches a production
-  registry (the rf2-dbiv8 / rf2-cdmle posture: test fixtures live behind
-  an explicit test-support require, mirroring
+  registry. Test fixtures live behind an explicit test-support require, mirroring
   `re-frame.routing.test-support` and `re-frame.http.test-support`).
 
   Production posture: this namespace is unreferenced from any production
@@ -47,34 +46,34 @@
   CLJS `make-reset-runtime-fixture` reset-hooks table via the
   `:resources/reset-resources!` late-bind hook this namespace publishes
   at ns-load (kept behind this explicit test-support require so the
-  production façade carries no test-fixture surface — rf2-dbiv8). Per
+  production façade carries no test-fixture surface). Per
   Spec 016 (test isolation)."
   []
   (registrar/clear-kind! registry/resource-kind)
-  ;; clear the :mutation registrar kind too (rf2-dwme29) — the mutation
+  ;; Clear the mutation registrar kind too; the mutation
   ;; registry is the causal-write counterpart of the resource registry.
   (registrar/clear-kind! mutation-registry/mutation-kind)
-  ;; and the :resource-scope registrar kind (rf2-hls77w) — the named
-  ;; scope-resolver registry (EP-0016 D3). Pure resolvers hold no per-frame
+  ;; Also clear the named resource-scope resolver registry. Pure resolvers hold
+  ;; no per-frame
   ;; runtime state, so clearing the registrar kind is the whole reset.
   (registrar/clear-kind! scope-registry/scope-kind)
   (state/reset-cache!)
-  ;; drop the host-side work-ledger handles too (rf2-afpdkn) — also
+  ;; Drop the host-side work-ledger handles too; they are
   ;; host-side transient state not cleared by the runtime / frames reset.
   (work-ledger/reset-cache!)
-  ;; and the host-side stale / GC timer handles (rf2-nbjewi) — likewise
+  ;; Cancel and drop host-side stale / GC timer handles; likewise
   ;; host-side transient state; cancels any armed timers so a leftover timer
   ;; cannot fire into a later test's frame.
   (timers/reset-cache!)
-  ;; and the host-side focus/reconnect revalidation listeners (rf2-vtblcq) —
+  ;; Remove host-side focus/reconnect revalidation listeners;
   ;; likewise host-side transient state; detaches any installed window
   ;; listeners so a leftover listener cannot dispatch into a later test's frame.
   (revalidate-listeners/reset-cache!)
-  ;; and the host-side scope-mismatch dev-warning dedupe set (rf2-rsmiru) —
+  ;; Clear the host-side scope-mismatch dev-warning dedupe set;
   ;; host-side transient dev state; clearing it lets each test observe the
   ;; one-shot warning freshly without a prior test's emission masking it.
   (subs/reset-scope-mismatch-warnings!)
-  ;; and the framework-owned `:rf.resource/items` merge memo (EP-0021 R3) —
+  ;; Clear the framework-owned `:rf.resource/items` merge memo;
   ;; host-side transient derivation cache (the infinite-feed merged-list
   ;; projection), not runtime-db; cleared so a prior test's feed merge cannot
   ;; be served for a later test's `=`-equal page vector.

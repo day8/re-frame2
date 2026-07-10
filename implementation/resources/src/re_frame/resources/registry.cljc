@@ -16,7 +16,7 @@
   write/read (so an app can register a resource and Xray can enumerate the
   static registry) PLUS, for `clear-resource`, the per-frame runtime
   disposal of that resource id's live cache state. Per Spec 016
-  §clear-resource MUST-dispose (rf2-m9h5iq) `clear-resource` removes the
+  §clear-resource MUST-dispose, `clear-resource` removes the
   registrar entry AND disposes every live `:rf.runtime/resources` entry for
   the id across registered frames (entries + reverse indexes recomputed,
   stale / GC timers cancelled, in-flight work marked terminal + best-effort
@@ -293,24 +293,23 @@
                   "params (the resource's identity). Per Spec 016 §Resource "
                   "registration spec.")
              {:resource-id resource-id})))
-  ;; `:request` is REQUIRED for the only initial-scope transport.
+  ;; `:request` is REQUIRED for the built-in transport.
   (when-not (contains? spec :request)
     (throw (registration-error
              :rf.error/resource-bad-spec
              'rf/reg-resource
              (str "resource " resource-id " declares no :request. For "
-                  ":transport :rf.http/managed (the only initial-scope "
+                  ":transport :rf.http/managed (the only built-in "
                   "transport) :request returns a Spec 014 managed-HTTP args "
                   "map. Per Spec 016 §Resource registration spec.")
              {:resource-id resource-id})))
-  ;; `:poll-interval-ms` is OPTIONAL (EP-0020 §Polling). When present it MUST
+  ;; `:poll-interval-ms` is OPTIONAL (Spec 016 §Polling). When present it MUST
   ;; be a number of milliseconds — a non-positive / absent value means NO
   ;; polling (the disarm rule `timers/schedule!` applies to a non-positive
-  ;; delay), parallel to `:stale-after-ms` (still infinite-by-default,
-  ;; Spec 016 §Freshness clock contract). `:gc-after-ms` is NO LONGER
-  ;; parallel here (rf2-bbpu11): absent now normalizes to a finite default
-  ;; and any other non-positive/non-`:never` value is a loud registration
-  ;; error — see `normalize-gc-after-ms` below. A non-numeric
+  ;; delay), parallel to `:stale-after-ms` (infinite-by-default, Spec 016
+  ;; §Freshness clock contract). Absent `:gc-after-ms` normalizes to a finite
+  ;; default; any other non-positive/non-`:never` value is a loud registration
+  ;; error. A non-numeric
   ;; `:poll-interval-ms` (a string, keyword, etc.) is a typo in a
   ;; freshness-policy key — fail-closed loudly at the authoring boundary
   ;; rather than silently never poll.
@@ -352,48 +351,32 @@
              {:resource-id resource-id :axis axis :value (get spec axis)})))
   nil)
 
-;; ---- :gc-after-ms normalization (rf2-bbpu11 Option A) --------------------
+;; ---- :gc-after-ms normalization ------------------------------------------
 
 (def default-gc-after-ms
-  "The framework default for an ABSENT `:gc-after-ms` policy (rf2-bbpu11
-  Option A, ruled 2026-07-07): 300000ms (5 minutes). An owner-free cache
-  entry is the memory half of the same leak-boundary story `:scope` polices
-  on the identity half; leaving retention unbounded-by-default was the
-  defect (Run-2 design review, long-run-ops finding 3) — the corpus's own
-  revealed preference is a unanimous ~300000 in every in-tree registration,
-  and it matches TanStack Query's finite `gcTime` default (`:stale-after-ms`
-  deliberately keeps its own infinite default — see Spec 016 §Freshness
-  clock contract; the two knobs are philosophically distinct). Per Spec 016
-  §Resource registration spec / §Stale and GC scheduling."
+  "The framework default for an absent `:gc-after-ms` policy: 300000ms
+  (5 minutes). Owner-free entries therefore have bounded retention unless the
+  resource explicitly declares `:never`. `:stale-after-ms` retains its separate
+  infinite default. Per Spec 016 §Resource registration spec and §Stale and GC
+  scheduling."
   300000)
 
 (defn- normalize-gc-after-ms
-  "Normalize a `reg-resource` spec's `:gc-after-ms` declaration AT
-  REGISTRATION (rf2-bbpu11 Option A) so every other reader (the trace
-  emitted below, `registry/resource-meta`, the raw `positive-or-nil` read
-  sites in events.cljc / timers.cljc / mutation_events.cljc) sees one of
-  exactly three normalized shapes, never today's silent 'any non-number
-  becomes nil':
+  "Normalize a `reg-resource` spec's `:gc-after-ms` declaration at registration
+  so every downstream reader sees one of exactly three shapes:
 
     - ABSENT (the key is not in `spec`) -> `default-gc-after-ms` (300000ms) —
-      an owner-free entry now GCs by default instead of lingering forever.
+      an owner-free entry GCs by default;
     - `:never` -> itself, unchanged. The EXPLICIT, auditable, greppable
       opt-out for intentional unowned-entry pinning. `positive-or-nil`
-      already treats any non-number as 'arms no timer', so `:never` disarms
-      GC through the SAME mechanism an accidental bad value would have —
-      the difference is auditability: the stored spec (and the
-      `:rf.resource/registered` trace) now shows the caller's INTENT, not
-      an indistinguishable nil.
+      expresses an auditable opt-out;
     - a positive number -> itself, the caller's explicit policy, unchanged.
 
   Anything else — an explicit `nil`, zero, a negative number, a string, any
   keyword other than `:never` — is a typo in a freshness-policy key and
-  fails loudly (`:rf.error/resource-bad-spec`) rather than silently
-  reproducing the old infinite-by-default behaviour this bead closes.
-  Mirrors the `:poll-interval-ms` typo guard above, but stricter: GC's
-  silent-open failure mode (an unrecorded unbounded cache) is exactly the
-  defect being fixed, so an ambiguous value is never treated as an implicit
-  opt-out. Per Spec 016 §Resource registration spec."
+  fails loudly (`:rf.error/resource-bad-spec`); an ambiguous value is never
+  treated as an implicit unbounded-retention opt-out. Per Spec 016 §Resource
+  registration spec."
   [resource-id spec]
   (let [present? (contains? spec :gc-after-ms)
         v        (:gc-after-ms spec)]
@@ -408,7 +391,7 @@
                (str "resource " resource-id " declares a :gc-after-ms that is "
                     "neither absent, :never, nor a positive number of "
                     "milliseconds (got " (pr-str v) "). Absent defaults to "
-                    default-gc-after-ms "ms (5min, rf2-bbpu11); :never is the "
+                    default-gc-after-ms "ms (5min); :never is the "
                     "explicit, auditable opt-out for intentional "
                     "unowned-entry pinning; otherwise declare a positive "
                     "number of milliseconds. Per Spec 016 §Resource "
@@ -449,9 +432,9 @@
   Returns `resource-id` per the `reg-*` return-value convention
   ([Conventions §reg-* return-value convention])."
   [resource-id metadata request-fn]
-  ;; rf2-t65lqt — the metadata MIDDLE slot must be a map BEFORE any
+  ;; The metadata MIDDLE slot must be a map BEFORE any
   ;; `assoc`/`contains?` runs against it. Reconstructing `:request` onto a
-  ;; non-map metadata (the slip after the rf2-wvh95f F1 grammar change) would
+  ;; non-map metadata would
   ;; otherwise leak a raw host `IllegalArgumentException` ("Key must be
   ;; integer") instead of the public `:rf.error/resource-bad-spec`. Mirrors
   ;; reg-route's `route-bad-metadata` non-map guard + reg-app-schema's
@@ -462,12 +445,12 @@
              :rf.error/resource-bad-spec
              'rf/reg-resource
              (str "resource " resource-id "'s metadata (the MIDDLE slot) must "
-                  "be a map, got " (pr-str (type metadata)) ". Per rf2-wvh95f "
-                  "F1 the grammar is (reg-resource " resource-id " {…} "
+                  "be a map, got " (pr-str (type metadata)) ". The grammar is "
+                  "(reg-resource " resource-id " {…} "
                   "request-fn): the reflection/config metadata map is the "
                   "SECOND slot, the :request handler is the THIRD.")
              {:resource-id resource-id :value metadata})))
-  ;; rf2-wvh95f F1 — `:request` is the 3-slot VALUE (the handler). A `:request`
+  ;; `:request` is the third-slot VALUE (the handler). A `:request`
   ;; left INSIDE the metadata map is a mislocated key; reject it loudly so the
   ;; grammar change cannot be half-applied (a stray fused `:request` would
   ;; otherwise silently win or lose against the value-slot one).
@@ -476,7 +459,7 @@
              :rf.error/resource-bad-spec
              'rf/reg-resource
              (str "resource " resource-id " declares :request inside its "
-                  "metadata map — per rf2-wvh95f F1 the request handler is the "
+                  "metadata map — the request handler is the "
                   "THIRD slot: (reg-resource " resource-id " {…} request-fn). "
                   "Move the fetch fn out of the metadata map into the value "
                   "slot.")

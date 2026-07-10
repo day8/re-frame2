@@ -1,6 +1,6 @@
 (ns re-frame.resources.transport.http
   "The managed-HTTP read transport for resources — the single built-in
-  transport in the initial scope. Per Spec 016 §Transport.
+  transport. Per Spec 016 §Transport.
 
   The resource runtime first creates or joins a work-ledger record, then
   lowers an ensure/refetch into managed HTTP (`:rf.http/managed`, Spec
@@ -23,11 +23,10 @@
   one work id, one name). It is NOT `:work-id`.
 
   The managed-HTTP artefact (`day8/re-frame2-http`, `re-frame.http.managed`)
-  is reached LATE-BOUND — resources never statically `:require`s it, so an
-  app that loads resources but issues no HTTP-backed reads (or supplies a
-  later transport) does not drag the HTTP body. The runtime emits the
-  `:rf.http/managed` fx through the ordinary effect path; this namespace
-  builds the args map (request-id + reply addressing).
+  is reached LATE-BOUND — resources never statically `:require`s that artefact.
+  This namespace contains only the resources-owned lowering and args-map
+  construction; the app must load the HTTP artefact to register the emitted
+  `:rf.http/managed` effect.
 
   The lowering ships here: `lower` mints the request-id and stamps the
   work-ledger correlation (`:work/id` / `:resource/key` / `:scope` /

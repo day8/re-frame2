@@ -1,37 +1,31 @@
 (ns re-frame.resources.classification
-  "Resource / mutation OWNER-classification — the EP-0015 §6 reconciliation
-  (bead-plan item 5). Graduated normatively into
-  [`spec/015-Data-Classification.md` §Resource and mutation durable
-  classification](../../../../../../spec/015-Data-Classification.md) +
-  [`spec/016-Resources.md` §SSR and hydration](../../../../../../spec/016-Resources.md).
+  "Resource and mutation owner classification. See Spec 015 §Resource and
+  mutation durable classification and Spec 016 §SSR and hydration.
 
-  ## The ownership rule (EP-0015 §6, ruled issue 11)
+  ## Ownership
 
   A `reg-resource` / `reg-mutation` declaration creates DURABLE
   runtime-subsystem state (cache entries under `:rf.runtime/resources`,
   scoped keys, params, data, errors, refresh errors, work-ledger summaries;
   mutation instances under `:rf.runtime/mutations` carrying params / result
-  / error). Those shapes are **owned by the resource or mutation
-  definition** — they are durable runtime-subsystem state, NOT transient
-  registration payloads classified merely because `reg-resource` /
-  `reg-mutation` declared them (EP-0015 §4 / Spec 015 §Registration-owned
-  transient classification).
+  / error). Those shapes are owned by the resource or mutation definition.
+  They are durable runtime-subsystem state, not transient registration
+  payloads.
 
-  The canonical fine-grained classification surface is **per-slot
-  `:sensitive?` / `:large?` props on the existing `:data-schema` /
-  `:params-schema`** — the SAME EP-0005 mechanism the machine `:data-schema`
-  surface uses (EP-0015 issue 11, ruled). There is **no new resource
-  path-map vocabulary** (that would be the fourth spelling EP-0007 exists to
-  prevent). The coarse whole-entry `:sensitive?` / `:large?` claims on the
-  resource spec remain as the degenerate **root-prop** case — the whole
-  resource is the classification unit.
+  Fine-grained durable classification is declared by projection-relative
+  `:sensitive` / `:large` paths on the resource or mutation spec. The runtime
+  lowers those paths per instance into the frame elision registry, and every
+  durable egress boundary reads that registry. Schema `:sensitive?` / `:large?`
+  props govern validation-failure redaction only; they do not classify durable
+  state. Coarse whole-entry `:sensitive?` / `:large?` claims remain the root
+  case, where the whole resource is the classification unit.
 
   ## Projection is registry-driven — the routing / machines standard model
 
   Classification NAMES the facts; the framework PROJECTS them at every
   egress boundary (SSR, tool, trace, epoch, observability) through the
   merged frame-owned `re-frame.projection/project-egress` over the shared
-  `re-frame.elision/elide-wire-value` walker (EP-0015 §10/§11) — NEVER a
+  `re-frame.elision/elide-wire-value` walker — NEVER a
   family-private resource elider. The fine-grained per-slot declarations
   are LOWERED per instance into the per-frame elision registry
   (`reconcile-registry`), and the egress boundaries READ THAT REGISTRY: the
@@ -44,13 +38,9 @@
   `project-snapshot-data` (the `frame-snapshot-classification` registry
   read) — one source of truth, all sources unioned at lookup.
 
-  rf2-d3pku1: this REMOVED the redundant family-private `project-data` /
-  `project-params` projectors, which re-derived `split-projection-paths
-  spec` at egress — the SAME fact `reconcile-registry` already lowered into
-  the registry (EP-0025: point the egress projection at the registry as
-  the single source). The COARSE whole-entry disposition
-  (`whole-entry-disposition`) remains the separate, frame-independent
-  authority that gates redact / omit / serialize on the WHOLE entry.
+  The coarse whole-entry disposition (`whole-entry-disposition`) remains the
+  separate, frame-independent authority that gates redact / omit / serialize
+  on the whole entry.
 
   ## Sensitive wins over large
 
@@ -62,16 +52,9 @@
   walker's sensitive-before-large ordering (`re-frame.elision/walk`) — the
   registry read inherits it.
 
-  ## What this slice does NOT touch
-
-  - It introduces NO new public API surface (no facade export) — it is the
-    internal owner-classification seam the SSR projection + the reply trace
-    egress consume. The public classification surface is the projection-
-    relative `:sensitive` / `:large` declarations on `reg-resource` /
-    `reg-mutation`.
-  - It does NOT change the Spec-Schemas schema-marker grammar (the
-    `:sensitive?` / `:large?` Malli props are owned by the schemas artefact
-    + Spec-Schemas — EP-0015 bead-plan item 9)."
+  This is an internal seam used by SSR, tooling, trace egress, and event-time
+  registry reconciliation. The public surface is the projection-relative
+  declaration on `reg-resource` / `reg-mutation`."
   (:require [re-frame.late-bind :as late-bind]
             [re-frame.classification :as classification]
             [re-frame.elision :as elision]
@@ -84,8 +67,8 @@
 ;; ---------------------------------------------------------------------------
 ;; Whole-entry disposition — the coarse root-prop owner classification.
 ;;
-;; EP-0015 issue 11 (ruled): the coarse whole-entry `:sensitive?` /
-;; `:large?` claims remain as the degenerate root-prop case (the WHOLE
+;; Coarse whole-entry `:sensitive?` / `:large?` claims are the degenerate
+;; root-prop case (the WHOLE
 ;; resource is the classification unit). They gate the metadata-only
 ;; redact / omit shape the durable entry / instance rides on SSR and in
 ;; tool / epoch projections; sensitive wins over large.
@@ -106,7 +89,7 @@
   Sensitive wins over large (the redaction sentinel is the more
   conservative shape — it still announces the entry exists). A nil spec
   (an unregistered id) is `:serialize` (no coarse claim). Pure. Per
-  EP-0015 §6 / Spec 015 §Resource and mutation durable classification."
+  Spec 015 §Resource and mutation durable classification."
   [spec]
   (cond
     (:sensitive? spec) :redact
@@ -114,35 +97,19 @@
     :else              :serialize))
 
 ;; ---------------------------------------------------------------------------
-;; No derived-sensitivity propagation (EP-0025, rf2-71dr8t).
+;; No derived-sensitivity propagation.
 ;;
-;; A resource whose `:scope` is a `{:from-db <id>}` reference derives its cache
-;; scope from the resolver's declared `:db` inputs. EARLIER (EP-0016 wave,
-;; rf2-fi6tda.1) that derivation was a sensitivity PROPAGATION arm: a `:db`
-;; input reading a frame-sensitive path made the derived scope (and the
-;; resource's WHOLE durable entry) INHERIT `:sensitive` even when the owning
-;; resource was not declared sensitive, honouring a closed
-;; `:rf.egress/output-sensitivity` declassification enum.
-;;
-;; EP-0025 REMOVED all sensitivity propagation (subs / flows / this resource-
-;; scope arm). Classification does not flow input -> output (Spec 015 §No
-;; propagation, no taint). The inheritance pass (`resolver-derived-sensitive?` /
-;; `scope-derived-sensitive?`) and the frame-aware `whole-entry-disposition-for`
-;; are GONE: a resource's durable-entry disposition is the OWNER's coarse
-;; root-prop claim ALONE (`whole-entry-disposition`), and its fine-grained
-;; classification rides its OWN projection-relative `:sensitive` / `:large`
-;; declarations (lowered per instance into the per-frame elision registry — see
-;; the lowering section below). A genuinely-sensitive derived scope is declared
-;; directly (`[:scope ...]` / `[:params ...]` sensitive); nothing is inherited
-;; from the paths the resolver read.
+;; Classification does not flow from a scope resolver's inputs to its output
+;; (Spec 015 §No propagation, no taint). A resource's whole-entry disposition
+;; comes only from its owner declaration. A sensitive derived scope must be
+;; declared directly with a projection-relative `[:scope ...]` or
+;; `[:params ...]` path.
 
 ;; ---------------------------------------------------------------------------
-;; EP-0025 §subsystems projection-relative declarations (rf2-h3d8tf).
-;;
 ;; A resource / mutation DEFINITION declares its sensitive / large slots
 ;; PROJECTION-RELATIVE to the instance projection (the matrix root: entry's
 ;; `:params` / `:data`), via top-level `:sensitive` / `:large` vectors on the
-;; `reg-resource` / `reg-mutation` spec — the EP-0025 example surface:
+;; `reg-resource` / `reg-mutation` spec:
 ;;
 ;;   (rf/reg-resource :user-profile
 ;;     {:sensitive [[:data :ssn]] :large [[:data :avatar-bytes]]})
@@ -151,14 +118,9 @@
 ;; at `reg-resource`, so it declares its own (statically-known) sensitive
 ;; fields there. The declaration is value-INDEPENDENT and standing: it redacts
 ;; whatever later occupies the slot on EVERY instance (the per-instance
-;; application the EP names — every minted scoped key / landed data value
-;; redacts under the one owner declaration, with no per-instance author code
-;; and no storage paths in app code). It supersedes EP-0015 issue 11's
-;; "schema-props are the only fine-grained surface, no resource path-map
-;; vocabulary" stance: the projection-relative path vocabulary IS the canonical
-;; surface (the same axis vocabulary the machine / app-db / transient cases
-;; use — one name per fact), and the schema-prop route is unioned with it
-;; (kept as the schema-natural co-declaration until the EP-0025 purge).
+;; application means every minted scoped key and landed data value is governed
+;; by the same owner declaration, with no per-instance author code or absolute
+;; runtime storage paths in app code.
 ;;
 ;; Lowering = re-rooting + axis-split. The declaration paths are rooted at the
 ;; instance projection (`[:data …]` → the data value; `[:params …]` → the
@@ -173,7 +135,7 @@
 ;; ---------------------------------------------------------------------------
 
 (def ^:private declaration-axis-keys
-  "The two EP-0025 projection-relative declaration axes a `reg-resource` /
+  "The two projection-relative declaration axes a `reg-resource` /
   `reg-mutation` spec may carry — `:sensitive` (redact at egress) / `:large`
   (size marker at egress)."
   #{:sensitive :large})
@@ -205,7 +167,7 @@
 
 (defn classification-declaration-defect
   "PURE fail-loud-INPUT validator for a resource / mutation `spec`'s
-  EP-0025 projection-relative `:sensitive` / `:large` declarations. Returns
+  projection-relative `:sensitive` / `:large` declarations. Returns
   `{:axis k :reason <string>}` for the FIRST defect, or nil when every present
   declaration is well-shaped (or none is declared). The caller
   (`reg-resource` / `reg-mutation`) throws `:rf.error/resource-bad-spec`
@@ -240,7 +202,7 @@
     (get spec k)))
 
 (defn spec-declaration-marks
-  "The EP-0025 projection-relative `:sensitive` / `:large` declarations a
+  "The projection-relative `:sensitive` / `:large` declarations a
   resource / mutation `spec` carries, lowered + axis-split into the SAME
   `{:sensitive {path decl} :large {path decl}}` shape the schema-prop marks
   use — keyed `:data` (the data projection) and `:params` (the scoped-key
@@ -257,7 +219,7 @@
      :params {:sensitive (->decl (:params s)) :large (->decl (:params l))}}))
 
 ;; ---------------------------------------------------------------------------
-;; Schemas validate; they do NOT classify durably (EP-0025 rf2-fuqcob).
+;; Schemas validate; they do NOT classify durably.
 ;;
 ;; A resource's `:data-schema` / `:params-schema` / per-page `:page-data-schema`
 ;; VALIDATES the value; it does NOT drive DURABLE egress classification. The
@@ -275,8 +237,7 @@
 ;; ---------------------------------------------------------------------------
 
 ;; ---------------------------------------------------------------------------
-;; Egress projection — registry-driven, the routing / machines standard model
-;; (EP-0025, rf2-d3pku1 — collapsing the redundant family-private re-derivation).
+;; Egress projection — registry-driven, the routing / machines standard model.
 ;;
 ;; A resource's projection-relative `:sensitive` / `:large` declarations are the
 ;; SINGLE source of truth, and `reconcile-registry` (below) LOWERS them per
@@ -294,12 +255,6 @@
 ;;   - machines' `re-frame.machines.ssr/project-snapshot-data`, which reads the
 ;;     lowered snapshot declarations back from the registry
 ;;     (`re-frame.classification/frame-snapshot-classification`).
-;;
-;; EP-0025 §"Point the egress projection at the registry as the single source":
-;; the prior resources family-private `project-data` / `project-params`
-;; projectors re-derived `split-projection-paths spec` at egress — the SAME fact
-;; `reconcile-registry` already lowered into the registry. That dual derivation
-;; (rf2-d3pku1) is REMOVED here in favour of the registry read.
 ;;
 ;; The registry-driven walk is frame-SCOPED (the registry lives in the live
 ;; frame's runtime-db). A nil / unresolvable / never-classified frame rides the
@@ -333,7 +288,7 @@
   "Project a resource entry's serialized DATA value for egress across
   `boundary-profile` (a `:rf.egress/*` profile, e.g. `:rf.egress/ssr-hydration`)
   against `frame-id`'s per-frame elision registry — the REGISTRY-DRIVEN egress
-  read (EP-0025, rf2-d3pku1). The resource's projection-relative `:data`
+  read. The resource's projection-relative `:data`
   declarations were lowered into the registry at the entry's absolute runtime-db
   `:data` path (`[:rf.runtime/resources :entries <key-id> :data …]`,
   `reconcile-registry`); here we walk the bare `:data` value through
@@ -371,7 +326,7 @@
 (defn project-entry-params
   "Project a resource entry's scoped-key PARAMS value for egress against
   `frame-id`'s per-frame elision registry — the CO-EQUAL params counterpart to
-  `project-entry-data` (EP-0025, rf2-d3pku1; Spec 016 clause 4 \"params, scopes,
+  `project-entry-data` (Spec 016 clause 4 \"params, scopes,
   and data carry the same classification\"). The resource's projection-relative
   `:params` (and `:scope`) declarations were lowered into the registry at the
   scoped key's absolute `:resource/key` carrier (`[… :resource/key 2 …]` for
@@ -403,7 +358,7 @@
       params)))
 
 ;; ---------------------------------------------------------------------------
-;; Invalid-params error-payload projection (rf2-99j4e4).
+;; Invalid-params error-payload projection.
 ;;
 ;; `validate+canonicalize-params` (resource + mutation registries) throws
 ;; `:rf.error/resource-invalid-params` / `:rf.error/mutation-invalid-params`
@@ -442,18 +397,11 @@
 ;; the seam falls through verbatim — consistent with the no-validator path that
 ;; never produced an `:error` in the first place.
 ;;
-;; EP-0025 (rf2-fuqcob): the `:params-schema` per-slot `:sensitive?` / `:large?`
-;; props no longer drive DURABLE classification (the durable wire/SSR/tool egress
-;; reads only the projection-relative declarations, lowered into the registry —
-;; `project-entry-params`). But the VALIDATION-FAILURE-TRACE redaction is the
-;; schema's OWN surviving egress product (Spec 015 §Schemas describe shape: "for
-;; a slot's own validation-failure-trace redaction the schema produces that
-;; record, so it owns its egress shape"). So this seam reads the schema PROPS
-;; directly (via the shared walker hooks) to redact the failing `:params`
-;; per-slot — distinct from the durable registry route. That keeps the schema-
-;; prop route alive exactly where it is legitimate (the validator's own product),
-;; while the durable wire/SSR/tool egress is governed solely by the projection-
-;; relative declarations.
+;; Schema props do not drive DURABLE classification. They do govern the
+;; validation-failure record that the schema produces, so this seam reads those
+;; props directly to redact failing params. Durable wire, SSR, and tool egress
+;; remain governed by projection-relative declarations lowered into the frame
+;; registry.
 ;; ---------------------------------------------------------------------------
 
 (defn- validation-failure-params-marks
@@ -461,8 +409,8 @@
   `{:sensitive {path decl} :large {path decl}}` rooted at the params root — the
   SCHEMA-PROP marks, read via the shared late-bound walker hooks. Used ONLY by
   `redact-invalid-params-error` to redact the failing params in the VALIDATION-
-  FAILURE-TRACE (the schema's own egress product, the surviving schema-prop
-  route per EP-0025 / Spec 015 §Schemas describe shape) — NOT a durable
+  FAILURE-TRACE (the schema's own egress product, per Spec 015 §Schemas
+  describe shape) — NOT a durable
   classification route. Empty maps when the schema is nil / unschematic / the
   walker hooks are unbound. Pure (modulo the memoised walker)."
   [schema]
@@ -476,7 +424,7 @@
 (defn redact-invalid-params-error
   "Project the `:params` + `:error` (explainer output) slots of an invalid-params
   failure error payload against the resource / mutation `spec`'s `:params-schema`
-  per-slot `:sensitive?` / `:large?` VALIDATION props (rf2-99j4e4). Returns
+  per-slot `:sensitive?` / `:large?` VALIDATION props. Returns
   `{:params <projected> :error <projected-or-nil>}`:
 
     - `:params` per-slot redaction reads the `:params-schema` `:sensitive?` /
@@ -490,11 +438,9 @@
       scrubs to `:rf/redacted` when `spec`'s `:params-schema` declares ANY
       `:sensitive?` slot, else rides verbatim.
 
-  EP-0025 (rf2-fuqcob): this is the schema's OWN VALIDATION-FAILURE-TRACE egress
-  product, the surviving schema-prop redaction route (Spec 015 §Schemas describe
-  shape) — distinct from the DURABLE wire/SSR/tool egress, which the registry-
-  driven `project-entry-params` governs via the projection-relative declarations
-  alone (schema props no longer classify durably). `error` may be nil (no
+  This is the schema's OWN VALIDATION-FAILURE-TRACE egress product (Spec 015
+  §Schemas describe shape), distinct from DURABLE wire/SSR/tool egress, which
+  `project-entry-params` governs through the frame registry. `error` may be nil (no
   explainer registered); the `:error` key is then nil. Pure (modulo the memoised walker + the late-bound redaction
   hook)."
   [params error spec]
@@ -516,9 +462,7 @@
      :error  redacted-e}))
 
 ;; ---------------------------------------------------------------------------
-;; Per-instance lowering into the per-frame elision registry (EP-0025
-;; §subsystems, rf2-v8x9n8 — aligning resources to the machines / routing
-;; standard model).
+;; Per-instance lowering into the per-frame elision registry.
 ;;
 ;; Per the EP-0025 subsystem matrix a resource declares its `:sensitive` /
 ;; `:large` PROJECTION-RELATIVE to the entry projection (its `:params` / `:data`)
@@ -529,17 +473,9 @@
 ;; (`re-frame.machines.classification/lower-at-spawn!` →
 ;; `[:rf.runtime/machines :snapshots <actor-id> :data …]`) and routes lower at
 ;; activation (`re-frame.routing.classification/lower-for-route` →
-;; `[:rf.runtime/routing :current …]`). BEFORE rf2-v8x9n8 resources DID NOT
-;; lower: the marks were applied DIRECTLY at the family-private
-;; `project-data` / `project-params` projectors, so a generic registry reader
-;; (Xray "what is classified", an MCP registry view, the SSR registry-projection
-;; defence-in-depth) never SAW resource classification. The lowering put it in
-;; the registry; rf2-d3pku1 then COLLAPSED the redundant family-private
-;; projectors into the registry read (`project-entry-data` /
-;; `project-entry-params` walk the entry value through `project-egress` seeded at
-;; the lowered absolute path), so the registry is now the SINGLE source the
-;; egress reads — the "union every source" model the spec sells, uniform across
-;; all four subsystems.
+;; `[:rf.runtime/routing :current …]`). The registry is the single source read
+;; by `project-entry-data` / `project-entry-params` and by generic classification
+;; tooling.
 ;;
 ;; The lowering is a PURE runtime-db transform (`reconcile-registry`, mirroring
 ;; routing's `apply-route-classification`) so the durable runtime-db transition
@@ -641,9 +577,9 @@
   resolver `(fn [resource-id] -> spec|nil)`, return the runtime-db with the
   `[:rf.runtime/elision …]` registry's `:source :resource` entries REPLACED by
   the declarations of EVERY current cache entry (re-rooted absolute per the
-  entry's byte `key-id`). The standard EP-0025 lowering — the resources peer of
+  entry's byte `key-id`). This is the resources peer of
   `re-frame.routing.classification/apply-route-classification` and
-  `re-frame.machines.classification/lower-at-spawn!` (rf2-v8x9n8).
+  `re-frame.machines.classification/lower-at-spawn!`.
 
   Operates on a VALUE so a resource handler's durable `:rf.db/runtime`
   transition folds the registry update into the SAME atomic commit that

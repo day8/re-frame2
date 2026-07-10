@@ -1,13 +1,12 @@
 (ns re-frame.resources.tooling
-  "Resources tooling sibling of `re-frame.resources` — carries the EP-0014
-  slice-4 derivation/process algebra view of registered resources
+  "Resources tooling sibling of `re-frame.resources` — carries the
+  derivation/process algebra view of registered resources
   (`resource-algebra-view`, the STATIC view) and of a frame's live cache
   entries (`resource-cache-algebra-view`, the LIVE view) that pair tools
   (Xray, re-frame2-pair-mcp) and the conformance fixtures query, but no
   production application code reads.
 
-  Mirrors the rf2-s8w3nw `re-frame.flows.tooling` split (slice-3) and the
-  rf2-bmzq0 `re-frame.subs.tooling` split (slice-2) before it:
+  Bundle boundary:
     - CLJS consumers needing the surface call
       `re-frame.resources.tooling/<name>` directly. An app that loads the
       resources artefact but never attaches a tool DCEs the body wholesale
@@ -25,8 +24,7 @@
   READ-ONLY over the registry + runtime. This ns touches NEITHER the
   resource registrar write-path (`reg-resource` / `clear-resource`,
   `re-frame.resources.registry`) NOR the resource events / mutation
-  write-path (`re-frame.resources.events`) — exactly as slice-3's
-  flows.tooling read the flow registry without touching its registrar.
+  write-path (`re-frame.resources.events`).
   The STATIC view reads the `:resource` registry through the existing
   `resource-meta` / `resource-ids` introspection seams; the LIVE view reads
   the per-frame `:rf.runtime/resources` entries + `:rf.runtime/work-ledger`
@@ -34,7 +32,7 @@
   same seam `re-frame.resources/resources` + the SSR drain read).
 
   Per [Derivations.md](../../../../../../spec/Derivations.md) §Resources
-  expose process nodes (graduated from EP-0014) and the projected Malli
+  expose process nodes and the projected Malli
   shapes in [Spec-Schemas §`:rf/derivation-node`](../../../../../../spec/Spec-Schemas.md)."
   (:require [re-frame.derivation.node :as node]
             [re-frame.frame :as frame]
@@ -48,10 +46,10 @@
 
 #?(:clj (set! *warn-on-reflection* true))
 
-;; ---- algebra views (EP-0014 slice-4) -------------------------------------
+;; ---- algebra views --------------------------------------------------------
 ;;
-;; Per [Derivations.md] §Resources expose process nodes (graduated from
-;; EP-0014) and the projected Malli shapes in [Spec-Schemas
+;; Per [Derivations.md] §Resources expose process nodes and the projected Malli
+;; shapes in [Spec-Schemas
 ;; §`:rf/derivation-node`]. A resource is the canonical PROCESS member of
 ;; the derivation/process algebra (Derivations §Process — "Resources and
 ;; machines are processes"), distinct from the subscription / flow
@@ -62,16 +60,11 @@
 ;; derived read facts (the `:rf.resource/*` selectors) over that entry —
 ;; the latter are surfaced under `:selectors` on the process node, not
 ;; minted as separate nodes here (they are ordinary subscriptions, already
-;; covered by slice-2's sub view).
+;; covered by the subscription algebra view).
 ;;
-;; This is the *registrar-derived* slice (Derivations §The EP-0013
-;; relocation seam): the static algebra view is assembled from the
-;; resource-spec metadata at the surface that registered it, NOT (yet) from
-;; an EP-0013 app value. It feeds the later internal graph-inspection helper
-;; (EP-0014 bead-plan item 7); slice-4 ships NO public accessor — these
-;; functions live in the bundle-isolated tooling sibling, consumed by Xray +
-;; the conformance fixtures (the two named first consumers). No
-;; `re-frame.core` facade export (EP-0014 issue-1 disposition).
+;; The static algebra view is assembled from registered resource metadata.
+;; These functions live in the bundle-isolated tooling sibling and have no
+;; `re-frame.core` facade export.
 ;;
 ;; The fixed classifications for EVERY resource process node (Derivations
 ;; §Resources expose process nodes):
@@ -84,7 +77,7 @@
 ;; the OUTPUT runtime-db address, the `:authority` transport, and (for a
 ;; `{:from-db <id>}` scope) the named-resolver enrichment.
 ;;
-;; A resource consumes the slice-1 vocabulary verbatim — it does NOT
+;; A resource consumes the shared vocabulary verbatim — it does NOT
 ;; redefine the `:rf/storage-class` / `:rf/evaluation-policy` / `:rf/lifecycle`
 ;; enums or the `:rf/derivation-node` shape (those are owned by Spec-Schemas /
 ;; Derivations).
@@ -106,8 +99,7 @@
   "The LOCAL storage class of a resource process node (Derivations
   §Resources expose process nodes): the cache entry lives in the
   framework-owned `runtime-db` partition. The REMOTE authority is the
-  separate `:authority` axis — `:remote` is NOT a storage class (EP-0014
-  issue-2 split)."
+  separate `:authority` axis — `:remote` is NOT a storage class."
   :runtime-db)
 
 (def resource-lifecycle
@@ -168,7 +160,7 @@
   (`:kind :remote`, `:system :server`); `:transport` MIRRORS the registered
   transport (a recomputable PROJECTION of the Spec 016 registration fact —
   never a second authoritative home). `transport-id` is the spec's
-  `:transport`, defaulting to the only initial-scope transport
+  `:transport`, defaulting to the only built-in transport
   (`transport/default-transport`, `:rf.http/managed`)."
   [transport-id]
   {:kind      :remote
@@ -566,16 +558,15 @@
 
 ;; ---- bundle-isolation sentinel ------------------------------------------
 ;;
-;; Per rf2-s8w3nw / rf2-bmzq0 / rf2-qwm0a (the flows.tooling + subs.tooling +
-;; trace.tooling split pattern): `implementation/scripts/check-bundle-isolation.cjs`
-;; greps the counter bundle for this exact string. The string lives ONLY in
+;; `implementation/scripts/check-bundle-isolation.cjs` greps the counter bundle
+;; for this exact string. The string lives ONLY in
 ;; this file's source body — no other namespace, no docstring, no test
 ;; fixture references it — so its presence in the production counter bundle
 ;; proves the tooling sibling's body got pulled in (most likely via a stray
 ;; `:require` from a production-reachable ns). The whole resources artefact is
 ;; already bundle-isolated from counter (counter never `:require`s
-;; `re-frame.resources`), so this sentinel is the belt-and-braces guard the
-;; sibling pattern standardises. The string survives `:advanced` because
+;; `re-frame.resources`); this sentinel independently catches a stray
+;; production-reachable require. The string survives `:advanced` because
 ;; string literals are not renamed; it sits outside any gate so DCE cannot
 ;; drop the literal independently of the surrounding ns body.
 

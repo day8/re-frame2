@@ -1,9 +1,8 @@
 (ns re-frame.resources-infinite-ssr-restore-cljs-test
-  "ACCEPTANCE: an infinite feed rides the EXISTING SSR projection + epoch-restore
-  paths with ZERO new runtime code (EP-0021 build wave 5; Spec 016 §Durable
-  cache shape (R1) / §SSR and hydration / §Restore and replay).
+  "An infinite feed rides the ordinary SSR projection and epoch-restore paths
+  (Spec 016 §Durable cache shape, §SSR and hydration, §Restore and replay).
 
-  The wave-1..4 design claim is structural: an infinite feed is the SAME
+  The contract is structural: an infinite feed is the SAME
   `:rf/resource-entry` whose `:data` is an ordered PAGE VECTOR, living in one
   `:rf.runtime/resources :entries` slot (R1 — no new entry kind, no new
   runtime-db subsystem). So it MUST ride the projection + reconcile the scalar
@@ -30,9 +29,8 @@
         correctly to FALSE — the in-flight load-more does NOT dangle as a phantom
         `fetching-next?` against the restored feed.
 
-  Test-only (rf2-878m79): NO runtime / spec change. If a durable page fact did
-  NOT ride a path, that is a runtime gap to file, not patch here. The whole suite
-  rides existing fns — that it passes IS the acceptance."
+  The suite uses the production projection and reconciliation functions; any
+  lost durable page fact is a runtime regression."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])

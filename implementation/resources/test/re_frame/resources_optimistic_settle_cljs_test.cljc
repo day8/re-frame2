@@ -1,11 +1,10 @@
 (ns re-frame.resources-optimistic-settle-cljs-test
-  "EP-0019 slice 3 — the optimistic SETTLE protocol (commit / rollback /
-  reconcile + the `:on-conflict` conflict rule), rf2-byl7bk.1.
+  "The optimistic settlement protocol: commit, rollback, reconciliation, and
+  the `:on-conflict` conflict rule.
 
-  Slice 2 applied the FORWARD optimistic patch at phase 1.5 and recorded the
-  truthful snapshot-inverse on the instance row. This slice consumes that
-  recorded inverse + slice-1's `revision-conflict?` to DETERMINISTICALLY dispose
-  each optimistic apply when its mutation reply settles:
+  Execute applies the forward patch and records a truthful snapshot inverse on
+  the instance row. Settlement consumes that inverse and `revision-conflict?`
+  to deterministically dispose each optimistic apply:
 
     1. SUCCESS-COMMIT — an accepted `:ok` reply settles the optimistic value
        authoritatively (`:populates` / `:patches` overwrite it); the recorded

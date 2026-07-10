@@ -1,5 +1,4 @@
-;; day8/re-frame2-resources — resources artefact (rf2-p10npe, EP-0003
-;; slice 2; per-feature split per rf2-5vjj Strategy B).
+;; day8/re-frame2-resources — optional resources artefact.
 ;;
 ;; Per Spec 016 §Resources the declarative server-state grammar
 ;; (`reg-resource`, `clear-resource`, `resource-meta`, `resource-state`,
@@ -12,8 +11,7 @@
 ;; ledger machinery, or any of the `:rf.resource/*` / `:rf.scope/*` /
 ;; `:rf.work/*` trace strings onto the classpath.
 ;;
-;; The full runtime ships here (EP-0003 complete): the namespaces + the
-;; public surface, the work-ledger substrate, the resource runtime
+;; The artefact contains the public surface, work-ledger substrate, resource runtime
 ;; (entries, scopes, status transitions, dedupe), the managed-HTTP
 ;; transport, invalidation / GC / owners, focus/reconnect revalidation,
 ;; mutations, and the routing + SSR/hydration integrations.
@@ -28,8 +26,7 @@
 ;; loading the namespace registers its late-bind hooks, the `:resource`
 ;; registrar kind, and the `:rf.resource/*` reg-event / reg-sub family.
 ;;
-;; Per Spec 006 §Adapter shipping convention (and the rf2-p7va
-;; extension to per-feature splits): this artefact depends on core; core
+;; Per Spec 006 §Adapter shipping convention, this artefact depends on core; core
 ;; never depends on this artefact. The cross-references from core to
 ;; resources (e.g. `re-frame.core`'s `reg-resource` / `clear-resource`
 ;; / `resource-meta` / `resource-state` / `resources` re-exports) flow
@@ -46,7 +43,7 @@
 
  :aliases
  {:test {:extra-paths ["test"]
-         :extra-deps  {;; rf2-try1x — silent-on-success reporter.
+         :extra-deps  {;; Silent-on-success reporter.
                        day8/re-frame2-test-quiet {:local/root "../test-quiet"}
                        ;; Late-bound integration surfaces — pulled in as
                        ;; TEST-ONLY deps so the artefact's production
@@ -58,8 +55,8 @@
                        day8/re-frame2-routing    {:local/root "../routing"}
                        day8/re-frame2-ssr        {:local/root "../ssr"}
                        day8/re-frame2-http       {:local/root "../http"}
-                       ;; rf2-xw5t0y — TEST-ONLY machines dep for the
-                       ;; machine→resource lease-release integration test
+                       ;; TEST-ONLY machines dep for the machine→resource
+                       ;; lease-release integration test
                        ;; (`resources_machine_owner_release_cljs_test`): a
                        ;; machine that `ensure`s a resource under its
                        ;; `[:machine actor-id]` owner must release that lease on
@@ -73,7 +70,7 @@
                        {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
          :main-opts   ["-m" "re-frame.test-quiet.runner"]}
 
-  ;; Clojars deploy (rf2-r382). Modeled on re-frame v1's release flow.
+  ;; Clojars deploy. Modeled on re-frame v1's release flow.
   ;; The release workflow runs `clojure -M:clein deploy` from this
   ;; artefact's directory, which builds pom + jar and pushes to Clojars.
   ;;

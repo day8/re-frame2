@@ -1,23 +1,18 @@
 (ns re-frame.resources-invalid-params-redaction-cljs-test
-  "rf2-99j4e4 — resource / mutation params-schema validation FAILURE error data
-  must not leak a `:sensitive?` params slot (nor ride a `:large?` slot raw).
+  "Resource / mutation params-schema validation failure data must not leak a
+  `:sensitive?` params slot or ride a `:large?` slot raw.
 
   `validate+canonicalize-params` (resource registry + mutation registry) runs
   the pluggable Malli validator against the resource / mutation `:params-schema`
-  and, on a conformance failure, THROWS `:rf.error/resource-invalid-params` /
-  `:rf.error/mutation-invalid-params`. Before this fix the thrown `ex-data`
-  carried the RAW params under `:params` AND the registered explainer's output
-  under `:error` (whose Malli `:value` slots carry the raw params too). A params
-  schema marking a sibling slot `{:sensitive? true}` therefore leaked the secret
-  through public thrown error data and any error-capture / logging path whenever
-  validation failed on a DIFFERENT (non-sensitive) field.
+  and, on a conformance failure, throws `:rf.error/resource-invalid-params` /
+  `:rf.error/mutation-invalid-params`. Both the raw `:params` and the explainer's
+  `:error` can contain conforming sensitive siblings of the field that failed.
 
-  The fix routes the error payload through the existing resources-family
-  classification projection (`project-params` — the per-slot `:sensitive?`
-  redacts / `:large?` elides surface that resource params egress already uses)
-  for `:params`, and through the shared schemas redaction seam
-  (`:schemas/redact-validation-tags`) for the explainer `:error`, so the same
-  owner-declared marks govern the error payload as govern SSR / wire egress.
+  The validation-failure projector reads schema props for per-slot `:params`
+  redaction and routes explainer output through the shared schemas seam
+  (`:schemas/redact-validation-tags`) for the explainer `:error`. The schema
+  therefore owns both projections of its validation-failure record. Durable
+  SSR/wire classification is a separate projection-relative owner declaration.
 
   Threat model is the AI-boundary + logs (the thrown ex-data is public error
   data + the trace egress) — NOT in-process correctness; the canonical
@@ -50,14 +45,14 @@
 ;; A params schema with a CONFORMING sensitive sibling (`:token`) and a FAILING
 ;; non-sensitive field (`:age` declared `:int`, supplied a string). The failure
 ;; is on `:age`, but the raw params + explainer carry the conforming sensitive
-;; `:token` alongside it — exactly the rf2-99j4e4 sibling-leak shape.
+;; `:token` alongside it — the sibling-leak shape this suite prevents.
 (def ^:private sensitive-params-schema
   [:map
    [:token {:sensitive? true} :string]
    [:age :int]])
 
 ;; A params schema marking a sibling `:large?`; the failing field is again the
-;; non-sensitive `:age`. The bead names `:large?` should elide consistently.
+;; non-sensitive `:age`; the large sibling should elide consistently.
 (def ^:private large-params-schema
   [:map
    [:blob {:large? true} :string]

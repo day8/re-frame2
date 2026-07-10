@@ -1,7 +1,6 @@
 (ns re-frame.resources.mutation-subs
   "The passive mutation-INSTANCE subscriptions — the read API over a
-  mutation's pending / result / error state. Per Spec 016 §Deferred slices
-  (mutations, first public-beta gate) and EP-0003 §Mutations.
+  mutation's pending / result / error state. Per Spec 016 §Mutations.
 
   A view reads a mutation instance through `[:rf/mutation {:instance
   …}]` (or a narrower projection); `:rf.mutation/execute` causes the write.
@@ -14,15 +13,15 @@
   computed here from the durable instance facts, NOT stored on the instance
   (Spec 016 §Status semantics, the same posture as resource subs).
 
-  ## `:result` is the instance-layer spelling of the decoded result (kh9jz6)
+  ## Result naming
 
   The mutation INSTANCE stores the decoded write result under `:result` —
   the durable, queryable status-record spelling. The transient causal reply
   map (the uniform reply envelope, Managed-Effects §The reply map) carries
   the SAME decoded result under `:value` — the reply-map spelling, which is
   `:value` for EVERY managed-async family with no per-family synonym
-  (EP-0007 one-name-per-fact). These are two NAMES for two FACTS in two
-  LAYERS: `:value` is the transient continuation; `:result` is the durable
+  (Managed Effects §The reply map). These are two names for facts in different
+  layers: `:value` is the transient continuation; `:result` is the durable
   instance status record (`{:pending? :success? :error? :settled? :result
   :error}`) a view subscribes to long after the reply was consumed. The
   events layer reads `(:value reply)` from the canonical reply and installs
@@ -68,8 +67,7 @@
   instance: the stored facts (`:status` / `:result` / `:error` /
   `:affected-keys`) plus the DERIVED booleans (`:pending?` / `:success?` /
   `:error?` / `:settled?` / `:optimistic?`) computed here, never stored.
-  Empty-state shape (idle, no instance) when none. Per EP-0003 §Mutations /
-  EP-0019 Rider 1 (the `:optimistic?` derived flag)."
+  Empty-state shape (idle, no instance) when none. Per Spec 016 §Mutations."
   [runtime-db sub-v]
   (let [i (instance-for runtime-db sub-v)]
     (if (nil? i)
@@ -88,12 +86,12 @@
 
 (defn status-sub-fn
   "Project `:rf.mutation/status` — the instance's `:status` keyword
-  (:idle / :pending / :success / :error). Per EP-0003 §Mutations."
+  (:idle / :pending / :success / :error). Per Spec 016 §Mutations."
   [runtime-db sub-v]
   (or (:status (instance-for runtime-db sub-v)) :idle))
 
 (defn pending?-sub-fn
-  "Project `:rf.mutation/pending?` — the write is in flight. Per EP-0003
+  "Project `:rf.mutation/pending?` — the write is in flight. Per Spec 016
   §Mutations."
   [runtime-db sub-v]
   (= :pending (:status (instance-for runtime-db sub-v))))
@@ -101,35 +99,35 @@
 (defn result-sub-fn
   "Project `:rf.mutation/result` — the decoded success result (or nil). The
   durable instance-layer spelling of the decoded write result; the transient
-  reply envelope carries the same fact as `:value` (kh9jz6 / EP-0007 — see
-  the ns docstring). Per EP-0003 §Mutations."
+  reply envelope carries the same fact as `:value` (see the ns docstring). Per
+  Spec 016 §Mutations."
   [runtime-db sub-v]
   (:result (instance-for runtime-db sub-v)))
 
 (defn error-sub-fn
   "Project `:rf.mutation/error` — the failure envelope (or nil; the closed
-  `:rf.http/*` shape). Per EP-0003 §Mutations."
+  `:rf.http/*` shape). Per Spec 016 §Mutations."
   [runtime-db sub-v]
   (:error (instance-for runtime-db sub-v)))
 
 (defn register-subs!
   "Register the `:rf.mutation/*` passive sub family. Called from the
   `re-frame.resources` façade so a `(require … :reload)` on a fresh
-  registrar re-wires them. Per EP-0003 §Mutations."
+  registrar re-wires them. Per Spec 016 §Mutations."
   []
   (subs/reg-runtime-sub :rf/mutation
-    {:doc "Passive read of a mutation instance's full view-model `{:status :result :error :affected-keys :pending? :success? :error? :settled? :optimistic?}`, keyed by :instance id. The `:optimistic?` flag (EP-0019 Rider 1) is true while a live optimistic apply is showing (phase 1.5) and not yet settled. Per EP-0003 §Mutations."}
+    {:doc "Passive read of a mutation instance's full view-model `{:status :result :error :affected-keys :pending? :success? :error? :settled? :optimistic?}`, keyed by :instance id. The `:optimistic?` flag is true while a live optimistic apply is showing and not yet settled. Per Spec 016 §Mutations."}
     state-sub-fn)
   (subs/reg-runtime-sub :rf.mutation/status
-    {:doc "Passive read of a mutation instance's :status keyword (:idle / :pending / :success / :error). Per EP-0003 §Mutations."}
+    {:doc "Passive read of a mutation instance's :status keyword (:idle / :pending / :success / :error). Per Spec 016 §Mutations."}
     status-sub-fn)
   (subs/reg-runtime-sub :rf.mutation/pending?
-    {:doc "Passive read: true iff a mutation instance's write is in flight. Per EP-0003 §Mutations."}
+    {:doc "Passive read: true iff a mutation instance's write is in flight. Per Spec 016 §Mutations."}
     pending?-sub-fn)
   (subs/reg-runtime-sub :rf.mutation/result
-    {:doc "Passive read of a mutation instance's decoded success result (or nil). Per EP-0003 §Mutations."}
+    {:doc "Passive read of a mutation instance's decoded success result (or nil). Per Spec 016 §Mutations."}
     result-sub-fn)
   (subs/reg-runtime-sub :rf.mutation/error
-    {:doc "Passive read of a mutation instance's failure envelope (or nil). Per EP-0003 §Mutations."}
+    {:doc "Passive read of a mutation instance's failure envelope (or nil). Per Spec 016 §Mutations."}
     error-sub-fn)
   nil)

@@ -1,31 +1,23 @@
 (ns re-frame.resources-machine-owner-release-cljs-test
-  "Per rf2-xw5t0y — a destroyed state-machine actor MUST release its resource
-  leases (Spec 016 §Release authority is per owner kind, 016:291:
+  "A destroyed state-machine actor MUST release its resource leases (Spec 016
+  §Release authority is per owner kind):
 
     | Machine | [:machine actor-id] | Actor destroy — when the
     owning machine instance is stopped/destroyed, its resource leases are
     released. |
 
-  ). The owner key the machine runtime owns is `[:machine actor-id]` — the
+  The owner key the machine runtime owns is `[:machine actor-id]` — the
   runtime-derivable machine-owner key the derivation algebra names (Spec
   Derivations §Lifecycle: `[:machine :upload/main]`; machines
   `tooling/node-for` emits `:owner [:machine id]`), `id` being the registered
   machine-id for a singleton and the `<type>#<n>` for a spawned actor.
 
-  THE BUG (rf2-xw5t0y, surfaced by the rf2-na0j8r conceptual audit): the
-  machine teardown NEVER dispatched `:rf.resource/release-owner`. A machine
-  that `ensure`d a resource under its `[:machine actor-id]` owner LEAKED the
-  lease on destroy — the entry stayed owner-pinned and kept refetching /
-  polling forever (a slow leak). The spec leaned on \"machine liveness is a
-  pure function of frame-state\" as if release were automatic, but resource
-  liveness is a SEPARATE durable owner-set, not derived from machine state.
-
-  THE FIX: machine teardown fires the EXISTING `:rf.resource/release-owner`
-  effect for owner `[:machine actor-id]`, by KEYWORD dispatch (machines never
+  Resource liveness is a separate durable owner set, not derived from machine
+  state. Machine teardown therefore fires `:rf.resource/release-owner` for
+  owner `[:machine actor-id]`, by keyword dispatch (machines never
   `:require`s resources — sibling artefact; guarded on the handler being
-  registered so a no-resources app is a clean no-op). This is the CROSS-
-  ARTEFACT integration pin: a real machine, a real resource entry, real
-  release — proving the leak is closed end-to-end.
+  registered so a no-resources app is a clean no-op). This is the cross-artefact
+  integration pin: a real machine, a real resource entry, and a real release.
 
   Both destroy CAUSES are covered observably on a surviving frame:
     1. explicit `[:rf.machine/destroy <id>]` (routes through

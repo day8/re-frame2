@@ -1,10 +1,8 @@
 (ns re-frame.resources-infinite-subs-cljs-test
-  "The infinite-feed subscription family (EP-0021 wave 4, Spec 016
-  §Subscription contract — the merged list and page metadata (R3)).
+  "The infinite-feed subscription family (Spec 016 §Subscription contract).
 
-  Waves 1-3 landed the durable feed entry (`:data` = the ordered page vector),
-  the `:rf.resource/load-more` event, and the page reply handlers. This slice
-  is the READ side — the framework-owned, MEMOISED projection family:
+  The durable feed entry stores `:data` as an ordered page vector. This suite
+  covers the framework-owned, memoised read projections:
 
     - `:rf.resource/items` — the merged / flattened list (the HEADLINE read);
     - `:rf.resource/pages` — the raw ordered page vector;

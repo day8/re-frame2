@@ -1,36 +1,28 @@
 (ns re-frame.resources.params
   "The single owner of the resource/mutation params validate+canonicalize
-  pipeline (rf2-7rbb7t). Both `re-frame.resources.registry` and
-  `re-frame.resources.mutation-registry` register a REQUIRED `:params-schema`
-  that validates + canonicalizes their family's params, and each family had
-  an independent, near-identical `validate+canonicalize-params`: default an
-  omitted slot, reject a non-EDN / host value at the cache-key boundary,
-  resolve the pluggable late-bound Malli validator/explainer, REDACT the
-  invalid params before they can ride an error payload, throw the
-  family-specific `:rf.error/*-invalid-params`, and canonicalize. The
-  nil/missing and invalid-param-redaction correctness/privacy fixes had to
-  land TWICE (a correctness + privacy-boundary duplication).
+  pipeline. Both registries require a `:params-schema` and delegate here to
+  default an omitted slot, reject non-EDN host values at the identity boundary,
+  invoke the late-bound validator/explainer, redact invalid params before they
+  enter an error payload, and canonicalize the accepted value.
 
-  This leaf owns that pipeline ONCE, parameterized only by the family's error
+  The pipeline is parameterized only by the family's error
   descriptor — a `build-invalid-error` callback that shapes the family's
   `:rf.error/resource-invalid-params` / `:rf.error/mutation-invalid-params`
-  throw. `registry` and `mutation-registry` keep THIN
-  `validate+canonicalize-params` wrappers so their call sites AND thrown error
-  shapes are unchanged.
+  throw. `registry` and `mutation-registry` keep thin wrappers so each public
+  surface retains its own error id and data shape.
 
   LEAF, no new edge: it requires only `state` (the omitted-default /
   EDN-rejection / canonicalization the two registrars already delegate to),
   `classification` (the invalid-param redaction seam), and `late-bind` (the
   pluggable Malli validator/explainer — NO static `schemas` dependency).
-  `registry` and `mutation-registry` already require all three, so hosting the
-  pipeline here introduces no require cycle; `mutation-registry` does NOT gain
-  a dependency on `registry`.
+  Hosting the pipeline here introduces no require cycle; `mutation-registry`
+  does not depend on `registry`.
 
   PRIVACY: the `classification/redact-invalid-params-error` step is a privacy
-  boundary — a `:sensitive?` params slot must never ride raw on the thrown
-  error payload / logs when validation fails on a non-sensitive sibling (and a
-  `:large?` slot elides). It is applied here ONCE, identically for both
-  families, before the family error is built."
+  boundary: a `:sensitive?` params slot must never ride raw on the thrown error
+  payload or downstream logs when validation fails on a non-sensitive sibling;
+  a `:large?` slot is elided. Projection happens before the family error is
+  built."
   (:require [re-frame.late-bind :as late-bind]
             [re-frame.resources.classification :as classification]
             [re-frame.resources.state :as state]))
@@ -38,15 +30,15 @@
 #?(:clj (set! *warn-on-reflection* true))
 
 (defn validate+canonicalize
-  "The shared validate+canonicalize params pipeline both the resource and the
-  mutation registrar delegate to (rf2-7rbb7t). Applies, in order:
+  "The shared validate+canonicalize params pipeline used by both registrars.
+  Applies, in order:
 
     1. the documented omitted-`:params` default (`state/default-omitted-params`)
        — an ABSENT slot (`state/missing-params`) becomes `{}`; a PRESENT value
        (INCLUDING an explicit `nil`) passes through unchanged so the
        `:params-schema`, not a blanket `(or params {})`, decides whether nil
        conforms (nil vs missing is schema-defined — Spec 016 §Resource
-       identity / EP-0012 §canonical-forms);
+       identity and Conventions §Canonical EDN identity);
     2. host / opaque value rejection at the cache-key boundary
        (`state/reject-non-edn!`, throwing `:rf.error/resource-non-edn-params`);
     3. schema conformance against the family `:params-schema` via the pluggable
@@ -80,8 +72,8 @@
       (let [validate (late-bind/get-fn-cached :schemas/validate-with-registered-fn)]
         (when (and validate (not (validate schema params)))
           (let [explain  (late-bind/get-fn-cached :schemas/explain-with-registered-fn)
-                ;; rf2-99j4e4 — the thrown error data (and any downstream egress)
-                ;; must not leak a `:sensitive?` params slot (nor ride a `:large?`
+                 ;; Thrown error data and downstream egress must not leak a
+                 ;; `:sensitive?` params slot (nor ride a `:large?`
                 ;; slot raw). Route `:params` + the explainer `:error` through the
                 ;; resources-family classification projection (the SAME per-slot
                 ;; owner surface SSR key egress uses + the shared schemas redaction
