@@ -1,11 +1,7 @@
 (ns {{namespace}}.stories
   "Story playground registrations for the scaffolded counter.
 
-   Emitted by `day8/re-frame2-template` when scaffolded with
-   `:include-story? true`. Mirrors the canonical shape at
-   `tools/story/testbeds/counter_with_stories/stories.cljs` in the
-   re-frame2 repo — kept small here so the scaffold reads at a glance
-   rather than overwhelming a first-time Story user.
+   Emitted when the project is scaffolded with `:include-story? true`.
 
    The four shipped `reg-*` macros each appear once:
 
@@ -14,18 +10,11 @@
    - `reg-tag`         — `:{{main}}/canonical` (project-scoped tag).
    - `reg-workspace`   — `:Workspace.counter/all` (auto-grid layout).
 
-   Per spec/017-Testing-Story.md §Public vocabulary every variant body
-   is plain data — no fn-slots; the public authoring keys are `:setup`
-   (preconditions) + `:script` (behaviour-under-test). The view at the
-   centre of each variant is referenced by
-   id (`:{{namespace}}.views/counter-app`); the events the variant
-   dispatches reference event-ids. Add more `reg-variant` / `reg-tag`
-   / `reg-decorator` / `reg-mode` calls below as your app grows."
+   Variant bodies are data: `:setup` establishes preconditions and `:script`
+   describes behaviour and assertions. Components and events are referenced
+   by registration id."
   (:require [re-frame.story :as story]
-            ;; Source the events / subs / views by requiring their
-            ;; namespaces — registrations fire as a side effect of
-            ;; loading the ns. The variant bodies reference those
-            ;; registrations by keyword id.
+            ;; Variant ids resolve against these registrations.
             [{{namespace}}.events]
             [{{namespace}}.subs]
             [{{namespace}}.views]))
@@ -34,10 +23,7 @@
   "Register the scaffolded Story artefacts. Idempotent — the trailing
    top-level call fires this at namespace load; tests / hot-reload may
    call it again after a `clear-all!`. The canonical Story vocabulary
-   (`:dev :docs :test :screenshot :experimental :internal :agent` tags,
-   the lifecycle machine, the `:rf.assert/*` handlers, the layout-debug
-   decorator set, and the v1 panel set) auto-installs on the first
-   `reg-*` call below — no explicit boot step required."
+   and assertion handlers auto-installs on the first `reg-*` call below."
   []
   ;; -- reg-tag — a project-scoped tag for the canonical screenshot ---------
   (story/reg-tag :{{main}}/canonical
@@ -53,14 +39,8 @@
 
   ;; -- reg-variant — empty (zero) + incremented (three clicks) -------------
   ;;
-  ;; The authoring surface is `:setup` (preconditions, dispatched before
-  ;; the play runs) + `:script` (the ordered behaviour-under-test). Per
-  ;; spec/017-Testing-Story.md §Public vocabulary `:setup` / `:script`
-  ;; are the public keys. A `:script` step is a tagged vector; an
-  ;; `:rf.assert/*` checkpoint rides the `[:assert [...]]` step tag, and a
-  ;; bare event vector lifts to `[:dispatch ...]`. This is what makes a
-  ;; Story double as a test — the `:rf.assert/*` checkpoints are the
-  ;; assertions, run by the CI play-runner.
+  ;; Setup runs before the play. Script steps drive behaviour and carry the
+  ;; assertions used by the play runner.
   (story/reg-variant :story.counter/empty
     {:doc    "Fresh counter at zero."
      :setup  [[:counter/initialise]]

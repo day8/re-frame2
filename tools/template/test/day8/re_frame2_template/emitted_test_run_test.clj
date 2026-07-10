@@ -452,47 +452,17 @@
                                 "around events.cljs's register-listener! "
                                 "is gone — a dev-only console listener "
                                 "closure is leaking into the production "
-                                "bundle (rf2-ek857f F2)."))))))))))
+                                "bundle."))))))))))
        (finally
          (delete-recursively tmp))))))
 
 (defn- run-ssr-emitted-test!
-  "The SSR variant of the emitted-test-run tier. The SSR scaffold has TWO
-  runtime halves, and this tier now covers both:
+  "Compile both halves of an emitted SSR project.
 
-    1. SERVER — the headless JVM gate (`ssr_test.clj`). No cljs.test suite,
-       no `:node-test` bundle, so it runs via the emitted deps.edn `:test`
-       alias (`clojure -M:test`), NOT `shadow compile test` + node. That is
-       the exact path `npm test` and the generated CI invoke (package.json
-       `test` = `clojure -M:test` on the SSR path, per hooks.clj's
-       `{{test-script}}`); before this wiring nothing ran the emitted
-       ssr_test.clj, so an SSR-scaffold regression shipped uncaught
-       (rf2-97eebb).
-
-    2. CLIENT — `clojure -M:shadow compile app`. `ssr_test.clj` loads only
-       the `#?(:clj)` render half of `core.cljc`, so the `#?(:cljs)`
-       HYDRATION branch (`reagent.dom.client/create-root` + `.render`
-       interop, `ssr/hydrate!`, `rf/frame-provider`, `rf/view`, the
-       `^:export init` entry point) was compile-UNTESTED — the sibling
-       static-parse (template_emission_test.clj) only checks re-frame.*
-       symbol EXISTENCE, missing reagent.dom.client interop / arity /
-       macro-expansion breaks. The other four CLJS-emitting variants all
-       get a real `shadow compile app`; the SSR client branch now does too
-       (rf2-ue5ev3). Compile-only — no `node` run — because the SSR
-       scaffold ships no client cljs.test bundle.
-
-  Generate the SSR scaffold (`:include-ssr? true`), rewrite the framework
-  coords — including day8/re-frame2-ssr + day8/re-frame2-ssr-ring — to
-  :local/root, link node_modules, `shadow compile app` (the client branch),
-  then `clojure -M:test` (the server gate) asserting exit 0 plus the
-  cljs.test summary lines so a silent zero-test run can't false-green.
-
-  Needs `clojure` on PATH plus a project-local `node_modules`: the added
-  `:app` (`:browser`) compile resolves React (via reagent) at compile time
-  and — like the CLJS variants — searches ONLY the project-local
-  node_modules (it ignores NODE_PATH). No `node` RUNTIME is needed, though:
-  the browser compile is JVM/Closure-driven, and the JVM SSR render is a
-  pure hiccup -> HTML emitter (no React / JSDOM)."
+   The browser build compiles core.cljc's hydration branch. `clojure -M:test`
+   runs the JVM render and Ring-handler tests, which are also what the emitted
+   npm test script and CI invoke. The browser compile needs project-local
+   node_modules; the tests themselves need no Node runtime or DOM."
   []
   (let [root (repo-root)
         tmp  (tmp-dir "rf2-template-run-reagent-ssr-")]
@@ -545,8 +515,7 @@
               ;; the cognitect runner) doesn't false-green.
               (is (re-find #"Ran \d+ tests? containing \d+ assertions" out)
                   (str "expected 'Ran N tests' summary line — a silent "
-                       "zero-test run (the very false-green rf2-97eebb "
-                       "guards) would otherwise pass. Got:\n" out))
+                       "zero-test run would otherwise pass. Got:\n" out))
               (is (re-find #"0 failures, 0 errors" out)
                   (str "expected '0 failures, 0 errors' line in output. "
                        "Got:\n" out))))))
@@ -609,7 +578,7 @@
 (deftest reagent-with-story-emitted-tests-run-test
   ;; The only tier that actually shadow-compiles +
   ;; node-runs the `:include-story? true` scaffold. Reagent-only because
-  ;; with-story is Reagent-only in v1 (hooks.clj data-fn guard). Same
+  ;; with-story is currently Reagent-only (hooks.clj data-fn guard). Same
   ;; events_test.cljs as the default path runs; the value here is that
   ;; the with-story core (`core_with_stories.cljs` requiring
   ;; re-frame.story + the stories ns), `deps_with_story.edn`, and
@@ -642,20 +611,17 @@
 
 (deftest reagent-ssr-emitted-tests-run-test
   ;; The SSR scaffold's TWO halves: the client `:cljs` hydration branch via
-  ;; `clojure -M:shadow compile app` (rf2-ue5ev3 — core.cljc's #?(:cljs)
+  ;; `clojure -M:shadow compile app` (core.cljc's #?(:cljs)
   ;; reagent.dom.client interop + ssr/hydrate! + ^:export init, which the
   ;; JVM `ssr_test.clj` :clj-only load never compiles), and the server
   ;; render via the headless JVM gate (`ssr_test.clj`) run through the
   ;; emitted deps.edn `:test` alias (`clojure -M:test`) — the exact path
   ;; `npm test` and the generated CI invoke on the SSR scaffold.
-  ;; Reagent-only because `:include-ssr?` is Reagent-only in v1. Needs
+  ;; Reagent-only because `:include-ssr?` currently supports Reagent. Needs
   ;; `clojure` on PATH plus a project-local node_modules for the `:app`
   ;; compile (React via reagent; no `node` RUNTIME — the browser compile is
   ;; JVM/Closure-driven and the JVM SSR render is a pure hiccup -> HTML
   ;; emitter), and rides the same RF2_TEMPLATE_RUN_EMITTED_TESTS gate.
-  ;; Before this tier nothing ran the emitted ssr_test.clj — the empty CLJS
-  ;; node-test bundle the SSR package.json used to run false-greened on zero
-  ;; tests (rf2-97eebb); and the client branch shipped compile-untested.
   (testing "the emitted SSR Reagent app's client :cljs branch compiles
             (`shadow compile app`) + its ssr_test.clj runs green via
             `clojure -M:test` (the JVM gate npm/CI now invoke)"
@@ -711,7 +677,7 @@
        (throw (ex-info (str "setup-skill fixture: found no ```" lang
                             " fenced block " where
                             " — the skill snippet anchors moved; update the "
-                            "fixture extractor (rf2-ae98go).")
+                            "fixture extractor.")
                        {:lang lang :where where})))
      (first blocks))))
 
@@ -838,11 +804,11 @@
                        "`:devtools {:preloads [day8.re-frame2-xray.preload]}`. "
                        "Xray is a day-one dep and index.html ships the host "
                        "column — the canonical block must wire the preload that "
-                       "fills it (rf2-ae98go)."))
+                       "fills it."))
               (is (string/includes? html-text "data-rf-xray-host")
                   (str "the skill's index.html block (references/shadow-cljs.md) "
                        "no longer carries the `[data-rf-xray-host]` Xray layout "
-                       "host column (rf2-ae98go)."))))
+                       "host column."))))
 
           ;; --- compile the :app build -------------------------------------
           (testing "setup-skill scaffold — clojure -M:shadow compile app"
@@ -857,7 +823,7 @@
                        "re-frame2 source — its boot ceremony (`:app/main` + "
                        "`:initial-events` + bare `frame-provider` + `reg-view`) "
                        "diverges from the generator template, so the template "
-                       "variants above can't catch this (rf2-ae98go). Output:\n"
+                       "variants above can't catch this. Output:\n"
                        out))
               ;; A zero-exit with no emitted bundle would false-green.
               (let [bundle (io/file proj "resources/public/js/main.js")]

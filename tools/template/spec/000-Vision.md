@@ -89,9 +89,9 @@ and recognises the shape. That continuity is deliberate.
 
 ## Non-goals
 
-- **Branching feature toggles** beyond the locked v1 set. The
+- **Branching feature toggles** beyond the current set. The
   template ships **three flags total**: `:include-story?`, `:css`,
-  and `:include-ssr?`. Branching is reserved for the day choices
+  and `:include-ssr?`. Branching is reserved for the day when choices
   materially exceed deps-new's substitution capability
   ([DESIGN-RATIONALE](DESIGN-RATIONALE.md) §deps-new vs CLI).
 
@@ -99,18 +99,17 @@ and recognises the shape. That continuity is deliberate.
   *optional shared scaffolding* whose absence would force the user
   into hand-wiring known idioms:
 
-  - `:include-story?` (rf2-t009p, shipped today) — emits a
+  - `:include-story?` — emits a
     `counter_with_stories`-shaped story scaffold alongside the
-    live app. Reagent-only in v1.
-  - `:css :tailwind` (rf2-gthro verification; wiring rf2-nxqcov,
-    shipped) — Tailwind v4 in place of the default plain-CSS
+    live app. Currently Reagent-only.
+  - `:css :tailwind` — Tailwind v4 in place of the default plain-CSS
     `app.css`: a CSS-first `@import "tailwindcss";` stylesheet (no
     `tailwind.config.js`) plus an `index.html` that loads the
     `@tailwindcss/browser@4` dev CDN compiler. Substrate-invariant.
-  - `:include-ssr?` (rf2-675qdb, shipped) — SSR scaffolding per
+  - `:include-ssr?` — SSR scaffolding per
     Spec 011: a shared `core.cljc` (JVM render + CLJS hydration),
     a `server.clj` Ring host, and a headless `ssr_test.clj`.
-    Reagent-only in v1; mutually exclusive with `:include-story?`.
+    Currently Reagent-only; mutually exclusive with `:include-story?`.
 
   Resist further proliferation — every additional flag requires
   explicit DESIGN-RATIONALE justification.
@@ -126,9 +125,9 @@ and recognises the shape. That continuity is deliberate.
   Guide chapter 06 to add more.
 - **Server-side hosting on the default path.** The default scaffold is a
   pure CLJS SPA — no backend. SSR scaffolding (Spec 011) is the opt-in
-  exception: `:include-ssr? true` (rf2-675qdb, shipped) emits a shared
+  exception: `:include-ssr? true` emits a shared
   `core.cljc` + a Ring/Jetty `server.clj` host + a headless `ssr_test.clj`
-  (Reagent-only in v1). See 004-SSR-Validation-Report and
+  (currently Reagent-only). See 004-SSR-Validation-Report and
   001-Substrate-Variants §Variants.
 
 ## Distribution
@@ -150,8 +149,8 @@ a GitHub Release per `template-v<VERSION>` tag push; that's the
 publication moment from the consumer's perspective.
 
 Initial home is `tools/template/` inside the `day8/re-frame2`
-monorepo. Final home is a dedicated `day8/re-frame2-template` repo;
-the split is rf2-7jgkv (rf2-dolpf §4).
+monorepo. Final home is a dedicated `day8/re-frame2-template` repo; see
+005-Repo-Split for the remaining procedure.
 
 ## Cross-references
 

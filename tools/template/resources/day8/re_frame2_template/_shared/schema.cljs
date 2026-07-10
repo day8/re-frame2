@@ -1,64 +1,43 @@
 (ns {{namespace}}.schema
-  "App-db schema — typed-at-boundaries posture (Spec 010).
+  "App-db schema for validation at state-change boundaries.
 
    re-frame2 attaches schemas at paths. The framework validates writes
-   against every registered path-schema after each handler completes a
-   state mutation. A non-conforming write rolls back the `:db` effect
-   and emits a structured `:rf.error/schema-validation-failure` trace —
-   the runtime treats it as a failed dispatch (flows don't evaluate,
-   `:fx` doesn't walk), but the queue continues to drain.
+   against registered path schemas after a handler returns a `:db` effect.
+   A non-conforming write is rolled back and reported as
+   `:rf.error/schema-validation-failure`.
 
    The starter app registers ONE schema at the empty path `[]` — the
-   whole-app-db form (`get-in`/`assoc-in` semantics: `[]` means \"the
-   whole map\"). For multi-feature apps, split per-feature schemas at
-   their prefix paths (`[:cart]`, `[:auth]`, ...) per
+   whole-app-db form (`[]` means the whole map). For multi-feature apps,
+   split schemas across feature prefix paths such as `[:cart]` and `[:auth]`.
+   See
    [Spec 010 §`app-db` schemas — path-based](https://github.com/day8/re-frame2/blob/main/spec/010-Schemas.md#app-db-schemas--path-based)
    and the [Feature-modularity prefix
    convention](https://github.com/day8/re-frame2/blob/main/spec/Conventions.md#feature-modularity-prefix-convention).
 
-   The schemas artefact (`day8/re-frame2-schemas`) is loaded as a
-   side-effect in events.cljs. Requiring `re-frame.schemas` makes the
-   default Malli validator live — the artefact `:require`s its Malli
-   adapter (`re-frame.schemas.malli`) itself at ns-load, publishing
-   Malli's `validate` and `explain` into the framework's late-bind hook
-   table before any `reg-app-schema` call runs. \"Schema implies
-   validation\" (rf2-v96fh): there is no registered-but-silently-inert
-   state.
+   Requiring `re-frame.schemas` from events.cljs installs the default Malli
+   validator before this schema is registered.
 
    Schemas validate **in dev** (and on JVM unless production-hardened);
    the validation check elides automatically under `:advanced`
    `goog.DEBUG=false` builds — schema attachments stay in source but
    cost nothing in production hot paths.
 
-   A schema validates **shape**; it does NOT classify durable app-db
-   egress. Whether an app-db path is sensitive or large — and therefore
-   redacted/elided at observation boundaries (Xray, Story, traces,
-   off-box export) — is FRAME-owned policy declared on `reg-frame`, not
-   re-attached here (Spec 015 §Schemas describe shape, not durable app-db
-   egress policy: one owner, one route). See `core.cljs` (where the frame
-   is registered) and README §Privacy / egress classification."
+   A schema validates shape; it does NOT classify durable app-db egress.
+   The event that writes a sensitive or large path declares that fact via
+   commit-plane effects. See core.cljs and the README privacy section."
   (:require [re-frame.core :as rf]))
 
 ;; --- Whole-app-db schema ---------------------------------------------------
 ;;
-;; A closed map: a typo like `:countr/value` (one missing `e`) is caught
-;; at the boundary instead of producing a silent `nil` downstream. Open
-;; vs closed is a team decision — open admits new keys mid-development;
-;; closed catches typos. Best practice for a starter scaffold: closed.
+;; A closed map catches misspelled keys at the boundary. Choose open schemas
+;; deliberately when a feature needs to admit keys outside this contract.
 
 (def CounterDb
   [:map {:closed true}
    [:counter/value :int]])
 
-;; EP-0002 (carried-frame invariant, Spec 002 §Frame target resolution):
-;; app-db schemas are FRAME-LOCAL — `reg-app-schema` targets a frame and the
-;; runtime never synthesises one from absence. At namespace-load time no
-;; frame is established, so this registration MUST NOT run as a load-time
-;; side-effect (it would raise `:rf.error/no-frame-context`). Instead it is a
-;; boot step: `core/init` calls `register-schema!` AFTER `reg-frame` makes the
-;; app's `:rf/default` frame live, inside a `with-frame :rf/default` scope.
-;; (Contrast events/subs above, which are frame-agnostic global registrations
-;; and are fine at ns-load.)
+;; App-db schemas are frame-local, so core/init calls this after reg-frame
+;; instead of registering it as a namespace-load side effect.
 (defn register-schema!
   "Attach the whole-app-db schema to the app's frame. Call once at boot,
    under the app's frame scope (see core/init)."

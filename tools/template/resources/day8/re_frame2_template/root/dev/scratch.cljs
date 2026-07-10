@@ -5,8 +5,8 @@
    nREPL after `npx shadow-cljs watch app`, then evaluate the
    `(comment …)` forms below.
 
-   EP-0002 (Spec 002 §Frame target resolution): the runtime never
-   synthesises a frame from absence — there is NO `:rf/default` floor.
+   The runtime never synthesises a frame from absence; there is no implicit
+   `:rf/default` floor.
    A bare `rf/dispatch` / `rf/subscribe` evaluated at the REPL with no
    established scope raises `:rf.error/no-frame-context`. So every
    example below names a frame explicitly: the live-app forms pin
@@ -44,12 +44,10 @@
   ;;
   ;; `with-new-frame` is the eval-bind-run-destroy form: it evaluates the
   ;; expr (here `make-frame`), binds the new frame to the symbol, runs the
-  ;; body under that frame's scope, then destroys the frame on exit (success
-  ;; or exception) — the live `:rf/default` frame is untouched. `rf/make-frame`
-  ;; returns the live frame OBJECT (EP-0023); `:initial-events` seeds the fresh
-  ;; frame's app-db before the body runs (EP-0027 — seeding is itself an event).
-  ;; (Use `with-frame <keyword>` to PIN an EXISTING frame, as above; use
-  ;; `with-new-frame [sym expr]` to CREATE one — see Spec 002 §with-frame.)
+  ;; body under that frame's scope, then destroys the frame on exit. The live
+  ;; `:rf/default` frame is untouched. `:initial-events` seeds the new frame
+  ;; before the body runs. Use `with-frame` for an existing frame and
+  ;; `with-new-frame` to create a temporary one.
   (rf/with-new-frame [f (rf/make-frame {:initial-events [[:rf/set-db {:counter/value 0}]]})]
     (rf/dispatch-sync [:counter/increment])
     @(rf/subscribe [:counter/value]))

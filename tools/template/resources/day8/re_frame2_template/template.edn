@@ -1,55 +1,9 @@
-;; deps-new template config for day8/re-frame2-template
-;; (rf2-dolpf §2.2-2.4, rf2-c2770).
+;; deps-new template config for day8/re-frame2-template.
 ;;
-;; Scope: the full three-substrate matrix (Reagent / UIx / Helix), with
-;; an optional Story playground on Reagent. The matrix is built at run
-;; time by `template-fn` (see the `:transform` note below); this EDN only
-;; declares the hook fns. See tools/template/spec/003-DepsNew-Rebuild-Plan.md
-;; for the migration plan and §-by-§ status.
-;;
-;; deps-new resolution mechanics:
-;;
-;;   - Symbol-to-path:
-;;     deps-new (`org.corfield.new.impl/find-root`) translates the
-;;     `:template` symbol to a filesystem path: dots → slashes,
-;;     dashes → underscores. So `day8/re-frame2-template` →
-;;     `day8/re_frame2_template/template.edn`. This file lives at
-;;     that path under `tools/template/resources/`.
-;;
-;;   - Current (pre-§3-split) local-dev / smoke:
-;;     `clojure -Sdeps '{:deps {day8/re-frame2-template
-;;                              {:local/root "./tools/template"}}}'
-;;       -Tnew create :template day8/re-frame2-template
-;;             :name acme/my-app`
-;;     The local-root coord exposes `tools/template/resources/` on
-;;     the classpath (via tools/template/deps.edn's `:paths`), so
-;;     `find-root`'s classpath lookup resolves to this file.
-;;     The non-`io.github.*` qualifier (`day8`) bypasses deps-new's
-;;     auto-git-clone behaviour — exactly what we want during
-;;     in-repo development.
-;;
-;;   - §3 steady-state — published / git-coord:
-;;     `clojure -Tnew create :template io.github.day8/re-frame2-template
-;;             :name acme/my-app`
-;;     deps-new sees the `io.github.*` prefix, auto-derives the URL
-;;     `https://github.com/day8/re-frame2-template.git`, clones via
-;;     `gitlibs/procure`, then runs `find-root` against the clone
-;;     using the resolved symbol (path
-;;     `io/github/day8/re_frame2_template/template.edn`). The repo
-;;     split (spec/005-Repo-Split.md §2.1) retargets the resources to
-;;     the `io/github/day8/...` path inside the extracted
-;;     `day8/re-frame2-template` repo so the steady-state invocation
-;;     works against the published artefact. The current monorepo tree
-;;     ships the `day8/...` path only — the retarget is mechanical (a
-;;     `git mv`) once the split lands, and the local-dev smoke then
-;;     resolves that single canonical body via the
-;;     `day8/re-frame2-template%%io.github.day8/re-frame2-template`
-;;     override coord (no second on-disk copy; see 005 §2.1 + §3.4.1).
-;;
-;; The static `:transform` is intentionally absent — `template-fn`
-;; (in `src/day8/re_frame2_template/hooks.clj`) builds the transform
-;; vector at run time from the chosen substrate + opt-in flags. The
-;; programmatic body owns the decisions.
+;; deps-new maps the template symbol to this resource and resolves these
+;; functions from the classpath. `template-fn` builds `:transform` at run
+;; time because the selected substrate and optional features change the
+;; emitted file set.
 {:description     "Scaffold a new re-frame2 application (Reagent / UIx / Helix; optional Story playground via :include-story? true on Reagent)."
  :data-fn         day8.re-frame2-template.hooks/data-fn
  :template-fn     day8.re-frame2-template.hooks/template-fn

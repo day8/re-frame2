@@ -52,7 +52,7 @@ Rebuild the client on save with the watcher above; to pick up a change to the
 - **`CounterDb`** — the whole-app-db Malli schema, kept as a plain value so it
   can be registered against whichever frame the entry point stands up (the
   throwaway per-request server frame, or the fixed client frame). `reg-app-schema`
-  is frame-local (EP-0002), so it is attached under a live frame scope, never at
+  is frame-local, so it is attached under a live frame scope, never at
   namespace load.
 - **`:counter/initialise` / `:counter/increment`** — the shared events.
 - **`:counter/value`** — the shared subscription.
@@ -219,8 +219,8 @@ error event.
 `core.cljc` registers a **whole-app-db schema** (`CounterDb`) at the empty path
 `[]`. The runtime validates every write against the registered schemas; a
 non-conforming write rolls back the `:db` effect and emits
-`:rf.error/schema-validation-failure`. App-db schemas are **frame-local**
-(EP-0002): the scaffold attaches the schema under a live frame scope
+`:rf.error/schema-validation-failure`. App-db schemas are **frame-local**:
+the scaffold attaches the schema under a live frame scope
 (`register-schema!` — the server via the `:ssr/register-schema` initial-event, the
 client via the explicit-frame arity), never at namespace load. Closed maps
 (`{:closed true}`) catch typos; schema validation elides automatically under
@@ -230,15 +230,15 @@ For multi-feature apps, register **per-feature schemas at their prefix path**
 rather than one giant root schema. Full detail:
 [Spec 010 §`app-db` schemas — path-based](https://github.com/day8/re-frame2/blob/main/spec/010-Schemas.md#app-db-schemas--path-based).
 
-### Privacy / egress classification — declare it on the frame
+### Privacy / egress classification — declare it where data is written
 
 re-frame2 makes runtime state highly observable (Xray, the trace stream, off-box
 monitors) — a productivity feature **and** a privacy surface. **App-db schemas
 validate shape; they do NOT classify egress.** Egress classification for durable
-app-db paths is owned by the **frame** (declared on `reg-frame`), never
-re-attached to a schema. As soon as you add auth/API data to app-db, classify it
-from the event that writes it — return the `:sensitive` / `:large` commit-plane
-effects alongside `:db` (EP-0025). On SSR the `:payload` allowlist on
+app-db paths is recorded per frame, but authored by the event that writes the
+data rather than on `reg-frame` or a schema. As soon as you add auth/API data
+to app-db, return the `:sensitive` / `:large` commit-plane effects alongside
+`:db`. On SSR the `:payload` allowlist on
 `ssr-handler` is a second privacy gate: ship only the slices the client needs in
 the hydration payload (this scaffold ships `[:counter/value]`), so server-only
 secrets never cross to the wire. Full model:

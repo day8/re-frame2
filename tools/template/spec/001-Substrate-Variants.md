@@ -61,8 +61,7 @@ message naming the valid set:
 
 Anything not in `#{:reagent :uix :helix}` (or anything not a keyword)
 throws an `ex-info` with the offending value and the set of valid
-substrates in `ex-data`. This tightening (rf2-h0imw) replaces the
-earlier kw/string/symbol forgiving-input posture; see
+substrates in `ex-data`. See
 [DESIGN-RATIONALE.md §8](DESIGN-RATIONALE.md) for the rationale.
 
 ## What each variant emits
@@ -126,11 +125,8 @@ io.github.day8/re-frame2-template ...` and then reads Guide chapter
 
 ## SSR variant (`:include-ssr? true`, Reagent-only)
 
-Both gating conditions for the SSR variant have cleared —
-`implementation/ssr/` + `implementation/ssr-ring/` carry the full Spec 011
-reference impl, and rf2-0m5ea (SSR validation) closed — so
-`:include-ssr?` is a **live Reagent-only flag** (rf2-675qdb; the
-close-out of 004-SSR-Validation-Report §6).
+`:include-ssr?` is a live Reagent-only flag. The validation record is in
+004-SSR-Validation-Report.
 
 Under `:include-ssr? true` the Reagent counter is emitted as a shared
 `core.cljc` (the same code runs the JVM render path and the CLJS

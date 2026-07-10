@@ -109,8 +109,8 @@ reads `:substrate` off the map and threads the coerced keyword
 through to `template-fn`'s per-substrate `case`.
 
 The v1 clj-new template plumbed `:substrate` through `:edn-args`
-to work around clj-new's top-level-arg stripping; the deps-new
-migration (rf2-dolpf) removed the workaround. See
+to work around clj-new's top-level-arg stripping; deps-new removed the
+workaround. See
 [DESIGN-RATIONALE.md §Retired §`:edn-args`-not-top-level](DESIGN-RATIONALE.md#retired--edn-args-not-top-level)
 for the historical record.
 
@@ -139,10 +139,7 @@ The substrate **value** is also strict: anything not in
 valid set. No silent fallback to default, no "did you mean...?"
 fuzz. The user sees the typo and fixes it.
 
-(History: this principle tightened from "forgiving on input shape,
-strict on substrate set" to "strict on both" in rf2-h0imw, on the
-back of the rf2-c8tmc first-principles audit. See
-[DESIGN-RATIONALE.md §8](DESIGN-RATIONALE.md) for the rationale.)
+See [DESIGN-RATIONALE.md §8](DESIGN-RATIONALE.md) for the rationale.
 
 ## P7 — Tested end-to-end, per substrate
 

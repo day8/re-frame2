@@ -12,38 +12,23 @@
    below; the Story shell allocates and owns its own root internally
    via `rdc/create-root` inside `mount-shell!`.
 
-   Per IMPL-SPEC §6.5 / Stage 8: under `:advanced` with
-   `:closure-defines {re-frame.story.config/enabled? false}`, every
-   `reg-*` form in `{{namespace}}.stories` elides to `nil` and
-   `mount-shell!` short-circuits — the production bundle carries no
-   Story body code.
-
-   IMPORTANT — elision is OPT-IN, not automatic. `re-frame.story.config/
-   enabled?` defaults to `true`, and `shadow-cljs.edn` does NOT set the
-   closure-define for you. So a plain `npx shadow-cljs release app` SHIPS
-   the Story shell, the `#/stories` route, and every registration to
-   production. To elide Story from the release bundle, add the
-   `:release` compiler-options block to `shadow-cljs.edn`'s `:app`
-   build:
+   Story elision is opt-in. To remove the shell and registrations from an
+   advanced release build, add this to the `:app` build in shadow-cljs.edn:
 
      :release {:compiler-options
                {:closure-defines {re-frame.story.config/enabled? false}}}
 
-   (Leave it OUT — keep `enabled?` true in release — only when you want
-   a release-flavoured Story build for visual-regression.)"
+   Leave the define unset when Story is intentionally part of the release."
   (:require [reagent.dom.client       :as rdc]
             [re-frame.core            :as rf]
             [re-frame.story           :as story]
             [re-frame.adapter.reagent :as reagent-adapter]
-            ;; Side-effecting requires — register events / subs and
-            ;; pull the views ns in so its `reg-view` forms register.
+            ;; Requiring these namespaces installs their registrations.
             [{{namespace}}.events]
             [{{namespace}}.subs]
-            ;; Frame-local schema registration — called from `init` under the
-            ;; app's frame scope (see register-schema! below).
             [{{namespace}}.schema     :as schema]
             [{{namespace}}.views      :as views]
-            ;; Loading the stories ns fires the Story `reg-*` calls.
+            ;; Loading the stories namespace installs Story registrations.
             [{{namespace}}.stories]))
 
 ;; -- Live-app root --------------------------------------------------------
@@ -62,9 +47,7 @@
 (defn- mount-app! []
   (story/unmount-shell!)
   (ensure-app-root!)
-  ;; EP-0002 carried-frame invariant: wrap the live-app render in a
-  ;; `frame-provider` so the in-tree dispatch/subscribe in `counter-app`
-  ;; resolve to the app's `:rf/default` frame (registered in `init`).
+  ;; Use the same frame that init seeds.
   (rdc/render @app-root [rf/frame-provider {:frame :rf/default} [views/counter-app]]))
 
 (defn- mount-stories! []
@@ -79,15 +62,8 @@
 
 ;; -- hashchange listener (hot-reload-safe) --------------------------------
 ;;
-;; `init` runs on first boot AND on every shadow hot-reload. The closure
-;; identity of `on-hash-change!` changes on each rebuild, so a naive
-;; `(.addEventListener … on-hash-change!)` in `init` would accumulate one
-;; stale listener per rebuild — every subsequent route change would then
-;; fire the mount switch N times (repeated React root teardown/recreate,
-;; flicker, a growing listener leak). We hold the *installed* listener in
-;; a `defonce` atom that survives reloads, and remove the previous one
-;; before adding the new one — so exactly one hashchange listener is ever
-;; wired, pointing at the current code.
+;; Hot reload creates a new callback identity. Keep the installed callback in
+;; a defonce atom so it can be removed before its replacement is registered.
 (defonce ^:private hash-listener (atom nil))
 
 (defn- install-hash-listener! []
@@ -101,27 +77,13 @@
    shadow's hot-reload pipeline re-invokes it on each rebuild."
   []
   (rf/init! reagent-adapter/adapter)
-  ;; EP-0002 carried-frame invariant (Spec 002 §Frame target resolution):
-  ;; `init!` installs the adapter only — the runtime never synthesises a
-  ;; frame from absence. Register `:rf/default` as the app frame, then run
-  ;; frame-local boot work (schema attach + seed dispatch) inside its scope.
-  ;; The live-app render wraps `counter-app` in a `frame-provider` (see
-  ;; mount-app!).
+  ;; init! installs the adapter but does not create the app frame.
   (rf/reg-frame :rf/default {})
-  ;; The canonical Story vocabulary auto-installs on the first `reg-*`
-  ;; call in `{{namespace}}.stories` (loaded via the :require above)
-  ;; — no explicit `(story/install-canonical-vocabulary!)`
-  ;; call needed. The hook is idempotent and survives a `clear-all!`
-  ;; during dev experiments.
-  ;; Seed app-db before the first render so the live-app branch sees a
-  ;; populated frame.
+  ;; stories.cljs installs the canonical Story vocabulary on its first
+  ;; registration. Seed app-db before mounting the live-app branch.
   (rf/with-frame :rf/default
     (schema/register-schema!)
     (rf/dispatch-sync [:counter/initialise]))
-  ;; Wire hash-change so reloading `#/stories` lands on the shell
-  ;; without a manual click-through. `install-hash-listener!` removes any
-  ;; listener a previous hot-reload installed before adding this one, so
-  ;; reloads never accumulate stale listeners (defonce atom holds the
-  ;; current one).
+  ;; Install the reload-safe route listener before applying the current hash.
   (install-hash-listener!)
   (on-hash-change!))

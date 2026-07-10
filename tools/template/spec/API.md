@@ -39,7 +39,7 @@ Where:
 - `:substrate <kw>` is one of `:reagent` `:uix` `:helix`. Optional.
   Defaults to `:reagent`.
 - `:include-story? <bool>` and `:include-ssr? <bool>` are `true` /
-  `false` (default `false`). Both are **Reagent-only in v1** and
+  `false` (default `false`). Both are currently **Reagent-only** and
   **mutually exclusive** — pass at most one.
 - `:css <kw>` is `:tailwind` (the Tailwind v4 scaffold) or omitted
   (the plain-CSS default). Substrate-invariant.
@@ -108,15 +108,14 @@ clojure -Tnew create \
 | Arg | Required | Meaning | Default |
 |---|---|---|---|
 | `:substrate` | no | One of `:reagent` `:uix` `:helix`. | `:reagent` |
-| `:include-story?` | no | When `true`, scaffolds the Story playground alongside the live app — adds the `day8/re-frame2-story` coord, emits `src/.../stories.cljs`, and swaps the entry `core.cljs` for the hash-routing `core_with_stories.cljs` variant. **Reagent only in v1** — non-Reagent substrates throw a clear error (UIx + Helix follow once those variants' app-shells catch up to Reagent's). Mutually exclusive with `:include-ssr?`. | `false` |
-| `:include-ssr?` | no | When `true`, scaffolds a server-side-rendered app (JVM render + client hydration). The registration root becomes a single shared `src/.../core.cljc` (folding in the events / subs / schema / view), a Ring/Jetty `server.clj` host is added (run with `clojure -X:server`), and a headless JVM `test/.../ssr_test.clj` gate replaces the CLJS `events_test.cljs`. An SSR-flavoured `README.md` overlays the default SPA one. The per-slice CLJS sources (`events.cljs` / `subs.cljs` / `schema.cljs` / `views.cljs`) are **not** emitted — they live in `core.cljc`. **Reagent-only in v1** (non-Reagent substrates throw a clear error) and **mutually exclusive with `:include-story?`**. | `false` |
+| `:include-story?` | no | When `true`, scaffolds the Story playground alongside the live app — adds the `day8/re-frame2-story` coord, emits `src/.../stories.cljs`, and swaps the entry `core.cljs` for the hash-routing `core_with_stories.cljs` variant. **Currently Reagent-only**; non-Reagent substrates throw a clear error. Mutually exclusive with `:include-ssr?`. | `false` |
+| `:include-ssr?` | no | When `true`, scaffolds a server-side-rendered app (JVM render + client hydration). The registration root becomes a single shared `src/.../core.cljc` (folding in the events / subs / schema / view), a Ring/Jetty `server.clj` host is added (run with `clojure -X:server`), and a headless JVM `test/.../ssr_test.clj` gate replaces the CLJS `events_test.cljs`. An SSR-flavoured `README.md` overlays the default SPA one. The per-slice CLJS sources (`events.cljs` / `subs.cljs` / `schema.cljs` / `views.cljs`) are **not** emitted — they live in `core.cljc`. **Currently Reagent-only** and **mutually exclusive with `:include-story?`**. | `false` |
 | `:css` | no | `:tailwind` swaps the plain-CSS scaffold for a Tailwind v4 one — an `@import "tailwindcss";` `app.css` (v4 is CSS-first; no `tailwind.config.js`) and an `index.html` that loads the `@tailwindcss/browser@4` dev CDN compiler (zero build step). Omit (or pass `nil`) for the plain-CSS default. **Substrate-invariant** — identical across Reagent / UIx / Helix — and composes with `:include-story?` / `:include-ssr?`. | `nil` (plain CSS) |
 
 `:substrate` accepts only a keyword (or omission, which defaults
 to `:reagent`). Anything else — string, symbol, number, … — throws
 with a clear message naming the valid set. See
-[DESIGN-RATIONALE.md §8](DESIGN-RATIONALE.md) for why the earlier
-forgiving-input posture was tightened (rf2-h0imw).
+[DESIGN-RATIONALE.md §8](DESIGN-RATIONALE.md) for why inputs fail closed.
 
 `:include-story?` accepts `true` / `false` / `nil`; anything else
 throws. The branching exception is justified in
@@ -127,7 +126,7 @@ absence would force the user into hand-wiring known idioms.
 
 `:include-ssr?` likewise accepts `true` / `false` / `nil`; anything
 else throws `:rf.error/template-bad-include-ssr-flag`. It is
-**Reagent-only in v1** (a non-Reagent substrate throws
+currently **Reagent-only** (a non-Reagent substrate throws
 `:rf.error/template-include-ssr-reagent-only`) and **mutually
 exclusive with `:include-story?`** — passing both throws
 `:rf.error/ssr-and-story-mutually-exclusive`, because the
@@ -141,16 +140,13 @@ keyword — fails closed with `:rf.error/template-bad-css-flag`. The
 flag is orthogonal to `:substrate` / `:include-story?` /
 `:include-ssr?` and composes with all of them.
 
-The v1 set is locked at three flags total (`:include-story?`,
-`:include-ssr?`, `:css`) — all now live (`:css` under rf2-gthro
-verification + rf2-nxqcov wiring; `:include-ssr?` under rf2-0m5ea
-validation + rf2-675qdb wiring). Their accepted values and
-constraints are documented per-flag above.
+The current set has three live flags: `:include-story?`, `:include-ssr?`,
+and `:css`. Their accepted values and constraints are documented above.
 There are no reserved-but-unimplemented flags today; the fail-closed
 `reserved-flag-gates` list (empty) stays as the home for any future
 one — passing a reserved flag would throw
-`:rf.error/template-unsupported-flag` (the flag and its gating bead
-named in the message). Any other unrecognised template key,
+`:rf.error/template-unsupported-flag` (the flag and gate are named in the
+message). Any other unrecognised template key,
 including a typo of a live flag (e.g. `:include-story` for
 `:include-story?`), fails closed with
 `:rf.error/template-unknown-flag`. The gate distinguishes template
@@ -172,8 +168,8 @@ reads the args directly off the `data` map deps-new hands it.
 
 ## Local-development invocation
 
-Until the dedicated `day8/re-frame2-template` repo is published
-(rf2-dolpf §4 — repo split), use the `:local/root` route to exercise
+Until the dedicated `day8/re-frame2-template` repo is published, use the
+`:local/root` route to exercise
 the template from a checkout of this repo:
 
 ```bash
