@@ -159,8 +159,10 @@ discipline as the rest of the registry.
 
 | Id | Surface | Behaviour |
 |---|---|---|
-| `:rf.xray/trace-collector` | `rf/register-listener!` | Xray's trace consumer listener. Drops self-noise (`:frame :rf/xray`), applies the privacy gate, pushes frameless events into Xray's secondary ring, and requests a coalesced microtask sync into `:rf/xray`'s `:trace-buffer` slot — the framework's per-frame rings own the frame-bound data plane (per rf2-43koh). Idempotent per preload installation. |
-| `:rf.xray/epoch-collector` | `rf/register-listener!` (`:epoch`) | Xray's epoch-settle pump. Dispatches `:rf.xray/epoch-recorded` per settled epoch so the cached `:rf.xray/epoch-history` snapshot stays consistent with `(rf/epoch-history target)`. Short-circuits when Xray is not mounted. |
+| `:rf.xray/trace-collector` | `re-frame.trace.tooling/register-listener!` | Xray's trace consumer listener. Drops self-noise (`:frame :rf/xray`), applies the privacy gate, pushes frameless events into Xray's secondary ring, and requests a coalesced microtask sync into `:rf/xray`'s `:trace-buffer` slot — the framework's per-frame rings own the frame-bound data plane (per rf2-43koh). Idempotent per preload installation. |
+| `:rf.xray/epoch-collector` | `re-frame.epoch/register-epoch-listener!` | Xray's epoch-settle pump. Dispatches `:rf.xray/epoch-recorded` per settled epoch so the cached `:rf.xray/epoch-history` snapshot stays consistent with `(rf/epoch-history target)`. Short-circuits when Xray is not mounted. |
+
+Both collectors attach via the per-stream **home-namespace verbs**, not the `rf/register-listener!` facade — Xray is a canonical devtool, and a dev-only preload MUST NOT require `re-frame.core` into a production build (bundle isolation / DCE). See [Spec Tool-Pair §Facade vs home-namespace verb — the DCE tier rule](../../../spec/Tool-Pair.md#facade-vs-home-verb-the-dce-tier-rule) (rf2-rfid2x).
 
 ## Cross-panel focused-cascade primitives (relocated from the retired event-detail panel · rf2-5gl5r; sub renamed off the retired-panel name · rf2-7ed9ms)
 

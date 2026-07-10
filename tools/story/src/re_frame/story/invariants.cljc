@@ -65,7 +65,17 @@
   that registration is the thin orchestration wrapper around the pure
   core."
   #?(:cljs (:require-macros [re-frame.story.invariants]))
-  (:require [re-frame.core :as rf]
+  ;; rf2-rfid2x — the invariant sentinel attaches to the assembled `:epoch`
+  ;; stream via the epoch HOME verb (`re-frame.epoch/register-epoch-listener!`),
+  ;; NOT the `rf/register-listener! :epoch` facade. Per the Tool-Pair
+  ;; §"Facade vs home-namespace verb — the DCE tier rule": canonical devtools
+  ;; attach via the home-namespace verbs so a tool preload never drags
+  ;; `re-frame.core` into a production build. The home verb is a HARD dep on
+  ;; `day8/re-frame2-epoch` (declared in this artefact's deps.edn) — an
+  ;; invariant sentinel is meaningless without the epoch stream it checks after
+  ;; every committed epoch, so the hard dep (fail-loud when absent) is correct
+  ;; where the facade's silent no-op-when-absent was a false-green footgun.
+  (:require [re-frame.epoch :as epoch]
             [re-frame.error :as error]
             #?(:clj  [clojure.test :as ctest]
                :cljs [cljs.test :as ctest :include-macros true])))
@@ -384,7 +394,7 @@
 
   `invariants` is the authored vector; it is coerced here so the macro
   passes author shapes through verbatim. The listener exception isolation
-  is twofold: `(rf/register-listener! :epoch …)` already catches and
+  is twofold: `re-frame.epoch/register-epoch-listener!` already catches and
   isolates listener exceptions (Spec 009 §register-epoch-listener!), AND
   `on-epoch!` itself never throws — so a broken predicate can neither
   break the runtime nor abort the body."
@@ -392,11 +402,11 @@
   (let [coerced (coerce-invariants invariants)
         state   (atom {:seen #{} :violations []})
         key     (keyword "rf.story.invariants" (str (gensym "sentinel-")))]
-    (rf/register-listener! :epoch key (fn [epoch] (on-epoch! state coerced epoch)))
+    (epoch/register-epoch-listener! key (fn [epoch] (on-epoch! state coerced epoch)))
     (try
       (body-fn)
       (finally
-        (rf/unregister-listener! :epoch key)
+        (epoch/unregister-epoch-listener! key)
         ;; Per spec/017 §A1 — a green sentinel is visible: report a
         ;; `:pass` for every invariant that recorded no violation across
         ;; the whole run.
@@ -425,7 +435,7 @@
      sentinel:
 
      - checks every invariant after EACH committed epoch (via
-       `(rf/register-listener! :epoch …)`);
+       `re-frame.epoch/register-epoch-listener!`);
      - reports each violation through `clojure.test` / `cljs.test` exactly
        ONCE per failing epoch;
      - NEVER throws from the epoch listener — a violated OR a broken

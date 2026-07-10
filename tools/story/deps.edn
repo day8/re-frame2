@@ -46,6 +46,23 @@
          ;; artefact under `re-frame.http.managed`.
          day8/re-frame2-http     {:local/root "../../implementation/http"}
 
+         ;; rf2-rfid2x — the invariant-sentinel fixture
+         ;; (`re-frame.story.invariants`, in src/) attaches to the assembled
+         ;; `:epoch` stream via the epoch HOME verb
+         ;; `re-frame.epoch/register-epoch-listener!` (per the Tool-Pair
+         ;; §"Facade vs home-namespace verb — the DCE tier rule": canonical
+         ;; devtools attach via the home verbs, never the `re-frame.core`
+         ;; facade). The home verb is a HARD compile dep on the epoch artefact,
+         ;; so it belongs in the RUNTIME `:deps` (not the `:test` alias): a
+         ;; consumer of `with-invariants` needs the epoch stream the sentinel
+         ;; checks after every committed epoch. This replaces the prior
+         ;; facade-via-late-bind form whose silent no-op-when-absent was a
+         ;; false-green footgun for an invariant sentinel. (The run-artifact
+         ;; replay path in `re-frame.story.artifact` still reads the late-bound
+         ;; `rf/epoch-history` facade — it degrades to an empty tape and does
+         ;; not need a hard dep.)
+         day8/re-frame2-epoch    {:local/root "../../implementation/epoch"}
+
          ;; Malli drives Story's three-level args / argtypes auto-derivation
          ;; from Spec 010 schemas (see IMPL-SPEC §4 + §5.2). Malli is
          ;; already a transitive dep via implementation/core; the version
@@ -58,23 +75,18 @@
  {:test {:extra-paths ["test"]
          :extra-deps  {;; rf2-try1x — silent-on-success reporter.
                        day8/re-frame2-test-quiet {:local/root "../../implementation/test-quiet"}
-                       ;; rf2-5x1wt.5/.6 + rf2-5x1wt.7 — two test-only consumers
-                       ;; need the live epoch surface on the JVM classpath:
-                       ;;   • the invariant-sentinel fixture
-                       ;;     (`re-frame.story.invariants`) registers a live epoch
-                       ;;     listener via `re-frame.core/register-epoch-listener!`;
-                       ;;   • the run-artifact replay path (`re-frame.story.artifact`)
-                       ;;     captures a live epoch tape via `rf/epoch-history`.
-                       ;; Both degrade to a no-op / empty tape unless the epoch
-                       ;; artefact is on the classpath. The top-level CLJS build
-                       ;; already carries `epoch/src` (shadow-cljs.edn); this gives
-                       ;; the JVM `clojure -M:test` gate the same live surface so
-                       ;; both the sentinel's fresh/destroyed-frame coverage and the
-                       ;; replay tests exercise the real listener/capture path.
-                       ;; Test-only — the published Story jar carries no epoch dep
-                       ;; (both sources read the late-bound facade), mirroring how
-                       ;; implementation/core/deps.edn pulls epoch on :test only.
-                       day8/re-frame2-epoch      {:local/root "../../implementation/epoch"}
+                       ;; rf2-5x1wt.5/.6 + rf2-5x1wt.7 + rf2-rfid2x — the live
+                       ;; epoch surface is needed on the JVM classpath by two
+                       ;; consumers. As of rf2-rfid2x the epoch artefact is a
+                       ;; RUNTIME `:deps` entry (above) because the
+                       ;; invariant-sentinel fixture (`re-frame.story.invariants`)
+                       ;; now registers via the HARD-dep home verb
+                       ;; `re-frame.epoch/register-epoch-listener!`; the run-artifact
+                       ;; replay path (`re-frame.story.artifact`) still reads the
+                       ;; late-bound `rf/epoch-history` facade (empty-tape when
+                       ;; absent). The runtime dep already satisfies both under
+                       ;; `clojure -M:test`, so no separate `:test`-alias epoch
+                       ;; entry is required.
                        ;; rf2-6nk6d — test.check is here on the :test alias ONLY
                        ;; (NOT a Story runtime dep). It exercises the OPTIONAL
                        ;; `re-frame.story.generate.test-check` adapter, which
