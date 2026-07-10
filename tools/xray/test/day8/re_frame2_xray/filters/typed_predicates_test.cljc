@@ -382,6 +382,141 @@
           kept    (mapv :dispatch-id (typed/filter-event-bundles [a b] filters))]
       (is (= [1 2] kept)))))
 
+;; ---- frame-qualified lineage identity (rf2-3fc89f.25) --------------------
+;;
+;; The published trace contract guarantees dispatch-id uniqueness only
+;; WITHIN a frame, so two frames may legitimately reuse the same
+;; dispatch-id. The causal-lineage machinery keys on the frame-qualified
+;; `[frame dispatch-id]` identity end-to-end (index, retained-key set,
+;; membership check, cycle guard). A bare-id identity cross-links unrelated
+;; frames' lineages — these regressions FAIL on the pre-fix id-only code,
+;; which retains the unrelated same-id bundle from the other frame.
+
+(defn- mk-frame-cascade
+  "A cascade carrying a `:frame`, `:dispatch-id`, and optional causal-parent
+  link — the full frame-qualified identity shape."
+  [{:keys [frame dispatch-id parent-dispatch-id] :as opts}]
+  (-> (mk-cascade (dissoc opts :frame :dispatch-id :parent-dispatch-id))
+      (assoc :frame frame
+             :dispatch-id dispatch-id
+             :parent-dispatch-id parent-dispatch-id)))
+
+(deftest typed-filter-does-not-cross-link-frames-sharing-root-id
+  (testing "frame A and frame B reuse dispatch-id 1; a :machine pill whose
+            lineage roots at [A 1] must NOT retain the unrelated [B 1]
+            (id-only identity collides across frames)"
+    (let [a-root  (mk-frame-cascade {:frame :a :dispatch-id 1
+                                     :event [:a/root]})
+          b-root  (mk-frame-cascade {:frame :b :dispatch-id 1
+                                     :event [:b/root]})
+          a-child (mk-frame-cascade {:frame :a :dispatch-id 2
+                                     :parent-dispatch-id 1
+                                     :event   [:a/child]
+                                     :effects [(tagged {:machine-id :form})]})
+          filters {:in  [{:kind :machine :params {:machine-id :form}}]
+                   :out []}
+          kept    (mapv (juxt :frame :dispatch-id)
+                        (typed/filter-event-bundles [a-root b-root a-child] filters))]
+      (is (= [[:a 1] [:a 2]] kept)
+          "only frame A's lineage survives; frame B's same-id root is dropped"))))
+
+(deftest typed-filter-does-not-cross-link-frames-sharing-child-id
+  (testing "frame A's matching child and frame B's unrelated child both use
+            dispatch-id 2; the membership check must stay frame-qualified so
+            frame B's same-id child is not retained"
+    (let [a-root  (mk-frame-cascade {:frame :a :dispatch-id 1 :event [:a/root]})
+          a-child (mk-frame-cascade {:frame :a :dispatch-id 2
+                                     :parent-dispatch-id 1
+                                     :event   [:a/transition]
+                                     :effects [(tagged {:machine-id :form})]})
+          b-root  (mk-frame-cascade {:frame :b :dispatch-id 5 :event [:b/root]})
+          b-child (mk-frame-cascade {:frame :b :dispatch-id 2
+                                     :parent-dispatch-id 5
+                                     :event [:b/thing]})
+          filters {:in  [{:kind :machine :params {:machine-id :form}}]
+                   :out []}
+          kept    (mapv (juxt :frame :dispatch-id)
+                        (typed/filter-event-bundles
+                          [a-root a-child b-root b-child] filters))]
+      (is (= [[:a 1] [:a 2]] kept)
+          "frame B's same-id child is not swept in by the frame-A match"))))
+
+(deftest typed-fx-filter-frame-qualifies-lineage
+  (testing "an :fx IN-pill's lineage is frame-qualified too — frame B's
+            same-id root is not pulled into frame A's fx lineage"
+    (let [a-root  (mk-frame-cascade {:frame :a :dispatch-id 7 :event [:a/click]})
+          a-child (mk-frame-cascade {:frame :a :dispatch-id 8
+                                     :parent-dispatch-id 7
+                                     :event   [:a/work]
+                                     :effects [(tagged {:rf.fx/id :rf.http/managed})]})
+          b-root  (mk-frame-cascade {:frame :b :dispatch-id 7 :event [:b/root]})
+          filters {:in  [{:kind :fx :params {:fx-id :rf.http/managed}}]
+                   :out []}
+          kept    (mapv (juxt :frame :dispatch-id)
+                        (typed/filter-event-bundles [a-root a-child b-root] filters))]
+      (is (= [[:a 7] [:a 8]] kept)
+          "frame B's same-id [B 7] is not pulled into frame A's fx lineage"))))
+
+(deftest cross-frame-cycle-guard-is-frame-qualified
+  (testing "two frames each carry a 1↔2 parent loop reusing the same ids;
+            frame A's matching walk terminates within its own frame and frame
+            B (no machine) is untouched — the cycle guard is frame-qualified"
+    (let [a1 (mk-frame-cascade {:frame :a :dispatch-id 1 :parent-dispatch-id 2
+                                :event [:a1]})
+          a2 (mk-frame-cascade {:frame :a :dispatch-id 2 :parent-dispatch-id 1
+                                :event   [:a2]
+                                :effects [(tagged {:machine-id :form})]})
+          b1 (mk-frame-cascade {:frame :b :dispatch-id 1 :parent-dispatch-id 2
+                                :event [:b1]})
+          b2 (mk-frame-cascade {:frame :b :dispatch-id 2 :parent-dispatch-id 1
+                                :event [:b2]})
+          filters {:in  [{:kind :machine :params {:machine-id :form}}]
+                   :out []}
+          kept    (mapv (juxt :frame :dispatch-id)
+                        (typed/filter-event-bundles [a1 a2 b1 b2] filters))]
+      (is (= [[:a 1] [:a 2]] kept)
+          "frame A's cycle resolves to its own two nodes; frame B is untouched
+           despite reusing ids 1/2"))))
+
+(deftest out-pill-stays-frame-local-across-frames
+  (testing "an OUT pill hides only the tagged bundle (event-local), keeping
+            its ancestor, and never touches an unrelated frame reusing the id"
+    (let [a-parent (mk-frame-cascade {:frame :a :dispatch-id 1 :event [:a/click]})
+          a-child  (mk-frame-cascade {:frame :a :dispatch-id 2
+                                      :parent-dispatch-id 1
+                                      :event   [:a/work]
+                                      :effects [(tagged {:rf.fx/id :noisy/fx})]})
+          b-root   (mk-frame-cascade {:frame :b :dispatch-id 2 :event [:b/root]})
+          filters  {:in  []
+                    :out [{:kind :fx :params {:fx-id :noisy/fx}}]}
+          kept     (mapv (juxt :frame :dispatch-id)
+                         (typed/filter-event-bundles [a-parent a-child b-root] filters))]
+      (is (= [[:a 1] [:b 2]] kept)
+          "only frame A's tagged child is hidden; its parent AND frame B's
+           same-id bundle survive"))))
+
+(deftest ungrouped-and-nil-id-still-excluded-with-frames
+  (testing "the :ungrouped pseudo-bundle and nil-dispatch-id bundles remain
+            outside the causal index and are not retained by an IN pill's
+            lineage — unchanged by frame-qualification"
+    (let [root      (mk-frame-cascade {:frame :a :dispatch-id 1 :event [:a/root]})
+          child     (mk-frame-cascade {:frame :a :dispatch-id 2
+                                       :parent-dispatch-id 1
+                                       :event   [:a/child]
+                                       :effects [(tagged {:machine-id :form})]})
+          ungrouped (mk-frame-cascade {:frame nil :dispatch-id :ungrouped
+                                       :event [:rf.xray/ungrouped]})
+          nil-id    (mk-frame-cascade {:frame :a :dispatch-id nil
+                                       :event [:a/orphan]})
+          filters   {:in  [{:kind :machine :params {:machine-id :form}}]
+                     :out []}
+          kept      (mapv (juxt :frame :dispatch-id)
+                          (typed/filter-event-bundles
+                            [root child ungrouped nil-id] filters))]
+      (is (= [[:a 1] [:a 2]] kept)
+          ":ungrouped and nil-id bundles are excluded; only the machine
+           lineage survives"))))
+
 ;; ---- pill-label / pill-glyph --------------------------------------------
 
 (deftest pill-label-per-kind

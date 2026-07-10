@@ -64,6 +64,46 @@ only suppressing filters this doc models. (rf2-pjjwh — the `Clear Filters`
 Pills are removed individually via each pill's `✕`.) See
 [`018-Event-Spine.md` §7 Frame picker is a view scope](018-Event-Spine.md).
 
+### §3.1 Causal lineage under epoch-per-event — frame-qualified identity (rf2-3fc89f.25)
+
+Under epoch-per-event each dequeued event — including `:fx :dispatch`
+children and machine-internal transitions — is its OWN event-bundle
+(`re-frame.trace.projection/group-by-event` keys one record per
+`:rf.trace/dispatch-id`). A `:machine` / `:http-correlation` / `:fx` IN
+pill that matched ONLY the event-bundle carrying its tag would lose the
+link to the PARENT event that spawned the transition (a sibling
+event-bundle). So a directly-matching event-bundle pulls in its whole
+**spawning lineage**: itself plus every causal ancestor, walked UP the
+`:parent-dispatch-id` link to the root user event —
+`keep = matching event-bundles ∪ their ancestors`. OUT (hide) pills stay
+event-bundle-local so hiding a child never silently drops the ancestor
+that spawned it.
+
+**Event-bundle identity is the frame-qualified `[frame dispatch-id]`
+pair — normative and portable.** The published trace contract
+([`013-Trace-Consumer.md`](013-Trace-Consumer.md)) guarantees
+`dispatch-id` uniqueness only WITHIN a frame, so two frames may
+legitimately reuse the same dispatch-id (deterministic replay and
+per-frame id allocation make this live, not merely latent). The
+causal-lineage machinery therefore keys on the frame-qualified identity
+**end-to-end** — the one canonical helper
+`typed-predicates/event-bundle-identity` `⇒ [frame dispatch-id]` backs
+the ancestor index, the retained-key set, the membership check, AND the
+cycle guard. A parent resolves to `[frame parent-dispatch-id]`
+(`event-bundle-parent-identity`), since a parent and child always share a
+frame under epoch-per-event, so the ancestor walk never crosses into
+another frame that reuses the parent's dispatch-id. A bare-id identity is
+rejected: it cross-links unrelated frames' lineages (an IN pill could
+display an unrelated frame's event and attach the wrong causal ancestor).
+This is pre-alpha — there is NO compatibility fallback to id-only
+identity; the frame-qualified pair is the contract.
+
+The `:ungrouped` pseudo-event-bundle and any event-bundle with a nil
+dispatch-id are excluded from the causal index — they are not addressable
+causal nodes — regardless of frame. This is the same frame-isolation
+invariant already enforced in the Event Spine
+([`018-Event-Spine.md`](018-Event-Spine.md)) and Pair MCP event grouping.
+
 ## §4 Deferred kinds (rf2-piye4 — defer to v1.1)
 
 | kind             | rationale                                                    |

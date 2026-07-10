@@ -73,10 +73,11 @@
   typed pill on a child transition event-bundle ALSO keeps the spawning
   event's event-bundle. `keep = matching event-bundles ∪ their ancestors`. The
   walk is in `event-bundle-self-and-ancestors` (cycle-guarded,
-  root-terminated); `filter-event-bundles` builds the
-  `{dispatch-id → event-bundle}` index once and folds the IN-kept id set
-  in `in-kept-id-set`. OUT (hide) pills stay event-bundle-local so a hide
-  never silently drops the ancestor that spawned the hidden child.
+  root-terminated); `filter-event-bundles` builds the frame-qualified
+  `{[frame dispatch-id] → event-bundle}` index once and folds the IN-kept
+  identity set in `in-kept-identity-set`. OUT (hide) pills stay
+  event-bundle-local so a hide never silently drops the ancestor that
+  spawned the hidden child.
 
   Pure data → bool. JVM-runnable so the test corpus exercises every
   kind without a CLJS runtime."
@@ -256,20 +257,51 @@
 ;; SPAWNING LINEAGE: a `:machine` pill matches the transition CHILD
 ;; event-bundle, and we ALSO keep that child's ancestors (the spawning event
 ;; up to the root user event) — `keep = matching event-bundles ∪ their
-;; ancestors`. Event bundles key by `[frame dispatch-id]`; the parent link
-;; is dispatch-id only (parent + child always share a frame under
-;; epoch-per-event), so we index by dispatch-id and walk by id.
+;; ancestors`. Event bundles key by the frame-qualified `[frame dispatch-id]`
+;; identity (`event-bundle-identity`): the published trace contract
+;; guarantees dispatch-id uniqueness only WITHIN a frame, so a bare
+;; dispatch-id collides across frames and cross-links unrelated lineages.
+;; The parent link supplies only the dispatch-id, but parent + child always
+;; share a frame under epoch-per-event, so a parent resolves to
+;; `[frame parent-dispatch-id]` (`event-bundle-parent-identity`); the index,
+;; the retained-key set, the membership check, and the cycle guard all key
+;; on the full identity.
 
-(defn index-by-dispatch-id
-  "Build a `{dispatch-id → event-bundle}` index for ancestor walking. The
-  `:ungrouped` pseudo-event-bundle and any event-bundle with a nil dispatch-id
-  are excluded — they are not addressable causal nodes. Pure data."
+(defn event-bundle-identity
+  "Canonical frame-qualified identity of an event-bundle: the
+  `[frame dispatch-id]` pair. This is the ONE identity used end-to-end by
+  the causal-lineage machinery — the ancestor index, the retained-key set,
+  the membership check, and the cycle guard — so a dispatch-id that
+  collides ACROSS frames (allowed by the trace contract, which guarantees
+  dispatch-id uniqueness only WITHIN a frame) never cross-links two
+  frames' lineages. Pure data → vector."
+  [event-bundle]
+  [(:frame event-bundle) (:dispatch-id event-bundle)])
+
+(defn event-bundle-parent-identity
+  "Frame-qualified identity of `event-bundle`'s causal parent, or nil when
+  it has no parent link. The parent shares the child's frame under
+  epoch-per-event, so the identity is `[frame parent-dispatch-id]` —
+  matching the shape `event-bundle-identity` produces for the parent
+  bundle itself, so the ancestor walk stays within the child's frame.
+  Pure data → vector-or-nil."
+  [event-bundle]
+  (when-let [parent-id (:parent-dispatch-id event-bundle)]
+    [(:frame event-bundle) parent-id]))
+
+(defn index-by-identity
+  "Build a `{[frame dispatch-id] → event-bundle}` index for ancestor
+  walking, keyed by the canonical frame-qualified `event-bundle-identity`.
+  The `:ungrouped` pseudo-event-bundle and any event-bundle with a nil
+  dispatch-id are excluded — they are not addressable causal nodes.
+  Frame-qualified keys keep two frames that reuse a dispatch-id distinct,
+  so a later frame never overwrites an earlier frame's node. Pure data."
   [event-bundles]
   (persistent!
     (reduce (fn [acc event-bundle]
               (let [id (:dispatch-id event-bundle)]
                 (if (and (some? id) (not= :ungrouped id))
-                  (assoc! acc id event-bundle)
+                  (assoc! acc (event-bundle-identity event-bundle) event-bundle)
                   acc)))
             (transient {})
             event-bundles)))
@@ -277,36 +309,41 @@
 (defn event-bundle-self-and-ancestors
   "Return `event-bundle` followed by its causal ancestors, walking the
   `:parent-dispatch-id` link up to the root through `index` (a
-  `{dispatch-id → event-bundle}` map). Cycle-guarded (a malformed trace
-  with a parent loop terminates) and root-terminated (nil parent /
-  missing parent ends the walk). Pure data → vector, self-first."
+  `{[frame dispatch-id] → event-bundle}` map). The parent link resolves
+  through `event-bundle-parent-identity`, so the walk stays WITHIN the
+  child's frame and never crosses into another frame that reuses the
+  parent's dispatch-id. Cycle-guarded on the frame-qualified identity (a
+  malformed trace with a parent loop terminates) and root-terminated (nil
+  parent / missing parent ends the walk). Pure data → vector, self-first."
   [event-bundle index]
   (loop [c    event-bundle
          seen #{}
          acc  []]
     (if (or (nil? c)
-            (contains? seen (:dispatch-id c)))
+            (contains? seen (event-bundle-identity c)))
       acc
-      (let [parent-id (:parent-dispatch-id c)]
-        (recur (when (some? parent-id) (get index parent-id))
-               (conj seen (:dispatch-id c))
+      (let [parent-identity (event-bundle-parent-identity c)]
+        (recur (when (some? parent-identity) (get index parent-identity))
+               (conj seen (event-bundle-identity c))
                (conj acc c))))))
 
-(defn in-kept-id-set
-  "Compute the set of `:dispatch-id`s kept by the IN pills.
-  An event-bundle that DIRECTLY matches any IN pill pulls in its whole
-  spawning lineage — itself plus every causal ancestor (walked via
-  `index`). The union is what surfaces the spawning event's event-bundle
-  alongside the machine/http/fx transition event-bundle under
-  epoch-per-event. nil / empty `in` returns nil (the 'no IN filter,
-  keep everything' signal — distinct from an empty set, which means
-  'IN active but nothing matched'). Pure data → set-or-nil."
+(defn in-kept-identity-set
+  "Compute the set of frame-qualified `[frame dispatch-id]` identities kept
+  by the IN pills. An event-bundle that DIRECTLY matches any IN pill pulls
+  in its whole spawning lineage — itself plus every causal ancestor
+  (walked via `index`). The union is what surfaces the spawning event's
+  event-bundle alongside the machine/http/fx transition event-bundle under
+  epoch-per-event. Identities are frame-qualified, so a direct/ancestor
+  match in one frame never retains a same-id bundle in another frame.
+  nil / empty `in` returns nil (the 'no IN filter, keep everything' signal
+  — distinct from an empty set, which means 'IN active but nothing
+  matched'). Pure data → set-or-nil."
   [event-bundles index in]
   (when (seq in)
     (reduce (fn [kept event-bundle]
               (if (event-bundle-matches-any? event-bundle in)
                 (into kept
-                      (map :dispatch-id)
+                      (map event-bundle-identity)
                       (event-bundle-self-and-ancestors event-bundle index))
                 kept))
             #{}
@@ -321,13 +358,14 @@
   predicate dispatch so IN and OUT pills can be a mix of keyword
   patterns + typed predicates.
 
-  `in-kept-ids` is the precomputed set from `in-kept-id-set` — the
-  dispatch-ids kept by the IN pills, INCLUDING the spawning ancestors
-  of every directly-matching event-bundle. nil `in-kept-ids`
-  means no IN filter is active (keep every event-bundle subject to OUT). The
-  OUT test stays event-bundle-local — a hide pill suppresses only the
-  event-bundle carrying its tag, never its ancestors (so hiding a child's fx
-  does not silently drop the originating user event).
+  `in-kept-identities` is the precomputed set from `in-kept-identity-set`
+  — the frame-qualified `[frame dispatch-id]` identities kept by the IN
+  pills, INCLUDING the spawning ancestors of every directly-matching
+  event-bundle. nil `in-kept-identities` means no IN filter is active
+  (keep every event-bundle subject to OUT). The OUT test stays
+  event-bundle-local — a hide pill suppresses only the event-bundle
+  carrying its tag, never its ancestors (so hiding a child's fx does not
+  silently drop the originating user event).
 
   Pure data; JVM-runnable. The single-event-bundle arity falls back
   to direct (ancestor-free) IN matching for callers without the full
@@ -337,9 +375,9 @@
                      (event-bundle-matches-any? event-bundle in))
          out-hit (event-bundle-matches-any? event-bundle out)]
      (and in-ok? (not out-hit))))
-  ([event-bundle in-kept-ids {:keys [out]}]
-   (let [in-ok?  (or (nil? in-kept-ids)
-                     (contains? in-kept-ids (:dispatch-id event-bundle)))
+  ([event-bundle in-kept-identities {:keys [out]}]
+   (let [in-ok?  (or (nil? in-kept-identities)
+                     (contains? in-kept-identities (event-bundle-identity event-bundle)))
          out-hit (event-bundle-matches-any? event-bundle out)]
      (and in-ok? (not out-hit)))))
 
@@ -349,16 +387,17 @@
   `matcher/filter-event-bundles` that routes through typed-predicate
   dispatch.
 
-  Builds a `{dispatch-id → event-bundle}` index once, computes the IN-kept
-  id set (each directly-matching event-bundle pulls in its spawning
-  ancestors), then keeps event-bundles whose id is in that set
-  and which no OUT pill suppresses — so a typed pill on a child
-  transition event-bundle also keeps the spawning event's event-bundle under
-  epoch-per-event."
+  Builds a frame-qualified `{[frame dispatch-id] → event-bundle}` index
+  once, computes the IN-kept identity set (each directly-matching
+  event-bundle pulls in its spawning ancestors), then keeps event-bundles
+  whose frame-qualified identity is in that set and which no OUT pill
+  suppresses — so a typed pill on a child transition event-bundle also
+  keeps the spawning event's event-bundle under epoch-per-event, without a
+  same-id bundle in another frame leaking in."
   [event-bundles filters]
-  (let [index    (index-by-dispatch-id event-bundles)
-        kept-ids (in-kept-id-set event-bundles index (:in filters))]
-    (filterv #(keep-event-bundle? % kept-ids filters) event-bundles)))
+  (let [index           (index-by-identity event-bundles)
+        kept-identities (in-kept-identity-set event-bundles index (:in filters))]
+    (filterv #(keep-event-bundle? % kept-identities filters) event-bundles)))
 
 ;; ---- pill labels (presentation hooks) -----------------------------------
 
