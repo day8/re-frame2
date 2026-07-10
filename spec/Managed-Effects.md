@@ -83,27 +83,27 @@ Nothing in this contract introduces promises, monads, callbacks, async/await, or
 
 ### The reply target
 
-The canonical public target key is `:rf/reply-to`. The short form is an event-vector prefix:
+The **app-facing authoring key is `:reply-to`** — the unified call-site spelling shared by HTTP, resources, and mutations. HTTP's `:on-success` / `:on-failure` are the split **routing** sugar over it: they select which event the reply routes to on success vs failure and deliver the **same** reply map to each (the HTTP instance section below is the canonical home). An app **never** authors the internal descriptor spelling directly. What an app writes under `:reply-to` **normalizes** to the one internal / normalized **`:rf/reply-to`** descriptor — a conformance surface the runtime stores and lowers onto, not an everyday app-facing spelling. The short form is an event-vector prefix:
 
 ```clojure
-{:rf/reply-to [:article/load-replied {:id 42}]}
+{:reply-to [:article/load-replied {:id 42}]}   ;; app authoring — normalizes to the internal :rf/reply-to descriptor
 ```
 
-On **live** completion the runtime dispatches the target event with the reply map appended as the final argument:
+On **live** completion the runtime dispatches the target event with the reply map appended as the final argument. The reply map carries the work identity under `:rf.reply/work-id` (the transient-envelope spelling; the same fact is `:work/id` on the durable ledger row — [§The reply map](#the-reply-map)):
 
 ```clojure
 [:article/load-replied
  {:id 42}
- {:status       :ok
-  :value        {:title "Welcome"}
-  :work/id      [:rf.work/http :article/by-id 42 1]
-  :completed-at 1781078400456}]
+ {:status           :ok
+  :value            {:title "Welcome"}
+  :rf.reply/work-id [:rf.work/http :article/by-id 42 1]
+  :completed-at     1781078400456}]
 ```
 
-A descriptor form is available for framework internals and future public surfaces that need explicit delivery options:
+The normalized `:rf/reply-to` descriptor form — what the short authoring form lowers to — carries explicit delivery options for framework internals and future public surfaces:
 
 ```clojure
-{:rf/reply-to {:event    [:article/load-replied {:id 42}]
+{:rf/reply-to {:event    [:article/load-replied {:id 42}]   ;; the normalized / internal descriptor
                :delivery :append
                :suppress {:route/nav-token "nav-7"
                           :generation      1}}}
@@ -118,7 +118,7 @@ A descriptor form is available for framework internals and future public surface
 
 A family MAY expose only the short vector form publicly while using the descriptor form internally.
 
-**Stale-delivery authority is a provenance-bearing capability, not a data field.** Because `:dispatch-stale?` is ordinary reply-target data an app/EDN/wire author can spell, it cannot itself carry the framework-test/tool restriction. The restriction is enforced by an **unforgeable capability**: an opaque, non-serializable token compared by **identity**, held only by framework/tool code and unreachable from any public app-target constructor (`:rf/reply-to` data). A reply target's stale outcome is delivered ONLY when the target both requests it (`:dispatch-stale? true`) **and** carries that exact capability. An app-authored target's stale result is therefore **always non-delivering**; a target that requests stale delivery *without* the capability — including one that forges a truthy authority field of any spelling — MUST fail loud (`:rf.error/reply-unauthorized-stale-delivery`), never deliver. The capability MUST never be persisted into a durable target and MUST never be accepted from, or reconstructable through, EDN/wire data or a round-trip. A namespaced keyword is **not** an access-control boundary — the identity of the capability value is.
+**Stale-delivery authority is a provenance-bearing capability, not a data field.** Because `:dispatch-stale?` is ordinary reply-target data an app/EDN/wire author can spell, it cannot itself carry the framework-test/tool restriction. The restriction is enforced by an **unforgeable capability**: an opaque, non-serializable token compared by **identity**, held only by framework/tool code and unreachable from any app-authored reply target (the public `:reply-to` authoring form and the normalized `:rf/reply-to` descriptor it lowers to alike). A reply target's stale outcome is delivered ONLY when the target both requests it (`:dispatch-stale? true`) **and** carries that exact capability. An app-authored target's stale result is therefore **always non-delivering**; a target that requests stale delivery *without* the capability — including one that forges a truthy authority field of any spelling — MUST fail loud (`:rf.error/reply-unauthorized-stale-delivery`), never deliver. The capability MUST never be persisted into a durable target and MUST never be accepted from, or reconstructable through, EDN/wire data or a round-trip. A namespaced keyword is **not** an access-control boundary — the identity of the capability value is.
 
 ### The reply map
 
