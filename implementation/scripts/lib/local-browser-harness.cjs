@@ -480,6 +480,147 @@ function createHarnessCleanup(opts = {}) {
   };
 }
 
+// Compose the canonical local-http-server lifecycle every browser-gate
+// launcher needs (rf2-slapfs). Before this, the two Story launchers,
+// serve-example, and the adapter-smoke orchestrator EACH re-derived the
+// identical sequence — spawn `http-server` shell-free under process.execPath
+// with the loopback/static/no-cache argv, track it for teardown, wire an
+// early-exit abort flag + the "exited unexpectedly" diagnostic, optionally
+// capture a bounded output tail, wait for readiness, and print the canonical
+// unreachable diagnostic (plus the captured tail) on failure. This owns that
+// composition on top of the spawn/readiness/cleanup primitives above; each
+// caller keeps only its command-specific compile/staging/runner/watch and
+// post-readiness work.
+//
+// The argv is fixed policy: `-a <host>` (loopback by default, NOT
+// http-server's 0.0.0.0), `-p <port>`, `-s` (silent), `-c-1` (no cache) —
+// so a recompiled bundle is never served stale and the run's assets aren't
+// exposed on non-loopback interfaces. The host stays a parameter only so a
+// caller could serve elsewhere; every current caller uses the 127.0.0.1
+// default.
+//
+// Options:
+//   - cleanup    (required) — a createHarnessCleanup() handle; the spawned
+//                 server is registered via cleanup.trackProcess for
+//                 process-tree teardown.
+//   - httpServerBin (required) — the resolved http-server bin path. Callers
+//                 resolve it themselves (usually lazily) so this module never
+//                 hard-depends on the http-server package being installed.
+//   - root       (required) — the directory to serve.
+//   - port       (required) — the resolved, already-free port to bind.
+//   - host       — bind address (default '127.0.0.1').
+//   - cwd        — spawn cwd (where node_modules / http-server resolves).
+//   - execPath   — node binary to run http-server under (default
+//                 process.execPath, shell-free).
+//   - readyTimeoutMs — readiness budget (default 30000).
+//   - captureOutput — when true, pipe stdout/stderr and retain a bounded
+//                 line buffer surfaced as the failure tail (the Story
+//                 posture). When false (default), inherit the parent stdio
+//                 (the adapter-smoke / serve-example posture); `output` stays
+//                 empty and no tail prints.
+//   - verbose    — with captureOutput, also stream the server's output live.
+//   - isAborted  — an EXTRA abort predicate, OR'd with the internal
+//                 server-exited flag, so a caller whose OTHER child (e.g.
+//                 serve-example's shadow-cljs watch) can invalidate the run
+//                 aborts the readiness wait too.
+//   - onExit     — (code, signal) callback invoked on the server's exit, for
+//                 a caller that records the outcome for its own verdict (e.g.
+//                 serve-example's decideRunnerExit).
+//   - suppressExitDiagnostic — predicate; when it returns true the
+//                 "exited unexpectedly" line is suppressed (e.g. once the
+//                 caller is already tearing down / was interrupted, so the
+//                 forced-shutdown exit isn't reported as a crash).
+//   - log        — sink for the readiness/exit diagnostics (default
+//                 console.error, matching every caller's current output).
+//   - failureTailLines — how many trailing captured lines to print on a
+//                 readiness failure (default 40).
+//
+// Returns { server, ready, output, isDown }:
+//   - server  — the tracked ChildProcess (for the caller's own waits).
+//   - ready   — true once reachable; false on early-exit/timeout (the caller
+//               returns its non-zero verdict; the canonical diagnostics have
+//               already been printed).
+//   - output  — the captured line buffer (empty unless captureOutput).
+//   - isDown  — () => boolean; the live server-exited flag.
+async function startLocalHttpServer(opts = {}) {
+  const {
+    cleanup,
+    httpServerBin,
+    root,
+    port,
+    host = '127.0.0.1',
+    cwd,
+    execPath = process.execPath,
+    readyTimeoutMs = 30000,
+    captureOutput = false,
+    verbose = false,
+    isAborted,
+    onExit,
+    suppressExitDiagnostic = () => false,
+    log = (msg) => console.error(msg),
+    failureTailLines = 40,
+  } = opts;
+
+  const args = [
+    httpServerBin,
+    root,
+    '-a',
+    host,
+    '-p',
+    String(port),
+    '-s',
+    '-c-1',
+  ];
+  const stdio = captureOutput
+    ? ['ignore', 'pipe', 'pipe']
+    : ['ignore', 'inherit', 'inherit'];
+  const server = cleanup.trackProcess(
+    spawnHarnessProcess(execPath, args, { cwd, stdio }),
+  );
+
+  const output = [];
+  if (captureOutput) {
+    const capture = (chunk, stream) => {
+      const text = chunk.toString();
+      for (const line of text.split(/\r?\n/)) {
+        if (line) output.push(`[http-server:${stream}] ${line}`);
+      }
+      if (verbose) process[stream].write(text);
+    };
+    server.stdout.on('data', (chunk) => capture(chunk, 'stdout'));
+    server.stderr.on('data', (chunk) => capture(chunk, 'stderr'));
+  }
+
+  let down = false;
+  server.on('exit', (code, signal) => {
+    down = true;
+    if (typeof onExit === 'function') onExit(code, signal);
+    // The server is force-terminated during normal teardown, which fires
+    // this exit with a non-zero/null code AFTER the run has finished. A
+    // caller that is already exiting suppresses the noise via
+    // suppressExitDiagnostic; a genuine mid-run crash is surfaced loudly.
+    if (code !== 0 && code !== null && !suppressExitDiagnostic()) {
+      log(`http-server exited unexpectedly (code=${code}, signal=${signal}).`);
+    }
+  });
+
+  const isDown = () => down;
+  const aborted = () =>
+    down || (typeof isAborted === 'function' && isAborted());
+
+  const ready = await waitForHttpReady(port, Date.now() + readyTimeoutMs, {
+    isAborted: aborted,
+  });
+  if (!ready || aborted()) {
+    log(
+      `http-server did not become reachable on :${port} within ${readyTimeoutMs}ms.`,
+    );
+    for (const line of output.slice(-failureTailLines)) log(line);
+    return { server, ready: false, output, isDown };
+  }
+  return { server, ready: true, output, isDown };
+}
+
 module.exports = {
   TOKEN_FILE_BASENAME,
   createHarnessCleanup,
@@ -493,6 +634,7 @@ module.exports = {
   resolveServePort,
   sleep,
   spawnHarnessProcess,
+  startLocalHttpServer,
   terminateProcessTree,
   terminateProcessTreeSync,
   waitForHttpReady,

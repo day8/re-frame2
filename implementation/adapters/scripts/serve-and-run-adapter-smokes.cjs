@@ -55,7 +55,7 @@ const { stageShared, cleanStageDirs } = require('../../../examples/scripts/examp
 const {
   createHarnessCleanup,
   spawnHarnessProcess,
-  waitForHttpReady,
+  startLocalHttpServer,
 } = require('../../scripts/lib/local-browser-harness.cjs');
 
 // Narrow filter. When set, only the ADAPTER_SMOKES entries the filter
@@ -246,29 +246,21 @@ async function main() {
   compileAll();
   stageHtml();
 
-  // Bind 127.0.0.1 (not 0.0.0.0): the Playwright specs only ever hit
-  // localhost, and the loopback-only bind sidesteps the Windows
-  // dual-stack EACCES surprise that made the old 8030 clash cryptic.
-  const server = cleanup.trackProcess(spawnHarnessProcess(process.execPath, [HTTP_SERVER_BIN, OUT_ROOT, '-a', '127.0.0.1', '-p', String(PORT), '-s', '-c-1'], {
+  // Serve out/examples on loopback (127.0.0.1, not 0.0.0.0): the Playwright
+  // specs only ever hit localhost, and the loopback-only bind sidesteps the
+  // Windows dual-stack EACCES surprise that made the old 8030 clash cryptic.
+  // The shared harness owns the http-server spawn, teardown tracking,
+  // early-exit abort, and the readiness + unreachable diagnostics
+  // (rf2-slapfs). This runner inherits the server's stdio (no capture).
+  const { ready } = await startLocalHttpServer({
+    cleanup,
+    httpServerBin: HTTP_SERVER_BIN,
+    root: OUT_ROOT,
+    port: PORT,
     cwd: IMPL_ROOT,
-    stdio: ['ignore', 'inherit', 'inherit'],
-  }));
-
-  let serverDown = false;
-  server.on('exit', (code, signal) => {
-    serverDown = true;
-    if (code !== 0 && code !== null) {
-      console.error(`http-server exited unexpectedly (code=${code}, signal=${signal}).`);
-    }
+    readyTimeoutMs: READY_TIMEOUT_MS,
   });
-
-  const ready = await waitForHttpReady(PORT, Date.now() + READY_TIMEOUT_MS, {
-    isAborted: () => serverDown,
-  });
-  if (!ready || serverDown) {
-    console.error(`http-server did not become reachable on :${PORT} within ${READY_TIMEOUT_MS}ms.`);
-    return 1;
-  }
+  if (!ready) return 1;
 
   const runner = cleanup.trackProcess(spawnHarnessProcess(process.execPath, [RUNNER], {
     stdio: 'inherit',

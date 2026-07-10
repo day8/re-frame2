@@ -38,8 +38,9 @@
 const assert = require('assert/strict');
 const fs = require('fs');
 const path = require('path');
-// Shared loopbackBindRe factory + framework-free test harness (rf2-j552l2).
-const { loopbackBindRe, createPolicyTestSuite } = require('./_policy-test-util.cjs');
+// Shared stripComments (EXECUTABLE-source-only matching) + framework-free
+// test harness (rf2-j552l2).
+const { stripComments, createPolicyTestSuite } = require('./_policy-test-util.cjs');
 
 const SCRIPTS_DIR = path.resolve(__dirname, '..', '..', 'examples', 'scripts');
 const PLAY_SCRIPTS_RUNNER = path.join(
@@ -118,26 +119,38 @@ test('play-scripts runner verdict is computed from BOTH failures and pageErrors 
   );
 });
 
-// ---- Finding 2: both Story orchestrators bind loopback explicitly ----
-
-// Match the http-server spawn argument array and assert it carries the
-// `-a 127.0.0.1` loopback flag adjacent to the http-server bin token
-// (the play-scripts runner resolves it lazily via httpServerBin(); the
-// feature-load runner uses the HTTP_SERVER_BIN constant — accept both).
-// NB `[\s\S]{0,80}?` (not `[^]]`): the latter is the JS-regex gotcha
-// `[^]` (any char) followed by a literal `]`, which would NOT match here.
-const LOOPBACK_BIND_RE = loopbackBindRe('(?:httpServerBin\\(\\)|HTTP_SERVER_BIN)');
+// ---- Finding 2: both Story launchers delegate server startup to the
+// shared startLocalHttpServer harness owner (rf2-wf5al.2 / rf2-slapfs) ----
+//
+// The `-a 127.0.0.1` loopback bind (never http-server's 0.0.0.0 default) plus
+// the static/no-cache flags are now composed EXACTLY ONCE, in
+// local-browser-harness.cjs's startLocalHttpServer, and verified functionally
+// (a fake bin binds per the composed argv and is reachable only on loopback)
+// in _local-browser-harness.test.cjs. Rather than re-scan each launcher's
+// inlined argv, pin that each Story launcher CONSUMES that owner: it must
+// import the shared harness and call startLocalHttpServer(...). A launcher
+// that re-inlines a bespoke http-server spawn — the exact composition drift
+// rf2-slapfs removed — no longer routes through the loopback-binding owner
+// and trips here. (Scanned over stripped source so a comment mentioning the
+// helper is not a false positive.)
+const SHARED_HARNESS_IMPORT_RE = /require\(\s*['"][^'"]*local-browser-harness\.cjs['"]\s*\)/;
+const START_LOCAL_HTTP_SERVER_RE = /\bstartLocalHttpServer\s*\(/;
 
 for (const runner of [PLAY_SCRIPTS_RUNNER, FEATURE_LOAD_RUNNER]) {
   const base = path.basename(runner);
-  test(`${base}: http-server is bound to 127.0.0.1 explicitly (rf2-wf5al.2)`, () => {
-    const src = fs.readFileSync(runner, 'utf8');
+  test(`${base}: delegates http-server startup to the shared startLocalHttpServer owner (rf2-wf5al.2 / rf2-slapfs)`, () => {
+    const code = stripComments(fs.readFileSync(runner, 'utf8'));
     assert.match(
-      src,
-      LOOPBACK_BIND_RE,
-      `${base} must spawn http-server with '-a', '127.0.0.1' (loopback only) — ` +
-        `the http-server default is 0.0.0.0, and the runner only ever hits ` +
-        `127.0.0.1. Match serve-and-run-adapter-smokes.cjs.`,
+      code,
+      SHARED_HARNESS_IMPORT_RE,
+      `${base} must require local-browser-harness.cjs (the startLocalHttpServer owner).`,
+    );
+    assert.match(
+      code,
+      START_LOCAL_HTTP_SERVER_RE,
+      `${base} must start its http-server via the shared startLocalHttpServer(...) ` +
+        `owner — which composes the loopback '-a 127.0.0.1' bind + static/no-cache ` +
+        `flags once — rather than re-inlining a bespoke http-server spawn.`,
     );
   });
 }

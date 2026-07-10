@@ -51,8 +51,7 @@ const fs = require('fs');
 const path = require('path');
 const {
   createHarnessCleanup,
-  spawnHarnessProcess,
-  waitForHttpReady,
+  startLocalHttpServer,
 } = require('../../implementation/scripts/lib/local-browser-harness.cjs');
 const { resolveStoryFeatureLoadPort } = require('./story-feature-load-port.cjs');
 const { cleanStageDirs } = require('./examples-staging.cjs');
@@ -748,60 +747,26 @@ async function main() {
   compileTestbed();
   stageTestbedHtml();
 
-  // Bind 127.0.0.1 (not the http-server 0.0.0.0 default): the runner
-  // only ever hits http://127.0.0.1:<port>, and resolveStoryFeatureLoadPort
-  // pre-flights loopback — so exposing implementation/out/examples on
-  // every interface is avoidable local-network surface. Matches the
-  // adapter-smoke orchestrator (serve-and-run-adapter-smokes.cjs).
-  // rf2-wf5al(2).
-  const server = cleanup.trackProcess(
-    spawnHarnessProcess(
-      process.execPath,
-      [httpServerBin(), OUT_ROOT, '-a', '127.0.0.1', '-p', String(port), '-s', '-c-1'],
-      {
-        cwd: IMPL_ROOT,
-        stdio: ['ignore', 'pipe', 'pipe'],
-      },
-    ),
-  );
-
-  let serverDown = false;
-  const serverOutput = [];
-  const captureServerOutput = (chunk, stream) => {
-    const text = chunk.toString();
-    serverOutput.push(
-      ...text
-        .split(/\r?\n/)
-        .filter(Boolean)
-        .map((line) => `[http-server:${stream}] ${line}`),
-    );
-    if (VERBOSE) process[stream].write(text);
-  };
-  server.stdout.on('data', (chunk) => captureServerOutput(chunk, 'stdout'));
-  server.stderr.on('data', (chunk) => captureServerOutput(chunk, 'stderr'));
-  server.on('exit', (code, signal) => {
-    serverDown = true;
-    // The server is forcefully terminated during cleanup, which makes
-    // this `exit` fire with a non-zero code after `main()` has already
-    // returned its own exit code. Suppress the noise in that path;
-    // surface real mid-run crashes loudly.
-    if (code !== 0 && code !== null && !exiting) {
-      console.error(
-        `http-server exited unexpectedly (code=${code}, signal=${signal}).`,
-      );
-    }
+  // Serve implementation/out/examples on loopback. The shared harness owns
+  // the http-server spawn, teardown tracking, early-exit abort, bounded
+  // output capture (surfaced as the failure tail), and the readiness +
+  // unreachable diagnostics (rf2-slapfs). Bind 127.0.0.1 (not http-server's
+  // 0.0.0.0 default): the runner only ever hits http://127.0.0.1:<port> and
+  // resolveStoryFeatureLoadPort pre-flights loopback. rf2-wf5al(2).
+  // `exiting` suppresses the forced-shutdown "exited unexpectedly" noise once
+  // main() has already returned its own verdict.
+  const { ready } = await startLocalHttpServer({
+    cleanup,
+    httpServerBin: httpServerBin(),
+    root: OUT_ROOT,
+    port,
+    cwd: IMPL_ROOT,
+    readyTimeoutMs: READY_TIMEOUT_MS,
+    captureOutput: true,
+    verbose: VERBOSE,
+    suppressExitDiagnostic: () => exiting,
   });
-
-  const ready = await waitForHttpReady(port, Date.now() + READY_TIMEOUT_MS, {
-    isAborted: () => serverDown,
-  });
-  if (!ready || serverDown) {
-    console.error(
-      `http-server did not become reachable on :${port} within ${READY_TIMEOUT_MS}ms.`,
-    );
-    for (const line of serverOutput.slice(-40)) console.error(line);
-    return 1;
-  }
+  if (!ready) return 1;
 
   const browser = await loadChromium().launch({ headless: true });
   cleanup.addCleanup(async () => {

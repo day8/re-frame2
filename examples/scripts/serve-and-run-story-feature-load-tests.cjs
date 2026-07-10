@@ -17,7 +17,7 @@ const { cleanStageDirs } = require('./examples-staging.cjs');
 const {
   createHarnessCleanup,
   spawnHarnessProcess,
-  waitForHttpReady,
+  startLocalHttpServer,
 } = require('../../implementation/scripts/lib/local-browser-harness.cjs');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
@@ -109,40 +109,23 @@ async function main() {
   compileAll();
   stageHtml();
 
-  // Bind 127.0.0.1 (not the http-server 0.0.0.0 default): the runner
-  // and resolveStoryFeatureLoadPort only ever touch loopback, so binding
-  // every interface is avoidable local-network surface. Matches the
-  // adapter-smoke orchestrator (serve-and-run-adapter-smokes.cjs).
-  // rf2-wf5al(2).
-  const server = cleanup.trackProcess(spawnHarnessProcess(process.execPath, [HTTP_SERVER_BIN, OUT_ROOT, '-a', '127.0.0.1', '-p', String(port), '-s', '-c-1'], {
+  // Serve implementation/out/examples on loopback. The shared harness owns
+  // the http-server spawn, teardown tracking, early-exit abort, bounded
+  // output capture (surfaced as the failure tail), and the readiness +
+  // unreachable diagnostics (rf2-slapfs). Bind 127.0.0.1 (not http-server's
+  // 0.0.0.0 default): the runner and resolveStoryFeatureLoadPort only ever
+  // touch loopback. Matches the adapter-smoke orchestrator. rf2-wf5al(2).
+  const { ready } = await startLocalHttpServer({
+    cleanup,
+    httpServerBin: HTTP_SERVER_BIN,
+    root: OUT_ROOT,
+    port,
     cwd: IMPL_ROOT,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  }));
-
-  let serverDown = false;
-  const serverOutput = [];
-  const captureServerOutput = (chunk, stream) => {
-    const text = chunk.toString();
-    serverOutput.push(...text.split(/\r?\n/).filter(Boolean).map((line) => `[http-server:${stream}] ${line}`));
-    if (VERBOSE) process[stream].write(text);
-  };
-  server.stdout.on('data', (chunk) => captureServerOutput(chunk, 'stdout'));
-  server.stderr.on('data', (chunk) => captureServerOutput(chunk, 'stderr'));
-  server.on('exit', (code, signal) => {
-    serverDown = true;
-    if (code !== 0 && code !== null) {
-      console.error(`http-server exited unexpectedly (code=${code}, signal=${signal}).`);
-    }
+    readyTimeoutMs: READY_TIMEOUT_MS,
+    captureOutput: true,
+    verbose: VERBOSE,
   });
-
-  const ready = await waitForHttpReady(port, Date.now() + READY_TIMEOUT_MS, {
-    isAborted: () => serverDown,
-  });
-  if (!ready || serverDown) {
-    console.error(`http-server did not become reachable on :${port} within ${READY_TIMEOUT_MS}ms.`);
-    for (const line of serverOutput.slice(-40)) console.error(line);
-    return 1;
-  }
+  if (!ready) return 1;
 
   const runner = cleanup.trackProcess(spawnHarnessProcess(process.execPath, [RUNNER], {
     stdio: 'inherit',
