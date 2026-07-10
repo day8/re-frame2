@@ -42,7 +42,7 @@ Every spec citation in this record (and in subsequent code) is against the pinne
 | EP | In v1? | Notes |
 |---|---|---|
 | **Required core** (000 / 001 / 002 / 004 / 006 / 009 / 015) | yes | non-negotiable — 015 Data Classification is v1-required, not D3-gated (see D5b) |
-| **Q1 — State machines (005)** | <yes / no> | <which sub-capabilities — flat / hierarchical / always / after / tags / parallel-regions> |
+| **Q1 — State machines (005)** | <yes / no> | <which `:fsm/*` + `:actor/*` sub-capabilities you claim — enumerate the live set per `conformance.md` §Capability tagging at the pinned commit (EP-0029 adds `:fsm/choice` / `:fsm/internal-events` / `:fsm/timeout`); record the result in D7> |
 | **Q2 — Routing (012)** | <yes / no> | |
 | **Q3 — SSR (011)** | <yes / no> | |
 | **Q4 — Schemas (010)** | <yes-runtime-schema / yes-via-host-types / no> | <which library if runtime-schema> |
@@ -189,45 +189,25 @@ Record the mechanism for each declaration surface. The full contract is the cano
 
 ## D7. Conformance capability tag set
 
-The set of capability tags this port claims:
+Captured as **four fields**, not a transcribed catalog. Derive the set at the **pinned corpus commit** (the Spec pin block above) per the one procedure in `conformance.md` §Capability tagging — that leaf owns *how* to derive the claimable set, the family → D3-scope map, and the corpus/spec divergence rule. This record captures only the *result*:
 
-```
-:core/*           (always)
-:identity/*       (always — v1-required: EP-0012 :rf/path algebra + CEDN-1 identity, cardinal rule 11)
-:data-classification/*  (always — v1-required: Spec 015 egress/redaction, D5b; enumerate sub-tags from fixtures)
-:fsm/flat         <yes / no>
-:fsm/hierarchical <yes / no>
-:fsm/eventless-always <yes / no>
-:fsm/delayed-after <yes / no>
-:fsm/tags         <yes / no>
-:fsm/parallel-regions <yes / no>
-:fsm/final-states <yes / no>
-:fsm/history      <yes / no — yes if you implement :type :history pseudo-states (shallow / deep / default-target); first-class v1 capability per Spec 005>
-:fsm/registration-validation <yes / no — yes if you validate machine specs at registration time>
-:fsm/choice       <yes / no — yes if you implement :type :choice transient states (lowering onto :always); EP-0029>
-:fsm/internal-events <yes / no — yes if you implement the public/private dispatch-boundary refusal; EP-0029>
-:fsm/timeout      <yes / no — yes if you implement state+spawn :timeout / :on-timeout (lowering onto :after); EP-0029>
-:actor/own-state  <yes / no>
-:actor/spawn-destroy <yes / no>
-:actor/cross-actor-fx <yes / no>
-:actor/declarative-spawn <yes / no>
-:actor/spawn-and-join <yes / no>
-:actor/system-id  <yes / no>
-:flow/*           <yes / no — yes if D3 Q8 = yes; the claim is the whole namespace, expanded to the current fixture sub-tags (grep ':flow/[a-z-]*' spec/conformance/fixtures/ at the pinned commit) — basic / trace / init / reg-v / poke / toggle / topo / dirty-check / frame-scoped / hot-reload / lifecycle-emits-traces / … ; sub-behaviours you don't implement go on known-skipped-capabilities>
-:rf.http/managed  <yes / no — yes if D3 Q9 = yes>
-:routing/*        <yes / no>
-:ssr/*            <yes / no>
-:schemas/*        <yes / no — pick yes if D5 ≠ no, regardless of mechanism; a static yes-via-host-types host puts the runtime-trace sub-tags (:schemas/runtime, :schemas/event-payload) on known-skipped-capabilities — the :fixture/dynamic-host-only? fixtures can't produce a runtime trace. See conformance.md §Static hosts and dynamic-host-only fixtures>
-:resources/*      <yes / no — yes if D3 Q10 = yes (presupposes Q9). Resources reads: six resources-*.edn fixtures (:resources/ensure / dedupe / stale-suppression / scope-fail-closed / lease-gc / keep-previous). The mutation half is corpus-behind — spec-mandated, no fixtures yet; verify against spec/016-Resources.md + own unit tests until they land. (:rf.resource/* / :rf.mutation/* are the reserved event/sub id namespaces, distinct from this capability vocabulary.)>
-:derivation/algebra-graph                <yes / no — yes if D3 Q6 = yes AND you ship the full subs/flows/resources/routes/machines graph>
-:derivation/algebra-graph-subs-machines  <yes / no — the subs+machines static subset; a graph host spanning only those claims this and known-skips the broad :derivation/algebra-graph>
-```
+- **Claimed** — the families/tags the harness filters on (a fixture runs when its `:fixture/capabilities ⊆ claimed`). Always the three v1-required families; append the D3-gated families your Phase 1 scope claims, each enumerated from `spec/conformance/fixtures/*` at the pin. A family maps to a D3 question per `conformance.md` §Capability tagging — don't re-transcribe the tag catalog here.
+- **Known-skipped** — the explicit allowlist of capabilities the port deliberately does NOT claim, each with a reason. A fixture whose capability is in neither the claim nor this list MUST FAIL the suite, never skip silently (`conformance.md` §The two out-of-claim flavours).
+- **Fixture-less self-tested** — spec-mandated capabilities the port implements that the corpus has no fixture for yet (the corpus-behind case — e.g. the two fixture-less `:actor/*` tags, the Resources mutation half); verified against the owning Spec + own unit tests until fixtures land. A fixture-less capability you do NOT implement goes on known-skipped instead.
+- **Score** — `passed / claimed-applicable` against the claimed set, reported with the corpus commit it was measured against (`conformance.md` §Reporting conformance).
 
-> **The derivation/process algebra (EP-0014) mints no authoring capability — only an optional graph-inspection one:** the split pair `:derivation/algebra-graph` (broad) + `:derivation/algebra-graph-subs-machines` (subs+machines subset), claimed only if D3 Q6 = yes; a host with no inspection surface records a `known-skipped-capabilities` reason. See [`conformance.md` §Capability tagging](conformance.md#capability-tagging).
+    :claimed
+      :core/*                 ; always — pattern-required
+      :identity/*             ; always — v1-required (EP-0012 path algebra + CEDN-1 identity)
+      :data-classification/*  ; always — v1-required (Spec 015 egress/redaction)
+      <+ the D3-gated families you claim — e.g. :fsm/flat :routing/* :flow/* … ;
+         each maps to a D3 question and expands to fixture-derived tags per
+         conformance.md §Capability tagging>
+    :known-skipped {<:capability> {:reason "<why unclaimed — e.g. flat-FSM-only port; static host, no runtime schema trace>"} …}
+    :fixture-less-self-tested [<:capability — verified vs spec/<NNN>-*.md + unit tests, no corpus fixture yet>]
+    :score "<passed> / <claimed-applicable> @ corpus <commit>"
 
-Enumerate the claimable vocabulary per [`conformance.md` §Capability tagging](conformance.md#capability-tagging) at the pinned commit: the fixtures score (what runs), the conformance README + owning Spec define the vocabulary (what exists to claim), and the two diverge either way — the common corpus-ahead case, plus the corpus-behind `:actor/*` exception.
-
-Score reporting: this port's score is `passed / claimed-applicable` against the above set. A capability the port deliberately doesn't claim goes on the harness's `known-skipped-capabilities` allowlist (see [`conformance.md` §The two out-of-claim flavours](conformance.md#the-two-out-of-claim-flavours)); a fixture carrying a capability in neither the claim nor the allowlist must FAIL the suite, not skip silently.
+> The derivation/process algebra (EP-0014) mints no authoring capability — only the optional graph-inspection pair (`:derivation/algebra-graph` + `:derivation/algebra-graph-subs-machines`), claimed only if D3 Q6 = yes; a host with no inspection surface records a `known-skipped-capabilities` reason. See `conformance.md` §Capability tagging.
 
 ---
 
