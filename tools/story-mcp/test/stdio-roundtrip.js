@@ -5,7 +5,7 @@
 //
 //   - initialize                  (negotiate protocolVersion 2025-06-18)
 //   - notifications/initialized   (notification, no response)
-//   - tools/list                  (expect all 20 tools per spec/002)
+//   - tools/list                  (expect the canonical fixture from spec/002)
 //   - tools/call list-tags        (read-side smoke; seven inclusion tags present in canonical set)
 //   - tools/call list-substrates  (returns a vector, possibly empty on JVM)
 //   - tools/call get-story-instructions (text content)
@@ -16,7 +16,7 @@
 //                                 (same shape — wires to dispatch table)
 //   - tools/call register-variant without --allow-writes
 //                                 (expect gated tool-execution error — proves
-//                                  the gating contract per IMPL-SPEC §7.3)
+//                                  the gating contract per spec/003)
 //   - tools/call no-such-tool     (expect method-not-found protocol error)
 //   - ping                        (empty result, liveness probe)
 //
@@ -150,8 +150,8 @@ function run() {
       console.log('OK   preview-variant descriptor -> variant-id (required) + substrate/active-modes/cell-overrides/base-url');
 
       // 2c. Verify the register-variant descriptor: required
-      // `variant-id` + `body`. This is the write-gated tool per IMPL-SPEC
-      // §7.3 — descriptor advertised whether the gate is open or not.
+      // `variant-id` + `body`. This is the write-gated tool per spec/003;
+      // its descriptor is advertised whether the gate is open or not.
       const regDesc = (list.result?.tools || []).find((t) => t.name === 'register-variant');
       if (!regDesc) throw new Error('register-variant descriptor missing from tools/list');
       const regReq = regDesc.inputSchema?.required || [];

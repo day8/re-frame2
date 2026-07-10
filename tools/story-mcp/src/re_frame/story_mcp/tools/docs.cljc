@@ -1,6 +1,6 @@
 (ns re-frame.story-mcp.tools.docs
   "Docs-category tool handlers — introspection over the Story
-  registry. Per IMPL-SPEC §7.2 these are the pure-read surfaces:
+  registry. These are the pure-read surfaces:
   `list-stories`, `get-story`, `get-variant`, `list-tags`,
   `list-modes`, `list-assertions`, `variant->edn`.
 
@@ -253,7 +253,7 @@
                              (fn [page] {:decorators page}))))))
 
 (def canonical-assertion-docs
-  "Per spec/007 line 304 + IMPL-SPEC §3.5 the seven dispatched canonical
+  "The seven dispatched canonical
   assertions' arities, PLUS the tape-evaluated `:rf.assert/schema-error`
   (spec/017 §Schema rule). `:rf.assert/schema-error` is the
   one canonical assertion that is NOT dispatched into the frame — it
@@ -332,8 +332,8 @@
   `:sub-overrides` (+ fidelity), `:setup-order` / `:script-order`,
   `:checks` / `:assertions`, `:required-runner`, `:platforms`, `:tags`.
 
-  AUTHOR DATA — ships RAW, exactly like `get-variant` / `variant->edn`
-  (rf2-7k5mce, ruled by Mike 2026-07-08). `explain-variant` is a documented
+  AUTHOR DATA — ships RAW, exactly like `get-variant` / `variant->edn`.
+  `explain-variant` is a documented
   NO-RUN tool (spec/API.md: 'Plan-derived data, no run, no live :app-db
   slice'): `story/explain` is a pure projection over the registry side-table
   and allocates no frame. Every slot it returns — including the plan-RESOLVED
@@ -460,7 +460,7 @@
 ;; ---------------------------------------------------------------------------
 
 (def descriptors
-  "Docs-category descriptors, in IMPL-SPEC §7.2 order."
+  "Docs-category descriptors, in spec/002-Tool-Registry.md order."
   [{:name           "list-stories"
     :category       :docs
     :description    (str "All registered stories, optionally filtered by tags. Each entry carries id, doc, tags, and child variant ids. Paginated per rf2-76sf6 (`:limit` default 25, optional `:cursor` continuation). "

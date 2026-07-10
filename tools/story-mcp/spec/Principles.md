@@ -26,13 +26,10 @@ Every tool call routes through Story's existing public API —
 the `*`-suffix runtime helpers (`reg-variant*`, `unregister!`).
 Nothing here registers new framework primitives.
 
-This is the downstream-EPs-consume-foundation rule applied to tools:
-story-mcp surfaces what Story already emits and registers; it does
-not invent new substrates. Concretely, when implementation surfaces
-a runtime gap (e.g., "I want to list registered modes but Story
-doesn't expose a public accessor"), file a `bd` bead against Story
-or `spec/007-Stories.md`. Don't bolt a parallel surface onto the
-MCP server.
+Story-MCP surfaces what Story already emits and registers; it does not
+invent new substrates. When the implementation exposes a runtime gap,
+extend Story's public surface rather than bolting a parallel registry or
+query path onto the MCP server.
 
 ## Transport-machinery isolation — separate jar from Story
 
@@ -68,6 +65,18 @@ launches the server as a subprocess; there is no listening port, no
 auth surface, no CORS dance. stderr is reserved for diagnostics;
 stdout carries only protocol traffic.
 
+## Same-runtime Story access
+
+Tool handlers call `re-frame.story` directly in the server JVM. The
+stdio transport connects the agent host to Story-MCP; it does not connect
+Story-MCP to a browser. There is no implicit nREPL or Tool-Pair hop.
+
+This boundary makes host capability explicit: JVM/CLJC Story operations
+use registrations and frames in the server process, while CLJS-only
+registries and browser-panel state return empty results. A future remote
+bridge would be a new transport contract, not an implementation detail of
+the current server.
+
 ## Stage-marker independence
 
 story-mcp carries its own stage constant
@@ -89,7 +98,7 @@ release.
 ## Protocol version pinned
 
 The MCP protocol revision is pinned at `2025-06-18` in
-`re-frame.story-mcp.config/mcp-protocol-version`. Floating-version
+`re-frame.story-mcp.config/protocol-version`. Floating-version
 semantics ("whatever the client speaks") are rejected:
 
 - **Predictability for agents.** An agent that connects to one
@@ -182,18 +191,9 @@ attaches the triplet in one session — lives at
 The three-axis discipline below is story-mcp's expansion of that
 contract.
 
-The motivation is the 2026 trend axis. Microsoft's April 2026
-recommendation (Playwright CLI **over** Playwright MCP for
-coding agents) was driven by MCP responses being roughly 4×
-larger in tokens than the equivalent CLI output. Anthropic's
-own router-SKILL guidance lands at the same ~5k ceiling. An
-agent host with a 200k context window can absorb a handful of
-20k tool returns, but the realistic working session fires
-dozens of tool calls — story-mcp's `run-variant` (whose
-output is the variant's rendered identity plus assertion
-results) and `list-variants` on a populous library are the
-exposed surfaces here. A single oversized response burns the
-budget the agent needs for the next ten ops.
+An agent session makes many calls, and Story's rich run results and
+registry listings can grow quickly. A per-response cap keeps one call
+from consuming the context needed for the rest of the workflow.
 
 The discipline applies across three axes:
 
@@ -205,7 +205,7 @@ The discipline applies across three axes:
   `:limit` MUST keep the response under the cap. No unbounded
   list responses; no "best-effort" omission of pagination.
 
-  Implemented per rf2-76sf6 (default `:limit` 25, max 200,
+  The implementation uses a default `:limit` of 25 and maximum 200,
   base64-encoded opaque cursor with whole-set fingerprint for
   staleness detection); see
   `tools/story-mcp/src/re_frame/story_mcp/tools/cursor.cljc`. The
@@ -254,9 +254,8 @@ single op blow the session.
 ## Structural dedup at the wire boundary
 
 Three tools — `preview-variant`, `run-variant`, `record-as-variant` —
-pass their `:structuredContent` payload through `day8/de-dupe` BEFORE
-the wire-boundary token-cap check (rf2-90eft, mirroring
-re-frame2-pair-mcp's rf2-obpa9). Repeated subtrees in the payload —
+pass their `:structuredContent` payload through `day8/de-dupe` before
+the wire-boundary token-cap check. Repeated subtrees in the payload —
 the same `:app-db` slice reappearing in `:rendered-hiccup` and
 `:snapshot`, the same argument map repeating across recorder captures
 — collapse into a flat cache map keyed by `de-dupe.cache/cache-N`
@@ -336,8 +335,8 @@ loses the friendly inspection shape for zero compression win, so
 ## Tool verbs follow the cross-MCP convention
 
 Tool names in story-mcp's catalogue pick from the verb table at
-[`tools/mcp-conformance/NAMING.md`](../../mcp-conformance/NAMING.md)
-(rf2-mzf1r) — the canonical home for the cross-MCP verb vocabulary
+[`tools/mcp-conformance/NAMING.md`](../../mcp-conformance/NAMING.md),
+the canonical home for the cross-MCP verb vocabulary
 shared with re-frame2-pair-mcp. The shared verbs the
 pair pins are `get-` / `list-` / `read-` / `discover-` /
 `restore-` / `reset-` / `register-` / `unregister-` / `run-` /
@@ -347,7 +346,7 @@ NOT ship `dispatch`, `eval-cljs`, or the streaming pair — its
 mutation surface is `register-variant` / `unregister-variant` and
 its runtime is JVM-side without a browser eval substrate.
 
-Story-mcp's twenty current tools are conformant. Two grandfathered
+Story-MCP's current tools are conformant. Two documented
 deviations carry explicit catalogue exceptions in
 [`NAMING.md`](../../mcp-conformance/NAMING.md):
 
@@ -368,7 +367,7 @@ When in doubt, defer to the framework's [Principles](../../../spec/Principles.md
 and Story's [Principles](../../story/spec/Principles.md):
 
 - **Regularity over cleverness** — one obvious way to do a thing.
-  Tool names and shapes are stable; the 20-tool surface is small on
+  Tool names and shapes are stable; the surface is small on
   purpose.
 - **Named things over anonymous things** — every tool has a stable
   name; every error reason keyword is stable.

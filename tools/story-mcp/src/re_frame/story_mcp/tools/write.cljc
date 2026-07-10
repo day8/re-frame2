@@ -1,6 +1,6 @@
 (ns re-frame.story-mcp.tools.write
-  "Write-category tool handlers (v1.1, dev-only — gated). Per
-  IMPL-SPEC §7.3 the write surface is dev-only; CI runs leave the gate
+  "Write-category tool handlers (dev-only and gated). Per
+  spec/003-Write-Surface-Gating.md, CI runs leave the gate
   off (`config/writes-allowed?` defaults false). Every handler here
   short-circuits with a gate-denial error result when the flag is off.
 
@@ -12,7 +12,7 @@
   it has enough body to warrant its own ns under the
   leaf-size ceiling. That ns exposes its own `descriptors` vec which
   `tools.registry/tool-registry` concatenates after `write/descriptors`
-  so IMPL-SPEC §7.3 order survives the file split."
+  so the documented Write-category order survives the file split."
   (:require [clojure.edn :as edn]
             [re-frame.error :as error]
             [re-frame.mcp-base.args :as args]
@@ -36,7 +36,7 @@
       (str "Write surface disabled. Set `:rf.story-mcp/allow-writes?` "
            "(or `--allow-writes` CLI flag, or "
            "`-Drf.story-mcp.allow-writes=true` JVM property) to enable. "
-           "Per IMPL-SPEC §7.3 the write surface is dev-only; CI runs "
+           "The write surface is dev-only; CI runs "
            "should leave it off.")
       {:gated true :tool tool-name})))
 
@@ -275,7 +275,7 @@
 
 (defn tool-register-variant
   "Write: programmatically register a variant. Gated behind
-  `allow-writes?` per IMPL-SPEC §7.3.
+  `allow-writes?` per spec/003-Write-Surface-Gating.md.
 
   Args:
     :variant-id  required — `:story.<path>/<variant>` keyword id.
@@ -353,7 +353,7 @@
 
 (def descriptors
   "Write-category descriptors for the in-ns tools (register /
-  unregister), in IMPL-SPEC §7.3 order.
+  unregister), in spec/002-Tool-Registry.md order.
 
   `record-as-variant` lives in `re-frame.story-mcp.tools.recorder` and
   is concatenated by `tools.registry/tool-registry` after this vec —

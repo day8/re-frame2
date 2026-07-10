@@ -57,9 +57,8 @@
 (def ^:const max-frame-bytes
   "Hard ceiling on a single newline-delimited JSON-RPC frame from the
   stdio transport. 4 MB — well above any legitimate MCP message a
-  cooperating client would send (the largest reasonable payload is a
-  `tools/list` response, which Stage 7's twenty-tool registry
-  prints in ~15 KB), but small enough that a hostile or runaway
+  cooperating client would send (the current `tools/list` response is
+  orders of magnitude smaller), but small enough that a hostile or runaway
   producer can't OOM the JVM by sending a one-frame `readLine` that
   never terminates. When a frame exceeds the cap, `read-frame` throws
   an `ex-info` with `:rf.error/frame-too-large`; the run-loop catches

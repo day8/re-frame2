@@ -6,15 +6,15 @@
 
 ## What it is
 
-A JVM-side stdio JSON-RPC server that exposes Story's read (and gated
+A JVM-side stdio JSON-RPC server that exposes Story's read and gated
 write) surface as MCP tools. AI agents (Claude Code, Cursor, Copilot)
 launch the server as a subprocess, perform the `initialize`
 handshake, then call tools like `list-stories`, `run-variant`,
 `snapshot-identity`, `get-story-instructions` to navigate / drive /
 introspect the Story library.
 
-The server bridges the agent's JSON-RPC dialect to Story's CLJS /
-CLJC public API: `re-frame.story/registrations`,
+The server bridges the agent's JSON-RPC dialect to Story's CLJC public
+API in the same JVM process: `re-frame.story/registrations`,
 `re-frame.story/run-variant`, `re-frame.story/snapshot-identity`,
 `re-frame.story/variant->edn`, and friends. Story-MCP itself adds
 zero new framework primitives — it is a thin adapter from JSON-RPC to
@@ -45,11 +45,9 @@ because:
   JSON-RPC framing, asynchronous-handler runtime) that the vast
   majority of Story consumers never load.
 - Splitting at the jar boundary keeps the Story core lean.
-- The MCP surface can evolve on its own cadence — Story's own
-  `re-frame.story/stage` advances when Story's surface extends; the
-  MCP jar's `re-frame.story-mcp.config/stage = :mcp` advances when
-  the MCP surface extends. The two artefacts have independent stage
-  progression.
+- The MCP surface can evolve on its own cadence. Story's
+  `re-frame.story/stage` and the MCP jar's
+  `re-frame.story-mcp.config/stage` describe different surfaces.
 
 The pattern mirrors `tools/machines-viz/` vs.
 `tools/machines-viz-mcp/` (per [`tools/README.md`](../../README.md)).
@@ -64,7 +62,7 @@ The pattern mirrors `tools/machines-viz/` vs.
                                        │ - schema validation        │
                                        │ - bridges to ↓             │
                                        └──────┬────────────────────┘
-                                              │ in-process or pair-style
+                                              │ direct, in-process calls
                                               ▼
                                        ┌───────────────────────────┐
                                        │ tools/story/ runtime      │
@@ -75,12 +73,13 @@ The pattern mirrors `tools/machines-viz/` vs.
                                        └───────────────────────────┘
 ```
 
-The MCP server connects to a running app's story runtime via the
-existing Tool-Pair primitives (see
-[`spec/Tool-Pair.md`](../../../spec/Tool-Pair.md)): nREPL-attached
-process, the agent reads the registry over the wire, runs variants,
-reads results back. The MCP server itself runs in the agent's
-process; the story runtime runs in the app.
+The stdio server and the Story API it calls share one JVM. Registrations,
+runs, and snapshots are process-local; this artefact contains no nREPL,
+socket, or JVM-to-browser bridge. The JVM server can run Story's CLJC
+headless surface, but CLJS-only state such as registered browser
+substrates and the a11y-panel atom is not reachable and is reported as
+empty. Browser-attached inspection belongs to a pair tool that actually
+owns such a connection; Story-MCP does not imply one.
 
 ## Relationship to spec/007-Stories.md
 
@@ -90,8 +89,9 @@ This jar adds nothing to the framework's normative spec — it surfaces
 existing Story APIs over the wire.
 
 When [`spec/007-Stories.md`](../../../spec/007-Stories.md) extends
-(e.g. a new canonical assertion id), Story-MCP picks it up
-automatically: `list-assertions` enumerates whatever is registered.
+(for example with a new canonical assertion id), Story-MCP picks it up
+from the Story version on its classpath: `list-assertions` enumerates
+whatever that runtime registers.
 When Story-MCP gains a new tool, that's a Story-MCP-internal change —
 no spec edit required.
 
@@ -114,8 +114,7 @@ re-frame2:
 7. Agent edits the body (or the underlying component); GOTO 4.
 
 The loop converges when `:assertions` is all-passing — the agent has
-written a story that demonstrates the component working. This is the
-whole point of agent-substrate posture in 2026.
+written a story that demonstrates the component working.
 
 ## Cross-references
 
@@ -130,5 +129,6 @@ whole point of agent-substrate posture in 2026.
   stage-marker is independent from Story, why protocol-version pinned.
 - [`tools/story/spec/006-MCP-Surface.md`](../../story/spec/006-MCP-Surface.md) —
   Story's side of the contract.
-- [`spec/Tool-Pair.md`](../../../spec/Tool-Pair.md) — the runtime
-  contract for pair-shaped AI tools.
+- [`spec/Tool-Pair.md`](../../../spec/Tool-Pair.md) — the separate
+  browser-attached pair-tool contract; Story-MCP does not implement its
+  connection.

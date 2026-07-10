@@ -1,6 +1,5 @@
 (ns re-frame.story-mcp.tools.egress
-  "Wire-egress scrubbers for the MCP tool handlers (rf2-73wuj, split out
-  of the former `tools.helpers` in rf2-8yvyp).
+  "Wire-egress scrubbers for Story-MCP tool handlers.
 
   Per spec/Tool-Pair.md §Direct-read privacy posture (lines 544-566):
   every pair-shaped tool surfacing live frame state MUST route the
@@ -8,7 +7,7 @@
   derived-tree projection below) before the value crosses the wire
   egress.
 
-  ## EP-0025 fail-open posture (value-match removed) — fail-CLOSED on no live frame
+  ## Path projection: fail open for re-keyed values, fail closed without a frame
 
   EP-0025 REMOVED value-match (taint-by-equality) redaction of re-keyed
   copies (§\"What is removed\": value-match is propagation/taint by another
@@ -26,7 +25,7 @@
 
   The fail-open is scoped to a LIVE variant frame. At the FRAMEWORK boundary
   (`re-frame.core/project-egress`), a derived-tree with NO live frame now FAILS
-  CLOSED (rf2-vl0jur, ruled 2026-06-23): the whole tree redacts to `:rf/redacted`
+  CLOSED: the whole tree redacts to `:rf/redacted`
   rather than ship raw — the earlier carve-out that shipped the raw tree on a
   non-live frame was retired. `scrub-rendered` (the LIVE-state tools'
   `:rendered-hiccup` / `:snapshot` / `:effective-args`) and the live arm of
@@ -44,8 +43,8 @@
   and destroy the tool — a snippet built from `:rf/redacted` is meaningless —
   without closing any leak a live frame would have closed.
 
-  The permanent rule (Mike, 2026-06-26) is a NARROWED HYBRID: keep scrub-if-live,
-  and carve these two re-keyed runtime payload classes out of the fail-closed
+  The current rule is a narrow hybrid: keep scrub-if-live, and carve these
+  two re-keyed runtime payload classes out of the fail-closed
   boundary under a NAMED, narrow Story-MCP exception — `scrub-re-keyed-runtime`.
   It is NOT a broad `:rf.egress/local-raw` profile and NOT a general raw escape
   hatch: it applies ONLY to the inherently-re-keyed runtime payload classes whose
@@ -69,7 +68,7 @@
   effects a `reg-event` returns, `:source :effect`) from the named frame's
   runtime-db partition; the `:frame variant-id` opts slot is load-bearing.
 
-  ## Non-live runtime/captured value scrub (rf2-12f2q)
+  ## Non-live runtime and captured values
 
   The wire-elision contract (`tools/story/spec/006-MCP-Surface.md`)
   promises EVERY Story-MCP payload that carries OBSERVED RUNTIME state
@@ -85,13 +84,13 @@
   axe DOM) take the narrow `scrub-re-keyed-runtime` exception on a non-live
   frame; the cofx maps fail closed (`scrub-captured-cofx`). Author-published
   STATIC registration metadata (story/variant bodies, registry enumerations,
-  and `explain-variant`'s ENTIRE `:explain` map — rf2-7k5mce) is
+  and `explain-variant`'s entire `:explain` map) is
   intentionally public and NOT scrubbed; see `scrub-re-keyed-runtime` for the
   runtime-vs-authored split. NOTE `explain-variant` is a NO-RUN tool over the
   registry side-table: even its plan-RESOLVED value slots (`:effective-args`
   / `:args` / `:substitutions` / `:network` / `:db-seed` / `:sub-overrides` /
   `:setup-order` / `:script-order`) are static author data, so the WHOLE map
-  ships raw like `get-variant` (Mike, 2026-07-08) — it does NOT route through
+  ships raw like `get-variant` — it does not route through
   any egress boundary here.
 
   ## Path-based redaction (`elide-app-db`, `scrub-assertions+count`)
@@ -122,7 +121,7 @@
   lands the value AT that path. The `:include-sensitive` opt-out forwards the
   raw tree (same escape hatch as `:app-db`).
 
-  ## One record-level boundary — `project-egress` (EP-0025 B4, rf2-ojp8pi)
+  ## One record-level boundary: `project-egress`
 
   The derived-tree projection runs through the SINGLE public boundary
   `re-frame.core/project-egress` — the `:rf.observe/derived-tree` record kind,
@@ -143,7 +142,7 @@
             [re-frame.story-mcp.tools.result :as result]))
 
 ;; ---------------------------------------------------------------------------
-;; Named `:rf.egress/*` profile adoption (EP-0015 §10, rf2-qus09h).
+;; Named `:rf.egress/*` profile adoption (EP-0015 §10).
 ;;
 ;; story-mcp is an off-box MCP/AI tool wire — the same boundary class as
 ;; re-frame2-pair-mcp. Per EP-0015 §10 the egress posture names a
@@ -160,8 +159,8 @@
 ;; ---------------------------------------------------------------------------
 
 (defn posture->profile
-  "Resolve the off-box egress POSTURE to a named `:rf.egress/*` profile
-  (EP-0015 §10, rf2-qus09h). `include?` is the already-gated,
+  "Resolve the off-box egress posture to a named `:rf.egress/*` profile.
+  `include?` is the already-gated,
   already-opted-in boolean: `false` ⇒ `:rf.egress/off-box-tool` (the
   default MCP/AI tool wire); `true` ⇒ `:rf.egress/local-raw` (the
   trusted-local operator's deliberate raw read). Mirror of
@@ -172,8 +171,8 @@
     :rf.egress/off-box-tool))
 
 (defn posture->elision-opts
-  "The `:rf.size/*` opt-set `elide-wire-value` is called under for the
-  resolved egress posture (EP-0015 §10, rf2-qus09h) — the named profile's
+  "The `:rf.size/*` option set used by `elide-wire-value` for the
+  resolved egress posture — the named profile's
   floor from the cross-MCP `mcp-base.egress` mirror. `:rf.egress/off-box-tool`
   redacts sensitive + elides large + emits structural digests;
   `:rf.egress/local-raw` opts both back in."
@@ -187,7 +186,7 @@
 (defn elide-app-db
   "Run `app-db` through `re-frame.core/elide-wire-value` against
   `variant-id`'s frame registry, under the named-egress profile the
-  posture resolves to (EP-0015 §10, rf2-qus09h). Returns the elided value,
+  posture resolves to. Returns the elided value,
   or the input unchanged when `include?` is true.
 
   The egress walker reads `variant-id`'s per-frame elision registry
@@ -237,8 +236,8 @@
   indicator the caller threads onto its response envelope via
   `with-indicators` (Conventions §Cross-MCP indicator-field vocabulary,
   MUST-level): an agent that sees redacted leaves but no scalar summary
-  cannot tell HOW MUCH the egress filtered. This is the canonical
-  silent-swallow failure mode the indicator count closes (rf2-koq5m).
+  cannot tell how much the egress filtered. This closes the
+  silent-swallow failure mode.
 
   Two short-circuits avoid pointless work on the opt-in / empty paths:
 
@@ -253,7 +252,7 @@
     :else          (sensitive/strip-sensitive records false)))
 
 ;; ---------------------------------------------------------------------------
-;; Derived-tree PATH-based projection (EP-0025 fail-open, rf2-ojp8pi)
+;; Derived-tree path-based projection (EP-0025 fail-open)
 ;; ---------------------------------------------------------------------------
 ;;
 ;; `elide-app-db` redacts the `:app-db` slot by PATH. A derived tree
@@ -270,7 +269,7 @@
 ;; position the path cannot reach ships RAW (fail-open).
 ;;
 ;; The projection runs through the SINGLE public boundary
-;; `re-frame.core/project-egress` (EP-0025 B4, rf2-ojp8pi) — the
+;; `re-frame.core/project-egress` — the
 ;; `:rf.observe/derived-tree` record kind, the path-based dual of
 ;; `elide-wire-value`. story-mcp keeps only the ORCHESTRATION: build the
 ;; derived-tree record (its `:source-db`), name the off-box egress profile,
@@ -279,7 +278,7 @@
 (defn scrub-rendered
   "PATH-redact a DERIVED tree (rendered hiccup, `:effective-args`, a snapshot
   body) before wire egress, keyed to `variant-id`'s frame — in ONE call to the
-  framework boundary `re-frame.core/project-egress` (rf2-ojp8pi), the
+  framework boundary `re-frame.core/project-egress`, the
   `:rf.observe/derived-tree` record's SINGLE-TREE form (`:slot-keys nil`).
 
   EP-0025 FAIL-OPEN: the value-match (taint-by-equality) engine is REMOVED. The
@@ -301,19 +300,19 @@
       covers BOTH axes, matching the `:rf.egress/local-raw` floor; this is the
       ONE deliberate way to ship a frameless tree raw off-box).
     - A nil `tree` returns `tree` (nothing to walk).
-    - An EMPTY collection `tree` (`[]` / `{}` / `#{}`) returns `tree` unchanged
-      (rf2-f2noru): an empty derived tree carries NOTHING to protect on ANY
+    - An EMPTY collection `tree` (`[]` / `{}` / `#{}`) returns `tree` unchanged:
+      an empty derived tree carries nothing to protect on any
       frame, so it must NOT trip the non-live fail-closed branch below and
       redact the whole (empty) tree to the `:rf/redacted` KEYWORD. That keyword
       would break a downstream schema expecting a sequential — the
       `run-variant` error branch mints `[]` evidence slots via
       `story/run-result`, and a `:rf/redacted` where the frozen
       `[:sequential :any]` schema requires a sequential re-breaks the exact
-      invariant the `(vec …)` guard was added to hold (rf2-5r6j96,
-      testing.cljc). `(coll? tree)` excludes scalars (a string is not a
+      invariant the `(vec …)` guard holds in testing.cljc. `(coll? tree)`
+      excludes scalars (a string is not a
       `coll?`); the nil case is already handled above.
-    - A NON-LIVE variant frame (nil / unknown / destroyed) FAILS CLOSED
-      (rf2-vl0jur, ruled 2026-06-23): `project-egress` redacts the whole tree to
+    - A NON-LIVE variant frame (nil / unknown / destroyed) FAILS CLOSED:
+      `project-egress` redacts the whole tree to
       `:rf/redacted` rather than ship it raw. A missing variant frame must NOT
       silently become raw off-box — the EP-0025 fail-open is scoped to a re-keyed
       VALUE under a LIVE governing frame, never to an unresolvable frame. A
@@ -321,29 +320,22 @@
       `include?` (the `--allow-sensitive-reads` escape hatch)."
   [tree app-db variant-id include?]
   (cond
-    ;; Nil-safe — mirrors `elide-app-db`'s pre-check (rf2-5r6j96: this
-    ;; short-circuit was DOCUMENTED above but never implemented, so a nil
-    ;; `tree` fell through to `project-egress` — walking to nil unchanged
-    ;; under a live frame, but UNCONDITIONALLY redacted to `:rf/redacted`
-    ;; under a non-live frame per the four-case rule below, either of
-    ;; which is a needless trip through the egress walker for a tree with
-    ;; nothing in it to protect).
+    ;; Nil has nothing to protect and should not depend on frame liveness.
     (nil? tree) tree
 
-    ;; Empty-collection short-circuit (rf2-f2noru): an empty derived tree
-    ;; (`[]` / `{}` / `#{}`) has nothing to protect on ANY frame, so return it
+    ;; An empty derived tree has nothing to protect on any frame, so return it
     ;; unchanged rather than route it through the non-live fail-closed branch
     ;; below — which would redact even an empty `[]` to the `:rf/redacted`
     ;; keyword and break the `[:sequential :any]` shape the run-variant error
-    ;; branch's `[]` evidence slots must keep (rf2-5r6j96). `(coll? tree)`
+    ;; branch's `[]` evidence slots must keep. `(coll? tree)`
     ;; excludes scalars; nil is handled above.
     (and (coll? tree) (empty? tree)) tree
 
     include? tree
 
     :else
-    ;; Project through the SINGLE record-level boundary `re-frame.core/project-egress`
-    ;; (EP-0025 B4, rf2-ojp8pi): a `:rf.observe/derived-tree` record naming the
+    ;; Project through the single record-level boundary `re-frame.core/project-egress`:
+    ;; a `:rf.observe/derived-tree` record naming the
     ;; off-box-tool egress PROFILE — `project-egress` resolves the profile to
     ;; the `:rf.egress/off-box-tool` floor and PATH-walks the tree against
     ;; `variant-id`'s classification registry (sensitive first — it wins — then
@@ -359,7 +351,7 @@
       {:rf.egress/profile (posture->profile false)})))
 
 ;; ---------------------------------------------------------------------------
-;; Non-live runtime/captured value scrub (rf2-12f2q)
+;; Non-live runtime and captured values
 ;; ---------------------------------------------------------------------------
 ;;
 ;; The three live-state tools (`preview-variant` / `run-variant` /
@@ -374,14 +366,13 @@
 ;;   - `read-a11y-violations`'s in-browser axe-core violation nodes (the
 ;;     variant frame may not be live in the JVM tool process).
 ;;
-;; `explain-variant` is NOT in this list (rf2-7k5mce): it is a NO-RUN tool
+;; `explain-variant` is not in this list: it is a no-run tool
 ;; over the registry side-table, so its `:explain` map — plan-STRUCTURE AND
 ;; plan-RESOLVED value slots alike — is static AUTHOR data, not observed
 ;; runtime. It ships RAW like `get-variant` / `variant->edn` (see the
 ;; INTENTIONALLY-PUBLIC list below); no egress boundary applies.
 ;;
-;; Two distinct payload SHAPES travel through here, and they take two distinct
-;; non-live postures (Mike, 2026-06-26 — the narrowed-hybrid rule, rf2-jwggld):
+;; Two payload shapes travel through here, with distinct non-live postures:
 ;;
 ;;   (A) RE-KEYED runtime payloads — captured event VECTORS and axe DOM nodes.
 ;;       The secret rides a position the app-db classification path cannot reach
@@ -421,7 +412,7 @@
 ;; plan-RESOLVED value slots (`:effective-args` / `:args` / `:substitutions` /
 ;; `:network` / `:db-seed` / `:sub-overrides` / `:setup-order` /
 ;; `:script-order`) — since `explain-variant` is a NO-RUN projection over the
-;; registry, every slot is static author data (rf2-7k5mce, Mike 2026-07-08).
+;; registry, every slot is static author data.
 ;; Those are the catalogue an author publishes for
 ;; discovery — not runtime/user state — and the threat model
 ;; (`spec/015-Data-Classification.md`) scopes the marks to the OBSERVED
@@ -435,16 +426,15 @@
   "True when `variant-id` names a registered, non-destroyed frame (the
   framework's frame-liveness predicate, `re-frame.core/frame-ids`). The
   derived-tree projection redacts by PATH only against a LIVE frame's
-  classification; a non-live frame is the rf2-vl0jur fail-closed boundary
+  classification; a non-live frame is the fail-closed boundary
   (and the gate for the `scrub-re-keyed-runtime` exception)."
   [variant-id]
   (contains? (rf/frame-ids) variant-id))
 
 (defn scrub-re-keyed-runtime
-  "PATH-redact an inherently RE-KEYED runtime payload `tree` keyed to variant
-  `variant-id`'s frame, before wire egress (rf2-12f2q). This is the NAMED,
-  narrow Story-MCP re-keyed-runtime egress exception (Mike, 2026-06-26,
-  rf2-jwggld) — it applies to EXACTLY two runtime payload classes:
+  "PATH-redact an inherently re-keyed runtime payload `tree` against
+  `variant-id`'s frame before wire egress. This named, narrow exception
+  applies to exactly two runtime payload classes:
 
     - `record-as-variant`'s captured event VECTORS (the secret rides an event
       payload, a non-app-db position).
@@ -478,9 +468,9 @@
   path-scrub is a NO-OP for them EVEN under a live frame (EP-0025 fail-open), so
   the value ships raw under a live frame regardless.
 
-  rf2-vl0jur made the framework `project-egress` FAIL CLOSED on a non-live frame
-  (correct for an app-db-shaped tree that COULD path-redact under a live frame).
-  Routing these inherently-re-keyed non-live payloads through that boundary would
+  The framework `project-egress` fails closed on a non-live frame, which is
+  correct for an app-db-shaped tree that could path-redact under a live frame.
+  Routing these inherently re-keyed non-live payloads through that boundary would
   redact the WHOLE captured-events / violations payload to `:rf/redacted` —
   destroying the tool's primary function (a snippet built from `:rf/redacted` is
   meaningless) — without closing any real leak the live-frame case would have
@@ -507,9 +497,8 @@
     :else       tree))
 
 (defn scrub-captured-cofx
-  "PATH-redact a captured `:rf.cofx` map `cofx` keyed to variant `variant-id`'s
-  frame, before it crosses the wire in `record-as-variant`'s rendered snippet
-  (the narrowed-hybrid cofx arm, Mike 2026-06-26, rf2-jwggld).
+  "PATH-redact a captured `:rf.cofx` map `cofx` against `variant-id`'s
+  frame before it crosses the wire in `record-as-variant`'s rendered snippet.
 
   A flat `:rf.cofx` map is ORDINARY, possibly app-shaped EDN — NOT an inherently
   re-keyed runtime payload. A `reg-cofx` value classified `:sensitive` (EP-0015
@@ -544,12 +533,11 @@
     (scrub-rendered cofx (rf/app-db-value variant-id) variant-id include?)))
 
 ;; ---------------------------------------------------------------------------
-;; Wire-egress indicator counts (rf2-koq5m).
+;; Wire-egress indicator counts.
 ;;
 ;; story-mcp's egress drops `:sensitive? true` assertion records and
 ;; replaces over-threshold / schema-`:large?` leaves with the
-;; `:rf.size/large-elided` marker — but until rf2-koq5m it surfaced
-;; NEITHER count. spec/Conventions.md §Cross-MCP indicator-field
+;; `:rf.size/large-elided` marker. spec/Conventions.md §Cross-MCP indicator-field
 ;; vocabulary is MUST-level: a tool that walks a tree-typed payload MUST
 ;; carry an `:elided-large` count alongside the `:dropped-sensitive`
 ;; count, omitting each slot when zero. The sibling pair-mcp already
@@ -590,7 +578,7 @@
 
 (defn result-with-indicators
   "Build the final `edn-result` for a live-state read, splicing on the
-  MUST-level egress indicator counts (rf2-koq5m). The
+  required egress indicator counts. The
   `:dropped`-sensitive count is supplied by the caller (from
   `scrub-assertions+count`); the `:elided`-large count is derived here
   by walking the FINAL payload for `:rf.size/large-elided` markers via

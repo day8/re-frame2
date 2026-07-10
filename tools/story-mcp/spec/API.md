@@ -4,6 +4,13 @@
 > error mode. Cross-references back to the category doc where the
 > contract is spelled out in prose.
 
+## Host boundary
+
+The stdio entry point is a JVM process and calls Story in that same
+process. It has no nREPL or JVM-to-browser bridge. Unless stated
+otherwise, tool results describe registrations and frames loaded in the
+server JVM; CLJS-only surfaces return explicit empty capability results.
+
 All tools dispatch through `re-frame.story-mcp.server`'s `tools/call`
 handler; their definitions live in
 `re-frame.story-mcp.tools.registry/tool-registry`.
@@ -82,7 +89,8 @@ not the verdict (the retired `:passing?` boolean is gone).
 
 **Input.** `{}`.
 
-**Output.** `{:substrates [keyword]}`. JVM-standalone returns `[]`.
+**Output.** `{:substrates [keyword]}`. The JVM stdio server returns
+`[]` because it cannot access the CLJS substrate registry.
 
 ## Docs tools
 
@@ -270,7 +278,7 @@ Explain panel). `:explain` carries `:source-chain` / `:parent-chain`,
 `:required-runner`, `:platforms`, `:tags`.
 
 AUTHOR DATA — the WHOLE `:explain` map ships RAW, exactly like
-`get-variant` / `variant->edn` (rf2-7k5mce, Mike 2026-07-08).
+`get-variant` / `variant->edn`.
 `explain-variant` is a NO-RUN tool: `re-frame.story/explain` is a pure
 projection over the registry side-table and allocates no frame, so every
 slot it returns — INCLUDING the plan-RESOLVED value slots (`:effective-args`
@@ -408,11 +416,11 @@ opt-in (the others: `preview-variant`, `run-variant`, `read-failures`,
 data raw, rf2-7k5mce).
 
 **Output.** `{:variant-id keyword :violations [map] :note string|nil}`.
-The shared-process (CLJS co-hosted) deploy returns the accumulated
-violations + `:note nil`; JVM-standalone hosts can't run axe-core and
-return `{:variant-id <kw> :violations [] :note "a11y is CLJS-only; this
-JVM-standalone deploy can't run axe-core. Run the panel in-browser; the
-violations atom is read by this tool."}`.
+A browser-local consumer can return accumulated violations with
+`:note nil`. The JVM stdio server cannot access that atom and returns
+`{:variant-id <kw> :violations [] :note "a11y state is CLJS-only; this
+JVM server cannot run axe-core or read the browser panel's violations
+atom. Use a browser-local inspection surface."}`.
 
 ### `read-failures`
 

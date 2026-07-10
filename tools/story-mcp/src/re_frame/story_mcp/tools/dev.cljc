@@ -1,7 +1,7 @@
 (ns re-frame.story-mcp.tools.dev
   "Dev-category tool handlers — `get-story-instructions`,
-  `preview-variant`, `list-substrates`. Per IMPL-SPEC §7.2 these are
-  the read-only agent-onboarding + canvas-state surfaces.
+  `preview-variant`, `list-substrates`. These are the agent-onboarding
+  and canvas-state surfaces described in spec/002-Tool-Registry.md.
 
   `story-instructions-text` ships inline as a single string so the
   artefact is self-contained — no resource read at boot, one MCP
@@ -100,8 +100,8 @@
 (defn tool-preview-variant
   "Dev: given a variant id, return the canvas state + share URL.
 
-  Per IMPL-SPEC §7.2 'returns rendered hiccup for a variant + the
-  assertions list'. We invoke the shared `tools.lifecycle` execution
+  Returns rendered hiccup for a variant plus its assertions list. We
+  invoke the shared `tools.lifecycle` execution
   owner (blocking `run-variant` deref + canonical exception
   normalization), and serialise the result map.
 
@@ -110,8 +110,8 @@
   it does NOT ship a third result dialect. It surfaces
   the unified `:status` verdict + the unified `:assertions` records (each
   with a derived `:status`) + `:checks`, and ADDS the preview-specific
-  slots: the `:share-url` (per IMPL-SPEC §2.8.5 + Stage 6
-  `story/variant-share-url`) so the agent can hand the cell to a human
+  slots: the `:share-url` from `story/variant-share-url`, so the agent
+  can hand the cell to a human
   collaborator, plus `:rendered-hiccup` / `:effective-args`. `:lifecycle`
   here is the loader-lifecycle STATE (`:ready` / `:error`), not the run
   verdict — the verdict is `:status`.
@@ -174,13 +174,11 @@
   "Dev: what substrates can be used. Reads the registered substrate set
   via the Story-public surface.
 
-  Per IMPL-SPEC §2.2: substrates are registered via
-  `register-substrate!` on CLJS (the actual render-fn is CLJS-only).
-  On the JVM (where the MCP server lives by default) the registered
-  set is the CLJS-side one ONLY when the server is co-hosted with the
-  CLJS runtime (a shared-process deploy via nREPL). The JVM-standalone
-  deploy reads an empty set — that's a correct answer for that deploy
-  (no CLJS substrates are runnable from a JVM-only host).
+  Substrates are registered through the CLJS-only
+  `register-substrate!` surface. The JVM stdio server has no bridge to
+  that browser registry and therefore returns an empty set. This is a
+  host-capability result, not a claim that no substrates exist in the
+  application.
 
   The CLJS var is resolved once, in `cljs-resolve` —
   `cljs-resolve/registered-substrates` is the single accessor."
@@ -192,7 +190,7 @@
 ;; ---------------------------------------------------------------------------
 
 (def descriptors
-  "Dev-category descriptors, in IMPL-SPEC §7.2 order."
+  "Dev-category descriptors, in spec/002-Tool-Registry.md order."
   [{:name           "get-story-instructions"
     :category       :dev
     :description    (str "Return Story's authoring conventions in agent-friendly form (the nine reg-* macros including the reg-fragment/reg-check composition surface, hard rules, lifecycle, snapshots). "
@@ -250,11 +248,10 @@
 
    {:name           "list-substrates"
     :category       :dev
-    :description    (str "What substrates can be used. Returns the set registered via `register-substrate!` (Reagent is canonical; UIx / Helix opt-in per host). "
+    :description    (str "Report the render substrates visible to this host. Substrate registration is CLJS-only, and the JVM stdio server has no browser bridge, so its result is empty rather than an inventory of the application's browser registry. "
                          "Examples: "
-                         "1. Shared-process deploy: {} -> {:substrates [:helix :reagent :uix]}. "
-                         "2. JVM-standalone deploy: {} -> {:substrates []} — the CLJS-side registry isn't reachable. "
-                         "3. With budget override: {:max-tokens 1000} -> same shape, smaller cap.")
+                         "1. JVM stdio server: {} -> {:substrates []} — the CLJS-side registry isn't reachable. "
+                         "2. With budget override: {:max-tokens 1000} -> the same shape.")
     :typicalTokens  100
     :inputSchema    {:type "object" :properties (s/with-max-tokens {}) :additionalProperties false}
     :outputSchema   s/default-output-schema
