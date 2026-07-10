@@ -161,7 +161,7 @@
 (deftest abort-maps-to-cancelled
   (testing "an abort is :status :cancelled with an :rf.http/aborted :error"
     (let [failure {:kind :rf.http/aborted :reason :user :request-id :article/by-id}
-          r       (http-reply/aborted-reply base-ctx failure)]
+          r       (http-reply/failure-reply base-ctx failure)]
       (is (reply/valid-reply? r) (str (reply/validate-reply r)))
       (is (= :cancelled (:status r)))
       (is (= :cancelled (:rf.reply/work-status r)))

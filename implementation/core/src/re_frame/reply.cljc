@@ -40,7 +40,8 @@
   seam, which no-ops when the schemas artefact is absent (same posture as
   `re-frame.epoch` / `re-frame.http.managed`)."
   (:require [re-frame.elision :as elision]
-            [re-frame.error :as error]))
+            [re-frame.error :as error]
+            [re-frame.privacy :as privacy]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -654,7 +655,13 @@
 (def ^:private wire-slots
   "Reply-map slots that carry user/wire data and so must be elided for trace
   egress. Identity facts (work id, frame, status, timestamps, cancellation /
-  staleness reasons) are framework data and ride verbatim."
+  staleness reasons) are framework data and ride verbatim.
+
+  CORE is the SOLE owner of this wire-bearing slot set — no managed-async
+  family re-spells it. A family needing coarse per-call redaction (an ad-hoc
+  sensitive request whose payload carries no schema marks) passes the generic
+  `:rf.privacy/force-redact-wire?` option to `trace-summary` rather than
+  mirroring this list and reducing over it itself."
   [:value :error :correlation :meta])
 
 (defn trace-summary
@@ -678,15 +685,29 @@
   policy (`elide-wire-value` enforces the live-frame gate; the carried stamp
   is policy-bearing only when it resolves). All other `opts` (size-threshold
   overrides, `:rf.size/include-sensitive?`) forward unchanged. Returns a map
-  safe to place under a trace event's `:tags`."
+  safe to place under a trace event's `:tags`.
+
+  `:rf.privacy/force-redact-wire?` (opts) is the generic FORCED-wire-redaction
+  escape hatch — the shared owner of the coarse per-call redaction a family
+  applies for an ad-hoc sensitive request whose payload carries no schema
+  marks (Spec 014 §Privacy). When true, EVERY wire slot present is redacted
+  wholesale to the framework `:rf/redacted` sentinel and the schema-policy
+  walk is BYPASSED for those slots. Because the sentinel is substituted
+  directly (not walked), forced redaction CANNOT be bypassed by an
+  `:rf.size/include-sensitive?` inspection opt. A family translates its
+  per-call sensitivity policy into this option instead of re-spelling the
+  wire-slot set (`wire-slots` lives ONLY here)."
   ([reply] (trace-summary reply nil))
   ([reply opts]
-   (let [opts (cond-> opts
+   (let [force-redact? (true? (:rf.privacy/force-redact-wire? opts))
+         opts (cond-> opts
                 (and (nil? (:frame opts)) (contains? reply :rf.frame/id))
                 (assoc :frame (:rf.frame/id reply)))]
      (reduce (fn [m slot]
                (if (contains? m slot)
-                 (update m slot #(elision/elide-wire-value % opts))
+                 (if force-redact?
+                   (assoc m slot privacy/redacted-sentinel)
+                   (update m slot #(elision/elide-wire-value % opts)))
                  m))
              reply
              wire-slots))))

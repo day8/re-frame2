@@ -100,7 +100,7 @@
       (is (= :error (:status r)))
       (is (= :timed-out (:rf.reply/work-status r)))))
   (testing "abort → :status :cancelled with :rf.http/aborted :error"
-    (let [r (http-reply/aborted-reply ctx {:kind :rf.http/aborted :reason :user})]
+    (let [r (http-reply/failure-reply ctx {:kind :rf.http/aborted :reason :user})]
       (is (reply/valid-reply? r) (str (reply/validate-reply r)))
       (is (= :cancelled (:status r)))
       (is (= :cancelled (:rf.reply/work-status r)))
