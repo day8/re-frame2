@@ -32,6 +32,8 @@
       (transition-value-form v)          ;; :keyword | :vec-target |
                                          ;;   :candidate-vector | :map |
                                          ;;   :nil | :other
+      (candidate-maps v)                 ;; [{:target/:guard/:action …} …] |
+                                         ;;   nil (malformed — caller decides)
       (candidate-targets v)              ;; [{:present? bool :target t} ...]
 
   `node-at` takes a `:states` map directly (NOT a machine) — the lowest
@@ -130,6 +132,50 @@
   spec-path discriminator."
   [v]
   (= :candidate-vector (transition-value-form v)))
+
+(defn candidate-maps
+  "Normalise a transition-table slot value to the vector of canonical
+  candidate transition maps it denotes — the ONE owner of the value-form →
+  candidate-maps mapping the `:on` / `:after` / `:always` / `:on-done` /
+  `:on-error` slots all share (rf2-tu5psi). Discriminates on the shared
+  `transition-value-form` recogniser:
+
+    :nil              -> [{}]              (forbidden / internal no-op — the
+                                            natural Clojure analogue of XState
+                                            `undefined`; unified with the empty
+                                            map `{}` single-candidate form)
+    :keyword          -> [{:target <kw>}]  (sibling target)
+    :candidate-vector -> the vector        (guarded candidates, first-pass wins)
+    :vec-target       -> [{:target <vec>}] (absolute path target)
+    :map              -> [<map>]           (a single candidate map)
+    :other            -> nil               (MALFORMED — the caller decides)
+
+  Returning `nil` (not a throw, not `[]`) for the malformed form is what lets
+  the two caller classes keep their own policy over ONE grammar:
+
+    - the runtime normaliser (`transition/normalise-candidates`) maps the nil
+      to a slot-specific throw (`:rf.error/machine-bad-on-clause` /
+      `-after-spec` / `-always` / …), preserving its taxonomy;
+    - the registration-time cofx / validation walkers map the nil to `[]`
+      (no candidates) — `validation` is the throw's designated surface, so a
+      static walker must not choke on a malformed shape.
+
+  The optional `:always` nil semantics (an ABSENT / explicit-nil `:always`
+  yields `[]`, not `[{}]`) stays at those callers — they gate the nil BEFORE
+  calling here.
+
+  This is the runtime-shaped sibling of `candidate-targets` (the shape the
+  registration TARGET validator consumes): both build on `transition-value-
+  form`, so the candidate-maps normaliser and the target walker can never
+  drift on the grammar they admit."
+  [v]
+  (case (transition-value-form v)
+    :nil              [{}]
+    :keyword          [{:target v}]
+    :candidate-vector v
+    :vec-target       [{:target v}]
+    :map              [v]
+    :other            nil))
 
 (defn candidate-targets
   "Normalise a transition slot value to the seq of `:target`s it
