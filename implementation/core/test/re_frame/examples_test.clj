@@ -73,8 +73,8 @@
   ;; clear-all! also drops the framework-shipped `:rf/machine` /
   ;; `:rf.machine/has-tag?` subs, which register at re-frame.machines load
   ;; time (see re-frame.machines §framework-shipped subs). The state-machine-
-  ;; walkthrough example's `:auth.login/state` / `:auth.login/error` named
-  ;; subs CHAIN off `:rf/machine` (`:<- [:rf/machine :auth.login/flow]`), so
+  ;; walkthrough example's `:walkthrough.login/state` / `:walkthrough.login/error` named
+  ;; subs CHAIN off `:rf/machine` (`:<- [:rf/machine :walkthrough.login/flow]`), so
   ;; their input sub must be present in the registrar. The transitive require
   ;; from the example ns wouldn't re-fire re-frame.machines' toplevel reg-sub
   ;; forms once the ns is already loaded (Clojure require is idempotent), so
@@ -702,7 +702,7 @@
 ;; pure machine-transition (no frame/app-db) and drain-level (frame +
 ;; :fx-overrides canned stub). JVM-runnable. Formerly the
 ;; `state-machine-walkthrough.core-test/smoke-tests` fixture; folded inline.
-;; The `:auth.login/canned-success` / `:auth.login/canned-failure` stubs the
+;; The `:walkthrough.login/canned-success` / `:walkthrough.login/canned-failure` stubs the
 ;; drain tests use are registered in `state-machine-walkthrough.core` so the
 ;; browser demo and the tests share one registration point.
 ;; ============================================================================
@@ -716,14 +716,14 @@
       (let [s0 {:state :idle :data {:attempts 0 :error nil}}
             {s1 ::result/snap fx1 ::result/fx}
             (machines/machine-transition login-flow s0
-                                   [:auth.login/submit
+                                   [:walkthrough.login/submit
                                     {:email "a@b.com" :password "secret"}])]
         (is (= :submitting (:state s1)))
         ;; Entering :submitting fires the :issue-request action's :fx.
         (is (= 1 (count fx1)) "one :rf.http/managed fx")
         (is (= :rf.http/managed (ffirst fx1)))
         (let [{s2 ::result/snap} (machines/machine-transition login-flow s1
-                                                        [:auth.login/success {:value {:token "t"}}])]
+                                                        [:walkthrough.login/success {:value {:token "t"}}])]
           (is (= :authed (:state s2))))))
 
     (testing "pure lockout — at the retry limit the second :failure clause's :locked-out target wins"
@@ -735,7 +735,7 @@
       (let [snapshot {:state :submitting :data {:attempts 3 :error nil}}
             {s ::result/snap}
             (machines/machine-transition login-flow snapshot
-                                   [:auth.login/failure
+                                   [:walkthrough.login/failure
                                     {:failure {:kind :rf.http/http-4xx
                                                :message "bad creds"}}])]
         (is (= :locked-out (:state s)) "expected :locked-out at attempts=3")))
@@ -744,12 +744,12 @@
       ;; Full drain: registers the machine, dispatches into it, asserts the
       ;; app-db landed at :authed. Uses the `:fx-overrides` seam to swap
       ;; `:rf.http/managed` for the per-test canned-success stub.
-      (let [f (frame/make-anon-frame-record! {:fx-overrides {:rf.http/managed :auth.login/canned-success}})]
-        (rf/dispatch-sync [:auth.login/flow [:auth.login/submit
+      (let [f (frame/make-anon-frame-record! {:fx-overrides {:rf.http/managed :walkthrough.login/canned-success}})]
+        (rf/dispatch-sync [:walkthrough.login/flow [:walkthrough.login/submit
                                               {:email "a@b.com"
                                                :password "secret"}]]
                           {:frame f})
-        (is (= :authed (rf/compute-sub [:auth.login/state] (rf/frame-state-value f)))
+        (is (= :authed (rf/compute-sub [:walkthrough.login/state] (rf/frame-state-value f)))
             "expected :authed after canned success")))
 
     (testing "drain retry-then-lockout — three failures cycle, the fourth :submit lands at :locked-out"
@@ -758,14 +758,14 @@
       ;; `rf/with-fx-overrides` — the lexical-scope counterpart to the
       ;; per-frame `:fx-overrides` opt on `make-frame`.
       (let [f (frame/make-anon-frame-record! {})]
-        (rf/with-fx-overrides {:rf.http/managed :auth.login/canned-failure}
+        (rf/with-fx-overrides {:rf.http/managed :walkthrough.login/canned-failure}
           (dotimes [_ 3]
-            (rf/dispatch-sync [:auth.login/flow [:auth.login/submit
+            (rf/dispatch-sync [:walkthrough.login/flow [:walkthrough.login/submit
                                                   {:email "x@y.z" :password "wrong"}]]
                               {:frame f})
-            (rf/dispatch-sync [:auth.login/flow [:auth.login/dismiss]] {:frame f}))
-          (rf/dispatch-sync [:auth.login/flow [:auth.login/submit
+            (rf/dispatch-sync [:walkthrough.login/flow [:walkthrough.login/dismiss]] {:frame f}))
+          (rf/dispatch-sync [:walkthrough.login/flow [:walkthrough.login/submit
                                                 {:email "x@y.z" :password "wrong"}]]
                             {:frame f}))
-        (is (= :locked-out (rf/compute-sub [:auth.login/state] (rf/frame-state-value f)))
+        (is (= :locked-out (rf/compute-sub [:walkthrough.login/state] (rf/frame-state-value f)))
             "expected :locked-out on 4th attempt")))))

@@ -49,7 +49,7 @@ at it, poke here.
   [snapshot](../../../../docs/machines/glossary.md#snapshot) through
   [subscriptions](../../../../docs/core/glossary.md#subscription). The view asks
   *what tag is active*, not *which exact state*. `@(rf/subscribe
-  [:rf.machine/has-tag? :auth.login/flow :auth/busy])` disables the inputs and re-labels the button
+  [:rf.machine/has-tag? :walkthrough.login/flow :auth/busy])` disables the inputs and re-labels the button
   while a request is in flight; `:auth/locked` swaps the form for a lockout
   panel. That is *ask, don't tell*: the view never names a state keyword, so
   adding a sixth busy state wouldn't touch it. The demo wires the request to
@@ -81,8 +81,8 @@ at it, poke here.
   it's why the async boundary needs no glue code. The network is swapped out via
   the [`:fx-overrides`](../../../../docs/core/testing/pipeline-runs.md#redirect-anything-fx-overrides)
   seam: the browser demo redirects `:rf.http/managed` to
-  `:auth.login/canned-failure`, and the headless tests pick
-  `:auth.login/canned-failure` or `:auth.login/canned-success` per scenario —
+  `:walkthrough.login/canned-failure`, and the headless tests pick
+  `:walkthrough.login/canned-failure` or `:walkthrough.login/canned-success` per scenario —
   both thin wrapper effects in [`core.cljc`](core.cljc) that fix this example's
   payloads. No real traffic, identical reply shape.
 

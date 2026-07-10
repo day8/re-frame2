@@ -83,8 +83,8 @@
                            :body   creds
                            :request-content-type :json}
               :decode     :json
-              :on-success [:auth.login/flow [:auth.login/success]]
-              :on-failure [:auth.login/flow [:auth.login/failure]]}]]})
+              :on-success [:walkthrough.login/flow [:walkthrough.login/success]]
+              :on-failure [:walkthrough.login/flow [:walkthrough.login/failure]]}]]})
 
     :record-error
     ;; The classified failure map rides under :error.
@@ -106,32 +106,32 @@
 
     :store-session
     (fn [{[_ {:keys [value]}] :event}]
-      {:fx [[:auth.session/store {:token (:token value)}]]})}
+      {:fx [[:walkthrough.session/store {:token (:token value)}]]})}
 
    :states
    {:idle
-    {:on {:auth.login/submit {:target :submitting
+    {:on {:walkthrough.login/submit {:target :submitting
                               :action :clear-error}}}
 
     :submitting
     ;; The :auth/busy tag is how the view knows to dim the inputs and re-label
     ;; the button while the request is in flight — it asks
-    ;; @(rf/subscribe [:rf.machine/has-tag? :auth.login/flow :auth/busy]) rather than checking for
+    ;; @(rf/subscribe [:rf.machine/has-tag? :walkthrough.login/flow :auth/busy]) rather than checking for
     ;; this exact state by name. Ask what's true, not where you are.
     ;; See docs/machines/glossary.md#state-tag.
     {:tags  #{:auth/busy}
      :entry :issue-request
-     :on    {:auth.login/success {:target :authed
+     :on    {:walkthrough.login/success {:target :authed
                                   :action :store-session}
-             :auth.login/failure [{:target :error-shown
+             :walkthrough.login/failure [{:target :error-shown
                                    :guard  :under-retry-limit
                                    :action :record-error}
                                   {:target :locked-out
                                    :action :lock-account}]}}
 
     :error-shown
-    {:on {:auth.login/dismiss {:target :idle}
-          :auth.login/submit  {:target :submitting}}}
+    {:on {:walkthrough.login/dismiss {:target :idle}
+          :walkthrough.login/submit  {:target :submitting}}}
 
     :authed
     ;; Journey's end, happy path. The :auth/authenticated tag rides along once
@@ -149,12 +149,12 @@
 ;; FX — guide §An action returns effects
 ;; ============================================================================
 ;;
-;; `:auth.session/store` is a stub — it shows you the SHAPE of the effect without
+;; `:walkthrough.session/store` is a stub — it shows you the SHAPE of the effect without
 ;; the real localStorage write, which keeps the walkthrough honest and headless.
 ;; The login request, meanwhile, runs through the canned stubs below, slotted in
 ;; at frame creation via :fx-overrides so no real HTTP ever happens.
 
-(rf/reg-fx :auth.session/store
+(rf/reg-fx :walkthrough.session/store
   {:doc "Stub: the real thing would write the session token to localStorage."}
   (fn [_m _args] nil))
 
@@ -164,7 +164,7 @@
 ;; payloads on top. Both the browser demo and the headless tests point
 ;; `:rf.http/managed` at them.
 
-(rf/reg-fx :auth.login/canned-success
+(rf/reg-fx :walkthrough.login/canned-success
   {:doc "Example stub: pretend every login succeeds, handing back a canned
          user/token. Defers the heavy lifting to the framework-shipped
          `:rf.http/managed-canned-success` — we just supply the payload."}
@@ -173,7 +173,7 @@
       (stub frame-ctx (assoc args-map :value {:user  {:id "test-user"}
                                               :token "test-token"})))))
 
-(rf/reg-fx :auth.login/canned-failure
+(rf/reg-fx :walkthrough.login/canned-failure
   {:doc "Example stub: pretend every login fails with a 401. Defers to the
          framework-shipped `:rf.http/managed-canned-failure` — we just supply
          the failure shape. This is the stub the lockout demo wires in."}
@@ -195,7 +195,7 @@
 ;; hand-stamped `reg-event` + `re-frame.machines/make-machine-handler`
 ;; composition needed.
 
-(rf/reg-machine :auth.login/flow login-flow)
+(rf/reg-machine :walkthrough.login/flow login-flow)
 
 ;; ============================================================================
 ;; FORM DRAFT SLICE — docs/core/how-to/build-a-form.md
@@ -205,8 +205,8 @@
 ;; and this slice owns the DRAFT — the email and password the user is typing.
 ;; A draft is just application state, so it belongs in app-db: read through a
 ;; sub, written through an event, never stashed in a view-local atom. That's why
-;; the form's inputs are CONTROLLED off `:auth.login/draft` — `:on-change`
-;; dispatches `:auth.login/edit-field`, and submit reads the draft back out of
+;; the form's inputs are CONTROLLED off `:walkthrough.login/draft` — `:on-change`
+;; dispatches `:walkthrough.login/edit-field`, and submit reads the draft back out of
 ;; the slice instead of reaching into the view.
 ;;
 ;; We keep this slice deliberately tiny — one teaching point, the draft itself.
@@ -216,14 +216,14 @@
 
 (def login-form-defaults {:email "" :password ""})
 
-(rf/reg-event :auth.login/initialise-form
+(rf/reg-event :walkthrough.login/initialise-form
   {:doc "Seed the login draft with empty defaults before first render. This owns
          only the draft slice — the machine needs no seeding, it spawns itself
          on its very first event."}
   (fn [{:keys [db]} _]
     {:db (assoc-in db [:auth :login-form :draft] login-form-defaults)}))
 
-(rf/reg-event :auth.login/edit-field
+(rf/reg-event :walkthrough.login/edit-field
   {:doc "The user touched a single field. We write it straight into the draft
          slot in app-db. The controlled input's `:on-change` dispatches this —
          and it NEVER reaches for view-local state, which is rather the point."}
@@ -241,18 +241,18 @@
 ;; a tag directly with the `[:rf.machine/has-tag? …]` sub — reading the `:tags` set keeps it
 ;; from hard-coding individual state keywords (docs/machines/glossary.md#state-tag).
 
-(rf/reg-sub :auth.login/draft
+(rf/reg-sub :walkthrough.login/draft
   {:doc "The login form draft — whatever the user has typed so far. The view's
          controlled inputs read `:value` off this, and submit reads it one more
          time to hand the creds over to the machine."}
   (fn [db _] (get-in db [:auth :login-form :draft])))
 
-(rf/reg-sub :auth.login/state
-  :<- [:rf/machine :auth.login/flow]
+(rf/reg-sub :walkthrough.login/state
+  :<- [:rf/machine :walkthrough.login/flow]
   (fn [machine _] (:state machine)))
 
-(rf/reg-sub :auth.login/error
-  :<- [:rf/machine :auth.login/flow]
+(rf/reg-sub :walkthrough.login/error
+  :<- [:rf/machine :walkthrough.login/flow]
   (fn [machine _] (get-in machine [:data :error])))
 
 ;; And here's where the purity pays off. Because the table is plain data and
