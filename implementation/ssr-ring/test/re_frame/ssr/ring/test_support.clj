@@ -1,46 +1,27 @@
 (ns re-frame.ssr.ring.test-support
-  "Shared JVM test scaffolding for the ssr-ring suite (rf2-l1qgjw issue 3).
+  "Shared JVM test scaffolding for the ssr-ring suite.
 
-  Five live-host / streaming-thread test namespaces had grown
-  near-identical copies of: an ephemeral-port Jetty start/stop +
-  `with-jetty` macro, a `java.net.http` client + request builder + two
-  `http-get` result shapes, and a `rf2-ssr-streaming-*` daemon-thread
-  leak detector. Small drift had already crept in (request timeouts of
-  10s vs 30s, poll cadences of 10ms vs 50ms). This namespace single-
-  sources the MECHANISM; every intentional per-test difference (request
-  timeout, leak-poll cadence) stays an explicit PARAMETER so a caller
-  reads its own knobs at the call site rather than hiding them in a copy
-  edit.
-
-  This is the established local pattern: the artefact also single-sources
-  the per-test reset here (`reset-runtime`, rf2-09iktm — see the section
-  below), and `with-jetty` etc. are pure test plumbing with no
-  production-path coupling — so consolidating them here removes review
-  surface without introducing a new abstraction style.
+  This namespace single-sources ephemeral Jetty lifecycle, JDK HTTP requests,
+  streaming-thread leak detection, and per-test runtime reset. Timeouts and
+  polling cadence remain explicit at call sites.
 
   Independence note: requiring this ns does NOT co-load any test
   namespace (it depends only on production `re-frame.*` source +
   `ring.adapter.jetty` + JDK classes), so every test ns stays
   independently runnable under the artefact `:test` alias.
 
-  Contract smoke coverage for these helpers lives in
-  `test_support_contract_test.clj` (rf2-l1qgjw).
+  Contract smoke coverage lives in `test_support_contract_test.clj`.
 
-  ## Per-test reset fixture (rf2-09iktm)
+  ## Per-test reset fixture
 
   `reset-runtime` is the artefact-local `:each` reset for the ssr-ring
-  JVM suite. It WAS `re-frame.ssr.test-fixture/reset-runtime`, loaded by
-  putting the sibling `../ssr/test` source dir on the test classpath —
-  which the Clojure CLI now warns is a deprecated use of a path external
-  to the project. The reset is now sourced entirely from artefacts this
-  one already depends on: the published, substrate-agnostic
-  `re-frame.test-support/make-reset-runtime-fixture` (core/src) does the
+  JVM suite. The substrate-agnostic
+  `re-frame.test-support/make-reset-runtime-fixture` does the
   registrar / frames / flows / schemas / machines / routing reset and
   installs the SSR adapter; the four SSR per-request side-channel atoms
   (Spec 011 §Per-request frame teardown) live in `re-frame.ssr.*`
   production namespaces (ssr/src), reachable through the existing
-  `day8/re-frame2-ssr` dep with no test-path reach. The single source of
-  truth for the COMMON reset shape stays the published core fixture; only
+  `day8/re-frame2-ssr` dependency. The common reset remains in core; only
   the four SSR-specific atom resets are local, fired through the fixture's
   `:init-fn` seam (runs after adapter install, under the ambient
   `:rf/default` scope, before each test body)."
@@ -57,8 +38,7 @@
            [org.eclipse.jetty.server Server]))
 
 ;; ===========================================================================
-;; Per-test reset fixture (rf2-09iktm — supersedes the external
-;; `../ssr/test` path to `re-frame.ssr.test-fixture`)
+;; Per-test reset fixture
 ;; ===========================================================================
 
 (defn- reset-ssr-runtime!
@@ -81,20 +61,18 @@
      directly (the same atoms the private façade aliases hold) — no
      external test path needed.
 
-  2. Reinstate the ns-load-time LISTENER + late-bind registrations the
+  2. Reinstate the namespace-load listener and late-bind registrations the
      SSR / routing / head / machines namespaces install at load. The
      published fixture clears the trace-tooling + event-emit listener
      registries each test (`trace-tooling/clear-listeners!` /
      `event-emit/clear-event-listeners!`), which drops the always-on SSR
-     `::error-projection` error-emit listener and its dev-trace twin
-     (`re-frame.ssr` ns-load, rf2-fb598) — without them a render-/drain-
+     `::error-projection` error-emit listener and its dev-trace twin; without
+     them a render-/drain-
      time throw recovers to a silent HTTP 200 instead of the fail-closed
      5xx the SSR contract mandates. A `:reload` re-runs each ns body so
      those listeners — and the routing late-bind hooks `reg-route`
      resolves through (`:routing/reg-route`, Spec 012) — resurrect. This
-     is exactly what the former `re-frame.ssr.test-fixture/reset-runtime`
-     did; the only change is WHERE the registrar reset comes from (the
-     published core fixture, not a sibling-test-tree clear-all!)."
+     restores them."
   []
   (reset! request/request-slots {})
   (reset! response/response-slots {})
@@ -115,16 +93,14 @@
   side-channel resets on top, fired after adapter install and before the
   test body under the same ambient `:rf/default` scope. Built once at
   ns-load so the registrar baseline is pinned to THIS suite's ns-load
-  registrations (run-order independence, rf2-7hwnu)."
+  registrations for run-order independence."
   (test-support/make-reset-runtime-fixture
     {:adapter ssr/adapter
      :init-fn reset-ssr-runtime!}))
 
 (defn reset-runtime
-  "The canonical `:each` fixture for the ssr-ring JVM suite. Drop-in for
-  the former `re-frame.ssr.test-fixture/reset-runtime` (rf2-09iktm): same
-  `(use-fixtures :each reset-runtime)` and same callable
-  `(reset-runtime (fn [] …))` shapes. Wipes the registrar, every
+  "The canonical `:each` fixture for the ssr-ring JVM suite. Wipes the
+  registrar, every
   per-frame SSR side-channel atom, and installs the SSR adapter + ensures
   the ambient `:rf/default` frame."
   [test-fn]
@@ -192,8 +168,7 @@
 (defn http-get-request
   "Build a GET `HttpRequest` for `http://127.0.0.1:<port><path>` with a
   per-request `timeout-secs` read timeout. `timeout-secs` is the
-  load-bearing per-test knob (the old copies drifted 10s vs 30s), so it
-  is required — the caller states it explicitly at the call site."
+  required per-test knob, stated explicitly at the call site."
   ^HttpRequest [port path timeout-secs]
   (-> (HttpRequest/newBuilder)
       (.uri (URI/create (str "http://127.0.0.1:" port path)))
@@ -254,12 +229,9 @@
   elapses. RETURNS the final seq of live threads — empty on success,
   non-empty (the leaked threads) on timeout — so a caller's assertion
   can name the offenders in its failure message. Does NOT throw on
-  timeout (rf2-fun38: a deliberately different contract from a throwing
-  `poll-until`).
+  timeout rather than throwing.
 
-  `poll-ms` is the explicit poll cadence (the old copies used 10ms for
-  single-request tests and 50ms for the higher-peak concurrency burst;
-  keep it a parameter so each caller states its own cadence)."
+  `poll-ms` is explicit so each caller states its own cadence."
   [timeout-ms poll-ms]
   (let [deadline (+ (System/currentTimeMillis) timeout-ms)]
     (loop []

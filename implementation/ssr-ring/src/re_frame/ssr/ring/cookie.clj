@@ -13,14 +13,12 @@
   host adapters (Pedestal, HttpKit), and user code that needs a one-off
   serialisation can reach it without depending on the internal ns.
 
-  Attribute-injection safety (rf2-rpedl, security audit 2026-05-14 §P1.2)
-  — every attribute string that flows into the wire shape is validated
+  Attribute-injection safety: every attribute string that flows into the
+  wire shape is validated
   for CR / LF / NUL before concatenation. A multi-tenant app that
   derives `:domain` (or any attribute) from tenant-controlled input
   would otherwise allow header-splitting via `\\r\\n` injection. Cookie
-  `:name` carries a separate RFC 6265 §4.1.1 token-grammar gate (no
-  CTLs, whitespace, or `( ) < > @ , ; : \\ \" / [ ] ? = { }`). Folds in
-  the §P2.4 cookie-name grammar finding."
+  `:name` carries a separate RFC 6265 §4.1.1 token-grammar gate."
   (:require [clojure.string :as str]
             [re-frame.error :as error]
             [re-frame.ssr.http-validation :as http-validation])
@@ -29,10 +27,6 @@
            [java.time Instant ZoneOffset ZonedDateTime]
            [java.time.format DateTimeFormatter]))
 
-;; Audit rf2-asmj1 P6 / cluster rf2-sljs1 — reflection-warning gate.
-;; The JVM-side `Instant/ofEpochMilli` in `cookie->set-cookie-header`
-;; has a primitive-long contract; surfacing reflection at compile time
-;; flags accidentally-Long-boxed args before they NPE in production.
 (set! *warn-on-reflection* true)
 
 (def ^:private ^DateTimeFormatter rfc1123-formatter
@@ -50,20 +44,9 @@
   (-> (URLEncoder/encode (str s) (.name StandardCharsets/UTF_8))
       (str/replace "+" "%20")))
 
-;; rf2-rpedl — every cookie attribute value (after :value, which is
-;; URL-encoded above) is concatenated verbatim into the Set-Cookie
-;; header. A CR / LF / NUL in :domain / :path / :max-age / :same-site /
-;; :expires would split the header and let an attacker who controls one
-;; of those fields forge a second header — RFC 7230 §3.2.4 explicitly
-;; bans CR/LF/NUL inside header values. We reject up front so the
-;; behaviour is portable across hosts (Jetty 11+ rejects, but earlier
-;; Jetty / HttpKit / Pedestal don't all defend the same way).
-;;
-;; The injection-char grammar is single-sourced in
-;; `re-frame.ssr.http-validation/contains-injection-char?` — the SAME
-;; predicate the SSR fx boundary (`re-frame.ssr.response`) enforces, so
-;; the materialiser and the fx-boundary gate can't drift on what counts
-;; as a header-splitting char.
+;; Cookie attributes are concatenated into a header value, so reject the
+;; CR/LF/NUL characters that can split headers. The shared predicate keeps
+;; the effect boundary and this last wire boundary on one grammar.
 
 (defn- validate-attribute-string!
   [attr-key v]
@@ -81,26 +64,12 @@
                     :value     v}}))
     s))
 
-;; rf2-rpedl / §P2.4 — RFC 6265 §4.1.1 cookie-name = token. The token
-;; grammar (RFC 7230 §3.2.6) is `1*tchar` where `tchar` is the set of
-;; visible US-ASCII chars MINUS the separators
-;; `( ) < > @ , ; : \ " / [ ] ? = { }` and whitespace. Single-sourced in
-;; `re-frame.ssr.http-validation/valid-token-name?` — the SAME predicate
-;; the SSR fx boundary (`re-frame.ssr.response`) enforces on cookie +
-;; header names, so the materialiser and the fx-boundary gate can't drift
-;; on the token grammar.
+;; RFC 6265 cookie names use the shared RFC 7230 token grammar.
 
 (defn- validate-cookie-name!
   [n]
-  ;; rf2-d95o1y — type-guard BEFORE `(clojure.core/name n)`. A cookie
-  ;; `:name` is only a string or a `Named` (keyword / symbol); anything
-  ;; else (a Long `42`, a vector `[]`, a map `{}`, …) would make
-  ;; `clojure.core/name` throw a raw `ClassCastException` with nil
-  ;; ex-data, bypassing the documented `:rf.error/cookie-invalid-name`
-  ;; contract and reaching `:on-error` / adapter code as a generic host
-  ;; exception. Reject the unsupported type loudly through the same
-  ;; structured error id so the validation contract holds for every
-  ;; name shape, not just bad strings.
+  ;; Guard the type before `name` so every invalid shape uses the structured
+  ;; cookie-name error instead of leaking a ClassCastException.
   (when-not (or (string? n) (instance? clojure.lang.Named n))
     (error/throw-error!
       :rf.error/cookie-invalid-name
@@ -145,7 +114,7 @@
   Public surface so tests, alt host adapters (Pedestal, HttpKit), and
   user code that needs a one-off serialisation can call it directly.
 
-  Validation (rf2-rpedl, security audit 2026-05-14 §P1.2 + §P2.4):
+  Validation:
     - `:name` is checked against the RFC 6265 §4.1.1 token grammar — no
       CTLs / whitespace / separators. Throws `:rf.error/cookie-invalid-name`.
     - `:domain` / `:path` / `:max-age` / `:same-site` are checked for
@@ -164,11 +133,7 @@
       "cookie map must carry :name; add a :name key to the cookie map."
       {:recovery :supply-a-cookie-name
        :extra    {:cookie cookie}}))
-  ;; rf2-rpedl §P2.4 — RFC 6265 §4.1.1 cookie-name token grammar.
-  ;; rf2-d95o1y — `validate-cookie-name!` returns the type-guarded,
-  ;; coerced name string; reuse it for the wire form so `(name …)` is
-  ;; not re-derived (and the type guard cannot be skipped on the wire
-  ;; path).
+  ;; Reuse the validated name string so the wire path cannot skip the guard.
   (let [name-str (validate-cookie-name! name)]
     ;; `Instant/ofEpochMilli` takes a primitive long; passing anything
     ;; else (a string-shaped epoch from a misconfigured projector, a
@@ -186,14 +151,8 @@
         {:recovery :supply-epoch-millis-long
          :extra    {:expires expires
                     :cookie  cookie}}))
-    ;; rf2-rpedl §P1.2 — gate every string-shaped attribute that gets
-    ;; concatenated into the Set-Cookie wire form. `:value` is URL-encoded
-    ;; (CR/LF/NUL come out as %0D/%0A/%00 — no injection path); `:expires`
-    ;; flows through `rfc1123-formatter` which only emits ASCII letters /
-    ;; digits / `, : SP`; `:secure` / `:http-only` are booleans. The
-    ;; remaining string-typed slots — `:domain`, `:path`, `:max-age`
-    ;; (callers sometimes pass strings), `:same-site` (string form
-    ;; tolerated by same-site-token) — are validated here.
+    ;; Validate the attributes that reach the wire as caller-shaped strings.
+    ;; Values are URL-encoded, expiry is formatter-owned, and flags are booleans.
     (when (some? domain)    (validate-attribute-string! :domain    domain))
     (when (some? path)      (validate-attribute-string! :path      path))
     (when (some? max-age)   (validate-attribute-string! :max-age   max-age))

@@ -1,44 +1,10 @@
 (ns re-frame.ssr.ring.lifecycle
-  "Per-request frame lifecycle helpers for the Ring host adapter.
+  "Per-request frame lifecycle and shared handler-construction contracts.
 
-  Pure helpers used by the request pipeline:
-
-    - `destroy-frame-quietly!` — best-effort frame teardown
-    - `resolve-root-view`      — hiccup-vec OR 0-arity fn → hiccup
-    - `resolve-head`           — active route's `:head` → map carrying the
-                                 rendered fragment plus `:html-attrs` /
-                                 `:body-attrs` bags for the host shell
-
-  Plus the two construction-time contracts shared verbatim by BOTH
-  `re-frame.ssr.ring/ssr-handler` AND
-  `re-frame.ssr.ring.streaming/stream-handler`:
-
-    - `validate-construction-opts!` — the fail-closed-at-boot triple
-                                      (required opts + payload policy +
-                                      trusted-shell shape)
-    - `resolve-on-error`            — the `:on-error` / locked-default
-                                      precedence
-
-  Both lived twice (once in the `ring` façade, once inlined in
-  `streaming`) before — colocating them here, alongside the
-  `validate-required-opts!` / `default-on-error` pieces they already
-  compose, keeps the boot contract single-sourced.
-  Same sibling-placement rationale as `validate-required-opts!`:
-  `streaming` and the `ring` façade both already require `lifecycle`,
-  so hosting the shared checks here avoids any circular-require between
-  the streaming sub-namespace and the façade.
-
-  Per Spec 011 §Request storage substrate + §Head/meta contract.
-
-  Note (audit rf2-cegm7 A2 / rf2-j54ee): the prior `on-create-with-request`
-  helper conj'd the Ring request map onto the caller's setup
-  event vector as a fallback for handlers that pre-dated the
-  `:rf.server/request` cofx. The conj path is gone — Spec 011 names the
-  cofx as the canonical read surface; the positional-arg variant had a
-  subtle pitfall (a 1-vector `[:rf/server-init]` silently became
-  `[:rf/server-init {ring-request...}]` after the conj, so a handler that
-  forgot to destructure ended up with the request riding the unused-arg
-  slot). Pre-alpha: one canonical surface, no fallback."
+  Both Ring handlers use these helpers for required-option, payload-policy,
+  trusted-shell, and error-fallback decisions. Request data is exposed through
+  the frame-scoped `:rf.server/request` coeffect rather than being appended to
+  initial event vectors. Per Spec 011 §Request storage and §Head/meta."
   (:require [re-frame.core :as rf]
             [re-frame.error :as error]
             [re-frame.interop :as interop]
@@ -49,18 +15,13 @@
 
 (set! *warn-on-reflection* true)
 
-;; ---- always-on error-emit helper (EP-0008 rf2-hhutya) ---------------------
+;; ---- always-on error emission ---------------------------------------------
 ;;
-;; The promoted SSR error categories ride the always-on error-emit axis
-;; (surface #4) ALONGSIDE the dev-gated `trace/emit-error!`. The Ring host
-;; adapter ships above core's require graph, so it reaches
-;; `error-emit/dispatch-error-record!` through the published
-;; `:error-emit/dispatch-error-record` late-bind hook. UNGATED — fires on a
-;; `-Dre-frame.debug=false` JVM SSR host so off-box shippers see the
-;; structured record the dev trace surface would have elided.
+;; The optional late-bind hook keeps production error shipping independent of
+;; the development-gated trace surface.
 
 (defn emit-always-on-error!
-  "Fan a PRE-BUILT always-on SSR error record out through the corpus-wide
+  "Fan a pre-built always-on SSR error record through the
   error-emit registry via the `:error-emit/dispatch-error-record` late-bind
   hook. `record` is the union shape `{:error <kw> :frame <id-or-nil> :time
   <ms> + flat category keys}`. No-op when the producer hasn't loaded.
@@ -71,14 +32,12 @@
   nil)
 
 (def ^:const default-on-error-body
-  "The literal body emitted by `default-on-error`. Pinned to the
-  rf2-kzvwq topology-leak-safe shape: generic plaintext, no throwable
-  detail, no internal class names."
+  "The generic body emitted by `default-on-error`; it exposes no throwable
+  detail or internal class names."
   "Internal error")
 
 (def ^:const default-on-error-content-type
-  "The Content-Type emitted by `default-on-error` — plaintext UTF-8,
-  matching the locked default body shape (rf2-kzvwq §P2.1)."
+  "The plaintext UTF-8 Content-Type emitted by `default-on-error`."
   "text/plain; charset=utf-8")
 
 (def default-on-error
@@ -86,20 +45,9 @@
   `:on-error`. Shared by `ssr-handler` AND `stream-handler` so the
   topology-leak contract below lives in exactly one place.
 
-  The SSR runtime's error projector handles trace-emitted errors during
-  drain; this hook covers exceptions the projector can't see (Ring-layer
-  throws, render-time CLJ exceptions, writer-thread-pre-spawn throws).
-
-  rf2-kzvwq / security audit 2026-05-14 §P2.1 — the body MUST NOT leak
-  the throwable's message. `.getMessage` carries internal topology that
-  has no business reaching the wire: JDBC URLs (host, port, database
-  name), file paths under deploy roots, partial SQL fragments, server-
-  internal class names. We emit a fixed generic body matching the
-  projector's `fallback-public-error` shape. The fn ignores the
-  throwable so the topology-leak surface stays closed. Apps that want a
-  branded transport-failure body — plaintext or HTML — supply an
-  explicit leak-safe `:on-error` Ring fn that returns a fixed response
-  and ignores the throwable."
+  The projector handles drain and render errors. This hook covers setup,
+  materialisation, and transport exceptions outside it. The fixed body never
+  reads the throwable; custom hooks must preserve that no-detail boundary."
   (let [response {:status  500
                   :headers {"Content-Type" default-on-error-content-type}
                   :body    default-on-error-body}]
@@ -107,29 +55,8 @@
 
 (defn safe-on-error
   "Invoke the resolved `:on-error` Ring-fn under containment and return
-  its Ring response. Shared by `ssr-handler`, `stream-handler`, AND
-  `setup-request-frame!` so EVERY `:on-error` call site is protected.
-
-  rf2-ljjh0 — `:on-error` is the handler's last-resort transport-failure
-  net (Ring-layer / render-time / setup-failure throws the projector
-  can't see). A CALLER-supplied `:on-error` that itself throws must NOT
-  escape the handler: an uncaught throwable handed to the Ring server
-  (Jetty / http-kit) surfaces as a raw container 500 with a stack
-  trace, defeating the rf2-kzvwq topology-leak contract the boundary
-  otherwise upholds (`default-on-error` emits a fixed generic body,
-  never the throwable). When the caller's `:on-error` throws, we surface
-  the secondary throw on the trace bus and fall back to the host-locked
-  `default-on-error` — mirroring the `resolve-error-body` pattern (a
-  buggy `:error-view` must not bypass the error boundary either). The
-  boundary is not bypassable by a bug in the caller's transport-failure
-  handler, exactly as it is not bypassable by a bug in the caller's
-  `:error-view`.
-
-  `on-error` is the ALREADY-RESOLVED fn (precedence applied by
-  `resolve-on-error` at construction time): the caller's `:on-error` or
-  `default-on-error`. When `on-error` IS `default-on-error` it cannot
-  throw — the guard is then a free no-op — so this is cheap on the
-  common path."
+  its Ring response. A failing caller hook is traced and replaced by the
+  fixed, no-detail default so error handling cannot bypass the boundary."
   [on-error request t]
   (try
     (on-error request t)
@@ -163,22 +90,9 @@
 (defn resolve-root-view
   "Resolve the caller's `:root-view` opt to a hiccup vector. Accepts
   either a hiccup vector directly OR a 0-arity fn that returns hiccup.
-  Per rf2-6t36h this MUST run exactly once per request — the fn-form
-  branch is not guaranteed to be idempotent (unsorted-map iteration,
-  gensym'd keys, time-of-day props can all vary between calls) and any
-  variance between two invocations produces a hash mismatch on the wire
-  vs the payload, firing a spurious `:rf.ssr/hydration-mismatch` on a
-  perfectly successful hydration. Resolve once, thread the result.
-
-  rf2-t72b1c — the streaming handler (`re-frame.ssr.ring.streaming`)
-  honours this exactly-once contract for the common case (a request with
-  zero continuations, i.e. no `:rf/suspense-boundary` in the tree). It
-  calls through to a SECOND invocation only when at least one continuation
-  drained — the one case app-db can legitimately have changed since the
-  shell render — trading a documented, narrow exactly-once exception
-  (rf2-1kqvbx) for a correct post-drain `:rf/render-hash`. See
-  `re-frame.ssr.ring.streaming/run-streaming-writer!`'s final-payload
-  comment for the full rationale."
+  Resolve once per request so a non-idempotent function cannot make rendered
+  HTML and payload hashes describe different trees. Streaming re-resolves only
+  after at least one continuation, when post-drain state needs a fresh hash."
   [root-view]
   (cond
     (vector? root-view) root-view
@@ -199,46 +113,21 @@
     {:head-html  \"<title>…</title><meta …>…\"   ;; inner-head fragment
      :html-attrs {…} or nil                       ;; stamped on <html>
      :body-attrs {…} or nil                       ;; stamped on <body>
-     :head-model {…} or nil}                      ;; the RAW model (rf2-1oxjxk)
+     :head-model {…} or nil}                      ;; raw reconstructible model
 
   The two attribute bags ride alongside the rendered fragment because
   `head-model->html` deliberately drops them (Spec 011 §Default flow
   step 4: `:html-attrs` populate `<html>`; `:body-attrs` populate
   `<body>` — the host shell stamps them, not the head emitter).
 
-  `:head-model` (rf2-1oxjxk) is the RAW model `rf/active-head` returned —
-  BEFORE `head-model->html` renders it to a string. It is the input to
-  the separate `render-head-hash` channel (below): the client
-  reconstructs the SAME model by calling `(rf/active-head frame-id)`
-  itself against the just-hydrated state (Spec 011 §Default flow step
-  5), so hashing the model — never the emitted HTML — is what makes the
-  channel client-reconstructible at all. nil on the caught-throw fallback
-  below (a degraded empty head carries no reconstructible model either).
+  `:head-model` is the raw `rf/active-head` value used by the separately
+  client-reconstructible head hash; emitted HTML is not a stable shared input.
 
   Exceptions during resolution degrade gracefully — empty fragment,
   no attrs — so a buggy head fn can't take down the request. The trace
-  surface carries the throw via `:rf.error/ssr-head-resolution-failed`
-  (per Spec 009 §Error event catalogue) so production observability
-  stacks see the failing head fn even though the wire response continues.
-
-  Per Spec 011 §Head/meta contract (rf2-4dra9, rf2-h2ujj) and
-  rf2-bof8i (trace-emit on caught throw, Mike decision Option B over
-  silent fallback — the always-on error-emit substrate per rf2-vnjfg /
-  rf2-bacs4 carries the trace independent of the trace ring buffer's
-  dev-only gating).
-
-  Degrade-gracefully is the deliberate counterpoint to the view/sub
-  FAIL-CLOSED posture (rf2-vvwmi / rf2-7d30s, Spec 011 §744/§748-751):
-  a view or reactive sub that throws mid-render projects a non-200
-  (the page is unusable); a head fn that throws ships a 200 with an
-  empty `<head>` (only the metadata is missing — the body still
-  renders + hydrates). To make the degraded-200 outcome ENFORCED rather
-  than incidental to `ssr-handler`'s `get-response`-before-`resolve-head`
-  call ordering, `:rf.error/ssr-head-resolution-failed` is registered as a
-  recoverable-degradation category that the projection listeners skip by
-  design (`re-frame.ssr.error-listener/non-projection-eligible-errors`,
-  rf2-lia3i): the trace ships for observability but is never buffered for
-  status projection, so no call-ordering change can flip the 200."
+  surface and always-on emitter carry `:rf.error/ssr-head-resolution-failed`.
+  This category is deliberately non-projecting: losing metadata degrades to an
+  empty head while the usable body remains a 200."
   [frame-id]
   (try
     (let [model (rf/active-head frame-id)]
@@ -251,15 +140,8 @@
                          {:frame     frame-id
                           :exception t
                           :recovery  :no-recovery})
-      ;; EP-0008 (rf2-hhutya): ALSO ride the always-on axis. This EXECUTES
-      ;; the resolved Spec 011 §`resolve-head` emits …-failed Option-B
-      ;; ruling ("the always-on error-emit substrate carries the trace to
-      ;; user observability stacks") that the impl had drifted from (it
-      ;; emitted only via the dev-gated trace bus). NON-PROJECTING: a head
-      ;; fn that throws degrades to an empty `<head>` and ships a 200 — the
-      ;; always-on `error-emit-projection-listener` skips this category
-      ;; (`non-projection-eligible-error?`, rf2-lia3i), so promotion ships
-      ;; the off-box record WITHOUT flipping the degraded-200 wire outcome.
+      ;; Always-on but non-projecting: observability must not turn a degraded
+      ;; empty head into an error response.
       (emit-always-on-error!
         {:error     :rf.error/ssr-head-resolution-failed
          :frame     frame-id
@@ -273,30 +155,16 @@
   wire hash carried as the root element's `data-rf-render-hash` marker and
   the payload's `:rf/render-hash` (Spec 011 §Hydration-mismatch detection).
 
-  rf2-1oxjxk (Option B, reverting rf2-9fw2de): this hash is BODY-ONLY
-  again. rf2-9fw2de folded the resolved head fragment + `:html-attrs` /
-  `:body-attrs` into a `[:rf/ssr-document body head-bag]` wrapper so a
-  head-only divergence would move the hash too — but the CLIENT half of
-  that change was never made: the documented client boot
-  (`re-frame.ssr.boot/hydrate!`, `:render-tree-fn #((rf/view :app/root))`)
-  hashes the BARE body tree the view returns, never a document wrapper.
-  `render-tree-hash([:rf/ssr-document body {}])` never equals
-  `render-tree-hash(body)`, so every SSR page fired a spurious
-  `:rf.ssr/hydration-mismatch` under the unified channel. The wire hash
-  MUST match what the documented client actually hashes — body-only.
-
-  Head divergence is NOT silently dropped by the revert: it rides the
-  SEPARATE `:rf/head-hash` channel (`render-head-hash` below), which is
-  client-reconstructible (unlike a document wrapper straddling body +
-  head) because it hashes the same CANONICAL HEAD MODEL the client can
-  recompute via `(rf/active-head frame-id)`."
+  This channel is body-only because the client hashes the body tree returned
+  by its render function. Head divergence uses the separate, reconstructible
+  `:rf/head-hash` channel."
   [body-hiccup]
   (rf/render-tree-hash body-hiccup))
 
 (defn render-head-hash
   "The canonical structural hash for the CLIENT-RECONSTRUCTIBLE head
   model — a SEPARATE channel from the body's `render-document-hash`
-  (rf2-1oxjxk Option B). Carried as the `<head>` element's
+  and carried as the `<head>` element's
   `data-rf-head-hash` wire marker and the payload's optional
   `:rf/head-hash` key.
 
@@ -307,27 +175,23 @@
   (not emitted HTML) is what makes the channel client-reconstructible at
   all: the client calls the SAME `(rf/active-head frame-id)` against the
   just-hydrated app-db + the route slice carried in `:rf/runtime-db`
-  (Spec 011 §Default flow step 5) and hashes the resulting model the
-  identical way — `render-tree-hash`'s canonical-EDN walk is deterministic
-  and byte-identical across JVM/CLJS (`hash.cljc`).
+  (Spec 011 §Default flow step 5) and hashes the resulting model identically.
 
   Returns nil when `head-model` is nil — the explicit-`:head`-STRING
-  request shape (`resolve-head`'s caller-supplied-string branch, and the
+  request shape (the caller-supplied-string branch, and the
   degraded-empty-head fallback on a throwing head fn). In both cases the
   server knows the head is NOT client-reconstructible (an explicit string
   has no model to recompute; a degraded head's model was never produced),
   so the channel is OMITTED rather than shipping a hash the client could
-  never match — a graceful degrade that avoids a guaranteed false-positive
-  mismatch, mirroring the `resolve-head` docstring's degrade-gracefully
-  posture."
+  never match."
   [head-model]
   (when head-model
     (rf/render-tree-hash head-model)))
 
 (defn resolve-initial-events!
-  "Resolve the caller's `:initial-events` opt to the EP-0027 setup vector
+  "Resolve the caller's `:initial-events` opt to the setup vector
   (an ordered vector of events) dispatched at per-request frame creation,
-  given the live Ring `request`. Two accepted forms (rf2-kzns7l):
+  given the live Ring `request`. Two accepted forms:
 
     1. an `:initial-events` VECTOR — passed through verbatim (lowered into
        the per-request `make-frame`'s `:initial-events`).
@@ -343,21 +207,11 @@
 
       :initial-events (fn [req] [[:auth/server-init {:user (extract-user req)}]])
 
-  It is NOT a revival of the removed `on-create-with-request` positional-
-  conj helper (audit rf2-cegm7 A2 / rf2-j54ee): that silently appended the
-  WHOLE request to the caller's vector (`[:rf/server-init]` →
-  `[:rf/server-init {ring-request}]`), putting the request in the wrong
-  arg slot. Here the caller OWNS the shape of the resulting setup vector —
-  only the extracted, sanitised fact rides it. The ambient
-  `:rf.server/request` cofx remains the canonical surface for NON-durable
-  request reads and is unaffected.
+  The caller owns the derived event shape. Use the ambient
+  `:rf.server/request` coeffect for non-durable request reads.
 
-  `:initial-events` is required (per `validate-required-opts!`), which a
-  fn satisfies as a truthy value — so the form check happens here, inside
-  the per-request setup try/catch. A value that is neither a vector nor a
-  1-arity fn (or a fn whose result is not a vector) is a programmer
-  error: surface it as `:rf.error/invalid-initial-events` rather than
-  letting `reg-frame` produce an obscure failure downstream."
+  Invalid values and function results surface as
+  `:rf.error/invalid-initial-events` inside per-request setup."
   [initial-events request]
   (cond
     (vector? initial-events)
@@ -389,21 +243,8 @@
   "Throw a structured `:rf.error/ssr-ring-missing-*` ex-info when a
   caller omits a required handler opt (`:initial-events` / `:root-view`).
 
-  Shared by `re-frame.ssr.ring/ssr-handler` AND
-  `re-frame.ssr.ring.streaming/stream-handler` so both fail closed at
-  handler-construction time (boot) rather than at first request — the
-  canonical fail-closed pattern (rf2-gtgf9, extended here to the two
-  required opts). A streaming handler built without `:initial-events` would
-  otherwise fail per-request inside `setup-request-frame!`; one built
-  without `:root-view` would fail inside the writer thread, truncating
-  the chunked response. Both must refuse to construct, exactly as the
-  non-streaming handler does. Returns `opts` unchanged on success.
-
-  Sibling-validator placement (not in the `ring` façade): `streaming`
-  already requires `lifecycle` and the `ring` façade does too, so
-  hosting the check here avoids the circular-require between the
-  streaming sub-namespace and the façade — same rationale as
-  `trust`/`payload-policy`."
+  Both handlers fail at construction rather than on the first request or,
+  worse, inside an already-committed writer. Returns `opts` unchanged."
   [{:keys [initial-events root-view] :as opts}]
   (when-not initial-events
     (error/throw-error!
@@ -422,22 +263,17 @@
 
 (defn validate-construction-opts!
   "Run the full fail-closed-at-boot validation triple shared by
-  `re-frame.ssr.ring/ssr-handler` AND
+  `re-frame.ssr.ring/ssr-handler` and
   `re-frame.ssr.ring.streaming/stream-handler`. A misconfigured handler
-  MUST refuse to construct rather than fail per-request — the canonical
-  fail-closed pattern (rf2-gtgf9). The three checks:
+  refuses to construct rather than failing per request. The checks are:
 
     1. required-opt presence (`:initial-events` / `:root-view`) via
-       `validate-required-opts!` — a streaming handler built without
-       `:initial-events` would otherwise fail per-request inside
-       `setup-request-frame!`; one without `:root-view` would fail inside
-       the writer thread, truncating the chunked response (rf2-ee38b.11).
+       `validate-required-opts!`.
     2. hydration-payload policy (the single `:payload` opt — vector
        allowlist or whole-app-db keyword) via
        `payload-policy/validate-policy-opts!` — throws
        `:rf.error/ssr-missing-payload-policy` (or
-       `:rf.error/ssr-unknown-payload-policy` on a typo'd policy) per
-       rf2-gtgf9 / rf2-pffil.
+       `:rf.error/ssr-unknown-payload-policy` on an unknown policy).
     3. trusted-shell-hook shape (`:head` / `:body-end` / `:script-src` /
        `:app-element-id` are strings or nil) via
        `trust/validate-trusted-shell-opts!` — both shells route these
@@ -446,7 +282,7 @@
        hooks), so a structural mistake (map / vector / symbol / number)
        surfaces here as `:rf.error/ssr-trusted-shell-opt-invalid` at
        boot rather than as a `ClassCastException` deep in the rendering
-       path (rf2-o6ndb).
+       path.
 
   Returns `opts` unchanged on success — composes into a `let` /
   threading position cleanly."
@@ -461,7 +297,7 @@
   Run by `re-frame.ssr.ring.streaming/stream-handler` AFTER the shared
   `validate-construction-opts!` triple.
 
-  `:html-shell` (rf2-oq4m5). The non-streaming `ssr-handler` builds its
+  `:html-shell`: the non-streaming `ssr-handler` builds its
   response by calling a ONE-PIECE `:html-shell` fn `(body-html payload-edn
   opts) → string` — it has the full body + payload in hand before the
   envelope is composed, so a custom shell can wrap them arbitrarily. The
@@ -475,20 +311,14 @@
   streaming path ALWAYS writes the split default envelope and a passed
   `:html-shell` is silently dropped.
 
-  Accepting it silently is a fail-OPEN API-contract gap: a custom shell
-  commonly carries CSP nonces, asset URLs, analytics/script policy, root
-  markup, or host-specific document structure — a production app switching
-  from `ssr-handler` to `stream-handler` would lose all of it with no
-  construction error, warning, or test signal. We fail CLOSED at boot
-  instead: `stream-handler` refuses to construct when `:html-shell` is
+  Silently accepting it would discard security and document configuration.
+  `stream-handler` therefore refuses to construct when `:html-shell` is
   present (any non-nil value), pointing the caller at the streaming
   envelope surface (the split `default-streaming-prefix` /
   `default-streaming-suffix` plus the `:head` / `:body-end` /
   `:script-src` / `:app-element-id` trusted-shell hooks, which the
   streaming envelope DOES honour). A nil `:html-shell` passes (no
-  override requested) so the shared `handler-defaults` map — which does
-  NOT carry `:html-shell` for the streaming path — and an explicit
-  `{:html-shell nil}` both construct cleanly.
+  override requested).
 
   Returns `opts` unchanged on success."
   [opts]

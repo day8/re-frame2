@@ -1,18 +1,11 @@
 (ns re-frame.ssr.ring.facade-examples-test
-  "Per rf2-09iktm — pin that the PUBLIC docstring EXAMPLES on the
-  `re-frame.ssr.ring` facade stay aligned with the runtime contract.
+  "Pin that public `re-frame.ssr.ring` docstring examples stay aligned with
+  the runtime contract.
 
   `facade-metadata-test` proves the facade vars carry a non-empty `:doc`
   + `:arglists`; it does NOT look INSIDE the docstring at the example
-  code. After the fail-closed `:payload` change (rf2-gtgf9) and the
-  curried-middleware shape, the worked examples drifted: the
-  `ssr-handler` example omitted `:payload` (a copy-paste would throw
-  `:rf.error/ssr-missing-payload-policy` at construction) and the
-  `ssr-middleware` example used the wrong, uncurried `(-> handler
-  (ssr-middleware opts) ...)` shape (the public surface is
-  `(ssr-middleware opts) -> (handler -> wrapped)`). REPL `doc`, editor
-  hover, and the JVM api-manifest surface these examples, so they are
-  user-facing.
+  code. These tests protect the required payload policy and curried middleware
+  shape surfaced through REPL, editor, and API-manifest documentation.
 
   This test is the drift tripwire. It reads the live docstring, extracts
   the worked example forms, and asserts the structural invariants a
@@ -72,7 +65,7 @@
     (some walk forms)))
 
 (deftest ssr-handler-docstring-example-includes-payload-and-constructs
-  (testing "rf2-09iktm: the ssr-handler facade example carries a :payload
+  (testing "the ssr-handler façade example carries a :payload
             policy and the example opts map passes
             validate-construction-opts! (so a copy-paste is constructible,
             not a fail-closed boot throw)"
@@ -84,7 +77,7 @@
       (is (map? opts) "the ssr-handler example passes a literal opts map")
       (is (contains? opts :payload)
           (str "the ssr-handler example opts map MUST include a :payload "
-               "policy (rf2-gtgf9 fail-closed) — saw keys: "
+                "policy — saw keys: "
                (pr-str (keys opts))))
       ;; Stronger than textual presence: the example opts map must pass
       ;; the live construction validator (with placeholder event/view
@@ -99,7 +92,7 @@
           "the ssr-handler example opts map passes validate-construction-opts!"))))
 
 (deftest ssr-middleware-docstring-example-is-curried-and-includes-payload
-  (testing "rf2-09iktm: the ssr-middleware facade example uses the correct
+  (testing "the ssr-middleware façade example uses the correct
             CURRIED composition shape — `((ssr-middleware opts) handler)` —
             and its opts map carries :payload"
     (let [doc   (-> #'ssr-ring/ssr-middleware meta :doc)
@@ -111,13 +104,11 @@
       (is (map? opts) "the ssr-middleware example passes a literal opts map")
       (is (contains? opts :payload)
           (str "the ssr-middleware example opts map MUST include a :payload "
-               "policy (rf2-gtgf9 fail-closed) — saw keys: "
+                "policy — saw keys: "
                (pr-str (keys opts))))
       ;; Curried-shape invariant: the `(ssr-middleware opts)` form must be
       ;; APPLIED — i.e. it appears in head (callee) position of an outer
-      ;; list, `((ssr-middleware opts) <handler>)`. The pre-fix, broken
-      ;; example used `(-> handler (ssr-middleware opts) ...)`, where the
-      ;; `(ssr-middleware opts)` form is an ARGUMENT, never a callee.
+      ;; list, `((ssr-middleware opts) <handler>)`.
       (letfn [(applied? [form]
                 (cond
                   (seq? form)
