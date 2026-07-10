@@ -27,8 +27,6 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.core :as core]
             [day8.re-frame2-xray.mount :as mount]
@@ -39,18 +37,13 @@
 
 ;; ---- fixtures -----------------------------------------------------------
 
-(defn- xray-init! []
-  ;; rf2-sdqsla — `reset-runtime!` folds the sentinel + trace-collector
-  ;; + settings reset into one call. rf2-2thl2 — the settings reset
-  ;; matters because init! writes through to the persisted Settings atom;
-  ;; reset between tests so per-test mutations don't leak into the next
-  ;; test's read.
-  (xray-test-support/reset-runtime!))
-
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
-     :init-fn xray-init!}))
+  ;; `make-xray-runtime-fixture` (rf2-vj80u8) folds the bespoke `xray-init!`
+  ;; into one owner: plain-atom adapter + the `:runtime` reset tier —
+  ;; sentinels + trace-collector rings + the persisted Settings atom. rf2-2thl2
+  ;; — the settings reset matters because init! writes through to that atom,
+  ;; so per-test mutations must not leak into the next test's read.
+  (xray-test-support/make-xray-runtime-fixture {:tier :runtime}))
 
 (defn- setup-xray-frame!
   "Per-test boot: register handlers, allocate the :rf/xray frame."

@@ -56,12 +56,9 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.focus :as focus]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
-            [day8.re-frame2-xray.preload :as preload]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.self-noise :as self-noise]
             [day8.re-frame2-xray.test-support :as xray-test-support]
@@ -69,20 +66,19 @@
 
 ;; ---- fixtures -----------------------------------------------------------
 
-(defn- xray-init! []
-  (preload/reset-for-test!)
-  (registry/reset-for-test!)
-  (trace-collector/reset-for-test!)
-  (config/reset-suppressed-count!)
-  ;; rf2-5m5n2 — reset the project-root prefix atom so a sibling test
-  ;; that set it (e.g. `open_in_editor_cljs_test.cljs`) doesn't leak
-  ;; into the registry tests' URI assertions.
-  (config/set-project-root! nil))
-
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
-     :init-fn xray-init!}))
+  ;; `make-xray-runtime-fixture` (rf2-vj80u8) replaces the bespoke
+  ;; `xray-init!` (preload/registry/trace three-liner): the `:all` reset
+  ;; tier — install (== preload's alias) + registry + mount sentinels + the
+  ;; trace-collector rings; `:post-reset` carries the config resets.
+  (xray-test-support/make-xray-runtime-fixture
+    {:post-reset (fn []
+                   (config/reset-suppressed-count!)
+                   ;; rf2-5m5n2 — reset the project-root prefix atom so a
+                   ;; sibling test that set it (e.g.
+                   ;; `open_in_editor_cljs_test.cljs`) doesn't leak into the
+                   ;; registry tests' URI assertions.
+                   (config/set-project-root! nil))}))
 
 ;; ---- helpers ------------------------------------------------------------
 

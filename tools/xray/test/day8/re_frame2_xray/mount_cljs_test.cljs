@@ -51,10 +51,8 @@
             [re-frame.frame :as frame]
             [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.mount :as mount]
-            [day8.re-frame2-xray.preload :as preload]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.trace-collector :as trace-collector]))
@@ -237,22 +235,18 @@
 ;; per-test cleanup also resets the mount-state defonce so a failing
 ;; transition test doesn't poison neighbours via stale singleton state.
 
-(defn- xray-init! []
-  (xray-test-support/reset-all!)
-  ;; Per rf2-in6l2 the registry installs the trace-buffer mirror
-  ;; events (note-trace-event / clear-trace-buffer / sync-trace-buffer).
-  ;; `ensure-xray-frame!` (called inside `open!`) dispatches
-  ;; `:rf.xray/sync-trace-buffer` to seed the slot — that needs the
-  ;; event handlers installed.
-  (registry/register-xray-handlers!)
-  (config/set-auto-open! true)
-  (trace-collector/reset-for-test!)
-  (reset-mount-state!))
-
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
-     :init-fn xray-init!}))
+  ;; `make-xray-runtime-fixture` (rf2-vj80u8) folds the reset (plain-atom +
+  ;; `:all` tier, which already covers the trace-collector rings the old init
+  ;; reset a SECOND time) into one owner; `:post-reset` registers Xray's
+  ;; handlers (per rf2-in6l2 the registry installs the trace-buffer mirror
+  ;; events `open!` → `ensure-xray-frame!` dispatches to seed the slot),
+  ;; arms auto-open, and clears the mount-state defonce.
+  (xray-test-support/make-xray-runtime-fixture
+    {:post-reset (fn []
+                   (registry/register-xray-handlers!)
+                   (config/set-auto-open! true)
+                   (reset-mount-state!))}))
 
 ;; -------------------------------------------------------------------------
 ;; (1) Predicates on a clean baseline

@@ -30,8 +30,6 @@
   nor linger in storage after the reset hook runs."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
             [day8.re-frame2-xray.filters.persistence :as filters-persistence]
             [day8.re-frame2-xray.frame-switcher :as frame-switcher]
             [day8.re-frame2-xray.mount :as mount]
@@ -61,19 +59,16 @@
   ;; localStorage into sibling test namespaces.
   (js-delete js/globalThis "window"))
 
-(defn- xray-init! []
-  (xray-test-support/reset-all!)
-  ;; Start every scenario from a clean localStorage so the seeding below
-  ;; is the only signal the init path can read.
-  (filters-persistence/clear!)
-  (spine-filters/clear-raw!)
-  (frame-switcher/clear!)
-  (static-persistence/clear!))
-
 (def ^:private runtime-fixture
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
-     :init-fn xray-init!}))
+  ;; `make-xray-runtime-fixture` (rf2-vj80u8): plain-atom + the `:all` reset
+  ;; tier; `:post-reset` starts every scenario from a clean localStorage so
+  ;; the seeding below is the only signal the init path can read.
+  (xray-test-support/make-xray-runtime-fixture
+    {:post-reset (fn []
+                   (filters-persistence/clear!)
+                   (spine-filters/clear-raw!)
+                   (frame-switcher/clear!)
+                   (static-persistence/clear!))}))
 
 (defn- with-local-storage-stub
   "Install an in-memory `js/window.localStorage` for the test's duration,

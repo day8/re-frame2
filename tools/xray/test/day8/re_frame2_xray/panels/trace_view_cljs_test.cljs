@@ -44,9 +44,7 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-helpers :as th]
-            [re-frame.test-support :as test-support]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.trace-collector :as trace-collector]
@@ -55,9 +53,11 @@
 ;; ---- fixtures -----------------------------------------------------------
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
-     :init-fn xray-test-support/reset-all!}))
+  ;; `make-xray-runtime-fixture` (rf2-vj80u8) folds the inline
+  ;; `make-reset-runtime-fixture` + `reset-all!` init into one owner:
+  ;; plain-atom adapter + the default `:all` reset tier. (`trace-collector`
+  ;; stays required for the `seed-trace-for-test!` seeding below.)
+  (xray-test-support/make-xray-runtime-fixture))
 
 ;; ---- hiccup walkers ----------------------------------------------------
 
