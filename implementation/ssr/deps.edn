@@ -57,9 +57,7 @@
                        day8/re-frame2-routing    {:local/root "../routing"}
                        day8/re-frame2-machines   {:local/root "../machines"}
                        ;; Silent-on-success reporter.
-                       day8/re-frame2-test-quiet {:local/root "../test-quiet"}
-                       io.github.cognitect-labs/test-runner
-                       {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+                       day8/re-frame2-test-quiet {:local/root "../test-quiet"}}
          ;; The default PR/local gate excludes the heavy
          ;; `^:slow` / `^:stress` namespaces (here: the 2000-request
          ;; `ssr_teardown_load_test`). `re-frame.test-quiet.runner` passes
@@ -82,9 +80,7 @@
                  day8/re-frame2-flows      {:local/root "../flows"}
                  day8/re-frame2-routing    {:local/root "../routing"}
                  day8/re-frame2-machines   {:local/root "../machines"}
-                 day8/re-frame2-test-quiet {:local/root "../test-quiet"}
-                 io.github.cognitect-labs/test-runner
-                 {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+                 day8/re-frame2-test-quiet {:local/root "../test-quiet"}}
    :main-opts   ["-m" "re-frame.test-quiet.runner" "-i" ":slow" "-i" ":stress"]}
 
   ;; Clojars deployment.

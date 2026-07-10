@@ -18,9 +18,7 @@
  :aliases
  {:test {:extra-paths ["test"]
          :extra-deps  {;; Silent-on-success reporter.
-                       day8/re-frame2-test-quiet {:local/root "../../test-quiet"}
-                       io.github.cognitect-labs/test-runner
-                       {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+                       day8/re-frame2-test-quiet {:local/root "../../test-quiet"}}
          :main-opts   ["-m" "re-frame.test-quiet.runner"]}
 
   :clein {:extra-deps {io.github.noahtheduke/clein

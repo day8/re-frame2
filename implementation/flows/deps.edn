@@ -22,9 +22,7 @@
          :extra-deps  {day8/re-frame2-schemas    {:local/root "../schemas"}
                        day8/re-frame2-routing    {:local/root "../routing"}
                        day8/re-frame2-ssr        {:local/root "../ssr"}
-                       day8/re-frame2-test-quiet {:local/root "../test-quiet"}
-                       io.github.cognitect-labs/test-runner
-                       {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+                       day8/re-frame2-test-quiet {:local/root "../test-quiet"}}
          ;; Keep the contention suite out of the default gate; `:slow-test`
          ;; selects it for nightly and rigorous-local runs.
          :main-opts   ["-m" "re-frame.test-quiet.runner" "-e" ":slow" "-e" ":stress"]}
@@ -35,9 +33,7 @@
    :extra-deps  {day8/re-frame2-schemas    {:local/root "../schemas"}
                  day8/re-frame2-routing    {:local/root "../routing"}
                  day8/re-frame2-ssr        {:local/root "../ssr"}
-                 day8/re-frame2-test-quiet {:local/root "../test-quiet"}
-                 io.github.cognitect-labs/test-runner
-                 {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+                 day8/re-frame2-test-quiet {:local/root "../test-quiet"}}
    :main-opts   ["-m" "re-frame.test-quiet.runner" "-i" ":slow" "-i" ":stress"]}
 
   ;; Clojars deploy.

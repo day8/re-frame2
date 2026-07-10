@@ -41,7 +41,5 @@
  ;; [namespace var] row, never merely share a bare var name.
  :aliases
  {:test {:extra-paths ["test"]
-         :extra-deps  {day8/re-frame2-test-quiet {:local/root "../../test-quiet"}
-                       io.github.cognitect-labs/test-runner
-                       {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+         :extra-deps  {day8/re-frame2-test-quiet {:local/root "../../test-quiet"}}
          :main-opts   ["-m" "re-frame.test-quiet.runner"]}}}

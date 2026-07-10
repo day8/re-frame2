@@ -101,9 +101,7 @@
                        ;; asserts; the published core jar carries none of it.
                        day8/re-frame2-resources  {:local/root "../resources"}
                        ;; Silent-on-success reporter.
-                       day8/re-frame2-test-quiet {:local/root "../test-quiet"}
-                       io.github.cognitect-labs/test-runner
-                       {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+                       day8/re-frame2-test-quiet {:local/root "../test-quiet"}}
          ;; The default PR/local gate (incl. the fast-PR
          ;; spine `scripts/test-fast-pr.sh`, which runs this artefact)
          ;; EXCLUDES the heavy `^:stress` namespace
@@ -128,9 +126,7 @@
                  day8/re-frame2-ssr        {:local/root "../ssr"}
                  day8/re-frame2-epoch      {:local/root "../epoch"}
                  day8/re-frame2-resources  {:local/root "../resources"}
-                 day8/re-frame2-test-quiet {:local/root "../test-quiet"}
-                 io.github.cognitect-labs/test-runner
-                 {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+                 day8/re-frame2-test-quiet {:local/root "../test-quiet"}}
    :main-opts   ["-m" "re-frame.test-quiet.runner" "-i" ":slow" "-i" ":stress"]}
 
   ;; Clojars deploy. The release workflow runs `clojure -M:clein deploy`

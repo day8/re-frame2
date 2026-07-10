@@ -38,7 +38,5 @@
                  day8/re-frame2-machines  {:local/root "../machines"}
                  ;; Resource and machine schemas need Malli on the JVM classpath.
                  day8/re-frame2-schemas   {:local/root "../schemas"}
-                 day8/re-frame2-test-quiet {:local/root "../test-quiet"}
-                 io.github.cognitect-labs/test-runner
-                 {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+                 day8/re-frame2-test-quiet {:local/root "../test-quiet"}}
    :main-opts   ["-m" "re-frame.test-quiet.runner"]}}}
