@@ -845,6 +845,158 @@
           (is (= [:route :route/about (:nav-token slice-b)] (:owner slice-b))
               "the live owner is now [:route route-B fresh-nav-token]"))))))
 
+(deftest e-route-owned-resource-release-propagates-through-the-assembled-live-graph
+  ;; The CROSS-FAMILY release contract (Derivations §Route-owned resource
+  ;; activation edges — the realized owner edge is LIVE state; §Lifecycle and
+  ;; owner — route exit releases route owners). `e-route-exit-supersession…`
+  ;; above grades release on the route `:rf/route` slice ALONE, and the family
+  ;; runtime suite (`resources_route_cljs_test/route-leave-releases-prior-route-
+  ;; owner`) grades it on the entry's runtime `:active-owners` field ALONE.
+  ;; NEITHER exercises the resources tooling PROJECTION
+  ;; (`resource-cache-algebra-view` → `[:lifecycle :owners]`) or the graph
+  ;; COMPOSER's route→resource owner-edge derivation
+  ;; (`re-frame.derivation.graph/route-edges`, live arm) through a REAL
+  ;; route-owned resource release. A regression that left a stale owner in the
+  ;; composed resource node's `[:lifecycle :owners]` (a broken
+  ;; `resource-cache-algebra-view`) or a stale realized `:param` edge (a broken
+  ;; composer) would keep BOTH those suites green while the live graph — the
+  ;; surface inspection/tooling consumers read to answer "what keeps this
+  ;; resource alive" — falsely reports the released route as a live owner.
+  ;;
+  ;; This arm drives the WHOLE assembled live graph through the real routing +
+  ;; resources tooling contributors (`all-contributors`, not a synthetic graph
+  ;; map): route A OWNS a route-owned resource; route B does not. Route A→B
+  ;; supersession through the normal `:rf.route/navigate` hook (which dispatches
+  ;; the real `:rf.resource/release-owner`) must release owner A from every
+  ;; projected resource lifecycle owner set AND every composed graph edge, while
+  ;; route B's fresh owner takes the slice.
+  ;;
+  ;; Cache-row construction (NOT the release): this artefact intentionally
+  ;; carries NO HTTP transport artefact (deps.edn — the bundle-isolation
+  ;; boundary), so the route-entry ensure has no live fetch to write the
+  ;; `:loading` entry. As the g+ egress arm does, the row is built directly from
+  ;; the canonical `resources.state` / `work-ledger` constructors — including
+  ;; the reverse `:owner-index` the release handler consults. The route owner is
+  ;; the GENUINE live nav-token owner minted by the real navigation, and the
+  ;; RELEASE is driven entirely by the real supersession hook — never by editing
+  ;; the post-state.
+  (rf/reg-fx :rf.http/managed       (fn [_ctx _args] nil))
+  (rf/reg-fx :rf.http/managed-abort (fn [_ctx _args] nil))
+  (rf/reg-resource :article/by-slug
+                   {:scope         :rf.scope/global
+                    :params-schema [:map [:slug :string]]}
+                   (fn [{:keys [slug]} _ctx]
+                     {:request {:method :get :url (str "/api/articles/" slug)}}))
+  ;; Route A OWNS the resource under its nav-token; route B owns nothing.
+  (rf/reg-route :route/article
+                {:params    [:map [:slug :string]]
+                 :resources [{:resource :article/by-slug
+                              :params   (fn [route] {:slug (get-in route [:params :slug])})}]}
+                "/articles/:slug")
+  (rf/reg-route :route/about {} "/about")
+  ;; --- Navigate to route A: the real navigation mints the route owner. ---
+  (rf/dispatch-sync [:rf.route/navigate :route/article {:slug "welcome"}])
+  (let [owner-a    (:owner (routing-tooling/route-slice-algebra-view :rf/default))
+        scope      :rf.scope/global
+        params     {:slug "welcome"}
+        scoped-key (resources-state/scoped-resource-key scope :article/by-slug params)
+        k-id       (resources-state/key-id scoped-key)
+        work-id    (work-ledger/resource-work-id scoped-key 1)
+        entry      (-> (resources-state/empty-entry :article/by-slug scoped-key)
+                       (resources-state/attach-owner owner-a)
+                       (assoc :status :fetching :current-work work-id))]
+    (is (= [:route :route/article (:nav-token (routing-tooling/route-slice-algebra-view :rf/default))]
+           owner-a)
+        "the real navigation minted the route-A owner [:route route-A nav-token]")
+    ;; Materialize the route-owned cache row with the canonical constructors
+    ;; (resource entry + its reverse owner-index member + the in-flight work
+    ;; record) — the shape a real route-owned fetch produces. This is test setup,
+    ;; NOT the release under grade.
+    (frame/swap-runtime-db!
+      :rf/default
+      (fn [rdb]
+        (-> (or rdb {})
+            (assoc-in (resources-state/entry-path scoped-key) entry)
+            (assoc-in (conj (resources-state/owner-index-path) owner-a) #{k-id})
+            (work-ledger/put-record
+              work-id
+              (work-ledger/work-record {:work-id      work-id
+                                        :frame-id     :rf/default
+                                        :resource/key scoped-key
+                                        :generation   1
+                                        :transport    :rf.http/managed
+                                        :owner        owner-a
+                                        :cause        :test/materialize})))))
+    (let [entry-a       (get-in (frame/frame-runtime-db-value :rf/default)
+                                (resources-state/entry-path scoped-key))
+          g-a           (graph/live-derivation-graph :rf/default all-contributors)
+          res-a         (->> (:nodes g-a)
+                             (filter (fn [[_ n]] (= :resources (:rf/family n))))
+                             first)
+          param-edges-a (filterv #(= :param (:role %)) (:edges g-a))]
+      ;; SETUP proof #1 — runtime state (the seam the family suite grades).
+      (testing "the route-owned resource row is live under the route-A owner (runtime state)"
+        (is (some? entry-a) "the cache entry is materialized")
+        (is (contains? (:active-owners entry-a) owner-a)
+            "the entry's runtime :active-owners carries the route-A owner"))
+      ;; SETUP proof #2 — the ASSEMBLED LIVE GRAPH (the seam THIS arm grades).
+      (testing "the assembled live graph exposes the route-owned resource node carrying owner A"
+        (is (some? res-a)
+            "the resources tooling contributor composed a live :resources node — absence is a failure")
+        (let [[res-key res-node] res-a]
+          (is (= :article/by-slug (nth (:id res-node) 1))
+              "the registration resource-id is visible inside the composed scoped-key id")
+          (is (contains? (get-in res-node [:lifecycle :owners]) owner-a)
+              "owner A is present in the composed resource node's :lifecycle :owners")
+          (testing "a realized :param edge carries owner A and joins the resource node key"
+            (is (= 1 (count param-edges-a))
+                "exactly one realized route-owned :param edge exists (owner A → the one resource)")
+            (let [edge (first param-edges-a)]
+              (is (= owner-a (:owner edge))
+                  "the realized :param edge carries the route-A owner")
+              (is (= :rf/route (:from edge))
+                  "the edge originates at the live route slice node")
+              (is (= res-key (:to edge))
+                  "the edge :to matches the composed resource node key")))))
+      ;; --- Release: supersede route A with route B through the NORMAL hook. ---
+      ;; `commit-navigation`'s `:routing/on-route-entry` hook dispatches the real
+      ;; `:rf.resource/release-owner {:owner owner-A}`, which drops owner A from
+      ;; the entry + owner-index + work record — the genuine release path.
+      (rf/dispatch-sync [:rf.route/navigate :route/about {}])
+      (let [entry-b        (get-in (frame/frame-runtime-db-value :rf/default)
+                                   (resources-state/entry-path scoped-key))
+            g-b            (graph/live-derivation-graph :rf/default all-contributors)
+            slice-b        (get (:nodes g-b) :rf/route)
+            owner-b        (:owner slice-b)
+            res-owner-sets (->> (:nodes g-b) vals
+                                (filter #(= :resources (:rf/family %)))
+                                (keep #(get-in % [:lifecycle :owners])))
+            edge-owners    (into #{} (keep :owner) (:edges g-b))
+            param-edges-b  (filterv #(= :param (:role %)) (:edges g-b))]
+        (testing "the superseding navigation materialized route B's fresh owner on the slice"
+          (is (some? slice-b)
+              "navigating to route B must materialize the superseding :rf/route slice — absence is a failure")
+          (is (= :route/about (:route-id slice-b))
+              "the live slice now reports route B (route A is exited)")
+          (is (= [:route :route/about (:nav-token slice-b)] owner-b)
+              "the live owner is now [:route route-B fresh-nav-token]")
+          (is (not= owner-a owner-b)
+              "route B's fresh owner is not route A's released owner"))
+        (testing "release propagates through the assembled live graph — no stale owner A survives"
+          (is (seq res-owner-sets)
+              "the owner-free resource node REMAINS composed (release is not GC deletion),
+               so the owner-absence check below is non-vacuous")
+          (is (not-any? #(contains? % owner-a) res-owner-sets)
+              "owner A is absent from EVERY composed resource node's :lifecycle :owners")
+          (is (not (contains? edge-owners owner-a))
+              "owner A is absent from EVERY composed graph edge's :owner")
+          (is (empty? param-edges-b)
+              "no realized route-owned :param edge survives — route B owns no resource, and route A's activation edge is released"))
+        (testing "release is a LEASE release, NOT GC deletion — the entry may
+                  legitimately remain cached but owner-free (the runtime seam agrees)"
+          (is (not (contains? (:active-owners entry-b) owner-a))
+              "the runtime entry no longer lists owner A among its :active-owners"))))))
+
 (deftest e-machine-destroy-releases-the-machine-owned-snapshot-node
   ;; A final-state transition auto-destroys the machine instance. Observe the
   ;; snapshot before and after so the release assertion cannot pass vacuously.
