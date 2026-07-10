@@ -42,14 +42,30 @@
 ;; leg in the sibling `re-frame.event-frame-isolation-conformance-cljs-test`
 ;; — not restated here.
 ;;
-;; Where the in-core `re-frame.reg-event-cljs-test` carries the narrow
-;; per-feature unit checks, this tier is the ADVERSARIAL umbrella LOCK:
-;; every assertion is shaped so a future RE-INTRODUCTION of an old form
-;; (a working `reg-event-db`/`-fx`/`-ctx`), a SECOND wrapper id, a
-;; re-appearing `:event/kind` sub-tag, or a `reg-event-ctx` promotion back
-;; onto the public facade would turn it RED. It lives in its own
-;; cross-artefact surface because the contract spans the events runtime,
-;; the public facade, and the error-emit channel.
+;; ## Ownership split — what core owns, what this tier owns
+;;
+;; The BASELINE reg-event unit behaviour is owned by core's
+;; `re-frame.reg-event-cljs-test` (registration shape, `:db`/`:fx` effect
+;; semantics, nil/{} no-op, `:rf.cofx/requires` flat delivery + storage,
+;; the retired-name stubs, the reg-event-ctx→reg-interceptor guidance),
+;; and the frame-owned OBSERVABILITY-ROUTING E2E (a real dispatch routing
+;; a projected handled-event / error record to a frame `:observability`
+;; sink, registration-owned `:sensitive` event-arg redaction, fail-closed
+;; routing) is owned END TO END by core's
+;; `re-frame.observability-routing-cljs-test`. Those baseline scenarios are
+;; NOT restated here.
+;;
+;; This tier is the ADVERSARIAL umbrella LOCK over the contracts that span
+;; wider than either core suite: every assertion is shaped so a future
+;; RE-INTRODUCTION of an old form (a working `reg-event-db`/`-fx`/`-ctx`),
+;; a SECOND wrapper id, a re-appearing `:event/kind` sub-tag, or a
+;; `reg-event-ctx` promotion back onto the public facade would turn it RED —
+;; alongside the unique locks that have no in-core home (the canonical
+;; coeffect shape, the closed effect-map negatives, the recordable-generator
+;; / mint-policy triad, and the always-on error-/event-emit fan-out). It
+;; lives in its own cross-artefact surface because the contract spans the
+;; events runtime, the public facade, and the always-on error-/event-emit
+;; channels.
 ;;
 ;; ## Why this deps.edn exists
 ;;
@@ -69,8 +85,8 @@
 ;; This artefact ships nothing, so the top-level `:deps` is empty. The
 ;; cross-artefact source the test namespaces `:require`
 ;; (`re-frame.core` — the public facade; plus the internal
-;; `re-frame.events` / `re-frame.error-emit` /
-;; `re-frame.registrar` / `re-frame.frame` / `re-frame.test-support` /
+;; `re-frame.events` / `re-frame.error-emit` / `re-frame.event-emit` /
+;; `re-frame.registrar` / `re-frame.test-support` /
 ;; `re-frame.substrate.plain-atom` from core) is pulled in under the
 ;; `:test` alias only. `:extra-paths` is JUST `["test"]` so the cognitect
 ;; test-runner scans ONLY this tier's test dir — the `:local/root` core
@@ -91,10 +107,10 @@
   {:extra-paths ["test"]
    ;; core carries the WHOLE one-form event contract: the public facade
    ;; (`re-frame.core`), the events runtime + retired stubs
-   ;; (`re-frame.events`), the always-on error channel
-   ;; (`re-frame.error-emit`), the registrar + frame registry
-   ;; (`re-frame.registrar` / `re-frame.frame`), the default substrate,
-   ;; and the shared test harness.
+   ;; (`re-frame.events`), the always-on error/event channels
+   ;; (`re-frame.error-emit` / `re-frame.event-emit`), the registrar
+   ;; (`re-frame.registrar`), the default substrate, and the shared test
+   ;; harness.
    :extra-deps  {day8/re-frame2 {:local/root "../core"}
                  ;; rf2-try1x — silent-on-success reporter.
                  day8/re-frame2-test-quiet {:local/root "../test-quiet"}
