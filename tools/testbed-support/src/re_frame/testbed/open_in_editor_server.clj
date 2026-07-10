@@ -65,8 +65,9 @@
   to the editor's launch command; when no hint is given launch-editor
   auto-detects the running editor (and honours `$LAUNCH_EDITOR`)."
   (:require [clojure.string :as str]
+            [re-frame.source-coords :as source-coords]
             [re-frame.source-coords.editor-uri :as editor-uri])
-  (:import [java.net URI URL]
+  (:import [java.net URI]
            [java.io File]))
 
 (set! *warn-on-reflection* true)
@@ -106,7 +107,7 @@
   (when (and (string? editor) (not (str/blank? editor)))
     (get editor-command-by-keyword (str/lower-case (str/trim editor)))))
 
-;; ---- runtime :file resolution (mirrors absolutise-file) ------------------
+;; ---- runtime :file resolution (delegates to core absolutise-file) --------
 ;;
 ;; The server runs on the dev JVM with the full shadow-cljs classpath, so
 ;; a classpath-relative `:file` (the common macro-captured shape — e.g.
@@ -115,66 +116,59 @@
 ;; `re-frame.source-coords/absolutise-file` does at macro-expansion time —
 ;; but here at RUNTIME, so it works even when the build-time bake didn't
 ;; (JARs, odd classpaths, relative coords that fell through).
-
-(defn ^:private context-class-loader ^ClassLoader []
-  (.getContextClassLoader (Thread/currentThread)))
-
-(defn ^:private file-url->path
-  "Decode a classpath `file:` resource `url` to its on-disk path.
-
-  Uses `URI`-based path decoding rather than `URLDecoder`: `URLDecoder`
-  is for `application/x-www-form-urlencoded` form bodies, where `+` means
-  a space — but a `file:` URL path is NOT form-encoded, so a literal `+`
-  in a checkout path (e.g. `C:/code/re-frame2+wip`) must survive verbatim.
-  `URI.getPath` decodes percent-escapes (`%20` → space, `%2B` → `+`) while
-  leaving a literal `+` untouched, which is the correct grammar for a
-  `file:` URL path. URL paths on Windows come out as `/C:/Users/...`, so
-  strip the leading slash before a drive-letter to the canonical shape."
-  [^URL url]
-  (let [decoded (.getPath (.toURI url))]
-    (if (and (> (.length decoded) 2)
-             (= \/ (.charAt decoded 0))
-             (= \: (.charAt decoded 2)))
-      (.substring decoded 1)
-      decoded)))
+;;
+;; That classpath stage — context-class-loader lookup, `file:` URL decode
+;; (`URI.getPath`, preserving a literal `+`), and Windows drive-letter
+;; normalization — is exactly what `re-frame.source-coords/absolutise-file`
+;; already owns canonically (rf2-wvsxg / rf2-st3ax4). `resolve-file` delegates
+;; to it rather than re-implementing the same decode dance a second time
+;; (rf2-hf0vqa). `absolutise-file` is JVM-private in core; it is reached here
+;; via its var (`#'source-coords/absolutise-file`) so the runtime twin stays a
+;; single source of truth without widening core's public surface. The
+;; endpoint-owned cwd fallback + existence/raw-path policy stay here — they are
+;; the runtime-only gap Option B exists to close, which the macro-time
+;; `absolutise-file` has no notion of.
 
 (defn resolve-file
   "Resolve a (possibly classpath-relative) `path` to its absolute on-disk
   path. Returns the input unchanged when it is already absolute (per
-  `editor-uri/absolute-path?`), and resolves a relative path against the
-  classpath via the context class-loader (the same `getResource`-then-
-  decode dance as `re-frame.source-coords/absolutise-file`). When the path
-  cannot be resolved on the classpath, falls back to resolving it against
-  the JVM's working directory (the dev process cwd is the consumer's
-  project root under shadow-cljs); if that file does not exist either, the
-  input is returned unchanged so launch-editor at least gets the raw path.
-  Returns nil for nil/blank input."
+  `editor-uri/absolute-path?`). Otherwise the classpath stage is delegated to
+  `re-frame.source-coords/absolutise-file` (the canonical context-class-loader
+  `getResource`-then-`URI.getPath`-decode resolver, which preserves a literal
+  `+` and normalizes a Windows drive path). When the classpath stage cannot
+  resolve the file — `absolutise-file` then returns the input UNCHANGED (not on
+  classpath, non-`file:` URL, or a probe error) — this falls back to resolving
+  it against the JVM's working directory (the dev process cwd is the consumer's
+  project root under shadow-cljs); if that file does not exist either, the input
+  is returned unchanged so launch-editor at least gets the raw path. Returns nil
+  for nil/blank input."
   [path]
   (cond
     (or (nil? path) (str/blank? path)) nil
     (editor-uri/absolute-path? path)   path
     :else
-    (or
-      ;; 1. Classpath resource (the common case — source-paths are on the
-      ;;    dev classpath; this is the runtime twin of absolutise-file).
-      (try
-        (when-let [url (.getResource (context-class-loader) path)]
-          (when (= "file" (.getProtocol url))
-            (file-url->path url)))
-        (catch Throwable _ nil))
-      ;; 2. Relative to the dev process cwd (JAR / in-jar / off-classpath
-      ;;    coords that getResource cannot reach — the gap Option B closes).
-      (try
-        (let [f     (File. ^String path)
-              cwd-f (File. ^String (System/getProperty "user.dir") ^String path)]
-          (cond
-            (.exists f)     (.getAbsolutePath f)
-            (.exists cwd-f) (.getAbsolutePath cwd-f)
-            :else           nil))
-        (catch Throwable _ nil))
-      ;; 3. Unresolvable — hand the raw path back; the existence gate in
-      ;;    `launch!` then rejects it rather than launching blind.
-      path)))
+    ;; 1. Classpath stage — delegate to core's canonical resolver. It returns
+    ;;    the absolute on-disk path when the file resolves on the classpath,
+    ;;    else the input UNCHANGED. A resolved path is always absolute (≠ the
+    ;;    relative input), so an unchanged result is the "did not resolve"
+    ;;    signal that falls through to the endpoint-owned fallbacks below.
+    (let [absolutised (#'source-coords/absolutise-file path)]
+      (if (not= absolutised path)
+        absolutised
+        (or
+          ;; 2. Relative to the dev process cwd (JAR / in-jar / off-classpath
+          ;;    coords getResource cannot reach — the gap Option B closes).
+          (try
+            (let [f     (File. ^String path)
+                  cwd-f (File. ^String (System/getProperty "user.dir") ^String path)]
+              (cond
+                (.exists f)     (.getAbsolutePath f)
+                (.exists cwd-f) (.getAbsolutePath cwd-f)
+                :else           nil))
+            (catch Throwable _ nil))
+          ;; 3. Unresolvable — hand the raw path back; the existence gate in
+          ;;    `launch!` then rejects it rather than launching blind.
+          path)))))
 
 (defn ^:private file-exists?
   "True when `path` names an existing filesystem entry. Mirrors
@@ -289,8 +283,9 @@
   `URLDecoder/decode`. `URLDecoder` is an `application/x-www-form-urlencoded`
   decoder that maps a literal `+` to a SPACE — which would silently corrupt a
   checkout path carrying a literal `+` (`C:/code/re-frame2+wip` →
-  `re-frame2 wip`), re-introducing exactly the bug `file-url->path` avoids for
-  `file:` URLs (via `URI.getPath`) and the client's `js/decodeURIComponent`
+  `re-frame2 wip`), re-introducing exactly the bug `re-frame.source-coords/
+  absolutise-file` avoids for `file:` URLs (via `URI.getPath` — the classpath
+  resolver `resolve-file` delegates to) and the client's `js/decodeURIComponent`
   avoids in `config.cljs` (rf2-62hu6k). Routing the component through `URI`'s
   fragment decode leaves a literal `+` intact while still decoding `%20`/`%2B`,
   matching that grammar.
