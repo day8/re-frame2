@@ -4,8 +4,10 @@
   The input is a checkout root, supplied by `?checkout-root=` or the
   build-seeded `checkout-root` define. `resolve-source-root` appends the
   caller's tool-relative source subdirectory. Paths are normalized to forward
-  slashes; query decoding preserves literal `+` characters. Missing roots
-  resolve to nil so open-in-editor can remain a no-op."
+  slashes; query decoding preserves literal `+` characters. An undecodable
+  override is ignored — a bad query value cannot shadow a known root; it falls
+  through like a blank/missing one. Missing roots resolve to nil so
+  open-in-editor can remain a no-op."
   (:require [clojure.string :as str]))
 
 ;; @define {string}
@@ -16,16 +18,27 @@
   [s]
   (when (and (string? s) (seq (str/trim s))) s))
 
+(def ^:private decode-failed
+  "Sentinel returned by `decode-component` when percent-decoding fails. A
+  successful decode is always a string, so this keyword is unambiguously
+  distinct — callers branch on it to fall through instead of reusing malformed
+  raw bytes as a filesystem path."
+  ::decode-failed)
+
 (defn- decode-component
-  "Decode percent escapes, leaving malformed input unchanged."
+  "Percent-decode `v`, or return the `decode-failed` sentinel when `v` is not a
+  valid percent-encoding. Keeping failure distinguishable from a decoded string
+  is what stops a malformed override from being reused as a raw path."
   [v]
   (try
     (js/decodeURIComponent v)
-    (catch :default _ v)))
+    (catch :default _ decode-failed)))
 
 (defn- query-param-from-search
   "Return a decoded, trimmed query value or nil. Parsing is deliberately not
-  form-urlencoded: a literal `+` in a checkout path must remain `+`."
+  form-urlencoded: a literal `+` in a checkout path must remain `+`. A pair
+  whose key or value cannot be percent-decoded is skipped, so an undecodable
+  override cannot shadow a lower-tier root — resolution falls through instead."
   [search param-name]
   (when-let [s (non-blank search)]
     (let [s (cond-> s (str/starts-with? s "?") (subs 1))]
@@ -33,9 +46,9 @@
               (let [eq  (str/index-of pair "=")
                     k   (decode-component (if eq (subs pair 0 eq) pair))]
                 (when (= k param-name)
-                  (when-let [raw (non-blank (decode-component
-                                             (if eq (subs pair (inc eq)) "")))]
-                    (str/trim raw)))))
+                  (let [v (decode-component (if eq (subs pair (inc eq)) ""))]
+                    (when-let [raw (and (not= v decode-failed) (non-blank v))]
+                      (str/trim raw))))))
             (str/split s #"&")))))
 
 (defn- query-param

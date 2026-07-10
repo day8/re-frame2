@@ -439,6 +439,80 @@
              (config/resolve-source-root "tools/xray/testbeds"))
           "+ survives canonicalisation; \\ → /"))))
 
+;; A malformed percent-escape must not be reused as a raw filesystem path.
+;; An undecodable override is ignored so resolution falls through to the
+;; build-time define, matching the blank/missing-override contract.
+
+(deftest query-param-from-search-ignores-undecodable-value
+  (testing "a value that cannot be percent-decoded yields nil (never the raw
+            undecoded bytes), so the override falls through to a lower tier"
+    (is (nil? (#'config/query-param-from-search
+               "?checkout-root=C%ZZrepo" "checkout-root"))
+        "an invalid %ZZ escape → nil, never the raw \"C%ZZrepo\"")
+    (is (nil? (#'config/query-param-from-search
+               "?checkout-root=%" "checkout-root"))
+        "a lone trailing % → nil")
+    (is (nil? (#'config/query-param-from-search
+               "?checkout-root=abc%2" "checkout-root"))
+        "an incomplete %2 escape → nil")))
+
+(deftest query-param-from-search-skips-undecodable-key
+  (testing "a pair whose KEY cannot be percent-decoded cannot masquerade as
+            checkout-root and does not block a later valid pair"
+    (is (= "/wanted"
+           (#'config/query-param-from-search
+            "?%ZZ=whatever&checkout-root=/wanted" "checkout-root"))
+        "the undecodable key is skipped; the later valid checkout-root wins")
+    (is (nil? (#'config/query-param-from-search
+               "?%ZZ=/nope" "checkout-root"))
+        "an undecodable key never matches the requested param")))
+
+(deftest query-param-from-search-unrelated-malformed-param-does-not-block
+  (testing "a malformed UNRELATED param value does not prevent a later valid
+            checkout-root from resolving"
+    (is (= "/wanted"
+           (#'config/query-param-from-search
+            "?other=C%ZZbad&checkout-root=/wanted" "checkout-root")))))
+
+(deftest resolve-source-root-undecodable-override-falls-through-to-define
+  (testing "acceptance #1: an undecodable ?checkout-root= override is ignored;
+            resolution falls through to the build-time define, never beneath
+            the malformed raw value"
+    (with-redefs [config/query-param
+                  (fn [param]
+                    (#'config/query-param-from-search
+                     "?checkout-root=C%ZZrepo" param))
+                  config/checkout-root "/home/dev/re-frame2"]
+      (let [resolved (config/resolve-source-root "tools/story/testbeds")]
+        (is (= "/home/dev/re-frame2/tools/story/testbeds" resolved)
+            "falls through to the build-time define")
+        (is (not (str/includes? resolved "C%ZZrepo"))
+            "the malformed raw value never appears in the resolved path")))))
+
+(deftest resolve-source-root-undecodable-override-nil-without-define
+  (testing "acceptance #2: with no build-time root, a malformed override
+            yields nil so open-in-editor degrades to its no-root behaviour"
+    (with-redefs [config/query-param
+                  (fn [param]
+                    (#'config/query-param-from-search
+                     "?checkout-root=C%ZZrepo" param))
+                  config/checkout-root ""]
+      (is (nil? (config/resolve-source-root "tools/story/testbeds"))))))
+
+(deftest decode-component-returns-sentinel-on-decode-failure
+  (testing "the pure seam: a valid escape decodes to a string; an invalid one
+            returns the distinct decode-failed sentinel, never the raw bytes"
+    (is (= "/a b" (#'config/decode-component "%2Fa%20b"))
+        "a valid escape decodes normally")
+    (is (= "a+b" (#'config/decode-component "a+b"))
+        "a literal + is preserved (not form-urlencoded)")
+    (is (= @#'config/decode-failed (#'config/decode-component "C%ZZrepo"))
+        "an invalid escape returns the sentinel")
+    (is (= @#'config/decode-failed (#'config/decode-component "%"))
+        "a lone % returns the sentinel")
+    (is (not (string? @#'config/decode-failed))
+        "the sentinel is not a string, so it can never equal a decoded value")))
+
 (deftest public-config-surface-stable
   (testing "the namespace exposes the resolver and checkout-root define"
     (is (fn? config/resolve-source-root))
