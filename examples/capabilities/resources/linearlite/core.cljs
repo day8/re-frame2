@@ -612,11 +612,13 @@
 
 (def app-frame :rf/default)
 
-(defn run []
-  (rf/init! reagent-adapter/adapter)
-  (when (exists? js/document)
+;; DOM setup lives in `mount!`, tagged `^:dev/after-load` so shadow-cljs re-runs
+;; it after each hot reload — edited views re-render into the same root and frame.
+(defn ^:dev/after-load mount! []
+  (when-let [el (and (exists? js/document)
+                     (js/document.getElementById "app"))]
     (when-not @react-root
-      (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
+      (reset! react-root (rdc/create-root el)))
     ;; Frame created and configured right here. First mount builds it under
     ;; `app-frame` and applies the config; hot reload reuses it.
     (rdc/render @react-root
@@ -625,3 +627,7 @@
                                     :url-bound?   true
                                     :fx-overrides {:rf.http/managed :linearlite.demo/http-stub}}
                  [root-view]])))
+
+(defn run []
+  (rf/init! reagent-adapter/adapter)
+  (mount!))

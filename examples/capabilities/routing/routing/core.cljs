@@ -178,13 +178,13 @@
 ;; ../../../docs/routing/concepts.md#the-browser-is-just-another-event-source
 (def app-frame :rf/default)
 
-(defn run []
-  ;; Tell re-frame2 to render through Reagent. Every adapter namespace exports
-  ;; an `adapter` var; hand it straight to `init!` and you're done.
-  (rf/init! reagent-adapter/adapter)
-  (when (exists? js/document)
+;; DOM setup lives in `mount!`, tagged `^:dev/after-load` so shadow-cljs re-runs
+;; it after each hot reload — edited views re-render into the same root and frame.
+(defn ^:dev/after-load mount! []
+  (when-let [el (and (exists? js/document)
+                     (js/document.getElementById "app"))]
     (when-not @react-root
-      (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
+      (reset! react-root (rdc/create-root el)))
     ;; The frame provider is where the app frame actually comes to life — one
     ;; tidy spot for the whole setup. First mount: it creates the frame under
     ;; `app-frame`, flips on `:url-bound? true` so this frame owns the URL, and
@@ -206,3 +206,9 @@
                                     :url-bound? true
                                     :initial-events [[:routing.app/initialise]]}
                  [root-view]])))
+
+(defn run []
+  ;; Tell re-frame2 to render through Reagent. Every adapter namespace exports
+  ;; an `adapter` var; hand it straight to `init!` and you're done.
+  (rf/init! reagent-adapter/adapter)
+  (mount!))

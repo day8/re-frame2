@@ -115,10 +115,9 @@
 ;; defer DOM mount to `run`".
 (defonce react-root (atom nil))
 
-(defn run []
-  ;; Tell re-frame2 which substrate to render through by handing init! the
-  ;; Reagent adapter's spec map. One call, done.
-  (rf/init! reagent-adapter/adapter)
+;; DOM setup lives in `mount!`, tagged `^:dev/after-load` so shadow-cljs re-runs
+;; it after each hot reload — edited views re-render into the same root and frame.
+(defn ^:dev/after-load mount! []
   ;; `frame-provider {:id …}` is the do-everything entry point for the frame:
   ;; it creates it, configures it, and seeds it. First mount creates the
   ;; `:rf/default` frame, applies the config, and runs `:initial-events` once.
@@ -137,12 +136,19 @@
   ;; `[:auth :login-form :draft]`, and that slot has to already hold empty
   ;; strings — leave a nil there and React decides the inputs are uncontrolled,
   ;; which is a confusing afternoon you can skip by seeding up front.
-  (when (exists? js/document)
+  (when-let [el (and (exists? js/document)
+                     (js/document.getElementById "app"))]
     (when-not @react-root
-      (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
+      (reset! react-root (rdc/create-root el)))
     (rdc/render @react-root
                 [rf/frame-provider {:id              :rf/default
                                     :doc             "State-machines walkthrough demo frame."
                                     :fx-overrides    {:rf.http/managed :walkthrough.login/canned-failure}
                                     :initial-events  [[:walkthrough.login/initialise-form]]}
                  [root-view]])))
+
+(defn run []
+  ;; Tell re-frame2 which substrate to render through by handing init! the
+  ;; Reagent adapter's spec map. One call, done.
+  (rf/init! reagent-adapter/adapter)
+  (mount!))
