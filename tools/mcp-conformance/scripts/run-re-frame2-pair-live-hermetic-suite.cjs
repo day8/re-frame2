@@ -3,12 +3,12 @@
  * Hermetic orchestrator for the re-frame2-pair LIVE conformance SUITE.
  *
  * This is the CI entry point for the WHOLE hermetic live suite — it runs
- * EVERY live inner test in the `INNER_TESTS` inventory (see ~:200), not
- * just the overflow gate. Overflow is one member of that inventory
- * alongside subscribe/progress, redaction, isError, EP-0017 cofx, and
- * EP-0018 event-metadata. The runner is named for the suite, not for the
- * overflow gate, so test selection / CI triage / future conformance work
- * find a suite-shaped name.
+ * EVERY live inner test in the shared inventory
+ * (`scripts/live-test-inventory.cjs`), not just the overflow gate.
+ * Overflow is one member of that inventory alongside subscribe/progress,
+ * redaction, isError, EP-0017 cofx, and EP-0018 event-metadata. The runner
+ * is named for the suite, not for the overflow gate, so test selection / CI
+ * triage / future conformance work find a suite-shaped name.
  *
  * Each live inner test (e.g. `test/live-re-frame2-pair-overflow.cjs`) is
  * gated on $SHADOW_CLJS_NREPL_PORT. Without that env var it exits 0 with
@@ -82,6 +82,7 @@ const {
   safeUnlinkInside,
   safeReadFileInside,
 } = require('../lib/exec-safety.cjs');
+const { LIVE_TESTS } = require('./live-test-inventory.cjs');
 
 // We use `cross-spawn` instead of Node's `child_process.spawn` for the
 // two Windows-toolchain spawn sites (`npm` install + `npx shadow-cljs
@@ -187,90 +188,29 @@ const CLEANUP_HARD_CAP_MS =
 // cold-cache load).
 const POLL_MS = 100;
 
-// Inner tests the orchestrator boots shadow-cljs for. Each runs with
-// the spawned `SHADOW_CLJS_NREPL_PORT` set so its SKIP gate flips off
-// and the live path fires. Run sequentially against the same booted
-// runtime — the cold-boot cost amortises across every test.
+// Inner tests the orchestrator boots shadow-cljs for, DERIVED from the
+// shared live-test inventory (`scripts/live-test-inventory.cjs` — the
+// single owner of each gate's basename / display name / sentinel). Each
+// runs with the spawned `SHADOW_CLJS_NREPL_PORT` set so its SKIP gate flips
+// off and the live path fires; they run sequentially against the same
+// booted runtime so the cold-boot cost amortises across every test.
 //
-// `live-re-frame2-pair-subscribe.cjs` pins the `notifications/progress`
-// streaming wire surface. The orchestrator's name keeps `overflow` to
-// match the workflow YAML's script reference; the `INNER_TESTS` list IS
-// the authoritative inventory.
+// The orchestrator's name keeps `overflow` to match the workflow YAML's
+// script reference; the inventory (not this derived list) is the
+// authoritative roster — `test-all.cjs` derives its SKIP-by-default live
+// rows from the same array, and `test/live-list-completeness.test.cjs`
+// cross-checks the inventory against the `test/live-re-frame2-pair-*.cjs`
+// files on disk.
 //
-// Each entry carries the test's success `sentinel` — the
-// `... CONFORMANCE GREEN` line it prints ONLY on a real (non-skipped)
-// pass. The hermetic env guarantees `$SHADOW_CLJS_NREPL_PORT` is set, so
-// the inner test's SKIP gate MUST NOT fire here — yet a SKIP still
-// exits 0. Without a sentinel check, a regression that broke the
-// orchestrator's SETUP path (port probe, bundle compile, runtime
-// sentinel) short of an inner-test FAILURE could leave the load-bearing
-// redaction gate SKIPping (exit 0) while CI shows the hermetic job green
-// via the OTHER inner tests. Asserting the sentinel (and the absence of
-// a `SKIP ` banner) makes a silent in-hermetic SKIP turn the gate RED.
-const INNER_TESTS = [
-  {
-    name: 'live overflow conformance',
-    path: path.join(MCP_CONFORMANCE_ROOT, 'test', 'live-re-frame2-pair-overflow.cjs'),
-    sentinel: 'RE-FRAME2-PAIR-MCP LIVE OVERFLOW CONFORMANCE GREEN',
-  },
-  {
-    name: 'live subscribe / notifications/progress conformance',
-    path: path.join(MCP_CONFORMANCE_ROOT, 'test', 'live-re-frame2-pair-subscribe.cjs'),
-    sentinel: 'RE-FRAME2-PAIR-MCP LIVE SUBSCRIBE CONFORMANCE GREEN',
-  },
-  {
-    // Egress-protection regression net for the pull-mode epoch tools
-    // (trace-window / watch-epochs). Drives a declared-sensitive app-db
-    // slot through both tools across the MCP wire and asserts the
-    // sensitive epoch is WHOLE-DROPPED gate-OFF (the default) and shipped
-    // gate-ON. This is the gate that pins the whole-drop behaviour.
-    name: 'live egress-protection conformance (pull-mode epoch tools)',
-    path: path.join(MCP_CONFORMANCE_ROOT, 'test', 'live-re-frame2-pair-redaction.cjs'),
-    sentinel: 'RE-FRAME2-PAIR-MCP LIVE EGRESS-PROTECTION CONFORMANCE GREEN',
-  },
-  {
-    // Pin the universal `:ok? false ⇒ isError:true` contract
-    // on the read-family GENUINE error envelopes (read-dom/read-ui
-    // bad-selector). Drives a malformed CSS selector against the live
-    // runtime so `querySelectorAll` throws and the runtime fn returns a
-    // structured `{:ok? false :reason :rf.error/...-bad-selector}` — then
-    // asserts the SDK response is isError. This is the live SDK-boundary
-    // gate for the error path; the degraded walk only exercises the
-    // :nrepl-port-not-found shape, so the live runtime is required here.
-    name: 'live isError-on-:ok?-false conformance (read-dom/read-ui bad selector)',
-    path: path.join(MCP_CONFORMANCE_ROOT, 'test', 'live-re-frame2-pair-iserror.cjs'),
-    sentinel: 'RE-FRAME2-PAIR-MCP LIVE ISERROR-ON-OK-FALSE CONFORMANCE GREEN',
-  },
-  {
-    // EP-0017 recordable-coeffects (`cofx`) over the live MCP
-    // wire. Dispatches the fixture's [:counter/stamp] (a reg-event
-    // declaring `:rf.cofx/requires [:rf/time-ms]`) with a scripted
-    // `cofx "{:rf/time-ms <N>}"` and proves the supplied fact reaches the
-    // resulting app-db state (reproducible-dispatch determinism), the
-    // malformed-cofx refusals the degraded handler hides, and the EP-0017
-    // tooling visibility (`list-handlers`/`handler-meta` for the `cofx`
-    // kind + authored `:rf.cofx/requires` on the event). The degraded
-    // end-to-end only proves the `cofx` arg is ACCEPTED — this is the
-    // behaviour gate.
-    name: 'live EP-0017 cofx conformance (reproducible dispatch + cofx tooling)',
-    path: path.join(MCP_CONFORMANCE_ROOT, 'test', 'live-re-frame2-pair-cofx.cjs'),
-    sentinel: 'RE-FRAME2-PAIR-MCP LIVE COFX CONFORMANCE GREEN',
-  },
-  {
-    // EP-0018 unified event-registration metadata over the
-    // live MCP wire. Inspects a fixture `rf/reg-event` id (`:counter/inc`)
-    // via `list-handlers`/`handler-meta {kind "event"}` and pins the
-    // unified shape (`:ok? true`, `:kind :event`, `:id`, the
-    // `:rf/event-handler` wrapper) AND the absence of any of the markers
-    // that must not appear (`:event/kind`,
-    // `:rf/db-handler`/`:rf/fx-handler`/`:rf/ctx-handler`).
-    // The degraded gate only proves the descriptor/CallToolResult wiring —
-    // this proves the live event-metadata wire reflects EP-0018.
-    name: 'live EP-0018 event-metadata conformance (unified reg-event shape)',
-    path: path.join(MCP_CONFORMANCE_ROOT, 'test', 'live-re-frame2-pair-event-meta.cjs'),
-    sentinel: 'RE-FRAME2-PAIR-MCP LIVE EVENT-METADATA CONFORMANCE GREEN',
-  },
-];
+// The inventory carries each gate's success `sentinel` (see its header for
+// why the sentinel assertion below is load-bearing against a silent
+// in-hermetic SKIP that would otherwise ride green via the OTHER gates).
+// Here we resolve each `basename` to the absolute path the spawn needs.
+const INNER_TESTS = LIVE_TESTS.map((t) => ({
+  name: t.name,
+  path: path.join(MCP_CONFORMANCE_ROOT, 'test', t.basename),
+  sentinel: t.sentinel,
+}));
 
 function recordLine(line, stream = 'stdout') {
   DIAGNOSTICS.add(line, stream);
@@ -1437,12 +1377,4 @@ module.exports = {
   waitForChildExit,
   spawnAndGradeInnerTest,
   wipeStalePortFileCandidate,
-  // The authoritative live-inner-test inventory the hermetic suite boots
-  // shadow-cljs for. Exported (require.main-guarded above, so importing this
-  // module does NOT boot shadow-cljs / Chromium) so the completeness guard
-  // `test/live-list-completeness.test.cjs` (rf2-79qmsw) can cross-check it
-  // against the `test/live-re-frame2-pair-*.cjs` files on disk — a live gate
-  // added to disk but forgotten here would SKIP under `npm test` and never
-  // launch on CI, riding perpetually green.
-  INNER_TESTS,
 };
