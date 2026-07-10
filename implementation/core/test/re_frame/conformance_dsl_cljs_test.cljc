@@ -1,11 +1,21 @@
-(ns re-frame.conformance-dsl-test
-  "Focused unit tests for the conformance handler-body DSL evaluator.
+(ns re-frame.conformance-dsl-cljs-test
+  "Focused, host-neutral unit tests for the conformance handler-body DSL
+  evaluator (rf2-xurchk consolidation).
 
-  The conformance corpus runner (conformance-test) covers the DSL
-  end-to-end via real fixtures. These tests target individual DSL
-  shapes — specifically the rf2-xb5o split between :event-arg
-  (default-for-nil only) and :get-event-arg (key-access)."
-  (:require [clojure.test :refer [deftest is testing]]
+  The `re-frame.conformance` DSL interpreter is `.cljc`, so `resolve-value*`,
+  `realise-event-handler`, and `realise-event-fx-handler` MUST behave
+  identically on both hosts. Before rf2-xurchk this coverage was DUPLICATED
+  and DRIFTED across `conformance_dsl_test.clj` (JVM, fuller) and
+  `conformance_dsl_cljs_test.cljs` (CLJS, a strict subset that dropped
+  several cases). This single `.cljc` carries the SUPERSET and runs on both.
+
+  Naming note: the `-cljs-test` suffix is a test-DISCOVERY constraint, not a
+  host restriction — the CLJS `:node-test` build discovers `cljs-test$`, and
+  that suffix also satisfies the JVM cognitect runner's `.*-test$`, so this
+  ONE file runs on BOTH hosts. The corpus runner covers the DSL end-to-end
+  via real fixtures; these target individual DSL shapes."
+  (:require #?(:clj  [clojure.test :refer [deftest is testing]]
+               :cljs [cljs.test :refer-macros [deftest is testing]])
             [re-frame.conformance :as conformance]))
 
 ;; ---- :event-arg / :get-event-arg split (rf2-xb5o / rf2-pz9f) -------------
@@ -20,26 +30,25 @@
 ;;   [:get-event-arg n :key default] — key-access with default if missing/nil
 ;;
 ;; The regression-guard below ensures we never re-introduce the prior
-;; type-dispatch overload where a keyword 3rd arg + map value silently
-;; meant "(get value keyword)" instead of "default-for-nil".
+;; type-dispatch overload where a keyword 3rd arg + map value silently meant
+;; "(get value keyword)" instead of "default-for-nil".
 
 (deftest event-arg-no-key-access-overload
   (testing ":event-arg's 3rd element is unconditionally default-for-nil"
-    ;; Event: [:some-id {:foo 99}]. The map is the 1st event arg
-    ;; (index 1; index 0 is the event-id).
+    ;; Event: [:some-id {:foo 99}]. The map is the 1st event arg (index 1;
+    ;; index 0 is the event-id).
     (let [ctx {:event [:some-id {:foo 99}]}]
       (testing "with a non-nil map arg, returns the arg verbatim"
         ;; Pre-rf2-xb5o: this returned 99 (key-access overload).
-        ;; Post-rf2-xb5o: the keyword 3rd arg is a default-for-nil and
-        ;; never fires because the value is non-nil — so the map is
-        ;; returned as-is.
+        ;; Post-rf2-xb5o: the keyword 3rd arg is a default-for-nil and never
+        ;; fires because the value is non-nil — so the map is returned as-is.
         (is (= {:foo 99}
                (conformance/resolve-value* [:event-arg 1 :foo] ctx))
             "[:event-arg n :foo] with a map arg must NOT do key-access")))
 
     (testing "with nil arg, default-val is returned (keyword default works)"
-      ;; The arg at index 1 doesn't exist (event has only :some-id).
-      ;; The keyword default-val IS returned because v is nil.
+      ;; The arg at index 1 doesn't exist (event has only :some-id). The
+      ;; keyword default-val IS returned because v is nil.
       (let [ctx {:event [:some-id]}]
         (is (= :foo
                (conformance/resolve-value* [:event-arg 1 :foo] ctx))
@@ -85,8 +94,7 @@
 ;; need a handler that RETURNS a malformed effect-map. The :set / :update / :fx
 ;; ops always build a well-shaped map, so :return-raw is the only DSL path
 ;; that yields a literal value verbatim. These tests pin the realiser's
-;; contract directly (the corpus fixtures exercise it end-to-end against the
-;; runtime's policing site).
+;; contract directly (the corpus fixtures exercise it end-to-end).
 
 (deftest return-raw-routes-through-event-fx
   (testing "a body carrying :return-raw is realised as event-fx (so the raw
