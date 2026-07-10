@@ -440,8 +440,8 @@ reference:
 
 | Surface | Spec | What Xray reads |
 |---|---|---|
-| `(rf/register-listener! :trace key callback)` | Spec 009 | The trace bus (every operation). |
-| `(rf/register-listener! :epoch key callback)` | Tool-Pair | The per-cascade epoch records (the `:epoch` stream of the one listener verb). |
+| `(re-frame.trace.tooling/register-listener! key callback)` | Spec 009 | The trace bus (every operation). Xray attaches via the `:trace` **home verb**, not the `rf/register-listener!` facade — a devtool preload must not require `re-frame.core` into a production build (Tool-Pair DCE tier rule). |
+| `(re-frame.epoch/register-epoch-listener! key callback)` | Tool-Pair | The per-cascade epoch records. Xray attaches via the `:epoch` **home verb** (same DCE tier rule; app/docs consumers may use the `(rf/register-listener! :epoch …)` facade instead). |
 | `(rf/trace-buffer)` / `(rf/trace-buffer filter)` | Spec 009 | The bounded trace buffer (default 200). |
 | `(rf/epoch-history frame-id)` | Tool-Pair | The per-frame epoch ring buffer (default 50). |
 | `(rf/restore-epoch! frame-id epoch-id)` | Tool-Pair | Used for confirmed rewinds. |

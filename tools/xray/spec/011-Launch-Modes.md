@@ -427,9 +427,13 @@ available. The lifecycle is normative.
 2. Register the trace collector via
    [`re-frame.trace/register-listener!`](../../../spec/009-Instrumentation.md)
    under `:rf.xray/trace-collector`.
-3. Register the epoch collector via `rf/register-listener!` on the `:epoch`
-   stream under `:rf.xray/epoch-collector` (no-op when the
-   `day8/re-frame2-epoch` artefact is absent).
+3. Register the epoch collector via
+   [`re-frame.epoch/register-epoch-listener!`](../../../spec/Tool-Pair.md#facade-vs-home-verb-the-dce-tier-rule)
+   under `:rf.xray/epoch-collector` (the `:epoch`-stream home verb —
+   canonical devtools attach via the home-namespace verbs, not the
+   `rf/register-listener!` facade, so the preload never requires
+   `re-frame.core`). `day8/re-frame2-epoch` is a hard Xray dependency, so
+   the artefact is always present in an Xray build.
 4. Attach a global `Ctrl+Shift+C` keydown listener on
    `document`.
 5. Schedule default true-inline auto-open once the substrate adapter
@@ -584,7 +588,10 @@ graceful, not catastrophic.
 
 The foundation phase's third step registers an
 [`:epoch`-stream](../../../spec/009-Instrumentation.md#register-epoch-listener--assembled-epoch-listener)
-`rf/register-listener!` callback under the key `:rf.xray/epoch-collector`. Where the trace
+`re-frame.epoch/register-epoch-listener!` callback (the epoch home verb — canonical
+devtools attach via the home-namespace verbs, per [Tool-Pair §the DCE tier
+rule](../../../spec/Tool-Pair.md#facade-vs-home-verb-the-dce-tier-rule)) under the
+key `:rf.xray/epoch-collector`. Where the trace
 collector buffers raw events for panel-side projections (per
 [`013-Trace-Consumer.md`](./013-Trace-Consumer.md)), the epoch-collector serves
 a different job: it is the **reactive pump** that keeps Xray's
@@ -703,14 +710,20 @@ side-effect surface auditable. Test fixtures MAY call
 `reset-for-test!` to drop the sentinel and drive multiple
 registration cycles; production code MUST NOT.
 
-**Absent-artefact behaviour.** The `day8/re-frame2-epoch`
-artefact is optional. When it is not on the classpath,
-the `:epoch` stream of `rf/register-listener!` is itself a no-op (per
-[Spec 009 §Hook-table-driven late binding](../../../spec/009-Instrumentation.md))
-and the registration call is silently a no-op. Xray's
-time-travel panel detects the absent-artefact case via
-`(empty? (rf/epoch-history ...))` and renders the
-"epoch artefact not installed" empty state.
+**Epoch artefact is a hard Xray dependency.** `day8/re-frame2-epoch`
+is optional *for a host app*, but it is a **hard dependency of Xray**
+(xray `deps.edn`): the epoch-collector registers via the
+`re-frame.epoch/register-epoch-listener!` home verb, a compile-time
+dependency, so the artefact is always on the classpath in an
+Xray-enabled build and the "absent-artefact" case cannot arise for a
+compiled Xray. (This is why the home verb is safe here where the
+`rf/register-listener! :epoch` facade — which degrades to a silent
+no-op when epoch is absent — would be needed by code that must tolerate
+its absence; see [Tool-Pair §the DCE tier
+rule](../../../spec/Tool-Pair.md#facade-vs-home-verb-the-dce-tier-rule).)
+Xray's time-travel panel still renders an empty state when
+`(empty? (rf/epoch-history ...))` — but that reflects a target frame
+with **no epochs recorded yet**, not an absent artefact.
 
 **Frame-destroy handling.** When the host frame whose drain
 produced an epoch is later destroyed (per
@@ -733,7 +746,7 @@ only, per §Mount lifecycle) MUST NOT unregister the epoch
 callback — the callback is registered at preload time, not at
 mount time, and the preload's foundation phase persists across
 shell unmounts. Test fixtures driving teardown across runs MAY
-call `rf/unregister-listener!` on the `:epoch` stream for the
+call `re-frame.epoch/unregister-epoch-listener!` for the
 `:rf.xray/epoch-collector` key to unwire the pump; the
 sentinel-based registration will then re-fire on the next
 preload reload. Production sessions never tear down.

@@ -39,14 +39,23 @@
   (:require [goog.object :as gobj]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
-            ;; rf2-qwm0a — the public-tooling listener surface
-            ;; (`register-listener!` etc.) lives in
-            ;; `re-frame.trace.tooling` for production-DCE reasons.
-            ;; Xray's trace-collector registration below targets the
-            ;; tooling sibling directly. The two consumers of this ns
-            ;; (preload + core) are both dev-only, so this require is
-            ;; excluded from production bundles.
+            ;; rf2-qwm0a / rf2-rfid2x — the public-tooling listener
+            ;; surface (`register-listener!` etc.) lives in the
+            ;; per-stream HOME namespaces for production-DCE reasons.
+            ;; Per the Tool-Pair §"Facade vs home-namespace verb — the
+            ;; DCE tier rule": canonical devtools attach via the home
+            ;; verbs, NOT the `re-frame.core` facade, because a tool
+            ;; preload MUST NOT require `re-frame.core` into a
+            ;; production build. Xray's trace-collector targets
+            ;; `re-frame.trace.tooling/register-listener!` and its
+            ;; epoch-collector targets
+            ;; `re-frame.epoch/register-epoch-listener!` directly. The
+            ;; two consumers of this ns (preload + core) are both
+            ;; dev-only, so these requires are excluded from production
+            ;; bundles. `re-frame.epoch` is a hard Xray dep (deps.edn),
+            ;; so the artefact is always present in an Xray build.
             [re-frame.trace.tooling :as trace-tooling]
+            [re-frame.epoch :as epoch]
             [day8.re-frame2-xray.mount :as mount]
             [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
@@ -64,8 +73,8 @@
   ;; Idempotency sentinel for the epoch-callback registration. Same
   ;; rationale as `trace-cb-registered?`. Phase 3 (rf2-t53ze) — the
   ;; Time Travel panel needs a per-settle pump from
-  ;; `(rf/register-listener! :epoch …)` into Xray's app-db so the scrubber's
-  ;; subscriptions re-fire when the framework appends an epoch.
+  ;; `re-frame.epoch/register-epoch-listener!` into Xray's app-db so the
+  ;; scrubber's subscriptions re-fire when the framework appends an epoch.
   (atom false))
 
 (defn register-trace-collector!
@@ -104,12 +113,17 @@
   `(rf/epoch-history target)` snapshot at first open, so the
   pre-mount window's records still surface.
 
-  Idempotent via the `epoch-cb-registered?` sentinel. No-op when the
-  `day8/re-frame2-epoch` artefact is not on the classpath
-  (`(rf/register-listener! :epoch …)` is itself a no-op in that case)."
+  Idempotent via the `epoch-cb-registered?` sentinel. Registers via the
+  epoch home verb `re-frame.epoch/register-epoch-listener!` (canonical
+  devtools attach via the home-namespace verbs, per [Tool-Pair §Facade
+  vs home-namespace verb — the DCE tier rule]; the `re-frame.core`
+  facade is not required into this dev-only namespace). `re-frame.epoch`
+  is a hard Xray dependency, so the artefact is always on the classpath
+  in an Xray build; the whole foundation block is `debug-enabled?`-gated
+  so the registration is elided in production regardless."
   []
   (when (compare-and-set! epoch-cb-registered? false true)
-    (rf/register-listener! :epoch :rf.xray/epoch-collector
+    (epoch/register-epoch-listener! :rf.xray/epoch-collector
       (fn [record]
         ;; Pre-mount no-op — see the docstring's §Pre-mount guard.
         ;; Resolved against the framework's frame registry (NOT a

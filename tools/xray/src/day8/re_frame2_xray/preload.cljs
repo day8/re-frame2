@@ -46,9 +46,10 @@
   (:require [re-frame.interop :as interop]
             ;; Pull `re-frame.epoch` into the dev classpath via the
             ;; Xray preload. The Xray Time Travel panel
-            ;; reads epoch records via `rf/epoch-history` +
-            ;; `(rf/register-listener! :epoch …)`; those wrappers late-bind into
-            ;; `re-frame.epoch`'s seed table. When the host example
+            ;; reads epoch records via `rf/epoch-history` and its
+            ;; epoch-collector attaches via the epoch home verb
+            ;; `re-frame.epoch/register-epoch-listener!` (per the Tool-Pair
+            ;; DCE tier rule; see install.cljs). When the host example
             ;; omits the artefact (the counter example does, by
             ;; design — it's the smallest reference app), the wrappers
             ;; degrade silently to `[]` / no-op and the panel sits
