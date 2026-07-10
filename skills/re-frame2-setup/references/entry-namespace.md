@@ -86,7 +86,7 @@ When you split this way, the `reg-view` forms move to `views.cljs`, so split `co
 
 ## UIx / Helix greenfield
 
-This skill scaffolds against **Reagent** (the default reference substrate). For a UIx or Helix greenfield the wiring is the same shape with substitutions in three places — deps.edn, entry ns, and views; everything else is identical:
+This skill scaffolds against **Reagent** (the default reference substrate). For a UIx or Helix greenfield the **dataflow is unchanged** — the events, subscription, and schema are the substrate-neutral trio in [`shared-dataflow.md`](shared-dataflow.md), copied **verbatim**. Only three layers are substrate-specific: `deps.edn`, the entry-ns root API, and the views. The **complete** emitted project is those three shared files (`events.cljs` + `subs.cljs` + `schema.cljs`) plus the substrate `core.cljs` + `views.cljs` below — nothing from the Reagent-only `first-counter.md`:
 
 - **deps.edn** — swap `day8/re-frame2-reagent` for `day8/re-frame2-uix` (or `-helix`), drop the `reagent/reagent` pin, and add the substrate's Maven deps **at the exact versions the generator template pins** (the template is the source of truth — do not chase latest or invent a version, same discipline as the Reagent/React/shadow pins in [`deps-versions.md`](deps-versions.md)). Verified against the template's `_uix/deps.edn` / `_helix/deps.edn`:
 
@@ -104,14 +104,18 @@ This skill scaffolds against **Reagent** (the default reference substrate). For 
   ```
 
   > **Heads-up on the UIx version target.** `spec/006-ReactiveSubstrate.md` names **UIx 2.x** (hooks-based) as the design target, but the generator template pins **`com.pitch/uix` `1.4.4`** — the **known-good, tested** set. Use the template pin; treat UIx 2.x as an unverified manual override to test before relying on it. (Pins read off the template's `_uix/deps.edn`; re-check if either bumps.)
-- **entry ns** — require `[re-frame.adapter.uix :as uix-adapter]` (or `re-frame.adapter.helix`), pass `uix-adapter/adapter` to `rf/init!`, register the app frame, and mount with the substrate's own root API — **wrapping the tree in the adapter's `frame-provider` `{:frame …}` SCOPE shape** (a `$`-element native component; scope-only since the frame already exists from `reg-frame`). For UIx that's `uix.dom/create-root` + `uix.dom/render-root`, view wrapped in `$` from `uix.core`:
+- **shared dataflow** — first lay down the substrate-neutral `events.cljs` + `subs.cljs` + `schema.cljs` from [`shared-dataflow.md`](shared-dataflow.md), copied **verbatim** into `src/your_app/`. They carry the `:counter/initialise` / `:counter/increment` events, the `:counter/value` sub, and the `CounterDb` schema + `register-schema!` — identical for UIx and Helix (and to the events / sub / schema the Reagent `first-counter.md` inlines). Do **not** copy them out of the Reagent file, and do **not** re-derive them per substrate.
+- **entry ns** — `:require` the shared `your-app.events`, `your-app.subs`, and `your-app.schema` (so their registrations load), require `[re-frame.adapter.uix :as uix-adapter]` (or `re-frame.adapter.helix`), pass `uix-adapter/adapter` to `rf/init!`, register the app frame, then under `(rf/with-frame :rf/default …)` call `(schema/register-schema!)` **before** the `(rf/dispatch-sync [:counter/initialise])` seed (the generator's boot order), and mount with the substrate's own root API — **wrapping the tree in the adapter's `frame-provider` `{:frame …}` SCOPE shape** (a `$`-element native component; scope-only since the frame already exists from `reg-frame`). For UIx that's `uix.dom/create-root` + `uix.dom/render-root`, view wrapped in `$` from `uix.core`:
   ```clojure
   (ns your-app.core
     (:require [uix.core             :refer [$]]
               [uix.dom              :as uix-dom]
               [re-frame.core        :as rf]
               [re-frame.adapter.uix :as uix-adapter]
-              [your-app.views       :as views]))
+              [your-app.events]              ;; reg-event registrations (shared-dataflow.md)
+              [your-app.subs]                ;; reg-sub registration   (shared-dataflow.md)
+              [your-app.schema :as schema]   ;; CounterDb + register-schema! (shared-dataflow.md)
+              [your-app.views  :as views]))
 
   (defonce react-root (uix-dom/create-root (js/document.getElementById "app")))
 
@@ -119,14 +123,39 @@ This skill scaffolds against **Reagent** (the default reference substrate). For 
     (rf/init! uix-adapter/adapter)
     (rf/reg-frame :rf/default {})
     (rf/with-frame :rf/default
-      (rf/dispatch-sync [:counter/initialise]))   ;; reset boundary — re-seeds each hot reload
+      (schema/register-schema!)                   ;; attach the frame-local schema FIRST
+      (rf/dispatch-sync [:counter/initialise]))   ;; then seed — reset boundary, re-seeds each hot reload
     (uix-dom/render-root
       ($ uix-adapter/frame-provider {:frame :rf/default}
         ($ views/counter-app))
       react-root))
   ```
-  (Helix mounts with `(.render react-root ($ helix-adapter/frame-provider {:frame :rf/default} ($ views/counter-app)))` against a `react-dom/client` root (`$` from `helix.core`), same `reg-frame` + `with-frame` / `dispatch-sync` boot — see the template's `_helix/core.cljs`. Every adapter's `frame-provider` scopes the already-registered frame for its subtree; rendering without it raises `:rf.error/no-frame-context` on the first subscribe.)
-- **views** — the substitution `first-counter.md` does **not** cover. Reagent's `reg-view` auto-injects `dispatch`/`subscribe`; UIx and Helix have **no auto-injection** — components read subs through the adapter's `use-subscribe` hook and dispatch through `(:dispatch (rf/capture-frame))`, captured once per render (the closed-over `dispatch` still targets that frame from an async callback). UIx uses `defui` + `$`; Helix uses `defnc` + `helix.dom`. Copy the matching `views.cljs` verbatim (from the template's `_uix/views.cljs` / `_helix/views.cljs`):
+  Helix is the same boot with its own root API — `react-dom/client`'s `createRoot` + `.render`, `$` from `helix.core`:
+  ```clojure
+  (ns your-app.core
+    (:require ["react-dom/client"      :as react-dom-client]
+              [helix.core             :refer [$]]
+              [re-frame.core          :as rf]
+              [re-frame.adapter.helix :as helix-adapter]
+              [your-app.events]              ;; reg-event registrations (shared-dataflow.md)
+              [your-app.subs]                ;; reg-sub registration   (shared-dataflow.md)
+              [your-app.schema :as schema]   ;; CounterDb + register-schema! (shared-dataflow.md)
+              [your-app.views  :as views]))
+
+  (defonce react-root (react-dom-client/createRoot (js/document.getElementById "app")))
+
+  (defn ^:export init []
+    (rf/init! helix-adapter/adapter)
+    (rf/reg-frame :rf/default {})
+    (rf/with-frame :rf/default
+      (schema/register-schema!)                   ;; attach the frame-local schema FIRST
+      (rf/dispatch-sync [:counter/initialise]))   ;; then seed — reset boundary, re-seeds each hot reload
+    (.render react-root
+      ($ helix-adapter/frame-provider {:frame :rf/default}
+        ($ views/counter-app))))
+  ```
+  Every adapter's `frame-provider` scopes the already-registered frame for its subtree; rendering without it raises `:rf.error/no-frame-context` on the first subscribe. Both entry namespaces match the generator template's `_uix/core.cljs` / `_helix/core.cljs`.
+- **views** — the substitution `first-counter.md` does **not** cover. Reagent's `reg-view` auto-injects `dispatch`/`subscribe`; UIx and Helix have **no auto-injection** — components read subs through the adapter's `use-subscribe` hook and dispatch through `(:dispatch (rf/capture-frame))`, captured once per render (the closed-over `dispatch` still targets that frame from an async callback). UIx uses `defui` + `$`; Helix uses `defnc` + `helix.dom`. Copy the matching `views.cljs` below verbatim (identical to the template's `_uix/views.cljs` / `_helix/views.cljs`, reproduced here so the recipe is self-contained):
 
   ```clojure
   ;; UIx — src/your_app/views.cljs
@@ -168,7 +197,7 @@ This skill scaffolds against **Reagent** (the default reference substrate). For 
       (d/h1 "your-app")
       ($ counter-buttons)))
   ```
-- everything else (events, subs, schemas, Xray wiring, `dispatch-sync` seed, `:init-fn ...core/init`) is identical across substrates. **Views are not** — do not reach for the Reagent `reg-view` first-counter leaf on a UIx/Helix app; use the substrate views above (or take the complete generator route below).
+- everything the two substrates share is **single-sourced**: the events, subscription, and schema live once in [`shared-dataflow.md`](shared-dataflow.md), and the `dispatch-sync` seed + `:init-fn ...core/init` boot are the same. **Only the view layer differs** — do not reach for the Reagent `reg-view` first-counter leaf on a UIx/Helix app; use the substrate views above (or take the complete generator route below).
 
 The fastest path for a non-Reagent greenfield is the **generator template**, which ships complete `_uix/` and `_helix/` variants. This is a **user-run** route — the **author** invokes `clojure -Tnew create … :substrate :uix` (or `:helix`) in their own shell; **this skill does not run `clojure -Tnew`** (its `allowed-tools` cover only the manual scaffold). Pre-publish caveat + the working `:local/root` dev route: [`SKILL.md` cardinal rule 5](../SKILL.md) and [the generator-template section](../README.md#relationship-to-the-generator-template).
 
