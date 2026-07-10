@@ -232,12 +232,14 @@
 (defn ^:no-doc owners->provenance
   "Derive the STABLE `:reason` / `:source` provenance keyword for a large-
   classified path from its retained `owners` set. Picks the highest-priority
-  `:source` present (`source-provenance-priority`); falls back to `:effect`
-  when the set carries no recognised source (defensive — matches the historical
-  `->marker` default)."
+  `:source` present (`source-provenance-priority`); for a set carrying only
+  unrecognised sources it picks the lexicographically-first source (still
+  deterministic); falls back to `:effect` for an empty set (defensive —
+  matches the historical `->marker` default)."
   [owners]
   (let [sources (into #{} (keep :source) owners)]
     (or (some sources source-provenance-priority)
+        (first (sort sources))
         :effect)))
 
 (defn ^:no-doc restore-elision-slot
@@ -651,17 +653,20 @@
 
 (defn- marker-opts
   "The `->marker` option map for a declared-`:large` node — derived from the
-  matched path's retained `large-owners` set (a STABLE `:reason` provenance via
-  `owners->provenance`) and the walk `ctx` (its `:as-of-epoch` /
-  `:include-digests?`). The 4-key option map the path-based wire walker
-  (`walk-decider`) passes to `->marker`. A large path may carry several
-  independent owners (rf2-wdm1vg); the marker's `:reason` picks the
-  highest-priority source deterministically so the wire shape is reproducible."
+  matched path's retained `large-owners` set and the walk `ctx` (its
+  `:as-of-epoch` / `:include-digests?`). The 4-key option map the path-based
+  wire walker (`walk-decider`) passes to `->marker`. A large path may carry
+  several independent owners (rf2-wdm1vg); the marker's `:reason` picks the
+  highest-priority source deterministically (`owners->provenance`) and its
+  `:hint` rides from that SAME owner (when the declaration carried one), so the
+  wire shape is reproducible."
   [large-owners ctx]
-  {:hint             nil
-   :reason           (owners->provenance large-owners)
-   :as-of-epoch      (:as-of-epoch ctx)
-   :include-digests? (:include-digests? ctx)})
+  (let [source (owners->provenance large-owners)
+        hint   (some (fn [o] (when (= source (:source o)) (:hint o))) large-owners)]
+    {:hint             hint
+     :reason           source
+     :as-of-epoch      (:as-of-epoch ctx)
+     :include-digests? (:include-digests? ctx)}))
 
 (defn- warn-large-unschema'd!
   [frame-id path bytes]
