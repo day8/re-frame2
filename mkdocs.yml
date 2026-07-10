@@ -276,6 +276,7 @@ nav:
     - "Interceptors and secrets": async/http-going-further.md
     - "Your own async effect": async/custom-effects.md
     - "Why no await": async/continuations-are-data.md
+    - "Coming from Promises": async/coming-from-promises.md
     - "Examples": async/examples.md
 
   - Routing:
