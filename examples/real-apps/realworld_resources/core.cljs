@@ -269,7 +269,7 @@
     ;;
     ;; `:url-strategy routing/url-strategy` is what makes this work under the
     ;; dev orchestrator's `/realworld-resources/` mount point: it wraps the
-    ;; default history strategy with `with-base-path` (rf2-g8pbwg) so that
+    ;; default history strategy with `with-base-path` so that
     ;; prefix is stripped before the matcher ever sees the URL, and re-added on
     ;; the way out. `:url-bound? true` frame creation then automatically
     ;; installs the base-path-aware popstate listener AND does the first

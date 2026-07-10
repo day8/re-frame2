@@ -83,10 +83,9 @@
   ;; chars) from a URL before resolving its scheme, so a payload like
   ;; "java<TAB>script:alert(1)" fires as javascript: on click. Detect the
   ;; scheme against a copy with every ASCII control + space char removed, then
-  ;; run it through the allowlist — an unknown or obfuscated scheme is
-  ;; default-DENIED, never waved through the `:else` branch as if it were a
-  ;; relative URL (the bug the old `:else true` had: a non-matching scheme run
-  ;; fell through and was KEPT, contradicting this fn's own contract).
+  ;; run it through the allowlist. An unknown or obfuscated scheme must be
+  ;; default-DENIED rather than treated as a relative URL; only a URL with no
+  ;; scheme at all reaches the relative-reference branch below.
   (let [u (str/replace (or url "") #"[\x00-\x20\x7f]" "")]
     (if (str/blank? u)
       false

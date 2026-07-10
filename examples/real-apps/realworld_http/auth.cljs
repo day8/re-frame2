@@ -37,8 +37,9 @@
 ;;
 ;; One detail that isn't ours to choose: the official RealWorld E2E suite reads
 ;; the session straight out of `localStorage["jwtToken"]`, so we use that exact
-;; key, un-namespaced, verbatim. Conformance is checked against standalone
-;; serving (one app per origin), so there's no collision to worry about.
+;; key, un-namespaced, verbatim. The contract assumes one app per origin. The
+;; repo's dev orchestrator serves both RealWorld variants from one origin, so
+;; they share this key there; standalone serving gives each app its own origin.
 
 (rf/reg-fx :auth.session/persist
   {:doc       "Save or clear the JWT in localStorage, under the contract key
@@ -60,7 +61,7 @@
 ;; supplier reads localStorage; that supplier runs once, its value is recorded
 ;; onto the causal token, and from then on replay hands back the captured token
 ;; verbatim. See the coeffects guide on the two grades:
-;; ../../../docs/core/concepts/effects-and-coeffects.md#two-grades-ambient-and-recordable
+;; ../../../docs/core/coeffects.md#two-grades-ambient-and-recordable
 ;;
 ;; It's also why `ssr.cljc` can happily redact [:auth :token] from the
 ;; hydration payload: the client doesn't need the server to ship it the token,

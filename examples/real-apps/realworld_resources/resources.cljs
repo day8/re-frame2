@@ -254,7 +254,7 @@
 ;;   - logged out, the reference resolves to nil, fail-closed: the sub becomes a
 ;;     loud 'scope unresolved' signal, never a quiet read of someone else's cache.
 ;; See the named resolver in scope.cljs and
-;; ../../../docs/resources/how-to/add-auth.md.
+;; ../../../docs/core/how-to/add-auth.md.
 
 (rf/reg-resource :realworld/feed
   {:doc            "The authenticated user's feed (`/articles/feed`). Session-

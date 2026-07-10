@@ -39,8 +39,8 @@
    and feed and the instance settled, and the continuation branches save-vs-delete
    on the reply value (save and delete share one instance, so they share one
    continuation). The seed-on-load continuation is the `:realworld/article`
-   ensure's `:reply-to [:editor/article-loaded]` (rf2-p1yri7 — a resource read now
-   gets the same causal completion continuation a mutation does): a cache-hit
+   ensure's `:reply-to [:editor/article-loaded]`, the resource-read counterpart
+   of a mutation completion continuation: a cache-hit
    fires it immediately, a fetch fires it on settle, and a stale/superseded reply
    never fires it. Both are declarative, replayable causal events, not Form-3
    `reagent.ratom/run!` reactions watching a settle. The render bodies, as
@@ -126,9 +126,9 @@
 ;; drain; a fresh editor starts invalid and clean anyway, so that one-event lag
 ;; never carries a stale value.
 
-;; The 3-slot triple `[flow-id metadata derive-fn]` (rf2-bqstzr) — the exact
-;; shape both `reg-flow` and `:rf.fx/reg-flow` take, so `[:rf.fx/reg-flow
-;; can-submit-flow]` splats it straight through.
+;; This value uses the canonical `[flow-id metadata derive-fn]` triple shared by
+;; `reg-flow` and `:rf.fx/reg-flow`, so `[:rf.fx/reg-flow can-submit-flow]`
+;; passes the complete registration through unchanged.
 (def can-submit-flow
   [:editor/can-submit?
    {:doc    "True when the editor draft is both valid AND dirty (differs from the
@@ -526,8 +526,8 @@
    ONE lifecycle concern left is releasing the article read's lease when the
    editor leaves the screen. There is no off-render reaction: the seed-on-load is
    the `:realworld/article` ensure's `:reply-to [:editor/article-loaded]`
-   continuation (a declarative causal event — a resource read now gets the same
-   reply-side continuation a mutation does, rf2-p1yri7), and the same-component
+   continuation (a declarative causal event, and the read-side counterpart of a
+   mutation's reply continuation), and the same-component
    `/editor/A` -> `/editor/B` slug-change lease release rides
    `:editor/load-article` (navigation is causal). So the only thing that
    genuinely needs a component hook is leaving the editor entirely — the unmount.

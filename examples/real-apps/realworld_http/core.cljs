@@ -576,13 +576,12 @@
     ;;     `:app/initialise` so the token is sitting in app-db before the
     ;;     bearer-auth interceptor needs to send anything authenticated.
     ;;   - `:app/initialise` — fans out to all the per-feature initialisers.
-    ;; There is no explicit `:rf.route/handle-url-change` step any more — the
-    ;; `:url-bound? true` frame lifecycle (rf2-g8pbwg) does the first
-    ;; URL→slice sync itself, automatically, AFTER every `:initial-events`
-    ;; step above has run — which is exactly the ordering this app needs: by
-    ;; then the session is restored, so when a deep link to a
-    ;; `:requires-auth` route runs its `:can-enter` gate, it's judging a
-    ;; logged-in user correctly rather than bouncing them by mistake.
+    ;; `:url-bound? true` performs the initial URL→slice sync after every
+    ;; `:initial-events` step above. That ordering is load-bearing: session
+    ;; restore completes before a deep link to a `:requires-auth` route runs its
+    ;; `:can-enter` gate, so the gate judges the restored user rather than an
+    ;; uninitialised auth slice. No explicit `:rf.route/handle-url-change`
+    ;; initial event is needed.
     (rdc/render @react-root
                 [rf/frame-provider {:id              :rf/default
                                     :doc             "Realworld demo frame."
