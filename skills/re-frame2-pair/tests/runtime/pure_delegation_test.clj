@@ -73,6 +73,8 @@
     dispatch-epoch-to-subs!      pure/dispatch-epoch-to-subs
     epoch-elapsed-ms             pure/epoch-elapsed-ms
     epoch-matches?               pure/epoch-matches?
+    attribute-pair-epoch!        pure/attribute-pair-epoch
+    last-pair-epoch              pure/pick-pair-epoch
     subscribe!                   pure/make-subscription
     drain-subscription!          pure/drain
     all-snapshot-slices          pure/all-snapshot-slices

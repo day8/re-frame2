@@ -1191,10 +1191,17 @@
 ;; listener below drives ONLY the per-frame app-db-hash cache (a derived
 ;; scalar, not a record copy) and the streaming-subs fan-out.
 
-(defonce ^:private pair-epoch-ids
-  ;; Set of epoch-ids that this skill itself dispatched (used by
-  ;; last-pair-epoch). Populated by the dispatch helpers below.
-  (atom #{}))
+(defonce ^:private pair-epochs
+  ;; Frame-qualified attribution of epochs THIS skill dispatched (`:origin
+  ;; :pair`): `{frame-id #{epoch-id ...}}`. Read by `last-pair-epoch`,
+  ;; populated by the assembled-epoch listener (`attribute-pair-epoch!` →
+  ;; `pure/attribute-pair-epoch`), the ONE point where both sync AND queued
+  ;; dispatches settle. Never a bare epoch-id set: `:epoch-id` is unique only
+  ;; within a frame history, so two frames can share one, and the frame
+  ;; component keeps them isolated. Bounded to each frame's live retained ring
+  ;; (rolled-over ids + destroyed-frame entries are pruned on every settle), so
+  ;; it is NOT a second unbounded mirror of the epoch ring.
+  (atom {}))
 
 ;; ---- O(1) per-frame app-db hash cache ------------------------------------
 ;;
@@ -1289,14 +1296,21 @@
    (peek (rf/epoch-history frame-id))))
 
 (defn last-pair-epoch
-  "Most recent epoch this skill dispatched. Walks the operating frame's
-   history backward, filtering by epoch-id membership in pair-epoch-ids."
+  "Most recent epoch THIS skill dispatched (`:origin :pair`) in `frame-id`,
+   or nil. Reads the frame-qualified attribution store (populated by the
+   assembled-epoch listener) and walks the frame's live ring backward for the
+   newest attributed record via `pure/pick-pair-epoch`.
+
+   Frame-qualified: an identical epoch-id attributed in ANOTHER frame never
+   matches here. Queued-correct: a queued pair dispatch is attributed when its
+   assembled epoch settles at the listener, so it is discoverable here once the
+   cascade drains. Survives trace elision: attribution is remembered at settle
+   time, so an aged record whose `:trace-events` were dropped for ring age is
+   still classified as long as it is still in the ring."
   ([] (last-pair-epoch (current-frame)))
   ([frame-id]
-   (let [ours @pair-epoch-ids]
-     (->> (rf/epoch-history frame-id)
-          reverse
-          (some (fn [r] (when (contains? ours (:epoch-id r)) r)))))))
+   (pure/pick-pair-epoch (get @pair-epochs frame-id #{})
+                         (rf/epoch-history frame-id))))
 
 (defn epoch-by-id
   "Look up an epoch by id in the operating frame's history."
@@ -1680,15 +1694,31 @@
   (when-not (pure/streaming-drop? (:include-sensitive? @privacy-config) ev)
     (dispatch-trace-to-subs! ev)))
 
+(defn- attribute-pair-epoch!
+  "Assembled-epoch listener hook — the SINGLE pair-attribution point. Runs when
+   an epoch settles (both sync AND queued dispatches land here), so a queued
+   pair dispatch is attributed once its cascade drains, not missed. Threads the
+   live registered-frame set and `frame-id`'s live ring ids into the pure
+   `pure/attribute-pair-epoch` reducer and swaps the frame-qualified store,
+   which also prunes rolled-over ids and destroyed-frame entries so the store
+   stays bounded to live retained history."
+  [record]
+  (when-let [frame-id (:frame record)]
+    (let [registered (set (rf/frame-ids))
+          live-ids   (into #{} (map :epoch-id) (rf/epoch-history frame-id))]
+      (swap! pair-epochs pure/attribute-pair-epoch record registered live-ids))))
+
 (defn- on-epoch-streaming
-  "Assembled-epoch listener. Drives ONLY derived state — the per-frame
-   app-db-hash cache (a scalar, for the precheck cache-hit decision) —
-   and the streaming-subs fan-out. It does NOT retain a copy of the
-   epoch ring: every epoch read hits `(rf/epoch-history frame-id)`
-   directly, so there is no session-side buffer to drift."
+  "Assembled-epoch listener. Drives derived state only — the per-frame
+   app-db-hash cache (a scalar, for the precheck cache-hit decision), the
+   frame-qualified pair-epoch attribution (`attribute-pair-epoch!`), and the
+   streaming-subs fan-out. It does NOT retain a copy of the epoch ring: every
+   epoch read hits `(rf/epoch-history frame-id)` directly, so there is no
+   session-side buffer to drift."
   [record]
   (when-let [frame-id (:frame record)]
     (update-frame-db-hash! frame-id (:db-after record)))
+  (attribute-pair-epoch! record)
   (dispatch-epoch-to-subs! record))
 
 (defn subscribe!
@@ -2123,11 +2153,14 @@
 ;;
 ;; Per Spec 002 §Dispatch origin tagging, dispatches carry an :origin opt
 ;; (default :app). The skill stamps :pair so `:rf.event/dispatched` traces
-;; can be filtered by who fired them. Pair-epoch tracking populates
-;; `pair-epoch-ids` from the assembled-epoch listener.
-
-(defn- mark-pair! [epoch-id]
-  (when epoch-id (swap! pair-epoch-ids conj epoch-id)))
+;; can be filtered by who fired them, and so the assembled-epoch listener
+;; (`attribute-pair-epoch!`) can frame-qualify pair epochs for
+;; `last-pair-epoch`. Attribution is NEVER done eagerly here: the queued path
+;; settles after this fn returns (the head has not advanced yet), so only the
+;; listener sees both sync and queued epochs. The entry points call
+;; `ensure-epoch-listener!` so a first pair dispatch before any `health` /
+;; `snapshot-state` call still has the attribution listener installed by the
+;; time its (sync or queued) epoch settles.
 
 (defn pair-dispatch!
   "Queued dispatch with `:origin :pair`. Returns
@@ -2147,6 +2180,9 @@
    canonical 'what happened?' surface."
   ([event-v] (pair-dispatch! event-v {}))
   ([event-v opts]
+   ;; The assembled-epoch listener is the attribution point; make sure it is
+   ;; installed before the (possibly queued) epoch settles.
+   (ensure-epoch-listener!)
    (let [frame-id  (or (:frame opts) (current-frame))
          ;; The nREPL eval thread carries no ambient `with-frame` scope, so
          ;; `rf/dispatch` would `require-current-frame!` and throw
@@ -2161,9 +2197,10 @@
            base     {:ok? true :queued? true :event event-v :opts opts}]
        (cond
          (and after-id (not= before-id after-id))
-         (do (mark-pair! after-id)
-             (attach-cascade (assoc base :epoch-id after-id :frame frame-id)
-                             frame-id after-id))
+         ;; Sync-drain: the head advanced before we re-read. The listener has
+         ;; already attributed `after-id` (frame-qualified) — no eager mark.
+         (attach-cascade (assoc base :epoch-id after-id :frame frame-id)
+                         frame-id after-id)
 
          :else
          (assoc base
@@ -2187,6 +2224,9 @@
    rather than claiming success."
   ([event-v] (pair-dispatch-sync! event-v {}))
   ([event-v opts]
+   ;; The assembled-epoch listener attributes the pair epoch (frame-qualified);
+   ;; dispatch-sync fires it synchronously below, so ensure it is installed.
+   (ensure-epoch-listener!)
    (let [frame-id  (or (:frame opts) (current-frame))
          _         (when-not frame-id
                      ;; Carry the enriched ambiguous-frame context
@@ -2205,9 +2245,10 @@
      (let [after-id (some-> (rf/epoch-history frame-id) peek :epoch-id)]
        (cond
          (and after-id (not= before-id after-id))
-         (do (mark-pair! after-id)
-             (attach-cascade {:ok? true :epoch-id after-id :event event-v :frame frame-id}
-                             frame-id after-id))
+         ;; The listener fired synchronously during dispatch-sync and has
+         ;; already frame-qualified `after-id` — no eager mark.
+         (attach-cascade {:ok? true :epoch-id after-id :event event-v :frame frame-id}
+                         frame-id after-id)
 
          (and (nil? before-id) (nil? after-id))
          {:ok? false
@@ -4124,7 +4165,11 @@
      :epoch-counts              (into {} (map (fn [fid]
                                                 [fid (count (rf/epoch-history fid))])
                                               fids))
-     :pair-epoch-count          (count @pair-epoch-ids)}))
+     ;; Total pair-attributed epochs across all frames. Bounded by live
+     ;; retained history (the store prunes rolled-over + destroyed-frame
+     ;; entries on every settle), so this stays within the epoch-ring
+     ;; envelope rather than growing for the session's lifetime.
+     :pair-epoch-count          (reduce + 0 (map count (vals @pair-epochs)))}))
 
 ;; ---------------------------------------------------------------------------
 ;; App-shape orientation summary
