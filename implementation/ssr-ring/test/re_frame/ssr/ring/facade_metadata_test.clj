@@ -1,16 +1,12 @@
 (ns re-frame.ssr.ring.facade-metadata-test
-  "Per rf2-l1qgjw issue 1 — pin that the canonical `re-frame.ssr.ring`
-  facade carries real `:doc` + `:arglists` metadata on its public
-  FUNCTION vars.
+  "Pin that the canonical `re-frame.ssr.ring` façade carries real `:doc`
+  and `:arglists` metadata on its public function vars.
 
   The facade re-exposes seven sub-namespace fns. A bare `(def alias
   other-ns/fn)` copies the value but DROPS the var metadata, so REPL
   `doc`, editor hover, completion, and the JVM-introspected api-manifest
-  all saw empty docs + nil arglists at the very namespace users are told
-  to require. `import-fn` (in `re-frame.ssr.ring`) now copies the source
-  var's authored `:doc`/`:arglists` onto the façade var. This test is the
-  regression tripwire: a future re-export that reverts to a bare `def`
-  (or forgets the metadata copy) re-opens the gap, and this fails.
+  would expose empty docs and nil arglists at the namespace users require.
+  `import-fn` copies the source var's authored metadata onto the façade var.
 
   Data vars are EXCLUDED — `handler-defaults` (a config map) and
   `default-on-error` (a 2-arity fn VALUE held in a `def`, not a `defn`,
@@ -43,7 +39,7 @@
   (ns-resolve 're-frame.ssr.ring sym))
 
 (deftest facade-public-fns-carry-doc-and-arglists
-  (testing "rf2-l1qgjw — every public re-frame.ssr.ring FUNCTION var has a
+  (testing "every public re-frame.ssr.ring function var has a
             non-empty :doc and a non-empty :arglists (the import-fn
             metadata-preserving re-export contract)"
     (doseq [sym public-fn-syms]
@@ -61,7 +57,7 @@
                  (pr-str (:arglists m))))))))
 
 (deftest facade-public-data-vars-carry-doc
-  (testing "rf2-l1qgjw — documented public DATA vars (handler-defaults,
+  (testing "documented public data vars (handler-defaults,
             default-on-error) carry a non-empty :doc; they are correctly
             excluded from the :arglists check (not fns)"
     (doseq [sym public-data-syms]
@@ -73,7 +69,7 @@
                  (pr-str (:doc m))))))))
 
 (deftest facade-doc-matches-implementation-contract
-  (testing "rf2-l1qgjw — the re-exported :doc/:arglists are the source
+  (testing "the re-exported :doc/:arglists are the source
             var's authored contract (not a stub), so the facade is the
             same documentation surface as the sub-namespace home var"
     ;; Spot-check two representative re-exports against their home vars:

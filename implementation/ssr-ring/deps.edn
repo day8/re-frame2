@@ -1,34 +1,7 @@
-;; day8/re-frame2-ssr-ring — Ring/Pedestal host adapter (rf2-ny6v7).
-;;
-;; Per Spec 011 §HTTP response contract: "the host adapter is
-;; responsible for materialising :response into the wire format its
-;; server framework expects (Ring map, Express response, Fastify reply,
-;; etc.). The runtime never writes to a network socket directly — the
-;; response shape is the contract; transport is the host's concern."
-;;
-;; This artefact is that host adapter for Ring. It supplies the
-;; `ssr-handler` fn — a Ring-shaped (req → resp) handler that per
-;; request:
-;;
-;;   1. Creates a per-request frame via re-frame.core/make-frame with
-;;      :platform :server and the :initial-events vector the caller supplies.
-;;   2. Awaits the dispatch-queue drain (synchronous on the JVM —
-;;      `make-frame` returns post-drain per Spec 002 §dispatch).
-;;   3. Reads the resolved response accumulator via
-;;      re-frame.ssr/get-response (which flushes pending error
-;;      projections before reading).
-;;   4. Short-circuits when :redirect is set (no body; Location header).
-;;   5. Otherwise renders the root view to HTML via render-to-string,
-;;      builds the hydration payload, and wraps in an HTML envelope.
-;;   6. Materialises :cookies → Set-Cookie wire form per RFC 6265.
-;;   7. Destroys the per-request frame in a `finally` block.
-;;
-;; Plus an `ssr-middleware` fn for composing with other Ring middlewares.
-;; Per Spec 011 §Request storage substrate, the adapter populates the
-;; per-frame request slot via `re-frame.ssr/set-request!` before the
-;; drain so the `:rf.server/request` cofx (rf2-e825b) surfaces the
-;; Ring request to handlers that declare
-;; `{:rf.cofx/requires [:rf.server/request]}`.
+;; Ring host adapter for re-frame2 SSR. It creates a server frame per
+;; request, makes the Ring request available before the synchronous initial
+;; event drain, renders or redirects from the resolved response accumulator,
+;; materialises headers and cookies, and always tears the frame down.
 ;;
 ;; Consumers add this artefact alongside core and ssr:
 ;;
@@ -39,26 +12,16 @@
 ;; And require `re-frame.ssr.ring` in any namespace that wires the
 ;; runtime up to a Ring server (Jetty, HttpKit, Pedestal, Reitit-ring).
 ;;
-;; Per Spec 006 §Adapter shipping convention and the rf2-p7va extension
-;; to per-feature splits: this artefact depends on core + ssr; neither
-;; depends on this artefact. Pedestal/HttpKit variants would be additive
-;; sibling artefacts (ssr-pedestal, ssr-httpkit) sharing the same
-;; per-request contract.
+;; Per Spec 006 §Adapter shipping convention, this optional artefact depends
+;; on core and SSR; neither depends on it.
 {:paths ["src"]
  :deps  {day8/re-frame2     {:local/root "../core"}
          day8/re-frame2-ssr {:local/root "../ssr"}}
 
  :aliases
- {:test {;; rf2-09iktm — the per-test reset is now artefact-local
-         ;; (`re-frame.ssr.ring.test-support/reset-runtime`), built on
-         ;; the published `re-frame.test-support/make-reset-runtime-
-         ;; fixture` (core/src) plus the four SSR per-request side-channel
-         ;; atom resets (reached through the existing `day8/re-frame2-ssr`
-         ;; production dep). The former `../ssr/test` source dir — which
-         ;; only hosted the shared `re-frame.ssr.test-fixture` ns — is
-         ;; removed: the Clojure CLI deprecates `:paths` external to the
-         ;; project, and nothing here reaches the sibling test tree any
-         ;; more.
+ {:test {;; The local fixture combines core's public reset fixture with the
+         ;; SSR per-request side-channel resets available through the
+         ;; production SSR dependency.
          :extra-paths ["test"]
          ;; Mirrors implementation/ssr/deps.edn :test alias — schemas /
          ;; flows / routing / machines load at ns-load time and the
@@ -67,41 +30,22 @@
                        day8/re-frame2-flows      {:local/root "../flows"}
                        day8/re-frame2-routing    {:local/root "../routing"}
                        day8/re-frame2-machines   {:local/root "../machines"}
-                       ;; rf2-p026f5 — the non-streaming resource-projection
-                       ;; regression seeds a frame-sensitive `{:from-db}`
-                       ;; resource and asserts the emitted `__rf_payload`
-                       ;; redacts it (the projection MUST run INSIDE the
-                       ;; request frame scope). Resources is a test-only dep
-                       ;; here, as in the sibling `implementation/ssr/deps.edn`.
+                       ;; Resource payload tests require the optional hooks
+                       ;; without adding them to the published adapter.
                        day8/re-frame2-resources  {:local/root "../resources"}
-                       ;; rf2-try1x — silent-on-success reporter.
+                       ;; Silent-on-success reporter.
                        day8/re-frame2-test-quiet {:local/root "../test-quiet"}
-                       ;; rf2-to8pm — JVM-side e2e validator coverage spins
-                       ;; up a real Jetty host on an ephemeral port and hits
-                       ;; it with java.net.http (built into the JDK) so the
-                       ;; validator failure-mode tests observe BYTES on the
-                       ;; wire rather than function-call return values.
-                       ;; Test-only — neither dep is in :paths and they do
-                       ;; not appear in the published clein/build artefact.
+                       ;; End-to-end tests observe bytes through a real Jetty
+                       ;; host. These test dependencies are not published.
                        ring/ring-jetty-adapter {:mvn/version "1.12.1"}
                        io.github.cognitect-labs/test-runner
                        {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
-         ;; rf2-bv2qqm — the default PR/local gate EXCLUDES the heavy
-         ;; `^:stress` namespace (here: `concurrency_stress_test`, three
-         ;; multi-thread Jetty + java.net.http burst tests). The runner
-         ;; passes `-e` through to cognitect-test-runner verbatim. Coverage
-         ;; is NOT lost: the `:slow-test` alias below runs the excluded
-         ;; tests, invoked by the nightly `expensive-tests.yml` job and
-         ;; `scripts/test-rigorous-local.sh`.
+         ;; The default gate excludes live-host stress tests; the nightly
+         ;; alias below runs only those excluded tests.
          :main-opts   ["-m" "re-frame.test-quiet.runner" "--dir" "test"
                        "-e" ":slow" "-e" ":stress"]}
 
-  ;; rf2-bv2qqm — nightly/rigorous slow-test gate. INCLUDES ONLY the
-  ;; `^:slow` / `^:stress` tests (the union the default `:test` alias
-  ;; excludes), so the default `:test` run plus this `:slow-test` run
-  ;; together cover every test exactly once. Invoked by the nightly
-  ;; `.github/workflows/expensive-tests.yml` job and the local
-  ;; `scripts/test-rigorous-local.sh` sweep.
+  ;; Nightly/rigorous gate: includes only tests excluded by `:test`.
   :slow-test
   {:extra-paths ["test"]
    :extra-deps  {day8/re-frame2-schemas    {:local/root "../schemas"}
@@ -116,7 +60,7 @@
    :main-opts   ["-m" "re-frame.test-quiet.runner" "--dir" "test"
                  "-i" ":slow" "-i" ":stress"]}
 
-  ;; Clojars deploy (rf2-r382). Modeled on the per-feature artefacts.
+  ;; Clojars deployment.
   ;; The release workflow swaps :local/root → :mvn/version before
   ;; invoking clein.
   :clein {:extra-deps {io.github.noahtheduke/clein

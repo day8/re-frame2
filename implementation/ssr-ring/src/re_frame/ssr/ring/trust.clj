@@ -1,6 +1,5 @@
 (ns re-frame.ssr.ring.trust
-  "Trusted-shell-hook contract — naming + structural validation
-  (rf2-o6ndb, attribute/content split rf2-7x0qk).
+  "Trusted-shell-hook naming and structural validation.
 
   Four shell-envelope opts cross the trust boundary into the rendered
   HTML response. They split by INJECTION POSITION:
@@ -11,9 +10,7 @@
     :head            — verbatim HTML inside `<head>...</head>`
     :body-end        — verbatim HTML before `</body>`
 
-  ATTRIBUTE-VALUE positions — `escape-attr`-escaped at the shell
-  (rf2-7x0qk; a double-quoted attribute value HAS a single correct
-  escape, and escaping `&` + `\"` is lossless):
+  ATTRIBUTE-VALUE positions — `escape-attr`-escaped at the shell:
 
     :script-src      — written into `<script src=\"...\">`, escape-attr'd
     :app-element-id  — written into `<div id=\"...\">`, escape-attr'd
@@ -30,7 +27,7 @@
   rejecting the structural shape mistake (a map / vector / symbol) at
   handler-construction time; the content trust itself is the caller's.
 
-  The attribute-value escaping (rf2-7x0qk) is structural-correctness,
+  Attribute-value escaping provides structural correctness,
   not a sandbox: it stops a stray `\"` in an otherwise-benign id / URL
   from breaking out of the attribute and emitting malformed markup. It
   does NOT make the content opts safe for untrusted input.
@@ -46,10 +43,7 @@
   Why a sibling namespace: both `re-frame.ssr.ring/ssr-handler` and
   `re-frame.ssr.ring.streaming/stream-handler` validate the same four
   opts at construction time — colocating the contract here avoids the
-  circular-require between the streaming sub-namespace and the ring
-  façade. Sibling to `re-frame.ssr.payload-policy` (the equivalent
-  consolidation of the fail-closed hydration-payload policy contract
-  per rf2-gtgf9)."
+  circular require between the streaming sub-namespace and the Ring façade."
   (:require [clojure.string :as str]
             [re-frame.error :as error]))
 
@@ -61,7 +55,7 @@
   injection position: `:head` / `:body-end` are RAW content hooks
   (injected verbatim), while `:script-src` / `:app-element-id` are
   escaped attribute hooks (`escape-attr`'d into a quoted attribute
-  value, rf2-7x0qk). Construction-time validation gates structural
+  value). Construction-time validation gates structural
   shape only; the trust + injection semantics are documented at the
   ns docstring above, the handler docstring, and Spec 011 §Trusted
   shell hook contract."
@@ -80,7 +74,7 @@
   Apps wiring these from untrusted input are responsible for upstream
   escaping; see Spec 011 §Trusted shell hook contract for the
   structured alternative (`reg-head` + `reg-view*` + `:rf.server/*` fx)
-  for untrusted-customization use cases. Per rf2-o6ndb.
+  for untrusted-customization use cases.
 
   Returns `opts` unchanged on success — composes into a `let` /
   threading position cleanly, like `payload-policy/validate-policy-opts!`."
