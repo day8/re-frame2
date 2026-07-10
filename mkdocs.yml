@@ -162,14 +162,13 @@ nav:
     # navigation.indexes section index: the LHS should read "Introduction",
     # not repeat the section label "Core".
     - Introduction: core/introduction.md
-    # Growth-order track: Introduction (the model) -> Our First App (the
-    # whole counter, live) -> flat concept pages that each grow the SAME
+    # Growth-order track: Introduction (the model) -> app-db (one map +
+    # complete counter) -> flat concept pages that each grow the SAME
     # counter by exactly one concept, live cell first, depth after. Read
     # side completes first (app-db -> subs -> views), then the write side
     # deepens (effects -> coeffects), then scheduling, flows, frames,
     # interceptors, errors, then images and observability. Labels are the
     # bare concept name; the nav order carries the learning track.
-    - Our First App: core/first-app.md
     - "app-db": core/app-db.md
     - "Subscriptions": core/subscriptions.md
     - "Views": core/views.md

@@ -155,7 +155,7 @@ clojure -M:shadow watch app   # or: npx shadow-cljs watch app
 ```
 
 You should see the counter — the same shape walked through in
-[Guide — Our First App](../../docs/core/first-app.md).
+[Guide — app-db](../../docs/core/app-db.md).
 
 ## Testing the template
 

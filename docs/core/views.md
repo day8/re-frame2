@@ -20,7 +20,7 @@ Hold onto the window; we'll be looking through it for the rest of the page. The 
 
 ## The counter gets components
 
-[Our first app](first-app.md) rendered the whole counter in one view. Real screens are built from *pieces*, and views compose exactly the way the hiccup they return does — one vector inside another. Here's the counter split into three registered views: a display, a reusable button, and a parent that assembles them:
+The [app-db](app-db.md) counter rendered the whole UI in one view. Real screens are built from *pieces*, and views compose exactly the way the hiccup they return does — one vector inside another. Here's the counter split into three registered views: a display, a reusable button, and a parent that assembles them:
 
 ```cljs-rf2
 (require '[re-frame.core :as rf])

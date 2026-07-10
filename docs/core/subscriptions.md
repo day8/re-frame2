@@ -25,7 +25,7 @@ is this page.
 
 Here's the discipline the whole page hangs off.
 
-[Our first app](first-app.md)'s counter shows a number. Suppose we also want to
+The [app-db](app-db.md) counter shows a number. Suppose we also want to
 show whether that number is odd or even. The tempting move: store a parity flag in
 app-db and keep it updated alongside the value.
 

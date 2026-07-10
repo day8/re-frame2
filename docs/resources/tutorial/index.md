@@ -1,12 +1,12 @@
 # Build RealWorld — what you'll make, and setup
 
-The [quickstart](../../core/first-app.md) taught you the loop in a browser cell, with nothing installed and no server on the other end. That was the idea in a petri dish. Now you'll grow it into a real app on the real toolchain: **Conduit**, a working Medium-style blogging app — feeds, tags, auth, favoriting, posting, tests, and a production build. This page orients you (where the five parts go) and scaffolds the project (the part the quickstart hid). Budget five minutes from `npm install` to pixels.
+The [introduction](../../core/introduction.md) and [app-db](../../core/app-db.md) taught you the loop in a browser cell, with nothing installed and no server on the other end. That was the idea in a petri dish. Now you'll grow it into a real app on the real toolchain: **Conduit**, a working Medium-style blogging app — feeds, tags, auth, favoriting, posting, tests, and a production build. This page orients you (where the five parts go) and scaffolds the project (the part those cells hid). Budget five minutes from `npm install` to pixels.
 
 Conduit follows the [RealWorld spec](https://github.com/gothinkster/realworld), the ecosystem's shared benchmark — which means the same app already exists in React, Vue, Svelte, Solid, and Elm. So every pattern you write here has a direct counterpart in a stack you already know. By the end of Part 5 you'll have built a real app, not a toy: **one app, grown a part at a time.** And you'll grow it the same way you worked the quickstart — *do* a thing, *observe* what the app actually did, *explain* why. (That **do → observe → explain** loop is the spine of this whole tutorial; the *observe* step is where [Xray](../../core/glossary.md#xray), the inspector you'll set up below, earns its keep.)
 
-!!! note "Haven't done the quickstart?"
+!!! note "Haven't done the Core intro yet?"
 
-    [Do that first.](../../core/first-app.md) It teaches the loop — [events](../../core/glossary.md#event) → [app-db](../../core/glossary.md#app-db) → [subs](../../core/glossary.md#subscription) → [views](../../core/glossary.md#view) — right in your browser, with nothing installed. This page assumes you've felt that rhythm at least once.
+    [Start with the introduction](../../core/introduction.md) (and [app-db](../../core/app-db.md)). They teach the loop — [events](../../core/glossary.md#event) → [app-db](../../core/glossary.md#app-db) → [subs](../../core/glossary.md#subscription) → [views](../../core/glossary.md#view) — right in your browser, with nothing installed. This page assumes you've felt that rhythm at least once.
 
 ## One app, five parts
 

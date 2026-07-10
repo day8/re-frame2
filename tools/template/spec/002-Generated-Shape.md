@@ -90,8 +90,8 @@ Every variant emits a working counter:
 The app-db slice and subscription id are intentionally feature-scoped
 (`:counter/value`, not a bare `:count`) so generated applications start
 with AI-readable, non-colliding state keys. This is the same counter
-shape the developer reads about in [the Guide quickstart — a counter
-in five minutes](../../../docs/core/first-app.md) and the canonical
+shape the developer reads about in [the Guide — app-db](../../../docs/core/app-db.md)
+and the canonical
 [`examples/core/counter`](../../../examples/core/counter/)
 example.
 
@@ -305,5 +305,5 @@ GitHub Release is cut.
   migration plan that established the current resource shape.
 - [DESIGN-RATIONALE.md §1](DESIGN-RATIONALE.md#1--deps-new-over-clj-new)
   — why deps-new + git-coord over clj-new + Clojars.
-- [Quickstart — your first app](../../../docs/core/first-app.md)
+- [Guide — app-db](../../../docs/core/app-db.md)
   — the counter walkthrough the generated app aligns with.
