@@ -14,7 +14,7 @@ Both shipped servers emit the same kinds of duplicate-rich payloads:
 - **re-frame2-pair-mcp** — the `:epochs` slice (`:db-before` + a path-keyed `:db-after` diff against it) and the per-tick subscribe `:events` vector.
 - **story-mcp** — `run-variant` results (`:app-db` + `:snapshot` + `:rendered-hiccup`, the same sensitive values reappearing across three derived trees), assertion vectors, recorder replay tuples.
 
-The encode step (`empty-payload?` + `dedup-value`) was byte-identical across both servers. rf2-ttspi7 lifted it here so the two servers cannot drift on a dedup-algorithm change; each consumer's `dedup` ns now delegates.
+The encode step (`empty-payload?` + `dedup-value`) was byte-identical across both servers. rf2-ttspi7 lifted it here so the two servers cannot drift on a dedup-algorithm change. rf2-ywkiss then removed the per-consumer pass-through `dedup` namespaces that had re-exported it: both servers now require `re-frame.mcp-base.dedup` **directly**, and the canonical behaviour is asserted once, cross-host (JVM + CLJS), in `re-frame.mcp-base.dedup-test` rather than duplicated in each consumer's suite.
 
 ## Scope
 
@@ -75,12 +75,12 @@ Values reaching the wire boundary are equality-shared, not identity-shared: re-f
 
 ## The inverse stays consumer-side
 
-`dedup-expand` (the inverse of `dedup-value`) is NOT lifted. It is never called by either MCP server at runtime, so it is test-only, and each consumer keeps it where its own test-corpus topology wants it:
+`dedup-expand` (the inverse of `dedup-value`) is NOT lifted. It is never called by either MCP server at runtime, so it is test-only, and each consumer keeps it in ITS TEST corpus's shared test-helper ns (rf2-ywkiss):
 
-- **re-frame2-pair-mcp** keeps it in `re-frame2-pair-mcp.test-utils` — its CLJS test corpus already has a `test-utils` ns, so "test-only" is signalled by location.
-- **story-mcp** keeps it in its production `tools/dedup.cljc` — its JVM test corpus has no `test-utils` ns, and a sibling ns for one helper is more ceremony than the helper costs. The fn is harmlessly available at runtime and never invoked by the server.
+- **re-frame2-pair-mcp** keeps it in `re-frame2-pair-mcp.test-utils`.
+- **story-mcp** keeps it in `re-frame.story-mcp.test-support`.
 
-Lifting only the forward direction keeps each inverse-placement decision local and intact. This is the deliberate RULE recorded under rf2-ttspi7, not an oversight.
+Lifting only the forward direction — and keeping each inverse test-side — means no production consumer namespace re-exports a base surface. This is the deliberate RULE recorded under rf2-ttspi7 (encode lifted) + rf2-ywkiss (facades removed, inverse moved test-side), not an oversight.
 
 ## Wire shape
 

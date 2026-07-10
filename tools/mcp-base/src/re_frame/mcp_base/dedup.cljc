@@ -56,19 +56,17 @@
   INVERSE (`dedup-expand`) is NOT — neither MCP server calls it at
   runtime (the
   wire contract is that the agent host calls `de-dupe.core/expand`
-  directly), so it is test-only, and each consumer's placement reflects
-  its own test-corpus topology rather than a shared shape:
+  directly), so it is test-only. Each consumer keeps its own inverse
+  in ITS TEST corpus, signalled \"test-only\" by location (rf2-ywkiss):
 
   - re-frame2-pair-mcp keeps it in `re-frame2-pair-mcp.test-utils`
-    (its CLJS test corpus already has a test-utils ns; \"test-only\" is
-    signalled by location).
-  - story-mcp keeps it in its production `dedup.cljc` (its JVM test
-    corpus has no test-utils ns; a sibling ns for one helper is more
-    ceremony than the helper costs — it is harmlessly available at
-    runtime and never invoked by the server).
+    (its CLJS test corpus's shared test-helper ns).
+  - story-mcp keeps it in `re-frame.story-mcp.test-support`
+    (its JVM test corpus's shared test-helper ns).
 
-  Sharing only the forward direction keeps each inverse's placement
-  decision local and intact."
+  Sharing only the forward direction — and keeping each inverse test-
+  side — means no production consumer namespace re-exports a base
+  surface; the dedup encode step is consumed DIRECTLY from here."
   (:require [de-dupe.core :as dd]
             [re-frame.mcp-base.vocab :as vocab]))
 

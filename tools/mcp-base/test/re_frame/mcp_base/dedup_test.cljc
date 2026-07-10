@@ -1,11 +1,24 @@
 (ns re-frame.mcp-base.dedup-test
-  "Tests for the shared wire-boundary dedup encode step.
+  "Canonical cross-host tests for the shared wire-boundary dedup encode
+  step. This is the ONE suite that pins dedup behaviour — both MCP
+  servers now require `re-frame.mcp-base.dedup` DIRECTLY (no pass-through
+  facade), so the behaviour is asserted here once rather than duplicated
+  in each consumer's suite.
 
-  Pins the byte-identical forward direction both MCP servers
-  delegate to: the `empty-payload?` short-circuit, the cross-MCP wrap
-  shape, the opt-out, and round-trip exactness via `de-dupe.core/expand`
-  (the inverse the agent host calls — NOT a base surface)."
-  (:require [clojure.test :refer [deftest is testing]]
+  `.cljc` so it runs on BOTH hosts: the JVM `:test` alias
+  (cognitect-labs test-runner) exercises the story-mcp runtime, and the
+  shadow-cljs `cljs-test` build exercises the re-frame2-pair-mcp (Node)
+  runtime — `de-dupe` and `dedup.cljc` are both `.cljc`, so the encode
+  step and its idempotence guards are proven on the exact runtimes the
+  consumers ship on.
+
+  Pins the byte-identical forward direction: the `empty-payload?`
+  short-circuit, the `no-substitutions?` cache-shape guard, the cross-MCP
+  wrap shape, the opt-out, and round-trip exactness via
+  `de-dupe.core/expand` (the inverse the agent host calls — NOT a base
+  surface)."
+  (:require #?(:clj  [clojure.test :refer [deftest is testing]]
+               :cljs [cljs.test :refer-macros [deftest is testing]])
             [de-dupe.core :as dd]
             [re-frame.mcp-base.dedup :as dedup]
             [re-frame.mcp-base.vocab :as vocab]))
