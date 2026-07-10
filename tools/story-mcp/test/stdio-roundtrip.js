@@ -198,18 +198,34 @@ function run() {
       }
       console.log('OK   tools/call list-tags -> seven inclusion tags present in canonical set:', canonical.join(', '));
 
-      // 3b. tools/call list-substrates — JVM-standalone deploy returns an
-      // empty substrate set; the contract is the result-shape (a vector,
-      // possibly empty).
+      // 3b. tools/call list-substrates — the substrate registry is CLJS-only
+      // and UNREACHABLE from this JVM stdio host (no browser bridge), so the
+      // truthful result is a machine-readable capability-unavailable ERROR,
+      // NOT a false-empty `{:substrates []}` success (rf2-3fc89f.21). Pin
+      // the isError verdict + the stable error id so a regression to the old
+      // false-empty behaviour turns this round-trip RED.
       const subsResp = await call('tools/call', { name: 'list-substrates', arguments: {} });
-      if (subsResp.result?.isError) {
-        throw new Error('list-substrates returned isError: ' + JSON.stringify(subsResp));
+      if (!subsResp.result?.isError) {
+        throw new Error(
+          'list-substrates on a JVM host MUST return isError (the substrate ' +
+            'registry is unreachable — not a false-empty success); got: ' +
+            JSON.stringify(subsResp),
+        );
       }
-      const subsArr = subsResp.result?.structuredContent?.substrates;
-      if (!Array.isArray(subsArr)) {
-        throw new Error('list-substrates :substrates not an array: ' + JSON.stringify(subsResp));
+      const subsErr = subsResp.result?.structuredContent?.['rf.error'];
+      if (subsErr !== 'rf.error/story-mcp-capability-unavailable') {
+        throw new Error(
+          'list-substrates error MUST carry the stable capability-unavailable ' +
+            'id; got: ' + JSON.stringify(subsResp),
+        );
       }
-      console.log('OK   tools/call list-substrates -> vector (count=' + subsArr.length + ')');
+      if ('substrates' in (subsResp.result?.structuredContent || {})) {
+        throw new Error(
+          'list-substrates capability error MUST NOT carry a false-empty ' +
+            ':substrates slot; got: ' + JSON.stringify(subsResp),
+        );
+      }
+      console.log('OK   tools/call list-substrates -> capability-unavailable error (no false-empty)');
 
       // 3c. tools/call get-story-instructions — returns the agent-onboarding
       // text. Smoke-check key authoring vocab is present AND that the

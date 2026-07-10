@@ -594,10 +594,37 @@
     (is (error? r))
     (is (re-find #"variant-id" (-> r :content first :text)))))
 
-(deftest list-substrates-returns-vector
-  (let [r (invoke "list-substrates" {})]
-    (is (success? r))
-    (is (vector? (-> r :structuredContent :substrates)))))
+;; rf2-3fc89f.21 — on the JVM stdio host the substrate registry is
+;; UNREACHABLE (no browser bridge), so `list-substrates` must return a
+;; machine-readable capability-unavailable error, NOT a false-empty
+;; `{:substrates []}` success an agent could mistake for 'no substrates
+;; registered'. The reached-provider paths (supported-empty /
+;; supported-populated) are exercised by binding the provider seam below.
+(deftest list-substrates-unavailable-on-jvm-host-is-error
+  (testing "provider ABSENT (JVM stdio default) ⇒ capability-unavailable error, not empty success"
+    (let [r (invoke "list-substrates" {})
+          s (:structuredContent r)]
+      (is (error? r) "an unreachable substrate registry is an error, not empty success")
+      (is (= :rf.error/story-mcp-capability-unavailable (:rf.error s))
+          "the structured error carries the stable capability-unavailable id")
+      (is (= "substrate-registry" (:capability s)))
+      (is (= "list-substrates" (:tool s)))
+      (is (not (contains? s :substrates))
+          "no false-empty :substrates slot — the host never looked"))))
+
+(deftest list-substrates-reached-provider-distinguishes-empty-from-absent
+  (testing "provider REACHED but empty ⇒ ordinary success with :substrates []"
+    (binding [cljs-resolve/*substrate-provider* (fn [] [])]
+      (let [r (invoke "list-substrates" {})
+            s (:structuredContent r)]
+        (is (success? r) "a reached-empty registry is a SUCCESS, distinct from unavailable")
+        (is (= [] (:substrates s))))))
+  (testing "provider REACHED and populated ⇒ ordinary success with the sorted ids"
+    (binding [cljs-resolve/*substrate-provider* (fn [] [:uix :reagent])]
+      (let [r (invoke "list-substrates" {})
+            s (:structuredContent r)]
+        (is (success? r))
+        (is (= [:reagent :uix] (:substrates s)) "the reached registry's ids, sorted")))))
 
 ;; Pin the CLJS-var resolver contract. `clojure.core/resolve` honours
 ;; the calling ns's aliases, and the substrate var is nil on the JVM purely
@@ -612,15 +639,24 @@
     (is (nil? (cljs-resolve/resolve-cljs-var 're-frame.story/no-such-var-xyz)))
     (is (nil? (cljs-resolve/resolve-cljs-var 'no.such.ns/whatever)))))
 
-(deftest registered-substrates-degrades-empty-on-jvm-host
-  ;; The CLJS-only `re-frame.story/registered-substrates` has no JVM Var, so
-  ;; a JVM host reads the documented empty surface (NOT an error). This is
-  ;; the correct degradation, not the "always degrades" bug the finding
-  ;; suspected — the `:cljs` accessor branch reads the live registry when
-  ;; these namespaces are hosted in a CLJS runtime.
-  (testing "the accessor + its set form both read empty on a JVM host"
+(deftest substrate-provider-availability-is-not-emptiness
+  ;; rf2-3fc89f.21 — availability is represented SEPARATELY from the
+  ;; returned collection. On a JVM host the CLJS-only registry has no Var,
+  ;; so the provider seam is nil (UNAVAILABLE); a bound provider (browser
+  ;; bridge / test) flips availability true and its `[]`/`#{}` then means
+  ;; 'reached and empty'.
+  (testing "no provider ⇒ unavailable (the accessors still fall back to empty for callers that gate)"
+    (is (false? (cljs-resolve/substrate-provider-available?)))
     (is (= [] (cljs-resolve/registered-substrates)))
-    (is (= #{} (cljs-resolve/registered-substrates-set)))))
+    (is (= #{} (cljs-resolve/registered-substrates-set))))
+  (testing "a bound provider ⇒ available; its reached-empty answer is DISTINCT from absence"
+    (binding [cljs-resolve/*substrate-provider* (fn [] [])]
+      (is (true? (cljs-resolve/substrate-provider-available?)))
+      (is (= [] (cljs-resolve/registered-substrates))))
+    (binding [cljs-resolve/*substrate-provider* (fn [] [:reagent])]
+      (is (true? (cljs-resolve/substrate-provider-available?)))
+      (is (= [:reagent] (cljs-resolve/registered-substrates)))
+      (is (= #{:reagent} (cljs-resolve/registered-substrates-set))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Docs tools
@@ -1206,45 +1242,45 @@
                 (-> over<- :structuredContent :content-hash))
           "the same variant with a different cell-override must hash differently"))))
 
-(deftest read-a11y-violations-jvm-returns-note
-  (testing "JVM-standalone deploy returns empty violations with the documented hint"
+(deftest read-a11y-violations-unavailable-on-jvm-host-is-error
+  ;; rf2-3fc89f.21 — the a11y-panel-state provider is UNREACHABLE on the
+  ;; JVM stdio host (no bridge to the CLJS `violations-by-frame` atom), so
+  ;; the read returns a machine-readable capability-unavailable error, NOT
+  ;; a false-empty `{:violations []}` an agent could read as 'zero
+  ;; accessibility violations'.
+  (testing "provider ABSENT (JVM stdio default) ⇒ capability-unavailable error, not empty success"
     (let [r (invoke "read-a11y-violations" {:variant-id "story.button/primary"})
           s (:structuredContent r)]
-      (is (success? r))
-      (is (vector? (:violations s)))
-      (is (string? (:note s)))
-      (is (re-find #"CLJS-only" (:note s))))))
+      (is (error? r) "an unreachable a11y panel is an error, not empty success")
+      (is (= :rf.error/story-mcp-capability-unavailable (:rf.error s))
+          "the structured error carries the stable capability-unavailable id")
+      (is (= "a11y-panel-state" (:capability s)))
+      (is (= "read-a11y-violations" (:tool s)))
+      (is (not (contains? s :violations))
+          "no false-empty :violations slot — the host never ran axe-core"))))
 
-(deftest read-a11y-violations-co-hosted-surfaces-stored-violations
-  ;; The co-hosted (CLJS var resolved) branch of
-  ;; `tool-read-a11y-violations`. This covers the populated path — the
-  ;; resolved violations atom carries findings for the frame (the
-  ;; JVM-standalone path, var unresolved ⇒ empty + :note, is covered
-  ;; above). We stand in for the resolved CLJS var with a var-of-atom
-  ;; mirror: the handler does `(deref @violations-by-frame-var)`, so the
-  ;; redef must hold a value whose deref is the per-frame violations atom.
-  (testing "violations stored for the frame are surfaced; :note is nil"
-    (let [vios   [{:id "label" :impact "critical" :nodes [{:html "<input>"}]}]
-          ;; `@var` → inner atom; `(deref inner)` → the by-frame map.
-          stand-in (atom (atom {:story.button/primary vios}))]
-      (with-redefs [re-frame.story-mcp.tools.testing/violations-by-frame-var stand-in]
+(deftest read-a11y-violations-reached-provider-distinguishes-empty-from-absent
+  ;; The reached-provider (co-hosted) branch of `tool-read-a11y-violations`.
+  ;; A bound `*a11y-provider*` returns the by-frame violations map directly;
+  ;; its findings ride through, and a frame with NO entry is an ORDINARY
+  ;; empty success — the reached-and-empty answer that the JVM
+  ;; capability-unavailable error is now distinguishable from.
+  (testing "provider REACHED with stored violations ⇒ success, findings surfaced"
+    (let [vios [{:id "label" :impact "critical" :nodes [{:html "<input>"}]}]]
+      (binding [cljs-resolve/*a11y-provider* (fn [] {:story.button/primary vios})]
         (let [r (invoke "read-a11y-violations" {:variant-id "story.button/primary"})
               s (:structuredContent r)]
           (is (success? r))
           (is (= vios (:violations s))
-              "the stored violations for the frame ride through verbatim")
-          (is (nil? (:note s))
-              "co-hosted deploy with a resolved atom emits no JVM-standalone hint")))))
-  (testing "a frame with no stored violations returns an empty vec (still co-hosted, :note nil)"
-    (let [stand-in (atom (atom {:story.other/frame [{:id "x"}]}))]
-      (with-redefs [re-frame.story-mcp.tools.testing/violations-by-frame-var stand-in]
-        (let [r (invoke "read-a11y-violations" {:variant-id "story.button/primary"})
-              s (:structuredContent r)]
-          (is (success? r))
-          (is (= [] (:violations s))
-              "no entry for this frame ⇒ empty vec, not nil")
-          (is (nil? (:note s))
-              "the atom resolved, so this is NOT the JVM-standalone path"))))))
+              "the stored violations for the frame ride through verbatim")))))
+  (testing "provider REACHED but no entry for this frame ⇒ ordinary empty success (NOT unavailable)"
+    (binding [cljs-resolve/*a11y-provider* (fn [] {:story.other/frame [{:id "x"}]})]
+      (let [r (invoke "read-a11y-violations" {:variant-id "story.button/primary"})
+            s (:structuredContent r)]
+        (is (success? r)
+            "a reached provider with no findings for this frame is a SUCCESS, distinct from unavailable")
+        (is (= [] (:violations s))
+            "no entry for this frame ⇒ reached-and-empty vec, not an error")))))
 
 (deftest read-failures-empty-after-no-run
   (testing "no run yet ⇒ zero accumulated assertions, vacuously :pass"
@@ -3835,11 +3871,13 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- a11y-stand-in
-  "A var-of-atom mirror for `violations-by-frame-var`: the handler does
-  `(deref @violations-by-frame-var)`, so `@stand-in` is the inner atom and
-  `(deref inner)` is the by-frame violations map."
+  "A reached-provider seam for `cljs-resolve/*a11y-provider*`: a zero-arg
+  fn returning the by-frame violations map directly (rf2-3fc89f.21 — the
+  provider seam replaced the JVM-resolved var-of-atom). Binding this makes
+  the a11y capability AVAILABLE, so the handler takes the reached-provider
+  success path."
   [by-frame]
-  (atom (atom by-frame)))
+  (fn [] by-frame))
 
 (deftest read-a11y-violations-re-keyed-html-ships-raw-fail-open
   (testing "EP-0025 fail-open: a declared-sensitive value rendered into an axe-core node :html is RE-KEYED off its app-db path, so it ships RAW — value-match removed (rf2-q8ebq.2 superseded)"
@@ -3855,9 +3893,8 @@
                        :help  "Form elements must have labels"
                        :nodes [{:html           "DISTINCTIVE-A11Y-SECRET"
                                 :target         ["#api-key-input"]
-                                :failureSummary "Fix any of the following: element has no label"}]}]
-            stand-in (a11y-stand-in {:story.button/primary vios})]
-        (with-redefs [re-frame.story-mcp.tools.testing/violations-by-frame-var stand-in]
+                                :failureSummary "Fix any of the following: element has no label"}]}]]
+        (binding [cljs-resolve/*a11y-provider* (a11y-stand-in {:story.button/primary vios})]
           (let [r (invoke "read-a11y-violations" {:variant-id "story.button/primary"})
                 s (:structuredContent r)]
             (is (success? r))
@@ -3866,9 +3903,7 @@
             (is (= "label" (get-in s [:violations 0 :id]))
                 "the public axe-core finding STRUCTURE (id/impact/help/target) survives")
             (is (= ["#api-key-input"] (get-in s [:violations 0 :nodes 0 :target]))
-                "non-sensitive node fields (CSS target selectors) pass through")
-            (is (nil? (:note s))
-                "the atom resolved, so this is the co-hosted path, not JVM-standalone")))))))
+                "non-sensitive node fields (CSS target selectors) pass through")))))))
 
 (deftest read-a11y-violations-includes-sensitive-violation-html-when-opted-in
   (testing ":include-sensitive true forwards the raw axe-core node :html (gate open, rf2-q8ebq.2)"
@@ -3876,9 +3911,8 @@
     (with-clean-frame [vid :story.button/primary]
       (seed-app-db! vid {:auth {:token "DISTINCTIVE-A11Y-SECRET"}})
       (declare-sensitive! vid [:auth :token])
-      (let [vios     [{:id "label" :nodes [{:html "DISTINCTIVE-A11Y-SECRET"}]}]
-            stand-in (a11y-stand-in {:story.button/primary vios})]
-        (with-redefs [re-frame.story-mcp.tools.testing/violations-by-frame-var stand-in]
+      (let [vios [{:id "label" :nodes [{:html "DISTINCTIVE-A11Y-SECRET"}]}]]
+        (binding [cljs-resolve/*a11y-provider* (a11y-stand-in {:story.button/primary vios})]
           (let [r (invoke "read-a11y-violations" {:variant-id        "story.button/primary"
                                       :include-sensitive true})
                 s (:structuredContent r)]
@@ -3892,9 +3926,8 @@
     (with-clean-frame [vid :story.button/primary]
       (seed-app-db! vid {:auth {:token "DISTINCTIVE-A11Y-SECRET"}})
       (declare-sensitive! vid [:auth :token])
-      (let [vios     [{:id "label" :nodes [{:html "DISTINCTIVE-A11Y-SECRET"}]}]
-            stand-in (a11y-stand-in {:story.button/primary vios})]
-        (with-redefs [re-frame.story-mcp.tools.testing/violations-by-frame-var stand-in]
+      (let [vios [{:id "label" :nodes [{:html "DISTINCTIVE-A11Y-SECRET"}]}]]
+        (binding [cljs-resolve/*a11y-provider* (a11y-stand-in {:story.button/primary vios})]
           (let [r (invoke "read-a11y-violations" {:variant-id        "story.button/primary"
                                       :include-sensitive true})
                 s (:structuredContent r)]
@@ -4798,17 +4831,48 @@
       (is (success? valid) "a recognised :kind filters rather than rejecting")
       (is (vector? (-> valid :structuredContent :decorators))))))
 
-(deftest run-variant-unknown-substrate-does-not-intern
-  (testing "run-variant :substrate with an unknown value is dropped WITHOUT interning"
-    ;; A registered variant; the unknown :substrate is dropped from the
-    ;; opts map (run-variant tolerates an absent slot), so the call still
-    ;; succeeds but the substrate name never enters the keyword table.
+(deftest run-variant-explicit-substrate-unavailable-is-error-no-intern
+  ;; rf2-3fc89f.21 — an explicit :substrate is NO LONGER silently dropped
+  ;; to nil. On the JVM stdio host the substrate registry is unreachable,
+  ;; so an explicit :substrate MUST reject with the capability-unavailable
+  ;; error (the requested render substrate cannot be honoured here — a run
+  ;; under a dropped substrate would be invalid substrate-specific
+  ;; evidence). No-intern still holds: the capability path never keywordises
+  ;; the caller-supplied substrate string.
+  (testing "provider ABSENT + explicit :substrate ⇒ capability-unavailable error, no intern"
     (let [name-str (str "rf2-lqjbk-sub-" (System/nanoTime))
           r        (invoke "run-variant" {:variant-id "story.button/primary"
-                                          :substrate  name-str})]
-      (is (success? r))
+                                          :substrate  name-str})
+          s        (:structuredContent r)]
+      (is (error? r) "an explicit substrate with no reachable registry is rejected, not dropped")
+      (is (= :rf.error/story-mcp-capability-unavailable (:rf.error s))
+          "the requested render substrate cannot be honoured on a host with no registry")
       (is (nil? (find-kw nil name-str))
-          "rf2-lqjbk: unknown substrate id MUST NOT intern"))))
+          "rf2-lqjbk: rejecting the substrate MUST NOT intern its id")))
+  (testing "provider ABSENT + NO :substrate ⇒ the default-substrate path still runs (not gated)"
+    (let [r (invoke "run-variant" {:variant-id "story.button/primary"})]
+      (is (success? r)
+          "an absent :substrate is a legitimate default, independent of registry reachability"))))
+
+(deftest run-variant-explicit-substrate-reached-provider-validates
+  ;; rf2-3fc89f.21 — with a REACHED substrate registry, a known id is
+  ;; honoured and an unknown id rejects explicitly (still no intern for the
+  ;; unknown one).
+  (testing "provider REACHED + KNOWN :substrate ⇒ honoured (run succeeds)"
+    (binding [cljs-resolve/*substrate-provider* (fn [] [:reagent :uix])]
+      (let [r (invoke "run-variant" {:variant-id "story.button/primary"
+                                     :substrate  ":reagent"})]
+        (is (success? r) "a registered substrate is honoured, not rejected"))))
+  (testing "provider REACHED + UNKNOWN :substrate ⇒ unknown-substrate error, no intern"
+    (binding [cljs-resolve/*substrate-provider* (fn [] [:reagent :uix])]
+      (let [name-str (str "rf2-3fc89f-unknown-sub-" (System/nanoTime))
+            r        (invoke "run-variant" {:variant-id "story.button/primary"
+                                            :substrate  name-str})
+            s        (:structuredContent r)]
+        (is (error? r) "an unknown substrate against a reached registry rejects, not drops")
+        (is (= :rf.error/story-mcp-unknown-substrate (:rf.error s)))
+        (is (nil? (find-kw nil name-str))
+            "the unknown substrate id MUST NOT intern")))))
 
 (deftest run-loop-survives-oversize-frame
   (testing "an oversize frame produces a parse-error response and the loop continues"
@@ -5119,8 +5183,13 @@
           arg-map (-> (proto/normalize-frame parsed) :params :arguments)]
       (is (nil? (get (meta arg-map) proto/unknown-arg-keys-meta))
           "no dropped keys ⇒ no unknown-arg metadata")
-      (let [r (wire-pipeline/invoke-tool "run-variant" arg-map)]
-        (is (success? r) "an all-recognised call dispatches the handler normally")))))
+      ;; The explicit `:substrate "reagent"` now requires a REACHED registry
+      ;; (rf2-3fc89f.21); bind a provider so this wire-plumbing test exercises
+      ;; the normal dispatch path rather than the capability-unavailable
+      ;; reject (which the substrate-validation tests cover directly).
+      (binding [cljs-resolve/*substrate-provider* (fn [] [:reagent])]
+        (let [r (wire-pipeline/invoke-tool "run-variant" arg-map)]
+          (is (success? r) "an all-recognised call dispatches the handler normally"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; rf2-an95jj — per-tool argument-schema enforcement AFTER the global

@@ -72,10 +72,15 @@ stdio transport connects the agent host to Story-MCP; it does not connect
 Story-MCP to a browser. There is no implicit nREPL or Tool-Pair hop.
 
 This boundary makes host capability explicit: JVM/CLJC Story operations
-use registrations and frames in the server process, while CLJS-only
-registries and browser-panel state return empty results. A future remote
-bridge would be a new transport contract, not an implementation detail of
-the current server.
+use registrations and frames in the server process, while browser-only
+surfaces (the CLJS substrate registry, the a11y-panel violations atom)
+are UNREACHABLE and return a machine-readable capability-unavailable error
+(`:rf.error/story-mcp-capability-unavailable`) rather than a false-empty
+success. Capability absence is represented separately from an empty
+answer — an agent must never read 'the host cannot look' as 'the answer
+is empty' (rf2-3fc89f.21). A future remote bridge would supply the
+provider seam these reads gate on — a new transport contract, not an
+implementation detail of the current server.
 
 ## Stage-marker independence
 
