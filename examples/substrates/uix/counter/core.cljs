@@ -96,17 +96,23 @@
 ;; `docs/core/glossary.md#frame-identity-is-carried-not-found`.
 (def app-frame :rf/default)
 
+;; DOM setup lives in `mount!`, tagged `^:dev/after-load` so shadow-cljs re-runs
+;; it after each hot reload — edited views re-render into the same root and frame.
+(defn ^:dev/after-load mount! []
+  (when-let [el (and (exists? js/document)
+                     (js/document.getElementById "app"))]
+    (when-not @react-root
+      (reset! react-root (uix-dom/create-root el)))
+    (uix-dom/render-root
+      ($ uix-adapter/frame-provider {:id app-frame
+                                     :initial-events [[:counter/initialise]]}
+         ($ counter-app))
+      @react-root)))
+
 (defn run []
   ;; `init!` tells the runtime which reactive substrate to render through —
   ;; once, for the whole process. Every adapter ns exports an `adapter` var;
   ;; require the ns and hand that var over. Call it once at startup and
   ;; forget about it. See `docs/core/glossary.md#init`.
   (rf/init! uix-adapter/adapter)
-  (when (exists? js/document)
-    (when-not @react-root
-      (reset! react-root (uix-dom/create-root (js/document.getElementById "app"))))
-    (uix-dom/render-root
-      ($ uix-adapter/frame-provider {:id app-frame
-                                     :initial-events [[:counter/initialise]]}
-         ($ counter-app))
-      @react-root)))
+  (mount!))

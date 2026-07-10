@@ -98,14 +98,13 @@
 ;; `docs/core/glossary.md#frame-identity-is-carried-not-found`.
 (def app-frame :rf/default)
 
-(defn run []
-  ;; `init!` installs the reactive adapter for the process. Each adapter ns
-  ;; exports an `adapter` var; require the ns and pass that var. Call once at
-  ;; startup. See `docs/core/glossary.md#init`.
-  (rf/init! helix-adapter/adapter)
-  (when (exists? js/document)
+;; DOM setup lives in `mount!`, tagged `^:dev/after-load` so shadow-cljs re-runs
+;; it after each hot reload — edited views re-render into the same root and frame.
+(defn ^:dev/after-load mount! []
+  (when-let [el (and (exists? js/document)
+                     (js/document.getElementById "app"))]
     (when-not @react-root
-      (reset! react-root (react-dom-client/createRoot (js/document.getElementById "app"))))
+      (reset! react-root (react-dom-client/createRoot el)))
     ;; The whole frame lifecycle lives in one spot: this provider. The first
     ;; mount creates the app frame and runs its `:initial-events` once to seed
     ;; app-db. A later mount under the same `:id` — a hot reload — reuses the
@@ -115,3 +114,10 @@
              ($ helix-adapter/frame-provider {:id app-frame
                                               :initial-events [[:counter/initialise]]}
                 ($ counter-app)))))
+
+(defn run []
+  ;; `init!` installs the reactive adapter for the process. Each adapter ns
+  ;; exports an `adapter` var; require the ns and pass that var. Call once at
+  ;; startup. See `docs/core/glossary.md#init`.
+  (rf/init! helix-adapter/adapter)
+  (mount!))
