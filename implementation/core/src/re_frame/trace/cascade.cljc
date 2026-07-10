@@ -1,5 +1,5 @@
 (ns re-frame.trace.cascade
-  "Per-epoch cascade-DAG aggregator (rf2-931pm).
+  "Per-epoch cascade-DAG aggregator.
 
   The raw trace stream emits `:sub/run` (recomputed), `:rf.sub/skip`
   (input value-equal → no recompute), `:rf.flow/computed`,
@@ -18,8 +18,8 @@
   returns truthy. Off-focus epochs pay nothing beyond one predicate
   call.
 
-  The capture is **bounded** at 50 subs and 100 views per epoch (per
-  panel design rf2-931pm and Xray's Reactive panel rendering budget).
+  The capture is **bounded** at 50 subs and 100 views per epoch to match
+  Xray's Reactive panel rendering budget.
   Cascades exceeding either cap retain the first N entries and stamp
   `:truncated? true` so the panel can render a 'rest elided' affordance.
 
@@ -29,7 +29,7 @@
       :op-type   :rf.cascade
       :tags
         {:frame                 <frame-id>          ;; bare carve-out routing tag
-         :rf.epoch/id           <epoch-id>          ;; canonical epoch-identity tag (rf2-ifdsar)
+         :rf.epoch/id           <epoch-id>          ;; canonical epoch-identity tag
          :rf.trace/event-id     <event-id>          ;; canonical trace event-id tag
          :subs-recomputed       [{:sub-id :query-v} ...]
          :subs-skipped          [{:sub-id :query-v
@@ -40,10 +40,9 @@
          :sub-cap-truncated?    <bool>
          :view-cap-truncated?   <bool>}
 
-  Per pre-alpha posture (rf2-931pm): no transitional shims; the
-  aggregator publishes through a single late-bind seam and the
-  bundle-isolation gate verifies the namespace stays out of production
-  CLJS bundles via the existing `interop/debug-enabled?` gate."
+  The aggregator publishes through one late-bind seam. The bundle-isolation
+  gate verifies that this namespace and its capture literals stay out of
+  production CLJS bundles through the `interop/debug-enabled?` gate."
   (:require [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.trace :as trace
@@ -78,7 +77,7 @@
   (reset! focus-predicate (fn [_frame-id _epoch-id _event-id] false))
   nil)
 
-;; ---- bounds (per rf2-931pm panel design) --------------------------------
+;; ---- bounds --------------------------------------------------------------
 
 (def ^:const sub-cap
   "Maximum number of subs (recomputed + skipped together) captured per

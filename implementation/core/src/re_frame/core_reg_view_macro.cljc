@@ -289,8 +289,3 @@
               (pr-str bindings) ".")
          {:recovery :fix-registration
           :extra    {:got bindings}}))))
-
-;; `expand-frame-bound-fn` (the `frame-bound-fn` macro's expansion helper) is
-;; REMOVED — API-shrink #1, rf2-csbbwu deleted `frame-bound-fn` from the
-;; facade. Its dynamic-rebinding semantics survive internally as
-;; `re-frame.frame/bind-fn`.

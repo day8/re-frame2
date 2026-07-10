@@ -498,16 +498,10 @@
           (is (has-op? events :error :rf.route.nav-token/stale-suppressed)
               "expected :error :rf.route.nav-token/stale-suppressed"))
 
-        ;; ---- Spec 009 ops never emitted by the implementation --------------
-        ;; These op-types appear in Spec 009 §:op-type vocabulary but the
-        ;; implementation never emits them. Filed as rf2-hyxg. The
-        ;; assertions below intentionally fail loudly so closing rf2-hyxg
-        ;; (either by tightening the spec or by adding the emit) re-greens
-        ;; the regression dashboard.
-        ;;
-        ;; Each is wrapped with `is-strict?` set to false so this test
-        ;; documents the gap without blocking other assertions; flip
-        ;; `is-strict?` to true once rf2-hyxg lands to enforce.
+        ;; ---- Spec 009 required operation pairs ------------------------------
+        ;; Keep these assertions together so the vocabulary cannot drift from
+        ;; the emitters one operation at a time. `is-strict?` is a local
+        ;; diagnostic switch; committed tests keep it true.
         (let [is-strict? true
               gap-check  (fn [op-type operation]
                            (if is-strict?
@@ -517,8 +511,8 @@
                              ;; non-strict: report status but pass.
                              (when-not (has-op? events op-type operation)
                                (println "  [trace-test] note:" op-type operation
-                                        "not emitted (rf2-hyxg)"))))]
-          (testing "Spec 009 documented ops not yet emitted (rf2-hyxg)"
+                                        "not emitted"))))]
+          (testing "Spec 009 documented operations are emitted"
             (gap-check :rf.sub                        :rf.sub/run)
             (gap-check :rf.sub                        :rf.sub/create)
             (gap-check :rf.machine.lifecycle/created  :rf.machine.lifecycle/created)

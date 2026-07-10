@@ -2,46 +2,22 @@
   "Standard interceptors. Per Spec 002 / API.md §Standard interceptors and
   Spec 001 §Hot-reload semantics M-21.
 
-  Ships ONE framework-standard interceptor plus the ->interceptor primitive:
+  Ships one framework-standard interceptor plus the ->interceptor primitive:
     :rf.interceptor/path — focus a handler on an app-db sub-slice, referenced
                            as `[:rf.interceptor/path <path-vector>]` (this ns)
 
-  (The legacy `unwrap-interceptor` VALUE is REMOVED — EP-0022 / rf2-3qeu38 —
-  the framework ships no standard unwrap; the canonical spelling is
-  handler-payload destructuring, or a project-registered `:app/unwrap`. A
-  stale `rf/unwrap-interceptor` reference hits the `^:no-doc` throwing stub
-  `unwrap-removed!` below, which names those replacements.)
-
-  (Coeffects are no longer wired by a `inject-cofx` interceptor — they
-  are declared via `:rf.cofx/requires` on the handler and delivered flat;
-  EP-0017, no interceptor surface.)
-
-  The principle: keep helpers that do specific, non-trivial work; drop
-  those that are just (->interceptor :before f) or (->interceptor :after f)
-  with no other logic. Custom before/after work uses ->interceptor directly.
-
-  EP-0022 (Slice C, rf2-0adhqs.3): this ns registers the framework-standard
-  `:rf.interceptor/path` interceptor as a `:factory`, referenced as
-  `[:rf.interceptor/path <path-vector>]`. Its `:factory` builds the FULL
-  standard-path interceptor (`standard-path-interceptor`) implementing the
-  normative rules 1-5 of [Spec 002 §Standard
-  `:rf.interceptor/path`](../../../spec/002-Frames.md), notably **rule 4**:
-  when the handler emits a `:db` effect whose focused value is `identical?`
+  The registered `:factory` builds `standard-path-interceptor`, implementing
+  the rules in [Spec 002 §Standard
+  `:rf.interceptor/path`](../../../spec/002-Frames.md). In particular, when
+  the handler emits a `:db` effect whose focused value is `identical?`
   to the original focused slice, the interceptor widens back to the
-  ORIGINAL full app-db OBJECT (not an `assoc-in` allocation), preserving
-  the frame-commit `identical?` no-op (rf2-ekq28v). A non-vector / malformed
+  original full app-db object rather than allocating with `assoc-in`. This
+  preserves the frame commit's identity-based no-op. A non-vector or malformed
   path argument is `:rf.error/path-interceptor-bad-path`.
 
-  EP-0022 removed the public `rf/path` VALUE constructor (EP-0022:552/932):
-  there is no public path value-builder, only the `[:rf.interceptor/path
-  <path-vector>]` ref. The legacy `path` fn that the removed facade var aliased
-  is gone (rf2-dgtdna); a stale `(rf/path …)` call hits the `^:no-doc` throwing
-  stub `path-removed!` below, which names the ref form as the replacement. The
-  legacy value also had WEAKER semantics — its `:after` always re-spliced via
-  `assoc-in` when a `:db` effect was present, allocating a fresh top-level map
-  even for an UNCHANGED slice and defeating the rule-4 commit no-op
-  (rf2-ekq28v). The surviving `standard-path-interceptor` (the factory's
-  consumer) is the one path surface and is the carrier of that no-op."
+  `rf/path` and `rf/unwrap-interceptor` survive only as `^:no-doc` throwing
+  stubs that provide migration guidance. Coeffects are declared with
+  `:rf.cofx/requires`, not represented as interceptors."
   (:require [re-frame.interceptor :as interceptor]
             [re-frame.interceptor-registry :as icpt-reg]
             [re-frame.image-assembly :as image-assembly]
@@ -49,47 +25,15 @@
 
 #?(:clj (set! *warn-on-reflection* true))
 
-;; ---- path: the removed value constructor (EP-0022, rf2-dgtdna) -------------
-;;
-;; EP-0022 (accepted) removed the public `rf/path` VALUE constructor: there is
-;; NO public path value-builder, only the framework-registered factory ref
-;; `[:rf.interceptor/path <path-vector>]` (EP-0022:552 "There is no public
-;; rf/path value constructor."; :932 lists the removal). The implementation had
-;; DRIFTED — it kept exporting `rf/path` aliased to a legacy `path` fn here —
-;; and that fn was a footgun: its `:after` always re-spliced via `assoc-in`
-;; when a `:db` effect was present, allocating a fresh top-level map even for an
-;; UNCHANGED slice, defeating the rf2-ekq28v frame-commit `identical?` no-op
-;; the canonical `standard-path-interceptor` (below) preserves. rf2-dgtdna
-;; removes the legacy fn and replaces the facade var with a `^:no-doc` throwing
-;; stub (the project's actionable-removed-API pattern, like
-;; `:rf.error/inject-cofx-removed` / `reg-event-db-removed`).
-;;
-;; The stub throws the canonical `re-frame.error/throw-error!` hard error
-;; naming the replacement ref, so a stale `(rf/path …)` call fails LOUDLY and
-;; actionably rather than as an opaque "no such var" or a working footgun. It
-;; does NOT fan out onto the always-on error-emit channel: unlike the
-;; reg-event / inject-cofx removed stubs (whose Spec 009 §Error event catalogue
-;; rows + always-on conformance pins were authored alongside them), this is an
-;; implementation-only drift fix (API.md + EP-0022 already correct) and rides
-;; no catalogued category — just the actionable throw.
-
-;; ---- data-driven removed std-interceptor values (rf2-ne2uk8) ---------------
+;; ---- removed standard values ---------------------------------------------
 ;;
 ;; The two removed standard interceptor values (`path` / `unwrap-interceptor`)
-;; are described ONCE in this table, not as two bespoke throwers. Unlike the
-;; EP-0018 reg-event removed names (which fan out on the always-on error
-;; channel + dev trace bus, per their Spec 009 catalogue rows), these are
-;; implementation-only drift fixes (API.md + EP-0022 were already correct) that
-;; ride no catalogued 009 category — they JUST throw the actionable
-;; `re-frame.error/throw-error!` hard error. The table holds each row's
-;; behavioural facts; the per-name stubs below are thin lookups, so adding /
-;; retiring a removed standard value is a one-row edit and the audit surface is
-;; one literal vector. `:msg` / `:extra` are `(fn [args] …)` so a row can weave
-;; the call args into its message + ex-data (only `path` needs the path vec).
+;; are described once in this table. They raise actionable hard errors but do
+;; not fan out through the always-on error channel. `:msg` and `:extra` are fns
+;; so the path row can include the supplied path in its diagnostic.
 
 (def ^:private removed-std-interceptor-values
-  "The EP-0022 removed standard interceptor VALUES, one row each — the audit
-  surface for the removed std-interceptor names (rf2-ne2uk8). A row is
+  "The removed standard interceptor values, one row each. A row is
   `{:sym :error-kw :where :msg :extra}`:
     - `:sym`      the bare var symbol exported `^:no-doc` from this ns and
                   aliased onto the `re-frame.core` facade;
@@ -114,8 +58,8 @@
     :msg      (fn [_args]
                 (str "`rf/unwrap-interceptor` is REMOVED in EP-0022 (no "
                      "framework-standard unwrap value). Destructure the "
-                     "`[<id> <payload-map>]` payload in the handler arglist — "
-                     "`(fn [_ {:keys [a b]}] …)` — or register a project "
+                     "`[<id> <payload-map>]` event in the handler arglist — "
+                     "`(fn [_ [_ {:keys [a b]}]] …)` — or register a project "
                      "`:app/unwrap` interceptor with your own `:before` / "
                      "`:after` for genuine chain-wide reshaping."))
     :extra    (fn [_args] nil)}])
@@ -156,29 +100,6 @@
   [& path-segs]
   (raise-removed-std-interceptor! (get removed-std-interceptor-by-sym 'path) path-segs))
 
-;; ---- unwrap: the removed standard value (EP-0022, rf2-3qeu38) --------------
-;;
-;; EP-0022 (accepted) ships NO framework-standard unwrap value
-;; (docs/EP/EP-0022-registered-interceptors.md:53-55 "no standard unwrap";
-;; :555-578 §"No standard unwrap"; :881/:932 list the removal). The canonical
-;; spelling for the M-19 `[<id> <payload-map>]` shape is handler-payload
-;; destructuring in the handler arglist; a project that genuinely needs
-;; chain-wide event reshaping registers its OWN `:app/unwrap` interceptor with
-;; project `:before` / `:after`. The implementation had DRIFTED — it kept an
-;; `unwrap-interceptor` VALUE here and exported it from the facade — so
-;; rf2-3qeu38 removes the value (the stash/restore-`:event`-in-`:after`
-;; machinery and its `:rf.error/unwrap-bad-event-shape` emit site go with it)
-;; and replaces the facade var with the `^:no-doc` throwing stub below (the
-;; `rf/path` twin under rf2-dgtdna; the project's actionable-removed-API
-;; pattern, like the EP-0018 `reg-event-db` / EP-0017 `inject-cofx` stubs).
-;;
-;; Like `path-removed!`, the stub throws the canonical
-;; `re-frame.error/throw-error!` hard error naming the replacement, so a stale
-;; `(rf/unwrap-interceptor …)` reference fails LOUDLY and actionably. It does
-;; NOT fan out onto the always-on error-emit channel and rides no catalogued
-;; 009 category — just the actionable throw (API.md + EP-0022 already correct;
-;; this is an implementation-only drift fix).
-
 (defn ^:no-doc unwrap-removed!
   "REMOVED in EP-0022 (no alias). The framework ships no standard `unwrap`
   value; the canonical spelling for the M-19 `[<id> <payload-map>]` shape is
@@ -191,23 +112,12 @@
   (raise-removed-std-interceptor!
     (get removed-std-interceptor-by-sym 'unwrap-interceptor) _args))
 
-;; ---- standard :rf.interceptor/path (EP-0022 Slice C — FULL contract) -------
+;; ---- standard :rf.interceptor/path ----------------------------------------
 ;;
-;; The framework-standard `:rf.interceptor/path` interceptor, referenced as
-;; `[:rf.interceptor/path <path-vector>]` and built by the registered
-;; `:factory` (`path-factory`). It implements the FULL normative contract of
-;; Spec 002 §Standard `:rf.interceptor/path` (rules 1-5), notably RULE 4: an
-;; unchanged focused slice widens back to the ORIGINAL full app-db OBJECT so
-;; the frame-commit `identical?` no-op (rf2-ekq28v) is preserved.
-;;
-;; This is the ONE path surface (the removed legacy `path` fn / `rf/path` value
-;; builder only short-circuited the no-`:db` case; it still did
-;; `(assoc-in original-db path slice)` when a `:db` effect was present,
-;; allocating a fresh top-level map even for an unchanged slice — which defeated
-;; the commit no-op, and is why EP-0022 removed it; rf2-dgtdna). The standard
-;; interceptor knows BOTH the original full app-db object AND the original
-;; focused slice, so it can detect the unchanged-slice case and re-emit the
-;; original object.
+;; The registered factory builds this interceptor from
+;; `[:rf.interceptor/path <path-vector>]`. It retains both the original full
+;; app-db object and the focused slice so an unchanged slice can widen back to
+;; the original object, preserving the commit boundary's identity no-op.
 
 (defn- throw-bad-path!
   "Throw the canonical `:rf.error/path-interceptor-bad-path` error (Spec 002

@@ -1,26 +1,19 @@
 (ns re-frame.views.source-coord-annotation
-  "Source-coord + view-id DOM annotation walk for the Reagent-side views
-  ns. Per rf2-lh7p — split out of `re-frame.views` so the views file
-  stays focused on registration orchestration. Re-frame.views re-exports
-  the `format-source-coord` helper so the existing test that references
-  `#'re-frame.views/format-source-coord` continues to resolve.
+  "Source-coordinate and view-id DOM annotation for Reagent views.
 
-  Per Spec 006 §Source-coord annotation (rf2-z7f7 / rf2-z9n1) the
-  Reagent substrate adapter MUST inject
+  Per Spec 006 §Source-coord annotation, the Reagent substrate injects
   `data-rf2-source-coord=\"<ns>:<sym>:<line>:<col>\"` on each registered
   view's root DOM element when `interop/debug-enabled?` is true. The
   annotation lets pair-shaped tools (re-frame-pair, re-frame-10x, IDE
   jump-to-source) map a clicked DOM node back to the reg-view call
   site.
 
-  Per Spec 006 §View tagging contract (rf2-01il5) the same wrapper also
+  Per Spec 006 §View tagging contract, the same wrapper also
   stamps `data-rf-view=\":rf.foo/bar\"` on the same root element — the
   value is `(str id)` (a printed keyword, leading colon included; see the
-  shared `format-view-id`), NOT the colon-less `<ns>/<sym>` form. The
-  fallback for the runtime view-hierarchy walker when the Fiber-reading
-  primary path (Spec View-Hierarchy-Capture, rf2-mxkq7) is unavailable.
-  Both attributes ride the same wrapper, the same hiccup walk, and the
-  same `interop/debug-enabled?` elision gate.
+  shared `format-view-id`), not the colon-less `<ns>/<sym>` form. It is
+  the view-hierarchy fallback when Fiber inspection is unavailable. Both
+  attributes ride the same Hiccup walk and debug-elision gate.
 
   Contract details:
 
@@ -52,12 +45,9 @@
           is to wrap the returned fn so the inner output gets walked
           too.
 
-    - CRITICAL constraint (rf2-01il5 Comment 5): the wrapper MUST
-      mutate the existing first element's attribute map. NEVER wrap
-      with a synthetic `[:div]`. Wrapping breaks flexbox, CSS Grid,
-      table layouts, `:nth-child` selectors, positioning ancestors,
-      stacking contexts, and CSS containment. The wrap-with-div
-      approach is a non-starter.
+    - The wrapper MUST annotate the existing root element. It never
+      introduces a synthetic `[:div]`, which would change layout and
+      selector semantics.
 
     - Production elision: every annotation site sits inside
       `(when interop/debug-enabled? ...)` so the closure compiler
@@ -65,24 +55,7 @@
       `goog.DEBUG=false`. Per Spec 009 §Production builds. Both
       `data-rf2-source-coord` and `data-rf-view` literals are part of
       the production-bundle elision sentinel set (see
-      `scripts/check-elision.cjs`).
-
-  ## History: JSX source-coord props (rf2-fa4ly, removed by rf2-rohdn)
-
-  An earlier version of this wrapper also injected the JSX-shaped
-  source-coord props (`:_jsxFileName` / `:_jsxLineNumber` /
-  `:_jsxColumnNumber`) intended for React DevTools' \"View source\"
-  gesture. The feature never worked: Reagent passed the props through
-  as DOM attributes (triggering React's \"unrecognised prop on a DOM
-  element\" warnings), and DevTools does not read \"View source\" from
-  element props anyway — it reads `__source` off the third arg of
-  `React.createElement`, which is set by `@babel/plugin-transform-
-  react-jsx-source` at JSX-compile time and is not accessible via
-  hiccup. Net effect: dev-console noise with no DevTools benefit.
-  Option A from rf2-rohdn dropped the injection cleanly. The
-  `data-rf2-source-coord` + `data-rf-view` DOM attributes (which DO
-  work and are read by re-frame-pair, the view-walker, IDE jump-to-
-  source tooling) ride the same wrapper unchanged."
+      `scripts/check-elision.cjs`)."
   (:require [re-frame.adapter.context :as adapter-context]
             [re-frame.views.warn-once :as warn-once]))
 
@@ -91,9 +64,8 @@
 ;; `re-frame.adapter.context` so the Reagent hiccup walk here and the
 ;; React-element-clone walk in `re-frame.substrate.spine` produce byte-
 ;; identical `data-rf2-source-coord` / `data-rf-view` values across
-;; substrates (rf2-t9s6p6). Re-exported under their historical names here
-;; so `re-frame.views/format-source-coord` (and the parity test referencing
-;; `#'re-frame.views/format-source-coord`) keep resolving.
+;; substrates. Re-exported here for the `re-frame.views` facade and its
+;; parity tests.
 (def format-source-coord adapter-context/format-source-coord)
 (def format-view-id       adapter-context/format-view-id)
 
@@ -115,10 +87,8 @@
   Non-DOM roots are returned unchanged after a one-shot warning per
   Spec 006 §Source-coord annotation.
 
-  CRITICAL: this fn MUST mutate the existing first element's attrs.
-  NEVER wrap with a synthetic `[:div]` — wrapping breaks flexbox /
-  CSS Grid / table layouts / `:nth-child` selectors / positioning
-  ancestors / stacking contexts / CSS containment.
+  This fn annotates the existing root element; it never wraps the output
+  with a synthetic element that would alter layout or selector semantics.
 
   Form-2: when `out` is a fn, return a fn that recurses on the inner
   output — Reagent's renderer will call our returned fn just like
@@ -154,20 +124,10 @@
     ;; nil). Skip with a one-shot warning. Pair tools fall back to :rf/id;
     ;; view-walker falls back to the Fiber-walker primary path.
     ;;
-    ;; Warn on ANY non-nil un-annotatable root (rf2-9ex1i9), not just
-    ;; vectors. A reg-view'd component returning a STRING (or number) is
-    ;; equally un-annotatable as a fn-headed vector — there is no root DOM
-    ;; element to stamp `data-rf2-source-coord` / `data-rf-view` onto. The
-    ;; React-hook walk (`re-frame.substrate.spine/inject-source-coord-attr`)
-    ;; already warns on any non-nil non-element output; this side formerly
-    ;; warned only on vectors, so a string-returning view was SILENT under
-    ;; Reagent but WARNED under UIx/Helix — an observable cross-adapter
-    ;; divergence on a pair-tool warning surface. Both walks now share the
-    ;; warn-on-any-non-nil-non-element predicate (the message TEXT was
-    ;; already shared via adapter/context to prevent drift; the TRIGGER
-    ;; condition is unified here). nil stays silent on both sides (a view
-    ;; legitimately renders nothing). The diagnostic head is the hiccup head
-    ;; for a vector, else the value itself.
+    ;; Warn for every non-nil unannotatable root, matching the React-hook
+    ;; adapters. nil is silent because a view may legitimately render nothing.
+    ;; The diagnostic carries the Hiccup head for vectors and the value itself
+    ;; for scalar output.
     :else
     (do
       (when (some? out)
