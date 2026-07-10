@@ -79,37 +79,52 @@
         (.finally (fn [] (raw-state/set-allow-raw-state! prev))))))
 
 ;; ---------------------------------------------------------------------------
-;; Arg parsing — mirrors dispatch's event-vector gate exactly.
+;; Arg parsing — the exhaustive event-parse matrix now lives in `args_test`
+;; against the shared `args/parse-event-arg` seam (rf2-tcp7za). Dispatch and
+;; dispatch-dry-run route through the SAME parser, so here we keep only the
+;; two narrow tool-level invariants: no-eval-on-error and the DISTINCT
+;; dry-run missing-event hint.
 ;; ---------------------------------------------------------------------------
 
-(deftest rejects-arbitrary-cljs-source
-  ;; Host-form source like `(println :pwn)` must NEVER reach the
-  ;; runtime — the parser rejects non-vector EDN before the eval
-  ;; round-trip.
+(deftest rejects-arbitrary-cljs-source-without-eval
+  ;; Host-form source like `(println :pwn)` must NEVER reach the runtime —
+  ;; it reads as a list, the vector-check fails, and we PROVE the no-eval by
+  ;; capturing every form the tool would send and asserting none fired
+  ;; (neither the configure-raw-state! signal nor the dispatch-dry-run eval).
   (async done
-    (-> (dry-run/dispatch-dry-run-tool (fresh-conn) #js {:event "(println :pwn)"})
-        (.then (fn [r]
-                 (is (err? r))
-                 (let [edn (read-result-text r)]
-                   (is (= :not-an-event-vector (:reason edn)))
-                   (is (= :list (:parsed-type edn))))
-                 (done))))))
+    (let [forms (atom [])]
+      (-> (with-captured-eval! forms (wrap {:ok? true} 0)
+            (fn []
+              (dry-run/dispatch-dry-run-tool (fresh-conn) #js {:event "(println :pwn)"})))
+          (.then (fn [r]
+                   (is (err? r))
+                   (let [edn (read-result-text r)]
+                     (is (= :not-an-event-vector (:reason edn)))
+                     (is (= :list (:parsed-type edn))))
+                   (is (empty? @forms)
+                       "no-eval-on-error — the runtime was never contacted; no signal / dispatch form fired")
+                   (done)))))))
 
-(deftest rejects-missing-event
+(deftest rejects-missing-event-with-dry-run-hint
+  ;; The DISTINCT-hint invariant: a missing event surfaces :missing-event
+  ;; carrying DISPATCH-DRY-RUN's own usage string (its opt set — frame /
+  ;; fx-overrides / cofx), NOT dispatch's. Same shared parser, distinct
+  ;; caller data. Also confirms no-eval on the missing path.
   (async done
-    (-> (dry-run/dispatch-dry-run-tool (fresh-conn) #js {})
-        (.then (fn [r]
-                 (is (err? r))
-                 (is (= :missing-event (:reason (read-result-text r))))
-                 (done))))))
-
-(deftest rejects-unreadable-edn
-  (async done
-    (-> (dry-run/dispatch-dry-run-tool (fresh-conn) #js {:event "[:foo"})
-        (.then (fn [r]
-                 (is (err? r))
-                 (is (= :invalid-event-edn (:reason (read-result-text r))))
-                 (done))))))
+    (let [forms (atom [])]
+      (-> (with-captured-eval! forms (wrap {:ok? true} 0)
+            (fn []
+              (dry-run/dispatch-dry-run-tool (fresh-conn) #js {})))
+          (.then (fn [r]
+                   (is (err? r))
+                   (let [edn (read-result-text r)]
+                     (is (= :missing-event (:reason edn)))
+                     (is (str/includes? (:hint edn) "dispatch-dry-run {")
+                         "the missing-event hint is dispatch-dry-run's own usage string")
+                     (is (str/includes? (:hint edn) "cofx")
+                         "carries the dry-run-specific opts — distinct from dispatch's hint"))
+                   (is (empty? @forms) "no eval on the missing-event path")
+                   (done)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Runtime call shape — emits `(re-frame2-pair.runtime/dispatch-dry-run

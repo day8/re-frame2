@@ -136,9 +136,7 @@
   registration-owned transient payloads the classification walker cannot
   prove safe — rf2-nm611o / rf2-6klf02). Posture parity with
   `dispatch-dry-run` (signal-runtime! + projected egress, same gate)."
-  (:require [cljs.reader]
-            [clojure.string :as str]
-            [re-frame2-pair-mcp.tools.args :as args]
+  (:require [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.await-promise :as await-promise]
             [re-frame2-pair-mcp.tools.eval-form :as ef]
             [re-frame2-pair-mcp.tools.epoch-egress :as egress]
@@ -146,49 +144,15 @@
             [re-frame2-pair-mcp.tools.wire :as wire]
             [re-frame2-pair-mcp.tools.probe :as probe]))
 
-(defn- parse-event-edn
-  "Parse the `event` MCP arg as EDN. Returns
-  `[:ok parsed-vector]` on success or `[:err err-map]` on any failure.
-  Two failure modes carry distinct reasons:
+;; The `event`-arg EDN/vector parse — the security gate that keeps
+;; host-form source out of the runtime call — lives in the shared
+;; `args/parse-event-arg` seam (byte-identical for dispatch and
+;; dispatch-dry-run bar the missing-value hint). See its docstring for the
+;; why-EDN-not-source rationale. The call site below preserves the parse's
+;; position ahead of the nREPL eval and the permission/privacy gates.
 
-  - `:invalid-event-edn`     — `read-string` threw / returned nil.
-  - `:not-an-event-vector`   — parsed cleanly but the shape is wrong
-                                (e.g. a map, a symbol, a bare keyword).
-
-  The hint repeats the documented usage shape so an agent that
-  fat-fingers the call gets a corrective example without an extra
-  round-trip."
-  [event-str]
-  (let [trimmed (some-> event-str str/trim)]
-    (cond
-      (or (nil? trimmed) (str/blank? trimmed))
-      [:err {:ok? false :reason :missing-event
-             :hint "usage: dispatch {event '[:ev/id ...]' [sync true] [trace true] [frame :foo] [fx-overrides {...}] [interceptor-overrides {...}]}"}]
-
-      :else
-      (let [parsed (try
-                     (cljs.reader/read-string trimmed)
-                     (catch :default e
-                       ::reader-fail))]
-        (cond
-          (= ::reader-fail parsed)
-          [:err {:ok? false :reason :invalid-event-edn
-                 :event event-str
-                 :hint "event must be an EDN-readable vector, e.g. \"[:cart/checkout]\""}]
-
-          (not (vector? parsed))
-          [:err {:ok? false :reason :not-an-event-vector
-                 :event event-str
-                 :parsed-type (cond
-                                (map? parsed)      :map
-                                (keyword? parsed)  :keyword
-                                (symbol? parsed)   :symbol
-                                (sequential? parsed) :list
-                                :else              :scalar)
-                 :hint "event must be a vector, e.g. \"[:cart/checkout {:reason :user}]\""}]
-
-          :else
-          [:ok parsed])))))
+(def ^:private missing-event-hint
+  "usage: dispatch {event '[:ev/id ...]' [sync true] [trace true] [frame :foo] [fx-overrides {...}] [interceptor-overrides {...}]}")
 
 (defn- runtime-envelope->result
   "Translate the runtime dispatch fn's return into the wire envelope.
@@ -461,7 +425,7 @@
         incl?        (if (raw-state/raw-state-allowed?)
                        (args/parse-bool-arg args :include-sensitive)
                        false)
-        [tag payload] (parse-event-edn event-str)]
+        [tag payload] (args/parse-event-arg event-str missing-event-hint)]
     (cond
       ;; A malformed `:timeout-ms` short-circuits to an honest
       ;; isError BEFORE the dispatch eval, rather than threading a value

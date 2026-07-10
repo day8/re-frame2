@@ -513,9 +513,10 @@
   Factors out the trim+read+sentinel core shared verbatim by
   `replace-app-db` (`:db`), `restore-epoch` (`:epoch-id`), and
   `handler-meta` (`:id`). The richer `dispatch` / `dispatch-dry-run`
-  event parsers are deliberately NOT routed through here — they layer a
-  vector-shape contract + parsed-type classification on top, and their
-  ns docstrings pin them as separate surfaces."
+  event-vector parse — the same trim+read core PLUS a vector-shape
+  contract and parsed-type classification — lives in its sibling
+  `parse-event-arg` below rather than here, so this single-value reader
+  stays minimal."
   [raw missing invalid]
   (let [trimmed (some-> raw str/trim)]
     (if (or (nil? trimmed) (str/blank? trimmed))
@@ -524,6 +525,71 @@
                         (catch :default _ ::reader-fail))]
         (if (= ::reader-fail parsed)
           [:err invalid]
+          [:ok parsed])))))
+
+(defn parse-event-arg
+  "Parse the `event` MCP arg as EDN, enforcing the vector-shape contract
+  shared by `dispatch` and `dispatch-dry-run`. Returns `[:ok parsed-vector]`
+  on success or `[:err err-map]` on any failure. Three failure modes carry
+  distinct reasons:
+
+  - `:missing-event`       — nil / blank value. `missing-hint` is the
+                             caller-specific usage string threaded in as
+                             DATA — `dispatch` and `dispatch-dry-run`
+                             advertise different opt sets, so the corrective
+                             example differs, but nothing else about the
+                             parse does.
+  - `:invalid-event-edn`   — `read-string` threw / returned nil.
+  - `:not-an-event-vector` — parsed cleanly but the shape is wrong (a map,
+                             a keyword, a symbol, a list, a scalar);
+                             `:parsed-type` classifies it.
+
+  ## Why the `event` arg is parsed as EDN, not spliced as source
+
+  Both `dispatch` and `dispatch-dry-run` are intentionally narrower than
+  `eval-cljs`: the contract is `{event '[:ev/id ...]'}` — an EDN event
+  VECTOR, nothing else. Inlining the caller's string verbatim into the
+  generated eval form (as a host-form expression rather than data) would
+  let any caller — or a prompt-injected agent — supply arbitrary CLJS
+  (`(println :pwn)` would run), defeating the boundary that gates
+  `eval-cljs` separately. Parsing as EDN and requiring a `vector?` shape
+  forces the payload to be DATA: a host-form source string reads as a list
+  and is rejected HERE, before the runtime is ever contacted — invalid
+  input short-circuits ahead of the nREPL eval and the permission/privacy
+  gates, so the ordering is security-load-bearing at the call site.
+
+  This is the single production event-parse seam: both tools route through
+  it and pass only their distinct missing-value hint. The exhaustive parse
+  matrix is pinned in `args-test`; the tool suites keep only the narrow
+  integration assertions (distinct hint + no-eval-on-error)."
+  [event-str missing-hint]
+  (let [trimmed (some-> event-str str/trim)]
+    (cond
+      (or (nil? trimmed) (str/blank? trimmed))
+      [:err {:ok? false :reason :missing-event
+             :hint missing-hint}]
+
+      :else
+      (let [parsed (try (cljs.reader/read-string trimmed)
+                        (catch :default _ ::reader-fail))]
+        (cond
+          (= ::reader-fail parsed)
+          [:err {:ok? false :reason :invalid-event-edn
+                 :event event-str
+                 :hint "event must be an EDN-readable vector, e.g. \"[:cart/checkout]\""}]
+
+          (not (vector? parsed))
+          [:err {:ok? false :reason :not-an-event-vector
+                 :event event-str
+                 :parsed-type (cond
+                                (map? parsed)        :map
+                                (keyword? parsed)    :keyword
+                                (symbol? parsed)     :symbol
+                                (sequential? parsed) :list
+                                :else                :scalar)
+                 :hint "event must be a vector, e.g. \"[:cart/checkout {:reason :user}]\""}]
+
+          :else
           [:ok parsed])))))
 
 ;; ---------------------------------------------------------------------------

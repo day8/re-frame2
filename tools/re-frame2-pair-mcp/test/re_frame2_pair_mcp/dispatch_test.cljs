@@ -119,57 +119,36 @@
 (def ^:private err? tu/error?)
 
 ;; ---------------------------------------------------------------------------
-;; Rejection arms — the security gate.
+;; Narrow integration arms — the exhaustive event-parse matrix (nil / blank
+;; / unreadable / map / keyword / list / symbol / scalar / vector, with the
+;; parsed-type classification) now lives in `args_test` against the shared
+;; `args/parse-event-arg` seam (rf2-tcp7za). Here we pin only the two
+;; tool-level invariants:
+;;   1. no-eval-on-error — a bad event short-circuits to an :isError WITHOUT
+;;      contacting the runtime (host-form source never rides into the eval);
+;;   2. the DISTINCT dispatch missing-event hint.
 ;; ---------------------------------------------------------------------------
 
-(deftest rejects-arbitrary-cljs-source
-  ;; The headline case: an attacker / a prompt-injected agent supplies
-  ;; host-form source instead of an event vector. The parser reads it as
-  ;; a list, the vector-check fails, the runtime is never contacted —
-  ;; `(println :pwned)` never runs inside the runtime eval.
+(deftest rejects-arbitrary-cljs-source-without-eval
+  ;; The headline security case: an attacker / a prompt-injected agent
+  ;; supplies host-form source instead of an event vector. It reads as a
+  ;; list, the vector-check fails, and the runtime is NEVER contacted —
+  ;; `(println :pwned)` never rides into the eval. We PROVE the no-eval by
+  ;; capturing every form the tool would send and asserting none fired
+  ;; (neither the configure-raw-state! signal nor the dispatch eval).
   (async done
-    (-> (dispatch/dispatch-tool (fresh-conn) #js {:event "(println :pwned)"})
-        (.then (fn [r]
-                 (is (err? r))
-                 (let [edn (read-result-text r)]
-                   (is (= :not-an-event-vector (:reason edn)))
-                   (is (= :list (:parsed-type edn))))
-                 (done))))))
-
-(deftest rejects-bare-keyword
-  ;; `:cart/checkout` is valid EDN but not a vector — agents that
-  ;; forget the brackets get a corrective error.
-  (async done
-    (-> (dispatch/dispatch-tool (fresh-conn) #js {:event ":cart/checkout"})
-        (.then (fn [r]
-                 (is (err? r))
-                 (let [edn (read-result-text r)]
-                   (is (= :not-an-event-vector (:reason edn)))
-                   (is (= :keyword (:parsed-type edn))))
-                 (done))))))
-
-(deftest rejects-map
-  ;; A map is valid EDN but the wrong shape.
-  (async done
-    (-> (dispatch/dispatch-tool (fresh-conn) #js {:event "{:id :foo}"})
-        (.then (fn [r]
-                 (is (err? r))
-                 (let [edn (read-result-text r)]
-                   (is (= :not-an-event-vector (:reason edn)))
-                   (is (= :map (:parsed-type edn))))
-                 (done))))))
-
-(deftest rejects-unreadable-edn
-  ;; Mismatched brackets / a lone `#` / any reader failure surfaces as
-  ;; `:invalid-event-edn` so the caller can distinguish "didn't parse"
-  ;; from "wrong shape".
-  (async done
-    (-> (dispatch/dispatch-tool (fresh-conn) #js {:event "[:foo"})
-        (.then (fn [r]
-                 (is (err? r))
-                 (let [edn (read-result-text r)]
-                   (is (= :invalid-event-edn (:reason edn))))
-                 (done))))))
+    (let [captured (atom nil)]
+      (-> (with-captured-eval! captured {:ok? true}
+            (fn []
+              (dispatch/dispatch-tool (fresh-conn) #js {:event "(println :pwned)"})))
+          (.then (fn [r]
+                   (is (err? r))
+                   (let [edn (read-result-text r)]
+                     (is (= :not-an-event-vector (:reason edn)))
+                     (is (= :list (:parsed-type edn))))
+                   (is (nil? @captured)
+                       "no-eval-on-error — the runtime was never contacted; no signal / dispatch form fired")
+                   (done)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; `:timeout-ms` (the `:await-render` deadline) is validated as a
@@ -210,23 +189,27 @@
                    (is (= "timeout-ms" (:arg edn))))
                  (done))))))
 
-(deftest rejects-blank-event
+(deftest rejects-missing-event-with-dispatch-hint
+  ;; The DISTINCT-hint invariant: a missing event surfaces :missing-event
+  ;; carrying DISPATCH's own usage string (its opt set — sync / trace /
+  ;; interceptor-overrides), NOT dispatch-dry-run's. Same shared parser,
+  ;; distinct caller data. Also confirms no-eval on the missing path — the
+  ;; error returns without the runtime being contacted.
   (async done
-    (-> (dispatch/dispatch-tool (fresh-conn) #js {:event "   "})
-        (.then (fn [r]
-                 (is (err? r))
-                 (let [edn (read-result-text r)]
-                   (is (= :missing-event (:reason edn))))
-                 (done))))))
-
-(deftest rejects-missing-event
-  (async done
-    (-> (dispatch/dispatch-tool (fresh-conn) #js {})
-        (.then (fn [r]
-                 (is (err? r))
-                 (let [edn (read-result-text r)]
-                   (is (= :missing-event (:reason edn))))
-                 (done))))))
+    (let [captured (atom nil)]
+      (-> (with-captured-eval! captured {:ok? true}
+            (fn []
+              (dispatch/dispatch-tool (fresh-conn) #js {})))
+          (.then (fn [r]
+                   (is (err? r))
+                   (let [edn (read-result-text r)]
+                     (is (= :missing-event (:reason edn)))
+                     (is (str/includes? (:hint edn) "dispatch {")
+                         "the missing-event hint is dispatch's own usage string")
+                     (is (str/includes? (:hint edn) "interceptor-overrides")
+                         "carries the dispatch-specific opts — distinct from dry-run's hint"))
+                   (is (nil? @captured) "no eval on the missing-event path")
+                   (done)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Acceptance arm — the EDN vector reaches the runtime as data.
