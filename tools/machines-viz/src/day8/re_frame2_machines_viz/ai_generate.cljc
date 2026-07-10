@@ -1,59 +1,14 @@
 (ns day8.re-frame2-machines-viz.ai-generate
-  "AI-generate-a-machine surface (rf2-1bncf · v1.1).
+  "Provider-neutral machine generation through an injected resolver.
 
-  Stately Studio 2026 ships AI-generation: given a description,
-  generate a machine. This namespace hosts the re-frame2 equivalent:
-  a pure library fn that takes a natural-language prompt and returns
-  a normalised re-frame2 machine spec (the same shape `reg-machine`
-  consumes and `(rf/machine-meta id)` returns).
+  `generate-machine` combines the system and user prompts, calls
+  `:resolver`, extracts EDN from its string response, desugars authoring
+  forms, and validates the resulting machine definition. HTTP, credentials,
+  streaming, retry policy, and provider selection remain the caller's
+  responsibility.
 
-  ## Two-layer design
-
-  The implementation separates two concerns:
-
-  1. **The prompt-resolver seam (`:resolver`).** A pluggable fn the
-     caller injects: `(fn [prompt-string] llm-response-string)`. This
-     fn is the I/O boundary — production callers wire in an
-     anthropic-API / OpenAI-API / local-LLM bridge here; tests
-     inject a stub returning canned EDN.
-
-     The resolver receives the full system+user prompt as a single
-     string and returns the LLM's response as a string. The
-     namespace knows nothing about HTTP, secrets, streaming, or
-     rate-limits — those live in the caller's resolver.
-
-  2. **The parse-and-validate step (this ns).** Walks the resolver's
-     string output, extracts the first EDN form (the LLM's response
-     may include prose before/after a fenced code block, which
-     authors and IDEs treat as commentary), and validates the
-     extracted spec against the same minimum shape `spec->scxml`
-     requires: `:initial` + non-empty `:states` (or `:type :parallel`
-     + non-empty `:regions`).
-
-  Round-trip is informational, not contractual: the LLM's
-  generations are non-deterministic by design. Callers wanting
-  determinism inject a deterministic resolver (e.g. a stub mapped
-  from `prompt` → `spec`).
-
-  ## Reserved namespaces
-
-  Generated machines use re-frame2's normal id conventions — feature-
-  prefixed keywords (`:auth/idle`, `:cart/loading`), hyphenated
-  bare names (`:idle`, `:loading-failed`). The system prompt asks the
-  LLM to follow these conventions; the parser doesn't enforce them
-  (an LLM that generates `:loadingFailed` produces a working spec
-  that the caller can ergonomic-cleanup or accept as-is).
-
-  ## Public API
-
-  - `(generate-machine prompt opts)` — Main entry point. Takes a
-    natural-language prompt and an opts map. Returns the parsed +
-    validated machine spec.
-  - `system-prompt` — The full system prompt as a string. Exposed so
-    callers can compose it into multi-turn chats, sandbox it for
-    quality testing, or audit it before shipping.
-
-  Per [`API.md`](../../spec/API.md) §AI-generate-a-machine."
+  Generation is non-deterministic when the resolver is non-deterministic.
+  Callers that need repeatable output can inject a deterministic resolver."
   (:require [clojure.string :as str]
             [re-frame.error :as error]
             ;; rf2-egupfk — the SHARED definition-shape validators + value-free

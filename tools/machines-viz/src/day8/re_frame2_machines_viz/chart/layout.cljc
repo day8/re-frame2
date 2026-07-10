@@ -1,88 +1,16 @@
 (ns day8.re-frame2-machines-viz.chart.layout
-  "Pure-data graph projector for the MachineChart.
+  "Pure-data semantic graph projector for `MachineChart`.
 
-  rf2-gpzb4 (2026-05-21) — Mike's xyflow override of the 2026-05-19
-  ELK+SVG lock. This ns is no longer a layout engine: xyflow + elkjs
-  own positioning. What remains is the substrate-agnostic **graph
-  parse** — definition → flat list of nodes + edges + per-node /
-  per-edge metadata. The xyflow chart ns (`chart.cljs`)
-  consumes this projection and hands the nodes/edges to xyflow's
-  React renderer; elkjs runs as xyflow's layout backend off the same
-  graph.
+  This namespace walks a machine definition into nodes, transitions,
+  containment metadata, and stable ids. `chart.projection` converts that
+  graph to xyflow and ELK data; `chart.cljs` invokes ELK and renders the
+  positioned result. This layer neither invokes ELK nor touches the DOM.
 
-  ## Why this ns survives the migration
-
-  Three reasons:
-
-  1. **Substrate-independence for the parse.** The walker (states,
-     compound nesting paths, transition normalisation, after / always
-     edge emission) is pure CLJS data → data and JVM-runnable. Tests
-     pin the parse contract without DOM / React / xyflow.
-  2. **One source for `node-id` + `edge-label`.** xyflow needs string
-     ids; the same id contract is used by SCXML / Mermaid emitters
-     and the Xray topology overlay. Centralising it here means
-     every consumer addresses nodes the same way.
-  3. **`highlight-id` resolution.** Snapshot `:state` → xyflow
-     node-id mapping for the live-highlight surface. Pure fn, no
-     dependency on the renderer.
-
-  ## Shape
-
-  `(project-definition definition)` returns:
-
-      {:nodes        [{:id <string>          ;; xyflow node id
-                       :path <vec-of-kw>     ;; full hierarchical path
-                       :label <str>          ;; human-readable label
-                       :depth <int>          ;; nesting depth
-                       :initial? <bool>
-                       :final? <bool>
-                       :compound? <bool>
-                       :tags #{<keyword>}}
-                      ...]
-       :edges        [{:id <string>           ;; xyflow edge id
-                       :source <string>       ;; from node id
-                       :target <string>       ;; to node id
-                       :from-path <vec-of-kw> ;; source state path
-                       :to-path   <vec-of-kw> ;; target state path
-                       :event <kw>            ;; raw event id
-                       :event-label <str>     ;; xstate label
-                                              ;; `event [guard] / action`
-                       :guard <kw-or-nil>
-                       :action <kw-or-nil>
-                       :after <ms-or-nil>     ;; non-nil iff :after edge
-                       :always? <bool>}       ;; true iff :always edge
-                      ...]
-       :initial-path <vec-of-kw>}            ;; the machine's :initial path
-
-  ## Parallel regions (rf2-lkwev — xyflow Phase 2)
-
-  A `{:type :parallel :regions {...}}` definition projects EVERY
-  region (Phase 1 deferred all but the first). Each region becomes a
-  synthetic `:region?` compound node — an orthogonal-zone container
-  the `chart.nodes/parallel-region-node` paints with a distinct
-  dashed boundary (Stately parity). Every state inside a region
-  carries `:region <region-id>` + `:parent-id <region-node-id>` so
-  the chart projector can hand xyflow a `parentId`/sub-flow grouping
-  (rf2-xh1lm — v12 reads `parentId`); edges stay region-local (a
-  transition declared inside a region never crosses into a sibling
-  region — orthogonality).
-
-  Region node-ids are prefixed `region__<region-id>` so they never
-  collide with a real state's `node-id`.
-
-  ## What this does NOT do (pre-migration, this ns DID do)
-
-  - **Positioning** (`bfs-ranks`, `place-nodes`, `route-edge`) —
-    REMOVED. xyflow owns positions; elkjs runs as xyflow's layout
-    backend.
-  - **Width / height / chart geometry** — REMOVED. xyflow's
-    `<ReactFlow>` container measures itself; `fitView` handles
-    initial framing.
-  - **Edge points + bend-points** — REMOVED. xyflow renders edges
-    via its own path-builder over its layouted graph.
-
-  Per `tools/machines-viz/spec/000-Vision.md` §Decision trace
-  §Interactive renderer (revised 2026-05-21)."
+  Node ids, transition normalisation, and named-value rendering delegate
+  to `machines-viz.grammar`, which is shared with the Mermaid and SCXML
+  emitters. Parallel definitions project every region as an orthogonal
+  compound container, and `highlight-id`/`highlight-ids` map snapshot state
+  configurations back to projected ids."
   (:require [clojure.string :as str]
             ;; rf2-b2ygd2 — the SHARED grammar walker + injective id codec
             ;; the three emitters (chart / mermaid / scxml) route through, so

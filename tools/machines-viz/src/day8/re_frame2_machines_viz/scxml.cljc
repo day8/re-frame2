@@ -95,9 +95,10 @@
     papered over.
   - Machine-level (top-level) `:on` fallback transitions — W3C SCXML
     has no clean root-fallback slot (`<scxml>` does not host
-    `<transition>` children per the schema, and the import side drops
-    root-level transitions), so these are exported as a documenting
-    XML comment and do **not** round-trip back through `scxml->spec`.
+    `<transition>` children per the schema). The exporter preserves them
+    as annotated, non-conformant `<transition>` children so they remain
+    inspectable, but conforming consumers may reject them and the local
+    importer drops them.
   - `:tags` — re-frame2-specific; not part of W3C SCXML.
   - `:action`s and guard FN bodies — only the *names* survive (SCXML
     `cond=\"name\"` for guards; a transition `:action` name rides an
@@ -591,14 +592,13 @@
   "Emit the machine-level (top-level) `:on` fallback transitions
   (Spec 005 `005-StateMachines.md:181,199`) directly under `<scxml>`.
 
-  rf2-ee38b.21 — these were previously dropped entirely (mirroring the
-  parser bug). W3C SCXML has no clean root-fallback-transition slot
+  W3C SCXML has no clean root-fallback-transition slot
   (`<scxml>` does not host `<transition>` children per the schema, and
   the import side drops root-level transitions), so a perfect
-  round-trip is impossible. Rather than silently lose the topology we
-  emit them as `<transition>` elements wrapped in a documenting comment
-  so the information survives the export and a human/tool reading the
-  SCXML sees the machine-wide fallback."
+  round-trip is impossible. Rather than silently lose the topology, the
+  exporter emits annotated, non-conformant `<transition>` children. This
+  keeps the fallback inspectable, but conforming consumers may reject it
+  and the local importer does not recover it."
   [on depth]
   (when (seq on)
     (concat
@@ -805,10 +805,10 @@
   for the supported subset documented in the ns docstring. The
   equality is *not* exact for the lossy shapes the ns docstring lists
   under \"Not supported\" — notably a machine-level (top-level) `:on`
-  fallback, which W3C SCXML cannot host as a root `<transition>`, so it
-  is exported as a documenting comment and does **not** survive the
-  parse back (alongside `:spawn-all`, `:tags`, action/guard bodies, and
-  source-coord metadata)."
+  fallback, which W3C SCXML cannot host as a root `<transition>`. The
+  exporter preserves it as an annotated, non-conformant child, but it
+  does **not** survive the parse back (alongside `:spawn-all`, `:tags`,
+  action/guard bodies, and source-coord metadata)."
   [machine-spec]
   ;; EP-0029 — lower the named-intent grammars before export: `:timeout` /
   ;; `:on-timeout` → `:after` (A4, surfaces as a `delayed` SCXML

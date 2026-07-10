@@ -1,16 +1,14 @@
 ;; day8/re-frame2-machines-viz — the substrate-agnostic MachineChart
-;; component + read-only viewer surfaces. Scaffolded per
-;; tools/machines-viz/spec/000-Vision.md; src landing per rf2-o9arp
-;; (the rf2-0yil0 audit cluster's first bead, which extracts the
-;; chart implementation out of Xray and into its own jar).
+;; component, read-only viewer, and pure-data export surfaces.
 ;;
 ;; ## Bundle isolation
 ;;
 ;; Per tools/README.md the machines-viz artefact is bundle-isolated
 ;; from production code: nothing under implementation/ may :require
-;; anything from this jar. The chart consumes the framework's
-;; public surfaces (`rf/machine-meta`, the runtime-db `[:rf.runtime/machines :snapshots]` slot,
-;; the trace bus) but adds no new framework primitives.
+;; anything from this jar. The chart is host-fed; core supplies shared
+;; error, trace, interop, and viewer-initialisation APIs, but Machines-Viz
+;; neither reads the machine registry/runtime-db nor adds framework
+;; primitives.
 ;;
 ;; ## Lockstep version with implementation/core
 ;;
@@ -20,24 +18,12 @@
 ;; reads so machines-viz's published version equals the framework's
 ;; published version at every release.
 {:paths ["src"]
- :deps  {;; rf2-o9arp — the chart code is pure-data hiccup + a thin
-         ;; ELK adapter. The only framework surface it touches is
-         ;; the public registrar API for `rf/machine-meta` (a future
-         ;; capability bead wires the live snapshot read through
-         ;; `re-frame.core`). For Phase-1 src-landing we ship with
-         ;; the framework core as the sole transitive dep — Xray
-         ;; brings its own substrate adapter on the consumer side.
+ :deps  {;; Core supplies re-frame.error, trace/interop helpers, and the
+         ;; viewer's re-frame initialisation. Hosts obtain definitions and
+         ;; snapshots themselves and pass them to MachineChart.
          day8/re-frame2 {:local/root "../../implementation/core"}
 
-         ;; rf2-sqhqu — the Mermaid emitter
-         ;; (`day8.re-frame2-machines-viz.mermaid`) now lives in THIS
-         ;; tool jar, so machines-viz no longer depends on the runtime
-         ;; `machines` artefact (the runtime artefact is now
-         ;; pure-engine). `export`'s `chart-as-mermaid` delegates to the
-         ;; local emitter; the chart consumes only the framework's
-         ;; public `rf/machine-meta` surface from `core` above.
-
-         ;; rf2-8d7w1 — share-URL encoding is EDN → transit-write →
+         ;; Share-URL encoding is EDN data → transit-write →
          ;; base64url (Principles §EDN-first on the wire; Lock #3).
          ;; transit-cljs is a genuine RUNTIME dep of the share encode/decode
          ;; path (`share.cljs` calls `transit/writer`/`write`/`reader`/`read`),
@@ -47,23 +33,21 @@
          ;; :require this jar), so a consumer's production bundle never
          ;; pulls transit through machines-viz — NOT because the dep is
          ;; test-scoped (moving it to :test would break share.cljs at
-         ;; runtime — rf2-agu25 / rf2-60whl).
+         ;; runtime).
          com.cognitect/transit-cljs {:mvn/version "0.8.280"}}
 
  :aliases
  {:test {:extra-paths ["test"]
-         :extra-deps  {;; rf2-try1x — silent-on-success reporter.
+         :extra-deps  {;; Silent-on-success reporter.
                        day8/re-frame2-test-quiet
                        {:local/root "../../implementation/test-quiet"}
                        io.github.cognitect-labs/test-runner
                        {:git/tag "v0.5.1" :git/sha "dfb30dd"}
-                       ;; rf2-ir5nah — TEST-ONLY engine dep for the
-                       ;; engine-grammar PARITY tests
+                       ;; TEST-ONLY engine dep for the grammar parity tests
                        ;; (engine_grammar_parity_test.cljc). machines-viz
-                       ;; hand-MIRRORS the engine's machine-grammar walk +
-                       ;; target resolution (Mike-ruled rf2-ir5nah opt (b):
-                       ;; the mirror is by-design — bundle-isolation +
-                       ;; JVM-portability make a shared :require infeasible);
+                       ;; mirrors selected engine grammar/desugar operations.
+                       ;; Keeping the engine off the shipped classpath preserves
+                       ;; bundle isolation and JVM portability;
                        ;; the parity tests feed representative machine-defs
                        ;; through BOTH the viz copy and the engine fn and
                        ;; assert equal output, so a silent drift becomes a
@@ -77,7 +61,7 @@
                        {:local/root "../../implementation/machines"}}
          :main-opts   ["-m" "re-frame.test-quiet.runner"]}
 
-  ;; Clojars deploy. Mirrors tools/xray/deps.edn — the release
+  ;; Clojars deploy. The release
   ;; workflow rewrites :local/root → :mvn/version before invoking
   ;; clein.
   :clein {:extra-deps {io.github.noahtheduke/clein

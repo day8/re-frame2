@@ -166,11 +166,11 @@ here verbatim.
 
 ---
 
-## Lock #3 — Share-URL encoding: EDN → transit → base64url
+## Lock #3 — Share-URL encoding: EDN-shaped data → Transit → base64url
 
 **Locked 2026-05-13 (Mike, lifted from Xray 003).** **Pipeline
-is `chart-state → EDN-print → transit-write → base64url → URL
-fragment`. Versioned envelope; topology + current-state snapshot
+is `chart-state → validate + canonicalise → transit-write → base64url
+→ URL fragment`. Versioned envelope; topology + current-state snapshot
 only.**
 
 ### Question
@@ -186,7 +186,7 @@ How does Machines-Viz encode a chart for sharing?
 - **Transit-write + base64url, unversioned.** Compact; URL-safe.
   Rejected on the format-evolution axis — without a version
   envelope, future encoding changes are breaking.
-- **EDN → transit-write → base64url + versioned envelope.** The
+- **EDN-shaped data → transit-write → base64url + versioned envelope.** The
   envelope keys (`:rf.machines-viz.share/v`,
   `:rf.machines-viz.share/chart`,
   `:rf.machines-viz.share/created`) ride at the outermost level;
@@ -194,30 +194,25 @@ How does Machines-Viz encode a chart for sharing?
 
 ### Pick
 
-**EDN → transit-write → base64url + versioned envelope.**
+**EDN-shaped data → transit-write → base64url + versioned envelope.**
 
 ### Why
 
 - **EDN preserves the registered shape** — keywords, sets, nested
   maps, namespaced keys all round-trip. JSON would force re-
   coercion.
-- **Transit is compact** — typical machines (~20 states, ~30
-  transitions) encode to a sub-4KB URL after base64url. Common
-  URL limits sit around 8KB; we have headroom for moderate-sized
-  charts.
+- **Transit preserves EDN types** while producing JSON text suitable for
+  the browser encoder.
 - **Base64url is URL-safe** — no `+` or `/` in the alphabet; no
   percent-encoding contention.
-- **Fragment, not query** — URL fragments are never sent in HTTP
-  requests; the share-URL is invisible to servers and to
-  browsers' navigation logs. The chart never traverses a server
-  by accident.
+- **Fragment, not query** — URL fragments are not sent in HTTP requests.
+  Client-side history, extensions, screenshots, and recipients of the
+  complete URL can still retain them, which is why the payload is
+  structurally privacy-filtered.
 - **Versioned envelope is the cheapest evolution insurance** —
   any future change to the payload schema bumps `:rf.machines-viz.share/v`;
-  old decoders refuse old payloads with a clear message rather
+  old decoders refuse newer payloads with a clear message rather
   than rendering garbage.
-- **Charts exceeding URL limits** — the `Copy as edn fragment
-  instead` fallback puts the EDN on the clipboard for paste-into-
-  a-doc. Per Xray 003 §Share affordance §Performance.
 
 Source: lifted from Xray
 [`003-Machine-Inspector.md`](../../xray/spec/003-Machine-Inspector.md)
