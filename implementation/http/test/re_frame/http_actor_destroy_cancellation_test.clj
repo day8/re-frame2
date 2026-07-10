@@ -1,5 +1,5 @@
 (ns re-frame.http-actor-destroy-cancellation-test
-  "Per rf2-wvkn — the cross-feature contract that destroying a spawned
+  "Cross-feature contract: destroying a spawned
   state-machine actor aborts every in-flight `:rf.http/managed` request
   the actor had issued.
 
@@ -22,24 +22,17 @@
    3. Sibling actors are NOT affected when one is destroyed
    4. Direct event-handler dispatch (no spawned-actor) → no cancellation
    5. Parent state's :after firing destroys the child + aborts its HTTP
-   6. Anonymous (request-id-less) child request → actor-destroy abort
-      cleans the actor-in-flight index (rf2-lz7se)
+   6. Anonymous child request → actor-destroy cleans the actor index
    6b. Registry-level: 2-arg clear-in-flight! empties an anonymous
        handle's actor slot without a pre-clear (the unconditional-
-       correctness guarantee); 1-arg form leaks it (rf2-lz7se)
+       correctness guarantee); 1-arg lookup cannot address it
    6c. `schedule-backoff-handle!`'s abort-fn cleans an anonymous
        (request-id-less) backoff handle's actor slot when fired by a
-       trigger that does NOT pre-clear the actor slot — the sibling of
-       (6b) at the second abort-fn site (rf2-meq28)
+       trigger that does not pre-clear the actor slot
    7.  IMPERATIVELY-spawned actor (`[:rf.machine/spawn …]` from an
        ordinary event handler — NO `:spawned` registry slot) → its managed
-       request is aborted on imperative `[:rf.machine/destroy …]`. This is
-       the rf2-n877mb widening test: step 1's registry-membership
-       `owning-actor-id` classified such a request as unowned (the actor is
-       absent from `[:rf.runtime/machines :spawned]`); step 2 switches
-       ownership to the durable snapshot `:rf/machine-type` marker, so
-       imperative spawns are now owners. Tests 1–6c cover declarative
-       `:spawn` only and cannot catch this widening (rf2-n877mb)"
+       request is aborted on imperative `[:rf.machine/destroy …]`; ownership
+       is recognized from the durable `:rf/machine-type` snapshot marker"
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.flows :as flows]
@@ -65,11 +58,7 @@
   (flows/reset-flows!)
   (schemas/clear-schemas-by-frame!)
   (rf/init! plain-atom/adapter)
-  ;; EP-0002 (rf2-nn0jqa): `init!` no longer synthesises `:rf/default`,
-  ;; and the managed-HTTP / machine / routing fxs now require a carried
-  ;; frame stamp. This suite exercises the ambient dispatch path against
-  ;; a single conventional app frame, so register `:rf/default` explicitly
-  ;; and pin it as the established scope for the whole body via with-frame.
+  ;; The suite uses one explicit default frame for ambient dispatch.
   (frame/ensure-default-frame!)
   (require 're-frame.routing :reload)
   (require 're-frame.ssr     :reload)

@@ -1,89 +1,21 @@
 (ns re-frame.http.test-support
-  "Test-support namespace for the managed-HTTP artefact (Spec 014).
+  "Test-only support for the managed-HTTP artefact (Spec 014).
 
-  ## What lives here (rf2-lwmgw — single discoverable home)
+  This namespace owns the scoped stubbing helpers, raw install/uninstall
+  functions, canned success/failure effects, and the late-bind hook used by
+  `re-frame.core/with-managed-request-stubs`. The raw install/uninstall pair
+  is called directly through this namespace and is not a core facade export.
 
-  Per [rf2-lwmgw](#) (audit-of-audits #15) the namespace is now the **sole
-  home** for every HTTP test-machinery surface:
-
-   - the stubbing macros / fns:
-      - `with-managed-request-stubs`        — body-bracketing macro
-      - `with-managed-request-stubs*`       — plain-fn surface
-      - `install-managed-request-stubs!`    — multi-`deftest` installer
-      - `uninstall-managed-request-stubs!`  — idempotent teardown
-   - load-time registration of the two canned-stub fxs:
-      - `:rf.http/managed-canned-success`
-      - `:rf.http/managed-canned-failure`
-   - the late-bind hook publication the `re-frame.core` re-export
-     `rf/with-managed-request-stubs` (and its `with-managed-request-stubs*`
-     plumbing) resolves through.
-
-  The ergonomic `with-managed-request-stubs` macro is the `re-frame.core`
-  façade surface. The raw `install-managed-request-stubs!` /
-  `uninstall-managed-request-stubs!` pair is NOT a façade export (rf2-ntwwyt
-  — test-support infrastructure, not app-facing core surface): tests call
-  these two defns directly from this namespace, so they carry no late-bind
-  hook.
-
-  The previous arrangement split these across two namespaces — the macros
-  lived in `re-frame.http.managed`, and `re-frame.http.test-support` was a
-  bare \"registration gate\" for the canned-stub fxs. A test author reaching
-  for the HTTP stub helper had to know which surface lived where. The
-  consolidation (rf2-lwmgw, Mike-confirmed option (a) on audit-of-audits
-  #15) drops that split: one namespace, one require, every HTTP test
-  surface.
-
-  The production fx surface (`:rf.http/managed`, `:rf.http/managed-abort`,
-  the middleware family) continues to live in `re-frame.http.managed`.
-  Production / SSR app code must NOT `:require` this namespace.
-
-  ## Adoption
-
-  Test files / dev demos that exercise any HTTP stub surface — the
-  `with-managed-request-stubs` macro, the raw install/uninstall pair, or the
-  canned-stub fx ids via `:fx-overrides` — add this namespace to their
-  require closure:
+  Requiring this namespace is the test-effect registration gate. Production
+  and SSR code must not require it; the production effects and middleware
+  remain in `re-frame.http.managed`. A test using any stub surface requires
+  both namespaces:
 
   ```clojure
   (ns my-app.tests
-    (:require [re-frame.http.managed]        ;; production fx surface
-              [re-frame.http.test-support])) ;; stub macros + canned fxs
-  ```
-
-  ## Why this exists at all (rf2-cdmle, follow-up to rf2-zk08x)
-
-  The canned-stub fxs
-
-    - `:rf.http/managed-canned-success`
-    - `:rf.http/managed-canned-failure`
-
-  are test-only affordances per Spec 014 §Testing. Earlier they registered
-  at `re-frame.http.managed` namespace load, gated on
-  `re-frame.interop/debug-enabled?`. That gate works on CLJS — under
-  `:advanced + goog.DEBUG=false` the entire `(when ...)` body DCEs, fx-id
-  keyword string fragments and all. On the JVM, however, `debug-enabled?`
-  is unconditionally true; the canned-stub fxs were therefore registered
-  in JVM/SSR production builds too — discoverable via
-  `:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}` from
-  any handler.
-
-  rf2-zk08x's audit flagged this as a security-surface posture mismatch:
-  test stubs ought not be production-default API. Per the operator decision
-  the gate moved from \"`when debug-enabled?`\" to **\"explicit test-support
-  import\"**: loading this namespace registers the two fxs against the same
-  handler bodies the prior gate used. Production posture: this namespace
-  is unreferenced from any production module, so CLJS `:advanced` trims it
-  wholesale and JVM/SSR sees classpath absence through the normal artefact
-  require boundary.
-
-  ## Public surface (registered at ns-load)
-
-  - `:rf.http/managed-canned-success` — synthesised success reply.
-  - `:rf.http/managed-canned-failure` — synthesised failure reply.
-
-  Plus the four stub macros / fns listed above (and the matching late-bind
-  hook publication under `:http/with-managed-request-stubs*` for the façade
-  `with-managed-request-stubs` macro)."
+    (:require [re-frame.http.managed]
+              [re-frame.http.test-support]))
+  ```"
   (:require [re-frame.events               :as events]
             [re-frame.frame                :as frame]
             [re-frame.fx                   :as fx]
@@ -97,29 +29,25 @@
 
 #?(:clj (set! *warn-on-reflection* true))
 
-;; ---- canned-stub handler bodies (rf2-w59es5) ------------------------------
+;; ---- canned-stub handler bodies -------------------------------------------
 ;;
 ;; These synthesise a managed-HTTP reply WITHOUT a real transport, for the
 ;; canned-stub fxs (`:rf.http/managed-canned-*`) and the route-map stub
-;; (`stub-handler`) below. They are TEST scaffolding — they used to live in
-;; the production-loaded `re-frame.http.machine-wrapper` so the (then-split)
-;; stub macros could reach them without a circular require. Now that the
-;; macros and the canned-stub fx registrations both live HERE (rf2-lwmgw),
-;; the constraint is gone and the bodies moved here too, leaving
-;; `http-machine-wrapper` to carry only the production machine spec.
+;; (`stub-handler`) below. Keeping them here prevents production namespaces
+;; from owning or registering test behavior.
 ;;
-;; rf2-2utlm / rf2-k67u3 — the canned path delegates to
+;; The canned path delegates to
 ;; `middleware/run-after-then-dispatch!`, the shared run-`:after`-then-late-
 ;; bind reply tail `http-transport/dispatch-reply!` also uses, so the
 ;; `:after`-chain + build-reply-event + late-bind lookup pattern lives in one
 ;; place.
 ;;
-;; rf2-622e3 — origin-event resolution lives in
+;; Origin-event resolution lives in
 ;; `encoding/resolve-origin-event` (single source of truth shared with
 ;; `http-managed/managed-handler`).
 
 (defn run-request-chain
-  "Per rf2-yhfgf — the request-side middleware chain (Spec 014 §Middleware)
+  "The request-side middleware chain (Spec 014 §Middleware)
   fires for every issued request, not just real-transport ones. The canned
   stub fxs replace the TRANSPORT, not the entire managed pipeline, so they
   walk the chain before synthesising the reply. The chain's `:before` fns
@@ -133,8 +61,8 @@
   Returns the post-`:before` middleware-ctx so the caller can thread it
   through `run-after-chain!` — the same ctx the `:after` chain sees on
   the real-transport path (carried forward by `managed-handler` as the
-  normalised ctx's `:middleware-ctx`). The route-map stub (`stub-handler`,
-  rf2-azrcs) ALSO reads the post-`:before` `:request` back off this ctx to
+  normalised ctx's `:middleware-ctx`). The route-map stub (`stub-handler`)
+  also reads the post-`:before` `:request` back off this ctx to
   key its match against the url the managed pipeline would actually issue,
   and runs `handlers/validate-url!` on it — the final-url validation belongs
   to the `:rf.http/managed` OVERRIDE-TARGET role (the stub), not to this

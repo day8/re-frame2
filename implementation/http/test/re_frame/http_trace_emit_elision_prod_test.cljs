@@ -1,6 +1,8 @@
 (ns re-frame.http-trace-emit-elision-prod-test
-  "Per Spec 009 §Production builds (bead rf2-xxd6z) — RUNTIME prod-elision
-  contract for the `re-frame.http.managed` trace surface. Companion to
+  "Runtime production-elision coverage for the managed-HTTP trace surface.
+
+  Per Spec 009 §Production builds, registered listeners observe no HTTP or
+  warning events from `re-frame.http.managed`. Companion to
   the string-grep sentinel sweep in `scripts/check-elision.cjs`: the
   grep catches keyword-literal survival in the bundle blob; this file
   pins the BEHAVIOUR — under `:advanced` + `goog.DEBUG=false`, a
@@ -15,7 +17,7 @@
 
   Surfaces exercised:
 
-  - `:rf.http/aborted-on-actor-destroy`  (rf2-wvkn — emitted by
+  - `:rf.http/aborted-on-actor-destroy`  (emitted by
                                           `abort-on-actor-destroy`
                                           when handles exist)
   - `:rf.http/retry-attempt`              (Spec 014 §Retry — emit site
@@ -41,7 +43,7 @@
             [re-frame.http.registry :as http-registry]
             [re-frame.http.transport]
             [re-frame.http.decode]
-            ;; rf2-qwm0a — listener surface lives in `re-frame.trace.tooling`.
+            ;; Listener mutation belongs to the tooling namespace.
             [re-frame.trace.tooling :as trace-tooling]))
 
 (use-fixtures :each

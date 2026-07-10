@@ -1,5 +1,5 @@
 (ns re-frame.http-abort-precedence-test
-  "Per rf2-wez75 (Mike decision a, 2026-05-17): abort always wins over
+  "Abort always wins over
   decode-failure / transport / accept-failure / success classification
   in `:rf.http/managed`. Aligned with Fetch AbortController / Node HTTP
   / JVM HttpClient / gRPC universal convention.
@@ -7,7 +7,7 @@
   Spec references:
    - Spec 014 §Abort precedence (abort always wins)
    - Spec 014 §Aborts (`:request-id` (internal), `:abort-signal` (external))
-   - Spec 014 §Abort on actor destroy (rf2-wvkn)
+   - Spec 014 §Abort on actor destroy
 
   Test strategy: each test deterministically interleaves the abort with a
   late-classifying failure / success by gating the contended side rather
@@ -32,8 +32,7 @@
    2b. transport-classification-loses-to-recorded-abort-precedence-seam
        (deterministic unit-level: drives `finalise-failure!` with a
        `:rf.http/transport` failure on a handle whose `:aborted?` is
-       ALREADY flipped — pins the exact reclassification the flaky
-       same-dispatch-vs-async race (rf2-12r1dn) was probing by timing)
+       already flipped, pinning reclassification without timing races)
    3. abort-via-actor-destroy-wins-over-decode-failure"
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -58,11 +57,7 @@
   (flows/reset-flows!)
   (schemas/clear-schemas-by-frame!)
   (rf/init! plain-atom/adapter)
-  ;; EP-0002 (rf2-nn0jqa): `init!` no longer synthesises `:rf/default`,
-  ;; and the managed-HTTP / machine / routing fxs now require a carried
-  ;; frame stamp. This suite exercises the ambient dispatch path against
-  ;; a single conventional app frame, so register `:rf/default` explicitly
-  ;; and pin it as the established scope for the whole body via with-frame.
+  ;; The suite uses one explicit default frame for ambient dispatch.
   (frame/ensure-default-frame!)
   (require 're-frame.routing :reload)
   (require 're-frame.ssr     :reload)

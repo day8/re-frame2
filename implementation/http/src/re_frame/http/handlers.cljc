@@ -1,11 +1,9 @@
 (ns re-frame.http.handlers
   "The `:rf.http/managed` + `:rf.http/managed-abort` fx handler bodies.
 
-  Extracted from `re-frame.http.managed` per rf2-0eyp2 — the façade now
-  re-exports these and wires them into `fx/reg-fx` at load time, but
-  the handler logic lives here alongside the other per-concern siblings
-  (`http-encoding`, `http-registry`, `http-middleware`, `http-transport`,
-  `http-machine-wrapper`, `http-privacy`).
+  `re-frame.http.managed` is the registration facade; lifecycle logic lives
+  here and delegates encoding, middleware, registry, privacy, and transport
+  work to their owning siblings.
 
   Two public fns:
 
@@ -18,9 +16,8 @@
                               `http-transport`.
   - `managed-abort-handler` — `:rf.http/managed-abort` body. Resolves
                               the abort-fn through the in-flight
-                              registry and fires it; cleanup belongs
-                              to the abort-fn → `finalise-failure!`
-                              cascade per rf2-plngk."
+                              registry and fires it; the abort closure owns
+                              transport cancellation and registry cleanup."
   (:require [clojure.string]
             [re-frame.error          :as error]
             [re-frame.frame          :as frame]
@@ -32,20 +29,16 @@
             [re-frame.http.transport :as transport]
             [re-frame.http.transport-jvm :as transport-jvm]))
 
-;; ---- rf2-apwkm — closed-set `:retry :on` validation ----------------------
+;; ---- closed-set `:retry :on` validation ----------------------------------
 ;;
 ;; Per Spec 014 §Closed-set `:retry :on` validation: `:retry :on` is
 ;; restricted to the *retryable* subset of the failure-category vocabulary.
 ;; The other `:rf.http/*` categories (`:rf.http/aborted`,
 ;; `:rf.http/decode-failure`, `:rf.http/accept-failure`) are
-;; non-retryable by construction and rejected at fx-call time — the
-;; runtime previously rejected only `:rf.http/aborted` and only at
-;; retry-attempt time, letting useless members ride for the request's
-;; lifetime. The closed-set tighten catches misuse at the dispatch site.
+;; non-retryable by construction and rejected at the effect boundary.
 (def retryable-categories
   "The closed set of `:rf.http/*` failure categories permitted in
-  `:retry :on`. Per Spec 014 §Closed-set `:retry :on` validation
-  (rf2-apwkm)."
+  `:retry :on`. Per Spec 014 §Closed-set `:retry :on` validation."
   #{:rf.http/transport
     :rf.http/cors
     :rf.http/timeout
@@ -53,22 +46,15 @@
     :rf.http/http-5xx})
 
 (defn- validate-retry!
-  "Per Spec 014 §Closed-set `:retry :on` validation (rf2-apwkm): a
+  "Per Spec 014 §Closed-set `:retry :on` validation, a
   `:retry :on` value, when present and non-nil, MUST be a SET drawn
   exclusively from `retryable-categories`. Two failure shapes both throw
   `:rf.error/http-bad-retry-on` at fx-call time (before `run-attempt!`),
   so the misuse surfaces at the dispatch site rather than downstream:
 
-  - SHAPE (rf2-4zldh): a non-set `:on` (keyword, vector, list, string,
-    map, …). Spec 014:372 types `:on` as a *set* of category keywords
-    and the transport loop's membership gate is `(contains? on-set kind)`.
-    `contains?` on a vector/list/string tests INDEX/range membership, not
-    value membership, so a non-set `:on` would silently DISABLE retry for
-    every category — exactly the useless-policy-rides-for-the-lifetime
-    misuse the dispatch-time guard exists to prevent. A bare keyword `:on`
-    was even worse: it threw a raw `IllegalArgumentException` from the
-    `(remove …)` ISeq coercion instead of the canonical error. We reject
-    every non-set non-nil `:on` here, before any of that can happen.
+  - SHAPE: a non-set `:on` (keyword, vector, list, string, map, …).
+    `contains?` on sequential values tests indexes rather than category
+    membership, so accepting those values would silently disable retries.
 
   - MEMBERSHIP: a set `:on` carrying a non-retryable `:rf.http/*` category
     (`:rf.http/aborted`, `:rf.http/decode-failure`,
@@ -111,9 +97,9 @@
 (defn validate-url!
   "Per Spec 014 §Request envelope `:url` is the only REQUIRED key in the
   request envelope; per Spec 009 §Error catalogue a missing/blank `:url`
-  surfaces as `:rf.error/http-bad-request` (rf2-93bck).
+  surfaces as `:rf.error/http-bad-request`.
 
-  Public (rf2-azrcs) so the canned-stub override target
+  Public so the canned-stub override target
   (`http-test-support`'s route-map stub) validates
   the FINAL post-`:before` url with the same canonical error the real
   `:rf.http/managed` handler emits — a `:before` that blanks the url must
@@ -123,13 +109,7 @@
   because a `:before` interceptor may legitimately SET the url (e.g. a
   base-URL-prefix interceptor). Throwing here — at the dispatch site —
   rather than letting a nil url fall through to the transport gives a
-  clear at-source error: without this guard a nil url surfaces as an
-  opaque `:rf.http/transport` failure (JVM `(URI/create nil)` NPE / CLJS
-  `(js/fetch nil)` vendor error), inconsistent with the rest of the
-  surface, which DOES validate shape at dispatch (`validate-retry!` →
-  `:rf.error/http-bad-retry-on`; `build-reply-event` →
-  `:rf.error/http-bad-reply-target`). The required field had weaker
-  guarding than the optional ones.
+  clear at-source error instead of a host-specific transport exception.
 
   A non-blank string passes; anything else (nil, non-string, or a
   blank/whitespace-only string) throws."

@@ -1,12 +1,6 @@
 (ns re-frame.http-transport-security-test
-  "Unit tests for `re-frame.http.transport` security-relevant guards.
-
-  Beads:
-   - rf2-9lun0 — invalid headers surface as `:rf.warning/http-header-invalid`
-                 trace events rather than being silently dropped.
-   - rf2-it1cd — the JVM request builder honours the args-map timeout-ms
-                 (defaulted to 30000 at the handler) so the JDK
-                 HttpClient applies a wall-clock read timeout."
+  "Security-relevant JVM transport guards: invalid-header warnings,
+  privacy composition, timeout application, and host degradation."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.http.handlers]
             [re-frame.http.privacy :as privacy]
@@ -18,11 +12,8 @@
            [java.time Duration]
            [java.util Optional]))
 
-;; rf2-hp772l — the JVM platform transport (request building, client
-;; memoisation, classification, CLJS-only-key degradation tracing) lives
-;; in the per-platform adapter ns `re-frame.http.transport-jvm`. The
-;; public seams are reached directly; the genuinely-internal helpers
-;; (`redirect->policy`) via `#'` against that named adapter.
+;; Public seams live in the JVM adapter; tests reach genuinely private helpers
+;; there with `#'` rather than widening production API.
 (def ^:private jvm-build-request
   re-frame.http.transport-jvm/jvm-build-request)
 
@@ -35,7 +26,7 @@
       (finally
         (trace/unregister-listener! cb-id)))))
 
-;; ---- rf2-9lun0 — header validation surfaces a trace ----------------------
+;; ---- header validation surfaces a trace ----------------------------------
 
 (deftest invalid-header-value-emits-warning-not-silent-drop
   (testing "rf2-9lun0 — a stray \\r in a header value fires

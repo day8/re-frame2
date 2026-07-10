@@ -1,23 +1,13 @@
 (ns re-frame.http-url-percent-encoded-redaction-cljs-test
-  "rf2-065xo finding 2 — percent-encoded query-param NAMES must be
-  redacted (Spec 014 §Privacy). Cross-host `*-cljs-test.cljc` so BOTH
+  "Percent-encoded query-param names must still match privacy policy.
+
+  This is a cross-host `*-cljs-test.cljc` so both
   cognitect.test-runner (JVM `clojure -M:test`) and shadow-cljs
   (`npm run test:cljs`, `cljs-test$` ns-regexp) discover it — the
   percent-decode-for-comparison logic is reader-conditional
   (`java.net.URLDecoder` on JVM, `js/decodeURIComponent` on CLJS) and is
-  host-symmetric by design, so one source asserted on both runtimes is
-  the right shape.
-
-  Defect (closed by this test): `redact-query-param` compared the RAW
-  query-param name to the denylist, so a percent-encoded denylisted name
-  — `api%5Fkey` (= `api_key`), `%61ccess_token` (= `access_token`), an
-  app-declared `shop%5Ftoken` (= `shop_token`) — read as a
-  non-sensitive raw string and leaked its VALUE into `:rf.http/*` trace
-  events unless the whole request was marked `:sensitive?`. Encoded auth
-  tokens reached logs/tooling — squarely the AI/MCP + logs/traces
-  threat model.
-
-  Fix: the redactor consults `sensitive-query-param-name?`, which
+  host-symmetric by design. The redactor consults
+  `sensitive-query-param-name?`, which
   compares both the RAW spelling AND the percent-DECODED spelling
   (case-insensitively). Decode is comparison-only — the rebuilt URL
   preserves the original raw param spelling; only the value becomes
@@ -28,10 +18,8 @@
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.http.url :as url]))
 
-;; rf2-ppkh3v — app-specific carriers moved to FRAME policy (EP-0015 §3);
-;; the process-global `clear-sensitive-query-params!` fixture is gone. The
-;; frame-extension cases below pass the carrier set explicitly as the
-;; `frame-extras` arg, so no per-test cleanup is needed.
+;; App-specific carrier policy is passed explicitly to this leaf API, so no
+;; registration or process cleanup is needed here.
 
 ;; ---------------------------------------------------------------------------
 ;; sensitive-query-param-name? — raw + percent-decoded comparison
@@ -49,14 +37,14 @@
     (is (url/sensitive-query-param-name? "access_token"))))
 
 (deftest encoded-frame-extra-denylist-name-matches
-  (testing "rf2-065xo / rf2-ppkh3v — a frame-declared carrier name matches when percent-encoded"
+  (testing "a registration-declared carrier name matches when percent-encoded"
     (let [extras #{"shop_token"}]
       ;; shop%5Ftoken decodes to shop_token.
       (is (url/sensitive-query-param-name? "shop%5Ftoken" extras))
       (is (url/sensitive-query-param-name? "shop_token" extras))
-      ;; absent frame-extras → the frame carrier no longer matches (decoded or raw)
+      ;; Without extensions the app carrier no longer matches.
       (is (not (url/sensitive-query-param-name? "shop%5Ftoken"))
-          "without frame-extras the frame carrier does not match")
+          "without extensions the app carrier does not match")
       ;; defaults are immutable — they match regardless of frame-extras.
       (is (url/sensitive-query-param-name? "api%5Fkey")))))
 
@@ -111,7 +99,7 @@
       (is (true? any?)))))
 
 (deftest redact-url-encoded-frame-extra-name-value-redacted
-  (testing "rf2-065xo / rf2-ppkh3v — a frame-declared carrier name, percent-encoded, has its value redacted"
+  (testing "a registration-declared carrier name, percent-encoded, has its value redacted"
     (let [extras #{"shop_token"}
           [redacted any?] (url/redact-url-query-string
                             "https://api.example.com/x?shop%5Ftoken=SECRET&page=2"

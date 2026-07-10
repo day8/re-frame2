@@ -21,14 +21,10 @@
             [re-frame.http.managed :as http-managed]
             [re-frame.http.registry :as registry]
             [re-frame.late-bind :as late-bind]
-            ;; rf2-cdmle — the canned-stub fxs no longer register at
-            ;; `re-frame.http.managed` load time. This test file uses
+            ;; This suite uses
             ;; `:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}`
             ;; throughout, so it opts in by requiring the test-support ns.
-            ;; Loading registers `:rf.http/managed-canned-success` and
-            ;; `:rf.http/managed-canned-failure` against the same handler
-            ;; bodies the earlier `(when interop/debug-enabled? ...)` gate
-            ;; wired up.
+            ;; Requiring test support registers both canned effect ids.
             [re-frame.http.test-support]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
@@ -45,24 +41,20 @@
   (flows/reset-flows!)
   (schemas/clear-schemas-by-frame!)
   (rf/init! plain-atom/adapter)
-  ;; EP-0002 (rf2-nn0jqa): `init!` no longer synthesises `:rf/default`,
-  ;; and the managed-HTTP / machine / routing fxs now require a carried
-  ;; frame stamp. This suite exercises the ambient dispatch path against
-  ;; a single conventional app frame, so register `:rf/default` explicitly
-  ;; and pin it as the established scope for the whole body via with-frame.
+  ;; The suite uses one explicit default frame for ambient dispatch.
   (frame/ensure-default-frame!)
   (require 're-frame.routing :reload)
   (require 're-frame.ssr     :reload)
   (require 're-frame.machines :reload)
   (require 're-frame.http.managed :reload)
-  ;; rf2-cdmle — clear-all! above wipes the canned-stub fx registrations
+  ;; `clear-all!` above wipes the canned-stub fx registrations
   ;; that re-frame.http.test-support put into the registrar at first
   ;; load. Reload the test-support ns so its registration body fires
   ;; again for the next test (mirrors the http-managed reload above).
   (require 're-frame.http.test-support :reload)
   ((requiring-resolve 're-frame.machines/reset-timers!))
   (http-managed/clear-all-in-flight!)
-  ;; rf2-r5m22 — the per-frame HTTP interceptor chain lives in a separate
+  ;; The per-frame HTTP interceptor chain lives in a separate
   ;; registry (internal to `re-frame.http.middleware`; observe via
   ;; `http-managed/interceptors-snapshot`), NOT the registrar `clear-all!`
   ;; wipes above. Tests that register `:before` / `:after` interceptors

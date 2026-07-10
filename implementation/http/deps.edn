@@ -1,64 +1,28 @@
-;; day8/re-frame2-http — http artefact (rf2-5kpd,
-;; fifth per-feature split per rf2-5vjj Strategy B).
+;; day8/re-frame2-http — optional managed-HTTP artefact.
 ;;
-;; Per Spec 014 the managed-HTTP surface (`:rf.http/managed`,
-;; `:rf.http/managed-abort`, the in-flight request registry, the Fetch /
-;; `java.net.http.HttpClient` transport adapters, the encode / decode
-;; pipeline, the retry-with-backoff machinery, and the eight-category
-;; `:rf.http/*` failure taxonomy) ships as a separate Maven artefact so
-;; apps that don't issue any managed-HTTP requests don't drag the
-;; namespace, the transport adapters, or any of the `:rf.http/*` trace
-;; strings onto the classpath.
+;; Spec 014's request handlers, registries, transports, codecs, retry loop,
+;; and failure vocabulary ship separately from core. Apps that do not require
+;; this artefact do not carry that code or its `:rf.http/*` trace keywords.
 ;;
-;; Test surfaces — both the canned-stub fxs
-;; (`:rf.http/managed-canned-success`, `:rf.http/managed-canned-failure`)
-;; AND the stub macros (`with-managed-request-stubs` /
-;; `with-managed-request-stubs*` / `install-managed-request-stubs!` /
-;; `uninstall-managed-request-stubs!`) — ship in this same artefact
-;; under the sibling `re-frame.http.test-support` namespace per
-;; rf2-lwmgw (consolidates audit-of-audits #15; the prior split that
-;; left the macros in `re-frame.http.managed` is closed). Production /
-;; SSR code paths MUST NOT `:require` that namespace; tests opt in. See
-;; Spec 014 §Test-support require for the gate rationale.
+;; Canned effects and request-stub helpers live in
+;; `re-frame.http.test-support`. Tests opt into that namespace explicitly;
+;; production and SSR namespaces must not require it.
 ;;
 ;; Consumers add this artefact alongside the core artefact:
 ;;
 ;;   {:deps {day8/re-frame2      {:mvn/version "..."}
 ;;           day8/re-frame2-http {:mvn/version "..."}}}
 ;;
-;; And require `re-frame.http.managed` in any namespace that issues
-;; `:rf.http/managed` requests — loading registers the production-
-;; eligible `:rf.http/*` fxs and publishes the production late-bind
-;; hooks (`:http/clear-all-in-flight!`, `:http/reg-http-interceptor`,
-;; etc.). Tests / dev demos additionally require
-;; `re-frame.http.test-support`, which registers the canned-stub fxs
-;; and publishes the `:http/with-managed-request-stubs*` late-bind hook.
-;; (The raw `install-managed-request-stubs!` /
-;; `uninstall-managed-request-stubs!` pair is NOT a `re-frame.core`
-;; re-export — rf2-ntwwyt — and publishes no late-bind hook; tests call
-;; it directly through `re-frame.http.test-support`.)
+;; Requiring `re-frame.http.managed` registers the production effects and
+;; publishes their late-bind hooks. Requiring `re-frame.http.test-support`
+;; additionally registers canned effects and publishes the scoped-stub hook;
+;; its raw install/uninstall helpers are called through that namespace.
 ;;
-;; Per Spec 006 §Adapter shipping convention (and the
-;; rf2-p7va extension to per-feature splits): this artefact depends on
-;; core; core never depends on this artefact. The cross-references
-;; from core to http (`re-frame.core`'s `with-managed-request-stubs*` /
-;; `with-managed-request-stubs` re-exports; the raw
-;; `install-managed-request-stubs!` / `uninstall-managed-request-stubs!`
-;; pair is NOT re-exported — rf2-ntwwyt — and is reached directly through
-;; `re-frame.http.test-support`) flow through
-;; `re-frame.late-bind` exactly as the schemas / machines / routing /
-;; flows hooks already do.
+;; The dependency arrow is HTTP -> core. Core reaches the optional surface
+;; only through `re-frame.late-bind`; it never depends on this artefact.
 {:paths ["src"]
  :deps  {day8/re-frame2 {:local/root "../core"}
-         ;; rf2-dgsu1 — Cheshire is a hard JVM dependency. Spec 014's
-         ;; managed-HTTP slice issues JSON request bodies and decodes
-         ;; JSON responses; on JVM we use Cheshire for both. Earlier
-         ;; the slice resolved Cheshire via `requiring-resolve` and
-         ;; fell back to a hand-rolled pure-Clojure JSON reader/writer
-         ;; — slow path, no warning, no signal that the operator was
-         ;; running on the fallback indefinitely. Per pre-alpha
-         ;; posture: ship one path, the fast path. CLJS uses the
-         ;; browser `JSON` builtin and ignores this dep.
+         ;; The JVM codec uses Cheshire; CLJS uses the host `JSON` object.
          cheshire/cheshire {:mvn/version "5.13.0"}}
 
  :aliases
@@ -76,19 +40,16 @@
                        day8/re-frame2-flows      {:local/root "../flows"}
                        day8/re-frame2-routing    {:local/root "../routing"}
                        day8/re-frame2-ssr        {:local/root "../ssr"}
-                       ;; rf2-wvkn — cancellation-cascade tests need the
-                       ;; machines artefact at test-time so a :spawn
-                       ;; spawn can drive the abort path. Production builds
-                       ;; do not depend on machines (the artefact graph
-                       ;; is unchanged); machines is test-only here.
+                       ;; Cancellation-cascade tests drive actor destruction;
+                       ;; machines remains a test-only dependency.
                        day8/re-frame2-machines   {:local/root "../machines"}
-                       ;; rf2-try1x — silent-on-success reporter.
+                       ;; Silent-on-success reporter.
                        day8/re-frame2-test-quiet {:local/root "../test-quiet"}
                        io.github.cognitect-labs/test-runner
                        {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
          :main-opts   ["-m" "re-frame.test-quiet.runner"]}
 
-  ;; Clojars deploy (rf2-r382). Modeled on re-frame v1's release flow.
+  ;; Clojars deploy, modeled on the other optional artefacts.
   ;; The release workflow runs `clojure -M:clein deploy` from this
   ;; artefact's directory, which builds pom + jar and pushes to Clojars.
   ;;

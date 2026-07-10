@@ -1,6 +1,6 @@
 (ns re-frame.http-privacy-test
   "Unit tests for `re-frame.http.privacy` and its sibling leaves —
-  Spec 014 §Privacy (rf2-bma05).
+  Spec 014 §Privacy.
 
   Covers:
    - Header denylist (default set, case-insensitive, app-extensible) —
@@ -60,7 +60,7 @@
     (is (not (headers/sensitive-header? "X-Request-Id")))))
 
 (deftest carrier-extras-extend-header-denylist
-  (testing "app-declared header carriers (EP-0025) compose with defaults"
+  (testing "app-declared header carriers compose with defaults"
     (let [extras #{"x-honeycomb-team"}]
       (is (headers/sensitive-header? "X-Honeycomb-Team" extras))
       (is (headers/sensitive-header? "x-honeycomb-team" extras))
