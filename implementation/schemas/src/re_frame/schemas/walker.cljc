@@ -387,39 +387,137 @@
   [schema]
   (not (or (vector? schema) (keyword? schema))))
 
+;; ---- opacity-recursion operator classification ----------------------------
+;;
+;; The opacity walk (`schema-has-opaque-child?` / `opaque-nested-tail?`)
+;; recurses a vector-form schema's REAL child-schema positions to detect a
+;; nested opaque (compiled) value whose per-slot `:sensitive?` flag the
+;; pure-data walker cannot see. A Malli vector form is `[op props? & tail]`,
+;; but the tail is a child SCHEMA only for STRUCTURAL ops. For LITERAL / config
+;; ops the tail is DATA — `[:= 42]` holds the value `42`, `[:enum 1 2]` the
+;; members, `[:> 10]` a comparator bound, `[:re "x"]` a pattern, `[:ref ::k]`
+;; a reference — and the scalar primitives (`:int`, `:string`, …) carry no
+;; child schema at all. Recursing into those data operands is the rf2-3fc89f.12
+;; bug: an ordinary literal (`42`, `"x"`) reaches the opaque `:else` and the
+;; whole schema is false-flagged as carrying an opaque child. So the walk
+;; projects the true child schemas per operator instead of treating every tail
+;; element as a child. Classification is structural (no Malli/validator
+;; introspection) and covers the shipped Malli 0.20.1 default registry.
+
+;; Ops whose children are `[head props? child-schema]` ENTRIES — the head is a
+;; map key / dispatch value / branch name (data); only the entry tail is a real
+;; child position. Reuses the walker's `name-bearing-ops` (`:map`) and
+;; `dispatch-bearing-ops` (`:multi` / `:orn` / `:altn`) categories and adds the
+;; named sequence combinators (`:catn` / `:andn`). (`:catn` is entry-shaped for
+;; opacity even though the decl-path walk treats it as position-bearing — here
+;; only the child-schema position matters, which is the entry tail.)
+(def ^:private opacity-entry-ops
+  (into (into name-bearing-ops dispatch-bearing-ops) #{:catn :andn}))
+
+;; Ops whose children are BARE child schemas: homogeneous container element
+;; schemas (`:vector` `:set` `:sequential` `:seqable` `:every`); tuple / cat /
+;; alt / regex-quantifier elements (`:tuple` `:cat` `:alt` `:*` `:+` `:?`
+;; `:repeat`); transparent / combinator children (`:and` `:or` `:not` `:maybe`
+;; `:schema` `:malli.core/schema`); `:map-of` key + value schemas; and function
+;; schemas (`:->` `:=>` `:function`). Every tail element is a real schema
+;; position, so the walk descends each directly.
+(def ^:private opacity-bare-ops
+  #{:and :or :not :maybe
+    :vector :sequential :set :seqable :every
+    :tuple :cat :alt :* :+ :? :repeat
+    :schema :malli.core/schema :map-of
+    :-> :=> :function})
+
+;; Ops whose vector tail is DATA (a comparator bound, `:=` / `:enum` members,
+;; a regex pattern, a predicate fn, a registry reference) or which carry no
+;; child schema at all (scalar primitives). The opacity walk MUST NOT descend
+;; into these — their tails are operands, not child schemas.
+(def ^:private opacity-literal-ops
+  #{:= :not= :enum :< :<= :> :>= :re :fn :ref
+    :any :boolean :double :float :int :keyword :nil
+    :qualified-keyword :qualified-symbol :some :string :symbol :uuid})
+
+(defn- entry-child-schema
+  "Return the child SCHEMA of a Malli entry `[head props? schema]` (a `:map`
+  key entry or a `:multi` / `:orn` / `:altn` / `:andn` / `:catn` branch). The
+  head is data (key / dispatch value / name), so only the tail is a real child
+  position. Returns nil for a tail-less entry (nothing to walk), or a non-entry
+  value unchanged so a malformed opaque child is still inspected (fail-closed)."
+  [entry]
+  (if (and (vector? entry) (>= (count entry) 2))
+    (if (map? (nth entry 1))
+      (nth entry 2 nil)
+      (nth entry 1))
+    entry))
+
+(defn- opacity-child-schemas
+  "Operator-aware projection of the child SCHEMAS a vector-form schema exposes
+  to the opacity walk (see the operator-classification note above). Returns a
+  sequence of child schemas for a known structural op, an empty sequence for a
+  known literal / scalar op (its tail is data), or `::opaque` for an
+  unclassified op — the walk cannot prove that op's tail is not a
+  schema-bearing position, so it fails closed."
+  [schema]
+  (let [op (nth schema 0)]
+    (cond
+      (contains? opacity-literal-ops op) []
+      (contains? opacity-bare-ops op)    (children-of schema)
+      (contains? opacity-entry-ops op)
+      (into [] (comp (map entry-child-schema) (remove nil?))
+            (children-of schema))
+      :else ::opaque)))
+
 (defn- opaque-nested-tail?
-  "Private recursive helper for `schema-has-opaque-child?`. Identical to
-  `schema-opaque?`'s notion of opaque EXCEPT a bare fn or symbol reached
-  as a nested TAIL is NOT opaque here — see `schema-has-opaque-child?`'s
-  docstring for why a bare fn/symbol below the root is provably
-  flag-free. Only ever called on a value already reached by descending
-  through `children-of`, i.e. never on the caller's original root
-  argument — see `schema-has-opaque-child?` for the root/nested split."
+  "Private recursive helper for `schema-has-opaque-child?`. True when `schema`
+  — a value reached by descending into a real child-schema position — is an
+  opaque compiled value, OR a vector-form schema that (operator-awarely)
+  contains an opaque descendant, OR an unclassified operator shape (fail
+  closed). A bare keyword / fn / symbol reached here is NOT opaque: it is a
+  primitive schema or a predicate shorthand that provably carries no per-slot
+  props (the enclosing entry is the only place a flag could live, and the walk
+  inspects that entry before its tail). Literal / config operands (`:=` value,
+  `:enum` members, comparator bounds, `:re` pattern, `:ref` target) are DATA,
+  not child schemas, so the projection never descends into them. Only ever
+  called on a descended value, never on the caller's original root argument —
+  see `schema-has-opaque-child?` for the root/nested split."
   [schema]
   (cond
     (keyword? schema) false
     (fn? schema) false
     (symbol? schema) false
     (and (vector? schema) (pos? (count schema)))
-    (boolean (some opaque-nested-tail? (children-of schema)))
+    (let [children (opacity-child-schemas schema)]
+      (if (= ::opaque children)
+        true
+        (boolean (some opaque-nested-tail? children))))
     :else true))
 
 (defn schema-has-opaque-child?
-  "True when the root is opaque or a vector-form schema contains an opaque
-  descendant at any depth. Redaction and registration warnings use this
+  "True when the root is opaque, or a vector-form schema contains an opaque
+  descendant in a real child-schema position at any depth, or the root is an
+  unclassified operator shape. Redaction and registration warnings use this
   recursive predicate so a compiled child cannot hide inside a walkable root.
 
-  Root functions and symbols are opaque and fail closed. The same values used
-  as nested schema tails are considered flag-free because their enclosing
-  entry is the only place slot props can occur, and the walker inspects that
-  entry before its tail. Treating ordinary predicate tails as opaque would
-  conservatively redact every schema that uses Malli's predicate shorthand.
+  The recursion is OPERATOR-AWARE (rf2-3fc89f.12): it descends only the true
+  child-schema positions of each Malli operator. Literal / config operands
+  (`:=` value, `:enum` members, `:re` pattern, comparator bounds, `:ref`
+  target, scalar primitives) are DATA, not child schemas, so they are NOT
+  recursed into — an ordinary `[:= 42]` / `[:enum 1 2]` is fully walkable and
+  NOT opaque. An actual compiled value in a real schema position (a `:map`
+  slot's tail, a container element, a `:map-of` key/value, a `:cat`/`:tuple`
+  element, a `:multi`/`:orn` branch, …) still fails closed, as does a genuinely
+  unknown operator shape.
+
+  Root functions and symbols are opaque and fail closed (via `schema-opaque?`).
+  The same values used as nested schema tails are considered flag-free because
+  their enclosing entry is the only place slot props can occur, and the walker
+  inspects that entry before its tail.
 
   Returns boolean. Pure."
   [schema]
   (or (schema-opaque? schema)
       (and (vector? schema) (pos? (count schema))
-           (boolean (some opaque-nested-tail? (children-of schema))))))
+           (opaque-nested-tail? schema))))
 
 (defn- prefix?
   "True when `prefix` is a prefix of `path` (or equal). Both are
