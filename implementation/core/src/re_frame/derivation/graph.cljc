@@ -64,7 +64,8 @@
   relocation seam): the graph is assembled from the per-family algebra
   views, which are themselves assembled from registration metadata, NOT
   (yet) from an EP-0013 app value."
-  (:require [re-frame.subs.tooling :as subs-tooling]))
+  (:require [re-frame.subs.tooling :as subs-tooling]
+            [re-frame.identity :as identity]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -628,11 +629,28 @@
 
 (defn- graph-edges
   "Every edge across the assembled `nodes` map, in `mode` (`:static` /
-  `:live`). Composes the common per-node `:input` edges (every family) with
-  each present family's `:edge-fn` extra edges (routes → `:param`
-  resource-activation + live realized owner edges; machines → `:selector`
-  edges), de-duplicated. `selector-targets` is threaded into the context
-  for the machine `:edge-fn`."
+  `:live`), in a CANONICAL total order. Composes the common per-node
+  `:input` edges (every family) with each present family's `:edge-fn` extra
+  edges (routes → `:param` resource-activation + live realized owner edges;
+  machines → `:selector` edges), de-duplicated. `selector-targets` is
+  threaded into the context for the machine `:edge-fn`.
+
+  DETERMINISTIC EDGE ORDER (rf2-3fc89f.1). The unsorted `input`/`extra`
+  concatenation inherits `nodes`-map iteration order and each `:edge-fn`'s
+  scan order, so logically identical graphs assembled under different
+  registration / projection insertion orders would emit edge PERMUTATIONS —
+  breaking the normative deterministic-assembly promise ([Derivations.md]
+  §Graph inspection) and any caller that serializes / diffs / hashes /
+  snapshots the explicitly vector-valued `:edges`. We therefore sort the
+  de-duplicated collection by `identity/canonical-bytes` of each COMPLETE
+  edge map: the CEDN-1 token string is a platform-stable TOTAL key (identical
+  on CLJ and CLJS, unlike host `hash`/`compare` over heterogeneous node
+  ids), and it is order-insensitive over each edge map's own keys (so it does
+  not itself depend on edge-map spelling — unlike `pr-str`). Sorting AFTER
+  `distinct` keeps duplicate-suppression semantics and every edge map's
+  contents / identity unchanged; we reorder the collection, never rewrite an
+  edge. (`:nodes` needs no such treatment — it is a map, already
+  order-insensitive under value equality.)"
   [mode nodes contributors selector-targets]
   (let [node-ids (keys nodes)
         ctx      {:mode mode :nodes nodes :node-ids node-ids
@@ -651,6 +669,7 @@
                   (present-families contributors))]
     (->> (concat input extra)
          distinct
+         (sort-by identity/canonical-bytes)
          vec)))
 
 ;; ---------------------------------------------------------------------------
