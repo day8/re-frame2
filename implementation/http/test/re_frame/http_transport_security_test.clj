@@ -429,7 +429,7 @@
             (let [ctx     {:request-id :rid
                            :url        "https://api.example.invalid/v1?api_key=SECRET&page=2"
                            :origin-event [:some/event]
-                           :explicit-on-failure {:supplied? false :value nil}}
+                           :explicit-on-failure {:supplied? true :value [:some/event]}}
                   failure {:kind :rf.http/aborted :request-id :rid :reason :user}]
               (emit-and-dispatch-failure! ctx failure)
               ;; (a) emit fired with the failure kind, URL redacted.
@@ -443,7 +443,7 @@
               ;; (b) the reply dispatched (non-supersede → not suppressed).
               (is (= 1 (count @dispatched))
                   "a non-supersede failure dispatches exactly one reply")
-              (is (= :cancelled (-> @dispatched first first (nth 1) :rf/reply :status))
+              (is (= :cancelled (-> @dispatched first first (nth 1) :status))
                   "the dispatched reply is the canonical :status :cancelled (abort) envelope"))))))))
 
 (deftest emit-and-dispatch-failure-suppresses-supersede-dispatch

@@ -12,11 +12,11 @@
        `:completed-at` from the reply token. Timeout → `:status :error` +
        `:rf.reply/work-status :timed-out`; abort → `:status :cancelled` with an
        `:rf.http/aborted` `:error`.
-    2. CANONICAL delivery — `:on-success` / `:on-failure` are pure routing
-       sugar and the co-located `(:rf/reply msg)` merge both deliver the
-       ONE canonical reply envelope verbatim (`{:status :ok :value v …}` /
-       `{:status :error :error f …}`, rf2-ibksxg) — there is no
-       `{:kind :success/:failure}` public reshape.
+    2. CANONICAL delivery — the unified `:reply-to` and the `:on-success` /
+       `:on-failure` split sugar all deliver the ONE canonical reply
+       envelope verbatim (`{:status :ok :value v …}` / `{:status :error
+       :error f …}`, rf2-ibksxg) — there is no `{:kind :success/:failure}`
+       public reshape.
     3. SUPERSESSION — a same-`:request-id` supersede suppresses the prior
        request's app reply target (the supersede semantic is trace-only).
 
@@ -235,20 +235,21 @@
 ;; transport (rf2-ibksxg — one dialect, no reshape).
 ;; ===========================================================================
 
-(deftest real-transport-default-reply-delivers-canonical-envelope
-  (testing "co-located (:rf/reply msg) default receives the canonical {:status :ok :value v …} envelope"
+(deftest real-transport-reply-to-delivers-canonical-envelope
+  (testing "unified :reply-to receives the canonical {:status :ok :value v …} envelope (appended last arg)"
     (let [srv (start-server!
                 (fn [^HttpExchange ex]
                   (write-response! ex 200 "application/json"
                                    "{\"title\":\"hello\",\"id\":42}")))]
       (try
         (rf/reg-event :article/load
-          (fn [{:keys [db]} [_ msg]]
-            (if-let [reply (:rf/reply msg)]
+          (fn [{:keys [db]} [_ msg reply]]
+            (if reply
               {:db (assoc db :reply reply)}
               {:fx [[:rf.http/managed
-                     {:request {:url (str "http://127.0.0.1:" (:port srv) "/a")}
-                      :decode  :json}]]})))
+                     {:request  {:url (str "http://127.0.0.1:" (:port srv) "/a")}
+                      :decode   :json
+                      :reply-to [:article/load msg]}]]})))
         (rf/dispatch-sync [:article/load {}])
         (let [db (await-reply! #(some? (:reply %)))]
           ;; The canonical reply envelope — the ONE dialect delivered to the app.
@@ -400,13 +401,14 @@
       (try
         (trace/register-listener! lid (fn [ev] (swap! traces conj ev)))
         (rf/reg-event :t/load
-          (fn [{:keys [db]} [_ msg]]
-            (if (:rf/reply msg)
+          (fn [{:keys [db]} [_ msg reply]]
+            (if reply
               {:db (assoc db :done true)}
               {:fx [[:rf.http/managed
                      {:request    {:url (str "http://127.0.0.1:" (:port srv) "/t")}
                       :request-id :t/load
-                      :decode     :json}]]})))
+                      :decode     :json
+                      :reply-to   [:t/load msg]}]]})))
         (rf/dispatch-sync [:t/load {}])
         (await-reply! #(:done %))
         (let [replied (filter #(= :rf.http/replied (:operation %)) @traces)]

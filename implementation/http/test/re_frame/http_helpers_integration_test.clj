@@ -76,7 +76,7 @@
           (case (:status reply)
             :ok    {:db (assoc db :items (:value reply))}
             :error {:db (assoc db :error (:error reply))})
-          {:fx [(rf.http/get "/api/items" {:decode :json})]})))
+          {:fx [(rf.http/get "/api/items" {:decode :json :reply-to [:items/load msg]})]})))
     (rf/dispatch-sync [:items/load {}]
                       {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
     (let [db (await-reply! #(some? (:items %)))]
@@ -125,7 +125,7 @@
     ;; This is a pure-fn assertion that supplements the integration tests above
     ;; (the request-id end-to-end behaviour is covered by http-managed-test).
     (is (= [:rf.http/managed
-            {:reply-to [:items/load msg] :request    {:method :put
+            {:request    {:method :put
                           :url    "/api/items/42"
                           :body   {:title "updated"}
                           :request-content-type :json}
@@ -135,15 +135,15 @@
                                       :request-content-type :json}
                          :request-id [:item :update 42]})))))
 
-;; ---- 5. (rf.http/get url) — minimal form, default reply addressing --------
+;; ---- 5. (rf.http/get url args) — minimal form, unified :reply-to ----------
 
-(deftest helper-get-minimal-default-reply-addressing
-  (testing "(rf.http/get url) — no extra args; reply lands back at originating handler"
+(deftest helper-get-minimal-reply-to
+  (testing "(rf.http/get url {:reply-to …}) — the reply lands back at the originating handler"
     (rf/reg-event :ping
       (fn [{:keys [db]} [_ msg reply]]
         (if reply
           {:db (assoc db :pong (:value reply))}
-          {:fx [(rf.http/get "/api/ping")]})))
+          {:fx [(rf.http/get "/api/ping" {:reply-to [:ping msg]})]})))
     (rf/dispatch-sync [:ping]
                       {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
     (let [db (await-reply! #(some? (:pong %)))]
@@ -157,7 +157,7 @@
                  :max-attempts 4
                  :backoff      {:base-ms 200 :factor 2 :max-ms 2000 :jitter true}}]
       (is (= [:rf.http/managed
-              {:reply-to [:ping msg] :request {:method :get :url "/api/items"}
+              {:request {:method :get :url "/api/items"}
                :retry   retry
                :decode  :json}]
              (rf.http/get "/api/items" {:retry retry :decode :json}))))))
