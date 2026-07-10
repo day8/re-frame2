@@ -5,12 +5,9 @@
 
   `reg-machine` / `reg-machine*` keep a bespoke shape (they share the
   `:where`-symbol parameter via `reg-machine-impl` so the macro and the
-  plain-fn surface raise with their own faithful `:where` symbol). (The
-  `dispatch-to-system` FN was demoted off the facade and relocated to
-  `re-frame.machines` — rf2-gkt25a / rf2-80mmlf. The `machine-has-tag?` /
-  `sub-machine` subscription-sugar fns were removed — rf2-il99l3, reversing
-  rf2-2cmcas — leaving the `[:rf.machine/has-tag? …]` / `[:rf/machine …]`
-  subscription vectors as the one machine-read grammar.)"
+  plain-fn surface raise with their own faithful `:where` symbol). Machine
+  reads use the `[:rf.machine/has-tag? …]` and `[:rf/machine …]`
+  subscription vectors."
   (:require [re-frame.core-artefact #?@(:clj  [:refer        [defwrapper]]
                                         :cljs [:refer-macros [defwrapper]])]
             [re-frame.interop :as interop]
@@ -61,8 +58,8 @@
   Pass the public opts form `(machine-by-system-id system-id {:frame
   target})` to name a frame explicitly (async callbacks / tools /
   cross-frame lookups); `target` is a frame-id keyword or a live frame
-  value. Per rf2-f28bno the 2-arity is SHAPE-DISCRIMINATED on the second
-  arg (mirroring `subscribe`'s frame-first arity): an opts map ⇒ the public
+  value. The 2-arity is shape-discriminated on the second arg, mirroring
+  `subscribe`'s trailing opts-map form: an opts map ⇒ the public
   form; a bare frame target ⇒ the internal frame-last plumbing.
 
   Per Spec 005 §Named addressing via :system-id + Spec 002 §Resolver
@@ -209,18 +206,4 @@
    (reg-machine-impl 'rf/reg-machine machine-id machine))
   ([machine-id opts machine]
    (reg-machine-impl 'rf/reg-machine machine-id opts machine)))
-
-;; ---- dispatch-to-system relocation note ----------------------------------
-;;
-;; The `dispatch-to-system` FN was DEMOTED off the `re-frame.core` facade
-;; (rf2-gkt25a / rf2-80mmlf — exactly one in-repo caller) and RELOCATED to
-;; `re-frame.machines` (the optional machines artefact ns) as an
-;; implementation-tier helper. The canonical action-side surface is the
-;; reserved `[:rf.machine/dispatch-to-system [system-id event]]` fx tuple.
-;;
-;; The `machine-has-tag?` / `sub-machine` subscription-sugar fns that once
-;; lived here were REMOVED (rf2-il99l3, reversing rf2-2cmcas). A machine read
-;; is a subscription VECTOR — `(subscribe [:rf.machine/has-tag? machine-id
-;; tag])` / `(subscribe [:rf/machine machine-id])` — one read grammar; the
-;; `{:frame …}` target is carried by `subscribe`'s own frame-first arity.
 

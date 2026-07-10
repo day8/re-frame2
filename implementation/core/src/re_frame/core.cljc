@@ -789,21 +789,9 @@
 
 ;; ---- frame management ----------------------------------------------------
 
-;; EP-0024 (rf2-tu2vr7): `rf/make-frame` is the ONE public frame constructor.
-;; It backs onto `re-frame.live-frame/make-frame` — the unified constructor over
-;; the ONE `frames` registry — which accepts BOTH image-selection opts
-;; (`:images` / `:id` / `:adapter`) AND
-;; record-config opts (`:initial-events` / `:fx-overrides` / `:platform` / `:ssr` /
-;; `:doc` / `:preset` / `:tags` / …) in ONE call, and returns the frame VALUE.
-;;
-;; EP-0024 adopts the previously-deferred option-(a) and REVERSES the
-;; rf2-32siq3.45 option-(b) fail-loud redirect (the
-;; `:rf.error/make-frame-record-only-key` guard that rejected record-config keys
-;; on the object constructor): the unified single frame value backed by the one
-;; registry removes the two-constructor split that motivated the redirect, so a
-;; record-config key is now honoured, not rejected. The advanced
-;; `re-frame.frame/make-anon-frame-record!` is demoted to an INTERNAL no-`:id` record helper —
-;; it is not facade-exported (`rf/make-frame` is the public path).
+;; `rf/make-frame` is the one public constructor. It accepts image-selection
+;; options and record configuration in the same map, registers id-bearing
+;; frames in the shared frame registry, and returns the live frame value.
 
 (defn make-frame
   "Create a live frame and return the frame VALUE — the ONE public constructor
@@ -829,8 +817,7 @@
                    policy). This IS re-construction — the Clojure re-def model
                    (there is no `redef!` / `reset-def!` / `reload-def!`): image
                    hot-reload is re-`make-frame`-ing the SAME `:id` with a NEW
-                   `:images` vector (rf2-lxwpob folded the dedicated
-                   `reload-images!` verb into this — diff the swap by reading
+                   `:images` vector. Diff the swap by reading
                    `frame-generation` before/after and comparing with
                    `generation-diff`). When ABSENT, the frame is LOCAL-ONLY —
                    keep the returned value and pass it (or its id) to
@@ -847,8 +834,7 @@
   app-db with `[[:rf/set-db {…}]]`; EP-0027), `:fx-overrides`, `:platform`,
   `:ssr`, `:doc`, `:preset`, `:tags`, the EP-0015 classification keys, etc. So
   `(rf/make-frame {:id :todo/left :images [todo-image] :fx-overrides {...}})`
-  configures the frame in one call (EP-0024 adopts option-(a) and reverses the
-  rf2-32siq3.45 option-(b) record-only-key fail-loud redirect).
+  configures the frame in one call.
 
   Returns the frame VALUE — the live lifecycle token (its representation is not
   an app-facing data contract). The frame is fully runnable: `dispatch` /
@@ -966,16 +952,12 @@
 
 ;; ---- dispatch and subscribe ----------------------------------------------
 ;;
-;; Each surface ships as a JVM-only macro (`dispatch` / `dispatch-sync` /
-;; `subscribe`, captures call-site coords) whose expansion reaches straight
-;; through to the OWNING ns fn (`re-frame.router/dispatch!` /
-;; `-dispatch-sync!`, `re-frame.subs/subscribe`) — Convention A (rf2-m90brg):
-;; on CLJS the SAME base name also carries a same-name `def`-alias to that
-;; owning fn (above, in the `#?(:cljs (do ...))` block) for HoF / programmatic
-;; callers, mirroring `reg-event` / `reg-sub` / etc. There is no `*`-suffixed
-;; twin — a with-redefs stub reaches `re-frame.router/dispatch!` /
-;; `-dispatch-sync!` / `re-frame.subs/subscribe` directly (the macro
-;; expansion's actual call target), not a `re-frame.core` indirection.
+;; Each surface has a JVM macro that captures call-site coordinates and a CLJS
+;; value alias for higher-order/programmatic calls. Macro expansions target
+;; the stable `^:no-doc` `dispatch-impl`, `dispatch-sync-impl`, or
+;; `subscribe-impl` alias. Those aliases point at the owning router/subs fn but
+;; prevent CLJS fixed-arity metadata from making differently shaped
+;; `with-redefs` test seams unsafe. There is no public `*`-suffixed twin.
 
 ;; API-shrink #1 (rf2-csbbwu): frame targeting is exactly THREE intents —
 ;; ambient SCOPE (no `:frame` opt; reads the carried `with-frame` /
@@ -1373,22 +1355,10 @@
 
 ;; ---- routing helpers ------------------------------------------------------
 ;;
-;; The routing URL-codec + lifecycle QUERY helpers `match-url` / `route-url`
-;; / `current-url` / `clear-route` are NO LONGER re-exported from
-;; `re-frame.core` (rf2-wad2fl — front-porch shrink). They are optional-
-;; routing-feature reads whose owned namespace is the better public home:
-;; reach them through `re-frame.routing` (which already publishes them). The
-;; `reg-route` REGISTRATION MACRO stays on the façade (above; source-coord
-;; capture, no owned-ns macro form). `route-link` (the view) stays on the
-;; façade for now — it has no classified owned-namespace peer (the routing-ns
-;; form is CLJS-only and unrowed).
-;;
-;; rf2-g8pbwg: the `install-url-listener!` / `remove-url-listener!` /
-;; `install-history-listener!` / `remove-history-listener!` boot seams are
-;; GONE from this façade (and from `re-frame.routing`'s) — a `:url-bound?
-;; true` frame installs its strategy listener on create and removes it on
-;; destroy, automatically. Pre-alpha, no back-compat shim; see
-;; `re-frame.routing.history`'s ns docstring THE FOLD note.
+;; `reg-route` remains on the facade for macro-time source-coordinate capture;
+;; `route-link` is its view counterpart. URL codec and lifecycle queries live
+;; in `re-frame.routing`. A `:url-bound? true` frame owns its strategy listener:
+;; construction installs it and frame destruction removes it.
 
 (def ^{:doc "Registered view at `:route/link` — renders an `<a href=...>`
   from a route-id and intercepts plain primary-button clicks to dispatch
@@ -1399,26 +1369,11 @@
 
 ;; ---- machine helpers ------------------------------------------------------
 ;;
-;; The machine REGISTRATION (`reg-machine*` plain fn), HANDLER-BUILD
-;; (`make-machine-handler`), pure-engine (`machine-transition`), and QUERY
-;; (`machines`, `machine-meta`, `machine-by-system-id`) helpers are NO LONGER
-;; re-exported from `re-frame.core` (rf2-wad2fl — front-porch shrink). They
-;; are optional-machines-feature surfaces whose owned namespace is the better
-;; public home: reach them through `re-frame.machines` (which already
-;; publishes them). The `reg-machine` / `defmachine` REGISTRATION MACROS stay
-;; on the façade (above; per-element source-coord stamping, no owned-ns macro
-;; form). The `machine-has-tag?` and `sub-machine` subscription-sugar fns
-;; were REMOVED (rf2-il99l3, reversing rf2-2cmcas): a runtime-db framework
-;; read is a subscription VECTOR — `(subscribe [:rf.machine/has-tag?
-;; machine-id tag])` / `(subscribe [:rf/machine machine-id])` — one read
-;; grammar, the same spelling `:<-` chained inputs and the machine-selector
-;; recognizer already require (a sugar fn can never ride inside a `:<-`
-;; vector, so it could only ever duplicate the vector, never replace it).
-;; The `dispatch-to-system` FN is DEMOTED off the façade (rf2-gkt25a /
-;; rf2-80mmlf — exactly one in-repo caller): the canonical action-side
-;; messaging surface is the reserved `[:rf.machine/dispatch-to-system
-;; [system-id event]]` fx tuple; the direct-call FN now lives in
-;; `re-frame.machines` as an implementation-tier helper.
+;; Machine registration macros stay on the facade for source-coordinate
+;; capture. Plain registration, engine, query, and implementation helpers live
+;; in `re-frame.machines`. Machine state reads use subscription vectors; the
+;; canonical action-side named-message surface is the
+;; `[:rf.machine/dispatch-to-system [system-id event]]` effect.
 
 ;; ---- resource helpers (Spec 016) ------------------------------------------
 ;;
@@ -1850,11 +1805,8 @@
   "Return the current `app-db` VALUE (a plain map) for the named frame,
   or `nil` if not registered. Value-form accessor (no deref, no
   container) — pairs with `app-db-container` (the container accessor).
-  Per Spec 002 §The public registrar query API.
-
-  EP-0023 (rf2-32siq3.32): the argument may be a frame-id KEYWORD or a live
-  frame OBJECT (`rf/make-frame`'s return value); an object is normalized to its
-  runnable-id address via `frame/frame-target->id`."
+  Accepts a frame-id keyword or a live frame value; values are normalized to
+  their runnable id. Per Spec 002 §The public registrar query API."
   [frame-id]
   (frame/frame-app-db-value (frame/frame-target->id frame-id)))
 
@@ -1864,39 +1816,21 @@
   unknown / destroyed frame. The full-frame read for SSR / epoch /
   time-travel / Xray.
 
-  EP-0001 (rf2-q4i9ko + rf2-adwcv6): reads the coherent two-partition
-  frame state off the one physical frame-state container. A fresh frame's
-  state is `{:rf.db/app {} :rf.db/runtime {}}`. The runtime-db partition
-  read (retired `runtime-db-value`, rf2-t3lftq — API-shrink #3) is
-  `(:rf.db/runtime (frame-state-value frame-id))`. Per Spec 002 §The
-  two-partition frame contract and API.md `frame-state-value`.
-
-  EP-0023 (rf2-32siq3.32): accepts a frame-id keyword or a live frame object."
+  Reads both partitions from the one physical frame-state container. A fresh
+  frame's state is `{:rf.db/app {} :rf.db/runtime {}}`; read the runtime-db
+  partition with `(:rf.db/runtime (frame-state-value frame-id))`. Accepts a
+  frame-id keyword or a live frame value. Per Spec 002 §The two-partition
+  frame contract."
   [frame-id]
   (frame/frame-state-value (frame/frame-target->id frame-id)))
-
-;; rf2-t3lftq (API-shrink #3): `snapshot-of` is REMOVED — an empirically
-;; zero-caller convenience over `(get-in (rf/app-db-value frame-id) path)`
-;; (or, under an established `with-frame` scope, `(get-in (rf/app-db-value
-;; (frame/require-current-frame!)) path)`). Pre-alpha — no back-compat alias.
-
-;; rf2-80mmlf: the `sub-topology` / `sub-cache` facade aliases are REMOVED.
-;; They are SUBSCRIPTION-TOOLING surfaces (static dependency-graph + runtime
-;; cache inspection), not app-author front-porch reads — their real callers
-;; are tests / REPLs / dev tooling, which address the owning
-;; `re-frame.subs.tooling` namespace (`sub-topology` / `sub-cache-snapshot`)
-;; directly (production counter bundles DCE the bodies). On JVM the
-;; convenience aliases in `re-frame.subs` (`subs/sub-topology` /
-;; `subs/sub-cache-snapshot`) remain for the legacy `subs/<name>` shape.
 
 ;; The public construction model is `rf/image` — the selected registration-set
 ;; value a frame loads — supplied to `make-frame` via `:images`. A feature
 ;; namespace registers ordinary `reg-*` forms and an image selects them by
-;; `:include-ns` provenance glob, so there is no separate module/app composition
-;; noun. The public model targets a FRAME (a process-local frame id, or a direct
-;; frame object for tests) whose image generation determines registration
-;; resolution; the public hot-reload path is re-`make-frame`-ing an `:id`-bearing
-;; frame target with a new `:images` vector (rf2-lxwpob).
+;; `:select-ns {:include [...] :exclude [...]}` provenance globs, so there is
+;; no separate module/app composition noun. The frame's image generation
+;; determines registration resolution; refresh an id-bearing frame by calling
+;; `make-frame` again with the same `:id` and a new `:images` vector.
 
 ;; ---- interceptors --------------------------------------------------------
 ;;

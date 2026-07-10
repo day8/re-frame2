@@ -5,12 +5,10 @@
 
   One warn-once cache lives here: the non-DOM-root warning (Spec 006
   §Source-coord annotation, documented exemption). When a reg-view'd
-  component returns a non-DOM root (fn/class component or React Fragment)
-  the source-coord walk skips the annotation and emits a one-shot
-  console.warn per id. The `warned-non-dom-roots` defonce holds the
-  per-process set; `make-reset-runtime-fixture` clears it via the chained
-  `:adapter/clear-warn-once-caches!` hook (enrolled through the governance
-  chokepoint `register-warn-once-clear-fn!`, rf2-z79p8)."
+  component returns any non-nil root that cannot carry DOM attributes, the
+  source-coordinate walk skips annotation and emits one console warning per
+  id. `make-reset-runtime-fixture` clears the process-wide cache through the
+  chained `:adapter/clear-warn-once-caches!` hook."
   (:require [re-frame.adapter.context :as adapter-context]
             [re-frame.late-bind :as late-bind]))
 
@@ -32,38 +30,25 @@
 
 (defn warn-non-dom-root!
   "Emit a one-shot warning per id that the reg-view'd component returned
-  a non-DOM root (a fn/class component, or a React Fragment). Pair tools
-  fall back to the registry's `:rf/id`; documented exemption per Spec 006
-  §Source-coord annotation."
+  a non-DOM root. Pair tools fall back to the registry's `:rf/id`;
+  documented exemption per Spec 006 §Source-coord annotation."
   [id head]
   (when-not (contains? @warned-non-dom-roots id)
     (swap! warned-non-dom-roots conj id)
     (when (exists? js/console)
-      ;; Shared builder (rf2-t9s6p6); nil substrate-name = the Reagent
-      ;; hiccup-walk path carries no substrate qualifier, so the message
-      ;; text is byte-identical to the pre-extraction inline string.
+      ;; nil substrate-name marks the Reagent Hiccup-walk path, which carries
+      ;; no substrate qualifier in the shared warning text.
       (.warn js/console
         (adapter-context/non-dom-root-warning id head nil)))))
 
 ;; Enrol the `warned-non-dom-roots` cache into the chained
 ;; `:adapter/clear-warn-once-caches!` hook, via the canonical governance
-;; chokepoint `late-bind/register-warn-once-clear-fn!` (rf2-z79p8). Each
+;; chokepoint `late-bind/register-warn-once-clear-fn!`. Each
 ;; adapter (helix, uix), the slim hiccup interpreter, re-frame.views, and
 ;; this ns contribute a clear-step; `make-reset-runtime-fixture` invokes
 ;; the top of the chain and every contributor's reset runs. The chokepoint
 ;; also records the cache in the warn-once-clear governance registry so the
 ;; governance assertion proves the chain wipes it.
-;;
-;; (The retired `warned-plain-fn-frame-pairs` suppression cache — the
-;; rf2-z79p8 4th straggler — was removed in rf2-k4xous: its warning
-;; `:rf.warning/plain-fn-under-non-default-frame-once` is RETIRED per
-;; EP-0002 (rf2-7yqn39 deleted the emit site, helper, hook, call site and
-;; re-export, superseding it with the always-on `:rf.error/no-frame-context`
-;; error). It was kept SOLELY as a governance test subject; the three live
-;; probe-carrying caches — `warned-non-dom-roots` here, `seen-render-keys`
-;; in re-frame.views, and the spine's per-adapter source-coord cache — still
-;; exercise the arm/fire/assert-empty governance proof, so removing it loses
-;; zero coverage.)
 (late-bind/register-warn-once-clear-fn!
   {:label    :views/warned-non-dom-roots
    :clear-fn clear-warned-non-dom-roots!

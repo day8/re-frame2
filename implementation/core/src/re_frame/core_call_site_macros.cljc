@@ -1,15 +1,13 @@
 (ns re-frame.core-call-site-macros
   "Helpers for the call-site-capturing macros — `dispatch`,
-  `dispatch-sync`, `subscribe`. Each user-facing macro's expansion reaches
-  straight through to its OWNING ns fn — `re-frame.router/dispatch!`,
-  `re-frame.router/dispatch-sync!`, `re-frame.subs/subscribe` — no
-  `re-frame.core` `*`-suffixed twin (rf2-m90brg retired `dispatch*` /
-  `dispatch-sync*` / `subscribe*`; the CLJS same-name `def`-alias in
-  `re-frame.core` — Convention A, per that ns's docstring — covers the HoF /
-  programmatic case). (`->interceptor` / `->interceptor*` is a SEPARATE
-  internal-lowering pair, not part of this call-site-capturing family;
-  `inject-cofx` is REMOVED in EP-0017 — it survives only as a throwing stub
-  macro/fn pair, no longer a call-site-capturing surface.)
+  `dispatch-sync`, and `subscribe`. Each expansion calls a stable `^:no-doc`
+  alias in `re-frame.core`; those aliases point at the owning router or subs
+  function without introducing a second implementation. The alias prevents
+  the CLJS compiler from baking the owner's fixed arities into call sites, so
+  tools can safely replace the seam with a differently shaped test fn.
+
+  `->interceptor` is a separate definition-site-capturing macro. It shares the
+  coordinate and debug-gate machinery but is not part of the dispatch family.
 
   Carved out of `re-frame.core` so the public namespace stays a thin
   facade focused on user-visible Var resolution rather than macro
@@ -63,17 +61,11 @@
 ;; / `*ns*` / `*file*` through; we emit the same gated expansion the
 ;; original inlined `defmacro` body produced.
 
-;; API-shrink #1 (rf2-csbbwu): the 2-arity dispatch surface is `[event-vec
-;; opts]` ONLY — no runtime shape-discrimination, no frame-first sugar. The
-;; stamped path always keeps the 2-arity `(dispatch! event-vec (assoc opts
-;; :rf.trace/call-site cs))` shape (so a `(with-redefs [router/dispatch!
-;; (fn [ev _opts] …)])` tools-test stub reaches every real dispatch, macro or
-;; HoF alike — rf2-m90brg moved this stub target from the retired
-;; `re-frame.core/dispatch*` facade twin to the OWNING ns fn the macro always
-;; called) — the call-site keyword stays a macro-literal, never reaching the
-;; production-reachable owning-ns fn body. The debug-gate stays OUTERMOST so
-;; the whole stamped branch (the `cs` literal) DCEs under `:advanced` +
-;; `goog.DEBUG=false`. `arg1`/`arg2` are the user's two forms verbatim.
+;; The public dispatch shapes are `[event-vec]` and `[event-vec opts]`. The
+;; stamped branch always calls the stable alias with two args, keeping the
+;; call-site keyword literal inside the debug-only macro expansion. The gate
+;; stays outermost so Closure removes the whole stamped branch under
+;; `:advanced` + `goog.DEBUG=false`.
 
 #?(:clj
    (defn- build-stamped-2
@@ -139,34 +131,15 @@
                      `(re-frame.core/subscribe-impl ~arg1))]
        (gate stamped plain))))
 
-;; `build-inject-cofx-form` was retired with `inject-cofx` (EP-0017 slice
-;; A.3): there was no call-site interceptor to build, so the dedicated builder
-;; is gone. rf2-w9xyx1 then removed the `inject-cofx` macro / `inject-cofx*`
-;; fn from the public facade entirely (the migration alarm survives on the
-;; private thrower `re-frame.cofx/inject-cofx`).
-
-;; ---- ->interceptor (definition-site coord capture, rf2-siheh) ------------
+;; ---- ->interceptor definition-site coordinate capture --------------------
 ;;
 ;; `->interceptor` is the only interceptor constructor with a USER
 ;; definition site to jump to (the std interceptor `path` and
 ;; the cofx injector are framework-built; the reg-event handler-wrappers
-;; carry the event's own coord). Before rf2-siheh it was a plain fn, so an
-;; interceptor map carried NO source-coord and the Xray Epoch INTERCEPTOR
-;; row could render no jump-to-source chip (yz57h assumed a coord that
-;; didn't exist — `handler-meta :interceptor` resolves nothing, interceptors
-;; not being a registrar kind).
-;;
-;; The fix mirrors the (historical) macro / `*`-fn pair pattern this facade
-;; used across `dispatch` / `subscribe` before rf2-m90brg retired those
-;; twins: `->interceptor` becomes a macro that captures `(meta &form)` →
-;; `:source-coord` (riding the SAME `coords-form` / `prod-coords-form`
-;; absolutise path — rf2-wvsxg — as every other reg-* / call-site coord)
-;; and bakes it into the `:source-coord` kwarg of `->interceptor*`. The
-;; coord then rides the interceptor map, the chain runner's error-record,
-;; and the `:rf.error/interceptor-exception` trace, so the Epoch row gets
-;; parity with EVENT HANDLER / SUBSCRIPTIONS / VIEWS. Unlike a registrar
-;; lookup, the coord stays bound to the exact interceptor instance that
-;; threw.
+;; carry the event's own coord). The macro captures `(meta &form)` and bakes
+;; the result into `->interceptor*`'s `:source-coord` kwarg. The coordinate
+;; stays on the exact interceptor instance through chain errors and
+;; `:rf.error/interceptor-exception`; it is not resolved through the registrar.
 ;;
 ;; The gate is OUTERMOST so the whole `:source-coord` literal DCEs under
 ;; `:advanced` + `goog.DEBUG=false`: the prod branch omits the kwarg
@@ -180,7 +153,7 @@
      gated `(if interop/debug-enabled? <with-coord> <plain>)` around
      `re-frame.core/->interceptor*` — the dev branch splices the
      captured `:source-coord` kwarg in, the prod branch is the bare
-     fn-call so the coord literal DCEs. Per rf2-siheh."
+     fn-call so the coord literal DCEs."
      [form-meta ns-sym file kwargs]
      (let [cs-form (call-site-form form-meta ns-sym file)
            stamped `(re-frame.core/->interceptor* ~@kwargs :source-coord ~cs-form)
