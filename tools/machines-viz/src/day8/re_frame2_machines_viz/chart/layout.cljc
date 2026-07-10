@@ -1381,6 +1381,48 @@
     (-> (attach-cofx-requires definition graph)
         wrap-in-root-container)))
 
+(defn synthetic-node?
+  "True when `node` is synthetic layout chrome rather than an occupiable
+  state: a parallel-region container (`:region?`), the ROOT-CONTAINER frame
+  (`:root-container?` — the named box wrapping the whole machine), a
+  MACHINE-ROOT / PARALLEL-ROOT anchor chip (`:machine-root?` /
+  `:parallel-root?` — minted for a machine-level / parallel-root `:on` /
+  `:after` / `:on-done` fallback), or a `:history?` pseudo-state (Spec 005
+  history states are NEVER occupiable). These are excluded from the semantic
+  STATE count — the count of states an operator reasons about — so the count
+  matches what the chart paints, not the raw projected-node total. Pure."
+  [node]
+  (boolean (or (:region? node) (:root-container? node)
+               (:machine-root? node) (:parallel-root? node)
+               (:history? node))))
+
+(defn semantic-counts
+  "Semantic topology counts for a projected graph (`project-definition`
+  output): the occupiable STATE count, the TRANSITION count, and the
+  parallel REGION count. The state count EXCLUDES synthetic layout chrome
+  (`synthetic-node?` — region / root-container / machine-root / parallel-root
+  nodes and `:history?` pseudo-states); the transition count is every
+  projected edge (machine-level / parallel-root / region-`:on-done`
+  fallbacks INCLUDED — they are real transitions).
+
+  This is the SINGLE source of truth for the semantic counts: the chart root
+  surfaces them as `data-node-count` / `data-edge-count` / `data-region-count`
+  + the aria-label (`chart.cljs`), and Xray's Dynamic / Static topology
+  summaries read the same helper — so the summary and the chart it wraps
+  agree by construction.
+
+  Accepts a projected graph map (`{:nodes :edges}`) OR a raw machine
+  definition (projected here via `project-definition`). Returns
+  `{:state-count N :transition-count M :region-count R}`. Pure — JVM-runnable."
+  [graph-or-definition]
+  (let [{:keys [nodes edges]} (if (and (map? graph-or-definition)
+                                       (contains? graph-or-definition :nodes))
+                                graph-or-definition
+                                (project-definition graph-or-definition))]
+    {:state-count      (count (remove synthetic-node? nodes))
+     :transition-count (count edges)
+     :region-count     (count (filter :region? nodes))}))
+
 (defn highlight-id
   "Resolve a single-active snapshot `:state` value to the node-id used
   in the positioned graph. Snapshot `:state` is either a flat keyword

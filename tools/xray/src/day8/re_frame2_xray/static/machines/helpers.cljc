@@ -134,9 +134,9 @@
   "Count every state under a `{state-id state-node}` map, recursing into
   each compound state's nested `:states`. A compound parent counts as ONE
   state plus the count of its substates — so `{:authed {:states {:a {}
-  :b {}}}}` is THREE states (`:authed` + `:a` + `:b`), matching the node
-  count the topology renderer emits for the same definition
-  (`panels.machines.topology/parse-definition`'s `walk-states`).
+  :b {}}}}` is THREE states (`:authed` + `:a` + `:b`), matching the
+  occupiable-state count the topology renderer emits for the same
+  definition (machines-viz `chart.layout/semantic-counts` `:state-count`).
 
   Pure data — JVM-runnable; no CLJS-only deps so the helper stays
   portable to the `clojure -M:test` target."
@@ -163,10 +163,10 @@
       region's own state count (recursively); a parallel root has no
       top-level `:states`, so the count walks the regions instead.
 
-  Mirrors the node count `panels.machines.topology/parse-definition`
-  emits for the same definition, so the browse-list chip, the detail
-  header `<N> states`, and the `Sort: States` axis all agree with the
-  rendered topology. Returns 0 for a nil / non-map definition or one
+  Mirrors the occupiable-state count machines-viz `chart.layout/
+  semantic-counts` emits for the same definition, so the browse-list chip,
+  the detail header `<N> states`, and the `Sort: States` axis all agree with
+  the rendered topology. Returns 0 for a nil / non-map definition or one
   carrying no states. Pure data — JVM-runnable."
   [definition]
   (cond

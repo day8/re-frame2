@@ -461,9 +461,11 @@
     "  to   { opacity: 1; transform: translateY(0); }\n"
     "}\n"
     ;; rf2-ezx8w — machine-state pulse (spec/021 §17.4.2 + §17.4.5).
-    ;; The xyflow `:current` node (most recent visit per per-epoch
-    ;; transition trace) carries `:animation rf-xray-machine-pulse
-    ;; 1.2s ease-in-out infinite` per `panels/machines/xyflow_style`.
+    ;; The active `:current` state node carries `:animation
+    ;; rf-xray-machine-pulse 1.2s ease-in-out infinite`. (rf2-5fm165 —
+    ;; the xray-local fallback style catalogue that applied this was
+    ;; deleted when machines-viz became the sole topology projector; the
+    ;; keyframe remains as the spec/021 active-state pulse contract.)
     ;; The keyframe alternates `box-shadow` + `opacity` so the green
     ;; outer ring gently breathes — subtle scale-less pulse that reads
     ;; as "this is the live state" without becoming a strobe across
@@ -493,8 +495,11 @@
     ;; §6.2 Case C + §17.4.2). The Figma reconcile draws the focused
     ;; TO / current state as a concentric double-circle in the single
     ;; `:accent` (GitHub blue), not the former green single ring. The
-    ;; `:current` node (`panels/machines/xyflow_style`)
-    ;; carries `:animation rf-xray-machine-pulse-active 1.2s …`.
+    ;; active `:current` state node carries `:animation
+    ;; rf-xray-machine-pulse-active 1.2s …`. (rf2-5fm165 — the xray-local
+    ;; fallback style catalogue that applied this was deleted when
+    ;; machines-viz became the sole topology projector; the keyframe
+    ;; remains as the spec/021 §6.2 Case C active-state pulse contract.)
     ;;
     ;; box-shadow sets the WHOLE property each frame, so the keyframe
     ;; must re-state the STATIC concentric rings (inner `:bg-1` gap +

@@ -30,7 +30,8 @@
       no-op-transition suppression).
     - `mih/project-focused-event-transitions` — the Machine Inspector's
       focused-event view-model (one record per transition; parallel → ≥2).
-    - `topo/parse-definition` — the inspector's topology projection
+    - `chart-layout/project-definition` — the SOLE topology projector
+      (machines-viz — the layer that actually feeds the chart; rf2-5fm165)
       (compound nesting + parallel regions rendered legibly).
     - `diff/project` — the snapshot diff (member-level set diff for `:tags`,
       rf2-l0us2).
@@ -61,12 +62,12 @@
             [re-frame.machines :as machines]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-helpers :as th]
+            [day8.re-frame2-machines-viz.chart.layout :as chart-layout]
             [day8.re-frame2-xray.diff.engine :as diff]
             [day8.re-frame2-xray.panels.epoch.format :as fmt]
             [day8.re-frame2-xray.panels.epoch.projection :as proj]
             [day8.re-frame2-xray.panels.epoch.view :as view]
             [day8.re-frame2-xray.panels.machine-inspector-helpers :as mih]
-            [day8.re-frame2-xray.panels.machines.topology :as topo]
             [day8.re-frame2-xray.preload :as preload]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
@@ -422,45 +423,63 @@
         "the deep compound leaf moved heating → cooling, parent path intact")))
 
 (deftest topology-projection-renders-compound-and-parallel-legibly
-  (testing "rf2-k08ay case 1 — the Machine Inspector's topology projection
-            (`topo/parse-definition`, the layer that feeds the chart) must
-            render the deep compound nesting AND the parallel regions without
-            contradiction: every region's leaves appear, the deepest compound
-            level is reachable, and the parallel root has no single initial
-            path (each region carries its own)."
-    (let [{:keys [nodes edges initial-path]} (topo/parse-definition hvac-controller-machine)
-          paths (set (map :path nodes))]
+  (testing "rf2-k08ay case 1 / rf2-5fm165 — the SOLE topology projector
+            (`chart-layout/project-definition`, machines-viz — the layer that
+            actually feeds the chart) must render the deep compound nesting AND
+            the parallel regions without contradiction: each region surfaces
+            its own container, every region's leaves appear region-scoped, the
+            deepest compound level is reachable, and the parallel root has no
+            single initial path (each region carries its own)."
+    (let [{:keys [nodes edges initial-path parallel?] :as graph}
+          (chart-layout/project-definition hvac-controller-machine)
+          ;; Occupiable states only — drop the synthetic region / root-container
+          ;; layout chrome the projector adds (`synthetic-node?`).
+          states       (remove chart-layout/synthetic-node? nodes)
+          ;; machines-viz keeps the IN-REGION `:path` verbatim + a `:region`
+          ;; tag (rf2-wnzha), so a state's identity is the [region path] pair.
+          region+path  (set (map (juxt :region :path) states))
+          region-ids   (set (map :region (filter :region? nodes)))]
       ;; Parallel root → no single initial path (each region owns its own).
       (is (nil? initial-path)
           "a parallel machine has no single initial path — the chart shows
            each region's own initial leaf")
-      ;; Both regions' leaves are present, REGION-QUALIFIED (rf2-uo0rc.4):
-      ;; each region's states are projected under its region-id prefix, so
-      ;; same-named cross-region states stay collision-free and the region
-      ;; grouping is addressable. The :climate region's leaves carry the
-      ;; [:climate ...] prefix; the :fan region's carry [:fan ...].
-      (is (contains? paths [:climate :idle])    "climate :idle leaf rendered")
-      (is (contains? paths [:climate :running]) "climate :running compound rendered")
-      (is (contains? paths [:climate :running :conditioning])
+      (is (true? parallel?) "the projection is flagged parallel")
+      ;; Both regions surface a synthetic container node (the orthogonal zones).
+      (is (= #{:climate :fan} region-ids)
+          "each region surfaces its own container node")
+      ;; Both regions' leaves are present, REGION-SCOPED (rf2-wnzha): the
+      ;; in-region `:path` is preserved verbatim and carries its `:region` tag,
+      ;; so same-named cross-region states stay collision-free.
+      (is (contains? region+path [:climate [:idle]])    "climate :idle leaf rendered")
+      (is (contains? region+path [:climate [:running]]) "climate :running compound rendered")
+      (is (contains? region+path [:climate [:running :conditioning]])
           "the mid compound level rendered")
-      (is (contains? paths [:climate :running :conditioning :heating])
+      (is (contains? region+path [:climate [:running :conditioning :heating]])
           "the DEEPEST compound leaf rendered — the four-level path is legible")
-      (is (contains? paths [:climate :running :conditioning :cooling])
+      (is (contains? region+path [:climate [:running :conditioning :cooling]])
           "its sibling leaf rendered")
-      (is (contains? paths [:fan :off]) "fan :off leaf rendered")
-      (is (contains? paths [:fan :on])  "fan :on leaf rendered")
+      (is (contains? region+path [:fan [:off]]) "fan :off leaf rendered")
+      (is (contains? region+path [:fan [:on]])  "fan :on leaf rendered")
       ;; The compound parent is flagged compound so the chart nests it.
-      (let [running (first (filter #(= [:climate :running] (:path %)) nodes))
-            heating (first (filter #(= [:climate :running :conditioning :heating] (:path %)) nodes))]
+      (let [running (first (filter #(and (= :climate (:region %)) (= [:running] (:path %))) states))
+            heating (first (filter #(and (= :climate (:region %))
+                                         (= [:running :conditioning :heating] (:path %)))
+                                   states))]
         (is (:compound? running) ":running renders as a compound (nestable) node")
         (is (not (:compound? heating)) ":heating renders as a leaf"))
       ;; The mode-toggle edge between the deep leaves is present + labeled,
-      ;; both endpoints region-qualified within :climate.
-      (is (some (fn [e] (and (= [:climate :running :conditioning :heating] (:from e))
-                             (= [:climate :running :conditioning :cooling] (:to e))
+      ;; both endpoints region-scoped within :climate.
+      (is (some (fn [e] (and (= [:running :conditioning :heating] (:from-path e))
+                             (= [:running :conditioning :cooling] (:to-path e))
                              (= :hvac/mode-toggle (:event e))))
                 edges)
-          "the heating→cooling toggle edge renders with its event label"))))
+          "the heating→cooling toggle edge renders with its event")
+      ;; The semantic summary the chart root + Xray topology summaries surface
+      ;; through the single `semantic-counts` helper (rf2-5fm165): 7 occupiable
+      ;; states across 2 parallel regions, 8 transitions.
+      (is (= {:state-count 7 :region-count 2 :transition-count 8}
+             (chart-layout/semantic-counts graph))
+          "7 occupiable states / 2 regions / 8 transitions — chrome excluded"))))
 
 ;; ============================================================================
 ;; CASE 4 — INTERNAL vs EXTERNAL self-transitions (the case #2843 fixed)

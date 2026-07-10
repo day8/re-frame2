@@ -115,11 +115,12 @@
 ;; ---- rf2-ezx8w — machine-state pulse keyframe --------------------------
 
 (deftest motion-css-declares-machine-pulse-keyframes
-  (testing "rf2-ezx8w — the xyflow `:current` node references
-            `rf-xray-machine-pulse` (see panels/machines/xyflow_style
-            `:current` kind). The keyframe MUST be declared in the
-            injected motion stylesheet so the animation resolves at
-            paint time rather than no-op'ing."
+  (testing "rf2-ezx8w — the active `:current` state node references
+            `rf-xray-machine-pulse` (spec/021 §17.4.2 active-state pulse
+            contract; rf2-5fm165 removed the xray-local fallback catalogue
+            that applied it). The keyframe MUST be declared in the injected
+            motion stylesheet so the animation resolves at paint time rather
+            than no-op'ing."
     (let [css @#'gs/motion-css]
       (is (re-find #"@keyframes\s+rf-xray-machine-pulse" css)
           "keyframes block named rf-xray-machine-pulse exists"))))
@@ -146,13 +147,13 @@
 
 (deftest motion-css-declares-active-double-circle-pulse
   (testing "rf2-ad7zx.10 / spec/021 §6.2 Case C — the Figma TO/current
-            state is a DOUBLE-CIRCLE in the mode accent. The
-            `:current` xyflow node references
-            `rf-xray-machine-pulse-active`; the keyframe MUST exist so
-            the animation resolves rather than no-op'ing, AND it must
-            re-state the static concentric rings on every stop (since
-            box-shadow sets the whole property each frame) plus add the
-            breathing accent halo."
+            state is a DOUBLE-CIRCLE in the mode accent. The active
+            `:current` state node references `rf-xray-machine-pulse-active`
+            (rf2-5fm165 removed the xray-local fallback catalogue that
+            applied it); the keyframe MUST exist so the animation resolves
+            rather than no-op'ing, AND it must re-state the static concentric
+            rings on every stop (since box-shadow sets the whole property
+            each frame) plus add the breathing accent halo."
     (let [css @#'gs/motion-css]
       (is (re-find #"@keyframes\s+rf-xray-machine-pulse-active" css)
           "keyframes block named rf-xray-machine-pulse-active exists")
