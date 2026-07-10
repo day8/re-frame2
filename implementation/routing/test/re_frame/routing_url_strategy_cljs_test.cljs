@@ -38,90 +38,24 @@
             [re-frame.routing :as routing]
             [re-frame.routing.strategy :as strategy]
             [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]))
+            [re-frame.test-support :as test-support]
+            ;; rf2-y6e2zb: the browser history/location/document stub,
+            ;; `*history-state*`, `current-url`, and `with-window-stub-fixture`
+            ;; are the SUPERSET fixture shared with routing_history_cljs_test.
+            [re-frame.routing-browser-test-support
+             :refer [*history-state* current-url with-window-stub-fixture]]))
 
 ;; ---- window / history + location stub ------------------------------------
-;; A minimal jsdom-style mock. `location` splits pathname / search / hash the
-;; way a real browser does, and pushState/replaceState re-sync it — so a
-;; hash strategy that writes `#/active` and reads `location.hash` round-trips.
-
-(defn- new-history-stub []
-  (atom {:entries ["/"] :index 0 :listeners {}}))
-
-(defn- current-url [state]
-  (let [{:keys [entries index]} @state] (nth entries index)))
-
-(defn- install-window-stub! []
-  (let [state    (new-history-stub)
-        location #js {:origin "https://app.example" :href "https://app.example/"
-                      :pathname "/" :search "" :hash ""}
-        sync-location!
-        (fn []
-          (let [{:keys [entries index]} @state
-                url           (nth entries index)
-                [path+ hash]  (let [i (.indexOf url "#")]
-                                (if (neg? i) [url ""] [(subs url 0 i) (subs url i)]))
-                [path search] (let [i (.indexOf path+ "?")]
-                                (if (neg? i) [path+ ""] [(subs path+ 0 i) (subs path+ i)]))]
-            (set! (.-pathname location) path)
-            (set! (.-search location) search)
-            (set! (.-hash location) hash)
-            (set! (.-href location) (str (.-origin location) url))))
-        history #js {:pushState
-                     (fn [_s _t url]
-                       (swap! state (fn [{:keys [entries index] :as s}]
-                                      (let [kept (subvec entries 0 (inc index))]
-                                        (-> s (assoc :entries (conj kept url))
-                                            (update :index inc)))))
-                       (sync-location!))
-                     :replaceState
-                     (fn [_s _t url]
-                       (swap! state assoc-in [:entries (:index @state)] url)
-                       (sync-location!))
-                     :back
-                     (fn []
-                       (swap! state (fn [{:keys [index] :as s}]
-                                      (if (pos? index) (assoc s :index (dec index)) s)))
-                       (sync-location!))
-                     :forward
-                     (fn []
-                       (swap! state (fn [{:keys [entries index] :as s}]
-                                      (if (< index (dec (count entries)))
-                                        (assoc s :index (inc index)) s)))
-                       (sync-location!))}
-        window #js {:history history :location location
-                    :scrollX 0 :scrollY 0 :pageXOffset 0 :pageYOffset 0
-                    :scrollTo (fn [x y]
-                                (set! (.-scrollX js/globalThis.window) x)
-                                (set! (.-scrollY js/globalThis.window) y)
-                                (set! (.-pageXOffset js/globalThis.window) x)
-                                (set! (.-pageYOffset js/globalThis.window) y))
-                    :addEventListener
-                    (fn [type listener]
-                      (swap! state update-in [:listeners type] (fnil conj []) listener))
-                    :removeEventListener
-                    (fn [type listener]
-                      (swap! state update-in [:listeners type]
-                             (fnil (fn [xs] (vec (remove #(= % listener) xs))) [])))
-                    :dispatchEvent
-                    (fn [event]
-                      (doseq [l (get-in @state [:listeners (.-type event)] [])]
-                        (l event)))}
-        document #js {:getElementById (fn [_id] nil)}]
-    (set! (.-window js/globalThis) window)
-    (set! (.-document js/globalThis) document)
-    state))
-
-(defn- uninstall-window-stub! []
-  (js-delete js/globalThis "window")
-  (js-delete js/globalThis "document"))
-
-(def ^:dynamic *history-state* nil)
-
-(defn- with-window-stub-fixture [f]
-  (let [state (install-window-stub!)]
-    (try (binding [*history-state* state] (f))
-         (finally (uninstall-window-stub!)))))
+;;
+;; The jsdom-style history/location/document stub, `*history-state*`,
+;; `current-url`, and `with-window-stub-fixture` now live in the shared
+;; re-frame.routing-browser-test-support ns (rf2-y6e2zb) — the SUPERSET fixture
+;; this suite and routing_history_cljs_test both drive. `location` splits
+;; pathname / search / hash the way a real browser does, and
+;; pushState/replaceState re-sync it, so a hash strategy that writes `#/active`
+;; and reads `location.hash` round-trips. This suite reads `*history-state*` /
+;; `current-url` directly and composes `with-window-stub-fixture` FIRST in
+;; `use-fixtures` below.
 
 (use-fixtures :each
   with-window-stub-fixture
