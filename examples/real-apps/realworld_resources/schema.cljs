@@ -21,7 +21,8 @@
      https://github.com/gothinkster/realworld/tree/main/api"
   (:require [re-frame.core :as rf]
             ;; The shared wire contract — User/Profile/Article/Comment + the
-            ;; seven response envelopes. The auth slice below embeds `ws/User`.
+            ;; seven response envelopes. The auth slice below embeds the
+            ;; token-free `ws/SessionUser` (the durable half of the wire User).
             [realworld-shared.schema :as ws]
             ;; The schemas runtime. Loading it registers the hooks, so
             ;; rf/reg-app-schemas has something to resolve at the call site below.
@@ -38,13 +39,17 @@
 ;; app-schema.)
 
 (def AuthSlice
-  "The auth slice. :user holds the current User payload (or nil); :token is the
-   JWT (or nil). The resource cache scope isn't stored here — it's derived from
-   :user's :username by the named session resolver (see
+  "The auth slice. :user holds the durable, token-free session user
+   (`ws/SessionUser` — the wire User minus its credential, since
+   `:auth/store-session` `dissoc`s the token before storing); :token is the JWT
+   (or nil). Validating :user against the wire `ws/User` here would demand the
+   very :token the durable copy deliberately drops, and post-commit validation
+   would roll the login back. The resource cache scope isn't stored here — it's
+   derived from :user's :username by the named session resolver (see
    realworld-resources.scope). :return-to is the optional post-login bounce-back
    target the routing auth-guard stashes."
   [:map
-   [:user      [:maybe ws/User]]
+   [:user      [:maybe ws/SessionUser]]
    [:token     [:maybe :string]]
    [:return-to {:optional true}
     [:map
