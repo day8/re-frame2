@@ -6,66 +6,43 @@
   JVM), so it cannot be exercised by the node CLJS suites — this is its
   `clojure -M:test` gate.
 
-  The load-bearing regression: a classpath checkout path containing a
-  literal `+` (e.g. `C:/code/re-frame2+wip`) must survive `:file`
-  resolution verbatim. Decoding the `file:` resource URL with `URLDecoder`
-  is wrong here — it is a FORM-body decoder that maps `+` → space,
-  so such a path would resolve to a nonexistent `re-frame2 wip` dir and the
-  endpoint would launch the editor at the wrong place. `file-url->path`
-  decodes via `URI` instead, which leaves a literal `+` intact while still
-  decoding `%20` / `%2B`."
+  The classpath stage of `resolve-file` — context-class-loader lookup,
+  `file:` URL decode, and Windows drive-letter normalization — is delegated
+  to `re-frame.source-coords/absolutise-file`, the canonical resolver that
+  owns and separately tests that decode contract (literal-`+` preservation,
+  `%20`/`%2B` escapes, Windows drive shape — see `source_coords_test.clj`).
+  These tests therefore do NOT re-unit-test the decoder; they assert the
+  DELEGATION (resolve-file's classpath output IS core's) plus the
+  endpoint-owned policy the runtime twin adds on top: the cwd fallback,
+  the raw-path fall-through, and the nil/blank/absolute pass-through."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.java.io :as io]
             [clojure.string :as str]
+            [re-frame.source-coords :as source-coords]
             [re-frame.testbed.open-in-editor-server :as oies])
   (:import [java.net URL URLClassLoader]
            [java.io File]))
 
-;; ---- file-url->path: the decode contract ---------------------------------
+;; ---- resolve-file: the classpath stage delegates to core (rf2-hf0vqa) -----
+;;
+;; `resolve-file` no longer re-implements the context-class-loader
+;; `getResource` + `file:`-URL decode + Windows-drive normalization dance —
+;; it delegates that classpath stage to `re-frame.source-coords/absolutise-file`,
+;; which owns it canonically (rf2-wvsxg / rf2-st3ax4) and carries its own decode
+;; unit tests. This single integration test proves the delegation end-to-end:
+;; over a real `+`-bearing classpath root (the load-bearing regression — a
+;; literal `+` must survive, never form-decode to a space), `resolve-file`
+;; returns EXACTLY what `absolutise-file` returns, so the decode contract is
+;; sourced from core, not duplicated here.
 
-(deftest file-url->path-preserves-literal-plus
-  (testing "a `file:` URL with a LITERAL `+` in the path keeps the `+`
-            (it is NOT form-decoded to a space — the URLDecoder bug)"
-    (is (= "/home/dev/re-frame2+wip/core.cljs"
-           (#'oies/file-url->path
-            (URL. "file:/home/dev/re-frame2+wip/core.cljs")))
-        "literal + survives verbatim, never becomes a space")))
-
-(deftest file-url->path-decodes-percent-escapes
-  (testing "percent-escapes still decode: `%20` → space, `%2B` → +"
-    (is (= "/home/dev/my project/core.cljs"
-           (#'oies/file-url->path
-            (URL. "file:/home/dev/my%20project/core.cljs")))
-        "%20 decodes to a real space")
-    (is (= "/home/dev/re-frame2+wip/core.cljs"
-           (#'oies/file-url->path
-            (URL. "file:/home/dev/re-frame2%2Bwip/core.cljs")))
-        "%2B (the encoded plus) decodes to a literal +")))
-
-(deftest file-url->path-strips-windows-drive-leading-slash
-  (testing "a Windows `file:` URL comes out as `/C:/...`; the leading
-            slash before the drive letter is stripped to the canonical
-            `C:/...` shape"
-    (is (= "C:/code/re-frame2+wip/core.cljs"
-           (#'oies/file-url->path
-            (URL. "file:/C:/code/re-frame2+wip/core.cljs")))
-        "leading slash stripped AND the literal + preserved (the exact
-         cross-of-the-two-bugs the Windows author hits)")
-    (is (= "C:/Users/me/my project/core.cljs"
-           (#'oies/file-url->path
-            (URL. "file:/C:/Users/me/my%20project/core.cljs")))
-        "Windows drive shape with an encoded space round-trips")))
-
-;; ---- resolve-file: end-to-end over a real `+`-bearing classpath ----------
-
-(deftest resolve-file-resolves-classpath-path-with-plus
-  (testing "resolve-file resolves a classpath-relative `:file` to its
-            on-disk absolute path when the classpath root directory itself
-            contains a literal `+` — the path is returned verbatim, not
-            corrupted to a space-bearing nonexistent path"
+(deftest resolve-file-delegates-classpath-stage-to-core
+  (testing "resolve-file's classpath stage IS core's absolutise-file: a
+            classpath-relative `:file` resolves to exactly the absolute
+            on-disk path core produces — verbatim, `+` preserved, never a
+            space-corrupted sibling"
     ;; Build a throwaway classpath root dir whose name carries a `+`, drop
     ;; a fake source file under it, push a class-loader rooted there onto
-    ;; the context, and confirm resolve-file finds the real on-disk file.
+    ;; the context, and confirm resolve-file's result equals absolutise-file's.
     (let [tmp       (File. (System/getProperty "java.io.tmpdir")
                            (str "oies+test-" (System/nanoTime)))
           rel-path  "fake_ns/core.cljs"
@@ -81,8 +58,12 @@
             (.setContextClassLoader (Thread/currentThread) cl)
             (let [resolved (oies/resolve-file rel-path)]
               (is (some? resolved) "the classpath resource resolved")
+              (is (= (#'source-coords/absolutise-file rel-path) resolved)
+                  "resolve-file returns EXACTLY core's absolutise-file result —
+                   the classpath stage is delegated, not re-implemented")
               (is (.contains ^String resolved "+")
-                  "the literal + in the classpath root survived resolution")
+                  "the literal + in the classpath root survived (core owns the
+                   `URI.getPath` decode that preserves it)")
               (is (= (.getCanonicalPath src-file)
                      (.getCanonicalPath (File. ^String resolved)))
                   "resolved to the REAL on-disk fixture file, not a
@@ -349,8 +330,9 @@
 ;; `parse-query` decodes with decodeURIComponent semantics (via
 ;; `decode-component`'s `URI` fragment decode), NOT `URLDecoder/decode`'s
 ;; application/x-www-form-urlencoded semantics that map a literal `+` to a
-;; space. This is the SAME contract `file-url->path` upholds for `file:` URLs
-;; and `config.cljs`'s `js/decodeURIComponent` upholds on the client — so a
+;; space. This is the SAME contract `re-frame.source-coords/absolutise-file`
+;; upholds for `file:` URLs (the classpath resolver `resolve-file` delegates
+;; to) and `config.cljs`'s `js/decodeURIComponent` upholds on the client — so a
 ;; checkout path carrying a literal `+` (`C:/code/re-frame2+wip`) survives
 ;; verbatim through the query rather than being corrupted to `re-frame2 wip`.
 
