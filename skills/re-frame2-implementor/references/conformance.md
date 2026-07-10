@@ -68,6 +68,8 @@ The interpreter is ~50 lines per host. The CLJS reference's interpreter lives in
 
 ## Capability tagging
 
+This section is this skill's **single operational owner** of three things every port needs and that no other leaf restates: (1) how you **derive** the claimable capability set (grep the fixtures at your pinned commit), (2) the **family → D3-scope map** — which D3 question gates which capability family, and (3) the **corpus/spec divergence rule** — when the fixtures lead the prose (the common corpus-ahead case) and the one case where the prose leads the fixtures (the corpus-behind `:actor/*` exception). The other leaves point here instead of repeating it: Phase 1 (`phase-1-decisions.md` §D7) frames the *choice*, the decision record (`decision-record.md` §D7) captures the *result* as fields, and the Phase 2 EP walks (`phase-2-impl-order.md`) cite the locked claim.
+
 From [`spec/conformance/README.md` §Capability tagging](https://day8.github.io/re-frame2/spec/conformance/):
 
 ```
@@ -77,10 +79,13 @@ From [`spec/conformance/README.md` §Capability tagging](https://day8.github.io/
 :data-classification/*  v1-required — the Spec 015 egress/redaction contract
                   (:data-classification/classification-effects + per-scenario sub-tags); enumerate
                   from the fixtures
-:fsm/*            FSM-richness axis — flat / hierarchical / eventless-always / delayed-after /
-                  tags / parallel-regions / final-states / history / registration-validation
-:actor/*          actor-model axis — own-state / spawn-destroy / cross-actor-fx / declarative-spawn /
-                  spawn-and-join / system-id
+:fsm/*            FSM-richness axis (EP 005, D3 Q1) — flat / hierarchical / eventless-always /
+                  delayed-after / tags / parallel-regions / final-states / history /
+                  registration-validation / choice / internal-events / timeout (the last three
+                  per EP-0029) — enumerate the live set from the fixtures, not this list
+:actor/*          actor-model axis (EP 005, D3 Q1) — own-state / spawn-destroy / cross-actor-fx /
+                  declarative-spawn / spawn-and-join / system-id — corpus-BEHIND: the README +
+                  Spec 005 declare all six but the fixtures back only four (see the note below)
 :flow/*           Flows axis (EP 013, D3 Q8) — wildcard family; ~19 sub-tags at corpus HEAD
                   (basic / trace / init / reg-v / poke / toggle / topo / dirty-check /
                    frame-scoped / hot-reload / lifecycle-emits-traces / …) — enumerate
