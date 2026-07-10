@@ -18,13 +18,12 @@
     6. Tear down the child: dissoc snapshot, clear `[:rf.runtime/machines :spawned ...]`
        slot, clear `[:rf.runtime/machines :system-ids <sid>]` (D8 — AFTER `:on-done` ran),
        emit `:rf.machine/destroyed` with `:reason :rf.machine/finished`
-       (D6 enrichment), abort in-flight HTTP, unregister handler (D4).
+       (D6 enrichment), abort in-flight HTTP, and clear any registrar entry.
 
   For singleton machines (no `:rf/parent-id` on `:data`): skip steps 3-4
   and emit a `:rf.machine/done` with `:parent-id nil` (D7 — singleton
   symmetry). The teardown still runs — the snapshot is dissoc'd, the
-  `:system-id` reverse-index entry is cleared, and the handler is
-  unregistered.
+  `:system-id` reverse-index entry and any registrar entry are cleared.
 
   This namespace also owns `abort-actor-in-flight-http!` — the late-bind
   hook into the http-managed artefact — the single home for
@@ -32,7 +31,7 @@
   the spawn-destroy teardowns (`lifecycle-fx.destroy`), and the
   frame-destroy singleton-straggler pass (`lifecycle-fx.frame-destroy`).
 
-  The actor-teardown app-db dance lives in
+  The actor-teardown runtime-db projection lives in
   `re-frame.machines.lifecycle-fx.teardown` — one helper, three
   call-sites."
   (:require [re-frame.interop :as interop]
@@ -82,8 +81,8 @@
 ;; A machine's `[:schemas :data]` schema is validation-only; it does not produce
 ;; a per-instance marks table. There is therefore no schema-marks entry to
 ;; clear at destroy — a destroyed actor leaves no schema-marks residue by
-;; construction. A spawned actor's `:data` redaction (if any) rides the
-;; frame's declared paths, the sole app-db redaction mechanism.
+;; construction. A spawned actor's `:data` redaction rides the frame's merged
+;; classification registry, including per-actor `:source :machine` entries.
 
 ;; ---- final-state resolution -----------------------------------------------
 
@@ -245,7 +244,7 @@
                       parallel?                   (parallel-output-key machine (:state next-snapshot) frame-id machine-id)
                       :else                       (:output-key error-node))
         result      (when output-key (get child-data output-key))
-        ;; EP-0029 A8 — validate the COMPLETION-OUTPUT payload against the
+        ;; Validate the completion-output payload against the
         ;; finishing machine's `[:schemas :output]` schema, if declared. The
         ;; `result` selected from the final state's `:data` via `:output-key`
         ;; IS the completion-event payload (the value the parent's `:on-done`
@@ -466,8 +465,8 @@
                                   (catch #?(:clj Throwable :cljs :default) e
                                     ;; The `:on-done` callback IS a machine
                                     ;; action, so its throw rides the same
-                                    ;; always-on-plus-dev-trace fan-out
-                                    ;; (rf2-cprm0q): `:failing-id` is the
+                                    ;; always-on-plus-dev-trace fan-out;
+                                    ;; `:failing-id` is the
                                     ;; reserved `:rf.machine.spawn/on-done` slot id.
                                     ;; Axis 1 — STRUCTURAL-ONLY always-on
                                     ;; record (no prose; see error-emit).
@@ -523,9 +522,7 @@
                                   :parent-id parent-id
                                   :invoke-id invoke-id})
         ;; (5) Emit :rf.machine/destroyed with :reason :rf.machine/finished
-        ;; (D6 enrichment) BEFORE the registrar unregister so any in-flight
-        ;; trace consumers see the destroy signal while the handler still
-        ;; resolves.
+        ;; (D6 enrichment) before registrar cleanup.
         _ (traces/emit-destroyed! {:frame     frame-id
                                    :actor-id  machine-id
                                    :system-id released-sid
@@ -534,11 +531,11 @@
                                    :reason    :rf.machine/finished})]
     ;; (6) Synchronous side effects: abort in-flight HTTP, cancel
     ;; armed `:after` timers (`:reason :on-destroy`), emit
-    ;; system-id-released trace (when applicable), unregister handler.
+    ;; system-id-released trace (when applicable), and clear any registrar entry.
     (abort-actor-in-flight-http! machine-id)
     (timer/cancel-actor-timers! frame-id machine-id)
-    ;; EP-0025 §subsystems (rf2-h3d8tf): DROP this actor's per-instance
-    ;; classification declarations from the per-frame elision registry — the
+    ;; Drop this actor's per-instance classification declarations from the
+    ;; per-frame elision registry: the
     ;; teardown half of `classification/lower-at-spawn!`, on the final-state
     ;; AUTO-DESTROY path (which does NOT route through
     ;; `destroy/teardown-live-actor!`). `machine` is the finishing actor's

@@ -1,5 +1,5 @@
 (ns re-frame.machines-timeout-cljs-test
-  "CLJS-side coverage for EP-0029 A4 `:timeout` / `:on-timeout` under the
+  "CLJS-side coverage for `:timeout` / `:on-timeout` under the
   Reagent reactive substrate.
 
   Confirms cross-host parity for:

@@ -4,13 +4,11 @@
   Per Spec 009 §`:op-type` vocabulary, `:rf.machine/destroyed` and
   `:rf.machine/system-id-released` ARE the contract surface that tools
   (Xray, story-mcp, re-frame-10x) key on for the actor-destroy signal.
-  Independent emission sites = independent chances to drift in the
-  argument-map keys; the three `:rf.machine/destroyed` sites and the two
-  `:rf.machine/system-id-released` sites emit through this single home so a
-  key rename is one-edit-touches-all.
+  All destroy sites emit through this namespace to keep their argument-map
+  keys and reply facts aligned.
 
   This namespace is the natural home (rather than `teardown.cljc`)
-  because `teardown.cljc` is the unified pure app-db projection — it
+  because `teardown.cljc` is the unified pure runtime-db projection; it
   deliberately emits NO traces so the projection stays a value→value
   function. These helpers ARE side effects, so they live separately."
   (:require [re-frame.interop :as interop]
@@ -106,8 +104,7 @@
   with a destroy-time discriminator. Fail-soft: the destroy proceeds with
   the pre-cascade snapshot."
   [actor-id frame-id result-info]
-  ;; A destroy-time `:exit` action throw is a machine action exception, so it
-  ;; rides the same always-on-plus-dev-trace fan-out (rf2-cprm0q). `:failing-id`
+  ;; A destroy-time `:exit` action throw uses both error channels. `:failing-id`
   ;; is the throwing `:exit` action's keyword when named (else the actor
   ;; instance); `:state` is the active state path off the failure info.
   (let [action-ref (:action-ref result-info)
@@ -128,10 +125,8 @@
     ;; dev-only diagnostic PROSE `:reason` — away under :advanced +
     ;; goog.DEBUG=false (009 elision probe: `emit-destroy-exit-failure!` prose
     ;; sentinel). The internal gate inside `trace/emit-error!` is not enough on
-    ;; its own here: this fn ALSO makes the live always-on call above, so the
-    ;; leaf fold that dropped the pre-rf2-cprm0q sole-statement body no longer
-    ;; applies; the call-site gate is the documented belt-and-braces the
-    ;; framework's own indirect-emit sites use (Spec 009 §Production builds).
+    ;; its own here because this function also contains the live always-on call;
+    ;; the explicit gate lets Closure eliminate the dev-only map and prose.
     (when interop/debug-enabled?
       (trace/emit-error! :rf.error/machine-action-exception
                          {:actor-id   actor-id

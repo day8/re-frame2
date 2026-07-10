@@ -1,19 +1,12 @@
 (ns re-frame.root-after-non-parallel-test
-  "rf2-b6znpi — a non-parallel (flat / compound) machine root's `:after` has
+  "A non-parallel (flat/compound) machine root's `:after` has
   NO runtime scheduling / resolution path: `transition/schedule-root-after-
   fx` (the birth-time scheduler) is called ONLY from `parallel/run-initial-
   cascade`'s parallel branch, and there is no root resolver that would fire
   a flat root `:after` at the empty decl-path (`grammar/node-at` resolves
-  an empty path to nil). BEFORE this fix, `timeout/validate-timeouts!` +
-  `validate-after-delays!` happily accepted a well-formed root `:timeout` /
-  `:after` on a flat/compound machine — it registered cleanly and its
-  \"whole-machine deadline\" simply never fired, silently.
-
-  Per the bead's two offered remedies (schedule it for real, OR reject it
-  loud at registration), the operator-ruled fix is REJECT: Spec 005
+  an empty path to nil). Registration therefore rejects this shape. Spec 005
   §Root-level `:after` scopes the feature to a `:type :parallel` root only,
-  so accepting it on a flat/compound root was never a documented capability
-  — only a validation gap. `validate-non-parallel-root-after!` closes it.
+  so `validate-non-parallel-root-after!` enforces the supported scope.
 
   This suite pins:
    1. a hand-authored root `:after` on a flat machine is rejected;

@@ -12,14 +12,14 @@
       placement, closed key-set, one-per-compound,
       `:default-target` resolution.
     - `validate-parallel!` — `:type :parallel` shape.
-    - `validate-schemas!` — machine-level `:schemas` map (EP-0029 A3):
+    - `validate-schemas!` — machine-level `:schemas` map:
       closed sub-key set (`:data` / `:events` / `:output` / `:tags` /
       `:meta`); `:input` and unknown keys fail loud.
     - `validate-spawn!` — single `:spawn` `:machine-id` xor
       `:definition`.
     - `validate-spawn-all!` — `:spawn-all` shape.
     - `validate-no-spawn-timeout-ms!` — rejects the unsupported
-      `:timeout-ms` / `:on-timeout` slots on `:spawn` / `:spawn-all`.
+      `:timeout-ms` slot on `:spawn` / `:spawn-all`.
     - `validate-final-state!` — `:final?` shape.
     - `validate-node-keys!` — reject unknown BARE state-node keys
       (`:rf.error/machine-unknown-node-key`); namespaced keys pass.
@@ -102,11 +102,8 @@
 (defn- validate-no-spawn-timeout-ms!
   "Per Spec 005 §`:timeout` / `:on-timeout` — the legacy `:timeout-ms` slot
   on `:spawn` / `:spawn-all` is REMOVED: registration throws
-  `:rf.error/spawn-timeout-ms-removed`. The wall-clock-spawn-timeout fact is
-  now expressed by the EP-0029 A4 spawn-level `:timeout` / `:on-timeout`
-  grammar (validated by `timeout/validate-timeouts!`); `:timeout-ms` was the
-  pre-EP draft spelling and never shipped. (`:on-timeout` is NO LONGER
-  rejected here — it is part of the accepted A4 spawn-timeout grammar.)"
+  `:rf.error/spawn-timeout-ms-removed`. Use the spawn-level `:timeout` /
+  `:on-timeout` grammar validated by `timeout/validate-timeouts!`."
   [state-key state-node]
   (doseq [[slot-key spec]
           [[:spawn     (:spawn state-node)]
@@ -150,11 +147,8 @@
   "The closed BARE key vocabulary a `:spawn-all` block map may declare. Any
   BARE key outside this set is rejected at registration with
   `:rf.error/machine-spawn-all-bad-shape` (no silent swallow). NAMESPACED
-  keys pass (the open extension carve-out). The `:cancel-on-decision?` key
-  is deliberately ABSENT — rf2-w8gxxz cut the `:cancel-on-decision? false`
-  protocol (sibling cancellation on the join decision is now
-  unconditional), so a `:cancel-on-decision?` on the block is correctly
-  rejected as unknown."
+  keys pass (the open extension carve-out). Sibling cancellation on a join
+  decision is unconditional, so `:cancel-on-decision?` is not accepted."
   #{:children :join
     :on-child-done :on-child-error
     :on-all-complete :on-some-complete :on-any-failed})
@@ -252,8 +246,8 @@
                  :rf.error/machine-spawn-all-bad-shape
                  ":on-child-error is required (event keyword)"
                  {:state state-key})))
-      ;; The join grammar is a CLOSED two-member enum — `:all` (default)
-      ;; and `:any` (rf2-w8gxxz cut the `{:n N}` and `{:fn pred}` modes).
+      ;; The join grammar is a closed two-member enum: `:all` (default)
+      ;; and `:any`.
       ;; Quorum cases use the data-only `:after` + `:done-guard` idiom
       ;; (Spec 005 §Composition with hierarchy and `:after`); re-adding
       ;; `{:n}` later is a compatible widening. Any other `:join` value —
@@ -328,8 +322,8 @@
                ":type :parallel requires a non-empty :regions map")))
     ;; The parallel root's `:on-done` must not carry an in-machine `:target`
     ;; in ANY form (root-only parallel has no flat sibling to land on).
-    ;; Normalise EVERY value-form `:on-done` admits via the SHARED
-    ;; `grammar/candidate-maps` (the ONE owner — rf2-tu5psi — the same grammar
+    ;; Normalise every value-form `:on-done` admits via
+    ;; `grammar/candidate-maps`, the same grammar
     ;; the runtime parallel-root `apply-on-done-action` resolves through), then
     ;; reject if any candidate declares `:target`.
     ;;
@@ -369,12 +363,12 @@
     ;; normalises each `:on` entry to its candidate map(s) and validates each
     ;; candidate's `:target`.
     ;;
-    ;; The SAME region-qualified target grammar governs a root-owned `:after`
+    ;; The same region-qualified target grammar governs a root-owned `:after`
     ;; transition (the timer-driven analog of the root `:on` ancestor
     ;; fallback), so a non-region-qualified root `:after` target is rejected
     ;; with the SAME `:rf.error/machine-parallel-root-on-bad-target` keyword.
     ;; `candidates-of` is the SHARED `:on` / `:after` value-form normaliser —
-    ;; the ONE owner `grammar/candidate-maps` (rf2-tu5psi), malformed → `[]`.
+    ;; the shared `grammar/candidate-maps`; malformed values produce `[]`.
     (let [region-names (set (keys (:regions machine)))
           declared?    (fn [t] (contains? region-names t))
           bad-target!  (fn [slot target]
@@ -450,7 +444,7 @@
                     (walk (conj path k) (:states n)))))]
         (walk [] (:states region-body))))))
 
-;; ---- non-parallel root `:after` / `:timeout` — reject loud (rf2-b6znpi) ---
+;; ---- non-parallel root `:after` / `:timeout` -------------------------------
 ;;
 ;; Per Spec 005 §Root-level `:after` — the timer-driven ancestor fallback:
 ;; the feature is scoped to a `:type :parallel` machine root. Its runtime
@@ -830,7 +824,7 @@
                    {:state    state-key
                     :on-error oe})))))))
 
-;; ---- `:on-spawn` keyword-ref resolution (rf2-b4qbx0) -----------------------
+;; ---- `:on-spawn` keyword-ref resolution -----------------------------------
 ;;
 ;; Per Spec 005 §Declarative `:spawn` §`:on-spawn`: a KEYWORD `:on-spawn`
 ;; resolves through the machine's `:on-spawn-actions` map, falling back to
@@ -917,7 +911,7 @@
 
 (defn- always-entries
   "Normalise a state-node's `:always` slot to a vector of entry maps through
-  the SHARED `grammar/candidate-maps` (the ONE owner — rf2-tu5psi). Absent
+  the shared `grammar/candidate-maps`. Absent
   `:always` — the key missing, OR present with an explicit nil value — yields
   the empty vector (no ancestor-blocking use case for `:always`, unlike `:on`
   / `:after`'s nil-is-forbidden-transition form), so the nil is gated BEFORE
@@ -1216,7 +1210,7 @@
   target would otherwise throw `:rf.error/machine-bad-state-form` and an
   unresolved one would commit an invalid snapshot).
 
-  Per Spec 005 §Transition resolution steps 6-7 (rf2-nvgolg): a NON-PARALLEL
+  Per Spec 005 §Transition resolution steps 6-7, a non-parallel
   (flat / compound) machine root's OWN `:on` is the ancestor-fallback
   transition slot `pick-transition` consults, at runtime, when no state-path
   node handles the event — stamped with decl-path `[]`, so a keyword
@@ -1255,38 +1249,34 @@
       (doseq [[_event v] (:on machine)]
         (check! v)))))
 
-;; ---- machine-level :schemas map (EP-0029 A3) -------------------------------
+;; ---- machine-level :schemas map --------------------------------------------
 ;;
 ;; The machine-level `:schemas` map is the single home for a machine's
-;; optional schema declarations (EP-0029 A3, the clean-break successor to the
-;; retired EP-0005 `:data-schema` key). The accepted sub-key vocabulary is
-;; closed: `:data` is the live, wired category this wave ships (it validates
+;; optional schema declarations. The accepted sub-key vocabulary is closed.
+;; `:data` validates
 ;; the machine's `:data` slot at the `:where :machine-data` boundary — see
-;; `re-frame.machines.data-validation`). The remaining A3 categories
-;; (`:events` / `:output` / `:tags` / `:meta`) are accepted as DECLARATION-ONLY
-;; surfaces — their values stay abstract and carry no wired behaviour yet (the
-;; `[:schemas :output]` → completion-payload binding is a separate EP-0029 wave,
-;; rf2-kgr3kk). `[:schemas :input]` is NOT accepted: state input (B1, "For
-;; Later Consideration") is not adopted, so declaring it must fail loud rather
-;; than no-op. Any other sub-key is unknown and fails loud — the closed set
+;; `re-frame.machines.data-validation`). `:output` validates the completion
+;; payload selected by a final state's `:output-key`. `:events`, `:tags`, and
+;; `:meta` are accepted as declaration-only surfaces. `:input` is not accepted
+;; because state input is not supported. Any other sub-key is unknown and fails
+;; loud rather than becoming a no-op; the closed set
 ;; keeps the machine contract discoverable and rejects typos / not-yet-adopted
 ;; categories at registration.
 (def ^:private accepted-schemas-keys
-  "The closed sub-key set the machine-level `:schemas` map may carry (EP-0029
-  A3). `:data` is wired this wave; `:events` / `:output` / `:tags` / `:meta`
-  are accepted declaration-only. `:input` is intentionally EXCLUDED (state
-  input is not adopted)."
+  "The closed sub-key set the machine-level `:schemas` map may carry. `:data`
+  and `:output` are wired; `:events`, `:tags`, and `:meta` are declaration-only.
+  `:input` is intentionally excluded."
   #{:data :events :output :tags :meta})
 
 (defn validate-schemas!
-  "Validate the machine-level `:schemas` map (EP-0029 A3). When present it
+  "Validate the machine-level `:schemas` map. When present it
   MUST be a map whose keys are all members of `accepted-schemas-keys`. An
   unknown sub-key — including `:input` (state input is not adopted) — fails
   loud with `:rf.error/machine-bad-schemas-key`; a non-map `:schemas` value
   fails loud with `:rf.error/machine-bad-schemas`. A machine with no
   `:schemas` key is unaffected. The sub-key VALUES are opaque schema values —
   this validator never interprets them (machine core requires no schema
-  library, EP-0029 Non-goal / rf2-49zxkc)."
+  library)."
   [machine]
   (when (contains? machine :schemas)
     (let [schemas (:schemas machine)]
@@ -1310,32 +1300,14 @@
 
 ;; ---- no-silent-swallow: unknown state-node / spawn-spec keys + :tags shape --
 ;;
-;; Per Conventions §No silent swallow + §Reserved state-node keys /
-;; §Spawn-spec keys, and the 2026-07-03 self-consistency design review
-;; (finding 2). Ordinary state nodes are the surface an app writes fifty of,
-;; yet — unlike the rare `:type :history` / `:type :choice` / `:schemas` nodes,
-;; which hard-reject unknown keys — an unknown BARE key on an ordinary node was
-;; silently ignored. An XState-trained author writes `:invoke` (XState's spelling
-;; of re-frame2's `:spawn`) or `:on-entry` (its `:entry`): registration succeeds,
-;; the machine runs, and the child silently never spawns / the action never runs.
-;; The `:tags` slot compounded the inconsistency by silently COERCING a vector /
-;; keyword to a set, while its sibling slot `:internal-events` HARD-REJECTS
-;; exactly that non-set shape.
-;;
-;; The fix walks every node + spawn-spec at registration and classifies each key
-;; three ways (the Conventions extension-key discriminator):
+;; Per Conventions §No silent swallow, classify every state-node and spawn-spec
+;; key at registration:
 ;;   - key ∈ the known bare set → accepted (parsed by the rest of validation);
 ;;   - key is NAMESPACED → open accretion, ignored (user metadata / extensions);
 ;;   - key is BARE and unknown → HARD `:rf.error/machine-unknown-node-key` /
 ;;     `:rf.error/machine-unknown-spawn-key` naming the key + the valid
-;;     vocabulary. A hard error (not a warning): `:meta` is the sanctioned bare
-;;     free slot and namespaced keys stay open, so a bare unknown key has ZERO
-;;     legitimate use — the cascade cannot continue with a misspelt lifecycle key
-;;     (the spawn never fires, the transition never runs), so it fails loud like
-;;     `:rf.error/machine-choice-extra-keys` and the `check-retired-keys!` family.
-;; And `:tags` non-set → HARD `:rf.error/machine-bad-tags`, mirroring
-;; `:rf.error/machine-bad-internal-events` (the schema pins `:tags` as strict
-;; `[:set :keyword]`).
+;;     vocabulary. `:meta` remains the sanctioned bare metadata slot.
+;; A non-set `:tags` value fails with `:rf.error/machine-bad-tags`.
 
 (def ^:private known-state-node-keys
   "The closed BARE key vocabulary a machine state-node may declare, projected
@@ -1371,15 +1343,12 @@
   "Keys legal ONLY on the machine ROOT (the registration-metadata that folds
   onto the machine body per `registration/reg-machine*`), beyond the universal
   `known-state-node-keys`. `:doc` is the registration doc string; `:sensitive` /
-  `:large` are the EP-0025 machine-level data-classification declarations
+  `:large` are the machine-level data-classification declarations
   (projection-relative `:data` classification); `:schema` is the event-vector
   boundary schema for the dispatched OUTER vector; `:raise-depth-limit` /
   `:always-depth-limit` are the per-machine cycle-detection depth overrides
-  (`transition/raise-depth-limit-default`). These are meaningless on a CHILD node
-  (the child-node walk uses the plain vocabulary, so a `:doc` on a nested state is
-  still a typo). The retired `:data-schema` key is deliberately ABSENT — it is a
-  clean pre-alpha break (superseded by `[:schemas :data]`), so a `:data-schema` on
-  the root is correctly rejected as unknown."
+  (`transition/raise-depth-limit-default`). These are meaningless on a child node
+  (the child-node walk uses the plain vocabulary)."
   #{:doc :sensitive :large :schema :raise-depth-limit :always-depth-limit})
 
 (def ^:private retired-spawn-spec-keys
@@ -1538,7 +1507,7 @@
   on a malformed or dangling target (a parallel root's region-qualified
   `:on` is validated separately by `validate-parallel!`).
 
-  Per Spec 005 §Schema validation / EP-0029 A3: the machine-level `:schemas`
+  Per Spec 005 §Schema validation, the machine-level `:schemas`
   map (when present) must be a map whose sub-keys are within the closed set
   `#{:data :events :output :tags :meta}`. An unknown sub-key — including
   `:input` (state input is not adopted) — throws
@@ -1555,8 +1524,8 @@
   `:rf.error/machine-spawn-bad-shape` (single `:spawn`) /
   `:rf.error/machine-spawn-all-bad-shape` (child) on both-set or neither-set.
 
-  Every `:spawn` / `:spawn-all` rejects the unsupported
-  `:timeout-ms` / `:on-timeout` slot (use parent `:after`).
+  Every `:spawn` / `:spawn-all` rejects the unsupported `:timeout-ms` slot;
+  spawn-level `:timeout` / `:on-timeout` is supported.
 
   Every `:on` / `:always` / `:entry` / `:exit` slot's guard
   and action keyword refs must resolve against the machine's `:guards` /
@@ -1567,10 +1536,8 @@
   keyword ref (a single `:spawn`, or a `:spawn-all` child) must resolve
   against the machine's `:on-spawn-actions` map, falling back to
   `:actions` — the SAME two-registry order the runtime resolves through.
-  Throws `:rf.error/machine-unresolved-on-spawn` on a dangling ref
-  (mirroring `:rf.error/machine-unresolved-action`'s fail-fast contract;
-  previously a dangling `:on-spawn` ref silently resolved to \"no
-  callback\" at runtime).
+  Throws `:rf.error/machine-unresolved-on-spawn` on a dangling ref,
+  mirroring `:rf.error/machine-unresolved-action`'s fail-fast contract.
 
   Per Spec 005 §Initial-state cascading: every compound state-node
   (declares `:states`) MUST declare `:initial`. Throws
@@ -1603,7 +1570,7 @@
   `:rf.error/machine-bad-tags` (the silent vector/keyword→set coercion is
   removed), mirroring `:rf.error/machine-bad-internal-events`."
   [machine]
-  ;; EP-0029 A4 — validate the `:timeout` / `:on-timeout` grammar on the RAW
+  ;; Validate the `:timeout` / `:on-timeout` grammar on the raw
   ;; spec FIRST, so diagnostics name the `:timeout` / `:on-timeout` keys the
   ;; author wrote (timeout-requires-on-timeout pairing, the integer-ms /
   ;; ISO-8601-only duration rule rejecting the "5s"/"10ms" shorthand, and
@@ -1614,7 +1581,7 @@
   ;; `:final?` state carrying a `:timeout` is rejected as it would be for an
   ;; `:after`, and the desugared form is exactly what the runtime drives.
   (timeout/validate-timeouts! machine)
-  ;; EP-0029 A5 — validate the `:type :choice` / `:choice` grammar on the
+  ;; Validate the `:type :choice` / `:choice` grammar on the
   ;; RAW spec (before BOTH desugars) so diagnostics name the `:type :choice`
   ;; / `:choice` keys the author wrote AND a choice state that also declares
   ;; a reserved key (incl. `:timeout`) is caught with that key still present.
@@ -1630,11 +1597,11 @@
   (when (parallel/parallel? machine)
     (doseq [[rn body] (:regions machine)]
       (choice/validate-node-choice! [rn] rn body)))
-  ;; EP-0029 A6 — validate the `:internal-events` declaration on the RAW
-  ;; spec: it must be a SET of keywords (the re-frame2 set-form divergence
-  ;; from XState's array), and no declared internal event may ALSO be a
-  ;; public `:on` transition key anywhere in the machine (the public /
-  ;; private split). Neither named-intent desugar touches `:internal-events`,
+  ;; Validate the `:internal-events` declaration on the raw
+  ;; spec: it must be a set of keywords, and reserved `:rf/*` lifecycle names
+  ;; are forbidden. A declared internal event is expected to have an ordinary
+  ;; `:on` handler; the visibility boundary rejects only external dispatch.
+  ;; Neither named-intent desugar touches `:internal-events`,
   ;; so the raw spec is the right basis.
   (internal-events/validate-internal-events! machine)
   ;; No-silent-swallow on state-node / spawn-spec keys + the `:tags` shape, on
@@ -1673,13 +1640,13 @@
   (let [machine (choice/desugar-choices (timeout/desugar-timeouts machine))]
   (validate-history! machine)
   (validate-parallel! machine)
-  ;; rf2-b6znpi — a non-parallel root's `:after` (hand-authored or lowered
+  ;; A non-parallel root's `:after` (hand-authored or lowered
   ;; from a root `:timeout` / `:on-timeout`) has no runtime scheduling /
   ;; resolution path; reject it loudly rather than silently registering a
   ;; whole-machine deadline that never fires. Runs on the DESUGARED machine
   ;; so a root `:timeout` is caught via its lowered `:after` form too.
   (validate-non-parallel-root-after! machine)
-  ;; The machine-level `:schemas` map (EP-0029 A3) — closed sub-key set; an
+  ;; The machine-level `:schemas` map has a closed sub-key set; an
   ;; unknown sub-key (incl. `:input`) or a non-map `:schemas` fails loud.
   (validate-schemas! machine)
   (doseq [[s n] (walk-state-nodes machine)]
@@ -1689,7 +1656,7 @@
     (validate-final-state! s n)
     (validate-spawn-on-error! s n)
     (validate-compound-initial! s n)
-    ;; rf2-b4qbx0 — every `:on-spawn` keyword ref (single `:spawn` or a
+    ;; Every `:on-spawn` keyword ref (single `:spawn` or a
     ;; `:spawn-all` child) must resolve against `:on-spawn-actions`,
     ;; falling back to `:actions`, at registration.
     (validate-on-spawn-refs! machine s n))

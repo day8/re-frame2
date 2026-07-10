@@ -1,16 +1,11 @@
 (ns re-frame.on-spawn-ref-validation-test
-  "rf2-b4qbx0 — an `:on-spawn` KEYWORD ref resolves through the machine's
+  "An `:on-spawn` keyword ref resolves through the machine's
   `:on-spawn-actions` map, falling back to `:actions`
   (`transition/apply-on-spawn`'s `(or (chase-ref (:on-spawn-actions
-  machine) aref) (chase-ref (:actions machine) aref))`). BEFORE this fix,
-  registration validated the `:spawn` / `:spawn-all` SHAPE (machine-id xor
-  definition, unknown keys, …) but never chased the `:on-spawn` ref itself
-  — a dangling ref (a typo, a retired action name, a broken multi-hop
-  indirection, a cycle) registered cleanly, and at runtime `apply-on-spawn`
-  treats the nil resolution EXACTLY like a genuinely-absent `:on-spawn`:
-  the spawn completes silently, and the intended callback just never runs.
+  machine) aref) (chase-ref (:actions machine) aref))`). Dangling references,
+  broken indirection, and cycles fail at registration.
 
-  `validate-on-spawn-ref!` closes the gap: it follows the FULL `chase-ref`
+  `validate-on-spawn-ref!` follows the full `chase-ref`
   indirection chain (through EITHER registry, in that order), exactly as
   the sibling `:guard` / `:action` registration-time checks already do.
 

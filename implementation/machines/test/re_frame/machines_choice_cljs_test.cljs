@@ -1,5 +1,5 @@
 (ns re-frame.machines-choice-cljs-test
-  "CLJS-side coverage for EP-0029 A5 `:type :choice` transient / choice
+  "CLJS-side coverage for `:type :choice` transient
   states under the Reagent reactive substrate.
 
   Confirms cross-host parity for:

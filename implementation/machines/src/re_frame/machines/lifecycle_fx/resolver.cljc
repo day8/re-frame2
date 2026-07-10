@@ -72,7 +72,7 @@
       the snapshot; return it verbatim.
 
   Returns nil when the snapshot carries no `:rf/machine-type` (a
-  singleton snapshot, or a pre-resolver snapshot) or when a keyword type
+  singleton snapshot) or when a keyword type
   no longer names a registered machine (the type was cleared — a genuine
   missing reference)."
   [snapshot]
@@ -123,11 +123,9 @@
   non-empty vector, the path doesn't resolve, or the node declares no
   `:spawn`.
 
-  The single owner for the spawn-spec-at-invoke-id lookup shared by the
+  Shared owner for the spawn-spec-at-invoke-id lookup used by the
   finalize `:on-done` cascade (`finalize/finalize-machine`) and the
-  spawn-error `:on-error` routing (`spawn-error/parent-declares-on-error?`) —
-  the two carried byte-for-byte copies before this was hoisted here
-  (rf2-wm92kj), so a fix to the flat / region resolution had to land twice."
+  spawn-error `:on-error` routing (`spawn-error/parent-declares-on-error?`)."
   [parent-spec invoke-id]
   (when (and parent-spec (vector? invoke-id) (seq invoke-id))
     (let [[head & tail] invoke-id

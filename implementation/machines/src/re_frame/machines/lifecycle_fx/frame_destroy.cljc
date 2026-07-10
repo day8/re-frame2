@@ -13,11 +13,11 @@
     3. Abort that actor's in-flight `:rf.http/managed` requests
        (the `:http/abort-on-actor-destroy` contract holds
        across every destroy trigger including frame destroy).
-    4. Apply the unified app-db teardown projection — dissoc
+    4. Apply the unified runtime-db teardown projection — dissoc
        `[:rf.runtime/machines :snapshots <id>]`, release `[:rf.runtime/machines :system-ids <sid>]` when the
        actor was system-id-bound, prune `[:rf.runtime/machines :spawned]` slots.
-    5. Unregister the live actor event handler so subsequent dispatch
-       to the address surfaces `:rf.error/no-such-handler` cleanly.
+    5. Clear any stale registrar entry; normal spawned actors have no
+       per-instance registration.
     6. Emit `:rf.machine.lifecycle/destroyed` with
        `:reason :parent-frame-destroyed` per actor — the contract
        observable in `frame_lifecycle_test/destroy-frame-cascade-
@@ -47,8 +47,8 @@
   carries `:rf/machine-type` at its root (stamped by `install-spawn!`; a
   SINGLETON snapshot never carries it — actor_liveness_test:213). The
   straggler pass therefore SPLITS on that durable discriminator: spawned
-  stragglers run the FULL `destroy/destroy-single-actor!` teardown (handler
-  unregister, system-id release, timer cancel, snapshot dissoc) in
+  stragglers run the full `destroy/destroy-single-actor!` teardown (registrar
+  cleanup, system-id release, timer cancel, snapshot dissoc) in
   reverse-creation order DERIVED from the durable actor-id (the
   `#<n>` suffix), not the singleton straggler path that skips all of that.
   True singletons keep the exit-cascade-only straggler path."
@@ -76,8 +76,8 @@
     (or (get-in rt (paths/snapshot-path)) {})))
 
 (defn- spawned-snapshot?
-  "True iff `snapshot` is a SPAWNED actor's snapshot, not
-  a singleton's. The durable, app-db-derived discriminator is the presence
+  "True iff `snapshot` is a spawned actor's snapshot, not
+  a singleton's. The durable runtime-db discriminator is the presence
   of `:rf/machine-type` at the snapshot root: `install-spawn!` stamps it on
   every spawned actor (keyword TYPE or inline `:definition`), and a
   singleton's `build-initial-snapshot` snapshot never carries it
@@ -141,10 +141,10 @@
   "Singleton-machine destroy on frame teardown: run the actor's `:exit`
   cascade so Spec 005 §Final states §Composition with `:entry` /
   `:exit` symmetry holds, then abort in-flight HTTP. Does NOT
-  unregister the handler — singleton handlers live in the global
+  clear the registrar entry — singleton handlers live in the global
   registrar per Spec 005 §Spawning §v1-partial footnote: the handler
   outlives any particular frame. Snapshot dissoc is moot at this point
-  (the frame's app-db is about to be released).
+  (the frame's runtime-db is about to be released).
 
   The HTTP-abort fires the shared `:http/abort-on-actor-destroy`
   late-bind hook via `finalize/abort-actor-in-flight-http!` — the same
@@ -175,8 +175,8 @@
          not. Walked newest-first by `creation-rank` derived from the
          durable `<type>#<n>` actor-id, so reverse-creation order is
          reconstructed from durable state alone.
-      c. SINGLETON stragglers — snapshots with no `:rf/machine-type`
-         (registered via `reg-machine`, seeded directly). App-db iteration
+      c. Singleton stragglers — snapshots with no `:rf/machine-type`
+         (registered via `reg-machine`, seeded directly). Runtime-db iteration
          order — there is no reverse-creation contract for singletons.
    3. For each actor:
       a. Emit `:rf.machine.lifecycle/destroyed` BEFORE the destroy
@@ -186,7 +186,7 @@
       b. Spawned actors (recorded OR restored straggler): run the full
          single-actor destroy — exit-cascade → http-abort →
          timer cancel → unified teardown projection →
-         system-id-release trace → handler-unregister → spawn-order forget.
+         system-id-release trace → registrar cleanup → spawn-order forget.
       c. Singletons (registered via `reg-machine`, snapshot present but no
          `:rf/machine-type`): run the `:exit` cascade + HTTP abort, but
          DO NOT unregister the handler — singleton handlers live in the
@@ -229,7 +229,7 @@
              (catch #?(:clj Throwable :cljs :default) _ nil)))
       ;; (b') Restored spawned stragglers: SAME full destroy, newest-first
       ;; by durable creation rank. These get the complete spawned teardown
-      ;; (handler unregister / system-id release / timer cancel / snapshot
+      ;; (registrar cleanup / system-id release / timer cancel / snapshot
       ;; dissoc), not the exit-only singleton straggler path.
       (doseq [actor-id spawned-stragglers']
         (let [snapshot (get snapshots actor-id)]

@@ -1,7 +1,6 @@
 (ns re-frame.machine-output-schema-test
   "Verifies the `[:schemas :output]` completion-output schema on `reg-machine`
-  and the `:where :machine-output` validation boundary (EP-0029 A8,
-  rf2-kgr3kk).
+  and the `:where :machine-output` validation boundary.
 
   The contract under test:
 

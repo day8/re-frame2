@@ -1,10 +1,10 @@
 (ns re-frame.machines.lifecycle-fx.teardown
-  "Unified app-db teardown projection for spawned-actor destruction.
+  "Unified runtime-db teardown projection for spawned-actor destruction.
 
   Per Spec 005 §Cancellation cascade — when a spawned actor is destroyed
   (final-state auto-destroy, exit-cascade declarative-`:spawn` destroy,
   iterated `:spawn-all` children-destroy, or keyword/imperative
-  destroy) the runtime applies a five-step app-db projection:
+  destroy) the runtime applies a five-step runtime-db projection:
 
     1. dissoc snapshot at `[:rf.runtime/machines :snapshots actor-id]`
     2. release `[:rf.runtime/machines :system-ids <sid>]` reverse-index
@@ -40,9 +40,7 @@
   This namespace is PURE — it does not unregister handlers, abort
   in-flight HTTP, or emit traces. Those are caller side effects whose
   ordering relative to db mutation is contract (Spec 005 §Cancellation
-  cascade D6-D8: emit `:rf.machine/destroyed` BEFORE db mutation so
-  in-flight trace consumers see the destroy signal while the handler
-  still resolves; unregister the handler LAST)."
+  cascade D6-D8)."
   (:require [re-frame.machines.paths :as paths]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -59,7 +57,7 @@
           (get-in db (paths/system-id-path)))))
 
 (defn teardown-actor
-  "Apply the unified app-db teardown projection to `db`. Returns a tuple
+  "Apply the unified runtime-db teardown projection to `db`. Returns a tuple
   `[new-db released-sid]` where `released-sid` is the `:system-id`
   keyword that was released (or nil — callers emit
   `:rf.machine/system-id-released` against it when non-nil).

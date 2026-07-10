@@ -1,21 +1,17 @@
 (ns re-frame.machines
   "State machines. Per Spec 005.
 
-  Implements the v1 grammar:
+  Implements the Spec 005 grammar:
     - Transition tables with :on, :entry, :exit, :guard, :action.
     - Flat states (single keyword) AND hierarchical states (vector path)
       with deepest-wins resolution and LCA exit/entry cascade.
     - :always microsteps with bounded depth and atomic rollback on
       depth-exceeded.
-    - :after delayed transitions with per-scheduling-node :rf/after-epoch
-      tracking (a {<decl-path> <int>} map, so a parent's :after survives a
-      child-only sibling transition per Spec 005 §Hierarchy interaction);
-      the synthetic :rf.machine.timer/after-elapsed event carries the
-      node's epoch + decl-path and fires the transition only when the
-      scheduling node is still active and the carried epoch matches.
-      `:after` delays admit three forms — pos-int? literal, subscription vector
-      ([:sub-id & args]; re-resolves on sub change), and
-      (fn [snapshot] ms) computed once at state entry.
+    - :after delayed transitions with per-node epoch staleness checks;
+      delays may be positive integer literals, subscription vectors, or
+      functions computed at state entry.
+    - :timeout and :choice authoring forms lowered onto :after and :always.
+    - Declared :internal-events that only the machine's raise queue may drive.
     - Declarative :spawn that desugars into [:rf.machine/spawn args]
       on entry and [:rf.machine/destroy actor-id] on exit; deterministic
       actor ids via the in-snapshot :rf/spawn-counter (declarative) / the
@@ -24,9 +20,7 @@
     - Declarative :spawn-all — spawn-and-join sugar over N parallel
       :spawn's plus a closed two-member join condition (:all / :any).
     - The :raise reserved fx-id (machine-internal pre-commit dispatch).
-    - The :rf.machine/dispatch-to-system reserved fx-id — a machine
-      action sends a message to its spawned child actor by :system-id
-      (the fx counterpart to the dispatch-to-system FN).
+    - Named actor messaging through :rf.machine/dispatch-to-system.
     - Snapshot at [:rf.runtime/machines :snapshots <id>] in runtime-db.
     - Pure machine-transition fn (JVM- and CLJS-runnable, deterministic).
 
@@ -65,15 +59,8 @@
             [re-frame.machines.timer :as timer]
             [re-frame.registrar :as registrar]
             [re-frame.subs :as subs]
-            ;; The JVM-only require of the machines tooling sibling that backs
-            ;; the `machine-algebra-view` / `machine-instance-algebra-view` /
-            ;; `machine-selector?` aliases at the foot of this ns. CLJS
-            ;; deliberately OMITS this require so a CLJS app that loads the
-            ;; machines artefact but never attaches a tool DCEs the tooling body
-            ;; wholesale — the facade never reaches it. JVM has no bundle to
-            ;; protect; the aliases give JVM tools / conformance fixtures the
-            ;; ergonomic `re-frame.machines/<name>` shape. Mirrors the
-            ;; `re-frame.flows` → `re-frame.flows.tooling` JVM-only require.
+            ;; Keep tooling out of CLJS production bundles. CLJS tools require
+            ;; the tooling namespace directly; JVM callers get facade aliases.
             #?@(:clj [[re-frame.machines.tooling :as machines-tooling]])))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -85,12 +72,9 @@
 ;; bridge, the conformance corpus, the test fixtures, examples that
 ;; `:require [re-frame.machines :as machines]`) all see one surface.
 
-;; Declarative-`:spawn` spawns allocate ids inside the parent
-;; snapshot's `:rf/spawn-counter` slot via
-;; `re-frame.machines.transition/allocate-spawned-id`; hand-emitted
-;; spawn fxs allocate from the frame's app-db slot at
-;; `[:rf.runtime/machines :spawn-counter <machine-id>]` inside the
-;; spawn-fx db-swap (the single-reserved-root contract).
+;; Declarative spawns allocate ids in the parent snapshot's
+;; `:rf/spawn-counter`; hand-emitted spawns use the frame's runtime-db
+;; `[:rf.runtime/machines :spawn-counter <machine-id>]` slot.
 ;; `machine-transition` is a pure function — no module-level mutable
 ;; state, deterministic from its (machine snapshot event) arguments.
 
@@ -161,16 +145,10 @@
   scope (async callbacks / tools / cross-frame lookups); `target` is a
   frame-id keyword or a live frame value.
 
-  Per rf2-f28bno the 2-arity is SHAPE-DISCRIMINATED on the second arg,
-  mirroring `subscribe`'s frame-first arity `{:frame …}` opts form (and the
-  rf2-bfadc6 `subscribe-once` disposition): an OPTS MAP (a non-frame-value map) ⇒ the
-  public `(machine-by-system-id system-id {:frame target})` form (`:frame`
-  absent ⇒ ambient); anything else ⇒ the INTERNAL frame-last
-  `(machine-by-system-id system-id frame-target)` plumbing (a frame-id
-  keyword or a frame value), retired from the taught surface but retained
-  for implementation / test / tooling reach. A frame VALUE is itself a map
-  (carries `:rf.frame/object`), so the discriminator is `map? AND NOT
-  frame-value?` — a bare `{:frame f}` opts map, never a frame value.
+  The 2-arity distinguishes an opts map from the internal frame-last form.
+  Because a live frame value is also a map, only a map that is not a frame
+  value is treated as opts. An opts map without `:frame` uses the ambient
+  frame.
 
   Per Spec 005 §Named addressing via :system-id + Spec 002 §Resolver
   surface."
@@ -181,21 +159,12 @@
        :machine-by-system-id
        {:where 're-frame.machines/machine-by-system-id})))
   ([system-id frame-or-opts]
-   ;; rf2-f28bno: an OPTS MAP (non-frame-value map) is the PUBLIC
-   ;; `(machine-by-system-id system-id {:frame target})` form; lower it to
-   ;; the internal frame-last arity via the resolved `:frame` target
-   ;; (ambient when absent — a keyword/frame-value, never a bare opts map,
-   ;; so the recursive call lands in the frame-last branch below). Anything
-   ;; else is the INTERNAL frame-last plumbing: `frame-or-opts` is the frame
-   ;; target (a keyword id or a frame value).
+   ;; A live frame is map-shaped, so exclude frame values from the opts branch.
    (if (and (map? frame-or-opts) (not (frame/frame-value? frame-or-opts)))
      (if-some [target (:frame frame-or-opts)]
        (machine-by-system-id system-id target)
        (machine-by-system-id system-id))
-     ;; INTERNAL frame-last. The system-ids reverse index is durable machine
-     ;; runtime-db state — read it off the runtime-db partition. Normalize a
-     ;; frame VALUE target to its frame-id first (`frame-runtime-db-value` keys
-     ;; the registry by the bare id); a keyword id passes through unchanged.
+     ;; The reverse index is runtime-db state keyed by the bare frame id.
      (get-in (frame/frame-runtime-db-value (frame/frame-target->id frame-or-opts))
              (paths/system-id-path system-id)))))
 
@@ -227,9 +196,8 @@
 ;; `:system-id`: a machine ACTION addresses its spawned child actor by
 ;; `:system-id`. Actions can't read app-db and `:on-spawn`'s return is
 ;; dropped, so the fx form is the spec-blessed way an action sends a
-;; message to a named actor. This is the fx counterpart to the
-;; `dispatch-to-system` FN (`re-frame.core`); the fn is sugar for direct
-;; (queued) call sites, the fx is what a machine action emits from `:fx`.
+;; message to a named actor. The implementation-tier `dispatch-to-system` fn
+;; is sugar for direct queued call sites; actions emit the fx form.
 ;;
 ;; Args shape `[<system-id> <event-vector>]` — the framework fx contract
 ;; is a 2-element `[fx-id args]` pair (the `do-fx` walk drops arity-≥3
@@ -377,39 +345,14 @@
   (fn [runtime-db [_ machine-id tag]]
     (contains? (get-in runtime-db (paths/snapshot-path machine-id :tags)) tag)))
 
-;; ---- framework-standard registration (EP-0026 §Framework Standard Registrations)
+;; ---- framework-standard registration -------------------------------------
 ;;
-;; The machine runtime effects + subs above are FRAMEWORK STANDARDS: reserved
-;; `:rf.machine/*` / `:rf/machine*` ids encoding the execution invariants of the
-;; spec/005 machine subsystem (spawn / destroy / timed transitions / the
-;; snapshot reader subs). Like `:rf/set-db` + the standard `:rf.interceptor/*`
-;; interceptors, they must be UNIONED INTO EVERY resolved image generation —
-;; otherwise an image-loaded frame (one created with an explicit `:images`
-;; `:select-ns` scope, e.g. a Story variant frame scoped to its app namespace)
-;; resolving `[:rf.machine/spawn …]` / `[:rf/machine …]` under a bound
-;; `*generation*` could NOT resolve it (generation-routed `registrar/lookup`
-;; reads ONLY the generation's resolver — no fallback to the registrar atom), so
-;; the machine never spawns and any hosted machine (incl. the Story lifecycle
-;; machine) silently stalls. These ids register via the runtime `reg-fx` /
-;; `reg-runtime-sub` FNs (not the provenance-stamping macros), so they carry NIL
-;; `:rf.provenance/ns` and a `:select-ns` image cannot reach them by namespace —
-;; the framework-standard union is the ONLY mechanism that keeps them live in
-;; every generation.
-;;
-;; The standards are NON-replaceable (default): a public app image MUST NOT
-;; shadow a reserved machine id — a collision FAILS LOUD
-;; (`:rf.error/image-standard-replacement-forbidden`). The standard descriptor is
-;; the SAME runnable descriptor the regular registrar stores, so a
-;; generation-routed resolution returns a value byte-shape-identical to the
-;; registrar path.
-;;
-;; The descriptors are CAPTURED at ns-load (immediately after the `reg-fx` /
-;; `reg-runtime-sub` forms above wrote them) into `machine-runtime-descriptors`
-;; so `install-machine-runtime!` can re-register BOTH the regular registrar AND
-;; the standard registry AFTER a `registrar/clear-all!` — which wipes the
-;; registrar slots, so reading them back at re-install time would find nothing.
-;; This is the machine analogue of `events/register-set-db-standard!` (re-seeds
-;; both the registrar and the standard registry on every `init!` / reset).
+;; Reserved machine effects and subscriptions must resolve in every image
+;; generation. They have no namespace provenance, so image selection cannot
+;; discover them; the framework-standard union is their generation path.
+;; Standards are non-replaceable and use the same descriptors as the regular
+;; registrar. Capture those descriptors at namespace load so reset can restore
+;; both registries after `registrar/clear-all!`.
 
 (def ^:private machine-runtime-descriptors
   "Captured at ns-load: the `[kind id descriptor]` triples for every machine
@@ -432,24 +375,14 @@
            [:sub :rf.machine/has-tag?]])))
 
 (defn install-machine-runtime!
-  "Re-register the machine runtime effects + subs into BOTH the regular
-  registrar AND the EP-0023 framework-standard registry. Idempotent.
+  "Re-register machine runtime effects and subscriptions in both the regular
+  registrar and framework-standard registry. Idempotent.
 
-  - The REGULAR registrar registration is the no-generation / default-image
-    resolution path — `registrar/lookup` reads the atom directly, so a
-    no-generation caller (e.g. `rf/compute-sub [:rf/machine …]` in a test, or a
-    default-image frame) resolves the machine runtime here.
-  - The STANDARD registration is unioned into EVERY resolved image generation,
-    so an image-loaded frame (a Story variant frame scoped to its app namespace)
-    resolves `[:rf.machine/spawn …]` / `[:rf/machine …]` through its sealed
-    generation (which carries ONLY the standard union + the image selection — no
-    registrar fallback).
+  The regular registrar serves no-generation/default-image lookups. The
+  standard registry supplies the same handlers to sealed image generations.
 
-  Re-registers from the ns-load-captured `machine-runtime-descriptors` so it
-  works even after a `registrar/clear-all!` has wiped the registrar slots (the
-  machine analogue of `events/register-set-db-standard!`). Called at ns load
-  (below), from the `:machines/install-runtime!` late-bind hook the reset fixture
-  fires, and directly by tests that wipe the registrar with `clear-all!`."
+  Uses descriptors captured at namespace load, so it still works after the
+  registrar has been cleared."
   []
   (doseq [[kind id desc] machine-runtime-descriptors]
     (registrar/register! kind id desc)
@@ -471,60 +404,21 @@
 
 ;; ---- spawned-actor ownership ----------------------------------------------
 ;;
-;; Per Spec 014 §Abort on actor destroy: a managed `:rf.http/managed`
-;; request "belongs to" a spawned actor when its originating event-id is
-;; that actor's address. The ownership decision is MACHINES-OWNED and
-;; published through the `:machines/owning-actor-id` hook, so the structural
-;; read lives next to the runtime-db shape it depends on. http reaches it
-;; via `late-bind/get-fn` and falls back to nil when machines is absent.
-;;
-;; SET SEMANTICS: the owning set is SNAPSHOT MEMBERSHIP — `event-id` owns a
-;; request iff a SPAWNED actor's snapshot lives at
-;; `[:rf.runtime/machines :snapshots <event-id>]`, where "spawned" is the
-;; durable `:rf/machine-type`-at-root discriminator `install-spawn!` stamps
-;; on EVERY spawned actor (declarative `:spawn` / `:spawn-all` AND
-;; imperative `[:rf.machine/spawn ...]`), and a singleton's snapshot never
-;; carries it. Snapshot membership covers imperatively-spawned actors as
-;; well as declarative ones: imperative spawns install a snapshot WITHOUT a
-;; `:spawned` registry slot (the slot is gated on the declarative-desugar
-;; `:rf/parent-id` + `:rf/invoke-id`, per `lifecycle-fx.spawn/spawn-fx`'s
-;; `track?`), so keying on the snapshot rather than the registry catches
-;; them and their managed HTTP is aborted on destroy. The destroy side
-;; fires `:http/abort-on-actor-destroy` for imperative destroys (via
-;; `lifecycle-fx.finalize` / `lifecycle-fx.frame-destroy`, which key on the
-;; SAME `:rf/machine-type` marker); the recording side keys on the SAME
-;; discriminator `frame-destroy/spawned-snapshot?` uses, so recording and
-;; teardown agree on exactly which ids are actors.
+;; Managed HTTP ownership is machines-owned because it depends on the private
+;; snapshot shape. A request belongs to `event-id` exactly when that id has a
+;; live snapshot carrying `:rf/machine-type`. This includes declarative and
+;; imperative spawns, excludes singleton machines, and matches the destroy
+;; side's actor discriminator.
 
 (defn owning-actor-id
-  "Resolve the spawned-actor-id that OWNS `event-id` in `frame-id`, or nil.
+  "Return `event-id` when it names a live spawned actor in `frame-id`, else nil.
 
-  Returns `event-id` (a keyword — the spawned actor's machine address)
-  when a SPAWNED actor's snapshot is currently installed at
-  `[:rf.runtime/machines :snapshots <event-id>]`, otherwise nil — meaning
-  the event is NOT owned by a spawned actor (it came from an ordinary
-  event handler, or from a singleton machine whose snapshot carries no
-  `:rf/machine-type` marker).
+  Spawned actors are identified by `:rf/machine-type` on their live snapshot;
+  singleton machines do not carry that marker.
 
-  Published as the `:machines/owning-actor-id` late-bind hook so the http
-  artefact can ask machines \"who owns this request's originating event?\"
-  without statically `:require`ing this artefact or re-stating its private
-  runtime-db shape. When machines is absent the hook is unregistered and
-  http's caller falls back to nil.
-
-  Set semantics: SNAPSHOT MEMBERSHIP via the durable `:rf/machine-type`-at-
-  root discriminator — declarative `:spawn` / `:spawn-all` AND imperative
-  `[:rf.machine/spawn ...]` actors, since `install-spawn!` stamps that
-  marker on every spawned actor's snapshot and a singleton's snapshot never
-  carries it. This is the SAME discriminator the destroy side
-  (`frame-destroy/spawned-snapshot?`) keys on, so recording and teardown
-  classify ids identically (see the section comment above).
-
-  PERF: `frame/frame-runtime-db-value` is a substrate `deref` returning the
-  persistent runtime-db map BY REFERENCE (no copy, no scan), so the lookup
-  is a direct `get-in` to the candidate id's snapshot root — O(1), no scan
-  of the snapshot table. An app with no live spawned actors pays one
-  by-reference deref + one path descent that misses."
+  Published through late-bind so HTTP does not depend on this optional
+  artefact or duplicate its runtime-db shape. The lookup is a direct snapshot
+  path read; it does not scan the actor table."
   [frame-id event-id]
   (let [rt (frame/frame-runtime-db-value frame-id)]
     (when (map? rt)
@@ -594,7 +488,7 @@
 ;; `:rf.error/no-such-handler` BEFORE erroring:
 ;; given an unresolved event-id (a spawned actor-id with no per-instance
 ;; registration), the resolver materialises the actor's handler-meta from
-;; its (revertible) app-db snapshot, so `restore-epoch!` reverts actor
+;; its revertible runtime-db snapshot, so epoch restore reverts actor
 ;; liveness with ZERO registrar drift. Returns nil when no live snapshot
 ;; exists → core surfaces the genuine `:no-such-handler` (correct: the
 ;; actor is not alive in this frame value). The companion
@@ -624,10 +518,8 @@
 ;; the `:rf.runtime/machines` slice so each snapshot's `:data` is redacted /
 ;; elided per the per-frame elision registry's classified `:sensitive` /
 ;; `:large` paths under `:rf.egress/ssr-hydration` BEFORE it rides the wire —
-;; keeping classified machine data out of the hydration payload. EP-0025:
-;; machine `:data` classification rides the projection-relative subsystem
-;; declaration (lowered per actor under `:source :effect`); the commit-plane
-;; effects are the general app-db mechanism.
+;; keeping classified machine data out of the hydration payload. Machine
+;; declarations are lowered per actor under `:source :machine`.
 ;; Late-bound so SSR never statically requires the machines artefact.
 (late-bind/set-fn! :machines/project-ssr-runtime-db
                    machines-ssr/project-ssr-runtime-db)

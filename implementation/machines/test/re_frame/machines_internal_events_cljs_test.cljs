@@ -1,5 +1,5 @@
 (ns re-frame.machines-internal-events-cljs-test
-  "CLJS-side coverage for EP-0029 A6 public / private `:internal-events`
+  "CLJS-side coverage for public/private `:internal-events`
   under the Reagent reactive substrate.
 
   Confirms cross-host parity for:

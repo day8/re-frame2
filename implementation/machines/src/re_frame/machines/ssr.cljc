@@ -12,7 +12,7 @@
   re-materialises actors. `re-frame.ssr.payload-policy/project-runtime-db`
   consults this hook so a snapshot whose frame classifies a `:data` path
   `:sensitive` / `:large` has that field redacted / elided in the
-  hydration blob — frame-owned classification governs machine `:data`
+  hydration blob — the frame's classification registry governs machine `:data`
   egress. Like resources (which has `:ssr/extend-runtime-db-projection`),
   machines provides this SSR projection hook.
 
@@ -20,18 +20,18 @@
 
   `project-ssr-runtime-db` projects the `:rf.runtime/machines` slice for the
   SSR hydration boundary: each snapshot's `:data` is run through the merged
-  frame-owned `re-frame.projection/project-egress` under the
-  `:rf.egress/ssr-hydration` profile, so any `:data` path the FRAME classifies
+  frame's merged `re-frame.projection/project-egress` policy under the
+  `:rf.egress/ssr-hydration` profile, so any classified `:data` path
   redacts (`:rf/redacted`) / elides (`:rf.size/large-elided`) before it rides
   the wire. The projection uses SHARED frame-independent primitives — NEVER a
   family-private elider.
 
   Machine `:data` egress classification lives in the per-frame elision
-  registry like every other app-db / runtime-db path. EP-0025: a machine
-  definition declares its sensitive / large `:data` slots PROJECTION-RELATIVE
+  registry like every other app-db / runtime-db path. A machine definition
+  declares its sensitive / large `:data` slots projection-relative
   (`re-frame.machines.classification`), lowered per actor instance into the
-  registry under `:source :effect`; the commit-plane `:sensitive` / `:large`
-  effects are the general app-db mechanism. The `[:schemas :data]` schema
+  registry under `:source :machine`; the commit-plane `:sensitive` / `:large`
+  effects are the general classification mechanism. The `[:schemas :data]` schema
   VALIDATES `:data`; it does not classify it for egress.
 
   Snapshots whose frame classifies no matching `:data` path ride VERBATIM — the
@@ -56,15 +56,15 @@
 
   `actor-id` is the snapshot's key (the singleton machine-id OR a spawned
   instance id). `frame-id` is the SSR request frame whose runtime-db machine-
-  snapshot classification governs the projection (nil ⇒ no frame walk ⇒ `:data`
+  snapshot classification governs the projection (nil means no frame walk, so `:data`
   rides verbatim).
 
   Machine `:data` egress classification lives in the per-frame elision
-  registry. EP-0025: a machine definition declares its sensitive / large
-  `:data` slots PROJECTION-RELATIVE (`re-frame.machines.classification`),
+  registry. A machine definition declares its sensitive / large
+  `:data` slots projection-relative (`re-frame.machines.classification`),
   lowered per actor instance into the registry as the absolute runtime-db
   path `[:rf.runtime/machines :snapshots <actor-id> :data …]` under
-  `:source :effect`. `re-frame.classification/frame-snapshot-classification`
+  `:source :machine`. `re-frame.classification/frame-snapshot-classification`
   re-roots those declarations snapshot-relative (`[:data …]`); here we strip
   the leading `:data` segment to index into the snapshot's bare `:data` map
   and redact via
@@ -72,7 +72,7 @@
   walker — `:sensitive` slots to
   `:rf/redacted`, `:large` to the `:rf.size/large-elided` marker (sensitive
   wins). Snapshot egress does not consult per-slot `:sensitive?` / `:large?`
-  schema marks; frame-owned classification is the sole mechanism.
+  schema marks; the frame classification registry is the egress source of truth.
 
   The snapshot's NON-`:data` slots (`:state`, `:tags`, `:rf/machine-type`, the
   reserved spawn-counter slot, …) are durable structural facts the client needs
@@ -100,11 +100,11 @@
   hydration `:rf/runtime-db` payload (the body behind the
   `:machines/project-ssr-runtime-db` late-bind hook). Returns the
   `:rf.runtime/machines` value with every snapshot's `:data` projected per its
-  frame-owned `:sensitive` / `:large` classification (`project-snapshot-data`);
+  frame registry's `:sensitive` / `:large` classification (`project-snapshot-data`);
   or `runtime-db`'s `:rf.runtime/machines` value unchanged when it carries no
   snapshots.
 
-  `frame-id` is the SSR request frame (nil ⇒ owner marks only — see
+  `frame-id` is the SSR request frame (nil leaves snapshots unchanged; see
   `project-snapshot-data`). The `:snapshots` map is re-projected entry-by-entry
   keyed on actor-id; the sibling registry slots (`:system-ids`, `:spawned`,
   `:spawn-counter`) ride verbatim (durable reverse indexes + counters carrying

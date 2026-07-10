@@ -1,5 +1,5 @@
 (ns re-frame.choice-test
-  "EP-0029 A5 — `:type :choice` transient / choice states.
+  "`:type :choice` transient states.
 
   Covers:
     - desugaring `:type :choice` / `:choice` onto the existing `:always`
@@ -7,7 +7,7 @@
       mechanism);
     - registration-time fail-loud validation (the `:type` / `:choice`
       pairing; the declarative candidate-array shape, REJECTING the
-      function form — the operator-ruled A2 / C1 divergence; the
+      function form; the
       reserved-key exclusion; the required default candidate; the
       self-loop rejection);
     - the dispatch boundary — a choice state entered mid-macrostep resolves

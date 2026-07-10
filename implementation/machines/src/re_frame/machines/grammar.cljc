@@ -137,7 +137,7 @@
   "Normalise a transition-table slot value to the vector of canonical
   candidate transition maps it denotes — the ONE owner of the value-form →
   candidate-maps mapping the `:on` / `:after` / `:always` / `:on-done` /
-  `:on-error` slots all share (rf2-tu5psi). Discriminates on the shared
+  `:on-error` slots all share. Discriminates on the shared
   `transition-value-form` recogniser:
 
     :nil              -> [{}]              (forbidden / internal no-op — the

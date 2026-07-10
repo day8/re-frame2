@@ -1,5 +1,5 @@
 (ns re-frame.machine-doc-opts-prod-elision-test
-  "Per rf2-tfiutq: `reg-machine`'s LITERAL opts-map pure-documentation
+  "`reg-machine` literal opts-map pure-documentation
   (`:doc`) production-elision contract — the machines-artefact counterpart of
   `re-frame.doc-metadata-prod-elision-test` (which pins the splice-through
   reg-* surfaces but cannot exercise `reg-machine`, since that needs
@@ -20,7 +20,7 @@
       constant-folds, so the user-authored `:doc` STRING bytes DCE from the
       :advanced bundle (a runtime strip cannot DCE a call-site string). That
       half is pinned by the elision probe (`scripts/check-elision.cjs`, the
-      `rf2-tfiutq-machine-opts-doc-sentinel` sentinel), not this JVM suite.
+      machine opts doc sentinel), not this JVM suite.
 
   This file pins the SEMANTIC half for the machine surface."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
