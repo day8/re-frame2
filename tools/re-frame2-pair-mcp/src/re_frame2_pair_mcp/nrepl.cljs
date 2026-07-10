@@ -51,9 +51,16 @@
    ".shadow-cljs/nrepl.port"
    ".nrepl-port"])
 
-(defn- read-port-file
+(defn read-port-file
   "Read + parse an nREPL port from a single file `path`. Returns an
-  integer or nil (file absent / unreadable / non-numeric content)."
+  integer or nil (file absent / unreadable / non-numeric content).
+
+  Public within the tool: this transport ns OWNS nREPL port-file parsing.
+  The discovery cascade above uses it, and `server.cljs/ensure-connection!`
+  calls it for the per-tool-call re-read of the cached port file (detecting
+  a shadow restart that rewrote the port) — rather than carrying its own
+  byte-for-byte copy. Connection lifecycle stays in server; the filesystem
+  read/trim/parse primitive lives here."
   [path]
   (try
     (let [content (str/trim (.toString (.readFileSync fs path)))
