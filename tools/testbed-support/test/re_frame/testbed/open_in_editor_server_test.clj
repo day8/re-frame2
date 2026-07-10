@@ -1,20 +1,9 @@
 (ns re-frame.testbed.open-in-editor-server-test
-  "JVM regression tests for the dev-only open-in-editor endpoint's
-  `:file` resolution path.
+  "JVM tests for the dev-only open-in-editor endpoint.
 
-  The endpoint is a JVM-only `.clj` (it runs on the shadow-cljs SERVER
-  JVM), so it cannot be exercised by the node CLJS suites — this is its
-  `clojure -M:test` gate.
-
-  The classpath stage of `resolve-file` — context-class-loader lookup,
-  `file:` URL decode, and Windows drive-letter normalization — is delegated
-  to `re-frame.source-coords/absolutise-file`, the canonical resolver that
-  owns and separately tests that decode contract (literal-`+` preservation,
-  `%20`/`%2B` escapes, Windows drive shape — see `source_coords_test.clj`).
-  These tests therefore do NOT re-unit-test the decoder; they assert the
-  DELEGATION (resolve-file's classpath output IS core's) plus the
-  endpoint-owned policy the runtime twin adds on top: the cwd fallback,
-  the raw-path fall-through, and the nil/blank/absolute pass-through."
+  Core owns classpath URL decoding. This suite verifies that the endpoint
+  delegates there, adds cwd fallback, guards the launch boundary, and emits
+  valid responses."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.java.io :as io]
             [clojure.string :as str]
@@ -23,26 +12,14 @@
   (:import [java.net URL URLClassLoader]
            [java.io File]))
 
-;; ---- resolve-file: the classpath stage delegates to core (rf2-hf0vqa) -----
-;;
-;; `resolve-file` no longer re-implements the context-class-loader
-;; `getResource` + `file:`-URL decode + Windows-drive normalization dance —
-;; it delegates that classpath stage to `re-frame.source-coords/absolutise-file`,
-;; which owns it canonically (rf2-wvsxg / rf2-st3ax4) and carries its own decode
-;; unit tests. This single integration test proves the delegation end-to-end:
-;; over a real `+`-bearing classpath root (the load-bearing regression — a
-;; literal `+` must survive, never form-decode to a space), `resolve-file`
-;; returns EXACTLY what `absolutise-file` returns, so the decode contract is
-;; sourced from core, not duplicated here.
+;; A `+`-bearing classpath root confirms that delegation preserves URI semantics.
 
 (deftest resolve-file-delegates-classpath-stage-to-core
   (testing "resolve-file's classpath stage IS core's absolutise-file: a
             classpath-relative `:file` resolves to exactly the absolute
             on-disk path core produces — verbatim, `+` preserved, never a
             space-corrupted sibling"
-    ;; Build a throwaway classpath root dir whose name carries a `+`, drop
-    ;; a fake source file under it, push a class-loader rooted there onto
-    ;; the context, and confirm resolve-file's result equals absolutise-file's.
+    ;; Install a throwaway source root on the thread context classloader.
     (let [tmp       (File. (System/getProperty "java.io.tmpdir")
                            (str "oies+test-" (System/nanoTime)))
           rel-path  "fake_ns/core.cljs"
@@ -59,7 +36,7 @@
             (let [resolved (oies/resolve-file rel-path)]
               (is (some? resolved) "the classpath resource resolved")
               (is (= (#'source-coords/absolutise-file rel-path) resolved)
-                  "resolve-file returns EXACTLY core's absolutise-file result —
+                  "resolve-file returns core's absolutise-file result;
                    the classpath stage is delegated, not re-implemented")
               (is (.contains ^String resolved "+")
                   "the literal + in the classpath root survived (core owns the
@@ -71,12 +48,10 @@
             (finally
               (.setContextClassLoader (Thread/currentThread) prev))))
         (finally
-          ;; Best-effort cleanup of the throwaway tree.
+          ;; Best-effort cleanup.
           (when (.exists src-file) (.delete src-file))
           (.delete (io/file tmp "fake_ns"))
           (.delete tmp))))))
-
-;; ---- absolute / blank pass-through contract ------------------------------
 
 (deftest resolve-file-passes-absolute-and-blank-through
   (testing "an already-absolute path is returned unchanged (incl. a + in it)"
@@ -87,21 +62,10 @@
     (is (nil? (oies/resolve-file "")))
     (is (nil? (oies/resolve-file "   ")))))
 
-;; ---- security: the loopback / origin / method guard ----------------------
-;;
-;; The endpoint launches the editor on a local file path, so it must NOT be
-;; drivable by a drive-by GET or a cross-origin POST from a remote page. The
-;; guard pins it to a POST addressed to a loopback Host with (when present)
-;; a loopback Origin. These tests redirect `launch!` to a recording stub so
-;; no real editor is spawned, and assert: the one valid local POST reaches
-;; the launch path and answers 200, while every unauthenticated / wrong-
-;; method / cross-origin / non-loopback variant is rejected (403/405) BEFORE
-;; `launch!` is ever called.
+;; Launch is stubbed while the method, Host, Origin, and CORS guards are tested.
 
 (defn ^:private req
-  "Build a minimal Ring request map for the endpoint. An explicit nil `host`
-  / `origin` omits that header (an explicit nil is respected over the :or
-  default, which only fills an ABSENT key)."
+  "Build a minimal endpoint request; nil host/origin values omit the header."
   [{:keys [method host origin file]
     :or   {method :post host "localhost:8031"}}]
   {:uri            oies/endpoint-path
@@ -112,8 +76,7 @@
                      origin (assoc "origin" origin))})
 
 (defmacro ^:private with-launch-spy
-  "Run `body` with `launch!` redirected to a stub that records each call in
-  `calls` (an atom holding a vector) and returns `{:ok true}`."
+  "Record launch calls without opening an editor."
   [calls & body]
   `(with-redefs [oies/launch! (fn [& args#]
                                 (swap! ~calls conj (vec args#))
@@ -159,7 +122,7 @@
                            :origin "https://evil.example"
                            :file   "/etc/passwd"}))]
           (is (= 403 (:status resp)) "cross-origin POST is forbidden")
-          (is (zero? (count @calls)) "launch! was NEVER called")
+          (is (zero? (count @calls)) "launch! was not called")
           (is (not= "*" (get-in resp [:headers "access-control-allow-origin"]))
               "no wildcard CORS — the remote origin is not reflected"))))))
 
@@ -195,7 +158,7 @@
                            :origin nil
                            :file   "/etc/passwd"}))]
           (is (= 405 (:status resp)) "GET is method-not-allowed")
-          (is (zero? (count @calls)) "launch! was NEVER called"))))))
+          (is (zero? (count @calls)) "launch! was not called"))))))
 
 (deftest guard-options-preflight-reflects-loopback-origin
   (testing "an OPTIONS preflight from a loopback origin reflects that origin
@@ -214,23 +177,10 @@
               "GET is no longer an allowed method")
           (is (zero? (count @calls))))))))
 
-;; ---- security negatives: the load-bearing rejection branches (rf2-jwdi4r) --
-;;
-;; The two adversarial paths the existing guard suite did NOT drive
-;; end-to-end. Both are safety branches — a false negative here re-opens the
-;; drive-by editor-launch vector — so each asserts the request is rejected
-;; AND `launch!` is never reached.
+;; Safety negatives assert both the response and absence of a launch call.
 
 (deftest guard-rejects-opaque-null-origin-post
-  (testing "rf2-jwdi4r: a POST carrying the opaque `Origin: null` (a
-            sandboxed iframe / `file:` page drive-by — the very context
-            `origin-host` documents as yielding nil) is rejected 403 and
-            NEVER reaches launch!. The Host is loopback, so this isolates the
-            ORIGIN gate: `origin-host` maps \"null\" → nil, which is not a
-            loopback origin, so `local-request?` fails and the launch path is
-            never touched. (origin-host-extracts-and-rejects-opaque only
-            proves the \"null\" → nil unit step; this proves the POST is
-            actually refused end-to-end.)"
+  (testing "an opaque Origin is rejected before launch"
     (let [calls (atom [])]
       (with-launch-spy calls
         (let [resp (oies/handle
@@ -240,20 +190,13 @@
                            :file   "/etc/passwd"}))]
           (is (= 403 (:status resp)) "opaque-origin POST is forbidden")
           (is (re-find #"\"error\":\"forbidden\"" (:body resp)))
-          (is (zero? (count @calls)) "launch! was NEVER called")
+          (is (zero? (count @calls)) "launch! was not called")
           (is (= "null" (get-in resp [:headers "access-control-allow-origin"]))
               "CORS denies via `null` — never reflects the opaque origin, never `*`")
           (is (not= "*" (get-in resp [:headers "access-control-allow-origin"]))))))))
 
 (deftest guard-options-preflight-denies-remote-origin
-  (testing "rf2-jwdi4r: an OPTIONS preflight is answered BEFORE the
-            `local-request?` guard (it is the first `cond` branch in
-            `handle`), so `allow-origin` is the SOLE gate on preflight CORS.
-            A preflight from a REMOTE origin must therefore get
-            `access-control-allow-origin: null` (deny) — never `*` and never
-            the reflected remote origin — so the browser blocks the follow-up
-            cross-origin POST. launch! is never touched. (The existing
-            preflight test only covers the loopback-origin ALLOW case.)"
+  (testing "a remote preflight receives no usable CORS origin"
     (let [calls (atom [])]
       (with-launch-spy calls
         (let [resp (oies/handle
@@ -268,11 +211,8 @@
           (is (not= "https://evil.example"
                     (get-in resp [:headers "access-control-allow-origin"]))
               "the remote origin is never reflected back")
-          (is (zero? (count @calls)) "launch! was NEVER called")))))
-  (testing "rf2-jwdi4r: an OPTIONS preflight from a non-loopback Host with no
-            Origin likewise denies (ao=null) — the allow-origin gate never
-            emits a usable CORS header for anything but a validated loopback
-            origin"
+          (is (zero? (count @calls)) "launch! was not called")))))
+  (testing "a preflight without a validated loopback Origin is denied"
     (let [calls (atom [])]
       (with-launch-spy calls
         (let [resp (oies/handle
@@ -289,14 +229,7 @@
                             :request-method :post
                             :headers {"host" "localhost:8031"}})))))
 
-;; ---- malformed query string: clean 400, never an uncaught throw ----------
-;;
-;; `parse-query` URL-decodes every key/value; a malformed percent-escape (a
-;; lone `%`, or `%` not followed by two hex digits) makes `decode-component`'s
-;; `URI/create` throw `IllegalArgumentException`. Every other error path on this endpoint
-;; (missing file, forbidden, method-not-allowed, launch failure) answers a
-;; clean JSON response — a malformed query must too, rather than propagating
-;; uncaught into the shadow-cljs `:dev-http` Ring plumbing (rf2-bhejni).
+;; URI decoding failures must become JSON 400 responses at the Ring boundary.
 
 (deftest malformed-query-returns-clean-400
   (testing "a lone `%` in the query string (an incomplete percent-escape)
@@ -325,20 +258,10 @@
           (is (re-find #"\"error\":\"malformed-query\"" (:body resp)))
           (is (zero? (count @calls))))))))
 
-;; ---- parse-query: literal `+` survives (rf2-62hu6k) ----------------------
-;;
-;; `parse-query` decodes with decodeURIComponent semantics (via
-;; `decode-component`'s `URI` fragment decode), NOT `URLDecoder/decode`'s
-;; application/x-www-form-urlencoded semantics that map a literal `+` to a
-;; space. This is the SAME contract `re-frame.source-coords/absolutise-file`
-;; upholds for `file:` URLs (the classpath resolver `resolve-file` delegates
-;; to) and `config.cljs`'s `js/decodeURIComponent` upholds on the client — so a
-;; checkout path carrying a literal `+` (`C:/code/re-frame2+wip`) survives
-;; verbatim through the query rather than being corrupted to `re-frame2 wip`.
+;; Query parsing uses URI semantics so a literal `+` in a path stays intact.
 
 (deftest parse-query-preserves-literal-plus
-  (testing "a literal `+` in a value is preserved, NOT form-decoded to a space
-            (the URLDecoder bug — rf2-62hu6k)"
+  (testing "a literal `+` is not form-decoded to a space"
     (is (= "C:/code/re-frame2+wip/core.cljs"
            (get (#'oies/parse-query
                  "file=C:/code/re-frame2+wip/core.cljs&line=10")
@@ -355,7 +278,7 @@
 
 (deftest endpoint-preserves-literal-plus-through-to-launch
   (testing "a POST whose `file` carries a literal `+` hands launch! the path
-            with the `+` intact (never corrupted to a space — rf2-62hu6k)"
+            with the `+` intact"
     (let [calls (atom [])]
       (with-launch-spy calls
         (let [resp (oies/handle
@@ -369,8 +292,6 @@
               "the literal + survived parse-query into the abs-path launch! got")
           (is (not (str/includes? (first (first @calls)) "re-frame2 wip"))
               "the + was NOT form-decoded to a space"))))))
-
-;; ---- header / origin parsing helpers -------------------------------------
 
 (deftest loopback-host?-classifies-correctly
   (testing "loopback hosts (with/without port, IPv4, IPv6, case)"
@@ -387,7 +308,7 @@
     (is (not (#'oies/loopback-host? "app.evil.example:8031")))
     (is (not (#'oies/loopback-host? "10.0.0.5")))
     (is (not (#'oies/loopback-host? "0.0.0.0")))
-    ;; not in 127.0.0.0/8 despite the `127` prefix textually
+    ;; A textual 127 prefix is not an IPv4 loopback address.
     (is (not (#'oies/loopback-host? "127malicious.example")))
     (is (not (#'oies/loopback-host? nil)))
     (is (not (#'oies/loopback-host? "")))))
@@ -401,23 +322,10 @@
     (is (nil? (#'oies/origin-host nil)))
     (is (nil? (#'oies/origin-host "")))))
 
-;; ---- json-resp: control-char escaping (rf2-2loouf finding 5) -------------
-;;
-;; The hand-rolled encoder previously escaped only `\` and `"`. Both the
-;; 200 response (echoes the url-decoded `:file` verbatim) and the 422
-;; response (echoes trimmed `node` stderr, which can be a multi-line stack
-;; trace) can carry a raw control character — a `file=...%0A...` request or
-;; a multi-line launch-failure message. A real JSON reader (`clojure.edn`
-;; cannot parse JSON, so this test hand-rolls a minimal JSON-string reader
-;; over the escaped body) must round-trip the exact original value.
+;; File values and launch stderr may contain controls, so verify JSON round trips.
 
 (defn ^:private read-json-string-literal
-  "Minimal JSON-string-literal reader: given `s` positioned so `s`'s first
-  char is the opening `\"`, decode the escaped literal and return
-  `[decoded-value chars-consumed]`. Only used to independently verify
-  `json-resp`'s output is valid JSON (no reliance on the encoder under
-  test, or on a JSON library dependency this JVM-only tool artefact does
-  not otherwise carry)."
+  "Decode one JSON string literal without depending on the encoder under test."
   [^String s]
   (let [n (.length s)]
     (loop [i (inc 0) sb (StringBuilder.)]
@@ -440,11 +348,7 @@
           :else (recur (inc i) (.append sb c)))))))
 
 (defn ^:private json-body->file-value
-  "Pull the decoded `\"file\"` string value out of a `json-resp` body by
-  locating the `\"file\":\"` key and decoding the quoted literal that
-  follows with `read-json-string-literal`. Throws if the body around it is
-  not well-formed JSON (a bare unescaped control char inside the literal
-  makes this parse fail exactly as a real JSON.parse would)."
+  "Decode a named string value from the small JSON response shape."
   [^String body key-prefix]
   (let [idx (.indexOf body ^String key-prefix)]
     (when (neg? idx)
@@ -493,23 +397,12 @@
     (is (= "\"plain/path.cljs\""
            (str "\"" (#'oies/escape-json-string "plain/path.cljs") "\"")))))
 
-;; ---- build-file-spec: column-only normalization (rf2-bj02en) --------------
-;;
-;; `build-file-spec` is the pure argv-token builder `launch!` delegates to
-;; before shelling out to `node`. History: `column` was once nested inside
-;; `(when line ...)`, which silently dropped a column-without-line request
-;; (rf2-2loouf finding 6). The independent `cond->` fix stopped the drop but
-;; encoded a column-only request as `path:<column>` — and `launch-editor`'s
-;; `file:line:column` grammar reads that lone number as the LINE, so the
-;; column was misread as a line jump (rf2-bj02en). `build-file-spec` now
-;; NORMALIZES a column-only request to line 1, emitting `path:1:<column>` —
-;; matching the `editor://` URI fallback (`editor-uri/coord-line` defaults a
-;; missing line to 1) so both open paths land on the same file:line:column.
+;; launch-editor parses the first numeric suffix as a line, so column-only
+;; coordinates must be encoded as `path:1:column`.
 
 (deftest build-file-spec-normalizes-column-only-to-line-1
   (testing "column with no line is normalized to line 1, NOT encoded as a
-            bare `path:<column>` that launch-editor would misread as a line
-            (the rf2-bj02en regression)"
+            bare `path:<column>` that launch-editor would misread as a line"
     (is (= "/abs/core.cljs:1:7" (#'oies/build-file-spec "/abs/core.cljs" nil 7))
         "column-only → line 1 + column, matching the editor:// URI fallback"))
   (testing "line with no column is unaffected (baseline — no phantom column)"
@@ -540,19 +433,9 @@
             (is (nil? line) "no line param was sent")
             (is (= 7 column) "column parsed through, not dropped upstream")
             (is (= (str abs-path ":1:7") (#'oies/build-file-spec abs-path line column))
-                "build-file-spec normalizes column-only to line 1 —
-                 the rf2-bj02en regression, now fixed")))))))
+                "build-file-spec normalizes column-only to line 1")))))))
 
-;; ---- missing-file guard: no false 200 (rf2-i877cj) -----------------------
-;;
-;; `launch-editor` SILENTLY no-ops on a nonexistent file — its internal
-;; `if (!fs.existsSync(fileName)) return` returns WITHOUT calling the error
-;; callback, so the node process exits 0 and `launch!` would report a false
-;; `{:ok true}`, making the endpoint answer HTTP 200 for an unresolved /
-;; nonexistent `:file`. That suppresses the client's `editor://` fallback
-;; (the client only falls back on a non-2xx). `launch!` now checks the
-;; resolved path's existence BEFORE spawning node and short-circuits to
-;; `{:ok false :message "file-not-found"}`, which the endpoint answers 422.
+;; launch-editor silently ignores missing files, so the JVM must reject them.
 
 (deftest file-exists?-detects-real-and-missing-paths
   (testing "an existing file is detected"
@@ -599,16 +482,10 @@
       (is (re-find #"\"error\":\"file-not-found\"" (:body resp))
           "the client-visible error names the missing file, not launch-failed"))))
 
-;; ---- missing-file 400: the blank/absent `file` param branch (rf2-bnv3cu) --
-;;
-;; `handle` returns 400 `{:ok false :error "missing-file"}` when the `file`
-;; query param is blank or absent (before any resolution / launch). The
-;; suite covered malformed-query 400 and file-not-found 422 but never this
-;; distinct earlier branch.
+;; A missing query parameter is a 400; a resolved but absent file is a 422.
 
 (deftest endpoint-missing-file-param-returns-400
-  (testing "rf2-bnv3cu: a valid local POST with a blank / absent `file`
-            param answers a clean 400 missing-file and never reaches launch!"
+  (testing "a blank or absent file parameter returns 400 before launch"
     (let [calls (atom [])]
       (with-launch-spy calls
         (testing "no `file` param in the query string"
@@ -639,17 +516,10 @@
         (is (zero? (count @calls))
             "launch! was never called on any missing-file path")))))
 
-;; ---- editor hint: keyword -> launch-editor command (rf2-bnv3cu) -----------
-;;
-;; `editor-hint` + `editor-command-by-keyword` are PUBLIC and were 100%
-;; untested. The `editor` query param maps through `editor-hint` to
-;; `launch!`'s 4th-arg command hint; an untested map means a regression
-;; could silently drop a configured editor (`:rf.xray/editor :cursor`) back
-;; to launch-editor's auto-detect.
+;; The query vocabulary maps to launch-editor binary names.
 
 (deftest editor-hint-maps-keyword-to-launch-command
-  (testing "rf2-bnv3cu: a known editor keyword (bare string) resolves to
-            launch-editor's launch command"
+  (testing "a known editor keyword resolves to its launch command"
     (is (= "code"          (oies/editor-hint "vscode")))
     (is (= "code-insiders" (oies/editor-hint "vscode-insiders")))
     (is (= "cursor"        (oies/editor-hint "cursor")))
@@ -669,9 +539,7 @@
     (is (nil? (oies/editor-hint 42)) "a non-string is rejected")))
 
 (deftest editor-command-by-keyword-is-the-launch-command-vocabulary
-  (testing "rf2-bnv3cu: the public keyword→command map maps the open-in-editor
-            keyword vocabulary to launch-editor bin names (a public-surface
-            sentinel — a new editor is a deliberate, reviewed addition)"
+  (testing "the public map defines the supported launch-command vocabulary"
     (is (= {"vscode"          "code"
             "vscode-insiders" "code-insiders"
             "cursor"          "cursor"
@@ -681,9 +549,7 @@
            oies/editor-command-by-keyword))))
 
 (deftest endpoint-passes-editor-hint-through-to-launch
-  (testing "rf2-bnv3cu: the `editor` query param maps through editor-hint to
-            launch!'s 4th-arg command hint — a request for a configured editor
-            reaches launch! with the resolved command, not auto-detect"
+  (testing "the editor query value reaches launch! as a command hint"
     (let [calls (atom [])]
       (with-launch-spy calls
         (let [resp (oies/handle
@@ -718,17 +584,10 @@
         (is (nil? (nth (first @calls) 3))
             "no editor param → nil hint")))))
 
-;; ---- escape-json-string: backslash + doublequote (rf2-bnv3cu) -------------
-;;
-;; The control-char round-trip test covered \n/\t/\r + C0 + plain ASCII but
-;; never a value carrying a literal `\` or `"`. On Windows the resolved
-;; abs-path echoed in the 200 `:file` field is `C:\Users\...`, so the
-;; backslash rule is Windows-load-bearing: unescaped, the JSON body is
-;; invalid despite the `application/json` header.
+;; Windows paths exercise the JSON backslash and quote rules.
 
 (deftest escape-json-string-escapes-backslash-and-doublequote
-  (testing "rf2-bnv3cu: a lone backslash and a double-quote are escaped
-            directly"
+  (testing "backslashes and double-quotes are escaped"
     (is (= "a\\\\b" (#'oies/escape-json-string "a\\b"))
         "one backslash → two")
     (is (= "say \\\"hi\\\"" (#'oies/escape-json-string "say \"hi\""))
@@ -738,12 +597,7 @@
         "a Windows abs-path's backslashes are all doubled")))
 
 (deftest json-resp-escapes-windows-backslash-path
-  (testing "rf2-bnv3cu: a 200 response whose resolved `:file` is a Windows
-            abs-path (literal `\\` separators) plus a stray `\"` is escaped so
-            the `application/json` body is valid and round-trips to the exact
-            path through a real JSON-string decode — the Windows-relevant path
-            the prior backslash/quote-only encoder would still have handled,
-            but never had a regression test"
+  (testing "a Windows path with a quote round-trips through the JSON response"
     (let [calls (atom [])
           file  "C:\\Users\\me\\code\\re-frame2\\src\\a\"b.cljs"]
       (with-launch-spy calls
@@ -761,19 +615,10 @@
             (is (= file (json-body->file-value (:body resp) "\"file\":\""))
                 "the escaped Windows path round-trips to the exact original")))))))
 
-;; ---- resolve-file: the cwd-relative branch (rf2-bnv3cu) -------------------
-;;
-;; resolve-file's branch 2 (relative to the dev process cwd) is the
-;; JAR / off-classpath case Option B exists to close — a relative coord that
-;; getResource cannot reach on the classpath still resolves against the dev
-;; JVM's working directory. Branch 1 (classpath) is covered by
-;; resolve-file-resolves-classpath-path-with-plus; this pins branch 2's
-;; SUCCESS path directly.
+;; Off-classpath relative coordinates fall back to the dev process cwd.
 
 (deftest resolve-file-resolves-cwd-relative-off-classpath
-  (testing "rf2-bnv3cu: a relative `:file` that is NOT on the classpath
-            resolves against the working directory (`user.dir`) to its real
-            on-disk absolute path — the off-classpath branch"
+  (testing "an off-classpath relative file resolves against user.dir"
     (let [tmp      (File. (System/getProperty "java.io.tmpdir")
                           (str "oies-cwd-" (System/nanoTime)))
           sub      (str "off_classpath_" (System/nanoTime))
@@ -783,8 +628,7 @@
       (try
         (io/make-parents src-file)
         (spit src-file ";; fixture\n")
-        ;; Point the JVM working dir at the throwaway tree; the explicit
-        ;; cwd branch reads `user.dir` live, so resolution finds the fixture.
+        ;; resolve-file reads user.dir at request time.
         (System/setProperty "user.dir" (.getAbsolutePath tmp))
         (let [resolved (oies/resolve-file rel-path)]
           (is (some? resolved)

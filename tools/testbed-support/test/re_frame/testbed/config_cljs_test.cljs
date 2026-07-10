@@ -1,97 +1,17 @@
 (ns re-frame.testbed.config-cljs-test
-  "Focused unit tests for `re-frame.testbed.config`.
+  "Cross-platform tests for testbed source-root resolution.
 
-  ## What this pins
-
-  `config.cljs` is a tiny but cross-platform-load-bearing helper: it
-  turns a build-env-derived repo root + a tool-relative testbed subdir
-  into the on-disk checkout-root the Xray / Story testbeds hand to their
-  `configure!` open-in-editor resolvers. The whole point of the file is
-  correct *path joining* across Windows / macOS / Linux clones, so the
-  branches that matter are:
-
-    1. The build-time `checkout-root` goog-define joined with `subdir`
-       (the normal `npm run dev ...` launch).
-    2. Root trailing-slash normalisation (so `/repo/` + `sub` never
-       yields `/repo//sub`).
-    3. Subdir leading-slash normalisation (so callers may pass the
-       subdir with or without a leading slash).
-    4. Blank / nil subdir → the root verbatim.
-    5. Blank `checkout-root` → `nil` (the graceful-no-op contract that
-       `set-project-root!` already encodes for blank input).
-
-  The consuming testbeds compile through `config.cljs` under `npm run
-  test:xray-feature-gate`, but each calls `resolve-source-root` with
-  ONE fixed subdir and no query override, so those checks never assert the
-  normalisation branches above. A behaviour-preserving refactor of the
-  join/strip logic could silently regress cross-platform path
-  construction, so this suite pins each branch directly.
-
-  ## Where this lives
-
-  Like every other tool, `testbed-support` wires a dedicated
-  `tools/testbed-support/test` source-path into the top-level
-  `implementation/shadow-cljs.edn`, so `:node-test` (`npm run test:cljs`,
-  `:ns-regexp \"cljs-test$\"`) discovers this suite there. The runtime
-  helper source path (`tools/testbed-support/src`) carries the helper
-  namespaces only, keeping the same source/test separation the rest of
-  the repo uses. Nothing under `src/` `:require`s this test,
-  so it is on the classpath only for the `:node-test` build that finds it
-  by the `cljs-test$` ns regexp and never reaches a release bundle.
-
-  ## How the `?checkout-root=` override (tier 1) is pinned here
-
-  Tier 1 of the resolution order — the `?checkout-root=<path>` query
-  string winning over everything — is browser-bound: the override reads
-  `js/window.location.search` directly, and there is no `js/window` under
-  `:node-test`, so a naive test would silently degrade to nil and the
-  cross-machine escape hatch could regress unnoticed.
-
-  `config.cljs` isolates the single genuinely browser-bound step —
-  reading `location.search` off the live document — behind the thin
-  `query-param` adapter, and delegates the actual parse/decode/trim/
-  non-blank contract to the PURE `query-param-from-search`, which takes a
-  query string verbatim. That pure parser deliberately splits the query
-  string manually and decodes each component with `js/decodeURIComponent`
-  (NOT `js/URLSearchParams`, whose form-urlencoded semantics would corrupt a
-  literal `+` → space — see `config.cljs` and the preserves-literal-plus
-  test below); both `str/split` and `js/decodeURIComponent` are present in
-  Node too, so that parser runs identically off-browser. That lets us
-  pin, with no `js/window` faking:
-
-    a. the override-parsing contract — param selection, URL-decoding
-       (`%2F` → `/`), trimming, and the blank-falls-through rule — by
-       driving `query-param-from-search` with literal search strings; and
-    b. tier-1 PRECEDENCE — the override winning over a present `checkout-root`,
-       a blank override falling through to the `checkout-root` tier — by
-       `with-redefs`-ing the private `query-param` (the same technique the
-       join/normalisation tests use for `checkout-root`).
-
-  The node degradation (no window → adapter returns nil → checkout-root tier)
-  is still asserted in `resolve-source-root-nil-when-root-blank` below."
+  The pure query parser is exercised directly under Node; precedence tests
+  redefine the browser adapter. This keeps URL decoding, literal-plus
+  preservation, and Windows/POSIX joining covered without a fake DOM."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.string :as str]
             [re-frame.testbed.config :as config]))
 
-;; ---- shared test helper: composed-editor-path --------------------------
-;;
-;; The whole point of the resolved root is that the open-in-editor resolver
-;; prepends it to a CLASSPATH-RELATIVE source coord (the form-meta `:file`
-;; slot, e.g. `standard_epochs/core.cljs`). The downstream prepend is
-;; `(str root "/" file)`; this helper reproduces that single join so the
-;; slice's unit suite can pin the end-to-end composed path (no `//`, the
-;; tool source-root segment present) without reaching into the Xray
-;; editor-uri resolver. Defined here at the top so every composition test
-;; below — the override form, the Windows form, and the lone-`"/"`-root
-;; edge — can use it.
-
 (defn- composed-editor-path
-  "Mirror the open-in-editor prepend: resolved-root + \"/\" + the
-  classpath-relative source-coord `:file`."
+  "Compose a resolved root with a classpath-relative source file."
   [root file]
   (str root "/" file))
-
-;; ---- private helper: non-blank -----------------------------------------
 
 (deftest non-blank-only-passes-real-strings
   (testing "non-blank returns the string for non-blank strings and nil
@@ -107,8 +27,6 @@
     (is (nil? (#'config/non-blank nil)))
     (is (nil? (#'config/non-blank 42))
         "non-string input is rejected")))
-
-;; ---- private helper: strip-trailing-slash ------------------------------
 
 (deftest strip-trailing-slash-removes-single-trailing-slash
   (testing "a single trailing slash is removed"
@@ -131,13 +49,6 @@
             normal callers never pass `//`)"
     (is (= "/repo/" (#'config/strip-trailing-slash "/repo//")))))
 
-;; ---- private helper: to-forward-slashes --------------------------------
-;;
-;; The canonicalisation step: a Windows path with `\`
-;; separators reduces to the same `/`-separated form a POSIX path already
-;; has, matching the launcher's build-env normalisation and the
-;; separator-agnostic editor-URI composer.
-
 (deftest to-forward-slashes-canonicalises-backslashes
   (testing "every backslash becomes a forward slash; a path that is
             already forward-slashed is unchanged; a literal + survives"
@@ -154,15 +65,12 @@
            (#'config/to-forward-slashes "C:\\code\\app+1"))
         "a literal + is preserved through canonicalisation")))
 
-;; ---- resolve-source-root: blank-root tier (default goog-define) -------
-
 (deftest resolve-source-root-nil-when-root-blank
   (testing "with the default (blank) checkout-root goog-define and no
             browser query override (no js/window under node), every
             tier is absent → nil, so the testbed configures no root and
             open-in-editor degrades to a graceful no-op"
-    ;; `config/checkout-root` defaults to "" under :node-test (no #shadow/env
-    ;; seed in this build), and there is no js/window for the query tier.
+    ;; Node has neither a seeded define nor a browser query override.
     (is (= "" config/checkout-root)
         "node-test build carries the unseeded default define")
     (is (nil? (config/resolve-source-root "tools/xray/testbeds")))
@@ -171,12 +79,7 @@
     (is (nil? (config/resolve-source-root nil))
         "nil subdir with a blank root is still nil")))
 
-;; ---- resolve-source-root: checkout-root tier (join + normalisation) -------
-;;
-;; goog-define expands to a plain `def`, so `with-redefs` can stand in a
-;; concrete root to exercise the join/normalisation branches that the
-;; consuming testbeds never reach (they always pass a fixed subdir with a
-;; root present and no trailing slash).
+;; goog-define expands to a def, so tests can supply checkout roots directly.
 
 (deftest resolve-source-root-joins-root-and-subdir
   (testing "the build-time root is joined to the tool-relative subdir
@@ -233,24 +136,10 @@
     (with-redefs [config/checkout-root "   "]
       (is (nil? (config/resolve-source-root "tools/xray/testbeds"))))))
 
-;; ---- resolve-source-root: the lone POSIX filesystem root "/" ------------
-;;
-;; `strip-trailing-slash` DELIBERATELY preserves a lone `"/"` (the count > 1
-;; guard) so a Unix filesystem root is not destroyed into a blank relative
-;; path. That is the one normalised root that still ends in a separator — so
-;; the join must NOT then prepend a SECOND `/`: an unconditional
-;; `(str normalized-root "/" subdir)` would yield
-;; `//tools/xray/testbeds` for `root = "/"`, breaking the docstring's
-;; single-separator promise. These tests pin the edge through the FULL
-;; `resolve-source-root` surface for BOTH root tiers (build-time define and
-;; `?checkout-root=` override), and confirm the blank/slash-only-subdir
-;; collapse still returns the lone root verbatim.
+;; `/` is the only normalized root that already supplies a join separator.
 
 (deftest resolve-source-root-lone-root-slash-build-time-tier
-  (testing "rf2-fzgcii: a build-time `checkout-root` of the lone POSIX
-            filesystem root `\"/\"` joins a nonblank subdir with EXACTLY
-            ONE separator — `/tools/xray/testbeds`, not the pre-fix
-            `//tools/xray/testbeds`"
+  (testing "a POSIX filesystem root joins a subdir with one separator"
     (with-redefs [config/checkout-root "/"]
       (let [resolved (config/resolve-source-root "tools/xray/testbeds")]
         (is (= "/tools/xray/testbeds" resolved)
@@ -265,9 +154,7 @@
           "a leading slash on the subdir is still normalised away (no ///)"))))
 
 (deftest resolve-source-root-lone-root-slash-override-tier
-  (testing "rf2-fzgcii: the SAME lone-root edge through the
-            `?checkout-root=` override tier — both tiers share one join, so
-            an override of `\"/\"` must also yield a single-separator path"
+  (testing "the override tier handles a POSIX filesystem root identically"
     (with-redefs [config/query-param (fn [param]
                                        (when (= param "checkout-root") "/"))
                   config/checkout-root ""]
@@ -278,9 +165,7 @@
             "no // boundary duplication via the override tier")))))
 
 (deftest resolve-source-root-lone-root-slash-blank-subdir-yields-root
-  (testing "rf2-fzgcii: with the lone `\"/\"` root a blank / nil / slash-only
-            subdir still collapses to the lone root verbatim (the
-            graceful-no-subdir contract is unaffected by the join fix)"
+  (testing "blank subdirs preserve a POSIX filesystem root"
     (with-redefs [config/checkout-root "/"]
       (is (= "/" (config/resolve-source-root ""))
           "blank subdir → lone root preserved")
@@ -292,11 +177,7 @@
           "slash-only subdir normalises to empty → lone root preserved"))))
 
 (deftest resolve-source-root-lone-root-composes-to-intended-on-disk-file
-  (testing "rf2-fzgcii: the lone-root case composes with a representative
-            classpath-relative source coord to a clean on-disk path —
-            `/tools/xray/testbeds/standard_epochs/core.cljs`, the tool
-            source-root segment present and no `//` anywhere (the exact
-            downstream prepend the open-in-editor resolver performs)"
+  (testing "the POSIX root composes with a classpath-relative coordinate"
     (with-redefs [config/checkout-root "/"]
       (let [root     (config/resolve-source-root "tools/xray/testbeds")
             composed (composed-editor-path root "standard_epochs/core.cljs")]
@@ -307,15 +188,7 @@
         (is (not (str/includes? composed "//"))
             "no // boundary duplication in the composed path")))))
 
-;; ---- query-param-from-search: the pure override parser (tier 1) --------
-;;
-;; The override knob's parse/decode/trim/non-blank contract, exercised
-;; off-browser by handing the pure parser literal `location.search`
-;; strings — the same code path the browser adapter runs, no `js/window`
-;; fakery. The parser splits the query string manually and decodes with
-;; `js/decodeURIComponent` so a LITERAL `+` survives verbatim
-;; rather than being form-urlencoded-decoded to a space (the silent
-;; path-corruption seam `js/URLSearchParams` would introduce).
+;; The parser intentionally has URI, not form-urlencoded, plus semantics.
 
 (deftest query-param-from-search-reads-the-named-param
   (testing "the named param's value is returned, trimmed + non-blank"
@@ -340,12 +213,7 @@
         "a Windows drive path with an encoded space round-trips")))
 
 (deftest query-param-from-search-preserves-literal-plus
-  (testing "rf2-xdsat.1: a LITERAL `+` in the override path survives
-            verbatim — it is NOT form-urlencoded-decoded to a space. A
-            checkout at `/home/dev/re-frame2+wip` (or `C:/code/app+1`)
-            must round-trip through `?checkout-root=` unencoded, or every
-            open-in-editor link points at a nonexistent dir (the exact
-            cross-machine-portability failure the override exists to fix)."
+  (testing "literal plus characters are not form-urlencoded to spaces"
     (is (= "/home/dev/re-frame2+wip"
            (#'config/query-param-from-search
             "?checkout-root=/home/dev/re-frame2+wip" "checkout-root"))
@@ -388,20 +256,11 @@
     (is (nil? (#'config/query-param-from-search nil "checkout-root"))
         "nil search string → nil")))
 
-;; ---- resolve-source-root: tier-1 override PRECEDENCE -------------------
-;;
-;; `query-param` is the private browser-only adapter (no window under
-;; node → nil). Redefining it stands in a deterministic override value
-;; so the precedence rule — tier 1 over tier 2 — is asserted without a
-;; browser, mirroring how the join tests redefine `checkout-root`.
+;; Redefine the browser adapter to cover override precedence under Node.
 
 (deftest resolve-source-root-override-wins-over-checkout-root
   (testing "a present `?checkout-root=` override beats the build-time
-            checkout-root tier, AND — like that tier — names a CHECKOUT root
-            to which the caller's subdir is appended (rf2-w4yw9q). Both
-            tiers mean the same thing, so the composed editor URI reaches
-            the tool source-path root the classpath-relative source coords
-            resolve against."
+            checkout-root tier and receives the caller's subdir"
     (with-redefs [config/query-param (fn [param]
                                        (when (= param "checkout-root")
                                          "/override/checkout"))
@@ -414,7 +273,7 @@
           "the appended subdir tracks the caller, the root tracks the override"))))
 
 (deftest resolve-source-root-override-checkout-normalises-like-checkout-root
-  (testing "the override goes through the SAME join as the build-time tier:
+  (testing "the override uses the same join as the build-time tier:
             a trailing slash on the override checkout never doubles the
             separator, and the subdir's leading slash is normalised away"
     (with-redefs [config/query-param (fn [param]
@@ -450,30 +309,10 @@
       (is (nil? (config/resolve-source-root "tools/xray/testbeds"))
           "no override AND no checkout-root → nil (graceful no-op)"))))
 
-;; ---- composed editor path: the documented override form ----------------
-;;
-;; The whole point of the resolved root is that the open-in-editor
-;; resolver prepends it to a CLASSPATH-RELATIVE source coord (the
-;; form-meta `:file` slot, e.g. `standard_epochs/core.cljs`, relative to
-;; the testbed source-path root `<checkout>/tools/xray/testbeds`). These
-;; tests pin that the documented override form — pasting a CHECKOUT root
-;; into `?checkout-root=` — composes with a representative source coord to
-;; the intended on-disk file, the exact cross-machine portability path the
-;; override exists to provide. (The downstream prepend is `(str root "/"
-;; file)`; we reproduce that single join here so the slice's unit suite
-;; pins the end-to-end contract without reaching into the Xray editor-uri
-;; resolver. (`composed-editor-path` itself is defined near the top of this
-;; file so the lone-root and Windows composition tests can use it too.)
+;; Confirm that resolved roots compose with classpath-relative source coords.
 
 (deftest documented-override-composes-to-intended-on-disk-file
-  (testing "rf2-w4yw9q: pasting a CHECKOUT root into `?checkout-root=` (the
-            documented `?checkout-root=/home/dev/re-frame2+wip` form) and
-            resolving for the xray testbed subdir composes with a
-            representative source coord to the real on-disk file —
-            `<checkout>/tools/xray/testbeds/standard_epochs/core.cljs` —
-            NOT the tool-source-root-missing
-            `<checkout>/standard_epochs/core.cljs` that the pre-fix
-            verbatim semantics produced"
+  (testing "a checkout override composes to a file beneath the tool source root"
     (with-redefs [config/query-param (fn [param]
                                        (when (= param "checkout-root")
                                          "/home/dev/re-frame2+wip"))
@@ -486,11 +325,7 @@
             "the composed editor path reaches the actual on-disk source file")))))
 
 (deftest documented-override-and-build-time-tier-compose-identically
-  (testing "rf2-w4yw9q: the override and the build-time `checkout-root` tier
-            produce the SAME composed editor path for the same checkout —
-            the contract is one meaning (a checkout root) across both
-            tiers, so a reader's `?checkout-root=` override behaves exactly
-            like a local `npm run dev` launch from that checkout"
+  (testing "override and build-time tiers compose the same checkout path"
     (let [coord "standard_epochs/core.cljs"
           subdir "tools/xray/testbeds"
           via-override (with-redefs [config/query-param
@@ -509,15 +344,7 @@
       (is (= "/home/dev/re-frame2+wip/tools/xray/testbeds/standard_epochs/core.cljs"
              via-override)))))
 
-;; ---- Windows override normalisation ------------------------------------
-;;
-;; A Windows reader pasting `?checkout-root=C:\Users\me\code\re-frame2\`
-;; (raw `\` separators, with or without a trailing `\`) — or its
-;; %5C-encoded transport form — must resolve to a CLEAN, single-separator,
-;; forward-slash path, NOT the `C:\...\/tools/xray/testbeds` boundary
-;; duplication that would rely on downstream tolerant path normalisation. Both
-;; root tiers go through the SAME canonicalising join, so this holds for
-;; the build-time `checkout-root` tier as well as the query override.
+;; Raw and percent-encoded Windows roots share the same normalized join.
 
 (deftest query-param-from-search-decodes-encoded-backslash
   (testing "a %5C-encoded backslash in the override transport form decodes
@@ -563,8 +390,7 @@
     (with-redefs [config/query-param
                   (fn [param]
                     (when (= param "checkout-root")
-                      ;; mirrors the decode-component output for
-                      ;; ?checkout-root=C%3A%5CUsers%5Cme%5Ccode%5Cre-frame2%5C
+                      ;; The decoded form of a percent-encoded Windows root.
                       (#'config/query-param-from-search
                        "?checkout-root=C%3A%5CUsers%5Cme%5Ccode%5Cre-frame2%5C"
                        "checkout-root")))
@@ -583,12 +409,7 @@
              (config/resolve-source-root "tools/story/testbeds"))))))
 
 (deftest windows-override-composes-to-intended-on-disk-file
-  (testing "rf2-d01s6s + rf2-w4yw9q: a Windows `?checkout-root=` override
-            composes with a representative classpath-relative source coord
-            to the intended on-disk file with the tool-source-root segment
-            present and exactly one separator everywhere — proving no
-            missing `tools/<tool>/testbeds` segment and no `\\/` / `//`
-            duplication in the path Xray/Story actually prefix"
+  (testing "a Windows override composes beneath the tool source root"
     (with-redefs [config/query-param (fn [param]
                                        (when (= param "checkout-root")
                                          "C:\\Users\\me\\code\\re-frame2\\"))
@@ -609,7 +430,7 @@
 (deftest windows-override-preserves-literal-plus-in-checkout
   (testing "a Windows checkout with a `+` in the path (e.g.
             `C:\\code\\re-frame2+wip`) round-trips: `\\` → `/` but the
-            literal `+` is preserved (the existing rf2-xdsat.1 semantics)"
+            literal `+` is preserved"
     (with-redefs [config/query-param (fn [param]
                                        (when (= param "checkout-root")
                                          "C:\\code\\re-frame2+wip"))
@@ -618,11 +439,7 @@
              (config/resolve-source-root "tools/xray/testbeds"))
           "+ survives canonicalisation; \\ → /"))))
 
-;; ---- public-surface stability sentinel ---------------------------------
-
 (deftest public-config-surface-stable
-  (testing "the public surface rf2-ynjts.23 must keep stable is intact:
-            the `re-frame.testbed.config` ns exposes `resolve-source-root`
-            (a fn) and the `checkout-root` goog-define (a string)"
+  (testing "the namespace exposes the resolver and checkout-root define"
     (is (fn? config/resolve-source-root))
     (is (string? config/checkout-root))))
