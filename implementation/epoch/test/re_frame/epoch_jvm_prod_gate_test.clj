@@ -1,12 +1,12 @@
 (ns re-frame.epoch-jvm-prod-gate-test
-  "Per rf2-0la4f (security audit): the epoch artefact's dev-only
-  surfaces — `register-epoch-listener!`, `restore-epoch!`, `replace-app-db!`,
+  "The epoch artefact's dev-only surfaces — `register-epoch-listener!`,
+  `restore-epoch!`, `replace-frame-state!`,
   the per-frame ring buffer carrying `:db-before` / `:db-after` /
   raw `:trace-events` — MUST honour the JVM-side production gate
   `re-frame.interop/debug-enabled?`. When the gate reads `false`
-  (the SSR production posture per rf2-vnjfg / rf2-0la4f), the epoch
+  in production, the epoch
   surface drops to its no-op floor: no record lands in the ring, no
-  cb fires, `restore-epoch!` and `replace-app-db!` return `false`.
+  callback fires, and `restore-epoch!` / `replace-frame-state!` return `false`.
 
   The companion core gate vocabulary suite is
   `re-frame.interop-debug-gate-test`; the core integration suite is
@@ -37,7 +37,7 @@
 ;; ensures the conventional `:rf/default` frame and binds it as the body's
 ;; ambient scope — the carried-invariant equivalent of wrapping every test
 ;; in `(with-frame :rf/default …)`. So the bare framework-operation surfaces
-;; this suite drives (dispatch / epoch / restore-epoch! / replace-app-db!)
+;; this suite drives (dispatch / epoch / restore / frame-state replacement)
 ;; resolve a carried frame stamp without a hand-rolled `reg-frame` + `with-
 ;; frame` dance here. Explicit `{:frame …}` opts in the bodies still win.
 (use-fixtures :each
@@ -88,13 +88,13 @@
           "restore-epoch! returns false (refuses to operate)"))))
 
 (deftest replace-app-db-refuses-when-debug-disabled
-  (testing "Per rf2-0la4f: `replace-app-db!` MUST refuse to operate
+  (testing "`replace-frame-state!` must refuse to operate
             when the JVM debug gate is off. Same admin-surface
             concern as `restore-epoch!` — pair-tool writes (Tool-Pair
             §Pair-tool writes) are a dev-only surface."
     (with-redefs [interop/debug-enabled? false]
       (is (false? (rf/replace-frame-state! :rf/default {:rf.db/app {:any "db"}}))
-          "replace-app-db! returns false (refuses to operate)"))))
+          "replace-frame-state! returns false (refuses to operate)"))))
 
 (deftest epoch-still-records-with-default-gate
   (testing "Sanity: with the gate at its default `true` reading
@@ -142,7 +142,7 @@
 ;;
 ;; The `:redact-fn` is the PROJECTION-SIDE advanced override, never a
 ;; storage-side mutation. It is NEVER invoked by `settle!` /
-;; `replace-app-db!` / the back-fill (regardless of gate); it runs ONLY
+;; frame-state replacement / back-fill (regardless of gate); it runs only
 ;; inside `projected-record`, applied to the projected egress copy. The
 ;; ring is causal replay material, delivered raw.
 
@@ -191,7 +191,7 @@
       (rf/configure! {:epoch-history {:redact-fn nil}}))))
 
 (deftest redact-fn-not-invoked-on-replace-app-db-under-disabled-gate
-  (testing "`replace-app-db!` returns false under the disabled gate — the
+  (testing "`replace-frame-state!` returns false under the disabled gate — the
             gated arm that would record the synthetic epoch is elided. The
             :redact-fn (projection-side) is never reached on this path
             regardless; the early-return false is preserved."
@@ -201,7 +201,7 @@
                                     (swap! invocations inc)
                                     r)}})
         (is (false? (rf/replace-frame-state! :rf/default {:rf.db/app {:any "db"}}))
-            "replace-app-db! refuses under the disabled gate")
+            "replace-frame-state! refuses under the disabled gate")
         (is (zero? @invocations)
             ":redact-fn was never reached — no synthetic record recorded
              (and the fn is projection-side anyway)")

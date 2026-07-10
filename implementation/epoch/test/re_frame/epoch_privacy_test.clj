@@ -1,6 +1,5 @@
 (ns re-frame.epoch-privacy-test
-  "Per rf2-vq5o0 — coverage for the epoch privacy contract introduced
-  by rf2-j1m7x (spec) and rf2-mrsck (impl). Three contract surfaces:
+  "Coverage for three epoch privacy surfaces:
 
     1. The record-level :rf.epoch/sensitive? rollup — true when any
        captured trace event carries the :sensitive? stamp OR any
@@ -19,11 +18,7 @@
        egress off-box opt INTO projection at the wire boundary via
        projected-record.
 
-  Plus retention-cap coverage and JVM debug-disabled false-path
-  coverage per the cluster prompt.
-
-  rf2-mrsck's per-leaf smokes live in epoch_test.clj alongside the
-  impl; this file is the deeper coverage matrix."
+  Also covers retention caps and the JVM debug-disabled path."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as elision]
@@ -580,9 +575,8 @@
     ;; The secret rides POSITIONALLY in the event vector — there is no
     ;; app-db sensitive declaration that could match the trigger-event
     ;; path (the frame-declared path is [:auth :password], rooted at
-    ;; app-db, not at the event vector). The prior projection routed this
-    ;; slot through the generic app-db-rooted walker, so the secret leaked
-    ;; raw. Fail-closed redaction is the fix.
+    ;; app-db, not at the event vector). The off-box event-argument boundary
+    ;; therefore has to fail closed independently.
     (rf/reg-event :login
                      (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
     (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})

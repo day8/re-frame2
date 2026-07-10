@@ -1,45 +1,12 @@
 (ns re-frame.epoch-committed-at-clock-cljs-test
-  "rf2-1t30y7 — LIVE-path regression: the durable epoch record `:committed-at`
-  must be WALL-CLOCK epoch ms (sourced from `interop/epoch-now-ms` =
-  `js/Date.now()` on CLJS, ~1.78e12), NOT the perf clock (`interop/now-ms` =
-  `performance.now()`, origin-relative ~1e4).
+  "CLJS coverage for the live clock feeding durable `:committed-at` values.
 
-  WHY A NEW SUITE: every existing `:committed-at` test
-  (`committed-at-comes-from-supplied-token-time-ms`,
-  `committed-at-replay-stable-across-wall-clock-drift`,
-  `committed-at-each-child-event-reads-its-own-token`, …) lives in
-  `re-frame.epoch-test` — a `.clj` (JVM-ONLY) file — and SCRIPTS the
-  committing token's `:rf.cofx` `:rf/time-ms` to an explicit sentinel
-  (pinning BOTH `now-ms` AND `epoch-now-ms` with `with-redefs`). That proves
-  the causal-time THREADING (token `:time-ms` -> `:committed-at`, replayable,
-  no ambient assembly-time read), but it deliberately bypasses the live
-  router clock read that decides WHICH clock surface feeds an UNSCRIPTED
-  dispatch's `:time-ms`.
-
-  On the JVM `now-ms` and `epoch-now-ms` are both wall-clock-ish, so a
-  regression that swaps `interop/epoch-now-ms` -> `interop/now-ms` at the
-  router's causal boundary (`re-frame.router/build-envelope`, the one read
-  that durable writes fold) stays GREEN on every JVM + scripted-token suite,
-  and only breaks CLJS — where `now-ms` is `performance.now()`
-  (origin-relative, ~1e4) and `epoch-now-ms` is `js/Date.now()` (~1.78e12).
-  This is EXACTLY the gap that let the resources `:completed-at` perf-clock
-  bug (rf2-2elcw3) slip through until a dedicated CLJS suite
-  (`resources_http_completed_at_clock_cljs_test.cljs`) was added.
-
-  This suite drives the REAL router: it dispatches an UNSCRIPTED event (no
-  `:rf.cofx` supplied), lets the genuine `build-envelope` stamp the
-  causal `:time-ms` from the host clock, and asserts the resulting durable
-  epoch record `:committed-at` is a wall-clock epoch value (within ~10s of
-  `js/Date.now()`), NOT a small perf-clock origin-relative number. A clock
-  swap would land `:committed-at` ~12 orders of magnitude low (~1e4 vs
-  ~1.78e12) and fail the band assertion on CLJS.
-
-  ns ends in `-cljs-test` so shadow-cljs `:node-test` picks it up via
-  `:ns-regexp \"cljs-test$\"`. The `:node-test` build has no DOM /
-  Reagent reactive context, so this uses the plain-atom adapter — matching
-  the JVM epoch fixture and `re-frame.epoch-cljs-test`. The clock read under
-  test lives at the router boundary and is adapter-independent, so the choice
-  of substrate does not weaken the pin."
+  Scripted JVM tests prove causal-time threading but cannot distinguish the
+  CLJS wall clock (`js/Date.now`) from the origin-relative performance clock.
+  This suite drives an unscripted event through the real router and asserts the
+  stored causal time is near wall-clock epoch milliseconds. The plain-atom
+  adapter is sufficient because the clock read occurs at envelope construction,
+  independently of rendering."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as interop]
@@ -82,7 +49,7 @@
             r            (last history)
             committed-at (:committed-at r)]
         (is (= 2 (count history))
-            "one record per drain-settle (sanity: the dispatches landed)")
+            "one record per dequeued event (sanity: the dispatches landed)")
         (is (= :clk/inc (:event-id r))
             "the last record is the :clk/inc dispatch")
         (is (number? committed-at)

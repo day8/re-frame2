@@ -1,15 +1,7 @@
 (ns re-frame.epoch.tool-pair
-  "Tool-Pair boundary surfaces — the preconditions, restore-perform, and
+  "Tool boundary surfaces: preconditions, restore, state injection, and
   off-box projection helpers behind `restore-epoch!`, `replace-frame-state!`,
   `projected-record`, and `projected-history`.
-
-  The name (rf2-dga99) covers BOTH halves of the seam: the WRITE-in
-  boundary (precondition validators + `perform-restore!` behind the
-  Tool-Pair time-travel surfaces) AND the off-box egress READ boundary
-  (`projected-record` / `projected-history`, the privacy projection per
-  Security.md §Epoch privacy posture). The former `write` name accurately
-  named the first half but undersold the projection egress — both are
-  Tool-Pair-contract surfaces, so `tool-pair` names the seam honestly.
 
   Responsibilities:
 
@@ -23,8 +15,7 @@
     * **Schema / handler / version probes** — `failing-schema-paths`,
       `missing-references`, `machine-version-mismatch`. Each is a
       single walk over the recorded db; callers bind the result so
-      the failure path walks each substrate exactly once per check
-      (rf2-081zk).
+       the failure path walks each substrate exactly once per check.
 
     * **Perform-restore** — `perform-restore!` carries out the
       container replace + `:rf.epoch/restored` emit once preconditions
@@ -35,18 +26,17 @@
       for off-box egress (Xray-MCP `watch-epochs`, story / pair
       recorders). That is: the canonical `:frame-state-before` /
       `:frame-state-after` slots (app-db partition elided, runtime-db
-      partition default-redacted per EP-0001 ruling #14), the derived
+       partition default-redacted), the derived
       `:db-before` / `:db-after` app-db projections, `:trigger-event`,
       `:trace-events`, the value-bearing structured `:sub-runs` rows
-      (their `:prev-value` / `:value` slots — rf2-at60h), AND the structured
+       (their `:prev-value` / `:value` slots), and the structured
       `:effects` rows' payload-bearing `:args` (fail-closed to `:rf/redacted`
-      off-box — rf2-rlt3sv). The value-free `:renders` metadata, the
+       off-box). The value-free `:renders` metadata, the
       `:effects` rows' `:fx-id` / `:outcome` / `:error-trace`, and the
       record-level bookkeeping pass through unchanged. `projected-record`'s
       own docstring is the authoritative per-slot contract.
 
-  Per rf2-0wi86 Phase-2 seam E. The orchestrators `restore-epoch!` and
-  `replace-frame-state!` live in the `re-frame.epoch` facade — they wire
+  The orchestrators live in the `re-frame.epoch` facade and wire
   the precondition check + the trace emission + the perform / listener
   fan-out steps together. Pure-data shape of the preconditions makes
   the orchestrators a four-line case-match."
@@ -68,14 +58,11 @@
   "Return the malli validate fn or nil.
 
   Looks up the late-bind hook `:schemas/malli-validate`, published by
-  `re-frame.schemas.malli` when loaded — the only lookup step, on both
-  CLJ and CLJS. Per rf2-qyfie, `re-frame.schemas.validator` dropped its
-  JVM-only `(requiring-resolve 'malli.core/validate)` fallback for
-  contract symmetry between runtimes; this fn mirrors that shape rather
-  than the pre-rf2-qyfie two-step lookup.
+  `re-frame.schemas.malli` when loaded. This is the only lookup step on both
+  CLJ and CLJS, so validation has the same contract in both runtimes.
 
-  Returning nil (hook unbound) is treated as soft-pass by callers —
-  'cannot disprove, treat as valid' — unchanged from before rf2-qyfie."
+  Callers treat an unbound hook as a soft pass: without a validator they
+  cannot disprove validity."
   []
   (late-bind/get-fn :schemas/malli-validate))
 
@@ -121,9 +108,8 @@
   and `:rf/machine` (the spec map). Returns the registration map
   when machine-id names a registered machine, nil otherwise.
 
-  Per rf2-ocg1: epoch restore validates against this public surface,
-  not against the internal `:head` registrar kind that machines
-  never used."
+  Epoch restore validates against this public surface, not the unrelated
+  internal `:head` registrar kind."
   [machine-id]
   (let [reg (registrar/lookup :event machine-id)]
     (when (:rf/machine? reg)
@@ -156,12 +142,12 @@
           :rf/machine
           spec-snapshot-version))
 
-;; EP-0001 (rf2-vzld77 / rf2-3aizt1 / rf2-k4xe7u) — the machine snapshots
-;; and route slice are DURABLE runtime-db partition state, addressed at the
+;; Machine snapshots and the route slice are durable runtime-db partition
+;; state, addressed at the
 ;; namespaced runtime-db root keys `:rf.runtime/machines` /
 ;; `:rf.runtime/routing`. The restore-precondition readers below take the
 ;; runtime-db PARTITION value (`(:rf.db/runtime frame-state)`) and walk those
-;; namespaced paths. The epoch captures the whole frame-state (decision #2),
+;; namespaced paths. Each epoch captures the whole frame-state,
 ;; so `check-restore-preconditions!` passes the runtime-db partition here,
 ;; against which the missing-handler-machine + version-drift preconditions
 ;; fire.
@@ -220,14 +206,10 @@
   reference a registered :route).
 
   `runtime-db` is the `:rf.db/runtime` partition of the epoch-recorded
-  frame-state (EP-0001 rf2-3aizt1 / rf2-k4xe7u — machine snapshots + route
-  slice are runtime-db partition state).
+  frame-state. Machine lookup goes through the public event registry, not
+  the unrelated internal `:head` registrar kind.
 
-  Per rf2-ocg1: machine lookup goes through the event registry, NOT
-  the internal `:head` registrar kind. The latter is unrelated to
-  the public machine contract.
-
-  Per rf2-a2sn1: a DYNAMICALLY-SPAWNED actor carries no per-instance
+  A dynamically spawned actor carries no per-instance
   registrar entry — its liveness is derived from its (revertible)
   snapshot. Such a snapshot is a VALID restore target iff its TYPE still
   resolves (registered TYPE keyword, or inline `:definition` carried on
@@ -237,8 +219,8 @@
   snapshot whose id is not directly registered. A SINGLETON whose
   registration was cleared (a `reg-machine`'d machine, no `:rf/machine-type`
   on its snapshot) still surfaces as missing — `actor-resolvable?` returns
-  false for it. Absent the machines artefact the hook is nil and the prior
-  registrar-only check stands.
+  false for it. When the machines artefact is absent the hook is nil and the
+  registrar-only check applies.
 
   Returns a vector of {:kind <kind> :id <id>} entries. Empty when
   every reference resolves."
@@ -246,7 +228,7 @@
   (let [actor-resolvable? (late-bind/get-fn :machines/actor-resolvable?)
         ;; Machines under [:rf.runtime/machines :snapshots]: a singleton
         ;; references a registered machine (`:rf/machine? true`, per Spec
-        ;; 005 §Registration); a spawned actor (rf2-a2sn1) has no
+        ;; 005 §Registration); a spawned actor has no
         ;; per-instance registration but is restorable when its
         ;; `:rf/machine-type` resolves through `actor-resolvable?` (which
         ;; reads the runtime-db partition).
@@ -264,8 +246,8 @@
     (vec (concat missing-machines missing-route))))
 
 (defn- current-definition-version
-  "Resolve the CURRENT definition `:rf/snapshot-version` for one recorded
-  snapshot the SAME way dispatch resolves the live spec (rf2-rlt3sv):
+  "Resolve the current definition `:rf/snapshot-version` for one recorded
+  snapshot the same way dispatch resolves the live spec:
 
     - SINGLETON snapshots — the snapshot key IS the registered machine-id, so
       `singleton-definition-version` resolves the live spec by key.
@@ -307,20 +289,13 @@
   nil when no mismatch is found.
 
   `runtime-db` is the `:rf.db/runtime` partition of the epoch-recorded
-  frame-state (EP-0001 rf2-3aizt1 / rf2-k4xe7u).
-
-  The current definition is resolved the SAME way dispatch resolves the live
-  spec (rf2-rlt3sv): a SINGLETON by its snapshot key (the key IS the registered
+  frame-state. The current definition is resolved the same way dispatch
+  resolves the live spec: a singleton by its snapshot key (the key is the registered
   machine-id), a SPAWNED ACTOR by its snapshot's `:rf/machine-type` (registered
-  TYPE keyword or inline `:definition` map — `current-definition-version`).
-  Before the fix the version probe compared the snapshot KEY against the
-  registrar for EVERY snapshot, so a spawned actor's instance-id key never
-  resolved and a hot-reloaded actor TYPE's version drift silently passed — an
-  older, incompatible spawned-actor snapshot could be installed by
-  `restore-epoch!` reporting success.
+  type keyword or inline `:definition` map — `current-definition-version`).
 
-  Per rf2-ocg1: the recorded version is read through the public Spec 005
-  §Snapshot shape contract — the snapshot's `[:meta :rf/snapshot-version]`;
+  The recorded version is read through the public Spec 005 §Snapshot shape
+  contract — the snapshot's `[:meta :rf/snapshot-version]`;
   the current version through the resolved spec's `[:meta :rf/snapshot-version]`."
   [runtime-db]
   (some (fn [[machine-id snapshot]]
@@ -338,10 +313,8 @@
 
 (defn- find-epoch-in
   "Search a resolved history vector for the record matching `epoch-id`.
-  Caller has already paid the `@histories` deref — `check-restore-
-  preconditions!` reads history once at the top and reuses the vector
-  for both the lookup and the `:history-size` count on the
-  unknown-epoch failure path (rf2-3g7x3 — was two derefs)."
+  `check-restore-preconditions!` reads history once and reuses the vector for
+  both this lookup and the `:history-size` count on the unknown-epoch path."
   [history epoch-id]
   (some (fn [record] (when (= epoch-id (:epoch-id record)) record))
         history))
@@ -379,7 +352,7 @@
 ;; ---- restore preconditions + perform --------------------------------------
 
 (defn check-restore-preconditions!
-  "Validate the seven documented preconditions for restoring `frame-id`
+  "Validate the documented preconditions for restoring `frame-id`
   to `epoch-id`. Returns a result map:
 
     {:outcome :ok :epoch <epoch>}
@@ -392,9 +365,7 @@
                    emission is the caller's job so the
                    precondition test stays a pure data check.
 
-  Failure modes preserve the exact operation keywords and tag shapes
-  the public surface has always emitted (see `restore-epoch!`'s
-  docstring for the catalogue)."
+  See `restore-epoch!` for the refusal catalogue."
   [frame-id epoch-id]
   (let [frame-result (frame-exists-or-fail frame-id)]
     (cond
@@ -421,10 +392,8 @@
                      :rf.epoch/id  epoch-id
                      :history-size (count history)}}
 
-          ;; (3a) Halted-cascade target? Per rf2-v0jwt: an epoch whose
-          ;; :outcome is not :ok records partial state the cascade
-          ;; never settled to, so it is not a valid restore target.
-          ;; Refuse before the schema / handler / version checks so
+          ;; Halted records contain partial state and are not restore targets.
+          ;; Refuse before schema, handler, and version checks so
           ;; the failure surfaces with the actual halt context, not
           ;; a downstream consequence of the partial db.
           (not= :ok (get epoch :outcome :ok))
@@ -436,11 +405,10 @@
                      :halt-reason (:halt-reason epoch)}}
 
           :else
-          (let [;; EP-0001 (rf2-3aizt1, decision #2): the canonical restore
-                ;; target is the whole frame-state. The app-db partition
+          (let [;; The canonical restore target is the whole frame state.
+                ;; The app-db partition
                 ;; feeds the schema check; the runtime-db partition feeds
-                ;; the machine / route reference + version checks (rf2-k4xe7u
-                ;; — snapshots + route slice are runtime-db state). Both are
+                ;; machine/route reference and version checks. Both are
                 ;; read off the canonical `:frame-state-after` — the only
                 ;; restore target `build-record` ever emits (the `:db-after`
                 ;; slot is a retained app-db PROJECTION for tool diffs, never
@@ -449,9 +417,9 @@
                 frame-state-target (:frame-state-after epoch)
                 db-target          (get frame-state-target frame/app-partition-key)
                 runtime-target     (get frame-state-target frame/runtime-partition-key)]
-            ;; Each helper is called once and its result bound, so the
+            ;; Bind each probe once so each substrate is walked once.
             ;; failure path walks the recorded db / schema set / machine
-            ;; map exactly once per check (rf2-081zk).
+            ;; map exactly once per check.
             (if-let [failing-paths (seq (failing-schema-paths frame-id db-target))]
               ;; (4) Schema mismatch?
               ;; Per Spec 010 §Schema digest + Tool-Pair §Time-travel:
@@ -478,7 +446,7 @@
 
                 (if-let [{:keys [machine-id machine-type recorded current]} (machine-version-mismatch runtime-target)]
                   ;; (6) Machine snapshot version drift?
-                  ;; rf2-rlt3sv: `:machine-type` identifies a SPAWNED actor's
+                  ;; `:machine-type` identifies a spawned actor's
                   ;; TYPE (keyword or inline-definition map) alongside its
                   ;; instance `:machine-id`; nil/omitted for a singleton whose
                   ;; key is its own type. Spawned-actor drift is now caught:
@@ -495,7 +463,7 @@
 
                   {:outcome :ok :epoch epoch})))))))))
 
-;; ---- write-boundary liveness guard (rf2-7i872) ----------------------------
+;; ---- write-boundary liveness guard ----------------------------------------
 ;;
 ;; Precondition validation (`check-restore-preconditions!` /
 ;; `check-replace-frame-state-preconditions!`) resolves the frame, but a frame
@@ -520,7 +488,7 @@
   the canonical no-such-handler precondition-failure result
   (`{:outcome :fail :op :rf.error/no-such-handler :tags {:kind :frame
   :frame frame-id}}`) when the frame was destroyed between precondition
-  validation and now (the validate-then-destroy race, rf2-7i872). Mirrors
+  validation and now. Mirrors
   `frame-exists-or-fail`'s failure shape so the destroyed-frame write race
   surfaces identically to a frame-miss caught at validate-time."
   [frame-id]
@@ -531,7 +499,7 @@
      :tags    {:kind  :frame
                :frame frame-id}}))
 
-;; ---- runtime-db subsystem reconcile on restore (rf2-7r5mc2) ---------------
+;; ---- runtime-db subsystem reconcile on restore ----------------------------
 ;;
 ;; Epoch restore installs the captured frame-state WHOLESALE — it does not run
 ;; ordinary `:db`-effect semantics, so a runtime SUBSYSTEM whose durable
@@ -562,7 +530,7 @@
   resources-first extension point, mirroring SSR hydration's single
   `:resources/hydrate-runtime-db` consult.
 
-  Per rf2-obi8rr the reconcile is invoked with `{:defer-traces? true}` so it does
+  Reconcile uses `{:defer-traces? true}` so it does
   NOT emit its `:rf.resource/restored` / `:rf.resource/owner-released` success
   rows inline — the reconcile runs BEFORE the atomic install, which can still
   fail (a destroyed-frame install returns nil). The deferred trace intents ride
@@ -570,7 +538,7 @@
   `:resources/commit-restore-reconcile!` only AFTER a successful install, so a
   failed restore leaks no resource success traces.
 
-  Per rf2-wshzsp the restore's CAUSAL time — `restore-time-ms`, the restored
+  The restore's causal time — `restore-time-ms`, the restored
   epoch's `:committed-at` (the committing token's `:rf.cofx` `:rf/time-ms`,
   replay-stable per EP-0010 §Time) — is threaded through `:restore-time-ms` so
   the reconcile stamps a dangled-on-restore mutation instance's DURABLE
@@ -590,10 +558,9 @@
        frame-state)
      frame-state)))
 
-;; ---- restore-time host-transient quiesce (rf2-u5kmf8) ---------------------
+;; ---- restore-time host-transient quiesce ----------------------------------
 ;;
-;; EP-0011 / Managed-Effects §SSR, preload, hydration, and restore: "Hydration
-;; and epoch restore MUST NOT revive host work." A restore installs the captured
+;; Restore must not revive host work. It installs the captured
 ;; durable frame-state WHOLESALE, but the ASYNC HOST WORK the unwound epochs
 ;; spawned — machine `:after` host-clock timers (re-frame.machines.timer's
 ;; frame-scoped handle table) and non-resource managed-HTTP AbortControllers /
@@ -603,7 +570,7 @@
 ;; orphaned host handles so a late pre-restore completion is stale-suppressed and
 ;; never delivers to its original `:rf/reply-to` target.
 ;;
-;; The `:resources/reconcile-on-restore` hook (rf2-7r5mc2) reconciles the
+;; The resources restore hook reconciles its
 ;; Resources subsystem's runtime-db slice + clears its host transients. This is
 ;; the restore counterpart for the OTHER managed async subsystems — the mirror
 ;; of destroy-frame!'s `:machines/on-frame-destroyed!` /
@@ -638,7 +605,7 @@
 
 (defn quiesce-orphaned-async-host-work!
   "Fire the restore-time host-transient quiesce hook chain for `frame-id`
-  (rf2-u5kmf8). Invoked by `perform-restore!` ONLY AFTER a successful
+  after a successful
   `replace-frame-state!` install — a destroyed-frame install (which wrote
   nothing) returns before this point, so a restore that never landed never
   cancels a live frame's host work. Each `restore-quiesce-hooks` entry is a
@@ -660,7 +627,7 @@
 
 (defn commit-resources-restore-traces!
   "Emit the resources restore-reconcile trace rows DEFERRED by
-  `reconcile-runtime-db-on-restore` (rf2-obi8rr), consulting the late-bound
+  `reconcile-runtime-db-on-restore`, consulting the late-bound
   `:resources/commit-restore-reconcile!` hook with the reconciled runtime-db
   partition of `frame-state`. Invoked by `perform-restore!` ONLY AFTER a
   successful `replace-frame-state!` install, so the `:rf.resource/restored` /
@@ -676,90 +643,40 @@
   nil)
 
 (defn perform-restore!
-  "Carry out the actual frame-state rewind once preconditions have passed.
-  Replaces the frame's whole frame-state with `epoch`'s `:frame-state-after`
-  (BOTH partitions — app-db AND runtime-db) and emits `:rf.epoch/restored`.
-  Returns `true` on a real write.
+  "Install the target epoch's whole `:frame-state-after` after validation.
 
-  EP-0001 (rf2-3aizt1, decisions #2 + #9): restore rewinds to the canonical
-  `:frame-state-after` via `replace-frame-state!`, reviving machine
-  snapshots, the route slice, elision declarations, and SSR metadata
-  (runtime-db state) — not just the app-db partition. Without this, a
-  rewind past a machine spawn / destroy left the actor's snapshot un-reverted
-  (the Goal-2 revertibility leak the actor-revertibility tests pin).
-  `:frame-state-after` is the only restore source — every record
-  `build-record` emits carries it. The `:db-after` slot is a retained
-  app-db PROJECTION for tool diffs, never a restore source; a record with
-  no `:frame-state-after` is malformed/unreachable on the current build path.
+  App-db and runtime-db are restored atomically; `:db-after` is only a tool
+  projection. Optional subsystems reconcile captured durable state against
+  current host state before install, deferring success traces until the write
+  lands.
 
-  Per rf2-7i872 (validate-then-destroy race): re-resolves the container at
-  the write boundary via `live-container-or-fail`. If the frame was
-  destroyed between the precondition pass and now, the container is nil and
-  `replace-frame-state!` would silently no-op — so instead of emitting
-  `:rf.epoch/restored` and returning `true` (a FALSE success), this emits
-  the canonical `:rf.error/no-such-handler` (kind `:frame`) failure trace
-  and returns `false`, matching the destroyed-frame contract.
-
-  Per rf2-s93722 (post-liveness teardown race): the liveness check above
-  closes only HALF the window — a frame destroyed AFTER `live-container-or-
-  fail` passes but BEFORE `replace-frame-state!` actually writes still slips
-  through. `frame/replace-frame-state!` returns `nil` for a destroyed frame
-  (a non-nil — possibly EMPTY — changed-key-set for a live frame, even a
-  no-op write), so we check that return: a `nil` return is the destroyed-
-  frame signal, surfaced as the same `:rf.error/no-such-handler` (kind
-  `:frame`) failure / `false` return BEFORE any success telemetry.
-
-  Per rf2-7r5mc2 (resources runtime-db reconcile on restore): a runtime-db
-  partition carrying a runtime SUBSYSTEM whose durable snapshot is not safe to
-  install verbatim must be reconciled against the live transient world BEFORE
-  the install (Spec 016 §Restore and replay — restore shares the SSR-hydration
-  install path). Resources is the first such subsystem: `reconcile-runtime-db-on-
-  restore` consults the late-bound `:resources/reconcile-on-restore` hook, which
-  settles mid-flight `:loading` / `:fetching` entries to last-stable, clears each
-  entry's vanished `:current-work`, orphans SSR / stale-nav owners, recomputes
-  the reverse indexes from `:entries`, and records restored non-terminal
-  work-ledger rows as dangling so a pre-restore in-flight reply is suppressed.
-  No-op (passes the runtime-db through) when no resources artefact is loaded.
-
-  Per rf2-obi8rr (defer restore trace rows until install succeeds): the resources
-  reconcile above runs BEFORE the atomic install but its `:rf.resource/restored` /
-  `:rf.resource/owner-released` SUCCESS trace rows must fire only once the restore
-  TRULY installs. So the reconcile defers those rows (it is called with
-  `:defer-traces? true`, riding the intents back as metadata); they are emitted
-  via `commit-resources-restore-traces!` ONLY on the success branch below — never
-  for a destroyed-frame install that returns nil and writes nothing."
+  Frame liveness is checked again at the write boundary, and the write's return
+  closes the remaining teardown race: nil means no write, while a non-nil set,
+  including empty, is success. Only the success branch emits restore telemetry,
+  re-anchors post-settle attribution, commits deferred subsystem traces, and
+  cancels host-transient work from the abandoned timeline."
   [frame-id epoch]
   (let [{:keys [outcome op tags]} (live-container-or-fail frame-id)]
     (if (= :fail outcome)
       (do (emit-precondition-failure! op tags)
           false)
-      (let [;; EP-0001 (rf2-3aizt1): the canonical, only restore source is
-            ;; the whole `:frame-state-after`. The `:db-after` slot is a
-            ;; retained app-db projection for tool diffs, never installed —
-            ;; a record with no `:frame-state-after` is malformed/unreachable
-            ;; on the current build path.
+      (let [;; Whole `:frame-state-after` is the only restore source.
             frame-state-target (:frame-state-after epoch)
-            ;; rf2-7r5mc2: reconcile the runtime-db partition's runtime
-            ;; subsystems (Resources, first writer) BEFORE the atomic install,
+            ;; Reconcile runtime subsystems before the atomic install,
             ;; the same way SSR hydration reconciles its installed slice — so a
             ;; mid-flight captured snapshot does not install stranded
             ;; `:loading` / `:fetching` entries pointing at vanished attempts,
             ;; and a pre-restore reply cannot write stale data into a restored
             ;; entry.
-            ;; rf2-wshzsp: thread the restored epoch's CAUSAL time
+            ;; Thread the restored epoch's causal time
             ;; (`:committed-at` = the committing token's `:rf.cofx`
             ;; `:rf/time-ms`) so the reconcile stamps a dangled-on-restore
             ;; mutation instance's durable `:settled-at` from a replay-stable
             ;; causal input, not the live install clock (EP-0010 §Restore/Replay).
             frame-state-target (reconcile-runtime-db-on-restore
                                  frame-id frame-state-target (:committed-at epoch))
-            ;; EP-0001 (rf2-3aizt1): write the WHOLE frame-state — both
-            ;; partitions in ONE atomic install through the one physical
-            ;; frame-state container. `frame/app-db-container` /
-            ;; `runtime-db-container` are READ-ONLY projections, so the write
-            ;; goes through `replace-frame-state!`.
-            ;; rf2-s93722: capture the return — `nil` means the frame was
-            ;; destroyed in the post-liveness window (no write happened); a
+            ;; Write both partitions through the one physical frame container.
+            ;; Nil means the frame was destroyed after the liveness check; a
             ;; non-nil changed-key-set (even empty) means the write landed.
             changed (frame/replace-frame-state! frame-id frame-state-target)]
         (if (nil? changed)
@@ -769,56 +686,21 @@
           (do (trace/emit! :rf.epoch :rf.epoch/restored
                            {:frame       frame-id
                             :rf.epoch/id (:epoch-id epoch)})
-              ;; rf2-w4q9gt — RE-ANCHOR the post-settle back-fill attribution to
-              ;; the RESTORED-TARGET epoch. A successful restore rewinds the
-              ;; frame's state but runs no ordinary cascade, so it never updates
-              ;; `last-settled-epoch` on its own. Left untouched, the anchor keeps
-              ;; pointing at whatever event settled most recently BEFORE the
-              ;; restore — so the repaint / subscription / unmount activity a
-              ;; restore triggers (these fire post-settle at React commit / deref
-              ;; / teardown time) back-fills into that unrelated stale epoch
-              ;; (`state/last-settled-epoch-id` is the anchor `record-render!` /
-              ;; `record-sub-run!` / `record-unmount!` read — listeners.cljc),
-              ;; corrupting a later epoch's historical `:renders` / `:sub-runs` /
-              ;; `:trace-events` AFTER the frame has been rewound. The replace-*
-              ;; injection siblings already re-anchor to their synthetic epoch
-              ;; (`set-last-settled-epoch!` in `record-synthetic-replace-epoch!` /
-              ;; `perform-replace!`); restore was the one mutating write
-              ;; that did not. The restored target IS the epoch whose state is now
-              ;; installed, so restore-induced repaint belongs to it — restored-
-              ;; target attribution. Set ONLY on the success branch: a failed /
-              ;; destroyed-frame install returns above with the anchor (and frame
-              ;; state, history, listeners) unchanged.
+              ;; Restore triggers no ordinary event, so explicitly anchor its
+              ;; repaint/subscription/unmount back-fill to the restored epoch.
               (state/set-last-settled-epoch! frame-id (:epoch-id epoch))
-              ;; rf2-obi8rr — the install succeeded, so it is now safe to emit
-              ;; the resources restore-reconcile success rows the reconcile
-              ;; deferred. A destroyed-frame install (nil branch above) returns
-              ;; before this point, so those rows never fire for a no-op write.
+              ;; Deferred subsystem success traces are valid only after install.
               (commit-resources-restore-traces! frame-state-target)
-              ;; rf2-u5kmf8 — quiesce the orphaned async host work the unwound
-              ;; epochs spawned (machine :after host-clock timers + non-resource
-              ;; managed-HTTP in-flight handles). These are host transients, not
-              ;; frame-state, so the wholesale install left them attached to the
-              ;; pre-restore timeline; cancelling/clearing them now keeps a late
-              ;; pre-restore completion from delivering to its original
-              ;; :rf/reply-to target (EP-0011 / Managed-Effects §restore: "epoch
-              ;; restore MUST NOT revive host work"). Fired ONLY on the success
-              ;; branch, like commit-resources-restore-traces! above — a
-              ;; destroyed-frame install returns before this point.
+              ;; Host timers and HTTP handles are not frame state; cancel the
+              ;; abandoned timeline only after the new state is installed.
               (quiesce-orphaned-async-host-work! frame-id)
               true))))))
 
 ;; ---- replace-frame-state! preconditions ------------------------------------
 ;;
-;; rf2-t3lftq (API-shrink #3): the former four-mutator family
-;; (`replace-app-db!` / `reset-app-db!` / `replace-runtime-db!` /
-;; `replace-frame-state!`) is consolidated to ONE partial-map write —
-;; `replace-frame-state!` — differing single-partition callers now compose a
-;; one-key map. `check-replace-frame-state-preconditions!` validates: (0) bad
+;; `replace-frame-state!` accepts a partial map. Preconditions validate: bad
 ;; keys? (1) frame registered? (2) in-flight drain? (3) history disabled?
-;; (4) schema mismatch on the PRESENT partitions only. Per Tool-Pair §Pair-tool
-;; writes (Spec 009 §Trace events lists `:rf.epoch/replace-*` under this
-;; surface).
+;; (4) schema mismatch on present partitions only.
 
 (def ^:private frame-state-partition-keys
   "The two recognized `replace-frame-state!` partition keys — the closed
@@ -828,7 +710,7 @@
 
 (defn- replace-frame-state-bad-keys
   "Validate `frame-state`'s key set against the closed
-  `frame-state-partition-keys` vocabulary (rf2-t3lftq — API-shrink #3).
+  `frame-state-partition-keys` vocabulary.
   Returns nil when the map is well-formed (at least one recognized
   partition key, no unrecognized ones), otherwise a
   `{:reason <kw> :keys <vec>}` map describing the problem:
@@ -864,8 +746,7 @@
 
 (defn check-replace-frame-state-preconditions!
   "Validate the documented preconditions for `replace-frame-state!`, the
-  ONE frame-state write surface (rf2-t3lftq — API-shrink #3 consolidated
-  `replace-app-db!` / `reset-app-db!` / `replace-runtime-db!` into this).
+  frame-state write surface.
   `frame-state` is a PARTIAL frame-state map (any subset of
   `{:rf.db/app … :rf.db/runtime …}`). Returns `{:outcome :ok}` when every
   check passes, otherwise `{:outcome :fail :op <kw> :tags <map>}` matching
@@ -884,8 +765,7 @@
     (2) In-flight drain?
     (3) History disabled (depth 0)? The synthetic undo-anchor cannot land
         in the (disabled) ring, so the undo-works-after invariant is
-        unsatisfiable — reject loudly rather than return a false success
-        (rf2-unpldn).
+        unsatisfiable, so reject rather than return a false success.
     (4) Schema mismatch? Validates ONLY the PRESENT partitions — an absent
         key is preserved, not written, so it is not walked: the app-db
         partition (when present) against the frame's app-schema set
@@ -895,8 +775,8 @@
         UNION of failing paths — a failure on EITHER rejects the whole
         atomic install.
 
-  Per rf2-unpldn: `replace-frame-state!` records a synthetic
-  `:rf.epoch/db-replaced` epoch so that `restore-epoch!` can rewind PAST
+  `replace-frame-state!` records a synthetic `:rf.epoch/db-replaced` epoch so
+  that `restore-epoch!` can rewind past
   the injection — the caller's invariant is \"undo works after this call\"
   (Tool-Pair §Pair-tool writes, the same invariant the artefact-missing
   wrapper raises to honour at `core-epoch.cljc`). Under
@@ -931,8 +811,7 @@
 
         ;; (3) History disabled (depth 0)? The synthetic undo-anchor cannot
         ;; land in the (disabled) ring, so the undo-works-after invariant is
-        ;; unsatisfiable — reject loudly rather than return a false success
-        ;; (rf2-unpldn).
+        ;; unsatisfiable, so reject rather than return a false success.
         (not (pos? (state/depth)))
         {:outcome :fail
          :op      :rf.epoch/replace-history-disabled
@@ -956,81 +835,16 @@
 
 ;; ---- projected egress -----------------------------------------------------
 ;;
-;; Per Security.md §Epoch privacy posture, EP-0015 §15 (Epoch Redaction) +
-;; open-issue 6 (RULED), and rf2-mrsck: the framework's single normative
-;; projection emission site for off-box epoch egress. The in-process ring
-;; buffer (`epoch-history`) and `register-epoch-listener!` listener fan-out
-;; deliver RAW records — restore-epoch! and on-box devtools (Xray diff,
-;; REPL inspection) need them, and post-EP-0010 those raw records are
-;; causal replay material. Tools that egress an epoch record across a
-;; process boundary (Xray-MCP `watch-epochs`, story / pair recorders,
-;; hosted forwarders) MUST route through `projected-record` first.
-;;
-;; FRAME/PROFILE PROJECTION (EP-0015 §15). Each tree-shaped payload slot is
-;; projected through `re-frame.projection/project-egress` under the
-;; `:rf.egress/off-box-observability` profile — the named export boundary
-;; for hosted-monitoring / log-shipper / recorder egress (EP-0015 §10
-;; default-behaviour table: redact sensitive, elide large, omit digests).
-;; `project-egress` resolves that profile to the `:rf.size/*` opt-set
-;; `elide-wire-value` consumes; the trusted-local plain opts
-;; (`:include-sensitive?` / `:include-large?`) compose on top as explicit
-;; `:rf.size/*` overrides (the override wins). The epoch record is not one
-;; of `project-egress`'s `:rf.observe/*` record kinds, so each tree slot is
-;; handed to `project-egress` as a KINDLESS tree value (the direct-read
-;; path), which delegates to `elide-wire-value` against the frame's
-;; classification. Routing every slot through the frame/profile projection
-;; primitive (EP-0015 bead-plan item 10) keeps elision in one place.
-;;
-;; Two slots are value-bearing and need the same projection walk:
-;;
-;;   - The CANONICAL frame-state slots `:frame-state-before` /
-;;     `:frame-state-after` (EP-0001 rf2-3aizt1 decision #2 + ruling #14):
-;;     their `:rf.db/app` partition is projected through the same
-;;     frame/profile walk the `:db-*` projections receive, while their
-;;     `:rf.db/runtime` partition is DEFAULT-REDACTED to `:rf/redacted`
-;;     off-box (see `project-frame-state-slot`).
-;;   - The structured `:sub-runs` rows (rf2-at60h): each carries the
-;;     sub's computed `:prev-value` / `:value`, so the rows DO carry
-;;     app-db material and the whole-output `:large?` case is projected
-;;     through the `:rf.size/large-elided` marker (see
-;;     `elide-sub-runs-slot`). Their non-value metadata (`:sub-id`,
-;;     `:query-v`, `:value-changed?`, `:cascade?`, `:cause-sub`,
-;;     `:cause-event-id`) passes through.
-;;
-;; The remaining full-value slots — the derived `:db-before` /
-;; `:db-after` app-db projections, `:trigger-event`, and `:trace-events`
-;; — also route through `project-egress`. The structured `:effects`
-;; rows carry payload-bearing `:args` (raw fx-handler arguments) that fail
-;; closed to `:rf/redacted` off-box (rf2-rlt3sv, `elide-effects-slot`); the
-;; `:renders` slot carries no app-db material (render-keys + timing +
-;; cause), so the projection leaves it as-is. The record-level bookkeeping
-;; (`:epoch-id`,
-;; `:frame`, `:committed-at`, `:event-id`, `:outcome`, `:halt-reason`,
-;; `:schema-digest`, `:rf.epoch/sensitive?`,
-;; `:rf.epoch/redacted-modified-paths-count`) is structurally
-;; non-sensitive and passes through. `projected-record`'s docstring is
-;; the authoritative per-slot contract.
-;;
-;; APP-SUPPLIED `:redact-fn` ADVANCED OVERRIDE (EP-0015 §15 + open-issue 6,
-;; RULED). After the frame/profile projection lands, `projected-record`
-;; applies the installed `:redact-fn` (`assembly/apply-redact-fn`) to the
-;; PROJECTED record — the rare advanced escape for material the
-;; declaration-driven projection cannot prove (a slot no frame / schema
-;; declaration covers). It runs ONLY here, on the off-box
-;; egress copy; the ring stays raw, so it can never affect `restore-epoch!`
-;; fidelity (the §15 hazard is gone by construction).
-;;
-;; Per-tool reimplementation of the projection is prohibited (the
-;; same posture as the wire-elision walker). New egress tools call
-;; `projected-record` and trust the contract.
+;; Raw records are replay material and remain in-process. Every off-box consumer
+;; uses `projected-record`: app-db-rooted trees go through the named egress
+;; profile, runtime-db and unclassifiable transient payloads fail closed, and the
+;; optional advanced override runs last on the projected copy. The facade
+;; docstring is the public per-slot contract.
 
 (def ^:private default-egress-profile
-  "The DEFAULT named export boundary for epoch off-box egress (EP-0015 §10)
-  when the caller names none. The hosted-monitoring consumers (log shippers
-  / Story / pair recorders) want `:rf.egress/off-box-observability` (redact
-  sensitive, elide large, omit digests), so it stays the floor.
+  "The default named export boundary for epoch off-box egress.
 
-  An MCP / AI / tool consumer (rf2-1afn7q) selects the
+  An MCP or AI tool selects the
   `:rf.egress/off-box-tool` boundary instead via `projected-record`'s
   `:rf.egress/profile` opt — that profile keeps the same redact/elide
   defaults but turns on `:rf.size/include-digests?`, so a large owner-local
@@ -1039,8 +853,8 @@
   :rf.egress/off-box-observability)
 
 (defn- resolve-egress-profile
-  "Resolve the named `:rf.egress/profile` an epoch egress call walks under
-  (rf2-1afn7q). The off-box egress boundary is named — the caller answers
+  "Resolve the named `:rf.egress/profile` an epoch egress call walks under.
+  The caller names
   *\"which boundary is this?\"* (hosted observability vs. MCP/AI tool wire)
   rather than assembling boolean combinations. The default is
   `:rf.egress/off-box-observability` (hosted monitoring), so the bare
@@ -1054,17 +868,14 @@
   [profile]
   (let [profile (or profile default-egress-profile)]
     (when-not (contains? projection/profiles profile)
-      ;; ONE shared builder for both closed-enum guards (rf2-krrv87) — the
-      ;; in-file `re-frame.projection/resolve-elision-opts` guard and this
-      ;; epoch-boundary guard route through `unknown-egress-profile-ex`, so
-      ;; the human sentence + the `[:rf.error/unknown-egress-profile]` token
-      ;; cannot drift. This site passes its own `:where 'epoch/projected-record`.
+      ;; Share the projection layer's closed-enum error builder so wording and
+      ;; the machine-readable token cannot drift.
       (throw (projection/unknown-egress-profile-ex 'epoch/projected-record profile)))
     profile))
 
 (defn- egress-opts
   "Build the `project-egress` opts map from a `projected-record` egress
-  opts map (rf2-5w06uu, rf2-1afn7q). The named `:rf.egress/profile`
+  opts map. The named `:rf.egress/profile`
   selects the boundary (default `:rf.egress/off-box-observability`); MCP /
   AI / tool consumers pass `:rf.egress/off-box-tool` to receive the
   structural marker indicators / counters the tool profile enables. The
@@ -1074,7 +885,7 @@
   explicit `:rf.size/*` overrides (the override wins — see
   `re-frame.projection/resolve-elision-opts`). The record frame is stamped
   so the frame's declared sensitive / large paths (keyed by absolute app-db
-  path, installed frame-owned per EP-0015 §3) match the projected value."
+  path) match the projected value."
   [frame-id {:keys [include-sensitive? include-large?] :rf.egress/keys [profile]}]
   {:rf.egress/profile          (resolve-egress-profile profile)
    :frame                      frame-id
@@ -1086,12 +897,11 @@
   profile selected by `opts` (default `:rf.egress/off-box-observability`),
   rooted at the named frame.
   Off-box defaults (`:include-sensitive? false`, `:include-large? false`)
-  hold unless `opts` opts back in (rf2-5w06uu). The epoch record is not a
+  hold unless `opts` opts back in. The epoch record is not a
   `:rf.observe/*` record kind, so the slot VALUE is projected as a kindless
   tree (the direct-read path → `elide-wire-value` against the frame's
   classification). Returns the projected value; `nil` slots are preserved
-  as nil (a halted-destroy record's `:db-before` / `:db-after` are nil per
-  rf2-v0jwt; the schema admits the absent / nil slot — the projection
+  as nil (halted records may have nil app-db slots; the projection
   MUST NOT fabricate a value)."
   [v frame-id opts]
   (when (some? v)
@@ -1099,7 +909,7 @@
 
 (defn- project-frame-state-slot
   "Project a `:frame-state-before` / `:frame-state-after` slot for off-box
-  egress (EP-0001 rf2-3aizt1, Mike ruling #14). The frame-state value is
+  egress. The frame-state value is
   `{:rf.db/app <app-db> :rf.db/runtime <runtime-db>}`; the two partitions
   egress under DIFFERENT default policies:
 
@@ -1108,16 +918,15 @@
       large paths → markers), the SAME projection the `:db-before` /
       `:db-after` app-db projections receive. `opts` `:include-sensitive?` /
       `:include-large?` opt the app-db partition's privacy / size posture
-      back in (rf2-5w06uu).
+      back in.
 
-    - `:rf.db/runtime` — the framework runtime-db. REDACTED by default off-box
-      (Mike ruling #14 — Spec 011 §Off-box redaction + Security.md §Epoch
-      privacy posture): the runtime-db side is substituted with the
+    - `:rf.db/runtime` — the framework runtime-db. Redacted by default off-box;
+      the runtime-db side is substituted with the
       `:rf/redacted` sentinel rather than walked, so machine snapshots /
       route slice / SSR metadata do not egress to AI / log channels by
       default. The runtime-db partition boundary is ORTHOGONAL to the
       app-db `:include-sensitive?` / `:include-large?` opt-ins — those do
-      NOT lift it (the rf2-5w06uu bypass). A TRUSTED-LOCAL caller that
+      NOT lift it. A trusted-local caller that
       genuinely needs runtime-db diagnostics opts in explicitly with
       `:include-runtime-db? true`; the runtime-db value is then projected
       through the same frame/profile walk (its own per-slot sensitive /
@@ -1130,10 +939,10 @@
     (cond-> fs
       (contains? fs :rf.db/app)
       (update :rf.db/app projection/project-egress (egress-opts frame-id opts))
-      ;; Default-redact the runtime-db side off-box (ruling #14). The
+      ;; Default-redact runtime-db off-box. The
       ;; trusted-local `:include-runtime-db? true` opt-in lifts the
       ;; partition redaction; the value still rides the value walk so its
-      ;; own sensitive / large declarations apply (rf2-5w06uu).
+      ;; own sensitive / large declarations apply.
       (and (contains? fs :rf.db/runtime) (not include-runtime-db?))
       (assoc :rf.db/runtime :rf/redacted)
 
@@ -1141,7 +950,7 @@
       (update :rf.db/runtime projection/project-egress (egress-opts frame-id opts)))))
 
 (defn- reroot-trace-event-db-slots
-  "Per rf2-ta0y7: the `:rf.event/db-pending` (t1) and
+  "The `:rf.event/db-pending` (t1) and
   `:rf.event/db-pending-post-flow` (t2) trace events each carry the
   FULL pending `:db` value under `:tags :rf.event/db`. The bulk
   `project-payload-slot` above walks `:trace-events` as a single root —
@@ -1157,9 +966,8 @@
   the frame's app-db so the sensitive / large declarations match
   natively. Symmetric with how `flows.cljc` elides `:rf.flow/computed`'s
   `:result` / `:before` at emit-time using the flow's `:path`; here we
-  do it at egress because the t1/t2 stamps are stored raw on the
-  ring (Mike's ruling — store the value plain, PDS keeps the cost
-  pointer-sized; the egress projection is the privacy boundary).
+  do it at egress because the t1/t2 stamps are stored raw and the egress
+  projection is the privacy boundary.
 
   Returns the trace-events vector with the inner `:rf.event/db` slots
   re-projected; non-t1/t2 events pass through untouched, and events
@@ -1188,7 +996,7 @@
                     ev))))
             trace-events))))
 
-;; ---- off-box HTTP response-body fail-closed (rf2-t55hxg.6, rf2-t55hxg.10) --
+;; ---- off-box HTTP response-body fail-closed -------------------------------
 ;;
 ;; EP-0015 disposition 5: a managed HTTP response body is a
 ;; registration-owned transient payload; an UNSCHEMATIZED body (no Malli
@@ -1208,7 +1016,7 @@
 ;; on-box emit, so it rides as-is. No HTTP-artefact dependency — only the
 ;; stamped keyword + the per-operation body-slot path(s) are read.
 ;;
-;; rf2-t55hxg.10 — the SAME disposition-5 rule for the RAW error-response
+;; The same disposition-5 rule applies to a raw error-response
 ;; body: `:rf.http/http-4xx` / `:rf.http/http-5xx` carry the raw response
 ;; body at `:body`, `:rf.http/decode-failure` carries the raw text at
 ;; `:body-text`, and `:rf.http/retry-attempt` nests the intermediate failure
@@ -1230,17 +1038,16 @@
    - `:rf.http/replied`        — the decoded body at `[:value]`;
    - `:rf.http/accept-failure` — the pre-`:accept` decoded body at `[:decoded]`;
    - `:rf.http/http-4xx` / `:rf.http/http-5xx` — the raw response body at
-     `[:body]` (rf2-t55hxg.10);
-   - `:rf.http/decode-failure` — the raw response text at `[:body-text]`
-     (rf2-t55hxg.10);
+     `[:body]`;
+   - `:rf.http/decode-failure` — the raw response text at `[:body-text]`;
    - `:rf.http/retry-attempt`  — the intermediate failure's raw body nested at
-     `[:failure :body]` / `[:failure :body-text]` (rf2-t55hxg.10).
+     `[:failure :body]` / `[:failure :body-text]`.
 
   A vector of slot PATHS (each a `get-in`/`assoc-in` path) so an operation
   whose body can ride in more than one slot (retry-attempt) is covered with
   one general rule rather than a per-slot special case.
 
-  Elision (rf2-t55hxg.10): the table is the tool-pair OFF-BOX ENFORCEMENT,
+  The table is the tool-pair off-box enforcement,
   not the on-box stamp — it lives behind the same `interop/debug-enabled?`
   boundary that elides the whole epoch off-box projection surface in
   production (`epoch/projected-record` — \"Production builds elide the
@@ -1266,8 +1073,8 @@
      :rf.http/retry-attempt  [[:failure :body] [:failure :body-text]]}))
 
 (defn- omit-off-box-http-bodies
-  "Per rf2-t55hxg.6 + rf2-t55hxg.10: enforce the EP-0015 disposition-5 off-box
-  fail-closed rule on `:rf.http/*` trace events. For each event whose emit
+  "Enforce the fail-closed rule for off-box HTTP body trace events. For each
+  `:rf.http/*` event whose emit
   site stamped `:tags :rf.http/off-box-body :omit` (an UNSCHEMATIZED response
   body — whole-sensitive off-box, including every RAW error-response body),
   substitute the `:rf/redacted` sentinel for each of the operation's body-slot
@@ -1301,8 +1108,8 @@
           trace-events)))
 
 (def ^:private event-arg-tag-slots
-  "The trace-event tag slots that carry the DISPATCHED EVENT VECTOR
-  `[<event-id> <arg> …]` (rf2-nm611o). The same registration-owned
+  "The trace-event tag slots that carry the dispatched event vector
+  `[<event-id> <arg> …]`. The same registration-owned
   transient event args the `:trigger-event` record slot carries ride here,
   on EVERY `:rf.event/*` op of a cascade (`:rf.event/dispatched`,
   `:rf.event/run-start`, `:rf.event/db-pending`, `:rf.event/db-changed`,
@@ -1318,7 +1125,7 @@
   [:rf.event/v :event])
 
 (defn- omit-off-box-event-args
-  "Per rf2-nm611o: enforce the EP-0015 §151 registration-owned-transient
+  "Enforce the registration-owned-transient
   fail-closed rule on the dispatched-event-vector tag slots
   (`event-arg-tag-slots`) of every trace event. For each slot present whose
   value is the event vector `[<id> <arg> …]`, retain the head event-id
@@ -1354,7 +1161,7 @@
           trace-events)))
 
 (defn- omit-off-box-resource-scope-values
-  "Per rf2-84l82t (EP-0015): redact the resolver-owned VALUES on a
+  "Redact the resolver-owned values on a
   `:rf.resource/scope-resolved` trace row for off-box egress. The row carries
   the resolved `:input-values` (the concrete db reads) and the derived `:scope`
   (which embeds them) — owner-local identity-bearing values the generic
@@ -1390,10 +1197,10 @@
 (defn- resource-family-op?
   "Whether a trace op belongs to the resource / mutation egress-record family —
   a `:rf.resource/*` or `:rf.mutation/*` keyword whose tags may embed
-  owner-local scoped keys (rf2-8x0gfa). ALSO covers the resources-family
+  owner-local scoped keys. Also covers the resources-family
   DIAGNOSTICS that ride the `:rf.warning/*` namespace but carry the same
   owner-local scoped-key / scope tags — `:rf.warning/resource-*` (e.g.
-  `:rf.warning/resource-load-more-owner-ignored` per rf2-bi8vg1, which carries a
+  `:rf.warning/resource-load-more-owner-ignored`, which carries a
   `:resource/key`, and `:rf.warning/resource-clear-scope-unresolved`, which
   carries a `:scope`). Those rows must take the SAME fail-closed family egress
   projection as the `:rf.resource/*` rows, not slip through the
@@ -1407,7 +1214,7 @@
                   (str/starts-with? (name op) "resource-"))))))
 
 (defn- omit-off-box-resource-trace-keys
-  "Per rf2-8x0gfa (EP-0015): redact the owner-local SCOPED KEYS embedded in the
+  "Redact the owner-local scoped keys embedded in the
   BROADER resource/mutation trace family's tag slots for off-box egress — the
   family-level companion to `omit-off-box-resource-scope-values`. The
   `:rf.resource/*` + `:rf.mutation/*` rows copy scoped keys into `:resource/key`
@@ -1452,18 +1259,18 @@
       trace-events)))
 
 (defn- elide-trace-events-slot
-  "The `:trace-events` projection chain (rf2-ta0y7): first re-root the
+  "Project `:trace-events`: first re-root the
   per-event `:rf.event/db` slots on the t1 / t2 trace events so the
   sensitive / large declarations match natively, then fail closed on the
-  dispatched-event-vector args (rf2-nm611o — `:rf.event/v` / `:event`
+  dispatched-event-vector args (`:rf.event/v` / `:event`
   carry the same registration-owned transient args as `:trigger-event`,
   which the app-db walker cannot prove safe), then enforce the off-box
-  HTTP response-body fail-closed rule (rf2-t55hxg.6 — omit unschematized
-  bodies), then run the bulk frame/profile `project-egress` walk over the
+  HTTP response-body fail-closed rule, then run the bulk
+  frame/profile `project-egress` walk over the
   whole vector to handle the other payload-bearing tag values
   (`:rf.cofx/value`, etc.) with their own per-tag paths. `opts`
   `:include-sensitive?` / `:include-large?` / `:include-event-args?` opt
-  the per-call posture back in (rf2-5w06uu / rf2-nm611o). Idempotent (a
+  the per-call posture back in. Idempotent (a
   second pass walks already-redacted scalars). Nil-preserving."
   [v frame-id opts]
   (when (some? v)
@@ -1471,11 +1278,9 @@
         (reroot-trace-event-db-slots frame-id opts)
         (omit-off-box-event-args opts)
         (omit-off-box-http-bodies opts)
-        ;; rf2-84l82t — redact the resolver-owned `:input-values` / `:scope`
-        ;; on `:rf.resource/scope-resolved` rows (fail-closed; the generic
-        ;; walk below cannot classify resolver-owned values copied into tags).
+        ;; Redact resolver-owned values copied into resource trace tags.
         (omit-off-box-resource-scope-values opts)
-        ;; rf2-8x0gfa — redact the owner-local SCOPED KEYS embedded in the
+        ;; Redact owner-local scoped keys embedded in the
         ;; broader `:rf.resource/*` / `:rf.mutation/*` trace family's tag slots
         ;; (`:resource/key` / `:resource/keys` / `:matched` / `:removed` /
         ;; rollback `:dispositions` / …) — the family-level companion to the
@@ -1484,9 +1289,8 @@
         (projection/project-egress (egress-opts frame-id opts)))))
 
 (defn- elide-sub-run-row
-  "Project a single structured `:sub-runs` row for off-box egress
-  (rf2-at60h). The row carries value-bearing `:prev-value` / `:value`
-  slots holding the sub's computed app-data — so, unlike the non-value
+  "Project a structured `:sub-runs` row. Its `:prev-value` / `:value`
+  slots hold computed app data, so unlike the non-value
   metadata (`:sub-id`, `:query-v`, `:value-changed?`, `:cascade?`,
   `:cause-sub`, `:cause-event-id`), they MUST respect the projection
   contract.
@@ -1504,25 +1308,13 @@
   marker value rebuilt through a second pass would be wrong-sized, so a
   slot already carrying a marker is left untouched.
 
-  The structured `:effects` rows are ALSO payload-bearing (rf2-rlt3sv):
-  each carries `:args` — the RAW fx-handler argument captured verbatim from
-  the `:rf.fx/args` trace tag, NOT routed through the marks-projection
-  chokepoint and NOT rooted at the frame's app-db, so the schema-path walker
-  cannot prove it safe. Off-box egress FAILS CLOSED: `:args` lands as
-  `:rf/redacted` for every outcome row (`:ok` / `:skipped-on-platform` /
-  `:error`) under the `:include-fx-args? false` default — see
-  `elide-effects-slot`. The value-free row metadata (`:fx-id`, `:outcome`,
-  `:error-trace`) passes through unchanged. The trusted-local
-  `:include-fx-args? true` opt keeps the raw `:args` (orthogonal to the
-  app-db `:include-sensitive?` / `:include-large?` opt-ins).
-
   Per-PATH large declarations (a sub with `:large [<path>]` marks but no
   whole-output `:large?` stamp) are already substituted INTO the value
   at the marks emit site (`redact-with-paths`), so they ride the row
   pre-marked and need no projection here.
 
   `opts` `:include-large? true` opts the whole-output large value back in
-  (rf2-5w06uu): a trusted-local caller keeps the raw `:value` /
+  so a trusted-local caller keeps the raw `:value` /
   `:prev-value`; the `:large?` flag is still stripped so the projected
   row's shape matches the on-box base shape's metadata."
   [row {:keys [include-large?]}]
@@ -1550,7 +1342,7 @@
     (mapv #(elide-sub-run-row % opts) sub-runs)))
 
 (defn- elide-effect-row
-  "Project one structured `:effects` row for off-box egress (rf2-rlt3sv).
+  "Project one structured `:effects` row for off-box egress.
 
   Each row carries `:args` — the RAW fx-handler argument payload captured
   verbatim from the `:rf.fx/args` trace tag (`re-frame.fx/handle-one-fx`).
@@ -1567,8 +1359,7 @@
   `:fx-id`, `:outcome`, and `:error-trace` are value-free metadata and pass
   through unchanged.
 
-  `opts` `:include-fx-args? true` is the trusted-local opt-in (rf2-5w06uu
-  family) — a developer's own Xray panel inspecting their own running app
+  `opts` `:include-fx-args? true` is the trusted-local opt-in; it
   keeps the raw `:args`. It is ORTHOGONAL to the app-db `:include-sensitive?`
   / `:include-large?` opt-ins (fx args are a different keyspace, not app-db
   values), so those do NOT lift it.
@@ -1582,7 +1373,7 @@
     (assoc row :args :rf/redacted)))
 
 (defn- elide-effects-slot
-  "Project the structured `:effects` vector for off-box egress (rf2-rlt3sv):
+  "Project the structured `:effects` vector for off-box egress:
   walk each row through `elide-effect-row`, fail-closed-redacting the
   payload-bearing `:args` slot. Nil- and non-sequential-preserving (a
   `:redact-fn` may have already replaced the whole slot with a scalar
@@ -1593,16 +1384,14 @@
     (mapv #(elide-effect-row % opts) effects)))
 
 (defn- elide-trigger-event-slot
-  "Project the `:trigger-event` slot for off-box egress (rf2-nm611o).
+  "Project the `:trigger-event` slot for off-box egress.
 
   `:trigger-event` is the FULL dispatched event vector — `[<event-id>
   <arg> …]` (e.g. `[:login \"topsecret\"]`, `[:auth/login {:password p}]`).
   Per EP-0015 / Spec 015 §Registration-owned transient classification
   (`015-Data-Classification.md` §151) the event ARGS are
   registration-owned transient payloads, NOT frame-app-db-owned data — the
-  exact same class as the `:effects` `:args` slot (`elide-effect-row`,
-  rf2-rlt3sv, whose docstring even names `[:login pw]` dispatch vectors as
-  payload-bearing user data). They are captured verbatim from the
+  same class as the `:effects` `:args` slot. They are captured verbatim from the
   `:rf.event/v` trace tag (`capture/find-trigger-event`); they are NOT
   routed through the marks-projection chokepoint at emit time, NOR are they
   rooted at the frame's app-db, so the schema-path-keyed `elide-wire-value`
@@ -1627,9 +1416,8 @@
   schema admits (Spec-Schemas §`:rf/epoch-record` — consumers MUST tolerate
   `:rf/redacted` at `:trigger-event`).
 
-  `opts` `:include-event-args? true` is the trusted-local opt-in (the
-  rf2-5w06uu / `:include-fx-args?` family) — a developer's own Xray panel
-  inspecting their own running app keeps the raw args. It is ORTHOGONAL to
+  `opts` `:include-event-args? true` is the trusted-local opt-in that keeps
+  raw args. It is orthogonal to
   the app-db `:include-sensitive?` / `:include-large?` opt-ins (event args
   are a different keyspace, not app-db values), so those do NOT lift it,
   matching the `:effects` `:args` / runtime-db boundaries.
@@ -1651,48 +1439,21 @@
     :else :rf/redacted))
 
 (defn projected-record
-  "INTERNAL projection engine for off-box epoch egress (Phase-2 seam E,
-  rf2-0wi86). The complete PUBLIC contract — egress profiles, `:include-*`
-  overrides, frame-state / runtime-db policy, event/fx-arg redaction,
-  structured-row handling, and the single normative emission-site
-  requirement — lives on the facade `re-frame.epoch/projected-record`; this
-  docstring records only the implementation invariants.
+  "Internal projection engine for off-box epoch egress. The public contract
+  lives on `re-frame.epoch/projected-record`.
 
-  Two-stage projection (EP-0015 §15, open-issue 6 RULED):
-
-    1. Frame/profile projection. Each present tree-shaped slot is delegated
-       to its per-slot helper against the record's frame under the selected
-       `:rf.egress/profile` (default `:rf.egress/off-box-observability`):
-         :frame-state-before / :frame-state-after -> project-frame-state-slot
-         :db-before / :db-after                    -> project-payload-slot
-         :trigger-event                            -> elide-trigger-event-slot
-         :trace-events                             -> elide-trace-events-slot
-         :sub-runs                                 -> elide-sub-runs-slot
-         :effects                                  -> elide-effects-slot
-       Record-level bookkeeping, and any slot absent from the record, are
-       left untouched.
-
-    2. `:redact-fn` advanced override. `assembly/apply-redact-fn` runs LAST,
-       over the already-projected record — projection-side only, so the raw
-       ring (and thus `restore-epoch!` fidelity) is never touched. Identity
-       pass-through when no fn is installed; a throwing override emits
-       `:rf.warning/epoch-redact-fn-exception` and falls back to the
-       projected record.
-
-  Nil-preserving: a non-map `record` (e.g. a missing-epoch lookup) returns
-  nil, nothing projected."
+  Each present payload slot is delegated to its own helper under the selected
+  frame/profile. Record bookkeeping and absent slots remain unchanged. The
+  configured advanced override runs last over the built-in projection, never
+  the raw ring. A throwing override falls back to the built-in result.
+  Non-map input returns nil."
   ([record] (projected-record record nil))
   ([record opts]
    (when (map? record)
      (let [frame-id  (:frame record)
            projected (cond-> record
-                       ;; EP-0001 (rf2-3aizt1, decision #2 + ruling #14): the
-                       ;; CANONICAL frame-state slots egress with the app-db
-                       ;; partition projected and the runtime-db partition
-                       ;; default-redacted off-box (see
-                       ;; `project-frame-state-slot`). rf2-5w06uu — `opts`
-                       ;; thread the trusted-local sensitive / large /
-                       ;; runtime-db overrides.
+                       ;; Whole-frame slots project app-db and redact runtime-db
+                       ;; unless the corresponding trusted-local opts lift them.
                        (contains? record :frame-state-before)
                        (update :frame-state-before project-frame-state-slot frame-id opts)
 
@@ -1705,18 +1466,7 @@
                        (contains? record :db-after)
                        (update :db-after      project-payload-slot frame-id opts)
 
-                       ;; rf2-nm611o: `:trigger-event` carries the dispatched
-                       ;; event vector `[<id> <arg> …]`. Its ARGS are
-                       ;; registration-owned transient payloads (Spec 015 §151),
-                       ;; NOT frame-app-db-owned data — the generic
-                       ;; `project-payload-slot` (rooted at the frame's app-db
-                       ;; classification) cannot prove them safe, so a positional
-                       ;; secret like `[:login "topsecret"]` egressed RAW. Off-box
-                       ;; egress now FAILS CLOSED: the args are redacted while the
-                       ;; head event-id keyword (the non-payload summary, == the
-                       ;; record's `:event-id` slot) is retained. The
-                       ;; trusted-local `:include-event-args? true` opt keeps the
-                       ;; raw args (the `:include-fx-args?` family).
+                       ;; Trigger args are not app-db-rooted and fail closed.
                        (contains? record :trigger-event)
                        (update :trigger-event elide-trigger-event-slot opts)
 
@@ -1726,20 +1476,10 @@
                        (contains? record :sub-runs)
                        (update :sub-runs      elide-sub-runs-slot opts)
 
-                       ;; rf2-rlt3sv: the structured `:effects` rows carry
-                       ;; payload-bearing `:args` (the raw fx-handler argument).
-                       ;; They are NOT app-db-rooted, so the schema-path walker
-                       ;; cannot prove them safe — off-box egress fails closed,
-                       ;; redacting `:args` to `:rf/redacted` while preserving
-                       ;; the value-free `:fx-id` / `:outcome` / `:error-trace`
-                       ;; metadata. The trusted-local `:include-fx-args? true`
-                       ;; opt keeps the raw args.
+                       ;; Effect args are not app-db-rooted and fail closed.
                        (contains? record :effects)
                        (update :effects       elide-effects-slot opts))]
-       ;; EP-0015 §15 + open-issue 6 (RULED): apply the app `:redact-fn`
-       ;; advanced override to the already-projected record. Projection-side
-       ;; only — the ring stays raw, so restore fidelity is never affected.
-       ;; Identity pass-through when no fn is installed (the common case).
+       ;; Apply the advanced override only to the projected copy.
        (assembly/apply-redact-fn projected)))))
 
 (defn projected-history

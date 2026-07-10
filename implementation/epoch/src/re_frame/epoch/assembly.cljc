@@ -1,35 +1,22 @@
 (ns re-frame.epoch.assembly
-  "Record assembly — the pure-data builder that takes a frame-id, the
-  before/after app-db snapshots, and the harvested cascade trace
-  events, and yields a fully-formed `:rf/epoch-record` map.
+  "Pure assembly of raw `:rf/epoch-record` values.
 
   Three responsibilities live here:
 
-    1. `build-record`   — produces the record (one allocation per
-                          DEQUEUED EVENT — per rf2-nj6p7 the epoch
-                          boundary is the event, not the drain).
-                          Delegates the cascade-buffer walks to
+    1. `build-record`   — produces one record per dequeued event and delegates
+                          capture-buffer walks to
                           `re-frame.epoch.capture`.
     2. `sensitive-rollup` — computes `:rf.epoch/sensitive?` from raw
                           signals (trace-event stamps + frame-declared
                           sensitive paths).
     3. `apply-redact-fn` — runs the installed `:redact-fn` advanced
-                          override at the OFF-BOX EGRESS boundary only
-                          (EP-0015 §15 + open-issue 6, RULED). The ring
-                          buffer + listener fan-out deliver the RAW
-                          record (causal replay material); redaction
-                          happens projection-side, inside
+                           override at off-box egress only. The ring and
+                           listeners retain raw replay material; redaction
+                           happens inside
                           `re-frame.epoch.tool-pair/projected-record`.
 
-  Plus the `current-schema-digest` accessor that both `build-record`
-  (digest pinned on the record) and the restore-preconditions seam
-  (`re-frame.epoch.tool-pair`) consume.
-
-  Per rf2-0wi86 Phase-2 seam D: this namespace is dependency-free
-  beyond state (atoms + counter), capture (cascade walks), and the
-  shared `re-frame.elision` / `re-frame.late-bind` / `re-frame.privacy`
-  / `re-frame.trace` libs. No upstream seam consumes it; downstream
-  seams (write, listeners, facade orchestrators) call into it."
+  `current-schema-digest` pins the schema identity later compared by restore
+  preconditions."
   (:require [re-frame.elision :as elision]
             [re-frame.epoch.capture :as capture]
             [re-frame.epoch.state :as state]
@@ -38,22 +25,11 @@
             [re-frame.privacy :as privacy]
             [re-frame.trace :as trace]))
 
-;; ---- consumer-facing outcome enum (rf2-18g1w) -----------------------------
+;; ---- consumer-facing outcome enum ----------------------------------------
 ;;
-;; The runtime's `:rf/epoch-record :outcome` enum carries the detailed CAUSE
+;; The record outcome carries the detailed close cause
 ;; of an epoch's close — `:ok` / `:halted-depth` / `:halted-destroy` /
-;; `:halted-handler-exception` (per Spec-Schemas §`:rf/epoch-record`
-;; §Outcomes, rf2-v0jwt). Consumers (Xray's Trace panel close-row, Story
-;; outcome chips) usually want a coarser tier: "did this epoch land
-;; cleanly, was it stopped, or did it error?". Per rf2-jppad / rf2-18g1w
-;; the runtime emits the consumer-facing tier directly as the separate
-;; trace op `:rf.epoch/outcome` (Spec 009) so the consuming spec
-;; (`tools/xray/spec/023-Trace-Panel.md` §13) doesn't have to re-derive
-;; the projection. The cause-enum on the epoch record stays; the new op
-;; is additive.
-;;
-;; Mapping (pinned in `epoch-test/outcome-enum-projection-pins-mapping`;
-;; load-bearing — devtools and trace-stream consumers depend on it):
+;; `:halted-handler-exception`. Trace consumers also receive a coarse tier:
 ;;
 ;;     :ok                       → :ok       (the cascade settled cleanly)
 ;;     :halted-depth             → :blocked  (the drain hit the depth limit;
@@ -72,12 +48,7 @@
 ;;                                            that aborts the drain on a
 ;;                                            handler throw.)
 (defn outcome->consumer-facing
-  "Project the detailed `:outcome` cause from the `:rf/epoch-record` enum
-  (`:ok` / `:halted-depth` / `:halted-destroy` / `:halted-handler-exception`,
-  per Spec-Schemas §`:rf/epoch-record` §Outcomes, rf2-v0jwt) onto the
-  three-tier consumer-facing summary (`:ok` / `:blocked` / `:error`, per
-  `tools/xray/spec/023-Trace-Panel.md` §13). Pure; total over the four
-  schema-pinned cause values. Per rf2-jppad / rf2-18g1w."
+  "Project the detailed record outcome onto `:ok`, `:blocked`, or `:error`."
   [outcome]
   (case outcome
     :ok                       :ok
@@ -91,7 +62,7 @@
   `:rf.epoch/outcome` carrying the consumer-facing `{:ok :blocked :error}`
   tier (via `outcome->consumer-facing`). Both ops share the same
   `:frame` / `:rf.epoch/id` / `:rf.trace/event-id` so consumers correlate
-  the detailed cause with the coarse summary (rf2-18g1w / rf2-jppad).
+  the detailed cause with the coarse summary.
 
   Shared by the per-event clean/halt settle (`re-frame.epoch/commit-record!`)
   and the mid-drain destroy commit (`re-frame.epoch.listeners/on-frame-
@@ -111,46 +82,16 @@
                 :rf.trace/event-id event-id
                 :outcome           (outcome->consumer-facing outcome)}))
 
-;; ---- projection-side redaction override (EP-0015 §15 / open-issue 6) ------
+;; ---- projection-side redaction override ----------------------------------
 
 (defn apply-redact-fn
-  "Apply the installed `:redact-fn` advanced override against an
-  already-projected `record` and return its result. nil `record` and
-  nil `redact` are pass-throughs (no invocation, no try/catch
-  overhead). A throwing fn emits `:rf.warning/epoch-redact-fn-exception`
-  carrying `:frame`, `:epoch-id`, and `:ex-msg`, then falls back to the
-  projected record so the egress itself is not broken. The warning's
-  epoch-identity tag is the canonical qualified `:rf.epoch/id` (rf2-ifdsar);
-  `:frame` is the bare-carve-out routing tag.
+  "Apply the configured advanced override to an already-projected record.
 
-  Per EP-0015 §15 (Epoch Redaction) + open-issue 6 disposition (RULED,
-  hardened): `:redact-fn` is the PROJECTION-SIDE-ONLY advanced override.
-  Epoch records are causal replay material (per EP-0010); mutating them at
-  rest would corrupt the replay contract, so storage stays raw. This
-  helper runs ONLY at the off-box egress boundary,
-  inside `re-frame.epoch.tool-pair/projected-record`, AFTER the
-  frame/profile `re-frame.projection/project-egress` projection. The ring
-  buffer + every `register-epoch-listener!` listener deliver the RAW
-  record so on-box devtools (Xray diff, REPL, `restore-epoch!`) reason
-  about exact state.
-
-  The fn is the rare advanced escape for material the declaration-driven
-  projection cannot prove (a sensitive slot no frame / schema declaration
-  covers); the ordinary case needs only the frame's `:sensitive` / `:large`
-  classification (EP-0015 §3) plus the per-slot schema props machine /
-  resource data carry, which `project-egress` already applies. Because it runs
-  on the projected egress COPY (the off-box record), it cannot affect
-  `restore-epoch!` fidelity — that hazard the §15 'may affect restore
-  fidelity' warning flagged is gone by construction.
-
-  Per Tool-Pair §Time-travel §Redaction hook (spec/Tool-Pair.md:101):
-  the warning MUST carry both `:frame` and `:rf.epoch/id` so a tool can
-  correlate the failure to the specific projected record that fell back.
-
-  Caller MUST wrap invocations in `(when interop/debug-enabled? ...)`
-  — the whole epoch surface shares that gate; this helper carries no
-  separate production gate. Cost when no fn is installed is a single
-  keyword lookup on the config map and an identity return."
+  Nil record or nil override is an identity operation. A throwing override
+  emits `:rf.warning/epoch-redact-fn-exception`, including frame and qualified
+  epoch identity, then returns the built-in projected record. This runs only at
+  egress; raw replay storage and listener delivery are never changed. Callers
+  own the shared debug gate."
   [record]
   (if-let [f (state/redact-fn)]
     (if (some? record)
@@ -163,11 +104,7 @@
           ;; (the projection helper is itself gated), so Closure DCE
           ;; elides the warning emit + literals under :advanced +
           ;; goog.DEBUG=false.
-          ;; Identity tag is the canonical qualified `:rf.epoch/id` (rf2-ifdsar):
-          ;; the trace-tag layer spells the epoch id `:rf.epoch/id` everywhere.
-          ;; The bare `:epoch-id` is the RECORD-field spelling we read FROM
-          ;; (`(:epoch-id record)`); it stays bare as part of the deliberate
-          ;; record/projection vocabulary — see Conventions §Trace/epoch identity.
+          ;; Trace identity is qualified; the record field read below is bare.
           (trace/emit! :warning :rf.warning/epoch-redact-fn-exception
                        {:frame       (:frame record)
                         :rf.epoch/id (:epoch-id record)
@@ -192,11 +129,11 @@
 
 ;; ---- sensitive rollup -----------------------------------------------------
 ;;
-;; Per Security.md §Epoch privacy posture and rf2-mrsck: every assembled
-;; record carries a top-level boolean `:rf.epoch/sensitive?` rollup so
+;; Every assembled record carries a top-level boolean
+;; `:rf.epoch/sensitive?` rollup so
 ;; listener fan-out, off-box egress, and recorder consumers can branch
 ;; on one slot per record (parallel to the trace-event-level
-;; `:sensitive?` stamp per rf2-isdwf). Two cheap signals:
+;; `:sensitive?` stamp). Two signals contribute:
 ;;
 ;;   1. The captured trace stream already stamps `:sensitive?` per
 ;;      handler-meta scope — if any event in `:trace-events` carries the
@@ -213,8 +150,7 @@
 
 (defn- any-sensitive-event?
   "True when any captured trace event carries a top-level `:sensitive?
-  true` stamp. Per privacy/sensitive? — the trace surface hoists the
-  boolean from handler-scope-meta to the event top level (rf2-isdwf)."
+  true` stamp. The trace surface hoists this boolean from handler scope."
   [events]
   (boolean (some privacy/sensitive? events)))
 
@@ -232,7 +168,7 @@
   `db`. nil-leaf paths do NOT count — the path is declared sensitive
   but the slot is empty, so the record carries no actual sensitive
   material from this signal. `db` is `:db-before` or `:db-after`; both
-  may be nil on halted paths (rf2-v0jwt :halted-destroy)."
+  may be nil on halted paths."
   [db sensitive-paths]
   (and (some? db)
        (boolean
@@ -248,7 +184,7 @@
   recorded db. Returns `false` otherwise (always a strict boolean —
   consumers branch on `(true? ...)` / `(false? ...)`).
 
-  HOT PATH: fires once per dequeued event (rf2-nj6p7). `sensitive-paths-for` derefs
+  Runs once per dequeued event. `sensitive-paths-for` derefs
   the elision registry once; the leaf check short-circuits at the
   first non-nil hit; the trace-event check short-circuits at the first
   stamped event. For the common case (no frame-declared sensitive
@@ -262,76 +198,22 @@
                (or (any-sensitive-leaf? db-before sensitive-paths)
                    (any-sensitive-leaf? db-after  sensitive-paths)))))))
 
-;; ---- redacted-modified-paths-count (rf2-dl3gx) ---------------------------
+;; ---- redacted-modified-paths-count ----------------------------------------
 ;;
-;; Per Security.md §Epoch privacy posture and rf2-dl3gx (follow-on to
-;; rf2-bz1cl's Xray-side heuristic chip): the record carries a
-;; top-level integer count of frame-declared sensitive paths
-;; (`[:rf.runtime/elision :sensitive-declarations]`) whose value differs between
-;; `:db-before` and `:db-after`. Computed inside `build-record` from RAW
-;; values BEFORE the installed `:redact-fn` runs — parallel to the
-;; `:rf.epoch/sensitive?` rollup pattern just above.
-;;
-;; ## Why the count exists
-;;
-;; When an app `:redact-fn` substitutes the `:rf/redacted` sentinel into
-;; both `:db-before` and `:db-after` at the same path (the standard
-;; pattern for keeping sensitive material out of recorded records), and
-;; the underlying value at that path actually changed across the
-;; cascade, the structural diff sees `:rf/redacted` on both sides and
-;; (correctly per the elision contract) emits no row. The developer
-;; sees an empty diff body and no signal that anything happened.
-;;
-;; The count closes that gap by recording, on the raw record, exactly
-;; how many frame-declared sensitive paths mutated this cascade.
-;; Downstream consumers (Xray's `redacted-paths-modified` chip per
-;; `tools/xray/spec/004-App-DB-Diff.md`, MCP wire pipeline, story
-;; recorders) read the integer directly rather than re-deriving from
-;; the post-redaction shape (which is heuristic — see the Xray helper
-;; for the heuristic's tightness and approximation notes).
-;;
-;; ## What counts
-;;
-;; A path P counts when:
-;;   1. P appears in `sensitive-paths-for frame-id`
-;;      (declared via the commit-plane `:sensitive` effect a handler
-;;      returns — EP-0025; the app-db elision registry
-;;      `[:rf.runtime/elision :sensitive-declarations]` is written by
-;;      those effects, not by a frame `:sensitive {:app-db …}` annotation
-;;      and not from schema `{:sensitive? true}` props).
-;;   2. `(not= (get-in db-before P) (get-in db-after P))`.
-;;
-;; The check uses **value-equality** on the raw (pre-redact-fn) dbs.
-;; Pointer-equality would over-count under `assoc-in` rewrites that
-;; produce a fresh subtree whose leaves are value-equal; `=` is the
-;; precise predicate for "did this leaf actually change."
-;;
-;; ## What this does NOT cover
-;;
-;; - `:redact-fn` substitutions at NON-frame-declared paths. The
-;;   redact-fn is opaque (record-in, record-out); the framework cannot
-;;   inspect "would the fn redact this leaf?" without running it. The
-;;   frame-declared sensitive-paths set is the framework's authoritative
-;;   "what would be redacted" oracle — apps that install a redact-fn
-;;   pointing at non-declared paths get the frame-declared count, not a
-;;   superset. (In practice apps either declare sensitive paths on the
-;;   frame or run a redact-fn covering the same paths; the two surfaces
-;;   compose at the frame-declaration site.)
-;; - Paths nominated as sensitive but with no live leaf (`nil` on both
-;;   sides) — `(= nil nil)` is true, so the path doesn't count. A
-;;   transition from non-nil to nil (or vice versa) counts as a value
-;;   change.
-;; - Production builds. The entire epoch surface elides under
-;;   `interop/debug-enabled?` false; the count is dev-only by
-;;   construction.
+;; A post-projection diff cannot reveal a sensitive change when both sides are
+;; the same redaction sentinel. The raw record therefore carries the number of
+;; classified sensitive app-db paths whose values differ between before and
+;; after. It uses value equality and counts nil/non-nil transitions. An opaque
+;; `:redact-fn` may redact additional undeclared paths; those cannot be inferred
+;; here and are deliberately outside this count.
 
 (defn redacted-modified-paths-count
   "Compute the record-level `:rf.epoch/redacted-modified-paths-count`
   rollup for the assembled record. Returns the integer count of
   frame-declared sensitive paths whose value differs between
-  `db-before` and `db-after` (per rf2-dl3gx).
+  `db-before` and `db-after`.
 
-  HOT PATH: fires once per dequeued event (rf2-nj6p7). `sensitive-paths-for` derefs
+  Runs once per dequeued event. `sensitive-paths-for` derefs
   the elision registry once and the walk is O(P) where P is the
   declared-sensitive-path count for the frame — typically a small
   constant (apps declare a handful of `[:auth :password]`-shaped
@@ -344,7 +226,7 @@
     - No classified-sensitive path's value differs across the cascade.
 
   Halted records: `db-before` and/or `db-after` may be `nil` on the
-  `:halted-destroy` path (per rf2-v0jwt). `(get-in nil P)` is `nil`;
+  `:halted-destroy` path. `(get-in nil P)` is `nil`;
   the predicate `(not= a b)` handles the nil/non-nil edge correctly
   (counts as a change when one side is nil and the other isn't)."
   [frame-id db-before db-after]
@@ -364,11 +246,9 @@
 
 (defn build-record
   "Assemble a `:rf/epoch-record`. `committed-at` is the record's durable
-  causal time — per EP-0010 §Time (epoch record causal time) and Spec 002
-  §The World-Input Rule it MUST be the committing causal token's
-  `:rf.cofx` `:rf/time-ms`, threaded down from the router's settle /
-  halt seam, NOT an ambient host-clock read at assembly time. Threading
-  the token's `:rf/time-ms` makes `:committed-at` replayable: replaying the
+  causal time: the committing token's `:rf/time-ms`, threaded from the
+  router rather than read from the host during assembly. This makes it
+  replayable: replaying the
   same event log with the same supplied `:rf/time-ms` values produces records
   with equal `:committed-at`, and a restored frame-state's recorded
   timestamps are not silently reinterpreted against a new ambient clock.
@@ -378,16 +258,13 @@
   to nil; both arities require `committed-at` (callers without a token — the
   pair-tool synthetic db-replace injections, which run with no application
   event in flight — pass `(interop/epoch-now-ms)` explicitly at the call
-  site, where the ambient wall-clock read is the honest answer for a tool
-  action, per EP-0010 §Time `Ambient time remains allowed for ...`. It is
+  site, where the ambient wall-clock read describes the tool action. It is
   the wall-clock surface, NOT `interop/now-ms` — `:committed-at` is a
-  durable field, kept wall-clock-class for cross-epoch comparison;
-  rf2-czwwf4)."
+  durable field, kept wall-clock-class for cross-epoch comparison)."
   ([frame-id frame-state-before frame-state-after events committed-at]
    (build-record frame-id frame-state-before frame-state-after events committed-at :ok nil))
   ([frame-id frame-state-before frame-state-after events committed-at outcome halt-reason]
-   ;; EP-0001 (rf2-3aizt1, decision #2): the CANONICAL snapshot unit is the
-   ;; whole frame-state (`{:rf.db/app … :rf.db/runtime …}`) — both partitions.
+   ;; The canonical snapshot is the whole frame state: both partitions.
    ;; `restore-epoch!` rewinds to `:frame-state-after`, reviving machines /
    ;; routes / elision / SSR runtime-db state, not just app-db. The
    ;; `:db-before` / `:db-after` slots are kept as the OPTIONAL app-db
@@ -395,11 +272,11 @@
    ;; app-db diffs cheaply without re-projecting (Spec-Schemas
    ;; §`:rf/epoch-record`). The two `db-*` projections are also what the
    ;; sensitive-path rollup + redacted-modified count read — frame-declared
-   ;; sensitive declarations target app-db paths (EP-0015 §3/§8), so the rollup
+   ;; sensitive declarations target app-db paths, so the rollup
    ;; reasons over the app-db projection, not the whole frame-state.
    ;;
-   ;; Per rf2-v0jwt §Outcomes — :outcome is required and pins the
-   ;; drain-boundary outcome. The reference runtime commits one of three:
+   ;; `:outcome` is required and pins the event-boundary result. The runtime
+   ;; commits one of three:
    ;; :ok / :halted-depth / :halted-destroy. (:halted-handler-exception
    ;; is a schema-reserved value the runtime never emits — handler
    ;; exceptions ride the interceptor error-capture seam and the drain
@@ -408,8 +285,7 @@
    ;; structured descriptor populated on halt paths, absent on :ok. The
    ;; schema in Spec-Schemas §:rf/epoch-record is the canonical pin.
    ;;
-   ;; Per rf2-kl5p1 (audit r3 §F1): `:event-id` and `:trigger-event`
-   ;; are emitted only when `find-trigger-event` resolves them. The
+   ;; Emit trigger slots only when `find-trigger-event` resolves them. The
    ;; schema declares `:event-id :keyword` (required, non-maybe) per
    ;; Spec-Schemas §`:rf/epoch-record` — emitting `:event-id nil` on a
    ;; halt path where no `:event/run-start` trace was buffered would
@@ -429,20 +305,13 @@
          {:keys [event-id event dispatch-id fx-overrides interceptor-overrides]
           trigger-cofx :rf.cofx}
          (capture/find-trigger-event events)
-         ;; Per rf2-ecu37: one fused walk producing all three
-         ;; projections, replacing three independent transducer
-         ;; passes over the same buffer. Mirrors `find-trigger-event`'s
-         ;; rf2-txrq9 single-walk pattern.
+         ;; One fused walk produces all structured projections.
          {:keys [sub-runs renders effects]} (capture/project-all events)
-         ;; Per rf2-mrsck and Security.md §Epoch privacy posture:
-         ;; the record-level boolean rollup mirrors the trace-event
-         ;; `:sensitive?` stamp (rf2-isdwf) so listener consumers and
-         ;; the projected-record helper branch on one slot per record.
+         ;; Listener and egress consumers can branch on one record-level slot.
          ;; Sensitive declarations target app-db paths, so it reasons over
          ;; the app-db projection (`db-before` / `db-after`).
          sensitive? (sensitive-rollup frame-id db-before db-after events)
-         ;; Per rf2-dl3gx and Security.md §Epoch privacy posture: the
-         ;; record-level integer counter of frame-declared sensitive
+         ;; Count frame-declared sensitive
          ;; paths whose value differs between :db-before / :db-after.
          ;; Closes Xray's "redact-fn ⇒ empty diff but something changed"
          ;; gap by surfacing the suppressed signal directly on the
@@ -452,27 +321,18 @@
                                    frame-id db-before db-after)]
      (cond-> {:epoch-id           (state/next-epoch-id)
               :frame              frame-id
-              ;; EP-0010 §Time (epoch record causal time) + Spec 002 §The
-              ;; World-Input Rule (rf2-bh56rc): the durable causal-time fact
-              ;; is the committing token's `:rf.cofx` `:rf/time-ms`,
-              ;; threaded in via `committed-at` — NOT an ambient
-              ;; `interop/now-ms` read at assembly time. The one `now-ms`
-              ;; read happens ONCE at the causal boundary (envelope
-              ;; construction, `re-frame.router/build-envelope`); it is not
-              ;; re-read in the commit path. This makes the record replayable:
-              ;; the same token replays to the same `:committed-at`.
+              ;; Durable causal time is supplied from envelope construction;
+              ;; assembly never re-reads the host clock.
               :committed-at       committed-at
-              ;; CANONICAL (decision #2): the whole frame-state both before
-              ;; and after — restore rewinds to `:frame-state-after`.
+              ;; Whole frame state before and after; restore uses the latter.
               :frame-state-before frame-state-before
               :frame-state-after  frame-state-after
               ;; OPTIONAL app-db projection — cheap tool diffs.
               :db-before          db-before
               :db-after           db-after
               :outcome            outcome
-              ;; Per Spec 010 §Schema digest — pinned at record time so a later
-              ;; restore can compare 'recorded vs current' digests in the
-              ;; :rf.epoch/restore-schema-mismatch trace tags. Optional per
+              ;; Pin schema identity so restore can compare recorded vs current.
+              ;; Optional per
               ;; Spec-Schemas §:rf/epoch-record (a host without a schema layer
               ;; produces nil; consumers tolerate the absent slot).
               :schema-digest      (current-schema-digest frame-id)
@@ -484,22 +344,21 @@
               :effects            effects}
        event-id    (assoc :event-id event-id)
        event       (assoc :trigger-event event)
-       ;; Per rf2-1xdotm — pin the POST-GENERATION flat `:rf.cofx` replay
+       ;; Pin the post-generation flat `:rf.cofx` replay
        ;; token (the causal cofx as it was after the router's declared-only
        ;; delivery ran: every generator-backed recordable fact minted at
        ;; processing-start written back into the in-flight `:rf.cofx`, plus
        ;; the framework `:rf/time-ms`). It is the slot a Tool-Pair replay
        ;; supplies alongside `:rf.cofx/mint-policy :strict` to re-present the
-       ;; EXACT facts the original run consumed (EP-0017 §Recordable coeffects
-       ;; + Tool-Pair §Replay-mint-policy). Spelled bare per the record-layer
-       ;; vocabulary (Spec-Schemas §`:rf/epoch-record`). Conditional `cond->`
-       ;; (rf2-kl5p1 shape): a halt path with no `:event/run-start` buffered,
+       ;; exact facts the original run consumed. Spelled bare per record-layer
+       ;; vocabulary (Spec-Schemas §`:rf/epoch-record`). A halt path with no
+       ;; `:event/run-start` buffered,
        ;; or a production build whose dev-only run-start cofx tag is elided,
        ;; omits the slot — which the open-map schema admits. The marks
        ;; chokepoint redacts declared-sensitive recordable facts at the emit
        ;; site, so the value pinned here is already projection-safe.
        trigger-cofx (assoc :rf.cofx trigger-cofx)
-       ;; Per rf2-rly4a — pin the settling cascade's `:dispatch-id` as a
+       ;; Pin the settling event's `:dispatch-id` as a
        ;; first-class record slot. It is the stable cross-counter-space
        ;; link between the epoch ring (epoch-id space) and the raw trace
        ;; stream's cascade list (dispatch-id space) that Xray's
@@ -513,7 +372,7 @@
        ;; omits the slot, matching `:event-id` / `:trigger-event`.
        dispatch-id (assoc :dispatch-id dispatch-id)
        halt-reason (assoc :halt-reason halt-reason)
-       ;; Per rf2-yigokd — pin the envelope's serializable per-call + lexical
+       ;; Pin the envelope's serializable per-call and lexical
        ;; `:fx-overrides` (fn-valued entries already marker-ized to
        ;; `:rf/fn-override` at the router's emission site) and per-call
        ;; `:interceptor-overrides` (EDN by construction — EP-0022) as

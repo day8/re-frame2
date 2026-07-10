@@ -1,23 +1,19 @@
 (ns re-frame.epoch-run-cause-test
-  "Coverage for `re-frame.epoch.capture/run-cause` (rf2-ynjts.7
-  testing-review gap-fill).
+  "Coverage for `re-frame.epoch.capture/run-cause`.
 
   `run-cause` is the in-flight run-cause lookup published through
-  the `:epoch/run-cause` late-bind hook (epoch.cljc:634) and consumed
+  the `:epoch/run-cause` late-bind hook and consumed
   by `views.cljs` at `:rf.view/rendered` emit time to stamp the per-render
   trace's `:cause-event-id` / `:cause-subs` / `:value-changed-subs` and to
   enforce the per-run view-render cap via `:rendered-so-far`
   (rf2-25zo2 / rf2-8wrzz.1). It is a single-reduce walk over the frame's
   in-flight capture buffer with FOUR distinct accumulators, a `sub-cap`
-  bound, first-seen dedup, and a conditional output map — and before this
-  file it had ZERO direct test coverage. A regression in any accumulator
+  bound, first-seen dedup, and a conditional output map. A regression in any accumulator
   (cause-event-id capture, the dedup, the value-changed subset, the cap
   counter) or in the empty-buffer shape would have shipped green.
 
-  SENSE (rf2-p4cd9c): `run-cause` names the event-pipeline-RUN (one event's
-  traversal) that drove the render/sub, keyed off the buffer's
-  `:rf.event/run-start` marker — renamed cascade-cause -> run-cause per the
-  glw1bh event-pipeline vocabulary (NOT the reactive-graph sense).
+  `run-cause` names the event-pipeline run that drove the render/sub, keyed off
+  `:rf.event/run-start`, not a reactive-graph run.
 
   The fn reads the frame's in-flight buffer via `state/buffer-for`; the
   tests seed that buffer directly with synthetic trace events (the shape

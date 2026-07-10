@@ -1,16 +1,7 @@
 (ns re-frame.epoch-mcp-egress-conformance-test
-  "rf2-xrlyi — MCP-style egress conformance for `projected-record` +
-  `projected-history`. Per Spec Security.md §Epoch privacy posture (line
-  104): 'Any tool that egresses an epoch record over an MCP wire, an HTTP
-  forwarder, a log shipper, or any process boundary MUST route the record
-  through the projected-record helper before egress.'
-
-  Coverage gap closed (rf2-kp835 Phase-1 audit): the `projected-record` and
-  `projected-history` public-surface symbols had 0 callers in `tools/`. The
-  MCP-side accessors (Xray-MCP `watch-epochs`, story / pair recorders)
-  haven't shipped end-to-end calls yet — Mike's Phase-2 decision (sibling
-  bead rf2-xrlyi) kept both symbols canonical and asked for a conformance
-  test exercising them via a representative MCP-style call path.
+  "MCP-style egress conformance for `projected-record` and
+  `projected-history`. Any process-boundary forwarder must project raw epoch
+  records before egress.
 
   This file pins the contract from the **forwarder perspective**: the
   per-leaf redaction matrix lives in `epoch_privacy_test.clj`; the
@@ -50,7 +41,7 @@
   the running app via the injected-runtime path
   (`day8.re-frame2-xray.runtime`), not the MCP-server bundle. The
   framework's epoch artefact owns the projection emission site (Spec
-  Security.md §Epoch privacy posture line 104); pinning conformance from
+  Security.md §Epoch privacy posture); pinning conformance from
   the artefact side keeps the test on the JVM next to the contract owner.
   An MCP-side end-to-end test is the job of the SDK-driven conformance
   `test/end-to-end-*.cjs` paths if and when MCP-server epoch tools ship."

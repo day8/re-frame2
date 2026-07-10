@@ -1,64 +1,24 @@
 (ns re-frame.epoch.state
-  "Shared state for the epoch surface — the eight defonce atoms plus the
-  low-level CRUD against them, and the config knob accessors. Per
-  rf2-0wi86 (cohesion split): every other seam (`capture`, `assembly`,
-  `write`, `listeners`) and the `re-frame.epoch` facade reach the
-  shared atoms through this namespace; the atoms themselves stay
-  `^:private` so cross-seam access is exclusively through the named
-  helpers below.
+  "Private storage and low-level state operations for epoch history.
 
-  The atoms in question:
+  State is split by access pattern:
 
     config                  per-frame ring-buffer config + redact-fn
     epoch-counter           monotonically-increasing :epoch-id source
     histories               frame-id → vector<:rf/epoch-record>
     last-settled-epoch      frame-id → epoch-id of the most-recently-
-                            settled `:ok` epoch (rf2-qs6dl back-fill
-                            anchor)
+                            settled epoch (async back-fill anchor)
     mount-attribution       frame-id → {render-key → {:epoch-id E
                                                        :deps #{sub-id…}}}
-                            (rf2-vh1k3 + rf2-dq2b7 — the mount-anchor
-                            and the view's learned read-set share one
-                            entry; per Phase-1 finding they never
-                            diverge in usage)
+                            (mount anchor and learned view read-set)
     capture-buffers         frame-id → vector<trace-event> (in-flight)
     listeners               cb-id    → fn
     observed-frames-by-cb   cb-id    → #{frame-id ...}
 
-  Per Phase-1 finding (rf2-0wi86): no two atoms are ever held in a
-  single critical section, so a tiny state ns owns all of them with
-  zero locking/ordering subtleties — the cross-cutting coupling is
-  cosmetic, not structural.
-
-  Per rf2-33lpr decision review: the eight-atom shape (post the
-  rf2-dq2b7 mount-attribution merge) is the right resting point.
-  Two further consolidations were considered and rejected:
-
-    * Per-frame cluster (`histories` + `last-settled-epoch` +
-      `mount-attribution` + `capture-buffers` → one `frame-state`
-      atom keyed by frame-id). REJECTED: `capture-buffers` is the
-      hottest atom (one swap per trace emit, potentially many per
-      event); co-locating it with the rarely-touched back-fill atoms
-      forces every hot-path swap! to operate on a larger map and
-      adds cross-drain contention through a shared swap site (every
-      frame's drain now races every other frame's drain on the
-      single per-frame-state atom). The per-atom decomposition lets
-      the JIT specialise each swap's hot loop, keeps each map small
-      (one key class per atom), and isolates contention by signal
-      class.
-
-    * Listener cluster (`listeners` + `observed-frames-by-cb` → one
-      atom keyed by cb-id). REJECTED: `listeners-snapshot` reads on
-      every settle (fan-out target); `observed-frames-by-cb` updates
-      lazily on first-sighting only. Co-locating means every settle's
-      snapshot deref pulls the larger map, and per-cb writes flow
-      through the same swap! site as the registry. The Phase-1
-      invariant (rf2-0wi86, no shared critical section) lets the two
-      atoms stay separate at zero cost.
-
-  The singletons `config` and `epoch-counter` are irreducible (the
-  former is configuration state, the latter a counter source — both
-  read/written by ALL frames, so frame-id keying would be artificial)."
+  Capture buffers stay separate from rarely-written back-fill state because
+  every trace emit updates them. Listener observations likewise stay separate
+  from the registry snapshot read on every fan-out. No operation requires an
+  atomic update across two of these stores."
   (:require [re-frame.privacy :as privacy]))
 
 ;; ---- configuration --------------------------------------------------------
@@ -70,31 +30,12 @@
 
 (def ^:private default-trace-events-keep
   ;; Matches `default-depth` so by default trace is retained for every
-  ;; retained epoch — when an epoch evicts, its trace evicts too. Per
-  ;; Mike pair-debug 2026-05-27 (the previous default of 5 created a
-  ;; discrepancy where 50 epoch records were retained but only the
-  ;; most recent 5 had their `:trace-events` — operator's mental model
-  ;; expects atomic relationship between epoch + trace).
-  ;;
-  ;; Production builds elide the trace machinery via
-  ;; `interop/debug-enabled? false` so this only affects dev sessions.
-  ;; Heap cost of 50 trace-events is modest (~thousands of small
-  ;; entries; well within browser tolerance).
-  ;;
-  ;; Memory-conscious hosts can still set a lower cap via
-  ;; `(rf/configure! {:epoch-history {:trace-events-keep N}})`. Setting
-  ;; the slot to `0` drops every record's `:trace-events`.
+  ;; retained epoch: record and trace evict together. Hosts may configure a
+  ;; lower cap; zero drops the raw trace from every stored record.
   50)
 
 (def ^:private default-config
-  ;; The shipped baseline config. Three keys today (:depth,
-  ;; :trace-events-keep, :redact-fn). Map shape kept open so future
-  ;; (rf/configure! {:epoch-history {...}}) extensions don't break the
-  ;; shape. Per rf2-wp70d / Tool-Pair §Time-travel §Redaction hook +
-  ;; Security.md §Epoch privacy posture: :redact-fn defaults to nil —
-  ;; apps that record sensitive material into app-db opt in by
-  ;; installing a fn. `reset-config!` restores exactly this map, and
-  ;; the `defonce` below initialises from it.
+  ;; `:redact-fn` is an optional projection-side override, not a storage hook.
   {:depth             default-depth
    :trace-events-keep default-trace-events-keep
    :redact-fn         nil})
@@ -115,10 +56,7 @@
   `:trace-events-keep` must be non-negative integers; `:redact-fn`
   accepts `fn?` or `nil` for explicit-clear; anything else is dropped).
 
-  Per refactor-audit r2 (rf2-lwn4t) §rf2-douii: validation at the
-  boundary keeps stored config sane — a `nil` or non-numeric value
-  would otherwise survive into `record!` and explode at the next
-  `pos?` / `nat-int?` call."
+  Validation at this boundary keeps numeric assumptions out of the hot path."
   [opts]
   (when (map? opts)
     (let [numeric (select-keys opts [:depth :trace-events-keep])
@@ -148,20 +86,8 @@
 (defn reset-config!
   "Restore the live config atom to the shipped `default-config`
   baseline (`:depth` 50, `:trace-events-keep` 50, `:redact-fn` nil).
-  Returns nil.
-
-  Test-support seam (rf2-yw1w1u): `re-frame.test-support`'s reset-hook
-  table fires this — via the `:epoch/reset-config!` late-bind hook —
-  once per fixture invocation so a prior test's `(rf/configure!
-  :epoch-history ...)` (which MERGES) can't leak `:trace-events-keep`,
-  `:depth`, or an installed `:redact-fn` into the next test. Resetting
-  to the WHOLE default map (rather than merging) is what clears a
-  previously-installed `:redact-fn` without the test ns reaching into
-  the private `config` var directly. Suites that intentionally want a
-  non-default value (e.g. `:trace-events-keep 5` to make the
-  keep<depth elision path reachable cheaply) re-apply it through the
-  public `configure!` boundary in their `:init-fn`, which runs AFTER
-  this reset."
+  Replacing the whole map ensures test fixtures also clear an installed
+  projection override. Returns nil."
   []
   (reset! config default-config)
   nil)
@@ -204,15 +130,14 @@
   `:renders` / `:effects`) but lose the raw trace stream. nil `keep`
   means 'keep every record's :trace-events'.
 
-  HOT PATH: invoked from `append-record` on every drain settle (every
-  user-facing event). Under steady state only one record per append
+  Invoked from `append-record` for every event epoch. Under steady state only
+  one record per append
   actually transitions out of the keep-window, so touching just that
   record (rather than walking the whole history vector) is all that is
   needed. The steady-state invariant holds because every prior append
   already elided its own just-crossed record; runtime reductions of `keep`
   via `(rf/configure! {:epoch-history ...})` will take full effect on
-  subsequent appends rather than retroactively rewriting the buffer
-  (pre-alpha posture)."
+  subsequent appends rather than retroactively rewriting the buffer."
   [history keep]
   (let [n (count history)]
     (if (and (some? keep) (nat-int? keep) (> n keep))
@@ -293,7 +218,7 @@
             i))
         (range (count history))))
 
-;; ---- post-settle render back-fill (rf2-qs6dl) -----------------------------
+;; ---- post-settle render back-fill -----------------------------------------
 ;;
 ;; A `:view/render` / `:rf.view/rendered` trace fires at React COMMIT
 ;; time, which lands AFTER the causing cascade's run-to-completion has
@@ -301,8 +226,7 @@
 ;; `re-frame.interop/after-render`). By commit time `settle!` has already
 ;; harvested the cascade buffer and committed the record, so the render
 ;; emit lands in a now-empty buffer; left to the ordinary harvest it would
-;; be vacuumed by the NEXT cascade's settle and mis-attributed to cascade
-;; N+1 (a one-epoch lag).
+;; be harvested by the next event and misattributed by one epoch.
 ;;
 ;; Instead the render is attributed to the cascade that CAUSED it: when a
 ;; render fires with no in-flight cascade for the frame, it is back-filled
@@ -318,9 +242,9 @@
 (defn set-last-settled-epoch!
   "Record `epoch-id` as the most-recently-settled epoch for `frame-id`.
   Called from `settle!` after the record lands in the ring so post-settle
-  render emits can be attributed back to this cascade (rf2-qs6dl).
+  render emits can be attributed back to this cascade.
 
-  rf2-unpldn (companion): gated on a POSITIVE configured depth. The anchor
+  Gated on a positive depth. The anchor
   is the back-fill target the post-settle render / sub-run / unmount readers
   resolve (`last-settled-epoch-id`); it must only ever name an epoch that is
   actually retained in the ring. Under `(rf/configure! {:epoch-history
@@ -356,9 +280,9 @@
   (reset! last-settled-epoch {})
   nil)
 
-;; ---- mount-epoch tracking + render-attribution resolution (rf2-vh1k3) ----
+;; ---- mount-epoch tracking + render-attribution resolution -----------------
 ;;
-;; rf2-qs6dl back-fills a post-settle render to the frame's most-recently-
+;; Post-settle rendering normally back-fills to the frame's most-recently-
 ;; settled epoch — the cascade that ran just before the React commit. That
 ;; is correct for a genuine reactive re-render, but WRONG for a MOUNT
 ;; render whose commit lands late: React/Reagent batch a freshly-mounted
@@ -368,9 +292,8 @@
 ;; RENDERED list (e.g. parallel-frames' title-view appearing in the first
 ;; counter-inc epoch even though its subs never changed).
 ;;
-;; The discriminator is the rf2-l1jz8 `:value-changed?` attribution
-;; already on the reactive `:sub/run` trace, plus the rf2-vh1k3
-;; `:reader-render-key` stamp naming the view whose render deref'd the
+;; The discriminator combines the `:value-changed?` attribution on the
+;; reactive `:sub/run` trace with the `:reader-render-key` naming the view that
 ;; sub. A render of view K belongs to epoch N iff N's cascade actually
 ;; drove K's re-render — i.e. some `:sub/run` with `:reader-render-key K`
 ;; AND `:value-changed? true` landed in N. When no recent epoch shows a
@@ -378,23 +301,6 @@
 ;; attributed to K's MOUNT epoch (its first-ever attribution) rather than
 ;; whatever cascade happens to be settling.
 
-;; Per rf2-dq2b7: the two former atoms (`mount-epoch-by-render-key` ::
-;; `{frame-id {render-key epoch-id}}` and `render-deps-by-render-key` ::
-;; `{frame-id {render-key #{sub-id…}}}`) were merged into a single
-;; `mount-attribution` atom keyed identically (frame-id × render-key)
-;; carrying both signals under one entry. The two atoms NEVER diverged
-;; in usage: both pruned in lockstep by `drop-frame-mount-attribution!`,
-;; both wiped together by `reset-mount-attribution!`. Collapsing them
-;; halves the defonce count (Phase-1 finding rf2-0wi86 §two atoms) and
-;; halves the swap! count on frame teardown without changing any
-;; observable semantic.
-;;
-;; The four accessor names (`mount-epoch-for` / `record-mount-epoch!`
-;; and `render-deps-for` / `record-render-deps!`) survive as the public
-;; surface — each is semantically distinct (one reads/writes the
-;; mount-anchor, the other the read-set) — but they project from one
-;; underlying map.
-;;
 ;; Per-entry shape:
 ;;
 ;;   {frame-id {render-key {:epoch-id <epoch-id-or-nil>
@@ -410,8 +316,8 @@
 (defn record-render-deps!
   "Union `sub-id` into `render-key`'s read-set for `frame-id`. Called for
   every `:sub/run` that arrives stamped with a `:reader-render-key`
-  (rf2-vh1k3) — the synchronous in-render deref that names the reading
-  view. Idempotent; the set only grows."
+  by the synchronous in-render deref that names the reading view.
+  Idempotent; the set only grows."
   [frame-id render-key sub-id]
   (when (and frame-id render-key sub-id)
     (swap! mount-attribution
@@ -446,7 +352,7 @@
 
 (defn drop-render-key-mount-attribution!
   "Forget the mount-anchor + read-set for a SINGLE `render-key` in
-  `frame-id` (rf2-bgapd) — the per-instance eviction tied to a view
+  `frame-id` — the per-instance eviction tied to a view
   instance's UNMOUNT. Without it `mount-attribution` accreted one
   permanent entry per ever-mounted instance (a fresh `instance-token`
   per mount → a fresh render-key), pruned ONLY on whole-frame destroy:
@@ -474,16 +380,13 @@
 
 (defn drop-frame-mount-attribution!
   "Forget every render-key's mount-anchor + read-set for `frame-id`
-  (frame teardown). Replaces the four-wiper pair
-  `drop-frame-mount-epochs!` + `drop-frame-render-deps!` (rf2-dq2b7)."
+  during frame teardown."
   [frame-id]
   (swap! mount-attribution dissoc frame-id)
   nil)
 
 (defn reset-mount-attribution!
-  "Wipe the mount-attribution map across all frames (fixture reset).
-  Replaces the two-reset pair `reset-mount-epochs!` +
-  `reset-render-deps!` (rf2-dq2b7)."
+  "Wipe the mount-attribution map across all frames for fixture reset."
   []
   (reset! mount-attribution {})
   nil)
@@ -501,7 +404,7 @@
        reactive recompute, which carries no render-key). This is the richer
        source — it can match by render-key even before the read-set is learned.
 
-    2. The structured `:sub-runs` projection (rf2-bhglx) — consulted ONLY when
+    2. The structured `:sub-runs` projection — consulted only when
        the record's raw `:trace-events` were elided (the `:trace-events-keep 0`
        memory/privacy posture drops every record's raw stream while RETAINING
        the structured rows). A `:sub-runs` row carries `:value-changed?` and
@@ -524,7 +427,7 @@
                    (or (= render-key (:rf.sub/reader-render-key tags))
                        (and deps (contains? deps (:rf.sub/id tags)))))))
           (:trace-events record))
-    ;; rf2-bhglx — `:trace-events` elided (keep-0, or this record below the
+    ;; `:trace-events` elided (keep-0, or this record below the
     ;; elision boundary). The structured `:sub-runs` rows are retained for
     ;; every record; match a value-changed row by the view's learned read-set.
     (and deps
@@ -547,7 +450,7 @@
   the stamped synchronous derefs; a view's sub set is stable across its life,
   so mount-time learning suffices.
 
-  EVIDENCE WINDOW (rf2-bhglx). Each record is matched against its raw
+  Evidence window: each record is matched against its raw
   `:trace-events` when retained (within `:trace-events-keep`), else against its
   structured `:sub-runs` projection — which is retained for EVERY record
   regardless of `:trace-events-keep`. The scan therefore reaches index 0:
@@ -559,7 +462,7 @@
       render-key precision; older trace-elided records fall back to the
       `:sub-runs` `deps`-only match (harmless — they predate the re-render).
 
-    * keep = 0 (rf2-bhglx) — no record retains raw traces, so EVERY record is
+    * keep = 0 — no record retains raw traces, so every record is
       matched via its structured `:sub-runs`. The scan must NOT break at the
       first trace-elided record (the NEWEST one under keep-0): a genuine
       value-changing sub-run sitting in the newest epoch's `:sub-runs` must
@@ -567,8 +470,8 @@
       mount/default epoch. Consulting `:sub-runs` lets the newest-first scan
       find it and short-circuit on the current epoch.
 
-  The scan never treats the elision boundary as a hard stop (rf2-3rg4j /
-  rf2-b2c02): a trace-elided record can still match via its structured
+  The scan never treats the elision boundary as a hard stop: a trace-elided
+  record can still match via its structured
   `:sub-runs` fallback. Under keep-0 the scan is O(depth) to a
   miss; that is the necessary cost of attribution when no trace window exists,
   and it still short-circuits on the first (newest) value-change for the common
@@ -587,15 +490,13 @@
 
 (defn resolve-render-epoch
   "Resolve the epoch a post-settle render of `render-key` should be
-  attributed to in `frame-id` (rf2-vh1k3). Falls back to
-  `default-epoch-id` (the rf2-qs6dl most-recently-settled epoch) when no
-  better anchor is found, preserving the qs6dl behaviour for genuine
-  reactive re-renders and for the degenerate no-render-key case.
+  attributed to in `frame-id`. Falls back to `default-epoch-id`, the most
+  recently settled epoch, when no better anchor is found.
 
   Resolution order:
     1. The newest epoch in which the view's OWN inputs changed
        (`value-changed-epoch-for`) — a genuine reactive re-render rides
-       its causing cascade exactly as rf2-qs6dl intends.
+       its causing cascade.
     2. Otherwise the view's MOUNT epoch (`mount-epoch-for`) — a mount
        render, or a mount-burst tail that re-deref'd unchanged subs, is
        anchored to where the instance first rendered rather than leaking
@@ -612,8 +513,8 @@
 (defn render-key-already-in-epoch?
   "True when `frame-id`'s epoch `epoch-id` record already carries a
   `:renders` row for `render-key` — used to de-dup a mount-burst tail
-  that resolves back to the mount epoch where the render already landed
-  (rf2-vh1k3). Reads the structured `:renders` projection (always
+  that resolves back to the mount epoch where the render already landed.
+  Reads the structured `:renders` projection (always
   present on a built record), not the optional `:trace-events`."
   [frame-id epoch-id render-key]
   (let [history (history-for frame-id)
@@ -623,13 +524,13 @@
         (some (fn [row] (= render-key (:render-key row)))
               (:renders (nth history idx)))))))
 
-;; ---- post-settle event back-fill (rf2-qs6dl render / rf2-wi900 sub-run) ----
+;; ---- post-settle event back-fill ------------------------------------------
 ;;
-;; A `:view/render` (rf2-qs6dl) and a reactive `:sub/run` (rf2-wi900) both
+;; A `:view/render` and a reactive `:sub/run` both
 ;; fire at React COMMIT / DEREF time, which Reagent batches onto a later
 ;; tick AFTER the causing cascade settled. So each lands in the now-empty
 ;; capture buffer post-settle; left to the ordinary harvest it would be
-;; vacuumed by the NEXT cascade's settle and mis-attributed to cascade N+1
+;; harvested by the next event and misattributed to epoch N+1
 ;; (a one-epoch lag: a phantom render in the wrong cascade's `:renders`, a
 ;; phantom sub-run + `:value-changed?` in the wrong cascade's `:sub-runs` /
 ;; Xray Views subs table).
@@ -644,76 +545,27 @@
 ;; pinning the slot.
 
 (defn- back-fill-event!
-  "Append the RAW `event` and its projected `row` (into the `slot`
-  projection) on the already-committed epoch record identified by
-  `frame-id` + `epoch-id`, then write THAT back to the ring. Returns the
-  updated record (so the caller re-notifies listeners with the same shape
-  the ring now holds), or nil when the target epoch is no longer in the
-  ring (evicted, or the event fired before any cascade settled).
+  "Append a raw post-settle event and optional structured row to an existing
+  epoch. Returns the updated record for listener re-notification, or nil when
+  the target was evicted or never stored.
 
-  `row` is the structured projection entry, or nil — a render op that
-  carries no `:renders` row (`:rf.view/rendered`) or a `:sub/skip` that
-  carries no `:sub-runs` row rides only the `:trace-events` slot, exactly
-  as `capture/project-all` projects no structured row for it. The
-  mutation rewrites the matching record in the frame's history vector
-  under a single `swap!`; the record stays at its original ring position
-  so epoch ordering is preserved.
+  Raw trace is appended only when that record retained `:trace-events`; a
+  non-nil row is appended independently to `slot`. Sensitive evidence is ORed
+  into the record-level rollup. Projection never runs on this storage path.
 
-    * `:trace-events` is back-filled only when the record retained its raw
-      trace stream (within `:trace-events-keep`) so raw-trace consumers
-      (the Reactive panel's flow tally) see the post-settle event in the
-      right cascade.
-    * the structured `slot` projection — the primary consumer surface
-      (Xray Views / Reactive panel) — is always present on a built
-      record; the projected row is appended when non-nil.
-
-  Per EP-0015 §15 + open-issue 6 (RULED, hardened): the back-fill appends
-  the RAW delta. The ring is causal replay material, so it stays raw; the
-  `:redact-fn` advanced override runs projection-side only (inside
-  `projected-record`), so the off-box egress sees the redacted shape while
-  the ring keeps the exact raw delta. Because no redaction runs on the
-  storage path, there is no per-back-fill leak to close and no
-  non-idempotent-fn hazard inside the swap.
-
-  rf2-c0rv4v: the splice is a single PURE `swap!` update fn. It invokes no
-  injected fn — `privacy/sensitive?` is a pure predicate, and the only
-  remaining recompute is the rf2-j1ec6.1 sensitivity OR-rollup — so a CAS
-  retry re-runs it (re-reading the retried record's real slots) with no
-  side effects. (Post-EP-0015 §15 the prior two-phase `compute-delta` →
-  `splice-delta` split was vestigial: it existed to keep an injected
-  storage-side redact-fn OUT of the CAS-retried swap, and that redact
-  invocation is gone — the split was inlined here, rf2-c0rv4v.) Conjes the
-  raw delta element onto a vector (or absent) real slot; a slot already
-  collapsed to a non-vector scalar (an unusual shape) is left untouched
-  (the delta is subsumed).
-
-  rf2-qh13yf — SNAPSHOT CONSISTENCY. The index AND the spliced record are
-  resolved from ONE `@histories` value, INSIDE the `swap!` update fn, which
-  re-derives the index from the CAS-retried map on every attempt. The prior
-  code resolved the index against one `@histories` deref (`history-for`),
-  then read the record off a SECOND deref, then `update-in`'d at the
-  up-front index — three reads of a mutable atom. Its docstring justified
-  the single up-front resolution by 'within-frame drain is single-threaded
-  so no append can shift it', but that premise is FALSE for the back-fill:
-  it fires at React COMMIT / DEREF / TEARDOWN time, OUTSIDE any drain (see
-  the §post-settle back-fill design note), so a real cascade `record!` for
-  the SAME frame can append between the two derefs. At ring cap that append
-  EVICTS the front record and shifts every index down by one — the stale
-  up-front `idx` then named (and `update-in` spliced) the WRONG record. By
-  finding the index from the map the `swap!` is actually CAS-committing
-  against (`epoch-index` on the retried frame-vector), the splice always
-  lands on the record whose `:epoch-id` matches, regardless of any
-  interleaved append/eviction. nil when the epoch is absent from the ring
-  (evicted before the splice, or fired before any cascade settled)."
+  Back-fill runs outside the frame drain and can race ring append/eviction.
+  Therefore the epoch index must be resolved inside the CAS-retried `swap!`
+  update from the same history map being rewritten. Resolving it earlier could
+  splice the wrong record after a capped-ring eviction shifts indices. The
+  update function remains pure so retries are safe."
   [frame-id epoch-id slot event row]
-  (let [;; rf2-j1ec6.1 (Security.md:109 §Sensitive rollup): the record-level
-        ;; `:rf.epoch/sensitive?` rollup MUST consider :trace-events overlap,
+  (let [;; The record-level rollup must include post-settle trace evidence,
         ;; but `build-record` computes it ONCE at settle time over the
         ;; SETTLE-TIME events; a post-settle back-fill of a `:sensitive?`-
         ;; stamped trace event would otherwise leave the rollup stale-false.
         ;; `privacy/sensitive?` is pure and depends only on `event` (not on any
         ;; @histories snapshot), so it is hoisted out of the swap; the swap fn
-        ;; OR's it into the rollup fail-CLOSED (mayor-ruled option a). The OR is
+        ;; ORs it into the rollup fail closed. The OR is
         ;; monotonic/idempotent (only flips false→true, never clears a
         ;; settle-time true), so it rides safely inside the CAS-retried swap.
         sens?   (privacy/sensitive? event)
@@ -728,7 +580,7 @@
 
                         :else            ; real slot already a scalar
                         rec))            ; delta subsumed
-        ;; rf2-qh13yf: operate on the WHOLE @histories map so the index is
+        ;; Operate on the whole histories map so the index is
         ;; re-derived from the SAME (CAS-retried) value the splice rewrites —
         ;; never against a separate, possibly-shifted deref. When the epoch is
         ;; no longer in the frame's ring (evicted, or never landed) the map is
@@ -770,37 +622,18 @@
       (nth history idx'))))
 
 (defn back-fill-render!
-  "Back-fill the RAW `render-event` and its projected `:renders`
-  `render-row` into the already-committed epoch `epoch-id` for `frame-id`
-  (rf2-qs6dl). Thin wrapper over `back-fill-event!` pinning the `:renders`
-  slot. The appended delta is stored RAW (EP-0015 §15 + open-issue 6,
-  RULED — the ring is causal replay material; the `:redact-fn` advanced
-  override runs projection-side only, inside `projected-record`)."
+  "Back-fill a raw render event and its structured row into `:renders`."
   [frame-id epoch-id render-event render-row]
   (back-fill-event! frame-id epoch-id :renders render-event render-row))
 
 (defn back-fill-sub-run!
-  "Back-fill the RAW `sub-event` and its projected `:sub-runs`
-  `sub-run-row` into the already-committed epoch `epoch-id` for `frame-id`
-  (rf2-wi900). Thin wrapper over `back-fill-event!` pinning the `:sub-runs`
-  slot. Symmetric with `back-fill-render!`. The appended delta is stored
-  RAW (EP-0015 §15 + open-issue 6, RULED — the ring is causal replay
-  material; redaction is projection-side, inside `projected-record`)."
+  "Back-fill a raw subscription event and its structured row into `:sub-runs`."
   [frame-id epoch-id sub-event sub-run-row]
   (back-fill-event! frame-id epoch-id :sub-runs sub-event sub-run-row))
 
 (defn back-fill-unmount!
-  "Back-fill a RAW `:rf.view/unmounted` `unmount-event` into the already-
-  committed epoch `epoch-id` for `frame-id` (rf2-59hx3). Thin wrapper over
-  `back-fill-event!` — an unmount produces NO structured projection row (it
-  is neither a `:renders` nor a `:sub-runs` entry), so `row` is nil and the
-  event rides ONLY the `:trace-events` slot. That is exactly where Xray's
-  VIEWS-step `unmounted-views-rows` reads view teardowns. The `:slot`
-  argument is irrelevant when `row` is nil; `:renders` is passed for
-  documentary parity with the render sibling. Symmetric with
-  `back-fill-render!` / `back-fill-sub-run!`. The appended delta is stored
-  RAW (EP-0015 §15 + open-issue 6, RULED — the ring is causal replay
-  material; redaction is projection-side, inside `projected-record`)."
+  "Back-fill a raw unmount event. Unmounts have no structured row, so they
+  affect only a retained `:trace-events` slot."
   [frame-id epoch-id unmount-event]
   (back-fill-event! frame-id epoch-id :renders unmount-event nil))
 
@@ -848,138 +681,50 @@
   `:rf.event/run-start` emit in the buffer. nil when no run-start fired (a
   rejected / aborted dispatch, or a halt path whose event never ran) — the
   no-run-start branch of `harvest-buffer-for-event!` then falls back to the
-  settling ENVELOPE's dispatch-id (rf2-erczwd) to scope its drop."
+  settling envelope's dispatch-id to scope its drop."
   [events]
   (some (fn [ev]
           (when (= :rf.event/run-start (:operation ev))
             (-> ev :tags :rf.trace/dispatch-id)))
         events))
 
-;; rf2-bhglx — claim-based `theirs` retention. A `:event/dispatched` marker
-;; that rides a DIFFERENT dispatch-id ("theirs") is a CHILD's queue-time
-;; dispatch row: it fires during the PARENT's do-fx (so it lands in the
-;; parent's window) but carries the CHILD's `:dispatch-id`. Under per-event
-;; epochs it must ride the CHILD's epoch, not the parent's (Spec 009 §Dispatch
-;; correlation: one `:dispatch-id` = one epoch), so it is LEFT in the buffer
-;; for the child's own `harvest-buffer-for-event!`, where the child's
-;; run-start makes the settling-id match and the marker is CLAIMED as "mine".
-;;
-;; The marker is retained until that claim — NOT for a fixed number of
-;; harvests. The earlier rf2-fxowr fix dropped an unclaimed marker after it had
-;; survived ONE intervening harvest as theirs, on the theory that the very next
-;; harvest is always the child's own settle. That theory is FALSE for a valid
-;; router interleaving: ordinary `:dispatch` fx children go to the router FIFO
-;; TAIL (`router/enqueue-envelope!` — `conj` on the PersistentQueue), so a
-;; SIBLING event already queued behind the parent settles BEFORE the child.
-;; That sibling's harvest consumed the child's one retained pass and dropped
-;; the marker before the child ever ran — the delayed child epoch then lost its
-;; queue-time dispatch/source row (parent-dispatch-id, source, source-detail,
-;; origin, call-site) and parent-child causality. The harvest-count heuristic
-;; conflated "a sibling ran ahead of the child" (legitimate — must retain) with
-;; "the child never ran" (a strand). Retaining until the matching run-start
-;; claims the marker is correct for ANY number of intervening sibling settles.
-;;
-;; The memory bound rf2-fxowr guarded is preserved WITHOUT the count: a child
-;; that NEVER runs to a settle has its marker cleared by the same terminal path
-;; that ends the child's life — `on-frame-destroyed!` drops
-;; the whole frame buffer (frame destroyed / drain-interrupted), the per-event
-;; depth-halt `commit-halt-record!` reads-and-CLEARS the whole buffer
-;; (`harvest-buffer!`), and a rejected/aborted child dispatch reaches the
-;; no-run-start branch below which — given the settling ENVELOPE's dispatch-id
-;; (rf2-erczwd) — drops THAT dispatch's OWN traces (the child's marker is "mine"
-;; when the child itself is the rejected settling event) plus orphans, while
-;; retaining any UNRELATED sibling's marker for its own settle. Each terminal
-;; path drops the stranded marker at the point its own dispatch is rejected /
-;; the frame torn down; none leaves it to accrete. The
-;; nil-id orphan self-cleaning rf2-ee38b established at this same seam (an
-;; orphan has no settle to ever claim it AND rides no terminal clear of its own)
-;; is unchanged — orphans are still dropped here on every harvest.
+;; A child's queue-time `:event/dispatched` trace is emitted while its parent
+;; runs but carries the child's dispatch id. Keep it until the child's matching
+;; run-start claims it, even when FIFO siblings settle first. Fixed-harvest
+;; retention is incorrect because the child may be arbitrarily far behind its
+;; parent. Terminal rejection, halt, and frame teardown clear stranded markers;
+;; nil-id orphans are dropped because no event can ever claim them.
 
 (defn harvest-buffer-for-event!
-  "Per rf2-nj6p7 — per-event harvest. Atomically read the frame's in-flight
+  "Atomically split the frame's buffer for one settling event.
   buffer and split it by the settling event's `:dispatch-id`:
 
     * RETURN the events that belong to the settling event — those whose
-      `:tags :dispatch-id` matches the buffer's first `:event/run-start`
-      id. Per rf2-avvwm an out-of-cascade ORPHAN (no `:dispatch-id` — e.g.
-      a `:frame/created` emit fired between the last settled event and the
-      next dequeue) is NOT folded in: Spec 009 §Dispatch correlation keeps
-      an emit outside any cascade uncorrelated (neither a new epoch nor part
-      of another epoch's record). Orphans are dropped upstream at the capture
-      seam (`re-frame.epoch.capture/capture-event!`) so they never reach this
-      buffer; the `did = sid` predicate below is the matching guard.
+      `:tags :dispatch-id` matches the buffer's first `:event/run-start` id.
     * LEAVE in the buffer the events that belong to a DIFFERENT dequeued
       event — a child's `:event/dispatched` marker fires during the
       PARENT's do-fx (so it lands in the parent's window) but carries the
       CHILD's `:dispatch-id`; under per-event epochs it must ride the
-      child's epoch, not the parent's (Spec 009 §Dispatch correlation:
-      one `:dispatch-id` = one epoch). It stays buffered for the child's
+      child's epoch, not the parent's. It stays buffered for the child's
       own `harvest-buffer-for-event!` at the child's settle.
 
-  Per rf2-bhglx a theirs marker is RETAINED until its child's own run-start
-  claims it (any number of intervening sibling settles), not for a fixed
+  A marker is retained until its child's own run-start claims it, not for a fixed
   harvest count. A child that never runs is bounded by the terminal paths that
   clear the whole buffer (frame destroy / drain-interrupt / depth-halt /
   rejected dispatch); see the design note above this defn.
 
-  NO-RUN-START (rejected / aborted dispatch — rf2-erczwd). When the buffer
-  carries no `:event/run-start`, no cascade ran to completion, so there is
-  NOTHING legitimate to commit — a no-handler / frame-destroyed dispatch still
-  emits a frame-stamped, dispatch-id-bearing ERROR trace that lands in this
-  buffer, and returning it made `settle!` commit a misleading `:ok` epoch
-  (the no-run-start / no-epoch invariant was violated). So:
-
-    * 2-arity — given the settling ENVELOPE's `settling-dispatch-id` (threaded
-      from the router's per-event settle seam), DROP this dispatch's OWN traces
-      (`:dispatch-id` = `settling-dispatch-id`, e.g. its `:no-such-handler`
-      error trace) AND orphans (nil id), RETAIN any UNRELATED child marker
-      (`:dispatch-id` ≠ settling, non-nil) for its own settle, and RETURN [].
-      `settle!`'s empty-buffer skip then commits no epoch — the rejection's
-      own trace is dropped while a legitimately-buffered sibling marker
-      survives. Symmetric with the run-start branch's claim-based retention.
-    * 1-arity — no envelope id to scope by (a direct low-level test call);
-      falls back to a full read-and-clear returning the whole buffer, and
-      `settle!`'s empty-buffer / no-trigger policy handles the degenerate
-      record."
+  With no run-start, no event ran to completion. The two-arity uses the
+  settling envelope id to drop that rejected dispatch's own traces and nil-id
+  orphans while retaining unrelated child markers. It returns `[]`, preventing
+  `settle!` from recording a false `:ok` epoch. The low-level one-arity has no
+  envelope id and therefore falls back to a full read-and-clear."
   ([frame-id] (harvest-buffer-for-event! frame-id nil))
   ([frame-id settling-dispatch-id]
   (let [buffer (get @capture-buffers frame-id [])]
     (if-let [settling-id (run-start-dispatch-id buffer)]
-      ;; Three-way partition by the event's :rf.trace/dispatch-id:
-      ;;   * MINE   (= event-dispatch-id settling-id)
-      ;;       — the settling event's own traces; returned to ride this epoch.
-      ;;   * THEIRS (non-nil, ≠ settling-id)
-      ;;       — a child's `:event/dispatched` marker fired during THIS event's
-      ;;         do-fx carrying the CHILD's id; LEFT in the buffer for the
-      ;;         child's own settle (Spec 009 §Dispatch correlation: one
-      ;;         dispatch-id = one epoch). RETAINED across every intervening
-      ;;         sibling harvest until the child's own run-start claims it as
-      ;;         mine (rf2-bhglx — siblings queued ahead of a FIFO-tail child
-      ;;         settle first, so the child's claim can be many harvests away).
-      ;;   * ORPHAN (nil event-dispatch-id)
-      ;;       — an out-of-cascade emit (e.g. `:frame/created`) with no
-      ;;         cascade to ride. DISCARDED here.
-      ;;
-      ;; Per rf2-avvwm orphans are dropped at the capture seam
-      ;; (capture/capture-event! out-of-cascade branch) so in normal
-      ;; operation none arrive. This seam is the defensive backstop: a
-      ;; nil-dispatch-id orphan that slips past the upstream guard has no
-      ;; settle event to ever reclaim it, so retaining it would leave it in
-      ;; the buffer indefinitely — re-grouped into `theirs` and re-retained
-      ;; on every subsequent harvest. Discarding
-      ;; it makes the harvest self-cleaning and removes reliance on the
-      ;; upstream guard being perfect (rf2-ee38b §correctness). The
-      ;; `event-dispatch-id = settling-id` predicate already guarantees an
-      ;; orphan never folds into an epoch's `:trace-events`; this only changes
-      ;; whether it lingers in the buffer (no) vs. is dropped (yes).
-      ;;
-      ;; Per rf2-bhglx a stranded non-nil child (one that never runs to a
-      ;; settle) is bounded WITHOUT a per-marker survival counter: the
-      ;; terminal path that ends the child's life clears the whole buffer (see
-      ;; the design note above this defn). A harvest-count reclaim would have
-      ;; dropped a LEGITIMATE child whose sibling merely ran ahead of it on the
-      ;; FIFO, losing the child's queue-time dispatch row — so the marker is
-      ;; retained here on every sibling harvest.
+      ;; Return matching traces, retain non-nil ids for later events, and drop
+      ;; nil-id orphans. The capture seam normally removes orphans first; this
+      ;; partition is the defensive bound if one reaches storage.
       (let [mine   (filterv (fn [ev] (= (-> ev :tags :rf.trace/dispatch-id) settling-id))
                             buffer)
             ;; Other-event markers: a non-nil dispatch-id that isn't the
@@ -995,8 +740,7 @@
           (swap! capture-buffers assoc frame-id theirs)
           (swap! capture-buffers dissoc frame-id))
         mine)
-      ;; No run-start — rejected/aborted dispatch (no-handler / frame-destroyed).
-      ;; No cascade ran, so nothing legitimate to commit (rf2-erczwd).
+      ;; No run-start means no event ran, so nothing can be committed.
       (if settling-dispatch-id
         ;; Scope the drop to THIS dispatch: drop its own traces (the rejection's
         ;; frame-stamped error trace, `:dispatch-id` = settling) + orphans, RETAIN
@@ -1024,20 +768,16 @@
 
 (defn reset-capture-buffers!
   "Wipe every in-flight capture buffer across all frames. Test fixtures
-  use this in lockstep with `reset-histories!`.
-
-  Per rf2-v0jwt: fixtures that sequence runs need a fresh capture
-  state per fixture; a stale buffer from a previous fixture would
-  otherwise be harvested into the next fixture's first cascade."
+  use this in lockstep with `reset-histories!` so stale traces cannot be
+  harvested by the next test's first event."
   []
   (reset! capture-buffers {})
   nil)
 
 (defn reset-histories!
   "Wipe every frame's recorded epochs. Also clears the last-settled-epoch
-  map (rf2-qs6dl) and the mount-attribution map (rf2-vh1k3, rf2-dq2b7)
-  so a fixture's first cascade can't back-fill a render into a previous
-  fixture's record nor inherit a stale render-key → {mount-epoch +
+  and mount-attribution maps so a fixture's first cascade cannot back-fill
+  a render into the previous fixture's record nor inherit a stale render-key → {mount-epoch +
   read-set} anchor."
   []
   (reset! histories {})
@@ -1049,8 +789,7 @@
 
 (defonce ^:private listeners (atom {}))
 
-;; Per Tool-Pair §Surface behaviour against destroyed frames (rf2-d656):
-;; track which frames each cb has been delivered records for. When a
+;; Track which frames each callback has observed. When a
 ;; frame is destroyed, every cb whose observed-frames set contains
 ;; that frame receives a one-shot :rf.epoch.cb/silenced-on-frame-destroy
 ;; trace. The frame is then dropped from the cb's entry so a
@@ -1104,8 +843,8 @@
   long-lived listener observing the same frame on every cascade,
   this is a single deref + membership check with no swap.
 
-  Per rf2-7i872 (unregister-mid-fan-out race): `notify-listeners!`
-  iterates a listener SNAPSHOT, then calls this fn per cb-id BEFORE
+  `notify-listeners!` iterates a listener snapshot, then calls this function
+  before
   invoking the callback. If `unregister-epoch-listener!` removed the cb
   between the snapshot and now, recording an observation would
   RE-INTRODUCE bookkeeping for a cb that no longer exists — the stale
