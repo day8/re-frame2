@@ -37,18 +37,16 @@
    Every Conduit endpoint goes out via `:rf.http/managed`. The demo entry
    below swaps in a canned-stub override so the app runs with no network at
    all. See the HTTP guide: ../../../docs/async/http.md"
-  (:require [clojure.string :as str]
-            [reagent.dom.client :as rdc]
+  (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
-            [re-frame.registrar :as registrar]
             ;; Managed HTTP ships in its own artefact. Requiring it registers
             ;; the `:rf.http/managed` fx (and its family), so dispatching it
             ;; resolves to something.
             [re-frame.http.managed]
-            ;; The demo routes `:rf.http/managed` through a per-URL stub that
-            ;; delegates to `:rf.http/managed-canned-success` — a canned-reply
-            ;; fx that ships with the framework's test support. A real Conduit
-            ;; backend would drop both this require and the demo override.
+            ;; The demo backend delegates to `:rf.http/managed-canned-success`
+            ;; / `-failure`, canned-reply fxs that ship with the framework's
+            ;; test support. A real Conduit backend would drop both this require
+            ;; and the demo override.
             [re-frame.http.test-support]
             ;; SSR ships in its own artefact. Requiring it registers the
             ;; `:rf/hydrate` handler and the SSR helpers ssr.cljc leans on
@@ -56,6 +54,9 @@
             [re-frame.ssr]
             [re-frame.adapter.reagent :as reagent-adapter]
             [realworld-shared.avatar :as avatar]
+            ;; The in-process Conduit demo backend shared by both RealWorld
+            ;; examples — wired under an app-local fx-id below.
+            [realworld-shared.demo-backend :as demo]
             [realworld-http.schema]
             [realworld-http.http]
             [realworld-http.routing :as routing]
@@ -226,247 +227,29 @@
 ;; ============================================================================
 
 ;; ----------------------------------------------------------------------------
-;; DEMO STUBS
+;; DEMO BACKEND
 ;;
-;; Out of the box this example talks to no server at all. Normally it would
-;; hit the hosted Conduit API (https://api.realworld.show/api —
+;; Out of the box this example talks to no server at all. Normally it would hit
+;; the hosted Conduit API (https://api.realworld.show/api —
 ;; `realworld-http.http/api-base`), but a live backend is slow and flaky for a
-;; demo, and we'd like you to be able to clone-and-run on a plane. So we
-;; override `:rf.http/managed` with a tiny in-process stub that hand-rolls a
-;; plausible reply for the routes the demo actually exercises (global feed,
-;; tags, profile). Anything we didn't bother stubbing just comes back as an
-;; empty success — enough for the shell and the main feed to render.
-;;
-;; The override doesn't fake the timing itself. It hands off to the
-;; framework's `:rf.http/managed-canned-success` with a per-URL `:value`
-;; payload and an `:after-ms` delay, so the reply rides out on
-;; `:dispatch-later` — which means it shows up in the trace and survives
-;; time-travel, instead of being an invisible raw `js/setTimeout`. A thin
-;; wrapper fx routes by URL so the demo doesn't have to commit to one URL up
-;; front.
+;; demo, and we'd like you to be able to clone-and-run on a plane. So we override
+;; `:rf.http/managed` with the in-process demo backend both RealWorld examples
+;; share (`realworld-shared.demo-backend`): one canonical Conduit corpus + a
+;; URL/method request router + a canned-reply adapter, wired here under an
+;; app-local fx-id. The shared `respond` does the routing and defers each reply
+;; through the framework's canned-success / canned-failure fxs.
 ;; ----------------------------------------------------------------------------
 
-(def ^:private demo-reply-delay-ms
-  "How long the demo stub sits on each canned reply before delivering it (the
-   canned-success fx's `:after-ms`, routed through `:dispatch-later`). Small
-   but not zero, on purpose — without a beat of delay you'd never see the
-   `:loading` state flash by. A demo knob, not a production value."
-  20)
-
-;; Twenty-five articles — deliberately more than one page — so you can
-;; actually watch pagination work in the standalone demo. At the fixed page
-;; size of 10 (`realworld-http.http/page-size`) that's three pages. The first two
-;; cards are hand-written (so the article-detail and favorites paths land on
-;; familiar slugs); the rest are padded out in a loop, because nobody needs
-;; to read twenty-three more lovingly-crafted fake articles.
-(def ^:private demo-articles
-  (into [{:slug "hello-conduit"
-          :title "Hello, Conduit"
-          :description "A short greeting from the realworld stub."
-          ;; A deliberately rich markdown body, so the article-detail page
-          ;; gives the sanitized CommonMark renderer
-          ;; (realworld-shared.markdown/render) a real workout: headings,
-          ;; bold/italic, inline + fenced code, a safe link, lists, and the
-          ;; full-CommonMark shapes a hand-rolled subset always forgets — a
-          ;; table, a nested list. The renderer emits hiccup, never raw HTML,
-          ;; which is the whole trick: this renders as genuine markup, while
-          ;; any `<script>` or `javascript:` link smuggled in via user content
-          ;; comes out as inert, escaped text.
-          :body (str "# Hello, Conduit\n\n"
-                     "This article is served by the demo `:rf.http/managed` "
-                     "override and rendered as **markdown** with *emphasis*.\n\n"
-                     "See the [RealWorld spec](https://github.com/gothinkster/realworld) "
-                     "for the reference behaviour.\n\n"
-                     "## Highlights\n\n"
-                     "- Sanitized by construction (hiccup, never raw HTML)\n"
-                     "- Full CommonMark via `nextjournal/markdown`\n"
-                     "  - tables, nested lists, images\n"
-                     "  - safe-by-construction link/image schemes\n\n"
-                     "| Feature | Status |\n"
-                     "| --- | --- |\n"
-                     "| markdown | CommonMark |\n"
-                     "| links | scheme-allowlisted |\n\n"
-                     "```clojure\n(rf/reg-event :hello (fn [{:keys [db]} _] {:db db}))\n```\n\n"
-                     "> A blockquote, for good measure.")
-          :tagList ["intro" "demo"]
-          :createdAt "2026-01-01T00:00:00Z"
-          :updatedAt "2026-01-01T00:00:00Z"
-          :favorited false
-          :favoritesCount 0
-          :author {:username "stub-bot"
-                   :bio "A friendly stub."
-                   :image ""
-                   :following false}}
-         {:slug "second-article"
-          :title "Second article"
-          :description "A second short article."
-          :body "More canned demo content."
-          :tagList ["demo"]
-          :createdAt "2026-02-01T00:00:00Z"
-          :updatedAt "2026-02-01T00:00:00Z"
-          :favorited false
-          :favoritesCount 0
-          :author {:username "stub-bot"
-                   :bio "A friendly stub."
-                   :image ""
-                   :following false}}]
-        (for [n (range 3 26)]
-          {:slug           (str "article-" n)
-           :title          (str "Demo article " n)
-           :description    (str "Canned demo article number " n ".")
-           :body           "More canned demo content."
-           :tagList        ["demo"]
-           :createdAt      "2026-03-01T00:00:00Z"
-           :updatedAt      "2026-03-01T00:00:00Z"
-           :favorited      false
-           :favoritesCount 0
-           :author         {:username "stub-bot"
-                            :bio "A friendly stub."
-                            :image ""
-                            :following false}})))
-
-(defn- parse-int-param
-  "Fish an integer query param `k` (e.g. \"limit\") out of a URL string.
-   nil when it's absent or doesn't look like a number."
-  [u k]
-  (when-let [m (re-find (re-pattern (str "[?&]" k "=(\\d+)")) u)]
-    (js/parseInt (second m) 10)))
-
-(defn- page-of
-  "Slice out one page of `articles` for the demo stub, and report the grand
-   `articlesCount` alongside it — the exact list-response shape Conduit uses.
-   It reads `limit` / `offset` straight off the URL (and shows the whole list
-   when they're missing), so the stub paginates just like the real backend
-   would, and the page-number control downstream can't tell the difference."
-  [articles u]
-  (let [total  (count articles)
-        offset (or (parse-int-param u "offset") 0)
-        limit  (or (parse-int-param u "limit") total)
-        window (->> articles (drop offset) (take limit) vec)]
-    {:articles window :articlesCount total}))
-
-(def ^:private demo-tags
-  ["intro" "demo" "clojure" "re-frame"])
-
-(def ^:private demo-user
-  "The one user this demo knows about — handed back by /users/login,
-   /users (register), and /user (session restore). The stub doesn't check
-   your password (or anything else in the body); it just plays back the
-   success reply the auth machine is hoping for. Security theatre it is not."
-  {:email    "demo@conduit.dev"
-   :token    "stub.demo.jwt"
-   :username "demo"
-   :bio      "Canned demo user."
-   :image    ""})
-
-(defn- canned-comment
-  "Fake up the saved-Comment reply for POST /articles/:slug/comments. The
-   reply is `{:comment <Comment>}`; back in comments.cljs the handler swaps
-   the optimistic temp card for this saved row, matching on `:id`. We mint a
-   fresh random id every call so two comments posted in a row don't collide
-   on their React `:key`."
-  [body]
-  (let [id (+ 1000 (rand-int 100000))]
-    {:comment {:id        id
-               :createdAt "2026-05-13T00:00:00Z"
-               :updatedAt "2026-05-13T00:00:00Z"
-               :body      (or body "stubbed comment")
-               :author    {:username  "demo"
-                           :bio       "Canned demo user."
-                           :image     ""
-                           :following false}}}))
-
-(defn- demo-payload-for-args [args-map]
-  (let [req    (:request args-map)
-        u      (str (:url req))
-        method (or (:method req) :get)]
-    (cond
-      ;; /users/login (POST) — the User wire shape.
-      (and (= method :post) (str/ends-with? u "/users/login"))
-      {:user demo-user}
-
-      ;; /users (POST, register) — the User wire shape. Must precede the
-      ;; bare /users (GET, current user) clause.
-      (and (= method :post) (str/ends-with? u "/users"))
-      {:user demo-user}
-
-      ;; GET /user — session restore on boot. We deliberately synthesise a
-      ;; DECODE FAILURE (not a success with an empty body): a real backend
-      ;; returning `{}` would fail `:decode schema/UserResponse`'s schema
-      ;; validation, and `:begin-restore`'s `:on-failure` would fire. The
-      ;; canned-success stub never runs `:decode`, though — an empty-map
-      ;; *success* reply would land in `:on-success` instead, taking the auth
-      ;; machine to `:authed` with a nil `:user` (a broken, half-authenticated
-      ;; state). Routing this through `:rf.http/managed-canned-failure` (see
-      ;; the `::decode-failure` sentinel below) reproduces the real failure
-      ;; path. Net effect — the demo always opens logged-out, so you get to
-      ;; click "Sign in" and watch the flow rather than arriving mysteriously
-      ;; (and brokenly) authenticated.
-      (and (= method :get) (str/ends-with? u "/user"))
-      ::decode-failure
-
-      ;; POST /articles/:slug/comments — synthesise the saved Comment
-      ;; the optimistic submit path expects.
-      (and (= method :post) (re-find #"/articles/[^/]+/comments$" u))
-      (canned-comment (some-> req :body :comment :body))
-
-      ;; GET /articles/feed — the authenticated feed. Paged from the same
-      ;; corpus so the home "Your Feed" tab paginates like the global feed
-      ;; (limit/offset off the URL, grand articlesCount in the reply).
-      (str/includes? u "/articles/feed")
-      (page-of demo-articles u)
-
-      (re-find #"/articles/[^/]+/comments" u)
-      {:comments []}
-
-      (re-find #"/articles/[^/?]+$" u)
-      {:article (first demo-articles)}
-
-      ;; GET /articles[?tag=…|author=…|favorited=…][&limit&offset] — the
-      ;; global / tag / profile lists. `page-of` reads limit/offset off the
-      ;; URL and returns the windowed page + the grand articlesCount.
-      (or (str/ends-with? u "/articles") (str/includes? u "/articles?"))
-      (page-of demo-articles u)
-
-      (str/includes? u "/tags")
-      {:tags demo-tags}
-
-      (str/includes? u "/profiles/")
-      {:profile {:username "stub-bot" :bio "" :image "" :following false}}
-
-      :else {})))
-
 (rf/reg-fx :realworld.demo/http-stub
-  {:doc       "The demo's stand-in for `:rf.http/managed`. It looks at the URL,
-               picks a matching canned Conduit-shaped reply, and lets the
-               example run with no backend in sight.
-
-               It doesn't reinvent the delivery machinery — it hands the
-               payload to the framework's `:rf.http/managed-canned-success`
-               with `:after-ms` set to `demo-reply-delay-ms`. The framework
-               then defers the reply via `:dispatch-later`, so it shows up in
-               the trace and survives time-travel instead of being a raw
-               `js/setTimeout`. The little delay is what makes the `:loading`
-               state actually visible.
-
-               `demo-payload-for-args` signals a genuine failure (rather than
-               a payload) with the `::decode-failure` sentinel — GET /user's
-               session-restore stub is the one route the demo wants to FAIL,
-               so it delegates to `:rf.http/managed-canned-failure` instead of
-               `-success`. `:rf.http/managed-canned-success` never runs
-               `:decode`, so handing it an empty body would incorrectly land
-               on the `:on-success` branch."
+  {:doc       "This example's `:rf.http/managed` override: the shared in-process
+               Conduit demo backend (`realworld-shared.demo-backend`), wired
+               under an app-local fx-id and referenced from the frame's
+               `:fx-overrides` in `mount!`. All the routing + canned-reply
+               machinery (including the `::decode-failure` session-restore path)
+               lives in the shared backend; this is just the app-local seam."
    :platforms #{:server :client}}
   (fn fx-managed-demo-stub [frame-ctx args-map]
-    (let [payload (demo-payload-for-args args-map)]
-      (if (= ::decode-failure payload)
-        (let [stub (registrar/handler :fx :rf.http/managed-canned-failure)]
-          (stub frame-ctx (assoc args-map
-                                  :after-ms demo-reply-delay-ms
-                                  :kind     :rf.http/decode-failure
-                                  :tags     {:schema-validation-failure? true})))
-        (let [stub (registrar/handler :fx :rf.http/managed-canned-success)]
-          (stub frame-ctx (assoc args-map :after-ms demo-reply-delay-ms :value payload)))))))
+    (demo/respond frame-ctx args-map)))
 
 ;; The React root lives in an atom and gets created lazily inside `run`, so
 ;; that merely loading this namespace touches no DOM. That restraint earns
