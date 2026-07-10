@@ -14,6 +14,7 @@
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core           :as rf]
             [re-frame.events         :as events]
+            [re-frame.frame          :as frame]
             [re-frame.image          :as image]
             [re-frame.registrar      :as registrar]
             [re-frame.live-frame     :as lf]
@@ -31,6 +32,22 @@
          {:rf.provenance/ns provenance-ns
           :kind             :event
           :id               id}))
+
+;; A framework-authority variant of `event-desc`: stamps the reserved
+;; `:rf/framework-authority? true` registration-meta key (EP-0001 —
+;; `events/framework-authority?`) onto the image descriptor. Because `lookup`
+;; resolves the descriptor verbatim through the frame's generation and the
+;; router feeds it in as `handler-meta`, the resolved handler carries legitimate
+;; write-authority over the reserved `:rf.db/runtime` partition — so an
+;; image-loaded handler reads + returns the runtime-db partition on the
+;; SUPPORTED path, exercising the real runtime-effect commit rather than
+;; artificially suppressing the `:rf.warning/app-handler-runtime-effect`
+;; diagnostic. A metadata-aware helper over the image-assembly path — it does
+;; NOT bypass image assembly.
+(defn- runtime-authority-event-desc
+  [provenance-ns id handler-fn]
+  (assoc (event-desc provenance-ns id handler-fn)
+         :rf/framework-authority? true))
 
 (deftest two-image-frames-same-id-different-handlers-dispatch-in-isolation
   (testing "same-id handlers resolve and commit within their image-loaded frames"
@@ -70,6 +87,104 @@
         (is (not= (lf/frame-generation todo-frame)
                   (lf/frame-generation counter-frame))
             "the two image-loaded frames resolve the SAME id through DIFFERENT generations")))))
+
+(deftest two-image-frames-same-id-isolate-the-runtime-db-partition
+  (testing "same-id framework-authority handlers read + commit the RUNTIME-DB
+            partition ONLY within their own image-loaded frame"
+    ;; Composition under test: image-generation routing × the INDEPENDENT
+    ;; runtime-db commit branch (`:rf.db/runtime` — Spec 002 §Write authority).
+    ;; The existing same-id cases prove app-db (`:db`) isolation only; a
+    ;; regression that keeps app-db routing correct but reads or commits
+    ;; runtime-db through the default/sibling frame would leave them all green.
+    ;;
+    ;; A wrong fallback to the default registrar for this runtime-only event
+    ;; runs THIS same-id global handler, whose runtime effect stamps the
+    ;; `:global` sentinel into the target frame's runtime-db. It is
+    ;; framework-authority so the fallback would be the REAL runtime-effect
+    ;; path, not a diagnostic-suppressed one.
+    (rf/reg-event :boot/rt-init
+      {:rf/framework-authority? true}
+      (fn [{rt :rf.db/runtime} _]
+        {:rf.db/runtime (assoc rt
+                               :rf.runtime/conf-observed (:rf.runtime/conf-seed rt)
+                               :rf.runtime/conf-writer   :global)}))
+    (let [;; Each image handler is framework-authority (via the descriptor
+          ;; helper): it reads its OWN `:rf.db/runtime` coeffect and returns an
+          ;; updated `:rf.db/runtime` effect, recording the seed it OBSERVED and
+          ;; its own writer marker.
+          todo-pool    [(runtime-authority-event-desc "conf.rt.todo" :boot/rt-init
+                          (fn [{rt :rf.db/runtime} _]
+                            {:rf.db/runtime (assoc rt
+                                                   :rf.runtime/conf-observed (:rf.runtime/conf-seed rt)
+                                                   :rf.runtime/conf-writer   :todo)}))]
+          counter-pool [(runtime-authority-event-desc "conf.rt.counter" :boot/rt-init
+                          (fn [{rt :rf.db/runtime} _]
+                            {:rf.db/runtime (assoc rt
+                                                   :rf.runtime/conf-observed (:rf.runtime/conf-seed rt)
+                                                   :rf.runtime/conf-writer   :counter)}))]
+          ;; The SIBLING carries its OWN same-id handler yet is NEVER dispatched
+          ;; — it is the untouched-sibling sentinel (its runtime-db must stay
+          ;; exactly its seed).
+          sibling-pool [(runtime-authority-event-desc "conf.rt.sibling" :boot/rt-init
+                          (fn [{rt :rf.db/runtime} _]
+                            {:rf.db/runtime (assoc rt :rf.runtime/conf-writer :sibling)}))]
+          todo-img     (image/image {:id :conf.rt/todo    :select-ns {:include ["conf.rt.todo"]}})
+          counter-img  (image/image {:id :conf.rt/counter :select-ns {:include ["conf.rt.counter"]}})
+          sibling-img  (image/image {:id :conf.rt/sibling :select-ns {:include ["conf.rt.sibling"]}})
+          _ (lf/make-frame {:id :conf.rt/todo    :images [todo-img]}    todo-pool)
+          _ (lf/make-frame {:id :conf.rt/counter :images [counter-img]} counter-pool)
+          _ (lf/make-frame {:id :conf.rt/sibling :images [sibling-img]} sibling-pool)]
+      ;; Seed each frame's runtime-db partition with a UNIQUE marker (the
+      ;; framework-authority runtime-db write surface — Spec 002 §Write
+      ;; authority). The seed is what each handler reads back as its
+      ;; `:rf.db/runtime` coeffect.
+      (frame/replace-runtime-db! :conf.rt/todo    {:rf.runtime/conf-seed :todo-seed})
+      (frame/replace-runtime-db! :conf.rt/counter {:rf.runtime/conf-seed :counter-seed})
+      (frame/replace-runtime-db! :conf.rt/sibling {:rf.runtime/conf-seed :sibling-seed})
+      ;; Dispatch ONCE to each explicit target — the sibling is left alone.
+      (rf/dispatch-sync [:boot/rt-init] {:frame :conf.rt/todo})
+      (rf/dispatch-sync [:boot/rt-init] {:frame :conf.rt/counter})
+      (testing "the same-id GLOBAL runtime sentinel is genuinely armed (not a
+                vacuous `not= :global`)"
+        (is (some? (registrar/lookup :event :boot/rt-init))
+            "the same-id global runtime handler is live on the default registrar"))
+      (testing "each handler read ITS OWN frame's runtime-db seed as the
+                `:rf.db/runtime` coeffect — not a sibling's or the default's"
+        (is (= :todo-seed (:rf.runtime/conf-observed (frame/frame-runtime-db-value :conf.rt/todo)))
+            "the todo handler observed the TODO frame's runtime-db seed")
+        (is (= :counter-seed (:rf.runtime/conf-observed (frame/frame-runtime-db-value :conf.rt/counter)))
+            "the counter handler observed the COUNTER frame's runtime-db seed"))
+      (testing "each runtime-db effect committed ONLY to its own frame — exact
+                per-frame runtime-db, no cross-frame commit bleed"
+        (is (= {:rf.runtime/conf-seed     :todo-seed
+                :rf.runtime/conf-observed :todo-seed
+                :rf.runtime/conf-writer   :todo}
+               (frame/frame-runtime-db-value :conf.rt/todo))
+            "the todo frame's runtime-db is EXACTLY the todo handler's write over the todo seed")
+        (is (= {:rf.runtime/conf-seed     :counter-seed
+                :rf.runtime/conf-observed :counter-seed
+                :rf.runtime/conf-writer   :counter}
+               (frame/frame-runtime-db-value :conf.rt/counter))
+            "the counter frame's runtime-db is EXACTLY the counter handler's write over the counter seed"))
+      (testing "neither frame fell back to the same-id GLOBAL runtime handler"
+        (is (not= :global (:rf.runtime/conf-writer (frame/frame-runtime-db-value :conf.rt/todo)))
+            "the todo frame did NOT resolve the global runtime handler")
+        (is (not= :global (:rf.runtime/conf-writer (frame/frame-runtime-db-value :conf.rt/counter)))
+            "the counter frame did NOT resolve the global runtime handler"))
+      (testing "the un-dispatched SIBLING frame's runtime-db is UNCHANGED — no
+                todo / counter / global runtime write leaked into it"
+        (is (= {:rf.runtime/conf-seed :sibling-seed}
+               (frame/frame-runtime-db-value :conf.rt/sibling))
+            "the sibling frame's runtime-db is EXACTLY its seed (untouched)"))
+      (testing "the runtime-only event left the app-db partition untouched —
+                the two partitions commit independently (EP-0001)"
+        (is (= {} (rf/app-db-value :conf.rt/todo))
+            "the todo frame's app-db partition saw no write from the runtime-only event")
+        (is (= {} (rf/app-db-value :conf.rt/counter))
+            "the counter frame's app-db partition saw no write from the runtime-only event"))
+      (testing "the generation binding did NOT leak past either cascade"
+        (is (nil? registrar/*generation*)
+            "after the dispatches, no generation is bound (the resolution seam unwound)")))))
 
 ;; Prove the fallback sentinel is reachable rather than relying on a vacuous
 ;; `not= :global` assertion.
