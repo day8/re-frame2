@@ -170,6 +170,7 @@
 const fs = require('fs');
 const path = require('path');
 const { pageExemptions } = require('./examples-asset-manifest.cjs');
+const { walkDir, assertWalkComplete } = require('./walk-tree.cjs');
 
 // __dirname is <repo>/examples/scripts. REPO_ROOT is <repo>.
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
@@ -305,28 +306,22 @@ function isExampleHostPage(name) {
   return name === 'index.html' || name.endsWith('.index.html');
 }
 
-function listExampleIndexHtml(root = EXAMPLES_ROOT) {
-  const out = [];
-  const stack = [root];
-  while (stack.length > 0) {
-    const dir = stack.pop();
-    let entries;
-    try {
-      entries = fs.readdirSync(dir, { withFileTypes: true });
-    } catch {
-      continue;
-    }
-    for (const entry of entries) {
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        if (entry.name === 'node_modules' || entry.name === '_shared') continue;
-        stack.push(full);
-      } else if (entry.isFile() && isExampleHostPage(entry.name)) {
-        out.push(full);
-      }
-    }
-  }
-  return out.sort();
+// Enumerate every example host page under `root`, FAIL-CLOSED. A directory that
+// cannot be read is NOT silently dropped (the old catch-and-continue turned a
+// partial walk into an ordinary smaller array that could stay above the CLI
+// floor and green an incomplete scan — rf2-3fc89f.31); an unreadable path throws
+// via assertWalkComplete, naming the path + cause. The `node_modules` / `_shared`
+// prunes stay a POLICY skip (not an error). `io` is injectable so a test can
+// drive a deterministic partial-walk failure.
+function listExampleIndexHtml(root = EXAMPLES_ROOT, { io = fs } = {}) {
+  const { items, walkErrors } = walkDir({
+    roots: [root],
+    io,
+    skipDir: (name) => name === 'node_modules' || name === '_shared',
+    acceptFile: (name) => isExampleHostPage(name),
+  });
+  assertWalkComplete(walkErrors, 'check-examples-assets host-page enumeration');
+  return items.sort();
 }
 
 // ---------------------------------------------------------------------------
@@ -1490,12 +1485,24 @@ module.exports = {
 // ---------------------------------------------------------------------------
 if (require.main === module) {
   const listOnly = process.argv.slice(2).includes('--list');
-  const indexes = listExampleIndexHtml();
+  // Fail-closed enumeration: a directory-read failure throws (naming the path)
+  // rather than silently shrinking the set (rf2-3fc89f.31), so the walk itself
+  // is the completeness proof. The count floor below is now a SECONDARY drift
+  // ratchet only (catches a genuinely-empty layout / a wholesale rename), not
+  // the primary guard against a partial walk. Surface the actionable
+  // discovery-failure message cleanly (no JS stack) and exit non-zero.
+  let indexes;
+  try {
+    indexes = listExampleIndexHtml();
+  } catch (err) {
+    console.error(err && err.actionable ? err.message : err && err.stack ? err.stack : err);
+    process.exit(1);
+  }
 
-  // Non-vacuous guard: a walk that silently recovers nothing must NOT let the
-  // gate pass green having scanned zero pages. The repo ships well over a
-  // dozen example host pages (index.html + the *.index.html showcase pages);
-  // require a sane floor.
+  // Secondary drift ratchet: even a fully-readable walk that recovers almost
+  // nothing (a layout collapse / mass rename) must NOT green a vacuous gate.
+  // The repo ships well over a dozen example host pages (index.html + the
+  // *.index.html showcase pages); require a sane floor.
   if (indexes.length < 10) {
     console.error(
       `check-examples-assets: only ${indexes.length} example host page(s) ` +

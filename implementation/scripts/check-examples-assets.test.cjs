@@ -185,6 +185,53 @@ it('LIVE: the two Story showcase host pages are enumerated by the gate (rf2-x48b
   }
 });
 
+// ---- FAIL-CLOSED host-page enumeration (rf2-3fc89f.31) -------------------
+//
+// A directory-read failure under examples/ must FAIL CLOSED (throw, naming the
+// unreadable path) rather than silently drop that subtree — the old
+// catch-and-continue returned an ordinary smaller array that could stay above
+// the CLI floor of 10 and green an INCOMPLETE scan (measured on origin/main: a
+// synthetic EACCES on examples/core dropped 13 of 35 host pages, still >10). On
+// the OLD code listExampleIndexHtml ignored the injected io and returned an
+// array, so `assert.throws` here fails on old code — the regression teeth.
+
+// An io that delegates to the real fs but throws EACCES for ONE subtree,
+// reproducing a torn checkout / permissions fault without touching real disk.
+function failingReaddirIo(badDir) {
+  const realFs = require('fs');
+  const bad = path.resolve(badDir);
+  return {
+    readdirSync: (dir, opts) => {
+      if (path.resolve(dir) === bad) {
+        const e = new Error(`EACCES: permission denied, scandir '${dir}'`);
+        e.code = 'EACCES';
+        throw e;
+      }
+      return realFs.readdirSync(dir, opts);
+    },
+  };
+}
+
+it('TEETH: listExampleIndexHtml FAILS CLOSED on an unreadable subtree (rf2-3fc89f.31)', () => {
+  const badDir = path.join(EXAMPLES_ROOT, 'core');
+  assert.throws(
+    () => listExampleIndexHtml(EXAMPLES_ROOT, { io: failingReaddirIo(badDir) }),
+    (err) =>
+      /enumeration FAILED/.test(err.message) &&
+      err.message.includes(badDir) &&
+      Array.isArray(err.walkErrors),
+    'a directory-read failure must throw (naming the path), not silently drop the subtree',
+  );
+});
+
+it('listExampleIndexHtml returns the full set with a clean io (no false failure) (rf2-3fc89f.31)', () => {
+  // The intentional node_modules/_shared skips are POLICY, not errors — a clean
+  // walk still recovers the full host-page set.
+  const clean = listExampleIndexHtml(EXAMPLES_ROOT, { io: require('fs') });
+  assert.deepStrictEqual(clean, realIndexes, 'the injected-fs walk equals the default walk');
+  assert.ok(clean.length >= 10, 'the clean walk is non-vacuous');
+});
+
 it('LIVE: every real example page resolves its assets + carries the contract', () => {
   const { errors } = scanAll({ indexes: realIndexes });
   assert.strictEqual(

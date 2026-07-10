@@ -79,6 +79,67 @@ it('LIVE: no stock-Reagent example source requires slim wiring', () => {
   );
 });
 
+// ---- FAIL-CLOSED source enumeration (rf2-3fc89f.31) ----------------------
+//
+// A missing/unreadable DECLARED ROOT (core / capabilities / patterns / real-apps)
+// — or any unreadable nested subtree — must FAIL CLOSED (throw, naming the root)
+// rather than silently return a smaller array. The old catch-and-continue let a
+// forbidden slim import in an unwalked root stay INVISIBLE while the count floor
+// of 20 still passed (measured on origin/main: a missing core root dropped 18 of
+// 69 sources, still >20). EACH root is thus validated INDEPENDENTLY of the
+// aggregate count. On OLD code listStockReagentSources ignored the injected io
+// and returned an array, so `assert.throws` here fails on old code (regression
+// teeth).
+
+// An io that delegates to the real fs but throws EACCES for ONE declared root,
+// reproducing an unreadable/torn root without touching real disk.
+function failingReaddirIo(badDir) {
+  const realFs = require('fs');
+  const bad = path.resolve(badDir);
+  return {
+    readdirSync: (dir, opts) => {
+      if (path.resolve(dir) === bad) {
+        const e = new Error(`EACCES: permission denied, scandir '${dir}'`);
+        e.code = 'EACCES';
+        throw e;
+      }
+      return realFs.readdirSync(dir, opts);
+    },
+  };
+}
+
+it('TEETH: a missing/unreadable declared root FAILS CLOSED, naming that root (rf2-3fc89f.31)', () => {
+  // Validate every declared root independently: fail the FIRST root while the
+  // other three remain readable and above the aggregate floor of 20.
+  const badRoot = STOCK_REAGENT_ROOTS[0];
+  assert.throws(
+    () => listStockReagentSources(STOCK_REAGENT_ROOTS, { io: failingReaddirIo(badRoot) }),
+    (err) =>
+      /enumeration FAILED/.test(err.message) &&
+      err.message.includes(badRoot) &&
+      Array.isArray(err.walkErrors),
+    'an unreadable declared root must throw (naming it), not silently shrink the set',
+  );
+});
+
+it('EACH declared root is validated independently (any one unreadable fails closed) (rf2-3fc89f.31)', () => {
+  // Not just the first: an unreadable root ANYWHERE in the declared set fails
+  // closed — proving the guard is per-root, not an aggregate count.
+  for (const badRoot of STOCK_REAGENT_ROOTS) {
+    assert.throws(
+      () => listStockReagentSources(STOCK_REAGENT_ROOTS, { io: failingReaddirIo(badRoot) }),
+      (err) => err.message.includes(badRoot),
+      `an unreadable '${badRoot}' must fail closed by name`,
+    );
+  }
+});
+
+it('listStockReagentSources returns the full set with a clean io (no false failure) (rf2-3fc89f.31)', () => {
+  const clean = listStockReagentSources(STOCK_REAGENT_ROOTS, { io: require('fs') });
+  assert.deepStrictEqual(clean, realSources, 'the injected-fs walk equals the default walk');
+  assert.ok(clean.length >= 20, 'the clean walk is non-vacuous');
+});
+
 // ---------------------------------------------------------------------------
 // 2) UNIT TEETH — synthetic in-memory fixtures so the detector is pinned.
 // A tiny fake io: a map of absolute path -> file contents.
