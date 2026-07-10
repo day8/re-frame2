@@ -28,8 +28,19 @@
             [re-frame.registrar :as registrar]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]
+            ;; Activate the default Malli validator (rf2-t0hq): without this
+            ;; require the CLJS default validator soft-passes and the durable
+            ;; AuthSlice regression below could never observe a rollback. This is
+            ;; the canonical app-boot opt-in for Malli app-schema validation.
+            [re-frame.schemas.malli]
+            [malli.core :as m]
             [re-frame.views]
             [re-frame.http.test-support]
+            ;; The shared WIRE contract (User / UserResponse) + this app's
+            ;; durable app-db schemas (AuthSlice), for the default-frame
+            ;; validator regression (rf2-3fc89f.32).
+            [realworld-shared.schema :as ws]
+            [realworld-http.schema :as app-schema]
             [realworld-http.core]
             ;; Loaded for its ns-load side effects: registers the routes (with
             ;; the `:can-enter [:realworld.routing/authed?]` auth gate on the
@@ -51,7 +62,8 @@
             ;; home-context-test (rf2-rq65wv).
             [realworld-http.tags :as tags]
             [realworld-http.ssr :as ssr])
-  (:require-macros [re-frame.core :refer [with-new-frame]]))
+  (:require-macros [re-frame.core :refer [with-new-frame]]
+                   [re-frame.test-support :refer [with-trace-recorder!]]))
 
 ;; ============================================================================
 ;; CANNED-STUB HELPERS
@@ -194,6 +206,77 @@
 
     (rf/dispatch-sync [:auth/flow [:auth/dismiss]] {:frame f})
     (is (= :idle (rf/compute-sub [:auth/state] (rf/frame-state-value f))))))
+
+;; ============================================================================
+;; auth — wire User vs token-free durable session-user (rf2-3fc89f.32)
+;; ============================================================================
+;;
+;; The correctness review found the durable AuthSlice validated its :user
+;; against the WIRE `ws/User`, which REQUIRES the sensitive :token — but
+;; `:auth/store-session` stores `(dissoc user :token)`, so the durable user is
+;; token-free. In the dev/default build where app schemas are active, the real
+;; post-commit validator rejects that commit and rolls the whole login back.
+;;
+;; Every OTHER login/session test above runs on an anonymous frame
+;; (`make-anon-frame-record!`), whose gensym'd id carries no registered app
+;; schema, so the validator never runs there — those tests stayed falsely green
+;; (the rf2-lo28u lesson: an acceptance test must hit the ACTUAL validated path).
+;; This regression registers the REAL production `AuthSlice` var on the test
+;; frame — the same var `reg-app-schemas` binds to `:rf/default` at ns-load — so
+;; the genuine post-commit validator participates on the genuine
+;; `:auth/store-session` commit.
+
+(defn- vec-map-slot-props
+  "The properties map of one slot in a vector-form Malli `[:map ...]`, or nil.
+   Reads the wire User's per-slot `:sensitive?` flag straight off the pure-data
+   schema, no Malli introspection needed."
+  [map-schema slot-key]
+  (some (fn [entry]
+          (when (and (vector? entry) (= slot-key (first entry)) (map? (second entry)))
+            (second entry)))
+        (rest map-schema)))
+
+(defn- durable-session-user-schema-test []
+  ;; --- WIRE contract UNCHANGED: a token-less reply is still REJECTED and the
+  ;;     token slot stays sensitive (the fix must not weaken decode) ---
+  (is (true? (m/validate ws/UserResponse
+                         {:user {:email "alice@example.com" :username "alice"
+                                 :token "jwt-abc" :bio nil :image nil}}))
+      "a complete login/register/restore/settings reply (with :token) still decodes")
+  (is (false? (m/validate ws/UserResponse
+                          {:user {:email "alice@example.com" :username "alice"
+                                  :bio nil :image nil}}))
+      "a token-LESS reply is STILL rejected by the wire schema — :token stays required")
+  (is (true? (:sensitive? (vec-map-slot-props ws/User :token)))
+      "the wire User's :token slot stays classified :sensitive? true")
+
+  ;; --- DURABLE contract: the token-free session user is stored AND validates
+  ;;     against the real AuthSlice under the real post-commit validator ---
+  (with-new-frame [f (frame/make-anon-frame-record! {})]
+    ;; Register the ACTUAL production AuthSlice on THIS frame so the post-commit
+    ;; validator consults it — the wiring the anon-frame tests route around.
+    (rf/reg-app-schema [:auth] {:frame f} app-schema/AuthSlice)
+    (with-trace-recorder! [traces]
+      (rf/dispatch-sync [:auth/store-session {:email "alice@example.com"
+                                              :username "alice"
+                                              :token "jwt-abc"
+                                              :bio nil :image nil}]
+                        {:frame f})
+      ;; RED on old code: AuthSlice embedded the wire `ws/User` (requires
+      ;; :token), the durable user is `(dissoc user :token)` → post-commit
+      ;; validation fails :where :app-db and the login rolls back.
+      (let [violations (filter #(and (= :rf.error/schema-validation-failure (:operation %))
+                                     (= :app-db (-> % :tags :where)))
+                               @traces)]
+        (is (empty? violations)
+            "the token-free durable AuthSlice validates — no :app-db schema-validation-failure"))
+      (let [db (rf/app-db-value f)]
+        (is (= "alice" (get-in db [:auth :user :username]))
+            "the durable session user is committed (no rollback)")
+        (is (not (contains? (get-in db [:auth :user]) :token))
+            "no token persists under [:auth :user] — the unclassified duplicate is avoided")
+        (is (= "jwt-abc" (get-in db [:auth :token]))
+            "the JWT rides its one classified durable home at [:auth :token]")))))
 
 ;; ============================================================================
 ;; articles — global feed loading + failure paths
@@ -1081,7 +1164,9 @@
   (testing "login failure surfaces error and dismiss returns to :idle"
     (login-failure-test))
   (testing ":auth.session/token is a recordable generator (not provided-at-dispatch)"
-    (session-token-cofx-shape-test)))
+    (session-token-cofx-shape-test))
+  (testing "durable AuthSlice user validates token-free; wire User still requires :token (rf2-3fc89f.32)"
+    (durable-session-user-schema-test)))
 
 (deftest realworld-articles-feed
   (testing "global feed loads and re-loads bumping :attempt"

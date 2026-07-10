@@ -48,9 +48,13 @@
    [:stale-after-ms {:optional true} [:maybe :int]]])
 
 (def AuthSlice
-  "The auth slice. :user holds the current :User payload (or nil); :token is
-   the JWT (or nil). The auth machine's own snapshot lives elsewhere — over in
-   runtime-db at [:rf.runtime/machines :snapshots :auth/flow].
+  "The auth slice. :user holds the durable, token-free session user
+   (`ws/SessionUser` — the wire User minus its credential, since
+   `:auth/store-session` `dissoc`s the token before storing); :token is the JWT
+   (or nil). Validating :user against the wire `ws/User` here would demand the
+   very :token the durable copy deliberately drops, and post-commit validation
+   would roll the login back. The auth machine's own snapshot lives elsewhere —
+   over in runtime-db at [:rf.runtime/machines :snapshots :auth/flow].
 
    :return-to is the breadcrumb: the post-login bounce-back target the routing
    `:rf.route/entry-blocked` handler drops here (routing.cljs) when the
@@ -59,7 +63,7 @@
    exists for the brief window between that redirect and the next successful
    login."
   [:map
-   [:user      [:maybe ws/User]]
+   [:user      [:maybe ws/SessionUser]]
    [:token     [:maybe :string]]
    [:return-to {:optional true}
     [:map
