@@ -4,60 +4,25 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
+            [re-frame.test-helpers :as th]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.static.schemas.panel :as panel]
-            [day8.re-frame2-xray.test-support :as xray-test-support]
-            [day8.re-frame2-xray.trace-collector :as trace-collector]))
+            [day8.re-frame2-xray.test-support :as xray-test-support]))
 
 ;; ---- fixture ------------------------------------------------------------
 
-(defn- xray-init! []
-  (xray-test-support/reset-all!)
-  (trace-collector/reset-for-test!))
-
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
-     :init-fn xray-init!}))
+  ;; `reset-all!` folds the trace-collector ring reset in, so the old
+  ;; bespoke `xray-init!` (reset-all! + a REDUNDANT direct trace reset) is
+  ;; gone (rf2-vj80u8). Default `:all` tier + plain-atom adapter.
+  (xray-test-support/make-xray-runtime-fixture))
 
-;; ---- hiccup walker ------------------------------------------------------
-
-(declare expand-tree)
-(defn- expand-tree [tree]
-  (cond
-    (and (vector? tree) (fn? (first tree)))
-    (let [result (apply (first tree) (rest tree))]
-      ;; Form-2 Reagent components return an inner fn; re-call with
-      ;; the same args (Reagent's re-render contract). rf2-oqa60 —
-      ;; edn-inspector is form-2 to stabilise mount-id.
-      (expand-tree
-        (if (fn? result)
-          (apply result (rest tree))
-          result)))
-    (vector? tree) (mapv expand-tree tree)
-    (seq? tree)    (map expand-tree tree)
-    :else          tree))
-
-(defn- hiccup-seq [tree]
-  (tree-seq (some-fn vector? seq?) seq (expand-tree tree)))
-
-(defn- find-by-testid [tree testid]
-  (some (fn [node]
-          (when (and (vector? node)
-                     (map? (second node))
-                     (= testid (:data-testid (second node))))
-            node))
-        (hiccup-seq tree)))
-
-(defn- find-all-by-testid-prefix [tree prefix]
-  (filterv (fn [node]
-             (and (vector? node)
-                  (map? (second node))
-                  (when-let [tid (:data-testid (second node))]
-                    (= 0 (.indexOf tid prefix)))))
-           (hiccup-seq tree)))
+;; ---- hiccup walkers ------------------------------------------------------
+;;
+;; The private expand-tree / hiccup-seq / find-by-testid* copies this file
+;; carried are semantically identical to `re-frame.test-helpers`; the tests
+;; below call `th/find-by-testid` / `th/find-by-testid-prefix` directly
+;; (rf2-vj80u8 — no Xray walker facade).
 
 (defn- setup-xray! []
   (registry/register-xray-handlers!)
@@ -243,7 +208,7 @@
       [:rf.xray.static.schemas/set-registry-override-for-test
        {:schemas-by-frame {} :events {} :subs {}}])
     (let [tree (panel/Panel)]
-      (is (some? (find-by-testid tree "rf-xray-static-schemas-empty"))))))
+      (is (some? (th/find-by-testid tree "rf-xray-static-schemas-empty"))))))
 
 (deftest panel-renders-rows-from-override
   (setup-xray!)
@@ -252,7 +217,7 @@
       [:rf.xray.static.schemas/set-registry-override-for-test
        sample-registry])
     (let [tree (panel/Panel)
-          rows (find-all-by-testid-prefix tree "rf-xray-static-schemas-row-")]
+          rows (th/find-by-testid-prefix tree "rf-xray-static-schemas-row-")]
       (is (= 3 (count rows)) "three row surfaces rendered"))))
 
 (deftest panel-renders-jump-to-source-chips
@@ -262,7 +227,7 @@
       [:rf.xray.static.schemas/set-registry-override-for-test
        sample-registry])
     (let [tree (panel/Panel)
-          chips (find-all-by-testid-prefix tree "xray-open-in-editor")]
+          chips (th/find-by-testid-prefix tree "xray-open-in-editor")]
       ;; Every fixture row carries a :file slot, so every row should
       ;; have an open chip resolved through the editor config.
       (is (pos? (count chips))
@@ -280,8 +245,8 @@
         [:rf.xray.static.schemas/set-registry-override-for-test
          sample-registry])
       (let [tree (panel/Panel)
-            list-node (find-by-testid tree "rf-xray-static-schemas-list")
-            rows (find-all-by-testid-prefix tree "rf-xray-static-schemas-row-")]
+            list-node (th/find-by-testid tree "rf-xray-static-schemas-list")
+            rows (th/find-by-testid-prefix tree "rf-xray-static-schemas-row-")]
         (is (= "list" (:role (second list-node))) "<ul> carries role=list")
         (is (seq rows) "rows rendered")
         (is (every? #(= "listitem" (:role (second %))) rows)
@@ -303,6 +268,6 @@
         [:rf.xray.static.schemas/set-registry-override-for-test
          sample-registry])
       (let [tree (panel/Panel)
-            widget (find-all-by-testid-prefix
+            widget (th/find-by-testid-prefix
                      tree "rf-xray-edn-inspector-")]
         (is (seq widget) "schema values render through the edn-inspector widget")))))

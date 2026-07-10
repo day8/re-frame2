@@ -34,7 +34,9 @@
 
   **Test-only — never call from production code.** Per rf2-kmhvg
   cluster item 3e (audit rf2-i0veg §3e)."
-  (:require [day8.re-frame2-xray.config :as config]
+  (:require [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-support :as core-test-support]
+            [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.install :as install]
             [day8.re-frame2-xray.mount :as mount]
             [day8.re-frame2-xray.registry :as registry]
@@ -95,6 +97,67 @@
   (reset-all!)
   (config/reset-settings!)
   nil)
+
+;; ---- composed runtime fixture (rf2-vj80u8) ------------------------------
+
+(defn make-xray-runtime-fixture
+  "Build a `cljs.test` `:each` fixture that resets BOTH the per-process
+  re-frame runtime (via core
+  `re-frame.test-support/make-reset-runtime-fixture`) AND Xray's own
+  process-global reset tier, around each test.
+
+  Folds the two-step `(make-reset-runtime-fixture {… :init-fn xray-init!})`
+  boilerplate — repeated across the Xray suite as a bespoke private
+  `xray-init!` fn (often with a REDUNDANT trailing
+  `trace-collector/reset-for-test!` that `reset-all!` already folds in) —
+  into one owner. The core fixture rolls back the registrar / frames /
+  flows / schemas + installs the adapter; the Xray reset tier then clears
+  Xray's install + registry + mount sentinels, the trace-collector rings,
+  and (for `:runtime`) the persisted settings.
+
+  `opts` (all optional):
+    :adapter    — substrate adapter to install. Default
+                  `re-frame.substrate.plain-atom/adapter` (the node-CLJS
+                  default the Xray suite uses).
+    :tier       — which Xray reset tier runs after the runtime reset,
+                  before the test body:
+                    :sentinels — `reset-sentinels!` (idempotency flags
+                                 only; safe MID-setup — host frame already
+                                 registered).
+                    :all       — `reset-all!` (sentinels + trace rings).
+                                 DEFAULT — the clean-slate a
+                                 register-before-test fixture wants.
+                    :runtime   — `reset-runtime!` (all + persisted
+                                 settings / localStorage).
+    :post-reset — optional zero-arg fn run AFTER the Xray reset tier, still
+                  before the test body (both inside the core fixture's
+                  `:init-fn` — i.e. after adapter install + `:rf/default`).
+                  Use for per-suite cleanup that must run on the just-reset
+                  runtime (e.g. `(spine-filters/clear-raw!)`, seeding a
+                  clean localStorage, `(config/set-filters-storage-key!
+                  nil)`).
+    :async?     — forwarded to the core fixture (map-form for suites with
+                  `(async done …)` tests).
+
+  Other core `make-reset-runtime-fixture` options (`:clear-kinds`,
+  `:clear-app-schemas?`, `:ambient-frame`) are intentionally NOT threaded
+  — no Xray suite needs them; reach for the core fixture directly if you
+  do.
+
+  **Test-only — never call from production code.**"
+  ([] (make-xray-runtime-fixture {}))
+  ([{:keys [adapter tier post-reset async?]
+     :or   {adapter plain-atom/adapter
+            tier    :all}}]
+   (core-test-support/make-reset-runtime-fixture
+     {:adapter adapter
+      :async?  async?
+      :init-fn (fn []
+                 (case tier
+                   :sentinels (reset-sentinels!)
+                   :all       (reset-all!)
+                   :runtime   (reset-runtime!))
+                 (when post-reset (post-reset)))})))
 
 ;; ---- test-only override seam orchestrator (rf2-e8330v / xxo3zz F3) -------
 
