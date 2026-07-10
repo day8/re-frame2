@@ -257,9 +257,6 @@
     :producer-ns 're-frame.flows
     :design-bead "rf2-u0zz5"
     :description "Run the frame's flows over the pending frame-state, returning the flow-augmented APP-DB. Called `[frame db]` (app-db only) or `[frame db runtime-db]` (both pending partitions — EP-0001 §535-551, rf2-4eisfr). Bare `:inputs` resolve against app-db; `[:rf.db/runtime …]` inputs resolve against runtime-db (any flow may read runtime-db; only writes are reserved). Invoked by the router's outermost flows-after-interceptor to transform the handler's pending `:db` effect (after the rest of the `:after` chain, before the `:db` install)."}
-   {:key         :flows/reset-last-inputs!
-    :producer-ns 're-frame.flows
-    :description "Reset memoised last-input snapshots (test isolation)."}
    {:key         :flows/snapshot-last-inputs
     :producer-ns 're-frame.flows
     :design-bead "rf2-4wqu6"

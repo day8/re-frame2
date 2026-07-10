@@ -642,7 +642,6 @@
 (late-bind/set-fn! :flows/reg-flow           reg-flow)
 (late-bind/set-fn! :flows/clear-flow         clear-flow)
 (late-bind/set-fn! :flows/run-flows-on-db    run-flows-on-db)
-(late-bind/set-fn! :flows/reset-last-inputs! reset-last-inputs!)
 (late-bind/set-fn! :flows/reset-flows!       reset-flows!)
 ;; The dirty-check-rollback pair the router uses to keep this frame's
 ;; `last-inputs` bookkeeping aligned with the DURABLE app-db across a
