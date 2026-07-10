@@ -1,15 +1,21 @@
 #!/usr/bin/env python3
-"""No-bead-id + verification-posture drift guard for the re-frame2 (authoring)
-skill.
+"""No-bead-id + verification-posture + launcher-canonical drift guard for the
+re-frame2 (authoring) skill.
 
-A senior review of `skills/re-frame2` caught two regressions that the existing
-automated guards did not protect (the no-bead-id guard was scoped to
+`spec/design.md` is the single normative source for the skill's locked
+decisions (L1–L11), file structure, cardinal rules, and verification posture;
+`spec/inputs.md` owns the canonical inputs and update procedure. The
+`spec/authoring-prompt.md` launcher orchestrates a reauthoring pass by
+*pointing at* those two files — it must not carry a second, drift-prone copy of
+the tree, the rules, or the locks. This guard protects three regressions the
+existing automated guards did not catch (the no-bead-id guard was scoped to
 `skills/re-frame2-implementor` only):
 
   1. **Bead-id leaks in user-facing leaves.** Two leaves carried
      `EP-0008 (rf2-hhutya)` — an internal `bd` tracker id. The skill's own
-     authoring spec locks this out (`spec/design.md` L10, `spec/authoring-
-     prompt.md`): `SKILL.md` + `references/` + `patterns/` + `decision-trees/`
+     design locks this out (`spec/design.md` L10 — the normative source; the
+     `spec/authoring-prompt.md` launcher references it but no longer restates
+     it): `SKILL.md` + `references/` + `patterns/` + `decision-trees/`
      carry NO `rf2-XXXX` ids. Bead ids are monorepo-internal workflow noise; a
      consumer app author has no `bd` and no bead corpus, so a leaked id is
      unexplained context. Use public, stable evidence instead — an EP number, a
@@ -18,8 +24,9 @@ automated guards did not protect (the no-bead-id guard was scoped to
      (authoring / internal context) and are out of scan scope; `evals/` is also
      out of scope (eval harness, not user-facing teaching).
 
-  2. **Verification-posture drift.** `spec/design.md` (Q14 / L3), `spec/
-     authoring-prompt.md`, and `skills/README.md` all lock the posture: this is
+  2. **Verification-posture drift.** `spec/design.md` (Q14 / L3) is the
+     normative lock on the posture (the `spec/authoring-prompt.md` launcher and
+     `skills/README.md` both reference it, they do not re-hold it): this is
      an authoring-only skill — the AUTHOR runs the tests, the compiler, the app;
      the skill stops at writing the code. Running gates is general software
      practice (Pillar 4), not a re-frame2 binding the skill teaches. The skill
@@ -31,12 +38,24 @@ automated guards did not protect (the no-bead-id guard was scoped to
      unlocked by Mike, the design/index rationale flips first — and this guard's
      posture rules are retired in the same change.)
 
+  3. **Launcher regrowth.** `spec/authoring-prompt.md` is a launcher, not a
+     second normative source. It MUST point at both canonical files
+     (`design.md` AND `inputs.md`) so a reauthoring session reads the design
+     before writing, and it MUST NOT regrow the copied file-structure tree or
+     the copied locks/cardinal-rules block — the exact duplication that drifted
+     (the launcher had over-generalised the runtime `*` suffixes and still
+     named a default frame, both contradicting current design). This guard
+     fails if the launcher stops citing a canonical file or grows a box-drawing
+     tree / a "Locks to preserve verbatim" (or "Cardinal rules to bake in")
+     block back.
+
 Scanned leaves (globbed, so a new leaf is covered automatically):
     SKILL.md, README.md, references/**/*.md, patterns/**/*.md,
     decision-trees/**/*.md.
-Out of scope (deliberately): spec/ (L10 permits bead ids; carries the Q14 lock
-    *statements* themselves), evals/ (harness, not teaching), examples-map.md is
-    in scope (it is a user-facing leaf).
+Out of scope of the line-by-line scan (deliberately): spec/ (L10 permits bead
+    ids; `design.md` carries the normative lock *statements*; `authoring-
+    prompt.md` is the launcher, checked separately by Rule 3), evals/ (harness,
+    not teaching). examples-map.md is in scope (it is a user-facing leaf).
 
 Exit code:
     0  no drift detected
@@ -70,6 +89,9 @@ for _stream in (sys.stdout, sys.stderr):
         pass
 
 SKILL_DIR = REPO_ROOT / "skills" / "re-frame2"
+# The launcher: a reauthoring wrapper that must POINT at the canonical files
+# (design.md + inputs.md), never re-hold their tree / rules / locks (Rule 3).
+AUTHORING_PROMPT = SKILL_DIR / "spec" / "authoring-prompt.md"
 
 
 def scanned_files() -> list[Path]:
@@ -113,6 +135,60 @@ VERIFY_PROSE_RE = re.compile(
     r"|verifying\b.{0,40}\bis in scope",
     re.IGNORECASE,
 )
+
+# --- Rule 3: launcher points at BOTH canonical files, without regrowing the
+#     tree / locks sections. Operates on the whole authoring-prompt.md body
+#     (not the line-by-line leaf scan). `design.md` / `inputs.md` are the
+#     normative source; the launcher must cite each so a reauthoring session
+#     reads them first, and must not paste a second copy of the material they
+#     own.
+DESIGN_REF_RE = re.compile(r"\bdesign\.md\b")
+INPUTS_REF_RE = re.compile(r"\binputs\.md\b")
+# A regrown file-structure tree: box-drawing branch glyphs (├── / └── / │) —
+# the only reason they appear in this prose is a copied directory listing.
+TREE_REGROWTH_RE = re.compile(r"[├└]──")
+# A regrown normative block: the copied "Locks to preserve verbatim" or
+# "Cardinal rules to bake in" heading/label the launcher used to carry.
+LOCKS_REGROWTH_RE = re.compile(
+    r"(?im)^\s*[>*#\s-]*\**\s*(?:locks to preserve verbatim"
+    r"|cardinal rules to bake in)\b"
+)
+
+
+def launcher_problems(text: str) -> list[str]:
+    """Rule 3 — the authoring-prompt.md launcher must point at both canonical
+    files and must not regrow the tree / locks sections. Takes the raw body so
+    the self-test can pass fixtures directly."""
+    problems: list[str] = []
+    if not DESIGN_REF_RE.search(text):
+        problems.append(
+            "LAUNCHER-CANONICAL: spec/authoring-prompt.md no longer points at "
+            "spec/design.md — the normative source for the locked decisions "
+            "(L1–L11), the file structure, and the cardinal rules. A "
+            "reauthoring session must be told to read design.md first."
+        )
+    if not INPUTS_REF_RE.search(text):
+        problems.append(
+            "LAUNCHER-CANONICAL: spec/authoring-prompt.md no longer points at "
+            "spec/inputs.md — the normative source for the canonical inputs and "
+            "the §6 update procedure. Cite it in the ordered reads."
+        )
+    if TREE_REGROWTH_RE.search(text):
+        problems.append(
+            "LAUNCHER-REGROWTH: spec/authoring-prompt.md regrew the file-"
+            "structure tree (box-drawing ├── / └── glyphs). The locked layout "
+            "lives ONLY in design.md §5 — link it, do not paste a second copy "
+            "(a duplicate is exactly what drifts)."
+        )
+    if LOCKS_REGROWTH_RE.search(text):
+        problems.append(
+            "LAUNCHER-REGROWTH: spec/authoring-prompt.md regrew a normative "
+            "block (a 'Locks to preserve verbatim' / 'Cardinal rules to bake "
+            "in' section). The L1–L11 locks and the cardinal rules live ONLY in "
+            "design.md §3 / SKILL.md §Cardinal rules — reference them, don't "
+            "restate a divergent copy."
+        )
+    return problems
 
 
 def beadid_problems(line: str) -> list[str]:
@@ -167,6 +243,18 @@ def find_drift(files: list[Path]) -> tuple[list[str], int]:
             rel = path.relative_to(REPO_ROOT)
             for label in beadid_problems(line) + posture_problems(line):
                 problems.append(f"{rel}:{lineno}: {label}\n    {line.strip()}")
+
+    # Rule 3 — the launcher (authoring-prompt.md) is checked as a whole body,
+    # not line-by-line, and lives under spec/ (out of the leaf scan above).
+    if not AUTHORING_PROMPT.is_file():
+        problems.append(
+            "SETUP: skills/re-frame2/spec/authoring-prompt.md missing — the "
+            "launcher-canonical check (Rule 3) has no anchor."
+        )
+    else:
+        rel = AUTHORING_PROMPT.relative_to(REPO_ROOT)
+        for label in launcher_problems(_slurp(AUTHORING_PROMPT)):
+            problems.append(f"{rel}: {label}")
     return problems, lines_checked
 
 
@@ -184,15 +272,17 @@ def run(*, verbose: bool, ci: bool) -> int:
 
     if verbose:
         print(
-            f"re-frame2 no-bead-id + verify-posture guard: scanned "
-            f"{len(files)} user-facing leaves ({lines_checked} lines)."
+            f"re-frame2 no-bead-id + verify-posture + launcher-canonical guard: "
+            f"scanned {len(files)} user-facing leaves ({lines_checked} lines) "
+            "plus the spec/authoring-prompt.md launcher."
         )
 
     if not problems:
         if verbose:
             print(
-                "re-frame2-drift: no bead-id leaks and no agent-run "
-                "verification-posture drift found."
+                "re-frame2-drift: no bead-id leaks, no agent-run verification-"
+                "posture drift, and the launcher points at design.md + inputs.md "
+                "without regrowing the tree / locks."
             )
         return 0
 
@@ -201,9 +291,10 @@ def run(*, verbose: bool, ci: bool) -> int:
         print(f"{err_prefix}{p}")
     print(
         f"\nre-frame2-drift: {len(problems)} drift issue(s) — keep internal "
-        "bead ids out of the user-facing leaves (L10), and keep the "
-        "authoring-only verification posture (Q14 / L3): the author runs the "
-        "gates, the skill names them."
+        "bead ids out of the user-facing leaves (L10), keep the "
+        "authoring-only verification posture (Q14 / L3: the author runs the "
+        "gates, the skill names them), and keep the launcher pointing at the "
+        "canonical design.md + inputs.md instead of re-holding the tree / locks."
     )
     return 1
 
@@ -314,6 +405,44 @@ def _self_test() -> int:
         posture_problems,
         "The skill writes the test; the author runs the suite.",
         dirty=False, label="F2 author-runs-suite wording",
+    )
+
+    # --- Rule 3: launcher points at both canonical files without regrowing the
+    # tree / locks. `launcher_problems` takes the WHOLE body, so these fixtures
+    # are multi-line prose, not single lines.
+    clean_launcher = (
+        "Read spec/design.md (the normative locks + file structure) then "
+        "spec/inputs.md (the canonical inputs). Write the skill to the layout "
+        "locked in design.md §5; honour the L1-L11 locks in design.md §3."
+    )
+    expect(
+        launcher_problems, clean_launcher,
+        dirty=False, label="G1 launcher cites both canonical files, no regrowth",
+    )
+    expect(
+        launcher_problems,
+        "Read spec/design.md then write the skill.",  # no inputs.md ref
+        dirty=True, label="G2 launcher drops the inputs.md pointer",
+    )
+    expect(
+        launcher_problems,
+        "Read spec/inputs.md then write the skill.",  # no design.md ref
+        dirty=True, label="G3 launcher drops the design.md pointer",
+    )
+    expect(
+        launcher_problems,
+        clean_launcher + "\n```\nskills/re-frame2/\n├── SKILL.md\n```",
+        dirty=True, label="G4 launcher regrew the file-structure tree",
+    )
+    expect(
+        launcher_problems,
+        clean_launcher + "\n\n> *Locks to preserve verbatim:*\n> *- L3 …*",
+        dirty=True, label="G5 launcher regrew the locks block",
+    )
+    expect(
+        launcher_problems,
+        clean_launcher + "\n\n*Cardinal rules to bake in (these go in SKILL.md):*",
+        dirty=True, label="G6 launcher regrew the cardinal-rules block",
     )
 
     if failures:
