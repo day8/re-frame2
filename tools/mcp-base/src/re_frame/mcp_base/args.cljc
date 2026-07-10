@@ -7,17 +7,17 @@
 
   ## Cross-server convention
 
-  Argument names and default postures are a cross-MCP convention. An
-  agent that learns `:dedup` defaults true on re-frame2-pair-mcp must see the
-  same default everywhere. These parsers encode the defaults so they
-  can't drift across consumers."
+  Argument names and default postures are a cross-MCP convention. These
+  parsers share coercion semantics; consumers supply the documented
+  default at each call site."
   (:refer-clojure :exclude [parse-boolean])
   (:require [clojure.string :as str]))
 
 (defn parse-boolean
   "Normalise a possibly-string MCP arg into a boolean. Accepts
   booleans (passthrough), strings (`\"true\"`/`\"false\"`/`\"1\"`/
-  `\"0\"`/`\"yes\"`/`\"no\"`, case-insensitive), keywords
+  `\"0\"`/`\"yes\"`/`\"no\"`/`\"y\"`/`\"n\"`/`\"on\"`/`\"off\"`,
+  case-insensitive), keywords
   (`:true`/`:false`), or nil. Unrecognised values fall back to
   `default`.
 
@@ -39,7 +39,7 @@
 (def ^:private int-string-re
   "Strict integer-string grammar: optional sign + one-or-more digits,
   nothing else. Trailing garbage (`\"12abc\"`) is rejected so the
-  string arm parses byte-identically across hosts —
+  string arm produces the same result across hosts —
   `Long/parseLong` (JVM) already rejects trailing garbage; raw
   `js/parseInt` (CLJS) parses a numeric PREFIX (`\"12abc\"` ⇒ 12),
   which would diverge from the JVM default-fallback. Guarding both
@@ -49,9 +49,9 @@
 ;; ---------------------------------------------------------------------------
 ;; Cross-runtime finite/range guard.
 ;;
-;; `(long raw)` is UNSAFE on out-of-domain numerics: on the JVM `##Inf`,
-;; `##NaN`, and finite values past the long range (`1.0E20`) THROW
-;; `IllegalArgumentException`, while `##NaN` quietly truncates to `0` — a
+;; `(long raw)` is UNSAFE on out-of-domain numerics: on the JVM `##Inf`
+;; and finite values past the long range (`1.0E20`) throw, while `##NaN`
+;; quietly truncates to `0` — a
 ;; real, non-sentinel cap that locks the agent out. The string arm has
 ;; the same hazard: a digit string above the JS safe-integer ceiling
 ;; parses on the JVM (`Long/parseLong "9007199254740992"`) but defaults
@@ -72,7 +72,7 @@
 
 (def ^:private max-safe-integer
   "The JS safe-integer ceiling, `2^53 − 1` (9 007 199 254 740 991). The
-  cross-runtime domain boundary: a value strictly inside `[-max, max]`
+  cross-runtime domain boundary: a value within `[-max, max]`
   round-trips losslessly through both a JS `number` and a JVM `long`."
   9007199254740991)
 
@@ -146,12 +146,12 @@
 
 (defn parse-positive-int
   "Normalise a possibly-string MCP arg into a positive integer. Accepts
-  ints (passed through, clamped to ≥1), strings (parsed; non-numeric
-  falls back to `default`), or nil (returns `default`). Non-positive
-  numeric inputs clamp to 1.
+  finite in-range numbers (floored toward zero, then clamped to ≥1),
+  integer strings, or nil. Invalid and out-of-range values return
+  `default`; non-positive numeric inputs clamp to 1.
 
-  The `default` is the convention's documented cap (e.g. 50 for cursor
-  pagination, 5000 for token caps)."
+  The caller supplies the documented default (for example, a cursor
+  pagination limit)."
   [raw default]
   (parse-int* raw default 1))
 
@@ -184,13 +184,9 @@
 ;;
 ;;   - `fresh-keyword` — the policy-gated intern. INTERNS by design (the
 ;;                       call site is allocating a new identifier, not
-;;                       resolving an existing one). Only callable when
-;;                       the surrounding context has already bounded the
-;;                       allocation cost — typically an operator-gated
-;;                       write path (`--allow-writes`) whose registrar
-;;                       enforces a grammar over the input. The
-;;                       fresh-id posture is carried on the name itself
-;;                       rather than in a warning-laden docstring.
+;;                       resolving an existing one). Reserve it for an
+;;                       operator-gated write path; prefer
+;;                       `fresh-keyword-checked` when the id has a grammar.
 ;;
 ;; `parse-mode` routes through `safe-keyword` — every caller passes a
 ;; finite `recognised` set, so the bounded gate fits cleanly.
@@ -272,10 +268,8 @@
 
 (defn fresh-keyword
   "Coerce an agent-supplied id into a keyword, INTERNING it. The
-  primitive for paths whose allocation cost is **bounded by some
-  other gate** — either an operator-gated write path that allocates a
-  fresh identifier, or a read path whose universe of acceptable
-  identifiers is constrained by a runtime registry. Strips a leading
+  primitive for operator-gated write paths that deliberately allocate
+  a fresh identifier. Strips a leading
   `:` if present (some agents may serialise EDN-ish). Returns nil for
   nil / blank input.
 
@@ -285,25 +279,17 @@
 
   JVM keywords are interned in a never-shrinking global table. Every
   `fresh-keyword` call permanently grows that table by one slot for a
-  hitherto-unseen input. The policy is **bounded-cost allocation** —
-  reserve this primitive for sites where some other gate caps the
-  number of fresh keywords an attacker can mint:
+  hitherto-unseen input. Reserve this primitive for sites where the
+  write policy accepts the allocation:
 
     - **Operator-gated write paths** that allocate a NEW identifier —
       story-mcp's `--allow-writes` flag plus `:story.<path>/<name>`
       grammar bound; `register-variant`'s `:variant-id`,
       `record-as-variant`'s `:new-variant-id`.
-    - **Runtime-bounded read paths** that resolve against a FINITE
-      registry — re-frame2-pair-mcp's frame-id coercion. The registry's
-      live size caps the allocation; an agent passing arbitrary
-      strings can mint at most one new keyword per registered frame.
-    - **Grammar-bounded registrars** (e.g. `:story.<path>/<name>` in
-      `assert-id!`) — the grammar constrains the per-id allocation
-      cost regardless of read/write direction.
-
-  For finite option sets (mode keywords, slice keywords), use
-  `safe-keyword` against a finite allowlist; `fresh-keyword` is the
-  wrong primitive there — it would intern every typo the agent sent."
+  Grammar validation alone does not bound the number of valid names.
+  For registry lookups, finite option sets, mode keywords, and slice
+  keywords, use `safe-keyword` against the live finite allowlist;
+  `fresh-keyword` would intern every rejected spelling before lookup."
   [v]
   (cond
     (keyword? v) v
@@ -340,9 +326,10 @@
   constructed. `shape-ok?` receives `[ns-part name-part]` (either may be
   `nil` for a bare name) and returns truthy iff the id is admissible.
 
-  `:max-len` (default 512) caps the combined `ns`+`name` length — a
-  defence against a single enormous-id intern even when the grammar
-  itself is permissive.
+  For string inputs, `:max-len` (default 512) caps the combined
+  `ns`+`name` length — a defence against a single enormous-id intern
+  even when the grammar itself is permissive. Keyword inputs are
+  already interned, so they are shape-checked but not length-checked.
 
   On CLJS keywords are not interned in the JVM-table sense, so the
   growth concern does not apply; the same shape gate runs for behavioural

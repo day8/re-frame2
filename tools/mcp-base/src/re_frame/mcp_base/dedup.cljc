@@ -11,12 +11,12 @@
   The library guarantees round-trip exactness via the companion `expand`
   function; the agent host can decode locally.
 
-  Both MCP servers ship the same kinds of duplicate-rich payloads:
+  Both MCP servers ship duplicate-rich payloads:
   re-frame2-pair-mcp's `:epochs` slice (`:db-before` + path-keyed
   `:db-after` diff), subscribe progress `:events`; story-mcp's
   `run-variant` results (`:app-db` + `:snapshot` + `:rendered-hiccup`),
   assertion vectors, recorder replay tuples. The encode step is
-  byte-identical across both servers, so it lives here once.
+  the same data transform on both hosts, so it lives here once.
 
   ## Why `de-dupe-eq` (equality), not `de-dupe` (identity)
 
@@ -33,7 +33,7 @@
   `{:rf.mcp/dedup-table <cache-map>}` (`vocab/dedup-table-key`). Agents
   reconstruct by calling `de-dupe.core/expand` on the cache-map value —
   a cross-MCP key by construction, so an agent that learned the slot on
-  one server sees the byte-identical slot on the other.
+  one server sees the same slot key on the other.
 
   ## Idempotence on no-dedup-opportunity
 
@@ -52,12 +52,12 @@
 
   ## What does NOT live here — the inverse (`dedup-expand`)
 
-  The forward direction is byte-identical, so it is shared here. The
+  The forward transform and marker shape are shared here. The
   INVERSE (`dedup-expand`) is NOT — neither MCP server calls it at
   runtime (the
   wire contract is that the agent host calls `de-dupe.core/expand`
   directly), so it is test-only. Each consumer keeps its own inverse
-  in ITS TEST corpus, signalled \"test-only\" by location (rf2-ywkiss):
+  in its test corpus, signalled \"test-only\" by location:
 
   - re-frame2-pair-mcp keeps it in `re-frame2-pair-mcp.test-utils`
     (its CLJS test corpus's shared test-helper ns).
@@ -99,8 +99,8 @@
   Checked on the cache SHAPE (single entry keyed by `cache-0`), not by
   re-walking the value: any repeated subtree would have added a second
   `cache-N` entry, so `(= 1 (count cache))` already implies root-only —
-  the explicit key check guards against a future `de-dupe` change that
-  keyed the root differently."
+  the explicit key check also verifies the root slot expected by this
+  pinned dependency version."
   [cache]
   (and (map? cache)
        (= 1 (count cache))

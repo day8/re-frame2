@@ -524,7 +524,7 @@
   segment about to be `assoc`ed into it. Assumes the caller
   (`assoc-in-safe`'s `ok?` walk) has already proven every segment along
   `path` is safe to descend — in particular that an integer segment
-  meeting a `nil` node is exactly `0` (see rf2-x2vapx below), so the
+  meeting a `nil` node is exactly `0`, so the
   freshly-vivified `[]` here never `assoc`s an out-of-range index."
   [node path v]
   (if (empty? path)
@@ -544,18 +544,11 @@
   non-associative, or when a `nil` parent is reached by an
   out-of-range vector index.
 
-  The spec contract for `[<path> :assoc v]` is 'set the value at
-  `path`, creating the slot if it didn't exist'. The naive `assoc-in`
-  honours the create-if-absent half, but always vivifies a MAP for a
-  missing intermediate regardless of the segment's type — including
-  an INTEGER segment (`(assoc-in {} [:items 0 :qty] 2)` ⇒
-  `{:items {0 {:qty 2}}}`, an int-keyed MAP), which is a shape NEITHER
-  encoder side ever emits (`collect-vector-patches-into` only reaches
-  an index path via an actual vector). `vivify-assoc-in` (above) fixes
-  this: a `nil` node reached by an integer segment vivifies a VECTOR
-  instead (`⇒ {:items [{:qty 2}]}`, rf2-x2vapx) — the shape a real
-  diff would have produced — while every non-integer segment still
-  vivifies a map exactly as before.
+  The `[<path> :assoc v]` contract creates missing slots while
+  preserving path shape. `vivify-assoc-in` creates a vector for an
+  integer segment (`{} + [[:items 0 :qty] :assoc 2]` ⇒
+  `{:items [{:qty 2}]}`) and a map for any other segment; an int-keyed
+  map is not a shape the encoder emits.
 
   A freshly-vivified vector starts empty, so — mirroring the existing
   PRESENT-vector tail-growth rule below — only index `0` is a valid

@@ -1,4 +1,4 @@
-# `envelope` — cross-MCP response-envelope helpers (rf2-ee38b.19)
+# `envelope` — cross-MCP response-envelope helpers
 
 > **Type:** Reference (`tools/mcp-base/spec/`)
 > Owns the SHAPE of the indicator-field splice (`with-indicators`) enforcing the MUST-level "omit when zero" rule, plus the wire-bounded `:rf.mcp/*` marker detection used by the cache + cap boundary steps. The indicator KEYS themselves live in [`vocab.md`](vocab.md); this ns owns the splice + detection logic.
@@ -25,11 +25,11 @@ This doc is one of thirteen per-namespace contracts indexed from [`README.md`](R
 
 Splice the cross-MCP indicator-field slots onto a tool's envelope map, enforcing the MUST-level "omit when zero" rule from Conventions §Cross-MCP indicator-field vocabulary and Spec 009 §Indicator field on tool responses.
 
-Every tool that walks a tree-typed payload (`snapshot`, `get-path`, `trace-window`, `watch-epochs`, `subscribe`, …) routes its envelope-tail through here so the rule lives in one place — drift across emit sites can no longer silently violate the MUST.
+Tree-payload emitters route their envelope through this helper so the indicator-key and omit-when-zero rules stay consistent.
 
 `counts`:
 
-- `:dropped` — count of `:sensitive? true` leaves dropped at the wire boundary (from `sensitive/strip-sensitive`). Emitted under `vocab/dropped-sensitive-key` when positive.
+- `:dropped` — count of records classified as sensitive and dropped at the wire boundary, including fail-closed malformed stamps. Emitted under `vocab/dropped-sensitive-key` when positive.
 - `:elided` — count of leaves replaced with the `:rf.size/large-elided` marker (from `elision/count-elided-markers`). Emitted under `vocab/elided-large-key` when positive.
 
 A zero / nil / absent count omits its slot entirely (the "omit when zero" MUST). Returns `envelope` unchanged when both counts are zero — identity-preserving on the common path.
@@ -48,9 +48,9 @@ Matches the EXACT marker key, not merely a prefix of it (see §Exact-key match b
 
 Nil-safe: a nil / non-string `text` is not a marker.
 
-## Why wire-bounded markers matter (rf2-gktyn, rf2-3z0zi)
+## Why wire-bounded markers matter
 
-The `:rf.mcp/cache-hit` and `:rf.mcp/overflow` envelopes are replacement results the cache + cap boundary steps emit themselves. By construction they are sub-cap size — re-walking either is wasted work, and a cache check on a hit-marker would hash the marker, not the original payload. `marker-text?` is the cheap detector every boundary step uses to short-circuit when it sees an earlier step's marker.
+The `:rf.mcp/cache-hit` and `:rf.mcp/overflow` envelopes are replacement results emitted by cache and cap steps. By construction they are sub-cap size; pair-mcp uses `marker-text?` to avoid re-walking them. Consumers that do not chain such boundary steps need not call the detector.
 
 ## Print-form parity
 
@@ -61,11 +61,11 @@ Leading-token match on the rendered text is the cheap detector — the marker ma
 
 Matching both keeps the detector host- and print-setting-agnostic.
 
-## Exact-key match (rf2-3xd9i9)
+## Exact-key match
 
 The detector matches the marker key EXACTLY — not merely as a prefix. After the leading marker-key text matches, the very next character must be an EDN token TERMINATOR (whitespace, `,`, or a map/vector/list/string delimiter) — proving the marker key ended exactly there and was not merely a prefix of a longer key. EDN keyword/symbol constituents (alphanumerics plus `* + ! - _ ' ? < > = . / : # & %`) immediately after the prefix mean the leading key is a LOOKALIKE, not the marker.
 
-This closes a correctness hole a bare `starts-with?` left open: a lookalike leading key whose name begins with a marker key — e.g. `:rf.mcp/overflowed` or `:rf.mcp/cache-hit-extra` — was wrongly classified as an already-bounded marker, so an over-budget payload whose first key merely started with `:rf.mcp/overflow` would bypass cap enforcement. The two real markers always carry a non-empty map value, so the terminator (the space `pr-str` writes before the value) is always present — the exact-match check preserves their short-circuit while rejecting the lookalikes.
+A bare prefix match would also accept lookalike keys such as `:rf.mcp/overflowed`, allowing an ordinary payload to bypass cap enforcement. Requiring a token terminator preserves the real markers' short-circuit while rejecting lookalikes.
 
 ## Indicator-field parity
 
@@ -84,5 +84,3 @@ Every server that emits an envelope with one of these slots routes through `with
 - [`elision.md`](elision.md) — the producer of `:elided` counts.
 - `spec/Conventions.md` §Cross-MCP indicator-field vocabulary — the MUST-level parity rule.
 - `spec/009-Instrumentation.md` §Indicator field on tool responses — the framework-level surface.
-- rf2-ee38b.19 — the bead that landed this ns.
-- rf2-gktyn / rf2-3z0zi — the beads that landed the wire-bounded marker detection.

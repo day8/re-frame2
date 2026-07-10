@@ -341,7 +341,7 @@
                        [frame-map acc]))
 
                    ;; Any other non-sequential shape (nil, scalar, string)
-                   ;; is not a batch — pass it through byte-identically per
+                   ;; is not a batch — pass it through unchanged per
                    ;; the helper contract.
                    :else
                    [frame-map acc]))))

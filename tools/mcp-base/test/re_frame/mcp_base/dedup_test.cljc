@@ -66,12 +66,8 @@
     (is (false? (boolean (dedup/no-substitutions? {}))))))
 
 (deftest dedup-value-no-repeats-non-empty-returns-input-verbatim
-  ;; The headline fix (rf2-fwaolt): a NON-EMPTY collection with no
-  ;; repeated subtrees must stay RAW on the wire — `de-dupe-eq` yields a
-  ;; one-entry root-only cache whose wrapped shape is strictly larger than
-  ;; the input, violating the documented no-repeat-payloads-stay-raw
-  ;; contract. `empty-payload?` does NOT catch these (they're non-empty),
-  ;; so before the fix they wrapped and grew.
+  ;; A non-empty collection with no repeated subtrees produces only the
+  ;; root cache entry; wrapping it would grow the wire value.
   (testing "a flat no-repeat map is returned identical, NOT wrapped"
     (let [v {:a 1 :b 2 :c 3}
           out (dedup/dedup-value v true)]

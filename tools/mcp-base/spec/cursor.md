@@ -1,7 +1,7 @@
-# `cursor` — shared cursor-pagination machinery (rf2-ee38b.19)
+# `cursor` — shared cursor-pagination machinery
 
 > **Type:** Reference (`tools/mcp-base/spec/`)
-> Owns the cross-MCP cursor codec, the EDN-with-no-tagged-literals reader, the size cap, the `::malformed` recovery contract, the `:limit` clamp, and the `cursor-stale-result` envelope. The cursor PAYLOAD shape is consumer-side (story carries `{:offset :total :sig}`; pair carries `{:after-id :ms :until-ms :frame}`).
+> Owns the cross-MCP cursor codec, the EDN-with-no-tagged-literals reader, the size cap, the `::malformed` recovery contract, the `:limit` clamp, and the `cursor-stale-result` envelope. The cursor payload shape is consumer-side (story carries `{:v :offset :total :sig}`; pair carries `{:after-id :ms :until-ms :frame}`).
 
 This doc is one of thirteen per-namespace contracts indexed from [`README.md`](README.md). See also: [`vocab.md`](vocab.md), [`sensitive.md`](sensitive.md), [`egress.md`](egress.md), [`elision.md`](elision.md), [`args.md`](args.md), [`diff-encode.md`](diff-encode.md), [`section-grouping.md`](section-grouping.md), [`dedup.md`](dedup.md), [`overflow.md`](overflow.md), [`cap.md`](cap.md), [`envelope.md`](envelope.md), [`descriptor-manifest.md`](descriptor-manifest.md).
 
@@ -42,7 +42,7 @@ Inverse of `b64-encode`.
 
 Normalise the `:limit` MCP arg into an integer in `[1, max]`, defaulting to `default`. Caller-supplied values above `max` clamp DOWN (a legitimate large request still works, just capped). Delegates to `args/parse-positive-int` for the shared string/number coercion, then applies the ceiling.
 
-Each server bakes its own `default` (story 25, pair 50) and `max` (story's 200; pair's wire-cap is the implicit ceiling) — the convention is the CLAMP behaviour, not the numbers.
+Each server bakes its own `default` (story 25, pair 50) and `max` (story 200, pair 1000) — the convention is the clamp behavior, not the numbers.
 
 ### `encode-cursor payload` — payload map → base64 string
 
@@ -55,9 +55,9 @@ Decode an opaque base64 cursor back to its EDN payload map.
 Returns:
 
 - `nil` — the cursor arg is absent (nil / undefined) or blank. The caller treats this as "start from the beginning" (offset 0 / head).
-- `::malformed` — the cursor exists but is not a well-formed, `valid?`-passing payload map: it failed to base64/EDN-decode, carried a tagged literal, decoded to MORE THAN ONE EDN form (a trailing object after the payload map — rf2-ykv9a0), exceeded `max-cursor-bytes`, or its payload map failed the consumer's `valid?` predicate. Callers treat `::malformed` exactly like a STALE cursor — drop it and restart.
+- `::malformed` — the cursor exists but is not a well-formed, `valid?`-passing payload map: it failed to base64/EDN-decode, carried a tagged literal, decoded to more than one EDN form, exceeded `max-cursor-bytes`, or failed the consumer's `valid?` predicate. Callers treat `::malformed` like a stale cursor — drop it and restart.
 
-`valid?` is the consumer's payload-shape predicate (e.g. `#(and (map? %) (integer? (:offset %)) (string? (:sig %)))` for story; `#(and (map? %) (string? (:after-id %)))` for pair).
+`valid?` is the consumer's payload-shape predicate. Story validates `:v`, natural `:offset`/`:total`, and a string `:sig`. Pair requires a present, non-nil `:after-id` of any EDN-printable type because epoch ids are opaque.
 
 Hardened: non-string input → `::malformed`; oversize input → `::malformed` BEFORE parsing; the input is decoded exactly once.
 
@@ -86,11 +86,11 @@ The EDN reader inside `decode-cursor` rejects **every** tagged literal — custo
 - A `:default` data-reader throws `:rf.error/mcp-cursor-bad-edn-tag` on every **unregistered** tag (`#js`, `#foo/bar`, …).
 - `:readers` overrides throw on the **built-in** `#inst` / `#uuid` tags. These have registered readers (`clojure.edn` / `cljs.reader` resolve them from `*data-readers*` / the tag-table), so they **bypass `:default`** and would otherwise decode to a host `java.util.Date` / `UUID` (JVM) or `js/Date` / `cljs.core/UUID` (CLJS). Because `:readers` is consulted **before** `:default` on both platforms, the override wins and the built-in tag never materialises a host object.
 
-A hostile / corrupt cursor therefore cannot smuggle any tagged literal — or the host object it would decode to — past the reader. The throw is caught by the surrounding try in `decode-cursor` and surfaces as `::malformed`. (This closes the built-in-tag hole found in the rf2-13wbe correctness review: `pair-mcp`'s permissive `some? :after-id` predicate would have let `{:v 1 :after-id 1 :junk #inst "…"}` survive validation, carrying a `Date` through the MCP cursor boundary.)
+A hostile or corrupt cursor therefore cannot smuggle a tagged literal, or the host object it would decode to, past the reader. The surrounding `decode-cursor` catch maps the rejection to `::malformed` before the consumer's shape predicate runs.
 
-## One-form requirement (rf2-ykv9a0)
+## One-form requirement
 
-A cursor is **one** opaque EDN payload map. The reader (`read-edn-no-tags`) requires the decoded text to be **exactly one form** and rejects any trailing form as `::malformed`. A plain `read-string` reads only the FIRST form and never checks exhaustion, so before this a token whose decoded text was a valid map followed by a second form — e.g. `{:v 1 :offset 0 :sig "s"} #inst "2024-01-01"` or `{…} {:junk 1}` — decoded as the valid map, silently ignoring the trailing object and weakening the opacity / corruption guard.
+A cursor is **one** opaque EDN payload map. `read-edn-no-tags` requires the decoded text to be exactly one form and rejects any trailing form as `::malformed`; a plain `read-string` would read only the first form without proving exhaustion.
 
 ### Why not the naive one-element-vector wrap — the injected-`]` bypass
 
@@ -108,14 +108,9 @@ The sentinel is a qualified, unguessable keyword (`:re-frame.mcp-base.cursor/cur
 
 This is a pure-`read-string` technique that behaves identically on the JVM (`clojure.edn`) and CLJS (`cljs.reader`) without reaching into either host's pushback-reader internals; tagged literals anywhere inside the wrapped text still throw via the `:readers` / `:default` overrides above. The injected-`]` bypass and the reproduced-sentinel case are both pinned in `cursor_test`'s `decode-cursor-rejects-trailing-forms`.
 
-## Why this ns
+## Why this namespace
 
-Both servers previously hand-rolled the SAME machinery:
-
-- `tools/story-mcp/.../cursor.cljc` — offset/total/sig over append-mostly registries.
-- `tools/re-frame2-pair-mcp/.../cursor.cljs` — after-id/ms over the bounded epoch ring.
-
-The cursor PAYLOAD differs by domain, but the base64 codec, the EDN reader with tagged-literal rejection + size guard, the `::malformed` recovery contract, the `:limit` clamp, and the `cursor-stale-result` envelope are identical. Earlier the README argued the codec was consumer-side because `js/Buffer` vs `java.util.Base64` differ — story-mcp's `cursor.cljc` refuted that — the codec lifts cleanly as a `.cljc` reader-conditional.
+The payload differs by domain, but the base64 codec, tagged-literal rejection, size guard, malformed recovery, limit clamp, and stale-result vocabulary are shared. Reader conditionals isolate the `java.util.Base64` and `js/Buffer` host adapters.
 
 ## See also
 
@@ -123,4 +118,3 @@ The cursor PAYLOAD differs by domain, but the base64 codec, the EDN reader with 
 - [`vocab.md` §JSON-RPC error codes + cross-MCP error reasons](vocab.md) — the `cursor-stale-reason` key.
 - [`args.md`](args.md) — `parse-positive-int`, used by `parse-limit-arg`.
 - `spec/Tool-Pair.md` §Cursor pagination — the framework-level rule the codec implements.
-- rf2-ee38b.19 — the bead that landed this ns.

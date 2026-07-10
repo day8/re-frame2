@@ -53,13 +53,10 @@
   per-tool next-step prose is domain-specific. The cap value, token
   rule, and marker shape are cross-MCP conventions and stay here.
 
-  ## Single strategy today: truncate-with-marker
+  ## Overflow strategy
 
-  The only strategy wired is drop-the-payload-and-emit-the-overflow-
-  marker. Future strategies (path-slicing, lazy summary, diff encoding)
-  would add a pluggable hook here. For the single strategy `apply-cap`
-  calls `build-overflow-result` directly — no `case` dispatcher
-  pretending there's more than one branch (pre-alpha YAGNI).
+  Over-budget results are replaced with the overflow marker through
+  `build-overflow-result`; strategy selection is not part of this API.
 
   ## Cross-platform
 
@@ -265,11 +262,10 @@
   "Sum the character count across every wire payload string the
   consumer's `wire-payload-strings` surfaces for `result` (every
   serialized payload-bearing slot, not only `:text`), accessed via `io`.
-  Used by the secondary byte cap — the primary
-  `sum-payload-tokens` divides by 4 (Anthropic's English-rule-of-thumb),
-  which materially undercounts CJK, emoji, base64, and dense code. A
-  char-count secondary gate catches payloads that escape the quotient
-  heuristic.
+  Used by the secondary character ceiling. The primary token estimate
+  floors each payload string independently; an absolute character sum
+  prevents many sub-four-character slots from disappearing into those
+  per-string quotients.
 
   Returns the cumulative `(count s)` across the payload strings. The
   caller decides the multiplier (`cap * 8` in `apply-cap` — generous
@@ -279,21 +275,17 @@
   (sum-payload-by io result count))
 
 (def ^:const byte-cap-multiplier
-  "Secondary byte-cap multiplier. `cap * multiplier` is the
-  hard char-count ceiling — a defence-in-depth gate against payloads
-  that escape the primary `(quot count 4)` token heuristic (CJK,
-  emoji, base64, dense code). Set high enough that an English / EDN
-  payload at the token cap passes (1 char ≈ 4 tokens ⇒ 4×); set low
-  enough that a payload doubled by undercount trips (≥2×). 8× is the
-  compromise — generous to the common path, conservative on the
-  pathological one."
+  "Multiplier for the secondary character ceiling. English/EDN is
+  roughly four characters per token, so `8 * cap` leaves 2× headroom
+  over the primary estimate while bounding multi-slot quotient loss.
+  The public name is retained because it is already the cap constant."
   8)
 
 ;; ---------------------------------------------------------------------------
 ;; Over-budget decision — extracted from `apply-cap`'s inline `let` so the
 ;; two-stage gate is unit-trippable in isolation.
 ;;
-;; ## Why the secondary char gate is load-bearing today
+;; ## Why the secondary char gate is reachable
 ;;
 ;; `apply-cap` derives BOTH sums from the SAME `wire-payload-strings` seq:
 ;; `tokens = Σ (token-estimate s)`, `chars = Σ (count s)`. A NAIVE reading
@@ -315,14 +307,9 @@
 ;; `chars = 9000`. At `cap = 1` the token gate is QUIET (`0 > 1` is false)
 ;; yet the char gate FIRES (`9000 > 8`) — `apply-cap` correctly replaces
 ;; the over-budget payload with the overflow marker. The secondary char
-;; gate is therefore reachable through the LIVE `apply-cap` path today,
-;; not merely a future-proofing branch. (`watch-epochs` / `trace-window`
-;; slices are exactly this shape: a long vector of small per-record text
-;; slots, each well under 4 chars of net token contribution per fragment.)
-;;
-;; The branch is doubly justified: load-bearing now AND defence-in-depth
-;; against a FUTURE `token-estimate` refinement (one recognising base64 /
-;; CJK at a lower per-char cost) that would decouple the two sums further.
+;; gate is therefore reachable for a ResultIO exposing many short wire
+;; slots. The shipping dual-coded envelopes normally expose only a small
+;; number of strings; the protocol nevertheless permits multipart results.
 ;; The decision is extracted as a pure predicate over already-summed
 ;; `tokens`/`chars` so BOTH disjuncts and the `reported` selector are
 ;; exercised directly in `cap_test.clj` (decoupled sums, isolation) AND
@@ -334,10 +321,8 @@
   "Two-stage over-budget predicate. True when EITHER the
   token sum exceeds `cap` OR the char sum exceeds `cap *
   byte-cap-multiplier`. Pure over already-summed counts so the
-  secondary char gate is unit-trippable in isolation (see the comment
-  block above for why the per-string floor in `token-estimate` makes
-  this gate load-bearing through the live `apply-cap` path today —
-  not merely a future-proofing branch)."
+  secondary char gate is unit-trippable in isolation. See the comment
+  block above for the multi-slot quotient-loss case."
   [tokens chars cap]
   (or (> tokens cap)
       (> chars (* cap byte-cap-multiplier))))

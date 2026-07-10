@@ -22,10 +22,8 @@
 
   `sensitive/strip-sensitive` returns `[kept dropped-count]` for the
   `:dropped-sensitive` envelope slot; `count-elided-markers` returns
-  the integer for the `:elided-large` slot. Both indicators ride the
-  response envelope together per the cross-MCP indicator-field
-  parity — emitting one without the other is the failure the
-  conformance gate catches.
+  the integer for the `:elided-large` slot. Tree-payload emitters compute
+  both indicators; each zero count is omitted independently.
 
   ## Cross-platform
 

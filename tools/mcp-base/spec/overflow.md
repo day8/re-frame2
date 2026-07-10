@@ -1,4 +1,4 @@
-# `overflow` — overflow-marker shape builder (rf2-rvyzy)
+# `overflow` — overflow-marker shape builder
 
 > **Type:** Reference (`tools/mcp-base/spec/`)
 > Owns the SHAPE of the overflow marker (the `{:rf.mcp/overflow {:limit :reached :token-count … :cap-tokens … :tool … :hint …}}` map). The cap-enforcement glue (counting tokens, replacing the payload) lives in [`cap.md`](cap.md).
@@ -34,7 +34,7 @@ The convention's documented cap. Sized for a typical 5K-token MCP response envel
 
 Cheap character→token approximation aligned with Anthropic's rule-of-thumb for English / EDN. Not exact; the goal is a **bounded** wire payload, not a precise meter.
 
-The estimate is intentionally simple — running a tokeniser per response would re-introduce the perf cost the cap is supposed to prevent. The 4-chars-per-token approximation overshoots and undershoots in roughly equal measure across realistic EDN payloads.
+The estimate is intentionally simple; it is a cheap heuristic, not a tokenizer. `cap` also tracks an absolute character sum across measured slots.
 
 ### `overflow-hint-fallback` — generic fallback
 
@@ -81,7 +81,7 @@ Example consumer registration:
 
 The MCP transport carries text payloads to the agent host (Claude, GPT, etc.). Agents have **context budgets** measured in tokens; an MCP tool that responds with 50K tokens of payload would consume the agent's working context, leaving no room for the agent's reasoning. The cap is the agent-ergonomics counterpart to the framework's `:rf.size/threshold-bytes` (which caps per-leaf byte size); both close the "response too big for the consumer to use" failure mode.
 
-The cap is a **soft** constraint at the algorithm level — the consumer can override via `:max-tokens`. It is a **hard** constraint at the wire level — every server's cap pipeline runs the same algorithm, and the cross-MCP conformance gate asserts the marker shape is identical across consumers.
+The default is enforced at the wire boundary by the shared cap algorithm. Callers may choose a different cap or explicitly disable it with `:max-tokens 0`.
 
 ## Conformance posture
 
@@ -98,7 +98,7 @@ The cross-MCP conformance gate at `tools/mcp-conformance/wire-vocab/` pins the c
    [:hint        [:or :string :keyword]]]]]
 ```
 
-Both servers emit this marker via the shared `cap/apply-cap` → `overflow-payload`, so the body is byte-identical; the gate carries a per-server cap-trigger fixture (`:re-frame2-pair-mcp` and `:story-mcp`) and asserts each validates against this one schema.
+Both servers emit this marker via the shared `cap/apply-cap` → `overflow-payload`, so they share one data shape. Per-server fixtures validate against this schema.
 
 Live cap-trigger coverage today:
 
@@ -112,4 +112,3 @@ The marker SHAPE builder (`overflow-payload`) is additionally driven live JVM-si
 - [`README.md`](README.md) — the per-namespace index this doc is part of.
 - [`cap.md`](cap.md) — the cap-enforcement algorithm that drives this marker into a result.
 - [`vocab.md` §Marker catalogue (`:rf.mcp/*`)](vocab.md#marker-catalogue-rfmcp) — the `:rf.mcp/overflow` key.
-- rf2-rvyzy — the bead that landed this marker shape.

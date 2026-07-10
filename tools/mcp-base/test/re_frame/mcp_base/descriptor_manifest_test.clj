@@ -357,12 +357,8 @@
       (is (true? (:ok? res)) "LF-normalised comparison ignores line-ending style"))))
 
 ;; ---------------------------------------------------------------------------
-;; Drift-report formatting — the shared, pure diagnostic body both server
-;; generators print when a drift-check trips (rf2-cbgc40). Previously each
-;; generator carried a byte-identical copy of the governed-slot vector +
-;; the added / removed / changed / malformed traversal; centralising it
-;; here pins the ONE report surface both servers share, with the two
-;; per-server strings (regenerate command + missing-file header) injected.
+;; Drift-report formatting — the shared, pure diagnostic body. The two
+;; server-specific strings are injected by each generator.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private wording
