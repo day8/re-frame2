@@ -8,49 +8,73 @@
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.http :as rf.http]))
 
-;; ---- 1. minimal form -------------------------------------------------------
+;; ---- 1. minimal form — args map required, reply must be addressed ----------
+;;
+;; rf2-3fc89f.9 / rf2-et4c1s — the one-argument (URL-only) arity was REMOVED:
+;; every `:rf.http/managed` request must address its reply (`:reply-to` /
+;; `:on-success` / `:on-failure`; omission fails loud at dispatch with
+;; `:rf.error/http-no-reply-target`). A URL-only helper manufactured an effect
+;; guaranteed to fail its own boundary validation, so it is gone. The minimal
+;; call is now `(verb url {:reply-to nil})` — the explicit fire-and-forget
+;; spelling.
 
 (deftest minimal-get
-  (testing "(get url) — just the URL, no extra args"
+  (testing "(get url {:reply-to nil}) — minimal explicit fire-and-forget form"
     (is (= [:rf.http/managed
-            {:request {:method :get :url "/api/items"}}]
-           (rf.http/get "/api/items")))))
+            {:request  {:method :get :url "/api/items"}
+             :reply-to nil}]
+           (rf.http/get "/api/items" {:reply-to nil})))))
 
 (deftest minimal-post
-  (testing "(post url) — just the URL, no extra args"
+  (testing "(post url {:reply-to nil}) — minimal explicit fire-and-forget form"
     (is (= [:rf.http/managed
-            {:request {:method :post :url "/api/items"}}]
-           (rf.http/post "/api/items")))))
+            {:request  {:method :post :url "/api/items"}
+             :reply-to nil}]
+           (rf.http/post "/api/items" {:reply-to nil})))))
 
 (deftest minimal-put
-  (testing "(put url) — just the URL"
+  (testing "(put url {:reply-to nil})"
     (is (= [:rf.http/managed
-            {:request {:method :put :url "/api/items/1"}}]
-           (rf.http/put "/api/items/1")))))
+            {:request  {:method :put :url "/api/items/1"}
+             :reply-to nil}]
+           (rf.http/put "/api/items/1" {:reply-to nil})))))
 
 (deftest minimal-delete
-  (testing "(delete url) — just the URL"
+  (testing "(delete url {:reply-to nil})"
     (is (= [:rf.http/managed
-            {:request {:method :delete :url "/api/items/1"}}]
-           (rf.http/delete "/api/items/1")))))
+            {:request  {:method :delete :url "/api/items/1"}
+             :reply-to nil}]
+           (rf.http/delete "/api/items/1" {:reply-to nil})))))
 
 (deftest minimal-patch
-  (testing "(patch url) — just the URL"
+  (testing "(patch url {:reply-to nil})"
     (is (= [:rf.http/managed
-            {:request {:method :patch :url "/api/items/1"}}]
-           (rf.http/patch "/api/items/1")))))
+            {:request  {:method :patch :url "/api/items/1"}
+             :reply-to nil}]
+           (rf.http/patch "/api/items/1" {:reply-to nil})))))
 
 (deftest minimal-head
-  (testing "(head url) — just the URL"
+  (testing "(head url {:reply-to nil})"
     (is (= [:rf.http/managed
-            {:request {:method :head :url "/api/items"}}]
-           (rf.http/head "/api/items")))))
+            {:request  {:method :head :url "/api/items"}
+             :reply-to nil}]
+           (rf.http/head "/api/items" {:reply-to nil})))))
 
 (deftest minimal-options
-  (testing "(options url) — just the URL"
+  (testing "(options url {:reply-to nil})"
     (is (= [:rf.http/managed
-            {:request {:method :options :url "/api/items"}}]
-           (rf.http/options "/api/items")))))
+            {:request  {:method :options :url "/api/items"}
+             :reply-to nil}]
+           (rf.http/options "/api/items" {:reply-to nil})))))
+
+(deftest one-arg-arity-is-removed
+  (testing "rf2-3fc89f.9 — the URL-only arity no longer exists; a caller MUST
+            supply the args map (fail-loud consistency with the reply-target
+            requirement). Every verb throws ArityException on a one-arg call."
+    (doseq [helper [rf.http/get rf.http/post rf.http/put rf.http/delete
+                    rf.http/patch rf.http/head rf.http/options]]
+      (is (thrown? clojure.lang.ArityException (helper "/x"))
+          "a one-argument helper call is an arity error"))))
 
 ;; ---- 2. on-success / on-failure pass through ------------------------------
 
@@ -210,7 +234,7 @@
   (testing "the fx vector is always [:rf.http/managed <args-map>]"
     (doseq [helper [rf.http/get rf.http/post rf.http/put rf.http/delete
                     rf.http/patch rf.http/head rf.http/options]]
-      (let [fx (helper "/x")]
+      (let [fx (helper "/x" {:reply-to nil})]
         (is (vector? fx))
         (is (= 2 (count fx)))
         (is (= :rf.http/managed (first fx)))
@@ -219,10 +243,10 @@
 
 (deftest verb-to-method-mapping
   (testing "each helper pins its verb keyword onto :request :method"
-    (is (= :get     (-> (rf.http/get     "/x") second :request :method)))
-    (is (= :post    (-> (rf.http/post    "/x") second :request :method)))
-    (is (= :put     (-> (rf.http/put     "/x") second :request :method)))
-    (is (= :delete  (-> (rf.http/delete  "/x") second :request :method)))
-    (is (= :patch   (-> (rf.http/patch   "/x") second :request :method)))
-    (is (= :head    (-> (rf.http/head    "/x") second :request :method)))
-    (is (= :options (-> (rf.http/options "/x") second :request :method)))))
+    (is (= :get     (-> (rf.http/get     "/x" {:reply-to nil}) second :request :method)))
+    (is (= :post    (-> (rf.http/post    "/x" {:reply-to nil}) second :request :method)))
+    (is (= :put     (-> (rf.http/put     "/x" {:reply-to nil}) second :request :method)))
+    (is (= :delete  (-> (rf.http/delete  "/x" {:reply-to nil}) second :request :method)))
+    (is (= :patch   (-> (rf.http/patch   "/x" {:reply-to nil}) second :request :method)))
+    (is (= :head    (-> (rf.http/head    "/x" {:reply-to nil}) second :request :method)))
+    (is (= :options (-> (rf.http/options "/x" {:reply-to nil}) second :request :method)))))

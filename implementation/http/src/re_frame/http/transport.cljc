@@ -72,6 +72,19 @@
   [reason]
   (contains? reply-suppressing-abort-reasons reason))
 
+(defn- detach-external-abort!
+  "Detach the request's external `:abort-signal` listener (rf2-3fc89f.9).
+  CLJS-only — the binding exists only when the caller supplied an
+  `:abort-signal` on a browser/Node host (the `:external-abort` slot the
+  shared lifecycle threads through ctx). Idempotent and a no-op on the JVM /
+  when absent. Called at EVERY terminal completion (natural success/failure
+  and every abort path) so a shared / parent `AbortController` never retains
+  a completed request's listener. Phase-to-phase ownership transfer detaches
+  the prior listener inside `bind-external-abort!` itself, not here."
+  [ctx]
+  #?(:cljs (transport-cljs/detach-external-abort! (:external-abort ctx)))
+  nil)
+
 (defn- dispatch-reply!
   "Threads the reply-payload through the per-frame `:after` interceptor
   chain (REVERSE registration order) BEFORE handing off to the
@@ -492,6 +505,11 @@
     ;; issuance, so the evict skips and the live successor keeps the id; only a
     ;; genuinely-quiescent id is dropped.
     (registry/evict-issuance-on-completion! (:request-id ctx) (:issuance ctx))
+    ;; rf2-3fc89f.9 — terminal for this request: detach the external
+    ;; `:abort-signal` listener so a shared / parent controller retains no
+    ;; completed-request listener. Fires for every abort reason (this is the
+    ;; single choke both phase abort-fns route through).
+    (detach-external-abort! ctx)
     (cond
       ;; Supersede and epoch-restore reasons
       ;; suppress the reply (the cancellation replaces the original outcome; the
@@ -676,6 +694,10 @@
       ;; rf2-k47b3d — terminal completion: evict this id's issuance counter
       ;; (conditional-atomic; skips when a live re-issue has bumped past it).
       (registry/evict-issuance-on-completion! (:request-id ctx) (:issuance ctx))
+      ;; rf2-3fc89f.9 — terminal: detach the external abort-signal listener
+      ;; (covers the success, accept-failure, and sample-(2) abort branches
+      ;; below; idempotent with the abort-path detach in `dispatch-aborted!`).
+      (detach-external-abort! ctx)
       (if-let [post-cas-abort (aborted-snapshot ctx)]
         ;; Sample (2): abort flipped between our pre-CAS sample and
         ;; our CAS-win. We hold the once-only token AND have cleared the
@@ -766,6 +788,10 @@
       ;; a superseded-then-reclassified attempt does not drop the successor's
       ;; live counter).
       (registry/evict-issuance-on-completion! (:request-id ctx) (:issuance ctx))
+      ;; rf2-3fc89f.9 — terminal: detach the external abort-signal listener
+      ;; (natural terminal failure + the abort-precedence reclassification;
+      ;; idempotent with the abort-path detach in `dispatch-aborted!`).
+      (detach-external-abort! ctx)
       ;; rf2-sixs3 — the redact + emit-error! + supersede-suppressed
       ;; dispatch tail is shared with finalise-success!'s sample-(2) abort
       ;; path via `emit-and-dispatch-failure!`. We have already won the
@@ -883,6 +909,19 @@
         ;; synchronously here, before the timer is armed, so the cell is
         ;; always populated by the time any abort can fire.
         _          (reset! handle-cell handle)
+        ;; rf2-3fc89f.9 — ownership transfer: rebind the external
+        ;; `:abort-signal` from the just-completed live-fetch handle onto THIS
+        ;; sleeping-backoff handle's canonical abort-fn, so a signal that fires
+        ;; DURING the backoff window cancels the pending retry (clears the
+        ;; timer + registry) immediately rather than being observed only when
+        ;; the next attempt starts. `bind-external-abort!` detaches the prior
+        ;; live-fetch listener first. An already-aborted signal fires the
+        ;; backoff abort-fn synchronously (winning `fired?`); the trailing
+        ;; `(when @fired? clear-timeout!)` below then disarms the armed timer.
+        #?@(:cljs
+            [_     (transport-cljs/bind-external-abort!
+                     (:external-abort ctx)
+                     (fn [] ((:abort-fn handle) :user)))])
         ;; Schedule AFTER registering so the request is cancellable the
         ;; instant the timer is armed. The callback wins/loses the same
         ;; `fired?` CAS: on a win it clears its own handle and proceeds;
@@ -1258,7 +1297,18 @@
         ;; routed through the normal `maybe-retry!` path so `:on-failure`,
         ;; retry policy, trace metadata, abort precedence, and sensitivity
         ;; redaction all stay consistent.
-        ctx-no-handle (assoc ctx :url url)
+        ;; rf2-3fc89f.9 — the external `:abort-signal` binding is a REQUEST-
+        ;; lifecycle object, created ONCE (attempt 1) and carried forward on
+        ;; ctx across retries/backoff so each phase rebinds the SAME signal
+        ;; onto the current handle. `make-external-abort` returns nil for no
+        ;; signal; the bind/detach helpers are no-ops on nil. CLJS-only — the
+        ;; JVM treats `:abort-signal` as a degraded no-op (a one-line trace via
+        ;; `check-cljs-only-keys!`), so no binding is made there.
+        external-abort #?(:cljs (or (:external-abort ctx)
+                                    (transport-cljs/make-external-abort abort-signal))
+                          :clj  nil)
+        ctx-no-handle (cond-> (assoc ctx :url url)
+                        external-abort (assoc :external-abort external-abort))
         ;; CLJS: per rf2-1jcpm always own an internal AbortController so
         ;; the per-attempt timeout fires even when the caller supplied
         ;; `:abort-signal`. `cljs-fetch` forwards the caller's signal into
@@ -1424,22 +1474,43 @@
         ;; happens synchronously here, before any fetch is issued, so the
         ;; cell is always populated by the time any abort can fire.
         _        (reset! handle-holder handle)
-        ctx'     (assoc ctx-no-handle :handle handle)
-        ;; Request preparation runs after the
-        ;; handle is registered (so abort precedence, the once-only reply
-        ;; guard, and registry cleanup all apply to a prep failure exactly
-        ;; as they do to a network failure) but BEFORE the platform fetch is
-        ;; issued. A throwing body thunk / encode failure becomes a
-        ;; `:rf.http/transport` reply routed through `maybe-retry!` rather
-        ;; than escaping as `:rf.error/fx-handler-exception`.
-        prep     (prepare-body! request)]
-    (if-let [prep-error (:error prep)]
-      ;; Body-prep failed — route through the normal retry/final-failure
-      ;; path on `ctx'` (which carries the registered `:handle`), so retry
-      ;; (when configured for `:rf.http/transport`), trace metadata, abort
-      ;; precedence, and the `:on-failure` reply shape all stay consistent.
-      (maybe-retry! ctx' prep-error)
-      (let [{:keys [enc-body headers]} (:ok prep)]
+        ;; rf2-3fc89f.9 — bind the external `:abort-signal` to THIS live-fetch
+        ;; handle's canonical abort-fn (`:reason :user`), detaching the prior
+        ;; phase's listener (ownership transfer). An ALREADY-aborted signal
+        ;; fires the abort-fn synchronously HERE — it wins the once-only CAS,
+        ;; aborts the internal controller, clears the registry, dispatches the
+        ;; canonical `:rf.http/aborted :reason :user` reply, and detaches its
+        ;; listener — so the `(when-not @finalised? …)` guard below skips body
+        ;; prep + transport entirely (no fresh attempt / body-thunk after
+        ;; cancellation, Spec 014 §Abort precedence). Must run AFTER
+        ;; `handle-holder` is published (the abort-fn reads `@handle-holder`).
+        #?@(:cljs
+            [_   (transport-cljs/bind-external-abort!
+                   external-abort
+                   (fn [] ((:abort-fn handle) :user)))])
+        ctx'     (assoc ctx-no-handle :handle handle)]
+    ;; rf2-3fc89f.9 — short-circuit when an already-aborted external signal
+    ;; won the CAS synchronously during the bind above: the request is already
+    ;; terminal (reply dispatched, registry cleared, listener detached), so
+    ;; running the body thunk / prep or issuing the transport would violate
+    ;; abort precedence. On the JVM (and when no signal aborted) `@finalised?`
+    ;; is false and the request proceeds normally.
+    (when-not @finalised?
+      ;; Request preparation runs after the
+      ;; handle is registered (so abort precedence, the once-only reply
+      ;; guard, and registry cleanup all apply to a prep failure exactly
+      ;; as they do to a network failure) but BEFORE the platform fetch is
+      ;; issued. A throwing body thunk / encode failure becomes a
+      ;; `:rf.http/transport` reply routed through `maybe-retry!` rather
+      ;; than escaping as `:rf.error/fx-handler-exception`.
+      (let [prep (prepare-body! request)]
+       (if-let [prep-error (:error prep)]
+        ;; Body-prep failed — route through the normal retry/final-failure
+        ;; path on `ctx'` (which carries the registered `:handle`), so retry
+        ;; (when configured for `:rf.http/transport`), trace metadata, abort
+        ;; precedence, and the `:on-failure` reply shape all stay consistent.
+        (maybe-retry! ctx' prep-error)
+        (let [{:keys [enc-body headers]} (:ok prep)]
         #?(:cljs
            (-> (transport-cljs/cljs-fetch
                            {:method              method
@@ -1453,7 +1524,11 @@
                             :referrer            (:referrer request)
                             :integrity           (:integrity request)
                             :timeout-ms          timeout-ms
-                            :abort-signal        abort-signal
+                            ;; rf2-3fc89f.9 — the external `:abort-signal` is
+                            ;; NOT forwarded into the attempt-local Fetch:
+                            ;; cancellation is lifecycle-owned (bound to the
+                            ;; handle's abort-fn above), which aborts THIS
+                            ;; `internal-controller` when it fires.
                             :internal-controller internal-controller
                             ;; The transport picks the Fetch
                             ;; body-reader (`.text()` vs `.blob()` /
@@ -1537,4 +1612,4 @@
                                       (maybe-retry! ctx' (transport-jvm/classify-jvm-error throwable timeout-ms (elapsed-ms)))
                                       (handle-response! ctx' result))))))
                (catch Throwable t
-                 (maybe-retry! ctx' (transport-jvm/classify-jvm-error t timeout-ms (elapsed-ms)))))))))))
+                 (maybe-retry! ctx' (transport-jvm/classify-jvm-error t timeout-ms (elapsed-ms)))))))))))))

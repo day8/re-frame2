@@ -111,12 +111,13 @@ See [Managed HTTP — Failures are a closed set](../async/http.md#failures-are-a
 
 Call-site helpers that synthesise the canonical `[:rf.http/managed args-map]` fx vector. Pure; no side effect — drop the result into `:fx`.
 
+Every helper takes `url` **and** a required `args` map. `args` MUST address the reply — supply `:reply-to`, `:on-success`, or `:on-failure` (an unaddressed request fails loud at dispatch with `:rf.error/http-no-reply-target`). `{:reply-to nil}` is the explicit fire-and-forget spelling. There is no URL-only arity: it would build an effect guaranteed to fail its own boundary validation.
+
 ### `get`
 
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (rf.http/get url)
   (rf.http/get url args)
   ```
 - **Description**: Synthesise a GET fx vector. `args` merges top-level into the canonical args map, and the caller wins. The exception is `:request`: it merges with `{:method :get :url url}`, and the helper's `:method` and `:url` overwrite caller-supplied ones. All seven helpers share this merge contract.
@@ -126,7 +127,6 @@ Call-site helpers that synthesise the canonical `[:rf.http/managed args-map]` fx
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (rf.http/post url)
   (rf.http/post url args)
   ```
 - **Description**: POST. Pass `:body` in `args`.
@@ -143,7 +143,6 @@ Call-site helpers that synthesise the canonical `[:rf.http/managed args-map]` fx
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (rf.http/put url)
   (rf.http/put url args)
   ```
 - **Description**: PUT.
@@ -160,7 +159,6 @@ Call-site helpers that synthesise the canonical `[:rf.http/managed args-map]` fx
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (rf.http/delete url)
   (rf.http/delete url args)
   ```
 - **Description**: DELETE.
@@ -175,7 +173,6 @@ Call-site helpers that synthesise the canonical `[:rf.http/managed args-map]` fx
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (rf.http/patch url)
   (rf.http/patch url args)
   ```
 - **Description**: PATCH.
@@ -192,7 +189,6 @@ Call-site helpers that synthesise the canonical `[:rf.http/managed args-map]` fx
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (rf.http/head url)
   (rf.http/head url args)
   ```
 - **Description**: HEAD.
@@ -207,13 +203,12 @@ Call-site helpers that synthesise the canonical `[:rf.http/managed args-map]` fx
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (rf.http/options url)
   (rf.http/options url args)
   ```
 - **Description**: OPTIONS.
 - **Example**:
   ```clojure
-  {:fx [(rf.http/options "/api/items")]}
+  {:fx [(rf.http/options "/api/items" {:on-success [:api/capabilities]})]}
   ```
 
 The verb helpers require `[re-frame.http :as rf.http]` alongside `re-frame.core`. The namespace ships in the `day8/re-frame2-http` artefact — the same artefact as the fx.
