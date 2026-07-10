@@ -44,10 +44,7 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
             [day8.re-frame2-xray.config :as config]
-            [day8.re-frame2-xray.preload :as preload]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.shell :as shell]
@@ -62,15 +59,14 @@
 
 ;; ---- fixture ------------------------------------------------------------
 
-(defn- xray-init! []
-  (xray-test-support/reset-all!)
-  (trace-collector/reset-for-test!)
-  (config/reset-suppressed-count!))
-
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
-     :init-fn xray-init!}))
+  ;; `make-xray-runtime-fixture` (rf2-vj80u8) folds the reset (plain-atom +
+  ;; `:all` tier, which already resets the trace-collector rings the old
+  ;; init reset a SECOND time) into one owner; `:post-reset` clears the
+  ;; suppressed-count. (`trace-collector` is still required for the
+  ;; `seed-trace-for-test!` seeding throughout this suite.)
+  (xray-test-support/make-xray-runtime-fixture
+    {:post-reset (fn [] (config/reset-suppressed-count!))}))
 
 ;; ---- hiccup walker ------------------------------------------------------
 

@@ -16,8 +16,6 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
             [day8.re-frame2-xray.frame-switcher :as frame-switcher]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.shell :as shell]
@@ -25,16 +23,15 @@
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
-(defn- xray-init! []
-  (xray-test-support/reset-all!)
-  (spine-filters/clear-raw!)
-  (frame-switcher/clear!)
-  (trace-collector/reset-for-test!))
-
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
-     :init-fn xray-init!}))
+  ;; `make-xray-runtime-fixture` (rf2-vj80u8) folds the reset into one owner
+  ;; (plain-atom + the `:all` tier, which already covers the trace-collector
+  ;; rings the old init reset a SECOND time); `:post-reset` carries this
+  ;; suite's filter-state tail.
+  (xray-test-support/make-xray-runtime-fixture
+    {:post-reset (fn []
+                   (spine-filters/clear-raw!)
+                   (frame-switcher/clear!))}))
 
 (defn- xray-setup! []
   (registry/register-xray-handlers!)

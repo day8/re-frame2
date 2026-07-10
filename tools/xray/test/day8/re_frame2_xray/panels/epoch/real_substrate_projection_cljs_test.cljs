@@ -43,24 +43,20 @@
             ;; pending-`:db` trace pair) is wired into the router.
             [re-frame.flows]
             [re-frame.frame :as frame]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
             [day8.re-frame2-xray.panels.epoch.projection :as proj]
             [day8.re-frame2-xray.preload :as preload]
             [day8.re-frame2-xray.registry :as registry]
+            [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
 ;; ---- fixture -----------------------------------------------------------
 
-(defn- xray-init! []
-  (preload/reset-for-test!)
-  (registry/reset-for-test!)
-  (trace-collector/reset-for-test!))
-
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
-     :init-fn xray-init!}))
+  ;; `make-xray-runtime-fixture` (rf2-vj80u8) replaces the bespoke
+  ;; `xray-init!` (preload/registry/trace three-liner): plain-atom adapter
+  ;; + the `:all` reset tier — install (== preload's alias) + registry +
+  ;; mount idempotency sentinels plus the trace-collector rings.
+  (xray-test-support/make-xray-runtime-fixture))
 
 (defn- setup! []
   (registry/register-xray-handlers!)

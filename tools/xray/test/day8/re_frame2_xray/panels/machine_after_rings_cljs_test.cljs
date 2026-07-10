@@ -22,9 +22,6 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [day8.re-frame2-xray.preload :as preload]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.trace-collector :as trace-collector]
@@ -35,15 +32,13 @@
 
 ;; ---- fixtures -----------------------------------------------------------
 
-(defn- xray-init! []
-  (xray-test-support/reset-all!)
-  (trace-collector/reset-for-test!)
-  (after-rings/stop-tick!))
-
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
-     :init-fn xray-init!}))
+  ;; `make-xray-runtime-fixture` (rf2-vj80u8) folds the reset (plain-atom +
+  ;; `:all` tier, which already resets the trace-collector rings the old
+  ;; init reset a SECOND time) into one owner; `:post-reset` stops any
+  ;; armed rAF tick loop. (`trace-collector` stays required for seeding.)
+  (xray-test-support/make-xray-runtime-fixture
+    {:post-reset (fn [] (after-rings/stop-tick!))}))
 
 (defn- setup-xray-frame! []
   (registry/register-xray-handlers!)
