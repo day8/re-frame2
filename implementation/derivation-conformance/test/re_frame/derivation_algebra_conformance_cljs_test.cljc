@@ -569,6 +569,142 @@
           "the live route → concrete resource :param edge"))))
 
 ;; ===========================================================================
+;; (c++) DETERMINISTIC CANONICAL EDGE ORDER under registration/projection
+;; permutation (rf2-3fc89f.1).
+;;
+;; [Derivations.md] §Graph inspection promises MECHANICAL, DETERMINISTIC
+;; assembly. The composer's `:edges` is an explicitly vector-valued collection
+;; that callers serialize / diff / hash / snapshot / display, so two logically
+;; identical graphs — the SAME nodes and the SAME edges, assembled under
+;; different projection / registration INSERTION orders — must produce the
+;; SAME ordered `:edges` vector (and the same whole graph value). Before the
+;; fix the composer inherited `nodes`-map iteration + each `:edge-fn`'s scan
+;; order, so a mere insertion-order permutation emitted an edge PERMUTATION.
+;;
+;; The fix sorts the de-duplicated edge collection by
+;; `re-frame.identity/canonical-bytes` of each COMPLETE edge map — a
+;; platform-stable TOTAL key (identical on CLJ and CLJS, and order-insensitive
+;; over each edge map's own keys, so it does not depend on nested-map SPELLING
+;; the way `pr-str` would). These synthetic contributors isolate that ordering
+;; from the family runtimes: two `:input` edges (subs `:b`,`:c` → `:a`, with
+;; `:b` declaring its `[:sub [:a]]` input TWICE so `distinct` must collapse it
+;; BEFORE canonicalization) and two family-owned `:param` edges (routes →
+;; resource nodes keyed by a NESTED EDN map spelled two ways).
+;; ===========================================================================
+
+(defn- perm-permutations
+  "All orderings of `coll` (small n; hand-rolled so this tier needs no
+  combinatorics dependency)."
+  [coll]
+  (if (<= (count coll) 1)
+    (list (vec coll))
+    (for [i    (range (count coll))
+          tail (perm-permutations (concat (take i coll) (drop (inc i) coll)))]
+      (into [(nth coll i)] tail))))
+
+(defn- perm-sub-node [id inputs]
+  {:id id :kind :derivation :inputs inputs
+   :output [:fact id] :storage :ephemeral :evaluation :on-demand})
+
+(defn- perm-res-key
+  "A route's resource-key — a NESTED EDN map spelled `:slug`-first or
+  `:locale`-first. Both spellings are the SAME identity; canonical ordering
+  must not depend on which the projection happened to build."
+  [slug slug-first?]
+  (if slug-first? {:slug slug :locale :en} {:locale :en :slug slug}))
+
+(defn- perm-route [route-id slug slug-first?]
+  {:id :rf/route :kind :process :refinement :route-fact
+   :route-id route-id :storage :runtime-db :evaluation :on-route :lifecycle :frame
+   :resource-edges [{:to [:resource (perm-res-key slug slug-first?)]
+                     :role :param :target :parametric}]})
+
+(defn- perm-contributors
+  "Synthetic STATIC contributors carrying the SAME nodes/edges but assembled
+  in `sub-order` / `route-order` insertion order, with each route's nested
+  resource-key map spelled per `slug-first?`."
+  [sub-order route-order slug-first?]
+  (let [subs   {:a (perm-sub-node :a [])
+                ;; `:b` declares its `[:sub [:a]]` input TWICE — `distinct`
+                ;; must suppress the duplicate before canonicalization.
+                :b (perm-sub-node :b [[:sub [:a]] [:sub [:a]]])
+                :c (perm-sub-node :c [[:sub [:a]]])}
+        routes {:r1 (perm-route :r1 "s1" slug-first?)
+                :r2 (perm-route :r2 "s2" slug-first?)}]
+    {:subs   {:live-shape :map
+              :static-fn  (constantly
+                            (reduce (fn [m k] (assoc m k (get subs k)))
+                                    (array-map) sub-order))}
+     :routes {:live-shape :node
+              :static-fn  (constantly
+                            (reduce (fn [m k] (assoc m k (get routes k)))
+                                    (array-map) route-order))}}))
+
+(def ^:private perm-expected-edges
+  "The canonical `:edges` vector — the byte-stable total order every
+  permutation and both nested-map spellings must produce, on CLJ and CLJS
+  alike. Pinned so a cross-platform divergence (or a regression to
+  iteration-order output) fails the gate; the two `:param` edges sort before
+  the two `:input` edges under the CEDN-1 key of each complete edge map."
+  [{:from [:rf/route :r1] :to [:resource {:slug "s1" :locale :en}]
+    :role :param :target :parametric}
+   {:from [:rf/route :r2] :to [:resource {:slug "s2" :locale :en}]
+    :role :param :target :parametric}
+   {:from [:sub :a] :to [:sub :b] :role :input}
+   {:from [:sub :a] :to [:sub :c] :role :input}])
+
+(deftest cplusplus-edge-order-is-canonical-across-registration-permutations
+  (let [baseline (graph/derivation-graph (perm-contributors [:a :b :c] [:r1 :r2] true))]
+    (testing "the de-duplicated edge SET is the four expected edges (the
+              duplicated `[:sub [:a]]` input on `:b` collapsed to ONE edge —
+              distinct runs BEFORE canonicalization)"
+      (is (= (set perm-expected-edges) (set (:edges baseline)))
+          "same edge set as expected")
+      (is (= 4 (count (:edges baseline)))
+          "four distinct edges — the duplicate input was suppressed"))
+    (testing "the `:edges` vector is the pinned canonical total order"
+      (is (= perm-expected-edges (:edges baseline))
+          "edges emit in canonical-bytes order, not iteration order"))
+    (testing "edge CONTENTS / identity are preserved — the sort reorders the
+              collection, it does not rewrite edges (the `:param` edge keeps
+              its nested resource key, `:role`, and `:target`)"
+      (let [param (first (filter #(= :param (:role %)) (:edges baseline)))]
+        (is (= [:resource {:locale :en :slug "s1"}] (:to param))
+            "the nested resource-key EDN rides through verbatim")
+        (is (= :parametric (:target param))
+            "the static route-resource `:target` marker is preserved")
+        (is (= [:rf/route :r1] (:from param))
+            "the route node id is the re-targeted `:from`")))
+    (testing "`:nodes` stays a MAP (order-insensitive under value equality)"
+      (is (map? (:nodes baseline))))
+    (testing "EVERY insertion-order permutation and BOTH nested-map spellings
+              produce the identical `:edges` VALUE and the identical whole
+              graph (registration/projection history is invisible)"
+      (doseq [sub-order   (perm-permutations [:a :b :c])
+              route-order (perm-permutations [:r1 :r2])
+              slug-first? [true false]]
+        (let [g (graph/derivation-graph
+                  (perm-contributors sub-order route-order slug-first?))]
+          (is (= perm-expected-edges (:edges g))
+              (str "edges must equal the canonical order for sub-order "
+                   sub-order " route-order " route-order
+                   " slug-first? " slug-first?))
+          (is (= baseline g)
+              (str "the whole graph value must be permutation-invariant for "
+                   sub-order " / " route-order " / " slug-first?)))))
+    (testing "SERIALIZATION pin: for a fixed spelling, every insertion-order
+              permutation serializes `:edges` byte-identically — the property
+              tools depend on when they diff / hash / snapshot the graph"
+      (doseq [slug-first? [true false]]
+        (let [serials (for [sub-order   (perm-permutations [:a :b :c])
+                            route-order (perm-permutations [:r1 :r2])]
+                        (pr-str (:edges (graph/derivation-graph
+                                          (perm-contributors sub-order route-order slug-first?)))))]
+          (is (= 1 (count (distinct serials)))
+              (str "all permutations must serialize `:edges` identically (slug-first? "
+                   slug-first? ")")))))))
+
+;; ===========================================================================
 ;; (d) WHOLE-VALUE — the semantic whole-value law (slice-1).
 ;; ===========================================================================
 
