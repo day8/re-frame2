@@ -39,43 +39,32 @@
   (:require [cljs.test :refer-macros [deftest is use-fixtures async]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
-            [re-frame.substrate.adapter :as substrate-adapter]
-            [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.trace-collector :as trace-collector]
             [day8.re-frame2-xray.panels.machine-after-rings :as after-rings]))
 
-;; ---- fixture (map shape per cljs.test/async requirement) ---------------
-
-(def ^:private fixture-snap (atom nil))
-
-(defn- setup-runtime! []
-  (xray-test-support/reset-all!)
-  (trace-collector/reset-for-test!)
-  (after-rings/stop-tick!)
-  ;; Snapshot the framework registrar so we can restore it post-test,
-  ;; matching the body of `test-support/make-reset-runtime-fixture`.
-  (reset! fixture-snap (test-support/snapshot-registrar))
-  (reset! frame/frames {})
-  (substrate-adapter/dispose-adapter!)
-  (substrate-adapter/install-adapter! plain-atom/adapter)
-  (frame/ensure-default-frame!)
-  (registry/register-xray-handlers!)
-  (xray-test-support/install-test-overrides!)
-  (frame/reg-frame :rf/xray {}))
-
-(defn- teardown-runtime! []
-  (after-rings/stop-tick!)
-  (when-let [snap @fixture-snap]
-    (test-support/restore-registrar! snap)
-    (reset! fixture-snap nil))
-  (reset! frame/frames {}))
-
+;; `make-xray-runtime-fixture` (rf2-vj80u8) composes core
+;; `make-reset-runtime-fixture` (snapshot/restore + frames-reset + adapter
+;; dispose/install) with Xray's own reset tier. `:tier :all` folds the sentinel +
+;; trace-collector rings reset; `:async? true` is the map-form cljs.test/async
+;; requires; `:post-reset` re-registers Xray's :rf.xray/* handlers + the panel
+;; test-override seams + the :rf/xray frame (rolled back with the per-test
+;; registrar snapshot). A composed fixture brackets `after-rings/stop-tick!`
+;; before AND after each test — the off-render `tick-loop!` is an rAF loop the
+;; core runtime reset does not cancel, so a stale tick from one test must not
+;; survive into the next.
 (use-fixtures :each
-  {:before setup-runtime!
-   :after  teardown-runtime!})
+  (xray-test-support/make-xray-runtime-fixture
+    {:tier       :all
+     :async?     true
+     :post-reset (fn []
+                   (registry/register-xray-handlers!)
+                   (xray-test-support/install-test-overrides!)
+                   (frame/reg-frame :rf/xray {}))})
+  {:before (fn [] (after-rings/stop-tick!))
+   :after  (fn [] (after-rings/stop-tick!))})
 
 ;; ---- fixture data (mirrors machine_after_rings_cljs_test.cljs) --------
 
