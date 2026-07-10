@@ -120,8 +120,9 @@
 
 ;; rf2-ribu5a — filesystem-derived, NOT hand-maintained. The previous
 ;; hand list ran through `recorder.cljc` but silently omitted
-;; `dedup.cljc` (emits the cross-MCP `:rf.mcp/dedup-table` marker) and
-;; `cursor.cljc` (routes the cross-MCP `:rf.mcp/cursor-stale` marker) —
+;; `cursor.cljc` (routes the cross-MCP `:rf.mcp/cursor-stale` marker)
+;; and the since-removed `dedup.cljc` (rf2-ywkiss folded the dedup
+;; encode step into a direct `re-frame.mcp-base.dedup` require) —
 ;; exactly the drift these absence-tripwires exist to prevent,
 ;; reproduced inside the gate. A dropped/added tool file could escape
 ;; the generic near-miss / uncontracted-marker sweeps because the
