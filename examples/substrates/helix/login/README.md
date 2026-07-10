@@ -74,16 +74,15 @@ Helix sits downstream. *Below* the line is the **only** substrate-specific code
 in the file: the Helix `defnc` views and the mount.
 
 That artefact layer is **duplicated** across all three login examples. The
-duplication is **deliberate**, not copy-paste drift — it is the intended v2
-style. The shared ids *are* the demonstration: the same machine, schemas, and
-HTTP stub driving Reagent `reg-view`, UIx `defui`, and Helix `defnc` is what
-proves the [Spec 005 machine](../../../../spec/005-StateMachines.md),
+shared ids make the demonstration readable in place: the same machine, schemas,
+and HTTP stub drive Reagent `reg-view`, UIx `defui`, and Helix `defnc`. That is
+the comparison which shows the [Spec 005 machine](../../../../spec/005-StateMachines.md),
 [Spec 010 schemas](../../../../spec/010-Schemas.md), and
 [Spec 014 managed-HTTP](../../../../spec/014-HTTPRequests.md) surfaces are
-substrate-agnostic. Each substrate login is a self-contained `:browser` build
-carrying no other substrate's code. Hoisting the shared model into one namespace
-would look tidier but would quietly destroy the claim — the parity demonstration
-needs the three to stand alone.
+substrate-agnostic. A shared substrate-neutral namespace could preserve renderer
+isolation, but keeping the model local makes each `:browser` build readable on
+its own and preserves the direct three-way comparison. The bundle-isolation
+gate scans the smaller counter builds; the login builds are compile-gated.
 
 ## Files
 

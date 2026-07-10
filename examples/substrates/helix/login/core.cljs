@@ -51,11 +51,12 @@
 ;; care which view library draws it.
 ;;
 ;; You might expect this shared half to live in one file the three examples
-;; require. It deliberately doesn't. Each example is its own self-contained
-;; `:browser` build, and the bundle-isolation gate proves a Helix bundle
-;; carries no Reagent or UIx code — a shared file pulled into all three would
-;; blow that apart. So the lesson here is "one dataflow, three view layers,"
-;; not "factor out the common bit." The duplication is on purpose.
+;; require. Keeping it local is deliberate, but not required for renderer
+;; isolation: a substrate-agnostic namespace could remain renderer-free. The
+;; local copies keep each example self-contained and make "one dataflow, three
+;; view layers" visible in a direct diff. The bundle-isolation gate establishes
+;; the renderer boundary on the smaller counter builds; login builds are
+;; compile-gated rather than scanned by that gate.
 
 ;; ============================================================================
 ;; SCHEMAS
@@ -63,11 +64,12 @@
 
 ;; What a login submit carries: an email and a password.
 ;;
-;; Notice where the password is allowed to go. It rides this event-arg schema
-;; and the HTTP body, and that's it — it never lands in app-db. So there's no
-;; app-db path to tag `:sensitive`; the only thing to scrub is the request on
-;; the wire, which the HTTP call below handles with `:sensitive? true`. See
-;; docs/core/how-to/keep-secrets-out-of-traces.md.
+;; This schema validates shape; it does not classify or redact the password.
+;; While the user types, the password lives in the form draft in app-db and in
+;; `:auth.login/edit-field` events. A valid submit clears the durable draft;
+;; `:sensitive? true` below separately redacts the managed-HTTP request. A
+;; production form must classify every other observation surface explicitly;
+;; see docs/core/how-to/keep-secrets-out-of-traces.md.
 (def Credentials
   [:map
    [:email    [:re #".+@.+"]]
@@ -206,7 +208,7 @@
               :on-failure [:auth.login/flow [:auth.login/failure]]}]]})
 
     :record-error
-    ;; rf2-ibksxg — the classified failure map rides under :error.
+    ;; The classified failure map rides under :error.
     (fn [{data :data [_ {:keys [error]}] :event}]
       {:data (-> data
                  (update :attempts inc)
@@ -295,9 +297,9 @@
 ;; `:on-change` dispatches `:auth.login/edit-field`. See
 ;; docs/core/how-to/build-a-form.md.
 ;;
-;; Like the machine above, this whole block — the defaults, the events, and the
-;; draft/slice subs further down — is shared verbatim across the three login
-;; examples. Only the view syntax changes.
+;; Like the machine above, the three login examples carry equivalent defaults,
+;; event registrations, and draft/slice subscriptions. Only the view syntax
+;; changes.
 
 ;; The empty draft a fresh form starts from. Its value shape is `Credentials`
 ;; (email regex, 8-char-minimum password) — the very schema the machine's
@@ -351,8 +353,9 @@
 ;; On a clean draft this is the hand-off: it flips `:status` to `:submitting`,
 ;; clears any stale field errors, and dispatches the draft INTO the machine.
 ;; That dispatch is the one and only place the draft crosses over. From here on
-;; the machine owns the real status (in-flight / authed / error / locked); the
-;; slice's `:status` just shadows it.
+;; the machine owns the real status (in-flight / authed / error / locked). The
+;; slice's `:status` records only that the form handed off a valid submit; views
+;; use machine tags for the authoritative lifecycle.
 ;;
 ;; On an INVALID draft we stop here: the field errors land in `:errors`
 ;; (rendered under each input) and nothing is dispatched. Handing a bad draft to
@@ -364,10 +367,11 @@
 ;; Watch how the password is handled. On the clean branch the handler lifts it
 ;; off the draft, sends it to the machine, and CLEARS `[:draft :password]` in
 ;; the very same commit. The moment the request is on its way the secret has
-;; done its one job, so we don't leave it lounging in app-db where the next
-;; snapshot or recording could scoop it up. Its only trip off the box is inside
-;; the HTTP body (scrubbed by `:sensitive? true`); it never touches `:submitted`
-;; or the machine's `:data`. See docs/core/how-to/keep-secrets-out-of-traces.md.
+;; done its one job, so we don't leave it in app-db for later snapshots. This
+;; cleanup does not retroactively redact the edit/submit events or earlier
+;; snapshots; `:sensitive? true` covers only the HTTP request. It never touches
+;; `:submitted` or the machine's `:data`. See
+;; docs/core/how-to/keep-secrets-out-of-traces.md.
 (rf/reg-event :auth.login/submit-form
   {:doc "Submit the login form: validate the draft against Credentials. If
          clean, dispatch it into the :auth.login/flow machine's :submit
@@ -452,9 +456,10 @@
 ;; ============================================================================
 ;;
 ;; Below this line is the only substrate-specific code in this example: the
-;; Helix views + the mount. The Reagent and UIx login examples share every
-;; line ABOVE this divider and differ only in what sits BELOW it (Reagent
-;; `reg-view`, UIx `defui` + `use-subscribe`, Helix `defnc` + `use-subscribe`).
+;; Helix views + the mount. The Reagent and UIx login examples carry the same
+;; registration ids and behavior above this divider, then use their own view
+;; idioms below it (Reagent `reg-view`, UIx `defui` + `use-subscribe`, Helix
+;; `defnc` + `use-subscribe`).
 
 ;; ============================================================================
 ;; VIEWS  (Helix — defnc + use-subscribe)

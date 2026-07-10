@@ -63,7 +63,7 @@
     .pm-tile-warn { border-left: 3px solid var(--ex-warn); }
     /* Warning value is TEXT on the light --ex-bg-sunken tile — use the AA-safe
        deep amber (--ex-warn-deep), not decorative --ex-warn (sub-AA as text).
-       The left border above stays decorative amber. (rf2-ihruwa) */
+       The left border above stays decorative amber. */
     .pm-tile-warn .pm-tile-value { color: var(--ex-warn-deep); }
     .pm-tile-bad  { border-left: 3px solid var(--ex-error); }
     .pm-tile-bad  .pm-tile-value { color: var(--ex-error); }
@@ -123,7 +123,7 @@
     .pm-chip-info.is-on  { color: var(--ex-info);    border-color: var(--ex-info); }
     /* Active warn chip carries label TEXT + a state border on the light
        --ex-bg-sunken pane-head — use AA-safe --ex-warn-deep so both the text
-       (≥4.5:1) and the UI-component border (≥3:1) clear WCAG. (rf2-ihruwa) */
+       (≥4.5:1) and the UI-component border (≥3:1) clear WCAG. */
     .pm-chip-warn.is-on  { color: var(--ex-warn-deep); border-color: var(--ex-warn-deep); }
     .pm-chip-error.is-on { color: var(--ex-error);     border-color: var(--ex-error); }
 
@@ -191,7 +191,7 @@
       letter-spacing: 0.06em;
     }
     .pm-log-level-info  { color: var(--ex-info); }
-    .pm-log-level-warn  { color: var(--ex-warn-deep); }  /* warn log level is TEXT on paper — AA-safe deep amber (rf2-ihruwa) */
+    .pm-log-level-warn  { color: var(--ex-warn-deep); }  /* warn log level is text on paper: use AA-safe deep amber */
     .pm-log-level-error { color: var(--ex-error); }
     .pm-log-msg { color: var(--ex-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 

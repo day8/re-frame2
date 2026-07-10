@@ -74,12 +74,11 @@ character for character, in all three counters. Below it is the only
 substrate-specific code in the example: the Helix `defnc` views and the
 mount.
 
-The duplicated model across three folders looks like copy-paste rot. It
-isn't — the duplication *is* the demonstration. Byte-identical events and a
-byte-identical sub, driving a Reagent `reg-view`, a UIx `defui`, and a Helix
-`defnc`, prove the adapter contract is the whole story: nothing leaks across
-the boundary. Hoist the model into a shared namespace and you lose that
-proof.
+The duplicated model across three folders is deliberate. Byte-identical events
+and a byte-identical sub, driving a Reagent `reg-view`, a UIx `defui`, and a
+Helix `defnc`, make the adapter boundary visible in a direct diff. A shared,
+substrate-agnostic namespace could still preserve bundle isolation, but it
+would hide this local comparison and make each example less self-contained.
 
 ## Files
 

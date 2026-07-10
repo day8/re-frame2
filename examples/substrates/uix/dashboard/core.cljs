@@ -23,7 +23,7 @@
 
    The derivation graph is the concept worth slowing down for; the
    guide glossary has the full picture
-   (../../../docs/core/glossary.md#the-derivation-graph).
+   (docs/core/glossary.md#the-derivation-graph).
 
    The shared visual identity comes from examples/_shared/css/style.css."
   (:require [uix.core :refer [$ defui]]
@@ -140,9 +140,9 @@
   "Turn a series of numbers into an SVG <path> `d` string, scaled to fit a
    100×30 viewBox. Pure in, pure out; `sparkline` below draws it.
 
-   Why a <path> and not a <polyline>: at this tiny size with a hair-thin
-   stroke, one `M…L…L…` path renders noticeably crisper. The renderer
-   isn't anti-aliasing every vertex twice, and your eye can tell."
+   A polyline would render the same segments. This example uses a path because
+   the helper can emit one compact `d` string without building an intermediate
+   collection of point attributes."
   [series]
   (let [n     (count series)
         lo    (apply min series)

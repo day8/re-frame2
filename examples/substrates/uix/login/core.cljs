@@ -43,11 +43,12 @@
 ;; ============================================================================
 
 ;; What valid credentials look like: an email and a password of at least 8
-;; characters. The password is a careful little traveller — it rides only this
-;; schema and the HTTP body, and is never written to app-db. The request body
-;; that carries it gets scrubbed from traces by `:sensitive? true` on the
-;; managed-HTTP request below (docs/core/how-to/keep-secrets-out-of-traces.md).
-;; The same schema guards reagent/login and helix.
+;; characters. This schema validates shape; it does not classify or redact the
+;; password. While the user types, the password lives in the form draft in
+;; app-db and in `:auth.login/edit-field` events. A valid submit clears the
+;; durable draft; `:sensitive? true` below separately redacts the managed-HTTP
+;; request. See docs/core/how-to/keep-secrets-out-of-traces.md for the
+;; classification required on every other observation surface.
 (def Credentials
   [:map
    [:email    [:re #".+@.+"]]
@@ -175,8 +176,8 @@
       {:fx [[:rf.http/managed
              ;; `:sensitive? true` is the per-request wire scrub: it redacts
              ;; this request body — which is carrying the `:password` — from
-             ;; every `:rf.http/*` trace event, so the secret never lands in the
-             ;; tape. See docs/core/how-to/keep-secrets-out-of-traces.md.
+             ;; every `:rf.http/*` trace event, so the HTTP surface does not add
+             ;; it to the tape. See docs/core/how-to/keep-secrets-out-of-traces.md.
              {:request    {:method :post
                            :url    "/api/login"
                            :body   creds
@@ -187,7 +188,7 @@
               :on-failure [:auth.login/flow [:auth.login/failure]]}]]})
 
     :record-error
-    ;; rf2-ibksxg — the classified failure map rides under :error.
+    ;; The classified failure map rides under :error.
     (fn [{data :data [_ {:keys [error]}] :event}]
       {:data (-> data
                  (update :attempts inc)
@@ -342,7 +343,8 @@
 ;; clear any stale field errors, and dispatch the draft into the machine. That
 ;; hand-off is the single place the draft ever crosses into the machine. From
 ;; there the machine — not the slice — owns the real story: in flight, authed,
-;; errored, locked. The slice's `:status` is just a mirror.
+;; errored, locked. The slice's `:status` records only the valid-submit handoff;
+;; views use machine tags for the authoritative lifecycle.
 ;;
 ;; On an *invalid* draft we stop here: the field errors land in `:errors`
 ;; (rendered under each input) and nothing is dispatched. Handing a bad draft
@@ -354,10 +356,10 @@
 ;; And a word on the password. On the clean branch we read it off the draft,
 ;; give it to the machine, then clear `[:draft :password]` in the very same
 ;; commit. Once the request is on its way the secret has done its job, and
-;; there's no reason to leave it sitting in app-db where the next snapshot or
-;; recording would scoop it up. Its only trip off the box is inside the HTTP
-;; request body (scrubbed by that `:sensitive? true` flag), and it's never
-;; written to `:submitted` or the machine's `:data`. See
+;; there's no reason to leave it sitting in app-db for later snapshots. This
+;; cleanup does not retroactively redact the edit/submit events or earlier
+;; snapshots; `:sensitive? true` covers only the HTTP request. The password is
+;; never copied to `:submitted` or the machine's `:data`. See
 ;; docs/core/how-to/keep-secrets-out-of-traces.md.
 (rf/reg-event :auth.login/submit-form
   {:doc "Submit the login form: validate the draft against Credentials. If
@@ -416,7 +418,7 @@
 ;; what makes them controlled. The per-field-error sub follows the form
 ;; pattern's rule for when an error is allowed to show: once the field is
 ;; touched, or once the user has tried to submit. Like the events above, these
-;; subs are shared verbatim across the three substrate examples.
+;; subs have equivalent registrations across the three substrate examples.
 
 (rf/reg-sub :auth.login/form-slice
   {:doc "The whole login-form slice at [:auth :login-form] — the root the other
@@ -440,6 +442,13 @@
     (when (or (:submit-attempted? slice)
               (contains? (:touched slice) field))
       (first (get-in slice [:errors field])))))
+
+;; ============================================================================
+;; --------------------------  SUBSTRATE BOUNDARY  ---------------------------
+;; ============================================================================
+;;
+;; Everything above this divider is the substrate-agnostic artefact layer.
+;; Everything below it is UIx-specific: `defui` views, hooks, and the mount.
 
 ;; ============================================================================
 ;; VIEWS  (UIx — defui + use-subscribe)

@@ -85,11 +85,12 @@ siblings — [`examples/core/login/`](../../../core/login/) is the reference,
 schemas, the machine, the subs, and the HTTP stub are the same in all three; the
 view layer is the only thing that differs. Three renderers, one model.
 
-The model is *duplicated* across the three logins on purpose, not by copy-paste
-drift. Each substrate login is a self-contained build. The bundle-isolation gate
-proves the point on the counter twins — a UIx-only `main.js` carries no Reagent
-code — and a shared model required into all three logins would defeat exactly
-the isolation the parity claim rests on.
+The model is duplicated across the three logins on purpose so each example is
+self-contained and the parity comparison remains local. The bundle-isolation
+gate proves the renderer boundary on the smaller counter builds — a UIx-only
+counter `main.js` carries no Reagent code — while the login builds are
+compile-gated. A shared substrate-neutral model could preserve isolation, but it
+would hide the direct comparison this example is meant to teach.
 
 One mechanical note: the namespace here is `uix.login.core`, not `login.core` —
 the `substrates/uix/` folder becomes the namespace prefix, so this example
