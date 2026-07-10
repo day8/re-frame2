@@ -117,14 +117,23 @@
  *      (a) EXISTENCE: the required _shared files are present on disk (incl. the
  *          og.png raster + its og.svg source art) and structure.css remains
  *          reachable from style.css's @import.
- *      (b) OG RASTER HEADER: og.png has the PNG signature and an IHDR declaring
- *          the documented 1200x630 dimensions — a renamed SVG/text file or a
- *          wrong-size export fails, not just a missing file (rf2-mon7tz). This
- *          is a header check, not a full pixel decode or CRC validation.
- *      (c) OG SOURCE-ART PALETTE: og.svg carries no retired / sub-AA colour
+ *      (b) SVG WELL-FORMEDNESS: favicon.svg + og.svg are well-formed XML — no
+ *          illegal '--' inside a comment, no unterminated comment, no mismatched
+ *          /unclosed tags, a single <svg> root. A malformed comment makes strict
+ *          XML parsers AND Chrome render a <parsererror> (the favicon cannot show
+ *          and the OG source cannot be re-exported), which the old existence /
+ *          palette-literal checks missed (rf2-3fc89f.27).
+ *      (c) OG RASTER DECODE: og.png is a STRUCTURALLY COMPLETE, decodable PNG —
+ *          signature + IHDR (length 13) declaring the documented 1200x630
+ *          dimensions, every chunk bounded inside the file with a matching
+ *          CRC-32, at least one IDAT whose zlib stream actually inflates, and a
+ *          terminal IEND. A header prefix, a byte-flipped/corrupt chunk, or a
+ *          mid-stream truncation fails — not just a missing/renamed file
+ *          (rf2-mon7tz + full structural decode rf2-3fc89f.27).
+ *      (d) OG SOURCE-ART PALETTE: og.svg carries no retired / sub-AA colour
  *          literal as a live paint value, so the re-exported card cannot drift
  *          back below the shared palette's accessibility decisions (rf2-y82dk9).
- *      (d) NO REMOTE STYLING: style.css / structure.css carry no external
+ *      (e) NO REMOTE STYLING: style.css / structure.css carry no external
  *          @import (rf2-vou5mm) and no remote url() fetch (rf2-o18ava), checked
  *          here so the contract holds even for an unlinked shared stylesheet.
  *
@@ -169,6 +178,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const zlib = require('zlib');
 const { pageExemptions } = require('./examples-asset-manifest.cjs');
 const { walkDir, assertWalkComplete } = require('./walk-tree.cjs');
 
@@ -676,12 +686,46 @@ const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0
 const OG_PNG_WIDTH = 1200;
 const OG_PNG_HEIGHT = 630;
 
-// Validate that `data` has a PNG signature and an IHDR declaring the expected
-// dimensions. Returns { ok, width, height, reason }. A spec-conformant PNG
-// always opens with the 8-byte signature immediately followed by the IHDR
-// chunk (length=13, type='IHDR', then width:uint32be, height:uint32be), so
-// reading the dimensions needs no full decoder — just the first 24 bytes. This
-// intentionally does not validate later chunks, CRCs, or decoded pixel data.
+// Precomputed CRC-32 lookup table (IEEE 802.3 polynomial, reflected 0xEDB88320)
+// — the checksum every PNG chunk carries over its (type + data) bytes. Built
+// once at module load so validatePng can verify each chunk's CRC in one pass.
+const PNG_CRC_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    table[n] = c >>> 0;
+  }
+  return table;
+})();
+
+// CRC-32 of a Buffer, matching the PNG chunk-CRC definition.
+function pngCrc32(buf) {
+  let c = 0xffffffff;
+  for (let i = 0; i < buf.length; i++) {
+    c = PNG_CRC_TABLE[(c ^ buf[i]) & 0xff] ^ (c >>> 8);
+  }
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+// Validate that `data` is a STRUCTURALLY COMPLETE, decodable PNG of the expected
+// dimensions — not merely a byte prefix that starts like one. Returns
+// { ok, width, height, reason }.
+//
+// The previous implementation read only the first 24 bytes (signature + IHDR
+// dims), so a 24-byte header prefix, a byte-flipped IDAT, or a mid-stream
+// truncation all reported ok:true — a FALSE-GREEN over a broken raster
+// (rf2-3fc89f.27). This walks the ENTIRE chunk stream and fails on any real
+// corruption:
+//   - the 8-byte PNG signature and an IHDR first chunk (length exactly 13),
+//   - every chunk fully inside the file (a declared length running past EOF is a
+//     truncation), with its stored CRC-32 matching the computed CRC over
+//     type+data (a corrupt/flipped byte fails here),
+//   - at least one IDAT chunk whose concatenated zlib stream actually INFLATES
+//     (a garbled compressed stream fails the real decode), and
+//   - a terminal IEND chunk with no trailing bytes after it.
+// Only then are the IHDR dimensions checked against the expected size.
+//
 // Accepts a Buffer or coerces a string fixture to one (latin1 preserves bytes).
 function validatePng(data, expectedWidth = OG_PNG_WIDTH, expectedHeight = OG_PNG_HEIGHT) {
   const buf = Buffer.isBuffer(data) ? data : Buffer.from(String(data), 'latin1');
@@ -691,12 +735,83 @@ function validatePng(data, expectedWidth = OG_PNG_WIDTH, expectedHeight = OG_PNG
   if (!buf.subarray(0, 8).equals(PNG_SIGNATURE)) {
     return { ok: false, reason: 'missing the 8-byte PNG signature (not a PNG file)' };
   }
-  // Bytes 8..16 are the IHDR chunk length (must be 13) + type ('IHDR').
+  // Bytes 8..16 are the IHDR chunk length + type ('IHDR'). A conformant PNG
+  // always opens with IHDR; check the type early so a non-IHDR first chunk
+  // reports that (rather than a downstream CRC/bounds symptom).
   if (buf.subarray(12, 16).toString('latin1') !== 'IHDR') {
-    return { ok: false, reason: "first chunk is not IHDR (malformed PNG header)" };
+    return { ok: false, reason: 'first chunk is not IHDR (malformed PNG header)' };
+  }
+  const ihdrLength = buf.readUInt32BE(8);
+  if (ihdrLength !== 13) {
+    return {
+      ok: false,
+      reason: `IHDR chunk length is ${ihdrLength}, expected 13 (malformed PNG header)`,
+    };
   }
   const width = buf.readUInt32BE(16);
   const height = buf.readUInt32BE(20);
+
+  // Walk the full chunk stream: [length:u32][type:4][data:length][crc:u32]*.
+  const idatParts = [];
+  let sawIdat = false;
+  let sawIend = false;
+  let offset = 8;
+  while (offset < buf.length) {
+    if (offset + 8 > buf.length) {
+      return { ok: false, width, height, reason: `truncated chunk header at byte ${offset}` };
+    }
+    const length = buf.readUInt32BE(offset);
+    const type = buf.subarray(offset + 4, offset + 8).toString('latin1');
+    const dataStart = offset + 8;
+    const dataEnd = dataStart + length;
+    const crcEnd = dataEnd + 4;
+    if (crcEnd > buf.length) {
+      return {
+        ok: false,
+        width,
+        height,
+        reason: `chunk '${type}' declares ${length} byte(s) but runs past end of file (truncated raster)`,
+      };
+    }
+    const storedCrc = buf.readUInt32BE(dataEnd);
+    const computedCrc = pngCrc32(buf.subarray(offset + 4, dataEnd));
+    if (storedCrc !== computedCrc) {
+      return {
+        ok: false,
+        width,
+        height,
+        reason: `chunk '${type}' CRC mismatch (stored 0x${storedCrc.toString(16)}, computed 0x${computedCrc.toString(16)}) — corrupt bytes`,
+      };
+    }
+    if (type === 'IDAT') {
+      sawIdat = true;
+      idatParts.push(buf.subarray(dataStart, dataEnd));
+    } else if (type === 'IEND') {
+      sawIend = true;
+      if (crcEnd !== buf.length) {
+        return { ok: false, width, height, reason: `${buf.length - crcEnd} trailing byte(s) after IEND` };
+      }
+    }
+    offset = crcEnd;
+  }
+  if (!sawIdat) {
+    return { ok: false, width, height, reason: 'no IDAT chunk (PNG carries no image data)' };
+  }
+  if (!sawIend) {
+    return { ok: false, width, height, reason: 'no terminal IEND chunk (truncated raster)' };
+  }
+  // The compressed image data must actually decode — a garbled zlib stream that
+  // still carried a valid CRC would otherwise pass. This is the "real decode".
+  try {
+    zlib.inflateSync(Buffer.concat(idatParts));
+  } catch (err) {
+    return {
+      ok: false,
+      width,
+      height,
+      reason: `IDAT zlib stream does not decode (${(err && err.message) || err})`,
+    };
+  }
   if (width !== expectedWidth || height !== expectedHeight) {
     return {
       ok: false,
@@ -706,6 +821,152 @@ function validatePng(data, expectedWidth = OG_PNG_WIDTH, expectedHeight = OG_PNG
     };
   }
   return { ok: true, width, height };
+}
+
+// Cross-platform XML/SVG well-formedness check — a zero-dependency validator
+// that fails on the exact defects a lax "the file exists" / palette-literal scan
+// misses (rf2-3fc89f.27): an XML comment containing the illegal '--' sequence
+// (which every strict XML parser AND Chrome reject with a <parsererror>), an
+// unterminated comment, and broken element structure (mismatched / unclosed
+// tags, unquoted-run-away attributes, no root <svg>). Returns an array of
+// human-readable error strings (empty === well-formed); `name` prefixes each so
+// the caller can point at the offending file.
+//
+// It is a focused tokenizer, not a full XML processor: it validates the
+// well-formedness constraints that matter for these static art assets —
+// comments, processing instructions (<?xml … ?>), CDATA, markup declarations
+// (<!DOCTYPE …>), and element start/end/self-close nesting with quote-aware
+// attribute skipping — and confirms a single <svg> root. Text content and entity
+// references are intentionally not policed (they do not gate whether the SVG
+// parses/renders). Every shared SVG the gate ships is exercised by the LIVE
+// scan, so a real false-red would turn the always-run gate immediately.
+function checkSvgWellFormed(svg, name) {
+  const errors = [];
+  const n = svg.length;
+  const isWs = (c) => c === ' ' || c === '\t' || c === '\n' || c === '\r' || c === '\f';
+  const near = (p) => JSON.stringify(svg.slice(p, Math.min(n, p + 32)).replace(/\s+/g, ' '));
+  const stack = [];
+  let rootCount = 0;
+  let sawElement = false;
+  let i = 0;
+  while (i < n) {
+    const lt = svg.indexOf('<', i);
+    if (lt === -1) break; // remaining bytes are text content — not policed
+    i = lt;
+    if (svg.startsWith('<!--', i)) {
+      const end = svg.indexOf('-->', i + 4);
+      if (end === -1) {
+        errors.push(`${name}: unterminated XML comment (no '-->') near ${near(i)}`);
+        return errors;
+      }
+      const body = svg.slice(i + 4, end);
+      // XML forbids '--' inside a comment AND a '-' immediately before '-->'
+      // (which would form '--->'). Both make the document ill-formed.
+      if (body.includes('--') || body.endsWith('-')) {
+        errors.push(
+          `${name}: XML comment contains an illegal '--' sequence (XML comments ` +
+            `may not contain '--'); rewrite the comment near ${near(i)}`,
+        );
+      }
+      i = end + 3;
+      continue;
+    }
+    if (svg.startsWith('<![CDATA[', i)) {
+      const end = svg.indexOf(']]>', i + 9);
+      if (end === -1) {
+        errors.push(`${name}: unterminated CDATA section near ${near(i)}`);
+        return errors;
+      }
+      i = end + 3;
+      continue;
+    }
+    if (svg.startsWith('<?', i)) {
+      const end = svg.indexOf('?>', i + 2);
+      if (end === -1) {
+        errors.push(`${name}: unterminated processing instruction near ${near(i)}`);
+        return errors;
+      }
+      i = end + 2;
+      continue;
+    }
+    if (svg.startsWith('<!', i)) {
+      const end = svg.indexOf('>', i + 2);
+      if (end === -1) {
+        errors.push(`${name}: unterminated markup declaration near ${near(i)}`);
+        return errors;
+      }
+      i = end + 1;
+      continue;
+    }
+    // An element start / end / self-close tag.
+    let j = i + 1;
+    let isEnd = false;
+    if (svg[j] === '/') {
+      isEnd = true;
+      j++;
+    }
+    const nameStart = j;
+    while (j < n && !isWs(svg[j]) && svg[j] !== '>' && svg[j] !== '/') j++;
+    const tagName = svg.slice(nameStart, j);
+    if (!tagName) {
+      errors.push(`${name}: malformed tag (empty element name) near ${near(i)}`);
+      return errors;
+    }
+    // Scan to the closing '>', skipping quoted attribute values so a '>' inside
+    // an attribute does not end the tag early.
+    while (j < n) {
+      const c = svg[j];
+      if (c === '"' || c === "'") {
+        const quote = c;
+        j++;
+        while (j < n && svg[j] !== quote) j++;
+        if (j >= n) {
+          errors.push(`${name}: unterminated attribute value near ${near(i)}`);
+          return errors;
+        }
+        j++;
+        continue;
+      }
+      if (c === '>') break;
+      j++;
+    }
+    if (j >= n) {
+      errors.push(`${name}: unterminated tag <${tagName}…> near ${near(i)}`);
+      return errors;
+    }
+    const selfClose = svg[j - 1] === '/';
+    if (isEnd) {
+      if (selfClose) {
+        errors.push(`${name}: end tag </${tagName}> cannot be self-closing near ${near(i)}`);
+        return errors;
+      }
+      const open = stack.pop();
+      if (open === undefined) {
+        errors.push(`${name}: unexpected closing tag </${tagName}> with no open element`);
+        return errors;
+      }
+      if (open !== tagName) {
+        errors.push(
+          `${name}: mismatched closing tag </${tagName}> (expected </${open}>) near ${near(i)}`,
+        );
+        return errors;
+      }
+    } else {
+      sawElement = true;
+      if (stack.length === 0) rootCount++;
+      if (!selfClose) stack.push(tagName);
+    }
+    i = j + 1;
+  }
+  if (stack.length > 0) {
+    errors.push(`${name}: unclosed element <${stack[stack.length - 1]}> (missing its end tag)`);
+  }
+  if (!sawElement) {
+    errors.push(`${name}: no element found — not a well-formed SVG document`);
+  } else if (rootCount > 1) {
+    errors.push(`${name}: multiple root elements — an SVG document must have a single root`);
+  }
+  return errors;
 }
 
 // ---------------------------------------------------------------------------
@@ -1152,6 +1413,22 @@ function checkSharedTree(io, opts = {}) {
     }
   }
 
+  // SVG WELL-FORMEDNESS (rf2-3fc89f.27). Both shared SVGs (the favicon every
+  // page links + the editable OG source art) must be well-formed XML. A comment
+  // containing the illegal '--' sequence, an unterminated comment, or broken
+  // element nesting makes a strict XML parser AND Chrome emit a <parsererror>
+  // document — so the favicon cannot render and the OG source cannot be reliably
+  // re-exported — while the old existence/palette-literal checks stayed green.
+  // Validate the actual markup so a malformed shared SVG turns the gate RED.
+  for (const svgName of ['favicon.svg', 'og.svg']) {
+    const svgPath = path.join(sharedRoot, 'img', svgName);
+    const svg = readFileSafe(io, svgPath);
+    if (svg == null) continue; // a missing SVG is reported by the mustExist loop
+    for (const e of checkSvgWellFormed(svg, `examples/_shared/img/${svgName}`)) {
+      errors.push(e);
+    }
+  }
+
   // The shipped og.png is the social-preview RASTER every page references. A
   // bare existence check (above) would stay green if the bytes were replaced
   // by non-PNG content (a renamed SVG/text file) or a wrong-size export — both
@@ -1462,11 +1739,14 @@ module.exports = {
   scanPage,
   checkSharedTree,
   scanAll,
-  // og.png raster byte-validation (rf2-mon7tz)
+  // og.png raster byte-validation (rf2-mon7tz + full structural decode rf2-3fc89f.27)
   PNG_SIGNATURE,
   OG_PNG_WIDTH,
   OG_PNG_HEIGHT,
   validatePng,
+  pngCrc32,
+  // SVG well-formedness validation (rf2-3fc89f.27)
+  checkSvgWellFormed,
   // shared palette contrast + focus-indicator contract (rf2-febmqu + rf2-mon7tz)
   WCAG_AA_NORMAL_TEXT,
   WCAG_NON_TEXT,
