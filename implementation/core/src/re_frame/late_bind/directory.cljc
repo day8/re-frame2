@@ -622,7 +622,7 @@
    {:key         :ssr/extend-runtime-db-projection
     :producer-ns 're-frame.resources.ssr
     :design-bead "rf2-p10npe"
-    :description "Cross-feature LATE-BOUND SSR hydration-payload runtime-db projection extension (Spec 016 §SSR and hydration). Takes the full runtime-db value, returns a {subsystem-key durable-projection} map SSR's project-runtime-db merges into its allowlist-shaped slice; the Resources artefact projects ONLY the durable :entries of :rf.runtime/resources (per-entry redacted/omitted by the resource's :sensitive?/:large? classification; the reverse indexes are recomputable-from-entries). Resources is the first publisher; consumed by re-frame.ssr.payload-policy/project-runtime-db."}
+    :description "Cross-feature LATE-BOUND SSR hydration-payload runtime-db projection extension (Spec 016 §SSR and hydration). Takes the full runtime-db value + the EXPLICIT carried SSR frame-id ([runtime-db frame-id], rf2-f02diw — the projection target is threaded, never a borrowed ambient scope), returns a {subsystem-key durable-projection} map SSR's project-runtime-db merges into its allowlist-shaped slice; the Resources artefact projects ONLY the durable :entries of :rf.runtime/resources (per-entry redacted/omitted by the resource's :sensitive?/:large? classification against that frame's registry; the reverse indexes are recomputable-from-entries). Resources is the first publisher; consumed by re-frame.ssr.payload-policy/project-runtime-db."}
    {:key         :resources/drain-blocking-ssr!
     :producer-ns 're-frame.resources.ssr
     :design-bead "rf2-er7qx2"

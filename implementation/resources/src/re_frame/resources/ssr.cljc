@@ -443,10 +443,15 @@
 
   This is the body behind the `:ssr/extend-runtime-db-projection` hook.
 
-  Resolves the SSR frame from the in-effect carried-frame scope (the shared
-  `rf/elide-wire-value` walker reads it) so the resource's declared
-  projection-relative sensitive / large declarations in the frame registry
-  govern the per-entry projection. The
+  The SSR frame is the EXPLICIT `frame-id` the consumer threads (rf2-f02diw):
+  the two-arity `[runtime-db frame-id]` is the canonical form and the security-
+  critical `payload-policy/project-runtime-db` calls it with the same target it
+  stamps the payload `:rf/frame-id`, so the resource's declared projection-
+  relative sensitive / large declarations in THAT frame's registry govern the
+  per-entry projection — never a borrowed / mismatched ambient scope. The
+  one-arity `[runtime-db]` is a convenience that resolves the ambient scope
+  frame, sound only at a call site already inside the matching `rf/with-frame`
+  (e.g. a direct unit-test caller). The
   projection NEVER ships all of `:rf.db/runtime` — only the
   `:rf.runtime/resources` `:entries` (Spec 016 §SSR and hydration: \"Do not
   serialize all of `:rf.db/runtime` by default\").
@@ -456,25 +461,30 @@
   tokens in the wire key (`project-scoped-key`), so the raw identity never
   rides any more than its data does (Spec 016 clause 4). A `:serialize`
   resource's key rides verbatim."
-  [runtime-db]
-  (let [resources (get runtime-db state/resources-key)
-        entries   (:entries resources)]
-    (if (seq entries)
-      (let [frame-id (frame/resolve-current-frame)
-            clock-ms (interop/epoch-now-ms)
-            ;; rf2-9e0tyq — the projected wire entries are RE-KEYED on the byte
-            ;; `key-id` of each entry's PROJECTED `:resource/key` (the wire
-            ;; entry's own `:resource/key`, set by `project-entry`), so the
-            ;; client installs them under the same byte identity it will then
-            ;; `recompute-indexes` over. `entries` here is keyed on the byte
-            ;; `key-id`; the scoped-key vector is read from each entry.
-            wired    (into {}
-                           (map (fn [[_k-id entry]]
-                                  (let [wire-entry (first (project-entry frame-id clock-ms entry))]
-                                    [(state/key-id (:resource/key wire-entry)) wire-entry])))
-                           entries)]
-        {state/resources-key {:entries wired}})
-      {})))
+  ([runtime-db]
+   ;; Convenience: project under the AMBIENT scope frame. Sound only at a call
+   ;; site already inside the frame's own `with-frame` (ambient == the target) —
+   ;; e.g. a direct unit-test caller. The security-critical SSR consumer passes
+   ;; the explicit target (rf2-f02diw).
+   (project-resources-runtime-db runtime-db (frame/resolve-current-frame)))
+  ([runtime-db frame-id]
+   (let [resources (get runtime-db state/resources-key)
+         entries   (:entries resources)]
+     (if (seq entries)
+       (let [clock-ms (interop/epoch-now-ms)
+             ;; rf2-9e0tyq — the projected wire entries are RE-KEYED on the byte
+             ;; `key-id` of each entry's PROJECTED `:resource/key` (the wire
+             ;; entry's own `:resource/key`, set by `project-entry`), so the
+             ;; client installs them under the same byte identity it will then
+             ;; `recompute-indexes` over. `entries` here is keyed on the byte
+             ;; `key-id`; the scoped-key vector is read from each entry.
+             wired    (into {}
+                            (map (fn [[_k-id entry]]
+                                   (let [wire-entry (first (project-entry frame-id clock-ms entry))]
+                                     [(state/key-id (:resource/key wire-entry)) wire-entry])))
+                            entries)]
+         {state/resources-key {:entries wired}})
+       {}))))
 
 ;; ---- server blocking drain (Spec 016 §SSR and hydration steps 3-4) --------
 ;;

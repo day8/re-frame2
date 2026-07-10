@@ -1,6 +1,11 @@
 (ns re-frame.ssr-runtime-db-explicit-frame-test
-  "rf2-3fc89f.15 — the SSR runtime-db hydration projection must honour the
-  EXPLICIT carried frame, never an ambient one.
+  "rf2-3fc89f.15 / rf2-f02diw — the SSR runtime-db hydration projection must
+  honour the EXPLICIT carried frame, never an ambient one. rf2-f02diw finishes
+  the clean break: the `:ssr/extend-runtime-db-projection` resource hook is
+  re-signatured `[runtime-db frame-id]` and the projector THREADS the target
+  into it as an argument rather than a `binding` rebind of ambient scope — the
+  `build-final-payload-explicit-frame-wins-over-ambient` stub below asserts the
+  hook receives A as its parameter while ambient stays B.
 
   `re-frame.ssr.streaming/build-final-payload` carries an explicit `frame-id`
   and reads BOTH partitions of the frame-state container by it. Its app-db
@@ -168,16 +173,22 @@
             machine snapshot :data, AND the resource-extension hook — the whole
             payload projects under ONE frame (A), never the ambient B"
     (setup-frame-a!)
-    (let [captured-hook-frame (atom :unset)
+    (let [captured-hook-frame   (atom :unset)
+          captured-hook-ambient (atom :unset)
           orig-hook (late-bind/get-fn :ssr/extend-runtime-db-projection)]
       (try
-        ;; A stub resource-extension hook records the frame it resolves
-        ;; ambiently — proving the projector reconciles the ambient scope to the
-        ;; explicit target A before invoking a hook that resolves its own frame
-        ;; (resources isn't on this artefact's classpath, so we stub its seam).
+        ;; A stub resource-extension hook records BOTH the frame-id PARAMETER it
+        ;; is threaded AND the ambient scope in effect when it runs — proving the
+        ;; projector passes the explicit target A as an ARGUMENT (rf2-f02diw
+        ;; clean break: the hook is `[runtime-db frame-id]`), never via a
+        ;; borrowed ambient rebind (resources isn't on this artefact's classpath,
+        ;; so we stub its seam). A one-arity stub here would ARITY-ERROR against
+        ;; the consumer's `(extend-fn runtime-db frame-id)` — the two args ARE
+        ;; the proof the frame is threaded.
         (late-bind/set-fn! :ssr/extend-runtime-db-projection
-                           (fn [_runtime-db]
-                             (reset! captured-hook-frame (frame/resolve-current-frame))
+                           (fn [_runtime-db frame-id]
+                             (reset! captured-hook-frame frame-id)
+                             (reset! captured-hook-ambient (frame/resolve-current-frame))
                              {}))
         ;; Ambient is frame B (the fixture's `:rf/default` scope); we pass A.
         (is (= :rf/default (frame/resolve-current-frame))
@@ -189,7 +200,12 @@
               snap    (get-in payload [:rf/runtime-db :rf.runtime/machines
                                        :snapshots machine-id])]
           (is (= server-frame @captured-hook-frame)
-              "the resource-extension hook resolves the EXPLICIT target A, not ambient B")
+              "the resource-extension hook is THREADED the EXPLICIT target A as
+               its frame-id argument (rf2-f02diw), not ambient B")
+          (is (= :rf/default @captured-hook-ambient)
+              "the hook's ambient scope is UNTOUCHED (still B :rf/default) — the
+               explicit frame arrives as a PARAMETER, not a borrowed ambient
+               rebind: the clean break removed the `binding` around the call")
           (is (= :rf/redacted (get-in payload [:rf/app-db :secret]))
               "app-db :secret redacted under frame A's declaration")
           (is (= "ok" (get-in payload [:rf/app-db :public]))
