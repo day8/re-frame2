@@ -90,41 +90,22 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.flows :as flows]
-            [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
             [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace])
+            [re-frame.test-support :as test-support])
   (:import [java.util.concurrent CountDownLatch]
            [java.util.concurrent.atomic AtomicLong]))
 
 ;; ---- per-test reset -------------------------------------------------------
 ;;
-;; Mirrors the `flows_test.clj` fixture so each deftest starts from a
-;; clean registrar / frames / flows / schemas / trace-cbs / last-inputs
-;; state. The flows ns keeps a private `last-inputs` atom for
-;; dirty-checking (per Spec 013 §Dirty-check semantics); we reset it
-;; via `flows/reset-flows!` (which clears BOTH `flows` and
-;; `last-inputs` in lockstep) so cross-test state cannot leak in either
-;; direction.
+;; The standard runtime reset is owned by `make-reset-runtime-fixture`. It
+;; clears BOTH the flow registry AND the paired `last-inputs` containers in
+;; lockstep through the `:flows/reset-flows!` hook (per Spec 013 §Dirty-check
+;; semantics), so cross-test state cannot leak in either direction, and binds
+;; `:rf/default` as the ambient scope (EP-0002) for the bodies below.
 
-(defn- reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
-  (trace/clear-listeners!)
-  (rf/init! plain-atom/adapter)
-  (require 're-frame.routing :reload)
-  (require 're-frame.ssr :reload)
-  ;; EP-0002: reg-flow is context-required frame-local — an ambient call
-  ;; under no scope raises :rf.error/no-frame-context. Pin :rf/default (an
-  ;; ordinary frame) as the established scope for the body.
-  (frame/ensure-default-frame!)
-  (binding [frame/*current-frame* :rf/default]
-    (test-fn)))
-
-(use-fixtures :each reset-runtime)
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 ;; Per-thread iteration count. The standard 5000 keeps CI under ~60s
 ;; wall-clock with the default thread count. Operators dial up via the

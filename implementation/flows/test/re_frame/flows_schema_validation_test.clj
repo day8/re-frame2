@@ -27,37 +27,36 @@
       silent (the whole surface DCEs in prod CLJS)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.error-emit :as error-emit]
-            [re-frame.frame :as frame]
             [re-frame.interop :as interop]
-            [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
-            [re-frame.flows :as flows]
+            ;; Loading `re-frame.flows` wires the flow late-bind hooks the
+            ;; `rf/reg-flow` bodies below drive (the flow-output validation
+            ;; path this suite pins).
+            [re-frame.flows]
             [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-support :as test-support]
             [re-frame.trace :as trace]))
 
-;; ---- per-test reset / error-trace recorder -------------------------------
+;; ---- per-test reset / schema-violation recorder --------------------------
+;;
+;; The standard runtime reset (registrar baseline + frames + flows/schemas +
+;; plain-atom adapter + ambient `:rf/default` scope) is owned by
+;; `make-reset-runtime-fixture`. Layered AROUND it, a concern-specific
+;; fixture resets the pluggable schema-validator seam (which the standard
+;; reset does not touch) and records `:rf.error/schema-validation-failure`
+;; traces for the body to assert against.
 
 (def ^:dynamic ^:private *captured* nil)
 
-(defn- reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
+(defn- with-schema-violation-recorder
+  "Reset the pluggable schema validator, bind `*captured*`, and record every
+  schema-validation-failure trace for the duration of one test; unregister
+  the recorder and reset the validator again afterwards so no validator
+  leaks into a sibling suite."
+  [test-fn]
   (schemas/reset-schema-validator!)
-  (flows/reset-last-inputs!)
-  (error-emit/clear-error-listeners!)
-  (rf/init! plain-atom/adapter)
-  (require 're-frame.routing :reload)
-  (require 're-frame.ssr :reload)
-  ;; EP-0002: reg-flow / reg-app-schema are context-required frame-local — an
-  ;; ambient call under no scope raises :rf.error/no-frame-context. Pin
-  ;; :rf/default (an ordinary frame) as the established scope for the body.
-  (frame/ensure-default-frame!)
   (let [captured (atom [])]
-    (binding [*captured*           captured
-              frame/*current-frame* :rf/default]
+    (binding [*captured* captured]
       (trace/register-listener!
         ::schema-violation-recorder
         (fn [ev]
@@ -69,7 +68,9 @@
           (trace/unregister-listener! ::schema-violation-recorder)
           (schemas/reset-schema-validator!))))))
 
-(use-fixtures :each reset-runtime)
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter})
+  with-schema-violation-recorder)
 
 ;; A trivial pluggable validator: a schema here is a 1-arg predicate fn.
 ;; This exercises the `:schemas/validate-with-registered-fn` seam without

@@ -28,39 +28,31 @@
   rollback path without pulling Malli onto the classpath."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.error-emit :as error-emit]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
             [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]))
+            [re-frame.test-support :as test-support]))
 
-;; ---- per-test reset -------------------------------------------------------
+;; ---- per-test reset / schema-validator seam ------------------------------
+;;
+;; The standard runtime reset (registrar baseline + frames + flows/schemas +
+;; plain-atom adapter + ambient `:rf/default` scope) is owned by
+;; `make-reset-runtime-fixture`. Layered AROUND it, a concern-specific
+;; fixture resets the pluggable schema-validator seam (which the standard
+;; reset does not touch) before and after each test so the validator this
+;; suite installs cannot leak into a sibling suite.
 
-(defn- reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
+(defn- with-schema-validator-reset
+  [test-fn]
   (schemas/reset-schema-validator!)
-  (flows/reset-last-inputs!)
-  (error-emit/clear-error-listeners!)
-  (trace/clear-listeners!)
-  (rf/init! plain-atom/adapter)
-  (require 're-frame.routing :reload)
-  (require 're-frame.ssr :reload)
-  ;; EP-0002: reg-flow / reg-app-schema are context-required frame-local — an
-  ;; ambient call under no scope raises :rf.error/no-frame-context. Pin
-  ;; :rf/default (an ordinary frame) as the established scope for the body.
-  (frame/ensure-default-frame!)
   (try
-    (binding [frame/*current-frame* :rf/default]
-      (test-fn))
+    (test-fn)
     (finally
       (schemas/reset-schema-validator!))))
 
-(use-fixtures :each reset-runtime)
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter})
+  with-schema-validator-reset)
 
 ;; A pluggable predicate validator: a registered "schema" here is a 1-arg
 ;; predicate fn applied to the slice at its registered path. This exercises

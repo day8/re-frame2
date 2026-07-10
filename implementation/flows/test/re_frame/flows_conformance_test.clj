@@ -109,50 +109,45 @@
             [re-frame.flows :as flows]
             [re-frame.flows.topo :as topo]
             [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
             [re-frame.subs :as subs]
             [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-support :as test-support]
             [re-frame.trace :as trace]))
 
 ;; ---- runtime reset --------------------------------------------------------
 ;;
-;; Mirrors `re-frame.flows-test/reset-runtime` (and the sibling
-;; `flows_trace_test`'s reset). Each fixture in the corpus runs against a
-;; clean registrar / frame table / flow registry / last-inputs slot.
+;; The standard per-process runtime reset (registrar baseline + frames +
+;; flows/schemas + plain-atom adapter) is owned by
+;; `make-reset-runtime-fixture`. Two fixture-specific choices:
+;;
+;;   - `:ambient-frame nil` — the corpus's `run-fixture` calls `reg-frame`
+;;     itself and needs NO in-flight ambient scope so a frame's
+;;     `:initial-events` cascade fires SYNCHRONOUSLY (Spec 002 §reg-frame
+;;     from inside a handler async-queues initial-events when
+;;     `*current-frame*` is bound — EP-0002). The adapter install still
+;;     ensures `:rf/default`; `run-fixture` pins the scope itself, after
+;;     `reg-frame`, around `realise-flows!` + the dispatch loop.
+;;   - a small concern-specific fixture clears the always-on error-emit
+;;     listener registry before each test (the standard reset clears trace
+;;     and event listeners but not the error substrate), so an
+;;     `:error-emit-records` matcher listener a prior fixture registered
+;;     cannot leak into the next.
 
-(defn- reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
-  (flows/reset-last-inputs!)
-  ;; The error-emit listener registry is a `defonce` atom that survives test
-  ;; re-runs. Clear before each test so a listener registered by one fixture
-  ;; (the `:error-emit-records` matcher) doesn't leak into the next.
-  (error-emit/clear-error-listeners!)
-  (rf/init! plain-atom/adapter)
-  ;; Framework events / fx are registered at namespace-load time in
-  ;; routing.cljc / ssr.cljc; clear-all! wiped them. Re-eval those
-  ;; registrations so :rf.fx/reg-flow / :rf.fx/clear-flow (registered
-  ;; via late-bind from flows.cljc's ns-load body) and any cross-artefact
-  ;; framework events resolve.
-  (require 're-frame.routing :reload)
-  (require 're-frame.ssr :reload)
-  (require 're-frame.flows :reload)
-  ;; EP-0002: the conformance corpus registers flows and dispatches ambiently
-  ;; against :rf/default; reg-flow + dispatch are context-required (no
-  ;; :rf/default floor). Register :rf/default as an
-  ;; ordinary frame here so the scope is available — but do NOT pin
-  ;; `*current-frame*` around the whole body: `run-fixture`'s `reg-frame`
-  ;; must run with no in-flight scope so its `:initial-events` cascade fires
-  ;; SYNCHRONOUSLY (frame/reg-frame async-queues initial-events when
-  ;; `*current-frame*` is bound — Spec 002 §reg-frame from inside a
-  ;; handler). `run-fixture` pins the scope itself, after `reg-frame`,
-  ;; around `realise-flows!` + the dispatch loop.
-  (frame/ensure-default-frame!)
-  (test-fn))
+;; The composed per-fixture reset: the standard reset fixture (registrar
+;; baseline + frames + flows/schemas + plain-atom adapter; `:ambient-frame
+;; nil` per the rationale above) wrapping the always-on error-listener clear.
+;; Bound as the `:each` fixture AND called directly by
+;; `run-flows-conformance-corpus` to reset between the fixtures it iterates
+;; inside a single deftest.
+(def ^:private reset-runtime
+  (let [standard (test-support/make-reset-runtime-fixture
+                   {:adapter       plain-atom/adapter
+                    :ambient-frame nil})]
+    (fn [test-fn]
+      (standard (fn []
+                  (error-emit/clear-error-listeners!)
+                  (test-fn))))))
 
 (use-fixtures :each reset-runtime)
 

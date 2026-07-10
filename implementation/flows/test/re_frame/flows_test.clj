@@ -27,44 +27,25 @@
             [re-frame.flows :as flows]
             [re-frame.flows.registry :as registry]
             [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-support :as test-support]
             [re-frame.trace]))
 
 ;; ---- per-test reset -------------------------------------------------------
 ;;
-;; Mirrors the smoke_test.clj fixture so each deftest starts from a clean
-;; registrar / frames / flows state. Re-loading routing / ssr restores the
-;; framework events that clear-all! wiped (some smoke tests rely on
-;; :rf.route/navigate etc. resolving — keep the reset shape consistent so
-;; running these tests in any order works).
+;; The standard per-process runtime reset is owned by
+;; `re-frame.test-support/make-reset-runtime-fixture`: it folds the ns-load
+;; registrar baseline back over the live registrar (run-order independence),
+;; resets `frame/frames`, drops ALL flow state through the
+;; `:flows/reset-flows!` hook (registry + last-inputs +
+;; abandoned-output-paths, so a stale dirty-check entry from a sibling test
+;; can't make a re-registration silently no-op), clears the schemas
+;; per-frame side-table, (re)installs the plain-atom adapter + ensures
+;; `:rf/default`, and binds `:rf/default` as the carried-invariant ambient
+;; scope so the ambient `reg-flow` / `dispatch-sync` calls in the bodies
+;; below carry a frame stamp (EP-0002).
 
-(defn- reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
-  ;; flows.cljc keeps a private last-inputs atom for dirty-checking
-  ;; (per Spec 013 §Dirty-check semantics). The smoke-test fixture
-  ;; doesn't reset it; left alone, an entry from this namespace's tests
-  ;; can leak into a sibling namespace's identically-keyed flow and
-  ;; cause its first-evaluation to no-op (new-inputs would =-equal the
-  ;; stale last-inputs). Clear it here so cross-namespace test order
-  ;; can't introduce hidden flakiness.
-  (flows/reset-last-inputs!)
-  (rf/init! plain-atom/adapter)
-  (require 're-frame.routing :reload)
-  (require 're-frame.ssr :reload)
-  ;; EP-0002: `reg-flow` / `clear-flow` are context-required frame-local — an
-  ;; ambient call under NO established scope raises `:rf.error/no-frame-context`
-  ;; (there is no `:rf/default` floor; `init!` does not create `:rf/default`).
-  ;; Register it as an ordinary frame and pin `*current-frame*` so the ambient
-  ;; `reg-flow` / `dispatch-sync` calls in the bodies below carry a scope
-  ;; stamp. Fixture-level equivalent of wrapping each body in
-  ;; `(rf/with-frame :rf/default …)`.
-  (frame/ensure-default-frame!)
-  (binding [frame/*current-frame* :rf/default]
-    (test-fn)))
-
-(use-fixtures :each reset-runtime)
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 ;; ---------------------------------------------------------------------------
 ;; 1. reg-flow / clear-flow lifecycle (registry side)
