@@ -1,41 +1,14 @@
 (ns day8.re-frame2-machines-viz.grammar
-  "Shared, PURE grammar walker + injective id codec for the three
-  machines-viz emitters (chart / mermaid / SCXML) — rf2-b2ygd2.
+  "Shared grammar walker and injective id codec for the chart, Mermaid,
+  and SCXML emitters.
 
-  ## Why this ns exists
+  All three surfaces project the same machine-definition grammar, so they
+  normalise transitions and address nodes through this namespace. The
+  runtime machines artefact remains bundle-isolated; representative parity
+  tests compare this tool-side mirror with the runtime grammar.
 
-  The three emitters each project a re-frame2 machine definition (Spec
-  005 §Transition table grammar) into a different surface — the chart's
-  xyflow node/edge graph, a Mermaid `stateDiagram-v2` string, and a W3C
-  SCXML document. To stay faithful to one another (001-Topology-Parity.md
-  §3.1 G9 — 'faithful across all three emitters'), they MUST address every
-  node by the SAME injective id and walk the transition grammar the SAME
-  way. Pre-rf2-b2ygd2 the walker + codec were HAND-COPIED into all three
-  emitters: `target-path?`, `parent-path`, `transition-candidates`,
-  `history-node?`, `reenter?`, `escape-id-segment` (the
-  correctness-critical injective scheme), the fn-tolerant name renderer,
-  and `normalise-root-targets` each appeared three times. Three copies =
-  three chances to drift; a drift in the escape codec silently re-wires
-  every edge in ONE emitter relative to the others.
-
-  This ns is the SINGLE SOURCE OF TRUTH. The three emitters route through
-  it so the codec + walker can never desync.
-
-  ## What stays SEPARATE (genuinely-distinct SCXML variants)
-
-  Two SCXML walkers are NOT collapsed in here — they implement a
-  deliberately different grammar and must stay in `scxml.cljc`:
-
-  - `scxml/root-transition-candidates` — root-grammar-aware: a
-    vector-of-VECTORS (`[[:a :x] [:b :y]]`) is a SINGLE multi-region
-    target, NOT a candidate fork (the generic `transition-candidates`
-    below would mis-split it).
-  - the SCXML decode side (`unescape-id-segment`, `decode-target`, …) —
-    the INVERSE codec, used only on import.
-
-  Per `tools/machines-viz/spec/*`: the cross-emitter agreement +
-  injective id codec contracts are described there; this ns is the pure
-  internal implementation those contracts already assume."
+  SCXML keeps its root-transition candidate parser and inverse id decoder
+  locally because those operations follow SCXML-specific grammar."
   (:require [clojure.string :as str]))
 
 ;; ---------------------------------------------------------------------------

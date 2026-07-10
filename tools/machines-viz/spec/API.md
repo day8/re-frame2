@@ -990,10 +990,11 @@ supplies the data and decides on the callbacks):
 ### Data sources
 
 The chart is **presentation-only**: it consumes nothing from the
-framework registry or the trace bus directly. The host (Xray, Story,
-the viewer page) reads the framework's public surfaces and projects
-them into the chart's props. The table below maps each framework
-surface to the prop the host derives from it.
+framework registry or the trace bus directly. A live host such as Xray
+reads the framework's public surfaces and projects them into chart props.
+Story reaches the same chart through its Xray embed; the static viewer
+uses only decoded share data. The table below maps each live framework
+surface to the prop a host derives from it.
 
 | Framework surface (host reads) | Chart prop the host derives |
 |---|---|
@@ -1306,12 +1307,8 @@ colour is subordinate to structure**.
   **declared over inferred** — authoritative off a `[:schemas :data]` schema when
   present, else inferred from one `:data` sample (rf2-3q4k5b · EP-0005 · EP-0029 A3);
   the badge beside the header reads `declared` for the authoritative shape
-  and `inferred from :data` for the inference. **Pre-q129z8** the
-  title strip + Context were two `position:absolute` overlays welded to the
-  chart's top-left corner; being absolute, they did not contain/track the
-  topology (they stuck to the corner while xyflow re-fit the topology on
-  resize) and collided with other top-left chrome. The frame header fixes
-  both. The frame is structural chrome: NEUTRAL (never marked `:active`),
+  and `inferred from :data` for the inference. The frame is structural
+  chrome: neutral (never marked `:active`),
   not a click/selection target. Rendered by
   `chart.nodes/root-container-node` (node-type `"root-container"`, node-id
   `chart.layout/root-container-id`).
@@ -1319,10 +1316,7 @@ colour is subordinate to structure**.
 ## Performance invariants
 
 This section is **load-bearing and conformance-level**, not guidance.
-The chart's runtime hot path is the single largest regression
-surface for Machines-Viz (per `ai/findings/perf-audit-machines-viz-2026-05-14.md`
-findings 1+2 — gitignored working note; audit-bead rf2-j3iwt). Once an
-implementation couples the live snapshot / decoration props to graph
+Once an implementation couples live decoration props to graph
 recompute, the coupling is hard to remove without rewriting the
 rendering pipeline. The MUSTs below exist so that coupling never lands.
 The shipped chart is presentation-only — the host projects the
@@ -1555,13 +1549,13 @@ consumer) that renders a chart decoded from a URL fragment.
 ### URL shape
 
 ```
-https://day8.github.io/re-frame2-machines-viz/viewer.html#machine=<base64-edn>
+https://day8.github.io/re-frame2-machines-viz/viewer.html#machine=<base64url-transit>
 ```
 
 Or, when self-hosted:
 
 ```
-https://acme.example.com/path/to/viewer.html#machine=<base64-edn>
+https://acme.example.com/path/to/viewer.html#machine=<base64url-transit>
 ```
 
 ### Behaviour
@@ -1661,7 +1655,7 @@ encoder:
 3. Canonicalises map / set ordering (per
    [Principles §Reproducible from the registry alone](./Principles.md)).
 4. Wraps in the versioned envelope.
-5. EDN-prints → transit-writes → base64url-encodes.
+5. Transit-writes the EDN-shaped value and base64url-encodes the Transit JSON.
 6. Wraps the fragment into the `:host` URL.
 
 ### Decoder
@@ -1688,7 +1682,7 @@ Failure modes:
 
 ```
 chart-state  →  validate + canonicalise  →  envelope wrap
-             →  EDN-print  →  transit-write  →  base64url  →  URL fragment
+             →  transit-write  →  base64url  →  URL fragment
 ```
 
 Per [DESIGN-RATIONALE Lock #3](./DESIGN-RATIONALE.md).
@@ -1803,15 +1797,14 @@ definition before serialisation (registered definitions carry
 source-coord meta per Spec 001; that meta does not propagate). The
 viewer page never resolves guards or actions; it only renders.
 
-Anything not in the schema is silently dropped by the encoder AND
-rejected by the decoder (rf2-dplwxh — the top-level map is closed on
-both sides; a forged URL adding an extra top-level key fails decode
-with `:invalid-chart-state`). New top-level keys (and any future
-expansion of `:snapshot`) require an explicit
-`:rf.machines-viz.share/allow?` opt-in plus an operator-controlled
-redaction hook (per
-[Principles §No session data in shares](./Principles.md)); CI
-enforces.
+Anything not in the schema is silently dropped by the encoder and
+rejected by the decoder. The top-level map is closed on both sides, so
+a forged URL adding an extra top-level key fails decode with
+`:invalid-chart-state`. Adding a top-level key or expanding `:snapshot`
+requires an explicit schema change, privacy review, and matching
+encoder/decoder tests (per
+[Principles §No session data in shares](./Principles.md)); there is no
+runtime bypass.
 
 ### URL length
 
@@ -2053,8 +2046,9 @@ and the inverse on the read side.
 holds for the supported subset. It is **not** exact for the shapes
 listed under [Not supported](#not-supported-lossy-or-omitted) below —
 notably a machine-level (top-level) `:on` fallback, which W3C SCXML
-cannot host as a root `<transition>`, so it is exported as a
-documenting comment and does **not** survive the parse back.
+cannot host as a root `<transition>`. The exporter preserves it as an
+annotated, non-conformant child, but it does **not** survive the parse
+back.
 
 ### Supported grammar subset
 
@@ -2135,9 +2129,9 @@ documenting comment and does **not** survive the parse back.
   oracle.
 - Machine-level (top-level) `:on` fallback transitions — W3C SCXML
   has no clean root-fallback slot (`<scxml>` does not host
-  `<transition>` children per the schema, and the import side drops
-  root-level transitions), so these are exported as a documenting XML
-  comment and do **not** round-trip back through `scxml->spec`.
+  `<transition>` children per the schema). The exporter preserves these
+  as annotated, non-conformant children so they remain inspectable, but
+  conforming consumers may reject them and the local importer drops them.
 - `:tags` — re-frame2-specific; not part of W3C SCXML.
 - `:action`s and guard FN bodies — only the *names* survive
   (SCXML `cond="name"` for guards; entry/exit `<script>` would

@@ -34,16 +34,16 @@ embeds `MachineChart` must be able to count on identical behaviour.
 
 ## Embedding-host-agnostic — one component, many hosts
 
-`MachineChart` does not know its host. Xray wraps it in the
-Machine Inspector panel; Story wraps it in a per-variant ribbon;
-the read-only viewer page wraps it in plain HTML. The component's
-contract is the same in every case:
+`MachineChart` does not know its host. Xray wraps it in the Machine
+Inspector panel, Story reaches that panel through its Xray embed, and
+the read-only viewer page mounts it in a small re-frame/Reagent shell.
+The component's contract is the same in every case:
 
 - Inputs: `:machine-id`, the `:definition` + `:current-state` the
   host pulls and passes in (the chart is presentation-only — it does
   not know its frame and takes no `:frame-id`), `:on-state-click`,
   plus the read-only/no-op flags the viewer uses. (Transitions render
-  as event-nodes per rf2-qo5xy — there is no `:on-transition-click`;
+  as event-nodes — there is no `:on-transition-click`;
   a clickable event-node label fires `:on-edge-click` on the sim
   path.)
 - Outputs: an `@xyflow/react` React canvas + the callback events
@@ -63,7 +63,7 @@ pass it via props or via the (small) configuration surface in
 Per [`tools/README.md`](../../README.md), tools are kept off
 consumer apps' production classpaths **structurally**. Machines-Viz
 inherits the contract: nothing in `implementation/` may `:require`
-from this jar. Xray requires this jar; Story requires this jar;
+from this jar. Xray requires this jar; Story reaches it through Xray;
 the framework runtime does not.
 
 This is non-negotiable. A consumer who deploys a re-frame2 app to
@@ -81,21 +81,20 @@ information and force a re-coercion layer.
 The encoding pipeline:
 
 ```
-chart-state  →  EDN-print  →  transit-write  →  base64url  →  URL fragment
+chart-state  →  validate + canonicalise  →  transit-write  →  base64url  →  URL fragment
 ```
 
-Transit handles the binary-compactness; base64url is URL-safe; the
-fragment is invisible to servers and browsers' navigation logs (the
-hash component is never sent in the HTTP request). The decoding
-pipeline runs the inverse. Same EDN-first posture the MCP triplet
-takes (per `ai/findings/sweep-tools-vs-sota-2026-05-13.md` §EDN-
-first wire vocabulary).
+Transit preserves the EDN-shaped values; base64url makes the Transit
+JSON safe for a URL fragment. The fragment is not sent in the HTTP
+request, although browsers, extensions, screenshots, and people who
+receive the complete URL can still retain it. The decoding pipeline
+runs the inverse.
 
 A versioned envelope keys the encoding so future format evolution
 is non-breaking:
 
 ```clojure
-{:rf.machines-viz.share/v "1"           ;; encoding version
+{:rf.machines-viz.share/v "2"           ;; encoding version
  :rf.machines-viz.share/chart   { ... } ;; the payload
  :rf.machines-viz.share/created <ms>}   ;; encode-time wall-clock
 ```
@@ -152,24 +151,23 @@ The encoder is the gatekeeper: it accepts a `chart-state` value and
 silently drops anything outside the allowlist before serialising —
 including runtime `:data` on `:snapshot` and any `:source-coords`
 the caller passes. The allowlist lives in [`API.md`](./API.md)
-§Share-URL payload schema; CI tests enforce that any new top-level
-key requires an explicit `:rf.machines-viz.share/allow?` opt-in
-plus an operator-controlled redaction hook.
+§Share-URL payload schema. Adding a top-level key requires an explicit
+schema change, privacy review, and matching encoder/decoder tests; there
+is no runtime bypass.
 
 ## Reproducible from the registry alone
 
-A shared chart's topology must be reproducible byte-for-byte from
-the same `reg-machine` call. Two consumers with the same re-frame2
-build and the same machine definition should encode to the same
-EDN regardless of when they encoded.
+A shared chart's canonical payload must be reproducible from the same
+inputs. Map and set iteration order must not introduce differences
+between consumers.
 
 This means:
 
 - **Map keys sort deterministically** (alphabetical by name, then
   namespace) before EDN serialisation.
 - **Set members sort the same way.**
-- **Source coords** are encoded only when present in the
-  definition's metadata — never synthesised at encode time.
+- **Source coords and definition metadata** are removed before
+  serialisation.
 - **No timestamps** other than the explicit `:rf.machines-viz.share/created`
   envelope key; the payload itself is timeless.
 
@@ -177,11 +175,12 @@ Reproducibility lets two consumers diff their charts when they
 disagree about a machine's behaviour. The diff is meaningful only
 if the encoding is canonical.
 
-The only non-reproducible bit is the **current-state snapshot** —
-which is purely a visual-highlight hint. The viewer has a "show
-idle" toggle that clears it.
+The envelope's encode-time `:rf.machines-viz.share/created` value means
+two separately generated URLs are not byte-identical. The optional
+**current-state snapshot** is also input-dependent and exists only as a
+visual-highlight hint; the viewer's "show idle" toggle clears it.
 
-## Read-only is the default
+## Observation by default
 
 The default `MachineChart` is a viewer. Interactions are limited
 to:
@@ -189,8 +188,8 @@ to:
 - Click a state node → fire `:on-state-click` (host decides what to
   do: Xray jumps to source; the viewer page no-ops).
 - Click a clickable event-node label → fire `:on-edge-click`
-  (rf2-u422r — host decides; the on-chart sim wires it to send the
-  event). Transitions render as event-nodes (rf2-qo5xy), so there is
+  (the host decides; the on-chart sim wires it to send the event).
+  Transitions render as event-nodes, so there is
   no separate `:on-transition-click`.
 - Hover a node → reveal a tooltip (this is the component's own
   affordance; no host wiring).
@@ -214,20 +213,13 @@ signalled **statically** on the state-box **border** — a runtime
 accent border colour + a soft `box-shadow` glow ring + a faint
 header wash — heavier than its inactive siblings, and **never** a
 whole-fill tint (the structure-first grammar keeps the body neutral
-so the runtime signal rides the border, per rf2-az6e2). The reader's
-eye lands on the current state at-rest, without a heartbeat loop
+so the runtime signal rides the border). The reader's
+eye lands on the current state at rest, without a heartbeat loop
 pulling attention every two seconds.
 
-This is a deliberate change from the previous lock (rf2-2sez0,
-2026-05-20). The earlier "Charts pulse only the active state"
-principle locked a 1.2s heartbeat pulse as the sole continuous
-animation; Mike rejected it on inspection — the pulse competed
-with the transition-glow for attention, became "look at me I'm
-running" decoration after the chart had been on screen for >5s,
-and diverged from xstate-stately (the
-[`000-Vision.md`](./000-Vision.md) named floor), which uses no
-active-state pulse. The static affordance carries the same
-"currently here" signal without the cost.
+An active-state pulse would compete with transition highlights and turn
+the persistent "currently here" signal into decoration. The static
+affordance carries that signal without demanding continuous attention.
 
 Every other animation in the chart is **event-driven** — fires
 once on a discrete event, resolves to a stable end-state, no
@@ -254,7 +246,7 @@ principle, applied to charts.
 
 The chart's `state-node` (a `@xyflow/react` div-node, not hand-rolled
 SVG) paints the active state with three non-animated emphases — all on
-the **border / header / glow**, never the body fill (rf2-az6e2):
+the **border / header / glow**, never the body fill:
 
 1. **Accent border** — the active node's border colour shifts to the
    runtime accent (`node-border` resolved against the active theme's
@@ -270,7 +262,7 @@ do not animate while the highlight is held. The `data-active` /
 `data-active-affordance` attributes on the node's `<div>` let tests
 and hosts read the emphasis state without inspecting CSS. Compound and
 region containers light the same way when any descendant leaf is
-active (G4 / rf2-80rm2; see [`API.md` §Active state on box border](API.md#active-state-on-box-border)).
+active (see [`API.md` §Active state on box border](API.md#active-state-on-box-border)).
 
 ## Colour is never alone
 
@@ -281,7 +273,7 @@ Every coloured marker pairs with a shape, icon, or text:
 - `:after` countdown ring: amber arc + the countdown-clock icon +
   the remaining-ms text.
 - `:final?` state: a quiet doubled border (the geometry reads without
-  hue; the `✓` glyph was dropped per rf2-az6e2).
+  hue).
 - `:spawn-all` failed child: red fill + an "!" badge + "failed"
   label.
 - Stale microstep node: grey + dashed border + "(microstep)" text.
@@ -315,17 +307,12 @@ machine inspector's job is to **show the cascade**, not to
 
 ## Production elision is non-negotiable
 
-The chart depends on the framework's trace bus + the runtime-db
-`[:rf.runtime/machines :snapshots <id>]` snapshot, both of which are gated on
-`re-frame.interop/debug-enabled?` in production (per
-[Spec 009 §Production builds](../../../spec/009-Instrumentation.md#production-builds-zero-overhead-zero-code)).
-Machines-Viz contributes its own sentinels to the elision verifier
-(`npm run test:elision`); CI blocks any leak.
-
-Production builds (`:advanced` + `goog.DEBUG=false`) elide every
-surface this jar consumes. The chart is invisible in production —
-not "renders with a warning," not "degrades gracefully," **absent
-from the classpath**.
+Machines-Viz is a separate tool artefact. Normal application production
+builds must not depend on it, and nothing under `implementation/` may
+require it. The bundle-isolation gate checks that xyflow, elkjs, and
+Machines-Viz namespaces do not leak into representative application
+release bundles. This classpath boundary, rather than dead-code
+elimination inside the chart, is the production guarantee.
 
 ## Backed by the framework's principles
 
@@ -337,12 +324,11 @@ When in doubt, defer to the framework's
 - **Named things over anonymous things** — every state has a
   stable id; every transition has a stable selector; every callback
   prop has a stable name.
-- **Public query surfaces** — Machines-Viz reads only what the
-  framework's public registrar / trace bus / runtime-db `[:rf.runtime/machines :snapshots]`
-  surface exposes.
-- **Deterministic execution** — Machines-Viz's rendering is a
-  function of `(reg-machine def, snapshot, trace-history)`; no
-  hidden side-effects.
+- **Public query surfaces** — hosts obtain definitions, snapshots, and
+  trace projections through public framework APIs and pass presentation
+  data into `MachineChart`.
+- **Deterministic execution** — Machines-Viz rendering is a function of
+  its props plus the measured container geometry consumed by ELK.
 
 Machines-Viz is a downstream artefact of the framework's
 AI-first discipline. The principles above are what *Machines-Viz

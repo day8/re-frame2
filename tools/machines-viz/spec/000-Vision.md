@@ -96,20 +96,15 @@ design doc, a Slack thread, or a whiteboard.
 A standalone CLJS jar — `day8/re-frame2-machines-viz` — that
 exports:
 
-1. **The `MachineChart` component.** A React-flavoured CLJS
-   component (substrate-agnostic via the v2 `:view` registration
-   surface; substrates' adapters re-export) that renders a
-   directional state-chart for one registered machine. It reads
-   the runtime-db slot `[:rf.runtime/machines :snapshots <id>]` (via the
-   `[:rf/machine <id>]` sub / `(:rf.db/runtime (frame-state-value id))`) for live-highlight and subscribes to the
-   Spec 009 trace stream for transition / microstep / timer /
-   invoke-all granularity.
-2. **The read-only viewer page.** A statically hostable single-file
-   page (`tools/machines-viz/public/viewer.html`) that decodes a
-   `#machine=<base64-edn>` URL fragment and renders the encoded
-   chart in a no-runtime `MachineChart` (the same component with
-   click handlers no-op'd and live-trace subscription disabled).
-3. **The share-URL encoding rules.** EDN → transit-write →
+1. **The `MachineChart` component.** A Reagent component with React,
+   UIx, and Helix adapter shells. It renders the host-supplied
+   `:definition`, `:current-state`, focus sets, and overlay descriptors;
+   it does not query the registry, runtime-db, or trace bus.
+2. **The read-only viewer page.** A statically hostable HTML page plus
+   compiled viewer bundle (`public/viewer.html` + `viewer.js`) that
+   decodes a `#machine=<base64url-transit>` URL fragment and renders the
+   chart with callbacks disabled and no runtime connection.
+3. **The share-URL encoding rules.** EDN-shaped data → transit-write →
    base64url, with a `:rf.machines-viz.share/v1` envelope keying the
    encoding version. Roundtrips: `(encode-share-url chart-state)`
    and `(decode-share-url url)`.
@@ -183,10 +178,10 @@ must tell."
 
 | re-frame2 capability | Machines-Viz surface |
 |---|---|
-| **`[:rf.runtime/machines :snapshots <id>]` snapshot location** in runtime-db (Spec 005) | Live-highlight reads the snapshot via the `[:rf/machine <id>]` sub / `(:rf.db/runtime (frame-state-value id))`; deref drives node-pulse on the active state. |
-| **`:rf.machine/transition` trace events** (Spec 009) | Edges glow on the matching event; the chart animates the from→to transition. |
-| **`:rf.machine.microstep/transition`** | Microstep-granular replay within an `:always`-driven cascade; intermediate states render with a "microstep" badge. |
-| **`:rf.machine.timer/*` events** | `:after`-bearing states render a countdown ring; the ring fills at 60Hz when the panel is visible. |
+| **`[:rf.runtime/machines :snapshots <id>]` snapshot location** in runtime-db (Spec 005) | The host passes its `:state` as `:current-state`; the chart paints a static active-state treatment. |
+| **`:rf.machine/transition` trace events** (Spec 009) | The host derives focus/fired edge ids and passes them as props. |
+| **`:rf.machine.microstep/transition`** | Host-side trace and replay surfaces; `MachineChart` does not render a dedicated microstep animation. |
+| **`:rf.machine.timer/*` events** | The host projects `:after` overlay descriptors; their tick drives countdown rings only while visible. |
 | **`:rf.machine.spawn-all/*` events** | Parallel-child rows render with per-child state plus the join-condition label (`:all` / `:any`). |
 | **`:rf.machine.spawn/spawned` + `-destroyed`** | Dynamic actors appear / disappear in the parent chart's "spawned" tray; gensym'd ids surface with `:system-id` aliases parenthesised. |
 | **State-tags** (Spec 005 §State tags) | Tag-membership coloured rings on state nodes; tags listed in the node tooltip. |
@@ -424,10 +419,9 @@ tool, then map, then name where we diverge):
   `MachineChart` is a read-only projection of an already-registered
   machine; there is no canvas-driven authoring (see §What it isn't
   → "Not an editor").
-- **Trace-driven sim, not a sandbox interpreter.** Live highlight +
-  replay are driven by the Spec 009 `:rf.machine/*` trace bus
-  in-process, not by a standalone interpreter sandbox (see
-  §Active-state highlighting transport).
+- **Host-projected live state.** Xray derives highlights and overlays from
+  the Spec 009 `:rf.machine/*` trace bus and passes them into the chart.
+  The separate static simulator is a hermetic what-if walker.
 - **First-class history pseudo-states (rf2-m285a — no longer a
   divergence).** Spec 005 has first-class `:type :history` pseudo-states
   (shallow / deep / `:default-target` — §History states). The chart
@@ -627,19 +621,17 @@ a separate inspector window (or browser extension); the running
 machine sends transition events over the wire; the inspector
 renders the chart and highlights.
 
-**re-frame2's choice:** **Spec 009 trace bus, in-process.** The
-chart subscribes to the existing trace bus
-([`spec/009-Instrumentation.md`](../../../spec/009-Instrumentation.md))
-for `:rf.machine/transition`, `:rf.machine.microstep/transition`,
-`:rf.machine.timer/*`, and `:rf.machine.spawn-all/*` events; live
-highlighting is a `swap!` on a local atom triggered by trace
-callbacks. **Diverge.**
+**re-frame2's choice:** **Host projection from the in-process Spec 009
+trace bus.** Xray subscribes to machine transitions, timers, and
+spawn/cancellation traces, then passes plain presentation props and
+overlay descriptors to `MachineChart`. The chart itself has no trace or
+runtime-db subscription. **Diverge.**
 
-**Rationale if diverge:** re-frame2 already has a structured
-trace bus carrying every event the chart needs, in-process, at
-near-zero cost. Inventing a WebSocket bridge would duplicate
-existing instrumentation and impose a separate-window UX where
-the in-app Xray panel does not need one. The Stately choice is
+**Rationale if diverge:** re-frame2 already has structured in-process
+instrumentation. Inventing a WebSocket bridge would duplicate it and
+impose a separate-window UX where the in-app Xray panel does not need
+one. Keeping the projection in the host also preserves `MachineChart`'s
+isolation. The Stately choice is
 optimised for "attach my external inspector to a running
 production app from another window"; that use case is served by
 `tools/re-frame2-pair-mcp/` over raw nREPL (the AI-pair surface),
@@ -868,4 +860,4 @@ Where Machines-Viz **defers** to peers:
 - [`tools/xray/spec/000-Vision.md`](../../xray/spec/000-Vision.md) — Xray's Vision; the sibling observability surface that embeds `MachineChart` as the Machines tab.
 - [`tools/xray/spec/003-Machine-Inspector.md`](../../xray/spec/003-Machine-Inspector.md) — Xray's embedding-side spec; the source of truth for transition-history ribbon, source-coord integration, `:spawn-all` viz, share-affordance UX.
 - [`spec/005-StateMachines.md`](../../../spec/005-StateMachines.md) — the registry + authoring surface Machines-Viz visualises.
-- [`spec/009-Instrumentation.md`](../../../spec/009-Instrumentation.md) — the trace bus the live-highlight + active-state transport consumes.
+- [`spec/009-Instrumentation.md`](../../../spec/009-Instrumentation.md) — the trace data live hosts project into chart props and overlays.

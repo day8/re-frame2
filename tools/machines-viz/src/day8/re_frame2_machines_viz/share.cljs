@@ -1,6 +1,5 @@
 (ns day8.re-frame2-machines-viz.share
-  "Share-URL encode / decode for re-frame2 machine charts
-  (rf2-8d7w1 · v1.0).
+  "Share-URL encoding and decoding for re-frame2 machine charts (v2).
 
   A share-URL is a **viewer-side artefact**: its only job is to let a
   remote recipient render a chart from a pasted link, with no running
@@ -31,14 +30,15 @@
                →  transit-write (json)  →  base64url  →  URL fragment
   ```
 
-  Transit handles the binary-compactness; base64url is URL-safe (no
-  `+` `/` `=`); the fragment (`#machine=...`) is never sent in an HTTP
-  request, so the chart never traverses a server by accident.
+  Transit preserves the data types; base64url is URL-safe (no `+` `/`
+  `=`). The fragment (`#machine=...`) is not sent in HTTP requests, but
+  browser history, extensions, screenshots, and recipients of the complete
+  URL can retain it. The structural privacy filter is therefore required.
 
   ## Versioned envelope
 
   ```clojure
-  {:rf.machines-viz.share/v       \"1\"   ;; encoding version
+  {:rf.machines-viz.share/v       \"2\"   ;; encoding version
    :rf.machines-viz.share/chart   { ... } ;; the ChartState payload
    :rf.machines-viz.share/created <ms>}   ;; encode-time wall-clock
   ```
@@ -112,12 +112,11 @@
 ;; ---------------------------------------------------------------------------
 ;; Canonicalisation — reproducible-from-the-registry-alone
 ;;
-;; Map keys + set members sort deterministically (by name, then
-;; namespace) before serialisation so two consumers with the same
-;; reg-machine encode byte-for-byte identically (Principles
-;; §Reproducible from the registry alone). transit's writer does NOT
-;; guarantee key order, so we walk the structure into sorted-maps and
-;; sorted vectors-of-set-members ourselves.
+;; Map keys + set members sort deterministically (by name, then namespace)
+;; before serialisation. Canonical chart payloads are stable; complete share
+;; URLs still differ because each envelope records its encode-time `:created`.
+;; Transit's writer does not guarantee key order, so this layer walks the
+;; structure into sorted maps and deterministically ordered sets.
 
 (defn- sort-key
   "Total order over EDN map keys / set members: by (name, namespace),
@@ -369,8 +368,8 @@
   §Share-URL payload schema). `valid-chart-state?` is closed over this
   set on BOTH sides so a hand-edited URL cannot smuggle extra top-level
   keys (`:source-coords`, `:data`, future unreviewed fields) past
-  decode. Widening this set requires the documented
-  `:rf.machines-viz.share/allow?` opt-in + operator redaction hook."
+  decode. Widening this set requires an explicit schema change, privacy
+  review, and corresponding encode/decode tests; there is no runtime bypass."
   #{:machine-id :frame-id :definition :snapshot})
 
 (defn- valid-chart-state?
