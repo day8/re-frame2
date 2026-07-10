@@ -1,5 +1,5 @@
 (ns re-frame.http-cljs-test
-  "CLJS-side smoke for the `re-frame.http` call-site helpers (rf2-pf4k).
+  "CLJS-side coverage for HTTP helpers and the Fetch adapter.
 
   The JVM `re-frame.http-test` covers the full shape contract. This
   smoke just confirms the helpers compile clean under CLJS (the file
@@ -7,53 +7,48 @@
   fastest way to catch a regression that would otherwise only surface
   in shadow-cljs builds).
 
-  Also covers rf2-r40km — the CLJS-only `:rf.http/cors` classification
-  branch of `re-frame.http.transport-cljs/classify-cljs-error`."
+  Also covers the CLJS-only `:rf.http/cors` classification branch."
   (:require [cljs.reader :as edn]
             [cljs.test :refer-macros [deftest is testing async]]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.http :as rf.http]
-            ;; rf2-wj8vv — drive the full `:rf.http/managed` pipeline (fx
+            ;; Drive the full `:rf.http/managed` pipeline (fx
             ;; registration + in-flight registry) for the backoff-window
             ;; cancellation test below.
             [re-frame.http.managed :as http-managed]
             [re-frame.http.registry :as registry]
             [re-frame.http.transport-cljs :as transport-cljs]
-            ;; rf2-f5pguu — assert the redacted `:rf.warning/http-header-invalid`
+            ;; Assert the redacted `:rf.warning/http-header-invalid`
             ;; trace fires (instead of an escaping `:rf.error/fx-handler-
             ;; exception`) when an invalid request header hits the managed
-            ;; CLJS path. `re-frame.trace.tooling` owns the listener surface
-            ;; (rf2-qwm0a); `re-frame.http.url` carries the canonical redaction
-            ;; sentinel for the denylist-scrub assertion (rf2-m00e7p).
+            ;; CLJS path. `re-frame.trace.tooling` owns the listener surface;
+            ;; `re-frame.http.url` carries
+            ;; the canonical HTTP redaction sentinel.
             [re-frame.http.url :as http-url]
             [re-frame.test-support :as test-support]
             [re-frame.trace.tooling :as trace-tooling]))
 
-;; rf2-hp772l — the CLJS Fetch transport + classifier now live in the
-;; per-platform adapter ns `re-frame.http.transport-cljs` and are public
-;; (named seams), so no `@#'` reach-through is needed.
+;; Fetch transport and classification are named adapter seams.
 (def ^:private classify-cljs-error
   transport-cljs/classify-cljs-error)
 
-;; rf2-xu0sl — tolerance band for the MEASURED `:elapsed-ms` wall-clock
+;; Tolerance band for measured `:elapsed-ms` wall-clock
 ;; assertions below. `js/setTimeout(…, limit)` is NOT a hard floor: under
 ;; rounding and CI scheduling jitter a 40ms timer can be observed firing at
 ;; a measured ~39ms, so an exact `(>= elapsed limit)` flakes by ~1ms. We
 ;; assert `elapsed` lands within this band of `limit` instead, which still
-;; proves `:elapsed-ms` is a genuine measured value (not the old synthetic
-;; constant `== :limit-ms`, and not absent) without being jitter-fragile.
+;; proves `:elapsed-ms` is measured and present without being jitter-fragile.
 (def ^:private elapsed-jitter-ms 10)
 
-;; rf2-5zj6t — the CLJS Fetch transport (`transport-cljs/cljs-fetch`,
-;; now a public named seam) so we can assert it reads the correct
-;; response body type per `:decode` (a Fetch Response body may be
+;; Assert that Fetch reads the correct response body type per `:decode`. A
+;; Fetch Response body may be
 ;; consumed only once, so the reader is chosen up front).
 (def ^:private cljs-fetch
   transport-cljs/cljs-fetch)
 
-;; rf2-u5xwa — `cross-origin?` (the load-bearing half of the CORS
+;; `cross-origin?` (the load-bearing half of the CORS
 ;; classification) reads `js/globalThis.location.origin`, which is ABSENT
 ;; under the node-runtime CLJS gate (`npm run test:cljs`). Inject a known
 ;; origin so the cross-origin heuristic runs deterministically in node and

@@ -1,5 +1,5 @@
 (ns re-frame.http.privacy
-  "Spec 014 §Privacy — sensitive-data honouring for `:rf.http/managed` (rf2-bma05).
+  "Spec 014 §Privacy for `:rf.http/managed`.
 
   HTTP is the canonical privacy surface: passwords ride request bodies,
   auth tokens ride request headers, user PII rides response bodies. The
@@ -26,14 +26,14 @@
 
   1. **Header denylist** (`re-frame.http.privacy-headers`) — a canonical
      set of always-sensitive header names. Redacted in trace events
-     regardless of the handler / request `:sensitive?` flag, because
+     regardless of the request's `:sensitive?` flag, because
      the headers' names themselves declare them sensitive.
 
-  2. **Query-param denylist** (`re-frame.http.url`, rf2-2p8wr) — a
+  2. **Query-param denylist** (`re-frame.http.url`) — a
      canonical set of always-sensitive query-string parameter names
      (e.g. `api_key`, `access_token`, `auth`). URLs carrying these
      params are redacted **inline** in every `:rf.http/*` trace event
-     that carries a `:url` slot, regardless of the handler / request
+     that carries a `:url` slot, regardless of the request
      `:sensitive?` flag. Same rationale as the header denylist: the
      param name itself is the signal.
 
@@ -47,28 +47,25 @@
      of path-marked / per-call classification.
 
   The runtime stamps `:sensitive? true` on the emitted trace event's
-  `:tags` (and at the top level when the core runtime stamp lands per
-  rf2 G1) so consumers consult one keyword to decide ship / drop /
-  redact. When ANY query param is redacted by the denylist alone (no
+  `:tags` so consumers consult one keyword to decide ship, drop, or redact.
+  When any query param is redacted by the denylist alone (no
   per-call sensitivity), the trace event still stamps `:sensitive? true`
   — the presence of a denylisted query param is itself a signal that
   the request carries an auth secret.
 
-  ## Managed-HTTP carriers (EP-0025 §HTTP carriers)
+  ## Managed-HTTP carriers
 
   Beyond the immutable built-in header / query-param denylists, an app may
   extend each with its own app-specific carrier names via the
   `:rf.http/managed` `reg-fx` registration metadata — the `:carriers
-  {:headers [..] :query-params [..]}` block (the EP-0025 transient-payload
-  case). The composers resolve the registration's extension sets ONCE per
+  {:headers [..] :query-params [..]}` block. The composers resolve the
+  registration's extension sets once per
   emit (`managed-carriers`, reading `re-frame.registrar/handler-meta :fx
   :rf.http/managed`) and thread them to the header / URL redactors, which
   union them onto the built-in defaults. Carriers are process-global (one
   `:rf.http/managed` registration), so resolution needs no frame id; when
   no app re-registered `:rf.http/managed` with a `:carriers` block, only the
-  built-in defaults apply. The old frame `:sensitive {:http …}` block (and,
-  earlier, the process-global `declare-sensitive-*!` surface) are removed:
-  app-specific carriers ride the managed-HTTP registration now.
+  built-in defaults apply.
 
   ## Production elision
 
@@ -83,15 +80,11 @@
             [re-frame.http.url :as url]
             [re-frame.registrar :as registrar]))
 
-;; rf2-m00e7p — internal alias for terse composer call sites below; the
-;; canonical home is the sibling leaf `re-frame.http.url` (carries no
-;; privacy deps, so no leaf→parent cycle). Private — `http-privacy` no
-;; longer carries a public re-export of the sentinel (the public surface
-;; is `re-frame.http.url/redacted-sentinel`, itself a re-export of the
-;; canonical `re-frame.privacy/redacted-sentinel` in core).
+;; The URL leaf owns the public HTTP alias so privacy composers can share the
+;; core sentinel without creating a leaf-to-parent cycle.
 (def ^:private redacted-sentinel url/redacted-sentinel)
 
-;; ---- managed-HTTP carrier resolution (EP-0025 §HTTP carriers) --------------
+;; ---- managed-HTTP carrier resolution --------------------------------------
 ;;
 ;; App-specific carrier names ride the `:rf.http/managed` `reg-fx`
 ;; registration metadata — the `:carriers {:headers [..] :query-params [..]}`
@@ -117,8 +110,7 @@
 ;; closed (only `:headers` / `:query-params`, and a query-param policy map
 ;; only `:include` / `:except`). A malformed block FAILS LOUD with
 ;; `:rf.error/bad-classification` (the canonical thrown-error shape) — the
-;; same posture the prior frame `:sensitive {:http …}` block had at
-;; reg-frame.
+;; same fail-loud posture as other classification metadata.
 
 (defn- carrier-error
   [reason extras]
@@ -255,18 +247,18 @@
   on the trace event (a denylisted param name is itself a signal that
   the request carries a secret) without re-walking the URL.
 
-  `param-extras` is the emitting frame's frame-local query-param carrier
-  extension set (EP-0015 §3), or `nil` for defaults-only.
+  `param-extras` is the registration-owned query-param carrier policy, or
+  `nil` for defaults only.
 
-  rf2-1u9dja — a self-identifying failure map (debugging-dx finding 3)
-  ALSO carries the request echo `:request {:method :url}`; its nested
+  A self-identifying failure map also carries the request echo
+  `:request {:method :url}`; its nested
   `:url` is an egress surface too, so it is walked through the SAME
   redactor. On-box the app reply carries the raw url (the caller's own
   data); this redaction fires only on the trace egress path the
   `prepare-emit-*` composers drive.
 
-  Per rf2-02vzz — fuses the redact + denylist-hit lookups so the URL's
-  query string is parsed exactly once per trace emit."
+  Redaction and denylist-hit detection share one walk, so the query string is
+  parsed once per trace emit."
   [m sensitive? param-extras]
   (let [[m top-any?]
         (if (string? (:url m))
@@ -284,15 +276,15 @@
 (defn redact-request-tags-with-flag
   "Like `redact-request-tags` but returns `[tags url-redacted?]` so
   callers (`prepare-emit-tags`) can decide whether to stamp
-  `:sensitive?` without re-walking the URL. Per rf2-02vzz.
+  `:sensitive?` without re-walking the URL.
 
-  `carriers` is the emitting frame's frame-local carrier extension map
-  `{:headers #{..} :query-params #{..}}` (EP-0015 §3), or `nil`."
+  `carriers` is the registration-owned carrier extension map
+  `{:headers #{..} :query-params #{..}}`, or `nil`."
   ([tags sensitive?] (redact-request-tags-with-flag tags sensitive? nil))
   ([tags sensitive? carriers]
    (let [[tags url-hit?] (redact-url-in tags sensitive? (:query-params carriers))
          tags' (cond-> tags
-                 ;; Always-on header redaction (built-in defaults ∪ frame extras).
+                 ;; Always-on header redaction (built-in defaults plus extensions).
                  (map? (:headers tags))
                  (update :headers headers/redact-headers (:headers carriers))
 
@@ -310,12 +302,12 @@
   the request-side payload when `sensitive?` is true. Always redacts
   denylisted headers regardless of `sensitive?` — the header denylist
   is unconditional. URL query-string values whose param name is in the
-  query-param denylist (rf2-2p8wr) are always redacted regardless of
+  query-param denylist are always redacted regardless of
   `sensitive?` — denylisted param names are themselves the signal.
 
   Idempotent and total: missing slots are left alone.
 
-  rf2-ee38b.7 — public for direct test assertion only; production reaches
+  Public for direct test assertion; production reaches
   redaction via the `prepare-emit-*` composers (which use the `*-with-flag`
   forms). No production caller invokes this non-flag wrapper."
   ([tags sensitive?] (first (redact-request-tags-with-flag tags sensitive? nil)))
@@ -325,10 +317,9 @@
 (defn redact-failure-with-flag
   "Like `redact-failure` but returns `[failure url-redacted?]` so callers
   (`prepare-emit-failure`, `prepare-emit-tags`) can decide whether to
-  stamp `:sensitive?` without re-walking the URL. Per rf2-02vzz.
+  stamp `:sensitive?` without re-walking the URL.
 
-  `carriers` is the emitting frame's frame-local carrier extension map
-  (EP-0015 §3), or `nil`."
+  `carriers` is the registration-owned carrier extension map, or `nil`."
   ([failure sensitive?] (redact-failure-with-flag failure sensitive? nil))
   ([failure sensitive? carriers]
    (when failure
@@ -414,9 +405,8 @@
 
   Returns `true` if any source declares sensitivity; `false` otherwise.
 
-  NOTE: handler-level `:sensitive?` registration metadata is no longer
-  consulted. Sensitive data marking is path-based per the upcoming
-  data-classification mechanism (separate spec doc; in progress)."
+  Handler registration metadata is not consulted; request sensitivity is a
+  per-call decision."
   [args-map _origin-event]
   (or (true? (:sensitive? args-map))
       (true? (get-in args-map [:request :sensitive?]))))
@@ -429,10 +419,10 @@
   `:rf.warning/cljs-only-key-ignored-on-jvm`).
   Returns a tags map ready for `trace/emit!`.
 
-  Two distinct decisions per rf2-2p8wr:
+  Two distinct decisions:
 
-  - **What to redact in `:url`** uses the `sensitive?` arg (handler /
-    per-call). When `sensitive?` true, ALL query-string param values
+  - **What to redact in `:url`** uses the per-call `sensitive?` arg. When
+    true, all query-string param values
     are scrubbed; when false, only denylisted param values are scrubbed.
     The denylist-only redaction does NOT promote the URL scrub to ALL
     params — denylisted names are signals, not licenses to scrub
@@ -443,13 +433,10 @@
     param name alone is enough to stamp the event — the name is the
     signal that the request carries a secret.
 
-  Per rf2-02vzz the redact + denylist-hit are computed in a single URL
-  walk: `redact-request-tags-with-flag` and `redact-failure-with-flag`
-  return the redacted shape paired with a flag telling us whether any
-  query-string value was scrubbed. Earlier the helpers ran two walks
-  per trace emit (denylist-hit then redact).
+  Redaction and denylist-hit detection share one URL walk; the helpers return
+  the redacted shape paired with a flag reporting whether any value changed.
 
-  Per EP-0025 §HTTP carriers the app-declared carrier extension sets ride
+  App-declared carrier extension sets ride
   the `:rf.http/managed` `reg-fx` registration (`:carriers` block); they
   are resolved ONCE here (`managed-carriers`) and threaded to the header /
   URL redactors so app-specific carriers redact alongside the built-in
@@ -474,15 +461,15 @@
   event (`emit-error!` on a `:rf.http/*` failure kind). The whole
   failure map is the tags map for `emit-error!`.
 
-  Two distinct decisions per rf2-2p8wr — same split as `prepare-emit-
+  Two distinct decisions, matching `prepare-emit-
   tags`: URL redaction uses the explicit `sensitive?` arg; `:sensitive?`
   stamping OR-combines that arg with a query-param denylist hit on the
   failure's `:url`.
 
-  Per rf2-02vzz the URL walk happens once: `redact-failure-with-flag`
+  The URL walk happens once: `redact-failure-with-flag`
   returns `[failure url-hit?]` so we don't re-parse the query string.
 
-  Per EP-0025 §HTTP carriers the app-declared carrier extension sets ride
+  App-declared carrier extension sets ride
   the `:rf.http/managed` `reg-fx` registration (`:carriers` block), resolved
   once (`managed-carriers`) and threaded to the header / URL redactors.
   Carriers are process-global, so the optional third arg (kept for call-site

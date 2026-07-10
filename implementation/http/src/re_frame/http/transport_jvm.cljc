@@ -1,8 +1,7 @@
 (ns re-frame.http.transport-jvm
   "JVM (`java.net.http.HttpClient`) platform adapter for `:rf.http/managed`.
 
-  Extracted from `re-frame.http.transport` per rf2-hp772l — the platform
-  transports were extracted into per-platform sibling namespaces so the
+  Platform transport details live here so the
   shared attempt-and-retry lifecycle (`re-frame.http.transport`) reads as
   platform-neutral Clojure and each platform's reader-conditional code has
   a named home.
@@ -24,8 +23,7 @@
 
   The JDK-interop forms are `#?(:clj …)` — on CLJS this namespace loads as
   effectively empty save the `check-cljs-only-keys!` no-op. Keeping the
-  conditionals local to the adapter is the rf2-hp772l contract: the shared
-  loop carries no JDK interop."
+  conditionals local to the adapter keeps JDK interop out of the shared loop."
   (:require [clojure.string         :as str]
             [re-frame.http.decode   :as decode]
             [re-frame.http.encoding :as encoding]
@@ -41,12 +39,7 @@
                    [java.time Duration]
                    [java.util.concurrent CompletableFuture])))
 
-;; rf2-b45uc — reflection warnings ON in the densest JVM-interop ns of
-;; the http surface (HttpClient, HttpRequest, BodyPublishers, HttpHeaders,
-;; CompletableFuture). The code is type-hinted today; the flag is the
-;; tripwire that catches a future un-hinted interop call compiling to
-;; reflective dispatch — exactly where interop is densest. CLJS ignores
-;; the form.
+;; Reflection warnings catch unhinted calls in this interop-heavy namespace.
 #?(:clj (set! *warn-on-reflection* true))
 
 ;; ---- platform transport: JVM java.net.http.HttpClient ---------------------
@@ -88,7 +81,7 @@
      fails fast instead of leaning on the per-request timeout. The
      redirect policy is a per-CLIENT setting on the JDK (not per-request),
      so we memoise one client per distinct policy (`jvm-http-clients`)
-     to preserve connection pooling per rf2-ee38b.7."
+     to preserve connection pooling."
      [^HttpClient$Redirect policy]
      (-> (HttpClient/newBuilder)
          (.connectTimeout (Duration/ofSeconds 10))
@@ -128,11 +121,11 @@
      opt-out — see the inline note), and sets each header individually
      so a JDK header-validation throw can be isolated to the offending
      header (surfaced as a `:rf.warning/http-header-invalid` trace rather
-     than sinking the whole request — rf2-9lun0). `sensitive?` is carried
+     than sinking the whole request). `sensitive?` is carried
      only so that warning's `:url` can be routed through the privacy
-     composer (rf2-1jcpm).
+     composer.
 
-     rf2-4y04lq — a RELATIVE `url` (e.g. `\"/api/items\"`) is rejected here
+     A relative `url` (e.g. `\"/api/items\"`) is rejected here
      with a clear `ex-info` before the JDK ever sees it. The browser Fetch
      transport resolves a relative url against the page's document base;
      the JVM has no such base. Left unchecked, `HttpRequest/newBuilder`
@@ -175,7 +168,7 @@
        (when (and timeout-ms (pos? timeout-ms))
          (.timeout b (Duration/ofMillis (long timeout-ms))))
        (doseq [[k v] (encoding/normalize-header-pairs headers)]
-         ;; rf2-9lun0 — surface JDK HttpClient header-validation throws
+         ;; Surface JDK HttpClient header-validation throws
          ;; via a `:rf.warning/http-header-invalid` trace rather than
          ;; silently dropping. Stray `\r`/`\n` / control chars / empty
          ;; name / forbidden header (`Host`, `Connection`, …) all hit
@@ -185,20 +178,16 @@
          ;; the offending header so a stray bad header doesn't sink
          ;; an otherwise-valid request; the trace is the alarm.
          ;;
-         ;; rf2-rznrz — `encoding/normalize-header-pairs` expands a
+         ;; `encoding/normalize-header-pairs` expands a
          ;; documented multi-valued request header (string → vector of
          ;; strings) into one `[name value]` pair per element, so we call
          ;; `.header` ONCE PER VALUE — the JDK accumulates repeated names
          ;; into the multi-valued wire form (`Accept: a` + `Accept: b`).
-         ;; The prior `(str v)` on the whole value stringified a vector
-         ;; into a single malformed `[\"a\" \"b\"]` header line.
          ;;
-         ;; rf2-1jcpm — the `:url` slot on the warning event is routed
+         ;; The warning's `:url` is routed
          ;; through `privacy/prepare-emit-tags` so a denylisted query
          ;; param (`?api_key=…`) is scrubbed and `:sensitive?` is
-         ;; stamped when the request is sensitive. Previously the raw
-         ;; URL rode the trace surface even when the handler / request
-         ;; was declared sensitive.
+          ;; stamped when the request is sensitive.
          (try (.header b k v)
               (catch Throwable t
                 (when interop/debug-enabled?
@@ -381,13 +370,11 @@
 #?(:clj
    (defn- emit-cljs-only-skipped! [k url sensitive? frame]
      (when interop/debug-enabled?
-       ;; rf2-1jcpm — route through the privacy composer so a denylisted
+       ;; Route through the privacy composer so a denylisted
        ;; query param in the URL is scrubbed and `:sensitive?` is stamped
-       ;; on the warning event when the originating handler / request is
-       ;; sensitive. Previously the raw URL rode the trace surface.
-       ;; rf2-ppkh3v — the originating frame is threaded so the URL
-       ;; redaction also honours the frame's frame-local query-param
-       ;; carriers (EP-0015 §3).
+       ;; on the warning event when the request is
+       ;; sensitive. The frame supplies general trace attribution and elision;
+       ;; HTTP carrier names come from the effect registration.
        (trace/emit! :warning :rf.http/cljs-only-key-ignored-on-jvm
                     (privacy/prepare-emit-tags
                       {:key k :url url}
@@ -399,7 +386,7 @@
      ([args sensitive?] (check-cljs-only-keys! args sensitive? nil))
      ([{:keys [request abort-signal decode]} sensitive? frame]
      (let [url (:url request)]
-       ;; rf2-ee38b.7 — `:credentials` joins the JVM-degraded set. Unlike
+       ;; `:credentials` is a JVM-degraded key. Unlike
        ;; `:redirect` (now honoured on JVM via the redirect-policy client),
        ;; the browser same-origin/include cookie model has no faithful
        ;; `HttpClient` analogue — the shared client configures no
@@ -407,14 +394,13 @@
        ;; of the value. Rather than silently no-op, emit the standard
        ;; `:rf.http/cljs-only-key-ignored-on-jvm` trace so the dropped key
        ;; is visible to off-box monitors. Spec 014 §JVM degradation table
-       ;; carries the `:credentials` row (rf2-t5mzx) so the table and the
-       ;; shipped behaviour agree.
+       ;; carries the corresponding row so the table and runtime agree.
        (doseq [k [:mode :cache :referrer :integrity :credentials]]
          (when (contains? request k)
            (emit-cljs-only-skipped! k url sensitive? frame)))
        (when abort-signal
          (emit-cljs-only-skipped! :abort-signal url sensitive? frame))
-       ;; rf2-a3wxe — binary decode SHAPE-degradation notice on JVM.
+       ;; Binary decode has a host-specific result shape on the JVM.
        ;; A `:blob` / `:array-buffer` / `:form-data` decode is now HONOURED
        ;; on the JVM (jvm-fetch reads `ofByteArray` and rides the raw bytes
        ;; — no more lossy String fallback), but the returned value is a

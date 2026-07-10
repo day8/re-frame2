@@ -1,38 +1,34 @@
 (ns re-frame.http.url
-  "URL handling for the http artefact — query-string redaction surface
-  (Spec 014 §Privacy, rf2-2p8wr) plus the query-param denylist.
+  "URL handling for the HTTP artefact: query-string redaction and the
+  query-param denylist (Spec 014 §Privacy).
 
   This namespace owns URL *redaction / scrubbing* for the http artefact
   (split, walk, redact, denylist). URL *building* — `url-encode`,
-  `params->query`, `merge-params` — lives in `re-frame.http.encoding`
-  (the rf2-5ijhk encoding split). The two halves stay separate: redaction
+  `params->query`, `merge-params` — lives in `re-frame.http.encoding`.
+  The two halves stay separate: redaction
   is a privacy-leaf surface, building is an encoding concern.
 
-  ## Query-param denylist (rf2-2p8wr)
+  ## Query-param denylist
 
   `default-query-param-denylist` covers the canonical query-string-auth
   surface (api_key, apikey, access_token, auth, token, key, secret,
   password, session, signature, sig). These built-in names are an
   **immutable framework default** — no frame can remove one.
 
-  ## App-specific carriers ride the :rf.http/managed registration (EP-0025)
+  ## App-specific carriers
 
   An app extends the denylist with its own sensitive query-param names
   (e.g. `shop_token`, webhook `signature` variants) on the
-  `:rf.http/managed` `reg-fx` registration metadata — the `:carriers` block
-  (the EP-0025 transient-payload case), not through a process-global
-  mutation or a frame annotation:
+  `:rf.http/managed` `reg-fx` registration metadata, not through a mutable
+  global or frame annotation:
 
       (rf/reg-fx :rf.http/managed
         {:carriers {:query-params [\"shop_token\"]}}
         http-managed/managed-handler)
 
   `re-frame.http.privacy/managed-carriers` lowers the `:carriers` names to a
-  lower-cased extension set, which the redactors UNION onto the immutable
-  built-in defaults. The earlier frame `:sensitive {:http {:query-params […]}}`
-  block and the process-global `declare-sensitive-query-param!` /
-  `clear-sensitive-query-params!` surface are both removed — the managed-HTTP
-  registration owns app-specific carriers now (EP-0025 §HTTP carriers).
+  lower-cased extension set, which the redactors union onto the immutable
+  built-in defaults.
 
   ## Redaction shape
 
@@ -59,23 +55,23 @@
 ;; it as a payload value. Consumers wanting "was this redacted?" check
 ;; `(= :rf/redacted v)`.
 ;;
-;; rf2-qe237 — the single source of truth is now `re-frame.privacy/
-;; redacted-sentinel` in core (already consumed by elision / marks). Core is
+;; `re-frame.privacy/redacted-sentinel` in core is the single source of truth.
+;; Core is
 ;; on the http classpath, so this artefact refers to the canonical def
 ;; rather than re-declaring the keyword literal. `http-url` remains the
 ;; http-side re-export anchor — it is the privacy leaf with no intra-privacy
 ;; dependencies, so `http-privacy` and `http-privacy-headers` can both refer
-;; to it without creating a leaf→parent cycle (rf2-ee38b.7 intra-http shape).
+;; to it without creating a leaf-to-parent cycle.
 
 (def redacted-sentinel
   "The framework-reserved redaction sentinel keyword per Spec 009 §Privacy.
   Re-exported from the canonical `re-frame.privacy/redacted-sentinel` in
-  core (rf2-qe237). This is the http-side public anchor — `http-privacy`
-  and `http-privacy-headers` both refer to it privately (rf2-m00e7p), so
+  core. This is the HTTP-side public anchor; `http-privacy`
+  and `http-privacy-headers` both refer to it privately, so
   the keyword cannot drift across the http privacy cluster."
   privacy/redacted-sentinel)
 
-;; ---- query-param denylist (rf2-2p8wr) -------------------------------------
+;; ---- query-param denylist -------------------------------------------------
 
 (def default-query-param-denylist
   "Canonical always-sensitive HTTP query-string parameter names, lower-
@@ -88,7 +84,7 @@
   webhook receivers, and signed-URL schemes. An **immutable framework
   default** — no app can remove one. Apps extend with their own carrier
   names on the `:rf.http/managed` `reg-fx` registration via
-  `:carriers {:query-params [\"shop_token\"]}` (EP-0025); the carrier
+  `:carriers {:query-params [\"shop_token\"]}`; the carrier
   extension set UNIONS onto these defaults."
   #{"api_key"
     "apikey"
@@ -116,9 +112,9 @@
 
   `frame-policy` is the app-declared query-param carrier policy resolved from
   the `:rf.http/managed` `reg-fx` registration's `:carriers {:query-params
-  ..}` block (EP-0025), or `nil` when no carrier is declared. (Param name
+  ..}` block, or `nil` when no carrier is declared. (Param name
   retained for the leaf API contract; the policy no longer comes from a
-  frame.) Two shapes are accepted (rf2-4wqxq8):
+  frame.) Two shapes are accepted:
 
    - a **set** of lower-cased names — the include-only extension set
      (`:query-params [\"shop_token\"]`). The built-in defaults always apply;
@@ -136,8 +132,8 @@
   its OWN local trace. The immutable header denylist and the on-by-default
   query defaults are unchanged — `:except` is opt-in per name.
 
-  Per rf2-ydp66 — short-circuits via `contains?` lookups on the source sets
-  rather than building a fresh union per call."
+  Uses `contains?` lookups on the source sets rather than building a fresh
+  union per call."
   ([param-name] (sensitive-query-param? param-name nil))
   ([param-name frame-policy]
    (boolean

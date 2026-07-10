@@ -1,22 +1,16 @@
 (ns re-frame.http.middleware
   "Per-frame request- AND response-side interceptor chain for `:rf.http/managed`.
 
-  Extracted from `re-frame.http.managed` per rf2-3i9b. Per rf2-6y3q
-  (Spec 014 §Middleware): each frame has an ordered chain of HTTP
+  Per Spec 014 §Middleware, each frame has an ordered chain of HTTP
   interceptors. Each interceptor is an interceptor-map carrying an
   optional `:before` (request-side transform, fired in registration
   order before `:rf.http/managed` issues the request) and an optional
   `:after` (response-side transform, fired in REVERSE registration order
   on the response BEFORE `:on-success` / `:on-failure` are dispatched).
 
-  Per rf2-uheqq (Mike decision 2026-05-28, rf2-omwua option b + shape
-  (iii)): the public surface is `(reg-http-interceptor id interceptor-map)`
-  — a single map carrying `:before`, `:after`, `:frame`, and any
-  `:rf/registration-metadata` keys. Pre-alpha clean break: the prior
-  positional `(reg-http-interceptor id opts? before)` shape is retired
-  outright. The reshape aligns with the event-interceptor
-  `{:id :before :after}` mental model the rest of the framework already
-  uses (Spec 002).
+  The public surface is `(reg-http-interceptor id interceptor-map)`, where the
+  map carries `:before`, `:after`, `:frame`, and standard registration
+  metadata.
 
   ## ctx contract
 
@@ -40,7 +34,7 @@
                    start mark and the `:after`'s read), per-request
                    header parsing, auth-token refresh keyed off the
                    originating event, …
-    - `response` — the canonical reply envelope (rf2-ibksxg):
+    - `response` — the canonical reply envelope:
                    `{:status :ok :value <decoded> …}` or
                    `{:status :error :error <failure-map> …}` (an abort is
                    `{:status :cancelled :error <aborted-map> …}`). The
@@ -91,8 +85,7 @@
   (atom {}))
 
 (defn- valid-args?
-  "rf2-uheqq — shape (iii) validates id (positional keyword) and the
-  interceptor-map: must be a map, must carry at least one of
+  "Validate the positional id and interceptor map. The map must carry at least one of
   `:before` / `:after` (each, if present, must be a fn), and
   if `:frame` is present it must be a keyword."
   [id interceptor-map]
@@ -111,7 +104,7 @@
 
 (defn reg-http-interceptor
   "Register an HTTP interceptor on a frame's `:rf.http/managed` middleware
-  chain. Per Spec 014 §Middleware + rf2-uheqq.
+  chain. Per Spec 014 §Middleware.
 
   Signature: `(reg-http-interceptor id interceptor-map)` — `id` is a
   keyword; `interceptor-map` carries:

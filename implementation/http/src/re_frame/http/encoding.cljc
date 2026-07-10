@@ -1,36 +1,24 @@
 (ns re-frame.http.encoding
   "Pure-fn helpers for the `:rf.http/managed` request/response pipeline.
 
-  Extracted from `re-frame.http.managed` per rf2-3i9b. The fns here are
-  fully pure — they touch no atoms and dispatch no events — so they are
-  trivially testable and shared by the unified Fetch (CLJS) +
+  The functions here touch no atoms and dispatch no events. They are shared
+  by the Fetch (CLJS) and
   `HttpClient` (JVM) transport in `re-frame.http.transport`.
 
-  Surfaces (post-rf2-5ijhk split):
+  Surfaces:
 
   - URL / query-string encoding: `url-encode`, `params->query`,
     `merge-params`.
   - Request body encoding: `encode-body` (handles
     `:request-content-type` :json / :form / :text / explicit string,
-    plus heuristics for raw Clojure colls; the single thunk-realisation
-    site is inlined into `run-attempt!` per rf2-sz4n0).
+    plus heuristics for raw Clojure collections).
   - `:accept` normalisation: `run-accept` (and the inline default).
   - Reply addressing: `resolve-origin-event`, `build-reply-event`,
     `dispatch-reply-via-late-bind!`.
   - Backoff: `compute-backoff-ms`.
 
-  Per rf2-sz4n0 (round-2 http audit, findings 1.1, 1.2): two thin
-  one-liner helpers from the earlier split — `failure-map` (just
-  `(assoc tags :kind kind)`) and `realise-body` (just `(if (fn? body)
-  (body) body)`) — were inlined into their call sites. The earlier
-  shape required readers to trace into the helper to confirm it was a
-  plain `assoc` / `if`; the inline form reads as ordinary Clojure with
-  no behaviour loss. The third audit-flagged closure, `default-accept-
-  fn`, is folded into `run-accept` (see the docstring on `run-accept`).
-
   The response-side decode pipeline (`content-type-of`, `sniff-decoder`,
-  `malli-decode`, `decode-response-body`) lives in `re-frame.http-
-  decode` per rf2-5ijhk.
+  `malli-decode`, `decode-response-body`) lives in `re-frame.http.decode`.
 
   Per Spec 014 §Body encoding, §`:accept`, §Failure categories,
   §Reply addressing, §Retry and backoff."
@@ -62,7 +50,7 @@
   Scalar values (string / number / keyword / boolean) encode to a single
   `k=v` pair. A sequential value (vector / seq / list) encodes as one
   repeated `k=v` pair per element — `{:tag [\"a\" \"b\"]}` → `tag=a&tag=b`
-  (rf2-mag59). Repeat-key is the conventional HTTP-client idiom for
+  Repeat-key is the conventional HTTP-client idiom for
   multi-valued query params; Spec 012 §Query strings and fragments does
   not normatively pin a multi-valued shape, so the client picks the most
   interoperable one. An empty sequential value contributes no pair. A
@@ -80,7 +68,7 @@
   "Merge `:params` onto `:url`, returning the URL with the encoded query
   string spliced in BEFORE any `#fragment`.
 
-  Two correctness rules a naive append breaks (rf2-rznrz):
+  Two correctness rules a naive append breaks:
 
   1. **Fragment-aware splice.** Query params after a `#` are fragment
      text — real HTTP clients send the fragment to nobody, so a naive
@@ -108,7 +96,7 @@
 
 (defn normalize-header-pairs
   "Flatten a request-headers map into an ordered seq of `[name value]`
-  wire pairs (rf2-rznrz).
+  wire pairs.
 
   Per Spec 014 §Request envelope a request header value is `string` for
   the single-value case or `vector-of-strings` (more generally any

@@ -1,8 +1,7 @@
 (ns re-frame.http.machine-wrapper
-  "Machine-shape wrapper for `:rf.http/managed` (rf2-ijm7).
+  "Machine-shape wrapper for `:rf.http/managed`.
 
-  Extracted from `re-frame.http.managed` per rf2-3i9b. Per Spec 014
-  §Machine-shape wrapper: `:rf.http/managed` ALSO registers as a child-
+  Per Spec 014 §Machine-shape wrapper, `:rf.http/managed` also registers as a child-
   invokable state machine, so a parent machine can write
 
     {:spawn {:machine-id :rf.http/managed
@@ -16,14 +15,11 @@
     3. dispatches `[<parent-id> [:succeeded value]]` (or
        `[<parent-id> [:failed failure]]`) back to the parent, where
        `<parent-id>` and `<self-id>` come from spawn-fx's framework-
-       reserved injection into the actor's initial `:data` per
-       rf2-ijm7 (`:rf/parent-id`, `:rf/self-id`).
+       reserved injection into the actor's initial `:data`
+       (`:rf/parent-id`, `:rf/self-id`).
 
   The wrapper machine is registered via the `:machines/reg-machine`
-  late-bind hook: re-frame.http.managed must NOT statically `:require`
-  re-frame.machines (per rf2-xbtj the machines artefact is optional)
-  and re-frame.machines must NOT statically `:require`
-  re-frame.http.managed (per rf2-5kpd the http artefact is optional).
+  late-bind hook: neither optional artefact statically requires the other.
   When the machines artefact is absent the wrapper registration is
   skipped; the existing `:rf.http/managed` fx continues to work
   unchanged (the wrapper is purely additive on top of the fx surface).
@@ -34,23 +30,18 @@
   AND `{:spawn {:machine-id :rf.http/managed ...}}` resolves to the
   machine.
 
-  ## Where the canned-stub handlers live (rf2-w59es5)
+  ## Test support
 
   The canned-stub handler bodies (`canned-success-handler` /
   `canned-failure-handler` and their `emit-canned-*!` / `run-request-
   chain` / `dispatch-canned-reply!` helpers) are TEST scaffolding — they
   live in `re-frame.http.test-support` alongside the canned-stub fx
   registrations and the `with-managed-request-stubs*` helper that
-  composes against them. They used to share this production-loaded
-  namespace (so the stub macros could reach them without a circular
-  require); that constraint no longer holds now that the stub macros and
-  the stub fx registrations have consolidated into `http-test-support`
-  (rf2-lwmgw), so the stub bodies moved there. This namespace is
-  production-loaded (by `re-frame.http.managed`) and now carries ONLY the
-  machine-shape wrapper."
+  composes against them. This production-loaded namespace carries only the
+  machine wrapper."
   (:require [re-frame.late-bind :as late-bind]))
 
-;; ---- machine-shape wrapper spec (rf2-ijm7) --------------------------------
+;; ---- machine-shape wrapper spec -------------------------------------------
 
 (defn http-managed-machine-spec
   "Return the machine-shape wrapper spec for `:rf.http/managed`.
@@ -66,8 +57,7 @@
      to spawns without an explicit `:start`; per Spec 005 §Spawning).
    - The wrapper's `:data` carries the args map for the underlying
      `:rf.http/managed` fx PLUS the framework-reserved
-     `:rf/parent-id` / `:rf/self-id` keys (stamped by spawn-fx, per
-     rf2-ijm7).
+     `:rf/parent-id` / `:rf/self-id` keys stamped by spawn-fx.
    - `:fire-request` builds an args map for the underlying fx,
      overriding `:on-success` / `:on-failure` so the reply lands back
      at the wrapper actor as `[:rf.http/succeeded value]` /

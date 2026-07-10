@@ -1,26 +1,15 @@
 (ns re-frame.http-backoff-cancellation-test
-  "Per rf2-wj8vv — the retry backoff WINDOW must be cancellable.
+  "The retry backoff window remains cancellable.
 
-  Defect (closed by this test): when `maybe-retry!` schedules a retry it
-  cleared the prior attempt's handle from BOTH in-flight indexes BEFORE
-  arming the backoff timer, leaving the request invisible to every
-  cancellation path for the whole backoff window. A
-  `:rf.http/managed-abort`, an `abort-on-actor-destroy` cascade, or a
-  same-`:request-id` supersede issued DURING the backoff all resolved to
-  `nil` and silently no-op'd — the retry timer kept running and a fresh
-  HTTP attempt fired after the backoff elapsed, against a request the
-  caller had already cancelled.
-
-  Fix: the request stays registered for the whole backoff window under a
+  A sleeping request stays registered under a
   handle whose `:abort-fn` cancels the pending retry timer and clears the
-  registry. The three cancellation paths converge on the one `:abort-fn`
-  dispatch, so a sleeping request is cancellable through each with no
-  path-specific code.
+  registry. User abort, actor destruction, and same-id supersession converge
+  on that closure.
 
   Spec references:
    - Spec 014 §Retry and backoff
    - Spec 014 §Aborts (`:request-id` (internal), supersede)
-   - Spec 014 §Abort on actor destroy (rf2-wvkn)
+   - Spec 014 §Abort on actor destroy
 
   Test strategy: a tiny in-process server that always returns 500 and
   COUNTS its hits. A `:retry {:on #{:rf.http/http-5xx} :max-attempts 5
@@ -35,7 +24,7 @@
    1. :rf.http/managed-abort during backoff   → no retry, registry clear
    2. abort-on-actor-destroy during backoff   → no retry, registry clear
    3. supersede (same request-id) during backoff → old retry suppressed
-   3b. supersede during backoff (rf2-hbus90)  → the stale-suppressed trace
+   3b. supersede during backoff               → the stale-suppressed trace
        carries the SLEEPING retry attempt's work-id (issuance/attempt
        preserved), not a default `1 1`
    4. GUARD: an uncancelled backoff still retries (no regression)"
@@ -63,11 +52,7 @@
   (flows/reset-flows!)
   (schemas/clear-schemas-by-frame!)
   (rf/init! plain-atom/adapter)
-  ;; EP-0002 (rf2-nn0jqa): `init!` no longer synthesises `:rf/default`,
-  ;; and the managed-HTTP / machine / routing fxs now require a carried
-  ;; frame stamp. This suite exercises the ambient dispatch path against
-  ;; a single conventional app frame, so register `:rf/default` explicitly
-  ;; and pin it as the established scope for the whole body via with-frame.
+  ;; The suite uses one explicit default frame for ambient dispatch.
   (frame/ensure-default-frame!)
   (require 're-frame.routing :reload)
   (require 're-frame.ssr     :reload)

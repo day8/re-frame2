@@ -1,8 +1,7 @@
 (ns re-frame.http.transport-cljs
   "CLJS (Fetch-API) platform adapter for `:rf.http/managed`.
 
-  Extracted from `re-frame.http.transport` per rf2-hp772l — the platform
-  transports were extracted into per-platform sibling namespaces so the
+  Platform transport details live here so the
   shared attempt-and-retry lifecycle (`re-frame.http.transport`) reads as
   platform-neutral Clojure and each platform's reader-conditional code has
   a named home.
@@ -17,7 +16,7 @@
   Everything here is `#?(:cljs …)` — on the JVM this namespace loads as
   effectively empty (the shared lifecycle only calls these fns under its
   `:cljs` reader branch). Keeping the conditionals local to the adapter is
-  the rf2-hp772l contract: the shared loop carries no CLJS interop."
+  this boundary keeps CLJS interop out of the shared loop."
   (:require [clojure.string         :as str]
             [re-frame.error         :as error]
             [re-frame.http.decode   :as decode]
@@ -32,10 +31,10 @@
    (defn- fetch-headers->map
      "Flatten a Fetch `Headers` object into a plain Clojure map, matching
      the JVM transport's `jvm-headers->map` response-headers SHAPE
-     contract (rf2-0xvm1 / Spec 014 §Request envelope: `string → string`,
+     contract (Spec 014 §Request envelope: `string → string`,
      or `string → vector of strings` for a multi-valued header).
 
-     rf2-wmdmou — cross-host `Set-Cookie` parity. `Headers.forEach`
+     `Headers.forEach`
      iterates ONE pair per (case-folded) name with multi-valued headers
      COMMA-FOLDED into a single string — and for `Set-Cookie` specifically
      the Fetch spec keeps it OUT of the combined view (`forEach` yields
@@ -45,9 +44,8 @@
      response decoded to a 2-element `[\"session=…\" \"csrf=…\"]` vector on
      the JVM but a single (last-cookie-only) string on CLJS, silently
      LOSING the first `Set-Cookie` and comma-folding any other repeated
-     header. Comma-folding `Set-Cookie` is itself an RFC 6265 §3 violation
-     (cookie attribute values legally embed commas — `Expires=Wed, 21 Oct
-     …`), the exact hazard rf2-0xvm1 fixed on the JVM.
+     header. Comma-folding `Set-Cookie` is invalid because cookie attribute
+     values may themselves contain commas.
 
      The Fetch API exposes `Headers.getSetCookie()` precisely to recover
      the unfolded `Set-Cookie` lines (browser + Node 18.7+ / undici). We
@@ -63,7 +61,7 @@
        (.forEach fetch-headers
                  (fn [v k] (aset out k v)))
        (let [m (js->clj out)
-             ;; rf2-wmdmou — recover the unfolded `Set-Cookie` lines so the
+             ;; Recover the unfolded `Set-Cookie` lines so the
              ;; shape matches the JVM (single → string, multi → vector of
              ;; the verbatim wire lines, every line preserved).
              set-cookies (when (fn? (.-getSetCookie fetch-headers))
@@ -79,64 +77,46 @@
      to `{:ok? bool :status N :status-text S :headers M :body-text S}` on
      transport-OK, or rejects with an ex-info classified by the caller.
 
-     Per rf2-1jcpm — the per-attempt timeout fires regardless of whether
+     The per-attempt timeout fires regardless of whether
      the caller supplied `:abort-signal`. We always own
      `internal-controller`; when the caller also supplies `:abort-signal`,
      its `abort` event is forwarded to our controller, so:
 
      - the caller can still cancel via their own signal, AND
-     - the timeout still arms (previously the timeout was silently
-       disabled the moment a caller signal arrived, even when the args
-       map carried a `:timeout-ms` and/or the security default — round-2
-       security audit finding 2).
+     - the timeout still arms.
 
      The single `signal` Fetch accepts is always our internal one; any
      caller signal funnels through `addEventListener` for cancellation.
 
-     Per rf2-f5pguu — `:sensitive?` + `:frame` are carried only so an
+     `:sensitive?` and `:frame` are carried only so an
      invalid request header (a `Headers.append` `TypeError` on a bad name
      or a CR/LF value) can be surfaced as a redacted `:rf.warning/http-
      header-invalid` trace (omit the bad pair, continue) rather than
      ESCAPING the managed path as `:rf.error/fx-handler-exception` — the
      same managed-error contract `jvm-build-request` already honours on
-     the JVM (rf2-9lun0 / rf2-1jcpm)."
+     the JVM."
      [{:keys [method url headers body credentials mode redirect cache referrer
               integrity timeout-ms abort-signal internal-controller decode
               sensitive? frame]}]
      (let [init     #js {}
            _        (do (aset init "method" (str/upper-case (name method)))
                         (when (seq headers)
-                          ;; rf2-rznrz — build a Fetch `Headers` object and
+                          ;; Build a Fetch `Headers` object and
                           ;; `.append` each normalised wire pair. A scalar
                           ;; header value yields one pair; a vector/seq value
                           ;; yields one pair per element (`encoding/normalize-
                           ;; header-pairs`), and `.append` ACCUMULATES repeated
                           ;; names into the multi-valued wire form (`Accept: a`
-                          ;; + `Accept: b`) rather than overwriting. The prior
-                          ;; shape assigned the vector straight into a plain JS
-                          ;; object via `aset`, so a documented multi-valued
-                          ;; request header serialised as a single malformed
-                          ;; `[\"a\" \"b\"]` wire value.
+                          ;; + `Accept: b`) rather than overwriting.
                           ;;
-                          ;; rf2-f5pguu — surface a Fetch `Headers.append`
+                          ;; Surface a Fetch `Headers.append`
                           ;; validation throw via a `:rf.warning/http-header-
                           ;; invalid` trace rather than letting it ESCAPE the
                           ;; managed HTTP path. The Fetch `Headers` `.append`
                           ;; rejects an invalid header name (empty, control
                           ;; chars, separators) or a value carrying `\r`/`\n`
                           ;; (the response-splitting guard) by throwing a
-                          ;; `TypeError`. Pre-fix that throw fired SYNCHRONOUSLY
-                          ;; inside `cljs-fetch` — AFTER the in-flight handle was
-                          ;; registered (rf2-065xo records it before transport
-                          ;; setup) but BEFORE any Promise existed to `.catch`,
-                          ;; so it propagated up through `run-attempt!`'s CLJS
-                          ;; branch (which — unlike the JVM branch — has no
-                          ;; try/catch around the transport call) and surfaced
-                          ;; as a generic `:rf.error/fx-handler-exception`,
-                          ;; bypassing `:on-failure`, retry, abort precedence,
-                          ;; trace privacy, and in-flight registry cleanup. This
-                          ;; now mirrors the JVM `jvm-build-request` (rf2-9lun0 /
-                          ;; rf2-1jcpm): catch PER `.append`, emit the redacted
+                          ;; `TypeError`. Catch per `.append` and emit the redacted
                           ;; warning naming the offending header (value omitted —
                           ;; values may carry secrets; URL routed through
                           ;; `privacy/prepare-emit-tags` so a denylisted query
@@ -171,7 +151,7 @@
                         (when integrity    (aset init "integrity"   integrity))
                         (when internal-controller
                           (aset init "signal" (.-signal internal-controller)))
-                        ;; rf2-1jcpm — forward caller's abort-signal into
+                         ;; Forward the caller's abort-signal into
                         ;; our internal controller so the timeout still
                         ;; fires when a caller signal is present.
                         (when (and abort-signal internal-controller)

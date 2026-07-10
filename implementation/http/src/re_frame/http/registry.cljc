@@ -1,8 +1,7 @@
 (ns re-frame.http.registry
   "In-flight request registries for `:rf.http/managed`.
 
-  Extracted from `re-frame.http.managed` per rf2-3i9b. Two indexes
-  coexist:
+  Two indexes coexist:
 
    - `in-flight`        — request-id → request-handle. Per Spec 014
                          §Aborts: a `:rf.http/managed-abort` resolves
@@ -10,15 +9,15 @@
                          request with the same `:request-id` supersedes
                          the previous one.
    - `actor-in-flight`  — actor-id → [request-handle ...]. Per Spec 014
-                         §Abort on actor destroy (rf2-wvkn): requests
+                         §Abort on actor destroy, requests
                          whose originating event-id is a spawned state-
                          machine actor's address are ALSO indexed by
                          that actor-id so a `:rf.machine/destroy`
                          cascade can abort every in-flight request the
                          actor had issued.
 
-  Handles carry `:abort-fn` (the no-arg fn the runtime calls to
-  cancel), `:url`, plus the framework-stamped `:request-id` and
+  Handles carry `:abort-fn` (the fn the runtime calls with an abort reason),
+  `:url`, plus the framework-stamped `:request-id` and
   `:actor-id` when applicable so subsequent `clear-in-flight!` calls
   can locate them in either index by identity.
 
@@ -45,7 +44,7 @@
   ;;
   ;; Index by actor-id — populated when a managed request's originating
   ;; event-id is a spawned actor's address (per Spec 014 §Abort on actor
-  ;; destroy, rf2-wvkn). Each entry carries the same :abort-fn the
+  ;; destroy). Each entry carries the same :abort-fn the
   ;; request-id index would carry; the actor-destroy hook walks the
   ;; vector, fires each :abort-fn, and clears the index slot. Multiple
   ;; in-flight requests from the same actor accumulate as separate
@@ -62,14 +61,7 @@
   sites can hold a reference for the 2-arg `clear-in-flight!` cleanup
   path. `request-id` and `actor-id` are both optional (pass nil). When
   both are nil the handle is unindexed and only reachable via natural
-  completion.
-
-  rf2-ee38b.7 — `record-in-flight!`'s own convenience 2-arity
-  `[request-id handle]` was dropped (this is distinct from
-  `clear-in-flight!`'s live 2-arity below, which is retained); it had no
-  production caller (the single call site in
-  `http-transport/run-attempt!` always passes the 3-arity with an
-  actor-id, possibly nil) and no test depended on it."
+  completion."
   [request-id actor-id handle]
   (let [stamped (cond-> handle
                   request-id (assoc :request-id request-id)
@@ -328,13 +320,13 @@
 
 (defn actor-in-flight-snapshot
   "Test-time helper: read the current value of the actor-id-keyed
-  in-flight map (per rf2-wvkn). Inspecting state in tests; not part
+  in-flight map. Inspecting state in tests; not part
   of the user-facing API."
   []
   @actor-in-flight)
 
 (defn seed-in-flight-for-test!
-  "Test-time helper (rf2-hp772l): register a fabricated in-flight handle
+  "Register a fabricated in-flight handle for tests
   through the SAME `record-in-flight!` path production uses, so both the
   request-id and actor-id indexes stay consistent (the actor-index slot,
   the `:request-id` / `:actor-id` stamps) rather than a raw `swap!` of the
@@ -343,7 +335,7 @@
   For fixtures that need an in-flight slot present WITHOUT issuing a real
   request (e.g. asserting that a navigation-cancel does not abort an
   active-route request). `handle` is the abort-handle map — it MUST carry
-  an `:abort-fn` (the no-arg/one-arg fn the abort path fires) and typically
+  an `:abort-fn` accepting an abort reason and typically
   `:url`. `request-id` / `actor-id` are optional (pass nil for an
   unindexed / anonymous handle). Returns the stamped handle.
 

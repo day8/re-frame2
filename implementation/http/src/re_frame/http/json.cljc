@@ -1,10 +1,8 @@
 (ns re-frame.http.json
   "Tiny shared JSON helpers.
 
-  Extracted from `re-frame.http.managed` per rf2-p7da. The decode path
-  in `re-frame.http.encoding` needs a JSON reader; on CLJS that is the
-  browser's `js/JSON.parse`, on the JVM it is Cheshire (a hard dep
-  since rf2-dgsu1 — see the artefact's `deps.edn` for the rationale).
+  The decode path needs a JSON reader: CLJS uses `js/JSON.parse`; the JVM
+  uses the artefact's hard Cheshire dependency.
 
   ## Why this lives in the http artefact for now
 
@@ -23,11 +21,11 @@
   - `json-parse`     — string → Clojure data with keyword keys for
     objects. Uses Cheshire's `parse-string` on JVM; CLJS uses
     `js/JSON.parse` + `js->clj :keywordize-keys true`. Accepts an
-    optional `opts` map (`:max-decoded-keys` — per rf2-wu1n5).
+    optional `opts` map with `:max-decoded-keys`.
 
-  ## Keyword-interning cap (rf2-wu1n5)
+  ## Keyword-interning cap
 
-  Per security audit 2026-05-14 §P1.4: JVM keywords are interned and
+  JVM keywords are interned and
   never GC'd. An attacker-controlled JSON response with N unique keys
   permanently burns N keyword slots — a long-running SSR JVM is the
   worst case. Both readers enforce a per-call cap on the number of
@@ -39,18 +37,12 @@
   (:require [re-frame.error :as error]
             #?(:clj [cheshire.core :as cheshire])))
 
-;; rf2-b45uc — reflection warnings ON. This ns carries the other
-;; non-trivial JVM interop in the http surface (Cheshire's
-;; `generate-string` / `parse-string` and the `java.util.HashSet`
-;; keyword-cap counter). The HashSet calls are type-hinted; the flag
-;; keeps the tripwire on so a future un-hinted interop call surfaces as
-;; a compile-time reflection warning rather than silent reflective
-;; dispatch. CLJS ignores the form.
+;; Reflection warnings catch unhinted calls in the Cheshire/HashSet JVM path.
 #?(:clj (set! *warn-on-reflection* true))
 
 (def ^:const default-max-decoded-keys
   "Default cap on the number of unique object keys a single `json-parse`
-  call may decode. Per rf2-wu1n5 — a defensive ceiling against the
+  call may decode. A defensive ceiling against the
   keyword-interning DoS surface on long-running JVMs. Generous enough
   not to false-positive on legitimate large responses while finite
   enough to bound an attacker-controlled payload."
@@ -64,7 +56,7 @@
      :cljs (js/JSON.stringify (clj->js v))))
 
 (defn- too-many-keys-ex
-  "rf2-wu1n5 — the keyword-interning DoS-cap overflow ex-info. Platform-
+  "Build the keyword-interning cap overflow ex-info. Platform-
   agnostic (plain Clojure data), so the two host branches of `json-parse`
   share one definition rather than carrying byte-identical copies that
   could drift (`:cause` / `:limit` / `:reason` are security-relevant and
@@ -86,11 +78,11 @@
   `js->clj :keywordize-keys true`.
 
   `opts` (optional) — currently a single key:
-   - `:max-decoded-keys` — cap on unique object keys (rf2-wu1n5).
+   - `:max-decoded-keys` — cap on unique object keys.
      Default: `default-max-decoded-keys`. Overflow throws
      `:rf.error/id :rf.error/malformed-json` with `:cause :too-many-keys`.
 
-  Per rf2-wu1n5, both branches enforce the keyword-cap. The JVM
+  Both branches enforce the keyword cap. The JVM
   Cheshire branch installs a `:key-fn` callback that counts distinct
   keys in a HashSet and throws on overflow; the CLJS branch walks the
   parsed JS tree counting unique object-keys BEFORE

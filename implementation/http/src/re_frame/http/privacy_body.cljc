@@ -1,15 +1,11 @@
 (ns re-frame.http.privacy-body
-  "HTTP response-body classification — EP-0015 §8 / Spec 015 §HTTP response
-  bodies, ruled issue 5 (rf2-ppkh3v). Graduated into
-  [`spec/014-HTTPRequests.md` §Privacy — response-body classification].
+  "HTTP response-body classification for Spec 014 §Privacy.
 
-  ## The model (EP-0015 issue 5, ruled)
+  ## Model
 
   A managed HTTP response body is a **registration-owned transient
   payload**, classified per-slot via `:sensitive?` / `:large?` props on the
-  request's `:decode` SCHEMA — the EP-0005 mechanism reused (the `:decode`
-  schema lives on the owning call / resource / mutation declaration). This
-  is the SAME shared schema-walker hook
+  request's `:decode` schema. This uses the shared schema-walker hooks
   (`:schemas/extract-sensitive-paths-from-schema` /
   `:schemas/extract-large-paths-from-schema`) the resource `:data-schema`
   surface (`re-frame.resources.classification`) and the app-schema elision
@@ -57,16 +53,14 @@
   the shared `re-frame.elision/walk` ordering and the frame-classification
   install-time rule.
 
-  ## Per-slot `:sensitive?` and `:large?` (rf2-jhyccs)
+  ## Per-slot `:sensitive?` and `:large?`
 
   `classify-decoded` applies BOTH the `:decode` schema's `:sensitive?` and
   `:large?` per-slot marks via the shared `re-frame.classification/redact-with-paths`
-  walker (sensitive → `:rf/redacted`, large → `:rf.size/large-elided`,
-  sensitive wins over large) — the SAME walker the resource / app-schema
-  surfaces use, never a body-private walker. `decode-schema-marks` extracts
-  both `:sensitive` and `:large` path maps; both are now consumed.
+  walker: sensitive becomes `:rf/redacted`, large becomes
+  `:rf.size/large-elided`, and sensitive wins at the same path.
 
-  ## On-box dev trace vs off-box egress (rf2-t55hxg.6)
+  ## On-box dev trace vs off-box egress
 
   `classify-decoded` is the IN-PROCESS dev-trace projection — it applies the
   per-slot marks but does NOT omit an unschematized body (the local operator
@@ -118,7 +112,7 @@
   actually INTROSPECT for per-slot marks — i.e. the raw EDN VECTOR form
   (`[op props? children...]`, the shape `(rf/reg-app-schema …)` users write).
 
-  This is NARROWER than `schema-decode?` (rf2-y1pgdl). `schema-decode?` is
+  This is narrower than `schema-decode?`, which is
   true for ANY non-mode/non-fn `:decode`, including OPAQUE schema values the
   walker treats as a leaf and returns `{}` marks for:
 
@@ -132,7 +126,7 @@
   An opaque-leaf decode returns NO `:sensitive?` / `:large?` paths even when
   the underlying schema DOES mark slots sensitive. Treating it as
   `schema-decode?` → `:classify` would ride the body UNCHANGED off-box — the
-  EP-0015 issue 5 fail-OPEN leak. The off-box egress therefore gates on this
+  fail-open egress. The off-box projection therefore gates on this
   predicate (fail-CLOSED to `:omit` for an opaque schema); only an
   introspectable vector form earns `:classify`. The on-box dev-trace
   per-slot classification (`classify-decoded`) still keys on `schema-decode?`

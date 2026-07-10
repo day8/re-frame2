@@ -1,14 +1,9 @@
 (ns re-frame.http-decode-test
   "Direct unit coverage for the response-body decode pipeline in
-  `re-frame.http.decode` (rf2-ohwgm; follow-on from the http test-coverage
-  audit `ai/findings/2026-05-21-testcov-http.md`).
+  `re-frame.http.decode`.
 
-  Per Spec 014 §Decoding / §`:auto`, schema-driven decode is the
-  canonical form. Before this file the entire Malli decode + coerce +
-  validate path (`malli-decode`, the schema branch of
-  `decode-response-body`) had ZERO test coverage, and the keyword-cap was
-  never threaded through the decoder end-to-end as a thrown
-  `:too-many-keys`.
+  Per Spec 014 §Decoding / §`:auto`, these tests cover Malli decode,
+  coercion and validation, plus end-to-end keyword-cap propagation.
 
   These fns are pure / host-agnostic, so they belong on the fast JVM
   `clojure -M:test` layer. Malli is on the http test classpath via the
@@ -32,7 +27,7 @@
 ;; the coerce / validation-failure assertions would mislead. This guard
 ;; turns that into an explicit failure.
 (deftest malli-is-on-the-test-classpath
-  (testing "rf2-ohwgm — the schema-decode tests below require Malli to be
+  (testing "the schema-decode tests below require Malli to be
             resolvable; assert the precondition so a deps regression that
             removes it fails loudly rather than degrading to the no-op
             Malli-absent branch"
@@ -40,10 +35,10 @@
     (is (some? (requiring-resolve 'malli.core/validate)))
     (is (some? (requiring-resolve 'malli.transform/json-transformer)))))
 
-;; ---- G1: malli-decode — coerce success ------------------------------------
+;; ---- malli-decode: coerce success -----------------------------------------
 
 (deftest malli-decode-coerces-with-json-transformer
-  (testing "rf2-ohwgm — malli-decode runs the schema's decode with the
+  (testing "malli-decode runs the schema's decode with the
             JSON transformer, applying the canonical JSON coercions (the
             classic case is string→keyword and string→enum, since JSON
             has no keyword type) — proving the transformer arg is actually
@@ -65,13 +60,13 @@
            already parsed it to a number)"))))
 
 (deftest malli-decode-passes-through-already-valid-value
-  (testing "rf2-ohwgm — a value that already matches the schema decodes to
+  (testing "a value that already matches the schema decodes to
             itself and validates clean"
     (is (= {:title "hello" :id 42}
            (malli-decode [:map [:title :string] [:id :int]]
                          {:title "hello" :id 42})))))
 
-;; ---- G1: malli-decode — validation failure --------------------------------
+;; ---- malli-decode: validation failure -------------------------------------
 
 (deftest malli-decode-throws-canonical-ex-info-on-validation-failure
   (testing "rf2-ohwgm — when the coerced value still fails the schema,
