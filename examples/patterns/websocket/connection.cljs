@@ -438,6 +438,18 @@
       {:tags #{:websocket/failed}
        :on   {:ws/connect       {:target :active
                                  :action :record-and-reset}
+              ;; The offline queue contract is uniform: a send or request
+              ;; issued while we've given up still buffers, exactly as it
+              ;; does in :disconnected and :reconnecting. :failed is a
+              ;; top-level state, so it does NOT inherit :active's parent
+              ;; :ws/send / :ws/request enqueue transitions — it has to carry
+              ;; its own. :record-and-reset (the :ws/connect action above)
+              ;; leaves :queue untouched, so a later manual reconnect reaches
+              ;; :connected and the :always :flush-queue drains whatever was
+              ;; buffered here. Without these, a send in :failed is
+              ;; unhandled and silently dropped — user-visible message loss.
+              :ws/send          {:action :enqueue-message}
+              :ws/request       {:action :enqueue-message}
               :ws/refresh-token {:action :refresh-token}
               :ws/disconnect    {:target :disconnected
                                  :action :reset-retries}}}}})
