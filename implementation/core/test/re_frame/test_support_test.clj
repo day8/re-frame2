@@ -2,16 +2,14 @@
   "Coverage for the public test-flavoured helpers landed under rf2-0l3s
   (resolves rf2-hkr5; renamed under rf2-8j9m6):
 
-    - dispatch-sequence
     - assert-path-equals
-    - assert-db-equals
 
   Plus rf2-j9phb (TE-R2.2): explicit hook-cascade coverage for
   `make-reset-runtime-fixture` — pins that every row in the late-bind
   reset-hook-table is fired exactly once per fixture invocation, so a
   future refactor that drops a row breaks loudly rather than silently.
 
-  The fixture machinery (snapshot-registrar / with-fresh-registrar /
+  The fixture machinery (snapshot-registrar / restore-registrar! /
   make-reset-runtime-fixture) is exercised transitively by the rest of the
   test suite — these tests pin the helper *signatures* and the
   per-helper contract in Spec 008 §Built-in test-runner namespace."
@@ -73,52 +71,7 @@
   (rf/reg-event :counter/add
     (fn [{:keys [db]} [_ amt]] {:db (update db :n + amt)})))
 
-;; ---- dispatch-sequence ----------------------------------------------------
-
-(deftest dispatch-sequence-runs-each-event-in-order
-  (testing "events fire in order; final app-db reflects the cumulative result"
-    (register-counter-handlers!)
-    (rf/dispatch-sync [:counter/init])
-    (let [final (ts/dispatch-sequence
-                  [[:counter/inc]
-                   [:counter/inc]
-                   [:counter/inc]
-                   [:counter/dec]])]
-      (is (= 2 (:n final))
-          "three incs and one dec leave :n at 2")
-      (is (= final (rf/app-db-value :rf/default))
-          "return value matches the live app-db value"))))
-
-(deftest dispatch-sequence-after-each-captures-intermediate-states
-  (testing ":after-each fires once per event with (db, event)"
-    (register-counter-handlers!)
-    (rf/dispatch-sync [:counter/init])
-    (let [seen (atom [])]
-      (ts/dispatch-sequence
-        [[:counter/inc] [:counter/inc] [:counter/dec]]
-        {:after-each (fn [db ev] (swap! seen conj [(:n db) ev]))})
-      (is (= [[1 [:counter/inc]]
-              [2 [:counter/inc]]
-              [1 [:counter/dec]]]
-             @seen)
-          ":after-each observed each step's committed state"))))
-
-(deftest dispatch-sequence-frame-opt
-  (testing ":frame opt routes dispatches to a non-default frame"
-    ;; Register handlers first so :initial-events can resolve them at
-    ;; reg-frame time (Spec 002 §Frame lifecycle).
-    (register-counter-handlers!)
-    (rf/dispatch-sync [:counter/init])
-    (rf/reg-frame :test-support/seq-frame {:initial-events [[:counter/init]]})
-    (let [final (ts/dispatch-sequence
-                  [[:counter/inc] [:counter/add 5]]
-                  {:frame :test-support/seq-frame})]
-      (is (= 6 (:n final)))
-      (is (= 6 (:n (rf/app-db-value :test-support/seq-frame))))
-      (is (= {:n 0} (rf/app-db-value :rf/default))
-          ":rf/default is unaffected"))))
-
-;; ---- assert-path-equals + assert-db-equals (rf2-8j9m6) --------------------
+;; ---- assert-path-equals (rf2-8j9m6) ---------------------------------------
 
 (deftest assert-path-equals-pass
   (register-counter-handlers!)
@@ -137,16 +90,6 @@
     (is (= [:fail] outcomes)
         "mismatching path/value pair fires a clojure.test :fail")))
 
-(deftest assert-db-equals-pass-and-fail
-  (register-counter-handlers!)
-  (rf/dispatch-sync [:counter/init])
-  (let [pass-outcomes (record-reports
-                        (fn [] (ts/assert-db-equals {:n 0})))
-        fail-outcomes (record-reports
-                        (fn [] (ts/assert-db-equals {:n 42})))]
-    (is (= [:pass] pass-outcomes))
-    (is (= [:fail] fail-outcomes))))
-
 (deftest assert-path-equals-frame-opt
   (testing ":frame opt selects which frame's app-db is asserted against"
     (register-counter-handlers!)
@@ -159,19 +102,6 @@
                        (ts/assert-path-equals [:n] 0 {:frame :rf/default})))]
       (is (= [:pass :pass] outcomes)
           ":rf/default and the named frame each carry their own state"))))
-
-(deftest assert-db-equals-frame-opt
-  (testing ":frame opt also selects the frame for the full-db form"
-    (register-counter-handlers!)
-    (rf/dispatch-sync [:counter/init])
-    (rf/reg-frame :test-support/assert-db-frame {:initial-events [[:counter/init]]})
-    (rf/dispatch-sync [:counter/add 4] {:frame :test-support/assert-db-frame})
-    (let [outcomes (record-reports
-                     (fn []
-                       (ts/assert-db-equals {:n 4} {:frame :test-support/assert-db-frame})
-                       (ts/assert-db-equals {:n 0} {:frame :rf/default})))]
-      (is (= [:pass :pass] outcomes)
-          "full-db assertion respects :frame opt"))))
 
 ;; ---- rf2-j9phb (TE-R2.2) — make-reset-runtime-fixture hook-cascade coverage ----
 ;;
@@ -484,8 +414,8 @@
 
 (deftest poll-until-swallows-a-throwing-pred-jvm
   (testing "a `pred` that throws transiently is a falsy probe — keep polling to
-  the deadline — matching the CLJS arm and the sibling `wait-until`. The JVM arm
-  previously propagated the throw out of poll-until on the first probe."
+  the deadline — matching the CLJS arm. The JVM arm previously propagated the
+  throw out of poll-until on the first probe."
     ;; Throws on the first two probes, then succeeds → must resolve, not surface
     ;; the pred's exception.
     (let [calls (atom 0)]

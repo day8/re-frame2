@@ -176,7 +176,7 @@ Every entry here registers a named handler into the frame's registrar.
 
 ### Clearing registrations
 
-Each `clear-*` removes an entry from the registrar; the no-arg form clears the whole kind. Used in tests (the `with-fresh-registrar` fixture relies on these), REPL workflows, and teardown.
+Each `clear-*` removes an entry from the registrar; the no-arg form clears the whole kind. Used in tests (the `make-reset-runtime-fixture` registrar snapshot/restore relies on these), REPL workflows, and teardown.
 
 ### `clear-event`
 

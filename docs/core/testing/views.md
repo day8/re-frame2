@@ -18,8 +18,12 @@ The toolkit is `re-frame.test-helpers` — pure walks over hiccup, [catalogued i
             [re-frame.test-helpers :as th]
             [my-app.counter :as counter]))   ;; the app namespace under test
 
-(use-fixtures :each (ts/make-reset-runtime-fixture {}))
+(use-fixtures :each
+  (ts/make-reset-runtime-fixture {:adapter  my-app/test-adapter    ;; your substrate adapter
+                                  :init-fn  counter/install!}))     ;; reg-event / reg-sub / views
 ```
+
+`make-reset-runtime-fixture` seats the ambient `:rf/default` frame when given an `:adapter`, runs your registrations once via `:init-fn`, and snapshots/restores the registrar around every test. A purely presentational test (§1) needs neither key — an adapter-less `(ts/make-reset-runtime-fixture {})` suffices — but the connected tests below rely on the seated frame.
 
 ## 1. Call it, walk it
 
@@ -45,25 +49,21 @@ What about a view that renders *another* view? It comes back as a *component ref
 
     `find-by-testid` / `text-content` are `getByTestId` / `textContent` — except the "render" was a plain function call, so there's no JSDOM to stand up and nothing to clean up. The query API is deliberately smaller: you're walking a value, not a live document.
 
-## 2. Views that subscribe: the app fixture
+## 2. Views that subscribe: the reset fixture
 
-A presentational view takes data as arguments. A *connected* view subscribes and dispatches, so it needs a [frame](../glossary.md#frame) in scope. `th/with-app-fixture` brackets a test with exactly that: it creates a fresh frame, runs your `:install` hook (the registrations the test relies on), stashes a `:root-view`, runs the body, and destroys the frame on the way out — success or throw:
+A presentational view takes data as arguments. A *connected* view subscribes and dispatches, so it needs a [frame](../glossary.md#frame) in scope. There's no bespoke view-fixture macro — the reset fixture at the top already gives you one: `:adapter` seats the ambient `:rf/default` frame and `:init-fn` runs your registrations. The view test is then just *dispatch, call the view, walk the tree*:
 
 ```clojure
 (deftest counter-increments-in-the-view
-  (th/with-app-fixture {:install   counter/install!     ;; zero-arg fn: reg-event / reg-sub / views
-                        :root-view counter/main}
-                       :test-app
-    (rf/dispatch-sync [:counter/inc])
-    (rf/dispatch-sync [:counter/inc])
-    (th/expect-text :counter-display "2")))
+  (rf/dispatch-sync [:counter/inc])
+  (rf/dispatch-sync [:counter/inc])
+  (is (= "2" (th/text-content
+               (th/find-by-testid (counter/main) "counter-display")))))
 ```
 
-`expect-text` renders the stashed root view, finds the testid, and asserts its text through `clojure.test/is` — the view-side sibling of `ts/assert-path-equals`. (A 3-arity form takes an explicit tree when you're not using the fixture.)
+`dispatch-sync` drains before the assertion, so calling `counter/main` returns the freshly-rendered tree; `find-by-testid` + `text-content` read the value under test. The two dispatches in that body are the *action under test* — the counter incrementing is the point. When a view instead needs state built *before* the action (a populated cart, a signed-in user), seed it once — a `dispatch-sync` in the `:init-fn`, or an `:ambient-frame`-scoped `make-frame` with `:initial-events [[:cart/seed-items …]]` per the [construction script](../frames.md#seeding-initial-state) `make-frame` takes. The body then holds only the interaction being tested.
 
-The two dispatches in that body are the *action under test* — the counter incrementing is the point. When a view instead needs state built *before* the action (a populated cart, a signed-in user), seed it in the fixture opts rather than the body: `:frame-config` merges into the fixture frame's config map, so `:frame-config {:initial-events [[:cart/seed-items …]]}` boots the frame through the same [construction script](../frames.md#seeding-initial-state) `make-frame` takes. The body then holds only the interaction being tested.
-
-One trap here, and it's the same one [Test an event handler](event-handlers.md#4-the-trap-frames-dont-isolate-registrations) warns about: the fixture destroys its *frame*, but **`:install` registrations land in the process-global registrar**. Pair `with-app-fixture` with the `make-reset-runtime-fixture` shown at the top, so one test's registrations can't leak into the next.
+The trap this composition already closes is the one [Test an event handler](event-handlers.md#4-the-trap-frames-dont-isolate-registrations) warns about: `:install` registrations land in the process-global registrar, and `make-reset-runtime-fixture` snapshots/restores it around every test, so one test's registrations can't leak into the next.
 
 ## 3. Drive the wiring
 
@@ -71,20 +71,19 @@ The last thing a view owns is the connection from a node to its dispatch. `th/in
 
 ```clojure
 (deftest inc-button-is-wired
-  (th/with-app-fixture {:install   counter/install!
-                        :root-view counter/main}
-                       :test-app
-    (let [tree (th/expand-tree (counter/main))
-          btn  (th/find-by-testid tree "counter-inc")]
-      (th/invoke-handler btn :on-click))       ;; runs the attached fn — the dispatch fires
-    (th/wait-until :counter-display "1" {:label "counter reached 1"})))
+  (let [btn (th/find-by-testid (th/expand-tree (counter/main)) "counter-inc")]
+    (th/invoke-handler btn :on-click))          ;; runs the attached fn — the dispatch fires
+  (is (ts/poll-until
+        #(= "1" (th/text-content
+                  (th/find-by-testid (counter/main) "counter-display")))
+        {:label "counter reached 1"})))
 ```
 
 Two details carry this test.
 
 First, `invoke-handler` **throws** when the node has no handler under that key. A missing handler is almost always the bug you're hunting, so it refuses to pass silently.
 
-Second, the assertion is `th/wait-until`, not `expect-text`. The invoked `:on-click` fires a plain `dispatch`, which queues rather than draining synchronously, so the test polls the rendered view against a bounded deadline (the view-side sibling of `ts/poll-until` — same defaults, same loud timeout carrying `:rf.error/wait-until-timeout`). The same form covers any async settle whose outcome is *visible in the view* — an HTTP reply, a machine `:after` transition, a scheduled event. For a synchronous run, `expect-text` after `dispatch-sync` is enough.
+Second, the settle uses `ts/poll-until`, not a straight walk. The invoked `:on-click` fires a plain `dispatch`, which queues rather than draining synchronously, so the test polls the re-rendered view against a bounded deadline (loud timeout carrying `:rf.error/poll-until-timeout`). The same form covers any async settle whose outcome is *visible in the view* — an HTTP reply, a machine `:after` transition, a scheduled event. On CLJS, `poll-until` returns a `js/Promise` — compose it with `cljs.test/async`. For a synchronous run, walking the tree straight after `dispatch-sync` is enough.
 
 ## When you want more than hiccup
 

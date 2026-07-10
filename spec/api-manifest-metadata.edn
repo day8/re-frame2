@@ -895,14 +895,10 @@
   ;; =========================================================================
   ;; re-frame.test-support — runtime-state test helpers (tier: testing).
   ;; =========================================================================
-  ["re-frame.test-support" "dispatch-sequence"]         {:tier :testing :owner "008" :status "v1"}
   ["re-frame.test-support" "assert-path-equals"]        {:tier :testing :owner "008" :status "v1"}
-  ["re-frame.test-support" "assert-db-equals"]          {:tier :testing :owner "008" :status "v1"}
   ["re-frame.test-support" "poll-until"]                {:tier :testing :owner "008" :status "v1"}
   ["re-frame.test-support" "make-reset-runtime-fixture"] {:tier :testing :owner "008" :status "v1"}
-  ["re-frame.test-support" "with-fresh-registrar"]      {:tier :testing :owner "008" :status "v1"}
   ["re-frame.test-support" "snapshot-registrar"]        {:tier :testing :owner "008" :status "v1"}
-  ["re-frame.test-support" "merge-registrar-snapshots"] {:tier :testing :owner "008" :status "v1"}
   ["re-frame.test-support" "restore-registrar!"]        {:tier :testing :owner "008" :status "v1"}
   ["re-frame.test-support" "with-trace-recorder!"]      {:tier :testing :owner "008" :status "v1"}
 
@@ -916,17 +912,12 @@
   ["re-frame.test-helpers" "find-by-attr-prefix"]   {:tier :testing :owner "008" :status "v1"}
   ["re-frame.test-helpers" "find-all-by-attr"]      {:tier :testing :owner "008" :status "v1"}
   ["re-frame.test-helpers" "text-content"]          {:tier :testing :owner "008" :status "v1"}
-  ["re-frame.test-helpers" "expect-text"]           {:tier :testing :owner "008" :status "v1"}
   ["re-frame.test-helpers" "extract-handler"]       {:tier :testing :owner "008" :status "v1"}
   ["re-frame.test-helpers" "invoke-handler"]        {:tier :testing :owner "008" :status "v1"}
   ["re-frame.test-helpers" "testid"]                {:tier :testing :owner "008" :status "v1"}
   ["re-frame.test-helpers" "expand-tree"]           {:tier :testing :owner "008" :status "v1"}
   ["re-frame.test-helpers" "attrs"]                 {:tier :testing :owner "008" :status "v1"}
   ["re-frame.test-helpers" "children"]              {:tier :testing :owner "008" :status "v1"}
-  ["re-frame.test-helpers" "wait-until"]            {:tier :testing :owner "008" :status "v1"}
-  ["re-frame.test-helpers" "with-app-fixture"]      {:tier :testing :owner "008" :status "v1"}
-  ["re-frame.test-helpers" "*current-root-view*"]      {:tier :testing :owner "008" :status "v1"}
-  ["re-frame.test-helpers" "*current-root-view-args*"] {:tier :testing :owner "008" :status "v1"}
 
   ;; =========================================================================
   ;; re-frame.schemas — optional artefact (day8/re-frame2-schemas), §010.
