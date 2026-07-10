@@ -593,6 +593,27 @@
     (when-not (-> f :lifecycle :destroyed?)
       f)))
 
+(defn frame-incarnation-token
+  "Return a STABLE per-incarnation identity token for the currently-live frame
+  `id`, or nil when the frame is absent or destroyed.
+
+  The token is the frame record's `:drain-lock` atom. `new-frame-record` builds
+  a fresh `:drain-lock` for every FIRST-time `reg-frame`, and every in-place
+  record swap over a frame's life — surgical re-registration, `set-generation!`,
+  `mark-frame-destroyed!` — preserves that atom by identity. So the token is
+  CONSTANT across one incarnation and DISTINCT across a `destroy-frame!` +
+  fresh `reg-frame` of the same id.
+
+  A lifecycle-sensitive registry mutation (cold `reg-flow`) captures this token
+  while the frame is live, then admits its write ONLY while the SAME token is
+  still live (`(identical? pinned (frame-incarnation-token id))`). Because
+  `destroy-frame!` flips liveness under that SAME `:drain-lock` (both go through
+  `call-serialized-with-drain!`), the registration and the destruction
+  linearize: the mutation can neither leave a ghost row on a destroyed frame
+  nor clobber a newer incarnation that reused the id."
+  [id]
+  (some-> (frame id) :drain-lock))
+
 (defn frame-disposed-for-drain?
   "Per Spec 002 §Frame disposal mid-drain: predicate used by the
   router's drain loop to interrupt a pass when the frame was destroyed
@@ -1104,6 +1125,31 @@
     #?(:clj  (identical? in-drain (Thread/currentThread))
        :cljs (true? in-drain))))
 
+(defn- current-thread-owns-drain-serialization?
+  "True when the calling thread ALREADY holds `frame-record`'s single-drainer
+  serialization — via EITHER path that takes the frame's `:drain-lock`:
+
+    - it is the active event DRAINER (`:in-drain?`, stamped by the router
+      around `run-one-pass!`), OR
+    - it is the current holder of a COLD `call-serialized-with-drain!` critical
+      section (`:serialized-holder`, set below on the non-reentrant acquire
+      path).
+
+  The drain and the cold serialization helper contend on the SAME
+  non-reentrant `:drain-lock` CAS cell, but the cold path stamps no
+  `:in-drain?`. So a nested serialized op issued from INSIDE a cold critical
+  section — e.g. a Tool-Pair state write whose body calls `destroy-frame!`
+  (whose liveness flip is itself serialized), or any lifecycle op reached from
+  a `call-serialized-with-drain!` thunk — must be detected HERE and run
+  DIRECTLY; otherwise it spin-CAS's forever on a lock its own thread already
+  holds. Mirrors `current-thread-is-drainer?` for the cold-hold axis; on CLJS
+  the marker is `true`/`nil` and the same equality discriminates."
+  [frame-record]
+  (or (current-thread-is-drainer? frame-record)
+      (let [holder @(:serialized-holder frame-record)]
+        #?(:clj  (identical? holder (Thread/currentThread))
+           :cljs (true? holder)))))
+
 (defn in-drain?
   "True when the calling thread is `frame-id`'s currently-active drainer —
   i.e. THIS call is happening reentrantly inside the frame's single-drainer
@@ -1124,30 +1170,42 @@
 
 (defn call-serialized-with-drain!
   "Run thunk `f` serialized against `frame-id`'s event drain, returning its
-  value. Used by per-frame registry mutations that must not
-  interleave with a concurrent `run-flows-on-db` pass.
+  value. Used by per-frame lifecycle mutations that must not interleave with a
+  concurrent `run-flows-on-db` pass or with each other — the flows lifecycle
+  ops (`reg-flow` / `clear-flow`), the `destroy-frame!` liveness flip
+  (`mark-frame-destroyed!`), and Tool-Pair state writes.
 
   - Frame absent (unregistered / destroyed): nothing can be draining it, so
     just run `f`.
-  - Calling thread is the frame's active drainer (mid-drain `:rf.fx/*`
-    call): already inside the single-drainer window — run `f` directly to
-    avoid self-deadlocking on `:drain-lock`.
+  - Calling thread already OWNS the serialization — it is the active drainer
+    (mid-drain `:rf.fx/*` call), OR it already holds a COLD critical section on
+    this frame (e.g. a Tool-Pair write body that calls `destroy-frame!`): run
+    `f` directly. Re-taking the non-reentrant `:drain-lock` CAS cell from a
+    thread that already holds it would self-deadlock (see
+    `current-thread-owns-drain-serialization?`).
   - Otherwise: spin-CAS-acquire `:drain-lock` (the same acquire shape
-    `re-frame.router/drain-block!` uses — bounded wait: an active drainer
-    holds it for at most `drain-depth` events), run `f`, release in a
-    `finally`."
+    `re-frame.router/drain-block!` uses — bounded wait: an active drainer holds
+    it for at most `drain-depth` events), stamp this thread as the
+    `:serialized-holder`, run `f`, then clear the holder and release the lock
+    in a `finally`."
   [frame-id f]
   (if-let [frame-record (frame frame-id)]
-    (if (current-thread-is-drainer? frame-record)
+    (if (current-thread-owns-drain-serialization? frame-record)
       (f)
-      (let [drain-lock (:drain-lock frame-record)]
+      (let [drain-lock (:drain-lock frame-record)
+            holder     (:serialized-holder frame-record)]
         (loop []
           (when-not (compare-and-set! drain-lock false true)
             #?(:clj (Thread/yield))
             (recur)))
+        (reset! holder #?(:clj (Thread/currentThread) :cljs true))
         (try
           (f)
           (finally
+            ;; Clear the holder BEFORE releasing the lock: once the lock is
+            ;; free another thread may acquire it and stamp its own holder, so
+            ;; clearing after the release could clobber that new owner.
+            (reset! holder nil)
             (reset! drain-lock false)))))
     (f)))
 
@@ -1280,6 +1338,14 @@
    ;; single-threaded so the CAS is uncontended there, but the same
    ;; flag preserves the contract under any future concurrent host.
    :drain-lock (atom false)
+   ;; Thread that currently holds a COLD `call-serialized-with-drain!` critical
+   ;; section on this frame (JVM: the Thread; CLJS: `true`), or nil when free.
+   ;; The router drain marks its hold via the router's `:in-drain?`; the cold
+   ;; serialization path stamps it here instead, so a nested serialized op on
+   ;; the same thread (e.g. a Tool-Pair write body that calls `destroy-frame!`,
+   ;; whose liveness flip is itself serialized) is detected as reentrant rather
+   ;; than self-deadlocking on the non-reentrant `:drain-lock` CAS cell.
+   :serialized-holder (atom nil)
     :sub-cache  (atom {})
     :lifecycle  {:created-at (interop/now-ms)
                  :destroyed? false
@@ -2512,7 +2578,27 @@
         (try
         (fire-on-destroy-event! id f)
         (notify-machine-destruction! id)
-        (mark-frame-destroyed! id)
+        ;; Flip the liveness bit under the frame's OWN `:drain-lock` (the ONE
+        ;; frame-owned lifecycle gate, via the same `call-serialized-with-drain!`
+        ;; the flows lifecycle ops use) so a concurrent cold `reg-flow` / flow
+        ;; lifecycle op linearizes against this destroy. That op pins the
+        ;; incarnation token (`frame-incarnation-token`) and REVALIDATES it under
+        ;; the same lock inside its serialized mutation, so it either published
+        ;; its registry row BEFORE this flip — and the `:flows/teardown-on-frame-
+        ;; destroy!` hook below (which runs AFTER this flip) removes it — or it
+        ;; observes the destroyed incarnation AFTER the flip and refuses,
+        ;; leaving NO ghost row on the dead frame. Because the flows teardown
+        ;; always runs before `dissoc-frame!` (and a fresh same-id incarnation
+        ;; can only exist after that dissoc), the teardown can never delete a
+        ;; newer registration either. The frame is still LIVE at this point (the
+        ;; flip has not yet run), so the id-keyed helper resolves + locks the
+        ;; correct incarnation. Reentrant on ANY same-thread hold: a mid-drain
+        ;; destroy runs on the drainer thread, and a destroy issued from inside
+        ;; a cold serialized op (e.g. a Tool-Pair write body) runs under that
+        ;; op's `:serialized-holder` — either way the flip runs directly rather
+        ;; than self-deadlocking, and the `frame-disposed-for-drain?` interrupt
+        ;; seam is unchanged.
+        (call-serialized-with-drain! id (fn [] (mark-frame-destroyed! id)))
         (tear-down-sub-cache! id f)
         ;; Dispose the app-db / runtime-db projection reactions
         ;; AFTER the sub-cache (the sub-cache's layer-1 reactions watch the

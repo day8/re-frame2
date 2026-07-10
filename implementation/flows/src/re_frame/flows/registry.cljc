@@ -483,22 +483,36 @@
          ;; Store coordinates with the frame-scoped definition so tooling reads
          ;; them from the same authoritative value.
          flow     (source-coords/merge-coords flow)]
-     ;; The serialization helper intentionally tolerates absent frames, so the
-     ;; mutating registration path must reject them before creating dormant
-     ;; state that a reused frame id could inherit.
-     (when (nil? (frame/frame frame-id))
-       (error/throw-error!
-         :rf.error/flow-frame-not-live
-         'rf/reg-flow
-         (str "cannot register a flow against frame "
-              frame-id
-              " — the frame is not live (absent / never registered, "
-              "or torn down by destroy-frame!). Register the flow "
-              "against a live frame; a destroyed frame must not "
-              "acquire flow state (Spec 013 §destroy-frame!).")
-         {:recovery :fix-registration
-          :extra    {:frame frame-id
-                     :flow  flow}}))
+     ;; PIN the incarnation this call selected. The serialization helper below
+     ;; intentionally tolerates absent frames (so `clear-flow` stays idempotent
+     ;; and mid-drain effects run reentrantly), so a bare pre-serializer
+     ;; liveness check is a check-then-act: a concurrent `destroy-frame!` can
+     ;; complete in the window between that check and the winning registry
+     ;; mutation, leaving a GHOST flow row on a dead frame — or, if the id is
+     ;; re-registered to a NEW incarnation, the mutation could clobber it. So
+     ;; instead of trusting a bare nil-check, capture the live incarnation TOKEN
+     ;; here and REVALIDATE it INSIDE the serialized mutation (below), under the
+     ;; frame's `:drain-lock` — the SAME lock `destroy-frame!` flips liveness
+     ;; under (`frame/call-with-drain-lock-on-record!`). Registration and
+     ;; destruction therefore linearize on one frame-owned gate: a destroy that
+     ;; wins makes the revalidation observe a nil / different token and refuse
+     ;; (no ghost row); a registration that wins publishes its row, which the
+     ;; destroy's flows-teardown hook then removes. See
+     ;; re-frame.frame/frame-incarnation-token.
+     (let [pinned-incarnation (frame/frame-incarnation-token frame-id)]
+       (when (nil? pinned-incarnation)
+         (error/throw-error!
+           :rf.error/flow-frame-not-live
+           'rf/reg-flow
+           (str "cannot register a flow against frame "
+                frame-id
+                " — the frame is not live (absent / never registered, "
+                "or torn down by destroy-frame!). Register the flow "
+                "against a live frame; a destroyed frame must not "
+                "acquire flow state (Spec 013 §destroy-frame!).")
+           {:recovery :fix-registration
+            :extra    {:frame frame-id
+                       :flow  flow}}))
      ;; Capture the prior value inside the retrying swap so lifecycle decisions
      ;; use the state observed by the winning CAS.
      (let [prior-on-frame (volatile! nil)]
@@ -509,6 +523,30 @@
        (frame/call-serialized-with-drain!
          frame-id
          (fn []
+           ;; LINEARIZATION GATE. Admit this mutation ONLY while the pinned
+           ;; incarnation is still live. `destroy-frame!` flips liveness under
+           ;; the same `:drain-lock` this thunk runs under, so if it linearized
+           ;; first the current token is nil (destroyed / dissoc'd) or a
+           ;; DIFFERENT incarnation's (id re-registered). Refuse in either case:
+           ;; no ghost row survives the destroyed frame, and a newer
+           ;; re-registration is never clobbered. A bare second `frame/frame`
+           ;; nil-check is insufficient — it would still admit a write into a
+           ;; re-registered NEW incarnation's slot; identity of the pinned token
+           ;; is what rejects that.
+           (when-not (identical? pinned-incarnation
+                                 (frame/frame-incarnation-token frame-id))
+             (error/throw-error!
+               :rf.error/flow-frame-not-live
+               'rf/reg-flow
+               (str "cannot register a flow against frame "
+                    frame-id
+                    " — the frame was destroyed (or re-registered to a new "
+                    "incarnation) concurrently with this registration. "
+                    "Register the flow against a live frame; a destroyed frame "
+                    "must not acquire flow state (Spec 013 §destroy-frame!).")
+               {:recovery :fix-registration
+                :extra    {:frame frame-id
+                           :flow  flow}}))
            (swap! flows
                   (fn [m]
                     (let [prior-frame (get m frame-id)]
@@ -558,7 +596,7 @@
                       {:flow-id flow-id
                        :inputs  (:inputs flow)
                        :path    (:output-path flow)
-                       :frame   frame-id})))
+                       :frame   frame-id}))))
      flow-id))))
 
 (defn- dissoc-in-safe
