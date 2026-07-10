@@ -51,12 +51,19 @@ doc-table targets):
 Each target declares its own conventions (which evals appear in the table, how
 its total-count sentence reads, which tally axes it asserts), so harnesses with
 different README shapes are all gated correctly. The `re-frame2` target keeps
-its original single-axis (per-dimension) semantics verbatim; the
-`re-frame2-improver` target adds the two-axis (per-kind + per-behavioural-
-dimension) shape and a behavioural-only coverage table; the `re-frame2-xray`
+its original single-axis (per-dimension) semantics verbatim; the `re-frame2-xray`
 target tabulates only its Layer-2 answer-quality evals (those carrying
 `expectations[]`) and tallies a boolean `should_trigger` axis rendered to prose
 (positives / negatives).
+
+The `re-frame2-improver` harness is intentionally NOT a doc-table target
+(rf2-hpq96d): its `evals/README.md` no longer carries a coverage table, total
+count, or per-axis tallies — `evals.json` is that skill's sole fixture
+inventory, so there is no coverage prose that could drift against the JSON.
+Its evals.json is still covered corpus-wide by the A4 identity-uniqueness
+invariant below. The gate keeps the multi-axis (per-kind + per-behavioural-
+dimension) machinery a two-kind harness needs — exercised by the self-test — so
+the capability is retained should another harness adopt that README shape.
 
 The gate is pure-Python-stdlib (no PyYAML / Node) to stay fast and
 CI-portable, mirroring the sibling `scripts/check_skill_*.py` gates. It does
@@ -199,24 +206,13 @@ _REFRAME2 = Target(
     tally_axes=(TallyAxis(field_name="dimension", label="dimension"),),
 )
 
-# The `re-frame2-improver` critique harness: a behavioural-only coverage table
-# (trigger fixtures are described in prose, not tabulated), a two-clause total
-# sentence ("Twenty-six evals: …"), and TWO tally axes — per-`kind`
-# (16 trigger / 10 behavioural) and per-behavioural-`dimension`
-# (6 critique-correctness / 3 false-positive-avoidance / 1 edit-gate).
-_IMPROVER = Target(
-    slug="re-frame2-improver",
-    total_count_re=re.compile(r"\b([A-Za-z][A-Za-z-]*|\d+)\s+evals[:,]"),
-    table_filter=lambda e: e.get("kind") == "behavioural",
-    tally_axes=(
-        TallyAxis(field_name="kind", label="kind"),
-        TallyAxis(
-            field_name="dimension",
-            label="behavioural dimension",
-            eval_filter=lambda e: e.get("kind") == "behavioural",
-        ),
-    ),
-)
+# NOTE: `re-frame2-improver` is deliberately absent from TARGETS (rf2-hpq96d).
+# Its evals/README.md no longer carries a coverage table / total count / tally
+# prose — evals.json is that skill's sole fixture inventory — so there is
+# nothing for a doc-table target to cross-check. Its evals.json is still gated
+# corpus-wide by the A4 identity-uniqueness pass. The two-kind / two-axis shape
+# it used to exercise is retained in the self-test (`_run_self_test`) so the
+# multi-axis machinery stays covered for any future harness that adopts it.
 
 # The `re-frame2-xray` tour harness: a single "<N> evals, covering …" total
 # sentence (the `re-frame2` shape), a coverage table that individually tabulates
@@ -238,7 +234,7 @@ _XRAY = Target(
     ),
 )
 
-TARGETS: tuple[Target, ...] = (_REFRAME2, _IMPROVER, _XRAY)
+TARGETS: tuple[Target, ...] = (_REFRAME2, _XRAY)
 
 
 # ---------------------------------------------------------------------------
@@ -568,11 +564,23 @@ def _run_self_test() -> int:
         "One critique-correctness eval and one false-positive-avoidance eval.\n"
     )
 
+    # The two-kind / two-axis shape (per-kind + per-behavioural-dimension over a
+    # behavioural-only coverage table). No live target uses it today — the
+    # re-frame2-improver harness dropped its coverage table (rf2-hpq96d) — but
+    # the machinery is retained, so the self-test defines the shape inline to
+    # keep it exercised.
     improver_target = Target(
-        slug="<self-test-improver>",
-        total_count_re=_IMPROVER.total_count_re,
-        table_filter=_IMPROVER.table_filter,
-        tally_axes=_IMPROVER.tally_axes,
+        slug="<self-test-two-axis>",
+        total_count_re=re.compile(r"\b([A-Za-z][A-Za-z-]*|\d+)\s+evals[:,]"),
+        table_filter=lambda e: e.get("kind") == "behavioural",
+        tally_axes=(
+            TallyAxis(field_name="kind", label="kind"),
+            TallyAxis(
+                field_name="dimension",
+                label="behavioural dimension",
+                eval_filter=lambda e: e.get("kind") == "behavioural",
+            ),
+        ),
     )
 
     def run_target(t: Target, jobj: dict, rtext: str) -> list[str]:
