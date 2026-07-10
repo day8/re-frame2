@@ -1,107 +1,43 @@
-;; re-frame2 EP-0014 derivation/process-ALGEBRA conformance tier
-;; (rf2-jn7frs; EP-0014 Reference Implementation Plan item 9 + §Validation
-;; / Conformance; spec/Derivations.md §Conformance).
+;; Cross-family derivation/process conformance for `spec/Derivations.md`.
 ;;
-;; This is NOT a published Maven artefact — it has no `src/`. It is a
-;; cross-artefact TEST surface (the precedent is `reply-conformance/` and
-;; `security/`) that holds the umbrella conformance the per-artefact
-;; algebra-view suites cannot: the END-TO-END algebra LAWS proven across
-;; ALL FIVE families (subscriptions, flows, resources, route facts,
-;; machines) THROUGH the graph composer (`re-frame.derivation.graph`).
-;;
-;; Where each per-artefact suite validates ONE family's projection in
-;; isolation (`re-frame.sub-algebra-view-test`,
-;; `re-frame.flow-algebra-view-test`, `re-frame.route-algebra-view-test`,
-;; `re-frame.resource-algebra-view-cljs-test`,
-;; `re-frame.machine-algebra-view-test`) and the composer test
-;; (`re-frame.derivation-graph-test`) pins the assembly MECHANICS, this
-;; tier proves the six EP-0014 conformance AXES hold across families
-;; simultaneously, the same way `reply-conformance/` proves the ONE reply
-;; vocabulary across every managed-async family:
-;;
-;;   (a) LOWERING        — each source form lowers to the correct node
-;;                         kind / superkind (the two-superkind closed enum
-;;                         `:derivation` | `:process`, every node
-;;                         classifiable).
-;;   (b) CLASSIFICATION  — storage-class / evaluation-policy / lifecycle
-;;                         correctness PER FAMILY, against the
-;;                         spec/Derivations.md fixed-classification tables.
-;;   (c) GRAPH EDGES     — `:input` / `:param` / `:selector` edges correct
-;;                         in BOTH the static graph (registration-known
-;;                         edges, `:parametric` markers, the don't-execute
-;;                         rule) and the live graph (realized edges).
-;;   (d) WHOLE-VALUE     — the semantic whole-value law (slice-1): a
-;;                         materialized derivation's output equals what its
-;;                         derivation fn computes from the same inputs; the
-;;                         optional delta law is deferred per item 10.
-;;   (e) LIFECYCLE       — the §Conformance 'Lifecycle' RELEASE axis, all four
-;;                         spec clauses: frame destroy / subscription disposal
-;;                         (ref-count → 0, CLJS-only) / route exit-supersession
-;;                         / machine final-state destroy releases the owned
-;;                         graph node.
-;;   (f) EVALUATION      — the §Conformance 'Evaluation policy' on-demand
-;;                         no-write law: reading an `:on-demand` node causes
-;;                         NO durable write (no app-db / runtime-db mutation).
-;;
-;; The test namespaces sit ABOVE several artefacts (core + the four
-;; optional feature siblings — flows, resources, routing, machines), so
-;; they live in their own top-level `derivation-conformance/` surface
-;; rather than any single family's test tree.
+;; This is a test-only artefact: it has no `src/` and is not published. The
+;; family suites validate their projections in isolation; this tier composes
+;; subscriptions, flows, resources, route facts, and machines into one static
+;; or live graph and checks the laws that cross those ownership boundaries.
 ;;
 ;; ## Why this deps.edn exists
 ;;
-;; The conformance namespaces are `.cljc` and run in BOTH runtimes. They
-;; ride the always-on CLJS `:node-test` gate (`npm run test:cljs`, ns
-;; matches `cljs-test$`) via the cross-artefact source paths the top-level
-;; `implementation/shadow-cljs.edn` lists. This alias is the JVM
-;; counterpart: it runs the SAME `.cljc` namespaces under the JVM so the
-;; `:clj`-side composition (JVM `default-contributors` auto-resolution, the
-;; pure-data algebra views, the whole-value law over JVM data) is
-;; exercised — mirroring why `reply-conformance/deps.edn` and
-;; `security/deps.edn` exist. Wired into
-;; `scripts/test-jvm-implementation.sh`.
+;; The `.cljc` namespace runs in the shared CLJS node gate through
+;; `implementation/shadow-cljs.edn`. This alias is the JVM counterpart and is
+;; also called by `scripts/test-jvm-implementation.sh`.
 ;;
 ;; ## Why test-only deps, not :local/root in :deps
 ;;
-;; This artefact ships nothing, so the top-level `:deps` is empty. The
-;; cross-artefact source the test namespaces `:require`
-;; (`re-frame.derivation.graph` from core; the five tooling siblings:
-;; `re-frame.subs.tooling` from core, `re-frame.flows.tooling`,
-;; `re-frame.resources.tooling`, `re-frame.routing.tooling`,
-;; `re-frame.machines.tooling`) is pulled in under the `:test` alias only.
-;; `:extra-paths` is JUST `["test"]` so the cognitect test-runner scans
-;; ONLY this tier's test dir — the artefact `:local/root` deps contribute
-;; their `src` (never their `:test`), so no other artefact's tests run
-;; here.
+;; Production dependencies remain empty because this artefact ships no code.
+;; The `:test` alias supplies the family implementations and exposes only this
+;; tier's `test` directory to the test runner; local-root dependencies
+;; contribute their source paths, not their test paths.
 ;;
 ;; ## Bundle isolation (tools/README.md)
 ;;
-;; No tool deps; this is a pure cross-FAMILY conformance surface. The
-;; dependency arrow flows derivation-conformance(test) → implementation
-;; artefacts, never the reverse. Nothing under `implementation/` production
-;; `src/` `:require`s anything here, so no production bundle is widened.
-;; The composer + the five tooling siblings are themselves bundle-isolated
-;; (each guarded by its sentinel); consuming them from a test surface adds
-;; no production reach.
+;; This tier depends only on implementation artefacts, never on `tools/`, and
+;; no production namespace depends on it. Exercising bundle-isolated tooling
+;; namespaces here therefore does not widen a production bundle.
 {:paths []
  :deps  {}
 
  :aliases
  {:test
   {:extra-paths ["test"]
-   ;; core carries `re-frame.derivation.graph` (the composer) + the in-core
-   ;; `re-frame.subs.tooling` sibling; the four optional feature artefacts
-   ;; carry their per-family algebra-view tooling siblings.
+   ;; Core carries the composer and subscription contributor; the optional
+   ;; artefacts carry the other four family contributors.
    :extra-deps  {day8/re-frame2           {:local/root "../core"}
                  day8/re-frame2-flows     {:local/root "../flows"}
                  day8/re-frame2-resources {:local/root "../resources"}
                  day8/re-frame2-routing   {:local/root "../routing"}
                  day8/re-frame2-machines  {:local/root "../machines"}
-                 ;; schemas carries Malli — pulled so the runtime resolves
-                 ;; of `malli.core/validate` (resource decode schemas, the
-                 ;; machines data-schema) succeed under the JVM test build.
+                 ;; Resource and machine schemas need Malli on the JVM classpath.
                  day8/re-frame2-schemas   {:local/root "../schemas"}
-                 ;; rf2-try1x — silent-on-success reporter.
                  day8/re-frame2-test-quiet {:local/root "../test-quiet"}
                  io.github.cognitect-labs/test-runner
                  {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
