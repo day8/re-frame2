@@ -37,7 +37,7 @@ The pattern below uses `:cred-ref` as the placeholder; substitute whatever opaqu
 
 ## Canonical declaration
 
-`make-machine-handler` lives on `re-frame.machines` (`(:require [re-frame.machines :as machines])`) — it is not on the `re-frame.core` façade. The `reg-machine` / `defmachine` registration macros stay on the `rf/` façade.
+`reg-machine` **is** the registration home for the connection machine — it registers the machine as an event handler and stamps the `:rf/machine?` / source-coordinate metadata the `:rf/machine` sub, the declarative `:spawn` resolver, and the tooling rely on, so author it with `reg-machine`, never wrap it by hand. (`reg-machine` / `defmachine` stay on the `rf/` façade; the lower-level `re-frame.machines/make-machine-handler` factory is an advanced schema-less escape hatch — see [`../references/state-machines/reg-machine.md`](../references/state-machines/reg-machine.md) §Driving a machine as a discrete event-driven flow.)
 
 ```clojure
 ;; The socket actor is spawned on the :active parent, so the runtime binds its
@@ -49,92 +49,91 @@ The pattern below uses `:cred-ref` as the placeholder; substitute whatever opaqu
 (def socket-invoke-id [:active])
 (defn socket-id [data] (get-in data [:rf/spawned socket-invoke-id]))
 
-(rf/reg-event :ws/connection
-  (machines/make-machine-handler
-    {:initial :disconnected
-     ;; NOTE :cred-ref is an opaque pointer; the bearer is fetched
-     ;; client-side at actor spawn via your app's :auth.cred/fetch cofx
-     ;; (an app-prefixed registration — NOT a framework surface).
-     :data    {:url nil :cred-ref nil :retries 0 :max-retries 8
-               :base-ms 1000 :max-backoff-ms 30000
-               :subscriptions #{}
-               :queue [] :in-flight {} :error nil}
+(rf/reg-machine :ws/connection
+  {:initial :disconnected
+   ;; NOTE :cred-ref is an opaque pointer; the bearer is fetched
+   ;; client-side at actor spawn via your app's :auth.cred/fetch cofx
+   ;; (an app-prefixed registration — NOT a framework surface).
+   :data    {:url nil :cred-ref nil :retries 0 :max-retries 8
+             :base-ms 1000 :max-backoff-ms 30000
+             :subscriptions #{}
+             :queue [] :in-flight {} :error nil}
 
-     :guards
-     {:max-retries-exceeded? (fn [{data :data}] (>= (:retries data) (:max-retries data)))
-      :has-queued-messages?  (fn [{data :data}] (seq (:queue data)))
-      :current-socket?
-      ;; Connection-epoch check: reject events from a prior socket actor that
-      ;; may dispatch in flight while the cascade tears it down. A torn-down
-      ;; socket reads nil from :rf/spawned, so stragglers drop for free.
-      (fn [{data :data [_ {:keys [source-socket-id]}] :event}]
-        (let [live (socket-id data)]
-          (and (some? live) (= source-socket-id live))))}
+   :guards
+   {:max-retries-exceeded? (fn [{data :data}] (>= (:retries data) (:max-retries data)))
+    :has-queued-messages?  (fn [{data :data}] (seq (:queue data)))
+    :current-socket?
+    ;; Connection-epoch check: reject events from a prior socket actor that
+    ;; may dispatch in flight while the cascade tears it down. A torn-down
+    ;; socket reads nil from :rf/spawned, so stragglers drop for free.
+    (fn [{data :data [_ {:keys [source-socket-id]}] :event}]
+      (let [live (socket-id data)]
+        (and (some? live) (= source-socket-id live))))}
 
-     :actions
-     {:record-connection-opts (fn [{data :data [_ {:keys [url cred-ref]}] :event}]
-                                {:data (assoc data :url url :cred-ref cred-ref)})
-      :rotate-cred     (fn [{data :data [_ new-cred-ref] :event}]
-                         {:data (assoc data :cred-ref new-cred-ref)})
-      :bump-retry      (fn [{data :data}] {:data (update data :retries inc)})
-      :on-connected
-      ;; :entry takes one fn / id, never a vector — consolidate.
-      (fn [{data :data}]
-        {:data (assoc data :retries 0)
-         :fx   (mapv (fn [t] [:dispatch [(socket-id data) [:send {:type :subscribe :topic t}]]])
-                     (:subscriptions data))})
-      :flush-queue (fn [{data :data}] {:data (assoc data :queue [])
-                                 :fx (mapv (fn [m] [:dispatch [(socket-id data) [:send m]]])
-                                           (:queue data))})
-      :enqueue-message (fn [{data :data [_ m] :event}] {:data (update data :queue conj m)})}
+   :actions
+   {:record-connection-opts (fn [{data :data [_ {:keys [url cred-ref]}] :event}]
+                              {:data (assoc data :url url :cred-ref cred-ref)})
+    :rotate-cred     (fn [{data :data [_ new-cred-ref] :event}]
+                       {:data (assoc data :cred-ref new-cred-ref)})
+    :bump-retry      (fn [{data :data}] {:data (update data :retries inc)})
+    :on-connected
+    ;; :entry takes one fn / id, never a vector — consolidate.
+    (fn [{data :data}]
+      {:data (assoc data :retries 0)
+       :fx   (mapv (fn [t] [:dispatch [(socket-id data) [:send {:type :subscribe :topic t}]]])
+                   (:subscriptions data))})
+    :flush-queue (fn [{data :data}] {:data (assoc data :queue [])
+                               :fx (mapv (fn [m] [:dispatch [(socket-id data) [:send m]]])
+                                         (:queue data))})
+    :enqueue-message (fn [{data :data [_ m] :event}] {:data (update data :queue conj m)})}
 
+   :states
+   {:disconnected
+    {:on {:ws/connect {:target [:active] :action :record-connection-opts}
+          :ws/send    {:action :enqueue-message}}}
+
+    :active
+    {;; Socket actor anchored on the PARENT — lifetime spans all three leaves.
+     ;; The actor receives only :url + :cred-ref; it resolves the bearer
+     ;; via a client-only cofx inside its own JS context, then opens the
+     ;; socket. The bearer never re-enters dispatch. The runtime binds the
+     ;; newborn's id into :data under :rf/spawned [:active] — read via the
+     ;; socket-id helper above; no :on-spawn, no :exit cleanup (teardown
+     ;; clears the slot). See examples/patterns/websocket/connection.cljs.
+     :spawn  {:machine-id :websocket/socket
+               ;; :data fn takes ONE context-map arg {:keys [snapshot event]}.
+               :data       (fn [{snap :snapshot}] {:url      (-> snap :data :url)
+                                                   :cred-ref (-> snap :data :cred-ref)})}
+     :on      {:ws/closed      {:target :reconnecting :action :bump-retry}
+               :ws/fatal       {:target :failed}
+               :ws/send        {:action :enqueue-message}
+               :ws/rotate-cred {:action :rotate-cred}}
+     :initial :connecting
      :states
-     {:disconnected
-      {:on {:ws/connect {:target [:active] :action :record-connection-opts}
-            :ws/send    {:action :enqueue-message}}}
+     {:connecting     {:on {:ws/opened {:target :authenticating}}}
+      :authenticating {:entry :send-auth
+                       :on    {:ws/auth-ok     {:target :connected}
+                               :ws/auth-failed {:target [:failed]}}}
+      :connected      {:entry  :on-connected
+                       :always [{:guard :has-queued-messages? :action :flush-queue}]
+                       :on     {:ws/received {:guard :current-socket? :action :route-message}
+                                :ws/send     {:action :send-now}}}}}
 
-      :active
-      {;; Socket actor anchored on the PARENT — lifetime spans all three leaves.
-       ;; The actor receives only :url + :cred-ref; it resolves the bearer
-       ;; via a client-only cofx inside its own JS context, then opens the
-       ;; socket. The bearer never re-enters dispatch. The runtime binds the
-       ;; newborn's id into :data under :rf/spawned [:active] — read via the
-       ;; socket-id helper above; no :on-spawn, no :exit cleanup (teardown
-       ;; clears the slot). See examples/patterns/websocket/connection.cljs.
-       :spawn  {:machine-id :websocket/socket
-                 ;; :data fn takes ONE context-map arg {:keys [snapshot event]}.
-                 :data       (fn [{snap :snapshot}] {:url      (-> snap :data :url)
-                                                     :cred-ref (-> snap :data :cred-ref)})}
-       :on      {:ws/closed      {:target :reconnecting :action :bump-retry}
-                 :ws/fatal       {:target :failed}
-                 :ws/send        {:action :enqueue-message}
-                 :ws/rotate-cred {:action :rotate-cred}}
-       :initial :connecting
-       :states
-       {:connecting     {:on {:ws/opened {:target :authenticating}}}
-        :authenticating {:entry :send-auth
-                         :on    {:ws/auth-ok     {:target :connected}
-                                 :ws/auth-failed {:target [:failed]}}}
-        :connected      {:entry  :on-connected
-                         :always [{:guard :has-queued-messages? :action :flush-queue}]
-                         :on     {:ws/received {:guard :current-socket? :action :route-message}
-                                  :ws/send     {:action :send-now}}}}}
+    :reconnecting
+    {:always [{:guard :max-retries-exceeded? :target :failed}]
+     ;; fn-form delay — ONE context-map arg {:keys [snapshot]}; the snapshot's
+     ;; :data is at (:data snapshot). Re-evaluated each :reconnecting entry.
+     :after  {(fn [{:keys [snapshot]}]
+                (let [{:keys [retries base-ms max-backoff-ms]} (:data snapshot)]
+                  (min (* base-ms (Math/pow 2 retries)) max-backoff-ms)))
+              {:target [:active]}}
+     :on     {:ws/connect     {:target [:active] :action :record-connection-opts}
+              :ws/rotate-cred {:action :rotate-cred}
+              :ws/send        {:action :enqueue-message}}}
 
-      :reconnecting
-      {:always [{:guard :max-retries-exceeded? :target :failed}]
-       ;; fn-form delay — ONE context-map arg {:keys [snapshot]}; the snapshot's
-       ;; :data is at (:data snapshot). Re-evaluated each :reconnecting entry.
-       :after  {(fn [{:keys [snapshot]}]
-                  (let [{:keys [retries base-ms max-backoff-ms]} (:data snapshot)]
-                    (min (* base-ms (Math/pow 2 retries)) max-backoff-ms)))
-                {:target [:active]}}
-       :on     {:ws/connect     {:target [:active] :action :record-connection-opts}
-                :ws/rotate-cred {:action :rotate-cred}
-                :ws/send        {:action :enqueue-message}}}
-
-      :failed
-      {:on {:ws/connect     {:target [:active] :action :record-connection-opts}
-            :ws/rotate-cred {:action :rotate-cred}}}}}))
+    :failed
+    {:on {:ws/connect     {:target [:active] :action :record-connection-opts}
+          :ws/rotate-cred {:action :rotate-cred}}}}})
 ```
 
 Caller: `(rf/dispatch [:ws/connection [:ws/connect {:url "wss://api.example.com/ws" :cred-ref (current-session-cred-ref)}]])` — `current-session-cred-ref` returns an opaque pointer into the host-side credential vault. The bearer itself never crosses the dispatch boundary; the actor's app-side `:auth.cred/fetch` cofx (your prefix) resolves the pointer to a bearer at spawn time.

@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""No-bead-id + verification-posture + launcher-canonical drift guard for the
-re-frame2 (authoring) skill.
+"""No-bead-id + verification-posture + launcher-canonical + machine-handler-
+recipe drift guard for the re-frame2 (authoring) skill.
 
 `spec/design.md` is the single normative source for the skill's locked
 decisions (L1–L11), file structure, cardinal rules, and verification posture;
 `spec/inputs.md` owns the canonical inputs and update procedure. The
 `spec/authoring-prompt.md` launcher orchestrates a reauthoring pass by
 *pointing at* those two files — it must not carry a second, drift-prone copy of
-the tree, the rules, or the locks. This guard protects three regressions the
+the tree, the rules, or the locks. This guard protects four regressions the
 existing automated guards did not catch (the no-bead-id guard was scoped to
 `skills/re-frame2-implementor` only):
 
@@ -48,6 +48,21 @@ existing automated guards did not catch (the no-bead-id guard was scoped to
      fails if the launcher stops citing a canonical file or grows a box-drawing
      tree / a "Locks to preserve verbatim" (or "Cardinal rules to bake in")
      block back.
+
+  4. **The machine-registration footgun.** The state-machine leaf and the API
+     cheatsheet taught the bare `(reg-event id meta (make-machine-handler spec))`
+     route as if it were a normal way to author a machine. That direct path does
+     NOT stamp the `:rf/machine?` / `:rf/machine` registration metadata or the
+     per-element source coordinates that machine introspection, `(machine-meta
+     id)`, visualisers, and Xray resolve through, and a `[:schemas :data]`-
+     bearing spec throws `:rf.error/machine-schema-requires-reg-machine` on it.
+     `reg-machine` is the sole normal application-authoring recipe — it already
+     registers the machine AS an event handler and stamps that metadata. This
+     guard rejects a POSITIVE fenced recipe that co-locates `reg-event` and
+     `make-machine-handler`, while ALLOWING an inline (non-fenced) implementation
+     warning that names the shape — so the retained advanced-note mention on
+     `reg-machine.md` / `api-cheatsheet.md` stays legal, but a copy-pasteable
+     footgun recipe cannot reappear in any user-facing leaf.
 
 Scanned leaves (globbed, so a new leaf is covered automatically):
     SKILL.md, README.md, references/**/*.md, patterns/**/*.md,
@@ -135,6 +150,58 @@ VERIFY_PROSE_RE = re.compile(
     r"|verifying\b.{0,40}\bis in scope",
     re.IGNORECASE,
 )
+
+# --- Rule 4: no positive bare `reg-event` + `make-machine-handler` recipe in a
+#     fenced code block (the machine-registration footgun). `reg-machine` is the
+#     sole normal application-authoring recipe; the bare direct path skips the
+#     `:rf/machine?` / source-coord stamp and trips
+#     `:rf.error/machine-schema-requires-reg-machine` on a `[:schemas :data]`
+#     spec. Scanned per-FENCED-BLOCK (the two tokens land on different lines of
+#     one block), so an inline single-backtick warning that names the shape in
+#     prose — the retained advanced-note mention — is allowed; only a
+#     copy-pasteable positive recipe is rejected.
+FENCE_RE = re.compile(r"^\s*```")
+REG_EVENT_TOKEN_RE = re.compile(r"\breg-event\b")
+MAKE_MACHINE_HANDLER_TOKEN_RE = re.compile(r"\bmake-machine-handler\b")
+MACHINE_HANDLER_MSG = (
+    "MACHINE-HANDLER-FOOTGUN: this fenced recipe registers a machine via the "
+    "bare `reg-event` + `make-machine-handler` route. That path does NOT stamp "
+    "the :rf/machine? / :rf/machine registration metadata or the per-element "
+    "source coordinates that machine introspection, (machine-meta id), "
+    "visualisers, and Xray resolve through, and a [:schemas :data]-bearing spec "
+    "throws :rf.error/machine-schema-requires-reg-machine on it. Author normal "
+    "machines with `rf/reg-machine` — the sole normal application-authoring "
+    "recipe; it already registers the machine AS an event handler. Demote "
+    "make-machine-handler to an inline advanced-note mention, never a positive "
+    "fenced recipe."
+)
+
+
+def machine_handler_recipe_problems(text: str) -> list[tuple[int, str]]:
+    """Rule 4 — a fenced code block that co-locates `reg-event` and
+    `make-machine-handler` is the machine-registration footgun (a positive
+    recipe for the metadata-skipping direct path). Returns
+    (opening-fence-lineno, message) tuples. Takes the whole file body so the
+    self-test can pass a fenced fixture directly; an inline single-backtick
+    mention in prose never enters a fenced block, so it is allowed."""
+    problems: list[tuple[int, str]] = []
+    in_block = False
+    block_start = 0
+    block_lines: list[str] = []
+    for lineno, line in enumerate(text.splitlines(), start=1):
+        if FENCE_RE.match(line):
+            if not in_block:
+                in_block, block_start, block_lines = True, lineno, []
+            else:
+                body = "\n".join(block_lines)
+                if (REG_EVENT_TOKEN_RE.search(body)
+                        and MAKE_MACHINE_HANDLER_TOKEN_RE.search(body)):
+                    problems.append((block_start, MACHINE_HANDLER_MSG))
+                in_block, block_lines = False, []
+        elif in_block:
+            block_lines.append(line)
+    return problems
+
 
 # --- Rule 3: launcher points at BOTH canonical files, without regrowing the
 #     tree / locks sections. Operates on the whole authoring-prompt.md body
@@ -238,11 +305,17 @@ def find_drift(files: list[Path]) -> tuple[list[str], int]:
     for path in files:
         if not path.is_file():
             continue
-        for lineno, line in enumerate(_slurp(path).splitlines(), start=1):
+        rel = path.relative_to(REPO_ROOT)
+        body = _slurp(path)
+        for lineno, line in enumerate(body.splitlines(), start=1):
             lines_checked += 1
-            rel = path.relative_to(REPO_ROOT)
             for label in beadid_problems(line) + posture_problems(line):
                 problems.append(f"{rel}:{lineno}: {label}\n    {line.strip()}")
+        # Rule 4 — the machine-registration footgun is a cross-line shape
+        # (reg-event and make-machine-handler on different lines of one fenced
+        # block), so it is scanned per-block rather than per-line.
+        for start_lineno, label in machine_handler_recipe_problems(body):
+            problems.append(f"{rel}:{start_lineno}: {label}")
 
     # Rule 3 — the launcher (authoring-prompt.md) is checked as a whole body,
     # not line-by-line, and lives under spec/ (out of the leaf scan above).
@@ -272,17 +345,19 @@ def run(*, verbose: bool, ci: bool) -> int:
 
     if verbose:
         print(
-            f"re-frame2 no-bead-id + verify-posture + launcher-canonical guard: "
-            f"scanned {len(files)} user-facing leaves ({lines_checked} lines) "
-            "plus the spec/authoring-prompt.md launcher."
+            "re-frame2 no-bead-id + verify-posture + launcher-canonical + "
+            f"machine-handler-recipe guard: scanned {len(files)} user-facing "
+            f"leaves ({lines_checked} lines) plus the spec/authoring-prompt.md "
+            "launcher."
         )
 
     if not problems:
         if verbose:
             print(
                 "re-frame2-drift: no bead-id leaks, no agent-run verification-"
-                "posture drift, and the launcher points at design.md + inputs.md "
-                "without regrowing the tree / locks."
+                "posture drift, no bare reg-event + make-machine-handler recipe, "
+                "and the launcher points at design.md + inputs.md without "
+                "regrowing the tree / locks."
             )
         return 0
 
@@ -293,8 +368,10 @@ def run(*, verbose: bool, ci: bool) -> int:
         f"\nre-frame2-drift: {len(problems)} drift issue(s) — keep internal "
         "bead ids out of the user-facing leaves (L10), keep the "
         "authoring-only verification posture (Q14 / L3: the author runs the "
-        "gates, the skill names them), and keep the launcher pointing at the "
-        "canonical design.md + inputs.md instead of re-holding the tree / locks."
+        "gates, the skill names them), author machines with reg-machine (not a "
+        "bare reg-event + make-machine-handler recipe), and keep the launcher "
+        "pointing at the canonical design.md + inputs.md instead of re-holding "
+        "the tree / locks."
     )
     return 1
 
@@ -443,6 +520,67 @@ def _self_test() -> int:
         launcher_problems,
         clean_launcher + "\n\n*Cardinal rules to bake in (these go in SKILL.md):*",
         dirty=True, label="G6 launcher regrew the cardinal-rules block",
+    )
+
+    # --- Rule 4: machine-registration footgun. `machine_handler_recipe_problems`
+    # takes the WHOLE body (the two tokens span lines of one fenced block), so
+    # these fixtures are multi-line prose with fences.
+    dirty_recipe = (
+        "Author the boot flow:\n\n"
+        "```clojure\n"
+        "(rf/reg-event :app/boot\n"
+        "  (re-frame.machines/make-machine-handler\n"
+        "    {:initial :configuring :states {}}))\n"
+        "```\n"
+    )
+    expect(
+        machine_handler_recipe_problems, dirty_recipe,
+        dirty=True, label="H1 fenced reg-event wrapping make-machine-handler",
+    )
+    dirty_recipe_alias = (
+        "```clojure\n"
+        "(rf/reg-event :ws/connection\n"
+        "  (machines/make-machine-handler\n"
+        "    {:initial :disconnected}))\n"
+        "```\n"
+    )
+    expect(
+        machine_handler_recipe_problems, dirty_recipe_alias,
+        dirty=True, label="H2 aliased machines/make-machine-handler recipe",
+    )
+    # CLEAN — the corrected reg-machine recipe.
+    clean_recipe = (
+        "Author it with reg-machine:\n\n"
+        "```clojure\n"
+        "(rf/reg-machine :app/boot\n"
+        "  {:initial :configuring :states {}})\n"
+        "(rf/dispatch [:app/boot [:rf.machine/start]])\n"
+        "```\n"
+    )
+    expect(
+        machine_handler_recipe_problems, clean_recipe,
+        dirty=False, label="I1 fenced reg-machine recipe (no footgun)",
+    )
+    # CLEAN — inline (non-fenced) advanced-note warning that names the shape.
+    clean_inline_warning = (
+        "> **Advanced — make-machine-handler.** Registering it by hand, "
+        "`(rf/reg-event id meta (make-machine-handler spec))`, does not stamp "
+        "the :rf/machine? metadata, and a [:schemas :data] spec throws "
+        ":rf.error/machine-schema-requires-reg-machine. Use reg-machine."
+    )
+    expect(
+        machine_handler_recipe_problems, clean_inline_warning,
+        dirty=False, label="I2 inline advanced-note warning prose is allowed",
+    )
+    # CLEAN — a fenced block with a plain reg-event and no machine handler.
+    clean_simple = (
+        "```clojure\n"
+        "(rf/reg-event :app/init (fn [_ _] {:fx [[:dispatch [:config/load]]]}))\n"
+        "```\n"
+    )
+    expect(
+        machine_handler_recipe_problems, clean_simple,
+        dirty=False, label="I3 fenced plain reg-event (no machine handler)",
     )
 
     if failures:
