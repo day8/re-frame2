@@ -68,7 +68,7 @@ The M-rule numbering in [`MIGRATION.md`](../../../migration/from-re-frame-v1/REA
 | 8 | **M-24** | `rf/h` removed. Compile-level (symbol unresolved). |
 | 9 | **M-25** | `re-frame.test` renamed to `re-frame.test-support`. Compile-level. |
 | 9a | **M-64** | If the codebase uses `reset-runtime-fixture-factory`. Rename to `make-reset-runtime-fixture`. Closed mechanical rename. Pairs with M-25 (same `re-frame.test-support` ns). v2-pre-rename only. |
-| 9b | **M-62** | If the codebase uses `assert-state`. Split into `assert-path-equals` (vector path form) + `assert-db-equals` (full-db form) per. Disambiguation moves from arity to call site. Pairs with M-25. v1's `assert-state` (path form only) → `assert-path-equals` directly. |
+| 9b | **M-62** | If the codebase uses `assert-state`. Path form → `assert-path-equals`; full-db form → direct compare `(is (= expected-db (rf/app-db-value f)))` (no dedicated v2 fn). Disambiguation moves from arity to call site. Pairs with M-25. v1's `assert-state` (path form only) → `assert-path-equals` directly. |
 | 10 | **M-26** | Drift-sweep drops — most are symbol-not-found at compile time. The Type B `add-post-event-callback` half waits for behavioural review. |
 
 ### Group 3 — Effect map / dispatch shape (compile-or-warning)

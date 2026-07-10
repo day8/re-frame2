@@ -79,7 +79,7 @@ A test that needs a *different instruction set* (a fake HTTP fx, a swapped coeff
 - **Override behaviour through a later image**, not a global install: compose a small overrides image *after* the app image (its `:registrations` shadow the earlier ones — image order decides, the later image wins), then read the `:rf.gen/shadows` report on `rf/frame-generation` to assert exactly what it overrode. A swap is data the test states rather than last-writer-wins on a shared table. There is no `:replace` / `:replace-standard` declared-winner key — image order is the only mechanism.
 - For an ordinary single-frame test, keep it on `make-reset-runtime-fixture` + `with-new-frame`. A frame created with no `:images` resolves against the shared registrar; pass `:images [...]` to isolate behaviour. **Isolate *behaviour* with a later overrides image; isolate *state* with a fresh frame** — there is no realm / app / module install surface (see [`fundamentals/images.md` §Frame isolation is the whole isolation story](../fundamentals/images.md#frame-isolation-is-the-whole-isolation-story)).
 
-## Driving events: `dispatch-sync` and `dispatch-sequence`
+## Driving events: `dispatch-sync`
 
 `rf/dispatch-sync` drains to fixed point synchronously — by the time it returns, the handler has run, fx have fired, and the queue is empty. Use it instead of `rf/dispatch` in tests; `dispatch` is async and the test would assert before the handler ran.
 
@@ -88,25 +88,26 @@ A test that needs a *different instruction set* (a fake HTTP fx, a swapped coeff
 (is (= 1 (:n (rf/app-db-value :rf/default))))
 ```
 
-`ts/dispatch-sequence` fires a vector of events in order, each drained before the next:
+To fire several events in order, `doseq` over `dispatch-sync` — each drains before the next:
 
 ```clojure
-(ts/dispatch-sequence [[:counter/init] [:counter/inc] [:counter/inc]])
-;; => the final app-db value
+(doseq [ev [[:counter/init] [:counter/inc] [:counter/inc]]]
+  (rf/dispatch-sync ev))
+(is (= 2 (:n (rf/app-db-value :rf/default))))
 ```
 
-Capture intermediate states with `:after-each`:
+Capture intermediate states by reading `app-db-value` inside the `doseq`:
 
 ```clojure
 (let [seen (atom [])]
-  (ts/dispatch-sequence
-    [[:counter/inc] [:counter/inc]]
-    {:after-each (fn [db ev] (swap! seen conj [(:n db) ev]))})
+  (doseq [ev [[:counter/inc] [:counter/inc]]]
+    (rf/dispatch-sync ev)
+    (swap! seen conj [(:n (rf/app-db-value :rf/default)) ev]))
   @seen)
 ;; => [[1 [:counter/inc]] [2 [:counter/inc]]]
 ```
 
-Target a non-default frame with `{:frame :feature/frame-id}` in the trailing opts map.
+Target a non-default frame with `{:frame :feature/frame-id}` in each `dispatch-sync` opts map.
 
 ## Pinning recordable coeffects: `:rf.cofx` in dispatch opts
 
@@ -129,7 +130,7 @@ A handler that writes a durable timestamp / generated id **declares** the fact i
              :todo/id    #uuid "00000000-0000-0000-0000-000000000001"}})
 ```
 
-Pin at the boundary that owns it: a caller-pinned id is simplest on the **event payload** (`[:todo/create {:id … :text …}]`); a fold-internal fact rides `:rf.cofx`. Pinning works through `rf/dispatch-sync` (and `rf/dispatch`) opts — the router preserves a caller-supplied `:rf.cofx` verbatim, filling only `:rf/time-ms` when absent (omit it and the runtime stamps the wall clock at dispatch — fine for a non-durable assertion, but pin it whenever the test asserts a durable timestamp/id). `ts/dispatch-sequence` does **not** forward `:rf.cofx` (it threads only `:frame` / `:source` / `:origin`), so a multi-event scenario needing a pinned clock dispatches each step through `rf/dispatch-sync` with the opt. (A durable host fact behind a *recordable* cofx is pinned by stubbing that cofx — see [§HTTP and other side-effecting fx](#http-and-other-side-effecting-fx); a plain ambient cofx for a diagnostic read needs no pinning.)
+Pin at the boundary that owns it: a caller-pinned id is simplest on the **event payload** (`[:todo/create {:id … :text …}]`); a fold-internal fact rides `:rf.cofx`. Pinning works through `rf/dispatch-sync` (and `rf/dispatch`) opts — the router preserves a caller-supplied `:rf.cofx` verbatim, filling only `:rf/time-ms` when absent (omit it and the runtime stamps the wall clock at dispatch — fine for a non-durable assertion, but pin it whenever the test asserts a durable timestamp/id). A multi-event scenario needing a pinned clock dispatches each step through its own `rf/dispatch-sync` with the opt. (A durable host fact behind a *recordable* cofx is pinned by stubbing that cofx — see [§HTTP and other side-effecting fx](#http-and-other-side-effecting-fx); a plain ambient cofx for a diagnostic read needs no pinning.)
 
 ## Pinning a frame: `with-frame`
 
@@ -147,18 +148,18 @@ Pin at the boundary that owns it: a caller-pinned id is simplest on the **event 
 
 On CLJS reach the macro via `rf/with-frame` after `(:require [re-frame.core :as rf])`, or `:require-macros [re-frame.core :refer [with-frame]]`. On JVM use the `(rf/with-frame frame-id (fn [] ...))` function form.
 
-## Asserting state: `assert-path-equals` / `assert-db-equals` and `app-db-value`
+## Asserting state: `assert-path-equals` and `app-db-value`
 
-Two fns — one per shape — sharing a name root with the `:rf.assert/*` Story event-family:
+`assert-path-equals` is the path-shaped assertion fn, sharing a name root with the `:rf.assert/*` Story event-family. For a full-db check, compare directly against `app-db-value`:
 
 ```clojure
-(ts/assert-db-equals   {:n 0})                          ;; full-db match against current frame
 (ts/assert-path-equals [:n] 7)                          ;; path match — equivalent to (= 7 (get-in db [:n]))
 (ts/assert-path-equals [:n] 7 {:frame :stories})        ;; trailing opts pins the frame
-(ts/assert-db-equals   {:n 0} {:frame :stories})        ;; same for the full-db form
+(is (= {:n 0} (rf/app-db-value :rf/default)))           ;; full-db match — direct compare
+(is (= {:n 0} (rf/app-db-value :stories)))              ;; full-db match against a named frame
 ```
 
-`assert-path-equals` mirrors the `:rf.assert/path-equals` event used inside Story `:script` blocks; the shared name root means a reader navigating between the two surfaces needs no translation table. `assert-db-equals` is the companion full-db form (no `:rf.assert/*` event analog — the event-family is path-keyed).
+`assert-path-equals` mirrors the `:rf.assert/path-equals` event used inside Story `:script` blocks; the shared name root means a reader navigating between the two surfaces needs no translation table. The full-db shape has no dedicated fn (the `:rf.assert/*` event-family is path-keyed, so a full-db form would have no event analog) — compare directly.
 
 Failure reports through `clojure.test/is` with both expected and actual, so the diagnostic is one line. For ad-hoc reads outside an assertion:
 
@@ -201,43 +202,46 @@ When the test is exercising the live cache (e.g. layer-2 sub on top of a real di
           [re-frame.test-helpers :as h])
 ```
 
-### The single-frame e2e trio: `with-app-fixture` / `expect-text` / `wait-until`
+### The single-frame e2e shape — compose the recipe
 
-This is the dominant shape for an app-developer e2e view test — it compresses the `make-frame` / `with-frame` / `destroy-frame!` bracket to one macro. `with-app-fixture` creates a fresh single frame, runs an `:install` thunk inside its dynamic extent, stashes the root view so `expect-text` / `wait-until` find it without a tree argument, and tears the frame down in a `finally`.
+This is the dominant shape for an app-developer e2e view test: one frame, one install hook, one root view, and an assertion that the rendered text matches after dispatching. There is **no bespoke fixture macro** — compose it from primitives that already exist and are adopted at scale:
+
+1. **`ts/make-reset-runtime-fixture`** (`re-frame.test-support`) — an `:adapter` plus an `:init-fn` (your app's setup fn that registers the events / subs / views) seats the ambient `:rf/default` frame and rolls the registrar back between tests. Install it once with `(use-fixtures :each …)`.
+2. **The `re-frame.test-helpers` hiccup walkers** (`h/find-by-testid` + `h/text-content`) — call the root view fn directly and walk the returned tree; `h/invoke-handler` drives a click.
+3. **`ts/poll-until`** (`re-frame.test-support`) — for the async case (a queued `dispatch`, an HTTP reply, a machine `:after`) whose settled outcome is observable in the re-rendered view.
 
 ```clojure
+(:require [re-frame.core         :as rf]
+          [re-frame.test-support :as ts]
+          [re-frame.test-helpers :as h]
+          [my-app.counter        :as counter])   ;; your app: counter/setup! registers, counter/main is the root view
+
+(use-fixtures :each
+  (ts/make-reset-runtime-fixture {:adapter counter/test-adapter   ;; your substrate adapter
+                                  :init-fn counter/setup!}))       ;; reg-event / reg-sub / reg-view
+
+;; Synchronous — dispatch-sync drains before the assertion, so walk the
+;; re-rendered view directly.
 (deftest counter-e2e
-  (h/with-app-fixture
-    {:install   (fn []
-                  (rf/reg-event :counter/inc (fn [{:keys [db]} _] {:db (update db :n inc)}))
-                  (rf/reg-sub   :counter/n   (fn [db _] (:n db)))
-                  (rf/reg-view  :counter/view
-                    (fn [] [:span (h/testid "n") @(rf/subscribe [:counter/n])])))
-     :root-view (fn [] [:counter/view])}
-    (rf/dispatch-sync [:counter/inc])
-    (h/expect-text :n "1")))          ;; uses the stashed root view
+  (rf/dispatch-sync [:counter/inc])
+  (is (= "1" (h/text-content (h/find-by-testid (counter/main) "n")))))
 ```
 
-`with-app-fixture` opts (all optional): `:install` (zero-arg fn run inside the bound frame — register events/subs/views here; pair with a `make-reset-runtime-fixture` `:each` fixture to roll the registrations back), `:root-view` (hiccup-returning view fn stashed for `expect-text`/`wait-until`), `:root-view-args` (args vector applied to `:root-view`, default `[]` — use when the view takes a props map), `:frame-config` (map merged into `make-frame`/`reg-frame` — `:initial-events`, `:fx-overrides`, `:interceptors`, …). Two call shapes: `(with-app-fixture opts body+)` gets an anonymous gensym'd frame id; `(with-app-fixture opts frame-id body+)` names it.
+`make-reset-runtime-fixture` installs the `:adapter`, seats `:rf/default` as the ambient frame for each test (so `dispatch-sync` / `subscribe` resolve to it without a `{:frame …}` opt), and runs `:init-fn` inside that scope. Its registrations land in the global registrar and roll back around each test. `h/testid` is the **authoring** helper — standardise the `:data-testid` fragment at the view call site (`[:span (h/testid "n") @(rf/subscribe [:counter/n])]`); `find-by-testid` locates it, `text-content` reads its text, `invoke-handler` fires an attached handler.
 
-`expect-text` asserts the `:data-testid` node's text equals `expected`, reporting via `clojure.test/is`:
+For an async settle, poll the re-rendered view with `ts/poll-until` until it matches:
 
 ```clojure
-(h/expect-text :n "1")              ;; uses the fixture-stashed root view
-(h/expect-text tree :n "1")         ;; 3-arity — walk an explicit tree, no fixture
+;; Async — a queued dispatch (HTTP reply, scheduled event, machine :after)
+;; settles past dispatch-sync; poll the re-rendered view.
+(deftest status-eventually-ready
+  (rf/dispatch [:cart/fetch])                              ;; plain dispatch — queues
+  (is (ts/poll-until
+        #(= "ready" (h/text-content (h/find-by-testid (cart-view) "status")))
+        {:timeout-ms 5000 :label "status ready"})))
 ```
 
-`testid` may be a string (`"n"`) or keyword (`:n`). Returns a boolean, but the `is` report has already fired.
-
-`wait-until` is the bounded-deadline poll for async runs (HTTP, scheduled events, machine `:after` transitions) whose post-condition is observable in the view — the view-test counterpart to `test-support`'s `poll-until`. Two call shapes plus opts:
-
-```clojure
-(h/wait-until #(= "done" (-> (some-tree) (h/find-by-testid "status") h/text-content)))
-(h/wait-until :status "done")                          ;; testid form — polls the stashed root view
-(h/wait-until :status "done" {:timeout-ms 5000 :interval-ms 10 :label "status ready"})
-```
-
-`opts`: `:timeout-ms` (default 2000), `:interval-ms` (default 5), `:label` (timeout-message tag). **Per-platform shape** (matching `poll-until`): **JVM** synchronous — returns the truthy value, throws `ex-info` (`:rf.error/id :rf.error/wait-until-timeout`) on timeout; **CLJS** returns a `js/Promise` — resolves with the truthy value, rejects on timeout, compose with `cljs.test/async`. For sync runs, `expect-text` after `dispatch-sync` suffices — reach for `wait-until` only when the run is genuinely async. Not a substitute for timer-semantics sleeps (grace-period elapse, throttle/debounce window).
+`ts/poll-until` opts: `:timeout-ms` (default 2000), `:interval-ms` (default 5), `:label` (timeout-message tag). **Per-platform shape**: **JVM** synchronous — returns the truthy value, throws `ex-info` (`:rf.error/id :rf.error/poll-until-timeout`) on timeout; **CLJS** returns a `js/Promise` — resolves with the truthy value, rejects on timeout, compose with `cljs.test/async`. For sync runs, a `find-by-testid` / `text-content` walk after `dispatch-sync` suffices — reach for `poll-until` only when the run is genuinely async. Not a substitute for timer-semantics sleeps (grace-period elapse, throttle/debounce window).
 
 ### Lower-level walk helpers — the hiccup-walk pattern
 
@@ -358,7 +362,7 @@ Pick the tightest match and name it for the author. A green slice on the changed
 
 - The ns uses `re-frame.test-support` and `re-frame.core` only — no reach into internal namespaces.
 - A `:each` `make-reset-runtime-fixture` is installed with the right `:adapter`.
-- Event drive is `dispatch-sync` (not `dispatch`) or `ts/dispatch-sequence`.
+- Event drive is `dispatch-sync` (not `dispatch`); a sequence is a `doseq` over `dispatch-sync`.
 - Sub assertions go through `compute-sub` (preferred) or `subscribe-once`; no bare `@(rf/subscribe ...)` left subscribed at test exit.
 - Machine assertions use `(subscribe [:rf/machine id])` / `(subscribe [:rf.machine/has-tag? id tag])` or `(get-in (:rf.db/runtime (rf/frame-state-value frame-id)) [:rf.runtime/machines :snapshots id])` — runtime-db partition, not internal machine namespaces, and not `db`/app-db.
 - Schema-validation, fx-stubs, and frame-scoping each use the public surface above. No fixture lifts `registrar/clear-all!`.
@@ -366,4 +370,4 @@ Pick the tightest match and name it for the author. A green slice on the changed
 
 ---
 
-*Derived from `implementation/core/src/re_frame/test_support.cljc` (public test-support surface), `implementation/core/src/re_frame/test_helpers.cljc` (view-tree assertion surface — `with-app-fixture` / `expect-text` / `wait-until`), and `implementation/core/src/re_frame/substrate/plain_atom.cljc` (JVM adapter) @ main `89bd9c3`. Re-verify after test-support / test-helpers surface changes.*
+*Derived from `implementation/core/src/re_frame/test_support.cljc` (public test-support surface — `make-reset-runtime-fixture`, `assert-path-equals`, `poll-until`), `implementation/core/src/re_frame/test_helpers.cljc` (view-tree assertion surface — hiccup walkers + `testid`), and `implementation/core/src/re_frame/substrate/plain_atom.cljc` (JVM adapter) @ main `89bd9c3`. Re-verify after test-support / test-helpers surface changes.*
