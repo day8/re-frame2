@@ -9,11 +9,8 @@
   feature flags, server-only working scratch) to every visitor of every
   page.
 
-  A fail-OPEN default (ship whole `app-db` when `:payload` is
-  nil/empty) would make the privacy decision implicit; the
-  `:rf/response`-accumulator-on-app-db trap is one branch of the same
-  family (rf2-jbcmt landed the side-channel storage substrate, rf2-gtgf9
-  closed the default).
+  Shipping whole `app-db` when `:payload` is absent would make the privacy
+  decision implicit, so missing policy fails closed.
 
   This namespace makes the policy:
 
@@ -22,14 +19,11 @@
        a license to ship everything.
     3. **Allowlist-shaped** — denylists go stale silently as new keys
        land in `app-db`; an allowlist requires a deliberate edit per
-       new wire-bound key. The masterpiece-bar choice for a security
-       contract.
+       new wire-bound key.
 
   ---- The contract ----
 
-  A SINGLE handler opt — `:payload` — carries the policy. It is one of
-  two shapes (rf2-pffil consolidated the prior two-opt `:payload-keys` +
-  `:payload-policy` surface into one — pre-alpha, no back-compat shim):
+  A single handler opt, `:payload`, carries one of two policy shapes:
 
     `:payload [<kw> <kw> ...]`
       An **allowlist** of top-level `app-db` keys to ship (a non-empty
@@ -38,8 +32,8 @@
       mechanism. A non-empty vector carrying a non-keyword element
       (a string typo, a stray `nil`, a nested coll) fails loud at boot with
       `:rf.error/ssr-malformed-payload-allowlist` rather than silently
-      shipping a wrong/empty slice (rf2-hzttr). The allowlist shape is a
-      vector specifically (rf2-d8vs9x — a list / seq is not an accepted
+      shipping a wrong or empty slice. The allowlist is specifically a
+      vector; a list or seq is not an accepted
       spelling); the vector-vs-keyword distinction IS the allowlist-vs-
       whole-app-db policy selector, so a single precise shape keeps the
       fail-closed security boundary unambiguous.
@@ -55,12 +49,8 @@
   Absence of `:payload` is a structural error
   (`:rf.error/ssr-missing-payload-policy`) — fail-closed.
 
-  The single-opt shape removes the prior surface's ambiguity. The two-opt
-  design had to define a precedence rule (`:payload-keys` wins over
-  `:payload-policy` when both are passed) AND a silent-ignore branch (a
-  `:payload-policy` passed alongside an allowlist was discarded without a
-  word). One opt can hold exactly one value, so there is nothing to
-  arbitrate: the allowlist-vs-whole-app-db choice is the value's SHAPE
+  One opt can hold exactly one value, so there is nothing to arbitrate: the
+  allowlist-vs-whole-app-db choice is the value's shape
   (vector vs keyword), not a contest between two opts. Empty `:payload`
   (`[]`) is treated as **no allowlist supplied**, since shipping zero
   keys is almost certainly a programmer error rather than an intent.
@@ -295,7 +285,7 @@
     ;; shape — tests can assert on one keyword and cover both surfaces.
     (validate-policy-opts! opts)))
 
-;; ---- ssr-hydration egress projection of the app-db slice (rf2-bt9kct) -----
+;; ---- app-db hydration egress projection -----------------------------------
 ;;
 ;; Per EP-0015 §14 + Spec 015 §Projection: SSR/hydration is ALLOWLIST-FIRST
 ;; (the `apply-policy` `:payload` contract above), and frame classification
@@ -335,7 +325,7 @@
     {:frame             frame-id
      :rf.egress/profile :rf.egress/ssr-hydration}))
 
-;; ---- ssr-hydration egress projection of the routing slice (rf2-4xut98) ----
+;; ---- routing hydration egress projection ----------------------------------
 ;;
 ;; EP-0025 §Subsystem matrix (`reg-route` row) + Spec 012 §Route data
 ;; classification + Spec 015 §SSR: a route declares `:sensitive` / `:large`
@@ -404,7 +394,7 @@
        :rf.egress/profile :rf.egress/ssr-hydration})
     slice))
 
-;; ---- runtime-db projection (EP-0001 rf2-30kzz2) --------------------------
+;; ---- runtime-db hydration projection --------------------------------------
 ;;
 ;; Per Spec 011 §The hydration payload (`:rf/runtime-db`) + §Off-box redaction
 ;; (Mike ruling #13): the optional `:rf/runtime-db` payload slice carries ONLY
@@ -430,7 +420,7 @@
   `:pending-navigation` sibling is a local-subscribable runtime-db key
   (per [002 §Durable vs transient]) and stays off the wire (fail-closed).
 
-  rf2-oosjmh — ONE source of truth: this list MUST equal the routing-owned
+  This list must equal the routing-owned
   `re-frame.routing.nav-counters/durable-runtime-db-routing-keys` (the
   `:durable-runtime-db` tier of `routing-state-classification`). It is held
   as a literal here rather than `:require`-d so production SSR builds do NOT
@@ -555,9 +545,7 @@
 ;; ---- version resolution + payload assembly -------------------------------
 ;;
 ;; Single home for the hydration-payload `:rf/version` resolution and the
-;; canonical four-key payload map, shared verbatim by the streaming and
-;; non-streaming SSR paths (rf2-8wrzz.4 — previously duplicated in
-;; `re-frame.ssr.ring.payload` and `re-frame.ssr.streaming`).
+;; Canonical payload assembly shared by streaming and non-streaming SSR.
 
 (def ^:private default-pattern-protocol-version
   "The v1 pattern-protocol version stamp (per Spec-Schemas

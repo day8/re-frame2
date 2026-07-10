@@ -3,10 +3,7 @@
   bootstrap all reference. Pinning these in one ns (rather than scattered
   literal strings) makes the convention discoverable and renameable —
   tooling that searches for the convention reads one var, not a regex
-  pattern across the codebase.
-
-  Per Spec 011 §Hydration payload script id (audit rf2-cegm7 CQ-3 /
-  rf2-j54ee).")
+  pattern across the codebase. Per Spec 011 §Hydration payload script id.")
 
 (def ^:const payload-script-id
   "The literal `id` the host-adapter HTML shell stamps onto the

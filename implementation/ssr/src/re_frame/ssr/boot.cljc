@@ -1,67 +1,14 @@
 (ns re-frame.ssr.boot
-  "Client-side hydration boot helper — the symmetric counterpart of the
-  server-side `re-frame.ssr.ring/ssr-handler`. Per Spec 011 §Client flow
-  and §Client-side hydration boot helper (rf2-lq2ou).
+  "Client-side hydration boot helpers.
 
-  ## The symmetry
+  `hydrate!` preserves the required read → hydrate → verify ordering. It
+  dispatches synchronously before the host mounts, then optionally hashes a
+  caller-supplied pure render-tree computation. It does not inspect or own the
+  DOM mount. Hosts that must verify a substrate-mutated or asynchronous tree
+  perform the hydrate and verify steps separately.
 
-  The server side ships ONE explicit handler-constructor:
-
-      (ssr-ring/ssr-handler {:initial-events … :root-view … :payload …})
-      ;; → a Ring handler that renders, builds the `__rf_payload`
-      ;;   `<script>`, and writes the wire response.
-
-  The client side now ships its mirror — ONE explicit boot call:
-
-      (ssr/hydrate! {:frame :app/main :render-tree-fn #(…hiccup…)})
-      ;; → reads `__rf_payload`, dispatches `:rf/hydrate`, then (still
-      ;;   synchronously, before the host's own render) computes the client
-      ;;   render-tree via `:render-tree-fn` and verifies its hash against
-      ;;   the server's.
-
-  The pair reads as one contract: the server emits the payload under the
-  `re-frame.ssr.constants/payload-script-id` id; the boot helper reads
-  that SAME id (`document.getElementById`), parses the EDN with the same
-  reader the server's `pr-str` round-trips through, and seeds the frame
-  via the framework's `:rf/hydrate` event (locked `:replace-frame-state`
-  policy, Spec 011 §The :rf/hydrate event).
-
-  Before this helper every host re-implemented the same read → dispatch →
-  (render) → verify dance (three testbeds + two worked examples carried
-  byte-identical `read-server-payload` fns). The helper makes the client
-  boot a one-liner and pins the read/dispatch/verify ordering the spec
-  mandates so a host can't get it subtly wrong (e.g. reading a stale id, or
-  seeding after the first render).
-
-  ## The verify contract — seed-and-synchronously-compute-tree
-
-  `hydrate!` is a SYNCHRONOUS convenience: after dispatching `:rf/hydrate`
-  it immediately calls the caller-supplied `:render-tree-fn` to compute the
-  client render-tree and hashes THAT — it does NOT wait for, or observe,
-  the host's DOM mount (it does not own the mount). This is sound because a
-  re-frame2 view is a pure function of app-db: `(rf/view :app/root)`
-  evaluated against the just-hydrated app-db is the SAME render-tree the
-  host is about to mount, so the pre-mount hash equals the mounted-tree
-  hash. `:render-tree-fn` is therefore a PURE client-tree computation, not
-  a \"read back what was mounted\" hook. A host that must verify the actual
-  mounted DOM tree (a substrate that mutates at mount, or an async mount)
-  splits the convenience — see `hydrate!`'s docstring. Per Spec 011
-  §Client-side hydration boot helper.
-
-  ## Platform split
-
-  - `read-server-payload` is `:cljs`-only — it reaches into the DOM.
-  - `hydrate!` is platform-neutral: it takes an explicit `:payload` (or
-    reads it from the DOM on CLJS when omitted), dispatches `:rf/hydrate`,
-    and runs the post-render `verify-hydration!` step. The JVM test
-    harness drives `hydrate!` with an explicit payload + a `:client`-
-    platform frame so the round-trip (server `build-payload` →
-    `hydrate!` → post-hydrate sub) is exercised without a browser.
-
-  Per the rf2-uo7v shipping convention this namespace lives in the
-  `day8/re-frame2-ssr` artefact alongside the rest of the SSR surface; it
-  is re-exported from the `re-frame.ssr` façade as `ssr/hydrate!` /
-  `ssr/read-server-payload`."
+  `read-server-payload` is CLJS-only and reads the pinned `__rf_payload`
+  element. `hydrate!` is platform-neutral when given an explicit payload."
   (:require [re-frame.error :as error]
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
@@ -78,19 +25,15 @@
 #?(:clj (set! *warn-on-reflection* true))
 
 (defn dispatch-malformed-hydration-frameless!
-  "EP-0008 (rf2-hhutya): surface the PRE-FRAME hydration-parse failure as a
-  FRAMELESS always-on `:rf.error/malformed-hydration-payload` record. The
+  "Surface a pre-frame hydration parse failure as a frameless, always-on
+  `:rf.error/malformed-hydration-payload` record. The
   `read-server-payload` DOM read runs BEFORE `hydrate!` resolves the target
   frame, so there is no `:frame` to carry (`:frame nil`) — exactly the
-  EP-0002 resolution-6 `:rf.error/no-frame-context` precedent that
-  established frameless always-on emission. Corrupt hydration INPUT is a
-  fail-closed boundary event, not a dev teaching diagnostic: an off-box
-  shipper on a `goog.DEBUG=false` client build (dev trace elided) must still
-  see it. Reaches the always-on axis via the `:error-emit/dispatch-error-
-  record` late-bind hook; UNGATED. Extracted as a `.cljc` helper (not inline
-  in the CLJS-only `read-server-payload`) so the JVM test runner can
-  exercise the frameless record shape without a DOM. No-op when the
-  `error-emit` producer hasn't loaded. Returns nil."
+  record carries `:frame nil`. Corrupt hydration input is a fail-closed
+  boundary event, so the record reaches the always-on error emitter even when
+  development tracing is disabled. The helper is platform-neutral so JVM
+  tests can exercise the record shape without a DOM. Returns nil when the
+  error-emitter hook is absent."
   [where element-id reason]
   (when-let [dispatch-error-record!
              (late-bind/get-fn :error-emit/dispatch-error-record)]
@@ -119,12 +62,10 @@
      unicode escape inside string literals before injection (the
      rf2-7ksyr `</script>` XSS gate, EDN-aware per rf2-rdxxa);
      `cljs.reader/read-string` accepts that escape so the payload
-     round-trips unchanged — including payloads carrying keyword/symbol
+     round-trips unchanged, including payloads carrying keyword/symbol
      tokens with `<`.
 
-     Per rf2-gro94 a MALFORMED payload script (truncated server output,
-     a hostile fragment that survives the `</script>` gate, mid-stream
-     corruption) fails CLOSED rather than crashing the whole client boot:
+     A malformed payload script fails closed rather than crashing client boot:
      `cljs.reader/read-string` THROWS on malformed EDN, and an unguarded
      throw here propagates out of `hydrate!` and aborts the mount. We
      isolate the parse, emit a `:rf.error/malformed-hydration-payload`
@@ -156,18 +97,15 @@
                                     :element-id element-id
                                     :reason     reason
                                     :recovery   :no-recovery}))
-              ;; EP-0008 (rf2-hhutya): the PRE-FRAME parse failure ALSO rides
-              ;; the always-on axis as a FRAMELESS record (`:frame nil`) so a
-              ;; goog.DEBUG=false client build (dev trace elided) still ships
-              ;; the rejected payload. See the extracted helper for the
-              ;; frameless-precedent rationale. UNGATED.
+              ;; Parsing precedes frame resolution, so the always-on record is
+              ;; intentionally frameless.
               (dispatch-malformed-hydration-frameless!
                 'rf.ssr/read-server-payload element-id reason))
             nil))))))
 
 (defn- validate-payload-frame-id!
-  "EP-0002 (rf2-acjknb): assert the explicit client hydration `target`
-  frame agrees with the payload's `:rf/frame-id` — the SSR-wire spelling
+  "Assert that the explicit client hydration `target` agrees with the
+  payload's `:rf/frame-id` — the SSR-wire spelling
   of the frame stamp the SERVER rendered under (built by
   `re-frame.ssr.payload-policy/build-payload`). Per Spec 011 §The
   hydration payload + Spec 002 §Frame target resolution: the payload
@@ -246,18 +184,16 @@
 
     :frame          — REQUIRED. The target frame id to hydrate into. The
                       same frame the host passes to the root provider,
-                      streaming `install!`, resource preload, and Xray
-                      (EP-0002 rf2-acjknb — one carried frame; the client
-                      target is supplied, not synthesised). An absent
+                      streaming `install!`, resource preload, and Xray. The
+                      client target is supplied, not synthesised. An absent
                       `:frame` emits + throws `:rf.error/no-frame-context`
-                      (the pre-EP `:rf/default` default is removed). Must
+                      rather than defaulting implicitly. Must
                       be a `:client`-platform frame for the compatibility-
-                      check fxs to fire (Spec 011 §The :rf/hydrate event;
-                      a `:server`-platform frame skips them per rf2-7bcn0).
+                      check fxs to fire; a `:server`-platform frame skips them.
                       The payload's `:rf/frame-id` is VALIDATED against
                       this explicit target: a conflict surfaces a
                       structured `:rf.error/hydration-frame-id-mismatch`
-                      (Spec 011 §The hydration payload, EP-0002) rather
+                      rather
                       than silently choosing either side. The payload
                       frame-id is payload metadata + validation evidence,
                       NOT a no-opts target resolver.
@@ -284,8 +220,7 @@
            (rf/init! reagent-adapter/adapter)
            ;; hydrate! seeds app-db AND verifies synchronously (computing
            ;; the client tree via render-tree-fn) BEFORE the host mounts.
-           ;; EP-0002 (rf2-acjknb): the hydration target is CARRIED —
-           ;; supplied explicitly via `:frame`, not synthesised.
+           ;; The hydration target is supplied explicitly via `:frame`.
            (let [payload (ssr/hydrate! {:frame          :app/main
                                         :render-tree-fn #((rf/view :app/root))})]
              (rdc/render react-root
@@ -302,16 +237,13 @@
   `hydrate!` is the convenience that fuses the common (pure-projection)
   ordering for the host whose render-tree is a pure function of app-db
   (the re-frame2 norm — Reagent / UIx / Helix all qualify)."
-  ;; EP-0002 (rf2-acjknb): NO `:or {frame :rf/default}` floor — a nil frame
-  ;; is an absent target that `require-frame-stamp!` (below) fails closed on
-  ;; with `:rf.error/no-frame-context`, never a synthesised `:rf/default`.
+  ;; A nil frame is an absent target, never an implicit `:rf/default`.
   [{:keys [frame payload render-tree-fn element-id]}]
   ;; `element-id` is consumed only by the CLJS DOM read; discard-bind it so
   ;; a JVM lint of this `.cljc` doesn't flag it as an unused
   ;; `:clj`-expansion binding (the read itself stays CLJS-only).
   (let [_       element-id
-        ;; EP-0002 (rf2-acjknb): the client hydration target is CARRIED —
-        ;; supplied explicitly via `:frame`. A nil stamp is an absent target,
+        ;; The client hydration target is supplied explicitly. A nil stamp is an absent target,
         ;; not a request to synthesise `:rf/default`; surface the always-on
         ;; `:rf.error/no-frame-context`. Per Spec 002 §Frame target resolution.
         frame   (frame/require-frame-stamp!
@@ -321,8 +253,7 @@
                                (or element-id constants/payload-script-id))
                        :clj nil))]
     (when payload
-      ;; EP-0002 (rf2-acjknb): the payload's `:rf/frame-id` is the SSR-wire
-      ;; spelling of the server's frame stamp — payload metadata + validation
+      ;; The payload's `:rf/frame-id` is metadata and validation
       ;; evidence, NOT a no-opts target resolver. Validate it against the
       ;; explicit client target: a conflict is a structured mismatch (the
       ;; server hydrated a different frame than the client is installing

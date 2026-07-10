@@ -11,18 +11,14 @@
                                     emit double-quoted values, so only
                                     `&` and `\"` matter).
     - `escape-script-body-string`— escape `<` as `\\u003c` for strings
-                                    dropped inside `<script>` bodies
-                                    (security audit 2026-05-14 §P1.1,
-                                    rf2-7ksyr + rf2-m5u23). JSON bodies
+                                    dropped inside `<script>` bodies. JSON bodies
                                     only — every `<` is in a string.
     - `escape-edn-script-body`   — EDN-aware `<script>`-body escape for
                                     the hydration payload / streaming
                                     delta: `<` escaped only inside string
                                     literals (tokens with `<` round-trip;
-                                    `</`/`<!` token breakouts fail loud)
-                                    (rf2-rdxxa).
-    - `validate-attr-name!`      — HTML5-grammar gate on attribute keys
-                                    (security audit §P2.5, rf2-vl8ir).
+                                    `</`/`<!` token breakouts fail loud).
+    - `validate-attr-name!`      — HTML5-grammar gate on attribute keys.
     - `attr-string`              — render an attribute map as
                                     ` k1=\"v1\" k2=\"v2\"`. Boolean `true`
                                     → bare attribute name (`disabled`);
@@ -210,7 +206,7 @@
             :else
             (recur (inc i) false false (conj! acc c))))))))
 
-;; HTML5 attribute-name grammar (rf2-vl8ir / security audit §P2.5).
+;; Conservative HTML5 attribute-name grammar.
 ;; The spec's full production permits almost anything except whitespace,
 ;; `=`, quotes, `<`, `>`, `/`. We use a deliberately narrower form here:
 ;; first char is an ASCII letter, subsequent chars are letters / digits
@@ -244,15 +240,14 @@
         {:recovery :rename-the-attribute-key
          :extra    {:attribute k}}))))
 
-;; Prototype-pollution keys (rf2-dwds9 / security audit §XSS at output
-;; boundaries). These three names, if they reach the underlying host's
+;; Prototype-pollution keys. These three names, if they reach the host's
 ;; `createElement`-equivalent on the client at hydration, can poison
 ;; `Object.prototype`. They are dropped at static-markup emission before
 ;; they ever land in the wire props map.
 (def ^:private reserved-prop-keys
   #{"__proto__" "constructor" "prototype"})
 
-;; `on*` event-handler-prop matcher (rf2-dwds9 / rf2-1uex4). Two layers,
+;; `on*` event-handler-prop matcher. Two layers,
 ;; both applied to the attribute name, together covering every casing a
 ;; case-insensitive HTML parser fires:
 ;;
@@ -288,8 +283,8 @@
 ;; §"Event handlers on elements, Document objects, and Window objects",
 ;; plus the IDL `on*` attributes on Window/Document/Element), and the
 ;; W3C Touch Events Level 2 §8 `GlobalEventHandlers` touch attributes
-;; (`ontouchstart` / `ontouchmove` / `ontouchend` / `ontouchcancel` —
-;; rf2-cv165: the structural regex only catches the camelCase/kebab
+;; (`ontouchstart` / `ontouchmove` / `ontouchend` / `ontouchcancel`).
+;; The structural regex only catches the camelCase/kebab
 ;; spellings, so the lower-case canonical touch names MUST be enumerated
 ;; here or they ride through as live attributes on touch-capable
 ;; browsers — an XSS-equivalent gap of the same class as `:onclick`). All
@@ -329,7 +324,7 @@
 
 (defn- event-handler-name?
   "True when attribute name `nm` denotes an `on*` event-handler prop that
-  MUST be stripped at SSR static-markup emission (rf2-dwds9 / rf2-1uex4).
+  must be stripped at SSR static-markup emission.
 
   Matches either the structural camelCase/kebab handler spellings
   (`event-handler-name-re`, case-insensitive) — so framework-shaped
@@ -345,9 +340,8 @@
 
 ;; JSX source-coord props. React DevTools' "View source" gesture reads
 ;; `_jsxFileName` / `_jsxLineNumber` / `_jsxColumnNumber` off the
-;; rendered React element. The framework no longer emits these — see
-;; Spec 006 §Historical: JSX source-coord props (rf2-rohdn dropped the
-;; rf2-fa4ly injection) — but user code, JSX-compiled third-party
+;; rendered React element. The framework does not emit them, but user code,
+;; JSX-compiled third-party
 ;; libraries, or hand-stamped DevTools shims may still produce hiccup
 ;; carrying them. SSR MUST NOT serialise them as wire HTML attributes:
 ;; the leading underscore fails the conservative HTML5 attribute-name
@@ -365,7 +359,7 @@
 
 (defn strip-prop?
   "True when the attribute `[k v]` MUST be dropped at SSR static-markup
-  emission per Spec 011 rule rf2-dwds9:
+  emission:
 
     - `on*` event-handler props (`:on-click`, `:onMouseDown`,
       `:onclick`, `:ONLOAD`, …). The client-side substrate adapters

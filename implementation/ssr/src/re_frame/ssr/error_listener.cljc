@@ -4,20 +4,16 @@
   runtime-side glue that ties trace events to the active projector and
   stamps the public-error's `:status` onto the response accumulator.
 
-  Buffered (rather than mutating `:rf/response` inline from the trace
-  listener) because the firing handler's `{:db ...}` return CLOBBERS
-  app-db (replace-container!) AFTER the trace fired — an inline write
-  would be silently overwritten. Buffering + applying at the drain's
-  settle-point (or via `get-response` on demand) sidesteps that race.
-
-  Per the rf2-gxgo7 split of re-frame.ssr."
+  Listeners buffer candidate errors instead of projecting inside the callback.
+  The settle-point drain then chooses the final error, respects redirect
+  precedence, and updates the per-frame response accumulator atomically."
   (:require [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.ssr.error-projector :as error-projector]
             [re-frame.ssr.response :as response]
             [re-frame.trace :as trace]))
 
-;; ---- always-on error-emit helper (EP-0008 rf2-hhutya) ---------------------
+;; ---- always-on error emission ---------------------------------------------
 ;;
 ;; The promoted SSR error categories ride the always-on error-emit axis
 ;; (surface #4) ALONGSIDE the existing dev-gated `trace/emit-error!`. The
@@ -35,31 +31,19 @@
 ;; gate that governs the wire (promotion changes what SHIPPERS see, never
 ;; what the WIRE does).
 ;;
-;; The `emit-always-on-error!` helper itself is SINGLE-SOURCED in
-;; `re-frame.ssr.error-projector` (rf2-50e82k — this ns already :requires
-;; it for the projector); call sites here go through
+;; The `emit-always-on-error!` helper lives in `re-frame.ssr.error-projector`;
+;; call sites here go through
 ;; `error-projector/emit-always-on-error!`.
 
 (defn- candidate-frame-for-error
   "Select the frame to project against for a trace-event: the frame named
   in `[:tags :frame]` when it names a registered server frame, else nil.
 
-  Returns nil when the trace carries no routable server `:frame` — an
-  explicit no-op rather than a guess. Per rf2-7d30s the former
-  single-active-server-frame fallback was REMOVED: under concurrent SSR
-  load many server frames are live simultaneously (the canonical shape —
-  see ssr-ring's concurrency stress test), so guessing the single frame
-  silently mis-attributed (or, with >1 frame live, dropped) the
-  projection — shipping a 200 for a request that should have been a
-  4xx/5xx. Every error-emit site reachable inside a server-frame drain
-  now stamps `[:tags :frame]` from the drain's known frame (audit under
-  rf2-7d30s: core/spec.cljc boundary validation, core/subs reactive
-  sub-exception + sub-override validation, routing navigate/url-change/
-  nav-token; the schemas-artefact validate-*! fns and router miss paths
-  already stamped it), so a trace that arrives here without `:frame` is
-  genuinely unroutable and correctly no-ops — no projector runs, no
-  stray response accumulator is written, and a client-platform error
-  never bleeds into a server response."
+  Returns nil when the trace carries no routable server `:frame`; it never
+  guesses from the set of live frames. Concurrent requests may have many
+  server frames, so fallback attribution could project one request's error
+  onto another response. Error sites inside a drain must stamp the known
+  frame."
   [trace-event]
   (let [tag-frame (get-in trace-event [:tags :frame])]
     (when (and tag-frame (error-projector/server-frame? tag-frame))
@@ -71,17 +55,16 @@
 ;; trace to user observability stacks) yet MUST NOT project a non-200
 ;; status — the request continues with a degraded fragment.
 ;;
-;; `:rf.error/ssr-head-resolution-failed` (rf2-bof8i Option B) is the
+;; `:rf.error/ssr-head-resolution-failed` is the
 ;; canonical member: `resolve-head` degrades a throwing `:head` fn to an
 ;; empty fragment so a buggy head fn "can't take down the request"
 ;; (Spec 011 §1070 + lifecycle/resolve-head docstring). This is the
-;; deliberate, spec-pinned counterpoint to the view/sub fail-closed
-;; posture (rf2-vvwmi / rf2-7d30s, Spec 011 §744/§748-751): a view or
+;; deliberate counterpoint to the view/sub fail-closed posture: a view or
 ;; reactive sub that throws mid-render projects a 5xx because the page is
 ;; unusable; a head fn that throws degrades to a 200 because only the
 ;; `<head>` metadata is missing — the body still renders and hydrates.
 ;;
-;; rf2-lia3i — ENFORCING the contract at the buffering chokepoint (both
+;; Enforcing the contract at the buffering choke point (both
 ;; the dev-only `error-projection-listener` and the always-on
 ;; `error-emit-projection-listener` route through here) makes the
 ;; degraded-200 outcome a PROPERTY OF THE PROJECTOR, not an incidental
@@ -93,7 +76,7 @@
 ;; trace project the default `:rf.error/*` → status and silently flip a
 ;; degraded 200 to a 4xx/5xx. The skip closes that hole by construction.
 ;;
-;; rf2-sccp5 — `:rf.error/ssr-ring-error-view-failed` (ssr-ring's
+;; `:rf.error/ssr-ring-error-view-failed` (ssr-ring's
 ;; `resolve-error-body`, pipeline.clj:228) is the SECOND member of the
 ;; same fragility class. It fires `:op-type :error` for observability
 ;; when a caller's `:error-view` itself throws, and the host falls back
@@ -115,9 +98,7 @@
 ;; and silently flip 4xx→5xx. Skipping it here closes that hole by
 ;; construction — symmetric with the head category, enforced at the same
 ;; chokepoint across both buffering listeners.
-;; EP-0008 (rf2-hhutya) extends the skip set with the two further NON-
-;; PROJECTING SSR categories promoted to the always-on axis (the RULED
-;; "keep categories 2/4/5/6 in the non-projection-eligible skip set"):
+;; Two further non-projecting categories also use the always-on axis:
 ;;
 ;;   `:rf.error/ssr-streaming-writer-failed` — POST-HEAD-COMMIT (the chunked
 ;;   200 is already on the wire on the daemon writer thread; the status can
@@ -141,8 +122,8 @@
   "True when `operation` names a recoverable-degradation error category
   that must NOT be buffered for status projection (it ships its trace for
   observability but the request continues with a degraded fragment).
-  Members: `:rf.error/ssr-head-resolution-failed` (rf2-lia3i) and
-  `:rf.error/ssr-ring-error-view-failed` (rf2-sccp5)."
+  Members include head-resolution, error-view, post-commit writer, and
+  projector-sanitisation failures."
   [operation]
   (contains? non-projection-eligible-errors operation))
 
@@ -158,25 +139,13 @@
 (defonce pending-error-traces (atom {}))
 
 (defn- buffer-error-trace!
-  ;; Keyed by the frame ADDRESS (rf2-bzw8gd) — the shared SSR side-channel
-  ;; keying seam `frame/frame-address` (the bare process-local frame id).
+  ;; All SSR side channels use the process-local frame address.
   [frame-id trace-event]
   (swap! pending-error-traces update (frame/frame-address frame-id)
          (fnil conj []) trace-event))
 
 (defn- consume-pending-traces!
   "Atomically pull and clear the pending error traces for frame-id.
-
-  rf2-hzttr finding 4 — the prior shape DEREF'd the atom, read the
-  frame's traces, then `swap! dissoc`'d the frame in a SEPARATE
-  transition. A `buffer-error-trace!` append for the same frame landing
-  between the deref and the dissoc (concurrent SSR / streaming error
-  paths run many server frames simultaneously — see ssr-ring's
-  concurrency stress test) was silently dropped: the deref missed it,
-  the dissoc then deleted the whole frame key including the just-appended
-  trace. A dropped error trace can lose a fail-closed status upgrade
-  (200 shipped where a 5xx was due) or incomplete diagnostics — exactly
-  the operational path this listener is meant to harden.
 
   `swap-vals!` performs the read and the clear in a SINGLE CAS-retried
   state transition: it returns the `[old new]` pair where `old` is the
@@ -327,10 +296,10 @@
 
 (defn error-projection-listener
   "Dev-only trace-cb listener — captures error trace events bound to a
-  server frame in the per-frame pending-error-traces buffer. Buffering
-  avoids the race where an in-flight handler's `{:db ...}` would clobber
-  an inline :rf/response write. Registered in the `re-frame.ssr` façade
-  under `::error-projection`.
+  server frame in the per-frame pending-error-traces buffer. Projection waits
+  until the settle point so the host observes one last-write-wins result and
+  redirect precedence is applied once. Registered in the `re-frame.ssr`
+  façade under `::error-projection`.
 
   This listener covers the `:rf.error/*` categories that fire through
   `trace/emit-error!`: `:rf.error/no-such-handler`,
@@ -339,18 +308,17 @@
   `interop/debug-enabled? = false`. The production-survivable channel for
   the 500-class errors is `error-emit-projection-listener` (below).
 
-  `:rf.error/sub-exception` ALSO arrives here (it still emits on the dev
-  trace surface), but as of rf2-vvwmi it ALSO rides the always-on
-  substrate below — that is its production status source of truth (a sub
+  `:rf.error/sub-exception` also arrives here and rides the always-on
+  substrate below, which is its production status source of truth (a sub
   throwing mid-`render-to-string` under production hardening must project
   a fail-closed 5xx, not recover to a silent 200). In dev both listeners
   fire for sub-exception — last-write-wins + idempotent projection makes
-  the duplicate benign (rf2-fb598)."
+  the duplicate benign."
   [event]
   (when (= :error (:op-type event))
     (let [op (:operation event)]
       ;; Skip our own sanitisation traces to avoid recursion, and skip
-      ;; recoverable-degradation categories (rf2-lia3i / rf2-sccp5 — e.g.
+      ;; recoverable-degradation categories (for example,
       ;; `:rf.error/ssr-head-resolution-failed`,
       ;; `:rf.error/ssr-ring-error-view-failed`) that must ship their
       ;; trace for observability without projecting a non-200 status.
@@ -360,21 +328,19 @@
           (buffer-error-trace! frame-id event))))))
 
 (defn error-emit-projection-listener
-  "Always-on error-emit-substrate listener (per rf2-fb598 / audit Finding
-  #3) — captures `:rf.error/*` records delivered via
+  "Always-on error-emission listener. Captures `:rf.error/*` records delivered via
   `register-error-listener!` and buffers them onto the per-frame
   pending-error-traces buffer in the same trace-event shape the
   projector consumes.
 
   The error-emit record arrives in the UNION shape `{:error <kw> :frame
-  <id-or-nil> :time <ms> + flat category-specific keys}` (rf2-hhutya /
-  rf2-ini4wr — the shared non-event always-on shape). The event-centric
+  <id-or-nil> :time <ms> + flat category-specific keys}`. The event-centric
   `dispatch-on-error!` path carries `:event` / `:event-id` / `:elapsed-ms`
-  / `:source-coord`; the EP-0008 SSR promotions carry `:exception` /
+  / `:source-coord`; other SSR records carry `:exception` /
   `:phase` / `:reason` / `:projector-id` / … instead. We synthesise the
   `{:operation :op-type :tags}` envelope the existing projector pipeline
   expects — symmetric with the trace-cb delivery — by lifting EVERY
-  non-`:error` slot onto `:tags` GENERICALLY (rf2-hhutya), so a custom
+  non-`:error` slot onto `:tags` generically, so a custom
   projector reading `(get-in event [:tags :exception])` sees the same keys
   on this always-on path as on the trace-cb path regardless of which
   category was promoted. `:operation` is the record's `:error`; `:recovery`
@@ -382,15 +348,14 @@
 
   Registered in the `re-frame.ssr` façade under `::error-projection`.
   Survives `interop/debug-enabled? = false` — Spec 011 §Server error
-  projection holds under production hardening (rf2-vnjfg)."
+  projection holds when development tracing is disabled."
   [record]
   (let [op (:error record)]
     ;; Symmetric with the trace-cb guard above — refuse our own
-    ;; sanitisation records to avoid recursion. (As of rf2-fb598
-    ;; `:rf.error/sanitised-on-projection` is not delivered through the
-    ;; error-emit substrate, but keep the guard so a future routing
+    ;; sanitisation records to avoid recursion. The record is not currently
+    ;; delivered through this substrate, but keep the guard so a future routing
     ;; change can't reintroduce a re-entrant projection.) Also refuse
-    ;; recoverable-degradation categories (rf2-lia3i / rf2-sccp5 —
+    ;; recoverable-degradation categories such as
     ;; `:rf.error/ssr-head-resolution-failed`,
     ;; `:rf.error/ssr-ring-error-view-failed`): if a future host-adapter
     ;; change routes a recoverable-degradation trace through the always-on
@@ -402,24 +367,18 @@
     (when-not (or (= :rf.error/sanitised-on-projection op)
                   (non-projection-eligible-error? op))
       (let [;; The error-emit record carries the frame on its flat `:frame`
-            ;; slot directly. Per rf2-7d30s every error-emit site reachable
-            ;; inside a server-frame drain stamps that slot from the
+            ;; slot directly. Every error site reachable inside a server-frame
+            ;; drain stamps that slot from the
             ;; drain's known frame; a record with no routable server frame
-            ;; correctly no-ops (no projector runs, no stray status). Per
-            ;; rf2-mn4rd the former `candidate-frame-for-error` fallback was
-            ;; dead: it read `[:tags :frame]` on the synthesised event,
-            ;; which IS `(:frame record)` re-applied through the same
-            ;; `server-frame?` predicate — so it could never yield a frame
-            ;; the direct check below had not already accepted.
+            ;; correctly no-ops (no projector runs, no stray status).
             direct-frame-id (:frame record)
             ;; Synthesise a trace-event-shaped envelope GENERICALLY
-            ;; (rf2-hhutya): the projector reads `(:operation event)` and
+            ;; The projector reads `(:operation event)` and
             ;; tag-shaped custom projectors read `(get-in event [:tags …])`.
             ;; Lift EVERY non-`:error` slot of the union record onto `:tags`
             ;; — both the event-centric `dispatch-on-error!` slots
             ;; (`:event` / `:event-id` / `:elapsed-ms` / `:source-coord`)
-            ;; AND the flat category-specific slots the EP-0008 SSR
-            ;; promotions carry (`:exception` / `:phase` / `:reason` /
+            ;; and flat category-specific slots (`:exception` / `:phase` / `:reason` /
             ;; `:projector-id` / …). `:recovery` defaults to `:no-recovery`
             ;; when the record didn't supply one. Generic-lift means a newly
             ;; promoted category's tags ride through without re-listing each
@@ -480,6 +439,6 @@
 (defn clear-pending-error-traces!
   "Drop frame-id's entry from the pending-error-traces buffer.
   Called from `re-frame.ssr.request/on-frame-destroyed!`. Keyed by the frame
-  ADDRESS (rf2-bzw8gd)."
+  address."
   [frame-id]
   (swap! pending-error-traces dissoc (frame/frame-address frame-id)))

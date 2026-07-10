@@ -17,18 +17,9 @@
   these vars are inert EDN that still travels with the registration so
   the `:schema` boundary EXISTS the moment a validator is present.
 
-  Why this closes a gap (rf2-kjf3m.2): Spec 011 §Standard fx (line 438)
-  and §Cookie shape (line 496) both assert these schemas are
-  *registered* and that 'args validation runs as part of the standard
-  `:schema` boundary check'. Pre-rf2-kjf3m.2 the six `:rf.server/*`
-  `reg-fx` calls carried only `:doc` + `:platforms` — no `:schema` — so
-  the Spec 010 §step-5 fx-args boundary never ran for them. A
-  `(rf/dispatch [:rf.server/set-status \"nope\"])` assoc'd the string
-  straight onto the response `:status` and emitted a non-integer status
-  on the wire. With these schemas attached the malformed arg surfaces
-  as `:rf.error/schema-validation-failure :where :fx-args` at the
-  dispatch site, with the event in scope — exactly what the spec
-  promises.
+  Attaching these schemas to the registrations makes malformed arguments
+  surface at the `:fx-args` boundary while the dispatching event is still in
+  scope, before response state is mutated.
 
   Spec ↔ var map (per [Spec-Schemas §Standard fx args schemas]):
 
@@ -60,12 +51,11 @@
   `:rf.server/set-cookie` / `:rf.server/delete-cookie` produce. Per
   Spec 011 §Cookie shape / [Spec-Schemas §`:rf.server/cookie`].
 
-  Ingress tolerance vs canonical shape (rf2-cwfy2, ruled by Mike
-  2026-06-05 — Spec-Schemas widened to match this contract; no divergence
-  remains). The `:max-age`, `:expires`, and `:same-site` attrs carry a
+  Ingress tolerance differs from the canonical wire shape. The `:max-age`,
+  `:expires`, and `:same-site` attrs carry a
   `[:or <canonical-type> :string]` shape rather than the bare canonical
-  type, because `re-frame.ssr.response/validate-cookie!` (rf2-kjf3m.1 /
-  rf2-z7gor) DELIBERATELY accepts and `str`-coerces non-canonical scalar
+  type, because `re-frame.ssr.response/validate-cookie!` accepts and
+  `str`-coerces non-canonical scalar
   forms for these three attrs — a string `:max-age`, a string/instant
   `:expires`, a string `:same-site` (\"Strict\"/\"Lax\") — because apps
   build cookie attrs from host-data that often arrives as strings, and the
@@ -157,17 +147,15 @@
   `re-frame.ssr.response`; this is the structural shape check.
 
   [Spec-Schemas §`:rf.fx.server/redirect-args`]'s `RedirectFxArgs`, Spec
-  011 §Standard fx, and `re-frame.ssr.response/redirect-fx` all agree:
-  the canonical (and only) target key is `:location` (rf2-vngir / EP-0007
-  one-name-per-fact — this fx writes an HTTP `Location` response header,
-  so it uses header vocabulary). The retired synonyms `:url` / `:to` are
+  011 §Standard fx, and `re-frame.ssr.response/redirect-fx` all use
+  `:location`, matching HTTP `Location` response-header vocabulary. The
+  unsupported synonyms `:url` / `:to` are
   NOT accepted: `redirect-fx` throws `:rf.error/redirect-retired-target-
   key` naming `:location` (no back-compat alias). The schema accepts the
   optional `:string` `:location` plus the optional `:int` `:status`.
 
-  PERMISSIVE on the no-target case (rf2-ee38b.11 contract, the live half
-  of decision rf2-cwfy2). `:location` is optional AND a redirect with NO
-  `:location` PASSES this shape gate — it is not a structural error. A
+  `:location` is optional, and a redirect with no `:location` passes this
+  shape gate because it is not a structural error. A
   target-less redirect is the established
   `:rf.ssr/ssr-redirect-no-target` graceful-degradation path: the
   redirect-fx accepts it (location is caller-trusted/optional at the fx
@@ -175,37 +163,30 @@
   Location header so the defect is observable rather than silently
   shipping a broken redirect. A `[:fn]` clause requiring a target key
   here would 400 the no-target redirect at the Spec 010 §step-5 boundary
-  BEFORE that warn→302 path runs, contradicting ee38b.11 — so the schema
+  before that warn→302 path runs, contradicting the graceful-degradation
+  contract. The schema therefore
   stays a pure shape check (key types only) and lets the no-target case
   fall through to the runtime's warning path."
   [:map
    [:status   {:optional true} :int]      ;; default 302
-   [:location {:optional true} :string]]) ;; canonical (and only) target key (rf2-vngir)
+   [:location {:optional true} :string]]) ;; canonical and only target key
 
 (def safe-redirect-args
   "Args of `:rf.server/safe-redirect` — `:rf.fx.server/safe-redirect-args`.
   `{:location <string> :status? <int> :relative-only? <boolean>
-    :allow? [<string> …]}` — the caller-UNtrusted redirect (open-redirect
-  mitigation, rf2-zfm8v). `:location` is the validation target, so unlike
+    :allow? [<string> …]}` — the caller-untrusted redirect. `:location` is
+  the validation target, so unlike
   the caller-trusted `:rf.server/redirect` (which has a documented no-
-  target graceful path, rf2-ee38b.11) safe-redirect REQUIRES a `:location`
+  target graceful path) safe-redirect requires a `:location`
   to validate — a target-less safe-redirect is a programmer error with no
   defensible interpretation. The five-step URL-parse / scheme / relative-
   only? / allowlist gate lives in `re-frame.ssr.response/safe-redirect-fx`
   and emits the specific `:rf.error/safe-redirect-*` categories; this is
   the structural SHAPE check, completing the `:schema` boundary the other
-  six `:rf.server/*` fxs already carry (rf2-kjf3m.2 / rf2-wtd8z finding 1).
+  six `:rf.server/*` fxs already carry. A malformed argument therefore
+  fails before the response accumulator is mutated.
 
-  The closed gap (rf2-wtd8z finding 1): pre-fix the reg-fx carried only
-  `:platforms` — no `:schema` — so the Spec 010 §step-5 fx-args boundary
-  never ran. A `{:location \"/ok\" :status \"not-int\"}` arg flowed its
-  string `:status` straight through `safe-redirect-fx`'s step-5 pass onto
-  the response accumulator (and onto the wire). With this schema attached
-  the malformed `:status` surfaces as `:rf.error/schema-validation-failure
-  :where :fx-args` at the dispatch site, the fx is skipped, and the
-  response is left unmodified — matching the sibling six.
-
-  PERMISSIVE where the spec intends optionality (the #3202 lesson): only
+  Only
   `:location` is required; `:status` / `:relative-only?` / `:allow` are
   optional. `:allow` is a SEQUENCE of host strings (the fx reads `:allow`,
   not a scalar `:allowlist`). Closed map is avoided — extra keys pass —

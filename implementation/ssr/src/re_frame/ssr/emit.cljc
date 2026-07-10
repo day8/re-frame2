@@ -8,19 +8,16 @@
   live in sibling namespaces (`re-frame.ssr.hash` /
   `re-frame.ssr.response`).
 
-  Source-coord annotation (Spec 006 §Source-coord annotation, rf2-z7f7
-  / rf2-z9n1) is applied here on registered-view roots — the emitter
+  Source-coordinate annotation is applied here on registered-view roots: the emitter
   injects `data-rf2-source-coord=\"<ns>:<sym>:<line>:<col>\"` on the
   view's root DOM element so pair-tool consumers can map server-rendered
   HTML back to the `reg-view` call site.
 
   HTML escape helpers (`escape-html`, `escape-attr`, `attr-string`) live
-  in `re-frame.ssr.html-helpers` — shared with the head/meta emitter per
-  rf2-x7g10. `attr-string` is re-exported below so consumers who
+  in `re-frame.ssr.html-helpers`, shared with the head/meta emitter.
+  `attr-string` is re-exported below so consumers who
   `:require [re-frame.ssr.emit :as emit]` keep seeing it at
-  `emit/attr-string`; the emitter calls `html/escape-html` directly.
-
-  Per the rf2-gxgo7 split of re-frame.ssr."
+  `emit/attr-string`; the emitter calls `html/escape-html` directly."
   (:require [clojure.string]
             [re-frame.error :as error]
             [re-frame.interop :as interop]
@@ -30,14 +27,14 @@
             [re-frame.ssr.html-helpers :as html]
             #?(:cljs [re-frame.substrate.plain-atom :as plain-atom-cljs])))
 
-;; ---- shared HTML helpers (rf2-x7g10) --------------------------------------
+;; ---- shared HTML helpers --------------------------------------------------
 ;;
 ;; Re-export `attr-string` so callers that `:require [re-frame.ssr.emit :as
 ;; emit]` still resolve `emit/attr-string`. The producing ns is
 ;; `re-frame.ssr.html-helpers` (shared with `re-frame.ssr.head.emit`); the
 ;; entity-escape rules live there once. `escape-html` / `escape-attr` are
 ;; consumed directly via the `html/` alias — they have no `emit/`-qualified
-;; consumers (rf2-1i3yea).
+;; consumers.
 
 (def attr-string html/attr-string)
 
@@ -50,12 +47,12 @@
 ;; `re-frame.ssr` — that's the whole point of the slim artefact), so
 ;; the set is duplicated by intent. If HTML5 ever extends the void
 ;; element list (extraordinarily unlikely), update both copies. Per
-;; rf2-6phn + reagent-slim IMPL-SPEC §14.3.
+;; reagent-slim IMPL-SPEC §14.3.
 (def void-elements
   #{:area :base :br :col :embed :hr :img :input :link :meta :param :source
     :track :wbr})
 
-;; ---- raw-text body tags (rf2-ee38b.10) ------------------------------------
+;; ---- raw-text body tags ---------------------------------------------------
 ;;
 ;; `<script>` and `<style>` are HTML "raw text" elements: their content is
 ;; NOT parsed as markup, so the body emitter's `escape-html` (which rewrites
@@ -81,19 +78,14 @@
 ;; raw string child.
 (def ^:private raw-text-tags #{"script" "style"})
 
-;; rf2-z7gor / security audit 2026-05-14 — tag-name injection gate.
-;; `parse-tag-name` historically split the keyword on `#` / `.` and handed
-;; the leading fragment straight to `<...>` / `</...>` emission with no
-;; grammar check. A keyword like `(keyword "img src=x onerror=alert(1)")`
-;; emitted `<img src=x onerror=alert(1)></img src=x onerror=alert(1)>` —
-;; the attribute-name validator was bypassed entirely. We gate the tag
+;; Tag-name injection gate. Gate the tag
 ;; component itself: HTML5 / SVG / MathML element names require an ASCII
 ;; letter start, then letters / digits / hyphens. Reject anything else.
 ;;
 ;; Decision: fail-fast (throw) rather than escape-and-emit. A tag-name
 ;; outside the grammar has no safe wire interpretation — escaping would
 ;; produce `<img&#x20;src=...>` which no browser parses as a tag, just a
-;; visible glyph. Same shape as the rf2-hbty2 header-value gate.
+;; visible glyph.
 ;;
 ;; `:<>` (React fragment) and `:>` (Reagent-native) are special heads
 ;; consumed by `emit-element` BEFORE this validator runs — they never
@@ -107,7 +99,7 @@
   ;; conservative grammar admits both standard elements and well-formed
   ;; custom-element names.
   ;;
-  ;; rf2-77l9w — XML-namespaced SVG/MathML tags carry a single colon-
+  ;; XML-namespaced SVG/MathML tags carry a single colon-
   ;; separated prefix (e.g. `:svg:rect`, `:xlink:href`-style elements).
   ;; Admit one optional `prefix:` segment where the prefix follows the
   ;; same element-name grammar. A single colon only — embedded `<`, `>`,
@@ -119,10 +111,7 @@
 (defn- validate-tag-name!
   "Throw `:rf.error/invalid-tag-name` if `tag-name` does not match the
   HTML5 / SVG / MathML element-name grammar (`[A-Za-z][A-Za-z0-9-]*`,
-  optionally prefixed by a single XML namespace segment `prefix:`).
-  Per rf2-z7gor — DOM tag-name component of a hiccup keyword was emitted
-  without validation, allowing tag-injection through hostile keywords
-  like `(keyword \"img src=x onerror=alert(1)\")`."
+  optionally prefixed by a single XML namespace segment `prefix:`)."
   [tag-name source-kw]
   (when-not (and (string? tag-name)
                  (re-matches tag-name-re tag-name))

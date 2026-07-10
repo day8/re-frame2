@@ -24,9 +24,7 @@
   The trace-listener side (buffer + drain + `get-response`) lives in
   `re-frame.ssr.error-listener`. This namespace stays effect-free
   (apart from registering the built-in default projector) so the
-  projector logic can be exercised standalone.
-
-  Per the rf2-gxgo7 split of re-frame.ssr."
+  projector logic can be exercised standalone."
   (:require [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
@@ -34,7 +32,7 @@
             [re-frame.source-coords :as source-coords]
             [re-frame.trace :as trace]))
 
-;; ---- always-on error-emit helper (EP-0008 rf2-hhutya) ---------------------
+;; ---- always-on error emission ---------------------------------------------
 ;;
 ;; `:rf.error/sanitised-on-projection` fires when the active projector
 ;; itself throws or returns a non-conforming shape and the runtime falls
@@ -45,7 +43,7 @@
 ;; the public boundary fell back to the generic-500 shape") TRUE under
 ;; `-Dre-frame.debug=false`, where it is currently undeliverable.
 ;;
-;; RE-ENTRY GUARD (rf2-hhutya RULED): this emit is the FALLBACK path itself.
+;; Re-entry guard: this emit is the fallback path itself.
 ;; It MUST be one-shot and MUST never re-enter projection. Two facts close
 ;; that by construction: (1) `error-emit-projection-listener` (the always-on
 ;; status-projection buffering listener) explicitly SKIPS
@@ -64,12 +62,9 @@
   `error-emit` producer hasn't loaded (the hook is nil) — the dev
   `trace/emit-error!` companion still fires. Returns nil.
 
-  SINGLE SOURCE within the ssr artefact (rf2-50e82k): both the projector
-  (`project-error`) and the listener (`re-frame.ssr.error-listener`, which
-  already :requires this ns) call this one definition, closing the drift
-  risk on the `:error-emit/dispatch-error-record` hook keyword + the
-  nil-return contract. (The ssr-ring artefact keeps its own local wrapper
-  in `re-frame.ssr.ring.lifecycle` — a deliberate artefact boundary.)"
+  Both the projector and listener call this definition so the hook keyword and
+  nil-return contract cannot drift. The ssr-ring artefact keeps a local wrapper
+  to preserve the artefact boundary."
   [record]
   (when-let [dispatch-error-record! (late-bind/get-fn :error-emit/dispatch-error-record)]
     (dispatch-error-record! record))
@@ -112,18 +107,15 @@
     anything else                              → 500 :internal-error
                                                  (fallback-public-error)
 
-  `:rf.error/cofx-value-invalid` is a CLIENT-INPUT fault (rf2-57ehvw): a
+  `:rf.error/cofx-value-invalid` is a client-input fault: a
   non-recordable / out-of-`:schema` `:rf.cofx` value that entered through
   the dispatch boundary — the surface through which client-supplied
-  coeffects arrive (EP-0017:386; per Spec 011 §Default projector). It is
-  the current category that replaced the retired
-  `:rf.error/schema-validation-failure :where :cofx` shape (the
-  injection-time cofx-validation path was retired), so it earns its own
+  coeffects arrive. It earns its own
   unconditional 400 arm — a bad client coeffect is bad client input, a
   400, never a server-fault 500.
 
   The `:rf.error/schema-validation-failure` 400 arm is GATED on the
-  failure's `:where` tag (rf2-37o5by). It is client-facing — a 400
+  failure's `:where` tag. It is client-facing — a 400
   `:bad-request` — only when the rejected value entered through the
   client-supplied EVENT payload surface (`:where :event`), per Spec 011
   §Default projector. Server-side schema surfaces — notably server-fx

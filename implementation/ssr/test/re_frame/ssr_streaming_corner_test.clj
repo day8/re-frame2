@@ -542,13 +542,11 @@
 ;; Privacy boundary — request slot / response accumulator NOT readable
 ;; from app-db. The privacy contract is "MUST NOT ride app-db"
 ;; (Spec 011 §Request storage substrate + §Response storage substrate).
-;; Pre-rf2-jbcmt the response accumulator DID live on app-db; we pin
-;; the post-fix invariant so a regression that re-introduces an app-db
-;; backing fires loudly.
+;; Pin the side-channel invariant so an app-db-backed regression fails loudly.
 ;; ===========================================================================
 
 (deftest response-accumulator-not-on-app-db-privacy-invariant
-  (testing "rf2-u91hb: writing an :rf.server/* fx MUST NOT populate any
+  (testing "writing an :rf.server/* fx MUST NOT populate any
             key under app-db. Per Spec 011 §Response storage substrate
             (rf2-jbcmt) — privacy boundary: response accumulator data
             (Set-Cookie, internal X-* headers) MUST NOT default-leak
@@ -565,12 +563,11 @@
          :initial-events [[:test/server-write]]})
       (let [app-db (frame/frame-app-db-value fid)]
         ;; Spec 011 §Response storage substrate: NO app-db key may
-        ;; carry the accumulator. Pin both the published reserved key
-        ;; AND the sentinel key the pre-jbcmt path used.
+        ;; carry the accumulator. Pin both the published reserved key and the
+        ;; old sentinel spelling.
         (is (not (contains? app-db :rf/response))
-            "app-db MUST NOT carry :rf/response — pre-rf2-jbcmt this
-             was the storage path; the post-fix invariant is the
-             side-channel atom in re-frame.ssr.response/response-slots")
+            "app-db MUST NOT carry :rf/response; the accumulator lives in
+             re-frame.ssr.response/response-slots")
         ;; Defensive: also assert no key with substring "response" or
         ;; "cookie" in the keyword name (a sloppy refactor that picks
         ;; a different key name on app-db would still violate).

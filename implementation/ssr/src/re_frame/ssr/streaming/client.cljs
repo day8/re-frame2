@@ -1,8 +1,7 @@
 (ns re-frame.ssr.streaming.client
   "Client-side streaming-SSR runtime — the consumer of the server's
   `<template>` / `<script data-rf2-suspense-hydrate>` delta-chunk
-  protocol. Per Spec 011 §Streaming SSR — client-side hydration
-  semantics (rf2-3hhv5; folds rf2-bee5i part-2).
+  protocol. Per Spec 011 §Streaming SSR client-side hydration semantics.
 
   ## What this is
 
@@ -25,7 +24,7 @@
 
   WITHOUT a client consuming these chunks, the whole protocol is inert:
   the fallback `<template>`s never paint (a `<template>`'s content is a
-  detached `DocumentFragment` by the HTML spec — see chunk (1) / rf2-xzhf2a),
+  detached `DocumentFragment` by the HTML spec),
   the resolved `<template>`s never swap in, and the deltas never merge — the
   browser shows blank boundary regions until the final `__rf_payload` lands,
   then `:rf/hydrate` renders everything at once. Identical UX to
@@ -72,7 +71,7 @@
       body is `escape-edn-script-body`'d — `<` inside string literals
       becomes `\\u003c` (which `cljs.reader/read-string` decodes back),
       while `<` in keyword/symbol tokens (`:<`, `:a<b`) is left intact
-      so the delta round-trips (rf2-rdxxa). (Spec 011 §Hydration
+      so the delta round-trips. (Spec 011 §Hydration
       interleaving's wrapped-shape prose is corrected to this shipped
       contract.)
     - A `data-rf2-suspense-failed=\"1\"` marker on a resolved
@@ -91,11 +90,8 @@
   observer simply never matches a resolved chunk and disconnects on the
   final-payload node.
 
-  Per the rf2-uo7v shipping convention this namespace lives in the
-  `day8/re-frame2-ssr` artefact alongside the rest of the SSR surface
-  (it is NOT eagerly required by the `re-frame.ssr` façade — host
-  opt-in). CLJS-only (`.cljs`): it reaches into the DOM and installs a
-  `MutationObserver`."
+  This namespace is CLJS-only and host-opted-in: it reaches into the DOM and
+  installs a `MutationObserver`."
   (:require [cljs.reader :as reader]
             [re-frame.frame :as frame]
             [re-frame.ssr.constants :as constants]
@@ -107,7 +103,7 @@
 ;; The server↔client streaming wire attribute names live in
 ;; `re-frame.ssr.streaming.constants` so a rename is a one-edit change
 ;; there, not a grep-driven sweep across server, client, and tests
-;; (rf2-3w6dmy finding 2). These MUST match the attributes
+;; These must match the attributes
 ;; `re-frame.ssr.streaming/{suspense-template,hydrate-delta-script}` stamp —
 ;; they read from the SAME `wire` ns, so the agreement is enforced by the
 ;; shared source rather than a comment. Aliased here so the call sites read
@@ -130,7 +126,7 @@
 ;; resolved subtree swaps into) — the same model React 18 / Solid use,
 ;; expressed over the server's `<template>`-marker protocol. Client-owned
 ;; but pinned in the shared `wire` ns alongside the server-emitted
-;; attributes (rf2-3w6dmy finding 2).
+;; attributes.
 (def ^:private attr-suspense-mount     wire/attr-suspense-mount)
 (def ^:private mount-tag               wire/mount-tag)
 
@@ -148,7 +144,7 @@
   on the wire (a hiccup id is only ever a keyword or a string, never a
   symbol). So a SYMBOL parse is always a string id that lost its quotes in
   transit: coerce it back to its printed string, preserving the documented
-  contract that a string id stays a string in trace payloads (rf2-m96yhw).
+  contract that a string id stays a string in trace payloads.
   `(str sym)` faithfully reconstructs the original string for both a bare
   (`card-revenue`) and a slash-bearing (`card/revenue`) string id — `name`
   would drop the namespace segment. Keyword ids (and any other non-symbol
@@ -163,7 +159,7 @@
     (cond
       (= ::fail parsed) s
       ;; A bare-token parse is a symbol — the server emitted a STRING id via
-      ;; `(str id)`, dropping the quotes; recover the string (rf2-m96yhw).
+      ;; `(str id)`, dropping the quotes; recover the string.
       (symbol? parsed)  (str parsed)
       :else             parsed)))
 
@@ -202,7 +198,7 @@
   Spec 011 §Boundary nesting and recursion) and ships only that
   continuation's resolved chunk, so the resolved content must land in the
   last boundary's position; the earlier mounts keep showing their fallback
-  (rf2-8en9mu). For the common single-id case this is just that one mount."
+  For the common single-id case this is just that one mount."
   [root id-str]
   (last (mounts-for root id-str)))
 
@@ -219,7 +215,7 @@
   cannot re-encounter it. We therefore do NOT short-circuit on an existing
   same-id mount — doing so would collapse a DUPLICATE-id boundary's second
   fallback `<template>` into the first boundary's mount, leaving the second
-  template stranded inert in the DOM (rf2-8en9mu). Each declared boundary
+  template stranded inert in the DOM. Each declared boundary
   gets its OWN visible mount; the resolved chunk later targets the LAST one
   (`mount-for`).
 
@@ -248,7 +244,7 @@
   `<template>`'s parsed content, in-place. Targets `mount-for` — the LAST
   mount for the id, so a DUPLICATE-id boundary's single resolved chunk
   (the server's last-write-wins registration) lands in the LAST boundary's
-  position while earlier mounts keep their fallback (rf2-8en9mu). Returns
+  position while earlier mounts keep their fallback. Returns
   true if a mount was found + swapped, false otherwise (a resolved chunk
   with no matching fallback mount yet — e.g. a nested inner chunk racing
   ahead of its mount). The mount wrapper itself stays in the DOM carrying
@@ -308,8 +304,8 @@
     - a PARSEABLE-but-non-map value (`[…]`, `42`, `\"x\"`, `:k`) — a
       server/client wire-shape regression that `read-string` accepts but
       which `merge-delta!`'s `(map? delta)` guard would silently no-op,
-      swapping the resolved HTML + removing the script while leaving app-db
-      stale and emitting NO diagnostic (rf2-l3paoi).
+      swapping the resolved HTML and removing the script while leaving app-db
+      stale without a diagnostic.
 
   A nil parse (an empty / whitespace-only body) is the documented no-delta
   shape — NOT malformed — and returns nil without a trace, matching the
@@ -346,7 +342,7 @@
   sibling position. A malformed delta (unparseable EDN, or parseable but
   non-map) is skipped with a trace — a bad speculative chunk must not
   break hydration (the final payload is the correctness lock), but it must
-  also not silently pass for a successful hydration (rf2-l3paoi)."
+  also not silently pass for a successful hydration."
   [root frame-id id-str]
   (when-let [script (->> (query-by-attr root attr-suspense-hydrate)
                          (filter #(= id-str (.getAttribute % attr-suspense-hydrate)))
@@ -374,7 +370,7 @@
   same node (defensive — MutationObserver batching + the initial sweep
   can both surface the same node). Idempotent.
 
-  rf2-58zvy1 finding 4 — an id is marked `seen` ONLY after a successful
+  An id is marked `seen` only after a successful
   swap, and the swapped-in content is re-scanned for fallback templates
   before later resolved templates are processed. Two coupled corners for
   a NESTED boundary whose inner chunk is ALREADY present when the client
@@ -420,7 +416,7 @@
           ;; later in this same sweep has a mount to swap into (finding 4).
           (materialise-fallbacks! root))
         (cond
-          ;; rf2-8ymnem — the failed-boundary trace is gated on swap SUCCESS.
+          ;; The failed-boundary trace is gated on swap success.
           ;; The failed content (the author's fallback HTML) only lands when
           ;; `replace-mount-content!` finds a live mount, so emitting exactly
           ;; when the swap happens is both correct and exactly-once: `seen` is
@@ -450,8 +446,8 @@
   reports new nodes. Fallback materialisation runs FIRST so a resolved
   chunk in the same batch always finds a live mount to swap into.
 
-  rf2-58zvy1 finding 4 — the resolved-processing pass iterates to a
-  FIXPOINT. A nested boundary whose inner resolved chunk is already in
+  The resolved-processing pass iterates to a fixpoint. A nested boundary whose
+  inner resolved chunk is already in
   the DOM when the client installs late only gets its live mount AFTER
   the outer mount is swapped (the inner fallback was inert template
   content inside the outer resolved <template>). A single document-order
@@ -475,8 +471,8 @@
         (recur)))))
 
 (defn- element-by-id
-  "Find an element with id `id` under `root` WITHOUT building a raw `#id`
-  CSS selector. Per rf2-58zvy1 finding 3 — a `:payload-id` override that
+  "Find an element with id `id` under `root` without building a raw `#id`
+  CSS selector. A `:payload-id` override that
   is a VALID HTML id but contains CSS-selector-significant chars (`.`,
   `:`, `[`, space, …) makes `(.querySelector root (str \"#\" id))` either
   select the wrong element or throw a `SyntaxError`, breaking `install!`.
@@ -500,7 +496,7 @@
   disconnect (the final `:rf/hydrate` is the reconciliation point;
   deltas after it would race the canonical replace).
 
-  Per rf2-58zvy1 finding 3 — matches the payload by EXACT id string via
+  Matches the payload by exact id string via
   `element-by-id`, never a raw `#id` CSS selector, so a documented
   `:payload-id` override with CSS-special chars cannot throw or mis-match."
   [root payload-id]
@@ -520,8 +516,7 @@
 
     :frame      — REQUIRED. The target frame id whose app-db receives the
                   deltas — the SAME frame the bootstrap `ssr/hydrate!`s
-                  into and the root provider mounts (EP-0002 rf2-acjknb —
-                  one carried frame; the streaming target is supplied, not
+                  into and the root provider mounts. The streaming target is supplied, not
                   synthesised). An absent `:frame` emits + throws
                   `:rf.error/no-frame-context` (the pre-EP `:rf/default`
                   default is removed).
@@ -564,14 +559,14 @@
            ))"
   ([] (install! {}))
   ([{:keys [frame root payload-id]
-     ;; EP-0002 (rf2-acjknb): NO `:or {frame :rf/default}` floor — a nil
-     ;; frame is an absent target that `require-frame-stamp!` (below) fails
+     ;; No implicit default: a nil frame is an absent target that
+     ;; `require-frame-stamp!` fails
      ;; closed on, never a synthesised `:rf/default`. `payload-id` defaults
      ;; to the pinned `constants/payload-script-id` (main).
      :or   {root       (when (exists? js/document) js/document)
             payload-id constants/payload-script-id}}]
-   ;; EP-0002 (rf2-acjknb): the streaming delta-merge target is CARRIED —
-   ;; supplied explicitly via `:frame`. A nil stamp is an absent target,
+   ;; The streaming delta-merge target is supplied explicitly via `:frame`.
+   ;; A nil stamp is an absent target,
    ;; not a request to synthesise `:rf/default`; surface the always-on
    ;; `:rf.error/no-frame-context`. Per Spec 002 §Frame target resolution.
    (let [frame (frame/require-frame-stamp!

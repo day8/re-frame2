@@ -1,14 +1,11 @@
 (ns re-frame.ssr.head
   "Head/meta contract façade — `reg-head`, `render-head`, `active-head`,
-  `head-model->html`, `head-snapshot`. Per Spec 011 §Head/meta contract
-  (rf2-4dra9).
+  `head-model->html`, and `head-snapshot`.
 
   The server-rendered HTML must carry head metadata — `<title>`,
   `<meta>`, `<link>`, JSON-LD — on first byte; crawlers and link-
   unfurlers don't run JS. The pattern's commitment: **the head model
   is data derived from app-db**, not an imperative DOM API.
-
-  ---- file split (rf2-x7g10) ----
 
   The head module decomposes into three concern-per-file siblings + a
   shared HTML-helpers ns:
@@ -75,7 +72,7 @@
 ;;
 ;; `re-frame.ssr/on-frame-destroyed!` (under the `:ssr/on-frame-destroyed`
 ;; late-bind hook) clears `pending-error-traces`, `request-slots`, and
-;; `response-slots` per rf2-fcj33 + rf2-jbcmt. The head ns adds per-frame
+;; `response-slots`. The head namespace adds per-frame
 ;; head-snapshot cleanup; we surface our cleanup via a separate
 ;; `:ssr/head-on-frame-destroyed` hook that `re-frame.ssr`'s teardown
 ;; fn looks up and invokes.
