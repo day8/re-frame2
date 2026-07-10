@@ -1,21 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Open Graph card — SOURCE ART, not the shipped social-preview asset.
-     Link-preview scrapers (Facebook / X / LinkedIn / Slack / Discord) do not
-     render an SVG og:image, so the rasterised examples/_shared/img/og.png is
-     what every example references and what the asset gate requires. Keep this
-     SVG as the editable master; re-export og.png from it when the design
-     changes.
-     1200x630 — standard social-card aspect ratio.
+<!-- Editable source for the shared social card. Pages reference the rasterised
+     examples/_shared/img/og.png, not this SVG. Re-export that file at 1200x630
+     after changing this source.
      Matches the shared 'Editorial Warm' identity in examples/_shared/css/style.css:
        paper bg     #F7F3EC  (--ex-bg)
        deep ink     #1A1814  (--ex-ink)        — display text + monogram
        muted ink    #5C5448  (--ex-ink-muted)  — strapline
-       faint ink    #6E6654  (--ex-ink-faint)  — mono label (AA-safe; the old
-                    #8A8270 was sub-AA on paper at 3.45:1, darkened to 6E6654
-                    at 5.14:1 — keep this mirrored to the CSS token, rf2-febmqu)
-       amber accent #C8741A  (--ex-accent)     — decorative rule + monogram bar
-     Source-art palette literals intentionally mirror the --ex-* tokens; the
-     asset gate rejects re-introducing the retired #8A8270 here (rf2-y82dk9). -->
+        faint ink    #6E6654  (--ex-ink-faint)  — mono label
+        amber accent #C8741A  (--ex-accent)     — decorative rule + monogram bar
+     Keep these literals aligned with the CSS tokens; the shared-asset gate
+     checks the source-art palette. -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
   <defs>
     <radialGradient id="grain" cx="20%" cy="30%" r="60%">
