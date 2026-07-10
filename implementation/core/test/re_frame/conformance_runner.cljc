@@ -294,40 +294,12 @@
     (or (nil? v) (contains? claimed-spec-versions v))))
 
 ;; ---- handler-body realisation ---------------------------------------------
-
-(defn- collect-cofx-keys
-  "Walk steps and pull every cofx-id referenced via `[:cofx-key K]`. Used by
-  `realise-handlers` to auto-wire the consuming event's `:rf.cofx/requires`
-  declaration (EP-0017 model — rf2-mrp8jg / rf2-g25p). Returns a set of K."
-  [steps]
-  (let [out (atom #{})]
-    ((fn walk [form]
-       (cond
-         (and (vector? form) (= :cofx-key (first form)))
-         (swap! out conj (second form))
-
-         (coll? form)
-         (doseq [x form] (walk x))))
-     steps)
-    @out))
-
-(defn- realise-cofx-supplier
-  "DSL → a value-returning cofx supplier `(fn [] value)` (EP-0017 model —
-  rf2-mrp8jg). The body's `:set` steps declare the value the supplier
-  returns directly; the runtime delivers it FLAT under the cofx-id when a
-  handler declares it via `:rf.cofx/requires`. The `:set` value passes
-  through `eval-value*` (rf2-g25p) so reflection forms resolve; the last
-  `:set` wins (single-injection convention)."
-  [steps]
-  (fn []
-    (reduce (fn [v step]
-              (case (first step)
-                :set  (let [[_ _path value] step]
-                        (conformance/eval-value* value {}))
-                :noop v
-                v))
-            nil
-            steps)))
+;;
+;; `collect-cofx-keys`, `realise-cofx-supplier`, and `normalize-event-handler`
+;; are the SHARED handler-realisation primitives owned by `re-frame.conformance`
+;; (core/src) — consumed here and by the per-feature artefact runners alike so
+;; the cofx-key walk / supplier lift / body-shape collapse live in one place
+;; (rf2-wy414k).
 
 ;; Forward declaration — realise-machine-handlers is defined below (alongside
 ;; the run-call :machine-transition path). Per rf2-msd4 the same realised
@@ -362,13 +334,20 @@
           ;; without one.
           (if (:provided? meta)
             (rf/reg-cofx cofx-id meta)
-            (rf/reg-cofx cofx-id meta (realise-cofx-supplier body))))))
+            (rf/reg-cofx cofx-id meta (conformance/realise-cofx-supplier body))))))
     ;; event registrations. A body that reads `[:cofx-key K]` declares the
     ;; consumed coeffect ids via `:rf.cofx/requires` (fx-only — a cofx-reading
     ;; body routes to an `:fx` handler).
+    ;;
+    ;; EP-0018 Slice Z: there is ONE public `reg-event` (cofx-in, effects-map-out).
+    ;; `conformance/normalize-event-handler` collapses the DSL `[body-shape
+    ;; handler]` pair to that single form — a :db-kind body `(fn [db event]
+    ;; new-db)` is lifted to `(fn [cofx event] {:db …})`, an :fx-kind body passes
+    ;; through — so the registration site never branches on the body-shape.
     (doseq [[id steps] (get handlers-map :event)]
-      (let [[kind handler] (conformance/realise-event-handler steps)
-            ks             (collect-cofx-keys steps)
+      (let [handler        (conformance/normalize-event-handler
+                             (conformance/realise-event-handler steps))
+            ks             (conformance/collect-cofx-keys steps)
             cofx-ids       (vec
                              (mapcat (fn [k]
                                        (or (get cofx-by-key k)
@@ -376,18 +355,9 @@
                                      ks))
             event-meta     (cond-> (get event-registry id {})
                              (seq cofx-ids) (assoc :rf.cofx/requires cofx-ids))]
-        (case kind
-          ;; EP-0018 Slice Z: one public `reg-event` (cofx-in, effects-map-out).
-          ;; A :db-kind handler is `(fn [db event] new-db)`; adapt it to the
-          ;; single form by reading db from coeffects and lowering the returned
-          ;; db into a `{:db …}` effect — same observable behaviour.
-          :db (let [h (fn [{:keys [db]} ev] {:db (handler db ev)})]
-                (if (seq event-meta)
-                  (rf/reg-event id event-meta h)
-                  (rf/reg-event id h)))
-          :fx (if (seq event-meta)
-                (rf/reg-event id event-meta handler)
-                (rf/reg-event id handler)))))
+        (if (seq event-meta)
+          (rf/reg-event id event-meta handler)
+          (rf/reg-event id handler))))
     ;; sub registrations. Use the fn-form `subs/reg-sub` because the public
     ;; `rf/reg-sub` is a macro (source-coord capture) and a macro var isn't a
     ;; callable value; source-coord capture is intentionally bypassed for
@@ -578,20 +548,11 @@
                  (conj failures (str "expected error-emit record not seen: "
                                      (pr-str exp)))))))))
 
-(defn- submap?
-  "True if every key in expected appears in actual with a matching value.
-  Recurses into nested maps so partial expectations on nested slices work."
-  [expected actual]
-  (cond
-    (and (map? expected) (map? actual))
-    (every? (fn [[k v]]
-              (let [a (get actual k)]
-                (cond
-                  (and (map? v) (map? a)) (submap? v a)
-                  :else                   (= v a))))
-            expected)
-
-    :else (= expected actual)))
+;; `submap?` (recursive submap match), `check-trace-emissions` (order-preserving
+;; partial trace subset), and `resolve-sub` (`:sub-values` query-frame
+;; resolution) are the SHARED expectation-matcher primitives owned by
+;; `re-frame.conformance` (core/src) — consumed here and by the per-feature
+;; artefact runners alike (rf2-wy414k).
 
 (defn- normalise-effects-routed
   "Normalise `:effects-routed` entries (`{:fx-id F :args A}` map form OR
@@ -648,52 +609,6 @@
           (recur actual (rest expected)
                  (conj failures (str "expected effect not routed: " (pr-str exp)))))))))
 
-(defn- check-trace-emissions
-  "Per the conformance README §Fixture lifecycle: partial-match each expected
-  event by its specified keys (absent keys ignored, nested-map keys matched
-  submap-wise). Returns a vector of failure messages."
-  [actual-traces expected-traces]
-  (loop [actual   actual-traces
-         expected expected-traces
-         failures []]
-    (cond
-      (empty? expected)
-      failures
-
-      (empty? actual)
-      (conj failures (str "expected trace not seen: " (pr-str (first expected))))
-
-      :else
-      (let [exp (first expected)
-            match-idx (->> actual
-                           (map-indexed vector)
-                           (some (fn [[i a]]
-                                   (when (every? (fn [[k v]]
-                                                   (let [actual-v (get a k)]
-                                                     (cond
-                                                       (map? v)
-                                                       (every? (fn [[kk vv]]
-                                                                 (= vv (get actual-v kk)))
-                                                               v)
-                                                       :else (= v actual-v))))
-                                                 exp)
-                                     i))))]
-        (if match-idx
-          (recur (drop (inc match-idx) actual) (rest expected) failures)
-          (recur actual (rest expected)
-                 (conj failures (str "expected trace not seen: " (pr-str exp)))))))))
-
-(defn- resolve-sub
-  "A sub query in `:sub-values` may be `[query-v]` (implicit :rf/default
-  frame) or `[frame-id [query-v]]` (explicit frame). Returns `[frame-id
-  query-v]`."
-  [entry]
-  (if (and (vector? entry)
-           (= 2 (count entry))
-           (vector? (second entry)))
-    [(first entry) (second entry)]
-    [:rf/default entry]))
-
 (defn- check-epoch-records
   "Per rf2-v0jwt — `:epoch-records` asserts against the recorded
   `:rf/epoch-record` ring. Each entry (`{:frame <id> :record <partial>}` or
@@ -719,7 +634,7 @@
                     (str "expected epoch-record at position " i
                          " for frame " frame-id " but none recorded")
 
-                    (not (submap? record actual-record))
+                    (not (conformance/submap? record actual-record))
                     (str "epoch-record mismatch at position " i
                          " for frame " frame-id
                          " — expected (submap) " (pr-str record)
@@ -1526,7 +1441,7 @@
             sub-checks
             (doall
               (for [[query-v expected-val] (or (:sub-values expect) {})]
-                (let [[frame-id qv] (resolve-sub query-v)]
+                (let [[frame-id qv] (conformance/resolve-sub :rf/default query-v)]
                   {:query    query-v
                    :expected expected-val
                    :actual   (rf/subscribe-once qv {:frame frame-id})})))
@@ -1542,7 +1457,7 @@
                             (str "expected app-db path " (pr-str path)
                                  " to be ABSENT but found " (pr-str v)))))
                       expected-absent)))
-            trace-failures (check-trace-emissions @traces (:trace-emissions expect))
+            trace-failures (conformance/check-trace-emissions @traces (:trace-emissions expect))
             error-emit-failures (when (contains? expect :error-emit-records)
                                   (check-error-emit-records
                                     @err-records (:error-emit-records expect)))
@@ -1574,13 +1489,13 @@
         ;; rf2-wxe9t — drop just this fixture's error-emit recorder.
         (error-emit/unregister-error-listener! [fid ::records])
         {:fixture-id   fid
-         :passed?      (and (or (nil? expected-db) (submap? expected-db final-db))
+         :passed?      (and (or (nil? expected-db) (conformance/submap? expected-db final-db))
                             (or (nil? expected-dbs)
-                                (every? (fn [[fid db]] (submap? db (get final-dbs fid)))
+                                (every? (fn [[fid db]] (conformance/submap? db (get final-dbs fid)))
                                         expected-dbs))
-                            (or (nil? expected-rt) (submap? expected-rt final-rt))
+                            (or (nil? expected-rt) (conformance/submap? expected-rt final-rt))
                             (or (nil? expected-rts)
-                                (every? (fn [[fid rt]] (submap? rt (get final-rts fid)))
+                                (every? (fn [[fid rt]] (conformance/submap? rt (get final-rts fid)))
                                         expected-rts))
                             (empty? absent-failures)
                             (empty? @dispatch-error-failures)

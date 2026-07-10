@@ -240,67 +240,15 @@
                 (frame/swap-frame-db! frame-id (constantly new-db)))
    :dispatch! (fn [event frame-id] (rf/dispatch event {:frame frame-id}))})
 
-(defn- collect-cofx-keys
-  "Walk DSL body steps and collect every cofx-id referenced via
-  `[:cofx-key K]`. Used to auto-wire generated cofx interceptors under
-  event metadata `:interceptors` per the rf2-g25p convention.
-
-  Per Spec 010 §Where schemas attach §On every reg-*, the cofx-id is
-  the slot key — so a handler body that reads `[:cofx-key :app-version]`
-  declares its dependency on a cofx whose namespace-or-bare key is
-  `:app-version`. The runner uses that declaration to auto-inject the
-  matching namespaced cofx-ids (e.g. `:app-version/bad`)."
-  [steps]
-  (let [out (atom #{})]
-    ((fn walk [form]
-       (cond
-         (and (vector? form) (= :cofx-key (first form)))
-         (swap! out conj (second form))
-
-         (coll? form)
-         (doseq [x form] (walk x))))
-     steps)
-    @out))
-
-(defn- realise-cofx-supplier
-  "DSL → a value-returning cofx supplier `(fn [] value)` (EP-0017 model,
-  rf2-hqwki4). Mirrors core's runner: a `:set` step's value IS the value the
-  supplier returns; the runtime delivers it FLAT under the cofx-id when a
-  handler declares it via `:rf.cofx/requires`. The ctx→ctx `inject-cofx` form
-  that placed the value at `[:coeffects cofx-id]` is RETIRED with
-  `inject-cofx`.
-
-  Per rf2-g25p the `:set` value passes through `eval-value*`; multiple `:set`
-  steps run in order and the final step wins (single-delivery convention)."
-  [steps]
-  (fn []
-    (let [eval-value (requiring-resolve 're-frame.conformance/eval-value*)]
-      (reduce (fn [v step]
-                (case (first step)
-                  :set  (let [[_ _path value] step]
-                          (eval-value value {}))
-                  :noop v
-                  v))
-              nil
-              steps))))
-
-(defn- normalize-event-handler
-  "Collapse the DSL `[body-shape handler]` pair `conformance/realise-event-
-  handler` returns into the single EP-0018 `reg-event` shape — a
-  `(cofx-in → effects-map-or-nil)` fn.
-
-  `body-shape` is a DSL-INTERNAL interpreter distinction, NOT a public
-  `:event/kind` (EP-0018 removed the public event sub-kind model: a registered
-  event is just kind `:event`). An `:event-db` body is `(fn [db event] new-db)`;
-  it is lifted to `(fn [cofx event] {:db (handler db event)})` — read db from
-  the coeffects, lower the returned db into a `{:db …}` effect (same observable
-  behaviour). An `:event-fx` body is already the single form and passes
-  through. Registering through this normaliser keeps the registration site free
-  of any kind branch."
-  [[body-shape handler]]
-  (case body-shape
-    :db (fn [{:keys [db]} event] {:db (handler db event)})
-    :fx handler))
+;; Handler-body realisation reuses the SHARED primitives owned by
+;; `re-frame.conformance` (core/src, already on this artefact's classpath):
+;;   - `collect-cofx-keys`       — walk steps, pull `[:cofx-key K]` refs
+;;   - `realise-cofx-supplier`   — DSL body → value-returning cofx supplier
+;;   - `normalize-event-handler` — collapse the `[body-shape handler]` pair
+;;                                 into the single `reg-event` form
+;; Migrated off private copies per rf2-wy414k. Only the schemas-specific
+;; wiring below (adapter helpers, app-schema registration, fixture discovery,
+;; capability claims, the execution loop, reporting) stays local.
 
 (defn- realise-handlers
   "Register every handler the fixture declares (events / subs / cofx /
@@ -341,7 +289,7 @@
               meta (get cofx-registry cofx-id {})]
           (if (:provided? meta)
             (rf/reg-cofx cofx-id meta)
-            (rf/reg-cofx cofx-id meta (realise-cofx-supplier body))))))
+            (rf/reg-cofx cofx-id meta (conformance/realise-cofx-supplier body))))))
     ;; ---- events --------------------------------------------------------
     ;; Per Spec 010 §step 1 (rf2-jwm4): event meta carries :schema; the
     ;; runtime calls `:schemas/validate-event!` before the handler runs.
@@ -363,10 +311,10 @@
     ;; returned db into a `{:db …}` effect — same observable behaviour); an
     ;; event-fx body is already the single form and passes through.
     (doseq [[id steps] (:event hmap)]
-      (let [handler  (normalize-event-handler
+      (let [handler  (conformance/normalize-event-handler
                        (conformance/realise-event-handler steps))
             meta     (get event-meta id {})
-            ks       (collect-cofx-keys steps)
+            ks       (conformance/collect-cofx-keys steps)
             cofx-ids (vec (mapcat (fn [k]
                                     (or (get cofx-by-key k)
                                         (when (contains? cofx-registry k) [k])))
@@ -433,57 +381,13 @@
     (rf/reg-app-schema path schema)))
 
 ;; ---- matchers ------------------------------------------------------------
-
-(defn- submap?
-  "True if every key of `expected` is present in `actual` with a
-  matching value. Recurses into nested maps so partial expectations on
-  nested slices work the same way (e.g. a fixture asserting only a
-  subset of trace tags)."
-  [expected actual]
-  (cond
-    (and (map? expected) (map? actual))
-    (every? (fn [[k v]]
-              (let [a (get actual k)]
-                (if (and (map? v) (map? a))
-                  (submap? v a)
-                  (= v a))))
-            expected)
-
-    :else (= expected actual)))
-
-(defn- trace-matches?
-  "Partial match — every key of `exp` appears in `act` with a matching
-  value. Nested-map keys partial-match the same way."
-  [exp act]
-  (every? (fn [[k v]]
-            (let [a (get act k)]
-              (cond
-                (and (map? v) (map? a))
-                (every? (fn [[kk vv]] (= vv (get a kk))) v)
-                :else (= v a))))
-          exp))
-
-(defn- check-trace-emissions
-  "Order-preserving subset match — every expected trace must appear in
-  `actual` in declaration order. Extras tolerated (the runtime may
-  emit bookkeeping traces the fixture doesn't care about)."
-  [actual expected]
-  (loop [actual   actual
-         expected expected
-         failures []]
-    (cond
-      (empty? expected) failures
-      (empty? actual)
-      (conj failures (str "expected trace not seen: " (pr-str (first expected))))
-      :else
-      (let [exp (first expected)
-            i   (->> actual
-                     (map-indexed vector)
-                     (some (fn [[i a]] (when (trace-matches? exp a) i))))]
-        (if i
-          (recur (drop (inc i) actual) (rest expected) failures)
-          (recur actual (rest expected)
-                 (conj failures (str "expected trace not seen: " (pr-str exp)))))))))
+;;
+;; The expectation matchers are the SHARED primitives owned by
+;; `re-frame.conformance` (core/src) — `submap?` (recursive submap match on
+;; `:final-app-db` / trace tags) and `check-trace-emissions` (order-preserving
+;; partial trace subset). Migrated off private copies per rf2-wy414k; the
+;; schemas-specific expectation wiring (which matchers to run against which
+;; fixture slice) stays local in `run-fixture` below.
 
 ;; ---- :fixture/dispatches runner ------------------------------------------
 
@@ -528,18 +432,10 @@
     (rf/dispatch-sync ev)))
 
 ;; ---- single-fixture execution -------------------------------------------
-
-(defn- resolve-sub
-  "A `:sub-values` query may be either:
-    [query-v]                 — implicit :rf/default frame
-    [frame-id [query-v]]      — explicit frame
-  Returns `[frame-id query-v]`. Mirrors core's runner."
-  [entry]
-  (if (and (vector? entry)
-           (= 2 (count entry))
-           (vector? (second entry)))
-    [(first entry) (second entry)]
-    [:rf/default entry]))
+;;
+;; `:sub-values` query resolution (`[query-v]` implicit-frame vs
+;; `[frame-id [query-v]]` explicit-frame) is the shared `conformance/resolve-sub`
+;; primitive (core/src) — migrated off a private copy per rf2-wy414k.
 
 (defn- run-fixture
   "Run one fixture; return a result map shaped like the core runner's."
@@ -584,14 +480,14 @@
               sub-checks
               (doall
                 (for [[query-v expected-val] (or (:sub-values expect) {})]
-                  (let [[frame-id qv] (resolve-sub query-v)]
+                  (let [[frame-id qv] (conformance/resolve-sub :rf/default query-v)]
                     {:query    query-v
                      :expected expected-val
                      :actual   (rf/subscribe-once qv {:frame frame-id})})))
-              trace-failures (check-trace-emissions @traces
-                                                    (:trace-emissions expect))]
+              trace-failures (conformance/check-trace-emissions
+                               @traces (:trace-emissions expect))]
           {:fixture-id     fid
-           :passed?        (and (or (nil? expected-db) (submap? expected-db final-db))
+           :passed?        (and (or (nil? expected-db) (conformance/submap? expected-db final-db))
                                 (every? #(= (:expected %) (:actual %)) sub-checks)
                                 (empty? trace-failures)
                                 (empty? @dispatch-error-failures))
