@@ -1781,11 +1781,17 @@
             server?     (state/server-frame? frame-id)
             timer-fx    (mapv (fn [[scoped-key {:keys [stale-delay-ms gc-delay-ms]}]]
                                 [:rf.resource/schedule-timers
-                                 {:frame-id       frame-id
-                                  :resource/key   scoped-key
-                                  :stale-delay-ms stale-delay-ms
-                                  :gc-delay-ms    gc-delay-ms
-                                  :server?        server?}])
+                                 {:frame-id     frame-id
+                                  :resource/key scoped-key
+                                  ;; a mutation populate/patch reconciles the
+                                  ;; freshness kinds it recomputes — stale + GC.
+                                  ;; `:poll` is ABSENT, so an actively-polling
+                                  ;; entry the mutation writes into KEEPS its
+                                  ;; poll cadence (polling is owner-driven, not
+                                  ;; data-driven) — rf2-3fc89f.10
+                                  :timers       {:stale stale-delay-ms
+                                                 :gc    gc-delay-ms}
+                                  :server?      server?}])
                               timer-policies)
             ;; PHASE 6 (Spec 016 §Phase order) — the mutation completion
             ;; continuation. The instance + work-ledger row are now settled

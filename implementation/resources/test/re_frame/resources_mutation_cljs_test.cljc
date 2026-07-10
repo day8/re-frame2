@@ -493,8 +493,8 @@
       (let [args (first @scheduled-timers)]
         (is (= rkey (:resource/key args)))
         (is (= :rf/default (:frame-id args)))
-        (is (= 60000 (:stale-delay-ms args)))
-        (is (= 300000 (:gc-delay-ms args)) "a GC timer is armed for the populated entry")
+        (is (= 60000 (get-in args [:timers :stale])))
+        (is (= 300000 (get-in args [:timers :gc])) "a GC timer is armed for the populated entry")
         (is (false? (:server? args)) "client frame — not SSR-gated")))
     (testing "rf2-h4cv5e — the populated ownerless entry is GC-eligible: a
               fired GC timer (re-checking owners + generation) removes it"
@@ -529,8 +529,8 @@
       (is (= 1 (count @scheduled-timers)))
       (let [args (first @scheduled-timers)]
         (is (= rkey (:resource/key args)))
-        (is (= 60000 (:stale-delay-ms args)))
-        (is (= 300000 (:gc-delay-ms args)))))))
+        (is (= 60000 (get-in args [:timers :stale])))
+        (is (= 300000 (get-in args [:timers :gc])))))))
 
 (deftest success-populate-no-explicit-policy-arms-default-gc-timer
   ;; rf2-bbpu11 (Option A) — a populate of a resource declaring NO explicit
@@ -554,8 +554,8 @@
       (is (= 1 (count @scheduled-timers)))
       (let [args (first @scheduled-timers)]
         (is (= rkey (:resource/key args)))
-        (is (nil? (:stale-delay-ms args)))
-        (is (= 300000 (:gc-delay-ms args)))))))
+        (is (nil? (get-in args [:timers :stale])))
+        (is (= 300000 (get-in args [:timers :gc])))))))
 
 ;; ===========================================================================
 ;; 5. Failure settles :error

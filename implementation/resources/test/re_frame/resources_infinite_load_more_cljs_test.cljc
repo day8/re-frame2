@@ -557,9 +557,9 @@
       (reply-aborted!)
       (let [args (last-schedule-for k)]
         (is (some? args) "schedule-timers emitted on the page-0 abort settle")
-        (is (= 5000 (:gc-delay-ms args)) "GC timer armed at :gc-after-ms")
-        (is (= 1000 (:stale-delay-ms args)) "stale timer armed at :stale-after-ms")
-        (is (nil? (:poll-delay-ms args)) "no poll timer for an aborted entry")))))
+        (is (= 5000 (get-in args [:timers :gc])) "GC timer armed at :gc-after-ms")
+        (is (= 1000 (get-in args [:timers :stale])) "stale timer armed at :stale-after-ms")
+        (is (nil? (get-in args [:timers :poll])) "no poll timer for an aborted entry")))))
 
 (deftest page-0-failure-arms-gc-and-stale-timers
   (testing "rf2-s54uzc — a page-0 FAILURE (non-abort) with no accumulated
@@ -578,9 +578,9 @@
         (is (nil? (:current-work e)) "no in-flight work after the error settle"))
       (let [args (last-schedule-for k)]
         (is (some? args) "schedule-timers emitted on the page-0 :error settle")
-        (is (= 5000 (:gc-delay-ms args)) "GC timer armed at :gc-after-ms")
-        (is (= 1000 (:stale-delay-ms args)) "stale timer armed at :stale-after-ms")
-        (is (nil? (:poll-delay-ms args)) "no poll timer for an errored entry")))))
+        (is (= 5000 (get-in args [:timers :gc])) "GC timer armed at :gc-after-ms")
+        (is (= 1000 (get-in args [:timers :stale])) "stale timer armed at :stale-after-ms")
+        (is (nil? (get-in args [:timers :poll])) "no poll timer for an errored entry")))))
 
 (deftest load-more-abort-keeps-loaded-no-rearm
   (testing "rf2-s54uzc guard — an ABORTED load-more (page N>0, feed already

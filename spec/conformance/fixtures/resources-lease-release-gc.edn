@@ -17,13 +17,14 @@
 ;; resource (`:res/no-gc-policy`) declares NO `:gc-after-ms` at all. Absent
 ;; normalizes AT REGISTRATION to the framework's finite default (300000ms) —
 ;; a settle now arms a REAL GC timer (`:rf.resource/schedule-timers` routed
-;; with `:gc-delay-ms 300000`) instead of silently arming nothing. `:stale-
-;; delay-ms` / `:poll-delay-ms` stay nil (this resource declares neither).
+;; with `:timers {:gc 300000}`) instead of silently arming nothing. The full
+;; reconcile names stale + poll too, both nil (this resource declares neither),
+;; rf2-3fc89f.10.
 
 {:fixture/id           :resources/lease-release-gc
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:resources/lease-gc}
- :fixture/doc          "ensure :res/article (owner [:lease :gc 1], gc-after 60s) → :loaded; release-owner drops the lease (owner-free + idle → GC-eligible); the fired GC re-check removes the entry. Traces: :rf.resource/owner-released then :rf.resource/gc-fired. The state sub then projects the :idle empty-state. A second resource (:res/no-gc-policy, no :gc-after-ms declared) proves the rf2-bbpu11 default-arming rule: its settle routes schedule-timers with the framework's default :gc-delay-ms 300000."
+ :fixture/doc          "ensure :res/article (owner [:lease :gc 1], gc-after 60s) → :loaded; release-owner drops the lease (owner-free + idle → GC-eligible); the fired GC re-check removes the entry. Traces: :rf.resource/owner-released then :rf.resource/gc-fired. The state sub then projects the :idle empty-state. A second resource (:res/no-gc-policy, no :gc-after-ms declared) proves the rf2-bbpu11 default-arming rule: its settle routes schedule-timers with the framework's default GC delay via :timers {:gc 300000}."
 
  :fixture/registry
  {:resource
@@ -72,8 +73,8 @@
                         :params {:slug "d"} :owner [:lease :gc 2] :cause :view-mount}]
 
   ;; Step 6: the reply settles :loaded — the :effects-routed expectation below
-  ;; is the proof: schedule-timers carries the DEFAULT :gc-delay-ms (300000),
-  ;; not nil, even though this resource never declared the key.
+  ;; is the proof: schedule-timers carries the DEFAULT GC delay (:timers {:gc
+  ;; 300000}), not nil, even though this resource never declared the key.
   [:rf.resource.internal/succeeded
    {:resource/key [:rf.scope/global :res/no-gc-policy {:slug "d"}]
     :work/id      [:rf.work/resource [:rf.scope/global :res/no-gc-policy {:slug "d"}] 2]
@@ -105,10 +106,12 @@
   ;; finite default (300000), not nil — the corpus-level proof that "no
   ;; policy declared" no longer means "arms nothing".
   :effects-routed
+  ;; rf2-3fc89f.10: the settle is a FULL reconcile — it names ALL three timer
+  ;; kinds in the `:timers` map (a present key with a positive delay arms, a
+  ;; present nil cancels; an absent key would preserve). Here stale + poll are
+  ;; nil (undeclared → cancel/none) and gc carries the finite default.
   [{:fx-id :rf.resource/schedule-timers
-    :args  {:frame-id       :rf/default
-            :resource/key   [:rf.scope/global :res/no-gc-policy {:slug "d"}]
-            :stale-delay-ms nil
-            :gc-delay-ms    300000
-            :poll-delay-ms  nil
-            :server?        false}}]}}
+    :args  {:frame-id     :rf/default
+            :resource/key [:rf.scope/global :res/no-gc-policy {:slug "d"}]
+            :timers       {:stale nil :gc 300000 :poll nil}
+            :server?      false}}]}}

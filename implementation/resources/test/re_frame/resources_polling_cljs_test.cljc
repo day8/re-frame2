@@ -167,7 +167,7 @@
               :poll timer at :poll-interval-ms when it settles :loaded"
       (let [args (last-schedule-for k)]
         (is (some? args) "schedule-timers emitted for the settled entry")
-        (is (= 5000 (:poll-delay-ms args)) "poll delay = :poll-interval-ms")))))
+        (is (= 5000 (get-in args [:timers :poll])) "poll delay = :poll-interval-ms")))))
 
 (deftest no-poll-policy-arms-no-poll-timer
   (rf/reg-resource :pl/nopoll (article-spec {:stale-after-ms 1000}) article-spec-request)
@@ -179,8 +179,8 @@
               poll timer (the stale timer still arms)"
       (let [args (last-schedule-for k)]
         (is (some? args) "schedule-timers still emitted (stale policy present)")
-        (is (nil? (:poll-delay-ms args)) "no poll delay (no poll policy)")
-        (is (= 1000 (:stale-delay-ms args)) "stale delay armed as usual")))))
+        (is (nil? (get-in args [:timers :poll])) "no poll delay (no poll policy)")
+        (is (= 1000 (get-in args [:timers :stale])) "stale delay armed as usual")))))
 
 (deftest owner-free-settle-arms-no-poll-timer
   ;; A poll never pins an owner-free entry: if the entry settles with no active
@@ -197,8 +197,8 @@
               poll never pins an owner-free entry); GC still arms"
       (is (empty? (:active-owners (entry k))) "entry is owner-free at settle")
       (let [args (last-schedule-for k)]
-        (is (nil? (:poll-delay-ms args)) "no poll timer armed for an owner-free entry")
-        (is (= 9000 (:gc-delay-ms args)) "GC timer armed as usual")))))
+        (is (nil? (get-in args [:timers :poll])) "no poll timer armed for an owner-free entry")
+        (is (= 9000 (get-in args [:timers :gc])) "GC timer armed as usual")))))
 
 (deftest fresh-skip-re-arms-polling-on-new-owner
   ;; rf2-k9u4h3 — an entry that settled `:loaded` while OWNER-FREE armed no poll
@@ -216,7 +216,7 @@
     (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :x 1]}])
     (succeed! k {:title "W"})
     (is (empty? (:active-owners (entry k))) "entry settled owner-free")
-    (is (nil? (:poll-delay-ms (last-schedule-for k)))
+    (is (nil? (get-in (last-schedule-for k) [:timers :poll]))
         "no poll timer armed at the owner-free settle (precondition)")
     (reset! scheduled-timers [])
     ;; a fresh ensure from a NEW live owner — served from cache (fresh-skip)
@@ -230,7 +230,7 @@
         (is (= #{[:route :r 2]} (:active-owners e)) "the new owner is leased"))
       (let [args (last-schedule-for k)]
         (is (some? args) "schedule-timers emitted for the revived entry")
-        (is (= 5000 (:poll-delay-ms args)) "poll re-armed at :poll-interval-ms")))))
+        (is (= 5000 (get-in args [:timers :poll])) "poll re-armed at :poll-interval-ms")))))
 
 (deftest fresh-skip-onto-owned-entry-does-not-re-arm
   ;; Guard against double-arm: a fresh-skip onto an entry that ALREADY has an
@@ -279,7 +279,7 @@
           (is (= (inc gen-before) (:generation e)) "forced a new generation")))
       (testing "Spec 016 §Polling — the tick re-arms the next poll"
         (let [args (last-schedule-for k)]
-          (is (= 5000 (:poll-delay-ms args)) "next poll re-armed at the interval"))))))
+          (is (= 5000 (get-in args [:timers :poll])) "next poll re-armed at the interval"))))))
 
 (deftest poll-tick-records-poll-cause-never-owner
   (rf/reg-resource :pc/poll (article-spec {:poll-interval-ms 5000}) article-spec-request)
@@ -351,7 +351,7 @@
       (is (= :loaded (:status (entry k))) "hidden tick did NOT refetch")
       (is (nil? (:current-work (entry k))) "no in-flight work while hidden")
       (let [args (last-schedule-for k)]
-        (is (= 5000 (:poll-delay-ms args)) "re-armed (resumes on tab return)")))))
+        (is (= 5000 (get-in args [:timers :poll])) "re-armed (resumes on tab return)")))))
 
 (deftest visible-tick-after-hidden-resumes-refetch
   (rf/reg-resource :hr/poll (article-spec {:poll-interval-ms 5000}) article-spec-request)
@@ -393,7 +393,7 @@
           (is (empty? @aborts) "no opportunistic abort (no churn)")))
       (testing "Spec 016 §Polling — a coalesced tick still RE-ARMS the next poll"
         (let [args (last-schedule-for k)]
-          (is (= 5000 (:poll-delay-ms args)) "coalesced tick re-armed the poll"))))))
+          (is (= 5000 (get-in args [:timers :poll])) "coalesced tick re-armed the poll"))))))
 
 ;; ===========================================================================
 ;; 6. Focus/reconnect coexistence — no double-fetch
@@ -462,7 +462,7 @@
               via timers/schedule!), it does not stack a second poll timer"
       (is (= {:title "W2"} (:data (entry k))) "new data landed")
       (let [args (last-schedule-for k)]
-        (is (= 5000 (:poll-delay-ms args)) "poll re-armed on the new settle")))))
+        (is (= 5000 (get-in args [:timers :poll])) "poll re-armed on the new settle")))))
 
 ;; ===========================================================================
 ;; 9. Background poll failure keeps polling

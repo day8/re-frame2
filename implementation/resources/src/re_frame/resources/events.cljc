@@ -577,12 +577,15 @@
         ;; when the resource declares a timer or a `:reply-to` continued.
         (let [timers-fx (when (or stale-delay-ms gc-delay-ms poll-delay-ms)
                           [[:rf.resource/schedule-timers
-                            {:frame-id       frame-id
-                             :resource/key   scoped-key
-                             :stale-delay-ms stale-delay-ms
-                             :gc-delay-ms    gc-delay-ms
-                             :poll-delay-ms  poll-delay-ms
-                             :server?        (state/server-frame? frame-id)}]])
+                            {:frame-id     frame-id
+                             :resource/key scoped-key
+                             ;; a FULL reconcile names all three kinds — arm the
+                             ;; policied ones, cancel any whose policy is absent
+                             ;; (rf2-3fc89f.10)
+                             :timers       {:stale stale-delay-ms
+                                            :gc    gc-delay-ms
+                                            :poll  poll-delay-ms}
+                             :server?      (state/server-frame? frame-id)}]])
               fx        (cond-> (vec timers-fx)
                           hit-cont-fx (conj hit-cont-fx))]
           (cond-> {:rf.db/runtime rdb'}
@@ -1481,8 +1484,10 @@
                      :else            :polled)
         ;; STOP (drop the poll) on a gone / owner-free entry; otherwise RE-ARM
         ;; the next interval (paused-hidden / coalesced / polled all keep the
-        ;; cadence alive). The re-arm fx is poll-only (nil stale / GC delays
-        ;; leave those kinds as-is in schedule-timers-handler).
+        ;; cadence alive). The re-arm fx names ONLY `:poll` (a PARTIAL re-arm):
+        ;; the sibling stale / GC timers are PRESERVED — they are absent from
+        ;; the `:timers` map, so `schedule-timers-handler` leaves them armed
+        ;; rather than cancelling them (rf2-3fc89f.10).
         re-arm?    (and interval (contains? #{:paused-hidden :coalesced :polled} decision))
         refetch?   (= :polled decision)]
     (trace/emit! :rf.event :rf.resource/poll-fired
@@ -1499,15 +1504,14 @@
                              :scope    (first resource-key)
                              :params   (nth resource-key 2)
                              :cause    poll-cause}]])
-          ;; re-arm the next poll (cancel-then-arm; poll kind only)
+          ;; re-arm the next poll — a PARTIAL re-arm naming ONLY `:poll`, so the
+          ;; sibling stale / GC timers are preserved (rf2-3fc89f.10)
           re-arm?
           (conj [:rf.resource/schedule-timers
-                 {:frame-id       frame-id
-                  :resource/key   resource-key
-                  :stale-delay-ms nil
-                  :gc-delay-ms    nil
-                  :poll-delay-ms  interval
-                  :server?        (state/server-frame? frame-id)}]))))))
+                 {:frame-id     frame-id
+                  :resource/key resource-key
+                  :timers       {:poll interval}
+                  :server?      (state/server-frame? frame-id)}]))))))
 
 ;; ---- invalidate-tags — exact tag invalidation -----------------------------
 
@@ -2329,12 +2333,15 @@
         ;; scheduling / §Polling.
         (let [timers-fx (when (or stale-delay-ms gc-delay-ms poll-delay-ms)
                           [[:rf.resource/schedule-timers
-                            {:frame-id       frame-id
-                             :resource/key   resource-key
-                             :stale-delay-ms stale-delay-ms
-                             :gc-delay-ms    gc-delay-ms
-                             :poll-delay-ms  poll-delay-ms
-                             :server?        (state/server-frame? frame-id)}]])
+                            {:frame-id     frame-id
+                             :resource/key resource-key
+                             ;; a FULL reconcile names all three kinds — arm the
+                             ;; policied ones, cancel any whose policy is absent
+                             ;; (rf2-3fc89f.10)
+                             :timers       {:stale stale-delay-ms
+                                            :gc    gc-delay-ms
+                                            :poll  poll-delay-ms}
+                             :server?      (state/server-frame? frame-id)}]])
               fx        (into (vec timers-fx) cont-fxs)]
           (cond-> {:rf.db/runtime rdb'}
             (seq fx) (assoc :fx fx)))))))
@@ -2515,12 +2522,16 @@
           frame-id resource-key work-id (:status reply) (:reply-targets record) false)
         (let [timers-fx (when (or stale-delay-ms gc-delay-ms)
                           [[:rf.resource/schedule-timers
-                            {:frame-id       frame-id
-                             :resource/key   resource-key
-                             :stale-delay-ms stale-delay-ms
-                             :gc-delay-ms    gc-delay-ms
-                             :poll-delay-ms  nil
-                             :server?        (state/server-frame? frame-id)}]])
+                            {:frame-id     frame-id
+                             :resource/key resource-key
+                             ;; a first-load abort/error settle reconciles all
+                             ;; three kinds — arm stale/GC and CANCEL poll (an
+                             ;; errored/aborted entry is GC fodder, never a poll
+                             ;; target; a first load never armed one), rf2-3fc89f.10
+                             :timers       {:stale stale-delay-ms
+                                            :gc    gc-delay-ms
+                                            :poll  nil}
+                             :server?      (state/server-frame? frame-id)}]])
               fx        (into (vec timers-fx) cont-fxs)]
           (cond-> {:rf.db/runtime rdb'}
             (seq fx) (assoc :fx fx))))
@@ -2591,12 +2602,16 @@
         ;; continued.
         (let [timers-fx (when (or stale-delay-ms gc-delay-ms)
                           [[:rf.resource/schedule-timers
-                            {:frame-id       frame-id
-                             :resource/key   resource-key
-                             :stale-delay-ms stale-delay-ms
-                             :gc-delay-ms    gc-delay-ms
-                             :poll-delay-ms  nil
-                             :server?        (state/server-frame? frame-id)}]])
+                            {:frame-id     frame-id
+                             :resource/key resource-key
+                             ;; a first-load abort/error settle reconciles all
+                             ;; three kinds — arm stale/GC and CANCEL poll (an
+                             ;; errored/aborted entry is GC fodder, never a poll
+                             ;; target; a first load never armed one), rf2-3fc89f.10
+                             :timers       {:stale stale-delay-ms
+                                            :gc    gc-delay-ms
+                                            :poll  nil}
+                             :server?      (state/server-frame? frame-id)}]])
               fx        (into (vec timers-fx) cont-fxs)]
           (cond-> {:rf.db/runtime rdb'}
             (seq fx) (assoc :fx fx)))))))
@@ -2832,12 +2847,15 @@
           frame-id resource-key work-id (:status reply) (:reply-targets record) false)
         (let [timers-fx (when (or stale-delay-ms gc-delay-ms poll-delay-ms)
                           [:rf.resource/schedule-timers
-                           {:frame-id       frame-id
-                            :resource/key   resource-key
-                            :stale-delay-ms stale-delay-ms
-                            :gc-delay-ms    gc-delay-ms
-                            :poll-delay-ms  poll-delay-ms
-                            :server?        (state/server-frame? frame-id)}])
+                           {:frame-id     frame-id
+                            :resource/key resource-key
+                            ;; a FULL reconcile names all three kinds — arm the
+                            ;; policied ones, cancel any whose policy is absent
+                            ;; (rf2-3fc89f.10)
+                            :timers       {:stale stale-delay-ms
+                                           :gc    gc-delay-ms
+                                           :poll  poll-delay-ms}
+                            :server?      (state/server-frame? frame-id)}])
               fx        (cond-> []
                           timers-fx (conj timers-fx)
                           sweep-fx  (conj sweep-fx))
@@ -2971,12 +2989,16 @@
           frame-id resource-key work-id (:status reply) (:reply-targets record) false)
         (let [timers-fx (when (or stale-delay-ms gc-delay-ms)
                           [[:rf.resource/schedule-timers
-                            {:frame-id       frame-id
-                             :resource/key   resource-key
-                             :stale-delay-ms stale-delay-ms
-                             :gc-delay-ms    gc-delay-ms
-                             :poll-delay-ms  nil
-                             :server?        (state/server-frame? frame-id)}]])
+                            {:frame-id     frame-id
+                             :resource/key resource-key
+                             ;; a first-load abort/error settle reconciles all
+                             ;; three kinds — arm stale/GC and CANCEL poll (an
+                             ;; errored/aborted entry is GC fodder, never a poll
+                             ;; target; a first load never armed one), rf2-3fc89f.10
+                             :timers       {:stale stale-delay-ms
+                                            :gc    gc-delay-ms
+                                            :poll  nil}
+                             :server?      (state/server-frame? frame-id)}]])
               fx        (into (vec timers-fx) cont-fxs)]
           (cond-> {:rf.db/runtime rdb'}
             (seq fx) (assoc :fx fx))))
@@ -3056,12 +3078,16 @@
           frame-id resource-key work-id (:status reply) (:reply-targets record) false)
         (let [timers-fx (when (or stale-delay-ms gc-delay-ms)
                           [[:rf.resource/schedule-timers
-                            {:frame-id       frame-id
-                             :resource/key   resource-key
-                             :stale-delay-ms stale-delay-ms
-                             :gc-delay-ms    gc-delay-ms
-                             :poll-delay-ms  nil
-                             :server?        (state/server-frame? frame-id)}]])
+                            {:frame-id     frame-id
+                             :resource/key resource-key
+                             ;; a first-load abort/error settle reconciles all
+                             ;; three kinds — arm stale/GC and CANCEL poll (an
+                             ;; errored/aborted entry is GC fodder, never a poll
+                             ;; target; a first load never armed one), rf2-3fc89f.10
+                             :timers       {:stale stale-delay-ms
+                                            :gc    gc-delay-ms
+                                            :poll  nil}
+                             :server?      (state/server-frame? frame-id)}]])
               fx        (into (vec timers-fx) cont-fxs)]
           (cond-> {:rf.db/runtime rdb'}
             (seq fx) (assoc :fx fx))))
@@ -3236,13 +3262,13 @@
         (cond-> {:rf.db/runtime runtime-db}
           gc-delay
           (assoc :fx [[:rf.resource/schedule-timers
-                       {:frame-id       frame-id
-                        :resource/key   resource-key
-                        ;; reschedule the GC re-check ONLY (leave stale as-is —
-                        ;; nil disarms that kind in schedule-timers-handler)
-                        :stale-delay-ms nil
-                        :gc-delay-ms    gc-delay
-                        :server?        (state/server-frame? frame-id)}]]))))))
+                       {:frame-id     frame-id
+                        :resource/key resource-key
+                        ;; a PARTIAL re-arm naming ONLY `:gc`: the sibling stale
+                        ;; / poll timers are PRESERVED (absent from `:timers`),
+                        ;; not cancelled (rf2-3fc89f.10)
+                        :timers       {:gc gc-delay}
+                        :server?      (state/server-frame? frame-id)}]]))))))
 
 (defn stale-suppressed-handler
   "`:rf.resource.internal/stale-suppressed` — a late reply carrying a
