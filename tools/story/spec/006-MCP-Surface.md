@@ -23,7 +23,7 @@ evidence model — no second artifact model.
                                        │ - schema validation        │
                                        │ - bridges to ↓             │
                                        └──────┬────────────────────┘
-                                              │ in-process or pair-style
+                                              │ direct, in-process calls
                                               ▼
                                        ┌───────────────────────────┐
                                        │ tools/story/ runtime      │
@@ -34,12 +34,42 @@ evidence model — no second artifact model.
                                        └───────────────────────────┘
 ```
 
-The MCP server connects to a running app's story runtime via the
-existing Tool-Pair primitives (see
-[`spec/Tool-Pair.md`](../../../spec/Tool-Pair.md)): nREPL-attached
-process, the agent reads the registry over the wire, runs variants,
-reads results back. The MCP server itself runs in the agent's
-process; the story runtime runs in the app.
+The stdio MCP server and the Story runtime it calls share **one JVM
+process**: the agent launches the server as a subprocess, and every
+tool call lands directly on `re-frame.story`'s CLJC public surface in
+that same process. Registrations, runs, and snapshots are
+process-local. Neither jar carries an nREPL, socket, or
+JVM-to-browser transport (per
+[`tools/story-mcp/spec/000-Vision.md`](../../story-mcp/spec/000-Vision.md)
+§Relationship to Story).
+
+### Two surfaces, one live door
+
+Agent access to Story splits across two artefacts by host (ruled
+2026-07-11, rf2-3fc89f.22):
+
+- **Story-MCP (`tools/story-mcp/`) — the headless JVM surface.**
+  Docs discovery, authoring guidance, gated writes, and headless
+  variant runs against the Story registry in its own process.
+  CLJS-only state — registered browser substrates, the a11y-panel
+  atom, and above all the registry of a RUNNING browser app — is not
+  reachable from this process; a read of such state returns an
+  explicit capability-unavailable error rather than a false-empty
+  result (rf2-3fc89f.21). The host reports that it cannot look, never
+  that the answer is empty.
+- **The pair (`tools/re-frame2-pair-mcp/`) — the live browser host.**
+  Inspecting or driving the Story runtime inside a running app goes
+  through the pair's nREPL / `cljs-eval` channel (per
+  [`spec/Tool-Pair.md`](../../../spec/Tool-Pair.md)): the pair
+  evaluates `re-frame.story/*` calls in the attached CLJS runtime,
+  which reaches the registrations the browser heap actually holds —
+  registry reads, `run-variant`, frame-scoped dispatch, results. The
+  documented pair-side recipe is tracked as rf2-s99lw4; first-class
+  Story catalogue tools on the pair are a later, demand-gated option.
+
+Story-MCP does not own — and must not imply — a live-app connection;
+there is deliberately **one live door** (the pair), so Story ships no
+second transport.
 
 ## Story's public read primitives (consumed by MCP)
 
@@ -61,7 +91,9 @@ process; the story runtime runs in the app.
 ```
 
 Story's core jar exposes these without depending on stdio / JSON-RPC.
-The MCP jar consumes them via the Tool-Pair bridge.
+The MCP jar consumes them via direct, in-process calls in the shared
+JVM; a pair-attached agent consumes the same surface by evaluating the
+same calls in the live browser runtime (§Two surfaces, one live door).
 
 ### Wire-elision boundary — core is real-values-in, real-values-out
 
@@ -303,6 +335,7 @@ sentinel carried no discriminator information.
   own spec folder (wire protocol, tool registry, write-surface
   gating, design rationale).
 - [`spec/Tool-Pair.md`](../../../spec/Tool-Pair.md) — the runtime
-  contract for pair-shaped AI tools.
+  contract for pair-shaped AI tools; the pair is the live-browser
+  Story host (§Two surfaces, one live door).
 - [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) §separate-mcp-jar —
   why the split.

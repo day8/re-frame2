@@ -8,7 +8,9 @@
   `reg-story-panel` contract.
 
   The MCP jar (`tools/story-mcp/`) consumes Story's CLJC public surface
-  over the Tool-Pair bridge. The story-mcp tests at
+  via direct, in-process calls in the shared JVM (spec/006
+  §Architecture; live-browser access is pair-owned per §Two surfaces,
+  one live door). The story-mcp tests at
   `tools/story-mcp/test/` cover the MCP side — the wire envelope, the
   per-tool semantics, the write-gate contract. What the bead calls out
   as 'Story MCP boundary not covered' is the **Story side**: the

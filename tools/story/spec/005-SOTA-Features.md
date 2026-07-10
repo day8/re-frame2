@@ -424,15 +424,17 @@ re-dispatch (wrapped as `[:dispatch-sync <vec>]`) under
 #### MCP wiring (adjacent bead)
 
 The story-mcp `record-as-variant` tool consumes the same recorder
-state through the cross-process Tool-Pair bridge (per
-[`006-MCP-Surface.md`](006-MCP-Surface.md)): the agent calls
-`start-recording!`, drives interactions via the existing MCP write
-surface (or asks the user to interact with the canvas), calls
-`stop-recording!`, and the snippet emitted by `gen-play-snippet` is
-returned as the tool's structured output for the agent to write
-back to the user's stories namespace. That bead is filed separately
-as a P2 follow-up; this spec locks the recorder's runtime contract
-so the MCP side can build against a stable surface.
+state through direct, in-process calls in the shared JVM (per
+[`006-MCP-Surface.md`](006-MCP-Surface.md) §Architecture): the agent
+calls `start-recording!`, drives interactions via the existing MCP
+write surface, calls `stop-recording!`, and the snippet emitted by
+`gen-play-snippet` is returned as the tool's structured output for
+the agent to write back to the user's stories namespace. Recording a
+live browser canvas — the user interacting with a running app — is
+pair-owned: the pair evaluates the same recorder primitives in the
+attached CLJS runtime (spec/006 §Two surfaces, one live door). This
+spec locks the recorder's runtime contract so both consumers build
+against a stable surface.
 
 #### Recorder sub-system map (rf2-oaxgh)
 
@@ -576,14 +578,15 @@ in the recorded `:play-script` body.
 
 #### MCP wiring
 
-The agent-facing path mirrors the Test Codegen flow: a story-mcp
-`save-current-as-variant` tool dispatches
-`:rf.story/save-current-as-variant` against the live Story process
-through the Tool-Pair bridge (per
-[`006-MCP-Surface.md`](006-MCP-Surface.md)), reads the snippet from
-the resulting dialog state, and returns the EDN form as structured
-output. Filed as a separate P3 follow-up; this spec locks the
-runtime contract so the MCP side can build against a stable surface.
+The agent-facing path mirrors the Test Codegen flow — and, because
+the save-as dialog is live Story-shell state, it is pair-owned: the
+pair dispatches `:rf.story/save-current-as-variant` in the attached
+browser runtime, reads the snippet from the resulting dialog state,
+and returns the EDN form (per
+[`006-MCP-Surface.md`](006-MCP-Surface.md) §Two surfaces, one live
+door). Filed as a separate P3 follow-up; this spec locks the
+runtime contract so the agent side can build against a stable
+surface.
 
 ## Design-system v1 ship list (chrome-identity differentiators)
 
