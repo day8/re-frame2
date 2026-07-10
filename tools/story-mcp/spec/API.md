@@ -9,7 +9,14 @@
 The stdio entry point is a JVM process and calls Story in that same
 process. It has no nREPL or JVM-to-browser bridge. Unless stated
 otherwise, tool results describe registrations and frames loaded in the
-server JVM; CLJS-only surfaces return explicit empty capability results.
+server JVM. Browser-only surfaces (the CLJS substrate registry, the
+a11y-panel violations atom) are UNREACHABLE from this host, and a read of
+one returns a machine-readable **capability-unavailable error** (`isError
+true`, `:rf.error :rf.error/story-mcp-capability-unavailable`, plus
+`:capability` / `:tool` / `:recovery`) — NOT a false-empty success.
+Capability absence is represented separately from an answer: `[]`/`#{}`
+is reserved for a REACHED provider that genuinely holds nothing
+(rf2-3fc89f.21).
 
 All tools dispatch through `re-frame.story-mcp.server`'s `tools/call`
 handler; their definitions live in
@@ -89,8 +96,13 @@ not the verdict (the retired `:passing?` boolean is gone).
 
 **Input.** `{}`.
 
-**Output.** `{:substrates [keyword]}`. The JVM stdio server returns
-`[]` because it cannot access the CLJS substrate registry.
+**Output.** `{:substrates [keyword]}` from a REACHED substrate registry (a
+browser-local Story host; `[]` when the registry genuinely holds none).
+The JVM stdio server cannot access the CLJS substrate registry, so it
+returns the **capability-unavailable error** instead (`isError true`,
+`:rf.error :rf.error/story-mcp-capability-unavailable`, `:capability
+"substrate-registry"`) — never a false-empty `{:substrates []}`
+(rf2-3fc89f.21).
 
 ## Docs tools
 
@@ -415,12 +427,14 @@ opt-in (the others: `preview-variant`, `run-variant`, `read-failures`,
 `record-as-variant`; `explain-variant` is NOT among them — it ships author
 data raw, rf2-7k5mce).
 
-**Output.** `{:variant-id keyword :violations [map] :note string|nil}`.
-A browser-local consumer can return accumulated violations with
-`:note nil`. The JVM stdio server cannot access that atom and returns
-`{:variant-id <kw> :violations [] :note "a11y state is CLJS-only; this
-JVM server cannot run axe-core or read the browser panel's violations
-atom. Use a browser-local inspection surface."}`.
+**Output.** `{:variant-id keyword :violations [map]}` from a REACHED a11y
+provider (a browser-local consumer of this `.cljc` helper). `:violations
+[]` is reserved for a reached provider that reported no findings for the
+frame. The JVM stdio server cannot access the CLJS `violations-by-frame`
+atom, so it returns the **capability-unavailable error** instead (`isError
+true`, `:rf.error :rf.error/story-mcp-capability-unavailable`,
+`:capability "a11y-panel-state"`) — never a false-empty `{:violations []}`
+an agent could read as 'zero accessibility violations' (rf2-3fc89f.21).
 
 ### `read-failures`
 

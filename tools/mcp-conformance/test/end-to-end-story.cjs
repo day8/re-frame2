@@ -241,7 +241,6 @@ runWithWatchdog(
     // wire.
     for (const readTool of [
       'get-story-instructions',
-      'list-substrates',
       'list-modes',
       'list-tags',
     ]) {
@@ -262,8 +261,42 @@ runWithWatchdog(
       }
     }
     console.log(
-      'OK   closed-world reads (get-story-instructions/list-substrates/' +
-        'list-modes/list-tags) -> success envelopes',
+      'OK   closed-world reads (get-story-instructions/list-modes/list-tags) ' +
+        '-> success envelopes',
+    );
+
+    // 2e-bis. list-substrates is a BROWSER-ONLY read: the substrate registry
+    // is CLJS-only and UNREACHABLE from this JVM stdio boot (no browser
+    // bridge). The truthful result is a machine-readable capability-
+    // unavailable ERROR, NOT a false-empty `{:substrates []}` success an
+    // agent could mistake for 'no substrates registered' (rf2-3fc89f.21).
+    // Pin the isError verdict + the stable id so a regression turns RED.
+    {
+      const r = await client.callTool({ name: 'list-substrates', arguments: {} });
+      if (!r.isError) {
+        throw new Error(
+          'list-substrates MUST return a capability-unavailable error on a ' +
+            'JVM host (the substrate registry is unreachable), not a false-' +
+            'empty success; got: ' + JSON.stringify(r),
+        );
+      }
+      const s = structured(r) || {};
+      if (s['rf.error'] !== 'rf.error/story-mcp-capability-unavailable') {
+        throw new Error(
+          'list-substrates error MUST carry the stable capability-unavailable ' +
+            'id; got: ' + JSON.stringify(r),
+        );
+      }
+      if ('substrates' in s) {
+        throw new Error(
+          'list-substrates capability error MUST NOT carry a false-empty ' +
+            ':substrates slot; got: ' + JSON.stringify(r),
+        );
+      }
+    }
+    console.log(
+      'OK   list-substrates -> capability-unavailable error (no false-empty ' +
+        'success on a browser-less host)',
     );
 
     // 2f. Remaining closed-world LIST reads. The read loop above covered
@@ -416,34 +449,38 @@ runWithWatchdog(
     }
     console.log('OK   variant->edn -> :doc round-trips through EDN text + structuredContent present');
 
-    // 4c. read-a11y-violations. The axe-core run is CLJS-in-browser only;
-    // from this JVM-standalone boot the tool READS the (empty) violations
-    // atom and returns a success envelope with `:violations []` + a
-    // JVM-standalone `:note` — so it is a cheap, fixture-backed,
-    // runtime-free success probe (NOT a live
-    // browser dependency). Pins the callTool envelope + structuredContent
-    // shape for the testing-category read against the registered fixture.
+    // 4c. read-a11y-violations. The axe-core run + violations atom are
+    // CLJS-in-browser only and UNREACHABLE from this JVM-standalone boot
+    // (no browser bridge). The truthful result is a machine-readable
+    // capability-unavailable ERROR, NOT a false-empty `{:violations []}`
+    // success an agent could read as 'zero accessibility violations'
+    // (rf2-3fc89f.21). Pins the isError verdict + stable id for the
+    // testing-category browser-only read against the registered fixture.
     const a11yResp = await client.callTool({
       name: 'read-a11y-violations',
       arguments: { 'variant-id': FIXTURE_VARIANT },
     });
-    if (a11yResp.isError) {
-      throw new Error('read-a11y-violations on fixture failed: ' + JSON.stringify(a11yResp));
-    }
-    const a11yStruct = structured(a11yResp);
-    if (!Array.isArray(a11yStruct.violations)) {
+    if (!a11yResp.isError) {
       throw new Error(
-        'read-a11y-violations :violations MUST be an array (empty on a JVM-standalone ' +
-          'boot); got: ' + JSON.stringify(a11yResp),
+        'read-a11y-violations MUST return a capability-unavailable error on a ' +
+          'JVM-standalone boot (the a11y panel is unreachable), not a false-' +
+          'empty success; got: ' + JSON.stringify(a11yResp),
       );
     }
-    if (a11yStruct.violations.length !== 0) {
+    const a11yStruct = structured(a11yResp) || {};
+    if (a11yStruct['rf.error'] !== 'rf.error/story-mcp-capability-unavailable') {
       throw new Error(
-        'read-a11y-violations :violations expected empty on a JVM-standalone boot (no ' +
-          'in-browser axe-core run); got: ' + JSON.stringify(a11yResp),
+        'read-a11y-violations error MUST carry the stable capability-unavailable ' +
+          'id; got: ' + JSON.stringify(a11yResp),
       );
     }
-    console.log('OK   read-a11y-violations -> :violations=[] (JVM-standalone read, envelope pinned)');
+    if ('violations' in a11yStruct) {
+      throw new Error(
+        'read-a11y-violations capability error MUST NOT carry a false-empty ' +
+          ':violations slot; got: ' + JSON.stringify(a11yResp),
+      );
+    }
+    console.log('OK   read-a11y-violations -> capability-unavailable error (no false-empty on a browser-less host)');
 
     // 5. preview-variant — exercise the full lifecycle via the preview
     // tool. With no :play events the run is vacuously passing; the

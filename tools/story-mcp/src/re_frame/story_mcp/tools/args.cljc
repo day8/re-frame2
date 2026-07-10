@@ -209,6 +209,50 @@
   (or (require-collection arguments :active-modes)
       (require-map arguments :cell-overrides)))
 
+(defn substrate-arg-error
+  "Validate an EXPLICITLY-supplied `:substrate` for `tool-name` BEFORE its
+  handler reads run-opts (`run-variant`, `preview-variant`,
+  `snapshot-identity`). Returns nil when `:substrate` is absent (the
+  legitimate default-substrate path) or resolves against a REACHED
+  substrate registry; otherwise an `isError` result. Never returns a
+  coerced value — it only rejects; `read-run-opts` still performs the
+  no-intern `safe-keyword` coercion for the honoured path.
+
+  Two rejection modes (rf2-3fc89f.21 — never silently drop the request to
+  `:substrate nil`):
+
+    - substrate capability UNREACHABLE (the JVM stdio host has no browser
+      bridge to the CLJS `register-substrate!` registry) and a
+      `:substrate` was supplied ⇒ the requested render substrate cannot
+      be honoured here, so return the shared capability-unavailable error
+      (a run under a silently-dropped substrate would be invalid
+      substrate-specific evidence).
+    - capability REACHED but the requested id is not in the bounded
+      registry ⇒ an unknown-substrate error naming the registered set.
+      The probe is `safe-keyword` against the registry set, so a hostile
+      name still interns no JVM keyword.
+
+  Absent `:substrate` never trips either branch — the default substrate
+  is a legitimate no-override path independent of provider reachability."
+  [arguments tool-name]
+  (let [raw (:substrate arguments)]
+    (when (some? raw)
+      (if-not (cljs-resolve/substrate-provider-available?)
+        (result/capability-unavailable-result
+          {:tool       tool-name
+           :capability "substrate-registry"
+           :detail     (str "An explicit :substrate " (pr-str raw) " was requested, "
+                            "but no substrate registry is reachable from this host — "
+                            "the request cannot be honoured and is NOT silently "
+                            "dropped to nil.")})
+        (when-not (args/safe-keyword raw (cljs-resolve/registered-substrates-set))
+          (result/error-result
+            (str "Unknown substrate: " (pr-str raw) ". Registered substrates: "
+                 (pr-str (vec (cljs-resolve/registered-substrates))) ".")
+            {:rf.error   :rf.error/story-mcp-unknown-substrate
+             :substrate  (str raw)
+             :registered (vec (cljs-resolve/registered-substrates))}))))))
+
 (defn read-run-opts
   "Build the `re-frame.story/run-variant` opts map from the standard MCP
   arg slots (`:substrate`, `:active-modes`, `:cell-overrides`) for the

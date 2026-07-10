@@ -22,9 +22,18 @@
 The stdio server calls Story's public API directly in the same JVM. It
 does not attach to a browser through nREPL or the Tool-Pair contract.
 The registry, frames, and headless runs are therefore those loaded in
-the server process. CLJS-only surfaces are capability-limited: the JVM
-server returns `[]` for registered render substrates and an empty
-a11y-violations result with a note because it cannot read browser atoms.
+the server process. Browser-only surfaces are capability-gated: because
+the JVM server cannot read the CLJS substrate registry or a11y-violations
+atom, `list-substrates` and `read-a11y-violations` return a
+machine-readable capability-unavailable error (`isError true`, `:rf.error
+:rf.error/story-mcp-capability-unavailable`) rather than a false-empty
+`[]`/`{:violations []}` success. `[]`/`#{}` is reserved for a REACHED
+provider that genuinely holds nothing — capability absence is not answered
+emptiness (rf2-3fc89f.21). An explicit `:substrate` on
+`run-variant` / `preview-variant` / `snapshot-identity` is likewise
+validated, not silently dropped: unreachable registry → the same
+capability-unavailable error; reached-but-unknown id →
+`:rf.error/story-mcp-unknown-substrate`.
 
 ## The unified run-result (run/read tools speak ONE result vocabulary)
 

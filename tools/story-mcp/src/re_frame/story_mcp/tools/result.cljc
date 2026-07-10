@@ -60,3 +60,47 @@
    (cond-> {:content [{:type "text" :text msg}]
             :isError true}
      (some? structured) (assoc :structuredContent structured))))
+
+(def capability-unavailable-error-id
+  "Stable machine-readable error id for a browser-only Story-MCP read
+  whose backing provider is UNREACHABLE from this host (the JVM stdio
+  server has no bridge to the CLJS browser registry / panel state). It
+  distinguishes 'this host cannot answer' from a reached provider that
+  answered EMPTY — an agent MUST NOT read the latter's `[]`/`#{}` as this,
+  nor this as an empty inventory (rf2-3fc89f.21)."
+  :rf.error/story-mcp-capability-unavailable)
+
+(defn capability-unavailable-result
+  "The ONE capability-unavailable error result the browser-only reads
+  route an ABSENT provider through — `list-substrates` /
+  `read-a11y-violations` when their provider is unreachable, and the
+  `:substrate` validation when an explicit render substrate is requested
+  with no substrate registry reachable.
+
+  Reserved for provider ABSENCE. A reached-but-empty provider returns
+  ordinary success with `[]`/`#{}`, never this — that is the whole point
+  of the boundary: capability absence is not answered emptiness.
+
+  The result is `isError: true` with a `:structuredContent` carrying the
+  stable `:rf.error/story-mcp-capability-unavailable` id, the affected
+  `:capability` + `:tool` names, and an actionable `:recovery` hint so an
+  agent can localise the miss rather than trust a false-empty read.
+
+    :tool       — the MCP tool name(s) that tripped the boundary.
+    :capability — the browser-only capability that is unreachable
+                  (`\"substrate-registry\"` / `\"a11y-panel-state\"`).
+    :detail     — optional extra sentence appended to the message."
+  [{:keys [tool capability detail]}]
+  (error-result
+    (str "Capability unavailable: `" tool "` needs the " capability
+         " provider, which this host cannot reach. "
+         (when detail (str detail " "))
+         "The shipped Story-MCP entry point is a JVM stdio server with no "
+         "bridge to the CLJS browser registry / panel state, so it cannot "
+         "answer this browser-only read. This is NOT an empty result — the "
+         "host never looked. Run the read from a browser-local Story host "
+         "(or wait for the live browser bridge).")
+    {:rf.error   capability-unavailable-error-id
+     :capability capability
+     :tool       tool
+     :recovery   :read-from-a-browser-local-story-host}))

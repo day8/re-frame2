@@ -132,6 +132,7 @@
   (targs/with-variant arguments
     (fn [vk _body]
       (or (targs/run-opts-shape-error arguments)
+          (targs/substrate-arg-error arguments "preview-variant")
           (let [opts       (targs/read-run-opts vk arguments)
                 base-url   (or (:base-url arguments) "")
                 share-url  (story/variant-share-url vk base-url opts)
@@ -174,16 +175,25 @@
   "Dev: what substrates can be used. Reads the registered substrate set
   via the Story-public surface.
 
-  Substrates are registered through the CLJS-only
-  `register-substrate!` surface. The JVM stdio server has no bridge to
-  that browser registry and therefore returns an empty set. This is a
-  host-capability result, not a claim that no substrates exist in the
-  application.
+  Substrates are registered through the CLJS-only `register-substrate!`
+  surface. When the substrate-registry provider is UNREACHABLE (the JVM
+  stdio server has no bridge to that browser registry), this returns a
+  machine-readable capability-unavailable error — NOT a false-empty
+  `{:substrates []}` success that an agent could mistake for 'no
+  substrates registered' (rf2-3fc89f.21). Ordinary success with a
+  (possibly empty) `:substrates` vec is reserved for a REACHED provider —
+  a browser-local Story host whose registry actually answered.
 
-  The CLJS var is resolved once, in `cljs-resolve` —
-  `cljs-resolve/registered-substrates` is the single accessor."
+  Availability is checked through the `cljs-resolve` host-capability
+  boundary; `cljs-resolve/registered-substrates` reads the reached
+  provider's set."
   [_args]
-  (result/edn-result {:substrates (vec (cljs-resolve/registered-substrates))}))
+  (if (cljs-resolve/substrate-provider-available?)
+    (result/edn-result {:substrates (vec (cljs-resolve/registered-substrates))})
+    (result/capability-unavailable-result
+      {:tool       "list-substrates"
+       :capability "substrate-registry"
+       :detail     "Substrate registration is CLJS-only (`register-substrate!`)."})))
 
 ;; ---------------------------------------------------------------------------
 ;; Registry descriptors (assembled in `tools.registry/tool-registry`)
@@ -206,7 +216,7 @@
 
    {:name           "preview-variant"
     :category       :dev
-    :description    (str "Given a variant id, return the canvas state (app-db, assertions, rendered-hiccup, elapsed) + a sharable URL. Runs the SAME `story/run-variant` lifecycle as `run-variant`, so it accepts the SAME tunable `:timeout-ms` blocking knob (default 10000ms, hard ceiling 30000ms; caller values clamp DOWN). The `:app-db` slot is routed through `re-frame.core/elide-wire-value` against the variant frame's `[:rf.runtime/elision]` runtime-db registry — declared-sensitive paths return `:rf/redacted` and oversize slots return the `:rf.size/large-elided` marker by default. The derived `:rendered-hiccup` / `:effective-args` / `:snapshot` trees are PATH-projected on BOTH egress axes against the same frame classification. EP-0025 FAIL-OPEN: a value AT a classified path within a derived slot redacts (a slot whose shape mirrors the app-db, e.g. an `:effective-args {:token …}` with `[:token]` classified), but a value RE-KEYED to a non-matching position (a token at hiccup `[1 :value]`, a snapshot nested under `:db`) ships RAW — value-match was removed; classify the app-db PATH to redact a value before a view renders it. Pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
+    :description    (str "Given a variant id, return the canvas state (app-db, assertions, rendered-hiccup, elapsed) + a sharable URL. Runs the SAME `story/run-variant` lifecycle as `run-variant`, so it accepts the SAME tunable `:timeout-ms` blocking knob (default 10000ms, hard ceiling 30000ms; caller values clamp DOWN). An explicit `:substrate` is validated, not silently dropped: it requires a REACHED substrate registry (unreachable on the JVM stdio host → `:rf.error/story-mcp-capability-unavailable`; reached-but-unknown id → `:rf.error/story-mcp-unknown-substrate`). The `:app-db` slot is routed through `re-frame.core/elide-wire-value` against the variant frame's `[:rf.runtime/elision]` runtime-db registry — declared-sensitive paths return `:rf/redacted` and oversize slots return the `:rf.size/large-elided` marker by default. The derived `:rendered-hiccup` / `:effective-args` / `:snapshot` trees are PATH-projected on BOTH egress axes against the same frame classification. EP-0025 FAIL-OPEN: a value AT a classified path within a derived slot redacts (a slot whose shape mirrors the app-db, e.g. an `:effective-args {:token …}` with `[:token]` classified), but a value RE-KEYED to a non-matching position (a token at hiccup `[1 :value]`, a snapshot nested under `:db`) ships RAW — value-match was removed; classify the app-db PATH to redact a value before a view renders it. Pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
                          "Examples: "
                          "1. Default substrate: {:variant-id \":story.cart/full\"} -> {:variant-id :story.cart/full :share-url \"...\" :status :pass :lifecycle :ready :app-db {...} :assertions [] :checks [] :rendered-hiccup [...]}. "
                          "2. UIx substrate + a mode: {:variant-id \":story.cart/full\" :substrate \":uix\" :active-modes [\":mode/dark\"]} -> same shape, rendered under uix + dark mode. "
@@ -248,10 +258,10 @@
 
    {:name           "list-substrates"
     :category       :dev
-    :description    (str "Report the render substrates visible to this host. Substrate registration is CLJS-only, and the JVM stdio server has no browser bridge, so its result is empty rather than an inventory of the application's browser registry. "
+    :description    (str "Report the render substrates visible to this host. Substrate registration is CLJS-only; when the browser registry is UNREACHABLE (the JVM stdio server has no browser bridge) this returns a machine-readable capability-unavailable error (`isError true`, `:rf.error :rf.error/story-mcp-capability-unavailable`), NOT a false-empty `{:substrates []}` — capability absence is distinct from a reached registry that answered empty. "
                          "Examples: "
-                         "1. JVM stdio server: {} -> {:substrates []} — the CLJS-side registry isn't reachable. "
-                         "2. With budget override: {:max-tokens 1000} -> the same shape.")
+                         "1. JVM stdio server (no browser bridge): {} -> {:isError true :content [{:text \"Capability unavailable: `list-substrates` needs the substrate-registry provider...\"}] :structuredContent {:rf.error :rf.error/story-mcp-capability-unavailable :capability \"substrate-registry\" :tool \"list-substrates\" :recovery :read-from-a-browser-local-story-host}}. "
+                         "2. Browser-local Story host with a reached registry: {} -> {:substrates [:reagent :uix]} (or {:substrates []} when the registry genuinely holds none).")
     :typicalTokens  100
     :inputSchema    {:type "object" :properties (s/with-max-tokens {}) :additionalProperties false}
     :outputSchema   s/default-output-schema

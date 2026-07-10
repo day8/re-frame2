@@ -77,9 +77,12 @@ The stdio server and the Story API it calls share one JVM. Registrations,
 runs, and snapshots are process-local; this artefact contains no nREPL,
 socket, or JVM-to-browser bridge. The JVM server can run Story's CLJC
 headless surface, but CLJS-only state such as registered browser
-substrates and the a11y-panel atom is not reachable and is reported as
-empty. Browser-attached inspection belongs to a pair tool that actually
-owns such a connection; Story-MCP does not imply one.
+substrates and the a11y-panel atom is not reachable, so a read of one
+returns an explicit capability-unavailable error rather than a
+false-empty result (rf2-3fc89f.21) — the host reports that it cannot
+look, never that the answer is empty. Browser-attached inspection belongs
+to a pair tool that actually owns such a connection; Story-MCP does not
+imply one.
 
 ## Relationship to spec/007-Stories.md
 
