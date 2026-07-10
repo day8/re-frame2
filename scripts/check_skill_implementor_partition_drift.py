@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Partition-aware + HTTP-fx + API-name drift guard for the re-frame2-implementor
-skill (rf2-whsb0c + rf2-6c59ob).
+"""Partition-aware + HTTP-fx + API-name + reply-contract drift guard for the
+re-frame2-implementor skill (rf2-whsb0c + rf2-6c59ob + rf2-3fc89f.34).
 
 The implementor skill is a control surface: API names and contract shapes copied
 from it become a port author's tests, docs, and public surface. Two senior
@@ -54,6 +54,19 @@ user-facing implementor docs and asserts:
      entries, or a fully-qualified public PR link where it helps an external
      reader. The skill's own `spec/` meta-docs MAY mention bead ids (authoring /
      internal context) and are out of this scan's scope.
+  6. **Unified reply-address / envelope contract** — after the unified reply-
+     addressing migration, the app-facing authoring key is `:reply-to`;
+     `:rf/reply-to` is the internal / normalized descriptor it lowers to. HTTP
+     `:on-success` / `:on-failure` are SPLIT ROUTING sugar that receive the
+     IDENTICAL canonical reply map (which event routes on success vs failure) —
+     they do NOT reshape the reply into a second, narrower payload dialect. The
+     transient reply map spells the work identity `:rf.reply/work-id`; bare
+     `:work/id` is the durable ledger / verification / abstract-attempt identity.
+     A user-facing leaf that reintroduces the retired teaching (`:rf/reply-to`
+     as the public key / HTTP sugar as a reshaped envelope / bare `:work/id` on
+     the reply map) can turn a conforming new port non-conforming. This rule is
+     context-sensitive: legitimate INTERNAL `:rf/reply-to` descriptor mentions
+     still pass.
 
 Exit code:
     0  no drift detected
@@ -153,6 +166,52 @@ MACHINE_EXCEPTION_RE = re.compile(
 # are deliberately excluded (L7 permits bead ids there).
 BEADID_RE = re.compile(r"\brf2-[a-z0-9]+(?:\.[0-9]+)?\b")
 
+# --- Rule 6: unified reply-address / envelope contract drift (rf2-3fc89f.34).
+# Three context-sensitive sub-checks. Each is deliberately narrow so legitimate
+# INTERNAL `:rf/reply-to` descriptor mentions (the normalized target) still pass
+# — the rules only fire on the retired teaching, not on the token itself.
+
+# 6a — `:rf/reply-to` claimed as the PUBLIC / app-facing / authoring target key.
+# The public authoring key is `:reply-to`; `:rf/reply-to` is the internal /
+# normalized descriptor it lowers to. Fires on "<public-cue> [reply][target] key
+# … `:rf/reply-to`" where NO backtick separates the key-claim from `:rf/reply-to`
+# — so a correct "authoring key is `:reply-to` … internal `:rf/reply-to`
+# descriptor" line (whose first backtick after "key" is `:reply-to`) does NOT
+# match, while "public target key is `:rf/reply-to`" does.
+REPLY_PUBLIC_KEY_RE = re.compile(
+    r"(?:canonical\s+public|public|app-facing|app-authored|authoring|call-site)"
+    r"\s+(?:reply[\s-]*)?(?:target\s+)?key[^`]*`:rf/reply-to`",
+    re.IGNORECASE,
+)
+
+# 6b — HTTP `:on-success` / `:on-failure` described as RESHAPING the reply into a
+# second, narrower payload dialect. They are split ROUTING sugar that receive the
+# IDENTICAL canonical reply map. Fires on `reshap*` in a reply / HTTP-sugar
+# context UNLESS the line DENIES it (not / never / no reshape) or asserts the
+# IDENTICAL / same reply envelope.
+RESHAPE_RE = re.compile(r"reshap\w*", re.IGNORECASE)
+RESHAPE_CTX_RE = re.compile(
+    r":on-success|:on-failure|reply map|reply payload|http payload|envelope",
+    re.IGNORECASE,
+)
+RESHAPE_ALLOW_RE = re.compile(
+    r"\bnot\b|n't|\bnever\b|\bno\s+reshap|identical|same\s+(?:canonical\s+)?reply",
+    re.IGNORECASE,
+)
+
+# 6c — bare `:work/id` placed on the TRANSIENT reply map / payload. Its spelling
+# there is `:rf.reply/work-id`; bare `:work/id` is the durable ledger /
+# verification / abstract-attempt identity. Fires on a reply-map/payload context
+# carrying bare `:work/id` UNLESS the line also spells `:rf.reply/work-id` or
+# marks the id as the durable ledger / verification / abstract identity.
+REPLYMAP_CTX_RE = re.compile(
+    r"reply map|reply payload|http payload|reply envelope", re.IGNORECASE
+)
+BARE_WORKID_RE = re.compile(r"`:work/id`")
+WORKID_ALLOW_RE = re.compile(
+    r":rf\.reply/work-id|ledger|durable|verification|abstract", re.IGNORECASE
+)
+
 
 def _slurp(path: Path) -> str:
     return path.read_text(encoding="utf-8")
@@ -195,6 +254,43 @@ def line_problems(line: str) -> list[str]:
             "top-level `:sensitive` / `:large` keys — machine `:data` is the "
             "schema-first exception (`:data-schema` props / runtime path-list). "
             "Don't imply `reg-machine` takes the marking metadata map."
+        )
+
+    if REPLY_PUBLIC_KEY_RE.search(line):
+        problems.append(
+            "REPLY-PUBLIC-KEY: the app-facing reply-target authoring key is "
+            "`:reply-to` (the unified spelling shared by HTTP / resources / "
+            "mutations); `:rf/reply-to` is the internal / normalized descriptor "
+            "it lowers to, NOT a public spelling. Don't teach `:rf/reply-to` as "
+            "the public / app-facing target key (spec/Managed-Effects.md "
+            "§The reply target)."
+        )
+
+    if (
+        RESHAPE_RE.search(line)
+        and RESHAPE_CTX_RE.search(line)
+        and not RESHAPE_ALLOW_RE.search(line)
+    ):
+        problems.append(
+            "REPLY-HTTP-RESHAPE: HTTP `:on-success` / `:on-failure` are SPLIT "
+            "ROUTING sugar that receive the IDENTICAL canonical reply map (which "
+            "event routes on success vs failure) — they do NOT reshape the reply "
+            "into a second, narrower payload dialect. Don't describe HTTP reply "
+            "sugar as reshaping the envelope (spec/Managed-Effects.md "
+            "§The reply target / Spec 014)."
+        )
+
+    if (
+        REPLYMAP_CTX_RE.search(line)
+        and BARE_WORKID_RE.search(line)
+        and not WORKID_ALLOW_RE.search(line)
+    ):
+        problems.append(
+            "REPLY-WORKID-SPELLING: the TRANSIENT reply map spells the work "
+            "identity `:rf.reply/work-id`; bare `:work/id` is the durable ledger "
+            "/ verification / abstract-attempt identity. Don't put bare "
+            "`:work/id` on the reply map (one fact, two spellings across the "
+            "record↔reply boundary)."
         )
 
     return problems
@@ -361,6 +457,55 @@ def _self_test() -> int:
     expect(
         "The six metadata-bearing sites accept `{:sensitive [paths] :large [paths]}`.",
         dirty=False, label="B7 six sites, no reg-machine on the line",
+    )
+
+    # Rule 6 — reply-address / envelope contract. FAIL fixtures reproduce the
+    # exact rf2-3fc89f.34 retired teaching; PASS fixtures are the corrected prose
+    # and the legitimate INTERNAL `:rf/reply-to` descriptor mentions.
+    expect(
+        "The canonical public target key is `:rf/reply-to` (short vector form, "
+        "or the internal descriptor form).",
+        dirty=True, label="E1 :rf/reply-to taught as the public target key",
+    )
+    expect(
+        "For HTTP, the public `:on-success` / `:on-failure` payload is sugar "
+        "reshaped from the internal envelope — the canonical reply map is internal.",
+        dirty=True, label="E2 HTTP sugar as a reshaped envelope",
+    )
+    expect(
+        "Do not expose `:status` / `:work/id` / `:completed-at` on the public "
+        "HTTP reply payload.",
+        dirty=True, label="E3 bare :work/id on the reply payload",
+    )
+    # PASS — corrected prose and legitimate internal-descriptor references.
+    expect(
+        "The app-facing authoring key is `:reply-to`; it normalizes to the one "
+        "internal / normalized `:rf/reply-to` descriptor it lowers to.",
+        dirty=False, label="F1 public :reply-to + internal :rf/reply-to descriptor",
+    )
+    expect(
+        "All family sugar normalizes to the internal `:rf/reply-to` descriptor "
+        "(a conformance surface, not an everyday app-facing spelling).",
+        dirty=False, label="F2 legitimate internal :rf/reply-to mention",
+    )
+    expect(
+        "`:on-success` and `:on-failure` receive the identical canonical reply "
+        "map that `:reply-to` would; they do NOT reshape it into a second dialect.",
+        dirty=False, label="F3 HTTP sugar denied-reshape + identical envelope",
+    )
+    expect(
+        "The transient reply map spells the work identity `:rf.reply/work-id`; "
+        "bare `:work/id` is the durable ledger / verification identity.",
+        dirty=False, label="F4 reply map :rf.reply/work-id, ledger :work/id",
+    )
+    expect(
+        "Ledger-backed work correlates by `:work/id` (the family owns the tuple head).",
+        dirty=False, label="F5 bare :work/id in a ledger context (no reply-map)",
+    )
+    expect(
+        "The route loader stores the normalized `:rf/reply-to` target in "
+        "runtime-db and completes it via the shared substrate.",
+        dirty=False, label="F6 internal :rf/reply-to storage, no public-key claim",
     )
 
     # Rule 5 — bead-id leak. line_problems() does NOT cover Rule 5 (it scans a
