@@ -330,9 +330,9 @@
    ;; (`[:by-id "user-secret-id" :token]`) — so shipping it raw leaks both the
    ;; sensitive path STRUCTURE and the embedded id off-box. The SSR projection
    ;; OMITS this slot entirely (the client rebuilds its own registry on mount).
-   :rf.runtime/elision  {:declarations           {[:auth :token] {:source :effect}}
+   :rf.runtime/elision  {:declarations           {[:auth :token] #{{:source :effect}}}
                          :sensitive-declarations {[:by-id "user-secret-id" :token]
-                                                  {:source :effect}}}
+                                                  #{{:source :effect}}}}
    :rf.runtime/ssr      {:hydration {:server-hash "h1"}}})
 
 (deftest project-runtime-db-ships-durable-omits-transient
@@ -400,7 +400,7 @@
             never be the sole reason a runtime-db slice rides)"
     (is (nil? (payload-policy/project-runtime-db
                 {:rf.runtime/elision {:sensitive-declarations
-                                      {[:auth :token] {:source :effect}}}}))
+                                      {[:auth :token] #{{:source :effect}}}}}))
         "elision-only runtime-db contributes no wire slice")))
 
 (deftest project-runtime-db-nil-and-empty

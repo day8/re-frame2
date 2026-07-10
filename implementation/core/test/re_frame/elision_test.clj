@@ -81,7 +81,7 @@
         out   (rf/elide-wire-value
                 {:user {:name "Ada" :uploaded-pdf "<<5MB-blob>>"}})
         slot  (get-in out [:user :uploaded-pdf])]
-    (is (= {:source :effect}
+    (is (= #{{:source :effect}}
            (get decls [:user :uploaded-pdf])))
     (is (elision/marker? slot))
     (is (= [:user :uploaded-pdf]
@@ -330,7 +330,7 @@
   (install-class! [[:root :a :b :token]] [[:root :a :b :c]])
   (is (contains? (elision/declarations) [:root :a :b :c]))
   (is (contains? (elision/sensitive-declarations) [:root :a :b :token]))
-  (is (= {:source :effect}
+  (is (= #{{:source :effect}}
          (get (elision/declarations) [:root :a :b :c]))))
 
 ;; rf2-izlr7f — NESTED-AXIS SUPPRESSION (the highest-priority EP-0025 egress

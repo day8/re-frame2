@@ -133,8 +133,8 @@
           large (elision/declarations :app/effects)]
       (is (contains? sens [:auth :token])
           "the :sensitive effect classified [:auth :token]")
-      (is (= :effect (:source (get sens [:auth :token])))
-          "the declaration is tagged :source :effect")
+      (is (= #{{:source :effect}} (get sens [:auth :token]))
+          "the effect owner is the sole claimant, tagged :source :effect")
       (is (contains? large [:documents :csv-upload])
           "the :large effect classified [:documents :csv-upload]"))))
 

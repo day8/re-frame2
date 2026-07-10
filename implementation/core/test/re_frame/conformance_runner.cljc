@@ -474,16 +474,13 @@
   [fixture scope-frame]
   (letfn [(slot-for [axis]
             (case axis :sensitive :sensitive-declarations :large :declarations))
+          ;; Delegate to the SAME core multi-owner ops the real commit-plane
+          ;; effects use, so the seed writes the effect owner exactly as
+          ;; `apply-classification-effects` would (rf2-wdm1vg).
           (add-paths [reg axis paths]
-            (reduce (fn [r path]
-                      (assoc-in r [(slot-for axis) (vec path)] {:source :effect}))
-                    reg paths))
+            (elision/add-claims reg (slot-for axis) {:source :effect} (map vec paths)))
           (clear-paths [reg axis paths]
-            (let [slot (slot-for axis)]
-              (reduce (fn [r path]
-                        (let [kept (dissoc (get r slot) (vec path))]
-                          (if (seq kept) (assoc r slot kept) (dissoc r slot))))
-                      reg paths)))]
+            (elision/remove-claims reg (slot-for axis) {:source :effect} (map vec paths)))]
     (doseq [op (or (:fixture/classification-effects fixture) [])]
       (cond
         (contains? op :sensitive)

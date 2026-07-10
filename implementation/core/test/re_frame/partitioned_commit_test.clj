@@ -435,10 +435,10 @@
       ;; the `{:source :flow}` mark at REGISTRATION time, so it is present in
       ;; `runtime-before` (the chain-start snapshot) and must survive a rollback.
       (rf/reg-flow :creds {:frame :pc/rb-srcaware :inputs [[:n]] :output-path [:derived :creds] :sensitive [[:secret]]} (fn [n] {:secret n}))
-      (is (= {:source :flow :flow-id :creds}
+      (is (= #{{:source :flow :flow-id :creds}}
              (get (elision/sensitive-declarations :pc/rb-srcaware)
                   [:derived :creds :secret]))
-          "precondition: the :source :flow mark is installed at reg-flow time")
+          "precondition: the :source :flow owner is installed at reg-flow time")
       ;; app schema demanding :n stay a non-negative int — the bad handler
       ;; violates it, forcing the post-commit rollback.
       (rf/with-frame :pc/rb-srcaware
@@ -461,10 +461,10 @@
                           [:another-secret]))
           "the rejected event's in-band :source :effect classification UNWINDS on rollback (rf2-5lo1fk)")
       ;; rf2-3pglag: the pre-existing :source :flow mark SURVIVES the rollback.
-      (is (= {:source :flow :flow-id :creds}
+      (is (= #{{:source :flow :flow-id :creds}}
              (get (elision/sensitive-declarations :pc/rb-srcaware)
                   [:derived :creds :secret]))
-          "the pre-existing :source :flow mark SURVIVES the rollback (rf2-3pglag)"))))
+          "the pre-existing :source :flow owner SURVIVES the rollback (rf2-3pglag)"))))
 
 ;; rf2-yzsims — positive rollback-survivor coverage for genuine out-of-band
 ;; sources LOWERED DURING the rejected event, plus the rf2-o6rsi2 reentrant
@@ -492,8 +492,9 @@
         {:after (fn [ctx]
                   (elision/swap-elision-slot! :pc/rb-subsys
                     (fn [reg]
-                      (assoc-in reg [:sensitive-declarations [:actor :token]]
-                                {:source :machine :machine-id :door})))
+                      (elision/add-claims (or reg {}) :sensitive-declarations
+                                          {:source :machine :machine-id :door}
+                                          [[:actor :token]])))
                   ctx)})
       (rf/reg-event :pc/bad-subsys
         {:doc "schema-violating handler; the interceptor lowers a subsystem mark"
@@ -503,9 +504,9 @@
       (rf/dispatch-sync [:pc/bad-subsys] {:frame :pc/rb-subsys})
       (is (= {:n 0} (rf/app-db-value :pc/rb-subsys))
           "app-db rolled back to the pre-handler value")
-      (is (= {:source :machine :machine-id :door}
+      (is (= #{{:source :machine :machine-id :door}}
              (get (elision/sensitive-declarations :pc/rb-subsys) [:actor :token]))
-          "the during-event out-of-band :source :machine mark SURVIVES the rollback (rf2-yzsims)"))))
+          "the during-event out-of-band :source :machine owner SURVIVES the rollback (rf2-yzsims)"))))
 
 (deftest schema-rollback-restores-moved-flow-old-path-mark
   (testing "a reentrant reg-flow output-path MOVE inside a schema-rejected
@@ -521,10 +522,10 @@
       ;; A real flow whose sensitive output sits at the OLD path. The mark is
       ;; installed at reg-flow time, so it is in the chain-start snapshot.
       (rf/reg-flow :mover {:frame :pc/rb-move :inputs [[:n]] :output-path [:old :creds] :sensitive [[:secret]]} (fn [n] {:secret n}))
-      (is (= {:source :flow :flow-id :mover}
+      (is (= #{{:source :flow :flow-id :mover}}
              (get (elision/sensitive-declarations :pc/rb-move)
                   [:old :creds :secret]))
-          "precondition: the OLD-path :source :flow mark is installed")
+          "precondition: the OLD-path :source :flow owner is installed")
       (rf/with-frame :pc/rb-move
         (rf/reg-app-schema [] [:map [:n [:int {:min 0}]]]))
       ;; An :after interceptor MOVES the flow's output-path mid-cascade (a
@@ -545,16 +546,16 @@
       ;; rf2-o6rsi2: the OLD-path mark is restored from the pre-cascade snapshot
       ;; (the live registry had dropped it; the rolled-back db still holds the
       ;; old output value, so dropping the mark would leak it RAW).
-      (is (= {:source :flow :flow-id :mover}
+      (is (= #{{:source :flow :flow-id :mover}}
              (get (elision/sensitive-declarations :pc/rb-move)
                   [:old :creds :secret]))
-          "the dropped OLD-path :source :flow mark is RESTORED on rollback (rf2-o6rsi2)")
+          "the dropped OLD-path :source :flow owner is RESTORED on rollback (rf2-o6rsi2)")
       ;; The NEW-path mark — lowered out-of-band during the event — legitimately
       ;; survives too (the flow now declares it; harmless over the rolled-back db).
-      (is (= {:source :flow :flow-id :mover}
+      (is (= #{{:source :flow :flow-id :mover}}
              (get (elision/sensitive-declarations :pc/rb-move)
                   [:new :creds :secret]))
-          "the NEW-path out-of-band :source :flow mark survives (during-event subsystem write)"))))
+          "the NEW-path out-of-band :source :flow owner survives (during-event subsystem write)"))))
 
 ;; rf2-wfy2kq (P1 DATA-CORRUPTION) — the post-commit schema rollback must
 ;; restore the FULL prior app-db, not a path-focused SLICE.
