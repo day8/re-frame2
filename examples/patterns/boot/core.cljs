@@ -132,13 +132,13 @@
 ;; own frame — the runtime never conjures one for you.
 (def app-frame :rf/default)
 
-(defn run []
-  ;; Hand the adapter's spec map straight to `init!`.
-  (rf/init! reagent-adapter/adapter)
-
-  (when (exists? js/document)
+;; DOM setup lives in `mount!`, tagged `^:dev/after-load` so shadow-cljs re-runs
+;; it after each hot reload — edited views re-render into the same root and frame.
+(defn ^:dev/after-load mount! []
+  (when-let [el (and (exists? js/document)
+                     (js/document.getElementById "app"))]
     (when-not @react-root
-      (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
+      (reset! react-root (rdc/create-root el)))
     ;; One frame-provider does three things — create the frame, configure it,
     ;; seed it:
     ;;
@@ -154,3 +154,8 @@
                                     :fx-overrides   {:rf.http/managed :boot.demo/http-stub}
                                     :initial-events [[:boot/initialise]]}
                  [boot.views/root-view]])))
+
+(defn run []
+  ;; Hand the adapter's spec map straight to `init!`.
+  (rf/init! reagent-adapter/adapter)
+  (mount!))
