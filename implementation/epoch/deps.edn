@@ -25,9 +25,7 @@
                        ;; Publishes the resource egress hooks used by projection
                        ;; integration tests; production lookup is nil-safe.
                        day8/re-frame2-resources  {:local/root "../resources"}
-                       day8/re-frame2-test-quiet {:local/root "../test-quiet"}
-                       io.github.cognitect-labs/test-runner
-                       {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+                       day8/re-frame2-test-quiet {:local/root "../test-quiet"}}
          :main-opts   ["-m" "re-frame.test-quiet.runner"]}
 
   ;; The release workflow replaces the core `:local/root` with its Maven
