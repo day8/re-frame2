@@ -1,6 +1,6 @@
 (ns re-frame.story.share
   "Per-variant share URL — pure URL builder + parser. Per
-  `005-SOTA-Features.md` §Share URL + Stage 6 + Phase-2 §5.2 #6.
+  `005-SOTA-Features.md` §Share URL.
 
   Each variant has a sharable URL that encodes the active modes and
   any cell-overrides so a teammate pasting the URL lands on the exact

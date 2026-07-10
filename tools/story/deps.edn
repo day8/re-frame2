@@ -1,5 +1,5 @@
 ;; day8/re-frame2-story — Storybook-class component playground for
-;; re-frame2 (rf2-u6fb parent epic; Stage 1 spec rf2-2hir).
+;; re-frame2.
 ;;
 ;; Per tools/README.md the artefact is a downstream consumer of
 ;; implementation/core/ (and the implementation/adapters/reagent/ shell
@@ -11,8 +11,6 @@
 ;; (day8/re-frame2-story-mcp). This artefact carries no stdio / JSON-RPC
 ;; dependency.
 ;;
-;; Stage 2 (rf2-* TBD by Stage 1 bead-filing) lands src/ and test/ trees.
-;; Until then this deps.edn is the contract; sources arrive with Stage 2.
 {:paths ["src"]
  :deps  {day8/re-frame2          {:local/root "../../implementation/core"}
          day8/re-frame2-reagent  {:local/root "../../implementation/adapters/reagent"}
@@ -24,20 +22,18 @@
          ;; dep stays.
          reagent/reagent         {:mvn/version "2.0.1"}
 
-         ;; Stage 3 (rf2-von3) — the loader four-phase lifecycle is
-         ;; implemented as a state machine via `re-frame.machines` per
-         ;; IMPL-SPEC §5.4 and the standing 'no new registries' rule
-         ;; (AGENTS.md `downstream-EPs-consume-foundation`). Story's
+         ;; The loader lifecycle is implemented as a state machine via
+         ;; `re-frame.machines`; Story consumes the framework artefact
+         ;; instead of maintaining a parallel lifecycle registry. Story's
          ;; runtime registers `:rf.story.lifecycle/machine` at boot;
          ;; per-variant snapshots live at `[:rf.runtime/machines
          ;; :snapshots :rf.story.lifecycle/machine]` inside each variant frame's
-         ;; runtime-db partition (EP-0001 rf2-vzld77). Without machines on the
-         ;; classpath the lifecycle cannot run, so the dep is mandatory at
-         ;; Stage 3+.
+         ;; runtime-db partition. Without machines on the classpath the
+         ;; lifecycle cannot run, so this is a runtime dependency.
          day8/re-frame2-machines {:local/root "../../implementation/machines"}
 
-         ;; rf2-5x1wt.14 — the managed-HTTP artefact. Story's first-class
-         ;; `:network` world slot lowers to the managed-request stub
+         ;; Story's first-class `:network` world slot lowers to the
+         ;; managed-request stub
          ;; machinery in `re-frame.http.test-support/install-managed-
          ;; request-stubs!` (Spec 014 §Testing). Installing the stub fx
          ;; for a `:network` variant frame is a RUNTIME concern, so the
@@ -56,10 +52,9 @@
 
  :aliases
  {:test {:extra-paths ["test"]
-         :extra-deps  {;; rf2-try1x — silent-on-success reporter.
-                       day8/re-frame2-test-quiet {:local/root "../../implementation/test-quiet"}
-                       ;; rf2-5x1wt.5/.6 + rf2-5x1wt.7 — two test-only consumers
-                       ;; need the live epoch surface on the JVM classpath:
+         :extra-deps  {day8/re-frame2-test-quiet {:local/root "../../implementation/test-quiet"}
+                       ;; Two test-only consumers need the live epoch surface
+                       ;; on the JVM classpath:
                        ;;   • the invariant-sentinel fixture
                        ;;     (`re-frame.story.invariants`) registers a live epoch
                        ;;     listener via `re-frame.core/register-epoch-listener!`;
@@ -75,8 +70,8 @@
                        ;; (both sources read the late-bound facade), mirroring how
                        ;; implementation/core/deps.edn pulls epoch on :test only.
                        day8/re-frame2-epoch      {:local/root "../../implementation/epoch"}
-                       ;; rf2-6nk6d — test.check is here on the :test alias ONLY
-                       ;; (NOT a Story runtime dep). It exercises the OPTIONAL
+                       ;; test.check is present on the :test alias only. It
+                       ;; exercises the optional
                        ;; `re-frame.story.generate.test-check` adapter, which
                        ;; late-binds test.check via `requiring-resolve` so the
                        ;; published Story jar never depends on it. The

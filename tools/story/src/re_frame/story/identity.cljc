@@ -67,10 +67,10 @@
     NOT, and raw `:!x` authoring syntax never reaches the hash.
   - Variant `:viewport` / `:background` visual chrome
   - Variant `:args->events`, `:platforms`, `:substrates` targeting
-  - The variant's `:component` view-id override (rf2-bah5o2) — variant-
+  - The variant's `:component` view-id override — variant-
     first resolution decides WHICH view renders
   - The variant's `:sub-overrides` / `:db-seed` / `:network` render
-    inputs (rf2-9zj0nc) — pinned sub outputs, pre-script app-db seed,
+    inputs — pinned sub outputs, pre-script app-db seed,
     stubbed HTTP replies
   - Parent story `:component` id
   - Parent story `:decorators`
@@ -85,7 +85,7 @@
   ## Hash function
 
   `002-Runtime.md` §Snapshot-identity computation specifies `sha-256` of a transit-serialised canonical
-  form. Stage 3 implements a **portable** hash function: a stable
+  form. The current implementation uses a **portable** hash function: a stable
   string serialisation (deterministic key order; sets/vectors written
   with stable order) hashed with `hash` (JVM `clojure.lang.Util/hasheq`,
   CLJS `cljs.core/hash`).
@@ -93,9 +93,9 @@
   Trade-off vs sha-256: `hash` is 32-bit and faster, but only ~4-billion
   states. For visual-regression keying that's enough provided the
   caller dedupes by `[variant-id content-hash]` (the variant id is
-  unique; the hash is per-variant per-cell). The sha-256 path is left
-  as a Stage 6+ extension when an external service needs cryptographic
-  collision-resistance.
+  unique; the hash is per-variant per-cell). A consumer that requires
+  cryptographic collision resistance still needs the specified sha-256
+  path; this eight-character content hash is not a security primitive.
 
   The canonical-form version tag `fingerprint/canonical-version`
   (`:rf/snapshot-canonical-v2`) is prepended by
@@ -112,8 +112,8 @@
 
 (defn- variant-body-slice
   "Return the slice of the variant body that contributes to the snapshot
-  identity. Excludes runtime-environmental keys (`:source` coords) and
-  Stage 4+ slots that don't yet exist (kept for forward compatibility).
+  identity. Excludes runtime-environmental keys (`:source` coords) and keys
+  outside the explicit settled-render/test allowlist below.
 
   Per /spec/007-Stories.md §Variant snapshot identity the variant-level `:decorators`
   participate in the hash — watch-mode auto-rerun keys off this identity
@@ -137,7 +137,7 @@
     screenshot, so a baseline must invalidate when they change.
   - `:args->events` / `:platforms` / `:substrates` — derivation +
     targeting that change what is rendered.
-  - `:component` — the per-variant view-id OVERRIDE (rf2-bah5o2). The
+  - `:component` — the per-variant view-id override. The
     renderer resolves variant-first `(or (:component variant) (:component
     story))`, so the variant's `:component` decides WHICH view renders;
     two variants differing only in it — or a watch-session edit swapping
@@ -145,7 +145,7 @@
     reaches the hash via `story-body-slice`; THIS is the variant-level
     override slot, which the story slice cannot see.)
   - `:sub-overrides` / `:db-seed` / `:network` — render inputs that change
-    the settled rendered state (rf2-9zj0nc): pinned subscription outputs
+    the settled rendered state: pinned subscription outputs
     the renderer surfaces, the pre-script app-db seed, and stubbed HTTP
     replies a fetch-on-mount view settles to. Plain authored data — the
     canonicaliser handles them (hashing the raw authored map incl. any

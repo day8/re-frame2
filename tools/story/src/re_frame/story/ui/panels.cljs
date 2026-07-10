@@ -1,11 +1,10 @@
 (ns re-frame.story.ui.panels
-  "Built-in story panels — the registry-resolved chrome slots Stage 6
-  (rf2-zhwd) ships with v1.0.
+  "Built-in story panels — Story's registry-resolved chrome slots.
 
   ## Panel registration contract
 
   Per `001-Authoring.md` §Registration macros + `003-Render-Shell.md`
-  §Panel registration contract (Stage 6 addition) — a story panel is
+  §Panel registration contract, a story panel is
   registered via:
 
       (story/reg-story-panel <panel-id>
@@ -21,17 +20,19 @@
   panel into its `:placement` slot. The `:render` view receives the
   current variant-id as its single arg.
 
-  Stage 6 wires this for the v1.0 panels:
+  Canonical boot registers these v1.0 panels:
 
   - `:rf.story.panel/a11y`   — axe-core scanner scoped to the VARIANT
                                 tree (see `re-frame.story.ui.a11y`).
   - `:rf.story.panel/chrome-a11y` — axe-core scanner scoped to the
                                 Story CHROME root, `[data-rf-story-root]`
-                                (rf2-18t6p; see
+                                (see
                                 `re-frame.story.ui.chrome-a11y`). Sibling
                                 of `:a11y`; shares the engine + opt-in.
   - `:rf.story.panel/layout-debug` — the three layout-debug decorator
-                                toggles, hosted as a controls-style chrome."
+                                toggles, hosted as a controls-style chrome.
+  - `:rf.story.panel/schema-validation` — frame-scoped schema violations
+                                from the Story trace buffer."
   (:require [reagent.core :as r]
             [re-frame.core :as rf]
             [re-frame.story.config :as config]
@@ -83,10 +84,9 @@
   ^{:doc "Per-variant layout-debug toggle state. `{variant-id →
          #{decorator-id ...}}`. Reagent atom for reactive renders.
 
-         The state is informational at Stage 6 — the toggle records
-         which decorators the author *wants* applied at the variant
-         level. The Stage-6-or-later canvas can read this and merge
-         it into the resolved decorator stack on the fly."}
+         The atom records the decorator set requested for each variant;
+         render consumers read it through
+         `active-layout-debug-decorators`."}
   layout-debug-toggles
   (r/atom {}))
 
@@ -106,10 +106,10 @@
 
 (defn layout-debug-view
   "Layout-debug controls panel. Lists the three layout-debug decorators
-  with toggles so the user can enable / disable each at runtime without
-  touching variant body.
+  with per-variant toggles and exposes the requested set through
+  `active-layout-debug-decorators`.
 
-  Form-2 (per rf2-4t5u): the render fn returned by the outer fn derefs
+  The form-2 render fn returned by the outer fn derefs
   `layout-debug-toggles` directly inside the body. The form-2 shape
   ensures Reagent's reaction-tracking observes the deref at render
   time — under the registered-view path the user fn is wrapped by
@@ -119,7 +119,7 @@
   re-render through the wrapper chain; the form-2 inner-fn shape is
   the canonical Reagent idiom that survives nested wrapping.
 
-  Also (rf2-4t5u): the toggle event is wired via `:on-change` on the
+  The toggle event is wired via `:on-change` on the
   `<input>` (not `:on-click` on the surrounding `<label>`). Clicking
   the label propagates an implicit click to the contained input, and
   a label-side `:on-click` ALSO sees that bubbled click — so the
@@ -154,16 +154,17 @@
   (rf/reg-view* view-id render-fn))
 
 (defn install-canonical-panels!
-  "Register the Stage 6 (rf2-zhwd) v1.0 panel set:
+  "Register the canonical v1.0 panel set:
 
   - `:rf.story.panel/layout-debug` — the layout-debug toggle panel.
 
   The a11y panel registers separately via
   `re-frame.story.ui.a11y/install-canonical-a11y!` (so axe-core's
   lazy-load contract stays in its own module). The chrome-a11y panel
-  (rf2-18t6p) registers via
+  registers via
   `re-frame.story.ui.chrome-a11y/install-canonical-chrome-a11y!`
-  alongside it — same engine, distinct scope.
+  alongside it — same engine, distinct scope. Schema validation registers
+  through `re-frame.story.ui.schema-validation/install!`.
 
   Idempotent. Production builds with `:rf.story/enabled?` false skip
   registration."
@@ -179,12 +180,12 @@
        :render    layout-debug-render-id})
     ;; A11y panel — registers in its own ns.
     (a11y/install-canonical-a11y!)
-    ;; Chrome-a11y panel (rf2-18t6p) — sibling of the variant a11y
+    ;; Chrome-a11y panel — sibling of the variant a11y
     ;; panel scoped to `[data-rf-story-root]` so Story dogfoods axe-
     ;; core against its OWN chrome (the variant a11y panel scopes to
-    ;; the variant tree only, per rf2-qgms1).
+    ;; the variant tree only).
     (chrome-a11y/install-canonical-chrome-a11y!)
-    ;; Schema-validation panel (rf2-dvue) — registers in its own ns
+    ;; Schema-validation panel registers in its own ns
     ;; so the late-bind validator lookup stays isolated.
     (schema-validation/install!)))
 
@@ -218,9 +219,8 @@
 (defn render-panels-at-placement
   "Render every registered `:story-panel` whose `:placement` matches
   `placement` and whose visibility flag in the shell state is truthy.
-  Stage 6 (rf2-zhwd).
 
-  Per rf2-zme7: a panel's `:render` view often subscribes against the
+  A panel's `:render` view often subscribes against the
   active variant's app-db (e.g. `:counter-with-stories.views/parity-
   badge` reads `:count-parity` from the variant's frame). The panel
   view runs OUTSIDE the canvas's React subtree, so it needs its own

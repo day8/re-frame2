@@ -30,7 +30,7 @@
 
   Variant `:decorators` is a vector of `[decorator-id & args]` vectors.
   Inline decorator forms (where the first element is itself a map)
-  are NOT supported — Stage 2's schema forbids them. Story-level
+  are NOT supported; the schema requires registered ids. Story-level
   decorators live on the parent story's `:decorators` slot.
 
   Unknown decorator-ids surface as an entry in the returned `:errors`
@@ -46,20 +46,15 @@
   "Return the variant's FULL ordered `[decorator-ref ...]` list — globals
   (outermost), then the parent story's `:decorators`, then the variant
   chain — by reading the COMPILED plan's `[:world :decorators]`, NOT by
-  re-assembling the three sources here (rf2-5fibj / rf2-din8u).
+  re-assembling the three sources here.
 
-  The plan compiler (`re-frame.story.plan`) is now the SINGLE source of
+  The plan compiler (`re-frame.story.plan`) is the single source of
   the full stack: it folds `(concat globals story variant-chain)` into
-  `[:world :decorators]` (rf2-5fibj), the SAME set this fn used to
-  `concat` at resolve time. Reading it off the plan means the registered
+  `[:world :decorators]`. Reading it off the plan means the registered
   front-door path (`resolve-decorators`, which the canvas calls), the
   inline-plan runtime path (`resolve-decorator-refs` over the plan's
   refs), and `render-variant` (which reads `render-inputs`' `:decorators`,
-  also off `[:world :decorators]`) ALL resolve the identical stack — no
-  second assembly engine to diverge. Before rf2-5fibj this fn prepended
-  globals + story while the plan carried only the variant chain, so
-  `render-variant` (reading the plan alone) dropped globals + story and
-  diverged from the live canvas.
+  also off `[:world :decorators]`) all resolve the identical stack.
 
   Globals + story are AMBIENT (project config + parent-story body), not
   part of the variant body — the plan resolves them through
@@ -71,7 +66,7 @@
   per-variant cost is one plan compile per resolution, which the single-
   source invariant pays for (no second merge engine to diverge).
 
-  `run-args` (rf2-eyrpr) — the ambient + per-run arg layers
+  `run-args` carries the ambient + per-run arg layers
   (`args/run-arg-layers`'s `{:pre … :post …}` shape) threaded into the
   plan compile so a `[:arg key]` resolvable ONLY through a mode / cell /
   global / story layer (never the variant chain) substitutes cleanly
@@ -122,10 +117,10 @@
   "Look up `[decorator-id & args]` against the decorator registry.
   Returns `{:id ... :args [...] :body <body-or-nil> :error nil|<map>}`.
 
-  Stage 3 does not throw on an unregistered decorator — the runtime
+  Resolution does not throw on an unregistered decorator; the runtime
   records it as an error so the variant pane can show it inline.
 
-  Stage 5 adds the `:ref-args?` expansion path: decorators that take
+  The `:ref-args?` path expands decorators that take
   their config from the *ref* (e.g. `:rf.story/force-fx-stub`) get a
   synthesised per-reference body so downstream classification sees the
   user-supplied data."
@@ -159,10 +154,9 @@
 
 ;; ---- cycle / re-registration detection -----------------------------------
 ;;
-;; Per `002-Runtime.md` §Open items (Stage 3 picks) hot-reload, the runtime must be able to ask the
-;; registrar 'has decorator X been re-registered since I cached it?' and
-;; refresh if so. Stage 3 provides the freshness check; Stage 4 (UI
-;; shell) wires the trigger.
+;; The hot-reload path must be able to ask the registrar whether a decorator
+;; has changed since it was cached. These fingerprints provide that pure
+;; comparison; the UI shell owns polling and rerun orchestration.
 
 (defn decorator-fingerprint
   "Per-decorator fingerprint suitable for hot-reload comparison. Two
@@ -170,8 +164,7 @@
   (excluding `:source`-coord noise that varies across recompiles).
 
   Used by the UI shell to detect when a decorator changed and the
-  cached resolution must be invalidated. Stage 4 calls this; Stage 3
-  surfaces it."
+  cached resolution must be invalidated."
   [decorator-id]
   (let [body (registrar/handler-meta :decorator decorator-id)
         body (dissoc body :source)]
@@ -179,11 +172,11 @@
 
 (defn resolution-fingerprints
   "Return `{decorator-id → fingerprint}` for every decorator the variant
-  will use. Stage 4 caches the resolved decorator stack alongside this
+  will use. The UI shell caches the resolved decorator stack alongside this
   map and re-resolves if any fingerprint diverges from the registry's
   current value.
 
-  `opts` (rf2-eyrpr) — the per-run `{:active-modes … :cell-overrides …}`
+  `opts` is the per-run `{:active-modes … :cell-overrides …}`
   (same shape `resolve-decorators` takes), folded into the plan compile
   that yields the decorator REF list so a `[:arg key]` resolvable only
   through a mode / cell layer does not throw `:rf.error/story-missing-arg`
@@ -350,7 +343,7 @@
   decorator id. When `fx-id` is nil (a body-supplied `:fx-id` is
   unset — unusual but legal), only the decorator id is encoded.
 
-  Pure data → keyword; JVM-testable. Stage 5 (rf2-h8et)."
+  Pure data → keyword; JVM-testable."
   [decorator-id fx-id]
   (let [base (name decorator-id)
         suffix (when fx-id
@@ -365,19 +358,21 @@
   (per spec/002 §reg-frame).
 
   Each `:fx-override` decorator carries `{:fx-id <id> :response <data>}`.
-  We synthesise a per-decorator replacement event id of the form
+  We synthesise a per-decorator replacement fx id of the form
   `:rf.story.fx-stub/<decorator-id>` and the runtime registers the
-  replacement event as `(reg-event that-id (fn [_ _] ...))`
-  before the variant frame's `reg-frame` call. Last-wins on `:fx-id`
+  replacement handler with `reg-fx` before allocating the variant frame.
+  Last-wins on `:fx-id`
   collision (the inner-most decorator wins).
 
-  Returns `{:overrides {<fx-id> <stub-event-id>}
-            :registrations [{:event-id <stub-event-id>
-                             :response <data>} ...]}`.
+  Returns `{:overrides {<fx-id> <stub-id>}
+            :registrations [{:fx-id <fx-id>
+                             :stub-id <stub-id>
+                             :response <data>
+                             :decorator-id <decorator-id>} ...]}`.
 
-  The Stage 3 runtime walks `:registrations` and calls `reg-event`
-  for each before `reg-frame`-ing the variant; then threads the
-  `:overrides` map onto the frame's config."
+  The frames runtime walks `:registrations` and installs each stub
+  before frame allocation, then threads the `:overrides` map onto the
+  frame's config."
   [fx-override-decorators]
   (let [pairs (mapv (fn [r]
                       (let [fx-id    (-> r :body :fx-id)

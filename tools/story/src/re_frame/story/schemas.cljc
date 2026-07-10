@@ -269,8 +269,8 @@
 
 (def ArgMap
   "Free-shape args map. Keys are keywords; values are arbitrary data.
-  The values must be EDN-round-trippable; this is enforced behaviourally
-  by the snapshot-identity computation (Stage 3), not structurally here."
+  The values must be EDN-round-trippable; snapshot-identity enforces that
+  behaviourally rather than this schema attempting to classify every value."
   [:map-of :keyword :any])
 
 (def ArgtypesMap
@@ -1317,7 +1317,7 @@
     `004-Assertions.md` §Canonical assertion vocabulary (Phase-2 §5.1 #6) the `:rf.story/force-fx-stub`
     built-in uses this shape so authors can pass `(fx-id, response)` at
     the reference site: `[:rf.story/force-fx-stub :http {...}]`. The
-    Stage 5 decorator-resolution layer expands the ref-args into a
+    The decorator-resolution layer expands the ref-args into a
     per-reference body.
 
   ## Closed shape

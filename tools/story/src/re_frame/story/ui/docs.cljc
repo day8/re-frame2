@@ -32,7 +32,7 @@
   ## Pure-data prose lookup
 
   Prose blocks come from `:layout :prose` workspaces — Story v1 has no
-  per-variant `:prose` slot (a deliberate Stage-2 schema choice; prose
+  per-variant `:prose` slot; prose
   belongs to a workspace, not a variant). For the docs view we walk
   every registered `:prose` workspace and collect the `:body` strings
   of any `:type :prose` content item whose neighbour `:type :variant`
@@ -127,7 +127,7 @@
        :id      <decorator-id>
        :doc     <:doc on body, or nil>}
 
-  Stage 6's `:errors` slot is shown in a dedicated row group at the
+  The `:errors` slot is shown in a dedicated row group at the
   bottom (with `:section :error`)."
   [pack]
   (let [{:keys [hiccup frame-setup fx-override errors]} (or pack {})]

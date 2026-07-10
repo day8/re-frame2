@@ -27,7 +27,7 @@ playground:
   `restore-epoch` is a UI affordance, not a reimplementation.
 - The `:test` mode pane ships a **play step-debugger** — step / pause /
   rewind / step-back / breakpoint controls over a variant's `:script`
-  sequence (see [`spec/009-Test-Mode.md` §Play step-debugger](spec/009-Test-Mode.md#play-step-debugger-rf2-ulw5m)).
+  sequence (see [`spec/009-Test-Mode.md` §Play step-debugger](spec/009-Test-Mode.md#play-step-debugger)).
   Storybook's Interactions panel ships these for `play()` functions;
   Story's parity surface drives the same controls over the
   `:rf.assert/*`-bearing `:script`, with the canvas re-rendering against
@@ -73,8 +73,8 @@ grammar `:story.<path>/<variant>` is locked at the spec level.
 
 ## How to install
 
-> v1.0 is in active development under [rf2-u6fb](../../). This README
-> documents the surface that lands with v1.0; the artefact is not yet on
+> v1.0 is in active development. This README documents the surface that
+> lands with v1.0; the artefact is not yet on
 > Clojars. Once published:
 
 ```clojure
@@ -103,7 +103,7 @@ The substantive implementation contract is decomposed into
 | [`spec/002-Runtime.md`](./spec/002-Runtime.md) | Per-variant frame allocation; args precedence; decorator composition; the four-phase loader lifecycle; `run-variant` and friends. |
 | [`spec/003-Render-Shell.md`](./spec/003-Render-Shell.md) | The UI shell (sidebar / canvas / controls / workspace / embedded Xray inspector); the five workspace layouts; multi-substrate side-by-side. |
 | [`spec/004-Assertions.md`](./spec/004-Assertions.md) | The eight canonical `:rf.assert/*` ids (seven dispatched + the tape-evaluated `:rf.assert/schema-error`); record-don't-throw semantics; play-sequence execution; the assertion-side `force-fx-stub` interaction. |
-| [`spec/005-SOTA-Features.md`](./spec/005-SOTA-Features.md) | `force-fx-stub` (mock anything, not just the network); layout-debug trio; a11y; share URL (live address-bar surface; QR popover retired in rf2-ymnfx Issue B); multi-substrate; Xray embed; v1.1 deferrals; production elision. |
+| [`spec/005-SOTA-Features.md`](./spec/005-SOTA-Features.md) | `force-fx-stub` (mock anything, not just the network); layout-debug trio; a11y; share URL; multi-substrate; Xray embed; v1.1 deferrals; production elision. |
 | [`spec/006-MCP-Surface.md`](./spec/006-MCP-Surface.md) | The boundary between Story and `tools/story-mcp/`. |
 | [`spec/Principles.md`](./spec/Principles.md) | Design principles (EDN-first, no fn-slots, production-elision strict, etc.). |
 | [`spec/API.md`](./spec/API.md) | Consolidated public API surface. |
@@ -120,8 +120,8 @@ Xray preload is wired — press `Ctrl+Shift+C`).
 
 | Build id | Port | Story shell | What it shows |
 |---|---|---|---|
-| `:examples/nine-states-with-stories` | 8040 | http://localhost:8040/#/stories | nine-states showcase (rf2-rgyia) |
-| `:examples/login-with-stories` | 8041 | http://localhost:8041/#/stories | login showcase (rf2-p8v0q) |
+| `:examples/nine-states-with-stories` | 8040 | http://localhost:8040/#/stories | nine-states showcase |
+| `:examples/login-with-stories` | 8041 | http://localhost:8041/#/stories | login showcase |
 | `:examples/counter-with-stories` | 8042 | http://localhost:8042/#/stories | canonical minimal testbed |
 | `:examples/login-form` | 8043 | http://localhost:8043/#/stories | five-state login-form testbed |
 
@@ -165,8 +165,8 @@ The browser testbeds also depend on a few non-obvious invariants:
 - **Spec.** [`spec/007-Stories.md`](../../spec/007-Stories.md) — normative.
 - **Implementation contract.** [`spec/`](./spec/).
 - **Research lineage.**
-  - Phase 1 — [`spec/findings/re-frame-2-story-feature-set.md`](./spec/findings/re-frame-2-story-feature-set.md) (rf2-m6tu).
-  - Phase 2 — [`spec/findings/re-frame-2-story-sota-refinement.md`](./spec/findings/re-frame-2-story-sota-refinement.md) (rf2-94b0).
+  - Phase 1 — [`spec/findings/re-frame-2-story-feature-set.md`](./spec/findings/re-frame-2-story-feature-set.md).
+  - Phase 2 — [`spec/findings/re-frame-2-story-sota-refinement.md`](./spec/findings/re-frame-2-story-sota-refinement.md).
   - Architectural decisions resolved 2026-05-11; see
     [`spec/DESIGN-RATIONALE.md`](./spec/DESIGN-RATIONALE.md).
 
@@ -176,8 +176,8 @@ The browser testbeds also depend on a few non-obvious invariants:
 - [Spec 008 — Testing](../../spec/008-Testing.md) — the test-runner surface
   Story integrates with via `run-variant`.
 - [Spec 009 — Instrumentation](../../spec/009-Instrumentation.md) — the trace
-  bus Story's per-variant ring buffer consumes (rf2-sgdd3 — used by
-  schema-validation; Xray, embedded in the RHS, also subscribes).
+  bus Story's per-variant ring buffer consumes for schema validation;
+  Xray, embedded in the RHS, also subscribes.
 - [Spec 010 — Schemas](../../spec/010-Schemas.md) — the auto-derivation source
   for controls.
 - [Spec 011 — SSR](../../spec/011-SSR.md) — the schema-digest source for
@@ -189,4 +189,4 @@ The browser testbeds also depend on a few non-obvious invariants:
 - [`tools/story/testbeds/counter_with_stories/`](testbeds/counter_with_stories/) —
   the tool-owned testbed wiring seven of the nine `reg-*` macros (it does not
   exercise the `reg-fragment` / `reg-check` composition cohort) against the
-  canonical counter app (rf2-p8f2s — relocated from `examples/reagent/`).
+  canonical counter app.

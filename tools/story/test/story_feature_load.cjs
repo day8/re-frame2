@@ -1,5 +1,5 @@
 /*
- * Occasional Story feature/load gate (rf2-nd9kq).
+ * Occasional Story feature/load gate.
  *
  * This file is intentionally NOT named *.spec.cjs: the normal examples
  * runner must not pick it up on every default cycle. The dedicated
@@ -15,7 +15,7 @@ const {
 } = require('../../../examples/scripts/spec-helpers.cjs');
 
 /*
- * Truth-in-advertising contract for this gate (rf2-416i7).
+ * Coverage ownership contract for this gate.
  *
  * `COVERAGE_MATRIX` below is the single source of feature rows AND the
  * declaration of how each row is exercised. Every row has a `kind`:

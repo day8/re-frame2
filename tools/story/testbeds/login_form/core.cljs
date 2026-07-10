@@ -7,7 +7,7 @@
     `#/stories` → the Story shell. The five login-flow variants and
                   two workspaces show up in the sidebar.
 
-  Per `001-Authoring.md` §Registration macros + Stage 8: when compiled under `:advanced` with
+  Per `001-Authoring.md` §Registration macros, when compiled under `:advanced` with
   `:closure-defines {re-frame.story.config/enabled? false}`, every
   reg-* form in `login-form.stories` elides to nil; `mount-shell!`
   short-circuits; the bundle carries no Story body code. The

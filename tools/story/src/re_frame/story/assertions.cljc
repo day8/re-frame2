@@ -61,7 +61,7 @@
     play-runner's exception-projection path).
   - `read-assertions` — return the variant frame's accumulated list.
   - `passing?` — predicate on the result list: true iff every entry has
-    `:passed? true` (used by Stage 5's `run-variant` test entry, and by
+    `:passed? true` (used by `run-variant` and by
     consumer tests via the public `assertions-passing?`).
   - `canonical-assertion-ids` — the recognised canonical assertion ids:
     the seven REGISTERED `reg-event` handlers PLUS the tape-evaluated
@@ -230,7 +230,7 @@
 ;; ---------------------------------------------------------------------------
 ;; Programmatic record helper
 ;;
-;; Stage 5's play-runner calls `record!` for each `:rf.assert/*` event
+;; The play runner calls `record!` for each `:rf.assert/*` event
 ;; it dispatches. The handler returns a record-map; we append it to the
 ;; variant frame's app-db under `[:rf.story/assertions]` via a
 ;; registered helper event. This mirrors `runtime/record-error!`.

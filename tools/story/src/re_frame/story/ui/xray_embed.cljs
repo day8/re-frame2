@@ -559,18 +559,18 @@
                          (when collapsed? (:disclosure-glyph-collapsed styles)))}
     [glyphs/chevron-right 11]]])
 
-;; ---- event-spine band (rf2-9k43e) ----------------------------------------
+;; ---- event-spine band -----------------------------------------------------
 
 (defn spine-band
   "The compact, clickable recent-events SPINE for the Story RHS Xray
-  embed (rf2-9k43e). Renders a labelled band hosting the SAME
+  embed. Renders a labelled band hosting the SAME
   `shell/event-list` L2 component the full Xray shell composes — via
   `xray-panels/mount-event-spine!` — so the variant's event SEQUENCE is
   inspectable IN-PLACE, not only the final/focused event.
 
-  Mike RULED scope = A (2026-06-01): add the inline spine so past
-  events/epochs are focusable in-place; keep the Ctrl+Shift+C / `Pop
-  out` full-shell escape hatch for deep history. Clicking a past event
+  The inline spine keeps recent events and epochs focusable in place;
+  Ctrl+Shift+C and `Pop out` retain the full-shell escape hatch for deep
+  history. Clicking a past event
   in the spine dispatches `:rf.xray/focus-event` (the row's own
   handler — reused verbatim from the full shell), which re-binds the
   spine sub `:rf.xray/focus`; the chip-selected panel below — mounted in
@@ -578,10 +578,9 @@
 
   The band mounts through the SAME `panel-host-component` class the
   chip-selected panel uses (with the spine host-style + test-id), so it
-  inherits the rf2-4l7t2 React-18 deferred-unmount lifecycle. Its
-  panel-id (`:event-spine`) never changes, so the host class mounts the
-  spine once and leaves it; focus changes flow through the spine's own
-  subs, not a remount.
+  inherits the host's React-18 deferred-unmount lifecycle. Its panel id
+  (`:event-spine`) never changes, so the host class mounts the spine once;
+  focus changes flow through the spine's own subscriptions, not a remount.
 
   Public so the e2e hiccup test can assert the band + its mount slot."
   []

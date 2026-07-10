@@ -3,10 +3,10 @@
 
   - `#/`        → the live counter app (the `counter-card` view).
   - `#/stories` → the Story shell mounted via
-                  `re-frame.story/mount-shell!`. The four counter
-                  variants + two workspaces show up in the sidebar.
+                  `re-frame.story/mount-shell!`. The exemplary variants,
+                  gate fixtures, and workspaces show up in the sidebar.
 
-  Per `001-Authoring.md` §Registration macros + Stage 8: when this example is compiled under
+  Per `001-Authoring.md` §Registration macros, when this example is compiled under
   `:advanced` with `:closure-defines {re-frame.story.config/enabled?
   false}`, every `reg-*` form in `counter-with-stories.stories`
   elides to `nil`, `mount-shell!` short-circuits, and the bundle

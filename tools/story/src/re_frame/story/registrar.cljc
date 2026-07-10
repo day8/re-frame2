@@ -21,7 +21,7 @@
   ## Kinds Story registers
 
   - `:story` — parent of variants
-  - `:variant` — concrete scenario; one per frame at runtime (Stage 3)
+  - `:variant` — concrete scenario; one per frame at runtime
   - `:fragment` — reusable setup/script/world mixin composed via `:compose`
   - `:check` — reusable assertion pack composed via `:compose` / inherited
   - `:workspace` — layout artefact
@@ -49,7 +49,7 @@
 
   Hot-reload semantics mirror `re-frame.registrar`: re-registering the
   same id replaces the slot atomically; nothing in the runtime is
-  paused; `:on-replacement` hooks (Stage 3 wires this) get notified.
+  paused; registered `:on-replacement` hooks get notified.
 
   ## Elision
 
@@ -59,14 +59,18 @@
   populated. Production code that accidentally calls a Story query
   returns empty.
 
-  ## What this namespace does NOT do (deferred to Stage 3)
+  ## What this namespace does not own
 
   - Per-variant frame allocation (`rf/reg-frame` for each variant)
   - Args resolution precedence
   - Decorator composition order
   - Loader four-phase lifecycle
   - Play execution
-  - Snapshot identity computation"
+  - Snapshot identity computation
+
+  Those concerns live in the runtime, frames, args, decorators, loaders,
+  play, and identity namespaces. Keeping them out of the registrar leaves
+  registration as validation plus atomic storage."
   (:require [clojure.string           :as str]
             [malli.core               :as m]
             [re-frame.story.late-bind :as late-bind]
@@ -310,7 +314,7 @@
 (defn- validate-tag-membership!
   "Cross-check the variant / story `:tags` set against the registered
   tag vocabulary. Strips the `!`-prefix removal-syntax marker for the
-  check (per Phase-2 §5.1 #11) — `:!dev` checks that `:dev` is
+  check (per `001-Authoring.md` §Tags) — `:!dev` checks that `:dev` is
   registered.
 
   Throws `:rf.error/unknown-tag` on a miss."
@@ -567,8 +571,7 @@
 
 (defn variants-of
   "Return the variant ids whose story is `story-id`. Cheap O(N) scan
-  over the variant side-table — fine for dev-time use; if perf becomes
-  a concern Stage 3 indexes.
+  over the variant side-table — appropriate for the dev-time registry.
 
   Per /spec/007-Stories.md §Canonical id grammar a story `:story.foo` has nil
   namespace and name `\"story.foo\"`; its variants `:story.foo/empty`

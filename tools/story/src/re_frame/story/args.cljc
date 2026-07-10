@@ -84,9 +84,9 @@
 
 (defn- mode-args
   "Return the `:args` map registered against `mode-id`, or `{}` if the
-  mode is unregistered. Stage 3 does not throw on an unregistered mode;
-  callers (Stage 4 UI shell, Stage 5 play-runner) ignore missing modes.
-  Tools surface the mismatch as a validation warning."
+  mode is unregistered. Resolution is tolerant so the UI shell and play
+  runner can ignore a stale mode id; tools surface the mismatch as a
+  validation warning."
   [mode-id]
   (or (:args (registrar/handler-meta :mode mode-id)) {}))
 
@@ -119,9 +119,8 @@
 
   Returns the deep-merged args map. If the variant or its parent
   story is unregistered, the corresponding layer contributes `{}`. The
-  fn never throws on a missing artefact — the caller may decide whether
-  that's an error (Stage 4 surfaces it inline; Stage 5 records it as
-  a `:rf.error/unknown-variant` assertion)."
+  fn never throws on a missing artefact; callers decide whether to surface
+  an inline diagnostic or record a `:rf.error/unknown-variant` assertion."
   ([variant-id]
    (resolve-args variant-id nil))
   ([variant-id {:keys [active-modes cell-overrides] :as _opts}]

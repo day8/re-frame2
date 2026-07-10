@@ -11,9 +11,9 @@
   ## Substrate registry
 
   Story doesn't add a new framework registry — substrate-rendering hooks
-  are looked up in `substrate->render-fn` here. The Reference
-  Implementation ships `:reagent` / `:uix` / `:helix`. Future substrates
-  (e.g. `:reagent-slim`) plug in via `register-substrate!`.
+  are looked up in `substrate->render-fn` here. Story installs `:reagent`;
+  hosts that load UIx, Helix, or another adapter register its renderer with
+  `register-substrate!`.
 
   ## Grid layout
 
@@ -140,7 +140,7 @@
 
 (defn install-reagent-substrate!
   "Register the default `:reagent` substrate. Idempotent. Called from
-  the Stage 6 boot — `install-canonical-multi-substrate!`."
+  `re-frame.story.canonical` boot."
   []
   (register-substrate! :reagent reagent-render))
 
