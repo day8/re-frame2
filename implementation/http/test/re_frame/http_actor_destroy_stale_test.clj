@@ -25,12 +25,8 @@
   snapshot teardown)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.flows :as flows]
-            [re-frame.frame :as frame]
             [re-frame.http.managed :as http-managed]
-            [re-frame.machines :as machines]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
+            [re-frame.machines]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
             [re-frame.trace :as trace])
@@ -40,23 +36,8 @@
 
 ;; ---- per-test reset (mirrors http_actor_destroy_cancellation_test.clj) ----
 
-(defn- reset-runtime [t]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
-  (rf/init! plain-atom/adapter)
-  (frame/ensure-default-frame!)
-  (require 're-frame.routing :reload)
-  (require 're-frame.ssr     :reload)
-  (require 're-frame.machines :reload)
-  (require 're-frame.http.managed :reload)
-  (machines/reset-timers!)
-  (http-managed/clear-all-in-flight!)
-  (rf/with-frame :rf/default
-    (t)))
-
-(use-fixtures :each reset-runtime)
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 ;; ---- in-process latch server ----------------------------------------------
 

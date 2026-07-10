@@ -25,10 +25,6 @@
   the pre-fix code (which UTF-8-decoded the bytes / left elapsed-ms nil)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.schemas :as schemas]
-            [re-frame.flows :as flows]
-            [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.http.managed :as http-managed]
             [re-frame.http.transport-jvm :as transport-jvm]
@@ -38,27 +34,8 @@
 
 ;; ---- per-test reset --------------------------------------------------------
 
-(defn- reset-runtime [t]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
-  (rf/init! plain-atom/adapter)
-  ;; EP-0002 (rf2-nn0jqa): `init!` no longer synthesises `:rf/default`,
-  ;; and the managed-HTTP / machine / routing fxs now require a carried
-  ;; frame stamp. This suite exercises the ambient dispatch path against
-  ;; a single conventional app frame, so register `:rf/default` explicitly
-  ;; and pin it as the established scope for the whole body via with-frame.
-  (frame/ensure-default-frame!)
-  (require 're-frame.routing :reload)
-  (require 're-frame.ssr     :reload)
-  (require 're-frame.http.managed :reload)
-  (http-managed/clear-all-in-flight!)
-  (http-managed/clear-all-http-interceptors!)
-  (rf/with-frame :rf/default
-    (t)))
-
-(use-fixtures :each reset-runtime)
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 ;; ---- a tiny in-process HTTP server (raw-bytes capable) --------------------
 

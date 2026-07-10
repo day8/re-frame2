@@ -20,17 +20,14 @@
 
   The schemas artefact is a test-only dep here, so requiring it binds the
   shared walker hooks (`:schemas/extract-sensitive-paths-from-schema` etc.)."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.test :refer [deftest is testing]]
             [re-frame.http.privacy-body :as body]
-            [re-frame.registrar :as registrar]
             ;; load-bearing: binds the shared schema walker hooks.
             [re-frame.schemas]))
 
-(defn- reset-runtime [t]
-  (registrar/clear-all!)
-  (t))
-
-(use-fixtures :each reset-runtime)
+;; No per-test fixture: every test here is a pure `re-frame.http.privacy-body`
+;; call — nothing touches the registrar / frames / app-db, so there is no
+;; per-test runtime state to reset (rf2-q14tde).
 
 ;; ---- 1. schema-decode? ----------------------------------------------------
 

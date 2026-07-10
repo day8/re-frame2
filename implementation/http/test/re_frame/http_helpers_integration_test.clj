@@ -9,10 +9,6 @@
   and `re-frame.http-managed-test` (fx contract end-to-end)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.flows :as flows]
-            [re-frame.schemas :as schemas]
-            [re-frame.registrar :as registrar]
             [re-frame.http :as rf.http]
             [re-frame.http.managed :as http-managed]
             ;; rf2-cdmle — canned-stub fxs gate on explicit test-support
@@ -24,32 +20,8 @@
 
 ;; ---- per-test reset (mirrors http-managed-test) ---------------------------
 
-(defn- reset-runtime [t]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
-  (rf/init! plain-atom/adapter)
-  ;; EP-0002 (rf2-nn0jqa): `init!` no longer synthesises `:rf/default`,
-  ;; and the managed-HTTP / machine / routing fxs now require a carried
-  ;; frame stamp. This suite exercises the ambient dispatch path against
-  ;; a single conventional app frame, so register `:rf/default` explicitly
-  ;; and pin it as the established scope for the whole body via with-frame.
-  (frame/ensure-default-frame!)
-  (require 're-frame.routing :reload)
-  (require 're-frame.ssr     :reload)
-  (require 're-frame.machines :reload)
-  (require 're-frame.http.managed :reload)
-  ;; rf2-cdmle — re-fire the test-support load-time registrations after
-  ;; clear-all! / http-managed reload so the canned-stub fx ids are
-  ;; available for the next test.
-  (require 're-frame.http.test-support :reload)
-  ((requiring-resolve 're-frame.machines/reset-timers!))
-  (http-managed/clear-all-in-flight!)
-  (rf/with-frame :rf/default
-    (t)))
-
-(use-fixtures :each reset-runtime)
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 ;; ---- helpers --------------------------------------------------------------
 

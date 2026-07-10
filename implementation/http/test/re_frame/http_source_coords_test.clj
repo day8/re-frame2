@@ -21,34 +21,18 @@
      keys win over framework auto-capture)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.flows :as flows]
             [re-frame.http.managed :as http-managed]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-support :as test-support]))
 
-(defn- reset-runtime [t]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
-  (rf/init! plain-atom/adapter)
-  (require 're-frame.routing :reload)
-  (require 're-frame.ssr     :reload)
-  (require 're-frame.http.managed :reload)
-  (http-managed/clear-all-in-flight!)
-  (http-managed/clear-all-http-interceptors!)
-  ;; EP-0002 (rf2-5q7um6): reg-http-interceptor is context-required
-  ;; frame-local — an ambient call under no scope raises
-  ;; :rf.error/no-frame-context. Pin :rf/default as the established scope so
-  ;; the frameless registrations land there; the :rf/api case passes
-  ;; {:frame :rf/api} explicitly.
-  (frame/ensure-default-frame!)
-  (binding [frame/*current-frame* :rf/default]
-    (t)))
-
-(use-fixtures :each reset-runtime)
+;; EP-0002 (rf2-5q7um6): reg-http-interceptor is context-required frame-local —
+;; an ambient call under no scope raises :rf.error/no-frame-context. The
+;; canonical fixture's default `:ambient-frame :rf/default` pins :rf/default as
+;; the established scope so the frameless registrations land there; the :rf/api
+;; case passes {:frame :rf/api} explicitly. The post-dispose reset now clears
+;; the per-frame HTTP interceptor chain too (rf2-q14tde).
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 (defn- slot-for
   "Locate the stored slot for `id` on `frame-id` in (http-managed/interceptors-snapshot)."

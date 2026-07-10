@@ -31,36 +31,15 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.flows :as flows]
-            [re-frame.frame :as frame]
             [re-frame.http.managed :as http-managed]
             [re-frame.http.transport-jvm :as transport-jvm]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]))
 
 ;; ---- per-test reset --------------------------------------------------------
 
-(defn- reset-runtime [t]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
-  (rf/init! plain-atom/adapter)
-  ;; EP-0002 (rf2-nn0jqa): `init!` no longer synthesises `:rf/default`,
-  ;; and the managed-HTTP fx now requires a carried frame stamp. Register
-  ;; `:rf/default` explicitly and pin it as the established scope.
-  (frame/ensure-default-frame!)
-  (require 're-frame.routing :reload)
-  (require 're-frame.ssr     :reload)
-  (require 're-frame.http.managed :reload)
-  (http-managed/clear-all-in-flight!)
-  (http-managed/clear-all-http-interceptors!)
-  (rf/with-frame :rf/default
-    (t)))
-
-(use-fixtures :each reset-runtime)
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 ;; ---- helpers ---------------------------------------------------------------
 

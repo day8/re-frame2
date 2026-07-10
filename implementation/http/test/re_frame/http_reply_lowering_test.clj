@@ -28,15 +28,11 @@
   envelope; EP-0011; rf2-ibksxg (one canonical async-reply envelope)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.flows :as flows]
             [re-frame.http.managed :as http-managed]
             [re-frame.http.reply :as http-reply]
             [re-frame.http.test-support]
             [re-frame.late-bind :as late-bind]
-            [re-frame.registrar :as registrar]
             [re-frame.reply :as reply]
-            [re-frame.schemas :as schemas]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
             [re-frame.trace :as trace])
@@ -45,25 +41,14 @@
 
 ;; ---- per-test reset (mirrors http_managed_test.clj) -----------------------
 
-(defn- reset-runtime [t]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
-  (rf/init! plain-atom/adapter)
-  (frame/ensure-default-frame!)
-  ;; `clear-all!` wipes the framework's built-in `:rf/time-ms` reg-cofx
-  ;; (registered at `re-frame.cofx` ns-load). Reload it so the provided
-  ;; recordable coeffect is present for the EP-0017 reply-time tests
-  ;; (rf2-5vdfrm) — a reply handler declaring `:rf.cofx/requires [:rf/time-ms]`
-  ;; needs its supplier registered.
-  (require 're-frame.cofx :reload)
-  (require 're-frame.http.managed :reload)
-  (require 're-frame.http.test-support :reload)
-  (rf/with-frame :rf/default
-    (t)))
-
-(use-fixtures :each reset-runtime)
+;; The canonical fixture snapshot/restores the registrar, so the framework's
+;; built-in `:rf/time-ms` reg-cofx (registered at `re-frame.cofx` ns-load) and
+;; the `re-frame.http.test-support` canned-stub fx ids survive between tests
+;; without a per-test `:reload` — the EP-0017 reply-time tests (rf2-5vdfrm)
+;; need `:rf/time-ms` present for a reply handler declaring
+;; `:rf.cofx/requires [:rf/time-ms]`.
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 ;; ---- real-transport server harness ---------------------------------------
 

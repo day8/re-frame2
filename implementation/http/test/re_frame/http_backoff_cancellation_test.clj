@@ -30,13 +30,9 @@
    4. GUARD: an uncancelled backoff still retries (no regression)"
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.flows :as flows]
-            [re-frame.frame :as frame]
             [re-frame.http.managed :as http-managed]
             [re-frame.http.registry :as registry]
-            [re-frame.machines :as machines]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
+            [re-frame.machines]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
             [re-frame.trace :as trace])
@@ -46,24 +42,8 @@
 
 ;; ---- per-test reset --------------------------------------------------------
 
-(defn- reset-runtime [t]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
-  (rf/init! plain-atom/adapter)
-  ;; The suite uses one explicit default frame for ambient dispatch.
-  (frame/ensure-default-frame!)
-  (require 're-frame.routing :reload)
-  (require 're-frame.ssr     :reload)
-  (require 're-frame.machines :reload)
-  (require 're-frame.http.managed :reload)
-  (machines/reset-timers!)
-  (http-managed/clear-all-in-flight!)
-  (rf/with-frame :rf/default
-    (t)))
-
-(use-fixtures :each reset-runtime)
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 ;; ---- hit-counting always-500 server ---------------------------------------
 

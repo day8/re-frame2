@@ -24,8 +24,6 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
-            [re-frame.schemas :as schemas]
-            [re-frame.flows :as flows]
             [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.http.managed :as http-managed]
@@ -36,27 +34,17 @@
 
 ;; ---- per-test reset --------------------------------------------------------
 
-(defn- reset-runtime [t]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
-  (rf/init! plain-atom/adapter)
-  (require 're-frame.routing :reload)
-  (require 're-frame.ssr     :reload)
-  (require 're-frame.http.managed :reload)
-  (http-managed/clear-all-in-flight!)
-  (http-managed/clear-all-http-interceptors!)
-  ;; EP-0002 (rf2-5q7um6): reg-http-interceptor / clear-http-interceptor are
-  ;; context-required frame-local, and these tests dispatch managed HTTP to
-  ;; exercise the chain — both raise :rf.error/no-frame-context under no
-  ;; scope. Pin :rf/default (an ordinary frame) as the established scope for
-  ;; the body; tests that target an explicit frame pass {:frame …}.
-  (frame/ensure-default-frame!)
-  (binding [frame/*current-frame* :rf/default]
-    (t)))
-
-(use-fixtures :each reset-runtime)
+;; EP-0002 (rf2-5q7um6): reg-http-interceptor / clear-http-interceptor are
+;; context-required frame-local, and these tests dispatch managed HTTP to
+;; exercise the chain — a bare call raises :rf.error/no-frame-context. The
+;; canonical fixture's default `:ambient-frame :rf/default` pins :rf/default
+;; as the established scope, so frameless registrations land there and
+;; managed-HTTP dispatches drain; tests targeting an explicit frame pass
+;; {:frame …}, and the fails-closed test rebinds *current-frame* to nil
+;; locally. The canonical post-dispose reset now also clears the per-frame
+;; HTTP interceptor chain (rf2-q14tde), so no explicit clear-all is needed.
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 ;; ---- in-process server harness --------------------------------------------
 

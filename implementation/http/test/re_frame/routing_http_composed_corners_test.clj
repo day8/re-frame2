@@ -26,46 +26,22 @@
       precedence."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.flows :as flows]
-            [re-frame.frame :as frame]
             [re-frame.http.managed :as http-managed]
             [re-frame.http.test-support]
-            [re-frame.registrar :as registrar]
-            [re-frame.routing :as routing]
-            [re-frame.schemas :as schemas]
+            [re-frame.routing]
             [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]))
+            [re-frame.test-support :as test-support]))
 
 ;; ---- fixture --------------------------------------------------------------
 
-(defn- reset-runtime [t]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
-  (trace/clear-listeners!)
-  (rf/init! plain-atom/adapter)
-  ;; EP-0002 (rf2-nn0jqa): `init!` no longer synthesises `:rf/default`,
-  ;; and the managed-HTTP / machine / routing fxs now require a carried
-  ;; frame stamp. This suite exercises the ambient dispatch path against
-  ;; a single conventional app frame, so register `:rf/default` explicitly
-  ;; and pin it as the established scope for the whole body via with-frame.
-  (frame/ensure-default-frame!)
-  (require 're-frame.routing :reload)
-  (require 're-frame.ssr     :reload)
-  (require 're-frame.machines :reload)
-  (require 're-frame.http.managed :reload)
-  (require 're-frame.http.test-support :reload)
-  (routing/reset-counters!)
-  ;; rf2-oosjmh — nav-token / pending-nav counters are host-side now; the
-  ;; `frames` reset above no longer clears them, so reset the host cache
-  ;; explicitly to keep "nav-1" / "nav-2" stable across tests.
-  (routing/reset-nav-counters!)
-  (http-managed/clear-all-in-flight!)
-  (rf/with-frame :rf/default
-    (t)))
-
-(use-fixtures :each reset-runtime)
+;; The canonical fixture fires the routing reset hooks in its post-dispose
+;; phase: `:routing/reset-counters!` (deterministic reg-index) and
+;; `:routing/reset-nav-counters!` (rf2-oosjmh — host-side nav-token /
+;; pending-nav counters the `frames` reset no longer clears, keeping "nav-1" /
+;; "nav-2" stable across tests). It also clears trace listeners and, per
+;; rf2-q14tde, the per-frame HTTP interceptor chain.
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 ;; ---- helpers --------------------------------------------------------------
 

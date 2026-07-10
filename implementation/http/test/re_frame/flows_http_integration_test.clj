@@ -53,8 +53,10 @@
     says it's still pending — split-brain across the substrate."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.flows :as flows]
-            [re-frame.frame :as frame]
+            ;; load-bearing: this suite calls `rf/reg-flow`, which needs the
+            ;; flows artefact loaded (the canonical fixture's flows reset is
+            ;; late-bound and no-ops when the artefact is absent).
+            [re-frame.flows]
             [re-frame.http.managed :as http-managed]
             [re-frame.http.registry :as http-registry]
             ;; rf2-cdmle — required only to keep the test-support
@@ -64,44 +66,34 @@
             ;; in-flight registry with a recording abort-fn (mirrors
             ;; routing_http_composed_corners_test.clj's pattern).
             [re-frame.http.test-support]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
             [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-support :as test-support]
             [re-frame.trace :as trace]))
 
 ;; ---- per-test reset / trace recorder -------------------------------------
 
 (def ^:dynamic ^:private *captured* nil)
 
+(def ^:private reset-runtime-fixture
+  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+
 (defn- reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
-  (flows/reset-last-inputs!)
-  (rf/init! plain-atom/adapter)
-  ;; EP-0002 (rf2-nn0jqa): `init!` no longer synthesises `:rf/default`, and
-  ;; the managed-HTTP / flow fxs now require a carried frame stamp. Register
-  ;; `:rf/default` explicitly and pin it as the established scope for the body.
-  (frame/ensure-default-frame!)
-  ;; clear-all! wiped the ns-load-time registrations of these artefacts;
-  ;; :reload re-evaluates each ns body so its registrations resurrect.
-  (require 're-frame.routing :reload)
-  (require 're-frame.ssr     :reload)
-  (require 're-frame.machines :reload)
-  (require 're-frame.http.managed :reload)
-  (require 're-frame.http.test-support :reload)
-  (http-managed/clear-all-in-flight!)
-  (rf/with-frame :rf/default
-    (let [captured (atom [])]
-      (binding [*captured* captured]
-        (trace/register-listener!
-          ::flows-http-recorder
-          (fn [ev] (swap! captured conj ev)))
-        (try
-          (test-fn)
-          (finally
-            (trace/unregister-listener! ::flows-http-recorder)))))))
+  ;; Canonical runtime reset (registrar snapshot/restore + frames / flows /
+  ;; schemas / adapter / http in-flight + interceptor-chain reset, ambient
+  ;; `:rf/default` scope) composed with this suite's trace recorder: register
+  ;; the ::flows-http-recorder listener around the body and tear it down on
+  ;; exit (rf2-q14tde).
+  (reset-runtime-fixture
+    (fn []
+      (let [captured (atom [])]
+        (binding [*captured* captured]
+          (trace/register-listener!
+            ::flows-http-recorder
+            (fn [ev] (swap! captured conj ev)))
+          (try
+            (test-fn)
+            (finally
+              (trace/unregister-listener! ::flows-http-recorder))))))))
 
 (use-fixtures :each reset-runtime)
 
