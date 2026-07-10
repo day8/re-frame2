@@ -46,10 +46,12 @@
 
   The optional `runtime-db` arg is the frame's live
   runtime-db value; it is projected via `payload-policy/project-runtime-db`
-  (the serializable durable slice — machine snapshots, route `:current` slice,
-  elision declarations, SSR metadata) and rides the payload as
-  `:rf/runtime-db` so the client `:rf/hydrate` handler installs a coherent
-  frame-state. nil / empty runtime-db omits the optional key.
+  under the EXPLICIT `frame-id` (rf2-f02diw — the same target the app-db
+  projection uses, never the ambient scope), yielding the serializable durable
+  slice — machine snapshots, route `:current` slice, elision declarations, SSR
+  metadata — that rides the payload as `:rf/runtime-db` so the client
+  `:rf/hydrate` handler installs a coherent frame-state. nil / empty runtime-db
+  omits the optional key.
 
   The non-streaming wrapper over the shared
   `re-frame.ssr.payload-policy/build-payload`: it is handed `app-db` +
@@ -66,4 +68,12 @@
      (payload-policy/apply-policy app-db policy-opts)
      frame-id)
     render-hash
-    (assoc policy-opts :runtime-db (payload-policy/project-runtime-db runtime-db)))))
+    ;; rf2-f02diw — project the runtime-db under the EXPLICIT carried `frame-id`
+    ;; (the same target the `project-app-db-egress` above uses), NOT an ambient
+    ;; one. Mirrors the streaming builder (`streaming/build-final-payload`,
+    ;; rf2-3fc89f.15): the non-streaming wrapper must not rely on a MATCHING
+    ;; `rf/with-frame` being ambient at the build site to project classified
+    ;; route / machine / resource runtime state under the right frame's policy.
+    ;; The host's request-frame binding stays a correctness convenience for other
+    ;; code, never the projector's target authority (finishing the clean break).
+    (assoc policy-opts :runtime-db (payload-policy/project-runtime-db runtime-db frame-id)))))

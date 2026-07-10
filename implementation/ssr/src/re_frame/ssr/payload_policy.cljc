@@ -515,10 +515,11 @@
   `rf/with-frame` (ambient == target). The security-critical builders MUST pass
   the explicit target.
 
-  The late-bound `:ssr/extend-runtime-db-projection` hook (resources) resolves
-  its OWN frame ambiently; the two-arity binds the explicit target as the
-  ambient scope around that call so the extension projects under the SAME frame
-  as every other slice — never a borrowed / mismatched ambient scope."
+  The late-bound `:ssr/extend-runtime-db-projection` hook (resources) takes the
+  explicit target as a second parameter (`[runtime-db frame-id]`, rf2-f02diw);
+  the two-arity threads the same `frame-id` into it so the extension projects
+  under the SAME frame as every other slice — never a borrowed / mismatched
+  ambient scope."
   ([runtime-db]
    ;; Convenience: project under the AMBIENT scope frame. Correct only when the
    ;; call site is inside the frame's own `with-frame` (ambient == the target).
@@ -569,12 +570,12 @@
           ;; `:tag-index` / `:owner-index` are recomputable-from-entries
           ;; and need not ride the wire — Spec 016 §Restore and replay).
           slice (if-let [extend-fn (late-bind/get-fn :ssr/extend-runtime-db-projection)]
-                  ;; The extension hook (resources) resolves its OWN frame
-                  ;; ambiently — bind the EXPLICIT target as the ambient scope so
-                  ;; it projects under the same frame as every other slice, never
-                  ;; a borrowed / mismatched ambient one (rf2-3fc89f.15).
-                  (merge slice (binding [frame/*current-frame* frame-id]
-                                 (extend-fn runtime-db)))
+                  ;; The extension hook (resources) takes the EXPLICIT target as a
+                  ;; second parameter (rf2-f02diw — finishing the clean break: the
+                  ;; hook is re-signatured `[runtime-db frame-id]`), so it projects
+                  ;; under the same frame as every other slice, never a borrowed /
+                  ;; mismatched ambient one — no `binding` rebind of ambient scope.
+                  (merge slice (extend-fn runtime-db frame-id))
                   slice)]
       (when (seq slice) slice)))))
 
