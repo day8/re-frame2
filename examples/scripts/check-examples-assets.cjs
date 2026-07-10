@@ -20,7 +20,10 @@
  * contract was review-only: nothing failed when a non-exempt page omitted an
  * asset, and the one real exception (TodoMVC uses the official TodoMVC CSS
  * packages instead of the shared stylesheet) was not encoded as an explicit
- * allowlisted exception anywhere.
+ * allowlisted exception anywhere. That exception now lives — once — in the
+ * shared examples asset/exception manifest (examples-asset-manifest.cjs), which
+ * this gate consumes via ALLOWLIST and the staging helper consumes for the same
+ * entry.
  *
  * What this gate does (STATIC — no browser, no Playwright)
  * -------------------------------------------------------
@@ -92,11 +95,12 @@
  *
  *   2. Asserts the REQUIRED _shared asset contract: every example must
  *      reference _shared/img/favicon.svg, _shared/img/og.png, and
- *      _shared/css/style.css — UNLESS the page is allowlisted out of a
- *      specific asset (see ALLOWLIST). The TodoMVC stylesheet opt-out is
- *      encoded there: it is exempt from style.css (it links the vendored
- *      TodoMVC base.css + index.css) but STILL required to carry the shared
- *      favicon + OG card.
+ *      _shared/css/style.css — UNLESS the page is exempt from a specific
+ *      asset (see ALLOWLIST, the page-opt-out projection of the shared
+ *      examples asset/exception manifest). The TodoMVC stylesheet opt-out is
+ *      encoded in that manifest: it is exempt from style.css (it links the
+ *      vendored TodoMVC base.css + index.css) but STILL required to carry the
+ *      shared favicon + OG card.
  *
  *   3. Asserts the social-preview (og:image) target is a RASTER, never an SVG:
  *      link-preview scrapers (Facebook / X / LinkedIn / Slack / Discord) do
@@ -164,6 +168,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { pageExemptions } = require('./examples-asset-manifest.cjs');
 
 // __dirname is <repo>/examples/scripts. REPO_ROOT is <repo>.
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
@@ -190,33 +195,23 @@ const SOCIAL_PREVIEW_RASTER_EXTS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.
 const SOCIAL_PREVIEW_REQUIRED = '_shared/img/og.png';
 
 // ---------------------------------------------------------------------------
-// Allowlisted exceptions — the ONE encoded place that names a page's opt-out
-// from a required shared asset, with the reason. A reviewer (human or the
-// gate) reads this to know an omission is intentional, not a regression.
+// Allowlisted exceptions — the page-opt-out PROJECTION of the single examples
+// asset/exception manifest (examples-asset-manifest.cjs), the shared owner the
+// STAGING helper (examples-staging.cjs) also consumes for the same TodoMVC
+// entry. This is the ONE encoded place — read here, declared once there — that
+// names a page's opt-out from a required shared asset, with the reason, so a
+// reviewer (human or the gate) knows an omission is intentional, not a
+// regression.
 //
-// `assetExemptions` lists the required-asset hrefs a page is allowed to
-// OMIT. `localAssets` lists the page's NON-_shared local references that are
-// staged from somewhere other than the repo source tree (so the resolver
-// must not flag them as missing files on disk).
+// Keyed by page relIndex -> { reason, assetExemptions, localAssets }:
+// `assetExemptions` are the required-asset hrefs a page may OMIT; `localAssets`
+// are the page's NON-_shared local references staged from OUTSIDE the repo
+// source tree (so the resolver must not flag them missing). The manifest
+// derives `localAssets` from the SAME staged-asset declaration the staging
+// projection reads (TodoMVC's html-linked base.css + index.css), so the staged
+// destinations and the scanner's accepted page-local refs cannot drift.
 // ---------------------------------------------------------------------------
-const ALLOWLIST = {
-  // TodoMVC links the official TodoMVC CSS packages (todomvc-common's
-  // base.css + todomvc-app-css's index.css, pinned in
-  // implementation/package.json and staged from node_modules/) instead of
-  // the shared stylesheet — see examples/core/todomvc/README.md
-  // §Official assets. It is therefore exempt from _shared/css/style.css but
-  // STILL required to carry the shared favicon + OG card, and its two
-  // vendored CSS links are not repo-source files (they're npm-staged), so
-  // they're declared here rather than flagged as missing.
-  'examples/core/todomvc/index.html': {
-    reason:
-      'TodoMVC uses the official TodoMVC CSS packages (base.css + ' +
-      'index.css, staged from node_modules/) instead of the shared ' +
-      'stylesheet — see examples/core/todomvc/README.md §Official assets.',
-    assetExemptions: ['_shared/css/style.css'],
-    localAssets: ['base.css', 'index.css'],
-  },
-};
+const ALLOWLIST = pageExemptions();
 
 // ---------------------------------------------------------------------------
 // External CSS network allowlist (rf2-vou5mm + rf2-o18ava) — the ONE encoded
@@ -1095,14 +1090,16 @@ function scanPage(io, indexAbsPath, opts = {}) {
       errors.push(
         `${relIndex}: missing required shared asset reference '${need}'. ` +
           `Either add it to the page's <head>, or (if intentional) encode ` +
-          `the exception in ALLOWLIST in check-examples-assets.cjs with a reason.`,
+          `the exemption for this page in the examples asset/exception ` +
+          `manifest (examples/scripts/examples-asset-manifest.cjs) with a reason.`,
       );
     }
     if (present && isExempt) {
       errors.push(
         `${relIndex}: allowlisted as exempt from '${need}' but the page ` +
-          `DOES reference it — remove the stale exemption from ALLOWLIST ` +
-          `in check-examples-assets.cjs.`,
+          `DOES reference it — remove the stale exemption from this page's ` +
+          `entry in the examples asset/exception manifest ` +
+          `(examples/scripts/examples-asset-manifest.cjs).`,
       );
     }
   }
@@ -1527,10 +1524,13 @@ if (require.main === module) {
       `\nA missing/renamed _shared asset, a broken @import, an unallowlisted ` +
         `EXTERNAL CSS @import, an unallowlisted direct-HTML remote asset ref ` +
         `(remote <script>/<link>/<img>), or a page that drops a required ` +
-        `shared asset without an encoded ALLOWLIST exception fails this gate. ` +
-        `Fix the reference, restore the asset, drop the remote dependency, or ` +
-        `encode the exception (with a reason) in ALLOWLIST / ` +
-        `EXTERNAL_IMPORT_ALLOWLIST / EXTERNAL_HTML_REF_ALLOWLIST in ` +
+        `shared asset without an encoded exemption fails this gate. ` +
+        `Fix the reference, restore the asset, drop the remote dependency, ` +
+        `encode a shared-asset exemption (with a reason) in the examples ` +
+        `asset/exception manifest ` +
+        `(examples/scripts/examples-asset-manifest.cjs), or allowlist an ` +
+        `intentional remote ref in EXTERNAL_IMPORT_ALLOWLIST / ` +
+        `EXTERNAL_HTML_REF_ALLOWLIST in ` +
         `examples/scripts/check-examples-assets.cjs.`,
     );
     process.exit(1);

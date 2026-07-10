@@ -64,6 +64,38 @@ const {
   RETIRED_OG_SOURCE_COLORS,
 } = scanner;
 
+// The shared examples asset/exception manifest — the single owner the scanner's
+// ALLOWLIST is now the page-opt-out projection of (rf2-phpbo8). Imported here so
+// the scanner-consumer tests can inject a SYNTHETIC manifest and pin the real
+// manifest's cross-consistency, rather than hand-writing allowlist literals.
+const manifest = require('../../examples/scripts/examples-asset-manifest.cjs');
+const { pageExemptions, stagedAssetsByBuild, EXAMPLE_ASSET_MANIFEST } = manifest;
+
+// A SYNTHETIC manifest with a vendored-CSS page (both assets html-linked, so the
+// scanner must accept them as page-local refs) and a staging-only fixture entry
+// (not html-linked and no shared-asset exemption, so it must NOT surface in the
+// scanner projection). Keyed to a `examples/reagent/todomvc/...` page so it lines
+// up with the synthetic TodoMVC page the scanPage tests below build.
+const SYNTHETIC_MANIFEST = [
+  {
+    build: 'examples/synth-todomvc',
+    page: 'examples/reagent/todomvc/index.html',
+    reason: 'synthetic: vendored TodoMVC CSS instead of the shared stylesheet',
+    assetExemptions: ['_shared/css/style.css'],
+    assets: [
+      { from: 'node-modules', src: 'todomvc-common/base.css', dest: 'base.css', htmlLinked: true },
+      { from: 'node-modules', src: 'todomvc-app-css/index.css', dest: 'index.css', htmlLinked: true },
+    ],
+  },
+  {
+    build: 'examples/synth-fixture',
+    page: 'examples/reagent/fixture/index.html',
+    reason: 'synthetic: staging-only fixture (fetched from app code, not the HTML)',
+    assetExemptions: [],
+    assets: [{ from: 'src', src: 'api/data.json', dest: 'api/data.json', htmlLinked: false }],
+  },
+];
+
 // A real, decodable 1200x630 PNG (signature + IHDR + IDAT + IEND), used wherever
 // a fixture's _shared tree must scan clean — the gate now validates the og.png
 // BYTES, so an opaque 'PNGDATA' string no longer passes checkSharedTree
@@ -204,6 +236,54 @@ it('LIVE: TodoMVC is the encoded style.css opt-out (allowlist, not a regression)
   assert.ok(
     entry.reason && entry.reason.length > 0,
     'the exemption must carry a human-readable reason',
+  );
+});
+
+// ---- manifest projection: scanner consumer (rf2-phpbo8) ------------------
+//
+// ALLOWLIST is no longer a literal — it is the page-opt-out projection of the
+// single examples asset/exception manifest, the shared owner examples-staging.cjs
+// also consumes. These pin the projection against a SYNTHETIC manifest (exact
+// logic, no restated production data) plus a real-manifest cross-consistency
+// check that the very base.css/index.css TodoMVC STAGES are the same refs the
+// scanner accepts as page-local — the drift the two independent declarations
+// used to permit.
+
+it('LIVE: the scanner ALLOWLIST IS the real manifest page-opt-out projection (rf2-phpbo8)', () => {
+  assert.deepStrictEqual(
+    ALLOWLIST,
+    pageExemptions(EXAMPLE_ASSET_MANIFEST),
+    'ALLOWLIST must be the manifest projection, not an independent copy',
+  );
+});
+
+it('LIVE: TodoMVC staged CSS destinations == the scanner-accepted page-local refs (one owner) (rf2-phpbo8)', () => {
+  // The whole point of the unification: base.css + index.css are declared ONCE
+  // and appear in BOTH projections. What staging COPIES is exactly what the
+  // scanner ACCEPTS as page-local — they cannot diverge.
+  const staged = stagedAssetsByBuild(EXAMPLE_ASSET_MANIFEST)['examples/todomvc']
+    .map((a) => a.dest)
+    .sort();
+  const scannerLocal = [
+    ...ALLOWLIST['examples/core/todomvc/index.html'].localAssets,
+  ].sort();
+  assert.deepStrictEqual(staged, ['base.css', 'index.css']);
+  assert.deepStrictEqual(scannerLocal, staged);
+});
+
+it('pageExemptions projects a synthetic manifest: exemption + derived localAssets, staging-only entry excluded (rf2-phpbo8)', () => {
+  const projected = pageExemptions(SYNTHETIC_MANIFEST);
+  // The vendored-CSS page surfaces with its exemption + html-linked localAssets.
+  assert.deepStrictEqual(projected['examples/reagent/todomvc/index.html'], {
+    reason: 'synthetic: vendored TodoMVC CSS instead of the shared stylesheet',
+    assetExemptions: ['_shared/css/style.css'],
+    localAssets: ['base.css', 'index.css'],
+  });
+  // The staging-only fixture entry (no exemption, no html-linked asset) is NOT
+  // projected into the scanner allowlist — it adds no empty ALLOWLIST noise.
+  assert.ok(
+    !('examples/reagent/fixture/index.html' in projected),
+    'a staging-only entry must not surface as a scanner exemption',
   );
 });
 
@@ -1250,13 +1330,10 @@ it('a page allowlisted out of style.css with vendored CSS scans clean', () => {
     // base.css / index.css intentionally absent on disk (npm-staged) — the
     // allowlist's localAssets must keep them from being flagged.
   });
-  const allowlist = {
-    'examples/reagent/todomvc/index.html': {
-      reason: 'vendored TodoMVC CSS',
-      assetExemptions: ['_shared/css/style.css'],
-      localAssets: ['base.css', 'index.css'],
-    },
-  };
+  // Build the allowlist the scanner consumes from a SYNTHETIC manifest — the
+  // same projection production uses — so this pins the manifest-consuming path,
+  // not a hand-written allowlist literal (rf2-phpbo8).
+  const allowlist = pageExemptions(SYNTHETIC_MANIFEST);
   const { errors } = scanPage(io, todoPage, { allowlist });
   assert.deepStrictEqual(
     errors,
@@ -1278,13 +1355,10 @@ it('TEETH: an allowlisted page still REQUIRES favicon + OG (opt-out is styleshee
     [todoPage]: todoHtml,
     [OG]: 'PNGDATA',
   });
-  const allowlist = {
-    'examples/reagent/todomvc/index.html': {
-      reason: 'vendored TodoMVC CSS',
-      assetExemptions: ['_shared/css/style.css'],
-      localAssets: ['base.css', 'index.css'],
-    },
-  };
+  // Build the allowlist the scanner consumes from a SYNTHETIC manifest — the
+  // same projection production uses — so this pins the manifest-consuming path,
+  // not a hand-written allowlist literal (rf2-phpbo8).
+  const allowlist = pageExemptions(SYNTHETIC_MANIFEST);
   const { errors } = scanPage(io, todoPage, { allowlist });
   assert.ok(
     errors.some((e) =>

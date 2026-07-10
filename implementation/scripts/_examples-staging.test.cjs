@@ -39,6 +39,35 @@ const {
   EXAMPLES_ROOT,
 } = require('../../examples/scripts/examples-staging.cjs');
 
+const {
+  EXAMPLE_ASSET_MANIFEST,
+  stagedAssetsByBuild,
+} = require('../../examples/scripts/examples-asset-manifest.cjs');
+
+// A SYNTHETIC manifest, injected so the staging projection + consumer are pinned
+// without restating the production data (rf2-phpbo8). It carries a vendored-CSS
+// entry (both assets html-linked, node_modules-sourced) and a staging-only
+// colocated-fixture entry (not html-linked).
+const SYNTHETIC_MANIFEST = [
+  {
+    build: 'examples/synth-vendored',
+    page: 'examples/synth/vendored/index.html',
+    reason: 'synthetic: links vendored CSS instead of the shared stylesheet',
+    assetExemptions: ['_shared/css/style.css'],
+    assets: [
+      { from: 'node-modules', src: 'synth-common/base.css', dest: 'base.css', htmlLinked: true },
+      { from: 'node-modules', src: 'synth-app/index.css', dest: 'index.css', htmlLinked: true },
+    ],
+  },
+  {
+    build: 'examples/synth-fixture',
+    page: 'examples/synth/fixture/index.html',
+    reason: 'synthetic: fetches a colocated fixture from app code (not the HTML)',
+    assetExemptions: [],
+    assets: [{ from: 'src', src: 'api/data.json', dest: 'api/data.json', htmlLinked: false }],
+  },
+];
+
 let failed = 0;
 
 function it(label, f) {
@@ -374,30 +403,80 @@ it('decideRunnerExit treats a teardown-signal kill during interrupt as expected 
 // stage and that a missing source fails LOUD (not a silent skip that ships an
 // unstyled / 404ing / broken-image page).
 
-it('PER_EXAMPLE_ASSETS declares the documented per-example assets (rf2-cq6va5)', () => {
-  // TodoMVC's official CSS (from node_modules), managed-http-counter's success
-  // fixture, and both RealWorld variants' fallback avatar.
-  assert.deepStrictEqual(
-    PER_EXAMPLE_ASSETS['examples/todomvc'].map((a) => a.dest).sort(),
-    ['base.css', 'index.css'],
-    'TodoMVC must stage base.css + index.css',
+// ---- manifest projection: staging consumer (rf2-phpbo8) ------------------
+//
+// The staging PER_EXAMPLE_ASSETS map is no longer a literal declaration — it is
+// the projection of the single examples asset/exception manifest, the shared
+// owner the static scanner also consumes. These pin the projection against a
+// SYNTHETIC manifest (so the logic is exact, not a restated copy of production
+// data) plus a real-manifest NON-VACUITY + cross-consistency check.
+
+it('stagedAssetsByBuild projects a synthetic manifest to build -> [{from,src,dest}], dropping htmlLinked (rf2-phpbo8)', () => {
+  const projected = stagedAssetsByBuild(SYNTHETIC_MANIFEST);
+  // EVERY declared asset is staged regardless of htmlLinked (a scanner concern);
+  // the staging view carries only from/src/dest.
+  assert.deepStrictEqual(projected['examples/synth-vendored'], [
+    { from: 'node-modules', src: 'synth-common/base.css', dest: 'base.css' },
+    { from: 'node-modules', src: 'synth-app/index.css', dest: 'index.css' },
+  ]);
+  assert.ok(
+    !('htmlLinked' in projected['examples/synth-vendored'][0]),
+    'the staging projection must drop the scanner-only htmlLinked flag',
   );
+  assert.deepStrictEqual(projected['examples/synth-fixture'], [
+    { from: 'src', src: 'api/data.json', dest: 'api/data.json' },
+  ]);
+});
+
+it('stagePerExampleAssets stages from an INJECTED synthetic-manifest projection (rf2-phpbo8)', () => {
+  // Drive the real staging consumer with a synthetic manifest projection: a
+  // colocated (:src) fixture must land under outDir/api/data.json after staging.
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'rf2-synth-'));
+  try {
+    const srcDir = path.join(tmpRoot, 'src');
+    fs.mkdirSync(path.join(srcDir, 'api'), { recursive: true });
+    fs.writeFileSync(path.join(srcDir, 'api', 'data.json'), '{"ok":true}');
+    const outDir = path.join(tmpRoot, 'out');
+    fs.mkdirSync(outDir, { recursive: true });
+    const entry = { build: 'examples/synth-fixture', outDir, srcDir };
+
+    stagePerExampleAssets(entry, {
+      perExampleAssets: stagedAssetsByBuild(SYNTHETIC_MANIFEST),
+    });
+
+    const staged = path.join(outDir, 'api', 'data.json');
+    assert.ok(fs.existsSync(staged), `the synthetic fixture must be staged at ${staged}`);
+    assert.strictEqual(fs.readFileSync(staged, 'utf8'), '{"ok":true}');
+  } finally {
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  }
+});
+
+it('the LIVE staging PER_EXAMPLE_ASSETS IS the real manifest projection, non-vacuously (rf2-phpbo8)', () => {
+  // Cross-consistency: the exported staging map is exactly the real manifest's
+  // staging projection (no second, drift-prone literal declaration).
+  assert.deepStrictEqual(
+    PER_EXAMPLE_ASSETS,
+    stagedAssetsByBuild(EXAMPLE_ASSET_MANIFEST),
+    'PER_EXAMPLE_ASSETS must be the manifest projection, not an independent copy',
+  );
+  // Non-vacuity: the real manifest declares the documented per-example builds,
+  // and TodoMVC's official CSS is fetched from node_modules (not vendored).
+  for (const build of [
+    'examples/todomvc',
+    'examples/managed-http-counter',
+    'examples/realworld',
+    'examples/realworld-resources',
+  ]) {
+    assert.ok(
+      Array.isArray(PER_EXAMPLE_ASSETS[build]) && PER_EXAMPLE_ASSETS[build].length > 0,
+      `the manifest must declare staged assets for ${build}`,
+    );
+  }
   assert.ok(
     PER_EXAMPLE_ASSETS['examples/todomvc'].every((a) => a.from === 'node-modules'),
     'TodoMVC CSS is fetched into node_modules, not vendored',
   );
-  assert.ok(
-    PER_EXAMPLE_ASSETS['examples/managed-http-counter'].some((a) =>
-      /inc\.json$/.test(a.dest),
-    ),
-    'managed-http-counter must stage its api/inc.json success fixture',
-  );
-  for (const build of ['examples/realworld', 'examples/realworld-resources']) {
-    assert.ok(
-      PER_EXAMPLE_ASSETS[build].some((a) => a.dest === 'default-avatar.svg'),
-      `${build} must stage default-avatar.svg`,
-    );
-  }
 });
 
 it('stageExample stages a colocated per-example asset after a clean stage (rf2-cq6va5)', () => {
