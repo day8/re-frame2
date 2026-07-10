@@ -8,23 +8,31 @@
    examples/core/login/ — the example source stays test-free per the
    locked test-free-examples policy (rf2-8cevm). The ns requires the
    example's production source (`login.core`) so its machine / events /
-   schemas register at ns-load, then exercises them directly.
+   schemas register at ns-load, then exercises the MACHINE directly.
+
+   Post rf2-3fc89f.33 the machine is credential-free: `submit-form` owns the
+   (sensitive) HTTP request, and the machine receives only signals —
+   a bare `[:auth.login/flow [:auth.login/submit]]` to enter `:submitting`, and
+   the framework-shaped reply as `[:auth.login/flow [:auth.login/failure] {…}]`
+   on the way back. So these tests drive those signals directly (no HTTP round
+   trip) — which is exactly the machine surface this ns pins.
 
    Coverage:
      - data-schema-attached         — `(machine-meta :auth.login/flow)`
        carries `AuthLoginData`; the schema rejects malformed `:data`.
-     - malformed-data-fails-boundary — driving the machine so `:record-error`
-       writes a NON-string into `:error` (the schema requires
-       `[:maybe :string]`) emits exactly one
+     - malformed-data-fails-boundary — driving the machine's `:failure` with a
+       non-string message makes `:record-error` write a NON-string into `:error`
+       (the schema requires `[:maybe :string]`), emitting exactly one
        `:rf.error/schema-validation-failure :where :machine-data` trace and
-       rolls the snapshot back (the bad `:data` never sticks).
+       rolling the snapshot back (the bad `:data` never sticks).
      - well-formed-data-passes      — a normal failing login (string
-       message) settles without any `:where :machine-data` trace."
+       message) settles without any `:where :machine-data` trace.
+     - retry-clears-prior-error     — a direct retry from `:error-shown` clears
+       the stale `:error` as the machine re-enters `:submitting`."
   (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.machines :as machines]
-            [re-frame.registrar :as registrar]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]
             ;; The schemas Malli adapter publishes the registered validator
@@ -32,8 +40,6 @@
             ;; pulls it transitively, require here so the ns is self-sufficient.
             [re-frame.schemas :as schemas]
             [re-frame.schemas.malli]
-            ;; canned-failure stub (`:rf.http/managed-canned-failure`).
-            [re-frame.http.test-support]
             [login.core])
   (:require-macros [re-frame.core :refer [with-new-frame]]))
 
@@ -54,7 +60,7 @@
           [:rf.db/runtime :rf.runtime/machines :snapshots :auth.login/flow :state]))
 
 (defn- collect-machine-data-traces!
-  "Run `f` while collecting `:rf.error/schema-validation-failure` traces with
+  "Run `thunk` while collecting `:rf.error/schema-validation-failure` traces with
    `:where :machine-data`. Returns the captured (filtered) trace vector."
   [thunk]
   (let [traces (atom [])]
@@ -65,18 +71,22 @@
                    (= :machine-data (-> % :tags :where)))
              @traces)))
 
-(def ^:private valid-creds {:email "alice@example.com" :password "hunter2pw"})
+(defn- failure-reply
+  "The framework-shaped managed-HTTP failure envelope the machine's
+   `:record-error` action reads: `{:status :error :error {… :message …}}`, with
+   `:message` riding under `:error`. The action's `:event` sees it as the second
+   element of the `:failure` sub-event — the same view a real reply-appended
+   `[:auth.login/flow [:auth.login/failure] <this>]` produces."
+  [message]
+  {:status :error
+   :error  {:kind :rf.http/http-4xx :status 401 :message message}})
 
-(defn- reg-sync-failure-override!
-  "Register a synchronous `:rf.http/managed` override delegating to the
-   framework canned-FAILURE stub with the given `:tags` (no `:after-ms`, so
-   the reply resolves inside the same drain)."
-  [fx-id tags]
-  (rf/reg-fx fx-id
-    {:platforms #{:client :server}}
-    (fn [frame-ctx args]
-      (let [stub (registrar/handler :fx :rf.http/managed-canned-failure)]
-        (stub frame-ctx (assoc args :kind :rf.http/http-4xx :tags tags))))))
+(defn- submit! [f]
+  (rf/dispatch-sync [:auth.login/flow [:auth.login/submit]] {:frame f}))
+
+(defn- fail! [f message]
+  (rf/dispatch-sync [:auth.login/flow [:auth.login/failure (failure-reply message)]]
+                    {:frame f}))
 
 ;; ---------------------------------------------------------------------------
 ;; (1) attachment + schema rejects malformed :data
@@ -101,20 +111,15 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest malformed-data-fails-boundary
-  (testing "a failure reply whose message is non-string drives :record-error to write a bad :error, failing the :machine-data boundary and rolling back"
-    (reg-sync-failure-override! :login.test/canned-bad-message
-                                {:status 401 :message {:not "a string"}})
-    (with-new-frame [f (frame/make-anon-frame-record!
-                         {:fx-overrides {:rf.http/managed
-                                         :login.test/canned-bad-message}})]
-      ;; A valid submit drives :idle → :submitting and fires :issue-request;
-      ;; the synchronous canned-failure reply dispatches :auth.login/failure
-      ;; whose :record-error action writes the non-string message into
+  (testing "a failure whose message is non-string drives :record-error to write a bad :error, failing the :machine-data boundary and rolling back"
+    (with-new-frame [f (frame/make-anon-frame-record! {})]
+      ;; A bare :submit signal drives :idle → :submitting; then a :failure whose
+      ;; message is a non-string map makes :record-error write that map into
       ;; :error — which AuthLoginData's [:maybe :string] rejects.
       (let [traces   (collect-machine-data-traces!
-                       #(rf/dispatch-sync
-                          [:auth.login/flow [:auth.login/submit valid-creds]]
-                          {:frame f}))
+                       (fn []
+                         (submit! f)
+                         (fail! f {:not "a string"})))
             trace-ev (first traces)
             tag      (:tags trace-ev)]
         (is (= 1 (count traces))
@@ -134,15 +139,11 @@
 
 (deftest well-formed-data-passes
   (testing "a normal failing login (string message) settles with no :machine-data trace"
-    (reg-sync-failure-override! :login.test/canned-ok-message
-                                {:status 401 :message "Invalid credentials."})
-    (with-new-frame [f (frame/make-anon-frame-record!
-                         {:fx-overrides {:rf.http/managed
-                                         :login.test/canned-ok-message}})]
+    (with-new-frame [f (frame/make-anon-frame-record! {})]
       (let [traces (collect-machine-data-traces!
-                     #(rf/dispatch-sync
-                        [:auth.login/flow [:auth.login/submit valid-creds]]
-                        {:frame f}))]
+                     (fn []
+                       (submit! f)
+                       (fail! f "Invalid credentials.")))]
         (is (zero? (count traces))
             "no :where :machine-data trace for a well-formed (string) :error")
         (is (= "Invalid credentials." (:error (machine-data f)))
@@ -156,32 +157,18 @@
 
 (deftest retry-clears-prior-error
   (testing "a direct retry from :error-shown clears the stale :error as the machine re-enters :submitting"
-    ;; First request: a synchronous failure lands the flow in :error-shown with
-    ;; a non-nil :error (the message the view renders).
-    (reg-sync-failure-override! :login.test/retry-failure
-                                {:status 401 :message "Invalid credentials."})
-    ;; Second request (the RETRY): a no-op managed-HTTP fx that issues NO reply,
-    ;; so the machine parks in :submitting and we can observe the :error slot
-    ;; while the request is still in flight.
-    (rf/reg-fx :login.test/retry-noop
-      {:platforms #{:client :server}}
-      (fn [_frame-ctx _args] nil))
     (with-new-frame [f (frame/make-anon-frame-record! {})]
-      ;; Drive idle → submitting → error-shown (per-call override → failure).
-      (rf/dispatch-sync [:auth.login/flow [:auth.login/submit valid-creds]]
-                        {:frame        f
-                         :fx-overrides {:rf.http/managed :login.test/retry-failure}})
+      ;; Drive idle → submitting → (string failure) → error-shown.
+      (submit! f)
+      (fail! f "Invalid credentials.")
       (is (= :error-shown (machine-state f))
           "the failed login settled in :error-shown")
       (is (= "Invalid credentials." (:error (machine-data f)))
           "the prior failure message is visible in :error-shown")
-      ;; Resubmit directly from :error-shown with the no-op override so the
-      ;; machine parks in :submitting and the :error slot is observable
-      ;; mid-flight.
-      (rf/dispatch-sync [:auth.login/flow [:auth.login/submit valid-creds]]
-                        {:frame        f
-                         :fx-overrides {:rf.http/managed :login.test/retry-noop}})
+      ;; Resubmit directly from :error-shown; with no reply issued the machine
+      ;; parks in :submitting and the :error slot is observable mid-flight.
+      (submit! f)
       (is (= :submitting (machine-state f))
-          "the retry re-entered :submitting (no reply issued by the no-op fx)")
+          "the retry re-entered :submitting (no reply issued)")
       (is (nil? (:error (machine-data f)))
           "the :clear-error action cleared the stale error on the retry transition"))))

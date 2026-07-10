@@ -34,10 +34,11 @@ You can see exactly how little moves in `core.cljs` itself, which draws the divi
   [schemas](../../../../docs/core/glossary.md#schema), and the managed-HTTP
   [effect](../../../../docs/core/glossary.md#effect) are the same registrations as
   the Reagent example: same `:auth.login/*` ids, same transition table, same
-  canned stub. The login flow dispatches the same wrapped
+  canned stub. The login flow dispatches the same wrapped, credential-free
   [event](../../../../docs/core/glossary.md#event) into the machine
-  (`[:auth.login/flow [:auth.login/submit creds]]`), the machine computes the
-  same [transition](../../../../docs/machines/glossary.md#transition), and the
+  (`[:auth.login/flow [:auth.login/submit]]` — the form issues the request and
+  the machine never sees the password), the machine computes the same
+  [transition](../../../../docs/machines/glossary.md#transition), and the
   managed-HTTP reply lands back as just another event. The substrate swapped;
   the model did not.
 

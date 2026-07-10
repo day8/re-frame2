@@ -50,8 +50,10 @@ React-family library renders them. Same model, swap the renderer, get UIx.
   boolean flags. It's a five-state
   [machine](../../../../docs/machines/glossary.md#machine): `:idle` →
   `:submitting` → `:authed`, with `:error-shown` and `:locked-out` off the
-  failure path. Submitting fires the HTTP request from the `:submitting` entry
-  action. Success folds the session token away. Failure records the error and
+  failure path. Submitting validates the draft and fires the (sensitive) HTTP
+  request from `submit-form`, then nudges the machine with a credential-free
+  signal — the machine never sees the password. Success folds the session token
+  away. Failure records the error and
   shows it — while the `:under-retry-limit` guard still passes — or, on the
   fourth failed attempt, lands the machine in `:locked-out`. The view never
   rebuilds that logic; it just reads the
