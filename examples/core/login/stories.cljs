@@ -87,13 +87,16 @@
 ;; canned-success stub (which just echoes the request's `:value` slot back as
 ;; the payload).
 ;;
-;; So this driver walks the real form path: seed the draft (email via
-;; `:auth.login/edit-field`, password via the classified `:auth.login/edit-
-;; password`), then dispatch `:auth.login/submit-form`. Same real fx (right
-;; there in Xray's Side Effects panel), and the canned stub answers it — no
-;; app-side override needed. The reply `:value` happens to be nil (we sent
-;; none), but that's fine: the welcome banner keys off the `:auth/authenticated`
-;; tag, not the payload, so the flow still settles happily at `:authed`.
+;; The slice itself is seeded once, up front, by the composed
+;; `:fragment.login/form-base` fragment (every variant pulls it in via
+;; `:compose`), so this driver need not initialise it — it just walks the
+;; real form path: type the draft (email via `:auth.login/edit-field`,
+;; password via the classified `:auth.login/edit-password`), then dispatch
+;; `:auth.login/submit-form`. Same real fx (right there in Xray's Side
+;; Effects panel), and the canned stub answers it — no app-side override
+;; needed. The reply `:value` happens to be nil (we sent none), but that's
+;; fine: the welcome banner keys off the `:auth/authenticated` tag, not the
+;; payload, so the flow still settles happily at `:authed`.
 ;; ---------------------------------------------------------------------------
 
 (rf/reg-event :login.story/submit
@@ -105,8 +108,7 @@
          `:auth.login/success` follow-on lands the flow at `:authed`. The whole
          chain shows in Xray's Epoch / Trace / Side Effects panels."}
   (fn handler-story-submit [_ [_ creds]]
-    {:fx [[:dispatch [:auth.login/initialise-form]]
-          [:dispatch [:auth.login/edit-field :email (:email creds)]]
+    {:fx [[:dispatch [:auth.login/edit-field :email (:email creds)]]
           [:dispatch [:auth.login/edit-password {:value (:password creds)}]]
           [:dispatch [:auth.login/submit-form]]]}))
 
@@ -166,6 +168,28 @@
      :substrates #{:reagent}})
 
   ;; -------------------------------------------------------------------------
+  ;; reg-fragment — the shared form-base. Every login variant runs in its own
+  ;; fresh `:preset :story` frame with no application `:initial-events`, so
+  ;; each must seed the login-form slice itself before its variant-specific
+  ;; setup runs — exactly as the live app does at boot. Rather than copy the
+  ;; initializer into seven `:setup` vectors, we register it ONCE here and
+  ;; `:compose` it into every variant below. The plan compiler appends a
+  ;; composed fragment's `:setup` BEFORE the variant's own, so the slice is
+  ;; fully initialised (controlled inputs, complete bookkeeping fields) the
+  ;; moment the variant's own events run. The event stays the single source
+  ;; of the defaults — no defaults map is duplicated in Story, no `:db-seed`.
+  ;; -------------------------------------------------------------------------
+
+  (story/reg-fragment :fragment.login/form-base
+    {:doc   "Seeds the login-form slice to its standard form-recipe defaults
+            via the example's own `:auth.login/initialise-form` (the single
+            source of those defaults — the same event the live app runs at
+            boot). Composed into every login variant so each isolated frame
+            boots with a fully-initialised, controlled-input slice before its
+            variant-specific setup runs."
+     :setup [[:auth.login/initialise-form]]})
+
+  ;; -------------------------------------------------------------------------
   ;; reg-variant — the reachable states, one per variant. The house style
   ;; here: drive each into place with real events, never by hand-poking the
   ;; db (`:db-seed`) or faking subs (`:sub-overrides`). What you see is what
@@ -178,7 +202,8 @@
   ;; `[:rf.runtime/machines :snapshots :auth.login/flow]` slot sits nil until
   ;; the first real event, and there'd be nothing to render.
   (story/reg-variant :story.login/empty
-    {:doc        "Fresh form, nothing typed, no submit clicked — the
+    {:compose    [:fragment.login/form-base]
+     :doc        "Fresh form, nothing typed, no submit clicked — the
                  `:idle` entry state a user lands on. Email + password
                  inputs + an enabled 'Sign in' button."
      :setup      [[:auth.login/flow [:auth.login/dismiss]]]
@@ -192,7 +217,8 @@
   ;; machine stays `:idle`, and the inputs show the seeded draft as their
   ;; `:value`. No shortcuts.
   (story/reg-variant :story.login/filled
-    {:doc        "Both fields filled in, nothing submitted yet — the form
+    {:compose    [:fragment.login/form-base]
+     :doc        "Both fields filled in, nothing submitted yet — the form
                  mid-edit. The draft was typed into the app-db login-form slice
                  via real edit events (email via `:auth.login/edit-field`,
                  password via the classified `:auth.login/edit-password`), so
@@ -212,7 +238,8 @@
   ;; (`:auth/busy`) — inputs disabled, button reading "Signing in…". A
   ;; freeze-frame of the in-flight moment.
   (story/reg-variant :story.login/submitting
-    {:doc        "First submit; the HTTP request is in flight. Inputs
+    {:compose    [:fragment.login/form-base]
+     :doc        "First submit; the HTTP request is in flight. Inputs
                  are disabled and the button reads 'Signing in…'. The
                  fx-stub records the `:rf.http/managed` request and
                  resolves nothing, so the canvas locks in `:submitting`."
@@ -228,12 +255,12 @@
   ;; machine never leaves `:idle` and the form shows what's wrong under each
   ;; input.
   (story/reg-variant :story.login/invalid-credentials
-    {:doc        "A bad draft (bad email + too-short password) is caught by
+    {:compose    [:fragment.login/form-base]
+     :doc        "A bad draft (bad email + too-short password) is caught by
                  `submit-form`'s pre-submit `Credentials` validation: field
                  errors surface under each input, `:submit-attempted?` latches,
                  and nothing is dispatched, so the flow stays at `:idle`."
-     :setup      [[:auth.login/initialise-form]
-                  [:auth.login/flow [:auth.login/dismiss]]
+     :setup      [[:auth.login/flow [:auth.login/dismiss]]
                   [:auth.login/edit-field :email "nope"]
                   [:auth.login/edit-password {:value "short"}]
                   [:auth.login/submit-form]]
@@ -247,7 +274,8 @@
   ;; state without being at the mercy of timing. The flow settles at
   ;; `:error-shown`, error message and all.
   (story/reg-variant :story.login/auth-error
-    {:doc        "Server rejected the credentials. The form is re-enabled and
+    {:compose    [:fragment.login/form-base]
+     :doc        "Server rejected the credentials. The form is re-enabled and
                  the error message surfaces under the submit button
                  (`:error-shown`). The machine is driven into `:submitting` with
                  a credential-free `:submit` signal and the manually-driven
@@ -264,7 +292,8 @@
   ;; shortcut to "three strikes already used", so this variant simply walks
   ;; the path: submit → failure, four times over, until the limit is spent.
   (story/reg-variant :story.login/locked-out
-    {:doc        "Too many failed attempts — the `:under-retry-limit`
+    {:compose    [:fragment.login/form-base]
+     :doc        "Too many failed attempts — the `:under-retry-limit`
                  guard fails on the fourth failure and the flow reaches
                  the terminal `:locked-out` state, firing the
                  `:lock-account` request (visible in Xray's Side Effects
@@ -292,7 +321,8 @@
   ;; `:authed`. Open this one, hit Ctrl+Shift+C, and watch the full chain march
   ;; across Xray's Epoch / Trace / Side Effects panels.
   (story/reg-variant :story.login/success
-    {:doc        "Server accepted the credentials. The form is replaced
+    {:compose    [:fragment.login/form-base]
+     :doc        "Server accepted the credentials. The form is replaced
                  by the 'Welcome!' banner (`:authed`). The full
                  auth-submit cascade — submit → `:rf.http/managed` →
                  canned reply → `:success` — runs through real events;
