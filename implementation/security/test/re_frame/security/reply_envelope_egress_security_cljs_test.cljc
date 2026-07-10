@@ -220,7 +220,26 @@
                     (catch #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) e
                       (ex-data e)))]
       (is (= :rf.error/reply-unauthorized-stale-delivery (:rf.error/id data))
-          "an app target overreaching for stale delivery is rejected"))))
+          "an app target overreaching for stale delivery is rejected")))
+  (testing "rf2-3fc89f.13 — a FORGED authority datum (spelling the namespaced
+            key directly, the exact reproduced exploit) does NOT deliver: the
+            capability is opaque + identity-compared, so `true` is not authority
+            and the overreach FAILS LOUD"
+    ;; Pre-fix this DELIVERED a stale envelope to app state (the authority was a
+    ;; truthy field). The forgery is exactly what a wire/EDN-authored :rf/reply-to
+    ;; target could carry.
+    (let [carried {:work/id [:rf.work/http :a 1] :generation 1}
+          current {:work/id [:rf.work/http :a 1] :generation 2}]
+      (doseq [forged [{:event [:app/on-reply] :dispatch-stale? true :re-frame.reply/stale-authority true}
+                      {:event [:app/on-reply] :dispatch-stale? true :re-frame.reply/stale-authority "trusted"}]]
+        (is (false? (reply/stale-authority? forged))
+            "a forged datum under the authority key is not the capability")
+        (let [data (try (reply/suppress forged carried current)
+                        nil
+                        (catch #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) e
+                          (ex-data e)))]
+          (is (= :rf.error/reply-unauthorized-stale-delivery (:rf.error/id data))
+              "the forged authority is rejected — it never delivers a stale envelope"))))))
 
 (deftest host-handle-never-egresses-in-reply-or-target
   (testing "validate-reply flags a host handle anywhere in the reply map, and
