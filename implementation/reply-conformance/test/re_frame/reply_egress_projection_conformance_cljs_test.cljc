@@ -3,14 +3,14 @@
 
   ## The gap this closes
 
-  The sibling reply-conformance tiers prove the EP-0011 RAW reply
-  vocabulary / functor laws: the cross-family table asserts raw `:value` /
-  `:error` envelope slots + the data-only / no-host-handle invariants
-  (`reply-vocab-conformance`), and the functor suite proves relocated
-  completions preserve the raw appended reply (`reply-functor-law`). NONE of
-  them exercises the EP-0015 EGRESS boundary for reply envelopes — none
-  calls `re-frame.reply/trace-summary` or `re-frame.core/project-egress`
-  under an off-box profile.
+  The sibling `reply-vocab-conformance` tier proves the EP-0011 RAW reply
+  vocabulary: the cross-family table asserts raw `:value` / `:error` envelope
+  slots + the data-only / no-host-handle invariants. It does NOT exercise the
+  EP-0015 EGRESS boundary for reply envelopes — it never calls
+  `re-frame.reply/trace-summary` or `re-frame.core/project-egress` under an
+  off-box profile. (The reply-target functor laws are owned by core
+  `re-frame.reply-test` + the timer-probe consumer proof — rf2-9dc84j removed
+  the synthetic reply-conformance functor suite.)
 
   Why it matters: Spec 015 + Managed-Effects require EVERY managed-effect
   trace / tool / log boundary to project wire-bearing reply slots through
@@ -49,7 +49,7 @@
   `complete`, `map-completed-event`, `durable-target`) and `re-frame.core`
   (`project-egress`) against a frame whose elision registry classifies reply
   value / error sub-paths. Lives in the cross-artefact `reply-conformance/`
-  surface alongside the vocab + functor tiers.
+  surface alongside the vocab tier.
 
   `.cljc`, dual-runtime: the shadow-cljs `:node-test` build
   (`npm run test:cljs`, ns matches `cljs-test$`) AND the JVM
@@ -119,16 +119,19 @@
 (def ^:private completed-at-ms fixtures/completion-time-ms)
 
 (defn- ok-reply []
-  ;; The canonical :ok reply SHAPE built via the shared
-  ;; `re-frame.reply-conformance-fixtures/canonical-ok-reply` (rf2-b2a3a2).
-  ;; This suite's row additionally pins `:rf.reply/work-status :completed`.
-  (fixtures/canonical-ok-reply
-    {:value        (reply-body)
-     :rf.reply/work-id      work-id
-     :rf.reply/work-kind    :resource
-     :rf.reply/work-status  :completed
-     :rf.frame/id  frame-id
-     :completed-at completed-at-ms}))
+  ;; The canonical :ok reply SHAPE (Managed-Effects §The uniform reply
+  ;; envelope): :status :ok + a :value + a [:rf.work/* …] :work/id tuple +
+  ;; :work/kind + :rf.frame/id + the durable :completed-at causal completion
+  ;; fact; this suite additionally pins `:rf.reply/work-status :completed`.
+  ;; Inlined here (rf2-9dc84j) — the shared `canonical-ok-reply` builder was
+  ;; retired with the synthetic functor suite, this being its sole other use.
+  {:status               :ok
+   :value                (reply-body)
+   :rf.reply/work-id     work-id
+   :rf.reply/work-kind   :resource
+   :rf.reply/work-status :completed
+   :rf.frame/id          frame-id
+   :completed-at         completed-at-ms})
 
 (defn- error-reply []
   ;; The failure payload's wire-bearing leaves sit at the declared coordinates
