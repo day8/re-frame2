@@ -1,31 +1,13 @@
-;; tools/testbed-support — JVM test classpath for the dev-only
-;; open-in-editor server (`re-frame.testbed.open-in-editor-server`).
-;;
-;; testbed-support is NOT a published jar and is consumed by the testbeds
-;; purely as an extra shadow-cljs source path (see README.md "How it's
-;; wired"). The CLJS halves (`config.cljs` / `story_host.cljs`) are tested
-;; by the always-on `:node-test` build and the focused
-;; `:node-test-testbed-support` build (`npm run test:testbed-support`).
-;;
-;; The open-in-editor endpoint, however, is a JVM-only `.clj` that runs on
-;; the shadow-cljs SERVER JVM and is never compiled by any CLJS build, so
-;; its `resolve-file` path-decoding logic cannot be exercised by the node
-;; suites. This deps.edn exists solely to give that `.clj` a JVM
-;; `clojure -M:test` gate — the same src/test + test-quiet-runner shape
-;; every other tool/artefact uses. It is a TEST harness, not a packaging
-;; surface (still no Clojars coord; the testbeds keep consuming `src/` as a
-;; source path).
+;; JVM test harness for the dev-only open-in-editor server. The browser
+;; testbeds consume this tool through shadow-cljs source paths, not as a jar.
 {:paths ["src"]
  :deps  {org.clojure/clojure {:mvn/version "1.12.0"}
-         ;; The server `:require`s `re-frame.source-coords.editor-uri`
-         ;; (`absolute-path?`); pull implementation/core for it.
+         ;; Supplies the source-coordinate resolver used by the server.
          day8/re-frame2      {:local/root "../../implementation/core"}}
 
  :aliases
  {:test {:extra-paths ["test"]
-         :extra-deps  {;; The silent-on-success reporter — the same quiet
-                       ;; runner every per-artefact :test alias uses.
-                       day8/re-frame2-test-quiet {:local/root "../../implementation/test-quiet"}
+         :extra-deps  {day8/re-frame2-test-quiet {:local/root "../../implementation/test-quiet"}
                        io.github.cognitect-labs/test-runner
                        {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
          :main-opts   ["-m" "re-frame.test-quiet.runner"]}}}

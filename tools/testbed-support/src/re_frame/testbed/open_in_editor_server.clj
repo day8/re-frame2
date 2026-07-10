@@ -1,69 +1,10 @@
 (ns re-frame.testbed.open-in-editor-server
-  "Dev-server 'open in editor' endpoint (Option B).
+  "Dev-only Ring endpoint for opening source coordinates in an editor.
 
-  The JS-ecosystem standard for jump-to-source is a dev-server endpoint:
-  Vite's `/__open-in-editor`, react-dev-utils' `launchEditorEndpoint`,
-  Next.js' launch-editor middleware. This namespace is the re-frame2
-  equivalent — a shadow-cljs `:dev-http` Ring `:handler` (a not-found
-  fallback) that answers `POST /__rf-open-in-editor?file=<…>&line=<n>
-  &column=<c>` by resolving the (classpath-relative) `:file` against the
-  dev JVM's source-paths AT RUNTIME and launching the editor via the
-  `launch-editor` npm package.
-
-  ## Why it is POST-only + loopback-guarded
-
-  The endpoint LAUNCHES the developer's editor on a local file path, so
-  left open it is a drive-by vector in the historic Vite / react-dev-utils
-  CVE class — any page the developer is visiting could fire a request at
-  `http://localhost:<dev-port>` and open an attacker-chosen file. The
-  handler therefore acts only on a POST that is addressed to a loopback
-  `Host` and (when one is present) carries a loopback `Origin`; CORS is
-  reflected to that validated loopback origin, never `*`. A simple GET/HEAD
-  drive-by, a request reaching a non-loopback hostname, or a POST from a
-  remote page's Origin is rejected before any path resolution. The default
-  client (`re-frame.source-coords.open-endpoint`) already POSTs from the
-  same/cross-PORT dev origin, so the dev DX is unchanged.
-
-  ## Why server-side beats the editor:// URI scheme
-
-  The editor:// open-in-editor path (kept as the fallback — see
-  `day8.re-frame2-xray.open-in-editor` / `re-frame.story.ui.open-in-editor`)
-  builds an `editor://file/<abs-path>:<line>:<column>` URI and hands it to
-  `window.location`. That works zero-config for the common local-build
-  case (`absolutise-file` bakes the absolute path in at macro-expansion
-  time), but it has two residual gaps Option B closes:
-
-    1. `absolutise-file` can only absolutise coords whose
-       sources are classpath `file:` resources — sources consumed as JARs
-       / in-jar / unusual classpaths leave a RELATIVE `:file` that needs a
-       manual `:project-root`. This endpoint resolves the relative file
-       against the live source-paths on the dev machine, so jump-to-source
-       is zero-config for EVERYONE including the JAR/relative-coord case.
-    2. `absolutise-file` bakes the BUILDER's absolute home path into the
-       dev bundle (DCE-d in prod, so not a shipped leak, but it puts the
-       dev username/path into the dev JS). This endpoint resolves the path
-       at runtime on the server — nothing baked into the bundle.
-
-  ## Bundle isolation
-
-  This is a `.clj` file (JVM-only) that runs on the shadow-cljs SERVER
-  JVM — it is NEVER part of any browser/CLJS build (shadow ignores `.clj`
-  sources for CLJS compilation), so it cannot leak into a production
-  bundle. It is wired into the testbed `:dev-http` ports in
-  `implementation/shadow-cljs.edn`; the `:dev-http` block itself is honoured
-  only by `shadow-cljs watch`/`compile`, never by `release`.
-
-  ## Editor launch
-
-  `launch-editor` (the Vite/CRA/Next package) is a Node-only library with
-  no CLI, so we shell out to `node` running a one-liner that requires it
-  and passes the resolved `<abs-path>:<line>:<column>` string plus an
-  optional editor-command hint. `launch-editor` parses the `:line:column`
-  suffix itself and builds the per-editor argument shape (it handles every
-  OS + editor, so no per-editor `editor://` scheme table is needed). The
-  editor hint maps the configured editor keyword (`:vscode`/`:cursor`/…)
-  to the editor's launch command; when no hint is given launch-editor
-  auto-detects the running editor (and honours `$LAUNCH_EDITOR`)."
+  The JVM handler resolves classpath-relative files at request time and invokes
+  the Node `launch-editor` package. Launches require POST, a loopback Host, and
+  a loopback Origin when one is present. This `.clj` namespace runs only in the
+  shadow-cljs server and is never part of a browser bundle."
   (:require [clojure.string :as str]
             [re-frame.source-coords :as source-coords]
             [re-frame.source-coords.editor-uri :as editor-uri])
@@ -73,25 +14,13 @@
 (set! *warn-on-reflection* true)
 
 (def endpoint-path
-  "The request path this handler answers. Mirrors Vite's
-  `/__open-in-editor`, namespaced under the `__rf-` dev-affordance prefix
-  so it cannot collide with an app route."
+  "The dev-server path handled by this namespace."
   "/__rf-open-in-editor")
 
-;; ---- editor-keyword → launch-editor command hint -------------------------
-;;
-;; `launch-editor`'s optional 2nd arg is an editor *command* (a bin name,
-;; e.g. "code"), NOT the editor:// keyword our config carries. Map the
-;; configured keyword to the conventional launch command so a host that
-;; has already set `:rf.xray/editor :cursor` / `:rf.story/editor :idea`
-;; gets the same editor server-side. Unknown / `{:custom …}` shapes return
-;; nil → launch-editor falls back to running-process detection + the
-;; `$LAUNCH_EDITOR` env override (the same auto-detection Vite relies on).
+;; launch-editor expects a binary name, not the editor keyword in host config.
 
 (def editor-command-by-keyword
-  "Map of the open-in-editor keyword vocabulary → the editor's launch
-  command for `launch-editor`. `:custom` templates and unknown keywords
-  resolve to nil (auto-detect)."
+  "Open-in-editor keyword strings mapped to launch-editor binary names."
   {"vscode"          "code"
    "vscode-insiders" "code-insiders"
    "cursor"          "cursor"
@@ -100,64 +29,28 @@
    "idea"            "idea"})
 
 (defn editor-hint
-  "Resolve the launch-editor command hint from an `editor` query value
-  (the editor keyword as a bare string, e.g. \"cursor\"). Returns nil for
-  blank / unknown values so launch-editor auto-detects."
+  "Resolve an editor query value to a command hint, or nil for auto-detect."
   [editor]
   (when (and (string? editor) (not (str/blank? editor)))
     (get editor-command-by-keyword (str/lower-case (str/trim editor)))))
 
-;; ---- runtime :file resolution (delegates to core absolutise-file) --------
-;;
-;; The server runs on the dev JVM with the full shadow-cljs classpath, so
-;; a classpath-relative `:file` (the common macro-captured shape — e.g.
-;; "day8/re_frame2_xray/views/edn_inspector.cljs") resolves to its on-disk
-;; absolute path via the context class-loader exactly like the JVM-side
-;; `re-frame.source-coords/absolutise-file` does at macro-expansion time —
-;; but here at RUNTIME, so it works even when the build-time bake didn't
-;; (JARs, odd classpaths, relative coords that fell through).
-;;
-;; That classpath stage — context-class-loader lookup, `file:` URL decode
-;; (`URI.getPath`, preserving a literal `+`), and Windows drive-letter
-;; normalization — is exactly what `re-frame.source-coords/absolutise-file`
-;; already owns canonically (rf2-wvsxg / rf2-st3ax4). `resolve-file` delegates
-;; to it rather than re-implementing the same decode dance a second time
-;; (rf2-hf0vqa). `absolutise-file` is JVM-private in core; it is reached here
-;; via its var (`#'source-coords/absolutise-file`) so the runtime twin stays a
-;; single source of truth without widening core's public surface. The
-;; endpoint-owned cwd fallback + existence/raw-path policy stay here — they are
-;; the runtime-only gap Option B exists to close, which the macro-time
-;; `absolutise-file` has no notion of.
+;; Core owns classpath URL decoding; this endpoint adds runtime cwd fallback.
 
 (defn resolve-file
-  "Resolve a (possibly classpath-relative) `path` to its absolute on-disk
-  path. Returns the input unchanged when it is already absolute (per
-  `editor-uri/absolute-path?`). Otherwise the classpath stage is delegated to
-  `re-frame.source-coords/absolutise-file` (the canonical context-class-loader
-  `getResource`-then-`URI.getPath`-decode resolver, which preserves a literal
-  `+` and normalizes a Windows drive path). When the classpath stage cannot
-  resolve the file — `absolutise-file` then returns the input UNCHANGED (not on
-  classpath, non-`file:` URL, or a probe error) — this falls back to resolving
-  it against the JVM's working directory (the dev process cwd is the consumer's
-  project root under shadow-cljs); if that file does not exist either, the input
-  is returned unchanged so launch-editor at least gets the raw path. Returns nil
-  for nil/blank input."
+  "Resolve `path` through core's classpath resolver, then the dev-process cwd.
+  Absolute paths pass through, unresolved paths remain unchanged, and blank
+  input returns nil."
   [path]
   (cond
     (or (nil? path) (str/blank? path)) nil
     (editor-uri/absolute-path? path)   path
     :else
-    ;; 1. Classpath stage — delegate to core's canonical resolver. It returns
-    ;;    the absolute on-disk path when the file resolves on the classpath,
-    ;;    else the input UNCHANGED. A resolved path is always absolute (≠ the
-    ;;    relative input), so an unchanged result is the "did not resolve"
-    ;;    signal that falls through to the endpoint-owned fallbacks below.
+    ;; An unchanged result signals that the classpath lookup did not resolve.
     (let [absolutised (#'source-coords/absolutise-file path)]
       (if (not= absolutised path)
         absolutised
         (or
-          ;; 2. Relative to the dev process cwd (JAR / in-jar / off-classpath
-          ;;    coords getResource cannot reach — the gap Option B closes).
+          ;; Off-classpath coordinates may still be relative to the dev cwd.
           (try
             (let [f     (File. ^String path)
                   cwd-f (File. ^String (System/getProperty "user.dir") ^String path)]
@@ -166,38 +59,21 @@
                 (.exists cwd-f) (.getAbsolutePath cwd-f)
                 :else           nil))
             (catch Throwable _ nil))
-          ;; 3. Unresolvable — hand the raw path back; the existence gate in
-          ;;    `launch!` then rejects it rather than launching blind.
+          ;; launch! applies the final existence check.
           path)))))
 
 (defn ^:private file-exists?
-  "True when `path` names an existing filesystem entry. Mirrors
-  `launch-editor`'s OWN `fs.existsSync(fileName)` gate: `launch-editor`
-  silently no-ops on a missing file — it returns WITHOUT invoking its
-  error callback, so the `node` process exits 0 and `launch!` would report
-  a false `{:ok true}`. Checking the resolved path here (before the spawn)
-  turns that silent no-op into an explicit failure the endpoint answers as
-  a 422, so the client falls back to the `editor://` URI instead of
-  believing the file opened. Never throws — a nil/blank path or any IO /
-  security-manager error is treated as 'does not exist'."
+  "Return whether `path` exists, treating invalid input and IO errors as false."
   [path]
   (boolean
     (when-not (str/blank? path)
       (try (.exists (File. ^String path)) (catch Throwable _ false)))))
 
-;; ---- the launch shim -----------------------------------------------------
-;;
 ;; launch-editor has no CLI, so we run `node -e` requiring it. The file
-;; spec carries the :line:column suffix launch-editor parses itself; the
-;; editor command (if any) is the optional 2nd argv. Resolved relative to
-;; the dev JVM's working directory so `node`'s require finds the package in
-;; the consumer's node_modules.
+;; spec and optional editor binary are passed as separate argv tokens.
 
 (def ^:private launch-shim
-  ;; Single-line Node program: require launch-editor and invoke it with
-  ;; argv[1]=<file:line:col> argv[2]=<editor-or-empty>. On the error
-  ;; callback, write the message to stderr and exit non-zero so the JVM
-  ;; side sees the failure in the shell exit code.
+  ;; Exit nonzero from launch-editor's callback so the JVM sees failures.
   (str "var l=require('launch-editor');"
        "var f=process.argv[1];var e=process.argv[2]||undefined;"
        "l(f,e,function(file,msg){"
@@ -205,22 +81,8 @@
        "process.exit(1);});"))
 
 (defn ^:private build-file-spec
-  "Build the `<abs-path>[:<line>][:<column>]` argv token `launch-editor`
-  parses itself.
-
-  A request carrying `column` with NO `line` is normalized to line 1
-  first. `launch-editor`'s `file:line:column` grammar takes the FIRST
-  number as the line, so a bare `path:<column>` would be misread as a line
-  jump and the column intent lost. Emitting `path:1:<column>` preserves
-  the column and aligns with the `editor://` URI fallback, which likewise
-  defaults a missing line to 1 whenever a column is present
-  (`editor-uri/coord-line` — `(or (:line coord) 1)`).
-
-  With a `line` present the column is appended after it (`path:line:col`),
-  and with neither the token stays a bare path. This keeps the client
-  contract (`open-endpoint/build-url` sends `&line=`/`&column=` via
-  independent `cond->` clauses) while never handing `launch-editor` a
-  column masquerading as a line."
+  "Build launch-editor's `path[:line][:column]` token. A column without a
+  line uses line 1 so the column is not parsed as a line number."
   [abs-path line column]
   (let [line (if (and column (nil? line)) 1 line)]
     (cond-> abs-path
@@ -228,23 +90,11 @@
       column (str ":" column))))
 
 (defn launch!
-  "Shell out to node + launch-editor for `abs-path` at `line`/`column`,
-  with an optional launch-editor `command` hint. Returns a map
-  `{:ok bool :message string?}`. Runs from the dev JVM cwd so node resolves
-  the launch-editor package in the consumer's node_modules.
+  "Invoke launch-editor from the dev JVM cwd and return `{:ok ...}`.
 
-  Rejects a missing file BEFORE spawning node. `launch-editor` silently
-  no-ops on a nonexistent file (`if (!fs.existsSync(fileName)) return` —
-  it never calls its error callback, so the node process exits 0), which
-  would report a false `{:ok true}` and make the endpoint answer 200 for an
-  unresolved / nonexistent `:file`, suppressing the client's `editor://`
-  fallback. A file that does not exist short-circuits to
-  `{:ok false :message \"file-not-found\"}` (no node spawn) so the endpoint
-  answers 422 and the client falls back.
-
-  Never throws — any other failure (node missing, package absent, launch
-  error) likewise degrades to `{:ok false :message …}` so the endpoint can
-  answer cleanly and the client falls back to the editor:// URI."
+  Missing files are rejected before spawning Node because launch-editor
+  otherwise exits successfully without opening anything. Other failures are
+  returned as messages instead of escaping the Ring boundary."
   [abs-path line column command]
   (if-not (file-exists? abs-path)
     {:ok false :message "file-not-found"}
@@ -256,9 +106,7 @@
                    (.redirectErrorStream false))
               _  (.directory pb (File. (System/getProperty "user.dir")))
               proc (.start pb)
-              ;; launch-editor returns ~immediately (it spawns the editor
-              ;; detached); bound the wait so a hung node never wedges the
-              ;; dev server's request thread.
+              ;; Bound the wait so Node cannot wedge a dev-server thread.
               done? (.waitFor proc 10 java.util.concurrent.TimeUnit/SECONDS)
               exit  (when done? (.exitValue proc))
               err   (when done?
@@ -276,34 +124,15 @@
 ;; ---- query parsing -------------------------------------------------------
 
 (defn ^:private decode-component
-  "Percent-decode one query key/value with `decodeURIComponent` semantics:
-  `%XX` escapes decode as UTF-8, a literal `+` is preserved as `+`.
-
-  Decodes via `java.net.URI` (the fragment component) rather than
-  `URLDecoder/decode`. `URLDecoder` is an `application/x-www-form-urlencoded`
-  decoder that maps a literal `+` to a SPACE — which would silently corrupt a
-  checkout path carrying a literal `+` (`C:/code/re-frame2+wip` →
-  `re-frame2 wip`), re-introducing exactly the bug `re-frame.source-coords/
-  absolutise-file` avoids for `file:` URLs (via `URI.getPath` — the classpath
-  resolver `resolve-file` delegates to) and the client's `js/decodeURIComponent`
-  avoids in `config.cljs` (rf2-62hu6k). Routing the component through `URI`'s
-  fragment decode leaves a literal `+` intact while still decoding `%20`/`%2B`,
-  matching that grammar.
-
-  A malformed percent-escape (a lone `%`, or `%` not followed by two hex
-  digits) makes `URI/create` throw `IllegalArgumentException`, which the
-  endpoint catches as the same clean 400 malformed-query response
-  `URLDecoder/decode` already triggered."
+  "Percent-decode with URI semantics, preserving a literal `+`. Malformed
+  escapes throw `IllegalArgumentException` for the handler to map to 400."
   [^String s]
   (if (.isEmpty s)
     s
     (.getFragment (URI/create (str "#" s)))))
 
 (defn ^:private parse-query
-  "Parse a URL query string into a `{name value}` map (last value wins).
-  Keys/values are percent-decoded via `decode-component` (decodeURIComponent
-  semantics — a literal `+` is PRESERVED, never mapped to a space). Returns
-  `{}` for nil/blank."
+  "Parse a query string into a decoded map; the last value wins."
   [qs]
   (if (str/blank? qs)
     {}
@@ -326,51 +155,22 @@
   (when (and (string? s) (re-matches #"\d+" s))
     (try (Long/parseLong s) (catch Throwable _ nil))))
 
-;; ---- localhost / origin guard --------------------------------------------
-;;
-;; This endpoint LAUNCHES the developer's editor on an arbitrary local file
-;; path. Left open it is a drive-by vector in the historic Vite /
-;; react-dev-utils CVE class: any web page the developer happens to be
-;; visiting could fire a request at `http://localhost:<dev-port>` and open
-;; an attacker-chosen file in the editor. The guard pins the endpoint to the
-;; local machine and to local browsing contexts:
-;;
-;;   1. request-method must be POST (the launch path). A simple GET/HEAD —
-;;      the only thing an `<img>`/`<form>`/`<link>` drive-by or a `no-cors`
-;;      simple request can issue — never reaches `launch!`.
-;;   2. the `Host` header must name a loopback address: the request must
-;;      have been addressed to localhost / 127.0.0.1 / [::1]. This rejects a
-;;      request that reached the dev JVM via a non-loopback hostname (a
-;;      DNS-rebinding / public-binding attempt).
-;;   3. when an `Origin` header is present it must itself be a loopback
-;;      origin. A page served from `https://evil.example` carries that
-;;      Origin on its cross-origin POST and is rejected; a legitimate
-;;      cross-PORT dev request (Story shell on :8042 → app on :8031) carries
-;;      a `http://localhost:8042` Origin and passes. (A same-origin POST may
-;;      omit Origin entirely, which is allowed once 1 + 2 hold.)
-;;
-;; CORS is then reflected to the validated loopback Origin only — never a
-;; `*` wildcard.
+;; Launches must be addressed to loopback and, when supplied, originate there.
+;; The handler separately enforces POST and reflects only validated origins.
 
 (defn ^:private loopback-host?
-  "True when `host` (a `Host`-header value, optionally `name:port`, or the
-  host portion of an Origin/URL) names a loopback address: `localhost`,
-  `127.0.0.0/8`, or the IPv6 `[::1]`/`::1`. Case-insensitive; nil/blank is
-  not loopback."
+  "Recognize localhost, 127.0.0.0/8, and IPv6 loopback host values."
   [host]
   (boolean
     (when (and (string? host) (not (str/blank? host)))
       (let [h    (str/lower-case (str/trim host))
-            ;; Drop a trailing :port. For a bracketed IPv6 literal
-            ;; (`[::1]:8080`) split on `]:`; otherwise on the last `:` only
-            ;; when there is exactly one (an unbracketed IPv6 has many and
-            ;; carries no port in a Host header).
+            ;; A single colon separates a port; multiple colons are IPv6.
             bare (cond
                    (str/starts-with? h "[")
                    (let [close (str/index-of h "]")]
                      (if close (subs h 1 close) h))
 
-                   (and (str/includes? h ":")
+                 (and (str/includes? h ":")
                         (= 1 (count (filter #(= % \:) h))))
                    (subs h 0 (str/index-of h ":"))
 
@@ -382,11 +182,7 @@
                  (re-matches #"127\.\d{1,3}\.\d{1,3}\.\d{1,3}" bare)))))))
 
 (defn ^:private origin-host
-  "Extract the host portion of an `Origin` header value (a serialized
-  origin, e.g. `http://localhost:8042`). Returns nil when it cannot be
-  parsed. The literal string `\"null\"` (an opaque origin — sandboxed
-  iframe, `file:`, some redirects) yields nil so it never passes the
-  loopback check."
+  "Extract an Origin host, rejecting blank, malformed, and opaque origins."
   [origin]
   (when (and (string? origin)
              (not (str/blank? origin))
@@ -396,8 +192,7 @@
       (catch Throwable _ nil))))
 
 (defn ^:private get-header
-  "Read a request header case-insensitively from the Ring `:headers` map
-  (shadow-cljs dev-http lowercases header names, but read defensively)."
+  "Read a Ring request header case-insensitively."
   [headers nm]
   (when (map? headers)
     (or (get headers nm)
@@ -407,10 +202,7 @@
               headers))))
 
 (defn ^:private local-request?
-  "Guard predicate: true when the request is safe to act on — addressed to a
-  loopback `Host` AND, if it carries an `Origin`, that Origin is itself a
-  loopback origin. A same-origin request that omits Origin passes on the
-  Host check alone. See the `loopback-host?` comment for the threat model."
+  "Require a loopback Host and, when present, a loopback Origin."
   [{:keys [headers]}]
   (let [host   (get-header headers "host")
         origin (get-header headers "origin")]
@@ -420,10 +212,7 @@
              (loopback-host? (origin-host origin))))))
 
 (defn ^:private allow-origin
-  "The `access-control-allow-origin` value to reflect: the request's own
-  Origin when it is a validated loopback origin (so a legitimate cross-PORT
-  dev request gets a usable CORS header), else `\"null\"` (deny). Never a
-  `*` wildcard."
+  "Reflect a validated loopback Origin; otherwise deny with `null`."
   [{:keys [headers]}]
   (let [origin (get-header headers "origin")]
     (if (and origin (loopback-host? (origin-host origin)))
@@ -431,19 +220,7 @@
       "null")))
 
 (defn ^:private escape-json-string
-  "Escape `s` for embedding in a JSON string literal: backslash and
-  double-quote, plus `\\n`/`\\r`/`\\t` and every other C0 control
-  character (`U+0000`-`U+001F`) as `\\uXXXX`. Single-pass (each char
-  handled once) so there is no double-escaping ordering hazard between
-  the backslash/quote rules.
-
-  Load-bearing: the 200 response echoes the url-decoded `:file` verbatim
-  and the 422 response echoes trimmed `node` stderr (which can be a
-  multi-line stack trace), so a `file=...%0A...` request or a multi-line
-  launch failure message can carry a raw control character. Escaping only
-  backslash/doublequote (the prior behaviour) let such a value emit a
-  literal newline/tab/CR into the body — syntactically INVALID JSON
-  despite the `application/json` header."
+  "Escape a JSON string in one pass, including every C0 control character."
   [^String s]
   (let [sb (StringBuilder. (.length s))]
     (doseq [c s]
@@ -462,10 +239,7 @@
   [status allow-origin-val m]
   {:status  status
    :headers {"content-type"                "application/json"
-             ;; CORS reflected to the validated loopback Origin only —
-             ;; never `*`. A legitimate cross-PORT dev request (Story shell
-             ;; on :8042 reaching an app on :8031) gets its own origin back;
-             ;; everything else gets `null` (deny).
+             ;; A cross-port local testbed receives its own validated origin.
              "access-control-allow-origin" allow-origin-val
              "vary"                        "origin"
              "cache-control"               "no-store"}
@@ -483,46 +257,16 @@
 ;; ---- the Ring handler ----------------------------------------------------
 
 (defn handle
-  "Core request handler for the open-in-editor endpoint. Pure-ish: takes a
-  standard Ring request map, returns a Ring response map (or nil to fall
-  through). Answers only the `endpoint-path`; returns nil for every other
-  path so the caller can defer to the next handler / push-state default.
+  "Handle the open-in-editor path or return nil for another path.
 
-  Query/form params:
-    `file`   — required; the source-coord `:file` (classpath-relative or
-               absolute). Resolved against source-paths at runtime.
-    `line`   — optional; integer.
-    `column` — optional; integer.
-    `editor` — optional; the editor keyword as a bare string (e.g.
-               \"cursor\"); maps to a launch-editor command hint.
-
-  Security: only a POST addressed to a loopback `Host` (with a loopback
-  `Origin` when one is present) reaches `launch!` — see `local-request?`.
-  A non-loopback / cross-origin request is rejected 403 before any path
-  resolution or editor launch; a non-POST (e.g. a drive-by GET) gets 405.
-
-  Responses:
-    200 `{\"ok\":true,\"file\":\"<abs>\"}`        — editor launched.
-    400 `{\"ok\":false,\"error\":\"missing-file\"}` — no `file` param.
-    400 `{\"ok\":false,\"error\":\"malformed-query\"}` — undecodable percent-escape
-        in the query string (e.g. a lone `%` or `%` not followed by two hex
-        digits — `decode-component`'s `URI/create` throws
-        `IllegalArgumentException` on these; caught here so a malformed query
-        answers cleanly instead of throwing into the shadow-cljs `:dev-http`
-        Ring plumbing).
-    403 `{\"ok\":false,\"error\":\"forbidden\"}`    — non-loopback / cross-origin.
-    405 `{\"ok\":false,\"error\":\"method-not-allowed\"}` — not POST.
-    422 `{\"ok\":false,\"error\":\"file-not-found\"}` — the resolved `:file`
-        does not exist on disk (`launch-editor` would silently no-op and the
-        endpoint would otherwise answer a false 200; see `launch!`). Non-2xx
-        so the client falls back to the `editor://` URI.
-    422 `{\"ok\":false,\"error\":\"<msg>\"}`       — launch failed."
+  Query keys are `file` (required), `line`, `column`, and `editor`. Only a
+  local POST reaches `launch!`. Invalid input produces JSON 400/403/405
+  responses; missing files and launch failures produce 422."
   [{:keys [uri request-method query-string] :as req}]
   (when (= uri endpoint-path)
     (let [ao (allow-origin req)]
       (cond
-        ;; CORS preflight for the cross-PORT dev POST. Reflect the validated
-        ;; loopback origin (or deny via `null`); only POST is offered.
+        ;; Cross-port local testbeds require an OPTIONS response.
         (= request-method :options)
         {:status 204
          :headers {"access-control-allow-origin"  ao
@@ -530,24 +274,16 @@
                    "access-control-allow-headers" "content-type"
                    "vary"                          "origin"}}
 
-        ;; Origin / host guard: reject anything not driven from the local
-        ;; machine + a local browsing context BEFORE touching the launch path.
+        ;; Apply the network boundary before resolving a path.
         (not (local-request? req))
         (json-resp 403 ao {:ok false :error "forbidden"})
 
-        ;; The launch path is POST-only — a simple GET/HEAD drive-by
-        ;; (`<img>`/`<form>`/`no-cors` fetch) can never trigger an editor launch.
+        ;; A simple GET/HEAD request must never trigger an editor launch.
         (not= request-method :post)
         (json-resp 405 ao {:ok false :error "method-not-allowed"})
 
         :else
-        ;; `parse-query` percent-decodes every key/value (via `decode-component`,
-        ;; preserving a literal `+`); a malformed percent-escape (a lone `%`, or
-        ;; `%` not followed by two hex digits) makes its `URI/create` throw
-        ;; `IllegalArgumentException`. Every other error path on this endpoint
-        ;; answers a clean JSON response — this one must too, so the decode is
-        ;; caught here rather than left to propagate uncaught into the Ring
-        ;; boundary.
+        ;; Convert URI decoding failures into the endpoint's JSON error shape.
         (try
           (let [q      (parse-query query-string)
                 file   (get q "file")
@@ -565,12 +301,7 @@
             (json-resp 400 ao {:ok false :error "malformed-query"})))))))
 
 (defn handler
-  "The shadow-cljs `:dev-http` `:handler` entry-point. A not-found
-  fallback: shadow tries the static file roots first, then calls this for
-  anything unmatched. We answer only `endpoint-path` and otherwise return a
-  404 (this is the last link in shadow's chain — returning nil here yields
-  an empty response rather than deferring, so a plain 404 is the honest
-  answer for paths we don't own)."
+  "shadow-cljs `:dev-http` fallback entry point."
   [req]
   (or (handle req)
       {:status 404
