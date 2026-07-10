@@ -1,9 +1,17 @@
 (ns re-frame.conformance
-  "DSL interpreter for the conformance fixture handler-body forms.
+  "DSL interpreter + shared harness primitives for the conformance fixtures.
 
   The conformance corpus represents handler bodies as data — a small DSL
   the harness interprets into native fns. Per
-  spec/conformance/README.md §Handler-body DSL ops.
+  spec/conformance/README.md §Handler-body DSL ops. This namespace ALSO
+  owns the stable, PURE primitives every conformance runner shares — the
+  handler/cofx realisation collapse (`normalize-event-handler`,
+  `collect-cofx-keys`, `realise-cofx-supplier`) and the expectation matchers
+  (`submap?`, `check-trace-emissions`, `resolve-sub`). It lives in `core/src`
+  (not `core/test`) precisely so per-feature artefacts' test suites reach it
+  cross-classpath without pulling core's test tree — a runner's fixture
+  discovery, capability claims, execution loop, and reporting stay LOCAL
+  (rf2-wy414k).
 
   Operator set:
 
@@ -710,6 +718,63 @@
     [:fx (realise-event-fx-handler steps)]
     [:db (realise-event-db-handler steps)]))
 
+(defn normalize-event-handler
+  "Collapse the `[body-shape handler]` pair `realise-event-handler` returns into
+  the single EP-0018 `reg-event` shape — a `(cofx-in → effects-map-or-nil)` fn —
+  so a registration site never branches on the DSL-internal body-shape.
+
+  `body-shape` is an interpreter distinction (does the body read cofx / emit fx),
+  NOT a public `:event/kind` (EP-0018 removed the public event sub-kind model). A
+  `:db` body `(fn [db event] new-db)` is lifted to `(fn [cofx event] {:db …})` —
+  read db from the coeffects, lower the returned db into a `{:db …}` effect (same
+  observable behaviour); an `:fx` body is already the single form and passes
+  through.
+
+  Shared harness primitive (rf2-wy414k) — the pair→single-form collapse lives
+  in exactly one place so every conformance runner registers events identically."
+  [[body-shape handler]]
+  (case body-shape
+    :db (fn [{:keys [db]} event] {:db (handler db event)})
+    :fx handler))
+
+(defn collect-cofx-keys
+  "Walk DSL body `steps` and return the SET of every cofx-id referenced via a
+  `[:cofx-key K]` form. A runner uses the result to auto-wire a consuming
+  event's `:rf.cofx/requires` declaration (EP-0017 model — rf2-mrp8jg / rf2-g25p).
+
+  Shared harness primitive (rf2-wy414k)."
+  [steps]
+  (let [out (atom #{})]
+    ((fn walk [form]
+       (cond
+         (and (vector? form) (= :cofx-key (first form)))
+         (swap! out conj (second form))
+
+         (coll? form)
+         (doseq [x form] (walk x))))
+     steps)
+    @out))
+
+(defn realise-cofx-supplier
+  "DSL body `steps` → a value-returning cofx supplier `(fn [] value)` (EP-0017
+  model — rf2-mrp8jg). Each `:set` step declares the value the supplier returns;
+  the runtime delivers it FLAT under the cofx-id when a handler declares it via
+  `:rf.cofx/requires`. The `:set` value passes through `eval-value*` (rf2-g25p)
+  so reflection forms resolve; multiple `:set` steps run in order and the last
+  wins (single-delivery convention).
+
+  Shared harness primitive (rf2-wy414k)."
+  [steps]
+  (fn []
+    (reduce (fn [v step]
+              (case (first step)
+                :set  (let [[_ _path value] step]
+                        (eval-value* value {}))
+                :noop v
+                v))
+            nil
+            steps)))
+
 ;; ---- sub interpreter ------------------------------------------------------
 ;;
 ;; Sub bodies in the corpus take a few shapes:
@@ -789,3 +854,87 @@
                      v))
                  nil
                  steps))})))
+
+;; ---- expectation-matcher primitives --------------------------------------
+;;
+;; Pure, host-neutral matchers shared by every conformance runner (rf2-wy414k).
+;; A runner's fixture selection, capability claims, execution loop, and
+;; reporting stay LOCAL; only these stable comparison primitives are shared.
+
+(defn submap?
+  "True if every key of `expected` appears in `actual` with a matching value.
+  Recurses into nested maps so partial expectations on nested slices work (e.g.
+  a fixture asserting only a subset of an app-db slice or a trace-tag map).
+
+  Shared harness primitive (rf2-wy414k)."
+  [expected actual]
+  (cond
+    (and (map? expected) (map? actual))
+    (every? (fn [[k v]]
+              (let [a (get actual k)]
+                (cond
+                  (and (map? v) (map? a)) (submap? v a)
+                  :else                   (= v a))))
+            expected)
+
+    :else (= expected actual)))
+
+(defn check-trace-emissions
+  "Order-preserving SUBSET match of `expected-traces` against `actual-traces`
+  per spec/conformance/README.md §Fixture lifecycle: each expected trace must
+  appear in `actual-traces` in declaration order, matched partially by its
+  specified keys (absent keys ignored; nested-map keys matched submap-wise).
+  Extras between matches are tolerated (the runtime may emit bookkeeping traces
+  the fixture doesn't care about). Returns a vector of failure-message strings
+  (empty on full match).
+
+  Shared harness primitive (rf2-wy414k)."
+  [actual-traces expected-traces]
+  (loop [actual   actual-traces
+         expected expected-traces
+         failures []]
+    (cond
+      (empty? expected)
+      failures
+
+      (empty? actual)
+      (conj failures (str "expected trace not seen: " (pr-str (first expected))))
+
+      :else
+      (let [exp (first expected)
+            match-idx (->> actual
+                           (map-indexed vector)
+                           (some (fn [[i a]]
+                                   (when (every? (fn [[k v]]
+                                                   (let [actual-v (get a k)]
+                                                     (cond
+                                                       (map? v)
+                                                       (every? (fn [[kk vv]]
+                                                                 (= vv (get actual-v kk)))
+                                                               v)
+                                                       :else (= v actual-v))))
+                                                 exp)
+                                     i))))]
+        (if match-idx
+          (recur (drop (inc match-idx) actual) (rest expected) failures)
+          (recur actual (rest expected)
+                 (conj failures (str "expected trace not seen: " (pr-str exp)))))))))
+
+(defn resolve-sub
+  "Normalise a `:sub-values` query entry to `[frame-id query-v]`. An entry may
+  be `[query-v]` (an IMPLICIT-frame query, targeting `default-frame`) or
+  `[frame-id [query-v]]` (an explicit frame).
+
+  `default-frame` is a PARAMETER, not a baked-in frame keyword: this shared
+  owner sits in `core/src`, under the EP-0002 frame-floor lint (which exempts
+  `test/` but not `src/` — see `re-frame.no-rf-default-floor-lint-test`). The
+  implicit-frame default is a TEST-HARNESS query-normalisation convention, so
+  each runner passes its own default from its test tree — keeping this src/
+  primitive free of a positional frame-floor shape while still sharing the
+  query-shape normalisation itself (rf2-wy414k)."
+  [default-frame entry]
+  (if (and (vector? entry)
+           (= 2 (count entry))
+           (vector? (second entry)))
+    [(first entry) (second entry)]
+    [default-frame entry]))

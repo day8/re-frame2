@@ -149,3 +149,104 @@
       (is (= {:db {:from-event 42}}
              (handler {:db {}} [:evt 42]))
           "[:event-arg n] resolves even inside a :return-raw literal"))))
+
+;; ---- shared harness primitives (rf2-wy414k) -------------------------------
+;;
+;; `normalize-event-handler`, `collect-cofx-keys`, `realise-cofx-supplier`,
+;; `submap?`, `check-trace-emissions`, and `resolve-sub` moved OUT of the
+;; per-runner private copies (the core corpus runner + the schemas artefact
+;; runner both duplicated them) INTO this `.cljc` shared owner so they run once,
+;; identically, on both hosts. These target the primitives directly.
+
+(deftest normalize-event-handler-collapses-body-shape
+  (testing ":db body-shape is lifted to the single (cofx → effects-map) form"
+    (let [pair    [:db (fn [db event] (assoc db :seen event))]
+          handler (conformance/normalize-event-handler pair)]
+      (is (= {:db {:seen [:evt 7]}}
+             (handler {:db {}} [:evt 7]))
+          ":db handler reads db from coeffects and lowers the new db into {:db …}")))
+
+  (testing ":fx body-shape passes through unchanged (already the single form)"
+    (let [fx-handler (fn [_cofx _event] {:fx [[:noop {}]]})
+          pair       [:fx fx-handler]]
+      (is (identical? fx-handler (conformance/normalize-event-handler pair))
+          ":fx handler is returned verbatim — no wrapping"))))
+
+(deftest collect-cofx-keys-walks-nested-steps
+  (testing "pulls every [:cofx-key K] ref across nested body steps, as a set"
+    (is (= #{:app-version :user}
+           (conformance/collect-cofx-keys
+             [[:set [:v]  [:cofx-key :app-version]]
+              [:fx  :sink [:cofx-key :user]]]))))
+
+  (testing "no cofx refs → empty set"
+    (is (= #{} (conformance/collect-cofx-keys [[:noop]]))))
+
+  (testing "duplicate refs collapse (set semantics)"
+    (is (= #{:a}
+           (conformance/collect-cofx-keys
+             [[:set [:x] [:cofx-key :a]] [:set [:y] [:cofx-key :a]]])))))
+
+(deftest realise-cofx-supplier-returns-set-value
+  (testing "the supplier returns the :set step's value"
+    (is (= 7 ((conformance/realise-cofx-supplier [[:set [:v] 7]])))))
+
+  (testing "the LAST :set wins (single-delivery convention)"
+    (is (= 2 ((conformance/realise-cofx-supplier
+                [[:set [:v] 1] [:set [:v] 2]])))))
+
+  (testing ":set value passes through eval-value* (reflection forms resolve)"
+    (is (= 5 ((conformance/realise-cofx-supplier [[:set [:v] [:fn :+ 2 3]]])))))
+
+  (testing "no :set step → nil"
+    (is (nil? ((conformance/realise-cofx-supplier [[:noop]]))))))
+
+(deftest submap?-recursive-partial-match
+  (testing "flat subset matches"
+    (is (true?  (conformance/submap? {:a 1} {:a 1 :b 2})))
+    (is (false? (conformance/submap? {:a 2} {:a 1})))
+    (is (false? (conformance/submap? {:a 1} {}))
+        "a missing key is a mismatch (present-with-nil vs absent both fail = )"))
+
+  (testing "recurses into nested maps"
+    (is (true?  (conformance/submap? {:a {:b 1}} {:a {:b 1 :c 2}})))
+    (is (false? (conformance/submap? {:a {:b 2}} {:a {:b 1 :c 2}}))))
+
+  (testing "non-map values compare by ="
+    (is (true?  (conformance/submap? 5 5)))
+    (is (false? (conformance/submap? 5 6)))))
+
+(deftest check-trace-emissions-order-preserving-subset
+  (let [actual [{:op :a} {:op :b} {:op :c}]]
+    (testing "in-order subset with tolerated extras → no failures"
+      (is (empty? (conformance/check-trace-emissions actual [{:op :a} {:op :c}]))))
+
+    (testing "out-of-order expected → failure"
+      (is (seq (conformance/check-trace-emissions actual [{:op :c} {:op :a}]))))
+
+    (testing "missing expected trace → one failure"
+      (is (= 1 (count (conformance/check-trace-emissions actual [{:op :z}]))))))
+
+  (testing "partial key match (extra actual keys ignored)"
+    (is (empty? (conformance/check-trace-emissions
+                  [{:op :a :extra 99}] [{:op :a}]))))
+
+  (testing "nested-map keys are matched submap-wise"
+    (is (empty? (conformance/check-trace-emissions
+                  [{:op :x :tags {:id 1 :n 2}}] [{:tags {:id 1}}])))
+    (is (seq (conformance/check-trace-emissions
+               [{:op :x :tags {:id 1}}] [{:tags {:id 2}}])))))
+
+(deftest resolve-sub-frame-normalisation
+  (testing "bare query-v → the caller-supplied default frame"
+    (is (= [:rf/default [:count]]    (conformance/resolve-sub :rf/default [:count])))
+    (is (= [:rf/default [:count 5]]  (conformance/resolve-sub :rf/default [:count 5]))
+        "a 2-elt query whose 2nd elt is NOT a vector is a plain query-v, not [frame q]")
+    (is (= [:other-frame [:count]]   (conformance/resolve-sub :other-frame [:count]))
+        "default-frame is a parameter — no baked-in frame keyword"))
+
+  (testing "[frame-id [query-v]] → explicit frame (default ignored)"
+    (is (= [:frame-2 [:count]]
+           (conformance/resolve-sub :rf/default [:frame-2 [:count]])))
+    (is (= [:frame-2 [:count 5]]
+           (conformance/resolve-sub :rf/default [:frame-2 [:count 5]])))))
