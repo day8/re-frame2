@@ -43,21 +43,24 @@
   []
   (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/elision]))
 
-(defn- route-sensitive-paths
-  "The set of runtime paths classified `:sensitive` `:source :route` in the
-  registry."
-  []
-  (->> (:sensitive-declarations (elision-reg))
-       (filter (fn [[_ decl]] (= :route (:source decl))))
+(defn- owners-sourced-by
+  "The set of paths in a multi-owner declaration map `decls` (`{path #{owner…}}`)
+  whose retained owner-set carries an owner with `:source src`."
+  [decls src]
+  (->> decls
+       (filter (fn [[_ owners]] (some #(= src (:source %)) owners)))
        (map key)
        set))
 
+(defn- route-sensitive-paths
+  "The set of runtime paths claimed by a `:source :route` owner in the sensitive
+  registry."
+  []
+  (owners-sourced-by (:sensitive-declarations (elision-reg)) :route))
+
 (defn- route-large-paths
   []
-  (->> (:declarations (elision-reg))
-       (filter (fn [[_ decl]] (= :route (:source decl))))
-       (map key)
-       set))
+  (owners-sourced-by (:declarations (elision-reg)) :route))
 
 ;; ===========================================================================
 ;; (1) registration-time fail-loud validation (EP-0025 §Failure posture)
@@ -332,11 +335,9 @@
   "The set of runtime paths classified :sensitive :source :route in
   `frame-id`'s elision registry."
   [frame-id]
-  (->> (get-in (:rf.db/runtime (rf/frame-state-value frame-id))
-               [:rf.runtime/elision :sensitive-declarations])
-       (filter (fn [[_ decl]] (= :route (:source decl))))
-       (map key)
-       set))
+  (owners-sourced-by (get-in (:rf.db/runtime (rf/frame-state-value frame-id))
+                             [:rf.runtime/elision :sensitive-declarations])
+                     :route))
 
 (deftest cross-frame-route-classification-is-isolated
   (testing "two frames navigating different :sensitive routes each carry ONLY
@@ -382,27 +383,30 @@
 ;; ===========================================================================
 
 (deftest apply-route-classification-replaces-route-sourced-only
-  (testing "lowering preserves other-sourced (effect/flow) entries"
+  (testing "lowering preserves other-owner (effect/flow) claims and unions"
     (let [base {:rf.runtime/elision
                 {:sensitive-declarations
-                 {[:auth :token]                              {:source :effect}
-                  [:rf.runtime/routing :current :query :old]  {:source :route}}}}
+                 {[:auth :token]                              #{{:source :effect}}
+                  ;; an effect ALSO co-classifies the route's absolute path —
+                  ;; it must SURVIVE the route reconcile (rf2-wdm1vg union).
+                  [:rf.runtime/routing :current :query :new]  #{{:source :effect}}
+                  [:rf.runtime/routing :current :query :old]  #{{:source :route}}}}}
           out  (classification/apply-route-classification
                  base {:sensitive [[:query :new]] :large []})
           sens (get-in out [:rf.runtime/elision :sensitive-declarations])]
-      (is (= {:source :effect} (get sens [:auth :token]))
-          "the effect-sourced entry survives")
+      (is (= #{{:source :effect}} (get sens [:auth :token]))
+          "the effect-owned entry survives")
       (is (nil? (get sens [:rf.runtime/routing :current :query :old]))
-          "the prior route-sourced entry is dropped (singleton replacement)")
-      (is (= {:source :route}
+          "the prior route-owned entry is dropped (singleton replacement)")
+      (is (= #{{:source :effect} {:source :route}}
              (get sens [:rf.runtime/routing :current :query :new]))
-          "the new route-sourced entry is installed, re-rooted"))))
+          "the new route claim UNIONS with the co-located effect claim, re-rooted"))))
 
 (deftest apply-empty-classification-clears-route-sourced
   (testing "an empty classification clears the prior :source :route entries"
     (let [base {:rf.runtime/elision
                 {:sensitive-declarations
-                 {[:rf.runtime/routing :current :query :old] {:source :route}}}}
+                 {[:rf.runtime/routing :current :query :old] #{{:source :route}}}}}
           out  (classification/apply-route-classification base nil)]
       (is (nil? (get-in out [:rf.runtime/elision :sensitive-declarations]))
           "the emptied axis slot is pruned, not left as {}")
@@ -690,3 +694,88 @@
           route (get-in slice [:rf.runtime/routing :current])]
       (is (= "visible" (get-in route [:query :q]))
           "an unclassified query value rides verbatim through the SSR projection"))))
+
+;; ===========================================================================
+;; (rf2-wdm1vg) MULTI-OWNER union — an effect-owned absolute path AND a route
+;; claim on the SAME absolute path survive INDEPENDENTLY. Spec 015 L149 permits
+;; an app to additionally classify a subsystem's absolute runtime-db path from a
+;; handler effect (`:source :effect`); a route change must NOT un-redact that
+;; effect-owned path. Both dispatch orders are pinned. On the pre-fix single-
+;; owner registry the route claim overwrote (forward order) or ignored (reverse
+;; order) the effect claim and then DELETED the path on route-leave — a live
+;; privacy fail-open on the AI-egress boundary. These are the cross-family
+;; reproduce→fix acceptance legs the bead enumerates.
+;; ===========================================================================
+
+(def ^:private abs-token-path [:rf.runtime/routing :current :query :token])
+
+(defn- effect-classify-abs-token!
+  "An app classifies the route's ABSOLUTE storage path directly via a
+  commit-plane `:sensitive` effect (Spec 015 L149) — `:source :effect`."
+  []
+  (rf/reg-event :app/classify-abs-token
+    (fn [{:keys [db]} _] {:db db :sensitive [abs-token-path]}))
+  (rf/dispatch-sync [:app/classify-abs-token]))
+
+(defn- token-path-classified?
+  "Shape-agnostic: is the absolute token path present in the sensitive registry
+  at all (i.e. still classified by SOME owner)?"
+  []
+  (contains? (:sensitive-declarations (elision-reg)) abs-token-path))
+
+(defn- token-owners []
+  (get (:sensitive-declarations (elision-reg)) abs-token-path))
+
+(defn- redacts-token-at-abs-path?
+  "Place a value at the absolute token path and egress-project it — is it
+  redacted?"
+  []
+  (let [rdb   (-> (:rf.db/runtime (rf/frame-state-value :rf/default))
+                  (assoc-in abs-token-path "secret123"))
+        slice (get-in (elision/elide-wire-value rdb {:frame :rf/default})
+                      [:rf.runtime/routing :current :query :token])]
+    (= sentinel slice)))
+
+(deftest effect-then-route-then-route-leave-preserves-effect-claim
+  (testing "forward order: an effect classifies the route's absolute :query
+            :token path; a route ALSO claims it (union); after navigating AWAY
+            the effect claim SURVIVES and the path stays redacted (rf2-wdm1vg)"
+    (effect-classify-abs-token!)
+    (is (token-path-classified?) "the effect claim is installed")
+    (rf/reg-route :route/oauth
+                  {:sensitive [[:query :token]] :query [:map [:token :string]]}
+                  "/oauth")
+    (rf/reg-route :route/plain {} "/plain")
+    (rf/dispatch-sync [:rf.route/transitioned "/oauth?token=secret123"])
+    (is (= #{{:source :effect} {:source :route}} (token-owners))
+        "the effect and route claims UNION on the same absolute path")
+    ;; navigate to a route declaring NO classification (route-leave)
+    (rf/dispatch-sync [:rf.route/transitioned "/plain"])
+    (is (token-path-classified?)
+        "the effect claim SURVIVES the route change (the fix — the path was deleted before)")
+    (is (= #{{:source :effect}} (token-owners))
+        "only the effect owner remains after the route left")
+    (is (redacts-token-at-abs-path?)
+        "a value at the effect-classified absolute path still redacts after route-leave")))
+
+(deftest route-then-effect-then-route-leave-preserves-effect-claim
+  (testing "reverse order: the route claims the absolute path first, THEN an
+            effect classifies it (union — the effect is neither ignored nor a
+            clobber); after route-leave the effect claim SURVIVES (rf2-wdm1vg —
+            the effect claim was ignored then vanished before the fix)"
+    (rf/reg-route :route/oauth
+                  {:sensitive [[:query :token]] :query [:map [:token :string]]}
+                  "/oauth")
+    (rf/reg-route :route/plain {} "/plain")
+    (rf/dispatch-sync [:rf.route/transitioned "/oauth?token=secret123"])
+    (is (= #{{:source :route}} (token-owners)) "only the route claim so far")
+    (effect-classify-abs-token!)
+    (is (= #{{:source :route} {:source :effect}} (token-owners))
+        "the effect SET UNIONS in — it is not ignored under the standing route claim")
+    (rf/dispatch-sync [:rf.route/transitioned "/plain"])
+    (is (token-path-classified?)
+        "the effect claim SURVIVES the route change (the fix)")
+    (is (= #{{:source :effect}} (token-owners))
+        "only the effect owner remains after the route left")
+    (is (redacts-token-at-abs-path?)
+        "a value at the effect-classified absolute path still redacts after route-leave")))

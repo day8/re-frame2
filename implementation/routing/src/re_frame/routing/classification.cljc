@@ -248,80 +248,64 @@
 ;; classification effects (`re-frame.elision/apply-classification-effects`)
 ;; touch only their own `:source :effect` entries.
 
-(defn- without-route-sourced
-  "Drop `:source :route` entries from a `{path decl}` declaration map,
-  preserving any other-sourced entries (frame / marks / effect). Returns `{}`
-  for nil."
-  [decls]
-  (reduce-kv (fn [acc p decl]
-               (if (= :route (:source decl))
-                 acc
-                 (assoc acc p decl)))
-             {}
-             (or decls {})))
-
-(defn- with-route-paths
-  "Overlay `:source :route` declarations for `paths` (projection-relative)
-  onto the carried (non-route-sourced) declaration map, RE-ROOTING each path
-  under `[:rf.runtime/routing :current …]` so the stored decl key matches the
-  wire walker's runtime-path lookup."
-  [carried paths]
-  (reduce (fn [acc p]
-            (assoc acc (into current-route-root p) {:source :route}))
-          carried
-          paths))
+(def ^:private route-owner
+  "The multi-owner elision-registry owner identity route activation claims
+  under. A route is a SINGLETON current-route (only one active per frame), so
+  the owner needs no instance id — `elision/replace-owner-claims` under this
+  owner drops the leaving route's claims and installs the entering route's in
+  one reconcile."
+  {:source :route})
 
 (defn apply-route-classification
   "PURE lowering: given a base `runtime-db` value and a route's validated
   projection-relative `classification` (the `validate+extract` result, or
   nil), return the new runtime-db with the `[:rf.runtime/elision …]` registry's
-  `:source :route` entries REPLACED by this route's (re-rooted under
-  `[:rf.runtime/routing :current …]`).
+  route-owner claims REPLACED by this route's (re-rooted under
+  `[:rf.runtime/routing :current …]`), delegating to the core multi-owner op
+  `re-frame.elision/replace-owner-claims`.
 
   Operates on a VALUE (not a live container) so the navigation commit can fold
   it into the atomic `:rf.db/runtime` transition that publishes the slice — the
   classification lands WITH the slice (EP-0025 §Same-event ordering).
 
   Singleton semantics: a nil / empty `classification` (a route that declares no
-  classification) still runs, clearing the prior route's `:source :route`
-  entries — the leaving route's classification drops on every route change. The
-  two axes write the elision registry's `:sensitive-declarations` (sensitive)
-  and `:declarations` (large) sub-maps; an emptied axis slot is pruned
-  (dissoc'd) rather than left as `{}`. Other-sourced entries (`:frame` /
-  `:marks` / `:effect`) survive untouched.
+  classification) still runs, clearing the prior route's route-owner claims —
+  the leaving route's classification drops on every route change. The two axes
+  write the elision registry's `:sensitive-declarations` (sensitive) and
+  `:declarations` (large) sub-maps. A path ALSO claimed by another owner
+  (`{:source :effect}` commit-plane effects / `{:source :flow …}` flow outputs /
+  `{:source :machine …}` / `{:source :resource}`) survives untouched and unions
+  at egress-lookup time (rf2-wdm1vg); an emptied axis slot is pruned by the core
+  ops.
 
   Reconcile-aware (router `re-frame.elision/reconcile-runtime-db-effect`): a
   whole-value `:rf.db/runtime` commit that OMITS the `:rf.runtime/elision` key
   has the prior registry CARRIED FORWARD (so an unrelated runtime-db write does
   not drop the durable registry). But a route change that clears the LAST
-  route-sourced entry must DROP it — the leaving route's classification has to
+  route-owner claim must DROP it — the leaving route's classification has to
   go. So whenever this lowering touched the registry (the base carried one, or
   this route declares some), it emits an EXPLICIT `:rf.runtime/elision` key
   (possibly `{}`) so reconcile honours the clear VERBATIM rather than resurrecting
   the leaving route's entries. The common no-classification-ever case (no prior
   slot, no new entries) emits no key — nothing to clear, no stray sub-tree."
   [runtime-db classification]
-  (let [base  (or runtime-db {})
-        sens  (:sensitive classification)
-        large (:large classification)
-        reg   (get base :rf.runtime/elision)
-        carry-s (without-route-sourced (:sensitive-declarations reg))
-        carry-l (without-route-sourced (:declarations reg))
-        new-s   (with-route-paths carry-s sens)
-        new-l   (with-route-paths carry-l large)
-        new-reg (cond-> {}
-                  (seq new-s) (assoc :sensitive-declarations new-s)
-                  (seq new-l) (assoc :declarations new-l))]
+  (let [base    (or runtime-db {})
+        sens    (mapv #(into current-route-root %) (:sensitive classification))
+        large   (mapv #(into current-route-root %) (:large classification))
+        reg     (get base :rf.runtime/elision)
+        new-reg (-> (or reg {})
+                    (elision/replace-owner-claims :sensitive-declarations route-owner sens)
+                    (elision/replace-owner-claims :declarations route-owner large))]
     (cond
       ;; The lowering produced declarations → install the registry verbatim.
       (seq new-reg)
       (assoc base :rf.runtime/elision new-reg)
 
       ;; Empty result, but the base carried a registry → this is a CLEAR (the
-      ;; leaving route's last route-sourced entry, or an effect/frame entry the
-      ;; route doesn't touch but that resolved away). Emit the explicit key so
-      ;; the router's reconcile honours the drop rather than carrying the prior
-      ;; registry forward. `{}` is honoured verbatim and read as no declarations.
+      ;; leaving route's last route-owner claim, or another owner's claim that
+      ;; resolved away). Emit the explicit key so the router's reconcile honours
+      ;; the drop rather than carrying the prior registry forward. `{}` is
+      ;; honoured verbatim and read as no declarations.
       (contains? base :rf.runtime/elision)
       (assoc base :rf.runtime/elision {})
 
