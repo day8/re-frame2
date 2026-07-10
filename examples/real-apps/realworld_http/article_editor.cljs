@@ -31,7 +31,7 @@
             ;; registers the hooks behind the `:rf.fx/reg-flow` effect. See the
             ;; flows guide: ../../../docs/core/flows.md
             [re-frame.flows]
-            [realworld-http.schema :as schema]
+            [realworld-shared.schema :as schema]
             [realworld-http.http :as rh])
   (:require-macros [re-frame.core :refer [reg-view]]))
 

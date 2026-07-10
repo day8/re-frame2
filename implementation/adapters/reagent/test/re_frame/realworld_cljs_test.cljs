@@ -923,33 +923,12 @@
 ;; `:profile/show-page`) which reset-to-page-1 on a fresh filter but carry the
 ;; active feed / tag / route forward when only the page changes.
 
-(defn- pagination-helpers-test []
-  ;; page->offset: 1-indexed UI page → 0-based wire offset, sub-1 clamped to 1.
-  (is (= 0  (rh/page->offset nil)) "nil page clamps to page 1 → offset 0")
-  (is (= 0  (rh/page->offset 0))   "page 0 is not a thing → clamps to offset 0")
-  (is (= 0  (rh/page->offset -5))  "a negative page clamps up to page 1")
-  (is (= 0  (rh/page->offset 1))   "page 1 → offset 0")
-  (is (= 10 (rh/page->offset 2))   "page 2 → offset one page-size in")
-  (is (= 20 (rh/page->offset 3))   "page 3 → offset two page-sizes in")
-
-  ;; page-count: ceil(count / page-size), floored at 1 (an empty list is 1 page).
-  (is (= 1 (rh/page-count nil)) "nil count → 1 page")
-  (is (= 1 (rh/page-count 0))   "empty list is still one (empty) page")
-  (is (= 1 (rh/page-count 10))  "exactly one full page → 1")
-  (is (= 2 (rh/page-count 11))  "one over a full page → 2 pages")
-  (is (= 3 (rh/page-count 25))  "25 items at page-size 10 → 3 pages")
-
-  ;; query-string: nils dropped, empty → "" (never a bare "?"), values encoded.
-  (is (= "" (rh/query-string {})) "empty map yields \"\", not \"?\"")
-  (is (= "" (rh/query-string {:tag nil})) "an all-nil map still yields \"\"")
-  (is (= "?author=jake" (rh/query-string {:tag nil :author "jake"}))
-      "nil-valued params are dropped; the surviving one is emitted")
-  (is (= "?tag=a%20b" (rh/query-string {:tag "a b"}))
-      "a space is URL-encoded (not left raw)")
-  (is (= "?tag=a%26b%3Dc%23d" (rh/query-string {:tag "a&b=c#d"}))
-      "reserved query characters (& = #) are percent-encoded so they can't corrupt the query")
-
-  ;; paginate-path: path + optional filters + the limit/offset window for a page.
+(defn- paginate-path-integration-test []
+  ;; The PURE page arithmetic + query encoding now live in the shared Conduit
+  ;; contract and are pinned there (realworld_shared_contract_cljs_test —
+  ;; rf2-fhxwhj). This app-local assertion proves THIS app's `paginate-path`
+  ;; request builder threads the shared contract through correctly: it prepends
+  ;; the path, encodes the filter, and appends the shared limit/offset window.
   ;; Multi-key order isn't guaranteed, so assert on the (order-independent) parts.
   (let [p (rh/paginate-path "/articles" nil 1)]
     (is (str/starts-with? p "/articles?"))
@@ -1161,8 +1140,8 @@
     (hydration-payload-test)))
 
 (deftest realworld-pagination
-  (testing "pure helpers: page->offset / page-count / query-string / paginate-path edges (rf2-yt7ay6)"
-    (pagination-helpers-test))
+  (testing "paginate-path threads the shared page arithmetic + query encoding (rf2-yt7ay6, rf2-fhxwhj)"
+    (paginate-path-integration-test))
   (testing "page-nav events carry the active feed / tag / route forward (rf2-yt7ay6)"
     (pagination-nav-events-test)))
 
@@ -1539,40 +1518,12 @@
     (home-context-test)))
 
 ;; ============================================================================
-;; http — failure->message multi-branch projection (rf2-xm57ne)
+;; http — failure->message + pure pagination/query helpers
 ;; ============================================================================
 ;;
-;; The failure projector was untested in BOTH realworld apps. This pins the
-;; realworld_http side (the realworld_resources sibling is pinned in
-;; realworld_resources_cljs_test.cljs): the {:errors {:body [...]}} extraction,
-;; the {:errors {field [...]}} projection, a raw string body, and every
-;; category fallback keyed off the closed :rf.http/* taxonomy.
-
-(defn- http-failure->message-test []
-  (is (= "email or password is invalid"
-         (rh/failure->message {:kind :rf.http/http-4xx :status 422
-                               :body {:errors {:body ["email or password is invalid"]}}}))
-      "{:errors {:body [...]}} surfaces the server's first body message")
-  (is (= "email: is taken"
-         (rh/failure->message {:kind :rf.http/http-4xx :status 422
-                               :body {:errors {:email ["is taken"]}}}))
-      "a keyed {:errors {field [...]}} projects as \"field: message\"")
-  (is (= "raw upstream text"
-         (rh/failure->message {:kind :rf.http/http-5xx :status 502 :body "raw upstream text"}))
-      "a string body is surfaced verbatim")
-  (is (= "Network error — please try again." (rh/failure->message {:kind :rf.http/transport})))
-  (is (= "Request timed out." (rh/failure->message {:kind :rf.http/timeout})))
-  (is (= "Request rejected (status 404)." (rh/failure->message {:kind :rf.http/http-4xx :status 404})))
-  (is (= "Server error (status 503)." (rh/failure->message {:kind :rf.http/http-5xx :status 503})))
-  (is (= "Couldn't parse server response." (rh/failure->message {:kind :rf.http/decode-failure})))
-  (is (= "custom detail" (rh/failure->message {:kind :rf.http/accept-failure :detail {:message "custom detail"}})))
-  (is (= "Unexpected response shape." (rh/failure->message {:kind :rf.http/accept-failure})))
-  (is (= "Request cancelled." (rh/failure->message {:kind :rf.http/aborted})))
-  (is (= "spelled-out message" (rh/failure->message {:kind :some/unknown :message "spelled-out message"}))
-      "an unknown kind falls back to the failure's own :message")
-  (is (= "Request failed." (rh/failure->message {}))
-      "a shapeless failure falls back to the final catch-all"))
-
-(deftest realworld-http-failure-projection
-  (testing "failure->message multi-branch projection (rf2-xm57ne)"
-    (http-failure->message-test)))
+;; The failure projector, query encoding, and page arithmetic are transport-
+;; neutral Conduit contract, extracted to `realworld-shared.http` (rf2-fhxwhj)
+;; and pinned ONCE in realworld_shared_contract_cljs_test.cljs — no longer
+;; duplicated per app. This app retains only the integration assertion above
+;; (`paginate-path-integration-test`) proving its request builder threads that
+;; shared contract through.

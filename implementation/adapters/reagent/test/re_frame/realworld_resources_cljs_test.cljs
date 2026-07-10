@@ -62,11 +62,7 @@
             [re-frame.trace.tooling :as trace-tooling]
             ;; the example's production source — chains in every feature ns.
             [realworld-resources.core :as core]
-            [realworld-resources.scope :as scope]
-            ;; Pagination pure helpers (page->limit-offset / query-string),
-            ;; exercised directly by the pagination-helpers test (rf2-yt7ay6).
-            [realworld-resources.http :as rrh]
-            [realworld-resources.resources :as rres])
+            [realworld-resources.scope :as scope])
   (:require-macros [re-frame.core :refer [with-new-frame]]))
 
 ;; ============================================================================
@@ -473,31 +469,13 @@
           "a recordable generator carries a value-returning supplier fn"))))
 
 ;; ============================================================================
-;; 8. PAGINATION — pure limit/offset helpers + the page-nav semantics (rf2-yt7ay6)
+;; 8. PAGINATION — the page-nav semantics (rf2-yt7ay6)
 ;; ============================================================================
-
-(deftest pagination-helpers-are-pure-limit-offset-and-encoded-query
-  (testing "examples/real-apps/realworld_resources — page->limit-offset clamps a
-            nil/sub-1 page to page 1 (the one place page arithmetic lives), and
-            query-string drops nil params, URL-encodes reserved characters, and
-            never emits a bare \"?\""
-    ;; page->limit-offset: 1-indexed page → {:limit :offset}, clamped at page 1.
-    (is (= {:limit 10 :offset 0}  (rres/page->limit-offset nil)) "nil → page 1")
-    (is (= {:limit 10 :offset 0}  (rres/page->limit-offset 0))   "page 0 clamps to page 1")
-    (is (= {:limit 10 :offset 0}  (rres/page->limit-offset -3))  "a negative page clamps to page 1")
-    (is (= {:limit 10 :offset 0}  (rres/page->limit-offset 1))   "page 1 → offset 0")
-    (is (= {:limit 10 :offset 10} (rres/page->limit-offset 2))   "page 2 → offset one page in")
-    (is (= {:limit 10 :offset 20} (rres/page->limit-offset 3))   "page 3 → offset two pages in")
-    ;; query-string: parity with the http sibling — drop nils, encode reserved,
-    ;; empty (or all-nil) → "".
-    (is (= "" (rrh/query-string {})) "empty map yields \"\", not \"?\"")
-    (is (= "" (rrh/query-string {:page nil})) "an all-nil map still yields \"\"")
-    (is (= "?author=jake" (rrh/query-string {:author "jake" :tag nil}))
-        "nil-valued params are dropped")
-    (is (= "?tag=a%20b" (rrh/query-string {:tag "a b"}))
-        "a space is URL-encoded")
-    (is (= "?tag=a%26b%3Dc%23d" (rrh/query-string {:tag "a&b=c#d"}))
-        "reserved query characters (& = #) are percent-encoded")))
+;;
+;; The PURE page arithmetic (`page->limit-offset`) + query encoding are
+;; transport-neutral Conduit contract, extracted to `realworld-shared.http`
+;; (rf2-fhxwhj) and pinned ONCE in realworld_shared_contract_cljs_test.cljs.
+;; What stays here is the app-SPECIFIC page-nav events integration.
 
 (deftest pagination-nav-events-carry-feed-tag-and-drop-page-1
   (testing "examples/real-apps/realworld_resources — :home/go-to-page and
@@ -707,7 +685,9 @@
 ;; the follow/unfollow :populates seed, the post/delete-comment :invalidates
 ;; refetch, the update-settings mutation + its :settings/replied continuation, and
 ;; the two detail-page mutation continuations (:ui/follow-author-replied re-stale,
-;; :ui/article-deleted navigate-home). Plus the shared failure->message projector.
+;; :ui/article-deleted navigate-home). The failure->message projector is
+;; transport-neutral Conduit contract, pinned once in the shared contract suite
+;; (realworld_shared_contract_cljs_test — rf2-fhxwhj), not re-tested here.
 
 (deftest unfavorite-optimistic-patch-clamps-count-at-zero
   (testing "examples/real-apps/realworld_resources — :realworld/unfavorite's optimistic
@@ -884,26 +864,3 @@
       (reply-success! @last-managed-args {} f)
       (is (= :realworld/home (route-id f))
           ":ui/article-deleted navigates home on a successful delete"))))
-
-(deftest failure->message-projects-every-taxonomy-branch
-  (testing "examples/real-apps/realworld_resources — rh/failure->message prefers the
-            server's {:errors {:body [...]}} / {:errors {field [...]}} words, then a
-            raw string body, then a category message per the closed :rf.http/* taxonomy"
-    (is (= "email or password is invalid"
-           (rrh/failure->message {:kind :rf.http/http-4xx :status 422
-                                  :body {:errors {:body ["email or password is invalid"]}}})))
-    (is (= "username: has already been taken"
-           (rrh/failure->message {:kind :rf.http/http-4xx :status 422
-                                  :body {:errors {:username ["has already been taken"]}}})))
-    (is (= "upstream said no"
-           (rrh/failure->message {:kind :rf.http/http-5xx :status 502 :body "upstream said no"})))
-    (is (= "Network error — please try again." (rrh/failure->message {:kind :rf.http/transport})))
-    (is (= "Request timed out." (rrh/failure->message {:kind :rf.http/timeout})))
-    (is (= "Request rejected (status 404)." (rrh/failure->message {:kind :rf.http/http-4xx :status 404})))
-    (is (= "Server error (status 500)." (rrh/failure->message {:kind :rf.http/http-5xx :status 500})))
-    (is (= "Couldn't parse server response." (rrh/failure->message {:kind :rf.http/decode-failure})))
-    (is (= "shape detail" (rrh/failure->message {:kind :rf.http/accept-failure :detail {:message "shape detail"}})))
-    (is (= "Unexpected response shape." (rrh/failure->message {:kind :rf.http/accept-failure})))
-    (is (= "Request cancelled." (rrh/failure->message {:kind :rf.http/aborted})))
-    (is (= "own message" (rrh/failure->message {:kind :some/unknown :message "own message"})))
-    (is (= "Request failed." (rrh/failure->message {})))))

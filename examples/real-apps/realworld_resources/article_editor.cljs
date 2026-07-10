@@ -55,7 +55,7 @@
             [re-frame.flows]
             [reagent.core :as r]
             [realworld-resources.http :as rh]
-            [realworld-resources.schema :as schema])
+            [realworld-shared.schema :as schema])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; ============================================================================

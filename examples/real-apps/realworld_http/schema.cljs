@@ -1,125 +1,25 @@
 (ns realworld-http.schema
-  "Malli schemas for the RealWorld (Conduit) example.
+  "App-db + machine Malli schemas for the RealWorld (Conduit) example.
 
-   The shapes, in one place. This file describes every payload the RealWorld
-   API hands back AND the shape of each app-db slice that stores it, so the two
-   never quietly drift apart. The slice schemas get wired up for path-based
-   validation via `reg-app-schemas` at the bottom. See the schemas how-to:
-   ../../../docs/core/how-to/validate-with-schemas.md
-
-   The RealWorld API spec is documented at:
-     https://github.com/gothinkster/realworld/tree/main/api
-
-   A few wire conventions, straight from that spec:
-   - Articles, profiles, and users arrive wrapped under a singular top-level
-     key (`{:article {...}}`, `{:profile {...}}`, `{:user {...}}`); lists come
-     under the plural one (`{:articles [...]}`, and so on).
-   - Datetimes are ISO-8601 strings.
-   - Auth tokens are JWT strings, riding in as the `:token` field of the
-     `User` payload after login or registration."
+   The WIRE shapes — every payload the RealWorld API returns and the seven
+   response envelopes — are the transport-neutral contract shared by both
+   RealWorld examples, so they live in `realworld-shared.schema` (imported as
+   `ws` below) and are consumed directly at each decode site. What stays HERE is
+   what's genuinely local to THIS (managed-HTTP) architecture: the shape of each
+   app-db slice that stores remote data, and each machine's snapshot `:data`
+   slot. Those get wired up for path-based validation via `reg-app-schemas` at
+   the bottom. See the schemas how-to:
+   ../../../docs/core/how-to/validate-with-schemas.md"
   (:require [re-frame.core :as rf]
+            ;; The shared wire contract — User/Profile/Article/Comment + the
+            ;; seven response envelopes. The app-db slice schemas below embed
+            ;; these shapes directly (e.g. `[:vector ws/Article]`).
+            [realworld-shared.schema :as ws]
             ;; Schemas live in their own artefact; we require it to load it,
             ;; which registers the hooks that make `rf/reg-app-schemas` resolve
             ;; at the call site below.
             [re-frame.schemas])
   (:require-macros [re-frame.core :refer [with-frame]]))
-
-;; ============================================================================
-;; WIRE SHAPES — what the RealWorld API returns
-;; ============================================================================
-
-(def User
-  "The signed-in user, with their credentials. Returned by /users/login,
-   /users (register), and /user (current user)."
-  ;; Classify the JWT right at the slot that first carries it, with a per-slot
-  ;; `:sensitive?` Malli property on the `:decode` schema. `UserResponse` is the
-  ;; `:decode` schema for the login / register / session-restore replies, so
-  ;; this is what keeps the token out of any off-box capture of the response
-  ;; body. The DURABLE copy at [:auth :token] is a separate matter, classified
-  ;; by `:auth/classify-token` (core.cljs) — classification doesn't propagate,
-  ;; so every surface a secret touches has to declare it for itself. (The
-  ;; Bearer header gets this for free, via the framework's built-in carrier
-  ;; denylist.) See the keep-secrets how-to:
-  ;; ../../../docs/core/how-to/keep-secrets-out-of-traces.md
-  [:map
-   [:email    :string]
-   [:token    {:sensitive? true} :string]
-   [:username :string]
-   [:bio      [:maybe :string]]
-   [:image    [:maybe :string]]])
-
-(def Profile
-  "Another user's public profile. Returned by /profiles/:username."
-  [:map
-   [:username  :string]
-   [:bio       [:maybe :string]]
-   [:image     [:maybe :string]]
-   [:following :boolean]])
-
-(def Article
-  "A single article. Returned by /articles/:slug and embedded in
-   list responses."
-  [:map
-   [:slug           :string]
-   [:title          :string]
-   [:description    :string]
-   [:body           :string]
-   [:tagList        [:vector :string]]
-   [:createdAt      :string]
-   [:updatedAt      :string]
-   [:favorited      :boolean]
-   [:favoritesCount :int]
-   [:author         Profile]])
-
-(def Comment
-  "An article comment. Returned by /articles/:slug/comments."
-  [:map
-   [:id        :int]
-   [:createdAt :string]
-   [:updatedAt :string]
-   [:body      :string]
-   [:author    Profile]])
-
-;; ============================================================================
-;; WIRE-RESPONSE WRAPPERS
-;; ============================================================================
-;;
-;; Conduit never hands you a bare object — it always tucks the payload under a
-;; singular or plural top-level key. These schemas describe that envelope, and
-;; they're what you pass as `:decode` to `:rf.http/managed` so the body gets
-;; validated on the way in. See the HTTP guide on `:decode`:
-;; ../../../docs/async/http.md#validating-the-body-with-decode
-
-(def UserResponse
-  "POST /users/login, POST /users (register), GET /user."
-  [:map [:user User]])
-
-(def ProfileResponse
-  "GET /profiles/:username, POST/DELETE /profiles/:username/follow."
-  [:map [:profile Profile]])
-
-(def ArticleResponse
-  "GET /articles/:slug, POST /articles, PUT /articles/:slug,
-   POST/DELETE /articles/:slug/favorite."
-  [:map [:article Article]])
-
-(def ArticlesResponse
-  "GET /articles, GET /articles/feed."
-  [:map
-   [:articles      [:vector Article]]
-   [:articlesCount {:optional true} :int]])
-
-(def CommentResponse
-  "POST /articles/:slug/comments."
-  [:map [:comment Comment]])
-
-(def CommentsResponse
-  "GET /articles/:slug/comments."
-  [:map [:comments [:vector Comment]]])
-
-(def TagsResponse
-  "GET /tags."
-  [:map [:tags [:vector :string]]])
 
 ;; ============================================================================
 ;; APP-DB SLICES — the remote-data slice shape, one per resource
@@ -159,7 +59,7 @@
    exists for the brief window between that redirect and the next successful
    login."
   [:map
-   [:user      [:maybe User]]
+   [:user      [:maybe ws/User]]
    [:token     [:maybe :string]]
    [:return-to {:optional true}
     [:map
@@ -264,19 +164,19 @@
  (rf/reg-app-schemas
   {[:auth]                          AuthSlice
    [:articles]                      RequestSlice
-   [:articles :data]                [:vector Article]
+   [:articles :data]                [:vector ws/Article]
    [:article]                       RequestSlice
-   [:article :data]                 [:maybe Article]
+   [:article :data]                 [:maybe ws/Article]
    [:profile]                       RequestSlice
-   [:profile :data]                 [:maybe Profile]
+   [:profile :data]                 [:maybe ws/Profile]
    [:profile.articles]              RequestSlice
-   [:profile.articles :data]        [:vector Article]
+   [:profile.articles :data]        [:vector ws/Article]
    [:profile.favorites]             RequestSlice
-   [:profile.favorites :data]       [:vector Article]
+   [:profile.favorites :data]       [:vector ws/Article]
    [:comments]                      RequestSlice
-   [:comments :data]                [:vector Comment]
+   [:comments :data]                [:vector ws/Comment]
    [:feed]                          RequestSlice
-   [:feed :data]                    [:vector Article]
+   [:feed :data]                    [:vector ws/Article]
    [:comment-form]                  FormSlice
    [:auth :login-form]              FormSlice
    [:auth :register-form]           FormSlice

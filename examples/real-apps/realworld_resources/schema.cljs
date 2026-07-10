@@ -1,98 +1,31 @@
 (ns realworld-resources.schema
-  "Malli schemas for the RealWorld-on-resources (Conduit) example.
+  "App-db + machine Malli schemas for the RealWorld-on-resources (Conduit)
+   example.
 
-   Mostly these describe the wire payloads the RealWorld API returns. Notice what
-   they DON'T describe: there are no app-db slice schemas for any of the reads.
-   That's because the cached server-state lives in the framework-owned runtime
-   partition (`:rf.runtime/resources`), not in app-db — so there are no
-   `:articles` / `:article` / `:comments` / `:profile` paths in app-db to
-   validate in the first place. All app-db actually holds here is the small auth
-   slice and the per-form drafts.
+   The WIRE shapes — every payload the RealWorld API returns and the seven
+   response envelopes — are the transport-neutral contract shared by both
+   RealWorld examples, so they live in `realworld-shared.schema` (imported as
+   `ws` below). In this architecture the wire shapes pull double duty: they're
+   the resource `:data-schema` values AND the `:decode` schemas inside each
+   resource / mutation `:request`, consumed directly from the shared ns at those
+   sites. See schema: ../../../docs/core/glossary.md#schema.
 
-   The wire shapes pull double duty: they're the resource `:data-schema` values
-   AND the `:decode` schemas inside each resource / mutation `:request`. See
-   schema: ../../../docs/core/glossary.md#schema.
+   What stays HERE is what's genuinely local: the handful of app-db schemas this
+   architecture still owns. Notice how few there are — there are no app-db slice
+   schemas for any of the reads, because the cached server-state lives in the
+   framework-owned runtime partition (`:rf.runtime/resources`), not in app-db.
+   All app-db actually holds here is the small auth slice and the per-form
+   drafts.
 
    The RealWorld API spec is documented at:
      https://github.com/gothinkster/realworld/tree/main/api"
   (:require [re-frame.core :as rf]
+            ;; The shared wire contract — User/Profile/Article/Comment + the
+            ;; seven response envelopes. The auth slice below embeds `ws/User`.
+            [realworld-shared.schema :as ws]
             ;; The schemas runtime. Loading it registers the hooks, so
             ;; rf/reg-app-schemas has something to resolve at the call site below.
             [re-frame.schemas]))
-
-;; ============================================================================
-;; WIRE SHAPES — what the RealWorld API returns
-;; ============================================================================
-
-(def User
-  "The authenticated user. Returned by /users/login, /users (register),
-   /user (current user), and PUT /user (settings update)."
-  ;; The JWT is classified right at the transient slot that introduces it, via a
-  ;; per-slot `:sensitive?` Malli property on the `:decode` schema. Since
-  ;; `UserResponse` is the `:decode` schema for the login / register / restore /
-  ;; settings replies, this one declaration redacts the token from any off-box
-  ;; capture of the response body. The durable copy at [:auth :token] is a
-  ;; separate matter, classified by the `:sensitive` effect in core.cljs —
-  ;; classification doesn't propagate, so each surface declares its own. See data
-  ;; classification: ../../../docs/core/glossary.md#data-classification.
-  [:map
-   [:email    :string]
-   [:token    {:sensitive? true} :string]
-   [:username :string]
-   [:bio      [:maybe :string]]
-   [:image    [:maybe :string]]])
-
-(def Profile
-  "Another user's public profile. Returned by /profiles/:username and the
-   follow / unfollow writes."
-  [:map
-   [:username  :string]
-   [:bio       [:maybe :string]]
-   [:image     [:maybe :string]]
-   [:following :boolean]])
-
-(def Article
-  "A single article. Returned by /articles/:slug and embedded in list
-   responses."
-  [:map
-   [:slug           :string]
-   [:title          :string]
-   [:description    :string]
-   [:body           :string]
-   [:tagList        [:vector :string]]
-   [:createdAt      :string]
-   [:updatedAt      :string]
-   [:favorited      :boolean]
-   [:favoritesCount :int]
-   [:author         Profile]])
-
-(def Comment
-  "An article comment. Returned by /articles/:slug/comments."
-  [:map
-   [:id        :int]
-   [:createdAt :string]
-   [:updatedAt :string]
-   [:body      :string]
-   [:author    Profile]])
-
-;; ============================================================================
-;; WIRE-RESPONSE WRAPPERS
-;; ============================================================================
-;;
-;; The Conduit API wraps every payload in a singular or plural top-level key
-;; (`{:article …}`, `{:articles […]}`, and so on). These schemas describe that
-;; envelope, and they get passed as `:decode` inside each resource / mutation
-;; `:request` — the resource transport lowers the decode onto managed HTTP.
-
-(def UserResponse     [:map [:user User]])
-(def ProfileResponse  [:map [:profile Profile]])
-(def ArticleResponse  [:map [:article Article]])
-(def ArticlesResponse [:map
-                       [:articles      [:vector Article]]
-                       [:articlesCount {:optional true} :int]])
-(def CommentResponse  [:map [:comment Comment]])
-(def CommentsResponse [:map [:comments [:vector Comment]]])
-(def TagsResponse     [:map [:tags [:vector :string]]])
 
 ;; ============================================================================
 ;; APP-DB SLICES — only what app-db still owns
@@ -111,7 +44,7 @@
    realworld-resources.scope). :return-to is the optional post-login bounce-back
    target the routing auth-guard stashes."
   [:map
-   [:user      [:maybe User]]
+   [:user      [:maybe ws/User]]
    [:token     [:maybe :string]]
    [:return-to {:optional true}
     [:map
