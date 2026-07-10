@@ -575,7 +575,12 @@
   ;;       end-to-end — rejects a stale-sourced auth event and admits a live
   ;;       one, and
   ;;   (2) the auth (and opened/closed) transitions actually CARRY that guard.
-  (let [guard (get-in ws.connection/connection-machine [:guards :current-socket?])
+  (let [entry (get-in ws.connection/connection-machine [:guards :current-socket?])
+        ;; The example registers via `defmachine`, which co-locates each
+        ;; `:guards` entry as `{:fn <fn> :source-coords … :source-code …}` for
+        ;; Xray click-to-source; unwrap `:fn` to call the guard directly. (A
+        ;; bare-fn entry — the old plain-`def` shape — is used as-is.)
+        guard (if (map? entry) (:fn entry) entry)
         live  "socket-live"
         data  {:rf/spawned {[:active] live}}]
     (is (true?  (boolean (guard {:data  data
