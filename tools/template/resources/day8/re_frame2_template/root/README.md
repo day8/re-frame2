@@ -515,7 +515,7 @@ the canonical call shape per
 [Spec 014 §`:rf.http/managed`](https://github.com/day8/re-frame2/blob/main/spec/014-HTTPRequests.md).
 Uncomment and adapt when your app starts talking to a backend.
 
-**The `(:rf/reply msg)` payload in the example IS the framework-wide
+**The `reply` the exemplar handler reads IS the framework-wide
 managed-async model — the same envelope every managed-async surface
 uses.** Every managed-HTTP completion delivers the framework's
 [uniform reply envelope](https://github.com/day8/re-frame2/blob/main/spec/Managed-Effects.md#the-uniform-reply-envelope)
@@ -533,12 +533,18 @@ reply `:status` vocabulary:
 | `:cancelled` | abort | `:cancelled? true`, `:cancel/reason`, `:rf.http/aborted` under `:error` |
 | `:stale` | superseded / late | **never delivered to your app target** — stale replies are suppressed before dispatch |
 
-`:rf.http/managed` accepts `:on-success` / `:on-failure` (and the
-co-located `(:rf/reply msg)` form) as pure ROUTING sugar over the one
-direct reply target `:rf/reply-to`; **both receive this identical
-canonical map** — they only choose whether the reply lands on two named
-handlers or one branching handler. Full contract:
-[Spec 014 §Reply payload shape](https://github.com/day8/re-frame2/blob/main/spec/014-HTTPRequests.md#reply-payload-shape--the-one-canonical-envelope).
+Every `:rf.http/managed` request MUST address its reply. `:reply-to` is
+the unified authoring key — one event vector for **both** the success
+and the failure reply, the app branching on `:status` (the same
+call-site key resources / mutations use); the exemplar above uses it.
+`:on-success` / `:on-failure` are the split ROUTING sugar over the one
+`:reply-to` target (an explicit `nil` silences a branch); **both styles
+receive this identical canonical map** — they only choose whether the
+reply lands on two named handlers or one branching handler. Omitting all
+three fails loud at fx-call time with `:rf.error/http-no-reply-target` —
+there is no co-located default that silently routes the reply back to
+the dispatching event. Full contract:
+[Spec 014 §Reply addressing](https://github.com/day8/re-frame2/blob/main/spec/014-HTTPRequests.md#reply-addressing).
 Any non-HTTP managed-async surface you build (machines, resources,
 timers) reports completion through this same envelope's `:status` /
 `:value` / `:error` / `:completed-at`, with mandatory stale suppression.
