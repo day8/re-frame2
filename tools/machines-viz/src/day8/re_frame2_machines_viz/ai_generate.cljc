@@ -56,6 +56,11 @@
   Per [`API.md`](../../spec/API.md) §AI-generate-a-machine."
   (:require [clojure.string :as str]
             [re-frame.error :as error]
+            ;; rf2-egupfk — the SHARED definition-shape validators + value-free
+            ;; summary (`valid-definition?` / `parallel-definition?` /
+            ;; `definition-summary`) + the EP-0029 desugar seam, so this emitter
+            ;; accepts EXACTLY the shapes the Mermaid + SCXML emitters do.
+            [day8.re-frame2-machines-viz.grammar :as g]
             #?(:clj  [clojure.edn :as edn]
                :cljs [cljs.reader :as edn])))
 
@@ -74,16 +79,10 @@
     {:type (cond (nil? s) :nil (keyword? s) :keyword (map? s) :map
                  (vector? s) :vector (sequential? s) :seq :else :value)}))
 
-(defn- spec-summary
-  "Value-FREE diagnostic for a parsed (but invalid) machine `spec`: the
-  type tag plus, for a map, the top-level key SET — never the values (a
-  parsed spec can embed LLM-returned strings / `:data` runtime values)."
-  [spec]
-  (cond
-    (map? spec)     {:type :map :keys (vec (sort-by str (keys spec)))}
-    (vector? spec)  {:type :vector :count (count spec)}
-    (nil? spec)     {:type :nil}
-    :else           {:type :value}))
+;; rf2-egupfk — the parsed-spec summary is the SHARED
+;; `grammar/definition-summary` (value-free structural facts only), so the AI
+;; emitter's invalid-spec diagnostic matches Mermaid + SCXML. Stashed under this
+;; surface's `:spec-summary` ex-data key.
 
 ;; ---------------------------------------------------------------------------
 ;; System prompt
@@ -181,41 +180,33 @@
 ;; either {:initial K :states {non-empty}} or {:type :parallel
 ;; :regions {non-empty maps each with :initial + :states}}.
 ;;
-;; We deliberately don't validate beyond that — the LLM may emit
-;; perfectly-valid machine shapes the substrate hasn't formally
-;; described. Letting through "anything reg-machine accepts" matches
-;; the framework's "regularity over cleverness" posture better than
-;; coercing to a narrower subset.
+;; rf2-egupfk — the shape check itself is the SHARED
+;; `grammar/valid-definition?` so this emitter accepts EXACTLY what Mermaid +
+;; SCXML do (keyword `:initial`, well-formed parallel regions). We desugar
+;; (`grammar/desugar-grammar`) first, exactly as the other two emitters do, so
+;; a `:timeout` / `:choice` authoring form validates on its lowered shape. We
+;; keep only the AI-surface reason strings (embedded in the thrown message) and
+;; return the ORIGINAL authored spec (the runtime desugars again at
+;; registration, so the author's `:timeout` / `:choice` intent is preserved).
 
-(defn- valid-state-tree? [{:keys [initial states]}]
-  (and (keyword? initial)
-       (map? states)
-       (seq states)))
-
-(defn- valid-parallel? [{:keys [regions] :as spec}]
-  (and (= :parallel (:type spec))
-       (map? regions)
-       (seq regions)
-       (every? valid-state-tree? (vals regions))))
-
-(defn- validate-spec
-  "Return `[:ok spec]` if `spec` is a recognised machine shape,
-  otherwise `[:err reason]`."
-  [spec]
+(defn- validate-definition
+  "Return `[:ok]` if the (desugared) `definition` is a recognised machine
+  shape, otherwise `[:err reason]` carrying an AI-surface reason string."
+  [definition]
   (cond
-    (not (map? spec))
+    (not (map? definition))
     [:err "spec must be a map"]
 
-    (= :parallel (:type spec))
-    (if (valid-parallel? spec)
-      [:ok spec]
-      [:err "parallel spec must carry non-empty :regions; each region must carry :initial + non-empty :states"])
+    (g/parallel-definition? definition)
+    (if (g/valid-definition? definition)
+      [:ok]
+      [:err "parallel spec must carry a non-empty :regions map; each region must carry a keyword :initial + non-empty :states"])
 
-    (valid-state-tree? spec)
-    [:ok spec]
+    (g/valid-definition? definition)
+    [:ok]
 
     :else
-    [:err "spec must carry :initial + non-empty :states (or :type :parallel + :regions)"]))
+    [:err "spec must carry a keyword :initial + non-empty :states (or :type :parallel + :regions)"]))
 
 ;; ---------------------------------------------------------------------------
 ;; Default resolver
@@ -318,18 +309,21 @@
                      :stripped-summary (response-summary stripped)}})
 
        :else
-       (let [[stage2 ok-or-reason] (validate-spec spec-or-reason)]
+       ;; rf2-egupfk — validate the DESUGARED form (as Mermaid + SCXML do) but
+       ;; return the ORIGINAL authored spec so `:timeout` / `:choice` intent
+       ;; survives to `reg-machine`.
+       (let [[stage2 reason] (validate-definition (g/desugar-grammar spec-or-reason))]
          (if (= :ok stage2)
-           ok-or-reason
+           spec-or-reason
            (error/throw-error!
              :ai-generate/invalid-spec
              'machines-viz/generate-machine
              (str "AI machine generation: the resolver output parsed as EDN but "
-                  "is not a valid machine spec (" ok-or-reason "). Have the "
-                  "resolver return a spec with :initial + :states (or :type "
-                  ":parallel + :regions).")
+                  "is not a valid machine spec (" reason "). Have the "
+                  "resolver return a spec with a keyword :initial + :states (or "
+                  ":type :parallel + :regions).")
              {:recovery :return-a-valid-machine-spec
               ;; rf2-8nzxib — value-FREE; the response + parsed spec can
               ;; embed LLM-returned secrets / runtime :data.
               :extra    {:response-summary (response-summary response)
-                         :spec-summary     (spec-summary spec-or-reason)}})))))))
+                         :spec-summary     (g/definition-summary spec-or-reason)}})))))))

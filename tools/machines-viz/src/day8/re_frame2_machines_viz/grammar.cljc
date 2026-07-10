@@ -256,6 +256,88 @@
   [definition]
   (-> definition desugar-timeouts desugar-choices))
 
+;; ---------------------------------------------------------------------------
+;; Definition-shape validation — the SINGLE shape gate all three emitters share
+;; ---------------------------------------------------------------------------
+;;
+;; rf2-egupfk — the AI-generate, Mermaid, and SCXML emitters each project a
+;; machine definition onto a different surface, but they must agree on which
+;; definitions are well-formed enough to project AT ALL. Pre-fix each emitter
+;; hand-rolled its own `valid-state-tree?` / parallel check and the copies had
+;; DRIFTED: SCXML accepted malformed parallel region bodies (regions with no
+;; `:initial` / `:states`) that AI + Mermaid rejected, and AI required a
+;; KEYWORD `:initial` per the machine contract (Spec 005 §Transition table
+;; grammar — state ids are keywords) while Mermaid + SCXML accepted any truthy
+;; `:initial`. Three copies = three chances to drift; a drift here means one
+;; emitter renders a spec the others reject (or vice-versa), and the three
+;; diagrams disagree on what the same input even IS.
+;;
+;; These are the ONE source of truth. Every emitter desugars (`desugar-grammar`)
+;; then routes its shape check + value-free error summary through here, keeping
+;; only its surface-specific error id / message. The STRICT reading wins — the
+;; machine contract wants a keyword `:initial` and well-formed parallel regions
+;; — so unifying tightens the lax emitters (SCXML) rather than loosening the
+;; strict one (AI).
+;;
+;; Kept LOCAL to machines-viz (bundle-isolated tooling): these do NOT depend on
+;; the runtime `machines` grammar (`re-frame.machines.validate`), they re-state
+;; the minimum projectable shape the emitters need.
+
+(defn valid-state-tree?
+  "True when `definition` is a well-formed flat / compound state tree: a map
+  carrying a KEYWORD `:initial` (a state id — Spec 005 §Transition table
+  grammar declares state ids are keywords) and a non-empty `:states` map.
+  The shared minimum-shape predicate the three emitters agree on."
+  [definition]
+  (and (map? definition)
+       (keyword? (:initial definition))
+       (map? (:states definition))
+       (seq (:states definition))))
+
+(defn parallel-definition?
+  "True when `definition` is a `:type :parallel` root (Spec 005 §Parallel
+  regions). nil-safe / non-map-safe."
+  [definition]
+  (and (map? definition)
+       (= :parallel (:type definition))))
+
+(defn valid-definition?
+  "True when `definition` is a machine shape every emitter can project: a
+  parallel root (`:type :parallel`) with a non-empty `:regions` map whose
+  region bodies are EACH a `valid-state-tree?`, OR a flat / compound
+  `valid-state-tree?`. The single shape gate the three emitters share so
+  they never drift on which definitions they accept — keyword `:initial`,
+  well-formed parallel regions."
+  [definition]
+  (if (parallel-definition? definition)
+    (let [regions (:regions definition)]
+      (and (map? regions)
+           (seq regions)
+           (every? valid-state-tree? (vals regions))))
+    (valid-state-tree? definition)))
+
+(defn definition-summary
+  "EP-0015 / Spec 015 §exception-path residual (rf2-8nzxib) — a value-FREE
+  structural diagnostic for a rejected `definition`. A definition can carry
+  a `:data` slot holding live runtime values, and projection cannot walk
+  `ex-data` after the fact, so the summary reports only STRUCTURAL facts —
+  the top-level key SET, parallel?, and child counts — never the values.
+  The single summary the three emitters share so their thrown-error
+  diagnostics agree (each stashes it under its own surface-specific ex-data
+  key: `:spec-summary` / `:definition-summary`)."
+  [definition]
+  (if (map? definition)
+    (cond-> {:type     :map
+             :keys     (vec (sort-by str (keys definition)))
+             :parallel (parallel-definition? definition)}
+      (map? (:states definition))  (assoc :state-count  (count (:states definition)))
+      (map? (:regions definition)) (assoc :region-count (count (:regions definition))))
+    (cond
+      (nil? definition)        {:type :nil}
+      (sequential? definition) {:type  (if (vector? definition) :vector :seq)
+                                :count (count definition)}
+      :else                    {:type :value})))
+
 (defn parent-path
   "The parent path of `path` (its `pop`); `[]` for an empty/top-level
   path."
