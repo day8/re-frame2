@@ -21,7 +21,8 @@ end-to-end.
 ## Why canned-failure for seven of eight
 
 The framework-shipped `:rf.http/managed-canned-failure` fx synthesises
-the same `:rf/reply` envelope a live request would on each category
+the same canonical reply envelope a live request would on each category,
+delivered to the request's `:reply-to` target
 (per [spec/014 §Testing](../../spec/014-HTTPRequests.md) and the
 JVM smokes in `re-frame.http-managed-test`). For a testbed whose job
 is to drive each category deterministically — across CI environments
