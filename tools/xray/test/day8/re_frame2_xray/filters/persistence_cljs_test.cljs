@@ -9,24 +9,21 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.filters :as filters]
             [day8.re-frame2-xray.filters.persistence :as persistence]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
 
-(defn- xray-init! []
-  (xray-test-support/reset-all!)
-  (persistence/clear!)
-  (config/set-filters-storage-key! nil)
-  (config/set-filter-seed! nil))
-
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
-     :init-fn xray-init!}))
+  ;; `make-xray-runtime-fixture` (rf2-vj80u8) folds the reset (plain-atom +
+  ;; `:all` tier) into one owner; `:post-reset` carries this suite's
+  ;; persistence-slate tail.
+  (xray-test-support/make-xray-runtime-fixture
+    {:post-reset (fn []
+                   (persistence/clear!)
+                   (config/set-filters-storage-key! nil)
+                   (config/set-filter-seed! nil))}))
 
 (defn- xray-setup!
   "Register Xray handlers + the :rf/xray frame, then re-run the

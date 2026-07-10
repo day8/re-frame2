@@ -20,31 +20,27 @@
             [re-frame.core :as rf]
             [re-frame.elision :as elision]
             [re-frame.frame :as frame]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.palette.recents :as recents]
-            [day8.re-frame2-xray.preload :as preload]
             [day8.re-frame2-xray.registry :as registry]
+            [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
 ;; ---- fixture -----------------------------------------------------------
 
-(defn- xray-init! []
-  (preload/reset-for-test!)
-  (registry/reset-for-test!)
-  (trace-collector/reset-for-test!)
-  (config/reset-suppressed-count!)
-  (config/set-project-root! nil)
-  ;; rf2-ybjkx — clear palette recents between tests so each scenario
-  ;; starts with a clean slate. localStorage degrades silently in Node
-  ;; runtimes (no window.localStorage); the clear is a no-op there.
-  (recents/clear!))
-
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
-     :init-fn xray-init!}))
+  ;; `make-xray-runtime-fixture` (rf2-vj80u8) replaces the bespoke
+  ;; `xray-init!` (preload/registry/trace three-liner): the `:all` reset
+  ;; tier — install (== preload's alias) + registry + mount sentinels + the
+  ;; trace-collector rings; `:post-reset` carries this suite's tail.
+  (xray-test-support/make-xray-runtime-fixture
+    {:post-reset (fn []
+                   (config/reset-suppressed-count!)
+                   (config/set-project-root! nil)
+                   ;; rf2-ybjkx — clear palette recents between tests so each
+                   ;; scenario starts clean. localStorage degrades silently in
+                   ;; Node (no window.localStorage); the clear is a no-op there.
+                   (recents/clear!))}))
 
 (defn- setup! []
   (registry/register-xray-handlers!)

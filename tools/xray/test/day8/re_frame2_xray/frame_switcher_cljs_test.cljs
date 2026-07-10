@@ -19,27 +19,23 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.frame-switcher :as frame-switcher]
-            [day8.re-frame2-xray.preload :as preload]
             [day8.re-frame2-xray.registry :as registry]
+            [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
 ;; ---- fixtures -----------------------------------------------------------
 
-(defn- xray-init! []
-  (preload/reset-for-test!)
-  (registry/reset-for-test!)
-  (trace-collector/reset-for-test!)
-  (frame-switcher/clear!)
-  (frame-switcher/set-storage-key! nil))
-
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
-     :init-fn xray-init!}))
+  ;; `make-xray-runtime-fixture` (rf2-vj80u8) replaces the bespoke
+  ;; `xray-init!` (preload/registry/trace three-liner): the `:all` reset
+  ;; tier — install (== preload's alias) + registry + mount sentinels + the
+  ;; trace-collector rings; `:post-reset` carries this suite's tail.
+  (xray-test-support/make-xray-runtime-fixture
+    {:post-reset (fn []
+                   (frame-switcher/clear!)
+                   (frame-switcher/set-storage-key! nil))}))
 
 (defn- setup! []
   (registry/register-xray-handlers!)
