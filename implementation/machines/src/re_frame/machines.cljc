@@ -195,9 +195,14 @@
 ;; Per Spec 005 §Cross-machine messaging by name + §Named addressing via
 ;; `:system-id`: a machine ACTION addresses its spawned child actor by
 ;; `:system-id`. Actions can't read app-db and `:on-spawn`'s return is
-;; dropped, so the fx form is the spec-blessed way an action sends a
-;; message to a named actor. The implementation-tier `dispatch-to-system` fn
-;; is sugar for direct queued call sites; actions emit the fx form.
+;; dropped, so the fx form is how an action sends a message to a NAMED
+;; actor. Retained as the one named-addressing escape (advanced/parity
+;; tier): zero in-repo consumers as of 2026-07-10, kept for XState v6
+;; actor-system parity (systemId addressing — behavioural parity); the
+;; facade audit at API-freeze rules on deletion with full information. The
+;; redundant `dispatch-to-system` call-site FN twin was deleted (pre-alpha;
+;; no alias, no tombstone) — the everyday send story is plain dispatch to
+;; the id you hold (a machine IS an event handler).
 ;;
 ;; Args shape `[<system-id> <event-vector>]` — the framework fx contract
 ;; is a 2-element `[fx-id args]` pair (the `do-fx` walk drops arity-≥3
@@ -209,32 +214,11 @@
 ;; targets the queued dispatch at the same frame — consistent with
 ;; `spawn-fx` / `update-snapshot-fx`.
 
-(defn dispatch-to-system
-  "Implementation-tier sugar: dispatch `event` to the spawned-machine
-  bound to `system-id` in the active frame. Equivalent to
-  `(when-let [m (machine-by-system-id system-id)] (dispatch [m event]))`,
-  with a no-op fall-through when the system-id is unbound.
-
-  An implementation-tier helper, not an app-facing front-porch API: the
-  CANONICAL action-side messaging surface is the reserved
-  `[:rf.machine/dispatch-to-system [system-id event]]` fx tuple (see
-  `dispatch-to-system-fx`); this direct-call FN is the call-site twin.
-  Per Spec 005 §Cross-machine messaging by name."
-  ([system-id event]
-   (when-let [machine-id (machine-by-system-id system-id)]
-     (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
-       (dispatch! [machine-id event]))))
-  ([system-id event frame-id]
-   (when-let [machine-id (machine-by-system-id system-id frame-id)]
-     (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
-       (dispatch! [machine-id event] {:frame frame-id})))))
-
 (defn dispatch-to-system-fx
   "fx handler for `:rf.machine/dispatch-to-system`. Resolves `system-id`
   through the emitting frame's `[:rf.runtime/machines :system-ids]`
   reverse index and dispatches `event` to the bound actor. No-op when the
-  system-id is unbound (symmetric with the `dispatch-to-system` FN's
-  no-op fall-through). Per Spec 005 §Cross-machine messaging by name."
+  system-id is unbound. Per Spec 005 §Cross-machine messaging by name."
   [{frame-id :frame} [system-id event]]
   ;; The cascade envelope frame is the fx-context `:frame`; a nil stamp is
   ;; an invariant failure (`:rf.error/no-frame-context`), never a
@@ -308,7 +292,7 @@
   update-snapshot/update-snapshot-fx)
 
 (fx/reg-fx :rf.machine/dispatch-to-system
-  {:doc "Dispatch an event to a spawned actor addressed by `:system-id`. Emit `[:rf.machine/dispatch-to-system [<system-id> <event-vector>]]` from a machine action's `:fx` vector. No-op when the system-id is unbound. The fx counterpart to the `dispatch-to-system` fn. Per Spec 005 §Cross-machine messaging by name."}
+  {:doc "Dispatch an event to a spawned actor addressed by `:system-id`. Emit `[:rf.machine/dispatch-to-system [<system-id> <event-vector>]]` from a machine action's `:fx` vector. No-op when the system-id is unbound. The single named-addressing escape (advanced/parity tier); zero in-repo consumers, retained for XState v6 actor-system parity. Per Spec 005 §Cross-machine messaging by name."}
   dispatch-to-system-fx)
 
 ;; ---- framework-shipped subs -----------------------------------------------

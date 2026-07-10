@@ -319,7 +319,7 @@ See [Final states: when a machine is done](../machines/concepts.md#final-states-
     - Resolves `system-id` through the emitting frame's `[:rf.runtime/machines :system-ids]` reverse index (in runtime-db) and dispatches `event` to the bound actor. A no-op when the `system-id` is unbound.
     - This is the canonical action-side surface. A machine action can't read app-db, and its `:on-spawn` return is dropped, so the fx form is how an action messages a named actor.
     - Args ride as a single 2-element pair (the fx contract is a `[fx-id args]` pair).
-    - Backed by [`dispatch-to-system-fx`](#re-framemachinesdispatch-to-system-fx); the call-site twin is the [`dispatch-to-system`](#re-framemachinesdispatch-to-system) fn.
+    - Backed by [`dispatch-to-system-fx`](#re-framemachinesdispatch-to-system-fx). Retained for XState v6 actor-system parity (systemId addressing); zero in-repo consumers as of 2026-07-10.
 - **Example**:
   ```clojure
   {:fx [[:rf.machine/dispatch-to-system [:logger [:logger/flush]]]]}
@@ -354,24 +354,7 @@ See [Final states: when a machine is done](../machines/concepts.md#final-states-
 
 ## Cross-machine messaging
 
-When a child actor spawns declaratively under a parent, the framework binds the child's allocated id into the parent's `:data` at `[:rf/spawned <invoke-id>]`. An `:on-spawn` callback cannot capture that id, because its return is dropped. Naming by `:system-id` lets the parent address the child by *role* without threading the id around. The canonical action-side surface is the [`[:rf.machine/dispatch-to-system [system-id event]]`](#rfmachinedispatch-to-system-system-id-event) fx tuple (above). The helpers below are the direct-call twins.
-
-### `re-frame.machines/dispatch-to-system`
-
-- **Kind**: function (owned by `re-frame.machines`, implementation tier — **not a `re-frame.core` facade export**)
-- **Signature**:
-  ```clojure
-  (re-frame.machines/dispatch-to-system system-id event)
-  (re-frame.machines/dispatch-to-system system-id event frame-id)
-  ```
-- **Description**: The direct-call twin of the `:rf.machine/dispatch-to-system` fx. Sugar over `(when-let [m (machine-by-system-id system-id)] (dispatch [m event]))`; a no-op when the `system-id` is unbound.
-    - The two-arity form resolves the frame from the carried scope it runs under. The three-arity form names the frame explicitly. There is no `:rf/default` fallback; looking up under no scope raises `:rf.error/no-frame-context`.
-    - This is an implementation-tier helper. New app code should emit the `[:rf.machine/dispatch-to-system [system-id event]]` fx instead.
-- **Example**:
-  ```clojure
-  ;; Implementation-tier direct call (prefer the fx in app code); no-op when unbound.
-  (machines/dispatch-to-system :logger [:logger/flush])
-  ```
+When a child actor spawns declaratively under a parent, the framework binds the child's allocated id into the parent's `:data` at `[:rf/spawned <invoke-id>]`. An `:on-spawn` callback cannot capture that id, because its return is dropped. Naming by `:system-id` lets the parent address the child by *role* without threading the id around. The action-side surface is the [`[:rf.machine/dispatch-to-system [system-id event]]`](#rfmachinedispatch-to-system-system-id-event) fx tuple (above) — a parked named-addressing escape retained for XState v6 actor-system parity, with zero in-repo consumers. The everyday cross-machine send is plain dispatch to the id you hold (a machine IS an event handler). The fx handler below backs that tuple.
 
 ### `re-frame.machines/dispatch-to-system-fx`
 
@@ -381,7 +364,7 @@ When a child actor spawns declaratively under a parent, the framework binds the 
   (re-frame.machines/dispatch-to-system-fx fx-ctx [system-id event])
   ```
 - **Description**: The fx handler behind `:rf.machine/dispatch-to-system`.
-    - Resolves `system-id` through the emitting frame's `[:rf.runtime/machines :system-ids]` reverse index and dispatches `event` to the bound actor. A no-op when the `system-id` is unbound, symmetric with the `dispatch-to-system` fn's no-op fall-through.
+    - Resolves `system-id` through the emitting frame's `[:rf.runtime/machines :system-ids]` reverse index and dispatches `event` to the bound actor. A no-op when the `system-id` is unbound.
     - The cascade-envelope frame is the fx-context `:frame`. A nil stamp is an invariant failure (`:rf.error/no-frame-context`), never a synthesised `:rf/default`.
     - App code emits the `[:rf.machine/dispatch-to-system [system-id event]]` fx rather than calling this fn.
 

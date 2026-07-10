@@ -82,7 +82,7 @@
 
 (deftest dispatch-to-system-fx-no-ops-on-unbound-system-id
   (testing "the fx is a silent no-op when the :system-id is unbound
-   (symmetric with the dispatch-to-system FN's no-op fall-through)"
+   (it finds no binding and does nothing)"
     ;; A bare event handler emits the fx with a name nothing is bound to.
     ;; The walk must NOT raise :rf.error/no-such-fx (the fx is registered)
     ;; and must NOT throw — it simply finds no binding and does nothing.

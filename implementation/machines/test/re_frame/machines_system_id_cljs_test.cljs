@@ -70,7 +70,7 @@
                         [:rf.runtime/machines :snapshots :worker/proc#1]))
           "snapshot cleared on destroy")))
 
-  (testing "dispatch-to-system sugar resolves the system-id and routes the dispatch"
+  (testing "resolve a spawned actor by :system-id, then message it by dispatching to the id you hold"
     (let [child  {:initial :running
                   :data    {:msgs []}
                   :actions {:record (fn [{data :data [_ msg] :event}]
@@ -89,22 +89,14 @@
       (rf/dispatch-sync [:sup2/flow [:go]])
       (let [spawned (machines/machine-by-system-id :notifier)]
         (is (= :notifier/proc#1 spawned))
-        ;; Verify the sugar dispatches via the system-id lookup. We use
-        ;; dispatch-sync directly through the resolved id so the assert
-        ;; reads post-drain state without depending on async timing —
-        ;; dispatch-to-system itself wraps `dispatch` (queued); under a
-        ;; non-Reagent test runner there's no render to trigger the
-        ;; drain. The lookup-then-dispatch chain is what we're verifying.
+        ;; A machine IS an event handler: resolve the actor by its
+        ;; :system-id, then dispatch to the id you hold — the everyday
+        ;; cross-machine send. We use dispatch-sync through the resolved id
+        ;; so the assert reads post-drain state without async timing.
         (rf/dispatch-sync [(machines/machine-by-system-id :notifier) [:notify "hello"]])
         (is (= ["hello"] (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                  [:rf.runtime/machines :snapshots spawned :data :msgs]))
-            "dispatch via system-id lookup reached the live actor")
-        ;; And the implementation-tier sugar fn no-ops when the system-id is
-        ;; unbound. `dispatch-to-system` lives in `re-frame.machines` (not the
-        ;; `re-frame.core` facade); the canonical action-side surface is the
-        ;; `:rf.machine/dispatch-to-system` fx tuple.
-        (is (nil? (machines/dispatch-to-system :no-such-system [:notify "x"]))
-            "dispatch-to-system on an unbound system-id returns nil"))))
+            "dispatch via system-id lookup reached the live actor"))))
 
   (testing ":system-id collision emits :rf.error/system-id-collision and rebinds (last-write-wins)"
     (let [child  {:initial :running :data {} :states {:running {}}}
