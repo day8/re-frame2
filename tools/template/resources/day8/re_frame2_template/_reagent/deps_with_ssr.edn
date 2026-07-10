@@ -61,11 +61,11 @@
 
  :aliases
  {;; `clojure -X:server` boots the SSR/Jetty host (see server.clj). Reads
-  ;; :port + :static-root from :exec-args; override on the CLI, e.g.
+  ;; :port + :public-root from :exec-args; override on the CLI, e.g.
   ;; `clojure -X:server :port 9000`.
   :server
   {:exec-fn   {{namespace}}.server/-main
-   :exec-args {:port 8030 :static-root "resources/public/js"}}
+   :exec-args {:port 8030 :public-root "resources/public"}}
 
   ;; `clojure -M:test` runs the headless JVM SSR gate
   ;; (test/{{nested-dirs}}/ssr_test.clj) via the cognitect test-runner.

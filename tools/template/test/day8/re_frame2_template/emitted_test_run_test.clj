@@ -457,18 +457,27 @@
          (delete-recursively tmp))))))
 
 (defn- run-ssr-emitted-test!
-  "Compile both halves of an emitted SSR project.
+  "Compile both halves of an emitted SSR project, for the given `:css` mode
+   (nil = plain, `:tailwind` = the Tailwind cell).
 
    The browser build compiles core.cljc's hydration branch. `clojure -M:test`
-   runs the JVM render and Ring-handler tests, which are also what the emitted
-   npm test script and CI invoke. The browser compile needs project-local
-   node_modules; the tests themselves need no Node runtime or DOM."
-  []
-  (let [root (repo-root)
-        tmp  (tmp-dir "rf2-template-run-reagent-ssr-")]
+   runs the JVM render and Ring-handler tests — including the live-shell CSS
+   scaffold + contained static-asset serving (ssr_test.clj), which is what the
+   emitted npm test script and CI invoke. The browser compile needs
+   project-local node_modules; the tests themselves need no Node runtime or DOM.
+
+   Running BOTH css modes (plain + Tailwind) through the real make-handler is
+   what proves the documented `:css` + `:include-ssr?` combination composes on
+   the actual SSR response (rf2-3fc89f.26)."
+  ([] (run-ssr-emitted-test! nil))
+  ([css]
+   (let [root (repo-root)
+         tmp  (tmp-dir (str "rf2-template-run-reagent-ssr-"
+                            (if css (name css) "plain") "-"))]
     (try
       (let [proj (run-template-opts! tmp "acme/my-app"
-                                     {:substrate :reagent :include-ssr? true})]
+                                     (cond-> {:substrate :reagent :include-ssr? true}
+                                       css (assoc :css css)))]
         (rewrite-deps-for-local-run! root proj :reagent)
         (let [linked?   (link-node-modules! root proj)
               node-path (.getCanonicalPath (io/file root "implementation/node_modules"))
@@ -520,7 +529,7 @@
                   (str "expected '0 failures, 0 errors' line in output. "
                        "Got:\n" out))))))
       (finally
-        (delete-recursively tmp)))))
+        (delete-recursively tmp))))))
 
 (defn- skip-if-disabled!
   "When the gate is off, record a passing assertion that documents the
@@ -631,6 +640,26 @@
               "`clojure` CLI must be on PATH when RF2_TEMPLATE_RUN_EMITTED_TESTS=1")
           (when @clojure-cli-available?
             (run-ssr-emitted-test!))))))
+
+(deftest reagent-ssr-tailwind-emitted-tests-run-test
+  ;; The {:include-ssr? true :css :tailwind} matrix cell run end-to-end
+  ;; (rf2-3fc89f.26). Same two-halves shape as the plain SSR cell above, but
+  ;; the Tailwind CSS overlay is in play — so the emitted ssr_test.clj's
+  ;; live-shell assertions run against the Tailwind head (the
+  ;; @tailwindcss/browser dev compiler + the Tailwind /css/app.css entry) on
+  ;; the REAL make-handler path. Running BOTH css modes through the real
+  ;; handler is what proves the documented `:css` + `:include-ssr?`
+  ;; combination composes on the actual SSR response, not just in the unused
+  ;; static index.html.
+  (testing "the emitted SSR+Tailwind Reagent app's client :cljs branch
+            compiles + its ssr_test.clj runs green via `clojure -M:test`
+            (the live shell loads the Tailwind compiler + serves the CSS)"
+    (if-not @enabled?
+      (skip-if-disabled! "reagent-ssr-tailwind")
+      (do (is @clojure-cli-available?
+              "`clojure` CLI must be on PATH when RF2_TEMPLATE_RUN_EMITTED_TESTS=1")
+          (when @clojure-cli-available?
+            (run-ssr-emitted-test! :tailwind))))))
 
 ;; ===========================================================================
 ;; MANUAL setup-skill scaffold fixture

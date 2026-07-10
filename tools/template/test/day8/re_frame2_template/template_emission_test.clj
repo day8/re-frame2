@@ -264,16 +264,32 @@
            meta-clause
            "(" sym-char ")"))))
 
+(def ^:private ^java.util.regex.Pattern import-fn-pattern
+  ;; The `re-frame.ssr.ring` facade re-exports vars from its impl nses via
+  ;; the `import-fn` macro (e.g. `(import-fn shell/default-html-shell)` defs
+  ;; `default-html-shell` at the facade, preserving the source var's
+  ;; `:doc`/`:arglists`). The literal `(def default-html-shell …)` is produced
+  ;; by macro-expansion, so the raw-source `def-pattern` scan never sees it.
+  ;; Recognise the re-exported NAME (the part after `alias/`) so a scaffold
+  ;; that consumes the facade symbol — the SSR `server.clj` calls
+  ;; `ssr-ring/default-html-shell` — resolves in the surface-drift audit
+  ;; instead of false-failing as a rename/cut.
+  #"\(import-fn\s+[^\s()/]+/([^\s()]+)\)")
+
 (defn- scan-defined-symbols
-  "Slurp+regex a single framework .cljc/.cljs source and return the
+  "Slurp+regex a single framework .cljc/.cljs/.clj source and return the
   set of symbols it introduces with a top-level `def` / `defn` /
   `defn-` / `defmacro` / `defmulti` / `defonce` / `defprotocol` /
-  `defrecord` / `deftype`. Memoised entry point is `defined-symbols`
-  below — direct callers should prefer that."
+  `defrecord` / `deftype`, PLUS the facade re-exports the
+  `re-frame.ssr.ring` `import-fn` macro emits. Memoised entry point is
+  `defined-symbols` below — direct callers should prefer that."
   [^java.io.File f]
-  (into #{}
-        (map (fn [[_ sym]] (symbol sym)))
-        (re-seq def-pattern (slurp f))))
+  (let [text (slurp f)]
+    (into (into #{}
+                (map (fn [[_ sym]] (symbol sym)))
+                (re-seq def-pattern text))
+          (map (fn [[_ sym]] (symbol sym)))
+          (re-seq import-fn-pattern text))))
 
 (def ^:private defined-symbols-cache
   ;; Keyed by canonical absolute path. The framework source tree is

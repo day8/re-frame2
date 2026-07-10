@@ -22,7 +22,12 @@ render path vs the browser mount). See Spec 011 — SSR & Hydration.
 
 SSR runs two processes side by side: the **shadow-cljs watcher** compiles the
 client bundle (`main.js`), and the **JVM render server** (Ring/Jetty) renders
-each request to HTML and serves that bundle so the page can hydrate.
+each request to HTML and serves that bundle — plus the CSS scaffold under
+`/css/` — so the page arrives styled and can hydrate. The render server owns
+**one live shell**: it links `/css/app.css` (Tailwind mode also loads the
+`@tailwindcss/browser` dev compiler) and carries the Xray devtools host, so the
+static `resources/public/index.html` is a reference only — the SSR path never
+serves it.
 
 ```sh
 npm install
@@ -143,7 +148,10 @@ It boots the SSR adapter, drives the **real** `ssr-ring/ssr-handler` constructio
 with `render-to-string`, and asserts the HTML content plus the structural
 `data-rf-render-hash` marker the client compares against — no React / JSDOM, it
 runs end-to-end on the JVM. It also proves the per-request schema attach is live
-by rejecting a deliberately schema-violating commit on that same production path.
+by rejecting a deliberately schema-violating commit on that same production path,
+and drives `server.clj`'s composite handler to check the live shell links the CSS
+scaffold, `/css/app.css` is served as `text/css`, and a `../`-style asset request
+is contained under the public root (no URI traversal).
 
 ## Project layout
 
@@ -157,13 +165,13 @@ by rejecting a deliberately schema-violating commit on that same production path
 ├── lefthook.yml             ; pre-commit format + lint hook
 ├── .github/workflows/
 │   └── ci.yml               ; baseline GitHub Actions CI
-├── resources/public/
-│   ├── index.html           ; static host page (the SSR server renders its own shell per request)
-│   ├── css/app.css          ; minimal plain CSS
-│   └── js/                  ; shadow-cljs writes main.js here; server.clj's :static-root serves it
+├── resources/public/        ; server.clj's :public-root — one root, contained (no URI traversal)
+│   ├── index.html           ; static reference only — the SSR server renders + serves its OWN live shell
+│   ├── css/app.css          ; the stylesheet the live shell links + the server serves as text/css
+│   └── js/                  ; shadow-cljs writes main.js here; the server serves /main.js + /js/* from it
 ├── src/{{nested-dirs}}/
 │   ├── core.cljc            ; THE app — events / sub / schema / view, shared JVM render + CLJS hydration
-│   └── server.clj           ; the Ring / Jetty SSR host (:server alias entry point)
+│   └── server.clj           ; the Ring / Jetty SSR host — live shell (CSS + Xray host) + contained assets
 ├── test/{{nested-dirs}}/
 │   └── ssr_test.clj         ; headless JVM SSR gate (render-to-string + render-hash + schema enforcement)
 └── dev/

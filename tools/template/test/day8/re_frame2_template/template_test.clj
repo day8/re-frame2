@@ -1172,9 +1172,10 @@
               (is (= 'acme.my-app.server/-main (:exec-fn server-alias))
                   ":server alias :exec-fn targets the emitted server ns")
               (is (map? (:exec-args server-alias))
-                  ":server alias carries :exec-args (port + static-root)")
-              (is (contains? (:exec-args server-alias) :static-root)
-                  ":server :exec-args carries a :static-root the server serves main.js from")))
+                  ":server alias carries :exec-args (port + public-root)")
+              (is (contains? (:exec-args server-alias) :public-root)
+                  ":server :exec-args carries a :public-root the server serves
+                   the bundle + CSS scaffold from (contained under it)")))
 
           ;; -- :test alias wiring — the headless JVM ssr_test.clj gate --
           ;; The SSR scaffold ships NO cljs.test suite, so `clojure -M:test`
@@ -1238,7 +1239,35 @@
             (is (.contains server-text "defn -main")
                 "server.clj exposes -main (the :server alias entry point)")
             (is (.contains server-text "[acme.my-app.core :as app]")
-                "server.clj requires the app's core ns by derived namespace"))
+                "server.clj requires the app's core ns by derived namespace")
+            ;; -- server.clj owns the ONE live-shell + static-asset contract:
+            ;;    the live shell loads the CSS scaffold + hosts Xray, and the
+            ;;    composite handler serves the stylesheet with normalised
+            ;;    containment (rf2-3fc89f.26) --
+            (is (.contains server-text ":html-shell")
+                "server.clj installs a custom :html-shell that loads the CSS scaffold")
+            (is (.contains server-text "default-html-shell")
+                "the live shell composes from the framework's default-html-shell
+                 (structured helper) rather than string-splicing rendered HTML")
+            (is (.contains server-text "/css/app.css")
+                "the live shell links the emitted /css/app.css stylesheet")
+            (is (.contains server-text "data-rf-xray-host")
+                "the live shell carries the [data-rf-xray-host] Xray host")
+            (is (.contains server-text "text/css")
+                "the composite handler serves the stylesheet with a text/css MIME")
+            (is (or (.contains server-text "getCanonicalFile")
+                    (.contains server-text "getCanonicalPath"))
+                "the static-asset serving normalises paths for containment (no URI traversal)")
+            (is (.contains server-text "public-root")
+                "server.clj serves static assets from a single public root")
+            ;; The Tailwind dev compiler is runtime-guarded by `tailwind?`,
+            ;; which the `{{css-name}}` substitution resolves. On the plain SSR
+            ;; path the guard is `(= \"\" \"tailwind\")` (false), so the
+            ;; compiler string — present in source but dead-guarded — is never
+            ;; emitted. (The Tailwind cell asserts the true-guard counterpart.)
+            (is (.contains server-text "(= \"\" \"tailwind\")")
+                "the plain SSR server's tailwind? guard resolves to false — the
+                 dev compiler is not loaded"))
 
           ;; -- ssr_test.clj is the headless JVM gate --
           (let [ssr-test-text (slurp (io/file root "test/acme/my_app/ssr_test.clj"))]
@@ -1290,6 +1319,62 @@
               (is (not (.contains readme-text spa-file))
                   (str "SSR README does NOT reference the SPA-shape source "
                        spa-file " — those slices are folded into core.cljc")))))
+        (finally
+          (delete-recursively tmp))))))
+
+(deftest include-ssr-tailwind-cell-test
+  ;; The {:include-ssr? true :css :tailwind} matrix cell (rf2-3fc89f.26).
+  ;; The plain SSR cell (include-ssr-true-reagent-test) asserts the
+  ;; substrate-invariant live-shell + static-asset contract; this cell adds
+  ;; the Tailwind-specific surface: the emitted server.clj loads the
+  ;; @tailwindcss/browser dev compiler in the LIVE shell (not just the unused
+  ;; static index.html), and the CSS overlay swaps in the Tailwind entry.
+  (testing ":include-ssr? true + :css :tailwind emits an SSR scaffold whose
+            LIVE shell loads the Tailwind compiler + serves the Tailwind CSS"
+    (let [tmp (tmp-dir "rf2-template-ssr-tailwind-")]
+      (try
+        (let [root (run-template-opts! tmp "acme/my-app"
+                                       {:substrate :reagent
+                                        :include-ssr? true
+                                        :css :tailwind})]
+          ;; The SSR sources are emitted (same as the plain SSR cell).
+          (is (file-exists? root "src/acme/my_app/core.cljc")
+              "core.cljc is emitted for the SSR+Tailwind cell")
+          (is (file-exists? root "src/acme/my_app/server.clj")
+              "server.clj is emitted for the SSR+Tailwind cell")
+          (is (file-exists? root "test/acme/my_app/ssr_test.clj")
+              "ssr_test.clj is emitted for the SSR+Tailwind cell")
+
+          ;; The Tailwind overlay swapped in the Tailwind CSS entry.
+          (let [css-text (slurp (io/file root "resources/public/css/app.css"))]
+            (is (.contains css-text "@import \"tailwindcss\"")
+                "the emitted app.css is the Tailwind v4 entry (:css :tailwind overlay)"))
+
+          ;; server.clj — the LIVE shell loads the Tailwind dev compiler AND
+          ;; links the CSS, so the actual SSR / response (NOT the unused
+          ;; index.html) carries both. This is the combination the API says
+          ;; composes (spec/API.md:113).
+          (let [server-text (slurp (io/file root "src/acme/my_app/server.clj"))]
+            (is (.contains server-text "@tailwindcss/browser")
+                "the SSR+Tailwind server.clj loads the @tailwindcss/browser dev
+                 compiler in the live shell (the documented combination works,
+                 not silently fails)")
+            ;; The tailwind? guard resolves to TRUE here (contrast the plain
+            ;; cell's `(= "" "tailwind")`), so the compiler is actually emitted.
+            (is (.contains server-text "(= \"tailwind\" \"tailwind\")")
+                "the SSR+Tailwind server's tailwind? guard resolves to true —
+                 the dev compiler is live on the SSR response")
+            (is (.contains server-text "/css/app.css")
+                "the SSR+Tailwind live shell links the Tailwind CSS entry")
+            (is (.contains server-text ":html-shell")
+                "the SSR+Tailwind server installs the custom CSS-loading shell")
+            (is (.contains server-text "text/css")
+                "the SSR+Tailwind handler serves the stylesheet with a text/css MIME"))
+
+          ;; The emitted README is still the SSR variant.
+          (let [readme-text (slurp (io/file root "README.md"))]
+            (is (.contains readme-text "clojure -X:server")
+                "SSR+Tailwind README documents the JVM host boot step")))
         (finally
           (delete-recursively tmp))))))
 
