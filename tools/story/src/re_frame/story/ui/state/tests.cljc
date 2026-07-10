@@ -29,7 +29,8 @@
   `re-frame.story.ui.state` proper — splitting honors the leaf-size
   ceiling without losing locality. The parent ns re-exports the
   public defs so existing consumer requires (`re-frame.story.ui.state`)
-  keep working.")
+  keep working."
+  (:require [re-frame.story.verdict :as verdict]))
 
 ;; ---- test-runs -----------------------------------------------------------
 ;;
@@ -64,40 +65,6 @@
   [state variant-id]
   (assoc-in state [:tests :runs variant-id] {:status :running}))
 
-(defn- record-status
-  "The unified verdict for ONE assertion record: the record's own
-  `:status` when it is one of the four verdicts (the unified shape),
-  else derived from the outcome fields. Pure data →
-  data — a local mirror so this leaf needs no require into
-  `re-frame.story.result` (which would loop through the runtime via
-  `result` → `runtime`).
-
-  This MUST track `re-frame.story.result/record-status` verdict-for-
-  verdict — it cannot delegate (the cycle above) so the rule is copied
-  by hand. The canonical ordering (and the one reproduced here) is:
-
-  - an explicit `:status` that is one of the four verdicts wins;
-  - `:cannot-run?` / `:skipped?` truthy → `:cannot-run`;
-  - `:exception` / `:error` truthy → `:error` (a thrown handler / fx /
-    step — a derived record carrying `:exception`/`:error` but no
-    explicit `:status` must count as `:error`, not a false-green `:pass`);
-  - `:passed?` true → `:pass`; `:passed?` false → `:fail`;
-  - otherwise `:pass` (a non-assertion / vacuous record does not fail
-    the run — the /spec/007-Stories.md §Story-as-test duality).
-
-  A parity test (`record-status-mirrors-canonical`) runs a table of
-  record shapes through BOTH this mirror and the canonical, asserting
-  identical verdicts, so the two can never silently drift again."
-  [{:keys [status passed? skipped? cannot-run? exception error] :as _record}]
-  (cond
-    (contains? #{:pass :fail :cannot-run :error} status) status
-    cannot-run?          :cannot-run
-    skipped?             :cannot-run
-    (or exception error) :error
-    (true? passed?)      :pass
-    (false? passed?)     :fail
-    :else                :pass))
-
 (defn aggregate-summary
   "Walk `assertions` (the vector pulled off a `run-variant` result map)
   and produce the aggregated pass/fail/cannot-run counts:
@@ -126,7 +93,7 @@
         legacy-skip? (fn [r] (= :rf.assert/skipped (:assertion r)))
         skipped    (count (filter legacy-skip? items))
         active     (remove legacy-skip? items)
-        buckets    (frequencies (map record-status active))
+        buckets    (frequencies (map verdict/record-status active))
         passed     (get buckets :pass 0)
         cannot-run (get buckets :cannot-run 0)
         ;; :fail + :error both count as failures for the headline tally.
@@ -157,7 +124,7 @@
   (let [{:keys [total passed failed cannot-run skipped all-passed?
                 ran-at-ms elapsed-ms status]} (or summary {})
         status (cond
-                 (contains? #{:pass :fail :cannot-run :error} status)
+                 (contains? verdict/statuses status)
                  (if (= :error status) :fail status)   ; :error reads as :fail on the dot
                  (zero? (or total 0)) :pending
                  all-passed?          :pass

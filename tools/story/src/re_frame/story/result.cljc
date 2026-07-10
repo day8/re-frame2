@@ -58,22 +58,21 @@
   (:require [malli.core                   :as m]
             [re-frame.story.assertions    :as assertions]
             [re-frame.story.play.evidence :as evidence]
-            [re-frame.story.requirements  :as requirements]))
+            [re-frame.story.requirements  :as requirements]
+            [re-frame.story.verdict       :as verdict]))
 
 ;; ===========================================================================
 ;; STATUS — the four verdicts (spec/017 §Run result)
 ;; ===========================================================================
 
+;; The four-verdict set has ONE owner — the pure `re-frame.story.verdict`
+;; leaf (spec/017 §Run result). Re-exported here to preserve the public
+;; `re-frame.story.result/statuses` contract; the UI-state + test-mode
+;; pure helpers consume the leaf directly (no cycle through the runtime).
 (def statuses
-  "The four run / assertion / check verdicts (spec/017 §Run result):
-
-  - `:pass`       — every expectation the runner could attempt held;
-  - `:fail`       — at least one expectation failed (or the tape shows
-                    unconsumed failure evidence);
-  - `:cannot-run` — the ONLY unmet expectations were ones the runner could
-                    not even attempt (the distinct THIRD status, §`:cannot-run`);
-  - `:error`      — a handler / fx / step threw."
-  #{:pass :fail :cannot-run :error})
+  "The four run / assertion / check verdicts (spec/017 §Run result) —
+  re-exported from the `re-frame.story.verdict` leaf, the single owner."
+  verdict/statuses)
 
 ;; ===========================================================================
 ;; THE SCHEMA-BACKED CONTRACT  (API governance freeze)
@@ -198,26 +197,14 @@
   [result]
   (m/explain RunResult result))
 
-(defn record-status
-  "Derive the `:status` for ONE assertion record from its outcome fields.
-  Pure data → data. An explicit `:status` already on the record wins (the
-  record was minted by a status-aware path); otherwise:
-
-  - `:cannot-run?` true   → `:cannot-run` (the runner could not prove it);
-  - `:exception` / `:error` truthy → `:error`;
-  - `:passed?` true       → `:pass`;
-  - `:passed?` false      → `:fail`;
-  - `:passed?` nil        → `:pass` (a non-assertion / vacuous record does
-                            not fail the run — the /spec/007-Stories.md §Story-as-test duality)."
-  [{:keys [status passed? cannot-run? skipped? exception error] :as _record}]
-  (cond
-    (contains? statuses status) status
-    cannot-run?                 :cannot-run
-    skipped?                    :cannot-run   ; §`:cannot-run` generalizes the shipping :skipped?
-    (or exception error)        :error
-    (true? passed?)             :pass
-    (false? passed?)            :fail
-    :else                       :pass))
+;; `record-status` — the record-normalization rule — also has ONE owner
+;; (the `re-frame.story.verdict` leaf). Re-exported here to preserve the
+;; public `re-frame.story.result/record-status` contract.
+(def record-status
+  "Derive the `:status` for ONE assertion record from its outcome fields
+  (spec/017 §Run result) — re-exported from the `re-frame.story.verdict`
+  leaf, the single owner. Pure data → data."
+  verdict/record-status)
 
 ;; ===========================================================================
 ;; ASSERTION RECORD — the `.18` atom shape + a unified `:status`
