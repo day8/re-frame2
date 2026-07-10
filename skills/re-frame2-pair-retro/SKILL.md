@@ -71,6 +71,19 @@ Diagnostic posture rules (evidence over vibes; symptom vs cause; direct/indirect
 
 Load [`../shared/retro-protocol.md`](../shared/retro-protocol.md) for the workflow shape — the diagnosis-first steps (read the evidence → identify friction candidates → route to the detection rule → surface findings with concrete evidence → cross-link the canonical fix → opt-in issue-filing → confident, no-hedging voice), plus the evidence-citation discipline, the untrusted-evidence and universal-redaction boundaries, the layer-routing rules, and the seven-section output shape. It is shared with `re-frame2-improver`; the pair-retro specialisation is below.
 
+### Session-evidence contract
+
+The diagnosis is only as trustworthy as the evidence boundary it runs on. Conversation order is not causal order; two builds, two frames, or two attach attempts are not one retry loop. Before reconstructing the timeline, bind the evidence to **one causally-ordered session**:
+
+1. **One evidence envelope.** Scope the retro to a single session — the user-stated session or recap, or the contiguous pair workflow serving one goal. When two plausible envelopes are present (two goals, two builds, a recap alongside a live session), **ask which session** to review rather than merging them.
+2. **Build a causal ledger, not a transcript-order list.** Associate each result with its **initiating call**, and keep the provenance the evidence carries: build id, frame id, the runtime-instance / freshness token (session sentinel), and whether a fact came from **native conversation turns** or a **user recap**. Arrival order alone is never causal order — a delayed or background result belongs to the call that issued it, not to whatever ran most recently.
+3. **Exclude unrelated activity.** Background **worker** runs, **CI** results, **shell** commands, **code-review** threads, and **app-authoring** edits are out of scope **unless the user** explicitly names one as pair-session friction. Red CI from another job is not this session's regression.
+4. **Supersession.** A later successful retry or an explicit target switch **supersedes** the earlier state; the earlier failure survives only as friction that actually cost effort, never presented as the **current / final tool state**.
+5. **Unknown over inferred.** A missing, truncated, unmatched, or still-running result is **`unknown/incomplete`** — **never** scored as a **success** or a **failure**. State the limitation, and ask for the missing result only when it would change a finding.
+6. **Attribution.** Keep recap claims marked as **user recap**; **never invent** turn numbers, timestamps, or tool-**payload** fields that were not supplied.
+
+This sharpens the protocol's step 1 (read the evidence in scope) and its evidence-discipline rule for the session shape — the reconstruction below runs on the bounded ledger, not the raw transcript.
+
 Pair-retro deltas:
 
 - **Reconstruct the session goal and a short timeline first** — the intended outcome, environment facts (platform, target repo, live runtime state, tooling constraints), and the turns where progress stalled, restarted, detoured, or needed a workaround (tool errors, empty/stale outputs, retries, clarification loops). Present the friction as a numbered list before classifying, and ask which to dig into.

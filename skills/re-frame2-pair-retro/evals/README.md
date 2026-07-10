@@ -1,11 +1,22 @@
 # `re-frame2-pair-retro` skill — eval harness
 
-This directory holds the trigger-accuracy fixtures for the `re-frame2-pair-retro`
-meta-skill (`skills/re-frame2-pair-retro/SKILL.md`). The single `evals.json`
-file scores the skill's **activation boundary**: which prompts should trigger a
-`re-frame2-pair` retrospective and which should route elsewhere (vocab-only
-retros, live `re-frame2-pair` debugging, the `re-frame2-improver` static
-critique, greenfield `re-frame2-setup`, Story-recorder retros, etc.).
+This directory holds two eval harnesses for the `re-frame2-pair-retro`
+meta-skill (`skills/re-frame2-pair-retro/SKILL.md`):
+
+1. **`evals.json` — trigger-accuracy fixtures.** Scores the skill's
+   **activation boundary**: which prompts should trigger a `re-frame2-pair`
+   retrospective and which should route elsewhere (vocab-only retros, live
+   `re-frame2-pair` debugging, the `re-frame2-improver` static critique,
+   greenfield `re-frame2-setup`, Story-recorder retros, etc.).
+2. **`session-evidence-evals.json` + `score-session-evidence-eval.clj` —
+   behavioural session-evidence eval.** Scores agent **runtime behaviour**
+   against the `SKILL.md` §Session-evidence contract: does the retro bound to
+   one causally-ordered session, build a causal ledger (not a transcript-order
+   list), exclude unrelated worker/CI/shell/code-review/app-authoring activity,
+   mark superseded state as superseded, mark partial results unknown/incomplete,
+   and — when two plausible sessions are present — ask which to review rather
+   than merging them? Its document-runnable fixture is
+   [`fixtures/session-evidence-scoping.md`](fixtures/session-evidence-scoping.md).
 
 ## Repo-maintenance artifact, not shipped
 
@@ -61,3 +72,34 @@ is the reference: score the skill's activation decision against each entry's
 `should_trigger`, and tune the frontmatter `description` until train/held-out
 trigger accuracy holds. The harness is intentionally tool-agnostic —
 `evals.json` is just data; any runner that respects the schema works.
+
+## Behavioural session-evidence eval
+
+`session-evidence-evals.json` scores agent **runtime behaviour** — the
+tool-call sequence and the emitted text — against the `SKILL.md`
+§Session-evidence contract, distinct from the trigger-accuracy `evals.json`
+above (which scores only the activation decision). The agent-execution step
+(replay a fixture against a fresh skill session and capture the transcript) is
+manual/opt-in — no Claude-in-the-loop CI harness exists yet — but scoring is
+automated:
+
+1. Replay [`fixtures/session-evidence-scoping.md`](fixtures/session-evidence-scoping.md)
+   (Scenario A, then Scenario B) against a fresh `re-frame2-pair-retro`
+   session and capture the transcript per `session-evidence-evals.json`
+   §harness.transcript_schema (`{"eval_id": N, "tool_calls": [...], "output":
+   "..."}`).
+2. Score it: `bb skills/re-frame2-pair-retro/evals/score-session-evidence-eval.clj <transcript.json>`.
+3. Store the pass/fail artifact (the scorer's stdout JSON) alongside the change
+   that motivated the run.
+
+`bb .../score-session-evidence-eval.clj --self-test` validates the manifest +
+scorer on every run as a cheap guard that the eval machinery itself hasn't
+rotted. The always-on structural guard for the contract prose is
+`skills/shared/tests/retro_protocol_test.clj`, which pins the load-bearing
+phrasings of the contract and runs this scorer's `--self-test`. Not every
+clause is deterministically scoreable from the transcript; the manifest's
+`scored_vs_manual` block names the clauses that stay human-review-only.
+
+Like `evals.json`, this harness is a **repo-maintenance artifact** — it is
+**not shipped** (the `files` allow-list in `package.json` omits `evals/`), so a
+packaged-skill consumer never carries it.

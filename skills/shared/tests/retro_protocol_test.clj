@@ -1045,6 +1045,166 @@
                "label rules (rf2-dhnixf finding 3).")))))
 
 ;; ---------------------------------------------------------------------------
+;; Pair-retro session-evidence contract — bind a retrospective to ONE
+;; causally-ordered session (SKILL.md §Session-evidence contract).
+;;
+;; Without an evidence boundary + causal-attribution rule, an agent can merge
+;; two builds / two sessions into one retry loop, count a delayed background
+;; result as a late regression, attribute unrelated CI/worker/code-review/
+;; app-authoring activity to the pair session, present a superseded tool result
+;; as the current state, or upgrade a missing result into an inferred tool
+;; failure — corrupting the retro's primary output (observed friction, root
+;; cause, priority, and any drafted issue body). These assertions pin the
+;; load-bearing phrasings of the contract so a silent prose-weakening is caught
+;; by `bb`; the executable behavioural counterpart is the pair-retro
+;; session-evidence eval (scored by
+;; `re-frame2-pair-retro/evals/score-session-evidence-eval.clj`, whose
+;; --self-test the final assertion below runs as an always-on guard).
+;; ---------------------------------------------------------------------------
+
+(defn- session-evidence-section []
+  (section @pair-retro-skill-md "Analysis workflow and output shape"))
+
+(deftest pair-retro-session-evidence-contract-present
+  (testing "SKILL.md carries a §Session-evidence contract in the analysis workflow"
+    (is (str/includes? @pair-retro-skill-md "Session-evidence contract")
+        (str "re-frame2-pair-retro/SKILL.md dropped the §Session-evidence "
+             "contract. Without it the skill has no rule for bounding a "
+             "retrospective to one session, so an agent can merge unrelated "
+             "activity (other workers, CI, shell, code-review, app-authoring) "
+             "into a pair-session retro."))
+    (is (contains-any? (session-evidence-section)
+                       ["one causally-ordered session"])
+        (str "the §Session-evidence contract no longer frames the boundary as "
+             "ONE causally-ordered session — the cardinal phrasing that "
+             "distinguishes a causal ledger from a transcript-order list."))))
+
+(deftest pair-retro-session-evidence-one-envelope-and-ask
+  (testing "rule 1 — one evidence envelope, ask when two are plausible"
+    (let [s (session-evidence-section)]
+      (is (contains-any? s ["evidence envelope"])
+          "the single-evidence-envelope rule (contract rule 1) is missing.")
+      (is (contains-any? s ["ask which session"])
+          (str "the ask-when-ambiguous rule is missing — when two plausible "
+               "envelopes are present the skill must ask which session to "
+               "review rather than merging them (contract rule 1).")))))
+
+(deftest pair-retro-session-evidence-causal-ledger
+  (testing "rule 2 — causal ledger with provenance, not transcript order"
+    (let [s (session-evidence-section)]
+      (is (contains-any? s ["causal ledger"])
+          "the causal-ledger rule (contract rule 2) is missing.")
+      (is (contains-any? s ["initiating call"])
+          (str "the causal ledger no longer binds each result to its "
+               "initiating call — arrival order would then be mistaken for "
+               "causal order (contract rule 2)."))
+      (is (and (str/includes? s "build id")
+               (str/includes? s "frame id")
+               (contains-any? s ["runtime-instance" "freshness token"]))
+          (str "the causal ledger no longer names the provenance tokens it "
+               "must retain (build id / frame id / runtime-instance or "
+               "freshness token) (contract rule 2)."))
+      (is (and (contains-any? s ["native conversation turns" "native turns"])
+               (str/includes? s "user recap"))
+          (str "the causal ledger no longer distinguishes native conversation "
+               "turns from a user recap as evidence provenance (contract "
+               "rule 2).")))))
+
+(deftest pair-retro-session-evidence-excludes-unrelated-activity
+  (testing "rule 3 — exclude unrelated worker / CI / shell / code-review / app-authoring"
+    (let [s (session-evidence-section)]
+      (is (contains-any? s ["Exclude unrelated"])
+          "the exclude-unrelated-activity rule (contract rule 3) is missing.")
+      (is (and (str/includes? s "worker")
+               (str/includes? s "CI")
+               (str/includes? s "shell")
+               (str/includes? s "code-review")
+               (str/includes? s "app-authoring"))
+          (str "the exclusion rule no longer enumerates the unrelated activity "
+               "classes (worker / CI / shell / code-review / app-authoring) "
+               "that are out of scope by default (contract rule 3)."))
+      (is (contains-any? s ["unless the user"])
+          (str "the exclusion rule no longer carries the 'unless the user "
+               "explicitly names it as pair-session friction' carve-out "
+               "(contract rule 3).")))))
+
+(deftest pair-retro-session-evidence-supersession-and-unknown
+  (testing "rules 4-5 — supersession, and unknown over inferred"
+    (let [s (session-evidence-section)]
+      (is (contains-any? s ["supersed"])
+          (str "the supersession rule is missing — a later successful retry / "
+               "target switch supersedes the earlier state (contract rule 4)."))
+      (is (contains-any? s ["current / final tool state" "current/final tool state"
+                            "final tool state"])
+          (str "the supersession rule no longer forbids presenting a "
+               "superseded failure as the current/final tool state (contract "
+               "rule 4)."))
+      (is (contains-any? s ["unknown/incomplete" "unknown / incomplete"])
+          (str "the unknown-over-inferred rule is missing — a missing / "
+               "truncated / unmatched / still-running result is "
+               "unknown/incomplete (contract rule 5)."))
+      (is (and (contains-any? s ["never"])
+               (str/includes? s "success")
+               (str/includes? s "failure"))
+          (str "the unknown-over-inferred rule no longer forbids scoring a "
+               "partial result as a success or a failure (contract rule 5).")))))
+
+(deftest pair-retro-session-evidence-attribution
+  (testing "rule 6 — recap attribution, never invent turn ids / payload fields"
+    (let [s (session-evidence-section)]
+      (is (contains-any? s ["never invent"])
+          (str "the attribution rule no longer forbids inventing evidence "
+               "(contract rule 6)."))
+      (is (and (str/includes? s "turn")
+               (str/includes? s "payload"))
+          (str "the attribution rule no longer names turn numbers and "
+               "tool-payload fields as the things the skill must not invent "
+               "(contract rule 6).")))))
+
+(deftest pair-retro-session-evidence-scorer-self-tests
+  (testing "score-session-evidence-eval.clj exists and its --self-test passes"
+    (let [scorer (io/file skills-root
+                          "re-frame2-pair-retro/evals/score-session-evidence-eval.clj")]
+      (is (.exists scorer)
+          (str "re-frame2-pair-retro/evals/score-session-evidence-eval.clj "
+               "disappeared. It is the executable scorer that turns a captured "
+               "transcript into a pass/fail artifact for the session-evidence "
+               "contract — without it the contract reverts to eyeball-only."))
+      (when (.exists scorer)
+        (let [{:keys [exit out err]}
+              (shell/sh "bb" (.getPath scorer) "--self-test")]
+          (is (zero? exit)
+              (str "score-session-evidence-eval.clj --self-test failed (exit "
+                   exit "). The manifest is malformed or a scorer predicate "
+                   "stopped firing.\nstdout: " out "\nstderr: " err)))))))
+
+(deftest pair-retro-session-evidence-manifest-and-fixture-present
+  (testing "the session-evidence eval manifest + fixture are present and well-formed"
+    (let [manifest (io/file skills-root
+                            "re-frame2-pair-retro/evals/session-evidence-evals.json")
+          fixture  (io/file skills-root
+                            "re-frame2-pair-retro/evals/fixtures/session-evidence-scoping.md")]
+      (is (.exists manifest)
+          "re-frame2-pair-retro/evals/session-evidence-evals.json disappeared.")
+      (is (.exists fixture)
+          (str "the session-evidence fixture "
+               "(evals/fixtures/session-evidence-scoping.md) disappeared."))
+      (when (.exists manifest)
+        (let [m (json/parse-string (slurp manifest) true)]
+          (is (= "behavioral" (:eval_kind m))
+              "session-evidence-evals.json :eval_kind is no longer \"behavioral\".")
+          (is (= 2 (count (:evals m)))
+              (str "session-evidence-evals.json no longer has exactly 2 evals "
+                   "(the scoping scenario + the ask-when-ambiguous scenario)."))
+          (let [blob (slurp manifest)]
+            (is (str/includes? blob "supersed")
+                "manifest no longer scores the supersession rule.")
+            (is (str/includes? blob "unknown")
+                "manifest no longer scores the unknown-over-inferred rule.")
+            (is (contains-any? blob ["which session" "which of the two"])
+                "manifest no longer scores the ask-when-ambiguous rule.")))))))
+
+;; ---------------------------------------------------------------------------
 ;; Run
 ;; ---------------------------------------------------------------------------
 
