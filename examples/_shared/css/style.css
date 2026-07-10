@@ -1,39 +1,14 @@
 /* ============================================================================
- * Shared examples design system — one identity across every example
- * substrate (Reagent, Reagent Slim, UIx, Helix). Substrate variety is
- * communicated by the
- * substrate selector + the per-substrate examples themselves — NOT via
- * visual identity.
+ * Shared, substrate-neutral visual rules for the example catalogue.
  *
- * Mood              : Editorial Warm — established, refined, magazine.
- * Typography pairing: Inter (UI + body) + JetBrains Mono (code, mono labels).
- *                     Matches the project-wide family used by Xray, so the
- *                     examples and the dev tools sit naturally next to one
- *                     another.
- * Palette           : warm paper bg #F7F3EC / deep ink #1A1814 / amber
- *                     accent #C8741A. A cohesive light-mode identity that
- *                     echoes Xray/Story's warm-slate-amber pairing.
- * Atmosphere        : subtle paper-grain radial gradients fixed to the
- *                     viewport + soft warm-toned shadows. No heavy textures.
+ * The canonical token vocabulary is --ex-*. Bright accent tokens are for
+ * decoration; their -deep variants are the contrast-safe choices for text and
+ * text-bearing controls. Font names are preferences backed only by local system
+ * fallbacks: this stylesheet does not load remote fonts.
  *
- * Token convention  : the canonical (and only) names are --ex-*. The shared
- *                     design system exposes one substrate-agnostic token
- *                     vocabulary; every example — including the design-led
- *                     notebook and process-monitor — consumes --ex-* directly.
- *                     Note the bright/deep accent split below: the bright
- *                     --ex-accent paints large decorative fills, the --ex-*-deep
- *                     siblings carry any text or button a human reads (AA-safe).
- *
- * @imports structure.css for layout-only class shapes
- *          (forms, banners, pills, boot, navbar, cards, cells grid,
- *          testbed shell). Stays substrate-agnostic.
- *
- * No remote fonts. The Inter / JetBrains Mono families below are stated as
- * the first preference but resolve entirely through the declared system
- * fallbacks (system-ui / Segoe UI / -apple-system; ui-monospace / SF Mono /
- * Menlo). A staged example therefore makes ZERO third-party network
- * requests for styling — offline, firewalled, and privacy-sensitive local
- * runs render identically and screenshots stay reproducible. (rf2-byf7y)
+ * Imports structure.css, which owns reusable geometry and the inline-Xray
+ * layout. Pages link this file only; the import makes the structural rules
+ * reachable from the same stable entry point.
  * ========================================================================== */
 
 @import url('structure.css');
@@ -50,29 +25,16 @@
   /* ink — warm neutrals, not pure black */
   --ex-ink:         #1A1814;
   --ex-ink-muted:   #5C5448;
-  /* --ex-ink-faint darkened from #8A8270 (≤3.81:1, sub-AA) to #6E6654 so muted
-     /skeleton text clears WCAG AA 4.5:1 on every shipped surface: 5.14:1 on
-     paper, 5.69:1 on white, 4.61:1 on sunken (rf2-febmqu). */
+  /* Muted/skeleton text still clears WCAG AA on every shared surface. */
   --ex-ink-faint:   #6E6654;
   --ex-rule:        #DCD3BF;
   --ex-rule-strong: #B8AC93;
 
-  /* accents.
-     --ex-accent (#C8741A) is a DECORATIVE/large-fill amber only: as normal-text
-     foreground or as a white-text filled background it is ≤3.52:1 (sub-AA). Use
-     --ex-accent-deep (#9C4F0E) for text links, white-text filled buttons, and
-     text-bearing status pills — it clears AA at ≥5.37:1 on paper/white and
-     5.94:1 white-on-deep (rf2-febmqu). */
+  /* Bright accents decorate; deep variants carry text and control borders. */
   --ex-accent:      #C8741A;  /* amber-sienna — decorative fill / focus accent */
   --ex-accent-deep: #9C4F0E;  /* AA-safe text / filled-button background */
   --ex-accent-soft: #E5A23D;  /* warm gold — secondary highlight */
   --ex-success:     #4A7340;  /* forest green for connected/ok states */
-  /* --ex-warn (#C49419) is a DECORATIVE/large-fill amber only: as normal-text
-     foreground on the shared light surfaces it is ≤2.76:1 (sub-AA — 2.50:1 on
-     paper, 2.24:1 on sunken). Use --ex-warn-deep (#7E5F10) for warning TEXT and
-     for warning UI-component borders — it clears AA at ≥4.82:1 on every shipped
-     surface (5.38:1 paper, 4.82:1 sunken, 5.95:1 white) and the 3:1 non-text bar
-     (rf2-ihruwa). */
   --ex-warn:        #C49419;  /* warm amber — decorative fill / accent only */
   --ex-warn-deep:   #7E5F10;  /* AA-safe warning text / border */
   --ex-error:       #B23A2E;  /* warm oxblood for errors */
@@ -98,8 +60,7 @@ html, body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Paper-grain ambience — three radial gradients fixed to the viewport.
-   Low-cost, pure CSS, no <img>. */
+/* Subtle radial ambience, rendered locally without an image asset. */
 body::before {
   content: '';
   position: fixed;
@@ -141,8 +102,7 @@ code {
 }
 
 a, .nav-link {
-  /* --ex-accent-deep (≥5.37:1 on paper/white), not --ex-accent (≤3.52:1,
-     sub-AA), so link text clears WCAG AA (rf2-febmqu). */
+  /* Text uses the deep accent; the bright accent is decorative only. */
   color: var(--ex-accent-deep);
   text-decoration-color: var(--ex-accent-soft);
   text-underline-offset: 3px;
@@ -163,14 +123,8 @@ input, textarea, select {
   transition: border-color 120ms ease, box-shadow 120ms ease;
 }
 
-/* Keyboard focus indicator (rf2-mon7tz).
-   The old rule set `outline: none` and replaced it with a low-alpha amber ring
-   (≈1.5:1 against the light surfaces) — keyboard users effectively lost the
-   focus indicator. We now keep a visible, solid ring built from
-   --ex-accent-deep (#9C4F0E), which clears the WCAG 1.4.11 non-text/focus
-   3:1 bar on every shipped surface: 5.37:1 on paper, 5.94:1 on white, 4.81:1
-   on sunken. A 2px transparent outline carries the indicator in forced-colors
-   / high-contrast mode where box-shadow is dropped. */
+/* The solid ring clears the non-text contrast threshold. The transparent
+   outline preserves a focus indicator when forced-colors drops box shadows. */
 input:focus-visible, textarea:focus-visible, select:focus-visible {
   outline: 2px solid transparent; /* forced-colors fallback */
   outline-offset: 2px;
@@ -202,18 +156,14 @@ button {
 }
 
 button:hover:not([disabled]) {
-  /* --ex-accent-deep, not --ex-accent: the button text is white, and white on
-     --ex-accent is only 3.52:1 (sub-AA); white on --ex-accent-deep is 5.94:1
-     (rf2-febmqu). */
+  /* White labels require the deep accent background. */
   background: var(--ex-accent-deep);
   border-color: var(--ex-accent-deep);
 }
 
 button:active:not([disabled]) { transform: translateY(1px); }
 
-/* Form-bound submit gets the accent fill — using --ex-accent-deep so the
-   white label clears AA (white-on-deep 5.94:1; white-on-accent was 3.52:1,
-   sub-AA). rf2-febmqu. */
+/* Form submit uses the text-safe accent because its label is white. */
 .login-form button[type="submit"] {
   background: var(--ex-accent-deep);
   border-color: var(--ex-accent-deep);
@@ -242,15 +192,8 @@ button:active:not([disabled]) { transform: translateY(1px); }
   color: var(--ex-ink);
 }
 
-/* Pills carry white text by default (structure.css). Backgrounds are chosen so
-   white-on-fill clears WCAG AA 4.5:1, or the pill overrides to ink text where
-   the fill is too light (rf2-febmqu):
-   - disconnected  : --ex-ink-muted #5C5448 → white 7.46:1 (was #8A8270, 3.81:1)
-   - authenticating: --ex-accent-deep #9C4F0E → white 5.94:1 (was --ex-accent, 3.52:1)
-   - connected     : --ex-success #4A7340 → white 5.50:1
-   - failed        : --ex-error #B23A2E → white 5.94:1
-   - connecting / reconnecting: --ex-accent-soft is light, so they use ink text
-     (8.08:1). */
+/* Pills default to white text in structure.css. The two light fills override
+   that default with ink; the remaining fills are dark enough for white. */
 .pill.disconnected   { background: var(--ex-ink-muted); }
 .pill.connecting     { background: var(--ex-accent-soft); color: var(--ex-ink); }
 .pill.authenticating { background: var(--ex-accent-deep); }
@@ -326,6 +269,6 @@ body > div > #app {
   box-sizing: border-box;
 }
 
-/* The .rf2-testbed-shell wrapper supplies its own grid; undo the
-   inherited #app padding under that wrapper. */
+/* The testbed wrapper supplies its own flex layout, so remove the standalone
+   app container's width and centering constraints. */
 .rf2-testbed-shell > #app { max-width: none; margin: 0; }

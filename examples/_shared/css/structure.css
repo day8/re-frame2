@@ -1,10 +1,10 @@
 /* ============================================================================
- * Structural baseline — class shapes the example views actually emit.
+ * Structural baseline for the reusable class names emitted by example views.
  *
- * The classes here are layout-only (display/flex/grid, padding,
- * max-widths, grid-template-columns); typography + palette + atmosphere
- * live in style.css (one shared identity across every example substrate)
- * which @imports this file.
+ * This file owns geometry and low-level component shape. The shared palette,
+ * typography, and page atmosphere live in style.css, which imports this file.
+ * The inline-Xray section also publishes the host integration variables next
+ * to the layout that consumes them.
  * ========================================================================== */
 
 /* -- Forms (login, signup, settings) ------------------------------------- */
@@ -202,22 +202,13 @@ hr {
   box-sizing: border-box;
 }
 
-/* -- Xray-host shell (counter testbed pattern) -------------------------- */
+/* -- Inline-Xray host shell (counter and flows) ------------------------- */
 /*
- * Responsive contract (rf2-y82dk9). The desktop layout is a two-column flex:
- * the app on the left, the inline Xray host fixed at --rf-xray-inline-width
- * (default 560px) on the right. With `flex-shrink:0` + a 320px host min-width
- * that desktop shell needs ~624px before any app content shows, so on a phone
- * it would overflow horizontally even though the pages declare a responsive
- * viewport. Below a 900px breakpoint (the narrowest the side-by-side layout can
- * be without overflow is ~624px; 900px keeps a comfortable app column before
- * stacking) we STACK: the columns become rows (app on top, Xray host below),
- * the host drops its
- * fixed width / min-width and goes full-bleed, and its height is capped so the
- * panel never crowds the app off-screen. The host/app DOM contract
- * (`.rf2-testbed-shell > #app` + `[data-rf-xray-host]`) is untouched, so Xray
- * auto-mounting and the counter/flows examples keep working at every width.
- * See examples/_shared/README.md §Responsive Xray-host shell.
+ * Wide viewports place the app beside a host whose flex basis follows Xray's
+ * --rf-xray-inline-width setting. At 900px and below the layout stacks, removes
+ * the host minimum width, and caps its height for internal scrolling. Selectors
+ * preserve the `.rf2-testbed-shell > #app` plus `[data-rf-xray-host]` mount
+ * contract described in examples/_shared/README.md.
  */
 
 :root {
@@ -241,8 +232,7 @@ hr {
   padding: 2em;
 }
 
-/* Narrow viewports: stack the inline-Xray host below the app rather than
-   overflowing the side-by-side desktop shell (rf2-y82dk9). */
+/* Narrow viewports stack the host below the app. */
 @media (max-width: 900px) {
   .rf2-testbed-shell {
     flex-direction: column;

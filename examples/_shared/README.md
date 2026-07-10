@@ -1,87 +1,57 @@
-# `examples/_shared/` — shared examples design system
+# `examples/_shared/` - shared example assets
 
-This directory holds the assets every example shares: one stylesheet,
-one favicon, one social card. Every example `index.html` links the same
-three, on every substrate (Reagent, Reagent Slim, UIx, Helix). The one
-exception is TodoMVC, which keeps the official TodoMVC stylesheets but
-still carries the shared favicon and social card.
+This directory is the canonical source for the example catalogue's visual
+assets. All example pages reference the shared favicon and PNG social card;
+all except TodoMVC also load the shared stylesheet. TodoMVC keeps its official
+stylesheets and declares that single exception in
+`examples/scripts/examples-asset-manifest.cjs`.
 
-Keeping them here means there's only one copy. Change the palette in this
-directory and the whole catalogue re-skins — no per-example copy drifts
-out of sync.
+## Ownership
 
-Examples build into many different output folders, yet share one asset
-directory. The trick: every page references its assets at the *same
-relative path* — `_shared/css/style.css`, never an absolute URL. So
-whatever stages an example just drops a copy of this tree next to the
-staged page.
+- This directory owns the shared CSS, favicon, and social-card source art.
+- `examples/scripts/examples-asset-manifest.cjs` owns per-page asset exceptions
+  and any extra assets that a page needs.
+- `examples/scripts/examples-staging.cjs` copies this tree beside each staged
+  `index.html`.
+- `examples/scripts/check-examples-assets.cjs` enforces page references, the
+  manifest exceptions, shared-tree integrity, and the CSS accessibility and
+  responsive contracts.
+
+Pages use stable relative URLs such as `_shared/css/style.css`. Staging can
+therefore place the same `_shared` tree beside every output page regardless of
+that example's source or build directory.
 
 ## Visual identity
 
-Every page wears the same skin: one typography stack, one palette, one
-stylesheet. This is deliberate. The obvious alternative — give each
-substrate its own colours, so you can tell a Reagent page from a UIx page
-at a glance — is a trap. We want you to notice the *code*, not the
-styling.
+The catalogue deliberately uses one substrate-neutral identity. Substrate
+differences belong in the selector and example code, not in competing palettes.
 
-Substrate gets announced where it belongs: in the substrate selector, and
-in the substrate-specific examples themselves. The look stays neutral. So
-when two examples look identical, that's the point — their UIs really are
-the same, give or take the rendering layer.
+| Role | Choice |
+| --- | --- |
+| Typography | Inter/system UI for text; JetBrains Mono/system mono for code |
+| Palette | paper `#F7F3EC`, ink `#1A1814`, amber `#C8741A` |
+| Atmosphere | subtle radial highlights fixed to the viewport |
 
-| Mood              | Editorial Warm — established, refined, magazine-leaning  |
-| ----------------- | -------------------------------------------------------- |
-| Typography pair   | Inter (UI + body) + JetBrains Mono (code, mono labels)   |
-| Palette           | warm paper bg #F7F3EC / deep ink #1A1814 / amber #C8741A |
-| Atmosphere        | paper-grain radial gradients fixed to the viewport       |
-
-The fonts echo the rest of the project: Xray uses Inter + JBM, and Story
-and the docs use IBM Plex. So an example, a dev tool, and the docs open
-side by side read as one family, not three unrelated apps.
-
-**No remote fonts.** The stylesheet *names* Inter and JetBrains Mono as
-its first-preference families, but it loads **no** web fonts to back them
-up — no `@import` of Google Fonts or any other host. The font stacks fall
-through to their declared system fallbacks: `system-ui` / `-apple-system` /
-`Segoe UI` for the UI, `ui-monospace` / `SF Mono` / `Menlo` for the
-mono.
-
-So a staged example makes **zero** third-party network requests just to
-style itself. That matters beyond tidiness. Offline runs, firewalled CI,
-and privacy-sensitive local demos all render the same. And a screenshot
-taken today matches one taken next year, because nothing is fetched from
-a server that might have changed.
+The font names are preferences only. The stylesheet loads no remote fonts and
+falls back to local system families, so examples do not make third-party font
+requests and remain usable offline.
 
 ## Files
 
-Five asset files. Most are plain; only the social card needs explaining.
+- `css/style.css` defines the shared `--ex-*` tokens and visual rules. Pages
+  link this file; it imports `structure.css`.
+- `css/structure.css` defines reusable geometry and the responsive inline-Xray
+  shell. It is not linked directly.
+- `img/favicon.svg` is the shared `r2` favicon and ships as SVG.
+- `img/og.png` is the 1200x630 social-preview asset referenced by every page.
+- `img/og.svg` is the editable source for `og.png`, not a page asset. Re-export
+  the PNG at exactly 1200x630 after changing the source art. Its colour literals
+  intentionally mirror the `--ex-*` tokens in `style.css`.
 
-- `css/style.css` — the shared design system itself, linked by every
-  `index.html` except TodoMVC's. Imports `structure.css`.
-- `css/structure.css` — the substrate-agnostic structural baseline:
-  form geometry, grid layout, the max-widths. This is about *shape*, not
-  brand — that's why it's split out from `style.css`.
-- `img/favicon.svg` — the shared favicon (an `r2` monogram on a deep-ink
-  tile with an amber accent). Browsers render SVG favicons fine, so it
-  ships as-is, with no raster step.
-- `img/og.png` — the shared Open Graph preview card, a 1200×630 raster.
-  Every `index.html` references this one. It has to be a raster because
-  link-preview scrapers (Facebook / X / LinkedIn / Slack / Discord) won't
-  render an SVG `og:image` — so the social card must be a PNG/JPG to show
-  up at all.
-- `img/og.svg` — the editable SOURCE ART behind that card; no page
-  references it. When the design changes, re-export `og.png` from this at
-  *exactly* 1200×630. Its colour literals mirror the `--ex-*` tokens in
-  `style.css`, so the source and the stylesheet stay in sync — the social
-  card inherits the same palette, and the same accessibility decisions,
-  as the rest of the catalogue.
+## Inline Xray shell
 
-## Responsive Xray-host shell
-
-Two examples (`counter`, `flows`) run Xray *inline*, side by side with the
-app. That raises a layout problem, and it's worth solving once in the
-shared CSS instead of separately in each example. Both wrap their app +
-Xray panel in a `.rf2-testbed-shell`:
+The `counter` and `flows` examples mount Xray beside the app with the same DOM
+contract:
 
 ```html
 <div class="rf2-testbed-shell">
@@ -90,21 +60,8 @@ Xray panel in a `.rf2-testbed-shell`:
 </div>
 ```
 
-On a desktop this is a two-column flex — app on the left, the inline
-Xray host on the right at `--rf-xray-inline-width` (560px by default).
-That breaks on a phone. The host is `flex-shrink: 0` with a 320px
-`min-width`, so it won't give up space; together with a usable app column,
-the layout needs roughly 624px before any app content can appear. Below
-that, the pages declare a responsive viewport but the layout still runs
-off the side of the screen.
-
-So `structure.css` **stacks** the shell below a 900px breakpoint. The two
-columns become two rows — app on top, Xray host underneath. The host
-drops its fixed width and min-width and goes full-bleed, and its height is
-capped (`max-height: 60vh` with internal scroll) so the panel can't grow
-tall enough to push the app off-screen.
-
-None of this touches the host/app DOM contract. The shape Xray looks for
-(`.rf2-testbed-shell > #app` plus `[data-rf-xray-host]`) is **unchanged**,
-so auto-mounting and both examples keep working at every width — only the
-CSS rearranges.
+`structure.css` lays this out as two columns on wider viewports, with the host
+width controlled by `--rf-xray-inline-width` (560px by default). At 900px and
+below it stacks the host beneath the app, removes the host's fixed minimum
+width, and caps its height so the panel scrolls internally. These rules only
+change layout; Xray's host selector and mount contract remain unchanged.
