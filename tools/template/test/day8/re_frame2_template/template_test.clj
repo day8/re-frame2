@@ -178,15 +178,20 @@
               "schema.cljs emits the canonical positional grammar
                (rf/reg-app-schema [] CounterDb)")
 
-          ;; -- EP-0011 / rf2-ibksxg: HTTP exemplar teaches the ONE canonical
-          ;;    uniform reply envelope (no compat dialect) --
+          ;; -- EP-0011 / rf2-ibksxg / rf2-et4c1s: HTTP exemplar teaches the
+          ;;    ONE canonical uniform reply envelope + the CURRENT reply-
+          ;;    addressing surface (no compat dialect, no retired co-located
+          ;;    form) --
           ;; The reply the exemplar reads IS the framework-wide uniform reply
-          ;; envelope delivered verbatim; there is no separate
-          ;; {:kind :success/:failure} HTTP dialect (retired). The exemplar
-          ;; must name the envelope, its canonical :status/:completed-at facts,
-          ;; and :rf/reply-to as the one direct reply target the
-          ;; :on-success/:on-failure routing sugar sits over — so a future
-          ;; edit cannot re-introduce the retired compat payload.
+          ;; envelope delivered verbatim (appended as the event's last arg);
+          ;; there is no separate {:kind :success/:failure} HTTP dialect
+          ;; (retired). The exemplar must name the envelope, its canonical
+          ;; :status/:completed-at facts, and address its reply with the
+          ;; app-facing :reply-to unified key (the :on-success/:on-failure
+          ;; routing sugar sits over it) — never the retired co-located
+          ;; :rf/reply read nor the internal :rf/reply-to descriptor as an
+          ;; app-facing spelling (rf2-et4c1s) — so a future edit cannot
+          ;; re-introduce the retired compat payload or co-located form.
           (is (.contains events-text "sugar over the one")
               "events.cljs HTTP exemplar marks :on-success/:on-failure as pure
                ROUTING sugar over the one direct reply target (rf2-ibksxg — no
@@ -197,10 +202,24 @@
           (is (.contains events-text "uniform reply envelope")
               "events.cljs HTTP exemplar names the framework-wide uniform
                reply envelope the reply IS (EP-0011 — rf2-rzsxrk)")
-          (is (.contains events-text ":rf/reply-to")
-              "events.cljs HTTP exemplar names :rf/reply-to as the one direct
-               reply target the :on-success/:on-failure sugar sits over
-               (EP-0011 / rf2-ibksxg — rf2-rzsxrk)")
+          (is (.contains events-text ":reply-to")
+              "events.cljs HTTP exemplar addresses its reply with the app-facing
+               :reply-to unified key — the one target the :on-success/:on-failure
+               routing sugar sits over (EP-0011 / rf2-et4c1s — rf2-rzsxrk)")
+          ;; The retired co-located `:rf/reply` read AND the retired
+          ;; :rf/reply-to-as-app-facing framing must both be gone. `:rf/reply`
+          ;; catches both — `:rf/reply-to` embeds `:rf/reply`, and the co-
+          ;; located envelope key is exactly `:rf/reply`. (The internal
+          ;; descriptor is a conformance surface, not consumer-template
+          ;; content — a user who uncomments the exemplar must hit neither
+          ;; :rf.error/http-no-reply-target nor a co-located read.) The
+          ;; correlation fact `:rf.reply/work-id` uses a dot, not a slash,
+          ;; so it does NOT trip this guard.
+          (is (not (.contains events-text ":rf/reply"))
+              "events.cljs HTTP exemplar must NOT read the retired co-located
+               :rf/reply envelope key NOR cite :rf/reply-to as an app-facing
+               spelling — the app-facing surface is :reply-to / :on-success /
+               :on-failure (rf2-et4c1s)")
           (is (.contains events-text ":completed-at")
               "events.cljs HTTP exemplar names the canonical :completed-at
                reply fact (EP-0011 — rf2-rzsxrk)")
