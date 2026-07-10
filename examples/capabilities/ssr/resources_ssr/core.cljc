@@ -278,7 +278,17 @@
            (let [final-db      (rf/app-db-value f)
                  final-runtime (:rf.db/runtime (rf/frame-state-value f))   ;; this is where :rf.runtime/resources lives
                  hiccup        ((rf/view :app/root))
-                 html          (rf/render-to-string hiccup {:doctype? true :emit-hash? true})
+                 ;; Render the app as a FRAGMENT, not a full document. The
+                 ;; `handle-request` envelope below owns the ONE document shell —
+                 ;; the outer `<!DOCTYPE html>`, `<head>` metadata, the payload
+                 ;; `<script>`, and `main.js`. The app render only fills
+                 ;; `<div id='app'>`, so it must NOT prepend its own doctype:
+                 ;; `:doctype? true` here would nest a second `<!DOCTYPE html>`
+                 ;; inside `#app`, and the response would be malformed HTML that
+                 ;; only survives via browser parser recovery. Keep
+                 ;; `:emit-hash? true` — the hydration hash the client verifies
+                 ;; still belongs on the fragment's root element.
+                 html          (rf/render-to-string hiccup {:emit-hash? true})
                  render-hash   (rf/render-tree-hash hiccup)
                  ;; (2) Build the payload exactly the way the Ring host does:
                  ;; the app-db slice through the fail-closed allowlist, and the
