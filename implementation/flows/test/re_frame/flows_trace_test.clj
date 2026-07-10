@@ -1468,3 +1468,36 @@
                ") — run-end fires AFTER the deferred install, not before"))
       (is (= (dec (count ops)) p-run-end)
           ":rf.event/run-end is the FINAL trace of the clean cascade"))))
+
+;; ===========================================================================
+;; (rf2-wdm1vg) MULTI-OWNER union — a reg-flow output's :sensitive claim and an
+;; app effect claim on the SAME absolute output path survive INDEPENDENTLY.
+;; ===========================================================================
+
+(deftest flow-and-effect-claims-union-and-remove-independently
+  (testing "rf2-wdm1vg — a reg-flow output's :sensitive claim and an app effect
+            claim on the SAME absolute output path UNION, and each removes
+            INDEPENDENTLY: the effect clear leaves the flow claim; clear-flow
+            leaves the effect claim. The path stays classified while any owner
+            claims it."
+    (let [p      [:auth :creds :secret]
+          owners #(get (elision/sensitive-declarations :rf/default) p)]
+      ;; a flow classifies its own output sub-slot :sensitive at registration
+      (rf/reg-flow :creds {:inputs [[:n]] :output-path [:auth :creds] :sensitive [[:secret]]}
+                   (fn [n] {:secret (str "Bearer-" n)}))
+      (is (some #(= :flow (:source %)) (owners)) "the flow claim is standing after reg-flow")
+      ;; an app effect ALSO classifies the SAME absolute path → union
+      (rf/reg-event :flow-union/classify (fn [{:keys [db]} _] {:db db :sensitive [p]}))
+      (rf/dispatch-sync [:flow-union/classify])
+      (is (contains? (owners) {:source :effect}) "the effect claim UNIONS in")
+      (is (some #(= :flow (:source %)) (owners)) "the flow claim is retained through the effect SET")
+      ;; effect CLEAR removes only the effect owner — the flow survives
+      (rf/reg-event :flow-union/clear (fn [{:keys [db]} _] {:db db :clear-sensitive [p]}))
+      (rf/dispatch-sync [:flow-union/clear])
+      (is (not (contains? (owners) {:source :effect})) "the effect owner is cleared")
+      (is (some #(= :flow (:source %)) (owners)) "the flow claim SURVIVES the effect clear")
+      ;; re-add the effect, then clear-flow — the effect survives the flow teardown
+      (rf/dispatch-sync [:flow-union/classify])
+      (flows/clear-flow :creds {:frame :rf/default})
+      (is (contains? (owners) {:source :effect}) "the effect claim SURVIVES clear-flow")
+      (is (not (some #(= :flow (:source %)) (owners))) "the flow owner is dropped by clear-flow"))))
