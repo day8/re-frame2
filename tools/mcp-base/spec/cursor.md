@@ -36,7 +36,7 @@ Base64-encode a UTF-8 string. `java.util.Base64` on the JVM, `js/Buffer` on CLJS
 
 ### `b64-decode s` — base64 string → string
 
-Inverse of `b64-encode`.
+Inverse of `b64-encode`. This is the **raw** host adapter and is deliberately lenient — `java.util.Base64/getDecoder` (JVM) throws on a non-alphabet character but ignores non-zero trailing pad bits, and `js/Buffer` (CLJS) silently drops non-alphabet characters and also ignores pad bits. Cursor decoding does **not** call it directly; it goes through the canonicalising `decode-canonical-b64` (see [§Canonical Base64 enforcement](#canonical-base64-enforcement)) so those host-lenient aliases are rejected.
 
 ### `parse-limit-arg raw default max` — int
 
@@ -55,7 +55,7 @@ Decode an opaque base64 cursor back to its EDN payload map.
 Returns:
 
 - `nil` — the cursor arg is absent (nil / undefined) or blank. The caller treats this as "start from the beginning" (offset 0 / head).
-- `::malformed` — the cursor exists but is not a well-formed, `valid?`-passing payload map: it failed to base64/EDN-decode, carried a tagged literal, decoded to more than one EDN form, exceeded `max-cursor-bytes`, or failed the consumer's `valid?` predicate. Callers treat `::malformed` like a stale cursor — drop it and restart.
+- `::malformed` — the cursor exists but is not a well-formed, `valid?`-passing payload map: it failed to base64/EDN-decode, was a **noncanonical Base64 alias** (see [§Canonical Base64 enforcement](#canonical-base64-enforcement)), carried a tagged literal, decoded to more than one EDN form, exceeded `max-cursor-bytes`, or failed the consumer's `valid?` predicate. Callers treat `::malformed` like a stale cursor — drop it and restart.
 
 `valid?` is the consumer's payload-shape predicate. Story validates `:v`, natural `:offset`/`:total`, and a string `:sig`. Pair requires a present, non-nil `:after-id` of any EDN-printable type because epoch ids are opaque.
 
@@ -78,6 +78,17 @@ The `:reason` slot is the cross-MCP `vocab/cursor-stale-reason` (`:rf.mcp/cursor
 - `:message` — override the default human-readable message.
 - `:hint` — override the default recovery hint.
 - `:extra` — a map of additional structured slots to merge in (e.g. pair's `:requested-id` / `:head-id`).
+
+## Canonical Base64 enforcement
+
+The opaque token emitted by `encode-cursor` has **one** canonical standard-Base64 spelling — precisely what `b64-encode` produces. The accepted token format is **canonical standard Base64** (the RFC 4648 standard alphabet `A–Z a–z 0–9 + /` with `=` padding); URL-safe (`-`/`_`) and no-padding variants are **not** accepted — adding one would need an explicit, versioned wire contract.
+
+The raw host decoders do not enforce this, and they diverge:
+
+- `js/Buffer.from … "base64"` (CLJS) **silently drops** characters outside the standard alphabet — `ez!!p2…` decodes as if the `!!` were absent — whereas `java.util.Base64/getDecoder` (JVM) **throws** on them. So the alphabet-alias case alone was host-dependent: the same corrupted token was `::malformed` on story-mcp (JVM) but accepted on pair-mcp (CLJS).
+- **Both** hosts ignore non-zero **trailing pad bits**, so alternate pad-bit spellings (`Zg==`, `Zh==`, `Zi==` all decode to `"f"`) alias one logical token on both runtimes.
+
+`decode-canonical-b64` normalises this with **one shared rule**: decode with the raw `b64-decode`, then require the token to equal `b64-encode` of the decoded bytes — a round-trip against the local encoder, which is the sole source of every legitimate cursor spelling. Any inserted/appended non-alphabet character, extra/invalid padding, or alternate pad-bit spelling re-encodes to a **different** token and is rejected as `::malformed` **before** EDN parsing, **identically on CLJ and CLJS**. The round-trip is strictly stronger than a lexical alphabet/padding regex, which would still admit the alternate pad-bit spellings. The pre-decode `max-cursor-bytes` cap still runs first, and the `nil`/blank, tagged-literal, one-form, `map?`, and consumer `valid?` behaviours are unchanged. Pinned in `cursor_test/decode-cursor-rejects-noncanonical-base64-aliases` and its CLJS mirror `cursor-rejects-noncanonical-base64-aliases-cljs`.
 
 ## Tagged-literal rejection
 

@@ -430,6 +430,63 @@
                                    permissive?))))))
 
 ;; ---------------------------------------------------------------------------
+;; 6b. Cursor rejects NONCANONICAL Base64 aliases on CLJS too. `js/Buffer`
+;;     is the lenient host: it DROPS non-alphabet chars (so `ez!!p2…`
+;;     decodes as if the `!!` were absent — the JVM decoder THROWS on
+;;     those) AND, like the JVM, ignores non-zero pad bits. So a corrupted
+;;     / re-spelled token can alias one logical cursor. `decode-canonical-
+;;     b64` re-encodes the decoded bytes and requires token equality,
+;;     rejecting the aliases identically to the JVM. Mirrors
+;;     `cursor_test/decode-cursor-rejects-noncanonical-base64-aliases`.
+;; ---------------------------------------------------------------------------
+
+(def ^:private b64-alphabet
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/")
+
+(defn- pad-bit-alias
+  "Return a NONCANONICAL alias of canonical b64 `token` differing only in
+  the trailing pad bits (same decoded bytes, different spelling), or nil
+  if `token` carries no pad slack. `js/Buffer` ignores non-zero pad bits,
+  so the alias decodes to identical bytes under a different token — the
+  family a lexical grammar admits but the round-trip gate rejects.
+  Verbatim mirror of the JVM `cursor_test` helper."
+  [token]
+  (let [decoded (cursor/b64-decode token)
+        i       (dec (count (re-find #"[^=]+" token)))
+        orig    (nth token i)]
+    (some (fn [c]
+            (when (not= c orig)
+              (let [cand (str (subs token 0 i) c (subs token (inc i)))]
+                (when (= decoded (cursor/b64-decode cand)) cand))))
+          b64-alphabet)))
+
+(deftest cursor-rejects-noncanonical-base64-aliases-cljs
+  (let [payload   "{:v 1 :after-id \"e\"}"
+        canonical (cursor/b64-encode payload)
+        pair?     (fn [m] (and (map? m) (some? (:after-id m))))]
+    (testing "sanity: the canonical token still decodes to its payload map"
+      (is (= {:v 1 :after-id "e"} (cursor/decode-cursor canonical pair?))))
+    (testing "non-alphabet char INSERTED — js/Buffer would silently drop it — ⇒ ::malformed"
+      (let [inserted (str (subs canonical 0 2) "!!" (subs canonical 2))]
+        (is (not= inserted canonical))
+        (is (= :re-frame.mcp-base.cursor/malformed
+               (cursor/decode-cursor inserted pair?)))))
+    (testing "non-alphabet chars APPENDED ⇒ ::malformed"
+      (is (= :re-frame.mcp-base.cursor/malformed
+             (cursor/decode-cursor (str canonical "!!!!") pair?))))
+    (testing "malformed / extra padding ⇒ ::malformed"
+      (is (= :re-frame.mcp-base.cursor/malformed
+             (cursor/decode-cursor (str canonical "==") pair?))))
+    (testing "noncanonical pad-bit spelling ⇒ ::malformed (same rejection as the JVM)"
+      (let [alias (pad-bit-alias canonical)]
+        (is (some? alias) "the canonical token has pad slack to alias")
+        (is (not= alias canonical))
+        (is (= (cursor/b64-decode alias) (cursor/b64-decode canonical))
+            "the alias decodes to the SAME bytes — a true logical alias")
+        (is (= :re-frame.mcp-base.cursor/malformed
+               (cursor/decode-cursor alias pair?)))))))
+
+;; ---------------------------------------------------------------------------
 ;; 7. Shared with-indicators envelope helper under CLJS.
 ;;    The MUST-level "omit when zero" parity rule runs identically on
 ;;    both hosts; pin the CLJS half.

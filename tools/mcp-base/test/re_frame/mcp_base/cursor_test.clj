@@ -18,6 +18,28 @@
        (integer? (:total m))
        (string? (:sig m))))
 
+(def ^:private b64-alphabet
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/")
+
+(defn- pad-bit-alias
+  "Return a NONCANONICAL alias of canonical b64 `token` that differs only
+  in the trailing pad bits (same decoded bytes, DIFFERENT spelling), or
+  nil if `token` carries no pad slack. Both `java.util.Base64` and
+  `js/Buffer` ignore non-zero pad bits, so such an alias decodes to
+  IDENTICAL bytes under a different token — the alias family a lexical
+  alphabet/padding grammar admits but the round-trip gate must reject.
+  Built from `b64-decode`, so the JVM and CLJS suites derive it the same
+  way. (Mirrored verbatim in `cljs_branches_cljs_test`.)"
+  [token]
+  (let [decoded (cursor/b64-decode token)
+        i       (dec (count (re-find #"[^=]+" token)))
+        orig    (nth token i)]
+    (some (fn [c]
+            (when (not= c orig)
+              (let [cand (str (subs token 0 i) c (subs token (inc i)))]
+                (when (= decoded (cursor/b64-decode cand)) cand))))
+          b64-alphabet)))
+
 ;; ---------------------------------------------------------------------------
 ;; base64 codec round-trip
 ;; ---------------------------------------------------------------------------
@@ -62,6 +84,40 @@
 
 (deftest decode-cursor-garbage-is-malformed
   (is (= ::cursor/malformed (cursor/decode-cursor "!!!not-base64-edn!!!" offset-cursor?))))
+
+(deftest decode-cursor-rejects-noncanonical-base64-aliases
+  ;; The host base64 DECODERS are lenient in DIFFERENT ways: `js/Buffer`
+  ;; DROPS characters outside the standard alphabet (where the JVM decoder
+  ;; THROWS), and BOTH hosts ignore non-zero trailing pad bits. So a
+  ;; corrupted / re-spelled token can decode to the SAME payload map under
+  ;; a DIFFERENT wire string — an alias. `decode-canonical-b64` re-encodes
+  ;; the decoded bytes and requires token equality with the local encoder,
+  ;; rejecting every alias identically on CLJ + CLJS BEFORE EDN parsing.
+  ;; (Mirrored in `cljs_branches_cljs_test/cursor-rejects-noncanonical-
+  ;; base64-aliases-cljs`.)
+  (let [payload   "{:v 1 :after-id \"e\"}"     ; a valid pair-style payload
+        canonical (cursor/b64-encode payload)
+        pair?     (fn [m] (and (map? m) (some? (:after-id m))))]
+    (testing "sanity: the canonical token still decodes to its payload map"
+      (is (= {:v 1 :after-id "e"} (cursor/decode-cursor canonical pair?))))
+    (testing "non-alphabet char INSERTED into a valid token ⇒ ::malformed"
+      (let [inserted (str (subs canonical 0 2) "!!" (subs canonical 2))]
+        (is (not= inserted canonical))
+        (is (= ::cursor/malformed (cursor/decode-cursor inserted pair?)))))
+    (testing "non-alphabet chars APPENDED to a valid token ⇒ ::malformed"
+      (is (= ::cursor/malformed (cursor/decode-cursor (str canonical "!!!!") pair?))))
+    (testing "malformed / extra padding ⇒ ::malformed"
+      (is (= ::cursor/malformed (cursor/decode-cursor (str canonical "==") pair?))))
+    (testing "noncanonical pad-bit spelling (a lexical grammar admits it) ⇒ ::malformed"
+      ;; This is the alias family a regex-only check would MISS and the one
+      ;; the OLD JVM decoder accepted (java.util.Base64 ignores pad bits):
+      ;; the alias decodes to the same valid map, so old code returned it.
+      (let [alias (pad-bit-alias canonical)]
+        (is (some? alias) "the canonical token has pad slack to alias")
+        (is (not= alias canonical))
+        (is (= (cursor/b64-decode alias) (cursor/b64-decode canonical))
+            "the alias decodes to the SAME bytes — a true logical alias")
+        (is (= ::cursor/malformed (cursor/decode-cursor alias pair?)))))))
 
 (deftest decode-cursor-oversize-is-malformed-before-parse
   (let [oversize (apply str (repeat (inc cursor/max-cursor-bytes) "a"))]
