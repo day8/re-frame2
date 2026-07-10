@@ -10,10 +10,10 @@
   `(str ...)` shape, kept aligned so AI pairs reading
   both servers see one answer to the onboarding-text question."
   (:require [re-frame.story :as story]
-            [re-frame.story.async :as async]
             [re-frame.story-mcp.tools.args :as targs]
             [re-frame.story-mcp.tools.cljs-resolve :as cljs-resolve]
             [re-frame.story-mcp.tools.egress :as egress]
+            [re-frame.story-mcp.tools.lifecycle :as lifecycle]
             [re-frame.story-mcp.tools.result :as result]
             [re-frame.story-mcp.tools.schemas :as s]))
 
@@ -101,8 +101,9 @@
   "Dev: given a variant id, return the canvas state + share URL.
 
   Per IMPL-SPEC §7.2 'returns rendered hiccup for a variant + the
-  assertions list'. We invoke `run-variant`, deref the promise (JVM
-  side has `async/deref-blocking`), and serialise the result map.
+  assertions list'. We invoke the shared `tools.lifecycle` execution
+  owner (blocking `run-variant` deref + canonical exception
+  normalization), and serialise the result map.
 
   `preview-variant` runs the SAME `story/run-variant` lifecycle as
   `run-variant`, so it speaks the SAME unified run-result vocabulary —
@@ -134,26 +135,18 @@
           (let [opts       (targs/read-run-opts vk arguments)
                 base-url   (or (:base-url arguments) "")
                 share-url  (story/variant-share-url vk base-url opts)
-                outcome    (try
-                             (async/deref-blocking (story/run-variant vk opts)
-                                                   ;; Shared lifecycle ceiling:
-                                                   ;; tunable `:timeout-ms`
-                                                   ;; (default 10s, clamped to 30s),
-                                                   ;; the SAME knob `run-variant` uses
-                                                   ;; so the two cannot drift.
-                                                   (targs/resolve-timeout-ms arguments))
-                             (catch Throwable e
-                               ;; A throw never produced a unified result; mint the
-                               ;; :error verdict directly so preview speaks the SAME
-                               ;; unified shape a settled run emits.
-                               {:status     :error
-                                :lifecycle  :error
-                                :assertions [(story/assertion-record
-                                               {:assertion :rf.error/run-failed
-                                                :passed?   false
-                                                :error     true
-                                                :reason    (ex-message e)})]
-                                :checks     []}))
+                ;; Blocking invocation + timeout + canonical exception
+                ;; normalization are owned by `tools.lifecycle` — the ONE
+                ;; execution owner `run-variant` shares (same tunable ceiling
+                ;; via `targs/resolve-timeout-ms`, default 10s / 30s hard cap).
+                ;; A throw / timeout is normalized through `story/run-result`
+                ;; with `:lifecycle :error` stamped, so preview keeps the
+                ;; loader-state slot it reads AND speaks the SAME unified
+                ;; run-result vocabulary a settled run emits. The
+                ;; preview-specific projection / egress / wire shaping stays
+                ;; below.
+                outcome    (lifecycle/run-variant-blocking
+                             vk opts (targs/resolve-timeout-ms arguments))
                 incl?      (targs/include-sensitive? arguments)
                 raw-db     (:app-db outcome)
                 [assertions dropped] (egress/scrub-assertions+count (:assertions outcome) incl?)
