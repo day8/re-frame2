@@ -1,7 +1,8 @@
 /*
- * Worktree-aware port resolver for the Story feature-load gate. The
- * deterministic hash of the worktree path derives a stable port offset
- * so parallel worktrees (rf2-* worker checkouts) never collide on 8031.
+ * Worktree-aware port resolver for the Story feature-load and play-script
+ * gates. The deterministic hash of the worktree path derives a stable port
+ * preference so parallel worktrees (rf2-* worker checkouts) normally start
+ * from different ports instead of all contending for 8031.
  * Honours STORY_FEATURE_LOAD_PORT if set; otherwise scans forward from
  * the derived preference until an unused port is found.
  *

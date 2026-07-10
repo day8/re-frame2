@@ -11,8 +11,9 @@
  *
  * Those specs drive raw `playwright` (not `@playwright/test`), so we don't
  * get the `expect()` matcher API for free. These helpers fill the gap with
- * just the matchers we need: text equality, attribute checks, value
- * checks. Each polls until success or timeout.
+ * just the matchers we need: text, attribute, input-value, visibility, and
+ * count checks, plus generic wait helpers. Condition-based helpers poll until
+ * success or timeout; expectVisible delegates to Playwright's own wait.
  */
 
 async function expectTextEquals(locator, expected, timeoutMs = 5000) {
@@ -115,9 +116,10 @@ async function waitForValue(readFn, predicate, options = {}) {
  * wait for a value to *settle* (e.g. animated progress counters that have
  * already advanced past zero and now must stop).
  *
- * readFn is an async function returning the current value (anything that
- * survives a strict `===` check between two reads — strings, numbers, or
- * primitive-equal objects via JSON-stringify if you need it).
+ * readFn is an async function returning the current value. Stability uses
+ * strict `===`, so primitives compare by value and objects only compare when
+ * readFn returns the same reference. For structural object equality, have
+ * readFn return a stable primitive representation such as JSON.stringify(...).
  *
  * Options:
  *   intervalMs (default 100) — gap between reads.

@@ -7,8 +7,9 @@
  * whose body carries a non-empty `:play-script` or `:plays` slot (via
  * the `window.__rf2_story_ci` global installed by
  * `re-frame.story.play.ci-runner/install-ci-hooks!`), navigates the
- * shell to each variant, waits for each play's terminal status
- * (`:pass` / `:fail`), and prints a per-play report.
+ * shell to each variant, waits for each play's terminal status (`:pass`,
+ * `:fail`, or `:cannot-run`), and prints a per-play report. `:cannot-run` is
+ * terminal but never expected, so it produces a failed row without a timeout.
  *
  * Multi-play
  * ----------
@@ -30,7 +31,7 @@
  *     is treated as expected-fail; the runner asserts `:fail`
  *   - everything else asserts `:pass`
  *
- * The seeded fixtures in the testbed:
+ * Representative seeded fixtures in the testbed:
  *   :story.counter-play-script/passing            → expects :pass
  *   :story.counter-play-script/failing            → expects :fail
  *
@@ -206,13 +207,9 @@ function variantIdToParam(idStr) {
 }
 
 /**
- * Navigate the Story shell to `variantId` using the same hash route
- * the human shell uses (`#/stories?variant=story.foo/bar`). The
- * search params are placed AFTER the hash because the shell parses
- * them out of `window.location.hash`.
- *
- * Falls back to the share-link affordance (`select-variant` event)
- * if the URL parse path is unreachable.
+ * Navigate the Story shell to `variantId` using the human shell's share-link
+ * shape (`?variant=story.foo/bar#/stories`). The query is placed BEFORE the
+ * hash route because shell hydration reads `window.location.search`.
  */
 async function navigateToVariant(page, baseUrl, variantId) {
   const variantStr = variantIdToParam(variantId);
@@ -466,10 +463,11 @@ function writeFailureReport(failures, allResults, browserMessages, pageErrors = 
  * That contradicted the pageerror discipline the adjacent example and
  * Story feature-load runners already keep. Any pageerror is now fatal.
  *
- * Console errors are intentionally NOT fatal: they are captured (under
- * RF2_VERBOSE_TESTS) for diagnostics only, matching the adjacent
- * runners, which likewise gate on crashes/`pageerror` and not on
- * console noise. Pure inputs → exit code, so it is unit-testable.
+ * Console errors are intentionally NOT fatal in this runner: play status and
+ * uncaught page errors own its verdict, while console messages are captured
+ * under RF2_VERBOSE_TESTS for diagnostics. This differs from the broader Story
+ * feature-load runner, which treats console errors as failures. Pure inputs ->
+ * exit code, so this helper is unit-testable.
  */
 function computeExitCode({ failures, pageErrors }) {
   const unexpectedOutcomes = (failures && failures.length) || 0;
