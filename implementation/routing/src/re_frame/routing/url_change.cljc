@@ -9,12 +9,11 @@
   `url-change-fx`. The fragment-only branch (Spec 012 §Fragments rules
   3-4) ALSO lives in `url-change-fx`, so both events honour it —
   popstate / Back-Forward to a same-page anchor must not allocate a new
-  nav-token or re-fire `:on-match` (rf2-8oxj6).
+  nav-token or re-fire `:on-match`.
 
   Internal namespace; the public facade is `re-frame.routing`. The
   facade owns the two `events/reg-event` calls so a `:reload`
-  re-wires them on a fresh registrar. Per the rf2-2yabr cohesion split:
-  URL-CHANGE-EVENTS seam."
+  re-wires them on a fresh registrar."
   (:require [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
             [re-frame.routing.can-leave :as can-leave]
@@ -28,7 +27,7 @@
 (defn- fragment-only-fx
   "Spec 012 §Fragments rules 1-4: the new URL differs from the current
   route slice ONLY in its `#fragment`. Update `:fragment`, emit the
-  `:rf.route/fragment-changed` op trace (rf2-cj9fn), and return the cofx
+  `:rf.route/fragment-changed` op trace, and return the cofx
   map — WITHOUT allocating a fresh nav-token (rule 3) or re-firing
   `:on-match` (rule 4). The canonical op-name says what fires it (only a
   `#fragment` differed) and disambiguates from the runtime event
@@ -58,32 +57,32 @@
   "Pure helper: given runtime-db + url + default scroll strategy (+ the
   `frame` to carry on the no-such-handler trace + the RECORDABLE
   `nav-allocation`), return the effects map `{:rf.db/runtime :fx}` for
-  a URL-driven full slice rewrite. Performs the match-url lookup, publishes
-  the nav-token from the recordable `nav-allocation` (rf2-vcop6y — recorded +
-  replay-stable; the `:counter` high-water bump rides a
+  a URL-driven full slice rewrite. Performs the `match-url` lookup and
+  publishes the nav-token from the recordable, replay-stable
+  `nav-allocation`; the `:counter` high-water bump rides a
   `:rf.route/commit-nav-counter` fx), computes the scroll fx
   entry, and emits the trace events (:rf.warning/no-not-found-route,
   :rf.warning/malformed-url, :rf.error/no-such-handler,
   :rf.route.nav-token/allocated).
 
   Per Spec 012 §URL changes are events §Route-not-found §Per-route data
-  loading §Scroll restoration §Multi-frame routing. The slice always
-  carries the full seven-key shape (rf2-d60go).
+  loading §Scroll restoration §Multi-frame routing. The current slice always
+  carries the full seven-key published shape.
 
-  Three fallback shapes feed `:rf.route/not-found` (rf2-4ic0f):
+  Three fallback shapes feed `:rf.route/not-found`:
 
    - bare miss (`{:url url}`) — `match-url` returned nil and the URL
      percent-encoding decoded cleanly;
    - validation fail (`{:url url :reason :validation}`) — a route's
      pattern matched but its `:params` / `:query` schema rejected the
-     parsed values (rf2-ug2m1);
+     parsed values;
    - malformed URL (`{:url url :reason :malformed-url}`) — any of the
      URL's path captures, query keys/values, or `#fragment` failed to
      %-decode. The `:reason` discriminator lets per-route error UIs
      and SSR projections branch on the cause.
 
-   `app-db` (EP-0016 D3 slice 3) is the navigation handler's app-db
-   coeffect value, threaded UNCHANGED into `commit-navigation` → the
+   `app-db` is the navigation handler's causal app-db coeffect, threaded
+   unchanged into `commit-navigation` and the
    `:routing/on-route-entry` hook so a cross-feature `{:from-db …}`
    route-resource scope resolves db-derived viewer identity at route
    entry. Routing never reads it."

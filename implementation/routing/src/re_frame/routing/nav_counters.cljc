@@ -5,15 +5,14 @@
   Per Spec 012 §Navigation tokens — stale-result suppression and
   §Navigation blocking — pending-nav protocol.
 
-  ## Storage: host-side per-frame TRANSIENT high-water marks (rf2-oosjmh)
+  ## Storage: host-side per-frame transient high-water marks
 
   The two monotonic allocators — `:nav-token-counter` (mints
   `[:rf.runtime/routing :current :nav-token]` values) and
   `:pending-nav-counter` (mints `:pending-navigation` `:id`s) — are
   **host-side transient state**, NOT runtime-db state. They live in a
-  module-level `defonce` cache keyed by frame-id, mirroring the
-  rf2-1hncp2 scroll-position cache and the `re-frame.http.registry`
-  in-flight pattern.
+  module-level `defonce` cache keyed by frame-id, like the scroll-position
+  cache and other host-side registries.
 
   ### Why host-side is a CORRECTNESS fix, not a churn judgment
 
@@ -24,29 +23,24 @@
   result. The ALLOCATOR (the monotonic counter) therefore must never go
   backward.
 
-  When the counter lived at `[:rf.runtime/routing :nav-token-counter]`,
-  an epoch restore — which replaces the runtime-db partition WHOLESALE
-  (`frame/replace-runtime-db!`) — rewound the counter to its value at the
-  restored epoch. A pre-restore in-flight continuation returning after the
-  restore could then carry a token the post-restore timeline has already
-  re-allocated → the exact recycle the invariant forbids. Conflating the
-  allocator (a high-water mark whose property is *never rewind*) with the
-  active token (a durable slice fact that SHOULD restore coherently) in
-  one restorable partition is the category error.
+  An epoch restore replaces runtime-db wholesale. Storing the counter there
+  would allow restore to rewind it while a pre-restore continuation still
+  carries a published token. The active token is a durable route fact and may
+  restore; the allocator high-water mark must not.
 
   Held host-side the counter is a monotonic high-water mark that survives
-  epoch restore untouched, so every fresh allocation strictly exceeds any
+  epoch restore untouched, so every freshly published allocation exceeds any
   pre-restore in-flight token — token collision is structurally
   impossible. `:pending-nav-counter` is the same anti-recycling-allocator
   class (a recycled pn-id could mis-match a stale continue/cancel).
 
-  ### The pure seam (handlers stay pure) — RECORDABLE allocation (rf2-vcop6y)
+  ### The pure seam: recordable allocation
 
-  Mirroring rf2-1hncp2's rule — *thread the cache as an explicit arg, do
-  not reach an ambient global from a handler* — allocation is split into a
+  Handlers receive the cache-derived value explicitly rather than reaching an
+  ambient global. Allocation is split into a
   READ-via-cofx / WRITE-via-fx seam. The READ half is a pair of
   **recordable, generator-backed** coeffects (EP-0017 §5) — one per
-  allocator (rf2-oosjmh: two distinct allocators ⇒ two distinct facts):
+  allocator:
 
     - `:rf.route/nav-allocation`         → `{:token \"nav-N\" :counter N}`
     - `:rf.route/pending-nav-allocation` → `{:id    \"pn-N\"  :counter N}`
@@ -58,9 +52,7 @@
   record — so the epoch captures the allocation and **replay re-presents
   the SAME id verbatim** (no generator re-run; strict replay FAILS if the
   recorded allocation is missing — `:rf.error/missing-required-cofx`). This
-  is the replay-determinism fix: pre-rf2-vcop6y the allocation rode an
-  AMBIENT counter-snapshot cofx that was never recorded, so replay re-minted
-  DIFFERENT ids and recorded events referencing the originals mismatched.
+  This makes replay use the recorded id rather than rerunning the generator.
 
   The handler reads the recordable allocation flat under its id, writes ONLY
   the supplied/generated id into runtime-db, and emits the
@@ -79,34 +71,27 @@
   on frame destroy (the `:routing/on-frame-destroyed!` teardown hook,
   shared with the scroll cache).
 
-  ### Shape: generator-backed recordable (not provided-at-construction)
+  ### Why generator-backed
 
-  rf2-vcop6y step 7 prefers a routing-PROVIDED fact stamped onto the
-  navigation dispatch envelope at construction (slice-A). That shape fits a
-  fact with a single causal originator and a value independent of the
-  handler (the `:rf/time-ms` precedent). Navigation has neither: it arrives
+  Navigation arrives
   through many internal re-dispatch paths (popstate → `handle-url-change`,
   link-click → `:rf.route/url-requested` → `:rf.route/transitioned`, the resume
   chain `:rf.route/continue` → `:rf.route/url-requested`), each a fresh causal
-  token whose `:rf.cofx` is NOT inherited; and a pending-nav allocation's
-  very existence depends on the `:can-leave` guard result computed INSIDE
-  the handler against the live frame. A provided fact would therefore have
-  to be minted-and-stamped at every entry point, before the branch is known.
-  The generator-backed recordable shape resolves the hole uniformly via
+  token whose `:rf.cofx` is not inherited. Which candidate is published also
+  depends on the guard result computed inside the handler. A provided fact
+  would have to be stamped at every entry point before that branch is known.
+  The generator-backed recordable shape handles every door uniformly via
   `:rf.cofx/requires` on every entry point with no per-site stamping —
-  rf2-vcop6y step 7 blesses it as the slice-B consumer alternative. The
-  generators run EAGERLY for every declared fact, so a two-way nav handler
-  (block vs commit) that declares both allocations advances both monotone
-  counters even on the branch it does not publish; that is harmless — the
-  counters' only invariant is never-recycle, gaps are a documented
-  non-concern (the unbounded f64 / `long` range), and the not-published
-  allocation is recorded + replay-stable like any declared-but-unused fact.
+  the generators run eagerly for every declared fact, so a two-way handler
+  records both candidate allocations. Only the taken branch emits the
+  `:rf.route/commit-nav-counter` effect and advances its host high-water mark;
+  the other recorded candidate is never published and may be selected again
+  by a later event without violating token uniqueness.
 
-  Internal namespace; the public facade is `re-frame.routing`. Per the
-  rf2-2yabr cohesion split: NAV-COUNTERS seam."
+  Internal namespace; the public facade is `re-frame.routing`."
   (:require [re-frame.frame :as frame]))
 
-;; ---- host-side per-frame transient cache (rf2-oosjmh) ---------------------
+;; ---- host-side per-frame transient cache ----------------------------------
 
 (defonce nav-counters-cache
   ;; frame-id → {:nav-token-counter N :pending-nav-counter M}.
@@ -114,10 +99,10 @@
   ;; Host-side TRANSIENT high-water marks for the two monotonic routing
   ;; allocators. NOT runtime-db state — held here so an epoch restore (which
   ;; replaces the runtime-db partition wholesale) cannot rewind them, which
-  ;; would recycle an authority token (rf2-oosjmh). Keyed by frame-id so
+  ;; would recycle an authority token. Keyed by frame-id so
   ;; multi-frame apps keep isolated per-frame counters; the entry is dropped
-  ;; on frame destroy via `release-frame!`. Mirrors the rf2-1hncp2
-  ;; scroll-position cache + `re-frame.http.registry`'s `in-flight` defonce
+  ;; on frame destroy via `release-frame!`. Like the scroll-position cache
+  ;; and `re-frame.http.registry`'s `in-flight` defonce
   ;; atom — host-owned ephemeral state, not in the reactive db.
   (atom {}))
 

@@ -1,40 +1,38 @@
 (ns re-frame.routing.egress
-  "Routing-owned URL-carrier EGRESS scrub (EP-0015 / Spec 015) for the
+  "Routing-owned URL-carrier egress scrub (Spec 015) for the
   diagnostic trace slots the per-registration marks chokepoint cannot reach.
 
-  EP-0015 treats trace/tool/log/epoch records as egress surfaces and requires
+  Trace/tool/log/epoch records are egress surfaces and require
   off-box defaults to FAIL CLOSED. The framework's marks chokepoint
   (`re-frame.classification/project-trace-event` via `re-frame.trace/build-event`)
   already projects the KNOWN trace slots — `:rf.fx/args` against fx marks,
   the dispatched-event vector against event marks, etc. — so the routing fx
   (`:rf.nav/scroll`, `:rf.nav/capture-scroll`, `:rf.nav/push-url`,
   `:rf.nav/replace-url`) and the dispatched `:rf.route/navigation-blocked`
-  event payload are covered by declaring `:sensitive` marks on their
-  registrations (rf2-1wmni6 / rf2-pbbo68 / rf2-jfaucw).
+  event payload are covered by `:sensitive` marks on their registrations.
 
   But routing also emits a few DIAGNOSTIC traces whose carrier rides a
   CUSTOM tag slot the marks chokepoint does not walk:
 
     - `:rf.warning/malformed-url` / `:rf.error/no-such-handler` carry the
-      requested URL under a bare `:url` slot (rf2-n1f4rh). These are the
+      requested URL under a bare `:url` slot. These are the
       route-MISS / malformed-URL diagnostics — there is NO matched route, so
       NO `:params` / `:query` schema to consult, yet an unmatched / malformed
       URL is the class most likely to carry secret material (`?token=…`,
       `?code=…`, `#access_token=…`) and `:rf.error/no-such-handler` is a
-      production-survivable / off-box-observable error category EP-0015
-      requires to fail closed.
+      production-survivable, off-box-observable error category that must
+      fail closed.
     - `:rf.route/navigation-blocked` (the trace, distinct from the dispatched
-      event) carries `:requested-url` under a custom slot (rf2-jfaucw).
+      event) carries `:requested-url` under a custom slot.
 
   This namespace owns the ONE URL-carrier redactor those emit sites route
   their URL slot through — keeping the structured PATH (the reason an app
   error handler / SSR projection needs to branch on) and redacting the
   query-string and `#fragment` carrier VALUES by default. It is the
   no-schema egress analogue of the schema-driven
-  `re-frame.routing.navigate/redact-route-error-tags` (rf2-zsm03).
+  `re-frame.routing.navigate/redact-route-error-tags`.
 
-  Internal namespace; the public facade is `re-frame.routing`. Per the
-  rf2-2yabr cohesion split: EGRESS-SCRUB seam."
+  Internal namespace; the public facade is `re-frame.routing`."
   (:require [clojure.string :as str]
             [re-frame.privacy :as privacy]))
 
@@ -45,13 +43,13 @@
 
 (defn redact-url-carriers
   "Project a raw URL string for off-box / log / tool egress on the
-  NO-SCHEMA route-miss / blocked-navigation diagnostic path (rf2-n1f4rh /
-  rf2-jfaucw): keep the PATH and redact the query-string and `#fragment`
+  no-schema route-miss / blocked-navigation diagnostic path: keep the path
+  and redact the query-string and `#fragment`
   carrier VALUES.
 
   An unmatched / malformed / blocked URL has no matched route → no
   `:params` / `:query` schema to path-target, yet it is the URL class most
-  likely to carry the secret material EP-0015 fails closed on. We apply the
+  likely to carry secret material. Apply the
   blanket carrier policy: redact query/hash VALUES by default.
 
   - Query KEYS are PRESERVED (they name the shape, not the secret — a

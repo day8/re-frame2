@@ -2,7 +2,7 @@
   "Standard navigation fxs (`:rf.nav/push-url`, `:rf.nav/replace-url`)
   + URL-owner resolution for re-frame2 routing.
 
-  Per Spec 012 §Multi-frame routing and EP-0002 (rf2-nn0jqa): URL
+  Per Spec 012 §Multi-frame routing, URL
   ownership is **explicit only**. `:rf.nav/push-url` / `:rf.nav/replace-url`
   MUST consult the calling frame's `:url-bound?` metadata before touching
   the browser history. A frame is URL-bound only when it carries an
@@ -15,7 +15,7 @@
 
   Internal namespace; the public facade is `re-frame.routing`. The
   facade owns the two `fx/reg-fx` calls so a `:reload` re-wires them on
-  a fresh registrar. Per the rf2-2yabr cohesion split: NAV-FX seam."
+  a fresh registrar."
   (:require [re-frame.registrar :as registrar]
             [re-frame.routing.strategy :as strategy]
             [re-frame.trace :as trace]))
@@ -27,7 +27,7 @@
   (when (map? config)
     (:url-bound? config)))
 
-;; ---- URL-ownership claim order (rf2-3l7xxz) --------------------------------
+;; ---- URL-ownership claim order --------------------------------------------
 ;;
 ;; The browser URL has exactly ONE owner; the spec (Spec 012 §Multi-frame
 ;; routing) says when a SECOND `:url-bound? true` frame registers, the
@@ -36,13 +36,9 @@
 ;; must resolve to the frame that claimed `:url-bound? true` FIRST — the
 ;; incumbent — never to whichever id happens to sort earlier.
 ;;
-;; The registrar's `kind->id->metadata` is an UNORDERED map (`re-frame.
-;; registrar`), so registration order is not recoverable from it. The prior
-;; resolver sorted the `:url-bound? true` frames by `(str id)` and took the
-;; first — which let a LATER duplicate whose id sorts BEFORE the incumbent
-;; STEAL ownership (rf2-3l7xxz): outbound history pushes and inbound popstate
-;; would then target the wrong frame, the exact thrash the "existing owner is
-;; unchanged" rule forbids.
+;; The registrar's `kind->id->metadata` is unordered, so registration order is
+;; not recoverable from it. A separate claim-order vector is required; sorting
+;; frame ids would allow a later duplicate to displace the incumbent.
 ;;
 ;; The fix records claim ORDER in this process-global vector. The url-bound
 ;; exclusivity registration hook (`re-frame.routing.url-bound`, which already
@@ -61,11 +57,11 @@
 ;; `:url-bound? true`, in claim order. Fail-closed: a frame never owns the URL
 ;; unless it is the first-claimed live `:url-bound? true` frame.
 ;;
-;; rf2-68k8as — the hook is a FUTURE observer (`add-registration-hook!` does not
-;; replay), so a frame that claimed `:url-bound? true` BEFORE routing loaded has
-;; no entry here. The façade calls `reconcile-existing-url-bindings!` right after
+;; The hook observes only future registrations, so a frame that claimed
+;; `:url-bound? true` before routing loaded has no entry here. The facade calls
+;; `reconcile-existing-url-bindings!` right after
 ;; installing the hook to seed the unambiguous pre-existing incumbent. The
-;; claim-free resolver fallback below NEVER picks by id sort (the old steal bug):
+;; claim-free resolver fallback below never picks by id sort:
 ;; a sole bound frame owns, but 2+ bound frames with unrecoverable claim order
 ;; fail closed to nil.
 
@@ -82,7 +78,7 @@
   `url-claim-order` iff not already present (so a hot-reload re-registration of
   an existing owner keeps its claim position — it does NOT jump to the back,
   and a later duplicate never displaces it). Returns nil. Called by the
-  url-bound exclusivity registration hook (rf2-3l7xxz)."
+  url-bound exclusivity registration hook."
   [frame-id]
   (swap! url-claim-order
          (fn [order]
@@ -95,14 +91,14 @@
   "Drop `frame-id` from `url-claim-order` — called when a frame re-registers
   WITHOUT `:url-bound? true` (it relinquished the binding) or is torn down, so
   a stale claim cannot keep a non-bound frame at the head of the order.
-  Idempotent. Returns nil (rf2-3l7xxz)."
+  Idempotent. Returns nil."
   [frame-id]
   (swap! url-claim-order (fn [order] (filterv #(not= frame-id %) order)))
   nil)
 
 (defn reset-url-claims!
   "Test-time helper: drop the whole `url-claim-order` vector so a prior test's
-  URL-ownership claim does not leak into the next (test isolation, rf2-3l7xxz).
+  URL-ownership claim does not leak into the next test.
   Wired into the shared `make-reset-runtime-fixture` reset-hook table via the
   `:routing/reset-url-claims!` late-bind key. Returns nil."
   []
@@ -114,39 +110,35 @@
   ownership via `(reg-frame :id {:url-bound? true})`, or `nil` when no
   frame has declared it.
 
-  EP-0002 (rf2-nn0jqa) — URL ownership is an explicit host/bootstrap
-  policy, NOT an absence repair. The prior contract anchored ownership on
-  `:rf/default` (the default frame owned the URL unless it opted out);
-  under the carried invariant the runtime must NOT infer `:rf/default` as
+  URL ownership is an explicit host/bootstrap policy, not an absence repair.
+  The runtime must not infer `:rf/default` as
   the owner. An app declares its one URL-owning frame explicitly; `nil`
   here means no owner is declared (a routing-config state, surfaced by the
   callers — outbound history mutations no-op, the inbound popstate listener
   skips). `:rf/default` may still BE the owner, but only when it carries an
   explicit `{:url-bound? true}` like any other frame.
 
-  rf2-3l7xxz — ownership resolves to the FIRST-CLAIMED still-live
+  Ownership resolves to the first-claimed still-live
   `:url-bound? true` frame (the incumbent), NOT the alphabetically-first.
   When a second `:url-bound? true` frame registers, Spec 012 §Multi-frame
   routing says the existing owner is UNCHANGED and the duplicate's
   history-mutation fxs no-op — so a later duplicate whose id sorts before the
-  incumbent must NOT steal the URL (the bug the prior `(sort-by (str id))`
-  resolver had). Claim order is tracked in `url-claim-order` (recorded by the
+  incumbent must not steal the URL. Claim order is tracked in
+  `url-claim-order` (recorded by the
   url-bound exclusivity hook); this resolver walks it in claim order and
   returns the first id that STILL carries a live `:url-bound? true` binding in
   the registry — so the incumbent always wins, and ownership self-heals to the
   next claimant if the incumbent later drops its binding or is unregistered.
 
-  rf2-68k8as — when no claim is recorded yet (frames registered before the
+  When no claim is recorded yet (frames registered before the
   hook installed AND before the façade's `reconcile-existing-url-bindings!`
   seeded them), the claim-free fallback NEVER steals: a sole bound frame owns
   (order is trivially known), but TWO OR MORE bound frames with unknowable
-  claim order FAIL CLOSED to nil rather than id-sorting. The old id-sort
-  fallback was the URL-owner-steal bug — a later duplicate that sorted before
-  the true first-claimant won the alphabetical tiebreak and stole the URL.
+  claim order fails closed to nil rather than id-sorting.
 
   Public (rather than `defn-`) so the ownership-resolution contract is
   directly assertable — the single declared-owner case the step-deck
-  testbed relies on (rf2-6qgbs.3). A reimplemented gate cannot catch a
+  testbed relies on. A reimplemented gate cannot catch a
   regression in THIS resolution; the test must reach the real fn."
   []
   (let [frames (registrar/registrations :frame)
@@ -156,19 +148,15 @@
     ;; the URL. A claimed-but-since-relinquished/destroyed frame is skipped
     ;; (self-healing).
     ;;
-    ;; rf2-68k8as — when NO claim is recorded yet but `:url-bound? true`
-    ;; frame(s) exist in the registry (frames registered before the hook was
+    ;; When no claim is recorded yet but `:url-bound? true` frame(s) exist in
+    ;; the registry (frames registered before the hook was
     ;; installed and before the façade's `reconcile-existing-url-bindings!`
     ;; seeded them, or a raw programmatic path), fall back to claim-free
     ;; resolution that NEVER steals:
     ;;   - exactly ONE bound frame → it owns (order is trivially known);
     ;;   - TWO OR MORE bound frames → claim order is genuinely unknowable
     ;;     (the registrar map is unordered), so FAIL CLOSED to nil rather than
-    ;;     picking by id sort. The prior `(sort-by (str id))` fallback WAS the
-    ;;     URL-owner-steal bug: a later duplicate whose id sorted before the
-    ;;     true first-claimant won the alphabetical tiebreak and stole the URL,
-    ;;     exactly what Spec 012 §Multi-frame routing forbids ('resolving by id
-    ;;     ordering would have let it'). nil here means 'no deterministic owner
+    ;;     picking by id sort. nil here means 'no deterministic owner
     ;;     for this ambiguous load-order' — outbound pushes no-op and popstate
     ;;     skips until one binding is re-registered/removed through the live
     ;;     hook, which re-establishes a deterministic claim order.
@@ -189,8 +177,8 @@
   owner. Per Spec 012 §Multi-frame routing, duplicate `:url-bound? true`
   declarations are reported AND non-owners are prevented from pushing.
 
-  EP-0002 — `nil` frame-id (or no declared owner) is never the owner: the
-  runtime no longer synthesises `:rf/default` ownership from absence."
+  `nil` frame-id (or no declared owner) is never the owner; the runtime does
+  not synthesise `:rf/default` ownership from absence."
   [frame-id]
   (and (some? frame-id)
        (= frame-id (url-owner-frame-id))))
@@ -203,10 +191,10 @@
 ;; body lives once in `history-mutation-handler` and each handler closes
 ;; over its strategy-op key + fx-id.
 ;;
-;; rf2-aerrz5 (URL-strategy seam): the URL-owning frame's `:url-strategy`
+;; The URL-owning frame's `:url-strategy`
 ;; (default `history-url-strategy`, path-form) is consulted HERE — one of
 ;; the four egress/ingress consult points. The pushed URL arrives PATH-FORM
-;; (`route-url`/the cascade never encode). rf2-irygd6 — this fx is the SINGLE
+;; (`route-url` and the cascade never encode). This fx is the single
 ;; outbound encoding authority: it encodes the path-form URL to its final href
 ;; ONCE via the strategy's `:encode`, then hands that href to the RAW
 ;; `:push!`/`:replace!` leg, which drives `window.history` WITHOUT re-encoding
@@ -223,13 +211,11 @@
      `SecurityError` when asked to push/replace an absolute cross-origin
      URL (or on other history-API misuse) — left uncaught that crashes
      the fx drain (a DoS, worse than the redirect it would otherwise be).
-     The `url/external-url?` gate at the nav-event sinks (rf2-cylse.4)
+     The `url/external-url?` gate at the nav-event sinks
      already fails such URLs closed before they reach these fxs, so this
      catch is a second line of defence: any residual throw is downgraded
      to a structured `:rf.fx/<fx-id>-failed` trace, keeping the drain
-     alive. Factoring it here means BOTH `:rf.nav/push-url` and
-     `:rf.nav/replace-url` share one mutation-safety boundary, rather than
-     push having a catch and replace running bare (rf2-u8qe7y finding 2)."
+     alive. Both history effects share this mutation-safety boundary."
      [failed-trace-id fx-id frame url mutate!]
      (try
        (mutate!)
@@ -245,8 +231,7 @@
   is that pre-built `:rf.fx/<fx-id>-failed` keyword. `strategy-op` is the
   strategy-map key naming the history drive (`:push!` or `:replace!`).
 
-  rf2-aerrz5 (URL-strategy seam) / rf2-irygd6 (single outbound-encoding
-  authority): on CLJS the URL-owning frame's `:url-strategy` is resolved, its
+  On CLJS the URL-owning frame's `:url-strategy` is resolved, its
   `:encode` maps the PATH-FORM `url` to the final href ONCE (identity for
   history, `#`-prefix for hash, base-OUTSIDE-fragment for a based hash app),
   and that href is handed to the RAW `strategy-op` leg (`:push!` / `:replace!`)
@@ -262,7 +247,7 @@
   (if (url-bound-frame? frame)
     #?(:cljs (let [strat  (strategy/url-strategy-for-frame-id frame)
                    drive! (get strat strategy-op)
-                   ;; Single outbound-encoding authority (rf2-irygd6): encode
+                   ;; Single outbound-encoding authority: encode
                    ;; the path-form url to its final href ONCE here, then hand
                    ;; it to the RAW :push!/:replace! leg (which drives
                    ;; window.history without re-encoding). The failure/skip

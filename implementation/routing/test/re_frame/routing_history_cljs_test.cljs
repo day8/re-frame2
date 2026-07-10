@@ -521,10 +521,10 @@
   (testing "rf2-g8pbwg / rf2-6qgbs.4: the automatically-installed listener
             drives :rf/default when it is the owner (no regression)"
     (register-routes!)
-    ;; Default-owned app: url-owner-frame-id resolves to :rf/default, so
-    ;; register-routes!'s reg-frame auto-installed the listener for it.
+    ;; register-routes! explicitly declares :rf/default as URL-bound, so its
+    ;; frame registration installed the listener.
     (is (= :rf/default (routing/url-owner-frame-id))
-        ":rf/default owns the URL by default")
+        ":rf/default is the explicitly declared URL owner")
 
     (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
     (rf/dispatch-sync [:rf.route/url-requested {:url "/checkout"}])
@@ -534,7 +534,7 @@
     (.back (.-history js/globalThis.window))
     (.dispatchEvent js/globalThis.window #js {:type "popstate"})
     (is (= :hist/cart (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])))
-        "Back restored :rf/default's slice to /cart — default-owned routing unregressed")))
+        "Back restored the explicitly owned :rf/default slice to /cart")))
 
 ;; =========================================================================
 ;; rf2-g8pbwg: the :url-bound? frame LIFECYCLE installs/removes the listener

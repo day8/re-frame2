@@ -8,8 +8,7 @@
 
   Internal namespace; the public facade is `re-frame.routing`. The
   facade owns the `views/reg-view*` (CLJS) / `registrar/register!`
-  (JVM/SSR) wiring so a `:reload` re-wires both on a fresh registrar.
-  Per the rf2-2yabr cohesion split: ROUTE-LINK seam."
+  (JVM/SSR) wiring so a `:reload` re-wires both on a fresh registrar."
   (:require [re-frame.router :as router]
             [re-frame.frame :as frame]
             [re-frame.routing.registry :as registry]
@@ -25,7 +24,7 @@
   place and cannot drift between the two halves of the Spec 011 render
   contract.
 
-  rf2-aerrz5 (URL-strategy seam): `route-url` builds the PATH-FORM URL
+  `route-url` builds the path-form URL
   (`/active`); `encode` maps it to the rendered `:href` — one of the four
   strategy consult points. The first return value is the PATH-FORM url
   (unencoded) — it is the behavioural navigation identity carried on the
@@ -57,8 +56,8 @@
 
 (defn- native-anchor?
   "Return true when `props` carry HTML anchor attributes whose semantics
-  the framework MUST NOT override with same-document SPA navigation, even
-  on a plain left-click. Per rf2-fwz29i — a `route-link` rendered with
+  the framework must not override with same-document SPA navigation, even
+  on a plain left-click. A `route-link` rendered with
   `{:target \"_blank\"}` or `{:download …}` looks like a normal anchor in
   the DOM and the user expects native new-tab / new-window / download
   behaviour; intercepting it into a `:rf.route/url-requested` dispatch silently
@@ -118,7 +117,7 @@
      apply: plain left-click → `preventDefault` + dispatch
      `:rf.route/url-requested`; modifier-key or middle-click → no interception.
 
-     rf2-fwz29i: anchors carrying native-handling attributes
+     Anchors carrying native-handling attributes
      (`:target` other than `_self`, or `:download`) are NOT intercepted on
      a plain left-click either — they look like a normal anchor in the DOM
      and the user expects native new-tab / download behaviour
@@ -145,13 +144,10 @@
            ;; `make-capture-frame` do for view bodies. `require-current-frame!`
            ;; raises at the RENDER site if a link is rendered outside any frame
            ;; scope — fail with the render stack, not a detached click.
-           ;; (rf2-afdlyr realm collapse: the former (realm, frame) address
-           ;; capture is now just the frame id — the realm substrate is a single
-           ;; default realm, so no `:realm` ever rode the envelope.)
            render-frame (frame/require-current-frame!
                           :route-link
                           {:where 're-frame.routing.link/route-link-render})
-           ;; rf2-aerrz5 (URL-strategy seam): the rendered `:href` is encoded
+           ;; The rendered `:href` is encoded
            ;; through the RENDER-TIME frame's `:url-strategy` (default
            ;; path-form). A hash app renders `#/active`; a history app renders
            ;; `/active`. `url` is the PATH-FORM navigation identity carried on
@@ -159,7 +155,7 @@
            ;; encode touches ONLY the href. One of the four consult points.
            encode (:encode (strategy/url-strategy-for-frame-id render-frame))
            [url base-attrs] (href-attrs props encode)
-           ;; rf2-fwz29i: anchors carrying native-handling attributes
+           ;; Anchors carrying native-handling attributes
            ;; (`target="_blank"`, `download`) must let the browser handle
            ;; the click — SPA interception would defeat new-tab / download.
            ;; Computed once at render against the resolved attrs (post
@@ -204,7 +200,7 @@
   Spec 011 the render tree is the contract; this is the JVM half of
   that contract for the `:route/link` view.
 
-  rf2-aerrz5: SSR IGNORES URL strategies — the server has no address bar,
+  SSR does not apply URL strategies: the server has no address bar,
   and a hash never reaches it. The href is emitted PATH-FORM (`encode` =
   `identity`); on hydration the CLJS `route-link-render` re-encodes it
   through the frame's strategy. So a hash app's server shell carries

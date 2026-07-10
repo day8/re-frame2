@@ -1370,7 +1370,7 @@
 (defn route-url
   "Per Spec 012 §Bidirectional URL ↔ params. Build a URL string from a
   route-id + path-params (+ optional query-params + optional fragment).
-  Inverse of match-url.
+  Canonical inverse of `match-url` over values accepted by the route schema.
 
   Optional groups ({...}?) are emitted only when ALL their inner params
   are supplied in path-params; otherwise the group is silently elided.
@@ -1385,16 +1385,13 @@
   route's `:query` schema (caller bug — not user input). The exception
   carries `{:route-id :slot :error}` ex-data (rf2-ug2m1).
 
-  NIL-POLICY ASYMMETRY between PATH params and QUERY params (rf2-b3rzz —
-  deliberate, documented here so the split never costs a debugging
-  session):
+  Path and query values intentionally use different nil policies:
 
   - PATH params: a `nil` (or absent) value for a required `:name` /
     `*name` segment is a HARD ERROR — throws
     `:rf.error/missing-route-param`. The URL cannot be built without it.
-    A present-but-FALSY value (`false`, `0`, `\"\"`) is legitimate and
-    round-trips (the `if-some` discipline below discriminates falsy from
-    absent).
+    `false` and `0` round-trip. The empty string is also rejected because it
+    would emit a zero-length segment erased by trailing-slash normalization.
   - QUERY params: a `nil`-valued key is SILENTLY ELIDED — `{:page nil}`
     omits the key entirely rather than emitting a bare `?page=` or
     throwing. This is the useful default for absent OPTIONAL query keys
@@ -1402,45 +1399,41 @@
     chosen). A present-but-FALSY query value (`false`, `0`, `\"\"`) is a
     legitimate value and round-trips, same as the path side.
 
-  So `nil` means \"hard error\" on the path side and \"omit this key\" on
-  the query side — same function, two nil-policies. Authors relying on a
-  query key being present must supply a non-nil value.
+  Thus `nil` means \"hard error\" on the path side and \"omit this key\" on
+  the query side. Authors relying on a query key being present must supply a
+  non-nil value.
 
-  Performance (rf2-r1in4): this fn sits on the render path through
+  This function sits on the render path through
   `route-link-render` / `route-link-render-ssr` — large link lists
   re-render at navigation rate, and each link calls `route-url`. The
   pattern body and `:groups` lookup are read from `:rf.route/compiled`
   (precomputed at registration time by `parse-pattern`), so the inner
-  loop runs over a fixed-cost lookup table rather than re-walking the
-  pattern source. If a future profile shows `route-url` dominating the
-  render budget, the next step is to precompute URL-emission metadata
-  at `reg-route` time (analogous to `:rf.route/query-coerce`)."
+  loop uses the compiled group lookup rather than re-walking the pattern
+  source."
   ([route-id path-params] (route-url route-id path-params {} nil))
   ([route-id path-params query-params] (route-url route-id path-params query-params nil))
   ([route-id path-params query-params fragment]
    (let [query-params (or query-params {})
-         ;; rf2-w3qgc: elide nil-valued query keys BEFORE :query-schema
-         ;; validation (and reuse the elided map for emission below). Per
+         ;; Elide nil-valued query keys before schema validation, and reuse
+         ;; that same map for emission. Per
          ;; Spec 012 §Bidirectional URL ↔ params a nil-valued query key is
          ;; SILENTLY OMITTED — `{:page nil}` emits no key and never throws —
          ;; so a route declaring e.g. `:query [:map [:sort {:optional true}
          ;; :string]]` must accept `{:sort nil}` to mean "omit :sort" and
          ;; return `/search`, NOT raise `:rf.error/route-url-validation`.
-         ;; Validating the raw map first contradicted that policy (nil
-         ;; failed the `:string` branch). A present-but-falsy value
+         ;; A present-but-falsy value
          ;; (`false`, `0`, `""`) is a legitimate value and is preserved —
          ;; only `nil` is elided — so non-nil invalid values STILL fail
          ;; validation against the elided map.
          ;;
-         ;; rf2-wgutc2 (EP-0012 correctness review item 2): after nil
-         ;; elision the surviving entries are sorted into DETERMINISTIC
-         ;; CANONICAL KEY ORDER by their keys' shared CEDN-1 bytes
+         ;; Surviving entries are sorted into deterministic canonical key
+         ;; order by their keys' shared CEDN-1 bytes
          ;; (`re-frame.identity/canonical-bytes`), NOT the caller's
          ;; insertion order. Per Conventions §The `:rf/path` algebra
          ;; (route-url/match-url prism): "query keys are emitted in
          ;; deterministic canonical order". Two callers that pass the same
-         ;; query map spelled in different key orders now build the
-         ;; BYTE-IDENTICAL URL — a stable href for caching / dedupe /
+         ;; query map spelled in different key orders build the byte-identical
+         ;; URL — a stable href for caching / dedupe /
          ;; identical-route-target? no-op detection / SSR-hydration parity,
          ;; rather than a URL that varies with map literal order. The sort
          ;; is by the key's canonical EDN identity (the same order the
@@ -1453,9 +1446,8 @@
                                               query-params)))
          route-meta   (registrar/lookup :route route-id)
          pattern      (:path route-meta)
-         ;; rf2-dcmkke: the precompiled coercion tables (the SAME tables
-         ;; `match-url` decodes against) let the emission side run the
-         ;; INVERSE of the enum-keyword decode — a declared keyword-enum
+         ;; The same precompiled coercion tables `match-url` uses let the
+         ;; emission side invert enum-keyword decode: a declared keyword-enum
          ;; value emits its token name (`:asc` -> `asc`) so the prism
          ;; round-trips. Nil-safe: an undeclared route has empty tables and
          ;; `enum-keyword-token` is a passthrough for every key.
@@ -1483,7 +1475,7 @@
                    :slot     :params
                    :value    path-params
                    :error    p-error}))))
-     ;; rf2-w3qgc: validate the NIL-ELIDED query map (`emitted-query`), not
+     ;; Validate the nil-elided query map (`emitted-query`), not
      ;; the raw `query-params` — a nil-valued optional key is omitted per
      ;; Spec 012 and must not be presented to the schema (where it would
      ;; fail an optional non-nil branch). `:value` reports the elided map
@@ -1501,7 +1493,7 @@
      (let [n      (count pattern)
            ;; Per Spec 012 §Bidirectional URL ↔ params: optional groups
            ;; are emitted only when every inner param is supplied. The
-           ;; `:groups` map produced by `parse-pattern` (rf2-uovh5) maps
+           ;; `:groups` map produced by `parse-pattern` maps
            ;; each opening '{' index to `{:inner-names [...] :close-end
            ;; <pos-after-}?>}` — `route-url` consults it instead of
            ;; re-walking the pattern body.
@@ -1515,8 +1507,8 @@
            ;; mis-classify falsy as absent). `kind` ("path"/"splat") only
            ;; flavours the diagnostic message.
            ;;
-           ;; rf2-ede1h.2: an EMPTY-STRING value is rejected the same way
-           ;; as absent/nil. `false`/`0` stringify to non-empty segments
+           ;; An empty-string value is rejected like absent/nil. `false` and
+           ;; `0` stringify to non-empty segments
            ;; (`/page/false`, `/items/0`) that round-trip cleanly, but `""`
            ;; emits a ZERO-LENGTH segment (`/articles/` for `{:slug ""}`)
            ;; which `match-url`'s trailing-slash normalisation erases
@@ -1525,9 +1517,7 @@
            ;; segment has no representation for the empty string; rejecting
            ;; it on EMISSION (rather than silently emitting an
            ;; un-round-trippable URL) keeps the bidirectional contract
-           ;; honest. This narrows the spec's "present-but-falsy round-trips"
-           ;; to the values that actually CAN (`false`, `0`); `""` is the
-           ;; one falsy value with no legitimate segment form.
+           ;; honest. `""` is the one falsy value with no path-segment form.
            ;; A PRESENT value for a path segment must be non-empty. Shared
            ;; by `require-param` (top-level segments) and `emit-group`
            ;; (optional-group inner segments): the empty-string-segment
@@ -1584,13 +1574,13 @@
                    ;; URL the top-level path rejects. Spec 012's nil-policy
                    ;; table makes `""` a hard error for ANY path segment, so
                    ;; reject it here too (`false`/`0` still round-trip).
-                   ;; rf2-94o54l.1: same fail-closed identity gate as the
-                   ;; top-level path — an optional-group inner segment must
+                   ;; The same fail-closed identity gate as the top-level path:
+                   ;; an optional-group inner segment must
                    ;; not host-stringify a host value into the URL either.
                    (or (= ch \:) (= ch \*))
                    (let [splat?  (= ch \*)
                          [end k] (param-seg-bounds pattern n i)
-                         ;; rf2-dcmkke: map a declared keyword-enum value to
+                         ;; Map a declared keyword-enum value to
                          ;; its token name (`:asc` -> `asc`) before encoding
                          ;; so the path-side enum round-trips through match-url.
                          v       (->> (get path-params k)
@@ -1614,29 +1604,13 @@
                      (if all-present?
                        (let [[i' parts'] (emit-group (inc i) parts)]
                          (recur i' parts'))
-                       ;; ELIDE the group. Per rf2-5u1r6a the ONLY accepted
-                       ;; optional-group spelling is slash-INSIDE (`{/:id}?`,
-                       ;; `{/:base}?` — rf2-av1): the group OWNS its leading
-                       ;; slash inside the body, so eliding the whole group
-                       ;; drops that slash cleanly and can never orphan a
-                       ;; bracketing literal `/`. The slash-OUTSIDE inline
-                       ;; spelling (`{:base}?` between literal `/`s, e.g.
-                       ;; `/{:base}?/about`) — which rf2-8zvajk once accepted
-                       ;; and which is what produced the `//about`
-                       ;; protocol-relative-URL footgun on elision — is now
-                       ;; REJECTED at registration by `validate-optional-group!`,
-                       ;; so it can no longer reach this emitter.
+                       ;; Elide the group. Valid route patterns put the leading
+                       ;; slash inside the group, so removing the group also
+                       ;; removes its separator.
                        ;;
-                       ;; The separator-elision guard below is retained as
-                       ;; defence-in-depth: for a slash-INSIDE group the char
-                       ;; before `{` is a NON-slash (`...articles{` → last part
-                       ;; `"articles"`), so `prev-slash?` is false and the
-                       ;; guard is a no-op — the clean body elision stands. It
-                       ;; only ever fires for a would-be slash-outside shape,
-                       ;; which is now unreachable; a global `//`→`/` collapse
-                       ;; is still deliberately NOT used because a splat value
-                       ;; legitimately carries embedded `//` (`{:rest "a//b"}`
-                       ;; → `/files/a//b`) and must survive.
+                       ;; The separator guard is defensive for metadata installed
+                       ;; outside `reg-route`; never collapse `//` globally because
+                       ;; a splat may legitimately contain empty segments.
                        (let [prev-slash? (= "/" (peek parts))
                              next-slash? (and (< close-end n)
                                               (= \/ (.charAt ^String pattern close-end)))
@@ -1653,13 +1627,13 @@
 
                    ;; `:name` / `*name` in the top-level pattern — the
                    ;; value is REQUIRED; `require-param` throws on absent.
-                   ;; rf2-94o54l.1: a host value fails closed via
+                   ;; A host value fails closed via
                    ;; `assert-url-value!` BEFORE `encode-param` host-stringifies
                    ;; it into a fabricated route identity (EP-0012).
                    (or (= ch \:) (= ch \*))
                    (let [splat?  (= ch \*)
                          [end k] (param-seg-bounds pattern n i)
-                         ;; rf2-dcmkke: a declared keyword-enum path param
+                         ;; A declared keyword-enum path param
                          ;; emits its token name (`:desc` -> `desc`), the
                          ;; inverse of match-url's enum decode, so it
                          ;; round-trips rather than emitting `%3Adesc`.
@@ -1670,23 +1644,22 @@
 
                    :else
                    (recur (inc i) (conj parts (str ch)))))))
-           ;; rf2-5u1r6a: a pattern whose ENTIRE path is a leading optional
+           ;; A pattern whose entire path is a leading optional
            ;; group (`{/:base}?`) elides to the empty string when the param
            ;; is absent — but the empty string is not a URL. Normalise it to
            ;; the root `/` (the group's own leading slash is the only slash
            ;; the pattern carries, so its absence lands at root). This is the
-           ;; slash-INSIDE analogue of the old slash-outside `root-only?`
-           ;; guard; `{/:base}?` absent → `/`, present → `/x`.
+           ;; group; `{/:base}?` absent → `/`, present → `/x`.
            path-out (let [s (apply str parts)]
                       (if (= "" s) "/" s))
-           ;; rf2-w3qgc: `emitted-query` (the nil-elided query map) is
+           ;; The nil-elided query map is
            ;; computed once at the top of the fn so the SAME elided map
            ;; both feeds `:query`-schema validation AND drives URL emission.
            ;; `{:page nil}` omits the key rather than emitting a bare
            ;; `?page=`; a present-but-falsy value (`false`, `0`, `""`) is a
            ;; legitimate query value and round-trips, but `nil` means
            ;; "absent" and is elided.
-           ;; rf2-94o54l.1: query KEYS are already CEDN-guarded by the
+           ;; Query keys are already CEDN-guarded by the
            ;; canonical-order sort that built `emitted-query` (it runs each
            ;; surviving key through `identity/canonical-bytes`, which throws
            ;; on a host key). The VALUES went straight to `url/url-encode`'s
@@ -1694,15 +1667,14 @@
            ;; the URL. Guard each non-nil value through `assert-url-value!`
            ;; (nil values are already elided out of `emitted-query`) so the
            ;; value side fails closed the same way the key side does.
-           ;; rf2-jlufhn: emit a keyword key via the REVERSIBLE
+           ;; Emit a keyword key via the reversible
            ;; `query-key->url-token` (namespace-preserving) so `:user/id`
            ;; emits `user/id` (percent-encoded `user%2Fid`) and round-trips
            ;; back to `:user/id` on the match side — `(name :user/id)` =>
-           ;; `"id"` dropped the namespace, collapsing `:user/id` and
-           ;; `:account/id` into one `id=` URL key and breaking the EP-0012
-           ;; route-prism law. A string key (an undeclared caller-supplied
+           ;; `"id"` would drop the namespace and collapse `:user/id` and
+           ;; `:account/id` into one `id=` URL key. A string key
            ;; query key the route did not name) is emitted verbatim.
-           ;; rf2-dcmkke: a declared keyword-enum query VALUE emits its token
+           ;; A declared keyword-enum query value emits its token
            ;; name (`:asc` -> `asc`), the inverse of match-url's enum decode,
            ;; so the value round-trips back to the canonical keyword instead
            ;; of `(str :asc)` -> `%3Aasc` (which match-url reads as the string
@@ -1724,8 +1696,8 @@
            ;; fragments: the 4-arity emits `#fragment` when non-nil and
            ;; non-empty. Empty-string fragments collapse to no fragment.
            ;;
-           ;; The fragment is PERCENT-ENCODED on emission (rf2-ede1h.1) —
-           ;; symmetric with `match-url`/`split-fragment`, which decode the
+           ;; Percent-encode the fragment symmetrically with
+           ;; `match-url`/`split-fragment`, which decode the
            ;; `#fragment` portion through `url/safe-url-decode`
            ;; (decodeURIComponent semantics). `url/url-encode` is the exact
            ;; inverse, so the round-trip is byte-exact: a fragment value
@@ -1734,8 +1706,8 @@
            ;; the raw value instead produced `#50% done`, which `match-url`
            ;; then read as malformed (`safe-url-decode` throws on the bare
            ;; `%`) → nil — breaking the bidirectional URL contract for any
-           ;; fragment with a `%` or other %-significant character.
-           ;; rf2-jlufhn: validate the fragment is a string-or-nil BEFORE
+           ;; fragment with a `%` or other %-significant character. Validate
+           ;; that the fragment is a string or nil before
            ;; the truthiness/empty gate, so a non-string fragment (a number,
            ;; keyword, boolean, function, host object) FAILS CLOSED rather
            ;; than being host-stringified into a bogus URL identity or

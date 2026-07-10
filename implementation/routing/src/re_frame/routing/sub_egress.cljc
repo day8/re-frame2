@@ -1,6 +1,6 @@
 (ns re-frame.routing.sub-egress
-  "Route-sub egress projection — the EP-0025 sub-egress complement of the
-  route-classification lowering (`re-frame.routing.classification`, rf2-mtzv5m).
+  "Route-sub egress projection, complementing the route-classification
+  lowering in `re-frame.routing.classification`.
 
   ## The problem
 
@@ -8,9 +8,8 @@
   `{:query … :params …}` current-state projection. At route activation those
   declarations are RE-ROOTED to runtime-db-absolute paths under
   `[:rf.runtime/routing :current …]` and lowered into the per-frame elision
-  registry (`:source :route`). The SSR hydration egress already honours that
-  re-rooting (`re-frame.ssr.payload-policy/project-routing-egress`, seeded at
-  `:path [:rf.runtime/routing]`, rf2-4xut98).
+  registry (`:source :route`). SSR hydration honours that re-rooting by
+  seeding its routing projection at `:path [:rf.runtime/routing]`.
 
   But the DIRECT-READ egress surfaces of the bare route slice do NOT. The
   `:rf/route` sub returns the BARE slice (`{:route-id :params :query …}`) read
@@ -27,7 +26,7 @@
   (\"only the trace bus / Xray / MCP / off-box / SSR egress copies are
   redacted\").
 
-  ## The fix (Mike-ruled (a), rf2-mtzv5m — NARROW)
+  ## Direct-read projection
 
   Apply the route classification at the direct-read egress of the route's read
   surfaces, by re-seeding the egress walk at the route slice's runtime-db
@@ -54,19 +53,19 @@
     | `:rf.route/params`| the `:params` map            | `[:rf.runtime/routing :current :params]`  |
 
   The other `:rf.route/*` derived subs (`:rf.route/id`, `:transition`,
-  `:error`, `:fragment`, `:chain`) carry no classifiable secret (the route id /
-  transition keyword / fragment string / parent chain are structural), so they
-  are NOT in the table — they ride verbatim.
+  `:error`, `:fragment`, `:chain`) are not projections covered by the route
+  classification contract, so they are not in this table. This makes no
+  general sensitivity claim about a fragment or error value; those surfaces
+  use their own trace/egress policies.
 
   Core stays DECOUPLED: routing publishes the seed-path resolver and the
   projector through the late-bind table (`:routing/route-sub-egress-path` /
   `:routing/project-route-sub-egress`); core consults the hook keys without a
-  static `:require` on routing (rf2-k682). Absent the routing artefact the hooks
+  static `:require` on routing. Absent the routing artefact the hooks
   are unbound and the egress surfaces walk the value with NO route re-seeding —
   there is no route slice to leak anyway.
 
-  Internal namespace; the public facade is `re-frame.routing`. Per the
-  rf2-2yabr cohesion split convention: SUB-EGRESS seam."
+  Internal namespace; the public facade is `re-frame.routing`."
   (:require [re-frame.elision :as elision]))
 
 #?(:clj (set! *warn-on-reflection* true))

@@ -1,24 +1,22 @@
-;; day8/re-frame2-routing — routing artefact (rf2-k682,
-;; third per-feature split per rf2-5vjj Strategy B).
+;; day8/re-frame2-routing is the optional routing artefact.
 ;;
 ;; Per Spec 012 §Routing the route grammar (`reg-route`,
 ;; `:rf.route/navigate`, `:rf.route/transitioned`, `:rf.route/url-requested`,
 ;; `:rf.route/handle-url-change`, `:rf.route/continue` /
 ;; `:rf.route/cancel`, the `:rf.nav/push-url` / `:rf.nav/replace-url` /
 ;; `:rf.nav/scroll` fxs, `match-url` / `route-url`, the `:rf/route` /
-;; `:rf.route/{id,params,query,transition,error}` framework subs, and
-;; and the per-frame routing runtime-db keys — the durable route slice
-;; `:current` (subscribable via `:rf/route`) and the
-;; local-subscribable `:pending-navigation` (via `:rf/pending-navigation`),
-;; both under `[:rf.runtime/routing ...]`. (Scroll positions and the
-;; nav-token / pending-nav allocator counters are NOT runtime-db state —
-;; they live in module-level host-side transient caches keyed by frame-id;
-;; see `re-frame.routing.nav-counters/routing-state-classification`,
-;; rf2-1hncp2 / rf2-oosjmh.) (rf2-3ib8h, rf2-eguy4)) ships as a separate Maven
-;; artefact so apps that don't register any routes don't drag the
-;; namespace, the route-rank / pattern-compile / nav-token machinery,
+;; `:rf.route/{id,params,query,transition,error,fragment,chain}` and
+;; `:rf/pending-navigation` framework subs, and routing runtime-db state)
+;; ships as a separate Maven artefact so apps that don't register routes don't
+;; drag in the namespace, route-rank / pattern-compile / nav-token machinery,
 ;; or any of the `:rf.route/*` and `:rf.nav/*` trace strings onto the
 ;; classpath.
+;;
+;; Runtime routing state is rooted at `[:rf.runtime/routing]`. It contains
+;; `:current`, `:pending-navigation` when a guard blocks, and may contain
+;; resource-integration bookkeeping while the resources artefact is loaded.
+;; Scroll positions and allocator high-water marks are host-side transient
+;; caches keyed by frame id, not runtime-db state.
 ;;
 ;; Consumers add this artefact alongside the core artefact:
 ;;
@@ -31,8 +29,7 @@
 ;; hooks, the `:rf.route/*` events, the `:rf.nav/*` reserved fxs, and
 ;; the `:rf/route` reg-sub family.
 ;;
-;; Per Spec 006 §Adapter shipping convention (and the
-;; rf2-p7va extension to per-feature splits): this artefact depends on
+;; Per Spec 006 §Adapter shipping convention, this artefact depends on
 ;; core; core never depends on this artefact. The cross-references
 ;; from core to routing (e.g. `re-frame.core`'s `reg-route` /
 ;; `match-url` / `route-url` re-exports, the `:rf/route` reg-sub) flow
@@ -55,21 +52,20 @@
          :extra-deps  {day8/re-frame2-schemas    {:local/root "../schemas"}
                        day8/re-frame2-flows      {:local/root "../flows"}
                        day8/re-frame2-ssr        {:local/root "../ssr"}
-                       ;; rf2-try1x — silent-on-success reporter.
+                       ;; Silent-on-success test reporter.
                        day8/re-frame2-test-quiet {:local/root "../test-quiet"}
                        io.github.cognitect-labs/test-runner
                        {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
-         ;; rf2-bv2qqm — the default PR/local gate EXCLUDES the heavy
+         ;; The default PR/local gate excludes the heavy
          ;; `^:stress` tests in `routing_concurrency_stress_test`
          ;; (5000-iter × 8-thread cross-frame nav). These were tagged
-         ;; `^:stress` per rf2-q4twq but the exclude was never wired, so
-         ;; they ran on every PR. The runner passes `-e` through to
+         ;; `^:stress`; the runner passes `-e` through to
          ;; cognitect-test-runner verbatim. Coverage is NOT lost: the
          ;; `:slow-test` alias below runs them, invoked by the nightly
          ;; `expensive-tests.yml` job + `scripts/test-rigorous-local.sh`.
          :main-opts   ["-m" "re-frame.test-quiet.runner" "-e" ":slow" "-e" ":stress"]}
 
-  ;; rf2-bv2qqm — nightly/rigorous slow-test gate. INCLUDES ONLY the
+  ;; Nightly/rigorous gate. Includes only the
   ;; `^:slow` / `^:stress` tests, so `:test` + `:slow-test` together cover
   ;; every test once.
   :slow-test
@@ -82,7 +78,7 @@
                  {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
    :main-opts   ["-m" "re-frame.test-quiet.runner" "-i" ":slow" "-i" ":stress"]}
 
-  ;; Clojars deploy (rf2-r382). Modeled on re-frame v1's release flow.
+  ;; Clojars deploy. Modeled on re-frame v1's release flow.
   ;; The release workflow runs `clojure -M:clein deploy` from this
   ;; artefact's directory, which builds pom + jar and pushes to Clojars.
   ;;

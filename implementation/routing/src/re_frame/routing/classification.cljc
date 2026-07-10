@@ -1,12 +1,11 @@
 (ns re-frame.routing.classification
-  "Route OWNER data-classification — the EP-0025 routes follow-on (B5 routes
-  arm, rf2-3r6k8i). Graduated normatively into
+  "Route-owned data classification, specified in
   [`spec/012-Routing.md` §Route data classification](../../../../../../spec/012-Routing.md).
 
-  ## The subsystem-declaration rule (EP-0025 §Subsystem matrix, `reg-route` row)
+  ## The subsystem-declaration rule
 
-  EP-0025 makes every runtime subsystem classify its own instance data
-  PROJECTION-RELATIVE, applied per-instance at creation and dropped at
+  Each runtime subsystem classifies its own instance data projection-relative,
+  applied per-instance at creation and dropped at
   teardown, lowered into the per-frame elision registry. The route arm is
   a PURE-OVER-VALUE lowering (`apply-route-classification` / `lower-for-route`
   below): given a base runtime-db value it returns the runtime-db with the
@@ -28,7 +27,7 @@
   navigation to a route that declares none clears the registry of route-sourced
   entries entirely.
 
-  ## Projection-relative authoring (EP-0025 §Subsystem declarations)
+  ## Projection-relative authoring
 
   A route declares `:sensitive` / `:large` paths RELATIVE to the route's
   current-state projection — the `{:query … :params …}` shape the route slice
@@ -43,29 +42,28 @@
   the route's current state lives in runtime-db — under
   `[:rf.runtime/routing :current …]` — so the declared `[:query :token]`
   classifies the runtime path `[:rf.runtime/routing :current :query :token]`.
-  The author never names the absolute runtime-db storage position (the
-  storage-position problem EP-0025 §Rationale calls out); they name the path
+  The author never names the absolute runtime-db storage position; they name
+  the path
   inside the route's own projection, and lowering re-roots it.
 
-  ## Validation is fail-LOUD at registration (EP-0025 §Failure posture)
+  ## Validation is fail-loud at registration
 
-  Per EP-0025's three-way failure posture, a MALFORMED declaration (a bad path,
+  A malformed declaration (a bad path,
   a wrong shape, a non-EDN-identity segment) FAILS LOUDLY at `reg-route` time —
   before any state mutates and before the route can ever activate — with the
   canonical thrown-error shape (Spec 009 §The thrown-error shape) carrying
   `:rf.error/id :rf.error/invalid-route-classification`. This mirrors the
   `reg-frame` classification's `:rf.error/bad-frame-classification` and the
   commit-plane effect's `:rf.error/classification-effect-shape`. A FORGOTTEN
-  classification is fail-open (the value ships raw — the hygiene bargain).
+  classification is fail-open (the value ships raw).
 
-  ## Sensitive wins over large (EP-0025 §Egress rules)
+  ## Sensitive wins over large
 
   A path declared BOTH `:sensitive` and `:large` lowers as sensitive ONLY — its
   large entry is dropped at lowering time, so no `:rf.size/large-elided` marker
   (which would leak path / byte size / digest) is ever emitted for it. This is
   the lowering-time complement of the elision walker's sensitive-before-large
-  ordering (`re-frame.elision/walk`), which is the single point where
-  sensitive-wins is enforced at egress (EP-0025).
+  ordering (`re-frame.elision/walk`), the final egress enforcement point.
 
   ## Lowering writes a runtime-db VALUE (not a live container swap)
 
@@ -78,14 +76,14 @@
   (including `[:rf.runtime/elision]`) is dropped, so the route-sourced entries
   vanish with the frame with no separate teardown hook.
 
-  ## The query-key promotion advisory (rf2-x1x5am, EP-0025 footgun closure)
+  ## The query-key promotion advisory
 
   A route declares classification paths PROJECTION-RELATIVE to its
   `{:query … :params …}` shape, so a `:sensitive [[:query :token]]` names the
   KEYWORD key `:token`. But the runtime query slice keys a query key as a
   KEYWORD only when the route PROMOTES it via its `:query` schema /
-  `:query-defaults` / `:query-retain` (`re-frame.routing.registry/coerce-query`,
-  rf2-5ifai); an undeclared key stays a STRING. So a `:sensitive [[:query
+  `:query-defaults` / `:query-retain` (`re-frame.routing.registry/coerce-query`);
+  an undeclared key stays a string. So a `:sensitive [[:query
   :token]]` path on a route that does NOT name `:token` in its query vocabulary
   SILENTLY FAILS OPEN — the re-rooted keyword decl never matches the runtime
   string key, and the value ships raw with zero signal.
@@ -100,8 +98,7 @@
   path and a deeper `[:query :token …]` path are advised on their `[:query k]`
   HEAD (the head key is what must promote).
 
-  Internal namespace; the public facade is `re-frame.routing`. Per the
-  rf2-2yabr cohesion split convention: ROUTE-CLASSIFICATION seam."
+  Internal namespace; the public facade is `re-frame.routing`."
   (:require [re-frame.elision :as elision]
             [re-frame.error :as error]
             [re-frame.path :as path]
@@ -112,8 +109,8 @@
 ;; ---- the classification keys --------------------------------------------
 
 (def ^:const classification-keys
-  "The two route-owned classification metadata keys (EP-0025, `reg-route`
-  subsystem-matrix row). A `reg-route` metadata map carrying either triggers
+  "The two route-owned classification metadata keys. A `reg-route` metadata
+  map carrying either triggers
   classification validation + lowering at activation; both are projection-
   relative `[[path] …]` declarations. Joined onto the routing-owned reserved
   metadata keys (`re-frame.routing.registry/reserved-route-keys`)."
@@ -143,7 +140,7 @@
     {:recovery :fix-route-classification
      :extra    (merge {:route-id route-id} extras)}))
 
-;; ---- path validation (EP-0012 :rf/path) ----------------------------------
+;; ---- path validation ------------------------------------------------------
 ;;
 ;; A `:sensitive` / `:large` declaration is a VECTOR of projection-relative
 ;; paths; each path is a sequential collection of CONCRETE EDN segments (the
@@ -155,6 +152,10 @@
 ;; non-sequential path OR any segment outside the concrete EDN domain. This is
 ;; a concrete declaration boundary, so it MUST use `normalize-concrete`, never
 ;; bare `normalize`.
+;;
+;; `[]` is deliberately legal and re-roots to `current-route-root`, thereby
+;; classifying the complete current-route slice rather than one query/params
+;; descendant.
 
 (defn- normalize-axis-paths
   "Validate + normalise the projection-relative paths of one classification
@@ -225,11 +226,11 @@
     (let [sens-paths  (normalize-axis-paths route-id :sensitive (:sensitive metadata))
           large-paths (normalize-axis-paths route-id :large     (:large metadata))
           sens-set    (set sens-paths)
-          ;; Sensitive wins over large (EP-0025 §Egress rules): a path that is
+          ;; Sensitive wins over large: a path that is
           ;; BOTH lowers as sensitive ONLY — drop it from large so no
           ;; `:rf.size/large-elided` marker (path / bytes / digest) can ever
           ;; leak for it. The walker's sensitive-before-large ordering is the
-          ;; authoritative runtime enforcement (EP-0025); this lowering-time
+          ;; authoritative runtime enforcement; this lowering-time
           ;; drop is a belt-and-braces complement for route declarations.
           large-only  (into [] (remove sens-set) large-paths)]
       {:sensitive sens-paths
@@ -330,19 +331,18 @@
 
 (defn lower-for-route
   "Resolve `route-meta`'s validated classification (`validate+extract`) and
-  lower it onto `runtime-db` (`apply-route-classification`). THE single
-  route-activation entry point the navigation commit calls — re-validating
-  here keeps the stored route-meta a pure reflection map (no derived
-  classification cached on it) and re-runs the fail-loud guard at the
-  authoring boundary at registration, so a malformed declaration never reaches
-  here. `route-meta` nil (an unregistered / not-found route) lowers an empty
+  lower it onto `runtime-db` (`apply-route-classification`). This is the single
+  route-activation entry point the navigation commit calls. Registration has
+  already validated ordinary metadata; re-validation keeps this function safe
+  when called with metadata supplied outside that path. `route-meta` nil (an
+  unregistered / not-found route) lowers an empty
   classification, which clears the prior route's `:source :route` entries — the
   leaving route's classification drops on a route-miss / not-found transition
   too. Pure over the runtime-db value."
   [runtime-db route-id route-meta]
   (apply-route-classification runtime-db (validate+extract route-id route-meta)))
 
-;; ---- query-key promotion advisory (rf2-x1x5am) ---------------------------
+;; ---- query-key promotion advisory ----------------------------------------
 ;;
 ;; A reg-route-time WARNING (never a throw) that closes the EP-0025 query-key
 ;; footgun: a `:sensitive` / `:large` `[:query k]` path on a route that does NOT
@@ -354,12 +354,11 @@
   "Return the set of query keys a route's `classification` (the
   `validate+extract` result) names under a `[:query k]` HEAD that the route's
   declared `promoted-keys` set does NOT promote to a keyword — the silent
-  fail-open footgun (rf2-x1x5am). Scans both axes' normalised paths; a path
+  fail-open mismatch. Scans both axes' normalised paths; a path
   whose first two segments are `[:query k]` contributes `k` when `k` is a
   keyword absent from `promoted-keys`. The whole-projection path `[]` and a
   bare `[:query]` carry no query KEY to advise on (no second segment). A
-  non-keyword head key (a string `[:query \"token\"]`) is the rf2-z07m4m
-  string-segment fail-open, separately documented — it is reported too, since a
+  non-keyword head key (a string `[:query \"token\"]`) is also reported, since a
   string key can never be a keyword-promoted slot key. Pure; returns `#{}` for
   nil classification."
   [classification promoted-keys]
@@ -376,7 +375,7 @@
 
 (defn advise-query-promotion!
   "Emit a `:rf.warning/route-classification-query-key-unpromoted` advisory
-  (rf2-x1x5am) when `route-meta`'s `:sensitive` / `:large` classification names
+  when `route-meta`'s `:sensitive` / `:large` classification names
   a `[:query k]` path whose query key `k` the route does NOT promote to a
   keyword via `:query` / `:query-defaults` / `:query-retain` (`promoted-keys`).
   Such a path silently FAILS OPEN at egress — the keyword decl never matches the

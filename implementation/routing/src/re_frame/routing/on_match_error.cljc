@@ -1,10 +1,8 @@
 (ns re-frame.routing.on-match-error
   "`:on-match` error trap for re-frame2 routing.
 
-  Per Spec 012 §Per-route error handling: if any :on-match event errors
-  (a handler throws, a registered fx errors, or a downstream handler
-  errors during the drain — per Spec 009's structured error contract),
-  the runtime:
+  When a declared `:on-match` event produces an attributed
+  `:rf.error/handler-exception` record, the runtime:
     1. Sets `[:rf.runtime/routing :current :transition]` to `:error`.
     2. Populates `[:rf.runtime/routing :current :error]` with the
        structured error map (schema `:rf/error` per Spec 009 §error-contract).
@@ -13,29 +11,29 @@
        the error context.
 
   Mechanism: a corpus-wide listener on the always-on error-emit
-  substrate (per rf2-bacs4 / Spec 009 §What IS available in production)
+  substrate (Spec 009 §What IS available in production)
   receives every `:rf.error/handler-exception` record. The listener
   discriminates 'is this exception from an :on-match dispatch?' by:
     - reading the failing record's `:frame`
     - reading that frame's route slice at [:rf.runtime/routing :current]
     - checking `:transition` is `:loading` (the slice is mid-drain)
     - checking the failing record's full `:event` vector IS one of the
-      active route's declared `:on-match` vectors (rf2-cgh8q —
-      full-vector identity, not bare event-id membership; falls back to
+      active route's declared `:on-match` vectors (full-vector identity,
+      not bare event-id membership; falls back to
       id-membership only when the event was wire-elided)
 
   All four together identify the error as originating from an :on-match
   cascade for the currently-loading route. The listener then dispatches
   `:rf.route.internal/on-match-error` with the structured error map;
   that event flips `:transition`, populates the slice's `:error`, and
-  chains `:on-error`. Per rf2-576on the trap event is runtime-internal —
+  chains `:on-error`. The trap event is runtime-internal,
   sub-namespaced under `:rf.route.internal/*` so the user-facing
   `:rf.route/*` surface stays tidy.
 
   ## Failure semantics — later :on-match events + first-error-wins
 
-  Per rf2-25i7r7 (finding 3) + Spec 012 §Per-route error handling
-  §Failure semantics. The navigation cascade runs inside re-frame2's
+  Per Spec 012 §Per-route error handling §Failure semantics, the navigation
+  cascade runs inside re-frame2's
   locked FIFO run-to-completion drain (Spec 002 §Run-to-completion),
   which does NOT cancel events already queued. `commit-navigation`
   queues every `:on-match` dispatch (and the FIFO `settle-transition`)
@@ -68,8 +66,7 @@
   Internal namespace; the public facade is `re-frame.routing`. The
   facade owns the `events/reg-event` + `error-emit/register-error-listener!`
   calls so a `(require 're-frame.routing :reload)` on a fresh registrar
-  (`clear-all!` test fixture) re-wires both. Per the rf2-2yabr cohesion
-  split: ON-MATCH-ERROR-TRAP seam."
+  (`clear-all!` test fixture) re-wires both."
   (:require [re-frame.registrar :as registrar]
             [re-frame.frame :as frame]
             [re-frame.router :as router]))
@@ -100,9 +97,8 @@
   "True when the failing handler-exception `record` should be attributed
   to the active route's `:on-match` drain.
 
-  rf2-cgh8q — the attribution discriminator. Earlier this was bare
-  event-id MEMBERSHIP: `(contains? (on-match-event-ids meta) event-id)`.
-  That mis-attributes a NON-routing throw to the loading route whenever
+  Bare event-id membership would mis-attribute a non-routing throw to the
+  loading route whenever
   the app concurrently dispatches an event whose id happens to coincide
   with one of the route's `:on-match` ids during the loading window — the
   healthy route is then forced to `:error` and a spurious `:on-error`
@@ -113,7 +109,7 @@
   The tighter, still-always-on discriminator is full event-VECTOR
   identity against the route's declared `:on-match` vectors: a button
   dispatch carrying different args (or a bare `[:app/load-x]` versus the
-  route's `[:app/load-x 42]`) no longer collides. The full `:event`
+  route's `[:app/load-x 42]`) does not collide. The full `:event`
   vector rides the always-on error record (Spec 009 §Record shape), so
   this survives `:advanced` + `goog.DEBUG=false` like the rest of the
   trap.
@@ -166,8 +162,8 @@
         (not= nav-token current-token)
         {}
 
-        ;; rf2-25i7r7 (finding 3 — route failure semantics): FIRST-error-
-        ;; wins. The locked FIFO run-to-completion drain (Spec 002) does
+        ;; First error wins. The locked FIFO run-to-completion drain (Spec 002)
+        ;; does
         ;; not cancel already-queued events, so when a route declares
         ;; `:on-match [[:load/fail1] [:load/fail2]]` and BOTH throw, two
         ;; `:rf.route.internal/on-match-error` events land for the same
@@ -204,11 +200,11 @@
   `:rf.error/handler-exception` record; when the failing event-id was
   dispatched as part of the active route's `:on-match` (per the
   discrimination logic in this ns's docstring),
-  dispatches `:rf.route.internal/on-match-error` (rf2-576on) to the
+  dispatches `:rf.route.internal/on-match-error` to the
   offending frame so the slice flips to `:error` and `:on-error`
   chains.
 
-  Per Spec 012 §Per-route error handling and rf2-ye7sh."
+  Per Spec 012 §Per-route error handling."
   [{:keys [error event-id frame exception] :as record}]
   (when (= :rf.error/handler-exception error)
     ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state.
