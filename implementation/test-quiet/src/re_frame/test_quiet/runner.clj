@@ -431,13 +431,28 @@
   (`install-summary-replay-hook!`); on green the buffer is dropped."
   ^java.io.Writer [^StringBuilder sb]
   (let [append! (fn [^String s]
-                  (.append sb s)
-                   ;; Trim from the front once past the cap so the ring
-                   ;; keeps the most-recent context (the characters nearest a
-                  ;; failure), matching the CLJS ring's newest-N policy.
-                  (let [n (.length sb)]
-                    (when (> n stderr-buffer-cap)
-                      (.delete sb 0 (- n stderr-buffer-cap)))))]
+                  ;; Serialize the WHOLE append-plus-front-trim transaction on
+                  ;; `sb`'s own monitor. Both JVM stderr channels funnel here —
+                  ;; `*err*` via one PrintWriter and raw `System.err` via the
+                  ;; `System/setErr` PrintStream bridge (see `-main`) — and those
+                  ;; two wrappers serialize only their OWN calls under DISTINCT
+                  ;; locks, so without this shared monitor a write from each
+                  ;; channel can interleave inside this body: a `.append` racing
+                  ;; a front-trim `.delete` tears StringBuilder's internal
+                  ;; count/array and throws ArrayIndexOutOfBoundsException from an
+                  ;; otherwise-valid test. StringBuilder (unlike StringBuffer) has
+                  ;; no synchronized methods, so nothing else contends for this
+                  ;; monitor; the summary snapshot in
+                  ;; `install-summary-replay-hook!` locks on the SAME `sb`, so a
+                  ;; red replay never reads a half-applied mutation.
+                  (locking sb
+                    (.append sb s)
+                    ;; Trim from the front once past the cap so the ring
+                    ;; keeps the most-recent context (the characters nearest a
+                    ;; failure), matching the CLJS ring's newest-N policy.
+                    (let [n (.length sb)]
+                      (when (> n stderr-buffer-cap)
+                        (.delete sb 0 (- n stderr-buffer-cap))))))]
     (proxy [java.io.Writer] []
       (write
         ([x]
@@ -496,16 +511,26 @@
   (let [prior-summary (get-method clojure.test/report :summary)]
     (defmethod clojure.test/report :summary [m]
       (let [{:keys [fail error]} m]
-        (when (and (pos? (+ (or fail 0) (or error 0)))
-                   (pos? (.length sb)))
-          (let [captured (.toString sb)]
-            (.write real-err
-                    (str "\n[test-quiet] buffered stderr replayed"
-                         " because the run was RED:\n"))
-            (.write real-err captured)
-            (when-not (.endsWith captured "\n")
-              (.write real-err "\n"))
-            (.flush real-err))))
+        (when (pos? (+ (or fail 0) (or error 0)))
+          ;; Snapshot the ring under `sb`'s monitor — the SAME lock every
+          ;; writer in `buffering-stderr-writer` takes — so the `.length`
+          ;; guard and the `.toString` copy observe a consistent ring rather
+          ;; than a mutation half-applied by a still-live background writer.
+          ;; Copy out under the lock, then do the (unbounded) real-err replay
+          ;; I/O OUTSIDE it so a writer is never blocked on the replay. An
+          ;; empty ring yields `nil` and replays nothing, exactly as the prior
+          ;; `(pos? (.length sb))` guard did.
+          (let [captured (locking sb
+                           (when (pos? (.length sb))
+                             (.toString sb)))]
+            (when captured
+              (.write real-err
+                      (str "\n[test-quiet] buffered stderr replayed"
+                           " because the run was RED:\n"))
+              (.write real-err captured)
+              (when-not (.endsWith captured "\n")
+                (.write real-err "\n"))
+              (.flush real-err)))))
       ;; Delegate to the prior :summary so the canonical
       ;; "Ran N tests…/K failures, J errors." line still prints.
       (when prior-summary (prior-summary m)))))

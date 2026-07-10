@@ -1159,3 +1159,85 @@
                    "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
           (is (str/includes? err "buffered stderr replayed because the run was RED")
               (str "the replay must be labelled; got stderr:\n" err)))))))
+
+;; ----------------------------------------------------------------------
+;; Concurrent dual-channel red run — the process exits for the INTENTIONAL
+;; assertion, not an internal buffer exception.
+;;
+;; `-main` routes the test thread's `*err*` (a PrintWriter) and raw
+;; process-global `System.err` (a `System/setErr` PrintStream bridge) into
+;; ONE StringBuilder ring. The two wrappers hold DISTINCT locks, so before
+;; the ring's writes were serialized on a shared monitor, overlapping
+;; writes from the two channels could tear the StringBuilder and throw
+;; `ArrayIndexOutOfBoundsException` mid-run — a reporter bug that changes a
+;; failing run's exit/diagnostics. This drives the REAL `-main` against a
+;; fixture that writes through BOTH channels concurrently past the ring cap,
+;; then fails an assertion, and proves: the process exits 1 for the
+;; assertion (not an internal buffer exception), the FAIL block survives,
+;; the red replay is well formed, and no `ArrayIndexOutOfBoundsException`
+;; leaks from the ring. The in-process trial harness
+;; (`re-frame.test-quiet-stderr-ring-concurrency-test`) reliably trips the
+;; underlying race; this is the end-to-end counterpart through the real
+;; runner + `:summary` replay hook.
+
+(deftest concurrent-dual-channel-red-exits-for-assertion-not-buffer-exception
+  (testing "joined concurrent *err* + raw System.err writes on a red run: exit 1, no buffer exception, replay well formed"
+    (with-fixture-dir
+      (fn [dir]
+        ;; The background writer is a raw Thread (NOT a future) so it writes
+        ;; through the process-global System.err bridge, independent of the
+        ;; test thread's *err* binding; the test thread writes through *err*.
+        ;; 6 x 50 000 chars per channel (~300 KB) drives the front-trim past
+        ;; the 256 KiB cap while both channels are live — the exact overlap
+        ;; the race needs. Both are released together on a promise and JOINED
+        ;; before the failing assertion, so the replay content is settled.
+        (write-fixture! dir "concurrent_dual_channel_red_test"
+                        "concurrent-dual-channel-red-test"
+                        (str "(deftest a-concurrent-dual-channel-failing-test"
+                             " (let [gate (promise)"
+                             "       big (apply str (repeat 50000 \\Z))"
+                             "       t (Thread. (fn [] @gate"
+                             "                    (dotimes [_ 6] (.println System/err big))"
+                             "                    (.println System/err \"SYS-TAIL-CONCURRENT-MARKER\")))]"
+                             "   (.start t)"
+                             "   (deliver gate :go)"
+                             "   (binding [*out* *err*]"
+                             "     (dotimes [_ 6] (println big))"
+                             "     (println \"ERR-TAIL-CONCURRENT-MARKER\"))"
+                             "   (.join t)"
+                             "   (is (= :expected-marker :actual-marker))))"))
+        (let [{:keys [exit out err timed-out?]} (run-runner dir)
+              both (str out err)]
+          (is (not timed-out?)
+              "the concurrent dual-channel run must terminate, not hang")
+          ;; CORE pin: the process exits 1 for the intentional ASSERTION —
+          ;; not a torn-buffer exception (which could change the exit path).
+          (is (= 1 exit)
+              (str "the concurrent dual-channel suite is red; must exit 1 for"
+                   " the intentional assertion; got " exit
+                   "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
+          (is (str/includes? out "FAIL in (a-concurrent-dual-channel-failing-test)")
+              (str "the FAIL block for the intentional assertion must reach"
+                   " stdout — proving the process failed for the assertion,"
+                   " not an internal buffer exception; got:\n" out))
+          ;; No torn-StringBuilder exception may surface anywhere: the whole
+          ;; point of the fix is that the ring never throws from concurrent
+          ;; writes.
+          (is (not (str/includes? both "ArrayIndexOutOfBoundsException"))
+              (str "a concurrent dual-channel red run must NOT throw from the"
+                   " stderr ring; got\n--- stdout ---\n" out
+                   "\n--- stderr ---\n" err))
+          ;; The red replay is well formed: labelled, and it carries the
+          ;; newest buffered context. The two channels' floods total ~600 KB
+          ;; past the 256 KiB cap, so which channel's tail marker survives the
+          ;; front-trim depends on the interleaving; the LAST write overall is
+          ;; always one of the two tail markers, so at least one must survive.
+          (is (str/includes? err "buffered stderr replayed because the run was RED")
+              (str "the red replay must be labelled; got stderr:\n"
+                   (subs err 0 (min 400 (count err)))))
+          (is (or (str/includes? err "ERR-TAIL-CONCURRENT-MARKER")
+                  (str/includes? err "SYS-TAIL-CONCURRENT-MARKER"))
+              (str "the replay must retain the NEWEST buffered context — at"
+                   " least one channel's tail marker must survive the ring;"
+                   " got stderr tail:\n"
+                   (subs err (max 0 (- (count err) 400)) (count err)))))))))
