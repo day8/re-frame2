@@ -749,6 +749,103 @@
             (is (= :ws/request (ffirst (get-in s [:data :queue])))
                 "buffered as the whole :ws/request event for a later flush")))))))
 
+(defn- drive-to-failed!
+  "Walk the connection machine into top-level `:failed` the same way
+   `max-retries-failed-test` does: connect (spawning the actor), seed
+   `:retries` past `:max-retries`, then fire a live `:ws/closed` so the parent
+   steps to `:reconnecting` and immediately on to `:failed` via the
+   `:max-retries-exceeded?` `:always` cascade."
+  [f]
+  (rf/dispatch-sync [:ws/connection
+                     [:ws/connect {:url "ws://mock" :auth-token "demo"}]]
+                    {:frame f})
+  (re-frame.frame/swap-runtime-db! f
+    (fn [rt]
+      (let [max-retries (get-in rt [:rf.runtime/machines :snapshots :ws/connection :data :max-retries])]
+        (update-in rt [:rf.runtime/machines :snapshots :ws/connection :data]
+                   assoc :retries (inc max-retries)))))
+  (let [snap-before (snapshot (:rf.db/runtime (rf/frame-state-value f)))]
+    (rf/dispatch-sync [:ws/connection
+                       [:ws/closed {:source-socket-id (socket-id-of snap-before)
+                                    :code 1006}]]
+                      {:frame f})))
+
+(defn- failed-state-queues-and-drains-test []
+  ;; rf2-3fc89f.29 — the machine's offline contract must be UNIFORM: a send (or
+  ;; request) issued while `:failed` must QUEUE, not vanish. `:failed` is a
+  ;; top-level state, so it does NOT inherit `:active`'s parent `:ws/send` /
+  ;; `:ws/request` enqueue transitions — it has to carry its own, exactly like
+  ;; `:disconnected` and `:reconnecting`. Then a manual `:ws/connect` out of
+  ;; `:failed` reaches `:connected` and the `:always` `:flush-queue` drains the
+  ;; buffered work. Regression for the acknowledged-message-loss bug: before
+  ;; the fix, `:ws.app/send` clears the draft and the machine drops the
+  ;; unhandled send, so the message is lost with no way to recover it.
+  (with-sync-mock!
+    (fn []
+      (with-new-frame [f (new-frame)]
+        (drive-to-failed! f)
+        (is (= :failed (:state (snapshot (:rf.db/runtime (rf/frame-state-value f)))))
+            "precondition: machine is in top-level :failed")
+        (is (true? (machine-has-tag? f :websocket/failed)))
+        ;; --- a :ws/send in :failed must QUEUE (before the fix it was LOST) ---
+        (rf/dispatch-sync [:ws/connection
+                           [:ws/send {:type :note :body "keep-me"}]]
+                          {:frame f})
+        (let [s (snapshot (:rf.db/runtime (rf/frame-state-value f)))]
+          (is (= :failed (:state s))
+              "a :ws/send does not move the machine out of :failed")
+          (is (= [[:ws/send {:type :note :body "keep-me"}]]
+                 (get-in s [:data :queue]))
+              "the :failed-state send was buffered, not dropped"))
+        ;; --- a :ws/request in :failed must QUEUE alongside it ----------------
+        (let [rid (random-uuid)]
+          (rf/dispatch-sync [:ws.app/request "failed-hello"]
+                            {:frame f :rf.cofx {:ws.app/request-id rid}})
+          (let [s (snapshot (:rf.db/runtime (rf/frame-state-value f)))]
+            (is (= 2 (count (get-in s [:data :queue])))
+                "the :failed-state request was buffered alongside the send")
+            (is (= :ws/request (first (get-in s [:data :queue 1])))
+                "buffered as the WHOLE :ws/request event for a later flush"))
+          ;; --- manual reconnect drains the queue (:failed → :connected) ------
+          ;; :record-and-reset (the :ws/connect action out of :failed) leaves
+          ;; :queue untouched, so the :connected entry's :always flush finds it.
+          (rf/dispatch-sync [:ws/connection
+                             [:ws/connect {:url "ws://mock" :auth-token "demo"}]]
+                            {:frame f})
+          (let [s  (snapshot (:rf.db/runtime (rf/frame-state-value f)))
+                db (rf/app-db-value f)]
+            (is (true? (machine-has-tag? f :websocket/connected))
+                "manual :ws/connect out of :failed reconnects to :connected")
+            (is (= [] (get-in s [:data :queue]))
+                ":connected entry's :always :flush-queue drained the failed-state queue")
+            (is (= {} (get-in s [:data :in-flight]))
+                "the queued request registered on flush AND its reply cleared the slot")
+            (let [reply (get-in db [:messages :last-reply])]
+              (is (some? reply)
+                  "the queued failed-state request got a correlated reply (not lost)")
+              (is (= rid (:request-id reply))
+                  "correlation id round-tripped from the queued envelope")
+              (is (true? (:ok reply))))))))))
+
+(defn- failed-state-enqueue-transitions-declared-test []
+  ;; rf2-3fc89f.29 — structural mirror of the runtime proof above: `:failed`
+  ;; carries the SAME `:ws/send` / `:ws/request` → `:enqueue-message`
+  ;; transitions as `:disconnected` and `:reconnecting`. The offline queue path
+  ;; is uniform across every non-connected top-level state; `:failed` is not
+  ;; special-cased into silently dropping accepted work.
+  ;; `defmachine` co-locates a `:source-coords` map into each transition for
+  ;; Xray click-to-source, so compare the `:action` value (not the whole map)
+  ;; and assert it's a self-transition (no `:target` — enqueue leaves the
+  ;; state unchanged).
+  (let [m ws.connection/connection-machine]
+    (doseq [state [:disconnected :reconnecting :failed]
+            ev    [:ws/send :ws/request]]
+      (let [t (get-in m [:states state :on ev])]
+        (is (= :enqueue-message (:action t))
+            (str state " enqueues " ev))
+        (is (nil? (:target t))
+            (str state " " ev " is a self-transition (no state change)"))))))
+
 ;; ============================================================================
 ;; REQUEST/REPLY + SERVER PUSH + SUBSCRIPTIONS
 ;; ============================================================================
@@ -966,6 +1063,19 @@
   (testing "rf2-ryt25d — a :ws/request buffered off-connection registers and
             correlates its reply on connect; the reconnect window buffers alike"
     (queued-request-registers-and-replies-on-connect-test)))
+
+(deftest websocket-failed-state-queues-and-drains
+  (testing "rf2-3fc89f.29 — a :ws/send (and :ws/request) issued while :failed is
+            QUEUED, not dropped; a manual :ws/connect out of :failed reaches
+            :connected and the :always flush drains it — no acknowledged
+            message is lost"
+    (failed-state-queues-and-drains-test)))
+
+(deftest websocket-failed-state-enqueue-transitions-declared
+  (testing "rf2-3fc89f.29 — :failed carries the same :ws/send / :ws/request →
+            :enqueue-message transitions as :disconnected and :reconnecting;
+            the offline queue path is uniform across non-connected states"
+    (failed-state-enqueue-transitions-declared-test)))
 
 (deftest websocket-request-reply-correlation
   (testing "request-reply correlation — :in-flight slot fills then clears on reply"
