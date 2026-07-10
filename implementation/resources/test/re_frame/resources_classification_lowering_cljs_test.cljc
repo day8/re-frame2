@@ -172,3 +172,41 @@
           (is (= #{{:source :resource}}
                  (get (elision/sensitive-declarations :reg/frame)
                       [:rf.runtime/resources :entries k-id :data :ssn]))))))))
+
+;; ===========================================================================
+;; (rf2-wdm1vg) MULTI-OWNER union — a resource's lowered :data claim and an app
+;; effect claim on the SAME absolute entry path survive INDEPENDENTLY.
+;; ===========================================================================
+
+(deftest resource-and-effect-claims-union-and-remove-independently
+  (reg! :acct/card {:sensitive [[:data :ssn]]})
+  (testing "rf2-wdm1vg — a resource's lowered :data claim and an app effect claim
+            on the SAME absolute entry path UNION through reconcile, and each
+            removes INDEPENDENTLY: eviction drops the resource claim while the
+            effect survives; removing the effect owner leaves the resource claim."
+    (let [k       (state/scoped-resource-key :rf.scope/global :acct/card {:slug "x"})
+          k-id    (state/key-id k)
+          abs-ssn [:rf.runtime/resources :entries k-id :data :ssn]
+          ;; base runtime-db: the entry exists AND an app effect ALREADY
+          ;; classifies the same absolute path (Spec 015 L149).
+          base    (-> (runtime-db-with {k {:data {:ssn "123-45-6789"}}})
+                      (assoc-in [:rf.runtime/elision :sensitive-declarations abs-ssn]
+                                #{{:source :effect}}))
+          ;; reconcile LOWERS the resource claim → UNION with the effect claim
+          unioned (classification/reconcile-registry base registry/resource-meta)
+          owners  (get-in unioned [:rf.runtime/elision :sensitive-declarations abs-ssn])]
+      (is (contains? owners {:source :effect})  "the effect claim is retained")
+      (is (contains? owners {:source :resource}) "the resource claim UNIONS in")
+      ;; EVICT the entry → reconcile drops ONLY the resource owner; effect survives
+      (let [evicted  (-> unioned
+                         (assoc-in [state/resources-key :entries] {})
+                         (classification/reconcile-registry registry/resource-meta))
+            e-owners (get-in evicted [:rf.runtime/elision :sensitive-declarations abs-ssn])]
+        (is (= #{{:source :effect}} e-owners)
+            "eviction drops the resource claim; the effect claim SURVIVES (no fail-open)"))
+      ;; conversely, removing the effect owner leaves the resource claim standing
+      (let [reg-only       (get unioned :rf.runtime/elision)
+            without-effect (elision/remove-owner reg-only :sensitive-declarations {:source :effect})
+            r-owners       (get-in without-effect [:sensitive-declarations abs-ssn])]
+        (is (= #{{:source :resource}} r-owners)
+            "removing the effect owner leaves the resource claim standing")))))
