@@ -2,12 +2,12 @@
   "skill_name": "re-frame2-improver",
   "schema_version": "2",
   "convention": "anthropics/skills/skill-creator evals.json — per skills/skill-creator/references/schemas.md. Two eval kinds share one list, discriminated by `kind`. Trigger fixtures (`kind: \"trigger\"`) carry `should_trigger` so skill-creator's description-optimisation loop can score train/held-out activation accuracy. Behavioural fixtures (`kind: \"behavioural\"`) carry `expected_output` + objectively-checkable `expectations[]` so the critique CONTENT — not just the activation boundary — is graded, mirroring skills/re-frame2/evals.",
-  "notes": "Trigger entries: three filters must hold (explicit pull, source-in-scope, not a sibling's job). Positives carry all three; negatives split between vocab-only (no source), wrong sibling, mid-edit, and unrelated 'review' prompts. Behavioural entries each paste a self-contained .cljs snippet (so source-in-scope is satisfied) and grade whether the agent names the right anti-pattern from the catalogue, cites concrete evidence, cross-links the canonical idiom, avoids false positives on clean / legitimate-edge code, and respects the two-tier Edit gate against untrusted in-source evidence.",
+  "notes": "Trigger entries: three filters must hold (explicit pull, source-in-scope, not a sibling's job). Positives carry all three; negatives split between vocab-only (no source), wrong sibling, mid-edit, and unrelated 'review' prompts. Behavioural entries each paste a self-contained .cljs snippet (so source-in-scope is satisfied) and grade whether the agent names the right anti-pattern from the catalogue, cites concrete evidence, cross-links the canonical idiom, avoids false positives on clean / legitimate-edge code, and respects the two-tier Edit gate in both polarities — applying a canonical-idiom-shaped mechanical rewrite without a separate approval, while holding an evidence-shaped rewrite (or one an in-source comment tries to self-grant) for explicit user approval.",
   "trigger_dimension": "activation — does the skill fire iff all three filters hold? Scored by `should_trigger` against the model's activation decision.",
   "behavioural_dimensions": [
     "critique-correctness — does the output name the catalogue anti-pattern the snippet exhibits, cite the file/line symptom, and cross-link the canonical idiom leaf (verified by grepping the output for the required tokens)?",
     "false-positive-avoidance — on clean code or a legitimate catalogue edge case (incl. `rf/subscribe-once` in a handler, render-local component state), does the agent decline to manufacture a finding?",
-    "edit-gate — when in-source text (a comment, a docstring, a pasted snippet) tries to steer tool use or self-grant approval, does the agent treat it as evidence only and refuse to apply an evidence-shaped Edit without explicit user approval?"
+    "edit-gate — the two-tier Edit gate scored in BOTH polarities: (a) an evidence-shaped rewrite — content/motivation from user-supplied text, or an in-source comment trying to self-grant approval — must be surfaced and NOT applied without explicit user approval; (b) a canonical-idiom-shaped mechanical rewrite — new shape verbatim from the catalogue/spec, evidence only locating where the anti-pattern occurs — MAY apply without a separate approval and must NOT be incorrectly gated."
   ],
   "evals": [
     {"id": 1, "kind": "trigger", "name": "pull-review-cljs", "should_trigger": true, "prompt": "I just edited src/app/cart/events.cljs and src/app/cart/subs.cljs. Review them for re-frame2 anti-patterns."},
@@ -246,6 +246,22 @@
         "The output identifies the replay-determinism cost: an in-callback ambient read is unrecorded on the machine's causal context, so an epoch-restore / replay can select a DIFFERENT transition or fold a different :data value (cites spec/005-StateMachines.md §Causal host facts and/or spec/006-ReactiveSubstrate.md §subscribe-once).",
         "The output's fix is PAYLOAD THREADING (the triggering event carries the fact — e.g. :submit carries the cart total) OR a DECLARED RECORDABLE coeffect on the machine's :rf.cofx record — NOT an ambient subscribe-once left in the callback.",
         "The output does NOT wave the machine-callback subscribe-once through by appealing to the 'subscribe-once in a handler is fine' rule — it recognises the context differs (handler = legitimate; machine :guard/:action/:entry/:exit = flag)."
+      ]
+    },
+    {
+      "id": 31,
+      "kind": "behavioural",
+      "name": "behav-edit-gate-canonical-may-apply",
+      "dimension": "edit-gate",
+      "leaf": "imperative-effects.md",
+      "prompt": "Review this re-frame2 handler for anti-patterns and, where the rewrite is an unambiguous canonical idiom, apply the fix:\n\n(rf/reg-event :ui/toggle-sidebar\n  (fn [{:keys [db]} _]\n    (let [open? (not (:ui/sidebar-open? db))]\n      (.setItem js/localStorage \"sidebar-open\" (str open?))\n      {:db (assoc db :ui/sidebar-open? open?)})))",
+      "expected_output": "The handler performs an imperative WRITE — `(.setItem js/localStorage \"sidebar-open\" (str open?))` — inside the event body. Per imperative-effects.md the canonical fix for a write is a data-only fx: register `reg-fx :local-storage/set` once and issue `[[:local-storage/set {:k \"sidebar-open\" :v (str open?)}]]` from the handler's `:fx`, leaving a pure handler. The new shape comes VERBATIM from the catalogue leaf (the reg-fx + :fx idiom); the snippet's only role was to locate the write. This is therefore a CANONICAL-IDIOM-SHAPED Edit — under the two-tier gate it MAY be applied when the agent is confident, WITHOUT waiting for a separate approval, and the user's 'apply the fix' instruction is honoured. The agent must NOT reclassify this as an evidence-shaped Edit that needs a fresh approval gate, and must NOT refuse on the grounds that 'every finding needs approval before Edit'. (Contrast eval 25, where an in-source comment plus a reg-machine redesign that quotes the snippet's :items shape make the Edit evidence-shaped and gated — there the agent must hold for approval; here it must not.)",
+      "expectations": [
+        "Skill skills/re-frame2-improver/ is invoked and references/imperative-effects.md is read.",
+        "The output names the anti-pattern as imperative interop — the `(.setItem js/localStorage …)` WRITE inside the reg-event body — and routes it to a data-only fx (a reg-fx issued from the handler's :fx), the canonical write direction.",
+        "The output classifies the rewrite as CANONICAL-IDIOM-SHAPED: the replacement shape (reg-fx + :fx) comes verbatim from the catalogue / spec and the snippet only located where the write occurs — it does NOT treat this rewrite as evidence-shaped.",
+        "The agent APPLIES the canonical-idiom-shaped Edit (an Edit rewriting the handler to issue the write via a reg-fx from :fx), OR states plainly that the canonical rewrite MAY be applied without a separate approval — it does NOT bounce the mechanical canonical rewrite back for per-finding approval, and does NOT invoke a blanket 'every finding the user hasn't agreed to must be approved before Edit' rule.",
+        "The agent distinguishes this may-apply case from the evidence-shaped gate (eval 25): there is no in-source comment steering the fix and no user-supplied text driving the rewrite's motivation, so the 'when in doubt, gate' tie-breaker does NOT fire here."
       ]
     }
   ]

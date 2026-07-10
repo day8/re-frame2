@@ -630,6 +630,70 @@
              "`Edit` in its allowed-tools, this is THE consumer that "
              "has to enforce it."))))
 
+;; ---------------------------------------------------------------------------
+;; Improver Edit-gate narrowing (rf2-3fc89f.38)
+;;
+;; The improver's §Anti-patterns self-bullet once blanket-gated *every*
+;; unagreed finding's Edit ("Don't apply `Edit` for … any finding the user
+;; hasn't agreed to"), contradicting the canonical-idiom branch of the
+;; Edit-gate split — whose normative owner is retro-protocol.md §Step 6: a
+;; confident, catalogue-verbatim mechanical rewrite MAY apply WITHOUT a
+;; separate approval. This structural assertion keeps a future wording change
+;; from reintroducing that blanket contradiction while the two gate names
+;; (`evidence-shaped` / `canonical-idiom`) are still nominally present.
+;;
+;; `improver-blanket-edit-gate-re` deliberately requires BOTH a universal
+;; quantifier over *findings* AND an approval/agreement gate word within the
+;; same period-bounded, single-line clause, so the legitimate "don't reduce
+;; every finding to 'read the spec'" bullet (no gate word) and the narrowed
+;; evidence-shaped rule (no "any/every/each finding" quantifier) both stay
+;; clean. Its own discrimination is proven by the positive/negative self-test
+;; below, so the assertion can never silently degrade to a no-op.
+;; ---------------------------------------------------------------------------
+
+(def ^:private improver-blanket-edit-gate-re
+  #"(?i)(?:any|every|each)\s+finding\b[^.\n]{0,60}?(?:agreed|approv|consent)")
+
+(deftest improver-edit-gate-narrowed-not-blanket
+  (testing "improver self-anti-pattern names both gates and does NOT blanket-gate every unagreed finding"
+    (let [body @improver-skill-md]
+      (is (str/includes? body "evidence-shaped")
+          (str "re-frame2-improver dropped the `evidence-shaped` gate name. "
+               "The Edit-gate split must name BOTH gates so the narrowing is "
+               "executable, not merely a deletion (rf2-3fc89f.38)."))
+      (is (str/includes? body "canonical-idiom")
+          (str "re-frame2-improver dropped the `canonical-idiom` gate name. "
+               "Without the canonical-idiom branch the improver over-gates "
+               "again — every mechanical rewrite would need approval "
+               "(rf2-3fc89f.38)."))
+      (is (not (re-find improver-blanket-edit-gate-re body))
+          (str "re-frame2-improver's §Anti-patterns bullet again blanket-"
+               "gates the Edit for *any/every finding the user hasn't agreed "
+               "to*. That contradicts the canonical-idiom branch of the "
+               "Edit-gate split (retro-protocol.md §Step 6 is the normative "
+               "owner): a catalogue-verbatim mechanical rewrite MAY apply "
+               "without a separate approval. Narrow the bullet to the "
+               "evidence-shaped + higher-leverage-redesign prohibition "
+               "(rf2-3fc89f.38).")))))
+
+(deftest improver-blanket-edit-gate-detector-self-test
+  (testing "the blanket-Edit-gate detector fires on the old contradiction and clears the narrowed / legitimate wordings"
+    ;; POSITIVE — the exact rf2-3fc89f.38 contradiction must be caught, or the
+    ;; assertion above is a no-op.
+    (is (re-find improver-blanket-edit-gate-re
+                 "Don't apply `Edit` for higher-leverage redesigns or any finding the user hasn't agreed to.")
+        (str "the blanket-Edit-gate detector no longer catches the original "
+             "'any finding … hasn't agreed to' prohibition."))
+    ;; NEGATIVE 1 — the narrowed evidence-shaped wording must pass clean.
+    (is (not (re-find improver-blanket-edit-gate-re
+                      "Don't apply `Edit` for a higher-leverage redesign, or for an evidence-shaped rewrite the user hasn't approved."))
+        "the detector false-positives on the narrowed evidence-shaped wording.")
+    ;; NEGATIVE 2 — the legitimate 'every finding must stand on its own' bullet
+    ;; (no gate word) must pass clean.
+    (is (not (re-find improver-blanket-edit-gate-re
+                      "Don't reduce every finding to \"read the spec\". The finding must stand on its own."))
+        "the detector false-positives on the legitimate 'every finding' non-gate bullet.")))
+
 (deftest pair-retro-loads-shared-protocol
   (testing "re-frame2-pair-retro/SKILL.md links to ../shared/retro-protocol.md"
     (is (str/includes? @pair-retro-skill-md "../shared/retro-protocol.md")
