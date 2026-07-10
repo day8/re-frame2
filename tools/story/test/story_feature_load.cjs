@@ -642,7 +642,7 @@ async function assertLoginStory(page, phase) {
     );
     await clickVariant(page, '/authenticated');
     await expectVisible(page.locator('[data-test="login-welcome"]'), 10000);
-    await clickWorkspace(page, ':Workspace.login/all-states');
+    await clickWorkspace(page, ':Workspace.login-form/all-states');
     await waitForValue(
       () => page.locator('[data-test="login-state-pill"]').count(),
       (count) => count >= 5,

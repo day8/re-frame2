@@ -29,6 +29,7 @@
   `reg-*` macros — so the side-table + the four projection subs are
   registered by the time the tests run."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
+            [clojure.set        :as set]
             [re-frame.core      :as rf]
             [re-frame.frame     :as frame]
             [re-frame.machines  :as machines]
@@ -41,7 +42,15 @@
             [re-frame.test-support     :as test-support]
             [login-form.events]
             [login-form.subs]
-            [login-form.stories :as lf-stories]))
+            [login-form.stories :as lf-stories]
+            ;; The login EXAMPLE deck — co-loaded with this testbed under the
+            ;; consolidated node-test build. Required here for the
+            ;; distinct-parents regression below (rf2-tijvbd): its
+            ;; `register-all!` repopulates the `:story.login/*` variants the
+            ;; `before!` fixture's `clear-all!` wiped, so the disjointness
+            ;; assertion sees both decks. Already on the node-test classpath
+            ;; (the login-example seed test requires it too).
+            [login.stories :as login-stories]))
 
 ;; ---- fixtures ------------------------------------------------------------
 ;;
@@ -150,48 +159,95 @@
   (rf/compute-sub query-v frame-state))
 
 (deftest idle-variant-state-sub-resolves
-  (testing ":story.login/idle — `:login/state` resolves :idle off the
+  (testing ":story.login-form/idle — `:login/state` resolves :idle off the
             runtime-db snapshot (and the `:rf.assert/state-is` checkpoint
             passes)"
     (async done
-      (run-then done :story.login/idle
+      (run-then done :story.login-form/idle
         (fn [_ fs]
           (is (= :idle (sub-value [:login/state] fs))
               ":login/state read the live runtime-db snapshot, not nil"))))))
 
 (deftest submitting-variant-state-sub-resolves
-  (testing ":story.login/submitting — `:login/state` resolves :submitting"
+  (testing ":story.login-form/submitting — `:login/state` resolves :submitting"
     (async done
-      (run-then done :story.login/submitting
+      (run-then done :story.login-form/submitting
         (fn [_ fs]
           (is (= :submitting (sub-value [:login/state] fs))))))))
 
 (deftest error-variant-error-sub-resolves
-  (testing ":story.login/error — `:login/error` resolves the error message
+  (testing ":story.login-form/error — `:login/error` resolves the error message
             off the runtime-db snapshot (NOT nil from the dead app-db path)"
     (async done
-      (run-then done :story.login/error
+      (run-then done :story.login-form/error
         (fn [_ fs]
           (is (= :error (sub-value [:login/state] fs)))
           (is (= "Invalid credentials." (sub-value [:login/error] fs))
               ":login/error returned the live message, not nil"))))))
 
 (deftest submitting-retry-variant-attempts-sub-resolves
-  (testing ":story.login/submitting-retry — `:login/attempts` resolves the
+  (testing ":story.login-form/submitting-retry — `:login/attempts` resolves the
             incremented counter off the runtime-db snapshot"
     (async done
-      (run-then done :story.login/submitting-retry
+      (run-then done :story.login-form/submitting-retry
         (fn [_ fs]
           (is (= :submitting-retry (sub-value [:login/state] fs)))
           (is (= 1 (sub-value [:login/attempts] fs))
               ":login/attempts returned the live count, not the 0 default"))))))
 
 (deftest authenticated-variant-email-sub-resolves
-  (testing ":story.login/authenticated — `:login/email` resolves the
+  (testing ":story.login-form/authenticated — `:login/email` resolves the
             submitted handle off the runtime-db snapshot"
     (async done
-      (run-then done :story.login/authenticated
+      (run-then done :story.login-form/authenticated
         (fn [_ fs]
           (is (= :authenticated (sub-value [:login/state] fs)))
           (is (= "ada@example.com" (sub-value [:login/email] fs))
               ":login/email returned the live email, not nil"))))))
+
+;; ---- rf2-tijvbd: the two login decks own DISTINCT parents ----------------
+;;
+;; Regression guard for the parent-id collision (rf2-tijvbd). The login
+;; EXAMPLE deck (examples/core/login) owns the canonical `:story.login`; this
+;; testbed owns `:story.login-form`. Under the consolidated node-test build
+;; BOTH decks' `(register-all!)` fire at ns-load, so a shared parent id made
+;; `story/variants-of` return the UNION of both (they collided on
+;; `:story.login/submitting`). Co-load both decks here — the `before!` fixture
+;; already fired this testbed's `register-all!`; fire the example's too — and
+;; assert each `variants-of` returns ONLY its own deck's variants, with no
+;; shared variant id. Membership is `(= (namespace vid) (name story-id))`
+;; (story/registrar), so the distinct `"story.login"` / `"story.login-form"`
+;; namespaces keep the two sets disjoint. This goes RED if either deck is ever
+;; re-pointed back at the other's parent id.
+
+(def ^:private example-variant-ids
+  "The login EXAMPLE's seven canonical variants (examples/core/login/stories.cljs)."
+  #{:story.login/empty
+    :story.login/filled
+    :story.login/submitting
+    :story.login/invalid-credentials
+    :story.login/auth-error
+    :story.login/locked-out
+    :story.login/success})
+
+(def ^:private testbed-variant-ids
+  "This testbed's five variants."
+  #{:story.login-form/idle
+    :story.login-form/submitting
+    :story.login-form/error
+    :story.login-form/submitting-retry
+    :story.login-form/authenticated})
+
+(deftest login-decks-register-under-distinct-parents
+  (testing "story/variants-of returns ONLY each deck's own variants — the
+            example and testbed login decks no longer share a parent story id
+            or any variant id (rf2-tijvbd)"
+    (login-stories/register-all!)   ;; example → :story.login/*
+    (lf-stories/register-all!)      ;; testbed → :story.login-form/* (idempotent; fixture fired it)
+    (is (= testbed-variant-ids (story/variants-of :story.login-form))
+        "variants-of :story.login-form is exactly this testbed's five")
+    (is (= example-variant-ids (story/variants-of :story.login))
+        "variants-of :story.login is exactly the example's seven — no testbed variants leak in")
+    (is (empty? (set/intersection (story/variants-of :story.login)
+                                  (story/variants-of :story.login-form)))
+        "no variant id is shared between the two decks")))
