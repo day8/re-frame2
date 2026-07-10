@@ -22,7 +22,7 @@
  *     implementation browser and bundle gates" step also runs in the local
  *     script (lockstep — the local mirror must not drift BEHIND the nightly
  *     sweep for implementation browser/bundle commands).
- *  2. The two commands the bead names — `test:examples-compile` and
+ *  2. The two inventory commands — `test:examples-compile` and
  *     `test:story-play-scripts` — are present in the local script (a direct
  *     pin, independent of the parse, so neither can silently drop out again).
  *  3. Every command the local script invokes is a real `package.json` script

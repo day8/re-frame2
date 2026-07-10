@@ -1,4 +1,4 @@
-;; Public-API manifest generator (rf2-3nbl5.2 — API-governance keystone).
+;; Public-API manifest generator and projection checks.
 ;;
 ;; Self-contained classpath that pulls BOTH the implementation artefacts
 ;; (core + every optional feature artefact) AND the JVM-loadable tool
@@ -14,7 +14,7 @@
 ;; namespaces, the Xray `mount-*!` family, the pair-MCP server) cannot
 ;; be `require`d on the JVM — their rows are carried in the curated
 ;; sidecar and passed through verbatim. The CLJS-side enumeration probe
-;; (rf2-2mtte, ../api-manifest/probe/, run by `npm run test:cljs`)
+;; (`probe/`, run by `npm run test:cljs` from `implementation/`)
 ;; runtime-verifies the covered namespaces; each row carries its own
 ;; `:runtime-verified?` flag (true once the probe covers it).
 ;;
@@ -37,11 +37,8 @@
          ;; Tool artefacts with JVM-loadable (.cljc) public namespaces.
          day8/re-frame2-story    {:local/root "../../../tools/story"}
          day8/re-frame2-mcp-base {:local/root "../../../tools/mcp-base"}}
- ;; Projection-check unit tests (rf2-0u8kz). Same quiet-runner shape as the
- ;; per-artefact :test aliases. The tests reconcile synthetic + live inputs
- ;; through the pure reconcilers so the namespace-qualified resolution
- ;; contract (a fully-qualified panel symbol must match its EXACT [ns var],
- ;; never merely share a bare var name) is regression-locked.
+ ;; Projection-check unit tests. A qualified symbol must match its exact
+ ;; [namespace var] row, never merely share a bare var name.
  :aliases
  {:test {:extra-paths ["test"]
          :extra-deps  {day8/re-frame2-test-quiet {:local/root "../../test-quiet"}

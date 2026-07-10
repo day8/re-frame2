@@ -1,5 +1,5 @@
 (ns re-frame.api-manifest.doc-guide-check
-  "Doc-guide projection check (rf2-gkp0t).
+  "Documentation-guide projection check.
 
   The human guide (`docs/core/**/*.md`) teaches re-frame2 through worked
   code. Every code sample names front-porch / advanced vars through the
@@ -7,19 +7,14 @@
   no longer resolves. This check extracts every call-position `(rf/<var>`
   reference and asserts each resolves to a manifest `re-frame.core` row.
 
-  CAPABILITY CONCEPT DOCS (rf2-earvtz). The #4961 docs reorg moved each
-  capability's CONCEPT doc out of the flat `docs/core/` tree into
-  per-capability `docs/<cap>/concepts.md` files (machines / resources /
-  routing / ssr). Those concept docs teach the same worked code and so are
-  scanned by this gate alongside `docs/core/` — the `docs/*/concepts.md`
-  glob folds them in (and auto-covers a future capability dir). Without this,
-  a broken `(rf/<var>` reference in a moved concept doc would slip through CI.
+  Per-capability `docs/<cap>/concepts.md` files are scanned alongside
+  `docs/core/`; the one-level glob also discovers future capability docs.
 
   SCOPE — same call-position discipline as the skills check (anchor on the
   leading `(` so the `:rf/*` reserved keyword namespace is excluded, not
   swept in as bogus var references).
 
-  V1-MIGRATION CHAPTER. `docs/core/25-from-re-frame-v1.md` names removed
+  V1-MIGRATION CHAPTER. The migration guide names removed
   re-frame v1 APIs (`on-changes`, …) as the left-hand side of migration
   guidance, exactly as the migration SKILL does. Its old-name mentions are
   carried on the `:doc-guide-known-unmanifested-scoped` allowlist rather
@@ -28,19 +23,9 @@
   syntax table (`set-x!` / `install-x!` — `<x>` stand-ins, not real vars)
   ride the same allowlist.
 
-  FILE-SCOPED ALLOWLIST (rf2-hk6wd2). The removed-name allowlist used to be
-  a BARE-NAME set: a name listed there was silenced ANYWHERE in the guide
-  tree. EP-0017 removed `inject-cofx`, and live teaching prose must use
-  `:rf.cofx/requires` — but a bare allowlist would let a future live
-  `(rf/inject-cofx …)` in any teaching chapter pass green, since the bare
-  name `inject-cofx` was unconditionally silenced. The allowlist is now
-  `:doc-guide-known-unmanifested-scoped` — `{removed-name -> #{approved
-  repo-relative file paths}}`. A call-position reference to a removed name
-  is silenced ONLY in its approved migration file(s); the SAME reference in
-  any other guide file is RED (it leaked into live teaching prose). This is
-  the negative check the bead asks for: live guide chapters cannot call
-  removed EP-0017 (or EP-0015/EP-0018) APIs outside approved migration
-  contexts."
+  FILE-SCOPED ALLOWLIST. `:doc-guide-known-unmanifested-scoped` maps each
+  removed name to the repo-relative migration files allowed to mention it in
+  call position. The same reference in live teaching prose remains an error."
   (:require [clojure.string :as str]
             [re-frame.api-manifest.gen :as gen]
             [re-frame.api-manifest.projection :as proj]))
@@ -112,13 +97,9 @@
         guide-files  (->> (proj/require-markdown-files "docs/core/" dir)
                           (remove #(str/starts-with? (proj/repo-relative %)
                                                      "docs/core/api/")))
-        ;; Per-capability CONCEPT docs (rf2-earvtz). The #4961 docs reorg moved
-        ;; each capability's concept doc out of the flat docs/core/ tree into
-        ;; docs/<cap>/concepts.md (machines/resources/routing/ssr). The
-        ;; docs/*/concepts.md glob folds those moved files back under this
-        ;; gate's scan so a broken `(rf/<var>` reference in them goes RED; it
-        ;; auto-covers a future capability dir with no gate edit, and fails
-        ;; loudly (require-*) if the layout moves again.
+        ;; Capability concept docs are a required one-level docs/* surface;
+        ;; discovery covers new capabilities and fails loudly if the surface
+        ;; disappears.
         concept-files (proj/require-capability-doc-files
                         "docs/*/concepts.md" "concepts.md")
         files        (concat guide-files concept-files)
@@ -128,8 +109,7 @@
         var-problems (reconcile {:references   references
                                  :core-vars    core-vars
                                  :scoped-allow scoped-allow})
-        ;; Keyword-drift guards (rf2-tawage / rf2-uhew69 / rf2-1zjkn8): the
-        ;; var-resolution reconcile above cannot see stale EP-0017
+        ;; Var resolution cannot see stale EP-0017
         ;; `:rf.world/inputs`, EP-0011 reply-envelope (`:stale-key` / bare
         ;; `:work-id`), or EP-0015 egress-profile keyword vocabulary creeping
         ;; back into teaching prose. Fold the keyword scan in so a

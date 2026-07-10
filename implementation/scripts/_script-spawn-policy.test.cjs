@@ -49,8 +49,7 @@
 const assert = require('assert/strict');
 const fs = require('fs');
 const path = require('path');
-// Shared stripComments (EXECUTABLE-source-only matching) + loopbackBindRe
-// factory + framework-free test harness (rf2-j552l2).
+// Shared executable-source filtering, loopback matcher, and test harness.
 const {
   stripComments,
   loopbackBindRe,
@@ -58,13 +57,7 @@ const {
 } = require('./_policy-test-util.cjs');
 
 const SCRIPTS_DIR = __dirname;
-// rf2-y9o5e3 — the executable browser-gate launchers under
-// examples/scripts/ run the SAME shadow-cljs compile + http-server spawn
-// posture as the implementation/scripts launchers, and `npm run
-// test:adapter-smokes` / `test:story-feature-load` / `test:story-play-scripts`
-// drive them on Windows local runs. They were previously OUTSIDE this
-// policy gate (it scanned only implementation/scripts/), so a forbidden
-// npx.cmd/cmd.exe/shell posture survived there. Pull them in here.
+// Examples browser-gate launchers share the same shell-free spawn policy.
 const EXAMPLES_SCRIPTS_DIR = path.resolve(
   __dirname,
   '..',
@@ -72,10 +65,8 @@ const EXAMPLES_SCRIPTS_DIR = path.resolve(
   'examples',
   'scripts',
 );
-// The adapter-smoke harness (orchestrator + runner + manifest) moved here,
-// colocated with the adapters it drives. It runs the SAME shadow-cljs
-// compile + http-server spawn posture, so it must stay under this shell-free
-// spawn policy.
+// The adapter-smoke harness is colocated with the adapters it drives and is
+// subject to the same policy.
 const ADAPTERS_SCRIPTS_DIR = path.resolve(__dirname, '..', 'adapters', 'scripts');
 
 const { test, run } = createPolicyTestSuite('script-spawn-policy');
@@ -90,11 +81,8 @@ function cjsFilesIn(dir) {
     .map((f) => path.join(dir, f));
 }
 
-// implementation/scripts/** (the original rf2-wn4o1 scope) PLUS the
-// executable launchers under examples/scripts/** (rf2-y9o5e3). The
-// examples/scripts dir holds the three browser-gate launchers, their
-// Playwright runners, port resolvers, helpers, and static scanners; none
-// may carry a shell:true/npx.cmd posture, so the whole dir is scanned.
+// Scan every executable launcher in the implementation, examples, and adapter
+// script surfaces.
 function gateScriptFiles() {
   return [
     ...cjsFilesIn(SCRIPTS_DIR),
@@ -104,13 +92,9 @@ function gateScriptFiles() {
 }
 
 // Any `shell:` option whose RHS is NOT the literal `false` is a
-// violation. The earlier `(true|isWin)` enumeration only caught the two
-// forms the audit happened to see, so a future `shell: process.platform
-// === 'win32'` / `shell: useShell` / `shell: 1` + a bare-name exe would
-// slip the rf2-33vvc command-hijack class. Forbid every truthy/dynamic
-// RHS; only `shell: false` (and absence of the option) is allowed
-// (rf2-8ng3e1). The `(?!false\b)` negative lookahead lets `false` pass
-// while rejecting any other non-whitespace RHS token.
+// violation. Only `shell: false` (or omission) is allowed; dynamic values can
+// hide a platform-specific shell spawn. The negative lookahead lets the literal
+// `false` pass while rejecting any other non-whitespace token.
 const SHELL_OPT_RE = /\bshell\s*:\s*(?!false\b)\S/;
 // A `.cmd`-suffixed npx literal — `'npx.cmd'` / `"npx.cmd"`. Always a
 // violation: the Windows `.cmd` shim only ever needs naming when you
@@ -123,24 +107,14 @@ const NPX_CMD_LITERAL_RE = /(['"])npx\.cmd\1/;
 const NPX_BARE_LITERAL_RE = /(['"])npx\1/;
 const TRUSTED_EXE_RE = /resolveTrustedExe/;
 const CROSS_SPAWN_RE = /cross-spawn|crossSpawn/;
-// The bare-'npx' exemption is name-whitelisted to the single blessed
-// launcher. The exemption was previously earned file-WIDE by any file
-// merely MENTIONING resolveTrustedExe + cross-spawn, so a file routing
-// ONE spawn through the blessed posture won a blanket bare-'npx' pass for
-// a SEPARATE, unrouted spawn elsewhere in the same file. Pinning the
-// exemption to the audited file (test-mcp-conformance.cjs, which routes
-// every spawn through resolveTrustedExe + crossSpawn.sync) closes that
-// cross-file slip: any other launcher that grows a bare 'npx' is now a
-// violation regardless of which helpers it imports (rf2-8ng3e1).
+// The bare-'npx' exemption is limited to the one launcher whose whole spawn
+// path uses trusted resolution and cross-spawn.
 const TRUSTED_RESOLUTION_FILES = new Set(['test-mcp-conformance.cjs']);
 
 for (const file of gateScriptFiles()) {
   const base = path.basename(file);
   const code = stripComments(fs.readFileSync(file, 'utf8'));
-  // The exemption is gated on the file NAME (the audited, whole-file-
-  // routed launcher) AND on it still carrying the trusted-resolution
-  // posture — so even the blessed file loses the pass if it ever drops
-  // resolveTrustedExe / cross-spawn (rf2-8ng3e1).
+  // Both the audited filename and the trusted-resolution calls are required.
   const usesTrustedResolution =
     TRUSTED_RESOLUTION_FILES.has(base) &&
     TRUSTED_EXE_RE.test(code) &&
@@ -179,9 +153,7 @@ for (const file of gateScriptFiles()) {
   });
 }
 
-// Positive guards: the three scripts the audit (rf2-wn4o1) hardened must
-// keep their resolved-entry-point + process.execPath posture. These pin
-// the fix so a future edit can't quietly regress to npx-under-a-shell.
+// Pin resolved entry points and process.execPath for representative launchers.
 test('serve-and-run-browser-tests.cjs resolves http-server + spawns under process.execPath', () => {
   const src = fs.readFileSync(
     path.join(SCRIPTS_DIR, 'serve-and-run-browser-tests.cjs'),
@@ -207,13 +179,8 @@ test('serve-and-run-xray-feature-gate.cjs resolves shadow-cljs runner + spawns i
   assert.match(src, /spawnSync\(\s*process\.execPath,\s*args/);
 });
 
-// rf2-y9o5e3 — positive guards for the browser-gate launchers. Each must
-// resolve the shadow-cljs JS entry-point and spawn it shell-free under
-// process.execPath (the same hardened posture as the implementation/scripts
-// launchers above), so a future edit can't quietly regress to the
-// npx.cmd/cmd.exe/shell posture this bead removed. The adapter-smoke
-// orchestrator lives under implementation/adapters/scripts/ now; the two
-// Story launchers stay under examples/scripts/.
+// Browser-gate launchers resolve shadow-cljs and spawn it under the current
+// Node executable.
 const GATE_LAUNCHERS = [
   ['serve-and-run-adapter-smokes.cjs', ADAPTERS_SCRIPTS_DIR],
   ['serve-and-run-story-feature-load-tests.cjs', EXAMPLES_SCRIPTS_DIR],
@@ -235,28 +202,25 @@ for (const [base, dir] of GATE_LAUNCHERS) {
   });
 }
 
-// Loopback-bind policy (rf2-utvst): every implementation http-server
+// Every implementation http-server
 // launcher only ever serves a loopback consumer (the readiness probe +
 // the headless browser both hit 127.0.0.1), so each must spawn
 // http-server with an explicit `-a 127.0.0.1` rather than relying on
 // http-server's broad 0.0.0.0 default — otherwise the generated app
 // bundle and the per-run `.rf-harness-token` endpoint are reachable on
-// non-loopback interfaces during a test run. This mirrors the examples-
-// side guard in _story-script-runners-policy.test.cjs (rf2-wf5al.2). The
+// non-loopback interfaces during a test run. The
 // regex matches the http-server bin token followed (within a short
 // window) by the `'-a', '127.0.0.1'` pair. NB `[\s\S]{0,80}?` not `[^]`
 // (the JS-regex `[^]`-any-char gotcha).
 const LOOPBACK_BIND_RE = loopbackBindRe('HTTP_SERVER_BIN');
-// [base, dir] — the ownership-token-handshake launchers that still compose the
+// Ownership-token launchers compose the http-server argv inline
 // http-server argv inline (they publish + verify a per-run /.rf-harness-token
 // via waitForOwnedHttpReady, a handshake startLocalHttpServer does not yet
 // own). Each serves its bundle on loopback only (readiness probe + headless
 // browser both hit 127.0.0.1), so a future edit dropping the explicit
 // `-a 127.0.0.1` would silently re-expose the bundle on 0.0.0.0 and trip no
-// test. The tokenless four (the two Story launchers, serve-example, the
-// adapter-smoke orchestrator) NO LONGER appear here: they delegate the
-// loopback bind to startLocalHttpServer and are pinned by the
-// startLocalHttpServer caller-use guard below (rf2-slapfs).
+// test. Tokenless launchers delegate this policy to startLocalHttpServer and
+// are covered by the caller-use guard below.
 const IMPL_LOOPBACK_LAUNCHERS = [
   ['serve-and-run-browser-tests.cjs', SCRIPTS_DIR],
   ['check-story-static.cjs', SCRIPTS_DIR],
@@ -276,19 +240,10 @@ for (const [base, dir] of IMPL_LOOPBACK_LAUNCHERS) {
   });
 }
 
-// rf2-slapfs — startLocalHttpServer consolidation guard. The four launchers
-// that serve a local static tree behind a PLAIN (tokenless) readiness
-// handshake — the two Story launchers, serve-example, and the adapter-smoke
-// orchestrator — now delegate their http-server spawn / teardown-track /
-// early-exit-abort / readiness composition to the single startLocalHttpServer
-// owner in local-browser-harness.cjs (whose loopback `-a 127.0.0.1` bind +
-// static/no-cache flags are verified functionally in
-// _local-browser-harness.test.cjs). Pin the two that live under a dir this
-// suite already scans; the two Story launchers are pinned in
-// _story-script-runners-policy.test.cjs. A launcher re-inlining a bespoke
-// http-server spawn — the composition drift rf2-slapfs removed — trips here.
-// (Scanned over stripped source so a comment naming the helper is not a false
-// positive.)
+// Tokenless launchers delegate spawn, tracking, early-exit detection, and
+// readiness to startLocalHttpServer. Its loopback/static/no-cache behavior is
+// covered functionally in _local-browser-harness.test.cjs; Story callers are
+// pinned by _story-script-runners-policy.test.cjs.
 const START_LOCAL_HTTP_SERVER_CALLERS = [
   ['serve-and-run-adapter-smokes.cjs', ADAPTERS_SCRIPTS_DIR],
   ['serve-example.cjs', EXAMPLES_SCRIPTS_DIR],
@@ -296,7 +251,7 @@ const START_LOCAL_HTTP_SERVER_CALLERS = [
 const HARNESS_IMPORT_RE = /require\(\s*['"][^'"]*local-browser-harness\.cjs['"]\s*\)/;
 const START_LOCAL_HTTP_SERVER_RE = /\bstartLocalHttpServer\s*\(/;
 for (const [base, dir] of START_LOCAL_HTTP_SERVER_CALLERS) {
-  test(`${base}: delegates http-server startup to the shared startLocalHttpServer owner (rf2-slapfs)`, () => {
+  test(`${base}: delegates http-server startup to the shared startLocalHttpServer owner`, () => {
     const code = stripComments(fs.readFileSync(path.join(dir, base), 'utf8'));
     assert.match(
       code,
@@ -307,23 +262,13 @@ for (const [base, dir] of START_LOCAL_HTTP_SERVER_CALLERS) {
       code,
       START_LOCAL_HTTP_SERVER_RE,
       `${base} must start its http-server via the shared startLocalHttpServer(...) ` +
-        `owner rather than re-inlining a bespoke http-server spawn (rf2-slapfs).`,
+        `owner rather than re-inlining a bespoke http-server spawn.`,
     );
   });
 }
 
-// rf2-vtp2er — runner-consolidation guard. The browser-test and
-// story-static launchers were migrated off their bespoke copies of the
-// ownership-token / port-fallback protocol onto the shared
-// local-browser-harness.cjs primitives (the same API the Xray gate
-// consumes). Pin that: each must (a) import resolveServePort +
-// waitForOwnedHttpReady from the shared helper, and (b) NOT redefine the
-// local copies that previously lived inline (`function fetchToken`,
-// `function waitForReady`, `function isPortFree`, `function findFreePort`,
-// `function probe`). A future edit re-introducing a bespoke copy — the
-// exact three-implementations-in-one-surface drift the bead removed —
-// trips here. (Scanned over stripped source so a comment mentioning the
-// old names is not a false positive.)
+// Browser-test and Story-static launchers must consume the shared port and
+// ownership-token primitives without redefining them locally.
 const CONSOLIDATED_LAUNCHERS = [
   'serve-and-run-browser-tests.cjs',
   'check-story-static.cjs',
@@ -339,7 +284,7 @@ const LOCAL_HARNESS_DEFN_RES = [
   /function\s+probe\b/,
 ];
 for (const base of CONSOLIDATED_LAUNCHERS) {
-  test(`${base}: consumes the shared local-browser-harness port/token primitives (rf2-vtp2er)`, () => {
+  test(`${base}: consumes the shared local-browser-harness port/token primitives`, () => {
     const code = stripComments(
       fs.readFileSync(path.join(SCRIPTS_DIR, base), 'utf8'),
     );
@@ -351,7 +296,7 @@ for (const base of CONSOLIDATED_LAUNCHERS) {
       `${base} must wait for owned readiness via the shared waitForOwnedHttpReady.`);
   });
 
-  test(`${base}: does NOT redefine the consolidated harness primitives (rf2-vtp2er)`, () => {
+  test(`${base}: does not redefine the consolidated harness primitives`, () => {
     const code = stripComments(
       fs.readFileSync(path.join(SCRIPTS_DIR, base), 'utf8'),
     );
@@ -359,22 +304,14 @@ for (const base of CONSOLIDATED_LAUNCHERS) {
       assert.doesNotMatch(code, re,
         `${base} redefines a harness primitive that now lives in ` +
           `./lib/local-browser-harness.cjs — import it instead of keeping ` +
-          `a bespoke copy (rf2-vtp2er consolidation).`);
+          `a bespoke copy.`);
     }
   });
 }
 
-// rf2-pgppmu — ownership-token lifecycle consolidation guard. All five
-// browser-harness launchers that publish a per-run /.rf-harness-token now
-// delegate the token generate/write + idempotent, concurrency-safe cleanup
-// to the shared publishOwnershipToken(root) in local-browser-harness.cjs
-// (which already owns the read side: fetchToken + waitForOwnedHttpReady).
-// Pin that: none may keep a bespoke writeOwnershipToken/removeOwnershipToken
-// pair or a token-only `require('crypto')`, and each must consume the shared
-// helper. A future edit re-introducing a local copy — the exact
-// five-implementations-in-one-surface drift the bead removed — trips here.
-// (Scanned over stripped source so a comment naming the old symbols is not a
-// false positive.)
+// Ownership-token launchers delegate nonce creation, publication, and
+// concurrency-safe cleanup to publishOwnershipToken. They must not retain a
+// local token lifecycle or token-only crypto import.
 const TOKEN_LIFECYCLE_LAUNCHERS = [
   'serve-and-run-browser-tests.cjs',
   'check-story-static.cjs',
@@ -389,7 +326,7 @@ const LOCAL_TOKEN_DEFN_RES = [
 ];
 const CRYPTO_REQUIRE_RE = /require\(\s*['"]crypto['"]\s*\)/;
 for (const base of TOKEN_LIFECYCLE_LAUNCHERS) {
-  test(`${base}: delegates its ownership-token lifecycle to the shared helper (rf2-pgppmu)`, () => {
+  test(`${base}: delegates its ownership-token lifecycle to the shared helper`, () => {
     const code = stripComments(
       fs.readFileSync(path.join(SCRIPTS_DIR, base), 'utf8'),
     );
@@ -400,12 +337,12 @@ for (const base of TOKEN_LIFECYCLE_LAUNCHERS) {
       assert.doesNotMatch(code, re,
         `${base} defines a local ownership-token lifecycle fn that now lives ` +
           `in ./lib/local-browser-harness.cjs (publishOwnershipToken) — import ` +
-          `it instead of keeping a bespoke copy (rf2-pgppmu consolidation).`);
+          `it instead of keeping a bespoke copy.`);
     }
     assert.doesNotMatch(code, CRYPTO_REQUIRE_RE,
       `${base} still imports 'crypto' — the per-run token nonce now comes ` +
         `from the shared publishOwnershipToken; drop the token-only crypto ` +
-        `import (rf2-pgppmu).`);
+        `import.`);
   });
 }
 

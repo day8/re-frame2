@@ -133,7 +133,7 @@ test('check-story-static: the smoke throws on a captured pageerror even when ass
 // ---- serve-and-run-tenant-switcher-testbed.cjs (rf2-h5e3v7) ----
 // The tenant-switcher testbed smoke is now CI-wired
 // (tenant-switcher-testbed-smoke job), so its verdict path joins the
-// pinned set: the bead explicitly called out pageerror handling specific
+// pinned set: pageerror handling is specific
 // to this runner as a maskable failure. Same discipline as the siblings —
 // pageerrors go into a dedicated array and flip the verdict to fail before
 // `passed = true`.

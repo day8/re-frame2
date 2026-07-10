@@ -112,7 +112,7 @@ function checkBundle(label, bundlePath, mustContain) {
 
 // Count `performance.measure|clearMeasures|re-frame.performance` for
 // the report. The PR body wants the raw count number for both bundles,
-// per the bead's bundle-grep contract. The actual global-match count is
+// per the bundle-grep contract. The actual global-match count is
 // delegated to the shared `countMatches` (lib/read-release-bundle.cjs —
 // it resets the /g RegExp's lastIndex defensively); this wrapper keeps
 // the patterns-array → alternation construction and the null-blob → null
@@ -139,7 +139,7 @@ function main() {
   const on  = checkBundle('perf-on  (counter-perf,  enabled?=true) ',
                           onDir,  true);
 
-  // Report the counts the bead asks for. classifyReleaseBundle returns
+  // Report the counts used by the gate. classifyReleaseBundle returns
   // blob=null for a missing dir (countOccurrences guards null) and the
   // real blob otherwise; the off/on checks above already fail the gate
   // on a missing/empty dir, so these counts are only ever consulted for

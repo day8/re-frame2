@@ -3,14 +3,12 @@
 'use strict';
 
 /*
- * Runtime integration smoke for the orchestrator teardown (rf2-c3hffe).
+ * Runtime integration smoke for orchestrator teardown.
  *
  * The static gate (_orchestrator-teardown-policy.test.cjs) proves every
  * serve-and-run-*.cjs orchestrator is WIRED to the shared teardown helper.
- * This test proves the wiring actually REAPS a long-lived grandchild when
- * the orchestrator is signalled — the behaviour the bead's "verify the
- * teardown helper works (spawn a dummy child, send a signal, assert it's
- * reaped) on at least the Node path" gate asks for.
+ * This test proves the wiring actually reaps a long-lived grandchild when
+ * the orchestrator is terminated.
  *
  * Shape:
  *   parent (this test)
@@ -23,16 +21,13 @@
  *
  * We let the orchestrator come up, capture the grandchild PID, then
  * terminate the orchestrator and assert the grandchild is gone. That
- * exercises the exact path that, when missing, orphaned the 27h-old
- * stranded server: parent dies → tracked child must die too.
+ * exercises the ownership invariant: a tracked child must not outlive its
+ * orchestrator.
  *
- * Cross-platform termination: we drive the orchestrator's teardown via the
- * `'exit'` handler path (process.once('exit', cleanupSync)), which fires on
- * BOTH POSIX and Windows. On POSIX we ALSO assert the SIGINT/SIGTERM signal
- * path (installSignalHandlers registers process.once('SIGINT'/'SIGTERM')).
- * On Windows, Node maps `child.kill('SIGTERM')` to a hard TerminateProcess
- * (no JS signal handler fires), so the JS-signal arm is POSIX-only — the
- * exit-handler arm (always run) is what covers Windows.
+ * The first case verifies the observable process-tree result on every
+ * platform without depending on which termination hook Node uses. POSIX also
+ * gets a dedicated SIGINT case for the installed JavaScript signal handler;
+ * reliable SIGINT delivery to a detached child is not available on Windows.
  */
 
 const assert = require('assert/strict');
@@ -128,7 +123,7 @@ async function spawnOrchestrator() {
 // on POSIX the SIGTERM handler runs cleanup() then exits; on Windows
 // child.kill maps to TerminateProcess and the 'exit' handler's cleanupSync
 // reaps the tracked grandchild. Either way the grandchild MUST NOT survive.
-test('orchestrator teardown reaps its tracked grandchild on termination (rf2-c3hffe)', async () => {
+test('orchestrator teardown reaps its tracked grandchild on termination', async () => {
   const { child, grandchildPid, cleanupDir } = await spawnOrchestrator();
   try {
     assert.ok(isAlive(grandchildPid), 'grandchild should be alive after spawn');
@@ -150,8 +145,7 @@ test('orchestrator teardown reaps its tracked grandchild on termination (rf2-c3h
     assert.ok(
       dead,
       `grandchild ${grandchildPid} was orphaned — the teardown sweep did ` +
-        `not reap the tracked server when the orchestrator was terminated. ` +
-        `This is exactly the rf2-c3hffe orphan-lock-holder class.`,
+        `not reap the tracked server when the orchestrator was terminated.`,
     );
   } finally {
     if (isAlive(grandchildPid)) {
@@ -167,10 +161,10 @@ test('orchestrator teardown reaps its tracked grandchild on termination (rf2-c3h
 
 // POSIX-only: assert the SIGINT signal-handler arm specifically. On Windows
 // there is no JS SIGINT delivery to a non-console child, so this arm is
-// skipped (the exit-handler arm above covers Windows).
-test('orchestrator teardown reaps its grandchild on SIGINT (POSIX) (rf2-c3hffe)', async () => {
+// skipped; the platform-neutral termination case above covers the outcome.
+test('orchestrator teardown reaps its grandchild on SIGINT (POSIX)', async () => {
   if (process.platform === 'win32') {
-    console.log('  SKIP (Windows: JS SIGINT delivery to a child is not reliable; exit-handler arm covers it)');
+    console.log('  SKIP (Windows: JS SIGINT delivery to a child is not reliable)');
     return;
   }
   const { child, grandchildPid, cleanupDir } = await spawnOrchestrator();

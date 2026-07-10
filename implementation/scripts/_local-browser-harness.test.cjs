@@ -102,7 +102,7 @@ test('terminateProcessTree stops a managed child process', async () => {
   assert.notEqual(exit, null);
 });
 
-// rf2-ogpeq regression (the core race). The async cleanup() kills tracked
+// The async cleanup() kills tracked
 // children sequentially (last-tracked first), awaiting each. If
 // process.exit() fires the 'exit' handler -> cleanupSync() while cleanup()
 // is still mid-flight — it has reached child[last] and is awaiting its
@@ -111,16 +111,12 @@ test('terminateProcessTree stops a managed child process', async () => {
 // resume the async cleanup's pending awaits once the process is exiting,
 // so anything cleanupSync skips is ORPHANED.
 //
-// The old code shared a single `cleaned` flag: the async cleanup set it at
-// the start, so cleanupSync saw `cleaned===true` and returned immediately,
-// skipping the un-reached children.
-//
 // We model this deterministically via the injectable terminator seam: the
-// async terminator NEVER resolves (modelling a hard exit that abandons the
+// async terminator never resolves (modelling a process exit that abandons the
 // in-flight cleanup), and the sync terminator records which children it
 // swept. The invariant: after cleanupSync(), EVERY tracked child has been
 // synchronously swept — regardless of the async cleanup being mid-flight.
-test('cleanupSync sweeps every child when async cleanup() is mid-flight (rf2-ogpeq)', async () => {
+test('cleanupSync sweeps every child when async cleanup() is mid-flight', async () => {
   const childA = { id: 'A' };
   const childB = { id: 'B' };
   const sweptSync = [];
@@ -139,7 +135,7 @@ test('cleanupSync sweeps every child when async cleanup() is mid-flight (rf2-ogp
 
   // Start the async cleanup. Its IIFE runs synchronously up to the first
   // `await terminateAsync(...)`, which never resolves — cleanup() is now
-  // permanently mid-flight (modelling abandonment by a hard exit).
+  // permanently mid-flight (modelling abandonment during process exit).
   cleanup.cleanup();
 
   // The 'exit' handler fires. With the bug this returns without sweeping;
@@ -150,7 +146,7 @@ test('cleanupSync sweeps every child when async cleanup() is mid-flight (rf2-ogp
     [...sweptSync].sort(),
     ['A', 'B'],
     'cleanupSync must synchronously terminate every tracked child even when ' +
-      'an async cleanup() is mid-flight (otherwise children are orphaned on hard exit)',
+      'an async cleanup() is mid-flight (otherwise children are orphaned on exit)',
   );
 });
 

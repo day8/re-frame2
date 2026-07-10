@@ -223,15 +223,14 @@ test('machines-viz deps.edn change fires cljs + cljs-browser (rf2-z0cw6s)', () =
   assert.equal(result.cljs_browser, 'true');
 });
 
-// rf2-4ka7c2.1 — API-manifest probe routing false-green fix. The CLJS-only
+// The CLJS-only
 // adapter / Xray / pair-MCP public surfaces live in the sidecar
 // (spec/api-manifest-metadata.edn) under :cljs-only and are carried into
 // spec/api-manifest.edn verbatim. Their ONLY live runtime verifier is the
 // CLJS enumeration probe in the consolidated :node-test build, gated on
 // cljs_node_test. A sidecar / generated-manifest / API.md change must
-// therefore light cljs_node_test so the probe reconciles those rows — else a
-// stale/missing CLJS-only row ships with green CI (lint.yml runs only the JVM
-// generator + projection checks, never the CLJS probe).
+// therefore light cljs_node_test so the probe reconciles those rows. lint.yml
+// runs the JVM generator and projection checks, not the CLJS probe.
 
 test('API-manifest sidecar change lights cljs_node_test (CLJS probe routing) (rf2-4ka7c2)', () => {
   const result = classify('spec/api-manifest-metadata.edn');
@@ -417,17 +416,11 @@ test('implementation/scripts/* does NOT arm template_expensive (no emitted npm p
   assert.equal(result.template_expensive, 'false');
 });
 
-// rf2-rcepku — Xray PR-smoke launcher false-green fix, mirroring the
-// rf2-y9o5e3 examples/scripts launcher routing. The
-// serve-and-run-xray-feature-gate.cjs launcher IS the executable
-// orchestration for `npm run test:xray-feature-gate:smoke`, the command
-// the story-xray-browser PR job runs (test.yml). Editing it must fire the
-// story_xray_browser gate it drives — else a PR can break the launcher
-// while avoiding the very PR-smoke job it orchestrates. The static-script
-// surfaces it shares with the generic implementation/scripts/* case stay
-// armed (this widens coverage; it does not narrow it).
+// serve-and-run-xray-feature-gate.cjs implements the Xray smoke command used by
+// the story-xray-browser PR job. Editing the launcher must arm that job while
+// retaining the generic implementation/scripts gates.
 
-test('implementation/scripts/serve-and-run-xray-feature-gate.cjs fires story_xray_browser (rf2-rcepku)', () => {
+test('implementation/scripts/serve-and-run-xray-feature-gate.cjs fires story_xray_browser', () => {
   const result = classify('implementation/scripts/serve-and-run-xray-feature-gate.cjs');
   assert.equal(
     result.story_xray_browser,
@@ -436,7 +429,7 @@ test('implementation/scripts/serve-and-run-xray-feature-gate.cjs fires story_xra
   );
 });
 
-test('implementation/scripts/serve-and-run-xray-feature-gate.cjs still arms the generic static-script gates (regression) (rf2-rcepku)', () => {
+test('implementation/scripts/serve-and-run-xray-feature-gate.cjs still arms the generic static-script gates', () => {
   const result = classify('implementation/scripts/serve-and-run-xray-feature-gate.cjs');
   assert.equal(result.cljs_node_test, 'true');
   assert.equal(result.cljs_browser, 'true');
@@ -445,7 +438,7 @@ test('implementation/scripts/serve-and-run-xray-feature-gate.cjs still arms the 
   assert.equal(result.reagent_slim_bundle, 'true');
 });
 
-test('an UNRELATED implementation/scripts/* file does NOT fire story_xray_browser (scope discipline) (rf2-rcepku)', () => {
+test('an unrelated implementation/scripts/* file does not fire story_xray_browser', () => {
   // Only the Xray launcher drives the Xray browser gate; a generic
   // implementation/scripts/* edit must not be broadened onto it.
   const result = classify('implementation/scripts/build-foo.cjs');

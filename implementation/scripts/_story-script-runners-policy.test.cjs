@@ -70,7 +70,7 @@ test('computeExitCode: clean run (no failures, no pageerrors) → 0', () => {
 });
 
 test('computeExitCode: a pageerror fails the gate even when all play rows matched (rf2-wf5al.1)', () => {
-  // The false-green case the bead describes: every play row reported its
+  // False-green case: every play row reported its
   // expected pass/fail status (failures empty) but the shell threw an
   // uncaught exception. Must be RED.
   assert.equal(
@@ -199,8 +199,8 @@ test('both wait loops gate on isTerminalStatus (rf2-wf5al.3)', () => {
 
 // The seeded inventory shape: eight discovered rows, five classified
 // expected-pass and three expected-fail (the `failing` / `-expected-fail`
-// markers below) — the 8 / 5-pass / 3-fail shape the bead pins as the
-// healthy gate. Mirrors the counter-with-stories testbed's seeded
+// markers below) — the 8 / 5-pass / 3-fail healthy inventory shape.
+// Mirrors the counter-with-stories testbed's seeded
 // fixtures and the runner's `expectedStatusFor` classification.
 const SEEDED_ROWS = [
   // 5 expected-pass:

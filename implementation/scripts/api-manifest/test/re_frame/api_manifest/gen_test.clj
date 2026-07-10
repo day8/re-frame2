@@ -68,7 +68,7 @@
 
 (defn- live-sidecar-with-duplicate-cljs-only
   "The REAL committed sidecar with one of its `:cljs-only` rows DUPLICATED
-   (the bead's injected-duplicate probe shape). Using the real sidecar keeps
+   (the injected-duplicate probe shape). Using the real sidecar keeps
    the missing/stale classification checks passing (the live JVM vars are all
    classified) so the duplicate check is what fires — exactly how a hand-added
    duplicate `:cljs-only` entry would behave in production. We pick the first

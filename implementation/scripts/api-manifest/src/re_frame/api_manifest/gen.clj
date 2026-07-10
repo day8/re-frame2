@@ -1,6 +1,5 @@
 (ns re-frame.api-manifest.gen
-  "Public-API manifest generator + drift-check (rf2-3nbl5.2 — the
-  API-governance keystone).
+  "Public-API manifest generator and drift check.
 
   THE PROBLEM. re-frame2 has one truth — the public API — with many
   projections (spec/API.md, the per-tool specs, the docs, the MCP tool
@@ -42,7 +41,7 @@
   and cannot be `require`d on the JVM. Their rows live in the sidecar
   under `:cljs-only` and are carried through verbatim. The JVM
   existence-check does not reach them; instead a CLJS-side enumeration
-  probe (rf2-2mtte, implementation/scripts/api-manifest/probe/, run by
+  probe (`implementation/scripts/api-manifest/probe/`, run by
   `npm run test:cljs`) reconciles each covered namespace's live public
   vars against its rows. A `:cljs-only` row carries its own
   `:runtime-verified?` flag — `true` once the probe covers its
