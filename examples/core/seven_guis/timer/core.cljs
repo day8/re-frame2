@@ -38,9 +38,9 @@
 ;; SCHEMA
 ;; ============================================================================
 
-;; The whole timer is four numbers. That's it — no objects, no timer handle,
-;; nothing hiding outside app-db. This schema spells them out, and the runtime
-;; checks every commit against it.
+;; Four app-db values determine the timer: elapsed time, target duration, an
+;; active flag, and a generation token. Scheduled callbacks remain runtime-owned;
+;; app-db stores no timer handle. The runtime checks this slice on every commit.
 (def TimerState
   [:map
    [:elapsed-ms :int]                  ;; milliseconds counted since the last reset
@@ -65,13 +65,11 @@
 ;; handle to cancel a tick once it's in the air. So how do we ever *stop* a
 ;; tick, or start a clean one over the top of it?
 ;;
-;; The answer is a generation token, `:tick-gen`. Think of it as a wristband at
-;; a club: every tick is stamped with the generation it was scheduled under,
-;; and when it finally fires it checks whether its stamp still matches the one
-;; in app-db. Want to retire whatever's in flight? Bump `:tick-gen`. The old
-;; tick still goes off — we can't stop that — but its wristband is now stale,
-;; so it quietly does nothing. Then we schedule a fresh tick under the new
-;; generation. Net result: exactly one live chain, ever.
+;; The answer is a generation token, `:tick-gen`. Every scheduled tick carries
+;; the generation under which it was created and checks that value against
+;; app-db when it runs. Bumping `:tick-gen` retires previously scheduled ticks:
+;; they still fire, but return no effects when their generation is stale. A new
+;; tick is then scheduled under the current generation, leaving one active chain.
 ;;
 ;; Two handlers lean on this:
 ;;   - Reset bumps the generation so a tick scheduled a moment earlier can't
@@ -96,7 +94,7 @@
   (fn handler-timer-tick [{:keys [db]} [_ gen]]
     (let [{:keys [elapsed-ms duration-ms tick-active? tick-gen]} (:timer db)]
       (if (not= gen tick-gen)
-        ;; Wrong wristband — this tick belongs to a retired generation. Ignore it.
+        ;; This tick belongs to a retired generation; ignore it.
         {}
         (let [next-elapsed (min (+ elapsed-ms tick-ms) duration-ms)
               done?        (>= next-elapsed duration-ms)]

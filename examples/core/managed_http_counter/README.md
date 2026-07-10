@@ -2,9 +2,12 @@
 
 The buttons on this counter don't add anything locally. You click **+1**, and instead of bumping a number in the page, the click asks the server what the new count should be. The answer comes back as an ordinary [event](../../../docs/core/glossary.md#event) — and that event is what moves the count.
 
-Five buttons — **+1 / Fail / Retry-recover / Start long / Cancel** — walk the full managed-HTTP surface: a success, a real failure, a retry that recovers, and a real cancel of a request that is really in flight. Small enough to hold in your head; complete enough to hit every code path.
+Five buttons — **+1 / Fail / Retry-recover / Start long / Cancel** — cover a
+successful Fetch, a failing Fetch, a canned success reply, and the managed-abort
+registry path. The last two are controlled seams rather than live transport:
+this example does not run a retry policy or cancel a network request.
 
-Underneath, all of them lean on one idea. This is the smallest honest demo of [managed HTTP](../../../docs/resources/glossary.md#managed-http): the [`:rf.http/managed`](../../../spec/014-HTTPRequests.md) [effect](../../../docs/core/glossary.md#effect). You describe a request as data, and the framework owns its whole lifecycle. Your code never touches `js/fetch`.
+The live request paths lean on one idea: [managed HTTP](../../../docs/resources/glossary.md#managed-http), exposed through the [`:rf.http/managed`](../../../spec/014-HTTPRequests.md) [effect](../../../docs/core/glossary.md#effect). You describe a request as data, and the framework owns its lifecycle. The canned-reply and abort buttons isolate adjacent contracts without reaching for `js/fetch` in application code.
 
 The [event handler](../../../docs/core/glossary.md#event-handler) stays a pure function. It returns a `:db` and an `:fx` that describes the request, and then it's done. There is no promise to chain and no callback to thread back. The reply comes home as a dispatched event, and the same handler that sent the request handles the answer.
 
@@ -14,9 +17,9 @@ The [event handler](../../../docs/core/glossary.md#event-handler) stays a pure f
 
 - **The reply comes back as an event — to the handler that sent it.** This is [the uniform reply](../../../docs/core/glossary.md#the-uniform-reply) at work. Each request sets `:reply-to [:http-counter/+1]` — the **unified reply spelling**: one target for both the success and the failure reply, and the app branches on the envelope's `:status`. So `:http-counter/+1` runs a second time, now carrying the canonical envelope as its last argument (`[:http-counter/+1 {:status :ok :value {:delta 1} …}]`). A `cond` inside the handler branches on the reply's `:status` — increment on `:ok`, record the error (which rides under `:error`) on `:error`, or (no reply yet) issue the request. One handler, three branches. You [subscribe](../../../docs/core/glossary.md#subscription) to the plain `:http-counter/count` / `:http-counter/status` / `:http-counter/error` slices the handler keeps; the [view](../../../docs/core/glossary.md#view) never knows an HTTP call happened.
 
-- **Mixed real and stubbed traffic.** Some contracts are awkward to drive live, so this example mixes the two. **+1** and **Fail** do a *real* round-trip: Fetch hits a static asset (`api/inc.json`) or 404s against a path that isn't there. **Retry-recover** is harder — you'd need an endpoint that 503s once then 200s — so it uses a canned stub instead (`:rf.http/managed-canned-success`), which returns a canonical `{:status :ok :value {:delta 5} …}` reply. The call site still spells out the `:request` and `:decode`, so it reads just like the real thing; the stub only short-circuits the trip over the network.
+- **Mixed real and stubbed traffic.** Some contracts are awkward to drive live, so this example mixes the two. **+1** and **Fail** do a *real* round-trip: Fetch hits a static asset (`api/inc.json`) or 404s against a path that isn't there. **Retry-recover** uses `:rf.http/managed-canned-success` to return a canonical `{:status :ok :value {:delta 5} …}` reply. Its name describes the outcome it stands in for; the canned effect does not execute retry scheduling or attempts. It demonstrates that the handler consumes the same reply envelope regardless of which transport or test seam produced it.
 
-- **`:rf.http/managed-abort` — a real cancel of a request that is really in flight.** This one is subtle, so the example demonstrates the *actual* contract, not a look-alike. A static dev server resolves instantly, so a real Fetch leaves nothing in flight to cancel. Instead, **Start long** seeds a real request-id-keyed handle straight into the framework's in-flight registry — the same atom the live transport's `run-attempt!` writes into. Its `:abort-fn` clears the slot and dispatches the canonical `:rf.http/aborted` reply. **Cancel** then fires the *live* `:rf.http/managed-abort` fx. It looks up that handle by `:request-id`, fires its `:abort-fn`, and exercises the real abort path, registry cleanup, and aborted classification end-to-end (all visible in [Xray](../../../docs/core/glossary.md#xray) and traces).
+- **`:rf.http/managed-abort` over a seeded registry handle.** A static dev server resolves too quickly to leave a Fetch available for cancellation. **Start long** therefore inserts a request-id-keyed handle into the framework's in-flight registry, using the same registry API as the live transport. **Cancel** runs the production `:rf.http/managed-abort` effect, which resolves the handle, invokes its `:abort-fn`, clears the slot, and dispatches a canonical `:rf.http/aborted` reply. This covers the framework's lookup, cleanup, and reply contract, but not `AbortController` or network cancellation.
 
 - **Substrate** — stock Reagent (`re-frame.adapter.reagent`), like the rest of the `examples/core/` catalogue.
 
@@ -24,7 +27,7 @@ The [event handler](../../../docs/core/glossary.md#event-handler) stays a pure f
 
 Managed HTTP is a feature where the *contract* is everything — the failure taxonomy, the classification order, the retry-then-recover semantics, the abort path. A browseable demo is a poor place to assert all of that rigorously, so this one doesn't try.
 
-Its job is the part the contract tests *can't* show: the cross-substrate sanity check. The same fx and the same reply shape, end-to-end through Reagent and Fetch, in something you can click. The takeaway is the `cond`-per-handler structure — the request-issuing branch and the reply-handling branches sit side by side. The split between "real round-trip" and "stubbed seam" makes plain which parts of the contract need a server and which don't.
+Its job is the part the contract tests *can't* show: a clickable, Reagent-based sanity check. The Fetch branches exercise the managed effect end to end; the controlled branches isolate reply handling and registry-based abort. The takeaway is the `cond`-per-handler structure — the request-issuing branch and the reply-handling branches sit side by side. The split between live transport and controlled seams makes clear which behavior this browser-only example actually exercises.
 
 ## Files
 

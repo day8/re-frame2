@@ -1,8 +1,7 @@
 (ns managed-http-counter.core
-  "A counter whose buttons don't add anything locally — each click asks
-  the server what the new count should be.
+  "A counter whose +1 action asks the server what the new count should be.
 
-  That's the whole idea, and it's built on one effect: `:rf.http/managed`.
+  The live request path is built on one effect: `:rf.http/managed`.
   You describe a request as data; the runtime owns the rest of its life —
   encode, send, decode, sort the failures, retry, abort. When the answer
   comes home it arrives as an ordinary event: you address the reply with
@@ -12,34 +11,29 @@
   function — you never go near js/fetch. The HTTP guide has the full
   contract: docs/async/http.md.
 
-  Five buttons walk the whole surface:
+  Five buttons cover the live and controlled paths used by this example:
 
     +1             GET api/inc.json — a real, successful round-trip.
     Fail           GET api/does-not-exist — a real 404 (:rf.http/http-4xx).
-    Retry-recover  the recovery-after-retry path, driven by a canned stub.
-    Start long     a request that genuinely stays in flight.
-    Cancel         aborts that request by :request-id.
+    Retry-recover  a canonical success reply, driven by a canned stub.
+    Start long     a request handle seeded into the in-flight registry.
+    Cancel         aborts that handle by :request-id.
 
-  +1 and Fail are honest Fetches: the request goes out, the body is decoded
-  (only on a 2xx), and the reply lands back in app-db. Retry-recover would
-  need an endpoint that fails once then succeeds, which is a nuisance to
-  stand up — so it uses a canned-success stub that synthesises the reply
-  the live fx would have produced.
+  +1 and Fail use Fetch: the request goes out, the body is decoded (only on a
+  2xx), and the reply lands back in app-db. Retry-recover uses a
+  canned-success stub. It demonstrates the canonical reply envelope, not the
+  retry scheduler or a sequence of transport attempts.
 
-  Start long / Cancel are the interesting pair: a real abort of a request
-  that is really in flight. There's a catch, though. This app serves only
-  static assets, so a real GET resolves instantly and never lingers long
-  enough to cancel. The fix is honest: \"Start long\" seeds a request-id-keyed
-  handle straight into the framework's in-flight registry — the very atom
-  the live transport writes into — so we have a deterministically pending
-  request. \"Cancel\" then fires the live `:rf.http/managed-abort` fx at it:
-  the abort resolves the handle, fires its `:abort-fn`, and a
-  `:rf.http/aborted` reply comes home to the issuing handler. Only the
-  transport is stood in for. The registry entry, the abort fx, and the
-  aborted classification are all real — and all visible in Xray and traces.
+  Start long / Cancel exercise the managed-abort registry contract without a
+  network request. A static GET resolves too quickly to cancel reliably, so
+  \"Start long\" seeds a request-id-keyed handle through the same registry API
+  used by the live transport. \"Cancel\" then fires the production
+  `:rf.http/managed-abort` fx: it resolves the handle, invokes its `:abort-fn`,
+  clears the slot, and dispatches a canonical `:rf.http/aborted` reply. This
+  covers the framework path, but not `AbortController` or network cancellation.
 
-  Put plainly: this is the runnable cross-substrate sanity check. The same
-  fx and the same reply shape, end to end, through Reagent and Fetch."
+  The Fetch branches exercise managed HTTP end to end through Reagent; the
+  controlled branches isolate canonical reply handling and registry abort."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             ;; Managed HTTP ships in its own artefact (day8/re-frame2-http).
@@ -47,9 +41,8 @@
             ;; and its family — skip it and the first fx dispatch fails loud
             ;; with a friendly "HTTP artefact missing" error.
             [re-frame.http.managed]
-            ;; Home of the canned-success stub the Retry-recover button leans
-            ;; on (`:rf.http/managed-canned-success`). It lives here, in the
-            ;; test-support ns, rather than in re-frame.http.managed proper.
+            ;; Home of the canned-success reply seam used by Retry-recover.
+            ;; It emits a canonical reply but does not execute retry attempts.
             [re-frame.http.test-support]
             ;; "Start long" seeds a pending handle straight into the registry.
             ;; The write seam (`record-in-flight!`) isn't on the public facade,
@@ -160,14 +153,11 @@
 ;; Retry-recover  —  canned-stub at app level
 ;; ============================================================================
 ;;
-;; The "it failed, retried, and recovered" path — without needing a flaky
-;; endpoint to make it happen on cue. The handler issues
-;; :rf.http/managed-canned-success, which synthesises a canonical
-;; {:status :ok :value {:delta 5} …} reply: the exact shape the live fx
-;; would deliver if its retry policy hit a real endpoint that 503s once and
-;; then 200s. The stub lets you exercise the contract without owning a
-;; server, and — the part that matters — the handler can't tell the
-;; difference. It reads the reply the same way either way.
+;; This path synthesises the success envelope a recovered request would
+;; eventually deliver: {:status :ok :value {:delta 5} …}. It deliberately does
+;; not exercise retry policy, attempt counting, or backoff. The point here is
+;; narrower: the handler consumes the same canonical reply whether it came from
+;; the live transport or a controlled test seam.
 
 (rf/reg-event :http-counter/retry-recover
   (fn [{:keys [db]} [_ reply]]
@@ -190,7 +180,7 @@
               :reply-to [:http-counter/retry-recover]}]]})))
 
 ;; ============================================================================
-;; Start long / Cancel  —  a REAL abort of a REAL in-flight request
+;; Start long / Cancel  —  managed-abort over a seeded registry handle
 ;; ============================================================================
 ;;
 ;; The abort contract is simple to state: you cancel an in-flight
@@ -200,17 +190,12 @@
 ;; to the handler that issued the request. The abort section of
 ;; docs/async/http.md has the details.
 ;;
-;; Here's the catch worth being honest about: this app serves only static
-;; assets, so a real GET resolves in a blink and nothing ever lingers
-;; in-flight long enough to cancel. Demoing a cancel against a request that's
-;; already finished would be theatre. So instead, "Start long" seeds a
-;; request-id-keyed handle straight into the registry — the very atom the
-;; live transport writes into — which gives us a request that is genuinely,
-;; deterministically pending. "Cancel" then fires the *live*
-;; `:rf.http/managed-abort` fx at that handle. Only the transport is stood
-;; in for. The registry entry, the abort fx, and the `:rf.http/aborted`
-;; classification are all the real thing — and you can watch them in Xray
-;; and the trace stream.
+;; This app serves only static assets, so a GET resolves too quickly to cancel
+;; reliably. "Start long" instead seeds a request-id-keyed handle through the
+;; same registry API used by the live transport. "Cancel" fires the production
+;; `:rf.http/managed-abort` fx at that handle. The demo therefore covers handle
+;; lookup, registry cleanup, and the `:rf.http/aborted` reply, while explicitly
+;; leaving network transport and `AbortController` out of scope.
 
 (def long-request-id :http-counter/long)
 
@@ -221,12 +206,12 @@
 (def long-pending-url "api/long")
 
 (rf/reg-fx :http-counter/seed-long-request
-  {:doc       "Demo-only fx that fakes a request stuck in flight. It records a
-               request-id-keyed handle in the framework registry whose
+  {:doc       "Demo-only fx that seeds a request handle in the in-flight
+               registry. It records a request-id-keyed handle whose
                :abort-fn clears the slot and dispatches the :rf.http/aborted
                reply back to :http-counter/start-long. That's the whole trick: it
-               lets the live :rf.http/managed-abort fx resolve a real handle
-               end-to-end, with no real request behind it."
+               lets :rf.http/managed-abort exercise its production lookup,
+               cleanup, and reply path, with no network request behind it."
    :platforms #{:client}}
   (fn fx-seed-long-request [frame-ctx {:keys [request-id]}]
     ;; A small but important wrinkle. The :abort-fn doesn't run now — it runs
@@ -250,8 +235,8 @@
          ;; so we mirror that: the canonical envelope is the appended last arg.
          :abort-fn (fn [reason]
                      (http-registry/clear-in-flight! request-id)
-                     ;; rf2-ibksxg — the canonical abort reply: an abort is
-                     ;; `:status :cancelled`, the `:rf.http/aborted` map under
+                     ;; The canonical abort reply uses `:status :cancelled`,
+                     ;; with the `:rf.http/aborted` map under
                      ;; `:error` (mirrors the live transport's abort path).
                      (rf/dispatch [:http-counter/start-long
                                    {:status        :cancelled
