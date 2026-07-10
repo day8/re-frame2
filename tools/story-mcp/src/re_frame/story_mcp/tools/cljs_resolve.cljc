@@ -1,17 +1,15 @@
 (ns re-frame.story-mcp.tools.cljs-resolve
-  "Cross-platform CLJS-var resolution for the JVM-side MCP tools.
+  "Optional CLJS-var resolution used by JVM-side MCP tools.
 
   Several Story surfaces are CLJS-only (the registered-substrates
   registry, the in-browser a11y panel atom) — `def`s behind a
   `#?(:cljs …)` reader conditional, so no JVM Var exists for them. The
-  JVM-side MCP server probes for them via `clojure.core/resolve` against
-  a fully-qualified symbol; on the JVM that probe yields nil (the Var
-  isn't there to find), and the caller reads an empty surface (the
-  documented correct answer for a JVM host). When the SAME `.cljc`
-  namespaces are compiled into and hosted by a CLJS runtime, the `:cljs`
-  reader branch calls the Var directly — no `resolve`, the live registry.
-  There is no JVM→browser bridge: a JVM process cannot deref a CLJS atom
-  living in a browser heap, and does not try to.
+  The stdio server probes for them via `clojure.core/resolve` against a
+  fully-qualified symbol. On the JVM the probe yields nil and the caller
+  returns an empty surface. There is no JVM-to-browser bridge: a JVM
+  process cannot dereference a CLJS atom in a browser heap. The reader-
+  conditional CLJS branch keeps this helper usable by direct CLJS
+  consumers, but the stdio entry point itself is JVM-only.
 
   ## Caching
 
@@ -74,9 +72,9 @@
   `args/read-run-opts` as the bounded allowlist when coercing the
   agent-supplied `:substrate` arg through `safe-keyword`.
 
-  The JVM-standalone deploy reads `#{}`; the nREPL-attached CLJS
-  deploy reads the live registry's keys. Mirrors `registered-substrates`
-  in caching posture — the cached var is the single resolution site."
+  The JVM stdio server reads `#{}`. A direct CLJS consumer reads the live
+  registry's keys. Mirrors `registered-substrates` in caching posture —
+  the cached var is the single resolution site."
   []
   #?(:clj  (if registered-substrates-var
              (try (set (registered-substrates-var)) (catch Throwable _ #{}))

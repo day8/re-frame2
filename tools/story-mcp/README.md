@@ -1,25 +1,32 @@
 # tools/story-mcp/
 
-`day8/re-frame2-story-mcp` — the **MCP (Model Context Protocol) agent
-surface** for re-frame2-story. Lands as Stage 7 of the Story epic
-(`rf2-tgci`); design contract is [`spec/`](./spec/).
+`day8/re-frame2-story-mcp` is the **MCP (Model Context Protocol) agent
+surface** for re-frame2-story. Its design contract is
+[`spec/`](./spec/).
 
 ## What it is
 
-A JVM-side stdio JSON-RPC server that exposes Story's read (and gated
-write) surface as MCP tools. AI agents (Claude Code, Cursor, Copilot)
-launch the server as a subprocess, perform the `initialize` handshake,
-then call tools like `list-stories`, `run-variant`, `snapshot-identity`,
-`get-story-instructions` to navigate / drive / introspect the Story
-library.
+A JVM-side stdio JSON-RPC server that exposes Story's read and gated
+write surface as MCP tools. Agent hosts launch the server as a
+subprocess, perform the `initialize` handshake, then call tools such as
+`list-stories`, `run-variant`, `snapshot-identity`, and
+`get-story-instructions`.
+
+The handlers call Story's public API in the **same JVM process**. This
+artefact does not attach to an app through nREPL and cannot dereference
+state in a browser heap. A JVM launch therefore sees the Story
+registrations loaded into that JVM; CLJS-only surfaces such as registered
+render substrates and the browser a11y-panel atom return an explicit
+empty result.
 
 ## What it isn't
 
 - **Not** an IDE plugin. Agent hosts (Claude Code etc.) bring the MCP
   client side; this artefact is the server.
 - **Not** part of Story's authoring runtime. It reads from
-  `re-frame.story`'s public query API and dispatches to its public
-  runtime fns; nothing here registers new framework primitives.
+  `re-frame.story`'s public query API in the same runtime and dispatches
+  to its public runtime functions; nothing here registers new framework
+  primitives.
 - **Not** reachable from production CLJS bundles. Per
   [`tools/README.md`](../README.md) the dependency arrow flows
   tool → implementation; this jar is on a separate classpath root.
@@ -39,6 +46,9 @@ RF_STORY_MCP_ALLOW_WRITES=true clojure -M -m re-frame.story-mcp.server
 # or
 clojure -J-Drf.story-mcp.allow-writes=true -M -m re-frame.story-mcp.server
 ```
+
+The launch must preload any JVM namespaces that populate the Story
+registry the server should expose.
 
 Tests:
 
@@ -84,13 +94,14 @@ tools/story-mcp/
     ├── config.cljc                               ; protocol-version + allow-writes? gate
     ├── protocol.cljc                             ; JSON-RPC envelope + frame I/O
     ├── server.cljc                               ; dispatcher + -main + run-loop
-    └── tools/                                    ; tool implementations (rf2-3ukix split)
+    └── tools/                                    ; tool implementations
         ├── wire_pipeline.cljc                    ; invoke-tool dispatcher + token-cap + dedup egress
         ├── cursor.cljc                           ; Docs list-* pagination (consumes mcp-base.cursor)
         ├── registry.cljc                         ; tool-registry + descriptors + by-name
         ├── result.cljc                           ; result-envelope builders (pr-edn, text-result, error-result)
         ├── args.cljc                             ; arg readers + bounded-allowlist coercions (with-variant, read-run-opts, include-sensitive?)
         ├── cljs_resolve.cljc                     ; cross-platform CLJS var resolution (registered-substrates)
+        ├── lifecycle.cljc                        ; shared blocking run + error normalization
         ├── egress.cljc                           ; wire-egress scrubbers (elide-app-db, scrub-assertions+count, scrub-rendered)
         ├── schemas.cljc                          ; recurring JSON-schema fragments
         ├── dev.cljc                              ; get-story-instructions, preview-variant, list-substrates
@@ -99,7 +110,7 @@ tools/story-mcp/
         ├── write.cljc                            ; gated: register-variant, unregister-variant
         └── recorder.cljc                         ; gated: record-as-variant
 └── test/
-    ├── fixtures/tool-names.json                  ; canonical 20-tool name list (shared JVM + Node fixture)
+    ├── fixtures/tool-names.json                  ; canonical tool-name list (shared JVM + Node fixture)
     ├── stdio-roundtrip.js                        ; Node stdio JSON-RPC roundtrip (initialize → tools/list → tools/call)
     └── re_frame/story_mcp/
         ├── protocol_test.clj                     ; wire-format coverage

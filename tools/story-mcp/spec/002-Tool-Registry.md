@@ -17,6 +17,15 @@
 > [`../../story/spec/022-Story-UI-Docs-And-Share.md`](../../story/spec/022-Story-UI-Docs-And-Share.md)
 > §4.
 
+## Host execution model
+
+The stdio server calls Story's public API directly in the same JVM. It
+does not attach to a browser through nREPL or the Tool-Pair contract.
+The registry, frames, and headless runs are therefore those loaded in
+the server process. CLJS-only surfaces are capability-limited: the JVM
+server returns `[]` for registered render substrates and an empty
+a11y-violations result with a note because it cannot read browser atoms.
+
 ## The unified run-result (run/read tools speak ONE result vocabulary)
 
 The Testing run/read tools (`run-variant`, `read-failures`) and the Dev
@@ -43,7 +52,7 @@ SAME Malli schema (`re-frame.story.result/RunResult`, re-exported as
 (CLJS → Story UI → MCP) is gated by
 `re-frame.story-mcp.run-result-roundtrip-test`.
 
-**Clean break (pre-alpha, Mike 2026-05-31).** The pre-unification flat
+**Clean break.** The pre-unification flat
 shape (`:passing?` boolean, the `:lifecycle` *verdict*, a flat
 `:assertions` vector with no `:status`) is REMOVED outright — NO compat
 alias. `:status` is the one verdict, and only it can express the distinct
@@ -59,7 +68,7 @@ Per
 the boundary between Story core and this jar is: Story core exposes
 the read primitives; this jar packages them as MCP tools.
 
-## Egress indicator counts (`:dropped-sensitive` / `:elided-large`, rf2-koq5m)
+## Egress indicator counts (`:dropped-sensitive` / `:elided-large`)
 
 The three tools that walk a tree-typed payload — `preview-variant`,
 `run-variant`, `read-failures` — drop `:sensitive? true` assertion
@@ -118,8 +127,7 @@ never advertise it (they have no value-bearing slot to gate). The egress scrubs
 keep the live and non-live cases coherent — a declared-sensitive value
 redacts and a declared-large value elides identically (i.e. neither crosses
 raw, by default) whether it reaches the wire via a live derived tree, a
-plan-resolved arg, or a captured event. **Non-live posture (rf2-jwggld,
-ruled by Mike 2026-06-26 — the narrowed hybrid):** two surfaces
+plan-resolved arg, or a captured event. **Non-live posture:** two surfaces
 (`record-as-variant`'s captured event vectors, `read-a11y-violations`'s axe
 DOM nodes) carry inherently RE-KEYED runtime payloads whose path-scrub is a
 no-op even live; they take the **named, narrow re-keyed-runtime egress
@@ -239,7 +247,8 @@ value assertion in `end-to-end-story.cjs`).
 
 Returns the set registered via
 `re-frame.story/register-substrate!` (Reagent canonical; UIx / Helix
-opt-in per host). JVM-standalone hosts return `[]`.
+opt-in per host). The JVM stdio server returns `[]` because it has no
+bridge to the CLJS registry.
 
 ## Docs — for agents reading the story library
 
@@ -346,8 +355,8 @@ view-arg schema + validation, `:network` route stubs + their lowered fx,
 `:checks` / `:assertions`, `:required-runner`, `:platforms`, `:tags`.
 
 Plan-derived data — no run, no live `:app-db` slice. AUTHOR DATA: the
-WHOLE `:explain` map ships RAW, exactly like `get-variant` / `variant->edn`
-(rf2-7k5mce, Mike 2026-07-08). `explain-variant` is a NO-RUN tool —
+WHOLE `:explain` map ships RAW, exactly like `get-variant` / `variant->edn`.
+`explain-variant` is a NO-RUN tool —
 `re-frame.story/explain` is a pure projection over the registry side-table
 and allocates no frame — so every slot it returns, INCLUDING the
 plan-RESOLVED value slots (`:effective-args` / `:args` / `:substitutions` /
@@ -418,13 +427,14 @@ previous run, or to key downstream pixel-diff services.
 
 ### `read-a11y-violations`
 
-READS the axe-core violations the in-browser a11y panel has already
-accumulated (delegates to `re-frame.story.ui.a11y/violations-by-frame`,
-the panel data from Stage 6) — it does NOT execute axe-core, so it sits
+READS the axe-core violations an in-browser a11y panel has already
+accumulated when invoked in a runtime that can access
+`re-frame.story.ui.a11y/violations-by-frame`. It does NOT execute
+axe-core, so it sits
 in the `read-` no-recompute family alongside `read-failures`, not the
 `run-` execute-and-report family. Calling it neither runs a fresh check
-nor proves the variant accessible. JVM-standalone hosts return an empty
-list + a documented hint that axe-core requires the in-browser panel.
+nor proves the variant accessible. The JVM stdio server returns an empty
+list plus a documented hint because it cannot access the browser panel.
 
 Wire-egress posture (rf2-q8ebq.2): the `:violations` vec is LIVE RUNTIME
 observed state — the rendered DOM of the variant frame, normalised from

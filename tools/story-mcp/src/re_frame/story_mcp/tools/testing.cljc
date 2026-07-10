@@ -1,7 +1,8 @@
 (ns re-frame.story-mcp.tools.testing
   "Testing-category tool handlers — `run-variant`, `snapshot-identity`,
-  `read-a11y-violations`, `read-failures`. Per IMPL-SPEC §7.2 these
-  execute (or inspect the post-execution state of) variants.
+  `read-a11y-violations`, `read-failures`. These execute or inspect the
+  post-execution state of variants as described in
+  spec/002-Tool-Registry.md.
 
   ## Unified run-result mirror
 
@@ -173,8 +174,8 @@
 
 ;; `re-frame.story.ui.a11y/violations-by-frame` is the CLJS-side panel
 ;; atom — resolved once at ns-load via `cljs-resolve/resolve-cljs-var`. JVM-
-;; standalone deploys read nil and return an empty violations vec; the
-;; shared-process (nREPL-attached CLJS) deploy reads the live atom.
+;; stdio server reads nil and returns an empty violations vec. There is
+;; no JVM-to-browser bridge in this artefact.
 (defonce ^:private violations-by-frame-var
   (cljs-resolve/resolve-cljs-var 're-frame.story.ui.a11y/violations-by-frame))
 
@@ -187,20 +188,11 @@
   nor proves the variant accessible; it reflects whatever the panel
   last stored (which may be stale or empty).
 
-  Per IMPL-SPEC §7.2 the implementation delegates to a11y panel data
-  (`a11y/violations-by-frame` per Stage 6's hot-zone-hooks report).
-  The actual axe-core run is CLJS-only (it loads an in-browser
-  `<script>`); from the JVM-side MCP server we can only READ the
-  violations atom that the CLJS canvas has accumulated.
-
-  The canonical agent workflow is:
-    1. Open the Story shell in the browser; navigate to the variant.
-    2. Click the a11y panel's 'Run' button (or the panel auto-runs on
-       canvas mount per Stage 6).
-    3. Call this MCP tool to read the violations the panel stored.
-
-  When the server is JVM-standalone (no co-hosted CLJS runtime) this
-  returns an empty result with a hint.
+  The actual axe-core run and `violations-by-frame` atom are CLJS-only.
+  The JVM stdio server cannot read that browser atom, so this tool
+  returns an empty result with a capability note in the current host. A
+  direct browser-local consumer of this `.cljc` helper can read
+  accumulated panel state, but that is distinct from the stdio deploy.
 
   ## Wire-egress posture
 
@@ -237,7 +229,7 @@
                      :violations (egress/scrub-re-keyed-runtime
                                    (vec (or violations [])) vk incl?)
                      :note       (when (nil? by-frame)
-                                   "a11y is CLJS-only; this JVM-standalone deploy can't run axe-core. Run the panel in-browser; the violations atom is read by this tool.")}]
+                                   "a11y state is CLJS-only; this JVM server cannot run axe-core or read the browser panel's violations atom. Use a browser-local inspection surface.")}]
         (result/edn-result payload)))))
 
 (defn tool-read-failures
@@ -300,7 +292,7 @@
 ;; ---------------------------------------------------------------------------
 
 (def descriptors
-  "Testing-category descriptors, in IMPL-SPEC §7.2 order."
+  "Testing-category descriptors, in spec/002-Tool-Registry.md order."
   [{:name           "run-variant"
     :category       :testing
     :description    (str "Execute a variant's four-phase lifecycle (loaders → setup → render → script); return the UNIFIED run-result — the same shape the human Story UI reads. The headline is `:status` ∈ {:pass :fail :cannot-run :error}; the result also carries unified `:assertions` records (each with a derived `:status`), `:checks` groups, `:consumed-selectors`, the evidence-slot projections (`:schema-violations :warnings :effects :sub-runs :renders :narrative`), `:app-db`, `:rendered-hiccup`, `:snapshot`, and `:elapsed-ms`. `:cannot-run` means the runner could not even attempt the plan — handle it as 'not runnable here', NOT as a fail. The `:app-db` slot is routed through `re-frame.core/elide-wire-value` against the variant frame's `[:rf.runtime/elision]` runtime-db registry — declared-sensitive paths return `:rf/redacted` and oversize slots return the `:rf.size/large-elided` marker by default. The derived `:rendered-hiccup` / `:snapshot` and ALL evidence value-slots (`:schema-violations :warnings :effects :sub-runs :renders :narrative`) are PATH-projected on BOTH egress axes against the same frame classification. EP-0025 FAIL-OPEN: a value AT a classified path redacts, but a value RE-KEYED to a non-matching position (a token at hiccup `[1 :value]`, a `:narrative` beat's `:db-before` snapshot, a `:sub-runs` `:value`) ships RAW — value-match was removed; classify the app-db PATH to redact a value before a view renders it. Pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
@@ -355,10 +347,10 @@
    {:name           "read-a11y-violations"
     :category       :testing
     :description    (str "READ the axe-core violations a variant's in-browser a11y panel has accumulated, from `re-frame.story.ui.a11y/violations-by-frame`. This tool does NOT execute axe-core — it is a diagnostic re-read of already-computed panel state (the sibling of `read-failures`), so calling it neither runs a fresh accessibility check nor proves the variant accessible; it returns whatever the in-browser panel last stored (possibly stale or empty). The `:violations` vec is LIVE RUNTIME DOM state — each axe-core node carries `:html` (the violating element's outerHTML), `:target` (CSS selectors) and `:failureSummary`, so a sensitive value rendered into the DOM lands verbatim in node `:html`. axe DOM nodes are an inherently RE-KEYED runtime payload class, scrubbed via the named `scrub-re-keyed-runtime` egress exception (rf2-jwggld): a live variant frame PATH-projects against its classification (EP-0025 FAIL-OPEN — a value rendered into a node `:html` is a RE-KEYED DOM position the classification path cannot reach, so it ships RAW; classify the app-db PATH to redact a value before it reaches the DOM), and a non-live frame ships the nodes raw under the documented carve-out (path-scrub is a no-op even live, so fail-closing would destroy the tool with zero leak-delta). Pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
+                         "Host boundary: the shipped JVM stdio server cannot read the CLJS panel atom and therefore returns an empty result with a capability note. "
                          "Examples: "
-                         "1. Clean variant in shared-process deploy: {:variant-id \":story.cart/full\"} -> {:variant-id :story.cart/full :violations [] :note nil}. "
-                         "2. Variant with axe-core findings: {:variant-id \":story.form/checkout\"} -> {:variant-id :story.form/checkout :violations [{:id \"label\" :impact \"critical\" :nodes [...]}]}. "
-                         "3. JVM-standalone deploy: {:variant-id \":story.cart/full\"} -> {:variant-id :story.cart/full :violations [] :note \"a11y is CLJS-only; this JVM-standalone deploy can't run axe-core...\"}.")
+                         "1. JVM stdio server: {:variant-id \":story.cart/full\"} -> {:variant-id :story.cart/full :violations [] :note \"a11y state is CLJS-only; this JVM server cannot read the browser panel...\"}. "
+                         "2. Browser-local state with findings: {:variant-id \":story.form/checkout\"} -> {:variant-id :story.form/checkout :violations [{:id \"label\" :impact \"critical\" :nodes [...]}] :note nil}.")
     :typicalTokens  500
     :inputSchema {:type "object"
                   :properties (s/with-max-tokens

@@ -66,7 +66,7 @@
 
 (defn reset-story-and-config
   "Each test gets a fresh Story registry + write-gate set to false (the
-  documented default per IMPL-SPEC §7.3). Tests that need writes flip
+  documented default per spec/003-Write-Surface-Gating.md). Tests that need writes flip
   the gate explicitly.
 
   Also pins re-frame's substrate to `plain-atom` so tests that exercise
@@ -333,7 +333,7 @@
       vec))
 
 (deftest registry-covers-impl-spec-7-2
-  (testing "every tool from IMPL-SPEC §7.2 + §7.3 is present"
+  (testing "every tool in the documented registry is present"
     (let [names (set (map :name registry/tool-registry))]
       ;; Per-category coverage (documentation value beyond the fixture
       ;; check: each line names a tool category + an expected slot).
@@ -3239,10 +3239,8 @@
               "no large-elided marker — the captured slot is not at the declared app-db path"))))))
 
 ;; ---------------------------------------------------------------------------
-;; The narrowed-hybrid re-keyed-runtime egress exception + cofx split
-;; (rf2-jwggld, ruled by Mike 2026-06-26).
-;;
-;; The permanent rule replaces the rf2-vl0jur interim. Two distinct postures:
+;; The re-keyed-runtime egress exception and captured-cofx split have
+;; two distinct postures:
 ;;
 ;;   (A) `scrub-re-keyed-runtime` — captured event vectors + axe DOM nodes.
 ;;       LIVE frame ⇒ PATH-project (re-keyed copies fail-open, tested above);
@@ -3696,7 +3694,7 @@
         (is (= :fail (:status s)) "the visible failure drives :status :fail")))))
 
 ;; ---------------------------------------------------------------------------
-;; explain-variant ships AUTHOR DATA raw (rf2-7k5mce, ruled by Mike 2026-07-08).
+;; explain-variant ships author data raw.
 ;;
 ;; `explain-variant` is a NO-RUN tool over the registry side-table (the agent
 ;; mirror of the human Explain panel), so its ENTIRE `:explain` map — the
@@ -3707,21 +3705,16 @@
 ;; like `get-variant` / `variant->edn`; it is NOT routed through any egress
 ;; boundary and carries no `:include-sensitive` knob.
 ;;
-;; Previously the value slots were PATH-projected through the fail-closed
-;; live-frame boundary. On the documented no-run inspection path
-;; (list-stories -> get-variant -> explain-variant, frame never allocated) the
-;; frame is NON-LIVE, so that boundary FAILED CLOSED and redacted EVERY value
-;; slot to `:rf/redacted` — destroying the tool's most useful output even
-;; though nothing is runtime-sensitive. These tests pin that the author data
-;; now crosses RAW under both a classified live path and a non-live frame.
+;; These tests pin that the author data crosses raw under both a
+;; classified live path and a non-live frame.
 ;; ---------------------------------------------------------------------------
 
 (deftest explain-variant-ships-value-slots-raw-even-with-classified-path
-  (testing "rf2-7k5mce: explain-variant ships its author value slots RAW even when the frame classifies the matching app-db path — the egress boundary is retired for this no-run tool"
+  (testing "explain-variant ships author value slots raw even when the frame classifies the matching app-db path"
     (with-clean-frame [vid :story.button/primary]
       ;; A live frame classifying [:auth :token], plus a :db-seed slot that
-      ;; mirrors that path: under the OLD behaviour the :db-seed value redacted
-      ;; by path. explain-variant is author data now, so every slot ships raw.
+      ;; mirrors that path. explain-variant is author data, so every slot
+      ;; ships raw.
       (seed-app-db! vid {:auth {:token "DISTINCTIVE-EXPLAIN-SECRET"}})
       (declare-sensitive! vid [:auth :token])
       (with-redefs [story/explain

@@ -1,5 +1,5 @@
 ;; day8/re-frame2-story-mcp — MCP (Model Context Protocol) agent surface
-;; for re-frame2-story (rf2-tgci; Stage 7 of rf2-u6fb).
+;; for re-frame2-story.
 ;;
 ;; Per tools/story/spec/006-MCP-Surface.md the agent surface ships as a separate
 ;; artefact from `day8/re-frame2-story` so the MCP server can be loaded
@@ -18,12 +18,11 @@
 ;; ## JVM-only
 ;;
 ;; Story-MCP is JVM-side: its job is to terminate the agent host's stdio
-;; channel and bridge `tools/story/`'s public surface over JSON-RPC. The
-;; sources are `.cljc` only so the underlying registrar reads work
-;; identically when the server is hosted in-process (an nREPL-attached
-;; CLJS build calling `re-frame.story-mcp/-main` would be reasonable;
-;; per IMPL-SPEC §7.1 the canonical deploy is a CLJ subprocess launched
-;; by the agent's IDE host).
+;; channel and expose `tools/story/`'s public surface over JSON-RPC. Tool
+;; handlers call Story in this JVM; there is no JVM-to-browser or nREPL
+;; bridge in this artefact. Consequently CLJS-only registries and panel
+;; state are unavailable to the stdio server and degrade explicitly to
+;; empty results.
 ;;
 ;; ## Release
 ;;
@@ -35,24 +34,21 @@
  :deps  {;; Story is the agent surface's read substrate. Every MCP
          ;; tool routes through `re-frame.story`'s public query API
          ;; (`handlers`, `handler-meta`, `run-variant`, `variant->edn`,
-         ;; `snapshot-identity`, …) — see IMPL-SPEC §7.4.
+         ;; `snapshot-identity`, …) — see spec/002-Tool-Registry.md.
          day8/re-frame2-story {:local/root "../story"}
 
          ;; Shared MCP primitives across the pair (re-frame2-pair-mcp,
-         ;; story-mcp): wire vocabulary, the spec/009
+         ;; story-mcp): wire vocabulary, the Spec 009
          ;; default-suppress filter, the path-keyed diff-encode, and
-         ;; the overflow-marker shape. Per rf2-vw4sq.
+         ;; the overflow-marker shape.
          day8/re-frame2-mcp-base {:local/root "../mcp-base"}
 
-         ;; day8/de-dupe — structural dedup of persistent data structures
-         ;; (rf2-90eft, mirroring pair-mcp's rf2-obpa9 wire-boundary
-         ;; integration). The library substitutes repeated subtrees with
+         ;; day8/de-dupe — structural dedup of persistent data structures.
+         ;; The library substitutes repeated subtrees with
          ;; namespaced-symbol references (`de-dupe.cache/cache-N`); the
          ;; flat cache map round-trips back through `expand` on the
          ;; agent host. Applied at the wire boundary BEFORE the wire-cap
-         ;; check (rf2-rvyzy) so dedup gets to shrink first. JVM-side
-         ;; reach is unlocked by the `.cljc` port (rf2-nw6sj →
-         ;; day8/de-dupe#3, merged 2026-05-13). The pair and story-mcp
+         ;; check so dedup gets to shrink first. The pair and story-mcp
          ;; lockstep on the same tag (`v0.3.0`) so the two servers
          ;; can't drift on a dedup-algorithm change.
          day8/de-dupe            {:git/url "https://github.com/day8/de-dupe.git"
@@ -68,13 +64,13 @@
  :aliases
  {:test {:extra-paths ["test"]
          :extra-deps  {day8/re-frame2-schemas {:local/root "../../implementation/schemas"}
-                       ;; rf2-try1x — silent-on-success reporter.
+                       ;; Silent-on-success test reporter.
                        day8/re-frame2-test-quiet {:local/root "../../implementation/test-quiet"}
                        io.github.cognitect-labs/test-runner
                        {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
          :main-opts   ["-m" "re-frame.test-quiet.runner"]}
 
-  ;; Descriptor-manifest generator + drift-check (rf2-sofwv). Reads the
+  ;; Descriptor-manifest generator + drift-check. Reads the
   ;; live tool registry and emits / --check's the committed
   ;; tool-descriptors.edn via the shared
   ;; `re-frame.mcp-base.descriptor-manifest` serialiser. Needs schemas on

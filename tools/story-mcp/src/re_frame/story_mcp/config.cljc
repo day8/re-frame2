@@ -1,8 +1,9 @@
 (ns re-frame.story-mcp.config
   "Compile + runtime configuration for the Story-MCP server.
 
-  Per IMPL-SPEC §7.3 the write surface (`register-variant`,
-  `unregister-variant`) is gated behind `allow-writes?`. The default is
+  Per spec/003-Write-Surface-Gating.md the write surface
+  (`register-variant`, `unregister-variant`, and recorder write-back) is
+  gated behind `allow-writes?`. The default is
   `false`: writes are dev-only and must be enabled explicitly. CI runs
   should always boot with the gate closed; an agent host that wants the
   self-healing loop (write story → run → read failures → fix) opts in.
@@ -39,8 +40,8 @@
 
   Symmetry with `re-frame.story.config` — keep the boolean knobs together
   so an agent host or test fixture can adjust them without reaching into
-  the server / tools namespaces. Per IMPL-SPEC §13.2 #6 the
-  protocol-version target is a documented decision."
+  the server / tools namespaces. The protocol-version target is a
+  documented decision in spec/DESIGN-RATIONALE.md."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [re-frame.mcp-base.args :as args]))
@@ -49,7 +50,8 @@
 
 (def ^:const protocol-version
   "The MCP protocol version this server advertises in the `initialize`
-  handshake. Pinned to `2025-06-18` — the latest spec at Stage 7 land.
+  handshake. Pinned to `2025-06-18`; upgrades are explicit contract
+  changes rather than client-driven negotiation.
 
   `handle-initialize` advertises this value unconditionally — it never
   inspects or echoes the client's requested `protocolVersion`. That is
@@ -84,8 +86,8 @@
 
   The convention: every dispatching / writing surface picks one keyword
   so post-mortem queries can answer 'who wrote / dispatched this?'.
-  Story-mcp doesn't ship `dispatch` (its surface is JVM-side, no event
-  bus access), but the `register-variant` and `record-as-variant`
+  Story-MCP doesn't ship a dispatch tool, but the `register-variant` and
+  `record-as-variant`
   writes stamp this value onto the registered variant body so
   inspection of `(story/variant->edn vk)` reveals which variants came
   from the MCP write surface.
@@ -99,8 +101,8 @@
 
 (defonce
   ^{:doc "Atom holding the write-surface gate. Defaults to `false`. Per
-         IMPL-SPEC §7.3 the write surface (`register-variant` /
-         `unregister-variant`) is gated; CI runs leave this `false` and
+         spec/003-Write-Surface-Gating.md defines this gate; CI runs
+         leave it `false` and
          dev hosts opt in.
 
          The flag is a runtime atom (not a `def`) so tests can flip it
@@ -234,7 +236,6 @@
 ;; ---- stage marker --------------------------------------------------------
 
 (def stage
-  "Sentinel naming which Stage's surface is loaded. Matches the marker
-  pattern from `re-frame.story/stage` — Story Stage 7 lands the MCP
-  agent surface in a separate jar."
+  "Sentinel naming the loaded Story-MCP surface. It is independent of
+  `re-frame.story/stage` because the two artefacts evolve separately."
   :mcp)

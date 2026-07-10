@@ -1,6 +1,6 @@
 (ns re-frame.story-mcp.tools.registry
   "The MCP tool registry — assembled from each category ns's
-  `descriptors` def, in documented IMPL-SPEC §7.2 / §7.3 order:
+  `descriptors` def, in documented tool-registry order:
   dev → docs → testing → write. Agents tend to scan `tools/list`
   top-to-bottom, so order matters.
 
@@ -39,8 +39,8 @@
   "Canonical ordered vector of every tool the server exposes. Dev →
   docs → testing → write. The recorder bridge
   (`record-as-variant`) lives in `tools.recorder` for leaf-size
-  reasons but belongs at the tail of the write category
-  per IMPL-SPEC §7.3 — `recorder/descriptors` is a one-element vec
+  reasons but belongs at the tail of the write category —
+  `recorder/descriptors` is a one-element vec
   so the assembly stays symmetric across every category ns."
   (into [] cat [dev/descriptors
                 docs/descriptors

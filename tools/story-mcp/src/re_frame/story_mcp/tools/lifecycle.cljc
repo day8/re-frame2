@@ -1,27 +1,12 @@
 (ns re-frame.story-mcp.tools.lifecycle
-  "The ONE owner of the variant-lifecycle EXECUTION the two lifecycle
-  tools share — `run-variant` (`tools.testing`) and `preview-variant`
-  (`tools.dev`).
+  "Shared variant-lifecycle execution for `run-variant` and
+  `preview-variant`.
 
-  Both tools invoke the SAME `story/run-variant` lifecycle, block on it
-  with the SAME single-threaded-stdio ceiling, catch a synchronous throw /
-  timeout, and normalize that failure into a unified run-result. Their
-  catch paths had DRIFTED: `preview-variant` hand-built a partial error map
-  (`{:status :error :lifecycle :error :assertions […] :checks []}`) while
-  `run-variant` assembled the canonical shape through `story/run-result`.
-  A hand-mint omits the six `.4` evidence slots (`:schema-violations` /
-  `:warnings` / `:effects` / `:sub-runs` / `:renders` / `:narrative`),
-  which then read back as ABSENT → nil → a bare `nil` on the wire, failing
-  the frozen `[:sequential :any]` schema every settled run satisfies
-  (rf2-5r6j96).
-
-  This leaf owns the shared execution — blocking invocation, timeout
-  blocking, and ONE canonical exception normalization — so the two tools
-  cannot drift again. What stays in the caller namespaces (per the bead's
-  boundary) is everything AFTER the outcome: the preview / run-specific
-  projection, egress scrubbing, annotations, indicator counts, and wire
-  shaping. This leaf produces the settled-or-error OUTCOME; the callers
-  shape it."
+  This namespace owns blocking invocation, the common timeout, and
+  canonical exception normalization through `story/run-result`. That
+  boundary guarantees settled and error outcomes carry the same evidence
+  slots. Each tool still owns its projection, egress scrubbing,
+  annotations, indicators, and wire envelope."
   (:require [re-frame.story       :as story]
             [re-frame.story.async :as async]))
 
@@ -31,11 +16,10 @@
   boundary a settled run uses (spec/017 §Run result). Pure given the
   variant key `vk` + the thrown `e`.
 
-  Routing the failure through `story/run-result` (rather than hand-minting
-  a partial map) fills every `.4` evidence slot to `[]` — so the wire
-  projection always has a sequential to walk and never ships a bare `nil`
-  for an absent slot (rf2-5r6j96). Two extra slots are stamped so BOTH
-  consumers keep the fields they read off the outcome:
+  Routing the failure through `story/run-result` fills every evidence
+  slot with `[]`, so the wire projection never emits a bare `nil` where
+  the run-result schema requires a sequence. Two extra slots are stamped
+  so both consumers keep the fields they read off the outcome:
 
   - `:lifecycle :error` — the loader-lifecycle STATE `preview-variant`
     surfaces (distinct from the `:status` verdict);

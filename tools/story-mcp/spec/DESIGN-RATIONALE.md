@@ -52,8 +52,8 @@ versa. The MCP server can ship `:mcp` at v1 while Story is still at
 
 ## §protocol-version-pin — why pin the MCP protocol version
 
-The MCP protocol revision is pinned at `2025-06-18` (the version that
-shipped at the time of Stage 7 implementation).
+The MCP protocol revision is pinned at `2025-06-18`, the revision
+implemented and covered by this artefact's protocol tests.
 
 Rationale:
 

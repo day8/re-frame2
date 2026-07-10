@@ -153,9 +153,8 @@
 ;; ---- tools/list -----------------------------------------------------------
 
 (defn- handle-tools-list
-  "Return the tool registry descriptors. We don't paginate — the
-  registry is small enough (twenty tools at Stage 7) that a single
-  response is fine."
+  "Return the tool registry descriptors. The bounded registry is small
+  enough to return in one response."
   [id _params]
   (proto/response id {:tools (registry/tool-descriptors)}))
 
@@ -402,9 +401,8 @@
 
 (defn -main
   "Entry point. Boots, then runs the stdio JSON-RPC loop until stdin
-  closes. Per IMPL-SPEC §7.1 the agent host (Claude Code / Cursor /
-  Copilot) launches this as a subprocess and terminates it by closing
-  stdin (or SIGTERM after a timeout)."
+  closes. The agent host launches this as a subprocess and terminates it
+  by closing stdin (or sending SIGTERM after a timeout)."
   [& argv]
   (boot! (parse-args argv))
   (run-stdio!))

@@ -318,7 +318,7 @@ The run-loop is designed to survive every recoverable error:
   continue reading.
 - stdin EOF → graceful shutdown.
 
-Stage 7's tests cover each of these paths.
+The protocol and server tests cover each of these paths.
 
 ## Cross-references
 

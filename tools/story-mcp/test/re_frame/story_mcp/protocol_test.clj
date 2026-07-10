@@ -9,8 +9,8 @@
      internal-error)
    - Notification vs request discrimination
 
-  Per IMPL-SPEC §7 Stage 7 the wire layer is testable without booting
-  Story's registrar — the dispatcher and tool implementations are
+  The wire layer is testable without booting Story's registrar; the
+  dispatcher and tool implementations are
   separate (tools_test.clj covers those)."
   (:require [cheshire.core :as json]
             [clojure.string :as str]
