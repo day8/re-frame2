@@ -19,10 +19,10 @@
   resolution reuse the resource registry's pluggable late-bound Malli
   validator and canonicalization."
   (:require [re-frame.error :as error]
-            [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
             [re-frame.resources.classification :as classification]
             [re-frame.resources.mutation-runtime :as mstate]
+            [re-frame.resources.params :as params]
             [re-frame.resources.state :as state]
             [re-frame.source-coords :as source-coords]))
 
@@ -371,31 +371,27 @@
   canonicalization — the schema, not a blanket `(or params {})`, decides
   whether nil conforms. The two registrars apply the SAME presence-aware
   policy so a validation boundary never performs an accidental API default
-  (EP-0012 §canonical-forms)."
+  (EP-0012 §canonical-forms).
+
+  A THIN wrapper over the shared `re-frame.resources.params/validate+
+  canonicalize` pipeline (rf2-7rbb7t) — the SAME leaf the resource registrar
+  wraps: this arm supplies ONLY the mutation-family error descriptor
+  (`:rf.error/mutation-invalid-params` with a `:mutation-id`); the
+  omitted-default, non-EDN rejection, late-bound schema validation,
+  invalid-param REDACTION (the shared classification seam), and canonicalization
+  are owned once there, so the two registrars can never drift again."
   [mutation-id spec params where]
-  (let [params (state/default-omitted-params params)
-        schema (:params-schema spec)]
-    (state/reject-non-edn! params where :params mutation-id)
-    (when schema
-      (let [validate (late-bind/get-fn-cached :schemas/validate-with-registered-fn)]
-        (when (and validate (not (validate schema params)))
-          (let [explain (late-bind/get-fn-cached :schemas/explain-with-registered-fn)
-                ;; rf2-99j4e4 — redact the thrown error payload identically to
-                ;; the resource registry (same shared classification seam): a
-                ;; `:sensitive?` params slot must not leak through public error
-                ;; data / logs when validation fails on a non-sensitive sibling,
-                ;; and a `:large?` slot elides consistently.
-                redacted (classification/redact-invalid-params-error
-                           params (when explain (explain schema params)) spec)]
-            (throw (registration-error
-                     :rf.error/mutation-invalid-params
-                     where
-                     (str "mutation " mutation-id " params do not conform to "
-                          ":params-schema. Per EP-0003 §Mutations.")
-                     {:mutation-id mutation-id
-                      :params      (:params redacted)
-                      :error       (:error redacted)}))))))
-    (state/canonicalize params)))
+  (params/validate+canonicalize
+    mutation-id spec params where
+    (fn [redacted-params redacted-error]
+      (registration-error
+        :rf.error/mutation-invalid-params
+        where
+        (str "mutation " mutation-id " params do not conform to "
+             ":params-schema. Per EP-0003 §Mutations.")
+        {:mutation-id mutation-id
+         :params      redacted-params
+         :error       redacted-error}))))
 
 (defn resolve-scope
   "Resolve the cache scope a mutation's invalidation / patch defaults to,
