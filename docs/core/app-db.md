@@ -1,6 +1,6 @@
-# app-db: the one place
+# app-db: one map, one write path
 
-The [introduction](introduction.md) showed how re-frame2 **computes**. This page is where the data in that loop lives.
+The [introduction](introduction.md) showed how re-frame2 **computes**. This page follows the application data through that loop: where it lives and how it changes through events.
 
 **[app-db](glossary.md#app-db)** is the application state for one [frame](glossary.md#frame): one immutable Clojure map. Handlers return a *description* of the next map; the [event pipeline](glossary.md#event-pipeline) is what actually writes.
 
@@ -54,19 +54,28 @@ This page makes the initial value **explicit** through an `:initialise` event, t
  [stepping-counter]]
 ```
 
-No second store. After `:initialise`, the shape already holds both facts:
+The handler parameters use [destructuring](../cljs/index.md#destructuring). `{:keys [db]}` takes app-db from the world map. `[_ {:keys [step-size]}]` ignores the event id and takes `:step-size` from the event's payload map.
+
+No second store. The events produce a sequence of complete map values:
 
 ```clojure
-{:value 0 :step-size 1}
+[:initialise]
+;; => {:value 0 :step-size 1}
+
+[:step-size/set {:step-size 10}]
+;; => {:value 0 :step-size 10}
+
+[:inc]
+;; => {:value 10 :step-size 10}
 ```
 
-— not a lone `{:value 0}` that later grows a second key by accident. You put both in the seed map (or add keys in later events the same way).
+The seed is not a lone `{:value 0}` that later grows a second key by accident. Both facts begin in the initial map; later events return replacements for that whole value.
 
 That is a **complete live counter**: [registrations](glossary.md#register), a [frame-provider](glossary.md#frame-provider) that creates and scopes the frame and runs the seed, and a view. (The playground mounts the trailing hiccup; a real app still needs boot wiring — [counter example](../../examples/core/counter) or [Boot and mount an app](how-to/boot-and-mount-an-app.md).) The rest of the guide grows this same counter one concept at a time.
 
 ## One map, one write path
 
-Everything your app knows sits in one map — ordinary nested data, no imposed schema:
+Everything your app owns as state between events sits in one map — ordinary nested data, with no framework-imposed shape:
 
 ```clojure
 {:user {:id 42 :name "Mike"}
@@ -106,7 +115,7 @@ A handler may return no `:db` key (only `:fx`, say) and leave app-db alone, or r
 
 ## Initial state is an event
 
-A frame starts with `app-db = {}`. There is no `:db` config slot to seed it. Seeding is itself an event — the same pipeline as every later change — listed as `:initial-events` on the frame (or `frame-provider`).
+A frame's event fold starts with `app-db = {}`. There is no `:db` config slot to seed it. Seeding is itself an event — the same pipeline as every later change — listed as `:initial-events` on the frame (or `frame-provider`).
 
 The counter already did this with `:initialise`. A larger app is the same idea: a domain handler that returns the first map, then any follow-ups you need:
 
@@ -122,7 +131,7 @@ The counter already did this with `:initialise`. A larger app is the same idea: 
  [root-view]]
 ```
 
-Steps run synchronously, in order, each to completion before the next. By the time setup finishes, app-db is whatever those handlers produced — no side channel. Prefer a named map payload when an initialise event carries options: `[:initialise {:user-id 42}]` with `[_ {:keys [user-id]}]`. [Frames](frames.md) covers the rest of the registration grammar.
+Each initial event's pipeline runs synchronously, in order, through its immediate commit before the next begins. If a handler starts asynchronous work, its reply arrives later through another event; setup does not wait for the host operation. By the time setup finishes, app-db includes the immediate `:db` commits from the initial events — no seeding side channel. Prefer a named map payload when an initialise event carries options: `[:initialise {:user-id 42}]` with `[_ {:keys [user-id]}]`. [Frames](frames.md) covers the rest of the registration grammar.
 
 ??? info "From re-frame v1"
 
@@ -155,4 +164,4 @@ Poor:
 
 ## Yours, and the framework's next door
 
-For everything you write, app-db is the state that matters. A running frame also holds [**runtime-db**](glossary.md#runtime-db) — framework bookkeeping (machine snapshots, route, resource cache, …) under reserved `:rf.runtime/*` keys. [Two partitions](glossary.md#the-two-partitions): app-db is yours; runtime-db is the framework's (read it via its subscriptions; influence it by dispatching its events — never forge it by hand in app-db). An ordinary `:db` effect cannot wipe a machine snapshot. [Frames](frames.md) goes deeper.
+For state your application owns between events, app-db is the write target. A running frame also holds [**runtime-db**](glossary.md#runtime-db) — framework bookkeeping (machine snapshots, route, resource cache, …) under reserved `:rf.runtime/*` keys. [Two partitions](glossary.md#the-two-partitions): app-db is yours; runtime-db is the framework's (read it via its subscriptions; influence it by dispatching its events — never forge it by hand in app-db). An ordinary `:db` effect cannot wipe a machine snapshot. [Frames](frames.md) goes deeper.
