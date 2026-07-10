@@ -921,18 +921,41 @@
               (handle-step-failure! ctx [transition/start-marker]
                                     "Machine initial-entry action threw."
                                     boot-result)
-              (do
-                ;; Lower a singleton's projection-relative `:sensitive` / `:large` `:data`
-                ;; declarations into the per-frame elision registry at its
-                ;; birth (first-boot). A singleton's actor-id IS its
-                ;; machine-id, installed lazily on first dispatch rather than
-                ;; via `spawn-fx` (which lowers spawned actors). Gated on the
-                ;; singleton-birth case — `:needs-bootstrap?` AND NOT
-                ;; `:existing-snap?` (a spawned actor carries a pre-seeded
-                ;; snapshot ⇒ `:existing-snap? true`, already lowered at spawn).
-                ;; Value-independent + idempotent, dropped at destroy /
-                ;; finalize. A spec declaring no classification is a no-op.
-                (when (and (:needs-bootstrap? ctx) (not (:existing-snap? ctx)))
+              (let [;; Singleton first-boot: a singleton's actor-id IS its
+                    ;; machine-id, installed lazily on first dispatch rather than
+                    ;; via `spawn-fx` (which lowers spawned actors). The birth
+                    ;; case is `:needs-bootstrap?` AND NOT `:existing-snap?` (a
+                    ;; spawned actor carries a pre-seeded snapshot ⇒
+                    ;; `:existing-snap? true`, already lowered at spawn).
+                    boot? (and (:needs-bootstrap? ctx) (not (:existing-snap? ctx)))
+                    ;; DURABLE-CLAIM guard (rf2-dr0pfi). `lower-at-spawn!` below
+                    ;; writes the singleton's classification claim OUT-OF-BAND
+                    ;; into the LIVE per-frame elision registry
+                    ;; (`swap-elision-slot!`), unioning `:source :machine` in
+                    ;; alongside any other owner. But the boot snapshot
+                    ;; `:rf.db/runtime` effect this handler returns below is built
+                    ;; from the `:rf.db/runtime` COEFFECT — captured BEFORE that
+                    ;; live swap. When an effect PRE-classified this same
+                    ;; snapshot path in a PRIOR event, that coeffect already
+                    ;; carries `[:rf.runtime/elision]` (effect-owner only), so the
+                    ;; returned effect value would INCLUDE a STALE registry.
+                    ;; `elision/reconcile-runtime-db-effect` reads an
+                    ;; effect-carried `:rf.runtime/elision` as an explicit
+                    ;; full-frame install and honours it VERBATIM at commit —
+                    ;; clobbering the machine owner the live swap just added
+                    ;; (benign: the effect owner survives so the path stays
+                    ;; redacted, but the machine is not itself a durable owner,
+                    ;; breaking the multi-owner union contract, rf2-wdm1vg). Drop
+                    ;; the key from the boot-commit base (local + `ctx`) so the
+                    ;; returned effect OMITS `:rf.runtime/elision` and the router
+                    ;; carries the LIVE (post-swap) registry — machine ∪ effect
+                    ;; owners — forward. The elision registry is written only
+                    ;; out-of-band; a machine snapshot commit never re-asserts it.
+                    runtime-db (cond-> runtime-db boot? (dissoc :rf.runtime/elision))
+                    ctx        (cond-> ctx        boot? (assoc :runtime-db runtime-db))]
+                ;; Value-independent + idempotent, dropped at destroy / finalize.
+                ;; A spec declaring no classification is a no-op.
+                (when boot?
                   (classification/lower-at-spawn! (:frame-id ctx) (:machine-id ctx)
                                                   (:machine ctx)))
               (result/with-ok [post-boot-snap boot-fx] boot-result
