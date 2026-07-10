@@ -250,9 +250,9 @@
 ;; `:rf/parent-id` into a spawned actor's `:data`; the actor tags its own
 ;; messages with the first and addresses the parent with the second.
 
-(def socket-actor-machine
-  "The `:websocket/socket` actor spec, in its own `def` so `reg-machine`
-   below can point at it."
+(rf/defmachine socket-actor-machine
+  "The `:websocket/socket` actor spec, in its own `defmachine` so `reg-machine`
+   below can point at it with per-element source captured."
     {:initial :opening
      :data    {:url        nil
                :auth-token nil}

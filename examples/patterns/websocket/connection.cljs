@@ -97,9 +97,9 @@
   [data]
   (get-in data [:rf/spawned socket-invoke-id]))
 
-(def connection-machine
-  "The `:ws/connection` machine spec, kept in its own `def` so we can hand
-   it to `reg-machine` below."
+(rf/defmachine connection-machine
+  "The `:ws/connection` machine spec, kept in its own `defmachine` so we can
+   hand it to `reg-machine` below with per-element source captured."
     {:initial :disconnected
 
      ;; A machine validates its own `:data` here, on every transition.

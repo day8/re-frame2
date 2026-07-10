@@ -80,7 +80,7 @@
 ;; kept distinct to avoid crosstalk, and each region treats `:reset` as a
 ;; self-target.
 
-(def home-machine
+(rf/defmachine home-machine
   {:type :parallel
 
    ;; The machine holds just two facts: the active feed's item-count (which

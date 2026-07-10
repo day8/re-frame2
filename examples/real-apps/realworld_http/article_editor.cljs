@@ -141,7 +141,7 @@
 ;; region event names stay distinct to avoid crosstalk, and each region treats
 ;; `:reset` as a self-target.
 
-(def editor-machine
+(rf/defmachine editor-machine
   {:type :parallel
 
    :regions

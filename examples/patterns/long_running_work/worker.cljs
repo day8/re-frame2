@@ -90,7 +90,7 @@
 ;;                       It's here for completeness, and so tools can see
 ;;                       the full shape.
 
-(def processor-machine
+(rf/defmachine processor-machine
   {:doc "Works one shard, a chunk at a time. Yields to the browser
          between chunks via `:after`, reports `:progress` to the parent
          as it goes, and on reaching `:done` tells the parent
@@ -230,7 +230,7 @@
    that the worker knows how to chew on."
   [:s1 :s2 :s3])
 
-(def flow-machine
+(rf/defmachine flow-machine
   {:doc "The coordinator. Spawns one :work/processor per shard with
          :spawn-all, joins on :all, and cancels mid-flight whenever
          :working is left — whether by an explicit :cancel or by the

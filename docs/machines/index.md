@@ -24,10 +24,10 @@ The re-frame2 implementation seeks near-parity with the 500-pound gorilla in thi
 
 The machines implementation is wired into the **core** of re-frame2 — not bolted on as a side-car. And it is infused with the re-frame2 ethos. 
 
-A machine is **expressed** via a data-oriented DSL — state, transitions, guards, etc. The whole machine is just a value, so you can `def` it like this. 
+A machine is **expressed** via a data-oriented DSL — state, transitions, guards, etc. The whole machine is just a value. You bind that value with `defmachine` — a drop-in for `def` that also captures per-element source so tooling like Xray can jump from a live snapshot back to the guard/action/state definition — like this.
 
 ```clojure
-(def auth-login-machine
+(rf/defmachine auth-login-machine
   {:initial :idle
    :states  {:idle       {:on {:submit :submitting}}   ;; :submit → :submitting
              :submitting {:on {:ok   :authed            ;; :ok     → :authed
