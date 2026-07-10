@@ -69,9 +69,10 @@
 ;; ----------------------------------------------------------------------------
 ;;
 ;; Reply addressing: the same handler-id receives the reply via the
-;; default reply-addressing path (per Spec 014). On (:rf/reply msg), the
-;; handler files the reply into :reply; on initial dispatch (no
-;; :rf/reply), it issues the configured request.
+;; unified `:reply-to [::go msg]` on every issued request (per Spec 014).
+;; When the canonical envelope arrives appended as the last arg, the
+;; handler files it into :reply; on initial dispatch (no reply), it issues
+;; the configured request.
 ;;
 ;; The Cancel button is wired to abort whatever request was issued under
 ;; this request-id.
@@ -119,21 +120,23 @@
        frame-ctx args-map))))
 
 (rf/reg-event ::go
-  (fn [{:keys [db]} [_ msg]]
+  (fn [{:keys [db]} [_ msg reply]]
     (cond
-      ;; Reply branch — categorise and stash. The reply is the canonical
-      ;; envelope; :status :ok is success, anything else (:error/:cancelled)
-      ;; is a failure/abort for this testbed's binary done/error mirror.
-      (some-> msg :rf/reply :status some?)
+      ;; Reply branch — categorise and stash. `reply` is the canonical
+      ;; envelope, delivered as this event's last arg via `:reply-to`;
+      ;; :status :ok is success, anything else (:error/:cancelled) is a
+      ;; failure/abort for this testbed's binary done/error mirror.
+      (some-> reply :status some?)
       {:db (-> db
-               (assoc :status (if (= :ok (:status (:rf/reply msg))) :done :error))
-               (assoc :reply  (:rf/reply msg)))}
+               (assoc :status (if (= :ok (:status reply)) :done :error))
+               (assoc :reply  reply))}
 
       ;; Initial branch — fan out by selected outcome. Each branch
       ;; produces ONE `:fx` entry whose canonical envelope the framework
       ;; classifies; for the failure paths, that envelope is a direct
       ;; call into the canned-failure stub with the desired :kind / :tags
-      ;; pre-baked.
+      ;; pre-baked. Every branch addresses its reply back to THIS event
+      ;; with `:reply-to [::go msg]` (Spec 014 §Reply addressing).
       :else
       (let [outcome (:outcome db)]
         {:db (-> db (assoc :status :loading :reply nil))
@@ -145,7 +148,8 @@
                 :success
                 (rf.http/get "api/success.json"
                              {:decode     :json
-                              :request-id request-id})
+                              :request-id request-id
+                              :reply-to   [::go msg]})
 
                 ;; HOT PATH — synthesised :rf.http/http-4xx via the
                 ;; canned-failure stub. Same reply envelope as a live
@@ -154,6 +158,7 @@
                 [:http-toggle/canned-failure-with-trace
                  {:request    {:method :get :url "api/4xx"}
                   :request-id request-id
+                  :reply-to   [::go msg]
                   :kind       :rf.http/http-4xx
                   :tags       {:status 404 :status-text "Not Found"
                                :body   "<html>not found</html>"
@@ -163,6 +168,7 @@
                 [:http-toggle/canned-failure-with-trace
                  {:request    {:method :get :url "api/5xx"}
                   :request-id request-id
+                  :reply-to   [::go msg]
                   :kind       :rf.http/http-5xx
                   :tags       {:status 500 :status-text "Internal Server Error"
                                :body   "<html>server error</html>"
@@ -172,6 +178,7 @@
                 [:http-toggle/canned-failure-with-trace
                  {:request    {:method :get :url "api/timeout"}
                   :request-id request-id
+                  :reply-to   [::go msg]
                   :kind       :rf.http/timeout
                   :tags       {:elapsed-ms 5000 :limit-ms 5000}}]
 
@@ -182,12 +189,14 @@
                 ;; then clicks Go, then clicks Cancel; the abort path
                 ;; emits :rf.http/aborted via the live abort handler.
                 [:http-toggle/deferred-abortable
-                 {:request-id request-id}]
+                 {:request-id request-id
+                  :reply-to   [::go msg]}]
 
                 :rf.http/transport
                 [:http-toggle/canned-failure-with-trace
                  {:request    {:method :get :url "api/transport"}
                   :request-id request-id
+                  :reply-to   [::go msg]
                   :kind       :rf.http/transport
                   :tags       {:message "Network unreachable"
                                :cause   "ECONNREFUSED"}}]
@@ -196,6 +205,7 @@
                 [:http-toggle/canned-failure-with-trace
                  {:request    {:method :get :url "api/decode"}
                   :request-id request-id
+                  :reply-to   [::go msg]
                   :kind       :rf.http/decode-failure
                   :tags       {:body-text "<<not-json>>"
                                :cause     "SyntaxError: Unexpected token < at 0"
@@ -205,6 +215,7 @@
                 [:http-toggle/canned-failure-with-trace
                  {:request    {:method :get :url "https://other.example/api/cors"}
                   :request-id request-id
+                  :reply-to   [::go msg]
                   :kind       :rf.http/cors
                   :tags       {:message "CORS preflight rejected"
                                :url     "https://other.example/api/cors"}}])]}))))
