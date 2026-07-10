@@ -397,6 +397,23 @@
 ;; hydration target, plain and simple (see the note over in `handle-request`).
 (def app-frame :rf/default)
 
+;; DOM setup lives in `mount!`, tagged `^:dev/after-load` so shadow-cljs re-runs
+;; it after each hot reload — edited views re-render into the same root and the
+;; already-hydrated frame. HYDRATE stays in `run` (once), so a reload never
+;; re-seeds over the interactive state.
+#?(:cljs
+   (defn ^:dev/after-load mount! []
+     (when-let [el (and (exists? js/document)
+                        (js/document.getElementById "app"))]
+       (when-not @react-root
+         (reset! react-root (rdc/create-root el)))
+       ;; Mount inside the app-frame's `frame-provider`, so every `dispatch` and
+       ;; `subscribe` down in the view tree resolves to the frame we just
+       ;; hydrated.
+       (rdc/render @react-root
+                   [rf/frame-provider {:frame app-frame}
+                    [(rf/view :app/root)]]))))
+
 #?(:cljs
    (defn run []
      ;; First, point the runtime at the Reagent substrate. This is safe to call
@@ -432,15 +449,7 @@
          ;; app's own bootstrap against the frame; the page comes up showing the
          ;; empty-articles fallback.
          (rf/dispatch-sync [:ssr/client-bootstrap] {:frame app-frame})))
-     (when (exists? js/document)
-       (when-not @react-root
-         (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
-       ;; Mount inside the app-frame's `frame-provider`, so every `dispatch` and
-       ;; `subscribe` down in the view tree resolves to the frame we just
-       ;; hydrated.
-       (rdc/render @react-root
-                   [rf/frame-provider {:frame app-frame}
-                    [(rf/view :app/root)]]))))
+     (mount!)))
 
 ;; No tests in this file — and that's deliberate. The example tree stays
 ;; test-free so the source reads as pure demonstration; the headless tests that
