@@ -1,7 +1,7 @@
 (ns re-frame2-pair-mcp.server
   "MCP server entry-point. Wires the npm `@modelcontextprotocol/sdk`
-  stdio transport to the tool dispatcher in `tools.cljs`, against a
-  single persistent nREPL connection (`nrepl.cljs`).
+  stdio transport to the tool dispatcher in `tools.cljs`, against one
+  active, reconnectable nREPL connection (`nrepl.cljs`).
 
   ## Lifecycle
 
@@ -29,11 +29,11 @@
      which project. The result (port + project-home) is cached for the
      session.
 
-  5. `tools/call` (subsequent): re-reads the port file at the cached
-     `project-home` before each call — a shadow restart writes a new
-     port but the file location is stable, so the cache stays valid
-     across restarts. If the port changed, close the stale socket and
-     reconnect transparently.
+  5. `tools/call` (subsequent): when discovery found a port file,
+     re-read that exact file before each app-facing call. If its port
+     changes, close the stale socket and replace the connection. Env-var
+     and cwd-only discovery have no stable file to re-read and keep the
+     active endpoint until connection state is explicitly invalidated.
 
   6. stdin EOF: shut down cleanly.
 

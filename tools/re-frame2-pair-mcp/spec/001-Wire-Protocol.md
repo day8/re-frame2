@@ -37,19 +37,24 @@ our version and may disconnect per the spec's negotiation rule.
 |--------|-------------------|------|
 | -32700 | parse-error       | Malformed JSON on the wire. |
 | -32600 | invalid-request   | Not a valid JSON-RPC request envelope. |
-| -32601 | method-not-found  | Unknown method (or unknown tool name). |
+| -32601 | method-not-found  | Unknown JSON-RPC method. |
 | -32602 | invalid-params    | Method recognised, params shape wrong. |
 | -32603 | internal-error    | Server-side fault. |
 
-Tool-execution errors (a known tool returning a failure) use the
+Tool-name and tool-execution errors use the
 `tools/call` result shape with `isError: true` per the MCP spec's
-error-handling guidance — they are NOT protocol-level errors.
+error-handling guidance — they are NOT protocol-level errors. An
+unregistered tool name is rejected locally as `:reason :unknown-tool`
+before endpoint discovery, so it remains diagnosable when no app is
+running.
 
 ## Degraded boot
 
-If the nREPL port can't be found at startup (no port file, no env
-var, shadow-cljs not running yet), the server still boots and answers
-`tools/list`. Every `tools/call` returns
-`{:isError true :content [{:text "{:ok? false :reason :nrepl-port-not-found ...}"}]}`
-so the agent host can surface the structured error and the user can
-start shadow-cljs without restarting the server.
+If the nREPL endpoint cannot be found on the first app-facing call, the
+server remains available and continues to answer `tools/list`. Calls that
+need the app return an `isError: true` tool result containing the structured
+`:nrepl-port-not-found` reason, and discovery is retried on the next call.
+Server-local tools (`get-stream-controls` and
+`get-re-frame2-pair-instructions`) still run. Unknown-tool and disabled-write
+guards also run before discovery, so their local errors are not masked by
+transport state.

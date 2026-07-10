@@ -1,9 +1,7 @@
 # re-frame2-pair-mcp tests — JS / CLJS layering
 
-> Per rf2-xkxbv (audit rf2-7hie3 §TE4). The re-frame2-pair-mcp test surface is
-> split across two host languages — CLJS unit + conformance suites
-> and Node integration scripts. The boundary is real but easy to miss;
-> this README makes it visible.
+The test surface is split across CLJS unit/conformance suites and Node
+integration scripts.
 
 ## TL;DR — when to add a test on each side
 
@@ -11,15 +9,15 @@
 |---|---|
 | Does a per-tool function build the right eval form / wire envelope? | **CLJS** — `re_frame2_pair_mcp/<tool>_test.cljs` |
 | Does a cross-cutting concern (cache, cap, dedup, elision, sensitive) reshape an envelope correctly? | **CLJS** — `re_frame2_pair_mcp/<concern>_test.cljs` |
-| Does `tools/invoke` glue the four pipeline phases (precheck → dispatch → cache → cap) in the right order? | **CLJS** — `re_frame2_pair_mcp/invoke_test.cljs` |
+| Does `tools/invoke` preserve build resolution → precheck → dispatch → cache → cap order? | **CLJS** — `re_frame2_pair_mcp/invoke_test.cljs` |
 | Does the full tool catalogue (the ordered `registry/tools` list) still produce the documented EDN wire shape per (tool × args × stub-conn)? | **CLJS** — `re_frame2_pair_mcp/conformance_test.cljs` |
 | Does the compiled `out/server.js` complete an MCP handshake and surface the documented tool descriptors? | **JS** — `stdio-roundtrip.js` |
 | Does the persistent nREPL socket survive multiple ops on one server process without leaking / hanging? | **JS** — `live-nrepl.js` |
 
 If a regression would only be visible **after** the CLJS compiles to
 JS, write a JS test. If it would be visible in the CLJS source, write a
-CLJS test. The two layers are complementary; both gate `npm test` and
-`live-nrepl` runs respectively.
+CLJS test. The two layers are complementary: `npm test` runs the CLJS
+suite, while the Node integration scripts are explicit package commands.
 
 ## The two layers
 
@@ -42,8 +40,8 @@ What this layer covers:
   `cursor_pagination_test.cljs`, `args_test.cljs`,
   `diff_encode_epochs_test.cljs`. Each is a unit suite over its
   concern's public surface.
-- **Pipeline glue** — `invoke_test.cljs` end-to-end-orchestration
-  test (rf2-nogok) for the precheck → dispatch → cache → cap chain.
+- **Pipeline glue** — `invoke_test.cljs` covers build resolution →
+  precheck → dispatch → cache → cap.
 - **Conformance corpus** — `conformance_test.cljs` (rf2-xkxbv): one
   inline-fixture corpus driving every tool through `tools/invoke`
   against a stub conn, asserting recorded wire-shape EDN. Sibling
@@ -88,11 +86,11 @@ runs deterministically. Exercises:
   `inputSchema.properties` keys. A renamed property fails this test
   (the rename is part of the wire contract; users' MCP-host configs
   depend on it).
-- `tools/call` per tool against an absent nREPL — every tool surfaces
-  `:reason :nrepl-port-not-found` (the documented degraded mode).
-  This proves each tool is registered in the dispatcher; a missing
-  registry entry would surface as `:reason :unknown-tool` instead.
-- Unknown tool — passes through as an `isError` envelope.
+- Selected app-facing calls (`eval-cljs`, `snapshot`, `get-path`,
+  `subscribe`, and `unsubscribe`) return
+  `:reason :nrepl-port-not-found` with no app endpoint.
+- An unknown tool returns an `isError` envelope with
+  `:reason :unknown-tool` before endpoint discovery.
 
 Run with: `node test/stdio-roundtrip.js` (after `npm run build`).
 
@@ -143,7 +141,7 @@ Is the regression visible in CLJS source?
   ├── yes → CLJS unit test
   │         ├── concerns a single tool body?         → <tool>_test.cljs
   │         ├── concerns a cross-cutting concern?    → <concern>_test.cljs
-  │         ├── concerns the four-phase pipeline?    → invoke_test.cljs
+  │         ├── concerns the boundary pipeline?      → invoke_test.cljs
   │         └── concerns the public wire envelope?   → conformance_test.cljs
   │
   └── no → JS integration test

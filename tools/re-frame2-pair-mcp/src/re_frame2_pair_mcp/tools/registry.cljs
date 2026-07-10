@@ -1,67 +1,13 @@
 (ns re-frame2-pair-mcp.tools.registry
-  "Single source of truth for the re-frame2-pair-mcp tool catalogue.
+  "The ordered `tools` vector supplies the descriptor list, handler
+  lookup, and cache policy. Each entry carries a wire name, handler,
+  cacheability decision, and descriptor.
 
-  ## Why one registry
-
-  This ns is the ONE place the tool list is enumerated, so three
-  downstream views can never drift apart:
-
-  - `tool-descriptors` in `descriptors.cljs` — the `tools/list` surface.
-  - `dispatch-tool*` in `tools.cljs` — the `tools/call` dispatcher.
-  - `cacheable-tools` in `cache.cljs` — the per-tool cache opt-in.
-
-  Generating all three from one source makes the drift class structurally
-  impossible: a tool can't reach the dispatcher without a descriptor (and
-  vanish from `tools/list`), nor carry a descriptor without a cache
-  decision (and silently no-op the `:cache` knob).
-
-  ## What's here
-
-  One ordered vector — `tools` — whose entries bundle every fact about
-  a tool that any consumer needs:
-
-  ```clojure
-  {:name        \"snapshot\"          ;; MCP wire name
-   :handler     snapshot-handler      ;; (fn [conn args extra] => Promise)
-   :cacheable?  true                  ;; per-session response cache opt-in
-   :descriptor  {...}}                ;; tools/list inputSchema + doc
-  ```
-
-  Generators emit the three downstream views from this one source:
-
-  - `tool-descriptors` — `(mapv :descriptor tools)` (consumed by
-    `descriptors.cljs` for the wire surface).
-  - `handler-for`     — `{name handler}` lookup (consumed by
-    `tools.cljs/dispatch-tool*`).
-  - `cacheable?`      — predicate over registered names (consumed by
-    `cache.cljs` and `descriptors-knobs.cljs`).
-
-  ## Handler arity convention
-
-  Every registered handler is a 3-arity fn `(fn [conn args extra])`.
-  Only the streaming `subscribe` tool actually consults `extra` (the
-  MCP `signal` + `sendNotification` + `_meta.progressToken` payload);
-  the rest accept it for shape uniformity and ignore it. This is the
-  single shape the dispatcher invokes — there is no second arity.
-
-  Cross-MCP note: story-mcp uses a different (1-arity) handler shape
-  because its JVM-side single-process deploy has no nREPL `conn` and
-  no streaming tool. The divergence is deliberate and documented at
-  `tools/mcp-base/spec/handler-arity.md`; a phase-2 unification awaits
-  a third server instance and lands as a separate bead.
-
-  ## Adding a new tool
-
-  Land *one* map entry in the `tools` vector below — name, handler,
-  cacheable flag, descriptor. The three downstream views update
-  automatically; drift is structurally impossible. The per-tool ns
-  provides the handler implementation.
-
-  ## Layout
-
-  This file owns the catalogue **data** only — handler implementations
-  and descriptor knob splicers live in the per-tool / per-concern
-  files. Registry is the index, not the implementation."
+  Every registered handler has shape `(fn [conn args extra])`. Only
+  `subscribe` consults `extra`; other handlers ignore it through
+  `ignoring-extra`. Pair handlers are late-bound so tests that replace
+  a per-tool var affect the next call. Implementations and descriptor
+  knob splicers remain in their per-tool or per-concern namespaces."
   (:require [re-frame2-pair-mcp.tools.discover-app :as discover-app]
             [re-frame2-pair-mcp.tools.eval-cljs :as eval-cljs]
             [re-frame2-pair-mcp.tools.dispatch :as dispatch]
@@ -90,67 +36,24 @@
             [re-frame2-pair-mcp.tools.get-re-frame2-pair-instructions :as get-re-frame2-pair-instructions]
             [re-frame2-pair-mcp.tools.descriptors-data :as data]))
 
-;; ---------------------------------------------------------------------------
-;; Handler shape — every registered handler is `(fn [conn args extra])`.
-;; Per-tool fns that don't need `extra` (i.e. everything except `subscribe`)
-;; are adapted via `ignoring-extra` so the dispatcher can call all
-;; handlers uniformly.
-;;
-;; Handlers in the registry are LATE-BINDING — they call the per-tool fn
-;; on each invocation rather than capturing a direct reference at load
-;; time. The `invoke-test` suite stubs per-tool fns by
-;; `set!`-ing their vars and expects subsequent dispatches to hit the
-;; replacement. A captured reference would freeze the original and
-;; break the seam. `ignoring-extra` takes a NAMESPACE-QUALIFIED var
-;; (not a value) so the deref happens per-call — preserving the seam.
-;; ---------------------------------------------------------------------------
-
 (defn- ignoring-extra
   "Adapt a 2-arity per-tool fn `(fn [conn args])` into the registry's
-  3-arity convention `(fn [conn args _extra])`. All but one of the
-  registered tools ignore `extra` (only `subscribe` consults it);
-  this adapter collapses the verbatim `(fn [conn args _extra]
-  (per-tool-fn conn args))` boilerplate at the call sites.
-
-  Callers wrap the per-tool fn in a `#(per-tool-fn %1 %2)` literal
-  so the namespaced-symbol lookup happens per-call. That preserves
-  the test seam: `(set! snapshot/snapshot-tool ...)`
-  updates the namespace's JS slot and the next dispatch finds the
-  replacement."
+  3-arity convention. The caller-supplied wrapper resolves the per-tool
+  var on each invocation, preserving the test replacement seam."
   [f]
   (fn [conn args _extra] (f conn args)))
 
-;; ---------------------------------------------------------------------------
-;; The catalogue — one entry per tool. ORDER matters: `tool-descriptors`
-;; preserves it for the `tools/list` wire surface so AI hosts see a
-;; stable listing (discover-app first, mega-ops in the middle, streaming
-;; tools last). Don't shuffle without checking the `typical_tokens_test`
-;; and `list_subscriptions_test` order-sensitive expectations.
-;; ---------------------------------------------------------------------------
+;; Order is observable through tools/list and pinned by catalogue tests.
 
 (def tools
-  "The tool catalogue (canonical count: spec/003-Tool-Catalogue.md).
-  Single source of truth for the `tools/list` descriptors, the
-  `tools/call` dispatcher, and the per-tool cache opt-in. See ns
-  docstring for the entry shape.
-
-  Each `:handler` is a thin late-binding wrapper around the per-tool
-  fn — `ignoring-extra` for every tool that ignores `extra`, or an
-  inline `(fn [conn args extra] ...)` for `subscribe` (which
-  uses `extra` for its progress-callback plumbing). Both shapes
-  resolve the underlying fn per-call so test seams that `set!` the
-  var take effect on the next dispatch."
+  "Ordered source for tools/list, tools/call dispatch, and cache policy."
   [{:name       "discover-app"
     :handler    (ignoring-extra #(discover-app/discover-app %1 %2))
     :cacheable? true
     :descriptor data/discover-app}
    {:name       "orient"
     :handler    (ignoring-extra #(orient/orient-tool %1 %2))
-    ;; App-shape orientation summary — registrar counts/ids +
-    ;; per-app-frame app-db top-keys + machines, composed from the existing
-    ;; introspection surfaces. A pure function of the frame registry + app-db
-    ;; state, idempotent across same-state calls — cacheable like the other
-    ;; read tools.
+    ;; The orientation summary is a pure read of live introspection state.
     :cacheable? true
     :descriptor data/orient}
    {:name       "eval-cljs"

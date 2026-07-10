@@ -1,7 +1,5 @@
 (ns re-frame2-pair-mcp.roots-discovery
-  "Workspace-roots–based discovery of the consumer project's nREPL port file.
-  The generic solution to the cwd-leak: zero hardcoding, no shadow-specific
-  port probing.
+  "Workspace-roots-based discovery of the consumer project's nREPL port file.
 
   ## The problem
 
@@ -18,17 +16,16 @@
 
   ## What this namespace adds
 
-  The MCP protocol's own `roots` capability: the client (Claude Code) surfaces
-  the workspace roots the user has opened via `roots/list`. We walk each root
-  for `shadow-cljs.edn`, then check the adjacent `.shadow-cljs/nrepl.port` —
-  if present, that project has a live shadow build. The walk is bounded
+  The MCP protocol's `roots` capability lets a client surface the workspace
+  roots the user has opened via `roots/list`. We walk each root for
+  `shadow-cljs.edn`, then test the standard port-file candidates relative to
+  that project root. A readable candidate identifies a live nREPL endpoint. The walk is bounded
   shallow (typical locations: the root itself, `<root>/implementation/`, plus
   one extra level for monorepos) and skips directories that can't contain a
   project (`node_modules`, `.git`, `target`, `.shadow-cljs`).
 
-  Zero hardcoded paths, zero port-range probing — the workspace tells us
-  where to look. Generic across MCP servers and future tools facing the same
-  CWD-discovery problem.
+  The workspace supplies project roots, so this path needs neither an
+  operator-specific absolute path nor port-range probing.
 
   ## What this namespace is NOT
 

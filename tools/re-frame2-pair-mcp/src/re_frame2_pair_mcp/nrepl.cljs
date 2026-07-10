@@ -1,11 +1,10 @@
 (ns re-frame2-pair-mcp.nrepl
   "Persistent nREPL client over a TCP socket.
 
-  One socket lives for the whole session. The MCP server pays the cold
-  connect once at boot; every subsequent call is just a bencode
-  round-trip on the existing socket — per-op latency is ~5-50ms (a
-  per-call connect would instead pay process startup + a ~200-500ms
-  cold nREPL connect + teardown each time, ~700ms total).
+  The server opens one socket lazily and reuses it across calls. A closed
+  socket can reopen at the same endpoint; endpoint discovery replaces the
+  connection when a cached port file changes. Normal calls therefore pay
+  one bencode round-trip rather than reconnecting per operation.
 
   ## Reconnect protocol
 
@@ -26,10 +25,9 @@
   ## Concurrency
 
   We dispatch by nREPL `id` (UUID per request). The same socket can
-  carry interleaved ops because nREPL's protocol multiplexes on `id` —
-  but the MCP server today calls one tool at a time, so we serialise
-  in-flight ops by `id` and resolve each Promise when its `:done`
-  status arrives."
+  carry interleaved ops because nREPL multiplexes on `id`. Each pending
+  request accumulates only its own response frames and resolves when its
+  `:done` status arrives."
   (:require [applied-science.js-interop :as j]
             [clojure.string :as str]
             [cljs.reader :as edn]
@@ -113,9 +111,8 @@
     1. `--port-file <path>`   explicit, cwd-independent escape hatch.
                               Passed as `explicit-port-file`.
     2. `$SHADOW_CLJS_NREPL_PORT` env var.
-    3. `target/shadow-cljs/nrepl.port`  ┐
-    4. `.shadow-cljs/nrepl.port`        ├ cwd-relative scan (steps 3-5).
-    5. `.nrepl-port`                    ┘"
+    3. CWD-relative scan of `target/shadow-cljs/nrepl.port`,
+       `.shadow-cljs/nrepl.port`, then `.nrepl-port`."
   ([] (read-port-from-fs nil))
   ([explicit-port-file]
    (or (when (and explicit-port-file (seq explicit-port-file))
@@ -157,9 +154,9 @@
                               is supplied (post-MCP-init, lazy on first
                               tool call), ask the client for its
                               workspace roots, walk each one for
-                              `shadow-cljs.edn`, and pair the result with
-                              the adjacent `.shadow-cljs/nrepl.port`. One
-                              candidate → silent attach. Multiple →
+                              `shadow-cljs.edn`, and test each standard
+                              port-file candidate relative to that project.
+                              One live candidate → silent attach. Multiple →
                               `:ambiguous` (caller drives elicitation).
                               `:workspace-discovery-unsupported` →
                               proceed to step 4.
@@ -236,10 +233,9 @@
         (.then
           (fn [r]
             (case (:status r)
-              ;; The roots candidate carries its own `:port-file` (the
-              ;; `.shadow-cljs/nrepl.port` adjacent to the discovered
-              ;; `shadow-cljs.edn`); thread it through so the server caches
-              ;; the exact discovered file rather than re-deriving one.
+              ;; The roots candidate carries whichever standard port file
+              ;; resolved under the discovered project. Thread that exact
+              ;; path through instead of deriving another candidate.
               :one  (let [c (:candidate r)]
                       {:port (:port c) :project-home (:project-home c)
                        :port-file (:port-file c)})

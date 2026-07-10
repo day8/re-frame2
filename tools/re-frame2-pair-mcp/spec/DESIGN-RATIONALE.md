@@ -144,8 +144,9 @@ an HTTP API, or some other shape?
 
 ## Lock #3 — Connection model
 
-**Locked 2026-05-12 (Mike).** **Single persistent nREPL socket** for
-the lifetime of the session. Reconnect-per-op is rejected.
+**Locked 2026-05-12 (Mike).** **One active, reusable nREPL socket.**
+Reconnect-per-op is rejected; reconnect after a socket close or endpoint
+change is part of the lifecycle.
 
 ### Question
 
@@ -164,8 +165,8 @@ session?
 
 ### Pick
 
-**Single persistent socket.** Multiplexed by op-id (`{id →
-resolve-fn}` pending map).
+**Single active socket.** Multiplexed by op-id (`{id → pending-result}`
+map) and replaced when endpoint discovery observes a port change.
 
 ### Why
 
@@ -181,9 +182,9 @@ resolve-fn}` pending map).
   reader loop. The bencode framing has a known footgun (see
   `002-nREPL-Transport.md`) which is a one-time implementation
   cost.
-- **Pool not needed.** The MCP server invokes tools sequentially;
-  there's no concurrency to amortise. A pool would add complexity
-  without benefit.
+- **Pool not needed.** Request ids already support overlapping calls on
+  one endpoint. A pool would add connection state without improving
+  routing or endpoint isolation.
 
 ### Date locked
 

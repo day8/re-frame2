@@ -20,7 +20,7 @@
 //   - tools/call get-path against an absent nREPL (same degraded mode —
 //     proves the new tool is wired into the dispatch table)
 //
-// A separate live-nrepl test (spec/INTEGRATION.md) covers the
+// A separate live-nrepl script (documented in test/README.md) covers the
 // connected-to-shadow-cljs case.
 //
 // Run with: `node test/stdio-roundtrip.js` from this directory after

@@ -809,9 +809,8 @@
                      (restore!)
                      (done))))))))
 
-;; The roots/list single-candidate path threads the candidate's own
-;; :port-file through (the `.shadow-cljs/nrepl.port` adjacent to the
-;; discovered shadow-cljs.edn), so the server caches the discovered file.
+;; The roots/list single-candidate path threads through the exact standard
+;; port-file candidate that resolved under the discovered project.
 (deftest discover-port-roots-single-candidate-surfaces-port-file
   (testing "step 3 single candidate → its :port-file flows through"
     (async done

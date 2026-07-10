@@ -57,8 +57,9 @@ shape. MCP already exists; re-frame2-pair-mcp speaks it.
 ## Single persistent nREPL socket
 
 One TCP socket to the shadow-cljs nREPL is opened on first need and
-held for the lifetime of the session. Subsequent ops reuse the
-socket without reconnecting.
+reused across calls. A transient close can reopen the same endpoint;
+a discovered port change replaces the connection and its endpoint-scoped
+state.
 
 The break-even versus a reconnect-per-op design is one op — and a
 typical re-frame2-pair session fires dozens to hundreds. Per-op latency drops
@@ -70,9 +71,8 @@ The persistent-socket choice is what makes the MCP server feel
 decision.
 
 Ops carry a UUID `id`; the connection multiplexes incoming bencode
-frames against a `{id → resolve-fn}` pending map. Concurrent ops
-are correct in principle even though the MCP server currently
-invokes tools sequentially.
+frames against a `{id → pending-result}` map. Interleaved responses
+therefore remain correlated even when a host overlaps tool calls.
 
 ## Stage-marker-independent
 
@@ -103,12 +103,12 @@ re-frame2-pair-mcp without code changes.
 
 ## Degraded boot, not failed boot
 
-If the nREPL port can't be resolved at startup (no port file, no
-env var, shadow-cljs not running yet), the server still boots and
-answers `tools/list`. Every `tools/call` returns a structured
-`:ok? false :reason :nrepl-port-not-found` error so the agent host
-can surface the problem and the user can start shadow-cljs without
-restarting the server.
+If the nREPL endpoint cannot be resolved on the first app-facing call,
+the server still answers `tools/list` and retries discovery later.
+App-facing calls return a structured
+`:ok? false :reason :nrepl-port-not-found` error. Server-local tools,
+unknown-tool diagnostics, and disabled-write guards do not require a
+connection and continue to return their own results.
 
 The agent-host workflow is *don't make the user restart anything*.
 The server's job is to keep working through the gaps and surface a
