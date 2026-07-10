@@ -30,16 +30,16 @@
 ;; a pure function: hand it the coeffects (which carry the current app-db) and
 ;; the event vector, and it hands back an effect map. The `{:db …}` key means
 ;; "replace app-db with this value", and the runtime commits it atomically at
-;; the end of the pipeline run. Not a word about React in here — so this block is
-;; byte-for-byte the same as the Reagent and UIx counters. See
+;; the end of the pipeline run. Not a word about React in here — so these four
+;; registrations are byte-for-byte the same as the Reagent and UIx counters. See
 ;; `docs/core/glossary.md#event-handler`.
 ;;
 ;; You might wonder why the three counters retype these handlers instead of
-;; sharing one namespace. It's deliberate. Each example is its own self-
-;; contained build, and a bundle-isolation test checks that a Helix bundle
-;; ships zero Reagent or UIx code (and vice versa). A shared namespace dragged
-;; into all three builds would quietly break that guarantee. The seam worth
-;; learning is the substrate boundary below — one dataflow, three view layers.
+;; sharing one namespace. Keeping them local is a teaching choice, not a bundle-
+;; isolation requirement: a shared substrate-agnostic namespace could still be
+;; renderer-free. Local copies make each example self-contained and turn the
+;; substrate boundary below into a direct, readable diff — one dataflow, three
+;; view layers.
 
 (rf/reg-event :counter/initialise
   (fn [{:keys [db]} _event] {:db {:counter/value 5}}))

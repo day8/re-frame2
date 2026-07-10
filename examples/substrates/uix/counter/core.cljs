@@ -31,7 +31,7 @@
 ;; and the event vector, and it hands back an effect map. The `{:db …}` key
 ;; means "replace app-db with this value", and the runtime commits it
 ;; atomically at the end of the pipeline run. Not a word about React in here — so
-;; this block is byte-for-byte the same on every substrate. See
+;; these four registrations are byte-for-byte the same on every substrate. See
 ;; `docs/core/glossary.md#event-handler`.
 
 (rf/reg-event :counter/initialise

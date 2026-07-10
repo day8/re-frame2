@@ -58,10 +58,10 @@
 ;; EVENTS
 ;; ============================================================================
 ;;
-;; The tick is a `:dispatch-later` that reschedules itself — a loop with no
-;; off switch, because that effect has no cancel API. Left alone, a hot reload
-;; or a re-mount would just spawn a second chain alongside the first, and now
-;; two loops append lines forever. Not ideal.
+;; The tick is a `:dispatch-later` that reschedules itself. The effect returns no
+;; cancellation handle, so the application needs another way to retire a chain.
+;; Left alone, a re-mount would spawn a second chain alongside the first, and
+;; two loops would append lines forever.
 ;;
 ;; The fix is a generation guard, and it's pleasingly small. A counter,
 ;; `:process-monitor/tick-gen`, records which "arming" each chain belongs to:
@@ -304,9 +304,9 @@
   ;; retires it. We capture `(:dispatch (rf/capture-frame))` here in the `let`,
   ;; at render-time, while the frame is still in scope. By the time the effect
   ;; and its cleanup actually run — after commit — that scope is gone, so a
-  ;; dispatch fetched in there would have no frame to land in. Grab it now,
-  ;; close over it, and you're safe. The Helix adapter README §use-effect has
-  ;; the long version.
+  ;; dispatch fetched in there would have no frame to land in. Grab it now so
+  ;; the closure carries the intended frame. The Helix adapter README
+  ;; §use-effect has the long version.
   (let [dispatch (:dispatch (rf/capture-frame))]
     (helix-hooks/use-effect
       ;; Empty deps ⇒ run once on mount, clean up once on unmount.
