@@ -1,12 +1,7 @@
-;; day8/reagent-slim — re-frame2's Reagent rewrite (rf2-5djt; Stage 4 rf2-6hyy).
+;; day8/reagent-slim — re-frame2's Reagent-compatible implementation.
 ;;
-;; Stage 4-A scope: the reactive primitives (reagent2.ratom). Subsequent
-;; sub-stages add the render scheduler (4-B), component-shape detection
-;; (4-C), hiccup translation (4-D), pure-CLJS render-to-static-markup
-;; (4-E), throw-on-call shims (4-F), examples + MIGRATION (4-G).
-;;
-;; Per the IMPL-SPEC §1: this artefact is the "slim" rewrite of stock
-;; Reagent for React 19. It replaces (does not depend on) stock Reagent.
+;; This is the slim rewrite of stock Reagent for React 19. It replaces, and
+;; does not depend on, stock Reagent.
 ;; The bridge `day8/re-frame2-reagent` continues to ship in parallel so
 ;; consumers that need the dropped surfaces (`track`, `cursor`, `wrap`,
 ;; `with-let`, etc.) keep a path to the React-19-stable React API.
@@ -22,7 +17,7 @@
 
  :aliases
  {:test {:extra-paths ["test"]
-         :extra-deps  {;; rf2-try1x — silent-on-success reporter.
+         :extra-deps  {;; Silent-on-success reporter.
                        day8/re-frame2-test-quiet {:local/root "../../test-quiet"}
                        io.github.cognitect-labs/test-runner
                        {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
@@ -33,7 +28,7 @@
                         :git/sha "2b83503246e8291fc023d688574640a9b23d8c50"}}
           :main-opts  ["-m" "noahtheduke.clein"]}
 
-  ;; :main is the in-tree adapter ns (rf2-xcyaei). NOTE the published jar
+  ;; :main is the in-tree adapter ns. The published jar
   ;; ships the adapter at the CANONICAL `re-frame.adapter.reagent` ns, not
   ;; this `-slim` ns: at publication the release workflow's "Rename adapter
   ;; ns at publication (reagent-slim only)" step (.github/workflows/

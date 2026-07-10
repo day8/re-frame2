@@ -1,32 +1,24 @@
-;; day8/re-frame2-reagent — Reagent adapter (rf2-0hxm).
+;; day8/re-frame2-reagent — stock Reagent adapter.
 ;;
-;; Per Spec 006 §Adapter shipping convention: each adapter ships in its
-;; own Maven artefact so a Reagent-only app does not transitively pull
-;; in UIx or Helix code (and vice versa). This artefact supplies the
-;; re-frame.adapter.reagent ns and depends on the core artefact for
-;; everything else.
+;; Each adapter ships separately so consumers only add the selected adapter's
+;; implementation dependencies. This artefact supplies
+;; re-frame.adapter.reagent and depends on core for the substrate contract.
 ;;
-;; The core artefact already carries Reagent as a runtime dep because the
-;; CLJS-side re-frame.views layer (the reg-view path) is Reagent-coupled
-;; per the rf2-0hxm decision; the adapter split here ships the adapter map
-;; separately, which is the slice the bundle-isolation argument needs.
-;; That coupling at views.cljs is preserved by design: the UIx adapter
-;; (rf2-3yij, shipped) added a parallel reg-view-uix (`defui`) rather than
-;; decoupling re-frame.views, and the React-hook substrates compose this
-;; ns's frame-aware-view wrapper around their own render-fns. See
-;; ../../core/deps.edn for the matching core-side note.
+;; Core itself still carries stock Reagent because the CLJS `reg-view` path is
+;; Reagent-backed. The artefact boundary isolates adapter code; it does not
+;; claim that a UIx or Helix consumer has a Reagent-free core classpath.
 {:paths ["src"]
  :deps  {day8/re-frame2 {:local/root "../../core"}}
 
  :aliases
  {:test {:extra-paths ["test"]
-         :extra-deps  {;; rf2-try1x — silent-on-success reporter.
+         :extra-deps  {;; Silent-on-success reporter.
                        day8/re-frame2-test-quiet {:local/root "../../test-quiet"}
                        io.github.cognitect-labs/test-runner
                        {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
          :main-opts   ["-m" "re-frame.test-quiet.runner"]}
 
-  ;; Clojars deploy (rf2-r382). Modeled on re-frame v1's release flow.
+  ;; Clojars deploy, modeled on re-frame v1's release flow.
   ;; The release workflow runs `clojure -M:clein deploy` from this
   ;; artefact's directory, which builds pom + jar and pushes to Clojars.
   ;;

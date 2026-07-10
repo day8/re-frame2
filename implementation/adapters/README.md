@@ -11,7 +11,7 @@ This directory groups re-frame2's **substrate adapters** — implementations of 
 | [`reagent/`](reagent/) | Reagent adapter | `day8/re-frame2-reagent` | Reagent 2.x — the canonical CLJS reference adapter |
 | [`uix/`](uix/) | UIx adapter | `day8/re-frame2-uix` | UIx 2.x — modern hooks-based React layer |
 | [`helix/`](helix/) | Helix adapter | `day8/re-frame2-helix` | Helix 0.2.x — minimal React wrapper |
-| [`reagent-slim/`](reagent-slim/) | Reagent-slim adapter | `day8/reagent-slim` [^slim-coord] | Reagent rewrite for React 19 — Stage 4 landed (full `reagent2.*` rewrite) |
+| [`reagent-slim/`](reagent-slim/) | Reagent-slim adapter | `day8/reagent-slim` [^slim-coord] | Reagent-compatible `reagent2.*` implementation for React 19 |
 
 [^slim-coord]: The `re-frame2-` prefix is dropped on this coord (per IMPL-SPEC DECISION-1); it is the lone adapter artefact published as `day8/reagent-slim` rather than `day8/re-frame2-*`.
 
@@ -21,11 +21,14 @@ A consumer picks one (or more) by adding the matching artefact to their `deps.ed
 
 | Directory | Adapter | Coordinate | Target |
 |---|---|---|---|
-| [`test-react/`](test-react/) | Test-React adapter | **none — local-test-only** | Pure-CLJC React class-3 lifecycle simulator — unit-testable lifecycle bug catching; carries ported regressions incl. the organic rf2-4l7t2 sync-unmount-during-render repro (rf2-gqyqv skeleton, broadened rf2-n2cuo) |
+| [`test-react/`](test-react/) | Test-React adapter | **none — local-test-only** | Pure-CLJC React class-3 lifecycle simulator for lifecycle-order and unmount-during-render tests |
 
 The **test-react** adapter is **not a published artefact**. It is a development/test fixture only: it has no Maven coordinate, no `:clein/build` descriptor, and is absent from the lockstep array, the release deploy matrix, and the CI JVM job set by design. Consumers never depend on it; it exists solely so the project's own unit tests can simulate React class-3 lifecycle on the JVM and Node-CLJS without a browser. Bundle isolation treats it as test-only — no example or production build should ever pull it in.
 
-The `reagent-slim` adapter has landed Stage 4 (the full `reagent2.*` rewrite — reactive primitives, render scheduler, hiccup translation, and pure-CLJS render-to-string). It now carries its own CLJS test suite (substrate-shape contract, container round-trip, derived-value tracking, the disposal-MUST list, render Root-API call sequence, and source-coord / view-id stamping under the slim adapter) alongside the `reagent2.*` internals tests.
+The `reagent-slim` adapter includes reactive primitives, a render scheduler,
+hiccup translation, and pure-CLJS render-to-string. Its test suite covers the
+adapter contract, React root calls, disposal, source coordinates, and the
+`reagent2.*` internals.
 
 ## What an adapter implements
 
@@ -59,7 +62,7 @@ adapters/
 │   └── test/...
 ├── reagent-slim/
 │   ├── deps.edn              ; declares day8/reagent-slim (no re-frame2- prefix per DECISION-1)
-│   ├── src/reagent2/...      ; the slim Reagent rewrite (Stage 4: full reagent2.* rewrite)
+│   ├── src/reagent2/...      ; the slim Reagent implementation
 │   ├── src/re_frame/adapter/reagent_slim.cljs
 │   └── test/...
 └── test-react/              ; local-test-only — NOT published (no Maven coord, no :clein/build)
@@ -72,7 +75,10 @@ All four published adapters declare `day8/re-frame2 {:local/root "../../core"}`;
 
 ## Where the substrate logic lives
 
-The four React-shaped adapters (Reagent, reagent-slim, UIx, Helix) are extremely thin (~100-130 lines each) because they all delegate into [`re-frame.substrate.spine`](../core/src/re_frame/substrate/spine.cljs) in the core artefact. Two factory families:
+The four React-shaped adapter namespaces are primarily configuration and
+substrate-specific public helpers because they delegate shared mechanics into
+[`re-frame.substrate.spine`](../core/src/re_frame/substrate/spine.cljs) in the
+core artefact. Two factory families:
 
 - **Ratom family** — [`make-ratom-spine`](../core/src/re_frame/substrate/spine.cljs) + [`make-ratom-adapter`](../core/src/re_frame/substrate/spine.cljs) (Reagent + reagent-slim).
 - **React-hook family** — [`make-react-spine`](../core/src/re_frame/substrate/spine.cljs) + [`make-react-adapter`](../core/src/re_frame/substrate/spine.cljs) (UIx + Helix).

@@ -1,18 +1,15 @@
-# reagent-slim — Stage 3 implementation spec
+# reagent-slim — implementation spec
 
-> Stage 3 of rf2-5djt (parent epic). Bead **rf2-60le**.
-> The artefact is `day8/reagent-slim`; the classic thin-bridge adapter ships today as `day8/re-frame2-reagent` (`day8/reagent-classic` is a possible post-1.0 rename of that bridge — see §11.4 — and is used in this spec only where the discussion is explicitly about that future rename).
-> Stage 1 (rf2-ui6g) closed the surface; Stage 2 (rf2-142b) sized the wins. This
-> document is the engineering spec Stage 4 (rf2-6hyy) implements against.
+> The artefact is `day8/reagent-slim`; the classic thin-bridge adapter ships as
+> `day8/re-frame2-reagent`. This document preserves the implementation decisions
+> and records their shipped disposition. Where planning text and current code
+> differ, an "as shipped" disposition calls out the result; the current source,
+> Spec 006, and test gates are authoritative.
 >
-> Inputs (binding):
-> - `findings/re-frame2-reagent-stage1-api-surface.md` — bounded surface, eight RESOLVED decisions.
-> - `findings/reagent-slim-stage2-efficiency.md` — bundle + runtime estimates, top-3 commitments, R-001..R-007 risk register, S3-001..S3-008 inputs.
-> - `findings/recom-react19-readiness-audit.md` (rf2-cgcv) — re-com + 10x lifecycle inventory.
-> - `findings/dash8-rf8-react19-readiness-audit.md` (rf2-kfpf) — Dash8 + rf8 lifecycle + SSR inventory.
-> - `findings/reagent-rewrite-analysis.md` §2 — friction inventory (kept per DECISION-8); §8 recommendation overruled.
-> - `implementation/adapters/reagent/` — current thin bridge (147 LoC); rewrite folds it in.
-> - `implementation/core/src/re_frame/views.cljs` (541 LoC) — reg-view wrapper + source-coord injector + plain-fn warn-once. Significant chunks fold into the renderer.
+> Current companion references:
+> - [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) — adopter-facing rationale.
+> - [`FORM-3.md`](FORM-3.md) — supported class-component surface.
+> - [`../reagent/`](../reagent/) — the coexisting classic adapter.
 >
 > Hard constraints (settled):
 > 1. React 19 floor (DECISION-5; Stage 1 §2.3a) — no `reagent.dom`; that namespace and its React-19-removed surfaces are absent (rf2-jif0qp; not throw-on-call stubs).
@@ -1223,4 +1220,6 @@ A child component throws a Promise (Suspense's standard pattern); the parent's `
 
 *Word count: ~7 100.*
 
-*This spec is the binding input for Stage 4 (rf2-6hyy). Cross-references to Stage 1 (`findings/re-frame2-reagent-stage1-api-surface.md`) and Stage 2 (`findings/reagent-slim-stage2-efficiency.md`) are inline throughout. The current thin-bridge adapter at `implementation/adapters/reagent/` is the reference for unchanged-public-path elements (the adapter Var, the late-bind hook wiring, the cache-disposal contract).*
+*This document is an engineering record. The current thin-bridge adapter at
+[`../reagent/`](../reagent/) is the reference for unchanged public-path elements
+such as the adapter Var, late-bind hook wiring, and cache-disposal contract.*

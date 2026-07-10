@@ -1,48 +1,20 @@
 (ns re-frame.adapter.test-react
-  "The Test-React adapter — simulates the React class-3 lifecycle in pure
-  CLJC (no React, no DOM, no jsdom) so React-lifecycle-driven bugs (stale
-  closures, unbalanced subscribe/dispose, sync unmount inside render — the
-  rf2-4l7t2 class) can be caught at unit-test speed.
+  "Test-only adapter that simulates the React class-3 lifecycle in pure CLJC.
+  It catches lifecycle ordering, unbalanced mount/disposal, and synchronous
+  unmount-during-render failures without React, a DOM, or jsdom.
 
-  Implements the Spec 006 adapter contract: the 6 required fns, 2 of the
-  3 optional (`subscribe-container`, `register-context-provider` — no
-  `flush-render!`, since the test owns the clock via `trigger-update!`),
-  and the 1 lifecycle fn. The atom-backed
-  container quartet is shared with plain-atom via
-  `re-frame.substrate.atom-container`; the render half is the novel surface
-  — a `class-3` lifecycle simulator that records every transition into a
-  per-mount log and enforces the sync-unmount-during-render invariant (it
-  throws on a synchronous `unmount!` while a render is in flight ANYWHERE in
-  the tree, mirroring React 18+).
+  The atom-backed container operations are shared with plain-atom. Tests own
+  the render clock through `trigger-update!`, so this adapter intentionally
+  provides no `flush-render!`. Every lifecycle transition is recorded in a
+  per-mount log. `unmount!` throws while any render is in flight, matching
+  React's cross-root guard.
 
-  Render bodies + recursive children: a render tree may declare an imperative
-  body via the node shape `{:rf/component (fn [mount] ...)}`. The body runs
-  during the render phase (while the global render depth is non-zero) and can
-  mount children via `mount-child!` (which recurse through their own
-  lifecycle) or issue an `unmount!`. An `unmount!` of an ancestor/sibling from
-  inside such a body trips the guard ORGANICALLY — no hand-fabricated
-  in-flight state — which is exactly the rf2-4l7t2 shape (the senbl panel-host
-  unmounting the previous panel's root on a chip-row re-render).
+  A render tree may declare `{:rf/component (fn [mount] ...)}`. That body runs
+  during render and may call `mount-child!`, allowing tests to exercise nested
+  lifecycle and cross-root unmount ordering. There is no automatic rerender on
+  app-db change, React context traversal, or DOM source annotation.
 
-  Status: carries ported lifecycle regressions (rf2-n2cuo broadened the
-  rf2-gqyqv skeleton): organic sync-unmount-during-render, unbalanced
-  mount/unmount ref-count, and double-render.
-
-  Out of scope (deferred to follow-on beads):
-    - Auto-re-render on app-db change: tests drive re-renders explicitly
-      via `trigger-update!`. Children re-render only when a test re-runs the
-      parent's render body (via `trigger-update!` with the same body) or
-      drives the child directly; there is no automatic propagation.
-    - React-context provider traversal (frame-routing is via the
-      dynamic-var tier; the React-context tier is degenerate — no React).
-    - Source-coord annotation (Spec 006 §Source-coord annotation): N/A —
-      there is no DOM root to annotate, the render tree is opaque data, and
-      the spec exempts non-DOM roots.
-    - CLJS derived-value disposal / ref-count symmetry (rf2-pyp3n): see the
-      `make-derived-value` comment for the JVM-works / CLJS-silent split.
-
-  See README.md for the family table, the bug-class matrix, and the full
-  scope-boundary narrative. Usage:
+  Usage:
 
       (require '[re-frame.core :as rf]
                '[re-frame.adapter.test-react :as test-react])
@@ -76,18 +48,9 @@
   ;; Recompute on every deref. No caching: the test surface only runs a sub
   ;; a handful of times per case.
   ;;
-  ;; rf2-pyp3n: IDeref ONLY — deliberately no IWatchable / no disposal
-  ;; protocol. The sub-cache's per-reaction dispose path therefore works on
-  ;; the JVM (interop.clj implements dispose by reaction identity) but is a
-  ;; SILENT no-op under CLJS (this adapter withholds the :adapter/dispose! /
-  ;; :adapter/add-on-dispose! late-bind hooks — see the routing block at the
-  ;; foot of this ns — and interop.cljs routes through them, so unregistered
-  ;; hooks no-op). The derived value holds no host resources, so the
-  ;; PER-REACTION dispose has nothing to release. But the CACHE ENTRY itself
-  ;; (the `{:reaction … :ref-count n}` slot held on the frame) DOES survive a
-  ;; reaction that never auto-disposes — so `dispose-adapter!` MUST reset
-  ;; every live frame's sub-cache to clear stale entries + ref-counts across
-  ;; a dispose/reinstall cycle (rf2-ghfkkk). See `dispose-adapter!`.
+  ;; IDeref only: the value owns no host resource and has no CLJS disposal
+  ;; protocol. Frame sub-cache entries still retain reactions and ref-counts,
+  ;; so adapter disposal clears every live frame cache.
   (reify
     #?(:clj clojure.lang.IDeref :cljs IDeref)
     (#?(:clj deref :cljs -deref) [_]
@@ -102,8 +65,8 @@
 ;;   :lifecycle-log   — atom holding a vector of {:phase ... :seq n} entries;
 ;;                      the test driver inspects this to assert ordering (`:seq`
 ;;                      is the monotonic order-key — see `phase-seq`).
-;;   :mounted?        — atom<boolean>; false after unmount. The simulator
-;;                      THROWS on trigger-update! / unmount! after teardown.
+;;   :mounted?        — atom<boolean>; false after unmount. Updates then throw;
+;;                      repeated unmounts are no-ops.
 ;;   :children        — atom<vector<MountedComponent>>; child roots this mount
 ;;                      mounted from inside its own render body via
 ;;                      `mount-child!`. Unmounting a parent cascades to its
@@ -117,16 +80,9 @@
 ;; All live mounts; `dispose-adapter!` walks this to drain.
 (defonce ^:private active-mounts (atom #{}))
 
-;; Global render depth — "React is rendering somewhere in the tree." React's
-;; sync-unmount-during-render guard fires whenever ANY render is in flight, not
-;; only when the root being unmounted is itself mid-render. The rf2-4l7t2 shape
-;; is exactly this cross-root case: a parent re-renders and, from inside that
-;; render body, synchronously unmounts a SEPARATELY-tracked sibling/child root
-;; (the senbl panel-host unmounting the previous panel's root on a chip-row
-;; switch). A per-mount "am I rendering?" boolean could not see that — it would
-;; be false on the sibling being torn down — so the guard keys off this global
-;; counter. A counter (not a boolean) so nested child renders restore it
-;; correctly on unwind.
+;; React rejects synchronous unmount while any root is rendering. A global
+;; counter catches cross-root unmounts and restores correctly across nested
+;; child renders; a per-mount flag would miss sibling-root failures.
 (defonce ^:private render-depth (atom 0))
 
 ;; The mount whose render body is currently executing, if any. `mount-child!`
@@ -142,16 +98,8 @@
   []
   (pos? @render-depth))
 
-;; A process-global monotonic order-key stamped on every logged phase. A
-;; wall-clock timestamp is the wrong tool for teardown-ORDER assertions here:
-;; a whole cascade completes sub-millisecond, so `now-ms`-style timestamps
-;; collapse to the SAME integer and a `<=`-on-ms ORDER check is vacuous — it
-;; stays green even on a reversed (root-downward) teardown, the exact bug the
-;; check exists to catch. This counter increments once per logged phase, so a
-;; strict `<` over two phases' `:seq` values discriminates their REAL firing
-;; order and fails deterministically on a reversal. `dispose-adapter!` resets
-;; it per test (only relative order within a cascade matters, so the reset is
-;; hygiene — keeping the numbers small + deterministic across the suite).
+;; A counter, rather than millisecond timestamps, gives deterministic ordering
+;; when an entire teardown cascade completes within one clock tick.
 (defonce ^:private phase-seq (atom 0))
 
 (defn- log-phase! [mount phase & {:as extras}]
@@ -196,7 +144,7 @@
   already-unmounted mount is a no-op). Cascades to children first (React tears
   children down before their parent). Throws
   `:rf.error/sync-unmount-during-render` if called while a render is in flight
-  ANYWHERE in the tree (the rf2-4l7t2 class) — keyed off the global
+  anywhere in the tree — keyed off the global
   `render-depth`, so a parent re-render that synchronously unmounts a separate
   sibling/child root trips the guard just as React does.
 
@@ -314,9 +262,8 @@
       (str "Test-React adapter has no built-in hiccup emitter; call "
            "set-hiccup-emitter! (or require re-frame.ssr) before "
            "render-to-string if a test needs HTML output.")
-      ;; EP-0015 (rf2-uwqale): carry an EP-0015-safe SUMMARY of the
-      ;; render-tree, never the raw tree (a thrown render diagnostic is
-      ;; captured off-box before path-based projection can classify it).
+      ;; Diagnostics may be captured before path-based classification, so never
+      ;; attach the raw render tree.
       {:recovery :call-set-hiccup-emitter
        :extra    {:render-tree/summary (error/diag-value-summary render-tree)}})))
 
@@ -333,11 +280,8 @@
 
 (defn- dispose-adapter! []
   ;; Drain any still-mounted components so a test fixture that forgets to
-  ;; unmount doesn't leak across cases. Per the rf2-4l7t2 lesson the drain
-  ;; MUST tolerate the sync-unmount-during-render guard — we set mounted? false
-  ;; WITHOUT routing through the public `unmount!` (which would throw on a
-  ;; non-zero render-depth) and log a :forced-teardown phase so the
-  ;; test surface can spot drift.
+  ;; unmount does not leak across cases. Forced teardown bypasses the public
+  ;; render-depth guard and records a distinct lifecycle phase.
   ;;
   ;; The hiccup-emitter is deliberately NOT cleared: it holds no host
   ;; resource, is re-derivable infrastructure installed once via the
@@ -347,23 +291,9 @@
   ;; cycle. Matches plain-atom's dispose-adapter! (a no-op that leaves the
   ;; emitter alone).
   ;;
-  ;; rf2-ghfkkk: this ALSO walks every live frame's per-frame sub-cache and
-  ;; resets it, the externally-visible counterpart of the React adapters'
-  ;; `spine/dispose-frame-sub-caches!` (Spec 006 §Adapter disposal lifecycle
-  ;; MUST 1 + §Lifetime contract — frame disposal §Adapter symmetry). The
-  ;; React-adapter walk is CLJS-only (the spine is CLJS-only); test-react is
-  ;; CLJC, so it routes through the CLJC-safe shared helper
-  ;; `subs-cache/clear-all-frame-sub-caches!` instead. Why this matters even
-  ;; though `make-derived-value` holds no host resource (plain IDeref reify,
-  ;; so the per-reaction dispose is a CLJS no-op): the CACHE ENTRIES + REF-
-  ;; COUNTS live on the FRAME, not the reaction, and a reaction that never
-  ;; auto-disposes leaves its `{:reaction … :ref-count n}` slot in the frame's
-  ;; sub-cache. Without this reset a test process carries stale slots + stale
-  ;; ref-counts across a dispose/reinstall cycle — a later subscribe reads the
-  ;; stale cached value instead of recomputing from fresh state, breaking
-  ;; isolation. The reset clears the slots so the next subscribe is a fresh
-  ;; cache miss that recomputes. (The helper fires BEFORE the active-mounts
-  ;; drain below, but order is immaterial — they touch disjoint state.)
+  ;; Derived values have no CLJS disposal protocol, but their cache entries and
+  ;; ref-counts live on frames. Clear every frame cache so reinstalling the
+  ;; adapter cannot read a stale subscription value.
   ;;
   ;; Drain flat over active-mounts: children are themselves registered in
   ;; active-mounts (mount-tree! adds every mount, parent or child), so a flat
@@ -372,9 +302,6 @@
   ;; render-depth guard) — forced teardown is the
   ;; escape hatch the guard deliberately cannot block.
   ;;
-  ;; rf2-ghfkkk — dispose every live frame's sub-cache (the reactive-
-  ;; subscription MUST). CLJC-safe shared helper, equal semantics to the
-  ;; React adapters' spine walk.
   (subs-cache/clear-all-frame-sub-caches!)
   (doseq [mount @active-mounts]
     (when @(:mounted? mount)
@@ -382,15 +309,10 @@
       (reset! (:mounted? mount) false)
       (reset! (:render-tree mount) nil)))
   (reset! active-mounts #{})
-  ;; Reset the global render depth. `run-render!`'s `finally` already restores
-  ;; it on the normal + guard-throw paths; this is belt-and-braces so a test
-  ;; that bypassed run-render! by hand cannot leak a stuck "rendering" state
-  ;; into the next case.
+  ;; Normal renders restore this in finally; disposal also repairs test code
+  ;; that bypassed the public driver.
   (reset! render-depth 0)
-  ;; Reset the monotonic phase order-key so each test's lifecycle log starts
-  ;; from a small, deterministic sequence. Only relative order within a single
-  ;; cascade is load-bearing, so this is hygiene, not correctness — it mirrors
-  ;; the render-depth reset above.
+  ;; Only relative phase order within a case matters.
   (reset! phase-seq 0)
   nil)
 
@@ -401,12 +323,9 @@
       (require '[re-frame.adapter.test-react :as test-react])
       (rf/init! test-react/adapter)
 
-  Per Spec 006 §The adapter API contract — implements the 6 required +
-  2-of-3 optional (no `flush-render!`) + 1 lifecycle fn. The
-  reactive-container half is shared with plain-atom; the
-  render half is the novel surface (class-3 lifecycle simulation with the
-  global-render-depth sync-unmount-during-render invariant). See `mount!` / `trigger-update!` /
-  `unmount!` for the test driver helpers."
+  The reactive-container half is shared with plain-atom; this adapter adds the
+  class-3 lifecycle simulator and its global unmount-during-render guard. See
+  `mount!`, `trigger-update!`, and `unmount!` for the test driver."
   {:kind                      :rf.adapter/test-react
    :make-state-container      atom-container/make-state-container
    :read-container            atom-container/read-container
@@ -443,8 +362,8 @@
   `MountedComponent` record carrying the lifecycle log and the unmount
   thunk. Throws if a non-test-react adapter is installed.
 
-  The installed-adapter check is `substrate-adapter/same-adapter?`
-  (stable-token routing, rf2-dkl5z1), NOT raw object identity — so a copied
+  The installed-adapter check uses the stable adapter kind, not raw object
+  identity, so a copied
   or wrapped Test-React adapter map (same canonical `:rf.adapter/test-react`
   `:kind`, e.g. one `assoc`'d with an instrumentation wrapper) is still
   accepted, matching the routed hooks' acceptance of the same copy."
@@ -481,7 +400,7 @@
   "Unmount `mount`, cascading to its children first (React tears children down
   before their parent). Records a `:will-unmount` phase entry per torn-down
   mount. Throws `:rf.error/sync-unmount-during-render` if called while a render
-  is in flight anywhere in the tree (the rf2-4l7t2 class) — including the
+  is in flight anywhere in the tree, including the
   organic case where a parent's render body synchronously unmounts a separate
   sibling/child root. Idempotent: a second call on the same mount is a no-op."
   [mount]

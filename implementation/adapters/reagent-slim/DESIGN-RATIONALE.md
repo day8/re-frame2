@@ -1,16 +1,15 @@
 # reagent-slim — design rationale
 
-> Bead **rf2-kez3**. Audience: adopters evaluating `day8/reagent-slim` against the classic thin-bridge adapter.
+> Audience: adopters evaluating `day8/reagent-slim` against the classic
+> thin-bridge adapter.
 >
-> **Bridge naming (rf2-xcyaei).** Today the classic thin-bridge adapter ships as **`day8/re-frame2-reagent`** — that is the coordinate an adopter pins right now, and the one this document names throughout as the present-day fallback. `day8/reagent-classic` is a *possible post-1.0 rename* of that bridge (see `IMPL-SPEC.md` §11.4); it has **not** shipped, so it is deliberately not used as adoption guidance here.
+> **Bridge naming.** The classic thin-bridge adapter ships as
+> **`day8/re-frame2-reagent`**. `day8/reagent-classic` is only a possible
+> post-1.0 rename, so this document does not use it as adoption guidance.
 >
-> Sister docs:
-> - `IMPL-SPEC.md` (this directory) — Stage 3 engineering spec, written for implementers.
-> - `findings/re-frame2-reagent-stage1-api-surface.md` — Stage 1 surface analysis, eight RESOLVED decisions.
-> - `findings/reagent-slim-stage2-efficiency.md` — Stage 2 bundle and runtime estimates.
-> - `findings/recom-react19-readiness-audit.md` (rf2-cgcv) — re-com + 10x lifecycle inventory.
-> - `findings/dash8-rf8-react19-readiness-audit.md` (rf2-kfpf) — Dash8 + rf8 lifecycle and SSR inventory.
-> - `FORM-3.md` (rf2-pe4u, future) — Form-3 cap specifics with worked examples.
+> Companion docs:
+> - [`IMPL-SPEC.md`](IMPL-SPEC.md) — the engineering decisions and shipped disposition.
+> - [`FORM-3.md`](FORM-3.md) — the Form-3 cap with worked examples.
 
 This document explains, decision by decision, **why** reagent-slim is shaped the way it is. If you want to know **how** it was built, read `IMPL-SPEC.md`. If you want to know what changed in your code, read the migration corpus ([`migration/from-re-frame-v1/README.md`](../../../migration/from-re-frame-v1/README.md)) together with `IMPL-SPEC.md` §13 (bridge → rewrite migration path). If you want to know whether to adopt it, read this.
 
@@ -142,7 +141,8 @@ The cap also lets `create-class`'s validation be simple. The supported set is sm
 
 For the four audited codebases: zero changes. Their existing `create-class` calls work as-is. For codebases outside the audit using a banned key: rewrite the lifecycle into the supported set, or stay on `re-frame2-reagent`. The throw fires at first invocation with a clear message — no silent breakage.
 
-The companion document `FORM-3.md` (rf2-pe4u, future) covers Form-3 worked examples in detail.
+The companion document [`FORM-3.md`](FORM-3.md) covers Form-3 worked examples
+in detail.
 
 ---
 
@@ -410,10 +410,15 @@ Adoption shape:
 
 ## §12 What this doc is not
 
-This doc is for adopters. It is not the implementation spec — see `IMPL-SPEC.md` for that. It is not the Form-3 worked-examples doc — see `FORM-3.md` (rf2-pe4u, future) for that. It is not a benchmark report — Stage 4's build-comparison harness produces that. And it is not a marketing pitch — the "fast" claim was dropped because the runtime story did not support it, and the doc you just read flags every claim that depends on Stage 4 validation.
+This doc is for adopters. It is not the implementation spec — see
+[`IMPL-SPEC.md`](IMPL-SPEC.md) for that. It is not the Form-3 worked-examples
+doc — see [`FORM-3.md`](FORM-3.md). It is not a benchmark report or a marketing
+pitch; estimated claims remain labelled as estimates.
 
-Read the audits if you want the empirical underpinning. Read Stage 1 if you want the surface enumeration. Read Stage 2 if you want the size and runtime estimates. Read this doc to decide whether the rewrite fits your codebase.
+Read this document to decide whether the rewrite fits your codebase, then use
+the implementation spec and current test gates for the binding engineering
+contract.
 
 ---
 
-*Cross-references: Stage 1 (`findings/re-frame2-reagent-stage1-api-surface.md`), Stage 2 (`findings/reagent-slim-stage2-efficiency.md`), rf2-cgcv audit, rf2-kfpf audit, IMPL-SPEC.md (this directory), FORM-3.md (rf2-pe4u, future).*
+*Cross-references: [`IMPL-SPEC.md`](IMPL-SPEC.md), [`FORM-3.md`](FORM-3.md).*
