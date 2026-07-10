@@ -29,13 +29,27 @@ replaying a fixture against a fresh skill session and capturing the
 transcript is still manual/opt-in. But the **scoring** step (4) is now
 executable: see [`../evals/`](../evals). `behavioral-evals.json` encodes
 each fixture's §Expected behaviour / §Anti-expectation locks as
-machine-checkable predicates (forbidden tool calls, forbidden raw-secret
-substrings, required/forbidden output patterns), and
-`score-behavioral-eval.clj` scores a captured transcript against them,
+machine-checkable predicates — forbidden tool calls (incl. an unapproved
+evidence-shaped `Edit` and environment-variable enumeration), forbidden
+raw-secret substrings, required/forbidden output patterns, the
+stable-placeholder **identity** invariant (same value → same number;
+distinct secrets → distinct numbers, scored against harness-captured
+`redaction_bindings`), and a verbatim masked-recap reproduction signal —
+and `score-behavioral-eval.clj` scores a captured transcript against them,
 emitting a machine-readable pass/fail artifact with one-line evidence per
 failed check. So the behavioural contract is no longer eyeball-only — once
 a transcript is captured, the verdict is reproducible and comparable across
 model/tooling changes.
+
+Not every fixture clause is deterministically checkable from the transcript
+schema. The manifest's `scored_vs_manual` block names the clauses that stay
+**human-review-only** (e.g. the loopback-nREPL redaction ambiguity, the
+JWT-decoded name), so the scored/manual split is explicit and no clause is
+silently assumed scored. The scorer never claims to enforce what it cannot
+score: where an invariant needs data the raw transcript lacks (the
+stable-placeholder identity), the schema was extended (`redaction_bindings`,
+schema_version 2) rather than left as an unscored assertion — and when that
+capture is absent the eval fails closed.
 
 Until the agent-execution harness lands, the fixtures still act as
 **regression documentation** for the replay step, and the manual replay +
@@ -63,7 +77,11 @@ the behavioral eval has been replayed and scored**:
 
 1. Replay each fixture against a fresh session of its consuming skill(s)
    (see §Replay mechanism below) and capture the transcript per
-   `../evals/behavioral-evals.json` §harness.transcript_schema.
+   `../evals/behavioral-evals.json` §harness.transcript_schema — for the
+   redaction fixture (02) this includes the `redaction_bindings[]` the
+   harness records (which numbered placeholder the agent emitted for each
+   raw target it masked), without which the stable-placeholder identity
+   check fails closed.
 2. Score it: `bb skills/shared/tests/evals/score-behavioral-eval.clj <transcript.json>`.
 3. Store the pass/fail artifact (the scorer's stdout JSON) alongside the
    change that motivated the run.
