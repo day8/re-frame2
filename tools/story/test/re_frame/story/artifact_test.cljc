@@ -408,16 +408,18 @@
 (defn- register-network-event!
   "Register a test event that issues a managed-HTTP request to `route`
   ([method url]) and records the reply (success value or failure) into
-  app-db under `:got`. The reply rides back to this same origin event as
-  `:rf/reply` (Spec 014 §Reply addressing), so a re-installed stub's
-  synthesised reply is observable in the replay's final app-db."
+  app-db under `:got`. The reply rides back to this same origin event via
+  `:reply-to` (Spec 014 §Reply addressing — appended as the last arg), so a
+  re-installed stub's synthesised reply is observable in the replay's final
+  app-db."
   [event-id [method url]]
   (rf/reg-event event-id
-    (fn [{:keys [db]} [_ msg]]
-      (if-let [reply (:rf/reply msg)]
+    (fn [{:keys [db]} [_ msg reply]]
+      (if reply
         {:db (assoc db :got reply)}
         {:fx [[:rf.http/managed {:request {:method method :url url}
-                                 :decode  :json}]]}))))
+                                 :decode  :json
+                                 :reply-to [event-id msg]}]]}))))
 
 (defn- network-artifact
   "Compile a `:network` variant plan for `routes`, coerce it through the
