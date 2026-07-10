@@ -1,5 +1,5 @@
 /*
- * Shared path-policy helper (rf2-o38lb, policy-confirmed by rf2-21rfv).
+ * Shared path-policy helper for script-controlled filesystem paths.
  *
  * The implementation root carries several scripts that accept env-var
  * overrides for filesystem paths they then read or write:
@@ -10,13 +10,9 @@
  *     `STORY_BUILD_INDEX_HTML`, then writes `${OUTPUT_DIR}/index.html`
  *     and `${OUTPUT_DIR}/manifest.json`.
  *
- * Per rf2-21rfv (pragmatic stance, 2026-05-14): these env vars are
- * **CI-internal knobs**, not a stable public configuration surface.
- * re-frame2 reserves the right to rename / drop them between releases.
- * The path-policy check below is a safety net against accidents — a
- * mistyped path or unset env var that would otherwise turn a normal
- * build run into a `rm -rf` outside the repo — not a hardened sandbox.
- * The devs running these scripts already control the process.
+ * These are CI-internal knobs, not stable public configuration. The policy is
+ * an accident guard for destructive or misplaced I/O, not a security boundary:
+ * the developer running the scripts already controls the process.
  *
  * Policy:
  *
@@ -51,8 +47,7 @@ const REPO_ROOT = path.resolve(IMPL_ROOT, '..');
 const DEFAULT_OUT_ROOT = path.join(IMPL_ROOT, 'out');
 const DEFAULT_HTML_ROOTS = [
   path.join(REPO_ROOT, 'examples'),
-  // rf2-p8f2s — tool-owned testbeds may host index.html templates
-  // (e.g. tools/story/testbeds/counter_with_stories/story_static.index.html).
+  // Tool-owned testbeds may host index.html templates.
   path.join(REPO_ROOT, 'tools'),
   IMPL_ROOT,
 ];
@@ -77,8 +72,8 @@ function isInside(candidate, root) {
   return true;
 }
 
-// Resolve symlinks/junctions on an absolute path WITHOUT requiring the
-// full path to exist (rf2-l9upzf). A lexical `path.resolve` alone lets a
+// Resolve symlinks/junctions on an absolute path without requiring the
+// full path to exist. A lexical `path.resolve` alone lets a
 // symlink/junction under an allowed root point outside the approved
 // boundary while still passing the lexical prefix check — the writing
 // scripts then follow the link and escape. To close this, walk up to the
@@ -111,9 +106,9 @@ function realpathExistingPrefix(abs) {
   try {
     realExisting = fs.realpathSync(existing);
   } catch (_) {
-    // realpath can fail on a broken link / permission edge — fall back to
-    // the lexical absolute path (fail-closed: the lexical check still
-    // applies, we just couldn't canonicalise further).
+    // realpath can fail on a broken link or permission edge. Preserve the
+    // lexical containment guard in that case; this helper is an accident
+    // guard, not a hardened sandbox against a hostile filesystem layout.
     return abs;
   }
   return tail.length === 0 ? realExisting : path.join(realExisting, ...tail);
@@ -127,7 +122,7 @@ function enforcePolicy(label, candidate, opts) {
   // callers see the path they passed (lexically normalised), not a
   // surprise canonical rewrite.
   const lexicalAbs = path.resolve(candidate);
-  // CONTAINMENT CHECK runs on REALPATHS (rf2-l9upzf): collapse any
+  // Containment normally runs on real paths: collapse any
   // existing symlink/junction in BOTH the candidate and the allowed
   // roots before comparing, so a link that resolves outside an approved
   // root is rejected even though its lexical path looked inside. Roots
@@ -153,7 +148,7 @@ function enforcePolicy(label, candidate, opts) {
     `${label}: refusing to use '${lexicalAbs}' — path is outside the approved ` +
       `roots (${allowed.map((r) => `'${r}'`).join(', ')}). ` +
       `To allow out-of-tree paths (downstream-consumer use), set ` +
-      `${OPT_IN_VAR}=1 in the environment. Per rf2-o38lb security audit.`,
+      `${OPT_IN_VAR}=1 in the environment.`,
   );
 }
 

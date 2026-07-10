@@ -4,15 +4,10 @@
  * wait for it to be reachable, then run the Playwright runner.
  * Always tear the server down (success or failure).
  *
- * Why this wrapper exists: the bead suggested a shell one-liner of
- * `http-server ... & sleep 2 && node ...`. That works on POSIX but not
- * on Windows, and `sleep 2` is a brittle race. This script is the same
- * idea but cross-platform and with a real readiness probe.
- *
- * Port selection (rf2-nuv7):
+ * Port selection:
  *   1. If $BROWSER_TEST_PORT is set, try that port. If it's busy, fall
  *      back to a free port chosen by the OS.
- *   2. If unset, default to 8021 (historical behaviour). If 8021 is
+ *   2. If unset, default to 8021. If 8021 is
  *      busy, fall back to a free port chosen by the OS.
  *   3. Either way, log clearly which port was used and thread it
  *      through to the Playwright runner via $BROWSER_TEST_URL.
@@ -36,13 +31,9 @@ const {
   waitForOwnedHttpReady,
 } = require('./lib/local-browser-harness.cjs');
 
-// Strict CLI options (rf2-hmgwk2). The two production browser gates
-// (test:browser-prod-elision, test:browser-schemas-boundary-prod) call this
-// shared runner DIRECTLY with `--root <dir> --port <n>` rather than routing
-// through a per-gate wrapper that only set the BROWSER_TEST_ROOT/PORT env
-// vars. CLI options take precedence over those env vars, which in turn take
-// precedence over the historical defaults — so env-var and default behaviour
-// are preserved when no CLI option is given. Parsing is strict: an unknown
+// The production browser gates call this runner with `--root` and `--port`.
+// CLI options take precedence over environment variables, then defaults.
+// Parsing is strict: an unknown
 // flag, a flag missing its value, or a `--port` that is not a 1..65535
 // integer fails fast with a clear message rather than being silently coerced
 // or ignored. A CLI `--root` is routed through the SAME path policy as the
@@ -101,18 +92,17 @@ try {
 const DEFAULT_PORT = 8021;
 // `--root` (or $BROWSER_TEST_ROOT) lets a caller point the orchestrator at a
 // different shadow-cljs :browser-test output directory — used by the two
-// prod-mode gates (Spec 009/010 §Production builds, rf2-2zdu / rf2-uwg5 /
-// rf2-r2uh / rf2-84e9), whose `:advanced + goog.DEBUG=false` bundles land in
+// production-mode gates (Spec 009/010, Production builds), whose
+// `:advanced + goog.DEBUG=false` bundles land in
 // `out/browser-test-prod-elision/` and `out/browser-test-schemas-boundary-prod/`
 // rather than the default `out/browser-test/`.
 //
-// Per rf2-o38lb (security audit): the override MUST land inside
+// The override must land inside
 // `implementation/out` unless `RE_FRAME_ALLOW_OUT_OF_TREE_PATHS=1` is
 // set in the environment. The orchestrator writes `${ROOT}/index.html`
 // and `${ROOT}/.rf-harness-token`; an unconstrained override would otherwise
-// become an arbitrary file-write primitive in CI or downstream environments
-// inheriting parent env state. The CLI `--root` (rf2-hmgwk2) routes through
-// this SAME enforcePolicy check — a CLI root cannot bypass the path policy.
+// direct writes outside the script-owned output tree. CLI roots pass through
+// the same policy as environment roots.
 const ROOT_OVERRIDE = CLI.root || process.env.BROWSER_TEST_ROOT;
 const ROOT = enforcePolicy(
   CLI.root ? '--root' : 'BROWSER_TEST_ROOT',
@@ -150,14 +140,9 @@ const POLL_MS = 200;
 const cleanup = createHarnessCleanup();
 cleanup.installSignalHandlers();
 
-// shadow-cljs's :browser-test target generates an index.html with an empty
-// <body>. Some example namespaces (e.g. examples/patterns/nine_states/core.cljs)
-// historically did `(rdc/create-root (js/document.getElementById "app"))` at
-// namespace-load time. Per rf2-gkf9 the example mounts now defer `create-root`
-// to their `run` fn, but the test harness still needs a single `#app` host so
-// a future regression doesn't crash the runner before cljs.test prints its
-// summary. Patch the generated index.html to include a hidden mount point.
-// Idempotent.
+// shadow-cljs generates an empty body for this target. Provide a hidden mount
+// host so loading an example namespace cannot fail before cljs.test reports its
+// summary. The patch is idempotent.
 function ensureMountPoint() {
   if (!fs.existsSync(INDEX)) return;
   const html = fs.readFileSync(INDEX, 'utf8');
@@ -172,9 +157,7 @@ function ensureMountPoint() {
   }
 }
 
-// Server ownership token (rf2-gkf9). The readiness probe and the teardown
-// path both verify that the server reachable on `port` is the one this
-// orchestrator spawned:
+// The ownership token binds readiness to this run's served asset tree:
 //
 //   1. publishOwnershipToken(ROOT) generates a per-run nonce and writes it
 //      to a sentinel file under the served root BEFORE spawning http-server
@@ -186,10 +169,10 @@ function ensureMountPoint() {
 //      it still holds THIS run's token (so an overlapping run's newer token
 //      is never destroyed).
 //
-// This positively defeats two failure modes:
+// This defeats two failure modes:
 //   - An unrelated http-server (or any HTTP listener) on the same port
-//     gives a 200 to `/` but does NOT have our sentinel — we fail fast
-//     instead of running tests against the wrong asset tree.
+//     gives a 200 to `/` but does not have our sentinel. A mismatched token
+//     fails immediately; an absent token is polled until the readiness deadline.
 //   - A stale http-server child from a previous aborted run that re-bound
 //     the port between resolveServePort() and our spawn — same detection:
 //     its sentinel won't match this run's nonce.
@@ -202,9 +185,9 @@ function ensureMountPoint() {
 
 // Resolve the port to use via the shared harness primitive
 // (local-browser-harness.cjs), honouring `--port` first, then
-// $BROWSER_TEST_PORT, then the historical default 8021, then a free
+// $BROWSER_TEST_PORT, then the default 8021, then a free
 // OS-chosen port. The shared `resolveServePort` carries the strict 1..65535
-// explicit-port contract and the busy-port fallback (rf2-0u8kz / rf2-84gzw);
+// numeric explicit-port contract and the busy-port fallback;
 // this wrapper keeps the launcher-specific diagnostics (distinguishing an
 // explicitly-set but unusable BROWSER_TEST_PORT from a busy default). A CLI
 // `--port` is already validated to be a usable 1..65535 integer by

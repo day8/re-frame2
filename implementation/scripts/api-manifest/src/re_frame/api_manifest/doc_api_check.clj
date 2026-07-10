@@ -1,31 +1,19 @@
 (ns re-frame.api-manifest.doc-api-check
-  "Human-doc API-reference projection check (rf2-vzupmg).
+  "Human-documentation API-reference projection check.
 
-  THE GAP THIS CLOSES. The keystone manifest drift-check (rf2-3nbl5.2) and
-  its `spec/API.md` projection (`api-md-check`) plus the four secondary
-  projection checks (`doc-guide-check`, `story-spec-check`, `xray-spec-check`,
-  `skills-check`) between them scan `spec/API.md`, `docs/core/**`, the two
-  tool API specs, and `skills/`. They do NOT scan the three human-facing API
-  REFERENCE trees:
+  The check owns these human-facing API reference surfaces:
 
     * `spec/Privacy.md`   — the EP-0015 cross-artefact privacy inventory;
     * `docs/core/api/**` — the per-chapter human API reference;
     * `docs/story/api/**` — the Story human API reference.
 
-  EP-0025 stale prose slipped into exactly those trees and passed EVERY CI
-  check because nothing reconciled their public-var references against the
-  manifest. This check extends the SAME call-position discipline the
-  doc-guide check uses to those three trees: every call-position
+  It uses the same call-position discipline as the guide check: every
+  call-position
   `(rf/<var>` / `(story/<var>` reference must resolve to a manifest row, so a
   reference to a renamed / removed / never-manifested public surface goes RED.
 
-  CAPABILITY API DOCS (rf2-earvtz). The #4961 docs reorg moved each
-  capability's API REFERENCE out of the flat top-level API tree into
-  per-capability `docs/<cap>/api.md` files (machines / resources / routing /
-  ssr). Those API docs are the same projection class — they name public vars
-  in call position — and so are scanned here via the `docs/*/api.md` glob
-  (which auto-covers a future capability dir). Without this, a removed /
-  renamed public surface named in a moved API doc would slip through CI.
+  Per-capability `docs/<cap>/api.md` files are scanned by a one-level glob that
+  also discovers future capability docs.
 
   SCOPE — call-position discipline (same as doc-guide / skills checks).
   References are anchored on the leading `(` so the `:rf/*` reserved keyword

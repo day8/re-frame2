@@ -209,10 +209,9 @@ it('`test:script-policy` runs THIS policy test', () => {
   );
 });
 
-// ---- 5b) PR CI ACTUALLY RUNS the smoke gate (rf2-5v0dg7) ------------------
-// Teeth beyond "the npm script exists": the workflow must EXECUTE it, and a
-// reagent-slim surface change must ARM the job that runs it. Without these,
-// the smoke can silently stop running in PR CI (the exact rf2-5v0dg7 bug).
+// ---- 5b) PR CI runs the smoke gate ---------------------------------------
+// The workflow must execute the npm script, and reagent-slim changes must arm
+// its job; declaring an unreferenced script is not CI coverage.
 
 const WORKFLOW_SRC = fs.existsSync(WORKFLOW) ? read(WORKFLOW) : '';
 const CHANGED_SURFACES_SRC = fs.existsSync(CHANGED_SURFACES) ? read(CHANGED_SURFACES) : '';

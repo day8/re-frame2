@@ -1,21 +1,14 @@
 #!/usr/bin/env node
 /*
- * Workflow-policy guard for `.github/workflows/lint.yml` (rf2-nlnd9y.3).
+ * Workflow-policy guard for `.github/workflows/lint.yml`.
  *
  * `.splint.edn` at repo root is the Splint gate's per-project config — Splint
- * reads it live once the job runs. But the lint workflow's ROUTING omitted
- * it: the `push` path filter and the PR `detect` classifier both listed
- * implementation/tools/examples/testbeds/.clj-kondo but NOT `.splint.edn`. So
- * a PR (or push) that changed ONLY `.splint.edn` — broken syntax, disabled
- * rules, a removed exclude — left `lint_surface=false`, the Splint job
- * skipped, and the required `Lint required` aggregator passed (all-skipped is
- * OK). A bad Splint config could ship behind a green gate.
- *
- * This guard pins that `.splint.edn` is wired into BOTH routing surfaces and
+ * reads it live once the job runs. This guard pins that `.splint.edn` is wired
+ * into both routing surfaces and
  * that the Splint job stays gated on `lint_surface` (so the routing is what
  * decides whether Splint runs). It is a TEXT/policy assertion over the
  * committed workflow — no Actions runtime needed — mirroring the
- * test.yml-shape assertions in `_changed-surfaces.test.cjs`. Wired into
+ * test.yml shape assertions in `_changed-surfaces.test.cjs`. Wired into
  * `test:script-policy`.
  */
 

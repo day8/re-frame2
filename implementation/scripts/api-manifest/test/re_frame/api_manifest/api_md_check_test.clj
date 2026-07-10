@@ -192,17 +192,6 @@
     (is (nil? (c/floor-violation (count (c/parse-api-md-var-rows))))
         "the real spec/API.md extraction must clear the floor")))
 
-;; ---------------------------------------------------------------------------
-;; Positive prose-phrase pins removed (rf2 toomuch trimming review).
-;;
-;; The over-strict `reg-cofx` contract pin and `:rf.egress/*` closed-enum pin
-;; (both required literal prose / a full member list verbatim on one markdown
-;; row, so a legitimate reword went RED with no var/API change) were removed.
-;; The load-bearing var-resolution reconcile, the non-vacuous floors, and the
-;; same-line keyword-drift scans (which fire only on RETIRED keyword FORMS,
-;; tested above) remain.
-;; ---------------------------------------------------------------------------
-
 (deftest live-api-md-check-passes
   (testing "the committed tree passes the full api-md-check including the
             EP-0011/EP-0015 keyword-drift guards (no false +)"

@@ -39,7 +39,7 @@
   curated `:kind :fn` on those rows is the correct human assertion; the
   analyzer simply cannot reproduce it. Reconciling `:kind` here would
   fail on an analyzer limitation, not a real drift — so the probe checks
-  EXISTENCE (the contract the bead asks for: added / removed / renamed),
+  EXISTENCE (added / removed / renamed),
   not `:kind`. The JVM-loadable kind derivation stays authoritative on
   the JVM side; for CLJS-only value-defs the sidecar's curated `:kind`
   stands.

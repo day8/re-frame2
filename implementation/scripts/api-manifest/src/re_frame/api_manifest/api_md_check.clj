@@ -1,5 +1,5 @@
 (ns re-frame.api-manifest.api-md-check
-  "spec/API.md projection check (rf2-3nbl5.2).
+  "spec/API.md projection check.
 
   spec/API.md is the most-important PROJECTION of the public-API manifest
   — the human-readable reference whose every var-row carries a Tier
@@ -19,12 +19,11 @@
   Keyword rows (`:rf.http/managed`, `:rf/route`, …) and prose-celled rows
   are skipped — they are not vars and carry no Tier-for-a-var.
 
-  QUALIFIER RESOLUTION (rf2-41j0a). API.md writes some var names
+  QUALIFIER RESOLUTION. API.md writes some var names
   namespace-qualified (`helix-adapter/adapter`, `re-frame.http/get`,
   `re-frame.interop/debug-enabled?`) and others bare (`reg-event`). The
   two SHAPES resolve against DIFFERENT manifest indexes, because they carry
-  different identity — exactly the rf2-0u8kz lesson the Xray-spec check
-  already pins:
+      different identity:
 
     - A QUALIFIED row names BOTH a namespace (or its documented `:as`
       alias) AND a var. It resolves STRICTLY against the `[namespace var]`
@@ -261,27 +260,6 @@
   [extracted]
   (projection/vacuity-floor-problem "spec/API.md" extracted min-var-rows))
 
-;; ---------------------------------------------------------------------------
-;; Positive prose-phrase pins REMOVED (rf2 toomuch trimming review).
-;;
-;; Two positive content pins used to live here: a `reg-cofx` contract pin
-;; (`reg-cofx-required-phrases`, requiring literal English like "value-
-;; returning supplier" verbatim on the spec/API.md row) and an `:rf.egress/*`
-;; closed-enum pin (`egress-closed-enum`, requiring all ten members named on
-;; one spec/Conventions.md row). Both were over-strict: a legitimate reword
-;; or table reorganisation — with NO var/API change — went RED, so the gate
-;; punished prose churn rather than catching real drift.
-;;
-;; The load-bearing protections stay: the var-resolution reconcile + tier
-;; allowlists (above) catch a renamed/removed/retiered var; the same-line
-;; keyword-drift scans (`projection/ep00{17,11,15}-…-problems`, wired into
-;; `kw-probs` below) hard-fail a RETIRED keyword form reappearing as live
-;; vocabulary (`:rf.world/inputs`, `:stale-key` / bare `:work-id`, retired
-;; `:rf.egress/*` profile spellings); and the non-vacuous floors refuse a
-;; green when the extractor collapses. A keyword-form retirement is a code
-;; reference (settled, closed, drift-bearing); a prose phrase is not.
-;; ---------------------------------------------------------------------------
-
 (defn check!
   "Validate spec/API.md var-rows against the manifest. Returns true when
    every API.md var-row resolves to a manifest row with a MATCHING tier;
@@ -306,15 +284,12 @@
                                :aliases            adapter-aliases})
         api-md-lines (with-open [r (io/reader @api-md-file)]
                        (vec (map-indexed (fn [i line] [(inc i) line]) (line-seq r))))
-        ;; EP-0017 keyword-drift guard (rf2-tawage): the var-row reconcile is
-        ;; blind to stale `:rf.world/inputs` keyword vocabulary creeping into
-        ;; API.md prose outside an explicit retirement/rename mention.
-        ;; EP-0011 (rf2-uhew69) + EP-0015 (rf2-1zjkn8) add the reply-envelope
+        ;; Var-row reconciliation cannot see retired keyword vocabulary in
+        ;; API.md prose. The reply-envelope
         ;; (`:stale-key` / bare `:work-id`) and egress-profile (retired
         ;; `:rf.egress/on-box-*` / `trusted-local-*`) keyword guards over the
         ;; same API.md prose, all on the same retirement-marker discipline.
-        ;; These fire only on RETIRED keyword FORMS (code references), not on
-        ;; prose — the positive prose-phrase pins were removed as over-strict.
+        ;; These fire only on retired keyword forms, not prose phrasing.
         kw-probs   (concat
                      (projection/ep0017-keyword-drift-problems "spec/API.md" api-md-lines)
                      (projection/ep0011-reply-vocab-drift-problems "spec/API.md" api-md-lines)

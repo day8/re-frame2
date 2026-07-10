@@ -3,35 +3,33 @@
 'use strict';
 
 /*
- * Source-policy gate (rf2-c3hffe): every `serve-and-run-*.cjs` test
+ * Source-policy gate: every `serve-and-run-*.cjs` test
  * orchestrator that spawns a long-lived child server (http-server /
  * shadow-cljs watch / an inner orchestrator) MUST tear that child down on
  * its own exit AND on SIGINT/SIGTERM, via the shared teardown helper in
  * implementation/scripts/lib/local-browser-harness.cjs.
  *
- * WHY THIS EXISTS. On Windows, Node does NOT kill a spawned child when the
+ * On Windows, Node does not kill a spawned child when the
  * parent exits, and `spawnSync` does not forward SIGINT/SIGTERM to its
  * child. An orchestrator that spawns a long-lived server and exits (or is
- * Ctrl-C'd / killed by a CI runner) without explicit teardown therefore
+ * interrupted through a handled signal) without explicit teardown can
  * orphans the server. Orphaned shadow-cljs/Node/http-server processes hold
  * file locks on the worktree (`implementation/`, `tools/`, `out/`), and
- * those stale lock-holders are what deadlock the cross-spec `clojure
- * -M:test` from implementation/core on Windows (rf2-c3hffe; the observed
- * 27h-old stranded xray-feature-gate server). Stopping the leak at source
- * is the durable fix; this gate keeps it stopped.
+ * stale lock-holders can block later test and cleanup work. This gate keeps
+ * teardown ownership explicit at the spawn site.
  *
- * THE HARDENED POSTURE. The shared `createHarnessCleanup()` provides:
+ * The shared `createHarnessCleanup()` provides:
  *   - `installSignalHandlers()` — registers process.once('SIGINT'),
  *     process.once('SIGTERM') and process.once('exit', cleanupSync), so a
- *     signal OR a hard exit reaps the tracked children.
+ *     handled signal or synchronous Node exit reaps the tracked children.
  *   - `trackProcess(child)` — registers a spawned child for teardown.
  *   - cross-platform tree-kill (`taskkill /T /F` on Windows; POSIX
  *     process-group kill on Mac/Linux — see the lib).
  * Every spawning orchestrator must (a) import createHarnessCleanup, (b)
  * call installSignalHandlers(), and (c) spawn its long-lived child through
  * `trackProcess(spawnHarnessProcess(...))` — OR, for its http-server
- * specifically, through the shared `startLocalHttpServer(...)` owner
- * (rf2-slapfs), which performs that tracked spawn internally against the
+ * specifically, through the shared `startLocalHttpServer(...)` owner, which
+ * performs that tracked spawn internally against the
  * cleanup handle you pass it — so the child is reaped on exit/signal.
  *
  * SHORT-LIVED, SELF-EXITING COMPILE STEPS ARE FINE. Most orchestrators run
@@ -39,11 +37,8 @@
  * ...])` for the testbed compile. That child exits on its own (nothing to
  * orphan) and the orchestrator BLOCKS on it, so it needs no teardown — the
  * leak class is the LONG-LIVED server, which must go through the tracked
- * harness. This gate therefore does NOT ban spawnSync outright; it requires
- * the tracked-harness posture for the long-lived server. (Until rf2-hmgwk2
- * it also banned spawnSync outright in the two prod-mode wrappers that
- * spawned an inner orchestrator; those wrappers were collapsed into direct
- * `--root`/`--port` calls on the shared runner, so that special case is gone.)
+ * harness. This gate therefore does not ban spawnSync; it requires the
+ * tracked-harness posture for long-lived children.
  *
  * This is a STATIC text gate — it reads the orchestrator sources and
  * asserts on their text; no process is spawned by this suite. The runtime
@@ -56,8 +51,7 @@
 const assert = require('assert/strict');
 const fs = require('fs');
 const path = require('path');
-// Shared stripComments (EXECUTABLE-source-only matching) + framework-free
-// test harness (rf2-j552l2).
+// Shared executable-source filtering and framework-free test harness.
 const { stripComments, createPolicyTestSuite } = require('./_policy-test-util.cjs');
 
 const IMPL_SCRIPTS_DIR = __dirname;
@@ -104,8 +98,7 @@ const TRACK_PROCESS_RE = /\.trackProcess\(/;
 // harness primitive: `trackProcess(spawnHarnessProcess(...))`. Whitespace/
 // newlines between the call and its argument are tolerated.
 const TRACKED_SPAWN_RE = /trackProcess\(\s*spawnHarnessProcess\(/;
-// rf2-slapfs — starting the http-server via the shared startLocalHttpServer
-// owner is the tracked-long-lived-spawn posture too: it does
+// startLocalHttpServer is also a tracked-long-lived-spawn posture: it calls
 // `cleanup.trackProcess(spawnHarnessProcess(...))` internally against the
 // cleanup handle the caller passes (functionally covered in
 // _local-browser-harness.test.cjs), so a caller that delegates to it still
@@ -118,7 +111,7 @@ const ORCHESTRATORS = orchestratorFiles();
 // Inventory floor: the two scripts dirs hold the known serve-and-run
 // orchestrators. If discovery returns far fewer than expected, the gate
 // would be vacuously green — fail loud instead.
-test('orchestrator inventory is non-trivial (rf2-c3hffe)', () => {
+test('orchestrator inventory is non-trivial', () => {
   assert.ok(
     ORCHESTRATORS.length >= 6,
     `expected at least 6 serve-and-run-*.cjs orchestrators across ` +
@@ -131,7 +124,7 @@ for (const file of ORCHESTRATORS) {
   const base = path.basename(file);
   const code = stripComments(fs.readFileSync(file, 'utf8'));
 
-  test(`${base}: uses the shared createHarnessCleanup teardown helper (rf2-c3hffe)`, () => {
+  test(`${base}: uses the shared createHarnessCleanup teardown helper`, () => {
     assert.match(
       code,
       CREATE_CLEANUP_RE,
@@ -139,62 +132,51 @@ for (const file of ORCHESTRATORS) {
         `helper. Use createHarnessCleanup() from ` +
         `./lib/local-browser-harness.cjs (or the ../../implementation/scripts ` +
         `copy for examples/scripts) so the spawned child is reaped on ` +
-        `exit/SIGINT/SIGTERM. An orphaned server holds worktree file locks ` +
-        `and deadlocks the cross-spec JVM suite on Windows (rf2-c3hffe).`,
+        `exit/SIGINT/SIGTERM. An orphaned server can retain ports and worktree ` +
+        `file locks.`,
     );
   });
 
-  test(`${base}: installs exit/SIGINT/SIGTERM teardown handlers (rf2-c3hffe)`, () => {
+  test(`${base}: installs exit/SIGINT/SIGTERM teardown handlers`, () => {
     assert.match(
       code,
       INSTALL_SIGNALS_RE,
       `${base} must call cleanup.installSignalHandlers() so a SIGINT/` +
         `SIGTERM (Ctrl-C, CI runner kill) or a hard process exit tree-kills ` +
-        `the spawned server. Without it the server is orphaned on signal ` +
-        `(rf2-c3hffe).`,
+        `the spawned server.`,
     );
   });
 
-  test(`${base}: tracks its long-lived child for teardown (rf2-c3hffe)`, () => {
+  test(`${base}: tracks its long-lived child for teardown`, () => {
     assert.ok(
       TRACK_PROCESS_RE.test(code) || START_LOCAL_HTTP_SERVER_RE.test(code),
       `${base} must register its long-lived child for teardown — either via ` +
         `cleanup.trackProcess(...) directly, or by starting its http-server ` +
         `through the shared startLocalHttpServer(...) owner, which tracks the ` +
-        `server in the cleanup handle you pass it (rf2-slapfs). A spawn that ` +
-        `is not tracked is not reaped (rf2-c3hffe).`,
+        `server in the cleanup handle you pass it. An untracked spawn is not ` +
+        `reaped.`,
     );
   });
 
-  test(`${base}: spawns its long-lived child via the tracked shared harness (rf2-c3hffe)`, () => {
+  test(`${base}: spawns its long-lived child via the tracked shared harness`, () => {
     assert.ok(
       TRACKED_SPAWN_RE.test(code) || START_LOCAL_HTTP_SERVER_RE.test(code),
       `${base} must spawn its long-lived child (http-server / shadow-cljs ` +
         `watch / inner orchestrator) via trackProcess(spawnHarnessProcess(...)) ` +
         `— or, for the http-server specifically, via the shared ` +
         `startLocalHttpServer(...) owner, which performs that tracked spawn ` +
-        `internally (rf2-slapfs). That is the only spawn posture the teardown ` +
+        `internally. That is the only spawn posture the teardown ` +
         `sweep reaps cross-platform. A short-lived, self-exiting shadow-cljs ` +
-        `compile via spawnSync is fine and is NOT what this checks (rf2-c3hffe).`,
+        `compile via spawnSync is fine and is not what this checks.`,
     );
   });
 }
-
-// The two prod-mode gates (test:browser-prod-elision,
-// test:browser-schemas-boundary-prod) used to route through mirrored
-// serve-and-run-{prod-elision,schemas-boundary-prod}-tests.cjs wrappers that
-// only set BROWSER_TEST_ROOT/PORT before spawning the inner
-// serve-and-run-browser-tests.cjs orchestrator. rf2-hmgwk2 collapsed those
-// wrappers: the gates now call the shared runner directly with `--root` /
-// `--port`, so there is no longer an extra process whose teardown posture
-// needs pinning here — the shared runner's own tracked-harness teardown
-// (guarded by the dynamic sweep above) is the whole story.
 
 // stripComments sanity: it must remove a required-symbol mention that
 // appears only in a comment, but keep one in real code. Guards the gate
 // against false-positives (a comment satisfying a positive assertion) and
 // false-negatives (a comment masking a forbidden spawnSync).
-test('stripComments removes comment text but preserves code (rf2-c3hffe)', () => {
+test('stripComments removes comment text but preserves code', () => {
   assert.doesNotMatch(
     stripComments('// createHarnessCleanup()\nconst x = 1;'),
     CREATE_CLEANUP_RE,

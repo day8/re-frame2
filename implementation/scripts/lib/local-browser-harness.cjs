@@ -12,14 +12,12 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// A "usable explicit port" is an integer in 1..65535 — a port a caller
+// A usable explicit port is an integer in 1..65535: a port a caller
 // can pin, advertise in a BASE_URL, and probe. Port 0 is excluded: it
 // binds (the OS assigns an ephemeral port) but the assigned port is only
 // knowable by reading it back off the bound socket, so advertising :0 is
 // never what a caller wants. Out-of-range (<1, >65535) and non-integers
 // are excluded because net.listen throws ERR_SOCKET_BAD_PORT on them.
-// (rf2-0u8kz — matches the strict 1..65535 contract the example/Story
-// port resolvers already enforce in examples/scripts/port-resolver.cjs.)
 function isValidExplicitPort(port) {
   return Number.isInteger(port) && port >= 1 && port <= 65535;
 }
@@ -31,9 +29,7 @@ function isValidExplicitPort(port) {
 // free" WITHOUT touching net.listen — port 0 would otherwise bind an
 // ephemeral port (a false "free" for an unusable advertised port), and
 // negative / overflow values would throw ERR_SOCKET_BAD_PORT instead of
-// the controlled fall-through. (rf2-84gzw / rf2-0u8kz — the shared
-// resolveServePort below routes serve-and-run-browser-tests and
-// check-story-static through this single implementation.)
+// the controlled fall-through.
 function isPortFree(port) {
   if (!isValidExplicitPort(port)) return Promise.resolve(false);
   return new Promise((resolve) => {
@@ -64,10 +60,7 @@ function findFreePort() {
 // invoked (if provided) on EITHER fallback trigger — a busy preferred
 // port OR an invalid one (0, negative, overflow, NaN, non-integer) — so
 // callers log the substitution rather than advertising an unusable :0 or
-// crashing net.listen with ERR_SOCKET_BAD_PORT. (rf2-0u8kz centralised
-// the explicit-port validation here; callers that derive preferredPort
-// from an env var — e.g. `Number(process.env.XRAY_FEATURE_GATE_PORT)` —
-// no longer leak 0/out-of-range values into the listen path.)
+// crashing net.listen with ERR_SOCKET_BAD_PORT.
 async function resolveServePort(preferredPort, opts = {}) {
   if (isValidExplicitPort(preferredPort) && (await isPortFree(preferredPort))) {
     return preferredPort;
@@ -82,19 +75,18 @@ async function resolveServePort(preferredPort, opts = {}) {
 // Fetch the body of a path (default `/.rf-harness-token`) from a local
 // server, trimmed. Resolves null on non-200, error, or timeout — the
 // caller treats "no token yet" as "keep polling" and a present-but-wrong
-// token as a foreign server. (rf2-84gzw / rf2-gkf9 ownership handshake.)
+// token as a foreign server.
 const TOKEN_FILE_BASENAME = '.rf-harness-token';
 
-// Publish a per-run server-ownership token under `root` (rf2-gkf9 /
-// rf2-pgppmu). Writes a fresh 16-byte hex nonce to
+// Publish a per-run server-ownership token under `root`. Writes a fresh
+// 16-byte hex nonce to
 // `${root}/.rf-harness-token` so http-server publishes it the moment it
 // starts serving `root`, and the readiness handshake (waitForOwnedHttpReady
 // + fetchToken) can positively distinguish THIS run's server from a
 // port-squatter or a stale server from an aborted run.
 //
-// Owns the WRITE side of the handshake (fetchToken/waitForOwnedHttpReady own
-// the read side), so the five browser-harness launchers no longer each carry
-// a bespoke crypto/write/unlink copy of this lifecycle.
+// This owns the write side of the handshake; fetchToken and
+// waitForOwnedHttpReady own the read side.
 //
 // Returns `null` when `root` does not exist yet — the caller decides how to
 // report the missing asset root (each launcher prints its own diagnostic and
@@ -158,7 +150,7 @@ function fetchToken(port, opts = {}) {
   });
 }
 
-// Readiness wait WITH ownership-token verification (rf2-84gzw). Resolves
+// Readiness wait with ownership-token verification. Resolves
 // `{ ok: true }` only once the server on `port` answers AND serves a
 // `/.rf-harness-token` body equal to `expectedToken`. Otherwise resolves
 // `{ ok: false, reason }`:
@@ -197,7 +189,7 @@ function probeHttp(port, opts = {}) {
   const host = opts.host || '127.0.0.1';
   const path = opts.path || '/';
   const timeout = opts.timeout || 1000;
-  // rf2-rcepku — honour the caller's scheme. The default loopback
+  // Honour the caller's scheme. The default loopback
   // readiness probes (and the ownership-token handshake) only ever speak
   // http, so http stays the default; the XRAY_FEATURE_GATE_BASE_URL
   // escape hatch can point at an https external server, in which case the
@@ -223,21 +215,11 @@ function probeHttp(port, opts = {}) {
   });
 }
 
-// rf2-rcepku — derive a full readiness-probe target {host, port, path,
-// protocol} from a base URL, honouring its host, scheme, explicit-or-
-// default port, and base path. Used by the Xray feature gate's
-// XRAY_FEATURE_GATE_BASE_URL escape hatch (serve-and-run-xray-feature-
-// gate.cjs): the previous code extracted ONLY a port and the probe
-// defaulted to host 127.0.0.1 + path `/`, so a base URL with a
-// non-loopback host, an https scheme, or a meaningful base path could be
-// reported unreachable while valid — or (worse) pass readiness against an
-// UNRELATED local listener on the same port before the browser then
-// navigated to the real external URL (a false-green). On a malformed or
-// non-http(s) URL we THROW rather than silently falling back to a
-// loopback port: that earlier fallback is exactly how an invalid value
-// could probe an unrelated local server and still send the browser at the
-// (broken) external URL. The returned object is shaped to spread straight
-// into probeHttp/waitForHttpReady opts (host + path + protocol).
+// Derive the complete readiness target from a base URL. Host, scheme, port,
+// and base path must all match the URL the browser will open; probing only a
+// coincidentally equal local port could otherwise produce a false green. Invalid
+// and non-HTTP(S) URLs fail instead of falling back to loopback. The result can
+// be spread directly into probeHttp/waitForHttpReady options.
 function probeTargetFromBaseUrl(baseUrl, opts = {}) {
   const label = opts.envName || 'base URL';
   let parsed;
@@ -351,19 +333,14 @@ function createHarnessCleanup(opts = {}) {
     if (err) console.error(err && err.stack ? err.stack : err);
   });
   const exit = opts.exit || ((code) => process.exit(code));
-  // Injectable terminators (default: the real process-tree killers).
-  // The seam exists so the rf2-ogpeq race can be unit-tested
-  // deterministically — a test can supply a synchronous terminator that
-  // records which children were swept and an async one that never
-  // resolves (modelling an in-flight cleanup that a hard exit abandons),
-  // without depending on real (and, on Windows, multi-second) taskkill
+  // Injectable terminators make cleanup races testable without real taskkill
   // latency.
   const terminateSync = opts.terminateSync || terminateProcessTreeSync;
   const terminateAsync = opts.terminateAsync || terminateProcessTree;
-  // Two independent guards (rf2-ogpeq). The synchronous kill-sweep over
-  // the tracked children and the cleanupFns each gate on their OWN flag,
-  // so the async `cleanup()` setting one cannot suppress the other on a
-  // hard-exit race:
+  // Child termination and cleanup callbacks need independent idempotence
+  // guards. A process exit racing async cleanup must still synchronously sweep
+  // children that the async path has not reached, without running callbacks
+  // twice.
   //
   //   - `killed` guards the child-process kill-sweep. cleanupSync() will
   //     ALWAYS run the synchronous sweep unless a previous sweep already
@@ -415,10 +392,10 @@ function createHarnessCleanup(opts = {}) {
     }
   }
 
-  // The process 'exit' handler. Node cannot await here, so a hard exit
+  // The process 'exit' handler. Node cannot await here, so a synchronous exit
   // racing an in-flight async cleanup() MUST still synchronously kill
   // any children that cleanup() has not yet reached — otherwise they are
-  // orphaned (rf2-ogpeq). killChildrenSync gates on its own `killed`
+  // orphaned. killChildrenSync gates on its own `killed`
   // flag, never on the async path's state, so this always sweeps unless
   // a sync sweep already completed.
   function cleanupSync() {
@@ -480,17 +457,9 @@ function createHarnessCleanup(opts = {}) {
   };
 }
 
-// Compose the canonical local-http-server lifecycle every browser-gate
-// launcher needs (rf2-slapfs). Before this, the two Story launchers,
-// serve-example, and the adapter-smoke orchestrator EACH re-derived the
-// identical sequence — spawn `http-server` shell-free under process.execPath
-// with the loopback/static/no-cache argv, track it for teardown, wire an
-// early-exit abort flag + the "exited unexpectedly" diagnostic, optionally
-// capture a bounded output tail, wait for readiness, and print the canonical
-// unreachable diagnostic (plus the captured tail) on failure. This owns that
-// composition on top of the spawn/readiness/cleanup primitives above; each
-// caller keeps only its command-specific compile/staging/runner/watch and
-// post-readiness work.
+// Compose the canonical local-http-server lifecycle: shell-free spawn, tracked
+// teardown, early-exit detection, optional bounded output capture, readiness,
+// and failure diagnostics. Callers retain only command-specific work.
 //
 // The argv is fixed policy: `-a <host>` (loopback by default, NOT
 // http-server's 0.0.0.0), `-p <port>`, `-s` (silent), `-c-1` (no cache) —
