@@ -46,11 +46,11 @@
 
   ## Async surface
 
-  Stage 5's play execution is synchronous — `dispatch-sync` drains
+  Headless play execution is synchronous — `dispatch-sync` drains
   run-to-completion (per spec/002), so a sequence of N events
   completes in N drains. The play-runner returns a resolved promise
-  immediately on completion. Future async-play surfaces (e.g.
-  Playwright-style waiting on a UI selector) are Stage 6 hooks.
+  immediately on completion. Richer runners supply the asynchronous DOM
+  and browser settlement hooks.
 
   ## Public API
 
@@ -59,8 +59,7 @@
                        accumulated assertions vector.
   - `install-trace-listener!` / `remove-trace-listener!` — per-frame
                          trace-listener install + teardown; idempotent.
-  - `play-stepper-active?` / `step-once!` — UI hooks (Stage 4's
-                                            play-stepper slot)."
+  - `play-stepper-active?` / `step-once!` — UI play-stepper hooks."
   (:require [re-frame.core             :as rf]
             ;; The listener surface (`register-listener!` /
             ;; `unregister-listener!`) lives in `re-frame.trace.tooling`
@@ -394,7 +393,7 @@
   ran, or nil when no steps remain.
 
   Every step type runs through the executor. If the executor hook is
-  absent (a Stage-3-only build where `runner-events` never loaded) it
+  absent (a host that has not loaded `runner-events`) it
   falls back to `dispatch-one!` for dispatch steps and a no-op record for
   the rest, so the cursor stays honest."
   [frame-id]

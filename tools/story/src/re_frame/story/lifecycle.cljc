@@ -1,6 +1,6 @@
 (ns re-frame.story.lifecycle
-  "Stage-3 variant-lifecycle public surface — the four-phase
-  variant lifecycle (loaders → events → render → play), the snapshot-
+  "Variant-lifecycle public facade — setup, loaders, events, and play;
+  the snapshot-
   identity helper, and the frame teardown / enumeration helpers.
 
   These symbols are re-exported from `re-frame.story`, so users call
@@ -8,8 +8,8 @@
   delegators into `re-frame.story.runtime`, `re-frame.story.frames`,
   and `re-frame.story.loaders` — lives here.
 
-  Every fn delegates 1:1 to its owning module; this ns is the
-  cohesive grouping for the Stage-3 lifecycle surface."
+  Every fn delegates 1:1 to its owning module. Rendering stays in the UI
+  shell and `re-frame.story.render`; it is not a hidden runtime phase."
   (:require [re-frame.story.frames    :as frames]
             [re-frame.story.loaders   :as loaders]
             [re-frame.story.registrar :as registrar]
@@ -45,30 +45,16 @@
 ;; the result shape.
 
 (defn run-variant
-  "Per `002-Runtime.md` §Programmatic API. Allocate a frame for `variant-id`, run the four-
-  phase lifecycle (loaders → events → render → play), and return a
-  promise/future of the result map.
+  "Allocate a frame for `variant-id`, run setup, loaders, events, and play,
+  and return the unified result asynchronously.
 
   `opts`:
     :active-modes    coll of registered mode ids; deep-merged into args
     :cell-overrides  runtime arg overrides (controls panel)
     :substrate       active substrate (`:reagent`, `:uix`, ...)
-    :render?         when truthy, the UI shell renders into
-                     `:rendered-hiccup`. Defaults to nil.
-    :assertions      assertions hook (see `re-frame.story.assertions`).
 
-  Result map:
-
-      {:frame           <variant-id>
-       :app-db          {...}
-       :assertions      [...]
-       :rendered-hiccup nil
-       :elapsed-ms      <ms>
-       :snapshot        {:variant-id ... :content-hash \"...\"}
-       :decorators      {:hiccup [...] :frame-setup [...] :fx-override [...]
-                         :errors [...]}
-       :effective-args  {...}
-       :lifecycle       :ready | :error}"
+  The result contract is owned by `re-frame.story.result`; rendering is
+  driven separately by `render-variant` or the UI shell."
   ([variant-id]       (runtime/run-variant variant-id nil))
   ([variant-id opts]  (runtime/run-variant variant-id opts)))
 

@@ -1,6 +1,6 @@
 (ns re-frame.story.fx-stubs
   "Built-in `force-fx-stub` decorator. Per /spec/007-Stories.md §Effect mocking +
-  `004-Assertions.md` §Canonical assertion vocabulary (Phase-2 §5.1 #6) + `005-SOTA-Features.md` (the 'MSW-shaped effect
+  `004-Assertions.md` §Canonical assertion vocabulary + `005-SOTA-Features.md` (the 'MSW-shaped effect
   mocking' surface).
 
   ## Authoring shape
@@ -23,20 +23,20 @@
 
   At variant mount time the decorator stack's `:fx-override` slot
   classifies this decorator and `decorators/fx-overrides-map`
-  synthesises a stub-event id of the form `:rf.story.fx-stub/<dec-id>`.
-  The Stage 3 frames runtime then:
+  synthesises a stub id of the form `:rf.story.fx-stub/<dec-id>`.
+  The frames runtime then:
 
-    1. Registers a `reg-event` handler under the stub-event id (returning
-       `{:db (-> db (update :rf.story.fx-stub/log conj ...))}`).
-    2. Stamps `{:fx-overrides {<fx-id> <stub-event-id>}}` onto the
-       variant frame's config so re-frame's router redirects any
-       dispatch of `<fx-id>` to the stub event.
+    1. Registers a `reg-fx` handler under the stub id. The handler records
+       the original fx id, payload, and canned response in the per-frame
+       stub-call log instead of performing the real effect.
+    2. Stamps `{:fx-overrides {<fx-id> <stub-id>}}` onto the
+       variant frame's config so re-frame's router redirects any effect
+       emission under `<fx-id>` to the stub handler.
 
-  The stub event appends the original `:fx-id` to the per-frame stub-call
+  The stub handler appends the original `:fx-id` to the per-frame stub-call
   log; `:rf.assert/effect-emitted` observes that the fx was emitted *as if
   it had run* by reading that log via `observed-fx-ids` (the SSOT for
-  stub-redirected fx-ids — rf2-q651r / rf2-luzky), unioned with the epoch
-  tape's effects.
+  stub-redirected fx-ids), unioned with the epoch tape's effects.
 
   ## Why a registered decorator and not a magic builtin
 
@@ -58,7 +58,7 @@
                               └──┬──┘ └──────┬──────┘
                                 fx-id      response
 
-  Stage 5 adds a small adapter that rewrites the ref-args into a
+  The decorator resolver rewrites the ref-args into a
   per-reference decorator body so `decorators/fx-overrides-map` sees
   `{:fx-id :http :response {:status :pending}}`. This keeps the
   decorator registration single-shot while allowing per-reference
@@ -81,23 +81,23 @@
 ;; The built-in decorator body
 ;;
 ;; The decorator's body is the marker `:kind :fx-override` — the actual
-;; fx-id + response live in the ref-args. The Stage 5 fx-override-map
-;; adapter `resolve-ref-args` reads them from the ref and stamps them
+;; fx-id + response live in the ref-args. The decorator resolver reads
+;; them from the ref and stamps them
 ;; onto a per-reference decorator-body clone before `decorators/
 ;; fx-overrides-map` runs.
 ;; ---------------------------------------------------------------------------
 
 (def force-fx-stub-body
   "The `:rf.story/force-fx-stub` decorator's registered body. The
-  ref-args drive the fx-id + response; the body is a marker that
-  Stage 5's `resolve-ref-args` adapter expands.
+  ref-args drive the fx-id + response; the body is a marker that the
+  decorator resolver expands.
 
   Per /spec/007-Stories.md §Effect mocking the user-visible shape is
   `[force-fx-stub :http {:status :pending}]`; the decorator registry
   treats `force-fx-stub` as the id."
   {:doc       "Built-in: stub an fx for the lifetime of the variant's frame."
    :kind      :fx-override
-   :ref-args? true       ;; marker — Stage 5's adapter reads ref-args
+   :ref-args? true       ;; marker — the decorator resolver reads ref-args
    })
 
 (defn install-canonical-fx-stubs!
@@ -105,8 +105,7 @@
   registrar. Idempotent. Per /spec/007-Stories.md §Effect mocking this is the
   v1 MSW-shaped surface.
 
-  Stage 5 (rf2-h8et). Called from `re-frame.story/install-canonical-
-  vocabulary!` at boot."
+  Called from `re-frame.story/install-canonical-vocabulary!` at boot."
   []
   (when config/enabled?
     (registrar/reg-decorator* force-fx-stub-id force-fx-stub-body))
@@ -154,9 +153,9 @@
     (set (keep :fx-id entries))))
 
 ;; ---------------------------------------------------------------------------
-;; Stub-redirected fx-ids are the stub-call log's SSOT (rf2-q651r / rf2-luzky)
+;; Stub-redirected fx-ids are owned by the stub-call log
 ;;
-;; The Stage 3 `frames/ensure-stub-event!` registers an fx handler under
+;; `frames/ensure-stub-event!` registers an fx handler under
 ;; `:rf.story.fx-stub/<decorator-id>` that appends to the per-frame
 ;; stub-call log. `:rf.assert/effect-emitted` projects from the epoch tape,
 ;; but a STUBBED fx lands on the tape under its REWRITTEN stub id, not its
@@ -165,8 +164,6 @@
 ;; `:stub-observed-fx-ids` late-bind hook), the authoritative record of
 ;; which ORIGINAL fx-ids were redirected.
 ;;
-;; rf2-luzky dropped the former `tap-stub-event!` dev-surface mirror (it fed
-;; the removed `trace-accumulators` side-table). The stub-call log
-;; `observed-fx-ids` reads is already the single source for stubbed fx, so
-;; the mirror carried no fact the SSOT does not already hold.
+;; `observed-fx-ids` reads that log directly; no parallel trace accumulator
+;; mirrors this fact.
 ;; ---------------------------------------------------------------------------

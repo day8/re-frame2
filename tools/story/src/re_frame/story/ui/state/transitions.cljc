@@ -352,7 +352,7 @@
   (update state :hot-reload-tick (fnil inc 0)))
 
 (defn record-fingerprints
-  "Stamp the current decorator fingerprints for `variant-id`. Stage 4's
+  "Stamp the current decorator fingerprints for `variant-id`. The
   hot-reload trigger reads the previous map and compares against the
   current registry; a mismatch bumps `:hot-reload-tick`."
   [state variant-id fingerprints]

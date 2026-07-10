@@ -1,8 +1,6 @@
 #!/usr/bin/env node
 /*
- * tools/story/bench/bundle-size.cjs — one-shot Story bundle-size benchmark
- * (bead rf2-xgay8; companion findings doc:
- * ai/findings/story-bundle-vs-sb9-20260513.md).
+ * tools/story/bench/bundle-size.cjs — one-shot Story bundle-size benchmark.
  *
  * Purpose
  * -------
@@ -50,7 +48,7 @@
  * (useful when the bundles are already fresh in `implementation/out/`).
  *
  * Exit 0 always — informational only. The script reports numbers; the
- * companion findings doc carries the comparison narrative.
+ * output is the comparison record.
  */
 
 'use strict';

@@ -1,5 +1,5 @@
 (ns re-frame.story.extends
-  "`:extends` resolution for `reg-variant`.
+  "Pure `:extends` chain resolution.
 
   Per /spec/007-Stories.md §Composed variants and `002-Runtime.md` §Args resolution precedence, a variant body
   may carry `:extends <variant-id>` — the parent's body is merged into
@@ -10,13 +10,13 @@
 
   - **Top-level keys**: child wins. `(merge parent child)` semantics —
     a key present on the child replaces the same key on the parent.
-  - **No vector concat / no map-deep-merge** at this layer. Stage 2's
-    contract is straight `merge`; Stage 3's args-resolution layer is
+  - **No vector concat / no map-deep-merge** at this layer. The contract is
+    straight `merge`; the args-resolution layer is
     the deep-merge surface (per /spec/007-Stories.md §Args at three levels — there
     we deep-merge args). This separation keeps the variant-body merge
     semantically simple.
   - **`:extends` itself is dropped** from the resolved body — it's a
-    registration-time directive, not a runtime artefact.
+    plan-compilation directive, not a resolved runtime artefact.
 
   Cycle detection:
 
@@ -28,13 +28,14 @@
   - Throws `:rf.error/story-extends-unknown` if a parent id is not
     registered when `:extends` is resolved.
 
-  Stage 2 resolves at registration time (per `001-Authoring.md` §Registration macros). Production
-  builds elide the entire registration surface so `:extends` resolution
-  doesn't survive into a production bundle anyway."
+  Registered variants keep the raw `:extends` slot in the Story side-table;
+  `re-frame.story.plan` is the runtime merge authority. This namespace
+  exposes the same bounded, lookup-parameterised operation as a standalone
+  pure helper for tooling and focused tests."
   (:refer-clojure :exclude [resolve]))
 
 (def ^:dynamic *max-extends-depth*
-  "Hard cap on `:extends` chain length. A registration that hits this
+  "Hard cap on `:extends` chain length. A resolution that hits this
   limit is treated as a cycle. 32 is more than any sane chain — projects
   hitting this limit either have a cycle or a structural problem.
 
@@ -119,9 +120,8 @@
   "Resolve `:extends` on `body` against `lookup` (a fn from parent-id to
   parent-body). Returns the merged body with `:extends` stripped.
 
-  `lookup` is parameterised so the caller (the registrar) decides where
-  to read parent bodies from. In Stage 2 this is the side-table; the
-  same shape works for any future remote registry.
+  `lookup` is parameterised so the caller decides where to read parent
+  bodies from. The helper is independent of Story's side-table.
 
   Resolution is single-pass: when a parent itself has `:extends`, we
   recurse — the final body is the result of merging every ancestor in

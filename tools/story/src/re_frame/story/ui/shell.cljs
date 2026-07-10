@@ -1,5 +1,5 @@
 (ns re-frame.story.ui.shell
-  "Top-level story shell. Per Stage 4 (rf2-ekai) `003-Render-Shell.md` §Shell lifecycle.
+  "Top-level story shell. See `003-Render-Shell.md` §Shell lifecycle.
 
   Three-pane layout:
 
@@ -13,7 +13,7 @@
       │          │                          │ status     │
       └──────────┴──────────────────────────┴────────────┘
 
-  Per rf2-sgdd3 the RHS hosts Xray as the primary inspector. The
+  The RHS hosts Xray as the primary inspector. The
   Story-shipped scrubber / trace / actions panels were retired —
   Xray's L1 ribbon (◀ ▶ ⏭ + L2 event list) replaces the scrubber;
   the Trace tab replaces the trace panel; the Event-tab cascade view
@@ -33,14 +33,13 @@
 
   ## Hot-reload trigger
 
-  Per `003-Render-Shell.md` §Shell lifecycle + Stage 4 spec the shell watches the variant /
+  Per `003-Render-Shell.md` §Shell lifecycle the shell watches the variant /
   decorator fingerprints from `re-frame.story.decorators/
   resolution-fingerprints` and bumps `:hot-reload-tick` when they drift.
   The canvas / workspace components watch the tick and re-mount the
   variant on change.
 
-  A `setInterval`-driven poll is the v1 mechanism; v2 will subscribe to
-  the registrar's mutation trace events for an event-driven re-resolve.
+  A `setInterval`-driven poll is the current mechanism.
 
   ## Elision
 
@@ -235,10 +234,9 @@
   (watch-mode-tick!))
 
 (defn- start-hot-reload-poll!
-  "Begin polling for fingerprint + watch-mode changes. v1 mechanism per
-  Stage 4 (rf2-ekai) + rf2-z1h0f.
+  "Begin polling for fingerprint and watch-mode changes.
 
-  Per rf2-8wgpm (tools/story/spec/013-Static-Build.md): under
+  Per tools/story/spec/013-Static-Build.md, under
   `re-frame.story.config/static-mode?` the registrar is frozen — no
   dev-time `reg-*` mutations will land, so the 500ms poll is wasted
   work that thrashes the React tree on every tick. Skip the poll
@@ -357,8 +355,8 @@
                    (when before
                      ;; Don't tear down listeners on switch — leave
                      ;; the buffer behind so the user can switch back
-                     ;; without losing context. Stage 6 may add an
-                     ;; explicit 'clear' button.
+                     ;; without losing context. Teardown owns explicit
+                     ;; listener cleanup.
                      nil)
                    (when now
                      (ensure-listeners-for-variant! now)
@@ -534,9 +532,9 @@
 
 (defn- right-panel
   "The right-side pane — Xray mount + controls + dispatch console +
-  Stage-6 registered story-panels stacked vertically.
+  registered story panels stacked vertically.
 
-  Per rf2-sgdd3 Xray is the primary RHS inspector: the Story-shipped
+  Xray is the primary RHS inspector: the Story-shipped
   scrubber / trace / actions panels were retired in favour of Xray's
   ribbon + L2 event list (replaces scrubber), Trace tab (replaces trace
   panel), and Event-tab cascade view (replaces actions panel). Xray
@@ -545,7 +543,7 @@
   variant becomes focused (config bridges via
   `xray-preset/wire-cross-host!`).
 
-  Stage 6 (rf2-zhwd) adds `panels/render-panels-at-placement` so any
+  `panels/render-panels-at-placement` ensures any
   `reg-story-panel` registration with `:placement :right` appears here.
   The built-in v1.0 panels (a11y, layout-debug toggles, schema
   validation) ride this path.
@@ -681,7 +679,7 @@
          [:span {:style (:rhs-section-sub styles)}
           "free-form events"]]
         [dispatch-console/panel variant-id]])
-     ;; Stage 6: render any registered :right-placement story panels.
+     ;; Render any registered :right-placement story panels.
      ;; Wrapped in a section so the visual rhythm holds across Story-
      ;; shipped + user-registered panels uniformly.
      (when variant-id

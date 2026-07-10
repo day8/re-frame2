@@ -1,5 +1,5 @@
 (ns re-frame.story.test-support
-  "Story's canonical test-fixture helper (rf2-lh99f).
+  "Story's canonical test-fixture helper.
 
   ## Why this namespace exists
 
@@ -12,8 +12,8 @@
   registrar without re-installing the framework's `:rf/machine`
   subscription, or forgetting `ensure-default-frame!`) leaves the
   lifecycle machine's handler off the registry and traps every
-  subsequent variant at `:pre-mount`. That is the silent `:pre-mount`
-  footgun the bead names: the run does not error, it just never reaches
+  subsequent variant at `:pre-mount`. This failure is silent: the run does
+  not error, it just never reaches
   `:ready`, and the assertions vector comes back empty / green-but-wrong.
 
   ## How it avoids the `:pre-mount` footgun
@@ -112,12 +112,12 @@
   caller's `:install` thunks against the fresh registry."
   [install]
   ;; Mirror `re-frame.story/clear-all!`: reset the side-table, reset every
-  ;; leakable process-global config atom (rf2-6ez1u —
+  ;; leakable process-global config atom
   ;; global-args/global-decorators/editor/project-root/egress-profile/
   ;; suppressed-counters; so a `configure!` in one test cannot leak into
   ;; the next), reset the canonical-vocab auto-install gate, and clear the
-  ;; two per-process play atoms (`pending-exceptions` + `stepper-state`,
-  ;; rf2-eztym.2). Goes BEYOND `clear-all!` by ALSO wiping the per-variant
+  ;; two per-process play atoms (`pending-exceptions` + `stepper-state`).
+  ;; Goes beyond `clear-all!` by also wiping the per-variant
   ;; play run-state (`runner-events/clear-all-runs!`) — the test-reset path
   ;; tears down a frame's full play surface, not just the registry.
   (registrar/clear-all!)
@@ -133,7 +133,7 @@
 
 (defn use-fixtures
   "Build a `clojure.test` / `cljs.test` `:each` fixture FUNCTION that does
-  the canonical Story per-test reset (rf2-lh99f). Avoids the `:pre-mount`
+  the canonical Story per-test reset. Avoids the `:pre-mount`
   footgun by resetting the framework runtime via registrar
   snapshot/restore (see the namespace docstring).
 
@@ -156,7 +156,7 @@
       (fw-fixture test-fn))))
 
 (defn with-clean-registry
-  "Run `thunk` inside a full Story reset (rf2-lh99f) — the programmatic
+  "Run `thunk` inside a full Story reset — the programmatic
   bracket form of [[use-fixtures]]. Resets the framework runtime via
   registrar snapshot/restore (footgun-free — the `:rf/machine` sub
   survives, so variants are never trapped at `:pre-mount`), re-installs

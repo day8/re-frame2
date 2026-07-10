@@ -11,7 +11,7 @@
   Producing namespaces register their callable at load time (or at
   `install-canonical-vocabulary!` time) via `set-fn!`; consuming
   namespaces fetch it via `get-fn` at call time. When the producer
-  is absent (Stage 3-only builds where assertions haven't loaded),
+  is absent (for example, a host that has not loaded assertions),
   the lookup returns nil and the consumer no-ops.
 
   ## Hook keys

@@ -1,5 +1,5 @@
 (ns re-frame.story.ui.workspace
-  "Workspace rendering. Per Stage 4 (rf2-ekai) `001-Authoring.md` §Registration macros + /spec/007-Stories.md
+  "Workspace rendering. See `001-Authoring.md` §Registration macros + /spec/007-Stories.md
   §Workspace.
 
   Five layouts ship in v1:
@@ -11,12 +11,12 @@
   - `:prose`         — markdown / hiccup blocks interleaved with variants.
   - `:custom`        — caller-supplied view id.
 
-  Stage 4 ships every layout's resolver as pure data (so JVM tests cover
+  Every layout's resolver is pure data (so JVM tests cover
   enumeration + filtering) and the Reagent renderer for `:grid`,
   `:variants-grid`, `:tabs`, and `:prose`. `:custom` ships the resolver;
   its renderer is a simple variant of the `:grid` pipeline.
 
-  ## :tabs renderer (rf2-ktnl8)
+  ## :tabs renderer
 
   `:tabs` renders ONE variant at a time, with a tab strip at the top
   for switching. This is the load-bearing difference from `:grid`: when
@@ -27,7 +27,7 @@
   cells. A genuine one-at-a-time renderer serialises mounting so each
   visit re-seeds the active variant cleanly.
 
-  ## `:isolation :shared` for `:variants-grid` (rf2-gqid4)
+  ## `:isolation :shared` for `:variants-grid`
 
   The workspace body's optional `:isolation` slot tunes mount strategy
   for `:variants-grid`. Two values:

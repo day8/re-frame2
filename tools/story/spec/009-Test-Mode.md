@@ -384,7 +384,7 @@ will land); watch mode has nothing to detect in that build.
   would gate the rerun set; the existing `watch-rerun!` entry point
   already accepts an arbitrary variant-id seq.
 
-## Play step-debugger (rf2-ulw5m)
+## Play step-debugger
 
 > Storybook's Interactions panel ships a UI with step / pause /
 > rewind / breakpoint controls for play() functions; this section

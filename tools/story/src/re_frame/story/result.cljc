@@ -272,9 +272,8 @@
   `:payload` as `[path-or-sub-vec exp-redacted]`). The compiled check
   plan's atom, by contrast, always carries the RAW author-declared
   expected value — plan atoms are never redacted (redaction only happens
-  at run time, against a live frame). rf2-m0cge5 finding 11: an
-  exact-payload match between the two therefore never agrees for a
-  sensitive assertion."
+  at run time, against a live frame). An exact-payload match between the
+  two therefore cannot identify a sensitive assertion."
   #{assertions/id-path-equals assertions/id-sub-equals})
 
 (defn- record-matches-atom?
@@ -774,17 +773,9 @@
         ;; The agreement floor escalates a would-be `:pass` OR a
         ;; `:cannot-run` to `:fail` — a real `:error` already outranks it
         ;; (the floor never downgrades a higher verdict), per the ONE
-        ;; precedence rule `:error` > `:fail` > `:cannot-run` > `:pass`
-        ;; (rf2-m0cge5 finding 9). Before this fix the floor lifted only
-        ;; `:pass` → `:fail`: a run that was ALSO `:cannot-run` (some
-        ;; expectation the runner could not even attempt) left `status`
-        ;; at `:cannot-run` even when the tape independently carried an
-        ;; unconsumed schema-validation failure (`tape-red?` true) — a
-        ;; MUST-fail masked by a lower-ranked refusal, the opposite of
-        ;; "never mask a real failure". `:cannot-run` and `tape-red?` are
-        ;; orthogonal signals (an unmet-requirement refusal and an
-        ;; unconsumed schema violation can both be true of the same run),
-        ;; so both floor-eligible base statuses escalate.
+        ;; precedence rule `:error` > `:fail` > `:cannot-run` > `:pass`.
+        ;; A runner refusal and unconsumed failure evidence are orthogonal
+        ;; signals, so both floor-eligible base statuses escalate to `:fail`.
         status         (if (and tape-red? (#{:pass :cannot-run} base-status))
                          :fail
                          base-status)
@@ -861,10 +852,8 @@
   the result — a `requirement-refusal` the runner could not even attempt,
   e.g. `:rf.assert/visual-snapshot` under `:headless`) never lands in
   `:assertions` — it is a run-level slot, not a per-assertion record — so
-  gating the run-level report on `(empty? assertions)` let a run with
-  >= 1 PASSING assertion alongside the refusal fall through every branch
-  and read false-GREEN (rf2-l3lyal: the refusal never reached
-  `clojure.test`). The gate is instead 'no per-assertion report already
+  a run can contain passing assertions alongside that refusal. The gate is
+  therefore 'no per-assertion report already
   conveys the refusal' — `(not-any? #(= :fail (:type %)) per-assertion)` —
   so a mixed run (an unrelated passing assertion + a run-level refusal)
   still gets the run-level `:cannot-run` report."

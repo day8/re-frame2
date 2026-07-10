@@ -181,7 +181,8 @@
   ;; -------------------------------------------------------------------------
   ;; reg-decorator — a project-custom hiccup decorator
   ;;
-  ;; Per `001-Authoring.md` §Registration macros + `002-Runtime.md` §Open items (Stage 3 picks) decorators are the ONLY Story
+  ;; Per `001-Authoring.md` §Registration macros and `002-Runtime.md`
+  ;; §Decorator composition order, decorators are the only Story
   ;; authoring surface where a closure legally lives — and only on
   ;; `:hiccup`-kind decorators' `:wrap` slot. The closure lives at
   ;; registration time, not in variant bodies. The variant body
@@ -252,7 +253,7 @@
   ;; -------------------------------------------------------------------------
 
   (story/reg-story-panel :Panel.counter-with-stories/broken-render
-    {:doc       "Testbed panel for rf2-76wo5 — :render points at an
+    {:doc       "Testbed panel whose :render points at an
                 unregistered view so the panel-host renders its
                 'no registered :render view' fallback. Asserted by
                 story_browser_scenarios.cjs."
@@ -290,7 +291,7 @@
 
   (story/reg-story :story.counter-play-script
     {:doc        "Parent story for the rich-DSL :script CI-as-test
-                 fixtures (rf2-3qcxk). Two variants exercise both the
+                 fixtures. Two variants exercise both the
                  pass and fail terminal paths of the play runner so the
                  CI runner has live targets in every browser-gate run."
      :component  :counter-with-stories.views/counter-card
@@ -334,7 +335,7 @@
 
   ;; Variant 2 — non-zero state with three-level args. Demonstrates:
   ;; the variant-level :args override the story-level :args (precedence:
-  ;; global < mode < story < variant). The label is overridden to
+  ;; global < story < mode < variant). The label is overridden to
   ;; "Total" for this variant only.
   (story/reg-variant :story.counter/loaded
     {:doc    "A counter seeded with a non-zero value."
@@ -389,12 +390,11 @@
   ;; runtime classifier is named "events-only" after the lowered
   ;; `:events` slot; the authoring surface is `:setup`.)
   (story/reg-variant :story.counter/events-only-loaded
-    {:doc    "Canonical events-only loader-body shape (rf2-043cm fast-
-             path repro). Counter seeded at 5 via `:setup`; no
+    {:doc    "Canonical events-only loader-body shape. Counter seeded at
+             5 via `:setup`; no
              `:loaders`, no `:loaders-complete-when`, no `:frame-setup`
              decorators — the lifecycle takes the fast-path direct to
-             `:ready`. Folded in from the retired xray_rhs_smoke
-             testbed per rf2-9jfo1.2."
+             `:ready`."
      :setup [[:counter/initialise 5]]
      :tags   #{:dev :test :internal}
      :substrates #{:reagent}})
@@ -678,7 +678,7 @@
   ;; runner is gating the auto-run plumbing, not the under-test app's
   ;; idempotency, so we keep the scripts neutral on that axis.
   (story/reg-variant :story.counter-play-script/passing
-    {:doc        "rf2-3qcxk CI fixture — initialise the counter to 3
+    {:doc        "CI fixture — initialise the counter to 3
                  and assert :count equals 3. Idempotent under any
                  number of auto-run repeats."
      :args       {:label "Play-script pass"}
@@ -692,7 +692,7 @@
      :substrates #{:reagent}})
 
   (story/reg-variant :story.counter-play-script/failing
-    {:doc        "rf2-3qcxk CI fixture — initialise the counter to 1
+    {:doc        "CI fixture — initialise the counter to 1
                  then assert the WRONG final count (expect 9). The CI
                  runner observes the :fail terminal status and matches
                  it against the variant id's `failing` marker, so the
@@ -714,7 +714,7 @@
   ;; anonymous predicate with a top-level clojure.core predicate so both
   ;; cases land in the browser-side play-script runner.
   (story/reg-variant :story.counter-play-script/pred-fn-direct
-    {:doc        "rf2-inbad CI fixture — `:assert-db :pred` with fn
+    {:doc        "CI fixture for `:assert-db :pred` with fn
                  references handed in directly. Survives advanced CLJS
                  because no symbol resolution is performed at run time."
      :args       {:label "Play-script :pred fn-direct"}
@@ -744,7 +744,7 @@
   ;; assert app-db AND the rendered text both reflect 42. End-to-end
   ;; coverage of every DOM-step type in one play.
   (story/reg-variant :story.counter-play-script/dom
-    {:doc        "rf2-e0kof DOM-step fixture — exercises every
+    {:doc        "DOM-step fixture — exercises every
                  rich-DSL DOM step (`:click` / `:type` / `:assert-dom`)
                  end-to-end against a real browser DOM. Pairs with the
                  expected-fail twin to keep the failure path under CI
@@ -775,7 +775,7 @@
      :substrates #{:reagent}})
 
   (story/reg-variant :story.counter-play-script/dom-expected-fail
-    {:doc        "rf2-e0kof expected-fail twin — same DOM-step shape as
+    {:doc        "Expected-fail twin — same DOM-step shape as
                  :story.counter-play-script/dom but the FINAL
                  `:assert-dom :text` expects '99' against an actual
                  '42'. The CI runner reads `expected-fail` off the
@@ -801,7 +801,7 @@
   ;; toolbar dropdown OR the CI runner's `runPlay` hook). One play
   ;; deliberately fails to keep the failure path under CI coverage.
   (story/reg-variant :story.counter-play-script/multi
-    {:doc        "rf2-tl7zk CI fixture — multi-play variant with three
+    {:doc        "CI fixture — multi-play variant with three
                  named plays. The CI runner enumerates each play as its
                  own row (per-play pass/fail) and matches the per-play
                  expected status using `failing` / `expected-fail` name

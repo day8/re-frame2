@@ -12,21 +12,10 @@
 
   ## The result map
 
-  Per `002-Runtime.md` §Programmatic API the resolved value of `run-variant` is:
-
-      {:frame           <variant-id>
-       :app-db          {...}
-       :assertions      [{:assertion ... :passed? true ...} ...]
-       :rendered-hiccup [...]               ; when :render? true
-       :elapsed-ms      <number>
-       :snapshot        {:variant-id ... :content-hash ...}
-       :decorators      {:hiccup [...] :frame-setup [...]
-                          :fx-override [...] :errors [...]}
-       :effective-args  {...}
-       :lifecycle       :ready | :error}
-
-  The play-sequence runtime populates `:assertions` with full assertion
-  semantics.
+  `re-frame.story.result` owns the schema-backed unified result consumed by
+  Test mode, CI, `clojure.test`, and MCP. This namespace supplies the live
+  frame, assertion accumulator, epoch tape, execution metadata, and snapshot
+  inputs to that pure assembler; it does not maintain a second result shape.
 
   ## Elision
 
@@ -91,7 +80,7 @@
 ;;
 ;; re-frame's interceptor chain catches handler exceptions internally and
 ;; emits a `:rf.error/handler-exception` trace event rather than re-
-;; throwing. Stage 3's phase runners need to convert those trace events
+;; throwing. Story's phase runners convert those trace events
 ;; into assertion records (per `002-Runtime.md` §Error projection).
 ;;
 ;; The capture pattern: register a trace listener around each phase
@@ -285,12 +274,12 @@
   frame, evaluating `:loaders-complete-when` after each. Per `002-Runtime.md`
   §Four-phase lifecycle with `:loaders-complete-when` phase 1.
 
-  In Stage 3 the simple synchronous path is the load-bearing one:
-  `dispatch-sync` drains run-to-completion before returning, so the
+  The headless path is synchronous: `dispatch-sync` drains
+  run-to-completion before returning, so the
   default predicate's 'no further events in flight' check passes
   trivially. Variants with long-lived fx (websocket / interval) supply
-  `:loaders-complete-when` to override; Stage 3 routes those through
-  the predicate evaluator (Stage 5 adds the full assertion runtime).
+  `:loaders-complete-when`, which is resolved through the predicate
+  evaluator.
 
   Events-only fast-path: when `frames/allocate!` drives the lifecycle
   straight to `:ready` (no loaders / no frame-setup /
@@ -328,8 +317,8 @@
                 ;; into the assertions list so phase-1 loader throws
                 ;; surface in the test-mode UI / Xray.
                 (play/drain-pending-exceptions! variant-id :phase-1-loaders))))))
-      ;; Evaluate :loaders-complete-when. In Stage 3 the predicate
-      ;; resolves synchronously; Stage 6+ might add an async-retry shape.
+      ;; The current predicate contract resolves synchronously after the
+      ;; loader events have drained.
       (let [complete? (loaders/evaluate-complete-when variant-id variant-body)]
         (if complete?
           (do
@@ -436,7 +425,8 @@
 ;;
 ;; `run-variant` is the engine's hot path. Per `002-Runtime.md` §Four-phase lifecycle with `:loaders-complete-when` it drives the
 ;; four-phase lifecycle (phase-0 setup → phase-1 loaders → phase-2 events →
-;; phase-4 play); phase-3 render is Stage 4's UI-shell concern. To keep the
+;; phase-4 play). Rendering is owned by the UI shell and `render-variant`,
+;; outside this headless orchestration. To keep the
 ;; orchestrator readable each phase lives in its own named fn. The
 ;; named-phase decomposition also gives tests a finer entry surface: a
 ;; primed ctx can be fed into a single phase fn in isolation.
@@ -603,30 +593,13 @@
         ;; (per `re-frame.core/epoch-history`'s contract) while the
         ;; `:test`-alias epoch dep makes it the live tape under the gate.
         ;;
-        ;; rf2-xj0bj0: a same-id re-run resets the frame's app-db /
-        ;; runtime-db IN PLACE (`ensure-fresh-frame!` / `frames/reset-
-        ;; state!`) but never touches the epoch ring (dropping it is
-        ;; `destroy-frame!`'s job, and a destroy here would orphan the
-        ;; canvas's live mounted-view reactions) — so `epoch-history`
-        ;; still carries every PRIOR run's records too. `epoch-baseline`
-        ;; is the last-committed `:epoch-id` `run-phase-0!` stamped at
-        ;; THIS run's start; keeping only records whose OWN `:epoch-id` is
-        ;; greater scopes the projected tape to just this run, so a second
-        ;; identical run projects IDENTICAL evidence rather than
-        ;; inheriting the first run's stale violations / warnings /
-        ;; narrative. Absent on the inline-plan path (a fresh anonymous
-        ;; frame every time) — `(or … 0)` is then a no-op (every real
-        ;; `:epoch-id` is > 0), matching the pre-fix whole-tape read.
-        ;;
-        ;; rf2-96qsjr: filtering by `:epoch-id` identity — rather than
-        ;; `drop`-ping a COUNT of entries off the front — stays correct
-        ;; even when the `epoch-history` ring (default depth 50) has
-        ;; evicted records from the front since `epoch-baseline` was
-        ;; captured: a count-based drop assumes the ring is append-only
-        ;; (never true once total epochs exceed the ring depth), while an
-        ;; identity filter only ever asks "is this record's own id newer
-        ;; than the baseline?" — a question the ring's occupancy can't
-        ;; perturb.
+        ;; Same-id reruns reset app-db/runtime-db in place so mounted view
+        ;; reactions survive, but the epoch ring remains frame-owned across
+        ;; runs. Phase 0 therefore captures the last committed epoch id and
+        ;; this projection keeps only newer records. Comparing epoch identity,
+        ;; rather than dropping a count, remains correct when the bounded ring
+        ;; evicts records from its front. Inline runs use a fresh frame and a
+        ;; zero baseline, so the same filter covers both paths.
         tape     (vec (filter #(> (or (:epoch-id %) 0) (or epoch-baseline 0))
                               (rf/epoch-history variant-id)))
         ;; The runner-recorded per-dispatch-step settle boundaries light
@@ -635,24 +608,12 @@
         ;; stamp is a `:rf.story/*` key the determinism projection strips, so
         ;; the run-hash is unaffected (the `:epoch-tape` slot stays raw).
         ;;
-        ;; rf2-96qsjr: the runner stamps each boundary as a genuine
-        ;; `:epoch-id` (NOT a ring-position), and `stamp-tape` compares it
-        ;; directly against each `tape` record's OWN `:epoch-id` — no
-        ;; zero-point shift needed, unlike the old count-based scheme,
-        ;; because identity comparison is unaffected by how `tape` was
-        ;; sliced or how much of the ring survived eviction.
-        ;;
-        ;; rf2-m0cge5 finding 2: `step-boundaries` is keyed by `[frame-id
-        ;; play-key]`, not `frame-id` alone (a concurrent run for a
-        ;; DIFFERENT play-key on this frame must never collide with —  or
-        ;; wipe — this run's boundaries). Read each auto-play's OWN slot,
-        ;; in the SAME order `run-phase-4!` drove them (`executed-script`
-        ;; concatenates their scripts in this order too), and concatenate —
-        ;; reconstructing the one attribution vector `stamp-tape` zips
-        ;; against the concatenated dispatch steps. Absent
-        ;; `executed-play-keys` (a pre-phase-4 error result, no script
-        ;; ever ran) degrades to `[]`, identical to the old `nil` — both
-        ;; read as "absent" by `stamp-tape`'s `(empty? bounds)` check.
+        ;; Boundary stamps are genuine epoch ids, not ring positions, so
+        ;; attribution is independent of ring eviction. Step boundaries are
+        ;; keyed by `[frame-id play-key]`; read each auto-play's slot in the
+        ;; same order its script was concatenated so concurrent play keys on
+        ;; one frame cannot collide. A run that failed before play contributes
+        ;; no keys and therefore no attribution boundaries.
         attribution (into []
                           (mapcat #(runner-events/settle-boundaries variant-id %))
                           (or executed-play-keys []))
@@ -721,7 +682,9 @@
                     :elapsed-ms          (- (interop/now-ms) start-ms)})]
     (cond-> (merge unified
                    {:frame           variant-id
-                    :rendered-hiccup nil       ;; Stage 4 fills this in
+                    ;; Reserved compatibility slot. Visual rendering is
+                    ;; performed by the UI shell or `render-variant`.
+                    :rendered-hiccup nil
                     :snapshot        snapshot
                     :decorators      decorator-stack
                     :effective-args  effective-args
@@ -865,26 +828,15 @@
   tape (`assertions/dispatched-events`, the SSOT) rather than a side-table
   accumulator, so there is no accumulator to seed here.
 
-  rf2-xj0bj0: `ensure-fresh-frame!` resets an EXISTING frame's app-db /
-  runtime-db IN PLACE (`frames/reset-state!`) rather than destroy!+
-  allocate! (to preserve the canvas's live mounted-view reactions) — so a
-  same-id re-run's epoch ring is NEVER cleared (only `destroy-frame!`
-  drops it). Stamp the CURRENT last-committed `:epoch-id` as
-  `:epoch-baseline` (rf2-96qsjr — an identity, not a ring-length count; see
-  `runner-events/last-epoch-id`) so `record-result-map` can filter the
-  projected tape to just THIS run's records, not the whole frame's
-  accumulated history — otherwise a second `run-variant` on the same id
-  would project evidence (`:schema-violations` / `:warnings` / `:effects`
-  / `:narrative`) polluted with the FIRST run's stale records.
+  Because an in-place reset preserves the frame-owned epoch ring, phase 0
+  records the current last-committed `:epoch-id` as `:epoch-baseline`.
+  `record-result-map` uses that identity to project evidence from this run
+  only.
 
-  rf2-lsr95i: thread the ALREADY-COMPILED plan's `[:world :sensitive]` /
-  `[:world :large]` — root→child `:extends`-merged by `plan/variant-plan`
-  (`context-keys`) — into `frames/allocate!`'s `classification` arg,
-  mirroring `run-inline-phase-0!`'s `allocate-inline!` call below. Before
-  this, `allocate!` read a variant's OWN raw (un-merged) body for its
-  classification, so a variant that only `:extends`ed a `:sensitive`/
-  `:large` parent — declaring none itself — silently dropped the
-  parent's redaction at wire egress."
+  Classification comes from the already-compiled plan's
+  `[:world :sensitive]` / `[:world :large]` slots, after `:extends`
+  resolution. Registered and inline plans therefore apply inherited
+  classification through the same allocation boundary."
   [{:keys [variant-id decorator-stack plan] :as ctx}]
   (ensure-fresh-frame! variant-id)
   (frames/allocate! variant-id decorator-stack
@@ -1029,8 +981,8 @@
   "Phase 4: run the play-script. Returns `[ctx' play-promise]` — `ctx'`
   carries `:executed-script` (the folded steps the auto-plays ran, for the
   unified result's two-level narrative) and `:executed-play-keys` (the
-  auto-plays' `:name`s, in the SAME order — rf2-m0cge5 finding 2, see
-  below), and the orchestrator chains `then` on the promise to know when
+  auto-plays' `:name`s, in execution order), and the orchestrator chains
+  `then` on the promise to know when
   to build the result.
 
   Drives the rich-DSL `:play-script` runner via
@@ -1044,7 +996,7 @@
   checkpoint), so the executed-script narrative carries the one
   assertion atom.
 
-  §B8 — the play set comes from the NORMALIZED PLAN's
+  The play set comes from the normalized plan's
   `[:world :scripts]` (the named scripts the compiler's `normalize-scripts`
   produces — `:plays` preserved as named scripts, spec/017 §Public
   vocabulary), NOT a second `runner-events/variant-plays` read of the
@@ -1052,8 +1004,8 @@
   the plan's `:scripts` carry the `{:script :auto-run? :name}` shape the
   runner drives directly.
 
-  Phase 3 (render) is Stage 4's UI-shell concern and is not driven
-  from this orchestrator."
+  Rendering is owned by the UI shell and `render-variant`, not this
+  orchestrator."
   [{:keys [variant-id loaders-complete? plan] :as ctx}]
   (if-not loaders-complete?
     [ctx (async/resolved (read-assertions variant-id))]
@@ -1066,8 +1018,8 @@
           ;; concatenates their scripts. `record-result-map` reads each
           ;; play-key's OWN settle-boundaries slot and concatenates them in
           ;; this order to reconstruct the full per-dispatch-step attribution
-          ;; vector (rf2-m0cge5 finding 2 — `step-boundaries` is keyed by
-          ;; `[frame-id play-key]`, not `frame-id` alone).
+          ;; vector. `step-boundaries` is keyed by `[frame-id play-key]`,
+          ;; not `frame-id` alone.
           play-keys  (mapv :name auto-plays)
           ctx'       (assoc ctx
                             :executed-script executed
@@ -1079,8 +1031,8 @@
           ;; each dispatch step (setup-phase epochs carry an id at or before
           ;; the first boundary → leading nil span), the SAME identity
           ;; `record-result-map` compares against when it filters the tape
-          ;; (rf2-96qsjr). Clearing per-play-key (rather than the whole
-          ;; frame) means a concurrent run for a DIFFERENT play-key on this
+          ;; when filtering the tape. Clearing per-play-key (rather than the
+          ;; whole frame) means a concurrent run for a different play-key on this
           ;; frame can never be wiped by — or wipe — this reset.
           _          (doseq [pk play-keys]
                        (runner-events/clear-step-boundaries! variant-id pk))]
@@ -1269,18 +1221,17 @@
                        :passed?    false}]))
 
 (defn run-variant
-  "Per `002-Runtime.md` §Programmatic API. Allocate a frame for `variant-id`, run the four-
-  phase lifecycle, and return a promise/future of the result map.
+  "Allocate a frame for `variant-id`, run its setup, loaders, events, and
+  play scripts, and return the unified result asynchronously.
 
   `opts`:
     :active-modes    coll of registered mode ids; deep-merged into args
     :cell-overrides  runtime arg overrides (controls panel)
     :substrate       active substrate (`:reagent`, `:uix`, ...)
-    :render?         when truthy, Stage 4's UI shell renders into
-                     `:rendered-hiccup`. Stage 3 leaves the slot nil.
 
-  Returns a Promise (CLJS) / CompletableFuture (JVM). Per `002-Runtime.md`
-  §Open items (Stage 3 picks) this is Stage 3's locked async-return shape.
+  Returns a Promise (CLJS) / CompletableFuture (JVM). Rendering is a
+  separate `render-variant` or UI-shell concern; this runner preserves the
+  compatibility `:rendered-hiccup` slot as nil.
 
   Production callers (CLJS `:advanced` with `enabled?` false) get an
   immediately-resolved promise of the empty result map — per `001-Authoring.md`
@@ -1538,8 +1489,7 @@
 
 (defn reset-variant
   "Tear down the variant frame and re-run `run-variant` with `opts`.
-  Per `002-Runtime.md` §Programmatic API. Used by Stage 4's UI shell on hot-reload + user-
-  triggered 'reset' button.
+  Used by the UI shell for hot reload and the user-triggered reset action.
 
   Returns a promise/future of the new result map."
   ([variant-id] (reset-variant variant-id nil))
@@ -1557,9 +1507,9 @@
 
   Returns a 0-arity unsubscribe fn.
 
-  Stage 4's UI shell + Stage 5's assertions runtime consume this. The
-  watcher table is per-frame so destroyed frames clean up automatically
-  via `frames/destroy!`."
+  The UI shell and assertion runtime consume this. The watcher table is
+  per-frame so destroyed frames clean up automatically via
+  `frames/destroy!`."
   [variant-id callback]
   (when config/enabled?
     (loaders/add-watcher! variant-id callback)))

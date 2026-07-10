@@ -26,11 +26,10 @@ exercised here):
   the explicit `[:assert [:rf.assert/…]]` form for the assertions the
   sugar does not cover (`sub-equals`, `dispatched?`, `effect-emitted`)
   — alongside the built-in `force-fx-stub` decorator for the save-flow
-  variant. The fifth variant, `events-only-loaded`, was folded in from
-  the retired `xray_rhs_smoke` testbed per rf2-9jfo1.2 — it pins the
-  canonical events-only loader-body shape (no `:loaders`, no
-  `:loaders-complete-when`, no `:frame-setup` decorators) that takes
-  the rf2-043cm `:pre-mount → :ready` lifecycle fast-path.
+  variant. The fifth variant, `events-only-loaded`, pins the canonical
+  events-only loader-body shape (no `:loaders`, no
+  `:loaders-complete-when`, no `:frame-setup` decorators) that takes the
+  `:pre-mount → :ready` lifecycle fast path.
 - **Gate-fixture block** — the `:story.counter-diagnostics`,
   `:story.counter-matrix`, and `:story.counter-play-script` sibling
   parents and their roughly thirty variants: deliberate failure / matrix
@@ -49,14 +48,14 @@ counter_with_stories/
 ├── subs.cljs                                ; :count, :count-doubled, :count-parity
 ├── views.cljs                               ; counter-card, counter-buttons, parity-badge
 ├── stories.cljs                             ; seven of the nine reg-* macros (no fragment/check)
-├── elision_demo.cljs                        ; :sensitive? + :large? + event-emit (rf2-vw0to)
+├── elision_demo.cljs                        ; :sensitive? + :large? + event-emit
 ├── stories_cljs_test.cljs                   ; integration tests (npm run test:cljs)
 ├── elision_demo_cljs_test.cljs              ; elision-pipeline tests (npm run test:cljs)
 ├── counter_with_stories.spec.cjs            ; Playwright smoke (npm run test:adapter-smokes)
 └── index.html                               ; the host page
 ```
 
-## Privacy + Size elision demo (rf2-vw0to)
+## Privacy + Size elision demo
 
 The live app embeds an "elision card" underneath the counter. Each
 button drives one branch of the privacy + size elision arc the
@@ -92,7 +91,7 @@ event prints one tight record (`{:event :event-id :frame :time
 :outcome :elapsed-ms}`) — the same shape the chapter-22 Datadog
 recipe forwards in production. The substrate is **always-on**: it
 survives `:advanced` + `goog.DEBUG=false` where the trace surface
-DCE's, which is the whole point of the rf2-rirbq carve-out. The
+DCEs because event-emit is the production observability surface. The
 demo's registration is intentionally ungated so visitors can see
 the listener fire; production deployments AND the registration
 with `(not ^boolean re-frame.interop/debug-enabled?)` per the
@@ -148,8 +147,7 @@ hot-reload the Story shell against your edits.
 
 ## Bundle isolation
 
-Per [`tools/story/spec/005-SOTA-Features.md` §Production elision](../../../../tools/story/spec/005-SOTA-Features.md) and the
-Stage-8 sentinel addition to
+Per [`tools/story/spec/005-SOTA-Features.md` §Production elision](../../../../tools/story/spec/005-SOTA-Features.md) and
 [`implementation/scripts/check-bundle-isolation.cjs`](../../../../implementation/scripts/check-bundle-isolation.cjs),
 the counter example's `:advanced` bundle MUST NOT carry any Story
 implementation symbols. The contract is enforced by:

@@ -117,7 +117,7 @@ before they meet the token contracts.
   (step / pause / rewind / step-back / breakpoint) — the canvas
   re-renders against each step's app-db, so author and reviewer can
   watch the variant evolve one event at a time (see
-  [`009-Test-Mode.md` §Play step-debugger](009-Test-Mode.md#play-step-debugger-rf2-ulw5m)).
+  [`009-Test-Mode.md` §Play step-debugger](009-Test-Mode.md#play-step-debugger)).
 - **Documentation.** A `:docs`-tagged variant is included in the
   generated docs page for that story; story tool reads `:doc` +
   schemas to emit an auto-docs table.

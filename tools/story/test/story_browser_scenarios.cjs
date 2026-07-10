@@ -1,5 +1,5 @@
 /*
- * Focused Story browser scenarios (rf2-dczqg).
+ * Focused Story browser scenarios.
  *
  * This spec is intentionally narrower than story_feature_load.cjs. It
  * exercises real Story features that need a live browser DOM and keeps
@@ -120,9 +120,6 @@ async function setMode(page, mode) {
     { timeoutMs: 5000, description: `${mode} mode selected` },
   );
 }
-
-// `scrubTo` helper retired per rf2-sgdd3 — the Story-side scrubber
-// slider was replaced by Xray's L1 ribbon (◀ ▶ ⏭) + L2 event list.
 
 async function snapshotHash(page, variantId) {
   return canvas(page, variantId).getAttribute('data-snapshot-hash');

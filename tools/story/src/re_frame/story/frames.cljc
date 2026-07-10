@@ -5,12 +5,9 @@
   Each rendered variant is its own re-frame frame (spec/002), allocated
   fresh on `run-variant` and torn down by the caller via
   `destroy-variant!`. Story does NOT introduce a new frame substrate —
-  it consumes `re-frame.core/make-frame` / `destroy-frame!`. (The framework's
-  own `reset-frame!` was retired in rf2-lxwpob — a full replace is now
-  `destroy-frame!` + `reg-frame`/`make-frame` composed by the caller; this
-  ns's OWN `reset-frame!` below, defined the same way, predates and already
-  matches that shape — it is a Story-local convenience wrapper, not a call
-  onto the removed framework verb.)
+  it consumes `re-frame.core/make-frame` / `destroy-frame!`. The
+  `reset-frame!` below is a Story-local destroy-and-reallocate convenience,
+  not a framework primitive.
 
   ## Frame config
 
@@ -44,10 +41,10 @@
 
   ## Hot-reload
 
-  Stage 4's UI shell observes the registrar's `:rf.registry/handler-*`
-  trace events and re-runs `reset-frame!` for any variant whose
-  registered body changed. Stage 3 surfaces the entry point; the
-  trigger lives in Stage 4."
+  The UI shell combines Story's registrar mutation tick with content
+  fingerprints to detect a changed testable variant. Its watch-mode path
+  reruns only variants whose effective content hash drifted; frame lifecycle
+  remains owned here and in `re-frame.story.runtime`."
   (:require [re-frame.core             :as rf]
             ;; `reset-state!` reaches the raw frame-state
             ;; write boundary (`frame/replace-frame-state!`) directly so an
@@ -1091,13 +1088,9 @@
 ;; ---- destroy + re-allocate -----------------------------------------------
 
 (defn reset-frame!
-  "Destroy the variant frame and re-allocate it. Named for the framework's
-  `*-frame!` convention (Story-local — the framework's own `re-frame.core/
-  reset-frame!` was retired in rf2-lxwpob; this predates and already matches
-  its replacement shape, `destroy-frame!` + re-`reg-frame`/`make-frame`
-  composed by the caller, so no change was needed here). The caller
-  is responsible for re-running the four-phase lifecycle (loaders →
-  events → render → play) after.
+  "Destroy the variant frame and re-allocate it. This is a Story-local
+  composition of `destroy-frame!` and `make-frame`; the caller is responsible
+  for re-running the lifecycle after allocation.
 
   NOTE the in-place `reset-state!` is the path
   `run-variant`'s fresh-run boundary takes when a frame already exists —
@@ -1131,8 +1124,8 @@
          (not (:rf/inline? m)))))
 
 (defn variant-frames
-  "Return every registered variant frame id. Stage 4's UI shell uses
-  this to lay out the active variant pane."
+  "Return every registered, navigable variant frame id. The UI shell uses
+  this to lay out the active variant pane; inline-plan frames are excluded."
   []
   (->> (rf/frame-ids)
        (filter variant-frame?)

@@ -1,6 +1,5 @@
 (ns re-frame.story.sub-overrides
-  "View-state subscription overrides — the render-path resolver
-  (rf2-5x1wt.13).
+  "View-state subscription overrides — the render-path resolver.
 
   Per `tools/story/spec/017-Testing-Story.md` §View-state subscription
   overrides, a variant whose goal is rendering / design exploration MAY
@@ -50,7 +49,7 @@
   `interop/debug-enabled?`, so nothing surfaces an override in
   production.
 
-  ## STATUS — the subscribe-seam is WIRED via React context (rf2-7pgiz)
+  ## Live subscribe seam
 
   An exact-query-vector `:sub-overrides` value now SURFACES at render. A
   normally-authored view's `@(rf/subscribe [:q])` is intercepted in
@@ -83,11 +82,8 @@
        `compute-sub`. So `:rf.assert/sub-equals` (which evaluates a sub
        through `compute-sub`) STILL cannot be satisfied by an override.
 
-  Mike RULED (A) on rf2-7pgiz (2026-05-31): build the core
-  subscribe-override seam — React-context carriage + the debug-gated
-  `:subs/resolve-sub-override` hook — and schema-validate a HIT against
-  the sub's declared `:schema` (the FOLD-IN; core-side, mirroring Spec
-  010 §`:sub-return`)."
+  Core schema-validates a hit against the subscription's declared
+  `:schema`, matching Spec 010 §`:sub-return`."
   (:refer-clojure :exclude [resolve read])
   #?(:cljs (:require [re-frame.adapter.sub-override-context :as ovr-ctx]
                      [re-frame.late-bind :as late-bind])))
@@ -154,7 +150,8 @@
   hold an explicit thunk and a dynamic-var binding (JVM / pure tests).
   The LIVE render path does NOT route through `read` — it routes through
   the React-context carriage + the `:subs/resolve-sub-override` core hook
-  (see the ns docstring §STATUS and `resolve-sub-override-hit` below),
+  (see the ns docstring §Live subscribe seam and
+  `resolve-sub-override-hit` below),
   because the dynamic var does not survive into a view's deferred render.
 
   `real-read` is invoked ONLY on a miss, so subscribing to a non-
@@ -182,19 +179,19 @@
      wraps the variant's view render in this; outside the binding (and in
      production) `*overrides*` is nil and `resolve` always misses.
 
-     NOTE (rf2-7pgiz): this dynamic-var binding is the JVM / pure-test
-     convenience form. The LIVE render path surfaces an override via the
+     This dynamic-var binding is the JVM / pure-test convenience form. The
+     live render path surfaces an override via the
      React-context carriage (`re-frame.adapter.sub-override-context`) +
      the `:subs/resolve-sub-override` core hook, NOT this binding — the
      dynamic var does not survive into a view's deferred render. See the
-     ns docstring §STATUS."
+     ns docstring §Live subscribe seam."
      [overrides & body]
      `(binding [*overrides* ~overrides]
         ~@body)))
 
 ;; ============================================================================
 ;; Live render-path carriage — React context + the core subscribe hook
-;; (rf2-7pgiz; CLJS only)
+;; (CLJS only)
 ;; ============================================================================
 ;;
 ;; The dynamic var above cannot reach a view's DEFERRED render (the

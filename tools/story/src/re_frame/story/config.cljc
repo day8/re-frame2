@@ -113,11 +113,11 @@
 ;; `(when enabled? ...)` wrapper inline; there is no separate
 ;; `elide-form` helper.
 
-;; ---- *global-args* (Stage 3) --------------------------------------------
+;; ---- global args ---------------------------------------------------------
 ;;
 ;; Per `002-Runtime.md` §Args resolution precedence the args-precedence chain starts with `global-args`:
 ;; defaults the story-tool's host application sets at boot (theme, locale).
-;; Stage 3's args-resolution layer reads this atom; `configure!` writes it.
+;; The args-resolution layer reads this atom; `configure!` writes it.
 ;;
 ;; The atom is a plain Clojure data store — surviving `:advanced` builds
 ;; is harmless because it's empty by default. The mutation surface

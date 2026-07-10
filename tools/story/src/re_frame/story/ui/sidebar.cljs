@@ -1,12 +1,12 @@
 (ns re-frame.story.ui.sidebar
-  "Story-tree sidebar. Per Stage 4 (rf2-ekai) `003-Render-Shell.md` §Shell lifecycle.
+  "Story-tree sidebar. See `003-Render-Shell.md` §Shell lifecycle.
 
   Lays out the registered stories and their variants as a tree, with
   inline tag filtering. Each variant is a clickable row that updates
   the shell state's `:selected-variant`. Workspaces register below the
   story tree.
 
-  ## Faceted tag-filter (rf2-7ncf9 — SB9 parity)
+  ## Faceted tag filter
 
   Registered tags with an `:axis` slot (e.g. `:status/alpha` carrying
   `:axis :status`) render in per-axis chip rows. The filter applies
@@ -29,7 +29,7 @@
       │ Workspaces           │
       │ ◦ :Workspace.X/y     │
       ├──────────────────────┤
-      │ Tests N · ✓P · ✗F   │   ← chrome-level test widget (rf2-q0irb)
+      │ Tests N · ✓P · ✗F   │   ← chrome-level test widget
       │ [ Run all ]          │
       └──────────────────────┘
 
@@ -37,7 +37,7 @@
   toggle. Selecting tags constrains the tree to variants whose `:tags`
   intersects the active set; empty set means 'show all'.
 
-  Status dots + chrome-level test widget (rf2-q0irb, Vitest-reporter
+  Status dots + chrome-level test widget (Vitest-reporter
   parity per spec/009 §Foundational status): every `:test`-tagged
   variant carries a small coloured dot in its sidebar row that reads
   its last `run-variant` outcome (green pass, red fail, yellow running,
@@ -46,7 +46,7 @@
   exposes a 'Run all' button that drives `run-variant` over each in
   sequence.
 
-  Tag-as-badge affordance (rf2-nwiwr, SB9 badges-addon parity per
+  Tag-as-badge affordance (SB9 badges-addon parity per
   spec/005 §v1.1 ship list): each variant row renders the variant's
   `:tags` as a row of small colour-coded badges to the right of the
   variant id. The palette keys on the canonical seven tags (`:dev`,

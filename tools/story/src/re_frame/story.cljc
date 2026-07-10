@@ -19,22 +19,10 @@
 
   - `re-frame.story.query` — the registry query API
   - `re-frame.story.canonical` — canonical-vocabulary boot
-  - `re-frame.story.lifecycle` — Stage-3 variant lifecycle
+  - `re-frame.story.lifecycle` — variant lifecycle facade
 
   Every public symbol on the facade resolves under its name; the bodies
   are thin re-exports / delegators.
-
-  ## Why this file is ~1100 LoC
-
-  The implementation weight lives off the facade. Of the LoC here: ~18%
-  is code-only (thin defmacro wrappers and delegator defns), ~56% is
-  docstring, ~10% is inline structure comments, ~15% is blank-line
-  separation. The size is documentation, not waste — and the docstrings
-  belong on the macros (where authors' IDEs surface them on hover)
-  rather than on the `*`-suffix runtime helpers (which authors don't
-  call directly). Comparable author-facing facades — `re-frame.core`
-  (1.5 KLoC), `day8.re-frame2-xray.config` (1.5 KLoC) — sit in the same
-  range for the same reason. The structure justifies the size.
 
   ## Boot
 
@@ -87,8 +75,8 @@
   ;; above names `rf/dispatch-sync` etc. illustratively).
   (:require [re-frame.story.config      :as config]
             [re-frame.story.registrar   :as registrar]
-            ;; Phase-2 cohesive internal nss — own the implementation
-            ;; weight for query / canonical-boot / lifecycle surfaces.
+            ;; Cohesive internal namespaces own the implementation weight
+            ;; for query, canonical boot, and lifecycle surfaces.
             [re-frame.story.canonical   :as canonical]
             ;; The single canonical projection + fingerprint
             ;; primitive. Re-exported as `canonicalize` / `content-hash` /
@@ -277,7 +265,7 @@
 
      The body must be 100% EDN-round-trippable. Decorator closures live at
      the decorator's *registration site* (see `reg-decorator`), not here.
-     Per `001-Authoring.md` §Registration macros and Phase-2 §5.1 #10.
+     See `001-Authoring.md` §Registration macros.
 
      `:extends` is stored RAW (intact, parents UNmerged) and resolved by
      the plan compiler — the single merge authority — when the variant is
@@ -433,8 +421,8 @@
 
 #?(:clj
    (defmacro reg-decorator
-     "Register a decorator. Per `001-Authoring.md` §Registration macros +
-     `002-Runtime.md` §Open items (Stage 3 picks) #3.
+     "Register a decorator. Per `001-Authoring.md` §Registration macros and
+     `002-Runtime.md` §Decorator composition order.
 
      Decorators are the **only** Story authoring surface where a closure
      legally lives — and only on `:hiccup`-kind decorators' `:wrap` slot.
@@ -485,7 +473,7 @@
 
      `!`-prefix removal-syntax (e.g. `:!dev`) on a variant `:tags` set
      resolves at registration time against the inherited set — see
-     Phase-2 §5.1 #11."
+     `001-Authoring.md` §Tags."
      [id metadata]
      (macros/gen-reg-call (meta &form) *file*
                           (symbol (str (ns-name *ns*)))
@@ -993,7 +981,7 @@
   [kind id]
   (registrar/unregister! kind id))
 
-;; ---- Stage-3 variant lifecycle surface ----------------------------------
+;; ---- variant lifecycle surface ------------------------------------------
 ;;
 ;; Bodies live in `re-frame.story.lifecycle` — variant→EDN serialisation,
 ;; the four-phase variant lifecycle (loaders → events → render → play),
@@ -1030,30 +1018,17 @@
 
 (defn run-variant
   "Per `002-Runtime.md` §Four-phase lifecycle with `:loaders-complete-when`.
-  Allocate a frame for `variant-id`, run the four-
-  phase lifecycle (loaders → events → render → play), and return a
-  promise/future of the result map.
+  Allocate a frame for `variant-id`, run setup, loaders, events, and play,
+  and return the schema-backed unified result asynchronously.
 
   `opts`:
     :active-modes    coll of registered mode ids; deep-merged into args
     :cell-overrides  runtime arg overrides (controls panel)
     :substrate       active substrate (`:reagent`, `:uix`, ...)
-    :render?         when truthy, the UI shell renders into
-                     `:rendered-hiccup`. Defaults to nil.
-    :assertions      assertions hook (see `re-frame.story.assertions`).
 
-  Result map:
-
-      {:frame           <variant-id>
-       :app-db          {...}
-       :assertions      [...]
-       :rendered-hiccup nil
-       :elapsed-ms      <ms>
-       :snapshot        {:variant-id ... :content-hash \"...\"}
-       :decorators      {:hiccup [...] :frame-setup [...] :fx-override [...]
-                         :errors [...]}
-       :effective-args  {...}
-       :lifecycle       :ready | :error}"
+  See `re-frame.story.result` and spec/017 §Unified run result for the
+  result contract. Rendering is driven separately through `render-variant`
+  or the UI shell."
   ([variant-id]       (lifecycle/run-variant variant-id))
   ([variant-id opts]  (lifecycle/run-variant variant-id opts)))
 

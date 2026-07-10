@@ -27,14 +27,11 @@
   Author-supplied `:argtypes` overrides the auto-derivation key-by-key
   (per spec/001 §Schema-derivation pipeline).
 
-  ## Decorator toggles
+  ## Decorator summary
 
-  Lists the variant's resolved decorators; each can be skipped at
-  runtime by name (the toggle writes a `:disabled-decorators` shell-
-  state slot the canvas reads). Stage 4 ships the toggle UI; the
-  disable-by-name routing through `resolve-decorators` is a future
-  refinement when the decorator stack grows more complex; today the
-  toggle is informational.
+  Lists the variant's resolved decorators as a read-only diagnostic. The
+  controls panel does not alter the decorator stack; runtime layout-debug
+  requests live in the dedicated panel.
 
   ## Inline validation, diff-from-saved, summarise-before-expand
 
@@ -982,8 +979,7 @@
 ;; decorator sections only.
 
 (defn decorator-list
-  "Show the variant's resolved decorator stack. Stage 4 is read-only;
-  Stage 6 adds the disable-by-name routing.
+  "Show the variant's resolved decorator stack as a read-only list.
 
   Per rf2-4t5u: the resolved stack can carry the SAME decorator id more
   than once — e.g. a story-level decorator and a variant-level

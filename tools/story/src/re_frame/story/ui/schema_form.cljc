@@ -37,7 +37,7 @@
   consult the validator. So introspection is a tiny localized READ over an
   already-shared pure leaf, not a new general-introspection contract.
 
-  ## Flat-shapes-first + the raw-EDN escape hatch (Mike ruled, Option A)
+  ## Flat shapes first, with a raw-EDN escape hatch
 
   The first cut renders the FLAT / common shapes only:
 

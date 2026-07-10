@@ -1,5 +1,5 @@
 (ns re-frame.story.layout-debug
-  "Layout-debug overlay trio. Per `005-SOTA-Features.md` §Layout-debug overlay trio + Stage 6 (rf2-zhwd).
+  "Layout-debug overlay trio. See `005-SOTA-Features.md` §Layout-debug overlay trio.
 
   Three `:hiccup`-kind decorators for visual layout debugging during
   variant authoring. Each registers under `re-frame.story.registrar`

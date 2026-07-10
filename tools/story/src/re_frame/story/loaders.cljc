@@ -44,9 +44,9 @@
 
   ## Watchers
 
-  Per `002-Runtime.md` §Programmatic API `watch-variant` subscribes to lifecycle
-  transitions. Stage 3 implements the watcher table here; the trace
-  bus fires `:rf.story.lifecycle/transition` on every state change.
+  `watch-variant` subscribes to lifecycle transitions through the watcher
+  table here; the trace bus fires `:rf.story.lifecycle/transition` on every
+  state change.
 
   ## Elision
 
@@ -228,9 +228,8 @@
 (defonce
   ^{:doc "Per-frame watcher registry. `frame-id → vec-of-callbacks`.
          Each callback is invoked with `{:frame-id ... :from <state>
-         :to <state> :event <event>}` on every transition. Per IMPL-
-         SPEC §3.2 `watch-variant` populates this; Stage 5 (play +
-         assertions) reads it for assertion-runtime hooks."}
+         :to <state> :event <event>}` on every transition. `watch-variant`
+         populates this; play and assertion consumers may subscribe."}
   watchers
   (atom {}))
 
@@ -269,7 +268,7 @@
 
   Returns the new discrete state.
 
-  Stage 3's runtime calls this after each phase transition:
+  The runtime calls this after each phase transition:
 
     (dispatch-lifecycle-event! frame-id [:rf.story.lifecycle/mount])
     (dispatch-lifecycle-event! frame-id [:rf.story.lifecycle/loaders-started])
@@ -368,8 +367,8 @@
   re-frame's run-to-completion drain settles before `dispatch-sync`
   returns; the loaders queue is empty when the predicate is called.
 
-  Returns true unconditionally — Stage 3 relies on `dispatch-sync`
-  having drained the queue. Variants that fire long-lived fx
+  Returns true unconditionally because `dispatch-sync` has drained the
+  queue. Variants that fire long-lived fx
   (websocket / interval) override the predicate per `002-Runtime.md` §Four-phase lifecycle with `:loaders-complete-when`."
   [_frame-id _variant-body]
   true)
@@ -417,8 +416,7 @@
   `frame-id`'s current app-db. Returns truthy when the loader phase
   should advance to `:ready`.
 
-  Forms accepted (per the Stage 2 schema; Stage 5 finalises non-default
-  semantics):
+  Accepted forms:
 
   - nil — use the default predicate (`loaders-default-complete?`).
   - a registered event id — `:my.fixture/ready?`. The runtime

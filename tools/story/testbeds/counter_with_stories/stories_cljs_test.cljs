@@ -1,6 +1,6 @@
 (ns counter-with-stories.stories-cljs-test
-  "Integration tests for the counter-with-stories example. Per Stage 8
-  these run under the top-level `node-test` build
+  "Integration tests for the counter-with-stories example. These run under
+  the top-level `node-test` build
   (`npm run test:cljs`) to assert the example's stories registry is
   intact end-to-end:
 
