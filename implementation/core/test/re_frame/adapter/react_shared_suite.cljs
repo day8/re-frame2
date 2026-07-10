@@ -1952,21 +1952,22 @@
 ;; ===========================================================================
 
 (defn assert-http-canned-success-default-reply
-  "canned-success stub dispatches a default reply (Spec 014)."
+  "canned-success stub dispatches the reply to a unified :reply-to (Spec 014)."
   [{:keys [name]}]
-  (testing (str name " — canned-success default reply addressing")
+  (testing (str name " — canned-success unified :reply-to addressing")
     (rf/reg-event :article/load
-      (fn [_ [_ msg]]
-        (if-let [reply (:rf/reply msg)]
+      (fn [_ [_ msg reply]]
+        (if reply
           (case (:status reply)
             :ok    {:db {:article (:value reply)}}
             :error {:db {:error (:error reply)}})
           {:fx [[:rf.http/managed
-                 {:request {:method :get :url "/articles/hello"} :decode :json}]]})))
+                 {:request {:method :get :url "/articles/hello"} :decode :json
+                  :reply-to [:article/load msg]}]]})))
     (rf/dispatch-sync [:article/load {:slug "hello"}]
                       {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
     (is (= {:stubbed true} (:article (rf/app-db-value :rf/default)))
-        "default-reply addressing routed the synthesised reply back to :article/load")))
+        ":reply-to routed the synthesised reply back to :article/load")))
 
 (defn assert-http-canned-failure-on-failure
   "Explicit :on-failure routes the failure reply to the named handler."
@@ -2017,10 +2018,11 @@
   [{:keys [name]}]
   (testing (str name " — with-managed-request-stubs* installs a per-call fx")
     (rf/reg-event :articles/list
-      (fn [_ [_ msg]]
-        (if-let [reply (:rf/reply msg)]
+      (fn [_ [_ msg reply]]
+        (if reply
           {:db {:result reply}}
-          {:fx [[:rf.http/managed {:request {:method :get :url "/articles"} :decode :json}]]})))
+          {:fx [[:rf.http/managed {:request {:method :get :url "/articles"} :decode :json
+                                   :reply-to [:articles/list msg]}]]})))
     (rf/with-managed-request-stubs*
       {[:get "/articles"] {:reply {:ok [:hello :world]}}}
       (fn []
@@ -2039,10 +2041,11 @@
   [{:keys [name]}]
   (testing (str name " — with-managed-request-stubs* failure mapping")
     (rf/reg-event :articles/list
-      (fn [_ [_ msg]]
-        (if-let [reply (:rf/reply msg)]
+      (fn [_ [_ msg reply]]
+        (if reply
           {:db {:result reply}}
-          {:fx [[:rf.http/managed {:request {:method :get :url "/articles"} :decode :json}]]})))
+          {:fx [[:rf.http/managed {:request {:method :get :url "/articles"} :decode :json
+                                   :reply-to [:articles/list msg]}]]})))
     (rf/with-managed-request-stubs*
       {[:get "/articles"] {:reply {:failure {:kind :rf.http/http-4xx :status 404}}}}
       (fn []
@@ -2059,10 +2062,11 @@
   [{:keys [name]}]
   (testing (str name " — managed requests reply into the issuing frame's app-db")
     (rf/reg-event :article/load
-      (fn [_ [_ msg]]
-        (if-let [reply (:rf/reply msg)]
+      (fn [_ [_ msg reply]]
+        (if reply
           {:db {:article (:value reply)}}
-          {:fx [[:rf.http/managed {:request {:method :get :url "/articles/hello"} :decode :json}]]})))
+          {:fx [[:rf.http/managed {:request {:method :get :url "/articles/hello"} :decode :json
+                                   :reply-to [:article/load msg]}]]})))
     (let [left  (frame/make-anon-frame-record! {:doc "left"
                                 :fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
           right (frame/make-anon-frame-record! {:doc "right"

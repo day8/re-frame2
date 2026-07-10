@@ -8,9 +8,10 @@
   The internal seam that turns a managed-HTTP completion into the ONE
   canonical reply map every managed *async* family produces — the SAME
   map that is delivered to the app reply target. There is no second
-  public dialect: `:on-success` / `:on-failure` are pure ROUTING sugar
-  (both targets receive the canonical map verbatim) and the co-located
-  `(:rf/reply msg)` merge carries the canonical map under `:rf/reply`.
+  public dialect: the unified `:reply-to` and the `:on-success` /
+  `:on-failure` split sugar all deliver the canonical map verbatim,
+  appended as the reply target's last argument (rf2-et4c1s — the
+  co-located `:rf/reply`-merge default was retired pre-alpha).
   The old `{:kind :success/:failure}` reshape (`reply->public-payload` /
   the `:rf.http/compat-reply` layer) was DELETED per rf2-ibksxg — one
   canonical async-reply envelope, no compat dialect.
