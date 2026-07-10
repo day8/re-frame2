@@ -1,22 +1,6 @@
 #!/usr/bin/env node
-/*
- * Sequential orchestrator for the mcp-conformance test suite. Spawns each
- * conformance test in sequence with structured per-test exit-code
- * reporting; it is the implementation behind the `npm test` script.
- *
- * Why an orchestrator: it runs each test in sequence, records its exit
- * status, and prints a structured summary at the end. It bails on the
- * first failure (so CI fails fast), and the summary makes failure
- * attribution one-glance instead of one-grep — each test's pass/fail and
- * exit code is listed by name rather than buried in a chained exit code.
- *
- * Exit codes:
- *   0  every test passed (some may have SKIPped — they still exit 0)
- *   N  the exit code of the first test that failed (forwarded verbatim
- *      so a downstream failure that itself uses a non-1 exit code —
- *      e.g. the runner's watchdog `process.exit(2)` — surfaces
- *      faithfully to the parent shell).
- */
+/* Sequential, fail-fast `npm test` orchestrator. It forwards the first
+ * failing exit code and distinguishes an exit-0 SKIP banner from a pass. */
 'use strict';
 
 const path = require('node:path');
@@ -26,97 +10,73 @@ const { LIVE_TESTS } = require('./live-test-inventory.cjs');
 const HERE = __dirname;
 const ROOT = path.resolve(HERE, '..');
 
-// The live re-frame2-pair gates, DERIVED from the shared inventory
-// (`scripts/live-test-inventory.cjs`) — the single owner of the roster — so
-// this file and the hermetic runner (`run-re-frame2-pair-live-hermetic-suite.cjs`)
-// can never declare a different set. Under `npm test` (no
-// `$SHADOW_CLJS_NREPL_PORT`) each SKIPs and rides green; the hermetic CI job
-// is the only place the live path fires. Spliced into `TESTS` below AFTER the
-// degraded end-to-end and BEFORE story-mcp so a green run reads as "real
-// conformance passed, the live gates gracefully skipped".
+// Both this runner and the hermetic runner derive the live roster here.
+// Without SHADOW_CLJS_NREPL_PORT these rows report SKIP.
 const LIVE_ROWS = LIVE_TESTS.map((t) => ({
   name: `re-frame2-pair-mcp ${t.name} (SKIPs without $SHADOW_CLJS_NREPL_PORT)`,
   argv: [`test/${t.basename}`],
 }));
 
-// One row per conformance test. Order matters: cheap unit tests first
-// so a typo in the exec-safety helpers fails before we spawn an MCP
-// server. SKIP-by-default tests (live-re-frame2-pair-overflow) live near
-// the end so a green run reads as "real conformance passed, one
-// gracefully skipped".
-//
-// This array is the SINGLE SOURCE OF TRUTH for the conformance
-// inventory. It is exported (see the bottom of this file) so derived
-// runners can select a subset without re-listing — notably
-// `scripts/test-unit.cjs`, which runs the pure-Node unit cluster
-// (every row whose `argv[0] === '--test'`) in one `node --test`
-// invocation for the PR CI Node-regression gate. Because
-// that runner DERIVES its set from this array, a new `--test` row added
-// here is automatically picked up by PR CI — no second list to keep in
-// sync.
-//
-// The LIVE re-frame2-pair rows are themselves DERIVED from the shared
-// live-test inventory (`LIVE_ROWS`, above) rather than re-listed here, so
-// they cannot drift from the hermetic runner's roster.
+// Authoritative Node inventory. Keep cheap `node --test` rows first;
+// test-unit.cjs derives that subset from argv[0] rather than re-listing it.
 const TESTS = [
   {
     name: 'exec-safety unit tests',
     argv: ['--test', 'test/exec-safety.test.cjs'],
   },
   {
-    name: 'runner watchdog connect-hang teardown (rf2-2js41 finding 2 + rf2-wqi4n4 finding 1)',
+    name: 'runner watchdog connect-hang teardown',
     argv: ['--test', 'test/runner-watchdog.test.cjs'],
   },
   {
-    name: 'hermetic async cleanup awaited teardown (rf2-7ckmwx finding 1)',
+    name: 'hermetic async cleanup awaited teardown',
     argv: ['--test', 'test/runner-cleanup.test.cjs'],
   },
   {
-    name: 'hermetic setup-command timeout (rf2-wqi4n4 finding 2)',
+    name: 'hermetic setup-command timeout',
     argv: ['--test', 'test/hermetic-setup-timeout.test.cjs'],
   },
   {
-    name: 'hermetic INNER_TESTS grading on close, not exit (rf2-6girz0)',
+    name: 'hermetic inner-test grading on close, not exit',
     argv: ['--test', 'test/inner-test-close-grading.test.cjs'],
   },
   {
-    name: 'live-gate list completeness — disk ⇄ shared live-test inventory (rf2-79qmsw / rf2-phveub)',
+    name: 'live-gate disk and shared-inventory completeness',
     argv: ['--test', 'test/live-list-completeness.test.cjs'],
   },
   {
-    name: 'hermetic port-file escape refusal (rf2-khav7l)',
+    name: 'hermetic port-file escape refusal',
     argv: ['--test', 'test/port-file-escape.test.cjs'],
   },
   {
-    name: 'hermetic stale port-file wipe fails loud on a surviving stale file (rf2-6i2yi4)',
+    name: 'hermetic stale port-file wipe fails on a surviving stale file',
     argv: ['--test', 'test/stale-port-file-trust.test.cjs'],
   },
   {
-    name: 'dedup-envelope decoder — cyclic-cache throws + acyclic happy path (rf2-87h71e)',
+    name: 'dedup-envelope decoder rejects cycles and expands acyclic caches',
     argv: ['--test', 'test/dedup-envelope.test.cjs'],
   },
   {
-    name: 'exact-token match — anchors :invalid-cofx vs :invalid-cofx-time-ms (rf2-6i2yi4)',
+    name: 'exact-token matching distinguishes overlapping reason names',
     argv: ['--test', 'test/token-match.test.cjs'],
   },
   {
-    name: 'universal isError <-> :ok? cross-check reads through the dedup decoder (rf2-6i2yi4)',
+    name: 'universal isError and :ok? cross-check after dedup decoding',
     argv: ['--test', 'test/is-error-matches-ok.test.cjs'],
   },
   {
-    name: 'callTool coverage ratchet unit tests (rf2-ke5n56)',
+    name: 'callTool coverage ratchet unit tests',
     argv: ['--test', 'test/call-coverage-ratchet.test.cjs'],
   },
   {
-    name: 'classification ratchet unit tests — read/destructive + open-world partition (rf2-yi451 / rf2-ppk6hy)',
+    name: 'descriptor classification and open-world partition ratchet',
     argv: ['--test', 'test/classification-ratchet.test.cjs'],
   },
   {
     name: 're-frame2-pair-mcp end-to-end',
     argv: ['test/end-to-end-re-frame2-pair.cjs'],
   },
-  // Live re-frame2-pair gates, derived from the shared inventory (see
-  // `LIVE_ROWS` above). SKIP-by-default under `npm test`.
+  // Derived live rows; SKIP by default under `npm test`.
   ...LIVE_ROWS,
   {
     name: 'story-mcp end-to-end',
@@ -133,14 +93,7 @@ function banner(line) {
   process.stdout.write('\n' + sep + '\n' + line + '\n' + sep + '\n');
 }
 
-// The shared pre-flight skip helper (`_runner.cjs` `runWithWatchdog.skip`)
-// prints a `SKIP <reason>` line and exits 0 BEFORE running any real
-// assertions. That exit-0 is indistinguishable from a real pass by
-// status code alone — the six live-re-frame2-pair-* rows all SKIP this
-// way when `$SHADOW_CLJS_NREPL_PORT` is unset, which is the normal state
-// of a local `npm test` run. Detect the banner in the child's captured
-// stdout so the summary can tell "skipped" apart from "actually ran and
-// passed" instead of collapsing both into a bare exit-0 OK.
+// Skip is an exit-0 outcome, so grade the shared banner as well as status.
 const SKIP_BANNER = /^SKIP /m;
 
 function main() {
@@ -149,13 +102,7 @@ function main() {
 
   for (const test of TESTS) {
     banner('▶ ' + test.name + '\n  ' + test.argv.join(' '));
-    // `process.execPath` is always absolute. stdout is piped (not
-    // inherited) so we can inspect it for the SKIP banner; it is written
-    // to our own stdout immediately after the child exits, so nothing is
-    // lost — only the live-interleaving with stderr is (stderr stays
-    // `inherit`, unaffected). `shell: false` keeps the accident-gating
-    // from the lib/exec-safety.cjs preamble: no shell-interpolation of
-    // test names.
+    // Capture stdout for SKIP grading, then replay it. stderr remains live.
     const child = spawnSync(process.execPath, test.argv, {
       cwd: ROOT,
       stdio: ['inherit', 'pipe', 'inherit'],
@@ -186,8 +133,7 @@ function main() {
         (firstFailure.signal ? ' (signal ' + firstFailure.signal + ')' : '') +
         '\n',
     );
-    // Forward the inner exit code verbatim. `null` (signal-terminated)
-    // becomes 1 so the parent shell still sees a non-zero exit.
+    // A signal has no numeric status but must remain a failing outcome.
     process.exit(firstFailure.status === null ? 1 : firstFailure.status);
   }
 
@@ -203,12 +149,7 @@ function main() {
   process.exit(0);
 }
 
-// Export the authoritative inventory so derived runners (e.g.
-// `scripts/test-unit.cjs`) can select a subset without re-listing.
-// `ROOT` rides along so a derived runner resolves test paths against the
-// same artefact root. The orchestrator only auto-runs when invoked
-// directly (`node scripts/test-all.cjs` / `npm test`), not when required
-// as a module — so importing this file has no side effects.
+// Importing the inventory is side-effect free.
 module.exports = { TESTS, ROOT };
 
 if (require.main === module) {

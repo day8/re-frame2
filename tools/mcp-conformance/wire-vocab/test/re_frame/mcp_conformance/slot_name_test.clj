@@ -402,15 +402,7 @@
                  "the literal or update this test."))))))
 
 ;; ---------------------------------------------------------------------------
-;; Gate 6 — no xray-mcp wire surface.
-;;
-;; There is no `tools/xray-mcp/` directory: xray ships as a Clojars-only
-;; library, not an MCP server, so there is no xray-mcp tool surface to
-;; pin a structural-floor assertion against.
-;; ---------------------------------------------------------------------------
-
-;; ---------------------------------------------------------------------------
-;; Gate 7 — server-coverage sanity. Every server referenced in
+;; Gate 6 — server-coverage sanity. Every server referenced in
 ;; `canonical-slots` is one of the known servers. Typos surface here.
 ;; ---------------------------------------------------------------------------
 
@@ -422,7 +414,7 @@
                (remove fx/known-servers servers))))))
 
 ;; ---------------------------------------------------------------------------
-;; Gate 8 — slot uniqueness. No two `canonical-slots` rows share the
+;; Gate 7 — slot uniqueness. No two `canonical-slots` rows share the
 ;; same `:slot` keyword. A duplicate row is a definition error.
 ;; ---------------------------------------------------------------------------
 

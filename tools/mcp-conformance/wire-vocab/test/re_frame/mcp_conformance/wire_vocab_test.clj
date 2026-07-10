@@ -1,11 +1,8 @@
 (ns re-frame.mcp-conformance.wire-vocab-test
-  "Cross-MCP wire-vocabulary conformance (rf2-j2z7o).
+  "Generic wrapper-marker conformance for the cross-MCP vocabulary.
 
-  Two MCP servers ship under `tools/`: re-frame2-pair-mcp and story-mcp.
-  re-frame2-pair-mcp owns the reserved cross-server **wire vocabulary** —
-  namespaced map keys an agent recognises identically across every
-  server that adopts it. (xray-mcp was dropped in rf2-bu21t — xray
-  now ships as a Clojars-only library, not an MCP server.)
+  `wire-vocab.schemas/canonical-markers` owns the wrapper keys, schemas,
+  contracted servers, and representative fixtures.
 
   Six top-level wrapper markers (the `canonical-markers` table below is
   the source of truth — see it rather than re-counting this list),
@@ -94,38 +91,23 @@
             [de-dupe.core    :as dd]
             [malli.core      :as m]
             [malli.error     :as me]
-            ;; rf2-hvn83u — the canonical framework wire-elision walker +
-            ;; the EP-0025 commit-plane `:large` classification effect, so the
-            ;; `:rf.size/large-elided` gate drives the REAL emitter LIVE over a
-            ;; classified `:large` slot (not a fixture).
+            ;; Canonical framework elision builder and classification effect.
             [re-frame.core   :as rf]
             [re-frame.elision :as elision]
             [re-frame.frame  :as frame]
-            ;; rf2-9wvwpa — the SECOND framework emitter of the
-            ;; `:rf.size/large-elided` marker: the schemas-artefact
-            ;; validation-failure size-safety arm (Spec 010 §`:large?`).
-            ;; Required so the gate below can drive `validate-event!`
-            ;; LIVE over a `:large?`-flagged schema and validate the
-            ;; emitted failure-trace marker against `ElisionMarker`.
+            ;; Schema-validation failure is an independent elision emitter.
             [re-frame.schemas :as schemas]
             [re-frame.schemas.malli]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.mcp-base.diff-encode :as de]
             [re-frame.mcp-base.overflow :as mcp-overflow]
             [re-frame.mcp-conformance.fixtures :as fx]
-            ;; rf2-7ckmwx — the canonical schemas + `canonical-markers`
-            ;; catalogue moved to a shared support ns so the focused
-            ;; marker-family test namespaces each :require ONE place. See
-            ;; `schemas.clj` for the full schema set; the contract-bearing
-            ;; data lives there, the assertions live here.
+            ;; Shared wrapper contract data.
             [re-frame.mcp-conformance.wire-vocab.schemas
              :refer [Overflow Summary DedupTable DiffFromBody
                      ElisionMarker CacheHit DroppedSensitive ElidedLarge
                      canonical-markers]]
-            ;; rf2-7ckmwx — shared source-text pin inventories + near-miss
-            ;; helpers (`emit-source-files` / `doc-source-files` /
-            ;; `all-source-files` / `marker-key->literal` /
-            ;; `near-miss-variants`).
+            ;; Shared source inventories and near-miss helpers.
             [re-frame.mcp-conformance.wire-vocab.source-pins :as pins]))
 
 ;; ---------------------------------------------------------------------------
@@ -188,10 +170,8 @@
                (me/humanize (m/explain schema fixture-value)))))))
 
 (deftest every-canonical-marker-has-required-fixture-count
-  ;; Every marker MUST carry >=1 fixture; multi-server markers MUST
-  ;; carry >=2. Single-server today (all markers are re-frame2-pair-mcp-only
-  ;; post rf2-bu21t), so the >=1 floor applies; the >=2 path stays
-  ;; live for any future MCP server adoption.
+  ;; Single-server markers need evidence; multi-server markers need at least
+  ;; two fixtures before distinct-server coverage is checked below.
   (doseq [{:keys [key fixtures servers]} canonical-markers]
     (testing (str "marker " key " — fixture count")
       (let [n (count fixtures)]
@@ -204,18 +184,7 @@
                    ") so >=2 fixtures required, got " n)))))))
 
 (deftest every-multi-server-marker-fixtures-cover-each-server
-  ;; rf2-87h71e LOW — the per-server fixture-coverage claim in the header
-  ;; (guard #2) was NOT enforced. `every-canonical-marker-has-required-
-  ;; fixture-count` asserts only `(count fixtures) >= 2` for a multi-server
-  ;; marker — never that the fixtures cover DISTINCT servers. So
-  ;; `:rf.mcp/overflow` (3 fixtures: 2 re-frame2-pair variants + 1
-  ;; story-mcp) would still pass with the `:story-mcp` fixture dropped
-  ;; (leaving 2 pair fixtures), silently losing the cross-server emission
-  ;; pin. This gate asserts that for EVERY server in `:servers`, at least
-  ;; one fixture is tagged for it — keyed by the catalogue's fixture-key
-  ;; naming convention: every fixture key starts with its server's name
-  ;; (`:re-frame2-pair-mcp...`, `:story-mcp...`). A dropped per-server
-  ;; fixture now trips RED directly.
+  ;; Fixture count alone cannot prove that every contracted server is covered.
   (let [;; The servers the catalogue knows about, longest-first so a
         ;; prefix match resolves the most specific server (no overlap
         ;; today, but order-stable regardless).

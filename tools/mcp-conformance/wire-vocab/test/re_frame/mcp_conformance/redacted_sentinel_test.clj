@@ -1,6 +1,5 @@
 (ns re-frame.mcp-conformance.redacted-sentinel-test
-  "`:rf/redacted` scalar-sentinel gate (rf2-xm1fv). Split out of
-  `wire_vocab_test.clj` by rf2-7ckmwx.
+  "`:rf/redacted` scalar-sentinel vocabulary gate.
 
   Unlike the wrapper-shaped markers in `schemas/canonical-markers`,
   `:rf/redacted` rides the wire as a **bare keyword scalar** — a literal
@@ -17,8 +16,7 @@
   keyword scalar has no body to schema-validate — but it IS a wire-
   protocol contract: every agent reading sensitive-leaf data pattern-
   matches on the literal `:rf/redacted`. A rename in `vocab.cljc`
-  (e.g. `:rf.size/redacted` — the historical doc-drift in
-  rf2-pv7we) or a near-miss spelling that escapes the canonical-marker
+  (e.g. `:rf.size/redacted`) or a near-miss spelling that escapes the canonical-marker
   gate would slip past silently because the existing near-miss anti-
   pin only checks `:rf.mcp/*` / `:rf.size/*` marker keys (the namespace
   pattern fixed in `pins/near-miss-variants`).
@@ -49,13 +47,12 @@
     multi-segment name.
   - pluralised (`:rf/redacteds`).
   - predicate `?` suffix (`:rf/redacted?`).
-  - the historical wrong-namespace forms — the rf2-pv7we doc-drift
-    targeted exactly these.
+  - wrong-namespace forms.
   - capitalised name (`:rf/Redacted`) — caught here even though
     canonical Clojure idiom is all-lowercase."
   #{":rf/redacteds"
     ":rf/redacted?"
-    ":rf.size/redacted"        ;; the rf2-pv7we historical doc-drift
+    ":rf.size/redacted"
     ":rf.mcp/redacted"
     ":rf.privacy/redacted"
     ":rf/Redacted"})

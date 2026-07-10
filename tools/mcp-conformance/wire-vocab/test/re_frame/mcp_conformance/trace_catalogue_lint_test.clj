@@ -1,26 +1,11 @@
 (ns re-frame.mcp-conformance.trace-catalogue-lint-test
-  "Trace-catalogue one-name-per-fact lint (rf2-o6c2jr).
+  "Trace-catalogue one-name-per-fact lint.
 
-  ## Why this gate
-
-  `spec/Conventions.md` §The naming rules (one name per fact) forbids a
-  subsystem carrying the same fact under two keys. Managed-Effects property 9
-  requires managed async families to emit trace rows FROM reply-envelope facts,
-  and the async-completion / stale-suppression trace rows historically stamped
-  the SAME fact twice — the work identity under BOTH bare `:work/id` AND the
-  namespaced `:rf.reply/work-id`, and the completion time under BOTH bare
-  `:completed-at` AND `:rf.reply/completed-at`. rf2-o6c2jr dropped the bare
-  duplicates and made the namespaced spelling canonical.
-
-  This lint keeps the drop honest. It reads the production emitter sources,
-  reads each file as data (`:read-cond :allow` so a `.cljc` reader-conditional
-  parses), walks EVERY map literal, and asserts no single map carries a fact
-  under both its namespaced reply-envelope spelling AND its bare duplicate:
+  Reads production emitters as data and rejects a map that carries a reply
+  fact under both its namespaced spelling and its bare duplicate:
 
     - a map carrying `:rf.reply/work-id`      MUST NOT also carry `:work/id`
     - a map carrying `:rf.reply/completed-at` MUST NOT also carry `:completed-at`
-
-  ## Scope — reply-envelope rows, not the durable identity
 
   The bare `:work/id` is still legitimate on its own: it is the durable
   work-ledger identity key ON THE REPLY MAP and on non-reply resource-lifecycle
@@ -32,11 +17,8 @@
   correlation payload like `:rf.reply/carried {:work/id … :generation …}` is
   fine (that inner map carries no `:rf.reply/work-id`).
 
-  ## Teeth
-
   `sanity-a-planted-duplicate-is-caught` plants a map carrying both spellings
-  and asserts the detector flags it — so a future emitter re-introducing the
-  bare duplicate FAILS here, not silently."
+  and asserts that the detector remains live."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [clojure.walk :as walk]

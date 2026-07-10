@@ -1,56 +1,14 @@
 (ns re-frame.mcp-conformance.verb-vocab-test
-  "Cross-MCP verb-vocabulary conformance (rf2-vkx7m).
+  "Executable tool-name vocabulary for both MCP servers.
 
-  Pins the cross-server **tool-name verb vocabulary** catalogued in
-  `tools/mcp-conformance/NAMING.md` §The verb table. Every tool the
-  pair (re-frame2-pair-mcp, story-mcp) advertises MUST start with one
-  of the catalogued verb prefixes — or appear on the bare-verb /
-  bare-noun exception list — so an agent that learned the verb table
-  once recognises the surface across servers.
-
-  Sibling to:
-
-  - [`wire_vocab_test.clj`](wire_vocab_test.clj)     — wire MARKER
-    vocabulary (`:rf.mcp/*` / `:rf.size/*` namespaced payload shapes).
-  - [`indicator_field_test.clj`](indicator_field_test.clj) —
-    envelope SLOT vocabulary for suppression counters.
-  - [`slot_name_test.clj`](slot_name_test.clj)       — `tools/call`
-    INPUT-arg slot vocabulary.
-  - **This file**                                    — tool-NAME verb
-    vocabulary.
-
-  ## What this test guards
-
-  Each server ships a canonical `tool-names.json` fixture used by the
-  per-server unit tests (story-mcp's `tools_test.clj`,
-  re-frame2-pair-mcp's stdio roundtrip). This linter reads each
-  fixture and asserts every tool name starts with a catalogued verb,
-  is a catalogued bare-verb, or appears on the bare-noun-exception
-  allowlist (Clojure-idiomatic projections like `variant->edn`, single-
-  primitive reads like `snapshot-identity`).
-
-  A new tool with an off-convention verb (`fetch-foo`, `update-bar`,
-  …) lands today without anything tripping — the convention is doc-
-  only. This gate makes the convention executable.
-
-  ## Adding a new verb
-
-  Extending the catalogue requires a Lock entry in the relevant
-  server's `spec/DESIGN-RATIONALE.md` AND a row in NAMING.md §The
-  verb table. THEN extend `verb-prefixes` / `bare-verbs` /
-  `bare-noun-exceptions` below. The friction is intentional — every
-  added verb is a new surface an agent must learn."
+  Reads each server's canonical `tool-names.json` fixture and requires
+  every advertised name to use a prefix, bare verb, or explicit exception
+  documented in `tools/mcp-conformance/NAMING.md`. A new verb requires the
+  owning server rationale, a NAMING.md row, and an update here."
   (:require [clojure.data.json :as json]
             [clojure.string    :as str]
             [clojure.test      :refer [deftest is testing]]
             [re-frame.mcp-conformance.fixtures :as fx]))
-
-;; ---------------------------------------------------------------------------
-;; Catalogued verb prefixes — every entry mirrors a row in NAMING.md
-;; §The verb table. Order is non-significant; matching is "first prefix
-;; that matches", so register-/unregister- precede register precedes
-;; nothing — we test by prefix-with-trailing-dash so no ordering hazard.
-;; ---------------------------------------------------------------------------
 
 (def ^:private verb-prefixes
   "Catalogued prefix verbs from NAMING.md §The verb table. Each entry
@@ -61,47 +19,17 @@
     "discover"
     "restore"
     "reset"
-    "replace"     ; rf2-0acvdb (EP-0001 rf2-tfepxu) — `replace-<thing>`
-                  ; whole-value state injection, bypassing the normal
-                  ; cascade. `replace-app-db` (re-frame2-pair) is gated
-                  ; behind `--allow-writes`; it wraps the framework's
-                  ; `replace-frame-state!` Tool-Pair write primitive as an
-                  ; app-only partial map (rf2-t3lftq — API-shrink #3
-                  ; consolidated the former `replace-app-db!` into this —
-                  ; a db-shaped key must never silently replace
-                  ; runtime-db). Mirrors NAMING.md §The verb table
-                  ; `replace-<thing>` row.
-    "set"         ; rf2-zomfq — the SOLE catalogued `set-` carve-out:
-                  ; `set-operating-frame` (re-frame2-pair) pins ONE named
-                  ; session setting the Tool-Pair contract mandates under
-                  ; that exact name. NAMING.md §"What's NOT a locked verb"
-                  ; still rejects generic `set-<arbitrary-slot>`; this
-                  ; prefix entry is admissible because the only `set-` tool
-                  ; that exists is the spec-mandated operating-frame pin.
+    "replace"
+    ;; Reserved for the one operating-frame session pin.
+    "set"
     "register"
     "unregister"
     "run"
-    "describe"    ; rf2-srobm0 — `describe-<thing>` reads the COMPOSED /
-                  ; derived behaviour a frame runs PLUS where each piece
-                  ; resolved from. `describe-image` (re-frame2-pair) is the
-                  ; EP-0023 Use-Case 7 read over a frame's running image
-                  ; generation (images / kinds / capability requires /
-                  ; per-kind counts / optional per-registration provenance).
-                  ; Distinct from `get-` (stored body), `read-` (no-recompute
-                  ; reflection of an already-run artefact) and `list-`
-                  ; (enumeration): `describe-` answers "what behaviour does
-                  ; THIS frame run, and which source won each resolution".
-                  ; Lock #11 in pair-mcp DESIGN-RATIONALE.md; NAMING.md §The
-                  ; verb table `describe-<thing>` row.
+    "describe"
     "preview"
-    "explain"     ; rf2-ba86n.17 — `explain-variant` (story-mcp; the agent
-                  ; mirror of the human Explain panel over `story/explain`)
+    "explain"
     "record-as"
-    "watch"       ; rf2-zo4b9 — `watch-<until>` blocking watch family
-                  ; (re-frame2-pair; block until a predicate over a signal
-                  ; holds). Generalises the `watch-epochs` bare verb into a
-                  ; prefix; `watch-epochs` stays on the bare-verb allowlist
-                  ; below to avoid churn.
+    "watch"
     "tail"})
 
 (def ^:private bare-verbs
@@ -110,29 +38,18 @@
   mega-op bare verbs (`snapshot`, `trace-window`, `watch-epochs`,
   `record`)."
   #{"dispatch"
-    "dispatch-dry-run"  ; sibling of `dispatch` (rf2-ee38b.18 dry-run gate)
+    "dispatch-dry-run"
     "eval-cljs"
     "subscribe"
     "unsubscribe"
     "snapshot"
     "trace-window"
     "watch-epochs"
-    "orient"            ; rf2-3bu3d.8 — bare-verb mega-op app-shape summary
-                        ; (re-frame2-pair; spans liveness / frames /
-                        ; app-db-top-keys / registry counts+ids / machines in
-                        ; one round-trip). First-contact orientation on an
-                        ; unfamiliar app; composes the existing introspection
-                        ; surfaces. Lock #9 in pair-mcp DESIGN-RATIONALE.md.
-    "record"})          ; rf2-zo4b9 — bare-verb mega-op signal recorder
-                        ; (re-frame2-pair; spans app-db / sub / DOM / focus
-                        ; signals). Distinct from the `record-as-` prefix
-                        ; (capture-as-artefact); `record` installs a live
-                        ; change-log observer.
+    "orient"
+    "record"})
 
 (def ^:private bare-noun-exceptions
-  "Bare-noun reads catalogued in NAMING.md §Server alignment today as
-  'Deviation — accepted exception'. Each entry needs a row in the
-  alignment table explaining the exception:
+  "Bare-noun reads catalogued as explicit exceptions in NAMING.md:
 
   - `handler-meta` — bare-noun read of a single-record metadata map
     (re-frame2-pair-mcp; accepted under the bare-noun-exception clause

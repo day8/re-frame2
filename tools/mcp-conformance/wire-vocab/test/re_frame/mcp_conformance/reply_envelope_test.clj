@@ -1,5 +1,5 @@
 (ns re-frame.mcp-conformance.reply-envelope-test
-  "EP-0011 reply-envelope TRACE-EGRESS wire-vocabulary gate (rf2-mrfvg2).
+  "Reply-envelope trace-egress wire-vocabulary gate.
 
   ## Why this gate
 

@@ -1,74 +1,15 @@
 #!/usr/bin/env node
-/*
- * Hermetic orchestrator for the re-frame2-pair LIVE conformance SUITE.
+/* Hermetic live-suite orchestrator.
  *
- * This is the CI entry point for the WHOLE hermetic live suite — it runs
- * EVERY live inner test in the shared inventory
- * (`scripts/live-test-inventory.cjs`), not just the overflow gate.
- * Overflow is one member of that inventory alongside subscribe/progress,
- * redaction, isError, EP-0017 cofx, and EP-0018 event-metadata. The runner
- * is named for the suite, not for the overflow gate, so test selection / CI
- * triage / future conformance work find a suite-shaped name.
+ * Boots the pair fixture, waits for the nREPL socket, compiled JS, browser
+ * preload, and an addressable shadow runtime, then runs every entry in
+ * live-test-inventory.cjs with SHADOW_CLJS_NREPL_PORT set. A child passes
+ * only after close when it exits zero, prints its success sentinel, and
+ * does not print SKIP.
  *
- * Each live inner test (e.g. `test/live-re-frame2-pair-overflow.cjs`) is
- * gated on $SHADOW_CLJS_NREPL_PORT. Without that env var it exits 0 with
- * a SKIP marker because the re-frame2-pair-mcp server runs degraded — no
- * real eval, no cap-trigger, no overflow marker.
- *
- * This script makes the live path *actually* fire on CI by:
- *
- *   1. Spawning `shadow-cljs watch app` against the re-frame2-pair fixture at
- *      `skills/re-frame2-pair/tests/fixture/` — a tiny re-frame2 counter
- *      with `re-frame2-pair.runtime` already wired as a `:devtools
- *      :preloads` entry. The shadow-cljs build also serves an
- *      http-server on :8030.
- *   2. Waiting for the nREPL port file to land (shadow-cljs 3.x writes
- *      to `.shadow-cljs/nrepl.port`; we also probe the legacy
- *      `target/shadow-cljs/nrepl.port` and `.nrepl-port` fallbacks).
- *   3. Waiting for the `:app` bundle to actually compile (not just the
- *      nREPL port to bind — dev-http serves a SPA-style fallback HTML
- *      for `/out/main.js` 200 BEFORE the first compile completes; we
- *      gate on the Content-Type being JS).
- *   4. Launching headless Chromium (Playwright) at
- *      http://localhost:8030 so the bundle loads and the runtime
- *      preload sets `window.__re_frame2_pair_runtime`.
- *   5. Waiting for the runtime sentinel to be present in the browser
- *      AND for shadow-cljs's `:app` runtime to be addressable via
- *      `cljs-eval` over nREPL (so re-frame2-pair-mcp's `ensure-runtime!` probe
- *      sees the runtime — that probe `.catch`es shadow's
- *      "no-runtime-connected" error to `false`, surfacing as a false
- *      `:runtime-not-preloaded`).
- *   6. Setting SHADOW_CLJS_NREPL_PORT=<port> and spawning
- *      `node test/live-re-frame2-pair-overflow.cjs`.
- *   7. Tearing down browser + shadow-cljs cleanly on success, failure,
- *      or signal.
- *
- * All six boot gates (port file at the right path, TCP listener, fixture
- * HTTP, bundle compile, browser sentinel, shadow-runtime addressable) are
- * required: each one closes a window in which the live path would fire
- * before the runtime is genuinely ready, which would surface as a long CI
- * timeout rather than a clean conformance result.
- *
- * Exit codes:
- *   0  hermetic conformance passed
- *   1  conformance failure (overflow marker / SDK / etc.)
- *   2  orchestration failure (shadow-cljs didn't boot, port file
- *      missing, runtime preload didn't land, watchdog elapsed)
- *
- * Hard time-cap of HERMETIC_TIMEOUT_MS guards against runaway compiles
- * on a cold CI runner. The shadow-cljs `watch` child + Playwright
- * browser are killed in the `finally`; SIGINT/SIGTERM also wire to the
- * same cleanup.
- *
- * The fixture `npm install` setup runs under an ASYNC spawn with its own
- * `SETUP_COMMAND_TIMEOUT_MS` cap (see `runTrusted`). A synchronous
- * `crossSpawn.sync` there would block the event loop for the install's
- * whole lifetime — during which the HERMETIC_TIMEOUT_MS watchdog (and
- * signal handlers) physically cannot fire — so a hung `npm install` would
- * wedge the run past the outer CI job timeout. The async spawn keeps the
- * loop live so BOTH the per-command timeout AND the whole-run watchdog
- * stay armed across setup.
- */
+ * Exit codes: 0 conformance passed; 1 inner conformance failed; 2 setup,
+ * grading, or watchdog failure. Setup commands and the whole run are
+ * asynchronously bounded so watchdogs and signal cleanup remain active. */
 'use strict';
 
 const fs = require('node:fs');
@@ -84,17 +25,8 @@ const {
 } = require('../lib/exec-safety.cjs');
 const { LIVE_TESTS } = require('./live-test-inventory.cjs');
 
-// We use `cross-spawn` instead of Node's `child_process.spawn` for the
-// two Windows-toolchain spawn sites (`npm` install + `npx shadow-cljs
-// watch`) because Node's spawn refuses to execute `.cmd` / `.bat` with
-// `shell: false` since the CVE-2024-27980 fix (EINVAL). cross-spawn
-// dispatches to cmd.exe under the hood when the resolved target ends
-// in `.cmd`, escapes arguments correctly, and — load-bearing for the
-// command-hijack accident-gating — does NOT do a cwd-prefixed PATH walk
-// when the command argument is an absolute path (see `which`'s
-// `cmd.match(/\//)` short-circuit). The accident-gating contract is
-// preserved by passing an absolute path resolved via the host's
-// PATH-only scan (see `lib/exec-safety.cjs`).
+// cross-spawn executes Windows .cmd shims without enabling shell parsing.
+// Executables are still resolved to absolute, PATH-only locations first.
 
 const HERE = __dirname;
 const MCP_CONFORMANCE_ROOT = path.resolve(HERE, '..');
@@ -120,23 +52,11 @@ const {
 const VERBOSE_TESTS = isVerboseTests();
 const DIAGNOSTICS = createDiagnosticBuffer();
 
-// Module-scope handle to the in-flight teardown closure.
-// `main()` assigns this once it has spawned shadow-cljs / Chromium so
-// the hard watchdog below can tear those children down BEFORE
-// `process.exit` — without it, a watchdog-elapse would orphan the
-// shadow-cljs JVM (and a launched Chromium), and those orphans can keep
-// the CI step's inherited log pipes open past the node exit. Stays null
-// until the children exist; the watchdog null-guards it.
+// Published as soon as children exist so watchdog and signal paths can reap
+// the same resources as the normal finally path.
 let activeCleanup = null;
 
-// Shadow-cljs writes its nREPL port file under whichever cache-root
-// the build is configured for. Default in 3.x is `.shadow-cljs/`; older
-// configs used `target/shadow-cljs/`; nrepl itself drops `.nrepl-port`.
-// re-frame2-pair-mcp's runtime probe (`re_frame2_pair_mcp/nrepl.cljs`
-// `port-file-candidates`) walks the same list — keep them in lockstep.
-// The orchestrator watches every candidate path so it binds to whichever
-// one the active shadow-cljs version writes (shadow-cljs 3.x defaults to
-// `.shadow-cljs/nrepl.port`), rather than gambling on a single location.
+// Keep this list aligned with pair-mcp's `port-file-candidates`.
 const NREPL_PORT_FILE_CANDIDATES = [
   path.join(FIXTURE_DIR, '.shadow-cljs', 'nrepl.port'),
   path.join(FIXTURE_DIR, 'target', 'shadow-cljs', 'nrepl.port'),
@@ -147,65 +67,25 @@ const FIXTURE_HTTP_PORT = 8030; // hard-coded in fixture's shadow-cljs.edn
 const FIXTURE_URL = `http://127.0.0.1:${FIXTURE_HTTP_PORT}/`;
 const FIXTURE_BUNDLE_PATH = path.join(FIXTURE_DIR, 'public', 'out', 'main.js');
 
-// Wall-clock caps. shadow-cljs cold-start with a warm Maven cache is
-// typically 30-60s on GHA; warm restart is much faster. We give the
-// boot 360s so the first cold-cache run of the day (no `~/.m2`
-// restore hit at all) still has headroom while Maven resolves the
-// fixture's :local/root deps (core + reagent + epoch + schemas +
-// machines + Reagent/Malli trees). The CI workflow's
-// `mcp-conformance-re-frame2-pair` job hashes those
-// inputs into its actions/cache key, so this headroom only
-// kicks in on the truly cold path; warm-cache runs still bind the
-// nREPL port in <60s.
+// Cold shadow-cljs dependency resolution needs substantially more headroom
+// than a warm fixture boot.
 const SHADOW_BOOT_TIMEOUT_MS = 360_000;
 const RUNTIME_PRELOAD_TIMEOUT_MS = 60_000;
 const HERMETIC_TIMEOUT_MS = 540_000;
-// Bounded waits for the async teardown. `cleanup`
-// awaits Playwright's promise-returning `browser.close()` (capped so a
-// wedged browser-close can't hang the teardown) and SIGTERM→exit of the
-// shadow-cljs child (escalating to SIGKILL after the grace, then observing
-// the final exit). `$HERMETIC_CLEANUP_*_MS` shrink these caps for the
-// teardown regression harness only (`runner-cleanup.test.cjs`); production
-// CI never sets them.
+// Tests override these values to exercise bounded close and kill escalation.
 const CLEANUP_BROWSER_CLOSE_TIMEOUT_MS =
   Number(process.env.HERMETIC_CLEANUP_BROWSER_MS) || 15_000;
 const CLEANUP_SHADOW_SIGTERM_GRACE_MS =
   Number(process.env.HERMETIC_CLEANUP_SHADOW_GRACE_MS) || 5_000;
 const CLEANUP_SHADOW_SIGKILL_GRACE_MS =
   Number(process.env.HERMETIC_CLEANUP_SHADOW_KILL_MS) || 5_000;
-// Hard cap the signal/watchdog paths race the async cleanup against, so an
-// interrupted run still exits promptly even if a child refuses to die. The
-// cleanup is awaited up to this bound, then the process exits regardless.
+// Signal/watchdog paths race cleanup against this final bound.
 const CLEANUP_HARD_CAP_MS =
   Number(process.env.HERMETIC_CLEANUP_HARD_CAP_MS) || 30_000;
-// Poll cadence for the four sequential boot gates (port file, TCP
-// listener, fixture HTTP, bundle compile, runtime sentinel, shadow
-// runtime addressable). Each gate latches as soon as it flips, so the
-// poll interval is pure resolution latency on the critical path: a warm
-// cache boot is gated by `~6 * POLL_MS` of cumulative wait. A tight 100ms
-// cadence keeps warm-cache CI runs fast (the gates check cheap
-// filesystem/TCP probes, so the high poll rate doesn't meaningfully raise
-// cold-cache load).
+// Sequential readiness probes latch once true; this is their resolution.
 const POLL_MS = 100;
 
-// Inner tests the orchestrator boots shadow-cljs for, DERIVED from the
-// shared live-test inventory (`scripts/live-test-inventory.cjs` — the
-// single owner of each gate's basename / display name / sentinel). Each
-// runs with the spawned `SHADOW_CLJS_NREPL_PORT` set so its SKIP gate flips
-// off and the live path fires; they run sequentially against the same
-// booted runtime so the cold-boot cost amortises across every test.
-//
-// The orchestrator's name keeps `overflow` to match the workflow YAML's
-// script reference; the inventory (not this derived list) is the
-// authoritative roster — `test-all.cjs` derives its SKIP-by-default live
-// rows from the same array, and `test/live-list-completeness.test.cjs`
-// cross-checks the inventory against the `test/live-re-frame2-pair-*.cjs`
-// files on disk.
-//
-// The inventory carries each gate's success `sentinel` (see its header for
-// why the sentinel assertion below is load-bearing against a silent
-// in-hermetic SKIP that would otherwise ride green via the OTHER gates).
-// Here we resolve each `basename` to the absolute path the spawn needs.
+// Run the shared roster sequentially against one booted fixture.
 const INNER_TESTS = LIVE_TESTS.map((t) => ({
   name: t.name,
   path: path.join(MCP_CONFORMANCE_ROOT, 'test', t.basename),
