@@ -392,13 +392,17 @@ function assertOk(resp, name) {
 
 // Extract the `:declared` slot's rendered VALUE (the text of the map
 // literal / `nil` immediately following the key) from an eval-cljs
-// response's text — one level of brace-nesting, matching the shape
-// `re-frame.elision/sensitive-declarations` actually returns: a map from
-// classified PATH VECTOR to a decl map, e.g.
-// `{[:rf-conformance/secret] {:source :effect}}`, or `{}` when nothing is
-// classified. Returns `null` if `:declared` is absent entirely (a
-// malformed / unexpected eval return — the caller treats that as a
-// precondition failure too).
+// response's text, matching the shape `re-frame.elision/sensitive-
+// declarations` actually returns: a map from classified PATH VECTOR to the
+// retained OWNER-SET (rf2-wdm1vg — the registry is multi-owner), e.g.
+// `{[:rf-conformance/secret] #{{:source :effect}}}` (and, when two
+// independent owners claim one path, `#{{:source :effect} {:source :route}}`),
+// or `{}` when nothing is classified. The owner-set nests THREE brace levels
+// deep — the outer map, the `#{…}` owner-set, and each owner map — so the
+// regex tolerates three levels of brace nesting (it still matches the legacy
+// single-map `{:source :effect}` shape too). Returns `null` if `:declared` is
+// absent entirely (a malformed / unexpected eval return — the caller treats
+// that as a precondition failure too).
 function declaredValueText(text) {
   // The closing `\}` alternative deliberately carries NO trailing `\b`:
   // a map literal is almost always followed by another non-word char
@@ -406,8 +410,11 @@ function declaredValueText(text) {
   // non-word characters — a boundary assertion there would silently
   // fail to match the common case. `nil(?!\w)` gets the equivalent
   // "don't swallow a longer identifier" guard the word-boundary was
-  // after, scoped to the one alternative that actually needs it.
-  const m = /:declared\s+(\{(?:[^{}]|\{[^{}]*\})*\}|nil(?!\w))/.exec(text);
+  // after, scoped to the one alternative that actually needs it. The
+  // brace group is nested to depth 3 to admit the `{path #{{:source …}}}`
+  // owner-set shape (rf2-wdm1vg).
+  const m =
+    /:declared\s+(\{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*\}|nil(?!\w))/.exec(text);
   return m ? m[1] : null;
 }
 
