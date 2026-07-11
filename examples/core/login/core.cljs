@@ -54,7 +54,7 @@
 (rf/reg-view ^{:doc "The login form view: email + password + submit button + error display."}
           login-form []
   (let [draft     @(subscribe [:auth.login/draft])
-        busy?     @(rf/subscribe [:rf.machine/has-tag? :auth.login/flow :auth/busy])
+        busy?     @(subscribe [:rf.machine/has-tag? :auth.login/flow :auth/busy])
         err       @(subscribe [:auth.login/error])
         email-err @(subscribe [:auth.login/field-error :email])
         pw-err    @(subscribe [:auth.login/field-error :password])]
@@ -97,8 +97,8 @@
 ;; form the rest of the time.
 (rf/reg-view ^{:doc "Picks what to show by login state: welcome / locked panel / the form."}
           login-banner []
-  (let [authed? @(rf/subscribe [:rf.machine/has-tag? :auth.login/flow :auth/authenticated])
-        locked? @(rf/subscribe [:rf.machine/has-tag? :auth.login/flow :auth/locked])]
+  (let [authed? @(subscribe [:rf.machine/has-tag? :auth.login/flow :auth/authenticated])
+        locked? @(subscribe [:rf.machine/has-tag? :auth.login/flow :auth/locked])]
     [:div.banner {:data-testid "login-banner"}
      (cond
        authed? [:span "Welcome!"]
