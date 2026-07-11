@@ -28,7 +28,7 @@ Xray's normal launch mode is a true inline right rail. Your page owns the layout
 ```
 
 ```css
-:root { --rf-xray-accent: #7c5cff; }
+:root { --rf-xray-accent: #539bf5; }
 
 .app-shell {
   display: flex;
