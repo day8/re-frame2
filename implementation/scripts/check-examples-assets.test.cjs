@@ -96,23 +96,15 @@ const SYNTHETIC_MANIFEST = [
   },
 ];
 
-// A real, decodable 1200x630 PNG (signature + IHDR + IDAT + IEND), used wherever
-// a fixture's _shared tree must scan clean — the gate now validates the og.png
-// BYTES, so an opaque 'PNGDATA' string no longer passes checkSharedTree
-// (rf2-mon7tz). Stored latin1 so the synthetic io (which returns the stored
-// value verbatim) round-trips the bytes; validatePng coerces it back to a
-// Buffer the same way.
-const VALID_OG_PNG = Buffer.from(
-  'iVBORw0KGgoAAAANSUhEUgAABLAAAAJ2CAIAAADAIuwLAAAACUlEQVR4nGMAAAABAAFe/335AAAAAElFTkSuQmCC',
-  'base64',
-).toString('latin1');
-
-// Build a STRUCTURALLY COMPLETE PNG (signature + IHDR + IDAT + IEND) at the
-// given dimensions, as a Buffer, for the full-structural-decode teeth
-// (rf2-3fc89f.27). Uses the scanner's own pngCrc32 to write correct chunk CRCs
-// and a real zlib stream for the IDAT, so validatePng's CRC + inflate checks see
-// a genuinely valid raster — the corrupt/truncated fixtures are then derived by
-// mutating this baseline, isolating exactly one defect each.
+// Build a STRUCTURALLY + SEMANTICALLY complete PNG (signature + IHDR + a full
+// raster IDAT + IEND) at the given dimensions, as a Buffer, for the decode teeth
+// (rf2-3fc89f.27 + rf2-j538f7.24). Uses the scanner's own pngCrc32 to write
+// correct chunk CRCs and deflates the WHOLE declared raster — `height` scanlines
+// of a 0/None filter tag + a width*3-byte 8-bit RGB pixel row (matching the
+// shipped og.png's truecolour encoding) — so validatePng's CRC, inflate,
+// IHDR-semantics, exact-scanline-geometry, and filter-byte checks all see a
+// genuinely valid image. The corrupt/truncated/oversized fixtures below are
+// derived by mutating this baseline, isolating exactly one defect each.
 const zlibForTests = require('zlib');
 function pngChunk(type, data) {
   const len = Buffer.alloc(4);
@@ -127,14 +119,30 @@ function buildPng(width = OG_PNG_WIDTH, height = OG_PNG_HEIGHT) {
   ihdr.writeUInt32BE(width, 0);
   ihdr.writeUInt32BE(height, 4);
   ihdr[8] = 8; // bit depth
-  ihdr[9] = 2; // colour type (truecolour)
+  ihdr[9] = 2; // colour type (2 = truecolour RGB → 3 channels)
+  ihdr[10] = 0; // compression method (deflate)
+  ihdr[11] = 0; // filter method
+  ihdr[12] = 0; // interlace method (none)
+  // A FULL raster: height scanlines, each a 1-byte filter tag (0/None, from the
+  // zero-fill) + a width*3-byte RGB pixel row. Buffer.alloc zero-fills, so every
+  // scanline's leading filter byte is 0 (legal) and the pixels are opaque black.
+  const raster = Buffer.alloc(height * (1 + width * 3));
   return Buffer.concat([
     Buffer.from(PNG_SIGNATURE),
     pngChunk('IHDR', ihdr),
-    pngChunk('IDAT', zlibForTests.deflateSync(Buffer.from([0, 0, 0, 0]))),
+    pngChunk('IDAT', zlibForTests.deflateSync(raster)),
     pngChunk('IEND', Buffer.alloc(0)),
   ]);
 }
+
+// A real, decodable 1200x630 PNG used wherever a fixture's _shared tree must scan
+// clean. The gate now validates the og.png BYTES down to the full raster geometry
+// (rf2-mon7tz + rf2-j538f7.24), so the old base64 blob — a 1200x630 header over a
+// 1-byte IDAT payload — no longer passes; buildPng() supplies a genuinely
+// complete raster instead. Stored latin1 so the synthetic io (which returns the
+// stored value verbatim) round-trips the bytes; validatePng coerces it back to a
+// Buffer the same way.
+const VALID_OG_PNG = buildPng().toString('latin1');
 
 // An AA-safe, focus-accessible style.css that satisfies the shared contrast +
 // focus-indicator contracts (rf2-febmqu + rf2-mon7tz), for checkSharedTree
@@ -1954,6 +1962,167 @@ it('TEETH: checkSharedTree rejects a header-only (truncated) og.png', () => {
   assert.ok(
     errors.some((e) => e.includes('og.png') && e.includes('not a valid')),
     `expected checkSharedTree to reject the header-only og.png, got: ${errors.join(' | ')}`,
+  );
+});
+
+// ---- TEETH: og.png RASTER SEMANTICS — zlib inflation is not PNG decoding
+// (rf2-j538f7.24) -----------------------------------------------------------
+//
+// The full-structural-decode gate (above) still called a PNG "decodable" once
+// its IDAT merely zlib-INFLATED, so a raster with a forbidden IHDR colour type,
+// an unsupported interlace method, or an IDAT that expands to the wrong number
+// of bytes / carries an illegal per-row filter byte all passed — every social
+// preview would then serve unreadable bytes while the all-35-host gate stayed
+// green. The gate now validates the IHDR SEMANTICS + the exact scanline geometry
+// + the per-row filter tags. Each fixture below keeps a valid signature, bounded
+// chunks, correct CRCs, an inflatable zlib stream, and a terminal IEND —
+// isolating exactly ONE raster-semantic defect the pre-fix zlib-only check waved
+// through.
+
+// Build a PNG with explicit IHDR fields and an explicit (already-inflated) raster
+// payload, so a fixture can hold every envelope invariant while varying exactly
+// one raster-semantic field. `raster` is deflated into the IDAT and all CRCs are
+// recomputed, so the ONLY defect is the one the fixture injects (e.g. a valid
+// IHDR CRC over a forbidden colour type). Defaults to a full 8-bit RGB raster.
+function buildPngWith({
+  width = OG_PNG_WIDTH,
+  height = OG_PNG_HEIGHT,
+  bitDepth = 8,
+  colourType = 2,
+  compression = 0,
+  filter = 0,
+  interlace = 0,
+  raster,
+} = {}) {
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = bitDepth;
+  ihdr[9] = colourType;
+  ihdr[10] = compression;
+  ihdr[11] = filter;
+  ihdr[12] = interlace;
+  const body = raster !== undefined ? raster : Buffer.alloc(height * (1 + width * 3));
+  return Buffer.concat([
+    Buffer.from(PNG_SIGNATURE),
+    pngChunk('IHDR', ihdr),
+    pngChunk('IDAT', zlibForTests.deflateSync(body)),
+    pngChunk('IEND', Buffer.alloc(0)),
+  ]);
+}
+
+it('validatePng accepts buildPngWith defaults (full RGB raster)', () => {
+  const v = validatePng(buildPngWith());
+  assert.ok(v.ok, `expected the default full-raster PNG to validate, got: ${v.reason}`);
+  assert.strictEqual(v.width, OG_PNG_WIDTH);
+  assert.strictEqual(v.height, OG_PNG_HEIGHT);
+});
+
+it('TEETH: a forbidden IHDR colour type (1) is REJECTED with an IHDR-semantic error', () => {
+  // colour type 1 is not a legal PNG colour type (0/2/3/4/6). pngChunk recomputes
+  // the IHDR CRC, so the envelope is valid and this isolates the SEMANTIC defect —
+  // the bead's reproduction (Pillow rejects it; the pre-fix gate returned ok:true).
+  const v = validatePng(buildPngWith({ colourType: 1, raster: Buffer.from([0, 0, 0, 0]) }));
+  assert.ok(!v.ok, 'a forbidden colour type must fail');
+  assert.ok(/colour type 1/.test(v.reason), `expected an IHDR colour-type error, got: ${v.reason}`);
+});
+
+it('TEETH: an illegal bit-depth/colour-type pairing (RGB @ 1-bit) is REJECTED', () => {
+  // Colour type 2 (truecolour) is legal only at bit depth 8 or 16; 1-bit RGB is
+  // forbidden by the PNG spec even though the chunk envelope is intact.
+  const v = validatePng(buildPngWith({ colourType: 2, bitDepth: 1, raster: Buffer.from([0]) }));
+  assert.ok(!v.ok, 'an illegal bit-depth/colour-type pairing must fail');
+  assert.ok(
+    /bit depth 1 is illegal for colour type 2/.test(v.reason),
+    `expected an IHDR bit-depth error, got: ${v.reason}`,
+  );
+});
+
+it('TEETH: a nonzero IHDR compression method is REJECTED', () => {
+  const v = validatePng(buildPngWith({ compression: 1, raster: Buffer.from([0]) }));
+  assert.ok(!v.ok, 'an unsupported compression method must fail');
+  assert.ok(/compression method 1/.test(v.reason), `got: ${v.reason}`);
+});
+
+it('TEETH: a nonzero IHDR filter method is REJECTED', () => {
+  const v = validatePng(buildPngWith({ filter: 1, raster: Buffer.from([0]) }));
+  assert.ok(!v.ok, 'an unsupported filter method must fail');
+  assert.ok(/filter method 1/.test(v.reason), `got: ${v.reason}`);
+});
+
+it('TEETH: an unsupported interlace method (Adam7) is REJECTED explicitly', () => {
+  // Interlace method 1 (Adam7) is a legal PNG but this gate accepts only the
+  // non-interlaced social card (method 0); it must fail explicitly, not decode.
+  const v = validatePng(buildPngWith({ interlace: 1, raster: Buffer.from([0]) }));
+  assert.ok(!v.ok, 'an unsupported interlace method must fail');
+  assert.ok(/interlace method 1/.test(v.reason), `got: ${v.reason}`);
+});
+
+it('TEETH: a valid-zlib IDAT expanding to only 4 bytes over a 1200x630 IHDR is REJECTED (the bead reproduction)', () => {
+  // The exact false-green: a real 1200x630 truecolour IHDR, valid CRCs, a terminal
+  // IEND, and an IDAT that IS a well-formed zlib stream — but one inflating to just
+  // 4 bytes, nowhere near the 630 x (1 + 1200*3) = 2,268,630-byte raster. zlib-only
+  // validation passed this; the scanline-geometry check now rejects it.
+  const v = validatePng(buildPngWith({ raster: Buffer.from([0, 0, 0, 0]) }));
+  assert.ok(!v.ok, 'a 4-byte pixel payload for a 1200x630 raster must fail');
+  assert.ok(
+    /decompressed image data is 4 byte\(s\), expected 2268630/.test(v.reason),
+    `expected an incomplete-payload error, got: ${v.reason}`,
+  );
+});
+
+it('TEETH: an OVER-LONG raster payload (one byte too many) is REJECTED', () => {
+  const oversize = Buffer.alloc(OG_PNG_HEIGHT * (1 + OG_PNG_WIDTH * 3) + 1); // one extra byte
+  const v = validatePng(buildPngWith({ raster: oversize }));
+  assert.ok(!v.ok, 'an oversized pixel payload must fail');
+  assert.ok(/expected 2268630/.test(v.reason), `expected a geometry error, got: ${v.reason}`);
+});
+
+it('TEETH: a scanline with an illegal filter byte (5) is REJECTED', () => {
+  // A COMPLETE 1200x630 raster (correct byte count) whose first scanline's leading
+  // filter tag is 5 — not a legal PNG filter type (0..4). The length check passes;
+  // the per-row filter check catches it.
+  const stride = 1 + OG_PNG_WIDTH * 3;
+  const raster = Buffer.alloc(OG_PNG_HEIGHT * stride);
+  raster[0] = 5; // first scanline filter tag = 5 (illegal)
+  const v = validatePng(buildPngWith({ raster }));
+  assert.ok(!v.ok, 'an illegal filter byte must fail');
+  assert.ok(
+    /scanline 0/.test(v.reason) && /filter byte 5/.test(v.reason),
+    `expected a filter-byte error, got: ${v.reason}`,
+  );
+});
+
+it('a complete raster with legal filter bytes (0..4) still validates', () => {
+  // Guard against over-strict rejection: cycling filter tags 0..4 down the
+  // scanlines is legal and must pass (the real og.png uses tags 1/2/4).
+  const stride = 1 + OG_PNG_WIDTH * 3;
+  const raster = Buffer.alloc(OG_PNG_HEIGHT * stride);
+  for (let r = 0; r < OG_PNG_HEIGHT; r++) raster[r * stride] = r % 5; // 0..4
+  const v = validatePng(buildPngWith({ raster }));
+  assert.ok(v.ok, `a raster with legal filter bytes 0..4 must validate, got: ${v.reason}`);
+});
+
+it('TEETH: checkSharedTree rejects a raster-broken (zlib-valid) og.png (rf2-j538f7.24)', () => {
+  // og.png: valid signature + 1200x630 IHDR + valid-CRC chunks + a valid zlib IDAT
+  // that inflates to 4 bytes + IEND. The pre-fix gate passed this; the raster
+  // geometry check now turns the gate RED end-to-end via checkSharedTree, proving
+  // the wiring has teeth (not just validatePng in isolation).
+  const brokenRaster = buildPngWith({ raster: Buffer.from([0, 0, 0, 0]) }).toString('latin1');
+  const io = makeIo({
+    [path.join(SHARED_ROOT, 'css', 'style.css')]: GOOD_SHARED_STYLE,
+    [path.join(SHARED_ROOT, 'css', 'structure.css')]:
+      '.send-form input[type="text"] { min-width: 240px; }\n' +
+      '.cells-grid input { width: 56px; }\n' +
+      RESPONSIVE_SHELL,
+    [path.join(SHARED_ROOT, 'img', 'favicon.svg')]: '<svg/>',
+    [path.join(SHARED_ROOT, 'img', 'og.png')]: brokenRaster,
+    [path.join(SHARED_ROOT, 'img', 'og.svg')]: '<svg/>',
+  });
+  const errors = checkSharedTree(io, { sharedRoot: SHARED_ROOT });
+  assert.ok(
+    errors.some((e) => e.includes('og.png') && e.includes('not a valid')),
+    `expected checkSharedTree to reject the raster-broken og.png, got: ${errors.join(' | ')}`,
   );
 });
 
