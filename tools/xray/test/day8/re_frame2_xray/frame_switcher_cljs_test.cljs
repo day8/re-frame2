@@ -362,3 +362,111 @@
 ;; produced more than one group, so the grouping never branched away from the
 ;; flat option list. The picker renders the flat list directly; the public
 ;; partition is image -> frame (EP-0023).
+
+;; -------------------------------------------------------------------------
+;; (8) rf2-v8bule — stale view-scope frame reconciles to an available frame
+;; -------------------------------------------------------------------------
+;;
+;; An explicitly-picked (or host-seeded) view-scope frame used to win
+;; forever, with no membership check against `:rf.xray/available-frames`.
+;; Once that frame left the stream (buffer cleared / frame destroyed) the
+;; controlled `<select>` carried a value with NO matching `<option>`
+;; (React "value not in options" warning + blank render + an unpickable
+;; label). `:rf.xray/view-scope-frame` now clamps to availability.
+
+(defn- current-frame []
+  (rf/with-frame :rf/xray
+    @(rf/subscribe [:rf.xray/current-frame])))
+
+(defn- available-frames []
+  (rf/with-frame :rf/xray
+    @(rf/subscribe [:rf.xray/available-frames])))
+
+(defn- picker-value+options
+  "Render the ribbon frame-switcher view and return the controlled
+  `<select>`'s `:value` plus the set of its `<option>` values, so a test
+  can assert the value always matches a rendered option (the controlled-
+  input invariant)."
+  []
+  (rf/with-frame :rf/xray
+    (let [tree    (frame-switcher/frame-switcher-view {})
+          picker  (th/find-by-testid tree "rf-xray-ribbon-frame-picker")
+          options (filter (fn [n] (and (vector? n) (= :option (first n))))
+                          (hiccup-seq tree))]
+      {:value         (:value (second picker))
+       :option-values (set (map (fn [o] (:value (second o))) options))})))
+
+(deftest stale-pin-still-has-a-matching-select-option
+  (testing "rf2-v8bule — when the pinned view-scope frame leaves the stream
+            (buffer cleared / frame destroyed) the controlled <select>'s
+            value STILL matches a rendered <option>: the pinned frame is
+            surfaced as its own option, so there is no React 'value not in
+            options' mismatch. The scope itself is preserved (rf2-4vp5j
+            empty-scope), so current-frame keeps the pin — it is NOT
+            silently retargeted."
+    ;; Two frames in the stream; the user pins the OLDER one (:app/admin).
+    (dispatch-trace 1 :app/main)
+    (dispatch-trace 2 :app/admin)
+    (setup!)
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/select-frame :app/admin]))
+    (is (= :app/admin (current-frame)) "precondition — the pin is live")
+    ;; The pinned frame leaves the stream; only :app/main remains available.
+    (trace-collector/reset-for-test!)
+    (dispatch-trace 3 :app/main)
+    (is (= [:app/main] (available-frames))
+        ":app/admin is gone from the available (pickable) set")
+    (is (= :app/admin (current-frame))
+        "the empty scope survives — the pin is NOT retargeted (rf2-4vp5j)")
+    (let [{:keys [value option-values]} (picker-value+options)]
+      (is (contains? option-values value)
+          "the controlled <select> value matches a rendered option — no mismatch")
+      (is (= ":app/admin" value) "the value is the pinned frame")
+      (is (contains? option-values ":app/main")
+          "the still-available frame is offered so the user can re-scope"))))
+
+(deftest pinned-frame-with-empty-stream-has-matching-option
+  (testing "rf2-v8bule — with the pinned frame gone AND no frames left, the
+            disabled control still carries a value that matches its sole
+            (pinned) option — no orphan value, no React warning"
+    (dispatch-trace 1 :app/admin)
+    (setup!)
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/select-frame :app/admin]))
+    (is (= :app/admin (current-frame)))
+    ;; Every frame leaves the stream (buffer cleared).
+    (trace-collector/reset-for-test!)
+    (trace-collector/refresh-trace-rings!)
+    (is (= [] (available-frames)) "no frames remain in the pickable set")
+    (is (= :app/admin (current-frame)) "the empty scope survives")
+    (let [{:keys [value option-values]} (picker-value+options)]
+      (is (contains? option-values value)
+          "the value still matches an option (the pinned frame is surfaced)")
+      (is (= #{":app/admin"} option-values)
+          "the pinned frame is the sole option"))))
+
+(deftest no-pick-empty-stream-renders-clean-empty-select
+  (testing "rf2-v8bule — with no pick and no frames, the select carries the
+            empty value and renders no options (value \"\" with zero
+            options is React's clean 'nothing selected' — no mismatch)"
+    (setup!)  ;; no cascades seeded
+    (is (nil? (current-frame)) "no frame to scope to")
+    (let [{:keys [value option-values]} (picker-value+options)]
+      (is (= "" value) "empty value")
+      (is (empty? option-values) "no options"))))
+
+(deftest available-pick-adds-no-synthetic-option
+  (testing "rf2-v8bule — the surfaced option is added ONLY when the active
+            frame is not available; in the normal case (the pick IS
+            available) the option set is exactly the available frames — no
+            synthetic duplicate"
+    (dispatch-trace 1 :app/main)
+    (dispatch-trace 2 :app/admin)
+    (setup!)
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/select-frame :app/main]))
+    (is (= :app/main (current-frame)))
+    (let [{:keys [value option-values]} (picker-value+options)]
+      (is (= #{":app/main" ":app/admin"} option-values)
+          "exactly the available frames — no synthetic duplicate")
+      (is (contains? option-values value)))))

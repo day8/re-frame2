@@ -1364,6 +1364,15 @@ frame composed into `filtered-event-bundles`" framing in §6):
 - **Default = head-epoch frame.** On a fresh load the L2 list scopes to
   whichever frame produced the most-recent pickable event
   (`frame-switcher/head-frame`), rather than merging every frame.
+- **Empty-scope-safe picker.** The view scope INTENTIONALLY survives a
+  pinned frame that has no events (an "empty scope" — the L2 list shows
+  0 rows, not "hidden by filters"), so it is never silently retargeted.
+  The ribbon therefore surfaces the pinned frame as its OWN `<option>`
+  whenever it is not in `:rf.xray/available-frames`, so the controlled
+  `<select>`'s value always has a matching option — no React "value not
+  in options" warning and no blank render when the pinned frame has no
+  events yet or has left the stream (buffer cleared, frame destroyed /
+  stopped emitting). rf2-v8bule.
 - **Single dedicated slot.** The picker writes `:view-scope-frame` (via
   the canonical event-fx `:rf.xray/select-frame`); the L2 list scopes by
   it through `matcher/filter-event-bundles-by-view-scope`, which is a NO-OP
