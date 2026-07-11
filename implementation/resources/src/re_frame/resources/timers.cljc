@@ -134,10 +134,11 @@
 ;; host-side generation allocator. Cleared per-frame on frame destroy.
 
 (defonce
-  ^{:doc "Host-side side table of NON-serializable stale / GC / poll timer
-   handles, keyed by `[frame-id resource-key kind]` (`kind` ∈
-   `#{:stale :gc :poll}`) → an opaque host handle from
-   `re-frame.interop/schedule-after!`. Transient host state (NOT runtime-db),
+  ^{:doc "Host-side side table of NON-serializable stale / GC / poll timers,
+   keyed by `[frame-id resource-key kind]` (`kind` ∈ `#{:stale :gc :poll}`) →
+   `{:token <int> :handle <host-handle-or-nil>}`, where the handle is an opaque
+   value from `re-frame.interop/schedule-after!` and `:handle nil` is a two-phase
+   ARMING sentinel (rf2-j538f7.10). Transient host state (NOT runtime-db),
    so an epoch restore cannot rewind / recycle it, and it never rides the SSR
    / hydration / epoch wire — freshness is re-derived from the durable entry
    timestamps, and a timer is only an advisory nudge whose handler re-checks
@@ -146,6 +147,26 @@
    5."}
   timer-table
   (atom {}))
+
+;; Each slot value is a small map `{:token <int> :handle <host-handle-or-nil>}`
+;; rather than a bare handle (rf2-j538f7.10). The `:token` is a unique per-arm
+;; ownership stamp (below); `:handle nil` marks an ARMING sentinel — the slot is
+;; reserved but the host clock has not yet returned a handle. Two-phase arming
+;; (reserve → publish) plus token-scoped cancellation make arm / cancel /
+;; frame-destroy linearizable against a reused `[frame rkey kind]` key.
+
+(defonce ^:private timer-attempt-counter
+  ;; Monotonic per-arm attempt-token source (mirrors core's
+  ;; `dispatch-later-counter`, rf2-j538f7.2, and the machines
+  ;; `after-attempt-counter`). Every `schedule!` arm stamps its slot with a
+  ;; unique token, so a trailing cancellation of an OLD attempt can never claim
+  ;; a re-armed SUCCESSOR occupying the same reused `[frame rkey kind]` slot,
+  ;; and a late-returning arm can detect that a cleanup already claimed its slot.
+  ;; Purely transient host-work OWNERSHIP — never runtime-db / SSR / epoch state.
+  (atom 0))
+
+(defn- next-attempt-token []
+  (swap! timer-attempt-counter inc))
 
 (defn- timer-key
   "The side-table key for `[frame-id resource-key kind]`. rf2-9e0tyq: the
@@ -162,12 +183,29 @@
   when none is armed). Idempotent. Returns nil. The durable freshness facts
   are untouched (a cancelled timer never means an entry became fresh — only
   that the advisory nudge will not fire). Per Spec 016 §Stale and GC
-  scheduling."
+  scheduling.
+
+  Cancels the exact attempt observed: it reads the current occupant's `:token`
+  and atomically CLAIMS the slot only while that token is still current
+  (`swap-vals!`). If a concurrent re-arm published a SUCCESSOR under the same
+  key between the read and the claim, this cancellation leaves the successor
+  untouched (its own arrival already released the observed attempt), so an old
+  cancellation never erases a successor it did not cancel (rf2-j538f7.10). An
+  ARMING sentinel (`:handle nil`) is dropped without a host cancel — the arming
+  thread's publish phase then finds its token gone and cancels the returned
+  handle. The host `cancel-scheduled!` rides the CAS-derived old snapshot,
+  never inside the retriable swap."
   [frame-id resource-key kind]
   (let [k (timer-key frame-id resource-key kind)]
-    (when-let [handle (get @timer-table k)]
-      (interop/cancel-scheduled! handle))
-    (swap! timer-table dissoc k))
+    (when-let [slot (get @timer-table k)]
+      (let [token      (:token slot)
+            [old _new] (swap-vals! timer-table
+                                   (fn [m] (if (= token (:token (get m k)))
+                                             (dissoc m k)
+                                             m)))
+            claimed    (get old k)]
+        (when (and (= token (:token claimed)) (:handle claimed))
+          (interop/cancel-scheduled! (:handle claimed))))))
   nil)
 
 (defn cancel-for-key!
@@ -254,18 +292,54 @@
   [frame-id resource-key kind delay-ms]
   ;; cancel any prior timer for this [key kind] (reschedule / disarm, not accumulate)
   (cancel! frame-id resource-key kind)
-  ;; Shared positive-delay-guarded arm (rf2-7x2lky) — the host-clock arm step
-  ;; both timer artefacts share. A non-positive / nil delay arms nothing,
-  ;; leaving the kind cancelled (the explicit disarm). Returns the host handle
-  ;; or nil; the side-table bookkeeping + trace below are resources-specific.
-  (when-let [handle (managed-timer/arm!
-                      (fn [] (dispatch-recheck! frame-id resource-key kind))
-                      delay-ms)]
-    (swap! timer-table assoc (timer-key frame-id resource-key kind) handle)
-    (trace/emit! :rf.event (scheduled-trace-id kind)
-                 {:rf.frame/id frame-id :resource/key resource-key
-                  :delay-ms delay-ms})
-    handle))
+  ;; A non-positive / nil delay arms nothing, leaving the kind cancelled (the
+  ;; explicit disarm — the shared positive-delay rule, rf2-7x2lky). Otherwise
+  ;; TWO-PHASE, TOKEN-OWNED arming (rf2-j538f7.10; mirrors core `:dispatch-later`,
+  ;; rf2-j538f7.2): reserve the slot BEFORE arming the host clock, then publish
+  ;; the handle only if this attempt still owns the slot, so a cleanup racing the
+  ;; arm can never be outrun by a late-returning handle.
+  (when (managed-timer/positive-delay? delay-ms)
+    (let [k     (timer-key frame-id resource-key kind)
+          token (next-attempt-token)]
+      ;; PHASE 1 — reserve an arming sentinel (`:handle nil`) so a concurrent
+      ;; cleanup can atomically claim this attempt.
+      (swap! timer-table assoc k {:token token :handle nil})
+      (let [handle
+            ;; Shared positive-delay-guarded arm (rf2-7x2lky) — a no-op guard
+            ;; pass-through here (already known positive).
+            (managed-timer/arm!
+              (fn []
+                ;; ATOMICALLY claim THIS fire's slot — dispatch AUTHORITY +
+                ;; self-reap in one swap (mirrors core `:dispatch-later`). If a
+                ;; cleanup / re-arm claimed the slot first — even a synchronous
+                ;; host callback firing before `arm!` returns — this fire lost
+                ;; authority: suppress the dead-on-arrival re-check dispatch and
+                ;; leave the successor untouched. On the live path the claim
+                ;; wins, drops the spent one-shot slot, and dispatches the
+                ;; advisory re-check (whose handler re-checks durable facts).
+                (let [[old _new] (swap-vals! timer-table
+                                             (fn [m] (if (= token (:token (get m k)))
+                                                       (dissoc m k)
+                                                       m)))]
+                  (when (= token (:token (get old k)))
+                    (dispatch-recheck! frame-id resource-key kind))))
+              delay-ms)
+            ;; PHASE 2 — publish the handle IFF this attempt still owns the slot.
+            ;; `swap-vals!` is a pure replace-if-token-present; the host cancel
+            ;; below rides the CAS-derived old snapshot, never inside the swap.
+            [old _new] (swap-vals! timer-table
+                                   (fn [m] (if (= token (:token (get m k)))
+                                             (assoc m k {:token token :handle handle})
+                                             m)))]
+        (if (= token (:token (get old k)))
+          (do (trace/emit! :rf.event (scheduled-trace-id kind)
+                           {:rf.frame/id frame-id :resource/key resource-key
+                            :delay-ms delay-ms})
+              handle)
+          ;; a cleanup / synchronous self-fire claimed the sentinel while we
+          ;; armed — cancel the orphan handle, publish nothing, emit no trace.
+          (do (interop/cancel-scheduled! handle)
+              nil))))))
 
 (defn release-frame!
   "Cancel + drop EVERY stale / GC / poll timer for a destroyed `frame-id`
@@ -279,10 +353,17 @@
   §Polling (frame destroy cancels all resource timers) / [Runtime-Subsystems]
   clause 5. Returns nil."
   [frame-id]
-  (doseq [[[fid rkey kind] handle] @timer-table]
-    (when (= fid frame-id)
-      (interop/cancel-scheduled! handle)
-      (swap! timer-table dissoc [fid rkey kind])))
+  ;; Remove the frame's slots ATOMICALLY (a single `swap-vals!`) and cancel the
+  ;; real host handles off the CAS-derived old snapshot — no host side effect
+  ;; runs inside the retriable swap. An ARMING sentinel (`:handle nil`, a timer
+  ;; mid-`arm!`) is dropped but NEVER passed to `cancel-scheduled!` — the arming
+  ;; caller's publish phase finds its vanished reservation and cancels the real
+  ;; handle itself, so the timer is cancelled exactly once with no orphan.
+  (let [[old _new] (swap-vals! timer-table
+                               (fn [m] (into {} (remove (fn [[[fid _ _] _]] (= fid frame-id))) m)))]
+    (doseq [[[fid _rkey _kind] slot] old
+            :when (and (= fid frame-id) (:handle slot))]
+      (interop/cancel-scheduled! (:handle slot))))
   nil)
 
 (defn reset-cache!
@@ -291,9 +372,13 @@
   `make-reset-runtime-fixture` clears it per test (host-side transient state,
   NOT cleared by the runtime / frames reset). Returns nil."
   []
-  (doseq [[_ handle] @timer-table]
-    (interop/cancel-scheduled! handle))
-  (reset! timer-table {})
+  ;; Clear the table ATOMICALLY (`reset-vals!`) and cancel the real host handles
+  ;; off the captured old snapshot. An ARMING sentinel (`:handle nil`) is dropped
+  ;; but never passed to `cancel-scheduled!`.
+  (let [[old _new] (reset-vals! timer-table {})]
+    (doseq [[_ slot] old
+            :when (:handle slot)]
+      (interop/cancel-scheduled! (:handle slot))))
   nil)
 
 ;; ---- the host-side scheduling fx (mirrors :rf.resource/commit-generation) -
