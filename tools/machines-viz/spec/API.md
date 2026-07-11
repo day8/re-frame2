@@ -51,7 +51,7 @@ registry).
 | Prop | Required | Default | Meaning |
 |---|---|---|---|
 | `:machine-id` | no | `nil` | Identifies the machine. Surfaces as the chart's aria-label and on every per-node `:data` payload (read by tests + hosts). |
-| `:definition` | no | `nil` | The machine definition map. When `nil` the chart renders an empty-state placeholder. The component does NOT subscribe to a framework registry directly — hosts pull the definition via `(rf/machine-meta machine-id)` and pass it in. |
+| `:definition` | no | `nil` | The machine definition map. When `nil` the chart renders an empty-state placeholder. A **structurally-invalid** definition (rf2-j538f7.18) is REJECTED by the canonical recursive grammar gate INSIDE `chart.layout/project-definition` BEFORE graph construction — nothing reaches ELK and no orphan edges to absent nodes are created; the chart renders a distinct **invalid-definition** placeholder (`data-testid "…-invalid-definition"`, `data-invalid-definition "<:rf.error/machine-* category>"`) carrying the value-free defect category + structural path. The component does NOT subscribe to a framework registry directly — hosts pull the definition via `(rf/machine-meta machine-id)` and pass it in. |
 | `:current-state` | no | `nil` | The live snapshot `:state` value for the active-state highlight. Accepts all three Spec 005 `:state` arms: a flat keyword (`:authing`), a hierarchical path (`[:auth :authing]`), **or a parallel region-map** (`{:data :loading :form :neutral}`). For a region-map the chart lights up **every** active region leaf simultaneously (the multi-active highlight — see [§Parallel multi-active highlight](#parallel-multi-active-highlight-rf2-yoe6e-rf2-g2svr)). `nil` renders no highlight. |
 | `:from-highlight` | no | `nil` | Focused-event lens origin (a `:state` value). |
 | `:to-highlight` | no | `nil` | Focused-event lens landing (a `:state` value). |
@@ -1689,7 +1689,7 @@ Failure modes:
 | `:malformed-payload` | Decoded bytes aren't valid transit. |
 | `:missing-envelope` | The payload is missing `:rf.machines-viz.share/v` or `:rf.machines-viz.share/chart`. |
 | `:unknown-version` | `:rf.machines-viz.share/v` is newer than the decoder knows. |
-| `:invalid-chart-state` | `:rf.machines-viz.share/chart` doesn't validate. |
+| `:invalid-chart-state` | `:rf.machines-viz.share/chart` doesn't validate. The `:definition` slot is checked by the canonical **recursive** grammar gate (`grammar/valid-definition?` — rf2-j538f7.18), so a forged URL carrying a definition that is structurally invalid BELOW the root (a nested compound missing `:initial`, a dangling target, an unknown bare node key) fails closed at BOTH encode and decode, not just a shallow root-shape violation. |
 
 ### Pipeline
 
@@ -2168,7 +2168,7 @@ sentence, and `ex-message` leads with the sentence and trails the
 
 | `:rf.error/id` | Meaning |
 |---|---|
-| `:scxml/invalid-spec` | Input spec missing `:initial` / `:states` (or `:type :parallel` / `:regions`). |
+| `:scxml/invalid-spec` | Input spec fails the canonical **recursive** grammar gate (`grammar/valid-definition?` — rf2-j538f7.18): not just a missing root `:initial` / `:states` (or `:type :parallel` / `:regions`), but any structural defect the runtime machine contract rejects at `reg-machine` — a nested compound missing `:initial`, a dangling / malformed transition target, an unknown bare node / spawn key, a malformed history / final-state / `:tags` / `:after`-delay shape. The thrown ex-data carries the value-free `grammar/definition-summary` under `:spec-summary` (its `:defect :category` is the canonical `:rf.error/machine-*` id). |
 | `:scxml/parse-error`  | Input XML is malformed or missing the `<scxml>` root. |
 
 ## AI-generate-a-machine (v1.1, rf2-1bncf)
@@ -2228,8 +2228,21 @@ resolver) from the parse/validate step (this ns). The fn:
 2. Hands the prompt to `:resolver` and waits for a string response.
 3. Strips fenced code blocks (```clojure / ```edn / bare) tolerantly,
    so the LLM may emit prose around the EDN form.
-4. Parses the EDN form and validates it carries `:initial` + non-
-   empty `:states` (or `:type :parallel` + non-empty `:regions`).
+4. Parses the EDN form and validates it against the **canonical
+   recursive grammar gate** (`grammar/valid-definition?` — rf2-j538f7.18),
+   the single projectability predicate the share boundary, Mermaid, SCXML,
+   and the chart projector all share. This is a **recursive** check, not a
+   shallow root-shape one: it walks the root, every parallel region, and
+   every compound descendant and REJECTS a definition the runtime machine
+   contract would reject at `reg-machine` — a nested compound missing
+   `:initial`, a dangling / malformed transition target, an unknown bare
+   node / spawn key, a malformed history / final-state / `:tags` /
+   `:after`-delay shape, or a mutually-exclusive parallel shape. So the
+   returned spec is genuinely `reg-machine`-registrable (the contract line
+   above), not merely shallowly well-formed. On rejection the thrown
+   `:ai-generate/invalid-spec` carries the value-free
+   `grammar/definition-summary` under `:spec-summary`, whose `:defect`
+   `:category` is the runtime's canonical `:rf.error/machine-*` id.
 
 ### Reserved namespaces
 
@@ -2252,7 +2265,7 @@ sentence, and `ex-message` leads with the sentence and trails the
 |---|---|
 | `:ai-generate/no-resolver`  | `:resolver` opt was not provided. |
 | `:ai-generate/parse-failed` | Resolver output could not be parsed as EDN. |
-| `:ai-generate/invalid-spec` | Parsed value was not a valid machine shape. |
+| `:ai-generate/invalid-spec` | Parsed value failed the canonical **recursive** grammar gate (`grammar/valid-definition?`) — see step 4 above. The thrown ex-data carries the value-free `grammar/definition-summary` under `:spec-summary` (its `:defect :category` is the canonical `:rf.error/machine-*` id). |
 
 ### Determinism
 

@@ -41,6 +41,7 @@
             [day8.re-frame2-machines-viz.chart.layout :as layout]
             [day8.re-frame2-machines-viz.grammar :as g]
             [re-frame.machines.choice :as choice]
+            [re-frame.machines.lifecycle-fx.validation :as validation]
             [re-frame.machines.parallel :as parallel]
             [re-frame.machines.timeout :as timeout]
             [re-frame.machines.transition :as transition]))
@@ -397,3 +398,109 @@
       (is (= (choice/desugar-choices m)
              (g/desugar-choices m))
           (str ":choice desugar drifted for " (pr-str m))))))
+
+;; ---------------------------------------------------------------------------
+;; PARITY 8 — definition VALIDATION (rf2-j538f7.18)
+;;
+;; PARITY: `grammar/valid-definition?` (via `definition-defect`) must give the
+;; SAME accept/reject answer as the runtime
+;; `re-frame.machines.lifecycle-fx.validation/validate-machine!` for the
+;; PROJECTABLE structural grammar. If this fails, the viz recursive validator
+;; drifted from the engine — re-sync, do not delete.
+;;
+;; The pre-fix shallow `valid-definition?` blessed every deeply-invalid
+;; definition (nested compound missing `:initial`, dangling target, unknown
+;; bare node key, …). The recursive walker mirrors the engine so a definition
+;; the runtime rejects at `reg-machine` is rejected at EVERY viz ingestion /
+;; export boundary too.
+;;
+;; The corpus below is CURATED to the SHARED structural grammar — it excludes
+;; the documented viz-vs-engine divergences (guard/action ref resolution,
+;; non-parallel root `:after`, viz-stricter root shape), which are pinned
+;; SEPARATELY in `definition-validation-documented-divergences` so a change
+;; that accidentally aligns / diverges them is also caught.
+
+(defn- engine-accepts?
+  "True iff the runtime `validate-machine!` accepts `m` (no thrown error)."
+  [m]
+  (try (validation/validate-machine! m) true
+       (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _e false)))
+
+(defn- viz-accepts? [m] (nil? (g/definition-defect m)))
+
+(def ^:private validation-parity-corpus
+  "Representative definitions spanning the SHARED structural grammar — both the
+  viz validator and the engine must agree on each. Half are projectable (both
+  ACCEPT), half are structurally malformed (both REJECT)."
+  {;; ---- valid (both accept) ----
+   :valid-flat       {:initial :idle :states {:idle {:on {:go :done}} :done {:final? true}}}
+   :valid-compound   {:initial :o :states {:o {:initial :i :states {:i {:on {:up :sib}} :sib {}}} :top {}}}
+   :valid-vec-target {:initial :o :states {:o {:initial :i :states {:i {:on {:esc [:top]}}}} :top {}}}
+   :valid-parallel   {:type :parallel :regions {:r1 {:initial :a :states {:a {:on {:x :b}} :b {}}}
+                                                :r2 {:initial :p :states {:p {}}}}}
+   :valid-history    {:initial :o :states {:o {:initial :s :states {:s {:on {:g :s2}} :s2 {} :h {:type :history :deep? true}}}}}
+   :valid-timeout    {:initial :a :states {:a {:timeout 1000 :on-timeout :b} :b {}}}
+   :valid-choice     {:initial :g :states {:g {:type :choice :choice [{:target :a} {:target :b}]} :a {} :b {}}}
+   :valid-spawn      {:initial :a :states {:a {:spawn {:machine-id :child} :on {:go :b}} :b {}}}
+   :valid-spawn-all  {:initial :a :states {:a {:spawn-all {:children [{:id :c1 :machine-id :m}]
+                                                           :on-child-done :cd :on-child-error :ce
+                                                           :on-all-complete [:done]}
+                                               :on {:go :b}} :b {}}}
+   :valid-namespaced {:initial :a :states {:a {:my.app/note "x"}}}
+   :valid-tags       {:initial :a :states {:a {:tags #{:busy}}}}
+   ;; ---- invalid (both reject) ----
+   :nested-no-init   {:initial :outer :states {:outer {:states {:inner {}}}}}
+   :unresolved-kw    {:initial :idle :states {:idle {:on {:go :missing}}}}
+   :unresolved-vec   {:initial :a :states {:a {:on {:go [:nope]}}}}
+   :bad-target-map   {:initial :a :states {:a {:on {:go {:target 42}}}}}
+   :empty-vec-target {:initial :a :states {:a {:on {:go []}}}}
+   :unknown-node-key {:initial :idle :states {:idle {:on-entry :oops}}}
+   :hist-misplaced   {:initial :a :states {:a {} :hist {:type :history}}}
+   :hist-extra-keys  {:initial :o :states {:o {:initial :s :states {:s {} :h {:type :history :on {:x :s}}}}}}
+   :hist-duplicate   {:initial :o :states {:o {:initial :s :states {:s {} :h1 {:type :history} :h2 {:type :history}}}}}
+   :hist-bad-default {:initial :o :states {:o {:initial :s :states {:s {} :h {:type :history :default-target :nope}}}}}
+   :final-compound   {:initial :a :states {:a {:final? true :states {:b {}}}}}
+   :final-trans      {:initial :a :states {:a {:final? true :on {:x :b}} :b {}}}
+   :output-no-final  {:initial :a :states {:a {:output-key :foo}}}
+   :error-no-final   {:initial :a :states {:a {:error? true}}}
+   :bad-tags         {:initial :a :states {:a {:tags [:x]}}}
+   :bad-after-delay  {:initial :a :states {:a {:after {0 :b}} :b {}}}
+   :spawn-neither    {:initial :a :states {:a {:spawn {}}}}
+   :spawn-both       {:initial :a :states {:a {:spawn {:machine-id :m :definition {:initial :x :states {:x {}}}}}}}
+   :spawn-unknown    {:initial :a :states {:a {:spawn {:machine-id :m :bogus 1}}}}
+   :par-nested       {:type :parallel :regions {:r {:initial :a :states {:a {:type :parallel :regions {:x {:initial :y :states {:y {}}}}}}}}}
+   :par-no-init      {:type :parallel :regions {:r {:states {:a {}}}}}
+   :par-mutex        {:type :parallel :initial :a :regions {:r {:initial :a :states {:a {}}}}}
+   :par-empty        {:type :parallel :regions {}}})
+
+(deftest definition-validation-parity
+  (testing "the viz recursive validator accepts/rejects EXACTLY what the engine
+            validate-machine! does across the shared structural grammar"
+    (doseq [[label m] validation-parity-corpus]
+      (is (= (engine-accepts? m) (viz-accepts? m))
+          (str label ": viz validator drifted from the engine "
+               "(engine-accepts? " (engine-accepts? m)
+               ", viz-accepts? " (viz-accepts? m) ")")))))
+
+(deftest definition-validation-documented-divergences
+  (testing "guard / action keyword REF resolution is a DIVERGENCE — the engine
+            rejects a dangling guard ref (runtime wiring); the viz accepts it
+            (projectable topology, no registry to resolve against)"
+    (let [m {:initial :a :states {:a {:on {:go {:target :b :guard :missing?}}} :b {}}}]
+      (is (false? (engine-accepts? m)) "engine rejects the dangling guard ref")
+      (is (true?  (viz-accepts? m))    "the viz projects it — refs are runtime wiring, not topology")))
+
+  (testing "a NON-parallel root :after is a DIVERGENCE — the engine rejects it
+            (unschedulable at registration); the viz projects it as a
+            machine-root anchor"
+    (let [m {:initial :a :after {1000 :b} :states {:a {} :b {}}}]
+      (is (false? (engine-accepts? m)) "engine rejects a flat-root :after")
+      (is (true?  (viz-accepts? m))    "the viz projects it as a root anchor")))
+
+  (testing "viz-STRICTER root shape is a DIVERGENCE — the engine resolves a
+            missing / late root :initial lazily at runtime; the viz REQUIRES a
+            keyword root :initial + non-empty :states to have an initial-marker
+            to project"
+    (let [m {:states {:idle {}}}]
+      (is (true?  (engine-accepts? m)) "engine accepts a flat machine with no root :initial")
+      (is (false? (viz-accepts? m))    "the viz rejects it (no initial to project)"))))

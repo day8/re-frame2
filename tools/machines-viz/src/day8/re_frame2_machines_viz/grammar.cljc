@@ -127,7 +127,12 @@
         sp-ms        (update :after #(merge {sp-ms (:on-timeout spawn)} %))))))
 
 (defn- walk-states-timeouts [states]
-  (when states
+  ;; `map?`-guarded (not just truthy) so a MALFORMED non-map `:states` (a
+  ;; pathological direct-host prop) degrades to nil rather than throwing in
+  ;; `reduce-kv` — the recursive validator that desugars first must be able to
+  ;; REJECT such input, not crash on it. Well-formed inputs are unchanged (the
+  ;; desugar-parity corpus never carries a non-map `:states`).
+  (when (map? states)
     (reduce-kv
       (fn [acc k node]
         (assoc acc k (let [n (desugar-node-timeouts node)]
@@ -147,8 +152,8 @@
           def'  (cond-> (dissoc definition :timeout :on-timeout)
                   (contains? root' :after) (assoc :after (:after root')))]
       (cond-> def'
-        (:states def')  (update :states walk-states-timeouts)
-        (:regions def') (update :regions
+        (:states def')        (update :states walk-states-timeouts)
+        (map? (:regions def')) (update :regions
                                 (fn [regions]
                                   (reduce-kv
                                     (fn [acc rn body]
@@ -191,7 +196,8 @@
     (-> node (assoc :always (:choice node)) (dissoc :type :choice))))
 
 (defn- walk-states-choice [states]
-  (when states
+  ;; `map?`-guarded — see `walk-states-timeouts`.
+  (when (map? states)
     (reduce-kv
       (fn [acc k node]
         (assoc acc k (let [n (desugar-node-choice node)]
@@ -209,8 +215,8 @@
   (if-not (map? definition)
     definition
     (cond-> definition
-      (:states definition)  (update :states walk-states-choice)
-      (:regions definition) (update :regions
+      (:states definition)        (update :states walk-states-choice)
+      (map? (:regions definition)) (update :regions
                                     (fn [regions]
                                       (reduce-kv
                                         (fn [acc rn body]
@@ -274,20 +280,25 @@
   (and (map? definition)
        (= :parallel (:type definition))))
 
+(declare definition-defect)
+
 (defn valid-definition?
-  "True when `definition` is a machine shape every emitter can project: a
-  parallel root (`:type :parallel`) with a non-empty `:regions` map whose
-  region bodies are EACH a `valid-state-tree?`, OR a flat / compound
-  `valid-state-tree?`. The single shape gate the three emitters share so
-  they never drift on which definitions they accept — keyword `:initial`,
-  well-formed parallel regions."
+  "True when `definition` is a machine shape every emitter can project —
+  RECURSIVELY (rf2-j538f7.18). Delegates to `definition-defect`: a definition
+  is valid iff it carries no structural projectability defect.
+
+  This is NO LONGER a shallow minimum-shape check. Pre-fix it validated only
+  the ROOT (or parallel-region roots) as a `valid-state-tree?`, so it blessed
+  structurally-invalid-but-shallowly-ok definitions — a nested compound
+  missing `:initial`, a dangling transition target, an unknown bare node key —
+  and every boundary that delegates here (share encode/decode, AI generation,
+  Mermaid, SCXML, the chart projector) inherited the same false positive. It
+  now walks root, parallel regions and every compound descendant, mirroring the
+  runtime `re-frame.machines.lifecycle-fx.validation/validate-machine!` for the
+  projectable structural invariants. See `definition-defect` for the full
+  contract + the documented viz-vs-engine divergences."
   [definition]
-  (if (parallel-definition? definition)
-    (let [regions (:regions definition)]
-      (and (map? regions)
-           (seq regions)
-           (every? valid-state-tree? (vals regions))))
-    (valid-state-tree? definition)))
+  (nil? (definition-defect definition)))
 
 (defn definition-summary
   "EP-0015 / Spec 015 §exception-path residual (rf2-8nzxib) — a value-FREE
@@ -297,19 +308,29 @@
   the top-level key SET, parallel?, and child counts — never the values.
   The single summary the three emitters share so their thrown-error
   diagnostics agree (each stashes it under its own surface-specific ex-data
-  key: `:spec-summary` / `:definition-summary`)."
+  key: `:spec-summary` / `:definition-summary`).
+
+  rf2-j538f7.18 — when the definition carries a structural defect the summary
+  also carries the value-free `:defect` (the FIRST `definition-defect` — its
+  `:category` = the engine's `:rf.error/machine-*` id, plus a structural
+  `:path` and, for key/target defects, the offending keys / slot), so every
+  surface that stashes this summary carries the CANONICAL defect category while
+  keeping its own surface-specific error id."
   [definition]
-  (if (map? definition)
-    (cond-> {:type     :map
-             :keys     (vec (sort-by str (keys definition)))
-             :parallel (parallel-definition? definition)}
-      (map? (:states definition))  (assoc :state-count  (count (:states definition)))
-      (map? (:regions definition)) (assoc :region-count (count (:regions definition))))
-    (cond
-      (nil? definition)        {:type :nil}
-      (sequential? definition) {:type  (if (vector? definition) :vector :seq)
-                                :count (count definition)}
-      :else                    {:type :value})))
+  (let [defect (definition-defect definition)
+        base   (if (map? definition)
+                 (cond-> {:type     :map
+                          :keys     (vec (sort-by str (keys definition)))
+                          :parallel (parallel-definition? definition)}
+                   (map? (:states definition))  (assoc :state-count  (count (:states definition)))
+                   (map? (:regions definition)) (assoc :region-count (count (:regions definition))))
+                 (cond
+                   (nil? definition)        {:type :nil}
+                   (sequential? definition) {:type  (if (vector? definition) :vector :seq)
+                                             :count (count definition)}
+                   :else                    {:type :value}))]
+    (cond-> base
+      defect (assoc :defect defect))))
 
 (defn parent-path
   "The parent path of `path` (its `pop`); `[]` for an empty/top-level
@@ -377,6 +398,433 @@
          (every? vector? target))        (vec target)
     (vector? target)                     [target]
     :else                                []))
+
+;; ---------------------------------------------------------------------------
+;; RECURSIVE projectability validation — rf2-j538f7.18
+;; ---------------------------------------------------------------------------
+;;
+;; `valid-definition?` / `definition-defect` recursively enforce the
+;; runtime-relevant STRUCTURAL PROJECTABILITY contract, so every ingestion /
+;; export boundary that delegates here (share encode/decode, AI generation,
+;; Mermaid, SCXML, and the chart projector) gives the SAME accept/reject answer
+;; the runtime machine contract would — no longer the pre-fix SHALLOW
+;; minimum-shape check that blessed structurally-invalid-but-shallowly-ok
+;; definitions (nested compounds missing `:initial`, dangling transition
+;; targets, unknown bare node keys, …).
+;;
+;; The walker MIRRORS
+;; `re-frame.machines.lifecycle-fx.validation/validate-machine!` for the
+;; PROJECTABLE invariants. machines-viz stays bundle-isolated (this ns
+;; `:require`s only `clojure.string`), so the engine grammar/target-resolution
+;; is RE-STATED here, not required; a TEST-ONLY parity corpus pins the mirror
+;; against the engine oracle (`engine-grammar-parity-test`).
+;;
+;; Enforced (recursively, over root + parallel regions + every compound
+;; descendant):
+;;   - keyword state/region ids + non-empty `:states` maps;
+;;   - compound-`:initial` PRESENCE (`machine-compound-state-missing-initial`);
+;;   - transition `:target` shape + resolution for `:on` / `:after` /
+;;     `:always` / `:on-done` / `:spawn :on-error`
+;;     (`machine-bad-target` / `machine-unresolved-target`);
+;;   - unknown BARE node / spawn keys — NAMESPACED keys pass
+;;     (`machine-unknown-node-key` / `machine-unknown-spawn-key`);
+;;   - `:final?` shape (`machine-final-state-compound` / `-has-transitions` /
+;;     `machine-output-key-without-final` / `machine-error-flag-without-final`);
+;;   - `:tags` set-of-keywords (`machine-bad-tags`);
+;;   - single `:spawn` XOR `:machine-id` / `:definition`
+;;     (`machine-spawn-bad-shape`);
+;;   - `:after` delay-key shape (`machine-bad-after-delay`);
+;;   - history pseudo-state placement / closed key-set /
+;;     at-most-one-per-compound / `:default-target` resolution
+;;     (`machine-history-*`);
+;;   - mutually exclusive `:type :parallel` shape + non-nested regions
+;;     (`machine-parallel-bad-shape` / `-nested-not-supported`).
+;;
+;; The `:category` on each returned defect IS the engine's `:rf.error/machine-*`
+;; id, so a surface can carry the CANONICAL defect category while keeping its
+;; own surface-specific error id.
+;;
+;; DOCUMENTED viz-vs-engine divergences (out of scope — either runtime-WIRING
+;; not projectable topology, viz-STRICTER by necessity, or bounded complexity;
+;; pinned in the parity test's divergence set so a future change that
+;; accidentally aligns/diverges them is caught):
+;;   - guard / action / `:on-spawn` keyword REF resolution (needs the machine
+;;     registry — runtime wiring, not projectable topology);
+;;   - a non-parallel root `:after` (the engine rejects it as unschedulable;
+;;     the viz still PROJECTS it as a machine-root anchor);
+;;   - viz-STRICTER root shape: the viz REQUIRES a keyword root `:initial` +
+;;     non-empty `:states` (and non-empty region `:states`) — it needs an
+;;     initial-marker to project — whereas the engine resolves a missing / late
+;;     `:initial` lazily at runtime;
+;;   - the parallel-root region-qualified `:on` / `:after` / `:on-done` target
+;;     grammar + full `:spawn-all` shape (bounded complexity — a VALID
+;;     spawn-all still projects; a malformed one is simply not rejected here).
+
+(def ^:private known-state-node-keys
+  "Closed BARE key vocabulary a state-node may declare — bundle-isolated mirror
+  of the engine's `validation/known-state-node-keys`. Namespaced keys are the
+  open extension carve-out. `:type :history` / `:type :choice` pseudo-states
+  carry their own key-sets and are skipped by the node-key check."
+  #{:type :deep? :default-target :regions :region-order
+    :initial :states :data :schemas :internal-events
+    :guards :actions :on-spawn-actions
+    :entry :exit
+    :spawn :spawn-all
+    :always :after :choice :timeout :on-timeout :on :on-done
+    :tags :final? :output-key :error?
+    :meta :source-coords :source-code})
+
+(def ^:private known-machine-root-extra-keys
+  "Keys legal ONLY on the machine ROOT beyond `known-state-node-keys` — mirror
+  of the engine's `validation/known-machine-root-extra-keys`."
+  #{:doc :sensitive :large :schema :raise-depth-limit :always-depth-limit})
+
+(def ^:private known-spawn-spec-keys
+  "Closed BARE key vocabulary a single `:spawn` spec may declare — mirror of the
+  engine's `validation/known-spawn-spec-keys` (the retired `:timeout-ms` slot is
+  excluded from the unknown-key scan so it never surfaces as an unknown key)."
+  #{:machine-id :definition :data :id-prefix :on-spawn :on-done :on-error
+    :start :fixed-actor-id :system-id :timeout :on-timeout
+    :id :source-coords :source-code})
+
+(def ^:private history-pseudo-keys
+  "Closed key-set a `:type :history` pseudo-state may carry."
+  #{:type :deep? :default-target})
+
+(defn node-at
+  "Descend a `:states` map down absolute `path`, returning the leaf node (or nil
+  if `path` doesn't resolve). Bundle-isolated mirror of
+  `re-frame.machines.grammar/node-at`; an empty path resolves to nil (the scope
+  root is the `states` map itself, not a node)."
+  [states path]
+  (loop [m states p (vec path)]
+    (cond
+      (empty? p) nil
+      :else (let [n (get m (first p))]
+              (cond
+                (nil? n)        nil
+                (= 1 (count p)) n
+                :else           (recur (:states n) (rest p)))))))
+
+(defn transition-value-form
+  "Classify a transition-table slot value into its grammar form — bundle-
+  isolated mirror of `re-frame.machines.grammar/transition-value-form` (the
+  recogniser the runtime target validator discriminates on)."
+  [v]
+  (cond
+    (nil? v)     :nil
+    (keyword? v) :keyword
+    (and (vector? v) (seq v) (every? map? v)) :candidate-vector
+    (vector? v)  :vec-target
+    (map? v)     :map
+    :else        :other))
+
+(defn candidate-maps
+  "Normalise a transition slot value to its candidate maps — bundle-isolated
+  mirror of `re-frame.machines.grammar/candidate-maps` (`:nil` → `[{}]`,
+  malformed → nil). Used to explode an `:always` slot the way the runtime
+  target validator does. Distinct from the projector's `transition-candidates`
+  (which mapcat-explodes a mixed vector) — this matches the engine's normaliser
+  so the VALIDATOR agrees with `validate-machine!`."
+  [v]
+  (case (transition-value-form v)
+    :nil              [{}]
+    :keyword          [{:target v}]
+    :candidate-vector v
+    :vec-target       [{:target v}]
+    :map              [v]
+    :other            nil))
+
+(defn candidate-targets
+  "Normalise a transition slot value to the seq of `:target`s it declares, each
+  tagged `:present?` (whether the `:target` KEY was present) — bundle-isolated
+  mirror of `re-frame.machines.grammar/candidate-targets` (the shape the runtime
+  target VALIDATOR consumes)."
+  [v]
+  (case (transition-value-form v)
+    :keyword          [{:present? true :target v}]
+    :candidate-vector (mapv (fn [m] {:present? (contains? m :target) :target (:target m)}) v)
+    :vec-target       [{:present? true :target v}]
+    :map              [{:present? (contains? v :target) :target (:target v)}]
+    []))
+
+(defn- compound?
+  "A node is compound iff it declares a non-empty `:states` map."
+  [node]
+  (and (map? (:states node)) (seq (:states node))))
+
+(defn- resolves-to-state?
+  "True iff `target` resolves to a real node under `owning-path` within `scope`
+  (a `:states` map). A keyword names a direct child of the owning compound; a
+  vector is an absolute path from the (region) root. Mirror of the engine's
+  `validation/resolves-to-state?`."
+  [scope owning-path target]
+  (cond
+    (keyword? target) (some? (node-at scope (conj (vec owning-path) target)))
+    (vector? target)  (and (seq target) (some? (node-at scope target)))
+    :else             false))
+
+(defn- unknown-bare-keys
+  "The BARE keys of `m` not in `known` (a namespaced key is the open extension
+  carve-out and never flagged)."
+  [m known]
+  (->> (keys m) (remove #(namespace %)) (remove known) vec))
+
+;; ---- per-node defect checks (each returns a value-free defect map or nil) --
+
+(defn- node-keys-defect [path node at-root?]
+  (when (and (map? node)
+             (not (history-node? node))
+             (not (choice-node? node)))
+    (let [known     (cond-> known-state-node-keys
+                       at-root? (into known-machine-root-extra-keys))
+          offending (unknown-bare-keys node known)]
+      (when (seq offending)
+        {:category :rf.error/machine-unknown-node-key :path (vec path) :keys offending}))))
+
+(defn- tags-defect [path node]
+  (when (contains? node :tags)
+    (let [tags (:tags node)]
+      (when-not (and (set? tags) (every? keyword? tags))
+        {:category :rf.error/machine-bad-tags :path (vec path)}))))
+
+(defn- compound-initial-defect [path node]
+  (when (and (compound? node) (not (contains? node :initial)))
+    {:category :rf.error/machine-compound-state-missing-initial :path (vec path)}))
+
+(defn- final-state-defect [path node]
+  (cond
+    (true? (:final? node))
+    (cond
+      (or (contains? node :states) (contains? node :initial))
+      {:category :rf.error/machine-final-state-compound :path (vec path)}
+      (some #(contains? node %) [:on :always :after :spawn :spawn-all])
+      {:category :rf.error/machine-final-state-has-transitions :path (vec path)})
+    (contains? node :output-key)
+    {:category :rf.error/machine-output-key-without-final :path (vec path)}
+    (contains? node :error?)
+    {:category :rf.error/machine-error-flag-without-final :path (vec path)}))
+
+(defn- spawn-defect [path node]
+  (let [spec (:spawn node)]
+    (when (map? spec)
+      (let [has-id?   (contains? spec :machine-id)
+            has-def?  (contains? spec :definition)
+            offending (vec (remove #{:timeout-ms}
+                                   (unknown-bare-keys spec known-spawn-spec-keys)))]
+        (cond
+          (or (and has-id? has-def?) (and (not has-id?) (not has-def?)))
+          {:category :rf.error/machine-spawn-bad-shape :path (vec path)}
+          (seq offending)
+          {:category :rf.error/machine-unknown-spawn-key :path (vec path) :keys offending})))))
+
+(defn- valid-after-delay-key?
+  "A static `:after` map KEY is well-formed iff a positive integer (literal ms),
+  a non-empty vector (subscription vector), or a fn — mirror of the engine's
+  `validation/valid-after-delay-key?`."
+  [k]
+  (boolean (or (and (integer? k) (pos? k)) (and (vector? k) (seq k)) (fn? k))))
+
+(defn- after-delay-defect [path node]
+  (some (fn [[k _]]
+          (when-not (valid-after-delay-key? k)
+            {:category :rf.error/machine-bad-after-delay :path (vec path)}))
+        (:after node)))
+
+(defn- always-entries
+  "A node's `:always` normalised to candidate maps (absent / explicit-nil →
+  [], mirroring the engine's `validation/always-entries`)."
+  [node]
+  (let [a (:always node)]
+    (if (nil? a) [] (or (candidate-maps a) []))))
+
+(defn- target-defect
+  "Defect for one transition `:target` against `scope` (the region / machine
+  `:states`) and `path` (the declaring node's absolute path). nil / `:same-state`
+  is fine; an empty vector / non-keyword-non-vector is a malformed SHAPE; a
+  keyword / vector that names no declared node is UNRESOLVED. Mirror of the
+  engine's `validation/validate-target!`."
+  [scope path slot target]
+  (cond
+    (nil? target)                       nil
+    (= :same-state target)              nil
+    (and (vector? target) (empty? target))
+    {:category :rf.error/machine-bad-target :path (vec path) :slot slot}
+    (or (keyword? target) (vector? target))
+    (when-not (resolves-to-state? scope (vec (drop-last path)) target)
+      {:category :rf.error/machine-unresolved-target :path (vec path) :slot slot})
+    :else
+    {:category :rf.error/machine-bad-target :path (vec path) :slot slot}))
+
+(defn- transition-target-defect [scope path node]
+  (let [check (fn [slot v]
+                (some (fn [{:keys [present? target]}]
+                        (when present? (target-defect scope path slot target)))
+                      (candidate-targets v)))]
+    (or (some (fn [[_ v]] (check :on v)) (:on node))
+        (some (fn [[_ v]] (check :after v)) (:after node))
+        (some (fn [entry] (check :always entry)) (always-entries node))
+        (when (contains? node :on-done) (check :on-done (:on-done node)))
+        (when-let [oe (get-in node [:spawn :on-error])] (check :spawn/on-error oe)))))
+
+(defn- node-defect
+  "First defect on one MAP state-node at `path` within `scope` (its region /
+  flat `:states`). History pseudo-states contribute no defect here (their own
+  placement / key-set / default-target rules run in `history-scope-defect`; the
+  node-key check already skips them)."
+  [scope path node]
+  ;; Check ORDER mirrors the engine's `validate-machine!` intra-node precedence
+  ;; (keys / tags / spawn shape earliest; `:final?` shape BEFORE compound-
+  ;; `:initial`; targets; delay keys), so when a single node carries more than
+  ;; one defect the viz reports the SAME `:rf.error/machine-*` category the
+  ;; runtime would.
+  (or (node-keys-defect path node false)
+      (tags-defect path node)
+      (spawn-defect path node)
+      (final-state-defect path node)
+      (compound-initial-defect path node)
+      (transition-target-defect scope path node)
+      (after-delay-defect path node)))
+
+(defn- walk-scope-nodes
+  "`[abs-path node]` for every MAP node under `states`, recursing through
+  `:states`. Paths are scope-relative (region names never enter a within-scope
+  path)."
+  [states]
+  (letfn [(walk [path nodes]
+            (mapcat (fn [[k n]]
+                      (when (map? n)
+                        (cons [(conj path k) n]
+                              (when (map? (:states n))
+                                (walk (conj path k) (:states n))))))
+                    nodes))]
+    (when (map? states) (walk [] states))))
+
+;; ---- history-scope defects (mirror validation/validate-history-scope!) -----
+
+(defn- history-nodes-with-path [states]
+  (letfn [(walk [path nodes]
+            (mapcat (fn [[k n]]
+                      (when (map? n)
+                        (let [p (conj path k)]
+                          (concat (when (history-node? n) [[p n]])
+                                  (when (map? (:states n)) (walk p (:states n)))))))
+                    nodes))]
+    (when (map? states) (walk [] states))))
+
+(defn- history-node-defect [scope path node]
+  (let [owning-path (vec (drop-last path))]
+    (cond
+      (empty? owning-path)
+      {:category :rf.error/machine-history-misplaced :path (vec path)}
+      (seq (remove history-pseudo-keys (keys node)))
+      {:category :rf.error/machine-history-extra-keys :path (vec path)
+       :keys (vec (remove history-pseudo-keys (keys node)))}
+      (and (contains? node :default-target)
+           (not (resolves-to-state? scope owning-path (:default-target node))))
+      {:category :rf.error/machine-history-bad-default-target :path (vec path)})))
+
+(defn- compound-states-pairs
+  "`[compound-key states-map]` for the scope root (`:rf/root`) + every nested
+  compound inside `states`. Used for the at-most-one-history-per-compound check."
+  [states]
+  (letfn [(walk [pairs nodes]
+            (reduce (fn [acc [k n]]
+                      (if (and (map? n) (map? (:states n)) (seq (:states n)))
+                        (-> acc (conj [k (:states n)]) (walk (:states n)))
+                        acc))
+                    pairs nodes))]
+    (walk [[:rf/root states]] states)))
+
+(defn- history-scope-defect [scope]
+  (or (some (fn [[path node]] (history-node-defect scope path node))
+            (history-nodes-with-path scope))
+      (some (fn [[_ states-map]]
+              (let [hk (->> states-map (keep (fn [[k n]] (when (history-node? n) k))) vec)]
+                (when (> (count hk) 1)
+                  {:category :rf.error/machine-history-duplicate :path []})))
+            (compound-states-pairs scope))))
+
+;; ---- root / region / parallel shape ----------------------------------------
+
+(defn- root-on-target-defect
+  "The non-parallel root's OWN `:on` (the ancestor-fallback slot, decl-path
+  `[]`) target resolution — mirror of the engine's root `:on` branch in
+  `validate-transition-targets!`."
+  [scope d]
+  (some (fn [[_ v]]
+          (some (fn [{:keys [present? target]}]
+                  (when present? (target-defect scope [] :on target)))
+                (candidate-targets v)))
+        (:on d)))
+
+(defn- flat-defect [d]
+  (cond
+    (not (keyword? (:initial d)))
+    {:category :rf.error/machine-missing-initial :path []}
+    (not (and (map? (:states d)) (seq (:states d))))
+    {:category :rf.error/machine-missing-states :path []}
+    :else
+    (let [scope (:states d)]
+      (or (node-keys-defect [] d true)
+          (tags-defect [] d)
+          (some (fn [[path node]] (node-defect scope path node)) (walk-scope-nodes scope))
+          (history-scope-defect scope)
+          (root-on-target-defect scope d)))))
+
+(defn- region-defect [region-name body]
+  (cond
+    (not (keyword? region-name))
+    {:category :rf.error/machine-parallel-bad-shape :path [region-name]}
+    (not (and (map? body) (seq body)))
+    {:category :rf.error/machine-parallel-bad-shape :path [region-name]}
+    (= :parallel (:type body))
+    {:category :rf.error/machine-parallel-nested-not-supported :path [region-name]}
+    (not (keyword? (:initial body)))
+    {:category :rf.error/machine-parallel-bad-shape :path [region-name]}
+    (not (and (map? (:states body)) (seq (:states body))))
+    {:category :rf.error/machine-parallel-bad-shape :path [region-name]}
+    :else
+    (let [scope (:states body)]
+      (or (node-keys-defect [region-name] body false)
+          (tags-defect [region-name] body)
+          (some (fn [[path node]]
+                  (or (when (= :parallel (:type node))
+                        {:category :rf.error/machine-parallel-nested-not-supported :path (vec path)})
+                      (node-defect scope path node)))
+                (walk-scope-nodes scope))
+          (history-scope-defect scope)))))
+
+(defn- parallel-defect [d]
+  (let [regions (:regions d)]
+    (cond
+      (not (and (map? regions) (seq regions)))
+      {:category :rf.error/machine-parallel-bad-shape :path []}
+      (or (contains? d :initial) (contains? d :states))
+      {:category :rf.error/machine-parallel-bad-shape :path []}
+      :else
+      (or (node-keys-defect [] d true)
+          (some (fn [[region-name body]] (region-defect region-name body)) regions)))))
+
+(defn definition-defect
+  "Return the FIRST structural projectability defect of `definition` as a
+  value-FREE map `{:category <:rf.error/machine-*> :path <state-id vector> …}`
+  (key/target defects add `:keys` / `:slot`), or nil when the definition is
+  projectable. Desugars (`desugar-grammar` — EP-0029 A4/A5) FIRST so a
+  `:timeout` / `:choice` authoring form is validated on its lowered shape, then
+  recursively mirrors the runtime machine contract's projectable invariants —
+  see the section comment above for the full enforced list + the documented
+  viz-vs-engine divergences.
+
+  Pure; nil-safe (a nil / non-map desugars unchanged → `machine-bad-definition`).
+  The single source of truth `valid-definition?`, `definition-summary`, and every
+  emitter / share / chart shape gate delegate to."
+  [definition]
+  (let [d (desugar-grammar definition)]
+    (cond
+      (not (map? d))           {:category :rf.error/machine-bad-definition :path []}
+      (parallel-definition? d) (parallel-defect d)
+      :else                    (flat-defect d))))
 
 ;; ---------------------------------------------------------------------------
 ;; Name rendering — fn-tolerant guard / action / event labels

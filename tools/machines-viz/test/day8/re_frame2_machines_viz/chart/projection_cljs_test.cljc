@@ -2164,7 +2164,7 @@
             dropped one)."
     (let [machine {:initial :a
                    :states  {:a       {}
-                             :initial {:states {:a {}}}}}
+                             :initial {:initial :a :states {:a {}}}}}
           parsed  (layout/project-definition machine)
           graph   (projection/xyflow-graph parsed {} {})
           real-initial-a (layout/node-id [:initial :a])              ;; "initial__a"
@@ -2197,7 +2197,10 @@
     (let [machine {:initial :a
                    :states  {:a     {:on {:go :b}}
                              :b     {}
-                             :event {:states {:a {:states {:b {:states {:go {}}}}}}}}}
+                             :event {:initial :a
+                                     :states {:a {:initial :b
+                                                  :states {:b {:initial :go
+                                                               :states {:go {}}}}}}}}}
           parsed  (layout/project-definition machine)
           graph   (projection/xyflow-graph parsed {} {})
           real-event-path (layout/node-id [:event :a :b :go])        ;; "event__a__b__go"
@@ -3117,7 +3120,7 @@
   sibling (mirrors testdeck `:authenticating → :failed`)."
   {:initial :outer
    :states  {:outer  {:initial :inner
-                      :states  {:inner {:on {:escape :sibling}}}}
+                      :states  {:inner {:on {:escape [:sibling]}}}}
              :sibling {}}})
 
 (deftest xyflow-graph-flags-cross-hierarchy-edge

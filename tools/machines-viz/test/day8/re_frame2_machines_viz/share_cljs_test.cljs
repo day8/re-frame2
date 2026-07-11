@@ -676,6 +676,56 @@
                  "(canonical? " canonical? ", share-ok? " share-ok? ")"))))))
 
 ;; ---------------------------------------------------------------------------
+;; rf2-j538f7.18 — RECURSIVELY-malformed definitions (structurally invalid
+;; BELOW the root: a nested compound missing :initial, a dangling transition
+;; target, an unknown bare node key) ALSO fail closed at the share boundary. The
+;; pre-fix shallow canonical gate blessed these (their ROOT shape is fine), so a
+;; forged share-URL carrying one decoded :ok and reached MachineChart even though
+;; the definition is rejected everywhere the runtime is consulted. The recursive
+;; gate now rejects them at BOTH encode and decode, exactly like the flat /
+;; parallel shapes rf2-3fc89f.18 covered (which stay green).
+
+(def recursively-malformed-definitions
+  {:nested-compound-no-initial {:initial :outer :states {:outer {:states {:inner {}}}}}
+   :dangling-target            {:initial :idle :states {:idle {:on {:go :missing}}}}
+   :unknown-node-key           {:initial :idle :states {:idle {:on-entry :oops}}}})
+
+(deftest decoded-recursively-malformed-definition-rejected
+  (testing "rf2-j538f7.18 — a forged v2 share-URL carrying a recursively-
+            malformed definition fails closed at decode (:invalid-chart-state),
+            via BOTH the throwing and the safe decode APIs"
+    (doseq [[label definition] recursively-malformed-definitions]
+      (let [d (try (share/decode-share-url (forge-definition-url definition))
+                   (catch :default e (ex-data e)))]
+        (is (= :invalid-chart-state (:reason d))
+            (str "recursively-malformed " label " must fail closed at decode"))
+        (is (= :rf.machines-viz.share/decode-failed (:rf.error/id d))))
+      (let [{:keys [ok error]} (share/decode-share-url-safe (forge-definition-url definition))]
+        (is (nil? ok) (str label " must NOT decode :ok"))
+        (is (= :invalid-chart-state (:reason error)))))))
+
+(deftest encode-rejects-recursively-malformed-definitions
+  (testing "rf2-j538f7.18 — the encoder rejects the same recursively-malformed
+            definitions (encode/decode stay symmetric)"
+    (doseq [[label definition] recursively-malformed-definitions]
+      (let [d (try (share/encode-share-url {:machine-id :demo :definition definition})
+                   (catch :default e (ex-data e)))]
+        (is (= :invalid-chart-state (:reason d))
+            (str "recursively-malformed " label " must be rejected at encode"))
+        (is (= :rf.machines-viz.share/encode-failed (:rf.error/id d)))))))
+
+(deftest share-gate-recursively-malformed-agrees-with-canonical-grammar
+  (testing "rf2-j538f7.18 — the share boundary rejects EXACTLY the recursively-
+            malformed definitions the canonical RECURSIVE grammar gate rejects,
+            and the prior rf2-3fc89f.18 flat/parallel cases remain rejected"
+    (doseq [[label definition] (merge malformed-definitions recursively-malformed-definitions)]
+      (let [canonical? (boolean (grammar/valid-definition? (grammar/desugar-grammar definition)))
+            share-ok?  (some? (:ok (share/decode-share-url-safe (forge-definition-url definition))))]
+        (is (false? canonical?) (str label " is rejected by the canonical recursive grammar gate"))
+        (is (= canonical? share-ok?)
+            (str label ": share boundary agrees with the canonical grammar gate"))))))
+
+;; ---------------------------------------------------------------------------
 ;; rf2-dplwxh — top-level ChartState is CLOSED on decode. The encoder
 ;; allowlists to #{:machine-id :frame-id :definition :snapshot} before
 ;; serialising, but a hand-crafted URL bypasses the encoder entirely. The

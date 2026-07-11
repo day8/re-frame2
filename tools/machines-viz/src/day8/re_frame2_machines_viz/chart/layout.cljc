@@ -1363,23 +1363,38 @@
   ;; edge) and `:type :choice` / `:choice` → `:always` (A5, renders the
   ;; candidate edges). The runtime drives the same lowered forms. Idempotent
   ;; + nil-safe.
-  (let [definition (g/desugar-grammar definition)
-        graph (cond
-                (nil? definition)
-                {:nodes [] :edges [] :initial-path nil}
+  (let [definition (g/desugar-grammar definition)]
+    (cond
+      ;; rf2-j538f7.18 — REJECT a structurally-invalid definition BEFORE graph
+      ;; construction, so a malformed direct host prop (a nested compound missing
+      ;; `:initial`, a dangling transition target, an unknown bare node key, …)
+      ;; never reaches ELK or creates edges to absent nodes. The result carries a
+      ;; value-FREE `:definition-error` (the same `grammar/definition-summary` the
+      ;; emitters/share stash — its `:defect` category = the engine's
+      ;; `:rf.error/machine-*` id) instead of nodes/edges, and `MachineChart`
+      ;; renders a rejection placeholder. A nil definition is NOT an error (it is
+      ;; the "no definition" empty-state placeholder), so it skips this gate.
+      (and (some? definition) (g/definition-defect definition))
+      {:nodes [] :edges [] :initial-path nil
+       :definition-error (g/definition-summary definition)}
 
-                (= :parallel (:type definition))
-                (project-parallel definition)
+      :else
+      (let [graph (cond
+                    (nil? definition)
+                    {:nodes [] :edges [] :initial-path nil}
 
-                :else
-                (project-flat definition))]
-    ;; rf2-skhlw2.1 — surface each guard / action / entry / exit ref's
-    ;; declared `:rf.cofx/requires` (EP-0017 consumer attachment) onto the
-    ;; edges + nodes BEFORE the synthetic root-container wraps the graph (so
-    ;; the wrapper's `:path []` node is never resolved). A no-op for a
-    ;; machine that declares no requires.
-    (-> (attach-cofx-requires definition graph)
-        wrap-in-root-container)))
+                    (= :parallel (:type definition))
+                    (project-parallel definition)
+
+                    :else
+                    (project-flat definition))]
+        ;; rf2-skhlw2.1 — surface each guard / action / entry / exit ref's
+        ;; declared `:rf.cofx/requires` (EP-0017 consumer attachment) onto the
+        ;; edges + nodes BEFORE the synthetic root-container wraps the graph (so
+        ;; the wrapper's `:path []` node is never resolved). A no-op for a
+        ;; machine that declares no requires.
+        (-> (attach-cofx-requires definition graph)
+            wrap-in-root-container)))))
 
 (defn synthetic-node?
   "True when `node` is synthetic layout chrome rather than an occupiable

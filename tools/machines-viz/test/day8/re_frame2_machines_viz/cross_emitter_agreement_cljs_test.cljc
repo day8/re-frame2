@@ -448,7 +448,8 @@
                  :states  {:a1 {:on {:go :a2}}
                            :a2 {:final? true}}}
              :b {:initial :b1
-                 :states  {:b1 {:on {:go :b2}}}}}})
+                 :states  {:b1 {:on {:go :b2}}
+                           :b2 {:final? true}}}}})
 
 (deftest region-on-done-target-bearing-surfaced-by-mermaid-and-scxml
   (testing "rf2-f8fgz5 — a region's own top-level :on-done with a keyword
@@ -694,3 +695,53 @@
       (is (not (leaks? md)) "mermaid summary omits the :data secret")
       (is (not (leaks? sd)) "scxml summary omits the :data secret")
       (is (not (leaks? ad)) "ai summary omits the :data secret"))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-j538f7.18 — every ingestion / export surface REJECTS a RECURSIVELY-
+;; invalid definition (the pre-fix shallow gate blessed all three). Each surface
+;; keeps its own error id AND carries the CANONICAL defect category
+;; (:rf.error/machine-*) in its value-free summary, so a tool can map one defect
+;; onto its surface-specific error without re-walking the (possibly value-
+;; carrying) definition.
+
+(def ^:private recursively-invalid-definitions
+  {:nested-compound-no-initial
+   {:def      {:initial :outer :states {:outer {:states {:inner {}}}}}
+    :category :rf.error/machine-compound-state-missing-initial}
+   :dangling-target
+   {:def      {:initial :idle :states {:idle {:on {:go :missing}}}}
+    :category :rf.error/machine-unresolved-target}
+   :unknown-node-key
+   {:def      {:initial :idle :states {:idle {:on-entry :oops}}}
+    :category :rf.error/machine-unknown-node-key}})
+
+(defn- throws-ex [f]
+  (try (f) nil (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e e)))
+
+(deftest recursively-invalid-rejected-by-every-surface
+  (doseq [[label {:keys [def category]}] recursively-invalid-definitions]
+    (testing (str (name label) " — chart projection rejects BEFORE ELK (no orphan nodes/edges)")
+      (let [{:keys [nodes edges definition-error]} (layout/project-definition def)]
+        (is (empty? nodes) (str label ": no nodes reach ELK"))
+        (is (empty? edges) (str label ": no orphan edges to absent nodes"))
+        (is (= category (get-in definition-error [:defect :category]))
+            (str label ": chart carries the canonical defect category"))))
+    (testing (str (name label) " — Mermaid rejects, carrying the canonical defect category")
+      (let [ex (throws-ex #(mermaid/emit def))]
+        (is (some? ex) (str label ": mermaid throws"))
+        (is (= :mermaid/invalid-definition (:rf.error/id (ex-data ex))))
+        (is (= category (get-in (ex-data ex) [:definition-summary :defect :category]))
+            (str label ": mermaid's summary carries the canonical defect category"))))
+    (testing (str (name label) " — SCXML rejects, carrying the canonical defect category")
+      (let [ex (throws-ex #(scxml/spec->scxml def))]
+        (is (some? ex) (str label ": scxml throws"))
+        (is (= :scxml/invalid-spec (:rf.error/id (ex-data ex))))
+        (is (= category (get-in (ex-data ex) [:spec-summary :defect :category]))
+            (str label ": scxml's summary carries the canonical defect category"))))
+    (testing (str (name label) " — AI generation no longer returns a runtime-rejected spec as 'validated'")
+      (let [resolver (fn [_] (pr-str def))
+            ex       (throws-ex #(ai/generate-machine "x" {:resolver resolver}))]
+        (is (some? ex) (str label ": ai throws"))
+        (is (= :ai-generate/invalid-spec (:rf.error/id (ex-data ex))))
+        (is (= category (get-in (ex-data ex) [:spec-summary :defect :category]))
+            (str label ": ai's summary carries the canonical defect category"))))))
