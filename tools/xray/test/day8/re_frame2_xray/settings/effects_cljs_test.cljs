@@ -205,6 +205,61 @@
   (is (false? (config/get-setting :general :auto-open-on-error?))
       "config carries the flipped value"))
 
+;; ---- auto-open reopen preserves the realized surface (rf2-kggzi4) -------
+;;
+;; rf2-j538f7.41 made the two GLOBAL reopen routes (Ctrl+Shift+C toggle +
+;; Cmd/Ctrl+K palette) preserve the last-realized mount surface via
+;; `mount/toggle!`. The auto-open-on-error watcher was the THIRD reopen
+;; route and still hard-coded `mount/open!` — a surface CHANGE that would
+;; revert a hidden overlay to inline on auto-open. rf2-kggzi4 routes it
+;; through the shared `reopen-preserving-surface!` helper (→ `toggle!`).
+;;
+;; We unit-test that helper's routing directly (mirroring how
+;; mount_cljs_test's `toggle!-*` suite unit-tests the mount layer's own
+;; surface preservation): the auto-open GATE — the empty→non-empty edge +
+;; toggle-on + hidden — is covered by the watcher tests above. Note the
+;; full `install-auto-open-watcher!` `add-watch` path can't be driven
+;; under this suite's headless plain-atom adapter (its derived
+;; subscriptions reify `IDeref`/`IDisposable` only, not `IWatchable`);
+;; that reactive glue is exercised in the browser suites.
+
+(defn- with-recording-mount-exports
+  "Install a stub `window.day8.re_frame2_xray` whose mount exports each
+  record their own export name when invoked. Calls `(f invoked-atom)`,
+  then tears the stub window (and `day8`) back down."
+  [f]
+  (let [invoked     (atom [])
+        had-window? (exists? js/globalThis.window)
+        record      (fn [nm] (fn [] (swap! invoked conj nm) nil))]
+    (when-not had-window?
+      (set! (.-window js/globalThis) #js {}))
+    (let [win js/globalThis.window]
+      (set! (.-day8 win)
+            #js {"re_frame2_xray"
+                 #js {"open_BANG_"         (record "open_BANG_")
+                      "open_overlay_BANG_" (record "open_overlay_BANG_")
+                      "toggle_BANG_"       (record "toggle_BANG_")}})
+      (try
+        (f invoked)
+        (finally
+          (js-delete win "day8")
+          (when-not had-window?
+            (js-delete js/globalThis "window")))))))
+
+(deftest reopen-preserving-surface-routes-through-toggle-not-open
+  (testing "rf2-kggzi4 — the auto-open-on-error reopen route
+            (`reopen-preserving-surface!`) invokes the surface-preserving
+            `mount/toggle!` export, never the surface-changing `mount/open!`
+            (which would revert a hidden overlay to inline). Mirrors the
+            rf2-j538f7.41 fix on the Ctrl+Shift+C + palette routes."
+    (with-recording-mount-exports
+      (fn [invoked]
+        (#'effects/reopen-preserving-surface!)
+        (is (= ["toggle_BANG_"] @invoked)
+            "reopen invoked the surface-preserving toggle! export, and only it")
+        (is (not-any? #{"open_BANG_"} @invoked)
+            "reopen did NOT call the surface-changing open!")))))
+
 ;; ---- apply-all! ---------------------------------------------------------
 
 (deftest apply-all-restores-text-size-and-theme
