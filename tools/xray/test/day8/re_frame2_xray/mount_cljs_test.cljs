@@ -54,6 +54,7 @@
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.mount :as mount]
             [day8.re-frame2-xray.registry :as registry]
+            [day8.re-frame2-xray.settings.effects :as settings-effects]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
@@ -1736,3 +1737,333 @@
   (testing "rf2-czcg5: a nil document (popup-blocked / no-DOM) no-ops
             rather than throwing."
     (is (nil? (style-popout-document!* nil)))))
+
+;; -------------------------------------------------------------------------
+;; (10) Surface transitions — inline ⇄ overlay re-parent + re-render
+;;      (rf2-j538f7.23)
+;; -------------------------------------------------------------------------
+;;
+;; `open!` and `open-overlay!` name two DISTINCT PHYSICAL surfaces
+;; (spec/API.md §open! / open-overlay!): inline mounts true-inline into
+;; the app's `[data-rf-xray-host]` layout host (`position: relative`,
+;; normal flow); overlay mounts a fixed modal under `document.body`
+;; (`position: fixed`). `shell-view` derives its positioning from the
+;; render-time `:mode` prop, and the node's OWNER (host vs body) is
+;; fixed at create-time.
+;;
+;; Pre-fix, the update-only branches only toggled visibility +
+;; `data-rf-xray-mode` + `mount-state :mode` — the actual React tree,
+;; parent, and layout stayed on the previous surface, so the stored
+;; mode/attrs reported the requested surface while nothing physically
+;; moved (a Settings control that reported success without realizing
+;; it). `switch-surface!` re-parents + re-renders so a mode change
+;; realizes the requested surface both directions.
+;;
+;; The shared `mk-stub-document` returns `body` for the host selector,
+;; so inline-vs-overlay ownership is not observable there. These tests
+;; use a richer stub whose `[data-rf-xray-host]` host is a node DISTINCT
+;; from `body` and which implements `getElementById` (so
+;; `remove-stale-root!`'s eviction — the "exactly one root" guarantee —
+;; is exercised rather than silently no-op'd).
+
+(defn- deep-find-by-id [node id]
+  (when (some? node)
+    (if (= id (.-id node))
+      node
+      (let [children (.-children node)]
+        (when (some? children)
+          (loop [i 0]
+            (when (< i (.-length children))
+              (or (deep-find-by-id (aget children i) id)
+                  (recur (inc i))))))))))
+
+(defn- deep-count-by-id [node id]
+  (if (some? node)
+    (let [self     (if (= id (.-id node)) 1 0)
+          children (.-children node)]
+      (+ self
+         (if (some? children)
+           (loop [i 0 acc 0]
+             (if (< i (.-length children))
+               (recur (inc i) (+ acc (deep-count-by-id (aget children i) id)))
+               acc))
+           0)))
+    0))
+
+(defn- mk-two-owner-document
+  "Stub document whose `[data-rf-xray-host]` layout host is a node
+  DISTINCT from `body`, plus a working `getElementById`. Lets the
+  surface-transition tests assert the mount root's OWNER — inline →
+  host, overlay → body — and that exactly one `#rf-xray-root` survives
+  a switch. Returns `{:doc :body :host}`."
+  []
+  (let [body (mk-stub-node)
+        host (mk-stub-node)]
+    (.setAttribute host "data-rf-xray-host" "")
+    (.appendChild body host)
+    {:doc  (js-obj
+             "body"           body
+             "createElement"  (fn [_tag] (mk-stub-node))
+             "querySelector"  (fn [selector]
+                                (when (= selector "[data-rf-xray-host]")
+                                  host))
+             "getElementById" (fn [id] (deep-find-by-id body id)))
+     :body body
+     :host host}))
+
+(defn- with-two-owner-document [f]
+  ;; Same host-detection gate as `with-stub-document*` (rf2-higwg): only
+  ;; run under a runtime where `set! js/document` takes effect (node-
+  ;; test). In `:browser-test` the real `window.document` is non-
+  ;; configurable, so the body no-ops and the contract is proven on the
+  ;; node-test build.
+  (when (can-stub-js-document?)
+    (let [{:keys [doc body host]} (mk-two-owner-document)
+          had-doc? (exists? js/document)
+          prior    (when had-doc? js/document)]
+      (set! js/document doc)
+      (try
+        (f {:doc doc :body body :host host})
+        (finally
+          (if had-doc?
+            (set! js/document prior)
+            (js-delete js/goog.global "document")))))))
+
+(defn- shell-view-mode-of
+  "Pull the `:mode` prop shell-view was rendered with from a recorded
+  render call. The render tree is `[frame-provider {:frame ...}
+  [shell-view {:mode mode}]]`."
+  [call]
+  (:mode (get-in (:tree call) [2 1])))
+
+;; ---- (1) inline → overlay realizes the overlay surface ------------------
+
+(deftest open-overlay!-from-inline-reparents-to-body-and-rerenders-fixed
+  (testing "rf2-j538f7.23 — starting inline (open!) then invoking
+            open-overlay! must RE-RENDER the shell with {:mode :overlay}
+            and PHYSICALLY re-parent the mount root from the layout host
+            to document.body. Pre-fix this only flipped attributes while
+            the React tree/parent/layout stayed inline."
+    (with-two-owner-document
+      (fn [{:keys [body host]}]
+        (let [{:keys [render-fn calls]} (mk-render-stub)]
+          (with-redefs [substrate-adapter/render render-fn]
+            (mount/open!)
+            (is (= 1 (count @calls)) "first open! rendered once")
+            (let [inline-node (:node @@#'mount/mount-state)]
+              (is (= :inline (:mode (mount/status))))
+              (is (identical? host (.-parentNode inline-node))
+                  "precondition: inline root is owned by the layout host")
+              ;; Realize the overlay surface.
+              (let [result       (mount/open-overlay!)
+                    overlay-node (:node @@#'mount/mount-state)]
+                (is (= 2 (count @calls))
+                    "open-overlay! from inline RE-RENDERS — it is not a
+                     CSS-only toggle")
+                (is (= :overlay (shell-view-mode-of (second @calls)))
+                    "shell-view was re-rendered with {:mode :overlay} so
+                     its positioning derives fixed, not relative")
+                (is (= :overlay (:mode result))
+                    "the returned state reports the realized :overlay mode")
+                (is (= :overlay (:mode (mount/status)))
+                    "status :mode agrees with the realized surface")
+                (is (identical? body (.-parentNode overlay-node))
+                    "the mount root physically re-parented to document.body")
+                (is (not (identical? host (.-parentNode overlay-node)))
+                    "the root is no longer owned by the inline host")
+                (is (nil? (.-parentNode inline-node))
+                    "the stale inline node was evicted from the host")
+                (is (= "overlay"
+                       (.getAttribute overlay-node "data-rf-xray-mode"))
+                    "the node's data-rf-xray-mode agrees with the DOM surface")
+                (is (= 1 (deep-count-by-id body "rf-xray-root"))
+                    "exactly one #rf-xray-root exists after the switch —
+                     no duplicate parallel mount")
+                (is (true? (mount/visible?))
+                    "the realized overlay surface is visible")))))))))
+
+;; ---- (2) overlay → inline realizes the inline surface -------------------
+
+(deftest open!-from-overlay-reparents-to-host-and-rerenders-inline
+  (testing "rf2-j538f7.23 — the reverse: starting as the overlay
+            (open-overlay!) then invoking open! must RE-RENDER with
+            {:mode :inline} and move the single root back into the
+            app-provided [data-rf-xray-host], reporting :inline."
+    (with-two-owner-document
+      (fn [{:keys [body host]}]
+        (let [{:keys [render-fn calls]} (mk-render-stub)]
+          (with-redefs [substrate-adapter/render render-fn]
+            (mount/open-overlay!)
+            (is (= 1 (count @calls)) "first open-overlay! rendered once")
+            (let [overlay-node (:node @@#'mount/mount-state)]
+              (is (= :overlay (:mode (mount/status))))
+              (is (identical? body (.-parentNode overlay-node))
+                  "precondition: overlay root is owned by document.body")
+              ;; Realize the inline surface.
+              (let [result      (mount/open!)
+                    inline-node (:node @@#'mount/mount-state)]
+                (is (= 2 (count @calls))
+                    "open! from overlay RE-RENDERS — not a CSS-only toggle")
+                (is (= :inline (shell-view-mode-of (second @calls)))
+                    "shell-view was re-rendered with {:mode :inline}")
+                (is (= :inline (:mode result))
+                    "the returned state reports the realized :inline mode")
+                (is (= :inline (:mode (mount/status))))
+                (is (identical? host (.-parentNode inline-node))
+                    "the single root moved into [data-rf-xray-host]")
+                (is (nil? (.-parentNode overlay-node))
+                    "the stale overlay node was evicted from document.body")
+                (is (= "inline"
+                       (.getAttribute inline-node "data-rf-xray-mode"))
+                    "the node's data-rf-xray-mode agrees with the DOM surface")
+                (is (= 1 (deep-count-by-id body "rf-xray-root"))
+                    "exactly one #rf-xray-root exists after the reverse switch")
+                (is (true? (mount/visible?)))))))))))
+
+;; ---- (3) same-mode repeat is idempotent (no duplicate roots) ------------
+
+(deftest repeated-open-overlay!-same-mode-is-idempotent
+  (testing "rf2-j538f7.23 acceptance 3 — repeated open-overlay! on an
+            already-overlay shell is a CSS-only show: no second render,
+            same DOM node, exactly one root."
+    (with-two-owner-document
+      (fn [{:keys [body]}]
+        (let [{:keys [render-fn calls]} (mk-render-stub)]
+          (with-redefs [substrate-adapter/render render-fn]
+            (mount/open-overlay!)
+            (let [first-node (:node @@#'mount/mount-state)]
+              (mount/open-overlay!)
+              (mount/open-overlay!)
+              (is (= 1 (count @calls))
+                  "no re-render on same-mode repeats")
+              (is (identical? first-node (:node @@#'mount/mount-state))
+                  "the same DOM node is reused across same-mode calls")
+              (is (= 1 (deep-count-by-id body "rf-xray-root"))
+                  "still exactly one #rf-xray-root — no parallel mount")
+              (is (= :overlay (:mode (mount/status)))))))))))
+
+(deftest repeated-open!-same-mode-is-idempotent-under-distinct-host
+  (testing "rf2-j538f7.23 acceptance 3 — repeated open! on an already-
+            inline shell is a CSS-only show (mirrors the shared-stub
+            second-open! test, but proves it under the distinct-host
+            document so ownership stays fixed to the host)."
+    (with-two-owner-document
+      (fn [{:keys [body host]}]
+        (let [{:keys [render-fn calls]} (mk-render-stub)]
+          (with-redefs [substrate-adapter/render render-fn]
+            (mount/open!)
+            (let [first-node (:node @@#'mount/mount-state)]
+              (mount/open!)
+              (mount/open!)
+              (is (= 1 (count @calls)) "no re-render on same-mode repeats")
+              (is (identical? first-node (:node @@#'mount/mount-state))
+                  "same DOM node reused")
+              (is (identical? host (.-parentNode first-node))
+                  "ownership stays with the layout host")
+              (is (= 1 (deep-count-by-id body "rf-xray-root")))
+              (is (= :inline (:mode (mount/status)))))))))))
+
+;; ---- (4) Settings integration through the exported mount bridge ---------
+
+(deftest settings-panel-position-realizes-surface-through-the-bridge
+  (testing "rf2-j538f7.23 acceptance 4 — driving Right rail → Fullscreen
+            → Right rail through the ACTUAL exported mount bridge
+            (settings/effects apply-panel-position! → window.day8.
+            re_frame2_xray.open_BANG_ / open_overlay_BANG_) re-parents
+            the physical mount root at both transitions, not just a
+            mocked effect call."
+    (with-two-owner-document
+      (fn [{:keys [body host]}]
+        (let [{:keys [render-fn]} (mk-render-stub)
+              prior-window        (when (exists? js/window) js/window)]
+          (with-redefs [substrate-adapter/render render-fn]
+            ;; Install the same browser API exports install.cljs wires,
+            ;; pointing at the REAL mount fns so the bridge exercises the
+            ;; production late-bind path.
+            (set! js/window
+                  (js-obj "day8"
+                          (js-obj "re_frame2_xray"
+                                  (js-obj "open_BANG_"         mount/open!
+                                          "open_overlay_BANG_" mount/open-overlay!
+                                          "status"             mount/status))))
+            (try
+              (settings-effects/apply-panel-position! :right-rail)
+              (is (= :inline (:mode (mount/status))))
+              (is (identical? host (.-parentNode (:node @@#'mount/mount-state)))
+                  "right-rail → inline root owned by the layout host")
+
+              (settings-effects/apply-panel-position! :fullscreen)
+              (is (= :overlay (:mode (mount/status)))
+                  "fullscreen → status realizes :overlay through the bridge")
+              (is (identical? body (.-parentNode (:node @@#'mount/mount-state)))
+                  "fullscreen → root physically re-parented to document.body")
+              (is (= 1 (deep-count-by-id body "rf-xray-root"))
+                  "one root after the first bridge transition")
+
+              (settings-effects/apply-panel-position! :right-rail)
+              (is (= :inline (:mode (mount/status)))
+                  "right-rail again → status realizes :inline through the bridge")
+              (is (identical? host (.-parentNode (:node @@#'mount/mount-state)))
+                  "right-rail again → root re-parented back into the host")
+              (is (= 1 (deep-count-by-id body "rf-xray-root"))
+                  "one root after the reverse bridge transition")
+              (finally
+                (if prior-window
+                  (set! js/window prior-window)
+                  (js-delete js/goog.global "window"))))))))))
+
+;; ---- (5) close / reopen after a transition stays coherent ---------------
+
+(deftest close-then-reopen-after-switch-to-overlay-is-coherent
+  (testing "rf2-j538f7.23 acceptance 5 — after inline→overlay, close!
+            retains the realized overlay mode and a matching
+            open-overlay! is a CSS-only show of the SAME body-owned node
+            (mode + DOM surface agree)."
+    (with-two-owner-document
+      (fn [{:keys [body]}]
+        (let [{:keys [render-fn calls]} (mk-render-stub)]
+          (with-redefs [substrate-adapter/render render-fn]
+            (mount/open!)
+            (mount/open-overlay!)               ; render #2 — realize overlay
+            (let [overlay-node (:node @@#'mount/mount-state)]
+              (mount/close!)
+              (is (false? (mount/visible?)))
+              (is (= :overlay (:mode (mount/status)))
+                  "close! retains the realized overlay mode")
+              (mount/open-overlay!)             ; CSS-only re-show
+              (is (true? (mount/visible?)))
+              (is (= 2 (count @calls))
+                  "reopening the SAME overlay surface adds no third render")
+              (is (identical? overlay-node (:node @@#'mount/mount-state))
+                  "same overlay node reused across close/reopen")
+              (is (identical? body (.-parentNode overlay-node))
+                  "overlay node still owned by document.body")
+              (is (= 1 (deep-count-by-id body "rf-xray-root")))
+              (is (= :overlay (:mode (mount/status)))
+                  "mode + realized surface still agree after close/reopen"))))))))
+
+(deftest close-then-reopen-after-switch-to-inline-is-coherent
+  (testing "rf2-j538f7.23 acceptance 5 — after overlay→inline, close!
+            retains the realized inline mode and a matching open! is a
+            CSS-only show of the SAME host-owned node."
+    (with-two-owner-document
+      (fn [{:keys [host body]}]
+        (let [{:keys [render-fn calls]} (mk-render-stub)]
+          (with-redefs [substrate-adapter/render render-fn]
+            (mount/open-overlay!)
+            (mount/open!)                       ; render #2 — realize inline
+            (let [inline-node (:node @@#'mount/mount-state)]
+              (mount/close!)
+              (is (false? (mount/visible?)))
+              (is (= :inline (:mode (mount/status)))
+                  "close! retains the realized inline mode")
+              (mount/open!)                     ; CSS-only re-show
+              (is (true? (mount/visible?)))
+              (is (= 2 (count @calls))
+                  "reopening the SAME inline surface adds no third render")
+              (is (identical? inline-node (:node @@#'mount/mount-state))
+                  "same inline node reused across close/reopen")
+              (is (identical? host (.-parentNode inline-node))
+                  "inline node still owned by the layout host")
+              (is (= 1 (deep-count-by-id body "rf-xray-root")))
+              (is (= :inline (:mode (mount/status)))))))))))
