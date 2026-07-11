@@ -37,6 +37,7 @@
   race from the same gun."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.subs :as subs]
             [re-frame.subs.cache :as subs-cache]
             [re-frame.frame :as frame]
             [re-frame.schemas :as schemas]
@@ -282,3 +283,61 @@
                  "disposes. Sample: " (vec (take 20 under)))))
       (is (= n-trials (count @per-trial))
           "all trials accounted for"))))
+
+;; ---- 4. Concurrent cache-MISS install resolves to ONE reaction ------------
+
+;; Per rf2-x76af2.23. The HIT path was already CAS-after-snapshot hardened;
+;; the MISS path installed with an unconditional plain `(swap! cache assoc
+;; k …)`. Two threads that both observe a miss for the SAME query-v both call
+;; `compute-and-cache!`, both build a reaction, and the second assoc STOMPS the
+;; first: reaction1 is orphaned (its on-dispose never fires → its layer-2 input
+;; ref-count bumps leak), and `:ref-count` is reset to 1 while TWO callers hold
+;; references — so a phantom holder's unsubscribe drives the CACHED reaction
+;; 1→0 and disposes it while the other caller still uses it.
+;;
+;; The defect IS the unconditional overwrite, so two direct `compute-and-cache!`
+;; calls model two racing misses deterministically (interleaving-injection, not
+;; wall-clock): each call unconditionally rebuilds+installs pre-fix, so the
+;; second call reproduces the exact double-build the CAS-less install could not
+;; prevent. Post-fix, install-if-absent makes the second call adopt the winner.
+(deftest concurrent-miss-install-resolves-to-one-reaction
+  (testing "two racing cache-miss builds for the same query-v resolve to ONE cached reaction"
+    (rf/reg-event :seed (fn [_ _] {:db {:a 1 :b 2}}))
+    (rf/reg-sub :a (fn [db _] (:a db)))
+    (rf/reg-sub :b (fn [db _] (:b db)))
+    ;; layer-2 sub over two layer-1 inputs, so we can observe input ref-counts.
+    (rf/reg-sub :sum :<- [:a] :<- [:b] (fn [[a b] _] (+ a b)))
+    (rf/dispatch-sync [:seed] {:frame :rf/default})
+
+    (let [frame-id :rf/default
+          cache    (:sub-cache (frame/frame frame-id))
+          cc!      #'subs/compute-and-cache!   ;; the private build path (cache-key = identity)
+          ;; Two racing misses = two direct build calls.
+          r1       (cc! frame-id [:sum])
+          r2       (cc! frame-id [:sum])]
+
+      (testing "exactly ONE reaction is cached and both builds resolve to it"
+        (is (identical? r1 r2)
+            "the loser adopts the winner — both builds resolve to the SAME reaction")
+        (is (identical? r1 (get-in @cache [[:sum] :reaction]))
+            "the cached slot holds the shared reaction (no stomp)"))
+
+      (testing ":ref-count == subscriber count (2), not reset to 1"
+        (is (= 2 (get-in @cache [[:sum] :ref-count]))
+            "both callers are counted (pre-fix the second overwrite reset it to 1)"))
+
+      (testing "no input-ref leak: each layer-1 input held once by the ONE cached reaction"
+        ;; The loser's build bumped :a / :b then released them on dispose, so
+        ;; each input is held only by the single cached :sum reaction.
+        (is (= 1 (get-in @cache [[:a] :ref-count])) ":a input ref-count is 1, not leaked to 2")
+        (is (= 1 (get-in @cache [[:b] :ref-count])) ":b input ref-count is 1, not leaked to 2"))
+
+      (testing "after N unsubscribes the reaction disposes and all input refs release to zero"
+        ;; ref-count 2 → two unsubscribes → 0 → sync dispose → on-dispose
+        ;; releases the inputs symmetrically.
+        (rf/unsubscribe frame-id [:sum])
+        (is (some? (get @cache [:sum])) "one unsubscribe leaves the reaction live (ref-count 1)")
+        (rf/unsubscribe frame-id [:sum])
+        (is (nil? (get @cache [:sum])) ":sum evicted at ref-count 0")
+        (is (nil? (get @cache [:a])) ":a input released to 0 and evicted — no orphan")
+        (is (nil? (get @cache [:b])) ":b input released to 0 and evicted — no orphan")))))

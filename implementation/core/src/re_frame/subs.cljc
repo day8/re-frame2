@@ -944,48 +944,93 @@
     ;; deref to nil (per Spec 009 §Error contract recovery
     ;; :replaced-with-default), but the cache slot stays empty so a later
     ;; registration is observed by the next subscribe.
-    (when (and cache sub-meta)
-      (swap! cache assoc k {:reaction   reaction
-                            :inputs     input-signals
-                            :ref-count  1})
-      (interop/add-on-dispose! reaction
-        (fn []
-          ;; A layer-2+ sub's construction called `subscribe` once per
-          ;; `:<-` input, each incrementing the input's `:ref-count`.
-          ;; The disposal must release those refs symmetrically —
-          ;; without this, input ref-counts leak after Reagent auto-
-          ;; disposes the parent. Decrement inputs BEFORE clearing the
-          ;; parent slot so the cache invariant ("ref-count reflects
-          ;; live refs") holds at every observable moment.
-          ;; Best-effort per-input release: a throw from one input's
-          ;; `unsubscribe` surfaces a dev breadcrumb (rf2-is8ov5) and the
-          ;; loop continues so the remaining inputs still release.
+    (if (and cache sub-meta)
+      ;; Per rf2-x76af2.23: the cache-miss install must be ATOMIC / idempotent.
+      ;; Two threads that both observed a miss for the SAME query-v both reach
+      ;; here and build a reaction; a plain `(swap! cache assoc k …)` lets the
+      ;; second STOMP the first — the first reaction is orphaned (its on-dispose
+      ;; never fires → leaked layer-2 input refs) and `:ref-count` is reset to 1
+      ;; while TWO callers hold refs (a phantom unsubscribe then drives the
+      ;; CACHED reaction 1→0 and disposes it out from under the live holder).
+      ;; Install-if-absent instead, mirroring the subscribe hit path's
+      ;; CAS-after-snapshot discipline: `swap!` installs ONLY when the slot is
+      ;; still empty, so a double-build resolves to ONE cached reaction.
+      ;;
+      ;; Wire the orphan-safe on-dispose closure onto the reaction BEFORE the
+      ;; install attempt so a LOSING racer can dispose its just-built reaction
+      ;; through the same closure (releasing the input refs its build bumped) —
+      ;; the cache-dissoc step is identity-guarded, so firing it on an
+      ;; un-cached orphan is a no-op.
+      (let [entry {:reaction   reaction
+                   :inputs     input-signals
+                   :ref-count  1}]
+        (interop/add-on-dispose! reaction
+          (fn []
+            ;; A layer-2+ sub's construction called `subscribe` once per
+            ;; `:<-` input, each incrementing the input's `:ref-count`.
+            ;; The disposal must release those refs symmetrically —
+            ;; without this, input ref-counts leak after Reagent auto-
+            ;; disposes the parent. Decrement inputs BEFORE clearing the
+            ;; parent slot so the cache invariant ("ref-count reflects
+            ;; live refs") holds at every observable moment.
+            ;; Best-effort per-input release: a throw from one input's
+            ;; `unsubscribe` surfaces a dev breadcrumb (rf2-is8ov5) and the
+            ;; loop continues so the remaining inputs still release.
+            (doseq [input-q input-signals]
+              (release-input-ref! frame-id input-q :on-dispose))
+            (swap! cache (fn [m]
+                           (if (identical? reaction (get-in m [k :reaction]))
+                             (dissoc m k)
+                             m)))))
+        (let [installed (swap! cache (fn [m]
+                                       (if (contains? m k)
+                                         m
+                                         (assoc m k entry))))]
+          (if (identical? entry (get installed k))
+            ;; Uncontended, or we won the install race: our reaction is cached.
+            reaction
+            ;; Collision: a concurrent build already installed for this
+            ;; query-v. Dispose OUR just-built orphan (fires the on-dispose
+            ;; wired above → releases the input refs our build bumped; the
+            ;; cache-dissoc no-ops since our reaction was never cached), then
+            ;; ADOPT the winner as a HIT — bump its ref-count under the same
+            ;; CAS-after-snapshot discipline the `subscribe` hit path uses, so
+            ;; both callers share ONE reaction with a correct ref-count. If the
+            ;; winner was evicted in the race window, fall through to a fresh
+            ;; build (mirroring the hit path's rebuild fall-through).
+            (do
+              (interop/dispose! reaction)
+              (let [winner-reaction (:reaction (get installed k))
+                    [_old post]
+                    (swap-vals! cache
+                                (fn [m]
+                                  (if (identical? winner-reaction
+                                                  (get-in m [k :reaction]))
+                                    (update-in m [k :ref-count] (fnil inc 0))
+                                    m)))]
+                (if (identical? winner-reaction (get-in post [k :reaction]))
+                  winner-reaction
+                  (compute-and-cache! frame-id query-v)))))))
+      ;; Not cached (frame torn down mid-build, or no-such-sub miss).
+      ;; Symmetric input release on the escaped-caching path: a layer-2+ build
+      ;; already subscribed each `:<-` input above (bumping their ref-counts),
+      ;; but the dispose-wiring that releases them lives ONLY inside the cached
+      ;; branch. If the frame was destroyed (or its container torn down)
+      ;; BETWEEN `subscribe`'s frame-record resolution and this re-resolution,
+      ;; `cache` is now nil: the reaction is built and returned but never cached
+      ;; and never dispose-wired, so without this branch nothing would ever call
+      ;; `unsubscribe` for those inputs — a monotonic ref-count leak until
+      ;; `clear-sub-cache!`. Release them here so the input ref-count stays
+      ;; symmetric with the bumps. Layer-1 has no subscribed inputs (its input
+      ;; is the app-db container, not a subscribe), and the no-such-sub miss
+      ;; (`sub-meta` nil) has no `:<-` inputs, so this only fires for a layer-2+
+      ;; reaction that escaped caching.
+      (do
+        (when (and (not layer-1?)
+                   (seq input-signals))
           (doseq [input-q input-signals]
-            (release-input-ref! frame-id input-q :on-dispose))
-          (swap! cache (fn [m]
-                         (if (identical? reaction (get-in m [k :reaction]))
-                           (dissoc m k)
-                           m))))))
-    ;; Symmetric input release on the not-cached path.
-    ;; A layer-2+ build already subscribed each `:<-` input above (bumping
-    ;; their ref-counts), but the dispose-wiring that releases them lives
-    ;; ONLY inside the `(when (and cache sub-meta) …)` branch. If the frame
-    ;; was destroyed (or its container torn down) BETWEEN `subscribe`'s
-    ;; frame-record resolution and this re-resolution, `cache` is now nil:
-    ;; the reaction is built and returned but never cached and never
-    ;; dispose-wired, so without this branch nothing would ever call
-    ;; `unsubscribe` for those inputs — a monotonic ref-count leak until
-    ;; `clear-sub-cache!`. Release them here so the input ref-count stays
-    ;; symmetric with the bumps. Layer-1 has no subscribed inputs (its
-    ;; input is the app-db container, not a subscribe), and the
-    ;; no-such-sub miss (`sub-meta` nil) has no `:<-` inputs, so this
-    ;; only fires for a layer-2+ reaction that escaped caching.
-    (when (and (not (and cache sub-meta))
-               (not layer-1?)
-               (seq input-signals))
-      (doseq [input-q input-signals]
-        (release-input-ref! frame-id input-q :not-cached-release)))
-    reaction))
+            (release-input-ref! frame-id input-q :not-cached-release)))
+        reaction))))
 
 ;; ---- the sub-override subscribe seam (CLJS, dev-only) --------------------
 ;;
