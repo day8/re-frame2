@@ -645,14 +645,21 @@ EDN before they reach an identity boundary:
 (rf.identity/canonical {:tenant "acme"})
 ;; => canonical EDN identity
 
-;; Explicit tagged/value encoding for an instant-like fact:
+;; Instant fact accepted; canonical returns the reserved tagged-instant tuple:
 (rf.identity/canonical {:at #inst "2026-06-10T00:00:00.000-00:00"})
+;; => {:at [:rf.identity/instant "2026-06-10T00:00:00.000Z"]}
 ```
 
-Raw host dates are rejected for the same reason as other host objects. A route,
-resource, or adapter boundary MAY explicitly coerce an accepted host date into
-an EDN instant before canonicalization; after that coercion the value is an
-instant fact, not a host object fact.
+Host instant types are the deliberate carve-out from the host-object rejection:
+`java.util.Date`, `java.time.Instant`, and `js/Date` are in-domain instant
+inputs (an EDN `#inst` literal reads as a host date on both hosts, so no
+literal-vs-host-date provenance distinction exists). `canonical` projects them
+immediately to the reserved tagged-instant tuple
+`[:rf.identity/instant "<RFC-3339 UTC millisecond text>"]` at epoch-millisecond
+precision; after that projection the value is an instant fact, not a host
+object fact. The normative grammar, the four canonical-identity laws, the
+portable range, and the failure reasons live in
+[Conventions §The tagged-instant canonical form](../../spec/Conventions.md#the-tagged-instant-canonical-form-rfidentityinstant).
 
 ### Canonical Byte Encoding (`CEDN-1`)
 
@@ -684,6 +691,9 @@ from its value token, with a single ASCII space. String, keyword, and symbol
 encoders MUST reject names that cannot be round-tripped through portable EDN
 readers on both CLJ and CLJS. Instant encoding normalizes equivalent instants
 to UTC before printing; timezone text from the source literal is not identity.
+The reserved tagged-instant tuple `[:rf.identity/instant <text>]` encodes to
+the same `t:` token as the host instant it denotes, while a plain string stays
+`s:` — instant-kind survives on both identity surfaces.
 
 The type tag is part of the bytes. That keeps distinct EDN values distinct:
 the string `"42"`, the integer `42`, the keyword `:42`, the vector `[1 2]`,
@@ -1226,6 +1236,36 @@ inspection, and multi-host conformance.
 Canonical EDN is the smallest Clojure-native answer. It preserves ordinary data
 as data, rejects host handles at identity boundaries, and gives non-Clojure
 ports a concrete target.
+
+### Instants Canonicalize To A Tagged Tuple, Not A Bare String
+
+The first cut of the canonicalizer normalized an instant to its bare UTC text.
+That quietly recreated, one level down, exactly the collision the type-tagged
+byte encoding exists to prevent: `(canonical #inst "…")` and `(canonical
+"<same text>")` became `=`, while `canonical-bytes` kept them distinct (`t:`
+vs `s:`) — two identity surfaces disagreeing about one fact, and a
+heterogeneous instant+string-keyed map rejected by one surface yet accepted by
+the other.
+
+The fix keeps the byte encoding untouched and moves the normalized value to a
+reserved tagged tuple, `[:rf.identity/instant "<RFC-3339 UTC millisecond
+text>"]`. The tuple carries the instant kind in ordinary EDN, is
+collision-resistant against user data (the `:rf.identity/*` namespace is
+reserved, and a malformed candidate fails closed rather than falling through
+as a generic vector), stays human-readable in traces and Xray rows, and
+follows the `[:rf.path/param <name>]` reserved-tuple precedent.
+`canonical-bytes` is unchanged: the tuple and the host instant it denotes emit
+the same `t:<text>` token, so `(canonical-bytes (canonical x))` equals
+`(canonical-bytes x)` and no pre-existing `CEDN-1` fixture token moved.
+
+The alternatives fail on inspection. A bare prefixed string payload is
+spellable by user data — the collision moves rather than dies. An
+epoch-milliseconds payload gives one canonical projection two scalar
+spellings and forces every tool to re-format for display, when the byte
+contract already pays for the UTC text spelling. Returning the host `#inst`
+value stores a mutable, host-shaped object whose JVM spellings
+(`java.util.Date` vs `java.time.Instant`) are not even `=` to each other. A
+custom reader tag or record is machinery the reserved tuple does not need.
 
 ### Routes Are Prisms, Not Just String Helpers
 
