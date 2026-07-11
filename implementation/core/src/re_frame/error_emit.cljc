@@ -230,18 +230,28 @@
         ;; DCE'd dev-trace tags). `cond->`'d in — absent when nil/blank, so the
         ;; tight record shape is unchanged for categories that pass no `attrs`
         ;; (or whose failing id already equals `:event-id`).
-        failing-id   (:failing-id attrs)
-        reason       (:reason attrs)
-        record       (cond-> {:error      error-kw
-                              :event      elided-event
-                              :event-id   event-id
-                              :frame      frame-id
-                              :time       time
-                              :exception  exception
-                              :elapsed-ms elapsed-ms}
-                       source-coord       (assoc :source-coord source-coord)
-                       (some? failing-id) (assoc :failing-id failing-id)
-                       (some? reason)     (assoc :reason reason))]
+        ;; Attribution slots the caller lifts onto the always-on record — the
+        ;; component ids / discriminators the failing category promises:
+        ;; `:failing-id` / `:reason` for the interceptor / cofx categories, and
+        ;; `:flow-id` + `:where :flow-eval` for the flow-eval category so its
+        ;; attribution SURVIVES an egress profile that drops `:exception`
+        ;; (rf2-z1332c — Spec 009 §Error event catalogue / Spec 013 §Trace
+        ;; stream ordering; previously the failing flow id rode ONLY the thrown
+        ;; ex-data). Merged UNDER the base observability fields, which always
+        ;; win; nil-valued slots are dropped so the tight record shape is
+        ;; unchanged for categories that pass none. Callers keep these to tight
+        ;; identifiers — this record is production-surviving and NOT
+        ;; privacy-gated.
+        attribution  (into {} (remove (comp nil? val)) attrs)
+        record       (cond-> (merge attribution
+                                    {:error      error-kw
+                                     :event      elided-event
+                                     :event-id   event-id
+                                     :frame      frame-id
+                                     :time       time
+                                     :exception  exception
+                                     :elapsed-ms elapsed-ms})
+                       source-coord (assoc :source-coord source-coord))]
     ;; Corpus-wide listeners fan out (the ADVANCED integration registry).
     ((:fan-out registry) record)
     ;; EP-0015 §9: the frame-owned observability sink route —
@@ -306,27 +316,40 @@
   `:event-id`, so nothing extra is stamped and the tight record is unchanged.
   The off-box shipper now learns WHICH interceptor / cofx failed in production.
 
+  The optional trailing `record-attrs` map carries CATEGORY-SPECIFIC
+  attribution the caller wants on the always-on record (axis 1) INDEPENDENT of
+  the dev-trace tags — e.g. the flow-eval category lifts `{:flow-id … :where
+  :flow-eval}` so its attribution survives an egress profile that drops
+  `:exception` (rf2-z1332c). It is NOT read from `trace-tags` (a `:where` there
+  would leak onto unrelated categories' records — e.g. legacy-root's `'rf/reg-
+  event`); the caller passes exactly the tight slots it wants lifted. `nil`
+  (the default) leaves every existing caller's record unchanged.
+
   Returns nil. Reached directly by `router.cljc` (static require) and via the
   `:error-emit/emit-error-both` late-bind hook by `fx` / `subs` / `subs.memo` /
   `cofx` / `router.diagnostics` (those layers cannot static-require this ns — a
   load cycle through `elision` → `frame`)."
-  [category event event-id frame exception elapsed-ms time trace-tags]
-  ;; Axis 1 — always-on corpus-wide listener (+ EP-0015 frame-owned sink).
-  ;; Lift the component-attributed `:failing-id` / `:reason` from
-  ;; the trace-tags onto the always-on record when the failing component is
-  ;; DISTINCT from the dispatched event (interceptor / cofx categories). The
-  ;; distinct-from-event-id guard keeps the record tight for the categories
-  ;; whose `:failing-id` already equals `:event-id`.
-  (let [failing-id (:failing-id trace-tags)
-        attrs      (when (and (some? failing-id) (not= failing-id event-id))
-                     {:failing-id failing-id
-                      :reason     (:reason trace-tags)})]
-    (dispatch-on-error! category event event-id frame exception elapsed-ms time
-                        attrs))
-  ;; Axis 2 — dev-only trace surface; DCEs under `:advanced` + `goog.DEBUG=false`
-  ;; (the `interop/debug-enabled?` gate lives inside `trace/emit-error!`).
-  (trace/emit-error! category trace-tags)
-  nil)
+  ([category event event-id frame exception elapsed-ms time trace-tags]
+   (emit-error-both! category event event-id frame exception elapsed-ms time
+                     trace-tags nil))
+  ([category event event-id frame exception elapsed-ms time trace-tags record-attrs]
+   ;; Axis 1 — always-on corpus-wide listener (+ EP-0015 frame-owned sink).
+   ;; Start from the caller's category-specific `record-attrs` (axis-1 only),
+   ;; then lift the component-attributed `:failing-id` / `:reason` from the
+   ;; trace-tags when the failing component is DISTINCT from the dispatched
+   ;; event (interceptor / cofx categories). The distinct-from-event-id guard
+   ;; keeps the record tight for the categories whose `:failing-id` already
+   ;; equals `:event-id`.
+   (let [failing-id (:failing-id trace-tags)
+         attrs      (cond-> record-attrs
+                      (and (some? failing-id) (not= failing-id event-id))
+                      (assoc :failing-id failing-id :reason (:reason trace-tags)))]
+     (dispatch-on-error! category event event-id frame exception elapsed-ms time
+                         attrs))
+   ;; Axis 2 — dev-only trace surface; DCEs under `:advanced` + `goog.DEBUG=false`
+   ;; (the `interop/debug-enabled?` gate lives inside `trace/emit-error!`).
+   (trace/emit-error! category trace-tags)
+   nil))
 
 ;; ---- general non-event always-on record (EP-0008 union shape) -------------
 ;;
