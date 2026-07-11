@@ -354,46 +354,104 @@
             redacted (redact-event-vec event sens large)]
         (assoc tags slot redacted)))))
 
+(defn- project-dispatch-later-args
+  "Redact a `:dispatch-later` args map (`{:ms <ms> :event [target-id arg-map …]}`
+  — Spec 002 §Reserved fx-ids) by recursing the carried TARGET event through
+  the target's OWN registration classification. `:dispatch-later` is a
+  reserved fx with no registration to declare paths on, but the event it
+  defers has an owner (rf2-32ffq1, extending the rf2-6h3c02 per-entry walk).
+  Identity-preserving when the target declares none."
+  [args]
+  (if-let [event (and (map? args) (:event args))]
+    (let [event' (redact-event-by-registration event)]
+      (if (identical? event event') args (assoc args :event event')))
+    args))
+
+(defn- project-fx-args
+  "Redact ONE fx's `args` value through everything its `fx-id` declares — the
+  chokepoint shared by every fx-arg-bearing trace slot (`project-fx-tags` for
+  the `[:rf.fx/id :rf.fx/args]` pair, `project-event-fx-entry` for the
+  `:rf.event/fx` aggregate entries, and the machine action-`:outcome` `:fx`
+  echo). Two layers compose (rf2-32ffq1):
+
+  1. The fx REGISTRATION's static `:sensitive` / `:large` paths (rf2-6h3c02).
+  2. Per-fx-id DYNAMIC classification the static model cannot express:
+
+     - `:dispatch` — the args ARE a target event vector, so the TARGET
+       event's own registration classification applies to the target's
+       arg-map (`redact-event-by-registration`; `:dispatch` itself, a
+       reserved fx, declares none). Without this a classified event
+       dispatched from another handler's `:fx` ships its raw payload at the
+       DISPATCHING handler's trace slots even though the target's own
+       `:rf.event/v` redacts.
+     - `:dispatch-later` — the same recursion over the `{:ms … :event […]}`
+       carried event.
+     - `:rf.http/managed` — its privacy model is the DYNAMIC per-call
+       `:sensitive?` flag inside the args map plus the carrier denylists
+       (Spec 014 §Privacy), honoured by the dedicated `:rf.http/*` trace
+       composers; the SAME redaction applies here through the late-bound
+       `:http/project-managed-fx-args` hook (published by
+       `re-frame.http.managed`; core stays decoupled — the same seam shape
+       as `:routing/project-route-sub-egress`). Hook unbound (http artefact
+       absent) ⇒ pass-through: without the artefact the fx cannot run at all
+       (`:rf.error/no-such-fx`), the documented unregistered-fx fail-open.
+
+  A no-op for an fx-id with neither layer — which INCLUDES an UNREGISTERED
+  fx-id on `:rf.error/no-such-fx` (there is no registration to read a
+  `:sensitive` off, and an unaddressable arg is the known EP-0025 fail-open,
+  not a bug this closes)."
+  [fx-id args]
+  (let [args (if-let [class (classification-when :fx fx-id)]
+               (redact-by-classification args class)
+               args)]
+    (case fx-id
+      :dispatch        (redact-event-by-registration args)
+      :dispatch-later  (project-dispatch-later-args args)
+      :rf.http/managed (if-let [project (late-bind/get-fn :http/project-managed-fx-args)]
+                         (project args)
+                         args)
+      args)))
+
 (defn- project-fx-tags
   "Redact the fx args carried by ANY trace slot that stamps the `[:rf.fx/id
-  :rf.fx/args]` pair, against the fx REGISTRATION's declared `:sensitive` /
-  `:large`.
+  :rf.fx/args]` pair, through `project-fx-args` — the fx REGISTRATION's
+  declared `:sensitive` / `:large` PLUS the per-fx-id dynamic classification
+  (`:dispatch` / `:dispatch-later` target inheritance, `:rf.http/managed`'s
+  per-call `:sensitive?` — rf2-32ffq1).
 
   Covers the per-effect `:rf.fx/handled` success trace AND the always-on fx
   ERROR traces (`:rf.error/fx-handler-exception` + its siblings) AND
   `:rf.fx/skipped-on-platform` — every one stamps the SAME `:rf.fx/id` +
-  `:rf.fx/args`, so every one gets the SAME registration-owned redaction
-  (rf2-6h3c02). Keying off the SLOT SHAPE (both keys present) rather than op
-  `:rf.fx/handled` is what closes the error-trace `:rf.fx/args` leak — the
-  production-survivable `:rf.error/fx-handler-exception` fans out through the
-  always-on error-emit listener, not just the dev trace, so an fx that persists
-  / sends a classified value (a session token to localStorage, an auth header)
-  must NOT egress it raw when the fx throws.
-
-  A no-op when the fx declared no classification — which INCLUDES an
-  UNREGISTERED fx-id on `:rf.error/no-such-fx` (there is no registration to
-  read a `:sensitive` off, and an unaddressable arg is the known EP-0025
-  fail-open, not a bug this closes)."
+  `:rf.fx/args`, so every one gets the SAME redaction (rf2-6h3c02). Keying
+  off the SLOT SHAPE (both keys present) rather than op `:rf.fx/handled` is
+  what closes the error-trace `:rf.fx/args` leak — the production-survivable
+  `:rf.error/fx-handler-exception` fans out through the always-on error-emit
+  listener, not just the dev trace, so an fx that persists / sends a
+  classified value (a session token to localStorage, an auth header) must NOT
+  egress it raw when the fx throws."
   [tags]
-  (let [fx-id (:rf.fx/id tags)
-        class (classification-when :fx fx-id)]
-    (if (and class (contains? tags :rf.fx/args))
-      (assoc tags :rf.fx/args (redact-by-classification (:rf.fx/args tags) class))
-      tags)))
+  (if-not (contains? tags :rf.fx/args)
+    tags
+    (let [args  (:rf.fx/args tags)
+          args' (project-fx-args (:rf.fx/id tags) args)]
+      (if (identical? args args')
+        tags
+        (assoc tags :rf.fx/args args')))))
 
 (defn- project-event-fx-entry
-  "Redact ONE `[fx-id args …]` effect-vector entry against `fx-id`'s
-  registration classification. The args value is the SECOND element (Spec 002
-  §The effect vector); replace it IN PLACE so the fx-id + any trailing elements
-  survive. A no-op when the entry is not a `[fx-id args …]` vector (a nil /
-  empty conditional-fx no-op, or a reserved fx whose args carry no declarable
-  path — e.g. `:dispatch`, which declares no fx classification) or the fx
-  declared none."
+  "Redact ONE `[fx-id args …]` effect-vector entry through `project-fx-args`
+  (static registration paths + per-fx-id dynamic classification). The args
+  value is the SECOND element (Spec 002 §The effect vector); replace it IN
+  PLACE so the fx-id + any trailing elements survive. A no-op when the entry
+  is not a `[fx-id args …]` vector (a nil / empty conditional-fx no-op) or
+  nothing applies to it."
   [entry]
   (if (and (vector? entry) (>= (count entry) 2))
-    (if-let [class (classification-when :fx (first entry))]
-      (assoc entry 1 (redact-by-classification (second entry) class))
-      entry)
+    (let [args  (nth entry 1)
+          args' (project-fx-args (first entry) args)]
+      (if (identical? args args')
+        entry
+        (assoc entry 1 args')))
     entry))
 
 (defn- project-event-fx-tags
@@ -670,6 +728,41 @@
           (seq sens)  (assoc :sensitive sens)
           (seq large) (assoc :large large))))))
 
+(defn- project-action-outcome-shell
+  "UNCONDITIONAL (machine-classification-independent) projection of the
+  `:rf.machine/action-ran` `:outcome` tag — the action's RAW returned effect
+  map (rf2-orcd31). Per Spec 005 §Action effect map the return is `{:data
+  :fx}` or nil (`:outcome` is then `:ok`; a throw stamps a keyword error id —
+  non-maps pass through untouched here):
+
+    - `:fx` — each `[fx-id args]` entry walks the SAME per-entry
+      registration + dynamic classification as the handler-level
+      `:rf.event/fx` aggregate (`project-fx-args` via
+      `project-event-fx-entry`): a machine action returning
+      `[:dispatch [classified-target …]]` or a `:sensitive?`-flagged
+      `:rf.http/managed` call redacts here exactly as the same entry will on
+      the downstream do-fx aggregate. Registration-driven, so it applies
+      even when THIS machine declares no classification.
+    - `:db` — hard-disallowed on an action effect map (Spec 005
+      §Hard-disallow `:db`); the runtime strips it downstream and emits
+      `:rf.error/machine-action-wrote-db`, whose `:offending-value` is
+      summarized UNCONDITIONALLY (`project-machine-wrote-db-tags`). The raw
+      `:outcome` echo of that same disallowed value gets the SAME
+      unconditional summarization — otherwise this one slot would out-leak
+      the error trace it always accompanies.
+
+  The machine-classified `:data` half of `:outcome` is projected under the
+  class gate in `project-machine-tags` (the same `:data`-rooted path set as
+  the bare `:data` slot)."
+  [tags]
+  (let [outcome (:outcome tags)]
+    (if-not (map? outcome)
+      tags
+      (assoc tags :outcome
+             (cond-> outcome
+               (vector? (:fx outcome)) (update :fx #(mapv project-event-fx-entry %))
+               (contains? outcome :db) (assoc :db privacy/redacted-sentinel))))))
+
 (defn- project-machine-tags
   "Walk machine `:data`-bearing trace tag shapes. Paths are rooted at the
   SNAPSHOT — per Spec 015 §State machines — so common paths are written as
@@ -700,9 +793,11 @@
   [tags frame-id]
   ;; The CHILD-OWNED synthetic on-error payload and the `:start` payload are
   ;; summarized UNCONDITIONALLY (independent of the parent/spawn machine's
-  ;; classification). Run these first so they apply even when the trace's machine
-  ;; declares no `:data` classification.
+  ;; classification), and the action-`:outcome` echo's `:fx` / disallowed-`:db`
+  ;; halves are registration-driven (rf2-orcd31). Run these first so they apply
+  ;; even when the trace's machine declares no `:data` classification.
   (let [tags       (project-spawn-synthetic-payloads tags)
+        tags       (project-action-outcome-shell tags)
         machine-id (or (:actor-id tags) (:machine-id tags))
         author     (classification-when :event machine-id)
         frame-mk   (frame-snapshot-classification frame-id machine-id)
@@ -743,6 +838,19 @@
           (contains? tags :after)    (assoc :after    (project (:after    tags)))
           (contains? tags :snapshot) (assoc :snapshot (project (:snapshot tags)))
           (contains? tags :data)     (assoc :data     (project-data (:data tags)))
+          ;; rf2-orcd31 — the action's returned effect map echoed at
+          ;; `:rf.machine/action-ran`'s `:outcome`: its `:data` half is
+          ;; snapshot-`:data`-shaped (one level shallower, exactly like the
+          ;; bare `:data` slot), so the SAME `:data`-rooted path set applies.
+          ;; (The `:fx` half + the disallowed-`:db` echo are projected
+          ;; unconditionally in `project-action-outcome-shell` — they key off
+          ;; the fx registrations / the hard-disallow, not this machine's
+          ;; classification.)
+          (map? (:outcome tags))     (update :outcome
+                                             (fn [outcome]
+                                               (if (contains? outcome :data)
+                                                 (update outcome :data project-data)
+                                                 outcome)))
           ;; The routed inner event echoed at the top level — redacted by the
           ;; machine's EVENT-rooted classification (rf2-ghgbqi). `project` is
           ;; a whole-value path walk; only the machine's event-rooted paths

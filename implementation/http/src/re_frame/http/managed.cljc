@@ -124,6 +124,7 @@
             [re-frame.http.handlers        :as handlers]
             [re-frame.http.machine-wrapper :as machine-wrapper]
             [re-frame.http.middleware      :as middleware]
+            [re-frame.http.privacy         :as privacy]
             [re-frame.http.privacy-headers :as privacy-headers]
             [re-frame.http.registry        :as registry]
             [re-frame.late-bind            :as late-bind]))
@@ -295,4 +296,10 @@
 (late-bind/set-fn! :http/clear-http-interceptor           clear-http-interceptor)
 (late-bind/set-fn! :http/reg-http-interceptor             reg-http-interceptor)
 (late-bind/set-fn! :http/register-managed-machine!        machine-wrapper/register-managed-machine!)
+;; rf2-32ffq1 — the core classification projector consults this to redact a
+;; `:rf.http/managed` entry's args at the generic fx-arg-bearing trace slots
+;; (the `:rf.event/fx` aggregate + `:rf.fx/handled`-shaped slots), honouring
+;; the DYNAMIC per-call `:sensitive?` flag + carrier denylists that a static
+;; registration `:sensitive` path cannot express.
+(late-bind/set-fn! :http/project-managed-fx-args          privacy/project-managed-fx-args)
 (machine-wrapper/register-managed-machine!)
