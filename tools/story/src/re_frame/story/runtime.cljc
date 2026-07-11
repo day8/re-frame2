@@ -1220,6 +1220,33 @@
                        :status     :error
                        :passed?    false}]))
 
+(defn- prepare-ctx!
+  "PREPARE half of the four-phase lifecycle: compile the plan, allocate +
+  reset the frame, run db-seed, loaders, and setup (phases 0-2). Returns the
+  threaded ctx with the frame at `:ready` (loader-incomplete / error paths
+  aside) and the first React render therefore safe — but WITHOUT executing the
+  play script. `resume-ctx!` runs the script (phase 4) against this ctx.
+
+  Throws on a plan-construction / db-seed / phase error; the caller's
+  try/catch projects it via `handle-run-error!`. Splitting prepare from
+  resume is what lets the one run owner (rf2-j538f7.34) span the real React
+  render boundary — loaders/setup before the first render, the script after
+  commit — while `run-variant` composes both halves for the headless path."
+  [variant-id variant-body opts]
+  (-> (prepare-context variant-id variant-body opts)
+      run-phase-0!
+      run-db-seed!
+      run-phase-1!
+      run-phase-2!))
+
+(defn- resume-ctx!
+  "RESUME half of the four-phase lifecycle: run phase 4 (the auto-plays' play
+  script + terminal assertions) against a prepared `ctx`, then resolve
+  `resolve` with the unified result once phase 4 settles."
+  [resolve ctx start-ms]
+  (let [[ctx' play-promise] (run-phase-4! ctx)]
+    (finalise-run! resolve play-promise ctx' start-ms)))
+
 (defn run-variant
   "Allocate a frame for `variant-id`, run its setup, loaders, events, and
   play scripts, and return the unified result asynchronously.
@@ -1251,15 +1278,187 @@
            (async/promise
              (fn [resolve]
                (try
-                 (let [ctx          (-> (prepare-context variant-id variant-body opts)
-                                        run-phase-0!
-                                        run-db-seed!
-                                        run-phase-1!
-                                        run-phase-2!)
-                       [ctx' play-promise] (run-phase-4! ctx)]
-                   (finalise-run! resolve play-promise ctx' start-ms))
+                 (let [ctx (prepare-ctx! variant-id variant-body opts)]
+                   (resume-ctx! resolve ctx start-ms))
                  (catch #?(:clj Throwable :cljs :default) e
                    (handle-run-error! resolve variant-id e start-ms)))))))))))
+
+;; ---- the one run owner (rf2-j538f7.34) -----------------------------------
+;;
+;; A shell auto-play must execute EXACTLY ONCE. Before this, a single focused
+;; shell selection had THREE execution owners: the selection-edge frame
+;; preallocation (a full `run-variant`), the canvas `component-did-mount` run
+;; (a second full `run-variant`), and the post-commit `auto-run!` — so a
+;; variant's play-script (and its external effects) ran up to three times and a
+;; cumulative script visibly double-counted (a passing variant looked failed).
+;;
+;; The fix gives Story ONE run owner that spans the real React render
+;; boundary, split into a PREPARE half and a RESUME half over a per-variant
+;; generation:
+;;
+;;   • `prepare-run!` runs loaders + setup (phases 0-2) so the first render is
+;;     safe, WITHOUT the script. It is idempotent per `:run-key`: the
+;;     selection-edge preallocation and the canvas post-commit run collapse to
+;;     ONE frame reset + ONE generation. A changed run-key (cell-override /
+;;     mode / substrate / hot-reload) — or a re-prepare after the current
+;;     generation was already resumed (a React remount) — claims a FRESH
+;;     generation.
+;;
+;;   • `resume-run!` runs the script (phase 4) EXACTLY ONCE per generation.
+;;     Every shell trigger (selection-watcher, mount-time block, canvas
+;;     post-commit) calls it for the same generation; the generation guard
+;;     collapses them to one execution. A resume superseded by a newer prepare
+;;     settles explicitly (never `:pass`, never reads the successor frame).
+;;
+;; Ownership is per variant/frame (one registry slot per variant-id), so two
+;; different variants run concurrently and independently — this is NOT a global
+;; lock. The inner per-play run-token (`runner-events/run!`) still guards
+;; play-key isolation; it is not the outer lifecycle owner.
+
+(defonce ^:private run-owner
+  ;; variant-id -> {:run-key K              ; the shell run-key this generation prepared for
+  ;;                :generation G           ; monotonic per-variant run generation
+  ;;                :resumed-gen R          ; the generation last claimed for resume (R<G ⇒ pending)
+  ;;                :ctx <ctx> | :error e   ; the prepared attempt (or a prepare failure)
+  ;;                :start-ms ms}
+  (atom {}))
+
+(defn current-generation
+  "The current prepared run generation for `variant-id` (0 if never prepared).
+  Public so the shell / canvas / tests can observe supersession."
+  [variant-id]
+  (get-in @run-owner [variant-id :generation] 0))
+
+(defn reset-run-owner!
+  "Drop the one-run-owner state for `variant-id` (frame teardown / re-run) or,
+  with no arg, for every variant (shell unmount / test isolation). A dropped
+  entry means the next `prepare-run!` starts a fresh generation."
+  ([] (reset! run-owner {}))
+  ([variant-id] (swap! run-owner dissoc variant-id) nil))
+
+(defn- superseded-result
+  "The explicit settle-value for a resume that a newer prepare superseded
+  (rf2-j538f7.34 criteria 4/5). Never `:pass`; carries no successor state — it
+  is built frame-free from `empty-result` so a stale attempt cannot green nor
+  combine its args with the successor frame's app-db / evidence."
+  [variant-id generation]
+  (assoc (empty-result variant-id)
+         :status      :cannot-run
+         :lifecycle   :superseded
+         :superseded? true
+         :generation  generation))
+
+(defn prepare-run!
+  "PREPARE the one run owner for `variant-id` (rf2-j538f7.34): allocate + reset
+  the frame and run loaders + setup (phases 0-2) so the first React render is
+  safe, WITHOUT executing the play script. Idempotent per `:run-key` — repeated
+  prepares for the same logical run (selection-edge preallocation + canvas
+  post-commit) collapse to ONE reset + ONE generation.
+
+  `opts` is the standard `run-variant` opts (`:active-modes` / `:cell-overrides`
+  / `:substrate` / `:render?`) plus a `:run-key` — the shell slice that
+  identifies this logical run (see `re-frame.story.ui.canvas/run-key`). A
+  changed `:run-key`, or a re-prepare after the current generation was already
+  resumed, claims a fresh generation and re-runs phases 0-2.
+
+  Fire-and-forget: the display reads the frame's app-db reactively. Returns the
+  claimed (or deduped) generation."
+  [variant-id {:keys [run-key] :as opts}]
+  (when (and config/enabled? variant-id)
+    (let [cur    (get @run-owner variant-id)
+          ;; A fresh logical run when: never prepared; the run-key changed; or
+          ;; the current generation was already resumed (a remount / re-entry).
+          fresh? (or (nil? cur)
+                     (not= (:run-key cur) run-key)
+                     (= (:resumed-gen cur) (:generation cur)))]
+      (if-not fresh?
+        ;; Same run-key, not yet resumed — the frame is already prepared for
+        ;; this generation. Do NOT reset it or bump the generation; the pending
+        ;; resume owns the one execution.
+        (:generation cur)
+        (let [variant-body (frames/variant-body variant-id)
+              gen          (inc (get cur :generation 0))
+              base         {:run-key run-key :generation gen :resumed-gen (dec gen)
+                            :start-ms (interop/now-ms)}]
+          (if (nil? variant-body)
+            (do (swap! run-owner assoc variant-id (assoc base :error :unknown-variant))
+                gen)
+            (do
+              (try
+                (let [ctx (prepare-ctx! variant-id variant-body opts)]
+                  (swap! run-owner assoc variant-id (assoc base :ctx ctx)))
+                (catch #?(:clj Throwable :cljs :default) e
+                  ;; Capture the prepare failure so the matching resume publishes
+                  ;; a structured error result (loaders/setup can throw).
+                  (swap! run-owner assoc variant-id (assoc base :error e))))
+              gen)))))))
+
+(defn- claim-resume!
+  "Atomically claim the current generation for resume. Returns the claimed
+  attempt map iff this caller won the claim (the current generation was still
+  pending), else nil. Exactly one caller per generation wins — the single run
+  owner's exactly-once guarantee."
+  [variant-id]
+  (loop []
+    (let [m   @run-owner
+          cur (get m variant-id)]
+      (if (or (nil? cur) (= (:resumed-gen cur) (:generation cur)))
+        nil
+        (if (compare-and-set! run-owner m
+              (assoc-in m [variant-id :resumed-gen] (:generation cur)))
+          cur
+          (recur))))))
+
+(defn resume-run!
+  "RESUME the one run owner for `variant-id` (rf2-j538f7.34): run the prepared
+  attempt's play script + terminal assertions (phase 4) EXACTLY ONCE per
+  prepared generation, then publish the unified result. The shell
+  selection-watcher, the shell mount-time block, and the canvas post-commit
+  lifecycle all call this for the same generation; the generation guard
+  collapses them to ONE script execution.
+
+  A superseded attempt (a newer `prepare-run!` claimed a fresh generation
+  before or during this resume) settles as an explicit `superseded-result` —
+  never `:pass`, and without reading the successor frame.
+
+  Must be called AFTER `prepare-run!` and AFTER React has committed the canvas
+  (so DOM steps see the mounted view). Returns a promise of the result, or nil
+  when there is nothing to resume (already resumed for this generation, or
+  never prepared)."
+  ([variant-id] (resume-run! variant-id nil))
+  ([variant-id done-cb]
+   (when (and config/enabled? variant-id)
+     (when-let [attempt (claim-resume! variant-id)]
+       (let [my-gen   (:generation attempt)
+             start-ms (or (:start-ms attempt) (interop/now-ms))]
+         (async/promise
+           (fn [resolve]
+             (try
+               (cond
+                 ;; A newer prepare already superseded this attempt.
+                 (not= my-gen (current-generation variant-id))
+                 (resolve (superseded-result variant-id my-gen))
+                 ;; The prepare half failed — project its error.
+                 (= :unknown-variant (:error attempt))
+                 (resolve (unknown-variant-result variant-id))
+                 (:error attempt)
+                 (handle-run-error! resolve variant-id (:error attempt) start-ms)
+                 ;; Run phase 4 against the prepared ctx, re-checking the
+                 ;; generation before publishing so a supersession DURING the
+                 ;; async script settles as superseded rather than reading the
+                 ;; successor frame.
+                 :else
+                 (let [[ctx' play-promise] (run-phase-4! (:ctx attempt))]
+                   (-> play-promise
+                       (async/then
+                         (fn [_]
+                           (if (= my-gen (current-generation variant-id))
+                             (resolve (record-result-map ctx' start-ms))
+                             (resolve (superseded-result variant-id my-gen)))
+                           (when done-cb (try (done-cb) (catch #?(:clj Throwable :cljs :default) _ nil)))
+                           nil)))))
+               (catch #?(:clj Throwable :cljs :default) e
+                 (handle-run-error! resolve variant-id e start-ms))))))))))
 
 ;; ---- inline plan execution -----------------------------------------------
 ;;
@@ -1495,6 +1694,10 @@
   ([variant-id] (reset-variant variant-id nil))
   ([variant-id opts]
    (when config/enabled?
+     ;; Drop the one-run-owner attempt (rf2-j538f7.34): its prepared ctx points
+     ;; at the frame we are about to destroy, so the next prepare must start a
+     ;; fresh generation rather than dedupe onto a stale attempt.
+     (reset-run-owner! variant-id)
      (frames/destroy! variant-id))
    (run-variant variant-id opts)))
 
