@@ -77,6 +77,7 @@
   (:require [clojure.set                     :as set]
             [clojure.string                  :as str]
             [re-frame.story.config           :as config]
+            [re-frame.story.late-bind        :as late-bind]
             [re-frame.story.recorder         :as recorder]
             [re-frame.story.recorder.selector :as selector]
             [re-frame.story.ui.canvas-listeners :as canvas-listeners]))
@@ -219,6 +220,34 @@
                                        :t     (recording-now-ms)
                                        :timer nil})
     (schedule-type-flush! selector)))
+
+(defn cancel-pending-flushes!
+  "Cancel every pending debounce timer and DROP the type-buffer WITHOUT
+  flushing. Unties the buffer + its live `setTimeout` timers from the
+  recording boundary: called at `start-recording!` / `clear!` so a keystroke
+  buffered under a PRIOR recording can never bleed into the next one
+  (rf2-x76af2.18).
+
+  This is deliberately NOT a flush — a keystroke pending when a NEW
+  recording starts (or the recorder is cleared) belongs to the recording
+  that ended, and dropping it is correct: the stop-into-SAME-recording final
+  keystroke survival (rf2-eztym.3) relies on the pending timer firing while
+  the buffer is still intact (stop-recording! does NOT drain the buffer), and
+  is unaffected — only start/clear drain here.
+
+  Registered as the `:recorder/reset-dom-buffer` late-bind hook (below) so
+  the cljc recorder — which cannot `:require` this cljs ns — can invoke it."
+  []
+  (doseq [entry (vals @type-buffer)]
+    (clear-buffer-timer! entry))
+  (reset! type-buffer {})
+  nil)
+
+;; Register the buffer-drain seam so `recorder/start-recording!` + `clear!`
+;; can cancel + drop pending keystrokes at the recording boundary. Runs at
+;; ns load (dom-capture requires recorder, so recorder is loaded first and
+;; the runtime lookup resolves this at call time). rf2-x76af2.18.
+(late-bind/set-fn! :recorder/reset-dom-buffer cancel-pending-flushes!)
 
 ;; ---- predicates ---------------------------------------------------------
 
