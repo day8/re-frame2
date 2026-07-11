@@ -1,0 +1,107 @@
+;; Conformance fixture: routing/fragment-navigate  (rf2-k4exp1)
+;;
+;; The PROGRAMMATIC door (`:rf.route/navigate`) honours the fragment-only
+;; short-circuit identically to the URL-driven door (`route-fragment-change.edn`
+;; drives `:rf.route/transitioned`). A programmatic navigation whose resolved
+;; target differs from the current slice ONLY in its `#fragment` (same
+;; :route-id / :params / :query) updates :fragment and emits
+;; :rf.route/fragment-changed WITHOUT re-firing :on-match, allocating a new
+;; :nav-token, or re-planning route resources. The `{:replace? true}` variant
+;; routes through :rf.nav/replace-url instead of :rf.nav/push-url but is the
+;; same short-circuit.
+;;
+;; This pins the cross-implementation contract the bead (rf2-k4exp1) fixes:
+;; before the fix a programmatic fragment nav took the FULL commit path
+;; (fresh token, every :on-match re-fired, stale-suppressing in-flight loaders
+;; for the route you were already on).
+;;
+;; Per [012 §Fragments](../../012-Routing.md#fragment-only-changes-do-not-re-fire-on-match)
+;; and [012 §Programmatic navigation with fragments](../../012-Routing.md#programmatic-navigation-with-fragments).
+
+{:fixture/id           :routing/fragment-navigate
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:routing/match-url :routing/fragment :routing/nav-token
+                         :core/event-handler :core/fx :core/trace}
+ :fixture/doc          "Programmatic :rf.route/navigate honours the fragment-only short-circuit: same route-id/params/query with a different #fragment updates :fragment and emits :rf.route/fragment-changed WITHOUT re-firing :on-match or allocating a new nav-token. The default door pushes (:rf.nav/push-url); {:replace? true} replaces (:rf.nav/replace-url). The loader count and standing nav-token are the teeth: both are unchanged across the two fragment-only navs."
+
+ :fixture/registry
+ {:event {:docs/load-page {:doc "Increments a counter so the fixture can detect :on-match re-fires."}}
+  ;; No :rf/route sub override — the framework route-sub-fn projects the slice
+  ;; exactly (route-id/params/query/fragment/transition/error/nav-token), which
+  ;; is what consumers see; a fixture-DSL body would leak the internal container.
+  :sub   {:rf/route {:doc "Current route slice."}}
+  :route {:route/docs {:path     "/docs/:page"
+                       :params   [:map [:page :string]]
+                       :on-match [[:docs/load-page]]}}
+  :fx    {:rf.nav/push-url       {:platforms #{:client}}
+          :rf.nav/replace-url    {:platforms #{:client}}
+          :rf.nav/scroll         {:platforms #{:client}}
+          :rf.nav/capture-scroll {:platforms #{:client}}}}
+
+ :fixture/handlers
+ {:event {:docs/load-page [[:update [:load-count] [:fn :inc]]]}
+  :fx    {:rf.nav/push-url       [[:noop]]
+          :rf.nav/replace-url    [[:noop]]
+          :rf.nav/scroll         [[:noop]]
+          :rf.nav/capture-scroll [[:noop]]}}
+
+ ;; :platform :client so the history / scroll fxs (all :platforms #{:client})
+ ;; actually route (per Spec 002 §`:platforms` gating on reg-fx).
+ :fixture/frame-config {:platform :client}
+
+ :fixture/dispatches
+ [;; Step 1: full commit. :on-match fires once (load-count → 1); nav-1 allocated;
+  ;; :rf.nav/push-url pushes /docs/routing#a.
+  [:rf.route/navigate :route/docs {:page "routing"} {:fragment "a"}]
+
+  ;; Step 2: same route-id/params/query, DIFFERENT fragment → fragment-only.
+  ;; :on-match does NOT re-fire (load-count stays 1); nav-token stays nav-1;
+  ;; :rf.route/fragment-changed fires; :rf.nav/push-url pushes /docs/routing#b.
+  [:rf.route/navigate :route/docs {:page "routing"} {:fragment "b"}]
+
+  ;; Step 3: fragment-only with {:replace? true} → :rf.nav/replace-url (NOT push).
+  ;; Still no re-fire, still nav-1; pushes /docs/routing#c via replaceState.
+  [:rf.route/navigate :route/docs {:page "routing"} {:fragment "c" :replace? true}]]
+
+ :fixture/expect
+ {;; TEETH: the loader ran exactly once — the two fragment-only navs did NOT
+  ;; re-fire :on-match.
+  :final-app-db {:load-count 1}
+
+  :final-runtime-db {:rf.runtime/routing {:current {:route-id :route/docs
+                                                    :params   {:page "routing"}
+                                                    :fragment "c"}}}
+
+  ;; TEETH: nav-token is STILL nav-1 — neither fragment-only nav allocated a
+  ;; new token (a full commit would advance it to nav-2 / nav-3).
+  :sub-values {[:rf/route] {:route-id   :route/docs
+                            :params     {:page "routing"}
+                            :query      {}
+                            :fragment   "c"
+                            :transition :idle
+                            :error      nil
+                            :nav-token  "nav-1"}}
+
+  ;; History contract: push for the default door, replace for {:replace? true};
+  ;; order-preserving subset tolerates the interleaved capture/scroll effects.
+  :effects-routed
+  [{:fx-id :rf.nav/push-url    :args "/docs/routing#a"}
+   {:fx-id :rf.nav/push-url    :args "/docs/routing#b"}
+   {:fx-id :rf.nav/replace-url :args "/docs/routing#c"}]
+
+  :trace-emissions
+  [;; Step 1: full nav — nav-token allocated (the only allocation in the run).
+   {:operation :rf.route.nav-token/allocated
+    :tags      {:route-id :route/docs}}
+
+   ;; Step 2: fragment-only push — :rf.route/fragment-changed a → b.
+   {:operation :rf.route/fragment-changed
+    :tags      {:route-id      :route/docs
+                :prev-fragment "a"
+                :next-fragment "b"}}
+
+   ;; Step 3: fragment-only replace — :rf.route/fragment-changed b → c.
+   {:operation :rf.route/fragment-changed
+    :tags      {:route-id      :route/docs
+                :prev-fragment "b"
+                :next-fragment "c"}}]}}

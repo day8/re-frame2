@@ -819,6 +819,8 @@ When a route is loading and the user navigates away before the load completes, t
 
 1. **Allocation.** When a navigation drain commits the slice — the programmatic `:rf.route/navigate` handler (which writes the slice inline; see [§Navigation is an event](#navigation-is-an-event)), or a URL-change handler `:rf.route/transitioned` (forward nav driven by a `route-link` click via `:rf.route/url-requested`) or `:rf.route/handle-url-change` (popstate / initial / SSR) — it allocates a fresh `:nav-token` (a gensym or monotonic counter) and writes it to the `:rf/route` slice alongside the new id/params/query/fragment.
 
+   > **Two commits do NOT allocate: the identical and fragment-only short-circuits.** "Commits the slice" above means a *route (re)activation* — a change to `:route-id`, `:params`, or `:query`. Two resolved targets skip allocation entirely and keep the standing token: an **identical** re-navigation (nothing changed — [§Per-route data loading](#per-route-data-loading) rule 3) and a **fragment-only** change (same route-id/params/query, different `#fragment` — [§Fragments](#fragment-only-changes-do-not-re-fire-on-match)). Both hold the current `:nav-token` so a still-in-flight loader for the unchanged route stays eligible; neither is a new epoch. This holds whichever door the navigation entered.
+
    > **The allocation counter is monotone and unbounded.** A nav-token need only be *unique within the lifetime of any in-flight async continuation*; equality against the current slice token is the only operation performed on it (step 4). A per-frame monotonic counter satisfies uniqueness without ever needing to wrap or reset. It does NOT carry the bounded-structure treatment applied to other *retained* collections (the host-side scroll-position LRU cache, the route-registry decoded-key cap): those bound collections that would otherwise accumulate entries, whereas the counter is a single scalar that retains nothing — it is GC'd whole when the frame is destroyed. Practical overflow is a non-concern: on CLJS the counter is an IEEE-754 double (exact integers to 2^53, far beyond any real navigation count); on the JVM it is a `long` that would overflow only after 2^63 navigations. No id collision is possible because each token is a fresh string. Implementations MUST NOT wrap or recycle the counter — doing so would risk colliding a freshly-allocated token with one still carried by a slow in-flight continuation, silently re-validating a stale result.
 
    > **Storage: the counter is host-side transient, NOT `runtime-db`.** The *active* `:nav-token` is a durable fact on the route slice (`[:rf.runtime/routing :current :nav-token]`) and restores coherently with the rest of the slice. The *allocator* (the `:nav-token-counter` / `:pending-nav-counter` monotonic high-water marks) is held in a host-side per-frame transient cache (a module-private atom, mirroring the scroll-position cache). The two are separated: an epoch restore replaces the `runtime-db` partition **wholesale**, which would rewind a runtime-db-resident counter to its value at the restored epoch — and a pre-restore in-flight async continuation (a request already on the wire, uncancellable) returning afterward could then carry a token the post-restore timeline has *re-allocated*, the exact recycle the rule above forbids. Held host-side, the counter is untouched by restore, so every post-restore allocation strictly exceeds any pre-restore in-flight token and a collision is structurally impossible. Conflating the allocator (whose property is *never rewind*) with the active token (which *should* restore) in one restorable partition is a category error.
@@ -1108,16 +1110,20 @@ Read it via the `:rf.route/fragment` sub. Fragment is **populated by `match-url`
 
 ### Fragment-only changes do NOT re-fire `:on-match`
 
-When the new URL differs from the current URL **only** in its fragment (same `:route-id`, same `:params`, same `:query`, but different `:fragment`), the runtime:
+When a navigation's resolved target differs from the current slice **only** in its fragment (same `:route-id`, same `:params`, same `:query`, but different `:fragment`), the runtime treats it as an in-page anchor change — one logical operation with **the same behaviour whichever of the three commit doors it enters** (programmatic `:rf.route/navigate`, forward-nav `:rf.route/transitioned`, or popstate `:rf.route/handle-url-change`). The runtime:
 
-1. Updates `:fragment` in the `:rf/route` slice.
-2. Emits a `:rf.route/fragment-changed` trace event with `:tags {:route-id <id> :prev-fragment <s> :next-fragment <s>}`.
-3. Does **NOT** allocate a new `:nav-token`.
-4. Does **NOT** re-fire `:on-match`.
+1. Updates **only** `:fragment` in the `:rf/route` slice. `:route-id`, `:params`, `:query`, `:transition`, `:error`, and `:nav-token` are preserved **byte-for-byte**, as are the routing siblings (pending-navigation, resource-blocking bookkeeping).
+2. Emits **exactly one** `:rf.route/fragment-changed` trace event with `:tags {:route-id <id> :prev-fragment <s> :next-fragment <s> :frame <navigating-frame>}`. It emits **no** `:rf.route.nav-token/allocated`, **no** route `:rf.route/activated`/`:rf.route/deactivated` lifecycle pair, and **no** route-resource plan trace.
+3. Does **NOT** allocate or bump the `:nav-token` counter. The standing token stays current, so an already-running `:on-match` loader (or route `:resources` fetch) for the unchanged route remains eligible to complete — a fragment jump must not stale-suppress in-flight work for the route you are already on.
+4. Does **NOT** re-fire `:on-match`, run the route's `:resources` re-plan, or release/re-`ensure` any resource lease (the route-entry hook is not invoked — the fragment-only branch never calls the shared navigation-commit assembler).
 
-The reason: `:on-match` exists to re-load route-scoped data when path or query changes. A fragment-only change does not change loaded data — only the in-page anchor target. Re-firing the loaders would re-fetch unchanged data on every `#section` jump, which is exactly the kind of thrash users complain about.
+**Guard ordering.** Classification happens **after** target resolution / fragment-normalisation / query-shaping / URL build / validation **and** after the shared leave-then-enter gate (`:can-leave` on the current route, then `:can-enter` on the target). A blocked guard wins over the fragment-only short-circuit and produces the normal pending-nav protocol (no fragment update, no history mutation, no `:rf.route/fragment-changed`); a `:rf.route/continue` re-runs the gate and takes the short-circuit only after it passes. A malformed / route-miss / rejected / external target keeps its existing path and is **not** newly classified as fragment-only.
 
-Views that need to react to fragment changes subscribe to `:rf.route/fragment` (or to `:rf/route` for the whole slice). Whichever URL-change event fires — `:rf.route/transitioned` on forward nav, `:rf.route/handle-url-change` on popstate — the shared slice-rewrite logic distinguishes a fragment-only change from a full transition, so both honour the no-re-fire rule above.
+**History (programmatic door).** `:rf.route/navigate` drives the browser URL: a fragment-only nav pushes the new fragment URL via `:rf.nav/push-url` by default, or replaces the active entry via `:rf.nav/replace-url` when `{:replace? true}` is supplied. Clearing a fragment (navigating with no `:fragment`) pushes/replaces the fragment-less URL and writes `:fragment nil`. The URL is driven through those registered effects (never a direct `window.location.hash` write), so URL-owner and URL-strategy enforcement stay intact. The URL-driven doors emit no push — the browser URL already changed (popstate / link-click).
+
+The reason for rules 3-4: `:on-match` (and route `:resources`) exist to re-load route-scoped data when path or query changes. A fragment-only change does not change loaded data — only the in-page anchor target. Re-firing the loaders would re-fetch unchanged data on every `#section` jump, which is exactly the kind of thrash users complain about — and, worse, the token bump would stale-suppress a still-in-flight loader for the route you never left. (An explicit force-reload is a *separate*, named contract, not an overload of `#fragment`; route data must therefore never depend on the fragment — data-bearing tabs/filters belong in path/query, fragments are presentation / in-page-location state.)
+
+Views that need to react to fragment changes subscribe to `:rf.route/fragment` (or to `:rf/route` for the whole slice). The fragment-only classification lives in the shared navigation-planning seam (`plan/fragment-only?`) that all three doors consult, so they cannot drift.
 
 ### `:rf.nav/scroll` integration
 
@@ -1151,6 +1157,10 @@ Hosts that ship a custom map-form scroll strategy may interpret `:fragment` per 
 
 Either form ends up in the `:rf/route` slice's `:fragment`.
 
+**Fragment-only programmatic navs take the short-circuit too.** A `:rf.route/navigate` whose resolved target differs from the current slice **only** in its fragment is a fragment-only change and honours [§Fragment-only changes do NOT re-fire `:on-match`](#fragment-only-changes-do-not-re-fire-on-match) in full: `:fragment` updates, one `:rf.route/fragment-changed` fires, and the `:nav-token` / `:on-match` / route-`:resources` are left untouched — identical to the same anchor jump arriving via a `route-link` click or Back/Forward. This is the regularity contract: the same logical operation cannot behave differently just because it entered through the programmatic door. (Before this was wired, a programmatic fragment nav took the full commit path — re-firing every loader and bumping the token, stale-suppressing in-flight work for the route you were already on.)
+
+**Scroll.** A fragment-only programmatic nav still emits the resolved `:rf.nav/scroll` effect (default strategy `:top` — scroll to the new fragment element, or to the top when the fragment is cleared/absent), ordered after the leaving-scroll capture and the history push/replace. `pushState`/`replaceState` do **not** scroll to a fragment natively (they are neither navigation nor traversal per the WHATWG URL-and-history-update steps), so the `:rf.nav/scroll` effect is what performs the visual scroll; `{:scroll false}` suppresses it, and `:restore`/`:preserve`/map-form strategies retain their usual meanings. The runtime makes **no** focus-movement or `:target` pseudo-class parity claim for the fragment-only path — `:rf.nav/scroll` supplies visual scrolling only; focus/`:target` parity is a separate accessibility decision.
+
 ### SSR
 
 Browsers do **not** send `#fragment` to the server — `window.location.hash` is client-only. For browser-initiated SSR requests, the server-side `:fragment` is therefore typically `nil`, regardless of what the user typed in the address bar. The exceptions are static-site generators, server-side test harnesses, and crawlers that synthesise URLs with explicit fragments (e.g., for anchored documentation pages); when the host's request abstraction exposes a `#fragment`, SSR includes it in the seeded `:rf/route` slice. See [011 §Fragments under SSR](011-SSR.md#fragments-under-ssr) for the full SSR-side contract.
@@ -1159,10 +1169,15 @@ The server does NOT scroll (no DOM); `:rf.nav/scroll` is `:platforms #{:client}`
 
 ### Conformance
 
-Fixture `route-fragment-change.edn` exercises:
+Fixture `route-fragment-change.edn` exercises the **URL-driven** door (`:rf.route/transitioned`):
 1. Navigate to `/docs/routing#scroll-restoration`. Verify the slice's `:fragment` is `"scroll-restoration"`.
 2. Navigate to `/docs/routing#caching` (same path/query, different fragment). Verify `:on-match` does NOT re-fire and `:rf.route/fragment-changed` trace event fires.
 3. Navigate to `/docs/instrumentation#scroll-restoration` (different path, same fragment). Verify `:on-match` DOES re-fire (path changed; fragment-only rule does not apply).
+
+Fixture `routing-fragment-navigate.edn` exercises the **programmatic** door (`:rf.route/navigate`):
+1. Navigate `[:rf.route/navigate :route/docs {:page "routing"} {:fragment "a"}]` — a full commit: `:on-match` fires once, a fresh `:nav-token` is allocated, `:rf.nav/push-url` pushes `/docs/routing#a`.
+2. Navigate `[:rf.route/navigate :route/docs {:page "routing"} {:fragment "b"}]` (same route-id/params/query, different fragment). Verify `:on-match` does NOT re-fire (loader count unchanged), the `:nav-token` is **unchanged** (no new allocation), `:rf.route/fragment-changed` fires, and `:rf.nav/push-url` pushes `/docs/routing#b`.
+3. Navigate `[:rf.route/navigate :route/docs {:page "routing"} {:fragment "c" :replace? true}]`. Verify the same fragment-only short-circuit routes through `:rf.nav/replace-url` (not push) and still does not re-fire `:on-match` or allocate a token.
 
 ## Nested layouts
 
