@@ -129,7 +129,14 @@
  *          CRC-32, at least one IDAT whose zlib stream actually inflates, and a
  *          terminal IEND. A header prefix, a byte-flipped/corrupt chunk, or a
  *          mid-stream truncation fails — not just a missing/renamed file
- *          (rf2-mon7tz + full structural decode rf2-3fc89f.27).
+ *          (rf2-mon7tz + full structural decode rf2-3fc89f.27). The RASTER
+ *          SEMANTICS are validated too, since zlib inflation is not PNG decoding:
+ *          the IHDR colour-type/bit-depth pairing and the compression/filter/
+ *          interlace methods must be legal + supported, and the inflated bytes
+ *          must be EXACTLY the declared image — `height` scanlines of a 1-byte
+ *          filter tag (0..4) + a `ceil(width*channels*bitDepth/8)`-byte pixel row.
+ *          A forbidden colour type, an IDAT that expands to the wrong byte count,
+ *          or an illegal per-row filter byte fails (rf2-j538f7.24).
  *      (d) OG SOURCE-ART PALETTE: og.svg carries no retired / sub-AA colour
  *          literal as a live paint value, so the re-exported card cannot drift
  *          back below the shared palette's accessibility decisions (rf2-y82dk9).
@@ -710,6 +717,25 @@ const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0
 const OG_PNG_WIDTH = 1200;
 const OG_PNG_HEIGHT = 630;
 
+// PNG IHDR semantic tables (PNG spec §11.2.2, Table 11.1) — rf2-j538f7.24. A
+// structurally wrapped chunk stream (bounded chunks + valid CRCs + an IDAT that
+// zlib-inflates) can still declare an ILLEGAL raster: a forbidden colour type,
+// an illegal bit-depth/colour-type pairing, or an unsupported
+// compression/filter/interlace method. No decoder can render such a header, yet
+// a zlib-only check waves it through. These tables pin the legal set so
+// validatePng can reject the header SEMANTICS, not merely the byte envelope.
+// `PNG_CHANNELS_BY_COLOUR_TYPE` also gives the samples-per-pixel the scanline
+// geometry needs (greyscale 1, truecolour 3, indexed 1, greyscale+alpha 2,
+// truecolour+alpha 4).
+const PNG_CHANNELS_BY_COLOUR_TYPE = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 };
+const PNG_LEGAL_DEPTHS_BY_COLOUR_TYPE = {
+  0: [1, 2, 4, 8, 16], // greyscale
+  2: [8, 16], // truecolour (RGB)
+  3: [1, 2, 4, 8], // indexed-colour
+  4: [8, 16], // greyscale + alpha
+  6: [8, 16], // truecolour + alpha (RGBA)
+};
+
 // Precomputed CRC-32 lookup table (IEEE 802.3 polynomial, reflected 0xEDB88320)
 // — the checksum every PNG chunk carries over its (type + data) bytes. Built
 // once at module load so validatePng can verify each chunk's CRC in one pass.
@@ -733,22 +759,37 @@ function pngCrc32(buf) {
 }
 
 // Validate that `data` is a STRUCTURALLY COMPLETE, decodable PNG of the expected
-// dimensions — not merely a byte prefix that starts like one. Returns
+// dimensions — not merely a byte prefix that starts like one, and not merely a
+// chunk envelope whose IDAT happens to zlib-inflate. Returns
 // { ok, width, height, reason }.
 //
-// The previous implementation read only the first 24 bytes (signature + IHDR
-// dims), so a 24-byte header prefix, a byte-flipped IDAT, or a mid-stream
-// truncation all reported ok:true — a FALSE-GREEN over a broken raster
-// (rf2-3fc89f.27). This walks the ENTIRE chunk stream and fails on any real
-// corruption:
+// The 24-byte header sniff let a header prefix / byte-flipped IDAT / mid-stream
+// truncation report ok:true (rf2-3fc89f.27); walking the chunk stream fixed that
+// but still called a PNG "decodable" once its IDAT merely INFLATED, so a raster
+// with a forbidden IHDR colour type, an unsupported interlace method, or an IDAT
+// that expands to the wrong number of bytes / carries an illegal per-row filter
+// byte still passed — zlib inflation is not PNG decoding (rf2-j538f7.24).
+//
+// This validates the byte envelope AND the raster semantics, failing on any of:
 //   - the 8-byte PNG signature and an IHDR first chunk (length exactly 13),
 //   - every chunk fully inside the file (a declared length running past EOF is a
 //     truncation), with its stored CRC-32 matching the computed CRC over
 //     type+data (a corrupt/flipped byte fails here),
 //   - at least one IDAT chunk whose concatenated zlib stream actually INFLATES
 //     (a garbled compressed stream fails the real decode), and
-//   - a terminal IEND chunk with no trailing bytes after it.
-// Only then are the IHDR dimensions checked against the expected size.
+//   - a terminal IEND chunk with no trailing bytes after it,
+//   - LEGAL IHDR SEMANTICS: a known colour type (0/2/3/4/6), a bit depth legal
+//     for that colour type, and compression / filter / interlace methods this
+//     gate supports (method 0 each; the social card is non-interlaced, so Adam7
+//     is rejected rather than decoded), and
+//   - RASTER GEOMETRY: the inflated bytes are EXACTLY the declared image —
+//     `height` scanlines, each a 1-byte filter tag (0..4) plus a packed pixel
+//     row of `ceil(width * channels * bitDepth / 8)` bytes. A stream that
+//     expands to too few (the four-byte payload) or too many bytes, or a
+//     scanline whose leading filter byte is not 0..4, is a broken raster.
+// The IHDR dimensions are checked against the expected size before the geometry
+// (a wrong-size card is reported as such, then the geometry confirms the raster
+// is the complete, filter-legal image for those dimensions).
 //
 // Accepts a Buffer or coerces a string fixture to one (latin1 preserves bytes).
 function validatePng(data, expectedWidth = OG_PNG_WIDTH, expectedHeight = OG_PNG_HEIGHT) {
@@ -824,10 +865,70 @@ function validatePng(data, expectedWidth = OG_PNG_WIDTH, expectedHeight = OG_PNG
   if (!sawIend) {
     return { ok: false, width, height, reason: 'no terminal IEND chunk (truncated raster)' };
   }
+
+  // IHDR SEMANTIC fields (rf2-j538f7.24). The chunk walk above proved the IHDR
+  // chunk is fully present and CRC-valid, so its 13 data bytes (16..28) are safe
+  // to read here. A structurally wrapped stream can still declare an ILLEGAL
+  // raster no decoder can render — a forbidden colour type, an illegal
+  // bit-depth/colour-type pairing, or an unsupported compression/filter/interlace
+  // method — none of which the CRC or the zlib inflate below catches. Reject the
+  // header semantics before trusting the pixel geometry.
+  const bitDepth = buf[24];
+  const colourType = buf[25];
+  const compressionMethod = buf[26];
+  const filterMethod = buf[27];
+  const interlaceMethod = buf[28];
+  const channels = PNG_CHANNELS_BY_COLOUR_TYPE[colourType];
+  if (channels === undefined) {
+    return {
+      ok: false,
+      width,
+      height,
+      reason: `IHDR declares colour type ${colourType}, not a legal PNG colour type (0, 2, 3, 4 or 6)`,
+    };
+  }
+  if (!PNG_LEGAL_DEPTHS_BY_COLOUR_TYPE[colourType].includes(bitDepth)) {
+    return {
+      ok: false,
+      width,
+      height,
+      reason:
+        `IHDR bit depth ${bitDepth} is illegal for colour type ${colourType} ` +
+        `(allowed: ${PNG_LEGAL_DEPTHS_BY_COLOUR_TYPE[colourType].join('/')})`,
+    };
+  }
+  if (compressionMethod !== 0) {
+    return {
+      ok: false,
+      width,
+      height,
+      reason: `IHDR compression method ${compressionMethod} is unsupported (PNG defines only method 0/deflate)`,
+    };
+  }
+  if (filterMethod !== 0) {
+    return {
+      ok: false,
+      width,
+      height,
+      reason: `IHDR filter method ${filterMethod} is unsupported (PNG defines only method 0)`,
+    };
+  }
+  if (interlaceMethod !== 0) {
+    return {
+      ok: false,
+      width,
+      height,
+      reason:
+        `IHDR interlace method ${interlaceMethod} is unsupported by this gate — the ` +
+        `social card is non-interlaced (method 0); Adam7 (method 1) is rejected, not decoded`,
+    };
+  }
+
   // The compressed image data must actually decode — a garbled zlib stream that
   // still carried a valid CRC would otherwise pass. This is the "real decode".
+  let raster;
   try {
-    zlib.inflateSync(Buffer.concat(idatParts));
+    raster = zlib.inflateSync(Buffer.concat(idatParts));
   } catch (err) {
     return {
       ok: false,
@@ -843,6 +944,42 @@ function validatePng(data, expectedWidth = OG_PNG_WIDTH, expectedHeight = OG_PNG
       height,
       reason: `dimensions are ${width}x${height}, expected ${expectedWidth}x${expectedHeight}`,
     };
+  }
+
+  // RASTER GEOMETRY (rf2-j538f7.24). Inflating the IDAT proves the zlib stream is
+  // well-formed, NOT that its bytes form the declared image. A non-interlaced PNG
+  // decompresses to EXACTLY `height` scanlines, each `1 + ceil(width * channels *
+  // bitDepth / 8)` bytes: a leading filter-type tag (0..4) followed by the packed
+  // pixel row. An IDAT that inflates to the wrong length (the bead's four-byte
+  // payload, or an over-long one) or a scanline carrying an illegal filter tag is
+  // a structurally-broken raster that zlib-only validation waves through.
+  const bytesPerScanline = Math.ceil((width * channels * bitDepth) / 8);
+  const stride = 1 + bytesPerScanline;
+  const expectedRasterBytes = height * stride;
+  if (raster.length !== expectedRasterBytes) {
+    return {
+      ok: false,
+      width,
+      height,
+      reason:
+        `decompressed image data is ${raster.length} byte(s), expected ` +
+        `${expectedRasterBytes} (${height} scanlines x ${stride} bytes = a 1-byte ` +
+        `filter tag + a ${bytesPerScanline}-byte row for each ${width}px line of ` +
+        `${bitDepth}-bit colour-type-${colourType} pixels). A valid zlib stream ` +
+        `that does not expand to the full declared raster (truncated/oversized ` +
+        `pixel payload) is not a decodable image`,
+    };
+  }
+  for (let row = 0; row < height; row++) {
+    const filterTag = raster[row * stride];
+    if (filterTag > 4) {
+      return {
+        ok: false,
+        width,
+        height,
+        reason: `scanline ${row} begins with filter byte ${filterTag}, not a legal PNG filter type (0..4) — corrupt/mis-encoded raster`,
+      };
+    }
   }
   return { ok: true, width, height };
 }
