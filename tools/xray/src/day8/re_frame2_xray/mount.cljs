@@ -785,9 +785,36 @@
 
 (defn toggle!
   "Toggle the Xray shell's visibility. First call mounts + shows
-  (per `open!`); subsequent calls flip visibility."
+  (per `open!`); subsequent calls flip visibility.
+
+  ## Generic reopen preserves the realized surface (rf2-j538f7.41)
+
+  `toggle!` is the global show/hide route (the `Ctrl+Shift+C` keybinding
+  drives it) — NOT an explicit surface-switch. When reopening a hidden
+  shell it therefore shows whatever physical surface the shell was last
+  realized on: a retained `:overlay` mount reopens as the overlay (a
+  CSS-only show under `document.body` via `open-overlay!`); anything
+  else — `:inline`, or the first-ever toggle when nothing is mounted yet
+  (`@mount-state` nil ⇒ `:mode` nil) — reopens inline via `open!`. The
+  explicit `open!` / `open-overlay!` verbs stay the intentional
+  surface-CHANGE APIs, each honouring its own distinct-surface contract
+  (incl. the missing-host fail-safe from rf2-j538f7.23).
+
+  Pre-fix the hidden branch hard-coded `(open!)`, so a hidden OVERLAY
+  mount reopened via `Ctrl+Shift+C` was treated as an explicit
+  inline-surface request: with a layout host it silently re-parented the
+  overlay back inline (discarding the operator's fullscreen choice and
+  component-local state, and violating the CSS-only reopen contract);
+  with no host `switch-surface! :inline` returned the missing-host
+  diagnostic and left the overlay stranded hidden — repeated toggles
+  could never recover it (the operator had to know to call
+  `open-overlay!` again despite the toggle promising to show it)."
   []
-  (if (visible?) (close!) (open!)))
+  (if (visible?)
+    (close!)
+    (if (= :overlay (:mode @mount-state))
+      (open-overlay!)
+      (open!))))
 
 ;; ---- close-shell effect (rf2-fq491) -------------------------------------
 ;;
