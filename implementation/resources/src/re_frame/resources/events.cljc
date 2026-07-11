@@ -1867,8 +1867,14 @@
   scope, or a `{:from-db …}` reference already resolved against app-db). Routes
   the concrete scope through the shared `state/canonicalize-scope` validation
   path, then removes the in-scope entries, settles their in-flight work rows
-  `:cancelled`, recomputes indexes, and emits the explaining trace + fx."
-  [runtime-db frame-id scope cause]
+  `:cancelled`, recomputes indexes, and emits the explaining trace + fx.
+
+  rf2-x76af2.14 — a cancellation is a COMPLETION: each terminal `:cancelled`
+  work row carries the event's causal `:completed-at` (`time-ms`, the declared-
+  flat `:rf/time-ms`), symmetric with every reply-driven cancellation
+  (rf2-rl27r2), so epoch / tooling correlation of a logout / tenant-switch
+  cancellation is intact."
+  [runtime-db frame-id scope cause time-ms]
   (let [cscope     (state/canonicalize-scope scope 'rf.resource/clear-scope nil)
         entries    (get-in runtime-db (state/entries-path))
         ;; rf2-9e0tyq — `entries` is keyed on the byte `key-id`; the scope to
@@ -1901,14 +1907,18 @@
                        (as-> db (reduce (fn [d [wid _]]
                                           (work-ledger/update-record
                                             d wid work-ledger/mark-terminal
-                                            :cancelled {:reason :clear-scope}))
+                                            ;; rf2-x76af2.14 — carry the causal
+                                            ;; `:completed-at` onto the cancelled
+                                            ;; work row (a cancellation completes).
+                                            :cancelled {:reason :clear-scope
+                                                        :completed-at time-ms}))
                                         db in-flight))
                        (update state/resources-key state/reindex-keys
                                entries in-scope-ids))]
     (trace/emit! :rf.event :rf.resource/removed
                  {:rf.frame/id frame-id :scope cscope :cause cause
                   :removed (vec in-scope) :reason :clear-scope
-                  :aborted (mapv first in-flight)})
+                  :aborted (mapv first in-flight) :completed-at time-ms})
     {:rf.db/runtime rdb'
      ;; best-effort abort of each in-scope in-flight attempt PLUS cancel the
      ;; cleared entries' advisory stale / GC timers (their durable facts are
@@ -1952,7 +1962,8 @@
   which keys nothing — would be the silent no-op the spec prohibits). The
   resolved concrete scope is then routed through `state/canonicalize-scope`
   exactly as a literal scope is. Per Spec 016 §clear-scope is causal."
-  [{rt :rf.db/runtime, frame-id :rf.frame/id, app-db :db} [_event-id {:keys [scope cause]}]]
+  [{rt :rf.db/runtime, frame-id :rf.frame/id, app-db :db, time-ms :rf/time-ms}
+   [_event-id {:keys [scope cause]}]]
   (let [runtime-db (or rt {})
         ;; EP-0016 D3 / rf2-mfnc5i: resolve a `{:from-db …}` reference at use
         ;; time against the handler's app-db coeffect. A reference that resolves
@@ -1990,15 +2001,21 @@
                                         "logged-in user at logout). Per Spec 016 "
                                         "§clear-scope is causal.")})
         {})
-      (clear-scope-handler* runtime-db frame-id resolved cause))))
+      (clear-scope-handler* runtime-db frame-id resolved cause time-ms))))
 
 ;; ---- remove — single-instance cache removal --------------------------------
 
 (defn remove-handler
   "`:rf.resource/remove` — remove a single resource instance from the cache
   by its scoped key, and drop its owner/tag-index rows. Per Spec 016
-  §Events. Payload: `{:resource :scope :params}`."
-  [{rt :rf.db/runtime, frame-id :rf.frame/id, app-db :db} [_event-id {:keys [resource] :as payload}]]
+  §Events. Payload: `{:resource :scope :params}`.
+
+  rf2-x76af2.14 — when the removed instance has an in-flight attempt, its
+  terminal `:cancelled` work row carries the event's causal `:completed-at`
+  (`time-ms`, the declared-flat `:rf/time-ms`), symmetric with clear-scope and
+  every reply-driven cancellation (rf2-rl27r2)."
+  [{rt :rf.db/runtime, frame-id :rf.frame/id, app-db :db, time-ms :rf/time-ms}
+   [_event-id {:keys [resource] :as payload}]]
   (let [runtime-db (or rt {})
         spec       (registry/require-resource-spec! resource 'rf.resource/remove)
         ;; EP-0016 D3 slice 3: resolve a `{:from-db …}` scope against app-db.
@@ -2024,12 +2041,15 @@
                        (update-in (state/entries-path) dissoc (state/key-id scoped-key))
                        (cond-> wid (work-ledger/update-record
                                      wid work-ledger/mark-terminal
-                                     :cancelled {:reason :remove}))
+                                     ;; rf2-x76af2.14 — carry the causal
+                                     ;; `:completed-at` onto the cancelled work
+                                     ;; row (a cancellation completes).
+                                     :cancelled {:reason :remove :completed-at time-ms}))
                        (update state/resources-key state/reindex-keys
                                old-entries [(state/key-id scoped-key)]))]
     (trace/emit! :rf.event :rf.resource/removed
                  {:rf.frame/id frame-id :resource/key scoped-key :reason :remove
-                  :aborted (when wid [wid])})
+                  :aborted (when wid [wid]) :completed-at time-ms})
     {:rf.db/runtime rdb'
      ;; best-effort abort of the removed instance's in-flight attempt
      ;; (opportunistic; stale suppression protects correctness) PLUS cancel

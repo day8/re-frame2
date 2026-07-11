@@ -440,12 +440,18 @@
                      framework-authority-meta
                      (resource-events/with-classification-lowering
                        resource-events/release-owner-handler))
+;; rf2-x76af2.14 — clear-scope / remove settle in-flight work rows terminal
+;; `:cancelled`, and a cancellation is a COMPLETION: its terminal outcome carries
+;; the event's causal `:completed-at` (from the declared-flat `:rf/time-ms`),
+;; symmetric with every reply-driven cancellation (rf2-rl27r2). Declare
+;; `time-meta` (framework-authority + the `:rf/time-ms` cofx) so the causal time
+;; is delivered flat and the handler can stamp it onto the cancelled work row.
 (events/reg-event :rf.resource/clear-scope
-                     framework-authority-meta
+                     time-meta
                      (resource-events/with-classification-lowering
                        resource-events/clear-scope-handler))
 (events/reg-event :rf.resource/remove
-                     framework-authority-meta
+                     time-meta
                      (resource-events/with-classification-lowering
                        resource-events/remove-handler))
 
