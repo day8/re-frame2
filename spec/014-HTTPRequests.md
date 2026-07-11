@@ -489,7 +489,7 @@ This pins the universal cancellation convention (Fetch `AbortController` rejects
 
 The implementation seam is two-layered: an `:aborted?` cell on the in-flight handle is flipped by the abort path BEFORE racing the once-only `:finalised?` CAS; the natural-completion paths (`finalise-success!` / `finalise-failure!`) sample the cell AFTER winning the CAS and reclassify the would-be reply before dispatch. `maybe-retry!` additionally refuses to schedule a retry once the cell is flipped — a request the caller has cancelled MUST NOT issue a fresh attempt under any retry policy.
 
-**The backoff window is itself cancellable.** A request that has failed a retry-eligible attempt and is *sleeping between attempts* (waiting out a `:retry :backoff` delay) is still in-flight for cancellation purposes: implementations MUST keep it discoverable in the in-flight registry — under BOTH its `:request-id` and (when applicable) its `actor-id` — for the entire backoff window, with an abort handle that cancels the pending retry timer rather than aborting a (non-existent) network call. An abort, an actor-destroy cascade, or a same-`:request-id` supersede that arrives DURING the backoff MUST cancel the scheduled retry — no further attempt fires, the registry entry is cleared, and the request finalises as `:rf.http/aborted` (`:reason :user` / `:actor-destroyed`, or supersede-suppressed) exactly as it would have mid-fetch. The sleeping request's in-flight handle MUST carry the **same work identity** a mid-fetch handle carries — its `:work/id` ingredients (origin event, issuance, retry attempt) — so a supersede during the backoff records its [`:rf.http/stale-suppressed`](#request-id-internal) trace with the **carried** work-id of the sleeping attempt (the retry attempt the request was about to make), not a default first-attempt id. Clearing the registry entry before arming the retry timer (leaving the sleeping request invisible to every cancellation path until the timer fires), or arming it without the sleeping attempt's work identity, is non-conformant.
+**The backoff window is itself cancellable.** A request that has failed a retry-eligible attempt and is *sleeping between attempts* (waiting out a `:retry :backoff` delay) is still in-flight for cancellation purposes: implementations MUST keep it discoverable in the in-flight registry — under BOTH its `:request-id` and (when applicable) its `actor-id` — for the entire backoff window, with an abort handle that cancels the pending retry timer rather than aborting a (non-existent) network call. An abort, an actor-destroy cascade, or a same-`:request-id` supersede that arrives DURING the backoff MUST cancel the scheduled retry — no further attempt fires, the registry entry is cleared, and the request finalises as `:rf.http/aborted` (`:reason :user` / `:actor-destroyed`, or supersede-suppressed) exactly as it would have mid-fetch. The sleeping request's in-flight handle MUST carry the **same work identity** a mid-fetch handle carries — its `:work/id` ingredients (origin event, issuance, retry attempt) — so a supersede during the backoff records its [`:rf.http/stale-suppressed`](#request-id-internal) trace with the **carried** work-id of the sleeping attempt (the **just-failed** attempt — the sleeping handle carries the attempt that failed and put the request to sleep; the timer advances `:attempt` to the next attempt only when it fires), not a default first-attempt id. Clearing the registry entry before arming the retry timer (leaving the sleeping request invisible to every cancellation path until the timer fires), or arming it without the sleeping attempt's work identity, is non-conformant.
 
 ## Failure categories (closed set)
 
@@ -872,7 +872,7 @@ Both are re-exported from `re-frame.core`. Both ship in `day8/re-frame2-http`; a
 
 ## Call-site helpers
 
-The canonical `[:rf.http/managed args-map]` envelope is correct and complete, but the args map carries 12+ keys and every call site repeats `{:request {:method <verb> :url <url>} ...}` boilerplate. The `re-frame.http` namespace ships pure synthesis fns — one per HTTP verb — that build the canonical fx vector from a URL + an optional args map. Result:
+The canonical `[:rf.http/managed args-map]` envelope is correct and complete, but the args map carries 12+ keys and every call site repeats `{:request {:method <verb> :url <url>} ...}` boilerplate. The `re-frame.http` namespace ships pure synthesis fns — one per HTTP verb — that build the canonical fx vector from a URL + an args map. Result:
 
 ```clojure
 ;; Without helpers — the canonical form, always supported:
@@ -888,14 +888,16 @@ The canonical `[:rf.http/managed args-map]` envelope is correct and complete, bu
 ```clojure
 (:require [re-frame.http :as rf.http])
 
-(rf.http/get     url)  (rf.http/get     url args)
-(rf.http/post    url)  (rf.http/post    url args)
-(rf.http/put     url)  (rf.http/put     url args)
-(rf.http/delete  url)  (rf.http/delete  url args)
-(rf.http/patch   url)  (rf.http/patch   url args)
-(rf.http/head    url)  (rf.http/head    url args)
-(rf.http/options url)  (rf.http/options url args)
+(rf.http/get     url args)
+(rf.http/post    url args)
+(rf.http/put     url args)
+(rf.http/delete  url args)
+(rf.http/patch   url args)
+(rf.http/head    url args)
+(rf.http/options url args)
 ```
+
+Every helper is **2-arity** — `args` is required. There is no URL-only 1-arity form: `args` MUST address the reply (`:reply-to` / `:on-success` / `:on-failure`; `{:reply-to nil}` for explicit fire-and-forget), and a URL-only call would build an effect guaranteed to fail its own `:rf.error/http-no-reply-target` boundary validation (rf2-3fc89f.9), so the args map is mandatory rather than optional.
 
 Each helper returns a `[:rf.http/managed args-map]` vector ready to drop into `:fx`. The helper pins `(:method (:request args-map))` to its verb's keyword and `(:url (:request args-map))` to the URL argument; caller-supplied `:method` / `:url` under `:request` are overwritten so the call-site contract reads cleanly.
 
