@@ -1215,9 +1215,12 @@
   ["re-frame.ssr" "get-response"]                  {:tier :implementation :owner "011" :status "v1"}
   ["re-frame.ssr" "peek-response"]                 {:tier :implementation :owner "011" :status "v1"}
   ["re-frame.ssr" "flush-response!"]               {:tier :implementation :owner "011" :status "v1"}
+  ["re-frame.ssr" "flush-response-result!"]        {:tier :implementation :owner "011" :status "v1"}
   ["re-frame.ssr" "default-response"]              {:tier :implementation :owner "011" :status "v1"}
   ["re-frame.ssr" "apply-error-projection!"]       {:tier :implementation :owner "011" :status "v1"}
   ["re-frame.ssr" "project-render-exception!"]     {:tier :implementation :owner "011" :status "v1"}
+  ["re-frame.ssr" "pending-error-trace?"]          {:tier :implementation :owner "011" :status "v1"}
+  ["re-frame.ssr" "clear-pending-error-traces!"]   {:tier :implementation :owner "011" :status "v1"}
   ["re-frame.ssr" "default-error-projector-fn"]    {:tier :implementation :owner "011" :status "v1"}
   ["re-frame.ssr" "public-error-keys"]             {:tier :implementation :owner "011" :status "v1"}
   ["re-frame.ssr" "fallback-public-error"]         {:tier :implementation :owner "011" :status "v1"}
