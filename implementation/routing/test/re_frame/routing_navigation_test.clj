@@ -96,6 +96,50 @@
       (is (= "/cart" (last @pushed))
           ":query-retain undeclared → no carry-through, URL stays bare"))))
 
+;; ---- rf2-gxq7z1: nil-valued :query opt must not leak into the slice -------
+;;
+;; `route-url` ELIDES a nil-valued query key from the URL (and validates the
+;; elided map), so `[:rf.route/navigate route {} {:query {:sort nil}}]` pushes
+;; a bare `/search`. The plain `:query` opt used to write `{:sort nil}` VERBATIM
+;; into the slice (the nil-strip only ran on the `:query-merge` branch), so the
+;; slice diverged from the URL: a later URL-driven nav to the same `/search`
+;; yields `:query {}`, `{:sort nil}` != `{}`, and the rule-3 no-op failed —
+;; `:on-match` spuriously re-fired. The strip now runs on every branch.
+
+(deftest navigate-nil-query-value-does-not-leak-into-slice-rf2-gxq7z1
+  (testing "a nil-valued :query opt is elided from the slice (matching the
+            pushed URL), so a later URL-driven nav to the same URL is a rule-3
+            no-op — no :on-match re-fire, no fresh nav-token"
+    (let [fires (atom 0)]
+      (rf/reg-event :route/search-loaded (fn [{:keys [db]} _] (swap! fires inc) {:db db}))
+      (rf/reg-route :route/search
+                    {:query    [:map [:sort {:optional true} :string]]
+                     :on-match [[:route/search-loaded]]}
+                    "/search")
+      ;; Programmatic nav with an explicit nil :sort — route-url elides it from
+      ;; the URL, so the slice must NOT carry {:sort nil}.
+      (rf/dispatch-sync [:rf.route/navigate :route/search {} {:query {:sort nil}}])
+      (let [slice (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
+                          [:rf.runtime/routing :current])]
+        (is (= {} (:query slice))
+            "the slice :query has NO :sort key — matches the pushed /search URL")
+        (is (not (contains? (:query slice) :sort))
+            "no leaked nil-valued :sort key")
+        (let [fires-after-nav @fires
+              token-after-nav (:nav-token slice)]
+          (is (= 1 fires-after-nav) ":on-match fired once on the initial nav")
+          ;; URL-driven nav to the SAME URL: identical-route-target? compares
+          ;; slice-query {} vs match-query {} — equal → rule-3 no-op. With the
+          ;; {:sort nil} leak this comparison was {:sort nil} vs {} → NOT equal
+          ;; → a spurious re-fire + fresh token.
+          (rf/dispatch-sync [:rf.route/transitioned "/search"])
+          (let [slice' (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
+                               [:rf.runtime/routing :current])]
+            (is (= fires-after-nav @fires)
+                ":on-match did NOT re-fire — slice query matched the URL query")
+            (is (= token-after-nav (:nav-token slice'))
+                "the nav-token is unchanged — a genuine rule-3 no-op")))))))
+
 (deftest navigate-pushes-url-with-fragment
   (testing ":rf.route/navigate with :fragment opt pushes the URL with #fragment appended"
     ;; Per Spec 012 §Fragments §Programmatic navigation with fragments:

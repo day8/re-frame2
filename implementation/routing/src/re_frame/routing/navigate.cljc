@@ -337,11 +337,20 @@
           ;; pairing is `:rf.route/self`, where the current route IS the
           ;; target. When `:query-merge` is absent the query resolves
           ;; exactly as before (no current-query base is folded in).
-          query-params (if-let [merge-in (:query-merge opts)]
-                         (into {}
-                               (remove (comp nil? val))
-                               (merge (:query current) query-params merge-in))
-                         query-params)
+          ;;
+          ;; rf2-gxq7z1: strip nil-valued query keys on BOTH branches, not just
+          ;; `:query-merge`. `route-url` ELIDES nil-valued query keys from the
+          ;; URL (and validates the elided map), so a plain `:query {:sort nil}`
+          ;; opt used to push `/search` yet write `{:sort nil}` verbatim into
+          ;; the slice — a slice/URL divergence that breaks the rule-3 no-op on
+          ;; a later URL-driven nav (the URL yields `:query {}`, so
+          ;; `{:sort nil}` != `{}` and `:on-match` spuriously re-fires). Apply
+          ;; the same `(remove nil? val)` the `:query-merge` branch already
+          ;; used to EVERY branch so the written slice matches the pushed URL.
+          query-params (let [merged (if-let [merge-in (:query-merge opts)]
+                                      (merge (:query current) query-params merge-in)
+                                      query-params)]
+                         (into {} (remove (comp nil? val)) merged))
           ;; Per Spec 012 §Param validation at the call site: the
           ;; event-boundary path `[:rf.route/navigate ...]` runs the
           ;; route's `:params` / `:query` schema BEFORE transitioning;
