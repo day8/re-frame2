@@ -1010,11 +1010,15 @@
 ;; (no stale left-column prose). Reusing those audits on the tailwind tree
 ;; keeps the Tailwind variant honest against the same runtime shape the
 ;; plain path is pinned to, and additionally pins the Tailwind-specific
-;; markers (the @import entry + the dev CDN script).
+;; markers: the CSS-first source (@import + @theme) is routed through the
+;; inline <style type="text/tailwindcss"> compiler input, the dev CDN
+;; script loads, and the externally-linked app.css is plain CSS with no
+;; bare Tailwind @import (rf2-j538f7.22 — the compiler-input coherence fix).
 
 (deftest css-tailwind-emission-static-parse-test
-  (testing ":css :tailwind swaps in the Tailwind v4 app.css + index.html
-            while preserving the Xray-host layout contract"
+  (testing ":css :tailwind swaps in the Tailwind v4 index.html + plain app.css
+            while preserving the Xray-host layout contract, routing the
+            Tailwind source through the compiler-visible inline block"
     (let [tmp (tmp-dir "rf2-emission-tailwind-")]
       (try
         (let [proj    (run-template-opts! tmp "acme/my-app"
@@ -1024,10 +1028,18 @@
           ;; The layout-host contract survives the overlay.
           (assert-xray-host-contract! :tailwind proj)
           (assert-no-stale-xray-wording! :tailwind proj)
-          ;; Tailwind-specific markers.
-          (is (re-find #"@import\s+\"tailwindcss\"" app-css)
-              "tailwind app.css imports tailwindcss (v4 CSS-first entry)")
+          ;; Tailwind-specific markers — the COHERENT compiler-input shape.
           (is (re-find #"@tailwindcss/browser@4" index)
-              "tailwind index.html loads the @tailwindcss/browser@4 dev CDN"))
+              "tailwind index.html loads the @tailwindcss/browser@4 dev CDN")
+          (is (re-find
+                #"(?s)<style type=\"text/tailwindcss\">.*?@import\s+\"tailwindcss\";.*?@theme\b.*?</style>"
+                index)
+              "tailwind index.html routes the CSS-first source (@import +
+               @theme) through the inline <style type=\"text/tailwindcss\">
+               block the Play CDN compiler actually reads")
+          (is (not (re-find #"@import\s+\"tailwindcss\"" app-css))
+              "tailwind app.css is ordinary native CSS — no bare
+               @import \"tailwindcss\" in the externally-linked stylesheet the
+               compiler never reads (no phantom /css/tailwindcss request)"))
         (finally
           (delete-recursively tmp))))))

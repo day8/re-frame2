@@ -104,7 +104,17 @@
             "the / response links the emitted CSS scaffold, so the page loads styled")
         (when tailwind?
           (is (string/includes? body "@tailwindcss/browser@4")
-              "Tailwind mode loads the @tailwindcss/browser dev compiler in the live shell"))
+              "Tailwind mode loads the @tailwindcss/browser Play CDN compiler in the live shell")
+          ;; The Play CDN compiler reads ONLY inline
+          ;; `<style type="text/tailwindcss">` nodes — never an external
+          ;; `<link>` stylesheet. So the live SSR response must carry the
+          ;; CSS-first SOURCE inline here (not just the CDN script), else the
+          ;; @import/@theme directives are silently dropped and the linked
+          ;; app.css becomes an unread input.
+          (is (string/includes? body "<style type=\"text/tailwindcss\">")
+              "Tailwind mode injects the inline <style type=\"text/tailwindcss\"> source block — the Play CDN compiler's only input")
+          (is (re-find #"(?s)<style type=\"text/tailwindcss\">.*?@import \"tailwindcss\";.*?@theme" body)
+              "the inline source block carries the @import + @theme the compiler actually compiles"))
         (is (string/includes? body "__rf_payload")
             "the __rf_payload hydration script id is preserved")
         (is (string/includes? body "id=\"app\"")
@@ -126,8 +136,18 @@
             "the stylesheet is served as text/css, not an SSR HTML document")
         (is (not (ssr-html-fallthrough? resp))
             "GET /css/app.css returns CSS bytes, NOT the SSR HTML app response")
-        (is (string/includes? body (if tailwind? "@import \"tailwindcss\"" "minimal stylesheet"))
-            "the served bytes are the emitted app.css entry"))
+        ;; The served app.css is ordinary native CSS in BOTH modes — the
+        ;; Tailwind CSS-first source lives inline in the live shell, never
+        ;; here. So it carries the plain Xray-host layout and, crucially, NO
+        ;; bare `@import "tailwindcss"` (which the browser would turn into a
+        ;; bogus /css/tailwindcss request). This is the SSR-response
+        ;; counterpart of the SPA "no phantom request" proof.
+        (is (string/includes? body "rf2-xray-host")
+            "the served app.css carries the plain Xray-host layout (native CSS, both css modes)")
+        (is (not (string/includes? body "@import \"tailwindcss\""))
+            "the served app.css has NO bare @import \"tailwindcss\" — the Tailwind
+             input lives inline in the live shell, so the browser issues no
+             phantom /css/tailwindcss request"))
 
       ;; -- /main.js keeps a JavaScript MIME (never an SSR HTML fallthrough) --
       (let [resp (handler {:uri "/main.js" :request-method :get})]
