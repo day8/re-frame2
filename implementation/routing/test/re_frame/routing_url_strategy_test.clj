@@ -150,12 +150,80 @@
     (is (identical? strategy/hash-url-strategy
                     (strategy/url-strategy-from-config
                       {:url-bound? true :url-strategy strategy/hash-url-strategy})))
-    ;; a custom strategy map is honoured verbatim (the seam is open — the two
-    ;; shipped strategies are the blessed pair, but the config value passes
-    ;; through unchanged).
+    ;; a SHAPE-VALID custom strategy map is honoured verbatim (the seam is
+    ;; open — the two shipped strategies are the blessed pair, but a complete
+    ;; custom config value passes through unchanged). On the JVM only the two
+    ;; host-agnostic legs `:encode` / `:decode` are required (the browser legs
+    ;; are reader-conditionally absent — see validate-url-strategy!).
     (let [custom {:encode identity :decode (constantly "/")}]
       (is (identical? custom
                       (strategy/url-strategy-from-config {:url-strategy custom}))))))
+
+;; ---- custom-strategy validation (rf2-j538f7.11) ---------------------------
+;;
+;; A custom `:url-strategy` was consumed VERBATIM with no shape/callability
+;; check, so a typo / partial adapter / hot-reload intermediate value only
+;; failed later — deep in a consult point — as a raw host nil-function /
+;; TypeError. `url-strategy-from-config` now validates an explicit strategy at
+;; the RESOLUTION seam, fail-loud with `:rf.error/invalid-url-strategy`, BEFORE
+;; any lifecycle use. On the JVM the required legs are `:encode` / `:decode`
+;; only (the browser legs are reader-conditionally absent from the shipped
+;; strategies — Spec 012 §URL strategies).
+
+(deftest custom-url-strategy-non-map-rejected-at-resolution
+  (testing "rf2-j538f7.11: a truthy but NON-MAP :url-strategy fails loud with
+            :rf.error/invalid-url-strategy at the resolution seam rather than
+            passing through verbatim to a later raw call-site failure"
+    (let [ex (try (strategy/url-strategy-from-config {:url-strategy :not-a-map})
+                  nil
+                  (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? ex) "a non-map :url-strategy throws")
+      (is (= :rf.error/invalid-url-strategy (:rf.error/id (ex-data ex)))
+          "the canonical structured error id is stamped")
+      (is (= :not-a-map (:url-strategy (ex-data ex)))
+          "the offending value is carried in the ex-data"))))
+
+(deftest custom-url-strategy-missing-leg-rejected-at-resolution
+  (testing "rf2-j538f7.11: the confirmed repro — a custom strategy missing a
+            callable :encode (only :decode supplied) fails loud naming the bad
+            leg, instead of entering the registry and NPE-ing at the first
+            :encode consult"
+    (let [ex (try (strategy/url-strategy-from-config
+                    {:url-strategy {:decode (constantly "/")}})
+                  nil
+                  (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? ex) "a strategy missing a required callable leg throws")
+      (is (= :rf.error/invalid-url-strategy (:rf.error/id (ex-data ex))))
+      (is (contains? (set (:missing (ex-data ex))) :encode)
+          "the missing :encode leg is named in :missing")))
+  (testing "a non-callable leg (a non-fn value in a required slot) is rejected too"
+    (let [ex (try (strategy/url-strategy-from-config
+                    {:url-strategy {:encode "not-a-fn" :decode (constantly "/")}})
+                  nil
+                  (catch clojure.lang.ExceptionInfo e e))]
+      (is (= :rf.error/invalid-url-strategy (:rf.error/id (ex-data ex))))
+      (is (contains? (set (:missing (ex-data ex))) :encode)
+          "a non-callable :encode counts as missing"))))
+
+(deftest shipped-and-complete-custom-strategies-pass-validation
+  (testing "rf2-j538f7.11: validation does NOT disturb the valid paths — the
+            shipped strategies, a with-base-path wrapper, and a shape-complete
+            custom map all resolve unchanged"
+    (is (identical? strategy/history-url-strategy
+                    (strategy/url-strategy-from-config
+                      {:url-strategy strategy/history-url-strategy}))
+        "the shipped history strategy passes")
+    (is (identical? strategy/hash-url-strategy
+                    (strategy/url-strategy-from-config
+                      {:url-strategy strategy/hash-url-strategy}))
+        "the shipped hash strategy passes")
+    (let [wrapped (strategy/with-base-path strategy/history-url-strategy "/demos")]
+      (is (identical? wrapped (strategy/url-strategy-from-config {:url-strategy wrapped}))
+          "a with-base-path wrapper (encode/decode present) passes"))
+    ;; validate-url-strategy! returns its input unchanged on success.
+    (let [custom {:encode identity :decode (constantly "/")}]
+      (is (identical? custom (strategy/validate-url-strategy! custom 'test nil))
+          "validate-url-strategy! is identity on a valid strategy"))))
 
 ;; ---- with-base-path combinator (rf2-g8pbwg) -------------------------------
 ;;

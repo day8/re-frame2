@@ -59,7 +59,8 @@
 
   Internal namespace; the public facade is `re-frame.routing`, which
   re-exports the two shipped strategies."
-  (:require [re-frame.registrar :as registrar]))
+  (:require [re-frame.error :as error]
+            [re-frame.registrar :as registrar]))
 
 ;; ---- history strategy (default) ------------------------------------------
 ;; Path-form. `:encode` / `:decode` are identity over the app-relative URL —
@@ -337,13 +338,82 @@
 ;; defaulting to the history strategy when unset. This mirrors
 ;; `re-frame.routing.nav-fx/url-bound?-from-config`.
 
+;; ---- custom-strategy validation ------------------------------------------
+;; Per Spec 012 §URL strategies a `:url-strategy` is a map of CALLABLE legs.
+;; A typo, a partial hand-rolled adapter, or a dev hot-reload intermediate
+;; value used to enter the frame registry VERBATIM and only fail later —
+;; deep in a consult point — as a host-specific raw nil-function / TypeError
+;; (`url-strategy-from-config` returned every truthy config value unchecked;
+;; rf2-j538f7.11). Validate the shape/callability at the RESOLUTION seam so a
+;; malformed adapter fails LOUD with a canonical structured error, at a stable
+;; boundary, BEFORE any lifecycle use (the listener install, the route-link
+;; href, the push/replace fxs all resolve through here).
+
+(def ^:private url-strategy-required-legs
+  "The CALLABLE legs a custom `:url-strategy` must carry, per host. `:encode`
+  / `:decode` are pure and host-agnostic and required on BOTH hosts (SSR
+  `route-link` renders through `:encode`). The three side-effecting browser
+  legs `:push!` / `:replace!` / `:install-listener!` are required on CLJS but
+  are reader-conditionally ABSENT from the shipped JVM strategies (SSR never
+  executes them), so JVM validation does NOT require them (Spec 012 §URL
+  strategies — SSR does not execute strategy side effects)."
+  #?(:cljs [:encode :decode :push! :replace! :install-listener!]
+     :clj  [:encode :decode]))
+
+(defn validate-url-strategy!
+  "Fail-loud shape/callability check for an explicitly-declared
+  `:url-strategy`, per Spec 012 §URL strategies. `strategy` must be a MAP
+  carrying a CALLABLE (`fn?`) value for every host-required leg
+  (`url-strategy-required-legs`); extension keys are permitted and preserved.
+  Throws the canonical `:rf.error/invalid-url-strategy` — naming the
+  missing/non-callable legs and the offending value — when the shape is wrong;
+  returns `strategy` UNCHANGED on success so callers can thread it.
+
+  `where-sym` names the resolving surface for the diagnostic (`'rf/reg-frame`:
+  the strategy is declared in the frame's `reg-frame` config); `context`
+  merges call-site slots (e.g. a frame id) into the ex-data."
+  [strategy where-sym context]
+  (when-not (map? strategy)
+    (throw (error/thrown-ex-info
+             :rf.error/invalid-url-strategy where-sym
+             (str ":url-strategy must be a map carrying callable "
+                  (clojure.string/join " / " url-strategy-required-legs)
+                  " legs, but it was " (pr-str strategy))
+             {:extra (merge {:url-strategy strategy
+                             :required     (vec url-strategy-required-legs)}
+                            context)})))
+  (let [missing (vec (remove #(fn? (get strategy %)) url-strategy-required-legs))]
+    (when (seq missing)
+      (throw (error/thrown-ex-info
+               :rf.error/invalid-url-strategy where-sym
+               (str ":url-strategy is missing a callable value for "
+                    (clojure.string/join " / " missing)
+                    " — a URL strategy must carry callable "
+                    (clojure.string/join " / " url-strategy-required-legs)
+                    " legs")
+               {:extra (merge {:url-strategy strategy
+                               :required     (vec url-strategy-required-legs)
+                               :missing      missing}
+                              context)}))))
+  strategy)
+
 (defn url-strategy-from-config
   "Read `:url-strategy` from a frame's stored `reg-frame` config map,
   defaulting to `history-url-strategy` when unset (or when `config` is not
-  a map). The default is the identity/path-form strategy."
+  a map). The default is the identity/path-form strategy.
+
+  An explicitly-declared custom `:url-strategy` is VALIDATED for
+  shape/callability (`validate-url-strategy!`, fail-loud
+  `:rf.error/invalid-url-strategy`) before it is returned — every strategy
+  consult point resolves through here, so a malformed adapter fails at this
+  resolution seam BEFORE any lifecycle use rather than as a raw
+  nil-function/TypeError at an arbitrary downstream call site (rf2-j538f7.11).
+  The unset/default branch skips validation: `history-url-strategy` is
+  known-good and sits on the hot render path."
   [config]
-  (or (when (map? config) (:url-strategy config))
-      history-url-strategy))
+  (if-let [declared (when (map? config) (:url-strategy config))]
+    (validate-url-strategy! declared 'rf/reg-frame nil)
+    history-url-strategy))
 
 (defn url-strategy-for-frame-id
   "Resolve the `:url-strategy` for `frame-id` by reading its stored

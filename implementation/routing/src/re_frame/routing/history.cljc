@@ -133,11 +133,21 @@
                (router/dispatch-sync! [:rf.route/handle-url-change path-url]
                                       {:frame o})))]
        (when w
-         (teardown-current!)
-         (reset! history-listener-atom
-                 {:owner    owner
-                  :strategy strat
-                  :teardown (install-listener! dispatch-to-owner!)}))
+         ;; Failure-atomic handoff (rf2-j538f7.11): install the REPLACEMENT
+         ;; listener FIRST, then tear the incumbent down only once the new one
+         ;; is in hand. If `install-listener!` throws (a callable-but-throwing
+         ;; adapter — the non-callable case already fails loud at
+         ;; strategy-resolution, before this fn), the incumbent listener +
+         ;; record survive rather than being orphaned. The two listeners
+         ;; coexist only within this synchronous block (no popstate/hashchange
+         ;; fires mid-block), and the old one is removed immediately, so there
+         ;; is no window for a double-fire.
+         (let [new-teardown (install-listener! dispatch-to-owner!)]
+           (teardown-current!)
+           (reset! history-listener-atom
+                   {:owner    owner
+                    :strategy strat
+                    :teardown new-teardown})))
        ;; Initial sync: hydrate the owner's slice from the current URL so a deep
        ;; link / reload / ownership transfer lands on the right route.
        (dispatch-to-owner! (decode))
