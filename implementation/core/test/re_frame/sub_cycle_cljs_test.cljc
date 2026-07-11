@@ -18,6 +18,7 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core           :as rf]
+            [re-frame.frame          :as frame]
             [re-frame.subs           :as subs]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support   :as test-support]))
@@ -89,6 +90,40 @@
                          (subs/subscribe [:a] {:frame fid})))]
       (is (= 2 (count events))
           "each subscribe of the uncached cyclic sub re-emits the structured error"))))
+
+(deftest reactive-multi-input-cycle-releases-earlier-input-refs
+  (testing "a >=2-input sub whose NON-FIRST input cycles releases the
+            already-acquired earlier input ref on the cycle-unwind path — the
+            earlier input's cache ref-count returns to baseline after recovery,
+            with no bounded leak (rf2-t3cpn3). Before the fix the first input
+            (:leaf) was subscribed (ref bumped) then the abandoned :multi build
+            unwound to the outermost recovery WITHOUT ever wiring its on-dispose,
+            so nothing released :leaf — a monotonic +1 leak."
+    ;; :leaf — a layer-1 (`:db`) sub: cacheable + ref-countable, no `:<-` inputs.
+    (rf/reg-sub :leaf (fn [db _] (:leaf db 7)))
+    ;; :cyc — closes the cycle back to :multi.
+    (rf/reg-sub :cyc :<- [:multi] (fn [m _] m))
+    ;; :multi — TWO inputs; the FIRST (:leaf) resolves cleanly, the SECOND
+    ;; (:cyc) cycles back to :multi. This is the multi-input edge .24 left.
+    (rf/reg-sub :multi :<- [:leaf] :<- [:cyc] (fn [[l c] _] [l c]))
+    (let [cache (:sub-cache (frame/frame fid))]
+      ;; Baseline: :leaf is not yet in the cache.
+      (is (nil? (get @cache [:leaf]))
+          "precondition: :leaf has no cache entry before the cyclic subscribe")
+      (let [[reaction events] (capture-sub-cycles #(subs/subscribe [:multi] {:frame fid}))]
+        (is (nil? (deref reaction))
+            "the cyclic multi-input subscription recovered to a nil-yielding reaction")
+        (is (= 1 (count events))
+            "exactly one structured :rf.error/sub-cycle was emitted")
+        (is (= [:multi :cyc :multi] (:cycle (:tags (first events))))
+            "the cycle path is the closing-repeat sub-id chain through the non-first input")
+        ;; TEETH (rf2-t3cpn3): :leaf was subscribed (ref bumped) BEFORE :cyc
+        ;; cycled. On the cycle-unwind path it must be released so its ref-count
+        ;; returns to baseline (entry dropped on the 1→0 transition). Before the
+        ;; fix this asserts the leak: the entry lingers with :ref-count 1.
+        (is (or (nil? (get @cache [:leaf]))
+                (zero? (or (get-in @cache [[:leaf] :ref-count]) 0)))
+            "the earlier input :leaf's ref-count returned to baseline (released on the cycle unwind) — no bounded leak")))))
 
 ;; ===========================================================================
 ;; Pure `compute-sub` path (per-call memo doubles as the under-construction set)

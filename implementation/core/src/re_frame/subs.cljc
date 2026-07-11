@@ -742,9 +742,11 @@
   the gap is observability, not recovery). `:recovery :ignored` — the input
   release is best-effort, exactly as the parent dispose walk continues.
 
-  `where` distinguishes the two release sites (`:on-dispose` for the cached
+  `where` distinguishes the release sites (`:on-dispose` for the cached
   reaction's on-dispose callback, `:not-cached-release` for the symmetric
-  release on the escaped-caching path). Returns nil."
+  release on the escaped-caching path, `:sub-cycle-unwind` for the earlier
+  inputs released when a `:<-` cycle in a non-first input abandons the build —
+  rf2-t3cpn3). Returns nil."
   [frame-id input-q where]
   (try
     (unsubscribe frame-id input-q)
@@ -973,7 +975,40 @@
                         :else        (binding [*subs-under-construction*
                                                (conj *subs-under-construction*
                                                      [frame-id (cache-key query-v)])]
-                                       (mapv (fn [input-q] (subscribe-in-frame frame-id input-q)) input-qs)))
+                                       ;; Track the inputs successfully subscribed
+                                       ;; so far so a `:<-` cycle detected in a
+                                       ;; NON-FIRST input can release the earlier
+                                       ;; inputs it already ref-bumped
+                                       ;; (rf2-t3cpn3). On a cycle, `subscribe-
+                                       ;; in-frame` for input N throws the
+                                       ;; sub-cycle sentinel and the WHOLE partial
+                                       ;; build unwinds to the outermost
+                                       ;; `compute-and-cache!` recovery WITHOUT
+                                       ;; ever wiring this reaction's on-dispose —
+                                       ;; so nothing else would release inputs
+                                       ;; 1..N-1 (a bounded dev-only ref-count
+                                       ;; leak). `subscribe-in-frame` bumps the
+                                       ;; input's ref-count before it returns, so
+                                       ;; `acquired` holds exactly the inputs
+                                       ;; whose ref must be undone; the cyclic
+                                       ;; input threw before its own bump, so it
+                                       ;; is (correctly) absent. Release is
+                                       ;; scoped to the sub-cycle sentinel only —
+                                       ;; the minimal precise fix; any other
+                                       ;; (theoretical) throw re-propagates
+                                       ;; unchanged.
+                                       (let [acquired (volatile! [])]
+                                         (try
+                                           (mapv (fn [input-q]
+                                                   (let [r (subscribe-in-frame frame-id input-q)]
+                                                     (vswap! acquired conj input-q)
+                                                     r))
+                                                 input-qs)
+                                           (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
+                                             (when (= :rf.error/sub-cycle (:rf.error/id (ex-data e)))
+                                               (doseq [input-q @acquired]
+                                                 (release-input-ref! frame-id input-q :sub-cycle-unwind)))
+                                             (throw e))))))
         parametric?   (= :parametric input-kind)
         memoised-body (cond
                         input-error?
