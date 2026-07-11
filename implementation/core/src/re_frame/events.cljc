@@ -1394,31 +1394,41 @@
   carrying the `:rf/event-handler` wrapper, PLUS `:rf.cofx/requires-parsed`
   when the inline entry declared `:rf.cofx/requires`.
 
-  `meta` is the inline entry's metadata map. The only AUTHORED meta slots this
-  lowering acts on are the cofx-requirements: `:rf.cofx/requires` is parsed via
-  `cofx/parse-requires` into `:rf.cofx/requires-parsed`, exactly as
-  `register-event!` does (EP-0017 §4/§5). This is load-bearing: the
-  satisfaction step (`router/assemble-initial-ctx`) reads the TOP-LEVEL
-  `:rf.cofx/requires-parsed` slot to deliver the declared coeffects, so an
-  inline image-loaded event MUST carry it or its declared facts are silently
-  dropped (a fail-open drop, violating EP-0017 §5 uniform declared-only
-  delivery and the EP-0023 §Image Fragments \"both paths lower to the same
-  runtime descriptor shape\" contract). A malformed / duplicate
-  declaration fails loud at lowering (`:rf.error/cofx-request-invalid` /
-  `:rf.error/cofx-name-collision`), mirroring registration.
+  `meta` is the inline entry's metadata map. It is MERGED onto the runnable
+  slots at TOP LEVEL — exactly as `register-event!` stores the registration
+  metadata (`event-handler-meta` `assoc`s the runnable slots onto `meta`) — so
+  the inline path lowers to the SAME runtime descriptor shape a registered
+  handler carries (EP-0023 §Image Fragments: \"both paths should lower to the
+  same runtime descriptor shape\"). Without the merge, top-level registration-
+  meta the runtime reads at run/enqueue time was silently dropped for inline
+  image handlers — e.g. `:rf.trace/no-emit?` (rf2-x76af2.25): the enqueue-time
+  `:rf.event/dispatched` gate and the handler-scope run-trace gate both read the
+  flag at TOP LEVEL, so an inline image handler marked `:rf.trace/no-emit?`
+  still flooded the trace stream because the flag lived only under the
+  descriptor's nested `:metadata`. Symmetric with `lower-inline-cofx`, which
+  likewise hoists the cofx grade flags the delivery step reads.
+
+  The cofx-requirements are additionally parsed via `cofx/parse-requires` into
+  the TOP-LEVEL `:rf.cofx/requires-parsed` slot exactly as `register-event!`
+  does (EP-0017 §4/§5) — load-bearing: the satisfaction step
+  (`router/assemble-initial-ctx`) reads it to deliver the declared coeffects,
+  so an inline image-loaded event MUST carry it or its declared facts are
+  silently dropped. A malformed / duplicate declaration fails loud at lowering
+  (`:rf.error/cofx-request-invalid` / `:rf.error/cofx-name-collision`),
+  mirroring registration.
 
   The other event-meta slot affecting the runnable chain — author-declared
   `:interceptors` references — remains an advanced inline shape out of this
   slice's scope (the descriptor already carries the inline `:metadata` for
   introspection). `impl` is the raw handler fn.
 
-  Returns ONLY the runnable slots so image-assembly merges them onto the
+  Returns the runnable slots so image-assembly merges them onto the
   descriptor, preserving `:impl` + provenance for replacement-winner
   coordinates and dedupe."
   [meta impl]
   (let [requires-parsed (cofx/parse-requires :rf/image-inline-event
                                              (:rf.cofx/requires meta))]
-    (cond-> (event-handler-meta impl)
+    (cond-> (event-handler-meta meta [] impl)
       (seq requires-parsed) (assoc :rf.cofx/requires-parsed requires-parsed))))
 
 (late-bind/set-fn! :image/lower-inline-event lower-inline-event)
