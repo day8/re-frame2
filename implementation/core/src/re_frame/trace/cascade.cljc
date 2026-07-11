@@ -101,6 +101,23 @@
     (conj! tv entry)
     tv))
 
+(defn- accumulate-bounded
+  "Conj `entry` onto the transient vector under `vec-key` in the transient
+  accumulator `acc`, bounded at `cap` (via `conj-bounded`). When that vector is
+  ALREADY at `cap` — so `entry` is DROPPED — stamp `flag-key` true.
+
+  The truncation flag therefore fires ONLY when an entry is genuinely elided: a
+  cascade with EXACTLY `cap` entries retains all of them and is NOT truncated
+  (rf2-x76af2.31); only cap+1 sets the flag — matching this namespace's
+  docstring (`Cascades exceeding either cap …`) and Spec 009's `:rf.cascade/
+  captured` wording (`cascades exceeding the cap stamp :sub-cap-truncated?
+  true`). The `full?` guard is read BEFORE the conj so it never observes the
+  post-mutation count of the in-place transient vector."
+  [acc vec-key entry cap flag-key]
+  (let [full? (>= (count (get acc vec-key)) cap)]
+    (cond-> (assoc! acc vec-key (conj-bounded (get acc vec-key) entry cap))
+      full? (assoc! flag-key true))))
+
 (defn aggregate-cascade
   "Pure: walk `events` (the raw trace events harvested for one cascade)
   ONCE and produce the structured cascade-DAG map shape documented in
@@ -121,57 +138,42 @@
                       t  (:tags ev)]
                   (cond
                     (= :rf.sub/run op)
-                    (-> acc
-                        ;; Per rf2-l1jz8 — thread the reactive recompute's
-                        ;; value-change + cascade attribution onto the
-                        ;; aggregated record so the `:rf.cascade/captured`
-                        ;; projection carries the same fields as the epoch
-                        ;; record's `:sub-runs`. Slots are nil for the
-                        ;; `compute-sub` base-shape emit (which omits them).
-                        (assoc! :subs-recomputed
-                                (conj-bounded (get acc :subs-recomputed)
-                                              {:sub-id         (:rf.sub/id t)
-                                               :query-v        (:rf.sub/query-v t)
-                                               :value-changed? (:rf.sub/value-changed? t)
-                                               :prev-value     (:rf.sub/prev-value t)
-                                               :value          (:rf.sub/value t)
-                                               :cascade?       (:rf.sub/cascade? t)
-                                               :cause-sub      (:rf.sub/cause-sub t)
-                                               ;; rf2-okz1u — `:cause-event-id` names
-                                               ;; the dispatching cascade's event-id
-                                               ;; (the head of the event vector that
-                                               ;; kicked off the in-flight drain).
-                                               ;; Threaded from `:rf.sub/cause-event-id`
-                                               ;; on the recompute trace tag (sourced
-                                               ;; via the `:epoch/run-cause` late-
-                                               ;; bind hook at emit time). nil when the
-                                               ;; sub ran outside any run or the
-                                               ;; epoch artefact is absent — consumers
-                                               ;; (Xray's Epoch panel SUBSCRIPTIONS
-                                               ;; section) read it to credit each
-                                               ;; sub-run to the right epoch row even
-                                               ;; when the physical reactive flush
-                                               ;; deferred into a chained sibling
-                                               ;; event's drain.
-                                               :cause-event-id (:rf.sub/cause-event-id t)}
-                                              sub-cap))
-                        (cond->
-                          (>= (count (get acc :subs-recomputed)) sub-cap)
-                          (assoc! :sub-cap-truncated? true)))
+                    ;; Per rf2-l1jz8 — thread the reactive recompute's value-
+                    ;; change + cascade attribution onto the aggregated record so
+                    ;; the `:rf.cascade/captured` projection carries the same
+                    ;; fields as the epoch record's `:sub-runs`. Slots are nil for
+                    ;; the `compute-sub` base-shape emit (which omits them).
+                    (accumulate-bounded
+                      acc :subs-recomputed
+                      {:sub-id         (:rf.sub/id t)
+                       :query-v        (:rf.sub/query-v t)
+                       :value-changed? (:rf.sub/value-changed? t)
+                       :prev-value     (:rf.sub/prev-value t)
+                       :value          (:rf.sub/value t)
+                       :cascade?       (:rf.sub/cascade? t)
+                       :cause-sub      (:rf.sub/cause-sub t)
+                       ;; rf2-okz1u — `:cause-event-id` names the dispatching
+                       ;; cascade's event-id (the head of the event vector that
+                       ;; kicked off the in-flight drain). Threaded from
+                       ;; `:rf.sub/cause-event-id` on the recompute trace tag
+                       ;; (sourced via the `:epoch/run-cause` late-bind hook at
+                       ;; emit time). nil when the sub ran outside any run or the
+                       ;; epoch artefact is absent — consumers (Xray's Epoch panel
+                       ;; SUBSCRIPTIONS section) read it to credit each sub-run to
+                       ;; the right epoch row even when the physical reactive flush
+                       ;; deferred into a chained sibling event's drain.
+                       :cause-event-id (:rf.sub/cause-event-id t)}
+                      sub-cap :sub-cap-truncated?)
 
                     (= :rf.sub/skip op)
-                    (-> acc
-                        (assoc! :subs-skipped
-                                (conj-bounded (get acc :subs-skipped)
-                                              {:sub-id  (:rf.sub/id t)
-                                               :query-v (:rf.sub/query-v t)
-                                               :reason  (:rf.sub/reason t)
-                                               :input-paths-unchanged
-                                               (:rf.sub/input-paths-unchanged t)}
-                                              sub-cap))
-                        (cond->
-                          (>= (count (get acc :subs-skipped)) sub-cap)
-                          (assoc! :sub-cap-truncated? true)))
+                    (accumulate-bounded
+                      acc :subs-skipped
+                      {:sub-id  (:rf.sub/id t)
+                       :query-v (:rf.sub/query-v t)
+                       :reason  (:rf.sub/reason t)
+                       :input-paths-unchanged
+                       (:rf.sub/input-paths-unchanged t)}
+                      sub-cap :sub-cap-truncated?)
 
                     (= :rf.flow/computed op)
                     (assoc! acc :flows-computed
@@ -187,15 +189,11 @@
                                     (:input-paths-unchanged t)}))
 
                     (= :rf.view/render op)
-                    (-> acc
-                        (assoc! :views-rendered
-                                (conj-bounded (get acc :views-rendered)
-                                              {:render-key   (:rf.view/render-key t)
-                                               :triggered-by (:triggered-by t)}
-                                              view-cap))
-                        (cond->
-                          (>= (count (get acc :views-rendered)) view-cap)
-                          (assoc! :view-cap-truncated? true)))
+                    (accumulate-bounded
+                      acc :views-rendered
+                      {:render-key   (:rf.view/render-key t)
+                       :triggered-by (:triggered-by t)}
+                      view-cap :view-cap-truncated?)
 
                     :else acc)))
               (transient {:subs-recomputed     (transient [])
