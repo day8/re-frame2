@@ -175,7 +175,7 @@
   ;; absence — register `:rf/default` as the client app frame and scope the
   ;; hydrate dispatch + render to it (the carried invariant). `:rf/hydrate`
   ;; lands on the carried frame; `verify-hydration!` already names it.
-  (rf/reg-frame :rf/default {})
+  (rf/make-frame {:id :rf/default})
   (let [payload (read-server-payload)]
     (rf/with-frame :rf/default
       (when payload

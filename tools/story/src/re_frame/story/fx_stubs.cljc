@@ -41,7 +41,7 @@
   ## Why a registered decorator and not a magic builtin
 
   Per /spec/007-Stories.md §Effect mocking the framework hooks are
-  `:fx-overrides` (registered against `reg-frame`); `force-fx-stub`
+  `:fx-overrides` (registered against `make-frame`); `force-fx-stub`
   is a *library* convenience over the framework hook. The same shape
   authors can use for their own decorators: register a `:fx-override`
   decorator with `:fx-id` + `:response`, reference it by id in the

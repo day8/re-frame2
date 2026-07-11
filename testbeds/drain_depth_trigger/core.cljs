@@ -75,7 +75,7 @@
       ;; durability (rule 3: no whole-drain rollback).
       :depth-reached 0
       ;; Frame's :drain-depth, mirrored for the view. Re-registers
-      ;; the frame on change via `:rf/reg-frame` so the runtime sees
+      ;; the frame on change via `rf/make-frame` so the runtime sees
       ;; the updated ceiling on the next drain.
       :drain-depth   default-drain-depth}}))
 
@@ -140,7 +140,7 @@
 
 (rf/reg-event ::set-drain-depth
   (fn [{:keys [db]} [_ new-depth]]
-    (rf/reg-frame :rf/default {:drain-depth new-depth})
+    (rf/make-frame {:id :rf/default :drain-depth new-depth})
     {:db (assoc db :drain-depth new-depth)}))
 
 ;; ----------------------------------------------------------------------------
@@ -204,7 +204,7 @@
   ;; the Start click only needs the runtime's drain to fire the halt;
   ;; per [spec/002 §Surgical update] re-registering only changes the
   ;; supplied keys (here :drain-depth), the other defaults survive.
-  (rf/reg-frame :rf/default {:drain-depth default-drain-depth})
+  (rf/make-frame {:id :rf/default :drain-depth default-drain-depth})
   ;; EP-0002 (rf2-9o48ih): scope the boot dispatch to the registered app
   ;; frame and wrap the render in a `frame-provider` — the runtime never
   ;; synthesises a frame from absence (the carried invariant).

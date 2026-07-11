@@ -21,7 +21,7 @@
     slot (and every trace event emitted under its `:dispatch-id`) is
     evicted as a unit.
   - `:events-retained` defaults to 50; per-frame override via
-    `:rf.trace/events-retained` on `reg-frame`.
+    `:rf.trace/events-retained` on the frame config.
   - `:override?` distinguishes an explicit per-frame override from an
     inherited process default. EVERY ring stores `:events-retained`
     (it is the live cap consulted on each push), so the cap value alone
@@ -126,7 +126,7 @@
 
 (def ^:private default-events-retained
   "Per Spec 009 §Per-frame trace rings — the per-frame retention default
-  when neither `:rf.trace/events-retained` on `reg-frame` nor
+  when neither `:rf.trace/events-retained` on the frame config nor
   `(configure :trace-buffer ...)` supplies one. 50 retained events (one
   slot per dequeued event / pipeline run) — enough to cover a short
   interactive session without per-frame memory pressure."
@@ -162,7 +162,7 @@
 
 (defn set-frame-events-retained!
   "Apply a per-frame `:rf.trace/events-retained` override (called
-  from `frame.cljc`'s `reg-frame` when the config carries the key).
+  from `frame.cljc`'s engine when the config carries the key).
   The retained unit is one slot per EVENT (one dequeued event / pipeline
   run), regardless of how many trace events that run emitted. Trims
   existing slots if the new value is lower than current occupancy;

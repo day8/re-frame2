@@ -681,7 +681,7 @@
 ;; the `:sensitive` / `:large` slots on the variant body. Each slot is a MAP
 ;; with the app-db paths under `:app-db` (a vector of `:rf/path`s)
 ;; (spec/Conventions.md §Privacy). EP-0025 retired the framework's
-;; `re-frame.core/reg-frame` `:sensitive` / `:large` frame keys (they now fail
+;; `re-frame.core/make-frame` `:sensitive` / `:large` frame keys (they now fail
 ;; loud); the variant body declares the same `{:app-db [[:auth :token]]}`
 ;; durable form the four commit-plane classification effects carry. The Story
 ;; runtime lowers the `:app-db` paths into the variant
@@ -690,7 +690,7 @@
 ;; `:source :effect`), so the redaction is live from creation onward.
 ;; (EP-0025 removed the durable `:sensitive` / `:large {:app-db …}` *frame
 ;; annotation* — a frame is not app-db's definition site — so the runtime no
-;; longer threads the declaration onto the `reg-frame` config; it rides the
+;; longer threads the declaration onto the `make-frame` config; it rides the
 ;; commit-plane effect instead. The variant `:sensitive` block carries only
 ;; `:app-db` paths — EP-0025 retired the frame `:sensitive {:http}` carrier
 ;; block, which moved onto the `:rf.http/managed` `reg-fx` registration's

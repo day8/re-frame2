@@ -186,7 +186,7 @@
   Per-request lifecycle (see ns docstring for full detail):
 
     (ssr/set-request! frame-id request)            ;; before drain
-      → reg-frame                   (drains :initial-events synchronously;
+      → make-frame                  (drains :initial-events synchronously;
                                      the `:rf.server/request` cofx
                                      reads from the populated slot)
         → flush-response-result!     (flushes error projections once;

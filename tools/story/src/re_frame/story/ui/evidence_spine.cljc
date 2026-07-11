@@ -486,7 +486,7 @@
      Xray's canonical `:rf.xray/*` write surfaces — Story owns the command
      construction, Xray owns the panel semantics. The 2-arity `focus!`
      names the host frame Xray should observe (the variant-id IS the frame
-     from Xray's perspective — each Story variant is reg-frame'd under its
+     from Xray's perspective — each Story variant is make-frame'd under its
      id, see `re-frame.story.frames`).
 
      No-op when Story is disabled. Returns the focus result map (or nil)

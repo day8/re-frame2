@@ -11,11 +11,11 @@
   > sink's egress profile BEFORE the sink sees it; sinks consume
   > already-projected records only.
 
-  A frame's `reg-frame` `:observability` config (validated for SHAPE at
-  `reg-frame` time by `re-frame.frame-classification`) names two production
+  A frame's `make-frame` `:observability` config (validated for SHAPE at
+  construction time by `re-frame.frame-classification`) names two production
   observation streams:
 
-      (rf/reg-frame :app/main
+      (rf/make-frame {:id :app/main}
         {:observability
          {:handled-events [{:sink :my-app.sinks/datadog
                             :rf.egress/profile :rf.egress/off-box-observability

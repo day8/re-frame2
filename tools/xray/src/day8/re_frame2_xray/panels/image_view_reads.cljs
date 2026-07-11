@@ -296,8 +296,8 @@
   registrations are resolved through the frame's OWN sealed image generation
   (built from `(xray-image)`), never the shared default registrar.
 
-  Replaces the legacy realm seating (`reg-frame frame-id {:rf.trace/frame-no-
-  emit? true}`), which produced the shell frame against the process-global
+  Replaces the legacy realm seating (a bare `{:rf.trace/frame-no-emit?
+  true}` config), which produced the shell frame against the process-global
   registrar and relied on id-collision-avoidance. Here the frame resolves ONLY
   Xray's image (plus the framework-standard registrations the assembly unions
   into every generation) — the EP's literal `(rf/make-frame {:id … :images
@@ -322,7 +322,7 @@
   the record-config `:rf.trace/frame-no-emit?` flag. That flag is frame-scoped
   trace state owned by `re-frame.trace`, keyed by frame-id independently of the
   generation, so it is set DIRECTLY via `trace/set-frame-no-emit!` — the same
-  canonical seam `reg-frame` routes the flag through. Asserted on EVERY call
+  canonical seam the frame engine routes the flag through. Asserted on EVERY call
   (seat or re-seat) so a hot-reload never drops the gate that keeps Xray's own
   reactive substrate from flooding the trace ring it inspects.
 

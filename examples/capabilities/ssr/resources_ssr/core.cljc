@@ -271,10 +271,9 @@
    (defn handle-request [request]
      (let [fid (keyword "rf.frame" (str (gensym "f")))
            _   (ssr/set-request! fid request)
-           f   (rf/reg-frame fid
-                 {:doc       "resources-ssr per-request frame"
-                  :platform  :server
-                  :initial-events [[:rf/server-init]]})]
+           f   (rf/make-frame {:id fid :doc       "resources-ssr per-request frame"
+                               :platform  :server
+                               :initial-events [[:rf/server-init]]})]
        (try
          (rf/with-frame f
            ;; (1) Settle the blocking page resource before we render a thing.
@@ -394,7 +393,7 @@
 #?(:cljs
    (defn run []
      (rf/init! reagent-adapter/adapter)
-     (rf/reg-frame app-frame {:doc "resources-ssr client app-frame" :platform :client})
+     (rf/make-frame {:id app-frame :doc "resources-ssr client app-frame" :platform :client})
      (ssr/hydrate! {:frame          app-frame
                     :render-tree-fn (fn [] ((rf/view :app/root)))})
      (mount!)))

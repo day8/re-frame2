@@ -197,7 +197,7 @@
        the per-request `make-frame`'s `:initial-events`).
     2. a `(fn [request] -> initial-events-vector)` — a 1-arity fn DERIVING
        the setup vector from the Ring request. Called EXACTLY ONCE here,
-       before `reg-frame`, with the request the host has already populated
+       before `make-frame`, with the request the host has already populated
        into the per-request slot. The result MUST itself be an
        `:initial-events` vector, validated the same way.
 

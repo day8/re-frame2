@@ -195,7 +195,7 @@
   ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from
   ;; absence — register `:rf/default` as the client app frame and scope the
   ;; hydrate / boot dispatch + render to it (the carried invariant).
-  (rf/reg-frame :rf/default {})
+  (rf/make-frame {:id :rf/default})
   (let [payload (some-> (read-server-payload) materialise-response)]
     (rf/with-frame :rf/default
       (if payload

@@ -61,7 +61,7 @@
 
   ## What this namespace does not own
 
-  - Per-variant frame allocation (`rf/reg-frame` for each variant)
+  - Per-variant frame allocation (`rf/make-frame` for each variant)
   - Args resolution precedence
   - Decorator composition order
   - Loader four-phase lifecycle

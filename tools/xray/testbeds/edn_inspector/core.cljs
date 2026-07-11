@@ -568,8 +568,8 @@
   ;; EP-0002: the runtime never synthesises a frame from absence —
   ;; register the single, plain host frame, scope the boot dispatch, and
   ;; wrap the render in a `frame-provider` (the frame is already
-  ;; created by `reg-frame`; carried invariant).
-  (rf/reg-frame host-frame {})
+  ;; created by `make-frame`; carried invariant).
+  (rf/make-frame {:id host-frame})
   (rf/with-frame host-frame
     (rf/dispatch-sync [:edn-inspector/reset]))
   (rdc/render react-root [rf/frame-provider {:frame host-frame} [root]])

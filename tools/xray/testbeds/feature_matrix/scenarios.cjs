@@ -3009,7 +3009,7 @@ async function runMachineEpochs(page, state) {
   );
 
   // RESTART door: resets its machine frame (destroy-frame! +
-  // re-reg-frame with the SAME :initial-events — no dedicated reset verb,
+  // re-make-frame with the SAME :initial-events — no dedicated reset verb,
   // rf2-lxwpob — so the ring clears and the machine RE-ARCS FROM BOOT). The
   // signal-bearing proof a REAL replay ran —
   // not a no-op — is the machine DATA being reset to its :initial value: the

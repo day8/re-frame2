@@ -59,6 +59,9 @@
     [re-frame.core :as rf]
     [re-frame.elision :as elision]
     [re-frame.error-emit :as error-emit]
+    [re-frame.events :as events]
+    [re-frame.fx :as fx]
+    [re-frame.cofx :as cofx]
     [re-frame.frame :as frame]
     [re-frame.registrar :as registrar]
     [re-frame.subs :as subs]
@@ -333,8 +336,8 @@
           ;; `reg-cofx` rejects `provided? true` + a supplier, so register
           ;; without one.
           (if (:provided? meta)
-            (rf/reg-cofx cofx-id meta)
-            (rf/reg-cofx cofx-id meta (conformance/realise-cofx-supplier body))))))
+            (cofx/reg-cofx cofx-id meta)
+            (cofx/reg-cofx cofx-id meta (conformance/realise-cofx-supplier body))))))
     ;; event registrations. A body that reads `[:cofx-key K]` declares the
     ;; consumed coeffect ids via `:rf.cofx/requires` (fx-only — a cofx-reading
     ;; body routes to an `:fx` handler).
@@ -344,6 +347,14 @@
     ;; handler]` pair to that single form — a :db-kind body `(fn [db event]
     ;; new-db)` is lifted to `(fn [cofx event] {:db …})`, an :fx-kind body passes
     ;; through — so the registration site never branches on the body-shape.
+    ;; Use the FN form (`events/reg-event`, no source-coord capture) — same
+    ;; rationale as the subs below, PLUS provenance: a fixture that overrides
+    ;; a framework event id (e.g. :rf/hydrate, registered fn-form by
+    ;; re-frame.ssr with nil provenance ns) must land in the SAME
+    ;; source-store slot and REPLACE it, not sit beside it as a
+    ;; cross-namespace duplicate that fails default-image assembly loud
+    ;; (:rf.error/image-duplicate-id) now that fixture frames resolve
+    ;; through the default image (rf2-h1vqa4).
     (doseq [[id steps] (get handlers-map :event)]
       (let [handler        (conformance/normalize-event-handler
                              (conformance/realise-event-handler steps))
@@ -356,8 +367,8 @@
             event-meta     (cond-> (get event-registry id {})
                              (seq cofx-ids) (assoc :rf.cofx/requires cofx-ids))]
         (if (seq event-meta)
-          (rf/reg-event id event-meta handler)
-          (rf/reg-event id handler))))
+          (events/reg-event id event-meta handler)
+          (events/reg-event id handler))))
     ;; sub registrations. Use the fn-form `subs/reg-sub` because the public
     ;; `rf/reg-sub` is a macro (source-coord capture) and a macro var isn't a
     ;; callable value; source-coord capture is intentionally bypassed for
@@ -396,10 +407,10 @@
            ;; fx handler body trips the router's in-drain guard.
            :dispatch-sync! (fn [event frame-id]
                              (rf/dispatch-sync event {:frame frame-id}))
-           ;; Per EP-0027 §Handler-time guard (rf2-emqiqk): reg-frame invoked
+           ;; Per EP-0027 §Handler-time guard (rf2-emqiqk): frame construction invoked
            ;; from an fx body (mid-cascade) trips the construction guard.
            :reg-frame! (fn [frame-id config]
-                         (rf/reg-frame frame-id config))}
+                         (rf/make-frame (assoc config :id frame-id)))}
           fx-bodies   (get handlers-map :fx)
           fx-registry (get-in fixture [:fixture/registry :fx] {})
           all-fx-ids  (into #{} (concat (keys fx-bodies) (keys fx-registry)))]
@@ -409,7 +420,11 @@
               meta          (get fx-registry id {})
               handler       (conformance/realise-fx-handler id body adapter-helpers)]
           (when explicit-body
-            (rf/reg-fx id (assoc meta :handler-fn handler) handler)))))
+            ;; FN form (no source-coord capture): a fixture stub of a
+            ;; framework fx id (e.g. :rf.http/managed, :rf.nav/*) replaces
+            ;; the framework's nil-provenance source-store slot instead of
+            ;; colliding at default-image assembly (rf2-h1vqa4).
+            (fx/reg-fx id (assoc meta :handler-fn handler) handler)))))
     ;; route registrations. rf2-wvh95f F1: the path pattern is the 3-slot
     ;; VALUE; lift it out of the fixture meta map so the middle slot is a pure
     ;; metadata map.
@@ -438,7 +453,7 @@
 (defn- realise-app-schemas!
   "Register the fixture's app-db schemas. Called AFTER the runner's
   destroy-frame! step (so the `:schemas/on-frame-destroyed!` hook doesn't
-  wipe them) and BEFORE `reg-frame` (so the :initial-events cascade validates
+  wipe them) and BEFORE `make-frame` (so the :initial-events cascade validates
   the seeded state). Per rf2-wkxng / rf2-6m0se / rf2-cq1ak the fixture key is
   `:app-schemas` — app-db schemas are NOT a registrar kind."
   [fixture]
@@ -446,7 +461,7 @@
     (rf/reg-app-schema path schema)))
 
 (defn- realise-flows!
-  "Register the fixture's static flows. Called AFTER `reg-frame` — per Spec
+  "Register the fixture's static flows. Called AFTER `make-frame` — per Spec
   013 flows are FRAME-SCOPED, so the destroy-frame! teardown hook (rf2-wbtjn)
   clears any flows registered before the destroy step. Static shape lives
   under `:fixture/registry :flow`; body DSL under `:fixture/flow-bodies`."
@@ -470,7 +485,7 @@
   body, these ops are a TEST-ONLY shorthand writing the frame's durable
   elision registry EXACTLY as those effects would. `:sensitive` / `:large`
   are additive; `:clear-*` remove the named paths on their named axis ONLY.
-  Called AFTER `reg-frame` and BEFORE `realise-flows!`."
+  Called AFTER `make-frame` and BEFORE `realise-flows!`."
   [fixture scope-frame]
   (letfn [(slot-for [axis]
             (case axis :sensitive :sensitive-declarations :large :declarations))
@@ -874,12 +889,12 @@
                          "    thrown:   " (ex-message thrown)))}))
 
     ;; EP-0027 construction-engine registration call (rf2-kmk9z4). `:config`
-    ;; is passed to `reg-frame`; `:expect-error <:rf.error/id>` ⇒ construction
+    ;; is passed to `make-frame`; `:expect-error <:rf.error/id>` ⇒ construction
     ;; must throw that id. The frame is destroyed afterward (best-effort).
     :reg-frame
     (let [frame-id   (or (:frame-id call) :rf.test/construction)
           want-error (:expect-error call)
-          thrown     (try (rf/reg-frame frame-id (:config call)) nil
+          thrown     (try (rf/make-frame (assoc (:config call) :id frame-id)) nil
                           (catch #?(:clj Throwable :cljs :default) e e))
           _          (try (rf/destroy-frame! frame-id)
                           (catch #?(:clj Throwable :cljs :default) _ nil))]
@@ -1293,7 +1308,7 @@
           err-records  (collect-error-emit-records! fid)
           _            (realise-handlers fixture)
           _            (register-routes! fixture)
-          ;; rf2-djofbh — resources register before reg-frame / dispatches.
+          ;; rf2-djofbh — resources register before make-frame / dispatches.
           _            (register-resources! fixture)
           ;; `:fixture/runtime :platform` declares the simulated host platform.
           ;; On CLJS the default `interop/active-platform` is `:client`, so
@@ -1317,20 +1332,20 @@
           ;; destroy first so they fire on re-registration with the config.
           _            (rf/destroy-frame! :rf/default)
           ;; app-schema registrations — AFTER destroy (the destroy hook wipes
-          ;; the frame's schema entries) and BEFORE reg-frame (so the
+          ;; the frame's schema entries) and BEFORE make-frame (so the
           ;; :initial-events cascade validates the seeded state).
           _            (rf/with-frame scope-frame
                          (realise-app-schemas! fixture))
           _            (cond
                          (seq frames-spec)
                          (doseq [f frames-spec]
-                           (rf/reg-frame (:id f) (dissoc f :id)))
+                           (rf/make-frame f))
                          :else
-                         (rf/reg-frame :rf/default frame-config))
-          ;; Data-classification commit-plane effects run AFTER reg-frame and
+                         (rf/make-frame (assoc frame-config :id :rf/default)))
+          ;; Data-classification commit-plane effects run AFTER make-frame and
           ;; BEFORE realise-flows!.
           _            (realise-classification-effects! fixture scope-frame)
-          ;; Flow registration runs AFTER reg-frame (frame-scoped teardown).
+          ;; Flow registration runs AFTER make-frame (frame-scoped teardown).
           _            (rf/with-frame scope-frame
                          (realise-flows! fixture))
           dispatches   (or (:fixture/dispatches fixture) [])

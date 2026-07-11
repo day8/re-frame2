@@ -89,7 +89,7 @@
   ;; boot work (seed dispatch + elision listener install) inside its scope.
   ;; The live-app render is frame-scoped via `live-app-root` (the
   ;; `frame-provider` wrapper passed to the host below — the
-  ;; `:rf/default` frame is already `reg-frame`'d above).
+  ;; `:rf/default` frame is already `make-frame`'d above).
   ;;
   ;; EP-0025: durable app-db size/sensitivity classification rides the
   ;; commit-plane classification effects (the frame annotation is removed).
@@ -97,7 +97,7 @@
   ;; LARGE by the `:counter/classify-avatar-large` event dispatched in the boot
   ;; scope below, so the slot elides to the `:rf.size/large-elided` marker at
   ;; wire egress. (Schemas describe shape only.)
-  (rf/reg-frame :rf/default {})
+  (rf/make-frame {:id :rf/default})
   (rf/with-frame :rf/default
     ;; Seed the live app's `:count` slot.
     (rf/dispatch-sync [:counter/initialise 5])

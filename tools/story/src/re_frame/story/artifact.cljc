@@ -418,9 +418,9 @@
   - `:hooks`       — settled-boundary flush-hooks (default the headless
                      hooks). A `:dom` adapter passes richer hooks; the fx
                      decisions wrap its `:dispatch!`.
-  - `:frame-config`— extra `reg-frame` config for the allocated frame.
+  - `:frame-config`— extra `make-frame` record-config for the allocated frame.
 
-  The replayed frame is allocated through `re-frame.core/reg-frame` and —
+  The replayed frame is allocated through `re-frame.core/make-frame` and —
   when this fn allocated it — torn down through `destroy-frame!` before
   return, so a JVM test leaves no frame behind. A caller-supplied `:frame`
   is left intact (the caller owns its lifecycle)."
@@ -430,8 +430,9 @@
          frame-id   (or frame (gen-replay-frame-id))
          hooks      (or hooks boundary/headless-flush-hooks)]
      (when own-frame?
-       (rf/reg-frame frame-id (merge {:doc "rf2-5x1wt.7 run-artifact replay frame"}
-                                     frame-config)))
+       (rf/make-frame (merge {:id  frame-id
+                              :doc "rf2-5x1wt.7 run-artifact replay frame"}
+                             frame-config)))
      (try
        ;; Re-install the artifact's `:network` route stubs (when any) for the
        ;; duration of the replay, so the `:fx-decisions` managed-stub redirect

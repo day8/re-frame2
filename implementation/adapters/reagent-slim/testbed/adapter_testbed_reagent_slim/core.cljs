@@ -80,7 +80,7 @@
   ;; dispatch runs under the frame scope and the render is wrapped in a
   ;; `frame-provider` so in-tree dispatch/subscribe resolve to it.
   (rf/init! reagent-slim-adapter/adapter)
-  (rf/reg-frame :rf/default {})
+  (rf/make-frame {:id :rf/default})
   (rf/with-frame :rf/default
     (rf/dispatch-sync [:counter/init]))
   (rdc/render app-root [rf/frame-provider {:frame :rf/default} [root]]))

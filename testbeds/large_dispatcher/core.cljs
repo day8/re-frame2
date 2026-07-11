@@ -275,7 +275,7 @@
   ;; `:large` alongside `:db` (dispatched below), so the three declared-large
   ;; slots elide to the `:rf.size/large-elided` marker regardless of value
   ;; size. No frame annotation, no schema→elision population step.
-  (rf/reg-frame :rf/default {})
+  (rf/make-frame {:id :rf/default})
   (rf/with-frame :rf/default
     (rf/dispatch-sync [::initialise]))
   (rdc/render react-root [rf/frame-provider {:frame :rf/default} [root]]))

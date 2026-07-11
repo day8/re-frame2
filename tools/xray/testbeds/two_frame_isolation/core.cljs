@@ -261,14 +261,14 @@
   ;; `:standard-epochs/reset` handler is registered once globally and
   ;; resolves against whichever frame the dispatch envelope targets, so
   ;; per-frame state evolution is automatic.
-  (rf/reg-frame frame-above {:initial-events [[:standard-epochs/reset]]})
-  (rf/reg-frame frame-below {:initial-events [[:standard-epochs/reset]]})
+  (rf/make-frame {:id frame-above :initial-events [[:standard-epochs/reset]]})
+  (rf/make-frame {:id frame-below :initial-events [[:standard-epochs/reset]]})
   ;; Register the frame-local FLOW + APP-SCHEMA into BOTH frames so the
   ;; step-5 (flow) and step-19 (app-schema) rungs fire here instead of
   ;; being inert (each is frame-local; the standalone deck installs them in
   ;; :rf/default — rf2-4279q4). Reuse standard-epochs' OWN registrar so the
   ;; features match exactly. reg-flow / reg-app-schema require a LIVE frame,
-  ;; so this runs AFTER reg-frame. Top-level, never inside a handler cascade.
+  ;; so this runs AFTER make-frame. Top-level, never inside a handler cascade.
   (se/register-frame-local-features! frame-above)
   (se/register-frame-local-features! frame-below)
   ;; Re-seed each frame AFTER its flow is registered so the

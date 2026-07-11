@@ -76,10 +76,9 @@
 ;; insist on running its own mount lifecycle).
 
 (defn- install-live-frame! []
-  (rf/reg-frame :rf/default
-    {:doc            "Login showcase live-app frame."
-     :fx-overrides   {:rf.http/managed :auth.login.demo/managed-stub}
-     :initial-events [[:auth.login/initialise-form]]}))
+  (rf/make-frame {:id :rf/default :doc            "Login showcase live-app frame."
+                  :fx-overrides   {:rf.http/managed :auth.login.demo/managed-stub}
+                  :initial-events [[:auth.login/initialise-form]]}))
 
 (rf/reg-view login-app []
   [:div {:style {:padding "1.5em" :font-family "system-ui, sans-serif"}}

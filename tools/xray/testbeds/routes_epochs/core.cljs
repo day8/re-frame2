@@ -468,10 +468,10 @@
   ;; establish the host frame explicitly. URL ownership is an explicit
   ;; declaration, so opt the host frame in via `{:url-bound? true}`
   ;; (otherwise `:rf.nav/push-url` no-ops and history-driven steps stall).
-  (rf/reg-frame host-frame {:url-bound? true})
+  (rf/make-frame {:id host-frame :url-bound? true})
   ;; Seed app-db and pull the current URL into the route slice (what a
   ;; popstate / initial-load handler does). The host frame is the one
-  ;; Xray reads. The `:url-bound? true` reg-frame above already installed
+  ;; Xray reads. The `:url-bound? true` make-frame above already installed
   ;; the browser History listener automatically (rf2-g8pbwg), so step #9's
   ;; back/forward emulation has somewhere to land. Boot dispatches run
   ;; under the host frame scope (the carried invariant).

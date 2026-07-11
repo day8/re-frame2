@@ -183,7 +183,7 @@
 ;; before `run` registers `:rf/default` — so the frame is not yet live and the
 ;; registration throws `:rf.error/flow-frame-not-live`. The schema (and the
 ;; `:standard-epochs/derived` flow below) are therefore registered from `run`,
-;; AFTER `(rf/reg-frame host-frame {})` makes the frame live. `register-
+;; AFTER `(rf/make-frame {:id host-frame})` makes the frame live. `register-
 ;; frame-local-features!` is the single entry point (also reused conceptually
 ;; by the two-frame deck, which registers the same features into its own
 ;; `:above` / `:below` frames).
@@ -298,12 +298,12 @@
 
 ;; The `:standard-epochs/derived` flow is registered from `run` (per the
 ;; APP-DB SCHEMA note above) — reg-flow requires a LIVE frame, which only
-;; exists after `(rf/reg-frame host-frame {})`. `register-frame-local-features!`
+;; exists after `(rf/make-frame {:id host-frame})`. `register-frame-local-features!`
 ;; installs BOTH the flow and the `[:auth]` app-schema into `frame-id`. It is
 ;; the single per-frame feature-registration point: the standalone deck calls
 ;; it with `:rf/default`; the two-frame deck installs the same features into
 ;; its own `:above` / `:below` frames so the flow + schema rungs fire there
-;; too (rf2-4279q4). Run at the TOP LEVEL, AFTER `reg-frame`, never inside a
+;; too (rf2-4279q4). Run at the TOP LEVEL, AFTER `make-frame`, never inside a
 ;; handler cascade.
 (defn register-frame-local-features!
   "Register the `:standard-epochs/derived` flow + the `[:auth] :string`
@@ -850,8 +850,8 @@
   ;; EP-0002: the runtime never synthesises a frame from absence —
   ;; register the host frame, scope the boot dispatch, and wrap the render
   ;; in a `frame-provider` (scope-only — the host frame is
-  ;; already `reg-frame`'d; the carried invariant).
-  (rf/reg-frame host-frame {})
+  ;; already `make-frame`'d; the carried invariant).
+  (rf/make-frame {:id host-frame})
   ;; Register the frame-local FLOW + APP-SCHEMA now the host frame is LIVE
   ;; (reg-flow / reg-app-schema reject a non-live frame, so this cannot run at
   ;; ns-load). Do it BEFORE the seed dispatch so the `:standard-epochs/derived`

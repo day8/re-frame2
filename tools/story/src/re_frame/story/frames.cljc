@@ -12,7 +12,7 @@
   ## Frame config
 
   When the runtime allocates a variant frame, it constructs a
-  `reg-frame` config of the shape:
+  `make-frame` record-config of the shape:
 
       {:doc          \"Variant frame for <variant-id>.\"
        :preset       :story
@@ -28,7 +28,7 @@
     variant frame from its `frame-meta`.
   - `:fx-overrides` carries the `:fx-override`-decorator stack's
     `{fx-id → stub-event-id}` map. The runtime registers each stub
-    event before `reg-frame`-ing so the override is live before
+    event before `make-frame`-ing so the override is live before
     `:initial-events` run.
 
   ## Lifecycle
@@ -545,9 +545,9 @@
 ;; ---- allocation -----------------------------------------------------------
 
 (defn- variant-frame-config
-  "Construct the `reg-frame` config map for a variant.
+  "Construct the `make-frame` record-config map for a variant.
 
-  Per spec/002 §reg-frame the framework recognises:
+  Per spec/002 §Frame lifecycle the framework recognises:
     :preset :story
     :fx-overrides {...}
     plus arbitrary user-stamped keys.
@@ -556,7 +556,7 @@
   can recognise variant frames from their `frame-meta`.
 
   EP-0025: a variant's durable app-db `:sensitive` / `:large` classification
-  is NO LONGER threaded onto the `reg-frame` config — the frame annotation is
+  is NO LONGER threaded onto the `make-frame` config — the frame annotation is
   removed. It is applied as commit-plane classification effects into the
   frame's elision registry right after `make-frame`, before the lifecycle /
   init events run (see `apply-variant-classification!`)."
@@ -648,7 +648,7 @@
   classification as EP-0025 commit-plane classification effects into
   `subject-id`'s elision registry (`:source :effect`), the SAME registry
   write a `reg-event` returning those effects performs. Runs right after
-  the frame exists (`make-frame` for `allocate!`, `rf/reg-frame` for
+  the frame exists (`make-frame` for `allocate!` AND for
   `allocate-inline!`) and BEFORE the lifecycle / init events, so a
   classified path is already redacted in any trace the run's setup emits.
   No-op when `classification` declares no app-db classification. Shared by
@@ -682,7 +682,7 @@
   dispatch to land in, so the malformed-classification failure was
   silently swallowed as a vacuous `:status :pass` with zero assertions —
   strictly worse than an orphaned dev-tool frame. It is also no NEW risk
-  class: every other throw site between `rf/reg-frame` and the
+  class: every other throw site between `rf/make-frame` and the
   `allocated?` flip (`loaders/mount!` / `apply-frame-setup!`'s `:init`
   events) already shares it."
   [subject-id classification]
@@ -726,7 +726,7 @@
   If a frame is already registered under `variant-id` (hot-reload
   case), the runtime should `destroy!` first then call `allocate!`.
   Calling `allocate!` against an existing frame goes through
-  `reg-frame`'s surgical-update path — config is replaced but the
+  `make-frame`'s surgical-update path — config is replaced but the
   app-db / sub-cache are preserved. That's the wrong shape for a
   story-runtime which expects a fresh app-db; the caller (`runtime/
   reset-variant`) destroys first.
@@ -784,7 +784,7 @@
            author-images  (into (vec (story-images variant-id))
                                  (:images v-body))
            ;; Thread the variant's EP-0015 frame-owned
-           ;; `:sensitive` / `:large` classification onto the reg-frame config,
+           ;; `:sensitive` / `:large` classification onto the make-frame config,
            ;; plus the image ids (for frame-meta tooling read-back).
            config-map     (variant-frame-config
                             variant-id fx-overrides
@@ -816,7 +816,7 @@
        ;; elision registry NOW — after the container exists, BEFORE the
        ;; lifecycle / init / frame-setup events run, so a classified path is
        ;; already redacted in any trace the variant's setup emits. (The frame
-       ;; annotation that previously rode `reg-frame` is removed.)
+       ;; annotation that previously rode the frame config is removed.)
        ;;
        ;; rf2-lsr95i: prefer the caller-supplied EFFECTIVE (`:extends`-merged)
        ;; classification; fall back to the raw body's own `:sensitive`/`:large`
@@ -859,7 +859,7 @@
 ;; in Story navigation.
 
 (defn- inline-frame-config
-  "Construct the `reg-frame` config map for an inline-plan frame. Mirrors
+  "Construct the `make-frame` record-config map for an inline-plan frame. Mirrors
   `variant-frame-config` but stamps `:rf/inline? true` (the inline run's
   anonymous frame is never a navigable variant)."
   [frame-id fx-overrides]
@@ -898,7 +898,7 @@
   Registers the `:fx-override`-decorator stubs, applies the plan's
   `:sensitive`/`:large` classification into the frame's elision registry
   (mirrors `allocate!`'s `apply-variant-classification!` exactly — same
-  ordering: AFTER `rf/reg-frame`, BEFORE the lifecycle/init events run),
+  ordering: AFTER `rf/make-frame`, BEFORE the lifecycle/init events run),
   drives the lifecycle by the supplied shape, applies any `:frame-setup`
   decorators' `:init` events, and returns the frame-id. The frame's
   effective `:fx-overrides` is the decorator-stack's materialised stubs
@@ -907,19 +907,19 @@
   side-table.
 
   rf2-cmjly3 finding 12 follow-on: classification is validated AFTER
-  `rf/reg-frame` (NOT before), even though that means a malformed
+  `rf/make-frame` (NOT before), even though that means a malformed
   declaration can leave an anonymous inline frame registered with nothing
   to tear it down (`run-inline-plan`'s failure path only tears down once
   `allocate-inline!` has RETURNED normally). That risk is accepted, not
-  overlooked: validating BEFORE `rf/reg-frame` was tried and reverted — it
+  overlooked: validating BEFORE `rf/make-frame` was tried and reverted — it
   left the frame-less throw with NO live frame for `record-error!`'s
   `::append-assertion` dispatch to land in, so the malformed-classification
   failure was silently swallowed (`:status :pass`, zero assertions — a
   privacy-relevant defect reported as a vacuous green, strictly worse than
-  an orphaned dev-tool frame). Validating after `rf/reg-frame` — the SAME
+  an orphaned dev-tool frame). Validating after `rf/make-frame` — the SAME
   position `allocate!` already uses for the registered path — keeps
   fail-loud reporting correct and is no NEW risk class: every other
-  throw site between `rf/reg-frame` and the `allocated?` flip
+  throw site between `rf/make-frame` and the `allocated?` flip
   (`loaders/mount!` / `apply-frame-setup!`'s `:init` events) already shares
   it."
   ([frame-id decorator-stack plan-fx-overrides events-only?]
@@ -931,7 +931,7 @@
            decor-fx     (register-fx-overrides! fx-stack)
            fx-overrides (merge decor-fx plan-fx-overrides)
            config-map   (inline-frame-config frame-id fx-overrides)]
-       (rf/reg-frame frame-id config-map)
+       (rf/make-frame (assoc config-map :id frame-id))
        (apply-variant-classification! frame-id classification)
        (if events-only?
          (loaders/mount-ready! frame-id)

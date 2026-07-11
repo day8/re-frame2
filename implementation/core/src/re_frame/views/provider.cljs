@@ -181,7 +181,7 @@
   therefore creates + seeds NOTHING (no ghost frame). `:initial-events` fire
   ONCE on first successful creation per committed frame-id lifetime, never on a
   re-mount / reconfiguration — `make-frame` is idempotent replacement and
-  `reg-frame` RE-RECORDS but does NOT REPLAY `:initial-events`. StrictMode dev
+  re-construction RE-RECORDS but does NOT REPLAY `:initial-events`. StrictMode dev
   double-invoke is safe for the same reason. A keyed remount preserves durable
   state (idempotent re-ensure, no re-seed); a MOUNTED `:id` / opts change FAILS
   LOUD (`:rf.error/frame-root-reconfigured`). Per `re-frame.views.frame-boundary`

@@ -152,14 +152,14 @@
      (let [fid (keyword "rf.frame" (str (gensym "")))
            ;; A fresh frame per request, identified by a gensym so concurrent
            ;; requests never collide. Order matters here: register the schema
-           ;; against this frame BEFORE creating it. `reg-frame` fires the
+           ;; against this frame BEFORE creating it. `make-frame` fires the
            ;; `:initial-events` pipeline run — and therefore `:rf/server-init` and
            ;; its `:cards` commit — synchronously, so the contract has to be
            ;; in place by then or the commit validates against nothing.
            _   (rf/reg-app-schema [:cards] {:frame fid} CardsSchema)
-           _   (rf/reg-frame fid {:doc "ssr-streaming-example frame"
-                                  :platform :server
-                                  :initial-events [[:rf/server-init]]})
+           _   (rf/make-frame {:id fid :doc "ssr-streaming-example frame"
+                               :platform :server
+                               :initial-events [[:rf/server-init]]})
            hiccup (rf/with-frame fid ((rf/view :dashboard/root)))
            {:keys [shell-html continuations]}
            (rf/with-frame fid (ssr/streaming-render-shell hiccup))
@@ -304,11 +304,11 @@
      ;; frame. The app stands up its own, explicitly, just below.
      (rf/init! reagent-adapter/adapter)
      ;; Stand up the client app-frame BEFORE we install streaming or hydrate
-     ;; into it — both need a frame to land in. `reg-frame` is a no-op the
+     ;; into it — both need a frame to land in. `make-frame` is a no-op the
      ;; second time round, so hot-reload just works. `:platform :client` is
      ;; what makes the hydrate compatibility checks fire.
-     (rf/reg-frame app-frame {:doc      "ssr-streaming-example client app-frame"
-                              :platform :client})
+     (rf/make-frame {:id app-frame :doc      "ssr-streaming-example client app-frame"
+                     :platform :client})
      ;; The mirror image of the server registration in `handle-request`:
      ;; same schema, this frame. With it in place, the `:cards` commits on the
      ;; client — both the streamed deltas and the final hydrate — validate

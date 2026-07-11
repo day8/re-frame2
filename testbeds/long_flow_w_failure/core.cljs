@@ -391,7 +391,7 @@
   ;; explicitly here (init! installs only the adapter). The boot dispatch
   ;; runs under the frame scope and the render is wrapped in a
   ;; `frame-provider` so in-tree dispatch/subscribe resolve to it.
-  (rf/reg-frame :rf/default {})
+  (rf/make-frame {:id :rf/default})
   ;; Both the three-flow registration (main rf2-3khbut: reg-flow must run AFTER
   ;; init! against a live frame) and the boot dispatch run inside the carried
   ;; `:rf/default` scope. The render is wrapped in a `frame-provider` so in-tree

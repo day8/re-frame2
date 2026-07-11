@@ -169,7 +169,7 @@
   registered but ALSO seeded via the first-mount hook table
   — `::seed-trace-and-target-frame`, `::hydrate-filters`,
   `::hydrate-spine-filters`, `::hydrate-static-mode`,
-  `::auto-open-watcher`. A direct `(rf/reg-frame :rf/xray {})` here
+  `::auto-open-watcher`. A direct `(rf/make-frame {:id :rf/xray})` here
   would register the frame but skip the hook table, leaving Xray's
   trace-buffer slot empty + `:target-frame` pinned to
   `defaults/default-target-frame` regardless of what's already in the

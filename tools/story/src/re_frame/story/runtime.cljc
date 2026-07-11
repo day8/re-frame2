@@ -797,7 +797,7 @@
   resets the variant frame; it never reuses an existing one.
 
   `frames/allocate!` against an existing frame goes through
-  `reg-frame`'s surgical-update path, which PRESERVES the prior app-db
+  `make-frame`'s surgical-update path, which PRESERVES the prior app-db
   and sub-cache (frames/allocate! docstring). For a Story run that is
   the wrong shape: a second `run-variant` on the same id would inherit
   the first run's app-db, and — worse — `run-loaders!` short-circuits on
@@ -1129,7 +1129,7 @@
   Matching on `:where` (not on any `:rf.error/id`) is load-bearing:
   framework runtime errors thrown LATER in the phase chain also carry an
   `:rf.error/id` — e.g. `:rf.error/no-adapter-installed` from
-  `reg-frame` → `make-state-container` when the host installed no
+  `make-frame` → `make-state-container` when the host installed no
   adapter (the JVM-standalone story-mcp server). Those land after the
   frame exists at `:pre-mount`, so they must take the frame-bound
   record/transition branch, NOT `plan-error-result`."

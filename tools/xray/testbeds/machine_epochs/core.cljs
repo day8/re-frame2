@@ -40,7 +40,7 @@
     epochs: a cursor write in the shell + the machine cascade in the machine
     frame (observed).
   - RESTART — `:machine-epochs/restart <track-id>` RESETS the machine frame
-    (`destroy-frame!` + re-`reg-frame` with the same `:initial-events` — there is
+    (`destroy-frame!` + re-`make-frame` with the same `:initial-events` — there is
     no dedicated reset verb, rf2-lxwpob — so the ring clears and re-arcs from
     boot) and clears the track cursor.
 
@@ -297,10 +297,10 @@
 ;; ============================================================================
 ;;
 ;; A track's machine frame is created lazily on first SELECT via
-;; `rf/reg-frame :machine/<id> {:initial-events [[<boot-event>]]}`. The boot
+;; `rf/make-frame {:id :machine/<id> :initial-events [[<boot-event>]]}`. The boot
 ;; event runs synchronously IN the new frame, so its initial-entry cascade is
 ;; the ring's FIRST observed epoch — the machine's START badge. RESTART
-;; (destroy + re-`reg-frame`) re-runs the SAME `:initial-events`, so a restart
+;; (destroy + re-`make-frame`) re-runs the SAME `:initial-events`, so a restart
 ;; re-arcs from boot.
 ;;
 ;; `[id [:rf.machine/start]]` is the eager kick (xstate `createActor().start()`):
@@ -621,9 +621,9 @@
 ;; a building block.
 
 (defn- track-frame-config
-  "The `reg-frame` config a track's `:machine/<id>` frame is (re-)created with —
+  "The `make-frame` record-config a track's `:machine/<id>` frame is (re-)created with —
   shared by `ensure-machine-frame!` (first creation) and `restart-track!` (the
-  destroy + re-`reg-frame` RESTART composition, rf2-lxwpob — there is no
+  destroy + re-`make-frame` RESTART composition, rf2-lxwpob — there is no
   dedicated reset verb, so the restart re-supplies this SAME config)."
   [track]
   {:initial-events [[(:boot track)]]
@@ -640,7 +640,7 @@
   [track]
   (let [frame-id (machine-frame-id (:id track))]
     (when-not (rf/frame-meta frame-id)
-      (rf/reg-frame frame-id (track-frame-config track)))
+      (rf/make-frame (assoc (track-frame-config track) :id frame-id)))
     frame-id))
 
 ;; SELECT — set the selected track in the SHELL, lazily create + boot its
@@ -655,7 +655,7 @@
 
          EP-0027: a frame is constructed by the VIEW or at TOP LEVEL, NEVER
          inside a handler cascade (`:rf.error/frame-construction-in-handler`).
-         So `reg-frame` for the machine frame does NOT happen here — the
+         So `make-frame` for the machine frame does NOT happen here — the
          caller (`select-track!`, run at the React-callback / boot top level)
          creates + boots the frame BEFORE dispatching this event. The handler
          only writes the shell slot; the re-point fx merely dispatches into
@@ -669,7 +669,7 @@
 ;; TOP-LEVEL select boundary — EP-0027 frame construction belongs OUTSIDE any
 ;; handler cascade. Called from the picker-row React `:on-click` (a plain
 ;; callback, not a re-frame handler — `*handler-scope*` is unbound there) and
-;; from boot in `run`. It lazily `reg-frame`s + boots the track's machine
+;; from boot in `run`. It lazily `make-frame`s + boots the track's machine
 ;; frame (boot-on-select), THEN dispatches `:machine-epochs/select` to record
 ;; the selection in the shell and re-point Xray.
 ;;
@@ -745,7 +745,7 @@
 
 ;; RESTART (shell side) — clear the SELECTED track's cursor and re-point Xray
 ;; at its (freshly-reset) frame so the operator sees the clean re-boot arc.
-;; The actual frame RESET (destroy + re-`reg-frame` — there is no dedicated
+;; The actual frame RESET (destroy + re-`make-frame` — there is no dedicated
 ;; reset verb, rf2-lxwpob) is NOT done here: EP-0027 forbids frame construction
 ;; inside a handler cascade
 ;; (`:rf.error/frame-construction-in-handler`), and an fx still runs inside
@@ -757,7 +757,7 @@
   {:doc "Bookkeeping for a RESTART of the CURRENTLY SELECTED track: clear the
          track cursor and re-point Xray at its frame. The frame RESET itself
          runs at top level in `restart-track!` before this event is dispatched
-         (EP-0027 forbids reg-frame inside a handler)."}
+         (EP-0027 forbids frame construction inside a handler)."}
   (fn handler-restart [{:keys [db]} _ev]
     (let [track-id (:rf.runner/selected db)]
       (if (track-by-id track-id)
@@ -766,7 +766,7 @@
            :fx [[:machine-epochs/point-xray-at frame-id]]})
         {:db db}))))
 
-;; TOP-LEVEL restart boundary — the destroy + re-`reg-frame` reset composition
+;; TOP-LEVEL restart boundary — the destroy + re-`make-frame` reset composition
 ;; (rf2-lxwpob: no dedicated reset verb) must run OUTSIDE any handler cascade
 ;; (EP-0027). Called from the restart button's React `:on-click` (a plain
 ;; callback — `*handler-scope*` is unbound). It resets the selected track's
@@ -780,7 +780,7 @@
       (let [frame-id (machine-frame-id track-id)]
         (when (rf/frame-meta frame-id)
           (rf/destroy-frame! frame-id)
-          (rf/reg-frame frame-id (track-frame-config track)))
+          (rf/make-frame (assoc (track-frame-config track) :id frame-id)))
         (rf/dispatch [:machine-epochs/restart] {:frame shell-frame})))))
 
 ;; ============================================================================
@@ -987,13 +987,13 @@
   ;; EP-0002: the runtime never synthesises a frame from
   ;; absence — register the SHELL frame explicitly and scope the boot
   ;; dispatches to it. EP-0027: the per-track machine frames are NOT
-  ;; reg-frame'd inside a handler (that fails loud,
+  ;; make-frame'd inside a handler (that fails loud,
   ;; `:rf.error/frame-construction-in-handler`) — frame construction happens at
   ;; the TOP LEVEL here (and at the picker-row React `:on-click`, also top
   ;; level), via `ensure-machine-frame!`, BEFORE the `:machine-epochs/select`
   ;; event is dispatched. The render is wrapped in a `frame-provider`
-  ;; on the shell frame (scope-only — the shell frame is already `reg-frame`'d).
-  (rf/reg-frame shell-frame {})
+  ;; on the shell frame (scope-only — the shell frame is already `make-frame`'d).
+  (rf/make-frame {:id shell-frame})
   ;; Seed the SHELL frame's bookkeeping, then auto-select the default track so
   ;; the operator lands on a live arc rather than an empty shell. The default
   ;; track's machine frame is created + booted at TOP LEVEL (here), then the

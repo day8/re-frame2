@@ -146,27 +146,28 @@
   when setup fails (the caller short-circuits to that response, skipping
   render).
 
-  The slot is populated BEFORE `reg-frame` so the synchronous
+  The slot is populated BEFORE `make-frame` so the synchronous
   `:initial-events` drain can resolve the `:rf.server/request` cofx (Spec
-  011 §Request storage substrate). `make-frame` gensyms the id
-  internally and would return only after the drain, so we inline its
-  (gensym + reg-frame) shape here and call `ssr/set-request!` between
-  them. The assembled config is identical to what `make-frame` would
-  have submitted.
+  011 §Request storage substrate). An id-less `make-frame` gensyms the id
+  internally and would return only after the drain, so we allocate the
+  gensym'd id OURSELVES, call `ssr/set-request!`, and then hand the id to
+  `make-frame` explicitly (`:id frame-id`) — the same lifecycle order,
+  through the ONE public constructor.
 
   On failure mid-drain, the request slot AND any partial frame
   registration are cleared so neither leaks across requests. The frame
   may be registered in the `frames` atom (see frame.cljc — `swap!
   frames` happens before `dispatch-sync`), so the best-effort destroy
-  is required even though `reg-frame` threw."
+  is required even though `make-frame` threw."
   [{:keys [initial-events fx-overrides ssr on-error]} request]
   ;; The alphabetic prefix keeps the payload frame id valid for strict EDN
   ;; readers; keyword construction itself does not validate local names.
   (let [frame-id (keyword "rf.frame" (str (gensym "f")))]
     (ssr/set-request! frame-id request)
     (try
-      (rf/reg-frame frame-id
-        (cond-> {:doc       "ssr-ring per-request frame"
+      (rf/make-frame
+        (cond-> {:id        frame-id
+                 :doc       "ssr-ring per-request frame"
                  :platform  :server
                   ;; Resolve after `set-request!`: the function form can derive
                   ;; durable event payloads while handlers use the request coeffect
