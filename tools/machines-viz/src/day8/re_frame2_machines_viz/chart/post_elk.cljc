@@ -78,7 +78,12 @@
   ROOT`). The two transposes here respect those frames: the region-interior
   transpose works in the region's LOCAL frame (children are parent-relative);
   the region RE-STACK moves the container's root-relative origin; the
-  back-edge reroute works in the ABSOLUTE frame the edge-points already use.
+  back-edge reroute computes its detour in the shared PARENT frame
+  `node-center` reads (both endpoints share one container) and then REBASES
+  the routed points to root-absolute — by the shared container's origin —
+  before writing them into `:edge-points` (rf2-qb452y: the detour points are
+  parent-relative until rebased, so a nested same-parent back-edge would
+  otherwise land offset by the container origin).
 
   ## What this does NOT own
 
@@ -745,6 +750,28 @@
   [node-parent edge]
   (= (get node-parent (:source edge)) (get node-parent (:target edge))))
 
+(defn- container-origin
+  "rf2-qb452y — the ROOT-ABSOLUTE origin `{:x :y}` of container `pid`: the
+  running sum of every ancestor container's PARENT-RELATIVE position from
+  `pid` up through the root. `elk-result->positions` records every node
+  (containers included) at its position relative to its OWN parent, no
+  re-basing, so a node nested directly in `pid` has root-absolute coords =
+  its parent-relative coords PLUS this origin. A root-level parent (`pid`
+  nil, or absent from `positions`) yields (0,0) — the flat case is
+  unshifted."
+  [positions node-parent pid]
+  (loop [cur pid ox 0 oy 0]
+    (if cur
+      (let [{:keys [x y]} (get positions cur)]
+        (recur (get node-parent cur) (+ ox (or x 0)) (+ oy (or y 0))))
+      {:x ox :y oy})))
+
+(defn- rebase-points
+  "rf2-qb452y — translate a detour point-list by `origin` (parent-relative →
+  root-absolute)."
+  [points {ox :x oy :y}]
+  (mapv (fn [{:keys [x y]}] {:x (+ x ox) :y (+ y oy)}) points))
+
 (defn reroute-back-edges
   "rf2-gnrkke — the back-edge return-route detour pass (§4.3.1 close). Pure:
   `{:positions :edge-points :edge-labels}` + parsed graph + resolved
@@ -761,6 +788,15 @@
   back-edge is simply left untouched (its ELK route stands) rather than
   corrupted.
 
+  rf2-qb452y — the detour `back-edge-detour` returns is in the endpoints'
+  shared-PARENT frame (the frame `node-center` reads). `:edge-points` is
+  ROOT-ABSOLUTE (elk `edgeCoords ROOT`), so the routed `__in`/`__out` points
+  are REBASED to absolute — shifted by the shared container's `container-
+  origin` — before they are written. For a root-level back-edge the origin is
+  (0,0), so a flat machine is byte-identical; a same-parent back-edge nested
+  inside a compound / region (origin ≠ (0,0)) is drawn on its endpoints
+  instead of offset by the container origin.
+
   No back-edge ⇒ the layout is returned unchanged (a non-cyclic / already-
   compact machine is untouched). Only back-edges whose event-node SANK
   (`back-edge?`) are rerouted, so a back-edge ELK already placed compactly
@@ -775,14 +811,26 @@
         (fn [{:keys [positions edge-points] :as acc} edge]
           (if-let [{:keys [event-pos in-points out-points]}
                    (back-edge-detour edge positions direction)]
-            (let [ev-id (projection/event-node-id edge)
-                  ev    (get positions ev-id)]
+            (let [ev-id  (projection/event-node-id edge)
+                  ev     (get positions ev-id)
+                  ;; `back-edge-detour` builds its points in the shared PARENT
+                  ;; frame `node-center` reads (both endpoints share one
+                  ;; container, per `same-parent?`). `:edge-points` is
+                  ;; ROOT-ABSOLUTE (elk `edgeCoords ROOT`), so rebase the
+                  ;; detour to absolute by the shared container's origin before
+                  ;; writing it (rf2-qb452y). `:event-pos` stays parent-relative
+                  ;; — `:positions` records nodes in that frame — so ONLY the
+                  ;; edge-points are shifted.
+                  origin (container-origin positions node-parent
+                                           (get node-parent (:source edge)))
+                  in-abs  (rebase-points in-points origin)
+                  out-abs (rebase-points out-points origin)]
               (assoc acc
                      :positions   (assoc positions ev-id
                                          (merge ev event-pos))
                      :edge-points (assoc edge-points
-                                         (str (:id edge) "__in")  in-points
-                                         (str (:id edge) "__out") out-points)))
+                                         (str (:id edge) "__in")  in-abs
+                                         (str (:id edge) "__out") out-abs)))
             acc))
         (assoc layout :positions positions :edge-points edge-points)
         back-edges))))
