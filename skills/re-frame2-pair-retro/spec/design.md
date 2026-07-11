@@ -23,7 +23,7 @@ These are not up for re-litigation. A future authoring pass MUST preserve them u
 
 ### L1 — No re-frame-10x routing
 
-Per the parent `re-frame2-pair` skill's L2: re-frame2's pair tooling does not depend on re-frame-10x. This skill MUST NOT propose fixes that route through 10x — time-travel and trace-stream consumption ride directly on `re-frame2`'s Tool-Pair surfaces. The authoritative, current surface-family enumeration lives in [`../../shared/tool-pair-surfaces.md`](../../shared/tool-pair-surfaces.md) (trace stream, registrar query API, epoch-history / restore, the four state-injection mutators, schema reflection, source-coord annotation, direct reads, render-driving / dispatch-settle, view-plane reads, the signal recorder, the operating-frame trio) — name the matching family from there rather than re-spelling an abbreviated subset here. This is a cardinal "What to avoid" rule.
+Per the parent `re-frame2-pair` skill's L2: re-frame2's pair tooling does not depend on re-frame-10x. This skill MUST NOT propose fixes that route through 10x — time-travel and trace-stream consumption ride directly on `re-frame2`'s Tool-Pair surfaces. The authoritative, current surface-family enumeration lives in [`../../shared/tool-pair-surfaces.md`](../../shared/tool-pair-surfaces.md) (trace stream, registrar query API, epoch-history / restore, state injection (`replace-frame-state!`), schema reflection, source-coord annotation, direct reads, render-driving / dispatch-settle, view-plane reads, the signal recorder, the operating-frame trio) — name the matching family from there rather than re-spelling an abbreviated subset here. This is a cardinal "What to avoid" rule.
 
 ### L2 — Never file a GitHub issue without explicit user approval
 
