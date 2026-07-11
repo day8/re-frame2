@@ -252,7 +252,7 @@ The `:outcome` slot earns its keep, because it reports the dispatch result acros
 
 - `:ok` — clean settle: `:db` [committed](../glossary.md#commit), flows ran, `:fx` walked.
 - `:error` — the interceptor chain (handler or interceptor) threw; the run halted before any `:db` commit.
-- `:rolled-back` — post-commit `:db` schema validation rejected the new state, so the container was restored to its pre-handler value; flows and `:fx` were skipped.
+- `:rolled-back` — `:db` schema validation rejected the candidate state before it installed, so the container kept its pre-handler value; flows and `:fx` were skipped.
 - `:flow-error` — a flow's `:output` threw; the run halted before `:fx`.
 
 The two streams pair naturally: `:events` tells you *something is wrong* (a spike of `:error` / `:rolled-back` outcomes on your dashboard); `:errors` tells you *what* (the throwable and its stack, ready for the issue tracker).

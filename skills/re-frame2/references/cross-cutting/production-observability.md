@@ -63,7 +63,7 @@ Fires once per event the runtime processes — NOT per sub, NOT per fx, NOT per 
 
 - `:ok` — clean settle (db committed, flows ran, `:fx` walked).
 - `:error` — the interceptor chain (handler or interceptor) threw.
-- `:rolled-back` — post-commit `:db` schema validation rejected the new state and the container was restored to its pre-handler value (Spec 010 §Per-step recovery row 4); flows and `:fx` were skipped.
+- `:rolled-back` — `:db` schema validation rejected the candidate state before it installed, so the container kept its pre-handler value (Spec 010 §Per-step recovery row 4); flows and `:fx` were skipped.
 - `:flow-error` — a flow's `:output` threw (Spec 013 §Failure semantics rule 3); the cascade halted before `:fx`.
 
 No trace-bus keys (no `:dispatch-id`, `:parent-dispatch-id`, `:rf.trace/trigger-handler`, source coords) — those ride the dev-only trace surface. Verified: `re-frame.event-emit/dispatch-on-event!`; record shape per the ns docstring §Record shape.
