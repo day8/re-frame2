@@ -47,11 +47,31 @@ Two contract facts, each pinned against the shipped spec:
     "plain fn" subject + an inherit-verb on one line and so missed this distinct
     "pins to `:rf/default`" wording — hence the dedicated narrow rule.)
 
-All three rules are written to fire ONLY on the stale ASSERTION shape, never on the
-corrected wording that states the negation — and never on the unrelated,
-still-live `:on-error` *surfaces* (a machine `:spawn :on-error` transition, a
-route `:on-error` lifecycle event), which are NOT frame-level recovery policies.
-The skill legitimately mentions all of those in their corrected forms.
+  * **Boot-smoke Pair partition mismatch (rf2-j538f7.33) — an app-db-only Pair
+    read aimed at a runtime-db path.** The boot smoke-test (references/runtime-
+    smoke-test.md) must read the two runtime partitions with the right tool.
+    `get-path` is a `get-in` against the frame's **app-db**, and `snapshot`'s
+    `path:` argument slices only the app-db slice — neither can reach the
+    runtime-db partition (`:rf.db/runtime`, children under `:rf.runtime/*`). A
+    machine snapshot at `[:rf.runtime/machines :snapshots …]` therefore comes back
+    `:path-not-found` on a HEALTHY machine, so a smoke that reads it with
+    `get-path {…}` / `snapshot {path: …}` produces a false "machine never started"
+    verdict (or, if repaired to the machines slice without the privacy contract, a
+    `:rf/redacted`/summary result that also cannot prove presence). The canonical
+    machine read is `read-sub [:rf/machine <id>]` or the runtime partition of
+    `frame-state-value`; the gated `snapshot {include ["machines"] …}` slice is
+    the multi-machine alternative. This guard (Rule 4) makes the app-db-only-read-
+    at-a-runtime-db-path COMMAND shape a build failure. The stale claim it kills:
+    "confirm the boot machine via `get-path`/`snapshot {path:}` on
+    `[:rf.runtime/machines :snapshots]`" / "`snapshot {path: [:rf.db/runtime]}`".
+
+All of these line rules are written to fire ONLY on the stale ASSERTION / bad-command
+shape, never on the corrected wording that states the negation — and never on the
+unrelated, still-live `:on-error` *surfaces* (a machine `:spawn :on-error`
+transition, a route `:on-error` lifecycle event), which are NOT frame-level
+recovery policies. The skill legitimately mentions all of those in their corrected
+forms — including the bare-prose "`get-path` reads app-db …" warning, which Rule 4
+passes because it keys on the braced COMMAND shape, not a tool mention.
 
 A fourth, structurally different guard (rf2-3fc89f.35) rides the same gate:
 
@@ -218,6 +238,36 @@ M13_NEGATION_RE = re.compile(
     re.IGNORECASE,
 )
 
+# --- Rule 4: Pair partition mismatch (rf2-j538f7.33) — an app-db-only Pair read
+# COMMAND (`get-path {…}`, or `snapshot {… path: …}`) pointed at a runtime-db
+# path (`:rf.db/runtime` or `:rf.runtime/*`). Pair's `get-path` is a `get-in`
+# against the frame's **app-db** snapshot, and `snapshot`'s `path:` argument
+# slices only the app-db slice — neither can reach the runtime-db partition, so a
+# machine snapshot at `[:rf.runtime/machines :snapshots …]` comes back
+# `:path-not-found` on a HEALTHY machine (a false "never started" verdict that
+# can drive an unnecessary M-40/O-16 boot-machine rewrite). The canonical machine
+# read is `read-sub [:rf/machine <id>]` or the runtime partition of
+# `frame-state-value`; the gated `snapshot {include ["machines"] …}` slice is the
+# multi-machine alternative (needs `--allow-sensitive-reads` + a per-call
+# `include-sensitive: true`, else it returns `:rf/redacted` / a summary, both of
+# which are INCONCLUSIVE, never absence). The rule keys on the braced COMMAND
+# shape aimed at a runtime path — never on a bare prose mention of the tool
+# (`get-path reads app-db …`), so the corrected warning wording passes; a
+# same-line negation cue also clears it as a second safety net.
+PAIR_APPDB_READ_CMD_RE = re.compile(
+    r"get-path\s*\{|snapshot\s*\{[^}]*\bpath\s*:",
+    re.IGNORECASE,
+)
+RUNTIME_DB_PATH_RE = re.compile(r":rf\.db/runtime|:rf\.runtime/")
+# Negation cues — the corrected wording states the app-db-only LIMITATION. Any
+# clears Rule 4. `\**` absorbs a markdown-bold `**app-db**`.
+PAIR_PARTITION_NEGATION_RE = re.compile(
+    r"reads?\s+(?:only\s+)?\**app-db|app-db[- ]only|will\s+not\s+(?:find|reach)"
+    r"|won't\s+(?:find|reach)|cannot\s+(?:read|reach|find)|can't\s+(?:read|reach|find)"
+    r"|does\s+not\s+(?:read|reach|select)|neither\s+can\s+reach|:?path-not-found",
+    re.IGNORECASE,
+)
+
 
 def _slurp(path: Path) -> str:
     return path.read_text(encoding="utf-8")
@@ -272,6 +322,27 @@ def line_problems(line: str) -> list[str]:
             "`register-listener!` (dev-only). (The machine `:spawn :on-error` "
             "transition and route `:on-error` lifecycle event are unrelated "
             "live surfaces, NOT frame-level recovery policies.)"
+        )
+
+    # Rule 4 — Pair app-db-only read command aimed at a runtime-db path.
+    if (
+        PAIR_APPDB_READ_CMD_RE.search(line)
+        and RUNTIME_DB_PATH_RE.search(line)
+        and not PAIR_PARTITION_NEGATION_RE.search(line)
+    ):
+        problems.append(
+            "PAIR-APPDB-RUNTIME-MISMATCH: a Pair `get-path {…}` / `snapshot "
+            "{path: …}` read is app-db-only (get-path is a `get-in` against "
+            "app-db; snapshot's `path:` slices only the app-db slice) and CANNOT "
+            "reach a runtime-db path (`:rf.db/runtime` / `:rf.runtime/*`) — it "
+            "returns `:path-not-found` on a HEALTHY machine, a false "
+            "\"never started\" verdict. Read runtime-db machine snapshots via the "
+            "canonical `read-sub {sub: \"[:rf/machine <id>]\"}` or the runtime "
+            "partition of `frame-state-value`; for a multi-machine sweep use the "
+            "gated `snapshot {include: [\"machines\"], modes: {\"machines\":"
+            "\"full\"}}` slice (needs `--allow-sensitive-reads` + per-call "
+            "`include-sensitive: true`; a `:rf/redacted`/summary result is "
+            "INCONCLUSIVE, never absence). (rf2-j538f7.33.)"
         )
 
     return problems
@@ -502,8 +573,9 @@ def run(*, verbose: bool, ci: bool) -> int:
         if verbose:
             print(
                 "contract-drift: no plain-fn-inherits-frame (M-11), "
-                "moved-to-frame-level-:on-error (M-13), or M-1 classifier / "
-                "kickoff-anchor drift found."
+                "moved-to-frame-level-:on-error (M-13), boot-smoke Pair "
+                "partition-mismatch (Rule 4), or M-1 classifier / kickoff-anchor "
+                "drift found."
             )
         return 0
 
@@ -514,8 +586,11 @@ def run(*, verbose: bool, ci: bool) -> int:
         f"\ncontract-drift: {len(problems)} drift issue(s) — the migration skill "
         "is the agent's source of truth for what breaks; align M-11 (plain fns "
         "DON'T inherit the provider frame), M-13 (no frame-level `:on-error` "
-        "recovery policy), and the M-1 classifier (public destinations exempt, "
-        "private internals flagged) / kickoff anchors to the shipped contract."
+        "recovery policy), the boot-smoke Pair partition contract (app-db-only "
+        "`get-path`/`snapshot {path:}` CANNOT read runtime-db; use "
+        "`read-sub [:rf/machine <id>]`), and the M-1 classifier (public "
+        "destinations exempt, private internals flagged) / kickoff anchors to the "
+        "shipped contract."
     )
     return 1
 
@@ -642,6 +717,54 @@ def _self_test() -> int:
         "To target `:rf/default`, scope it explicitly with `with-frame` or an "
         "explicit `{:frame :rf/default}` opt.",
         dirty=False, label="B11 explicit :rf/default target (correct)",
+    )
+
+    # --- Rule 4 fixtures (rf2-j538f7.33) ---------------------------------------
+    # FAIL fixtures — the exact pre-fix bad boot-smoke commands: an app-db-only
+    # Pair read pointed at a runtime-db path.
+    expect(
+        'confirm boot machines have a live snapshot via `get-path {path: '
+        '"[:rf.runtime/machines :snapshots]"}` in runtime-db',
+        dirty=True, label="C1 get-path {path: [:rf.runtime/machines ...]}",
+    )
+    expect(
+        'drill: `snapshot {path: "[:rf.db/runtime]"}` (the runtime-db partition).',
+        dirty=True, label="C2 snapshot {path: [:rf.db/runtime]}",
+    )
+    expect(
+        'read the boot machine via `get-path {path: "[:rf.runtime/machines '
+        ':snapshots :app/boot]"}`.',
+        dirty=True, label="C3 get-path at a specific runtime machine snapshot",
+    )
+    # PASS fixtures — the corrected partition-aware recipe and the negated warning.
+    expect(
+        'the canonical `read-sub {sub: "[:rf/machine :app/boot]"}` reads the '
+        'runtime-db machine snapshot at `[:rf.runtime/machines :snapshots]`.',
+        dirty=False, label="D1 canonical read-sub machine read (correct)",
+    )
+    expect(
+        '`get-path` reads app-db and will NOT find `[:rf.runtime/machines '
+        ':snapshots]` — use the `[:rf/machine <id>]` sub.',
+        dirty=False, label="D2 get-path-reads-app-db warning (correct)",
+    )
+    expect(
+        "`snapshot`'s `path:` selector slices only app-db — neither can reach "
+        "`[:rf.runtime/machines :snapshots]`; use the gated machines slice.",
+        dirty=False, label="D3 snapshot-path-is-app-db-only warning (correct)",
+    )
+    expect(
+        'raw-nREPL: `(:rf.db/runtime (rf/frame-state-value :app/main))` — the '
+        'runtime-db partition (snapshots at `[:rf.runtime/machines :snapshots]`).',
+        dirty=False, label="D4 raw-nREPL runtime partition eval (correct)",
+    )
+    expect(
+        'the gated `snapshot {include: ["machines"], modes: {"machines": "full"}}` '
+        "slice sweeps every `[:rf.runtime/machines :snapshots]` entry.",
+        dirty=False, label="D5 gated snapshot machines slice (correct, no path:)",
+    )
+    expect(
+        'a `get-path {path: "[:session :ready?]"}` read of an app-db seed slot.',
+        dirty=False, label="D6 get-path at an app-db slot (correct)",
     )
 
     # --- M-1 classifier fixtures (rf2-3fc89f.35) --------------------------------
