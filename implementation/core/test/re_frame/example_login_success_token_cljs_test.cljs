@@ -33,24 +33,25 @@
         `[:auth.login/flow [:auth.login/success]]` signal, so the flow reaches
         `:authed` without ever seeing the token.
 
-   KNOWN FRAMEWORK-GATED RESIDUAL (deliberately NOT asserted clean here). Two
-   trace slots still carry the raw token, and NEITHER is reachable by app-side
-   classification — they are central classification-projector gaps
-   (`re-frame.classification/project-trace-event` applies an fx registration's
-   `:sensitive` only to the `:rf.fx/handled` slot):
+   FRAMEWORK-GATED SLOTS — NOW CLOSED (rf2-6h3c02). Two trace slots used to carry
+   the raw token, neither reachable by app-side classification — central
+   classification-projector gaps where `project-trace-event` applied the fx
+   registration's `:sensitive` only to the `:rf.fx/handled` slot. rf2-6h3c02
+   taught the projector to apply the fx registration's `:sensitive` to EVERY
+   fx-arg-bearing slot, so both now redact off the SAME `:auth.session/store`
+   `:sensitive [[:token]]` this example already declares:
 
      - `:rf.event/fx` on `:rf.fx/do-fx` — the handler's WHOLE returned effect
-       vector is stamped raw; the projector walks the sibling `:rf.event/db` slot
-       but not `:rf.event/fx` (Spec 009 §Canonical per-event trace sequence notes
-       they share posture).
-     - `:rf.fx/args` on the always-on `:rf.error/fx-handler-exception` (and
-       sibling fx error traces) — fx-args redaction is keyed on op
-       `:rf.fx/handled` only.
+       vector; each entry's args now walk through its fx registration (sibling of
+       the `:rf.event/db` walk — Spec 009 §Canonical per-event trace sequence
+       notes they share posture). Asserted clean by the whole-stream sweep below.
+     - `:rf.fx/args` on the always-on (production-survivable)
+       `:rf.error/fx-handler-exception` — fx-args redaction is now keyed on the
+       slot shape, not op `:rf.fx/handled`. Asserted clean by the error-arm test.
 
-   Both are tracked as a framework bead; see the sweep exclusions below. This ns
-   asserts everything the EXAMPLE owns is redacted, and pins the two registration
-   declarations that the framework projector will consume once it covers those
-   slots."
+   This ns asserts everything the example owns is redacted, pins the two
+   registration declarations the projector consumes, and — post-rf2-6h3c02 — the
+   two formerly-residual framework slots."
   (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
             [re-frame.core :as rf]
             [re-frame.classification :as classification]
@@ -174,16 +175,15 @@
             (is (= privacy/redacted-sentinel (get-in ev [:tags :rf.fx/args :token]))
                 "the store fx :token arg reads :rf/redacted in :rf.fx/handled")))
 
-        ;; --- the whole-stream sweep: the sentinel appears in NO trace tag,
-        ;;     save the two framework-gated slots (see ns docstring). Excluded:
-        ;;     :rf.event/fx (the :rf.fx/do-fx aggregate) — the projector has no
-        ;;     branch for it. (The error-arm :rf.fx/args gap only fires when the
-        ;;     fx THROWS, exercised in the error-arm test below; it does not
-        ;;     appear on this success sweep.)
+        ;; --- the whole-stream sweep: the sentinel appears in NO trace tag.
+        ;;     Post-rf2-6h3c02 this includes :rf.event/fx (the :rf.fx/do-fx
+        ;;     aggregate) — the projector now walks each fx entry's args through
+        ;;     its registration, so the store fx's [:token] redacts there too.
+        ;;     (The error-arm :rf.fx/args gap — also closed by rf2-6h3c02 — only
+        ;;     fires when the fx THROWS, exercised in the error-arm test below.)
         (let [checked (atom 0)]
           (doseq [ev @traces
-                  [k v] (:tags ev)
-                  :when (not= :rf.event/fx k)]
+                  [k v] (:tags ev)]
             (swap! checked inc)
             (is (not (contains-sentinel? v))
                 (str "the session token must not appear raw in " (:operation ev)
@@ -195,11 +195,11 @@
 ;; the error arm — the origin event on the fx-exception trace is redacted
 ;; ---------------------------------------------------------------------------
 
-(deftest error-arm-origin-event-redacted-on-fx-exception
-  (testing "when the localStorage fx throws, the origin event carried on the
-            always-on :rf.error/fx-handler-exception trace redacts the token
-            (the example-owned :event slot); the fx-args redaction on error
-            traces is the framework-gated residual and is NOT asserted here"
+(deftest error-arm-origin-event-and-fx-args-redacted-on-fx-exception
+  (testing "when the localStorage fx throws, BOTH the origin event (:event slot,
+            example-owned) AND the fx args (:rf.fx/args slot, framework-gated
+            until rf2-6h3c02) on the always-on :rf.error/fx-handler-exception
+            trace redact the token"
     (with-new-frame [f (frame/make-anon-frame-record! {})]
       (submit! f)
       (let [traces (record-traces!)]
@@ -216,7 +216,13 @@
           (doseq [ev errs]
             (is (not (contains-sentinel? (get-in ev [:tags :event])))
                 "the origin event on the error trace redacts the token — the
-                 :auth.login/succeeded registration classifies it")))))))
+                 :auth.login/succeeded registration classifies it")
+            ;; rf2-6h3c02: the fx args on the production-survivable error trace
+            ;; now redact off :auth.session/store's own :sensitive [[:token]].
+            (is (= privacy/redacted-sentinel (get-in ev [:tags :rf.fx/args :token]))
+                "the store fx :token arg reads :rf/redacted in :rf.fx/args")
+            (is (not (contains-sentinel? (:tags ev)))
+                "the token appears nowhere raw across the error trace tags")))))))
 
 ;; ---------------------------------------------------------------------------
 ;; the two registrations own their classification (what the projector consumes)
