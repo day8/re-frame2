@@ -549,8 +549,8 @@
 
 ;; ---- Scenario 6 (ENSURE): StrictMode + hot-reload preserve durable state ---
 ;;
-;; HOT-RELOAD GATE (Mike-required, empirical). EP-0024 amendment: the merged
-;; `rf/frame-provider {:id …}` is the ENSURE shape — create-if-absent,
+;; HOT-RELOAD GATE (Mike-required, empirical). rf2-nyea0r split:
+;; `rf/frame-root {:id …}` is the ENSURE component — create-if-absent,
 ;; reuse-if-present WITHOUT re-seeding, NO destroy-on-unmount. Scenario 6 above
 ;; covers the SCOPE-only `{:frame …}` shape under StrictMode — a pure context
 ;; read, so the double-invoke is harmless. This frame-root (ENSURE) counterpart
