@@ -3331,8 +3331,25 @@
         event-id     (when (vector? event) (first event))
         ;; The `:rf.trace/no-emit?` gate reads the TARGET handler's meta from
         ;; the registrar. Dev-only (this whole emit DCEs under `goog.DEBUG=false`).
+        ;;
+        ;; rf2-x76af2.25: resolve the meta through the TARGET frame's image
+        ;; generation, NOT via a BARE `registrar/lookup` (which runs at enqueue
+        ;; time OUTSIDE the `call-with-frame-resolution` binding that wraps
+        ;; `process-event!`). An image-loaded frame's inline `:reg-event` handler
+        ;; lives ONLY in the frame's generation resolver, and its inline
+        ;; descriptor can carry `:rf.trace/no-emit?` in `:metadata`; a bare
+        ;; lookup is generation-blind and MISSES it → `no-emit?` false → the
+        ;; `:rf.event/dispatched` trace floods the very stream the handler is
+        ;; marked to stay out of (the flood rf2-qsjda closed for registrar-
+        ;; registered handlers, previously still open for image-registered
+        ;; ones). Mirror how `process-event!` resolves handlers — one extra
+        ;; record read on the dev path; absence-is-default for a non-image
+        ;; frame binds nothing and resolves through the registrar atom exactly
+        ;; as the bare lookup did.
         handler-meta (when event-id
-                       (registrar/lookup :event event-id))
+                       (live-frame/call-with-frame-resolution
+                         (live-frame/frame-resolution-target (:frame envelope))
+                         (fn [] (registrar/lookup :event event-id))))
         no-emit?     (trace/no-emit?-from-meta handler-meta)]
     (when-not no-emit?
       (trace/with-call-site (:call-site envelope)
