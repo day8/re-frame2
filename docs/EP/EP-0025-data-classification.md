@@ -199,7 +199,7 @@ the sensitive/large paths there — the same vocabulary, relative to the payload
 
 (rf/reg-fx :rf.ws/send {:sensitive [[:auth]]} ws-handler)
 
-(rf/reg-event :auth/login {:sensitive [[1 :password]]}
+(rf/reg-event :auth/login {:sensitive [[:password]]}
   (fn [{:keys [db]} [_ {:keys [user password]}]] …))
 
 (rf/reg-cofx :session {:sensitive [[:token]]}
