@@ -172,8 +172,10 @@
           (is (some? v) "the failure trace fired")
           (is (= :rf/redacted (get-in v [:tags :value]))
               "the failing leaf value is redacted (sensitive slot)")
-          (is (true? (get-in v [:tags :sensitive?]))
-              ":sensitive? true is stamped for consumer routing")
+          ;; Per Spec 009 the schemas emit-site stamps `:tags :sensitive?`
+          ;; and `emit-error!` HOISTS it to the top-level trace slot.
+          (is (true? (:sensitive? v))
+              ":sensitive? true is stamped (top-level) for consumer routing")
           (let [leaked? (atom false)]
             (walk/postwalk (fn [x] (when (= 20260712 x)
                                      (reset! leaked? true))
