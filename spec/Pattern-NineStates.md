@@ -282,7 +282,7 @@ The transitions the page-level event handler drives, for a `:counter/load`-shape
 | Retry from a bucket | `[:counter/load]` | `:empty | :one | :some | :too-many | :error → :loading` | Same handler; the `:on {:fetch-started :loading}` map on each bucket makes the reload uniform. |
 | Reply success | `[:counter/loaded {:rf/reply {:status :ok :value items …}}]` | `:loading → :resolving → :empty | :one | :some | :too-many` | The `:resolving` `:always`-cascade decides the bucket. |
 | Reply failure | `[:counter/loaded {:rf/reply {:status :error :error failure-map …}}]` | `:loading → :error` | The `:set-error` action stamps the failure map (read from `:error`) at `[:data :error]`. |
-| User-driven reset | `[:counter/reset]` | `* → :nothing` | Optional, per [Pattern-RemoteData](Pattern-RemoteData.md). |
+| User-driven reset | `[:counter/reset]` | `* → :nothing` | Optional, per [Pattern-RemoteData](Pattern-RemoteData.md). The `* → :nothing` transition carries a data-clearing action (`:reset-domain`) so it clears the region's owned `:items` / `:error`, not just the state keyword — a bare `:reset :nothing` leaves stale items to resurrect on the next submit. |
 
 A minimal co-located handler:
 
@@ -334,10 +334,10 @@ The `:data` region's `:loading` state usually has a `:spawn` of `:rf.http/manage
                        :request-id :counter/load}}
  :on    {:succeeded {:target :resolving :action :set-items}
          :failed    {:target :error     :action :set-error}
-         :reset     :nothing}}             ;; user-driven reset cancels the wrapper
+         :reset     {:target :nothing :action :reset-domain}}}  ;; abandon: cancel wrapper + clear data
 ```
 
-`:reset` from a bucket — fired by a navigation handler or an explicit user gesture — exits `:loading`, the wrapper is destroyed, and the in-flight request is aborted. No `:rf.http/managed-abort` call needed; the lifetime binding handles it.
+`:reset` from a bucket — fired by a navigation handler or an explicit user gesture — exits `:loading`, the wrapper is destroyed, and the in-flight request is aborted. No `:rf.http/managed-abort` call needed; the lifetime binding handles it. The transition also carries a `:reset-domain` action — `(fn [_] {:data {:items [] :error nil}})` — because returning a region to `:nothing` does **not**, on its own, rewrite the shared `:data`: machine data is preserved across a transition unless an action changes it. Without that action the just-abandoned `:items` survive under the blank `:nothing` view and resurrect on the next submit. "Reset" therefore means state **and** owned data, matching [Pattern-RemoteData](Pattern-RemoteData.md)'s reset contract.
 
 Pages that issue managed HTTP from an event handler directly (the `:fx [[:rf.http/managed ...]]` form above, not the `:spawn` form) don't get the actor-destroy cascade — per [014 §Direct dispatches from event handlers — NOT covered](014-HTTPRequests.md#direct-dispatches-from-event-handlers--not-covered), only requests issued from inside a spawned actor are subject to actor-destroy cancellation. Apps that want navigation-mid-fetch cancellation in that case have two options: lift the call into the `:spawn` form above, or issue an explicit `[:rf.http/managed-abort :counter/load]` from the navigation handler against the same `:request-id`.
 

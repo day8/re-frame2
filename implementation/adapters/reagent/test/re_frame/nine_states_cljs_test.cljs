@@ -70,6 +70,13 @@
 (defn- render-model [frame]
   (rf/compute-sub [:ui/render] (rf/frame-state-value frame)))
 
+(defn- snapshot
+  "The `:ui/nine-states` machine snapshot from a frame's runtime-db — carries
+   `:state` (the region→state map for a parallel machine) and shared `:data`."
+  [frame]
+  (get-in (rf/frame-state-value frame)
+          [:rf.db/runtime :rf.runtime/machines :snapshots :ui/nine-states]))
+
 (def ^:private demo-overrides
   "Per-test :fx-overrides map that routes `:rf.http/managed` to the in-process
    demo stub so tests run without a backend."
@@ -173,6 +180,107 @@
     (test-state-8-correct))
   (testing "state 9 — done (terminal, read-only)"
     (test-state-9-done)))
+
+;; ----------------------------------------------------------------------------
+;; RESET — whole-machine return to square one clears owned domain data
+;;
+;; The shipped "1. Nothing" control dispatches [:nine-states.app/initialise],
+;; which seeds the form slice and broadcasts [:reset] into the machine. A
+;; region's state keyword flipping back to :nothing does NOT, on its own,
+;; rewrite the machine's :data — machine data is preserved across transitions
+;; unless an action changes it. So reset must run a named :reset-domain action
+;; to clear the loaded :items, any recorded :error, and the :archived-at
+;; stamp. Without it, previously loaded todos survive hidden under a blank
+;; :nothing view and resurrect on the next valid submit. These tests are the
+;; sequence the per-state fixtures never exercise: two states separated by the
+;; reset control. They pin that reset clears state AND owned data, matching
+;; Pattern-RemoteData's reset contract.
+;; ----------------------------------------------------------------------------
+
+(deftest reset-clears-machine-owned-domain-data
+  (testing "initialise after a load returns every region to initial AND wipes :data"
+    (with-new-frame [f (new-frame)]
+      ;; Load four todos → :data region rests at :some with 4 items.
+      (rf/dispatch-sync [:nine-states.demo/load {:n 4}] {:frame f})
+      (is (= 4 (count (get-in (snapshot f) [:data :items])))
+          "precondition: four todos loaded")
+      (is (= :some (render-model f)) "precondition: renders :some")
+
+      ;; The shipped reset control ("1. Nothing").
+      (rf/dispatch-sync [:nine-states.app/initialise] {:frame f})
+
+      ;; Full region map back to initial; :data wiped clean.
+      (is (= {:data :nothing :form :neutral :mode :active}
+             (:state (snapshot f)))
+          "all three regions return to their initial state")
+      (is (= {:items [] :error nil :archived-at nil}
+             (:data (snapshot f)))
+          "the machine's owned :data is wiped — no hidden survivors")
+      (is (= :nothing (render-model f)) "the page renders the blank :nothing slate")
+
+      ;; A valid submit now yields exactly ONE todo (State 4 / :one), not five.
+      ;; The four pre-reset rows must NOT resurrect.
+      (rf/dispatch-sync [:new-todo/edit-field :title "Buy milk"] {:frame f})
+      (rf/dispatch-sync [:new-todo/submit] {:frame f})
+      (let [items (rf/compute-sub [:todos/items] (rf/frame-state-value f))]
+        (is (= 1 (count items))
+            "only the freshly-submitted todo is present")
+        (is (= ["Buy milk"] (mapv :title items))
+            "none of the four pre-reset rows reappear"))
+      ;; :form/success wins the render-priority table over :data/one, so the
+      ;; page shows :correct — but the :data region has genuinely settled at
+      ;; :one beneath it (single item), not :some.
+      (is (= :correct (render-model f)) "the submit acknowledgement wins the priority table")
+      (is       (machine-has-tag? f :data/one) "the :data region rests at :one, not :some")
+      (is (not  (machine-has-tag? f :data/some)) "the pre-reset :some cardinality is gone"))))
+
+(deftest reset-clears-recorded-failure-and-thaws-done
+  (testing "reset wipes a recorded :error and returns an archived :done machine to :active"
+    (with-new-frame [f (new-frame)]
+      ;; Record a failure: the demo's rigged-to-fail load routes the :data
+      ;; region to :error, stamping the failure map at [:data :error].
+      (rf/dispatch-sync [:nine-states.demo/load-with-failure] {:frame f})
+      (is       (machine-has-tag? f :data/error) "precondition: failure recorded")
+      (is (some? (get-in (snapshot f) [:data :error])) "precondition: :error slot populated")
+
+      ;; Archive it: the :mode region freezes at :done, stamping :archived-at.
+      (rf/dispatch-sync [:ui/nine-states [:archive {:now 7}]] {:frame f})
+      (is (= :done (get-in (snapshot f) [:state :mode])) "precondition: archived (:mode :done)")
+      (is (= 7    (get-in (snapshot f) [:data :archived-at])) "precondition: archive stamped")
+
+      ;; Reset the whole machine.
+      (rf/dispatch-sync [:nine-states.app/initialise] {:frame f})
+      (is (= {:data :nothing :form :neutral :mode :active} (:state (snapshot f)))
+          ":mode thaws from :done back to :active; data and form reset too")
+      (is (= {:items [] :error nil :archived-at nil} (:data (snapshot f)))
+          "the recorded failure and the archive stamp are both cleared")
+      (is (= :nothing (render-model f))
+          "renders the blank slate, not the archived or error view"))))
+
+(deftest reset-from-loading-abandons-in-flight-load
+  (testing "reset accepted mid-load lands at :nothing; a late completion cannot mutate it"
+    (with-new-frame [f (new-frame)]
+      ;; Enter :loading without a synchronous reply, as the state-2 fixture
+      ;; does — dispatch :fetch-started directly with no follow-up.
+      (rf/dispatch-sync [:ui/nine-states [:fetch-started]] {:frame f})
+      (is (machine-has-tag? f :data/loading) "precondition: fetch in flight")
+
+      ;; Reset while loading.
+      (rf/dispatch-sync [:nine-states.app/initialise] {:frame f})
+      (is (= :nothing (get-in (snapshot f) [:state :data]))
+          "reset from :loading lands the :data region at :nothing")
+      (is (= [] (get-in (snapshot f) [:data :items])) ":data is clean after the abandon")
+
+      ;; The abandoned load now completes. At :nothing the machine does not
+      ;; listen for :fetch-succeeded, so the stale reply is inert.
+      (rf/dispatch-sync [:ui/nine-states
+                         [:fetch-succeeded {:items [{:id 1 :title "ghost-1" :done? false}
+                                                    {:id 2 :title "ghost-2" :done? false}]}]]
+                        {:frame f})
+      (is (= :nothing (get-in (snapshot f) [:state :data]))
+          "the late completion does not move the region off :nothing")
+      (is (= [] (get-in (snapshot f) [:data :items]))
+          "the abandoned load's items never land"))))
 
 ;; ----------------------------------------------------------------------------
 ;; STORY LIFECYCLE — :error variant

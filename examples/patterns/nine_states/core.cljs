@@ -305,7 +305,26 @@
     ;; The demo buttons omit `:now`, so their deterministic sentinel is 0.
     ;; A host that needs a real archive time supplies it on the event.
     (fn action-stamp-archived [{data :data [_ {:keys [now]}] :event}]
-      {:data (assoc data :archived-at (or now 0))})}
+      {:data (assoc data :archived-at (or now 0))})
+
+    :reset-domain
+    ;; The public :reset returns the whole machine to square one — and that
+    ;; has to include the domain data the machine owns, not just its state
+    ;; keywords. Here's the subtlety the whole example turns on: a transition
+    ;; changing :data-region's state from :some back to :nothing does NOT, on
+    ;; its own, touch :data. Machine data is preserved across transitions
+    ;; unless an *action* rewrites it — that's exactly what keeps a bucket's
+    ;; :items alive across a re-render. So without this action the loaded
+    ;; :items (and any recorded :error, and the :archived-at stamp) survive
+    ;; hidden underneath a blank :nothing view, and resurrect the moment the
+    ;; next valid submit conjoins onto them. Clearing owned data is a data
+    ;; change, so it rides a named action. It runs exactly once per reset
+    ;; macrostep — on the :data region's :reset — while the form and mode
+    ;; regions independently walk their own state back to :neutral / :active.
+    ;; Matches Pattern-RemoteData's reset contract: reset clears state AND the
+    ;; durable data that state was about.
+    (fn action-reset-domain [_]
+      {:data {:items [] :error nil :archived-at nil}})}
 
    :regions
    {;; ---- :data region — managed-HTTP lifecycle + cardinality ----
@@ -316,16 +335,20 @@
       ;; State 1 — never fetched. The welcome screen.
       {:tags #{:data/nothing}
        :on   {:fetch-started :loading
-              :reset         :nothing}}
+              :reset         {:target :nothing :action :reset-domain}}}
 
       :loading
       ;; State 2 — a fetch is in flight. The :data/loading tag is what
-      ;; lights up the spinner.
+      ;; lights up the spinner. A user-driven :reset abandons the in-flight
+      ;; fetch: the region drops to :nothing and :reset-domain wipes :data.
+      ;; A late reply from the abandoned load is then inert — :nothing has no
+      ;; :fetch-succeeded handler, so it can't resurrect the reset state.
       {:tags #{:data/loading :data/transient}
        :on   {:fetch-succeeded {:target :resolving
                                 :action :set-items}
               :fetch-failed    {:target :error
-                                :action :set-error}}}
+                                :action :set-error}
+              :reset           {:target :nothing :action :reset-domain}}}
 
       :resolving
       ;; A blink-and-you-miss-it microstep. :set-items has just written the
@@ -340,27 +363,27 @@
       :empty
       {:tags #{:data/empty}
        :on   {:fetch-started :loading
-              :reset         :nothing}}
+              :reset         {:target :nothing :action :reset-domain}}}
 
       :one
       {:tags #{:data/one}
        :on   {:fetch-started :loading
-              :reset         :nothing}}
+              :reset         {:target :nothing :action :reset-domain}}}
 
       :some
       {:tags #{:data/some}
        :on   {:fetch-started :loading
-              :reset         :nothing}}
+              :reset         {:target :nothing :action :reset-domain}}}
 
       :too-many
       {:tags #{:data/too-many}
        :on   {:fetch-started :loading
-              :reset         :nothing}}
+              :reset         {:target :nothing :action :reset-domain}}}
 
       :error
       {:tags #{:data/error}
        :on   {:fetch-started :loading
-              :reset         :nothing}}}}
+              :reset         {:target :nothing :action :reset-domain}}}}}
 
     ;; ---- :form region — form lifecycle ----
     :form
@@ -400,10 +423,18 @@
               :reset   :active}}
 
       :done
-      ;; State 9 — the end of the line. Once archived there's no event out
-      ;; of here. :mode/read-only is the tag the form and control panel
-      ;; read to disable every input.
-      {:tags #{:mode/done :mode/read-only :mode/terminal}}}}}})
+      ;; State 9 — the terminal end of the lifecycle: once archived, no
+      ;; forward event leaves here (no fetch, no submit, no re-archive), and
+      ;; :mode/read-only is the tag the form and control panel read to grey
+      ;; out every input. The lone exception is the whole-machine :reset —
+      ;; "back to square one" is allowed from anywhere, even a frozen list —
+      ;; which thaws :done to :active; the :data region's :reset-domain clears
+      ;; the owned data (including :archived-at) in the same broadcast. The
+      ;; demo disables its reset control while read-only, so in the running
+      ;; app you reach this thaw by reloading — the machine models the full
+      ;; capability, and the headless tests drive it directly.
+      {:tags #{:mode/done :mode/read-only :mode/terminal}
+       :on   {:reset :active}}}}}})
 
 (rf/reg-machine :ui/nine-states nine-states-machine)
 
@@ -420,8 +451,12 @@
 ;; where it doesn't belong.
 
 (rf/reg-event :nine-states.app/initialise
-  {:doc "Back to square one: seed the form slice and reset the machine to
-         its initial state."}
+  {:doc "Back to square one: seed the form slice and broadcast :reset into
+         the machine — returning every region to its initial state AND
+         clearing the machine's owned data (loaded :items, any recorded
+         :error, the :archived-at stamp) through the :data region's
+         :reset-domain action. A genuine blank slate, not a blank view laid
+         over retained data."}
   (fn handler-app-initialise [{:keys [db]} _]
     {:db (assoc db :new-todo new-todo-defaults)
      :fx [[:dispatch [:ui/nine-states [:reset]]]]}))
