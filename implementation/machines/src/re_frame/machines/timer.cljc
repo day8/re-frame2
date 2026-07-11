@@ -174,6 +174,45 @@
       (try (subs/unsubscribe frame-id delay-key)
            (catch #?(:clj Throwable :cljs :default) _ nil)))))
 
+(defonce ^:private after-attempt-counter
+  ;; Monotonic per-arm attempt-token source (mirrors core's
+  ;; `dispatch-later-counter`, rf2-j538f7.2). Every `schedule-after-timer!`
+  ;; arm stamps its slot with a unique token, so a trailing cancellation of an
+  ;; OLD attempt can never claim a re-armed SUCCESSOR occupying the same reused
+  ;; `{:parent :spawn :delay}` key (rf2-j538f7.7), and a late-returning arm can
+  ;; detect that a cleanup already claimed its slot. The durable per-decl-path
+  ;; EPOCH remains the transition stale-gate (a dynamic-delay re-arm keeps the
+  ;; same epoch on purpose); this token is transient host-work OWNERSHIP only —
+  ;; never snapshot / replay / SSR-egress state.
+  (atom 0))
+
+(defn- next-attempt-token []
+  (swap! after-attempt-counter inc))
+
+(defn- claim-entry!
+  "Atomically remove the `[frame-id k]` slot IFF it still holds the attempt
+  identified by `token`, pruning an emptied inner frame-map. Returns the exact
+  entry removed — so the caller releases precisely what it claimed — or nil when
+  the slot no longer holds this attempt: a concurrent supersede / cleanup
+  already took it, or a fresh re-arm installed a SUCCESSOR under the same key.
+  The token check is what stops an old cancellation from deleting a successor it
+  never released (rf2-j538f7.7). The host side effect (release / host-clock
+  cancel) rides the returned value OUTSIDE the retriable swap, never inside it
+  (`swap-vals!` yields the pre-swap snapshot from the winning CAS attempt)."
+  [frame-id k token]
+  (let [[old _new]
+        (swap-vals! after-timers
+                    (fn [m]
+                      (if (= token (:token (get-in m [frame-id k])))
+                        (let [inner (dissoc (get m frame-id) k)]
+                          (if (empty? inner)
+                            (dissoc m frame-id)
+                            (assoc m frame-id inner)))
+                        m)))
+        claimed (get-in old [frame-id k])]
+    (when (= token (:token claimed))
+      claimed)))
+
 (defn- emit-cancelled!
   "Emit the unified `:rf.machine.timer/cancelled` trace for one
   cancellation site. Every cancellation path — state exit, machine
@@ -243,64 +282,24 @@
   `reason` (closed set: `:on-exit / :on-destroy / :on-resolution /
   :on-supersede / :on-frame-destroy / :on-restore`). Idempotent —
   a second call against the same `[frame-id k]` is a no-op (the entry
-  is gone so no trace fires)."
+  is gone so no trace fires).
+
+  Cancels the exact attempt observed: it reads the current occupant's
+  `:token` and atomically CLAIMS the slot only while that token is still
+  current (`claim-entry!`). If a concurrent re-arm published a SUCCESSOR under
+  the same key between the read and the claim, this cancellation leaves the
+  successor untouched and emits nothing — the successor's own arrival already
+  released the observed attempt, so the cancellation fires exactly once and
+  never deletes a successor it did not release (rf2-j538f7.7). A cancellation
+  that claims an ARMING sentinel (`:handle nil`, host clock not yet armed)
+  still emits the owed trace and releases the held subscription; the arming
+  thread's publish phase then finds its token gone and cancels the returned
+  host handle."
   [frame-id k reason]
   (when-let [entry (get-in @after-timers [frame-id k])]
-    (emit-cancelled! frame-id k entry reason)
-    (release-entry-resources! frame-id entry (:delay k))
-    ;; Drop the inner-table entry; drop the outer-table entry if this was
-    ;; the frame's last live timer so a frame that briefly held timers
-    ;; doesn't leave a stale empty map behind.
-    (swap! after-timers
-           (fn [m]
-             (let [inner (dissoc (get m frame-id) k)]
-               (if (empty? inner)
-                 (dissoc m frame-id)
-                 (assoc m frame-id inner)))))))
-
-(defn- reap-fired-entry!
-  "Reap a one-shot `:after` entry whose host-clock timer has just FIRED —
-  release its sub-reaction watcher + subscription registration and drop the
-  inner-table slot. Distinct from `cancel-after-timer-entry!`: a fired timer
-  was NOT cancelled (the host clock ran to completion), so this emits NO
-  `:rf.machine.timer/cancelled` trace — the fired/stale-after trace already
-  records the synthetic event's fate. This is the host-clock counterpart of
-  the cancellation paths: it exists so the COMMON case where a fire is
-  guard-suppressed (the synthetic event is discarded, the state does NOT
-  exit, so no `:on-exit` cancel ever runs) does not strand the entry — a leak
-  of the add-watch + held subscription ref-count, and — worse — a live
-  watcher that would re-arm a fresh timer for a one-shot that already
-  fired-and-was-discarded the next time the sub-vec delay's value changes.
-  Per XState v5 semantics a delayed transition's timer fires once per arming;
-  a guard-rejected fire does NOT re-schedule.
-
-  EPOCH-GUARDED. The reap runs only when the slot still holds THIS fire's
-  entry — same `:epoch` as the one the timer was armed at. A real-transition
-  fire exits the state, runs `:on-exit` cancel, and re-entry installs a FRESH
-  entry under the same key at a strictly-greater per-decl-path epoch; the
-  guard refuses to clobber that successor (and refuses to double-reap an
-  already-cancelled slot). Returns nil.
-
-  `vec`-snapshots nothing — a single `get-in` + a compare-and-dissoc swap that
-  re-reads the epoch inside the swap fn so a concurrent re-arm between the
-  read and the swap is not clobbered on the JVM target."
-  [frame-id k fired-epoch]
-  (when-let [entry (get-in @after-timers [frame-id k])]
-    (when (= fired-epoch (:epoch entry))
-      (release-entry-resources! frame-id entry (:delay k))
-      (swap! after-timers
-             (fn [m]
-               ;; Re-read the entry inside the swap: only dissoc when the slot
-               ;; STILL carries this fire's epoch, so a concurrent re-arm that
-               ;; landed a fresh entry between the outer read and this swap is
-               ;; preserved rather than dropped.
-               (if (= fired-epoch (:epoch (get-in m [frame-id k])))
-                 (let [inner (dissoc (get m frame-id) k)]
-                   (if (empty? inner)
-                     (dissoc m frame-id)
-                     (assoc m frame-id inner)))
-                 m)))))
-  nil)
+    (when-let [claimed (claim-entry! frame-id k (:token entry))]
+      (emit-cancelled! frame-id k claimed reason)
+      (release-entry-resources! frame-id claimed (:delay k)))))
 
 (defn- on-sub-changed!
   "Watch callback invoked when a subscription-vector delay's value
@@ -403,101 +402,135 @@
                           :recovery     :skipped}))
 
           :else
-          (let [_ (when emit-scheduled-trace?
-                    (trace/emit! :rf.machine :rf.machine.timer/scheduled
-                                 (cond-> {;; the timer's owning actor INSTANCE;
-                                          ;; `:machine-id` is reserved for the
-                                          ;; registered TYPE.
-                                          :actor-id     parent-id
-                                          :state        state
-                                          :delay        resolved-ms
-                                          :delay-source delay-source
-                                          :epoch        epoch
-                                          :frame        frame-id}
-                                   ;; canonical subscription identity:
-                                   ;; `:rf.sub/id` + `:rf.sub/query-v`.
-                                   (= :sub delay-source)
-                                   (assoc :rf.sub/id      (first delay-key)
-                                          :rf.sub/query-v (vec delay-key)))))
-                handle
-                ;; Shared positive-delay-guarded arm — the host-clock arm
-                ;; step both timer artefacts share. `resolved-ms`
-                ;; is already known-positive here (the non-positive case was
-                ;; handled by the prior `cond` branch with the
-                ;; `:no-clock-configured` advisory), so the guard is a no-op
-                ;; pass-through; the machines-specific entry bookkeeping +
-                ;; sub-change watcher install below stay here.
-                (managed-timer/arm!
-                  (fn []
-                    (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
-                      ;; Stamp `:source :after-timer` on the timer-fired
-                      ;; dispatch so the Epoch panel's DISPATCH step labels
-                      ;; it "from :after timer", and Xray's L2 timeline can
-                      ;; prefix the row + per-source filter pills can
-                      ;; discriminate timer-fired cascades. `:after-timer`
-                      ;; is the single functional-origin discriminator
-                      ;; (closed-enum per Spec-Schemas
-                      ;; §`:rf/dispatch-envelope`).
-                      ;; Per Spec 005 §Hierarchy interaction: carry the
-                      ;; scheduling node's decl-path (`invoke-id`) so the
-                      ;; pure side routes the firing to the correct
-                      ;; per-path epoch — colliding delay-keys across
-                      ;; hierarchy levels (a parent and child both with
-                      ;; `:after {30000 ...}`) resolve unambiguously.
-                      (dispatch! [parent-id [:rf.machine.timer/after-elapsed
-                                              delay-key epoch (vec invoke-id)]]
-                                 {:frame              frame-id
-                                  :source             :after-timer}))
-                    ;; A one-shot `:after` timer fires exactly once per arming
-                    ;; (XState v5 §delayed transitions). Reap THIS fire's entry
-                    ;; — release the sub-reaction watcher + held subscription
-                    ;; ref-count and drop the slot — epoch-guarded so a
-                    ;; real-transition exit's re-armed successor (fresh entry,
-                    ;; strictly-greater epoch) is not clobbered. Without this,
-                    ;; a GUARD-SUPPRESSED fire (state does not exit, so no
-                    ;; `:on-exit` cancel runs) would strand the entry AND let a
-                    ;; later sub-vec value change re-arm a spent one-shot via
-                    ;; `on-sub-changed!`. The reap is silent — a fired timer
-                    ;; was not cancelled, so no `:cancelled` trace is emitted.
-                    ;; Runs AFTER the dispatch returns: in dispatch-sync the
-                    ;; transition (and its `:on-exit` cancel, if any) has
-                    ;; already executed, so the epoch guard sees the settled
-                    ;; slot; in async dispatch the guard still distinguishes
-                    ;; this entry from any future re-arm by epoch.
-                    (reap-fired-entry! frame-id k epoch))
-                  resolved-ms)
+          ;; TWO-PHASE, TOKEN-OWNED arm (rf2-j538f7.7; mirrors core
+          ;; `:dispatch-later`, rf2-j538f7.2). The host clock is armed BETWEEN
+          ;; reserving the slot and publishing the handle, so a concurrent
+          ;; cleanup (frame / actor / state-exit / restore / supersede) — or a
+          ;; host scheduler that fires the callback synchronously before
+          ;; `arm!` returns — can atomically CLAIM this attempt and leave the
+          ;; publish phase to find its token gone and cancel the orphan handle.
+          (let [token     (next-attempt-token)
                 watch-key (when (= :sub delay-source)
                             [::after-watch frame-id parent-id invoke-id delay-key])]
-            (when (and reaction watch-key)
-              ;; Surface `add-watch` exceptions rather than silently
-              ;; dropping them; the sub-changed re-resolution watcher won't
-              ;; fire if `add-watch` failed, so the author needs a signal
-              ;; that the dynamic-delay subscription is not actually wired
-              ;; up.
-              (try
-                (add-watch reaction watch-key
-                           (fn [_ _ old-v new-v]
-                             (on-sub-changed! frame-id parent-id invoke-id
-                                              delay-key state old-v new-v)))
-                (catch #?(:clj Throwable :cljs :default) e
-                  ;; Owning actor INSTANCE under `:actor-id`; canonical
-                  ;; subscription identity (`:rf.sub/id` + `:rf.sub/query-v`).
-                  (trace/emit-error! :rf.error/machine-after-watch-failed
-                                     {:exception      e
-                                      :actor-id       parent-id
-                                      :rf.sub/id      (first delay-key)
-                                      :rf.sub/query-v (vec delay-key)
-                                      :frame          frame-id
-                                      :recovery       :static-delay}))))
+            (when emit-scheduled-trace?
+              (trace/emit! :rf.machine :rf.machine.timer/scheduled
+                           (cond-> {;; the timer's owning actor INSTANCE;
+                                    ;; `:machine-id` is reserved for the
+                                    ;; registered TYPE.
+                                    :actor-id     parent-id
+                                    :state        state
+                                    :delay        resolved-ms
+                                    :delay-source delay-source
+                                    :epoch        epoch
+                                    :frame        frame-id}
+                             ;; canonical subscription identity:
+                             ;; `:rf.sub/id` + `:rf.sub/query-v`.
+                             (= :sub delay-source)
+                             (assoc :rf.sub/id      (first delay-key)
+                                    :rf.sub/query-v (vec delay-key)))))
+            ;; PHASE 1 — RESERVE the slot with an arming sentinel (`:handle
+            ;; nil`) carrying this attempt's `:token`, BEFORE arming any host
+            ;; clock. The reaction + watch-key ride the sentinel so a claiming
+            ;; cleanup releases the held subscription ref-count even though the
+            ;; physical add-watch is deferred to publication.
             (swap! after-timers assoc-in [frame-id k]
-                   {:handle          handle
+                   {:handle          nil
                     :reaction        reaction
                     :sub-watcher-key watch-key
                     :resolved-ms     resolved-ms
                     :epoch           epoch
                     :state           state
-                    :delay-source    delay-source})
-            handle))))))
+                    :delay-source    delay-source
+                    :token           token})
+            (let [handle
+                  ;; Shared positive-delay-guarded arm — the host-clock arm
+                  ;; step both timer artefacts share. `resolved-ms` is already
+                  ;; known-positive here (the non-positive case was handled by
+                  ;; the prior `cond` branch), so the guard is a no-op
+                  ;; pass-through.
+                  (managed-timer/arm!
+                    (fn []
+                      ;; ATOMICALLY claim THIS fire's slot — dispatch AUTHORITY
+                      ;; + reap in a single swap (mirrors core `:dispatch-later`,
+                      ;; rf2-j538f7.2). If a cleanup / supersede claimed the slot
+                      ;; first — even a synchronous host callback firing before
+                      ;; `arm!` returns, or a JVM cleanup racing the arm — this
+                      ;; fire has LOST authority: suppress the dead-on-arrival
+                      ;; dispatch and touch nothing (the claimer already released
+                      ;; our resources). On the live path the claim wins:
+                      (when-let [claimed (claim-entry! frame-id k token)]
+                        (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
+                          ;; Stamp `:source :after-timer` so the Epoch panel's
+                          ;; DISPATCH step labels it "from :after timer" and
+                          ;; Xray's L2 timeline can prefix the row + per-source
+                          ;; filter pills can discriminate timer-fired cascades
+                          ;; (closed-enum per Spec-Schemas
+                          ;; §`:rf/dispatch-envelope`). Per Spec 005 §Hierarchy
+                          ;; interaction: carry the scheduling node's decl-path
+                          ;; (`invoke-id`) so the pure side routes the firing to
+                          ;; the correct per-path epoch — colliding delay-keys
+                          ;; across hierarchy levels resolve unambiguously.
+                          (dispatch! [parent-id [:rf.machine.timer/after-elapsed
+                                                 delay-key epoch (vec invoke-id)]]
+                                     {:frame  frame-id
+                                      :source :after-timer}))
+                        ;; A one-shot `:after` timer fires exactly once per
+                        ;; arming (XState §delayed transitions). Release THIS
+                        ;; fire's sub-reaction watcher + held subscription
+                        ;; ref-count (the host handle just fired, so its cancel
+                        ;; is a harmless no-op). This is what keeps a
+                        ;; GUARD-SUPPRESSED fire (no state exit → no `:on-exit`
+                        ;; cancel) from stranding the entry, and stops a spent
+                        ;; one-shot from re-arming on a later sub-vec change. The
+                        ;; release is silent — a fired timer was not cancelled,
+                        ;; so no `:cancelled` trace is emitted.
+                        (release-entry-resources! frame-id claimed (:delay k))))
+                    resolved-ms)
+                  ;; PHASE 2 — PUBLISH the host handle IFF this attempt still
+                  ;; owns the slot. `swap-vals!` is a pure replace-if-token-
+                  ;; present; the cancel/add-watch side effects below ride the
+                  ;; CAS-derived old snapshot, never inside the swap.
+                  [old _new]
+                  (swap-vals! after-timers
+                              (fn [m]
+                                (if (= token (:token (get-in m [frame-id k])))
+                                  (assoc-in m [frame-id k :handle] handle)
+                                  m)))
+                  owned? (= token (:token (get-in old [frame-id k])))]
+              (if owned?
+                (do
+                  ;; We own the now-armed slot — attach the dynamic-delay
+                  ;; change-watcher (a sub-value change cancels + reschedules).
+                  ;; Attached ONLY here so a publication that LOST to cleanup
+                  ;; never strands an orphan watcher on a released reaction.
+                  (when (and reaction watch-key)
+                    ;; Surface `add-watch` exceptions rather than silently
+                    ;; dropping them; the re-resolution watcher won't fire if
+                    ;; `add-watch` failed, so the author needs a signal the
+                    ;; dynamic-delay subscription is not actually wired up.
+                    (try
+                      (add-watch reaction watch-key
+                                 (fn [_ _ old-v new-v]
+                                   (on-sub-changed! frame-id parent-id invoke-id
+                                                    delay-key state old-v new-v)))
+                      (catch #?(:clj Throwable :cljs :default) e
+                        ;; Owning actor INSTANCE under `:actor-id`; canonical
+                        ;; subscription identity (`:rf.sub/id` + `:rf.sub/query-v`).
+                        (trace/emit-error! :rf.error/machine-after-watch-failed
+                                           {:exception      e
+                                            :actor-id       parent-id
+                                            :rf.sub/id      (first delay-key)
+                                            :rf.sub/query-v (vec delay-key)
+                                            :frame          frame-id
+                                            :recovery       :static-delay}))))
+                  handle)
+                ;; A cleanup / supersede / synchronous fire claimed the sentinel
+                ;; while we armed — do NOT republish; cancel the orphan handle
+                ;; (idempotent even if it already fired). The claimer already
+                ;; released the reaction and emitted the single owed `:cancelled`
+                ;; trace (or, for a self-fire, dispatched + released silently).
+                (do (managed-timer/cancel! handle)
+                    nil)))))))))
 
 (defn after-schedule-fx
   "fx handler for `:rf.machine/after-schedule`. Per Spec 005 §Delayed
