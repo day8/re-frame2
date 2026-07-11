@@ -104,7 +104,7 @@
   frame -> event stream) supersedes EP-0013's app/realm surface; the realm
   threading through the dispatch/subscribe spine was collapsed to the single
   default realm (rf2-afdlyr). This slice introduces the image-loaded public
-  frame object without disturbing the existing `reg-frame` /
+  frame object without disturbing the existing construction /
   `re-frame.frame/make-anon-frame-record!` callers. The reload slice (.10) wires
   image replacement on the frame object this slice returns.
 
@@ -352,7 +352,7 @@
   `next-tick` flush happens to run. This strengthens the EP-0023 §Default Image
   Semantics dev guarantee from \"reprojected at the next macrotask boundary\" to
   \"reprojected before the next resolution\" — with `make-frame` as the ONE
-  constructor (reg-frame removed), every frame is image-loaded, and the
+  constructor, every frame is image-loaded, and the
   register-then-dispatch-sync sequence (tests, REPL, setup code) must not race
   the deferred tick. Coalescing is UNCHANGED: a synchronous `reg-*` burst still
   sets one flag and is flushed ONCE, by whichever comes first — this read or
@@ -1091,7 +1091,7 @@
 
 ;; EP-0024 (rf2-tu2vr7): the `reprojecting?` re-entrancy guard DISSOLVED. It
 ;; existed only because the EP-0023 two-registry `make-frame` created its backing
-;; record via `frame/reg-frame` (a `register!`), raising the defensive worry that
+;; record via the then-registrar-backed engine (a `register!`), raising the defensive worry that
 ;; a reproject flush might provoke a registration and re-arm itself. Under the
 ;; unified model reprojection swaps the generation onto the ONE record via
 ;; `frame/set-generation!` — a plain `swap!`, NOT a `register!` — so the flush can

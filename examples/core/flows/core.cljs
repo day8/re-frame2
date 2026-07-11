@@ -60,7 +60,7 @@
 ;; (`rf/init!`), and that only happens once `run` (MOUNT, further down)
 ;; fires. So the two flows below don't register here directly; `install-
 ;; flows!` wraps the registration and is called from `run`, right after
-;; `rf/init!` and `rf/reg-frame` have made `:rf/default` a real, live frame —
+;; `rf/init!` and `rf/make-frame` have made `:rf/default` a real, live frame —
 ;; the same point every other example that constructs a frame outside a
 ;; `frame-provider` uses (see e.g.
 ;; examples/patterns/nine_states/stories_host.cljs's `install-live-frame!`).
@@ -292,7 +292,7 @@
 
 ;; `frame-provider`'s ENSURE shape (`{:id …}`) would normally be where
 ;; `:rf/default` gets created — but by the time it mounts below, `run` has
-;; already created the frame itself (`rf/reg-frame`), registered the two
+;; already created the frame itself (`rf/make-frame`), registered the two
 ;; named flows against it (`install-flows!`), and dispatched the cart's seed
 ;; — in that order, so the seeding dispatch's own `:db` write is the one the
 ;; flow walk sees, and `:cart/subtotal` / `:cart/total` materialise in that
@@ -318,7 +318,7 @@
 (defn run []
   ;; `init!` tells re-frame2 which reactive substrate to render through —
   ;; here, Reagent. It has to come before any frame is constructed: a
-  ;; frame's state container is substrate-specific, so `rf/reg-frame` (next)
+  ;; frame's state container is substrate-specific, so `rf/make-frame` (next)
   ;; would raise :rf.error/no-adapter-installed without this first.
   (rf/init! reagent-adapter/adapter)
   ;; Create the frame explicitly, here, rather than leaving it to
@@ -326,7 +326,7 @@
   ;; LIVE frame to register against, and the render tree — where
   ;; `frame-provider` would otherwise create one — doesn't exist yet at this
   ;; point in `run`.
-  (rf/reg-frame app-frame {:doc "Cart-with-flows demo frame."})
+  (rf/make-frame {:id app-frame :doc "Cart-with-flows demo frame."})
   (install-flows!)
   (rf/with-frame app-frame (rf/dispatch-sync [:cart/initialise]))
   (mount!))

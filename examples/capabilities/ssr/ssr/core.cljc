@@ -13,7 +13,7 @@
    whole point.
 
    The tour, in the order you'll meet it below:
-   - A fresh frame per request on the server (reg-frame + with-frame), torn
+   - A fresh frame per request on the server (make-frame + with-frame), torn
      down again when the request is done.
    - :rf/server-init — the per-request boot event, dispatched as the frame
      comes up.
@@ -249,7 +249,7 @@
 ;;   1. A request arrives.
 ;;   2. set-request! drops it into the per-frame slot that the
 ;;      :rf.server/request coeffect will read back out.
-;;   3. reg-frame stands up a fresh frame; its :initial-events step fires
+;;   3. make-frame stands up a fresh frame; its :initial-events step fires
 ;;      :rf/server-init, which pulls the request via that coeffect.
 ;;   4. The runtime drains — the article fetch resolves, app-db settles, and
 ;;      everything quiets down.
@@ -268,17 +268,16 @@
    (defn handle-request [request]
      (let [fid (keyword "rf.frame" (str (gensym "f")))
            _   (ssr/set-request! fid request)
-           ;; Schema first, frame second — order matters. `reg-frame` runs its
+           ;; Schema first, frame second — order matters. `make-frame` runs its
            ;; `:initial-events` pipeline run synchronously, and that run includes
            ;; the `:articles` commit `:rf/server-init` sets in motion. If the
            ;; schema weren't already registered against this per-request frame
            ;; (the gensym `fid`), there'd be nothing to validate that commit
            ;; against by the time it fires.
            _   (rf/reg-app-schema [:articles] {:frame fid} ArticlesSchema)
-           f   (rf/reg-frame fid
-                 {:doc       "ssr-example per-request frame"
-                  :platform  :server
-                  :initial-events [[:rf/server-init]]})]
+           f   (rf/make-frame {:id fid :doc       "ssr-example per-request frame"
+                               :platform  :server
+                               :initial-events [[:rf/server-init]]})]
        (try
          (rf/with-frame f
            (let [final-db      (rf/app-db-value f)        ;; the app-db partition
@@ -428,8 +427,8 @@
      ;; Re-registering an existing frame is a no-op, so hot-reload just shrugs
      ;; and carries on. `:platform :client` is what lets the hydrate
      ;; compatibility-check effects actually fire.
-     (rf/reg-frame app-frame {:doc      "ssr-example client app-frame"
-                              :platform :client})
+     (rf/make-frame {:id app-frame :doc      "ssr-example client app-frame"
+                     :platform :client})
      ;; Register the schema against this client frame too — the mirror of the
      ;; per-request registration back in `handle-request`. That way the hydrated
      ;; `:articles` commit, and every interactive commit the reader triggers

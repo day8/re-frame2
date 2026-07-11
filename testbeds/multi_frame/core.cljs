@@ -209,9 +209,9 @@
   ;; the framework dispatches each frame's setup events synchronously
   ;; against that frame's empty app-db, so the same init handler can be
   ;; shared across both counter frames.
-  (rf/reg-frame frame-a   {:initial-events [[::counter-init]]})
-  (rf/reg-frame frame-b   {:initial-events [[::counter-init]]})
-  (rf/reg-frame frame-log {:initial-events [[::log-init]]})
+  (rf/make-frame {:id frame-a :initial-events [[::counter-init]]})
+  (rf/make-frame {:id frame-b :initial-events [[::counter-init]]})
+  (rf/make-frame {:id frame-log :initial-events [[::log-init]]})
   ;; EP-0002 (rf2-9o48ih): `root` is a `reg-view`, so its wrapper resolves
   ;; a frame at render time for its injected bindings — it must render
   ;; under a provider. Use a neutral SHELL frame (`:rf/default`) as the
@@ -219,5 +219,5 @@
   ;; for their subtrees, and the cross-bump button still dispatches with an
   ;; explicit `{:frame frame-a}` (the override wins over this shell scope),
   ;; so the "dispatch from outside the app providers" intent is preserved.
-  (rf/reg-frame :rf/default {})
+  (rf/make-frame {:id :rf/default})
   (rdc/render react-root [rf/frame-provider {:frame :rf/default} [root]]))

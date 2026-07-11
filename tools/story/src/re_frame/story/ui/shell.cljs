@@ -376,7 +376,7 @@
                      (ensure-variant-frame! now)
                      ;; Re-orient Xray's target-frame to the freshly-
                      ;; selected variant's frame. Each Story variant is
-                     ;; reg-frame'd under its variant-id (see
+                     ;; make-frame'd under its variant-id (see
                      ;; `re-frame.story.frames`), so the variant-id IS
                      ;; the frame-id from Xray's perspective. Without
                      ;; this dispatch Xray stays anchored on whatever

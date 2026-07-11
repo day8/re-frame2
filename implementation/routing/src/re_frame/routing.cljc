@@ -119,8 +119,8 @@
 ;; (`#`-prefixed) — plus the `with-base-path` combinator that
 ;; wraps either one for an app deployed under a sub-path. Declared on the
 ;; URL-owning frame:
-;;   (rf/reg-frame :app {:url-bound? true :url-strategy routing/hash-url-strategy})
-;;   (rf/reg-frame :app {:url-bound? true
+;;   (rf/make-frame {:id :app :url-bound? true :url-strategy routing/hash-url-strategy})
+;;   (rf/make-frame {:id :app :url-bound? true
 ;;                       :url-strategy (routing/with-base-path
 ;;                                       routing/history-url-strategy "/realworld")})
 ;; These live on the routing facade, not `re-frame.core`; bundle-isolation

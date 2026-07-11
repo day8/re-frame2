@@ -187,7 +187,7 @@
   ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from
   ;; absence — `:rf/default` is this testbed's app frame, registered
   ;; explicitly here (init! installs only the adapter, no frame).
-  (rf/reg-frame :rf/default {})
+  (rf/make-frame {:id :rf/default})
   ;; Both the Button-C flow registration (main rf2-7gvnmy: reg-flow must run
   ;; AFTER init! against a live frame) and the boot dispatch run inside the
   ;; carried `:rf/default` scope. The render is wrapped in a `frame-provider`

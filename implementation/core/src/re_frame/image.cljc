@@ -292,7 +292,7 @@
     :reg-fx    → :fx
     :reg-cofx  → :cofx
 
-  Every OTHER kind (`:reg-interceptor`, `:reg-view`, `:reg-frame`, `:reg-route`,
+  Every OTHER kind (`:reg-interceptor`, `:reg-view`, `:reg-route`,
   `:reg-head`, `:reg-error-projector`, `:reg-flow`, `:reg-resource`,
   `:reg-mutation`, `:reg-resource-scope`) remains namespace-authored until its
   owning spec defines an inline lowering — an inline section for one fails loud
@@ -397,7 +397,7 @@
   EP-0026 standardizes inline grammar for EXACTLY four kinds — `:reg-event`,
   `:reg-sub`, `:reg-fx`, `:reg-cofx` — the kinds with a concrete inline parser
   and a published late-bind lowering hook (`reg-section->kind`). Every other
-  registration kind (`:reg-interceptor`, `:reg-view`, `:reg-frame`, `:reg-route`,
+  registration kind (`:reg-interceptor`, `:reg-view`, `:reg-route`,
   `:reg-head`, `:reg-error-projector`, `:reg-flow`, `:reg-resource`,
   `:reg-mutation`, `:reg-resource-scope`) — and any typo'd section key — fails
   loud with the unsupported-inline-kind diagnostic: those kinds remain

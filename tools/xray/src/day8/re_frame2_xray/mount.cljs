@@ -376,8 +376,8 @@
 (defn ensure-xray-frame!
   "Register the shell frame if not already registered, then run each
   registered first-mount hook — but ONLY on the first call for a given
-  `frame-id`. Idempotent via `reg-frame`'s surgical-update-on-re-
-  register semantics (per Spec 002 §reg-frame) on the frame side, AND
+  `frame-id`. Idempotent via `make-frame`'s surgical-update-on-re-
+  register semantics (per Spec 002 §Frame lifecycle) on the frame side, AND
   via the `seeded-frame-ids` run-once guard on the hook side (rf2-
   n4p5it) — first call creates the frame and seeds; every subsequent
   call for the SAME `frame-id` is a surgical no-op on the frame side
@@ -497,17 +497,17 @@
    ;; process-global ring buffer — any other consumer reading the raw
    ;; buffer (re-frame2-pair, Story) saw only Xray noise. The flag is
    ;; the frame-scoped sibling of the handler-scoped `:rf.trace/no-
-   ;; emit?`; the framework's `reg-frame` honours it on every (re-)
+   ;; emit?`; the framework's frame engine honours it on every (re-)
    ;; registration so the gate survives hot-reload.
    ;;
    ;; EP-0023 §Xray Beside The Target (rf2-32siq3.36) — SEAT this singleton in
    ;; its OWN image-loaded frame via `image-reads/seat-xray-frame!` (the
    ;; `rf/make-frame {:id :rf/xray :images [(xray-image)]}` path), replacing the
-   ;; legacy realm seating (`reg-frame {:rf.trace/frame-no-emit? true}`). The
+   ;; legacy realm seating ({:rf.trace/frame-no-emit? true} config). The
    ;; seated frame resolves ONLY Xray's `:rf.xray/*` registrations (plus the
    ;; framework standards), in genuine isolation from the inspected target.
    ;; `seat-xray-frame!` re-asserts the trace-no-emit gate directly through
-   ;; `re-frame.trace/set-frame-no-emit!` (the same seam `reg-frame` routed it
+   ;; `re-frame.trace/set-frame-no-emit!` (the same seam the frame engine routed it
    ;; through), and is idempotent on re-seat (`xray-frame-seated?` skips the
    ;; duplicate-`:id` `make-frame`). Host-registry reads inside Xray's subs go
    ;; through `host-registry` (generation-bypassing) so the inspector still sees

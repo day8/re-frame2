@@ -354,8 +354,8 @@
 (defn fx-overrides-map
   "Materialise the `:fx-overrides` map a `:fx-override`-decorator stack
   contributes to the variant frame's `:config`. The runtime threads
-  this directly into `(rf/reg-frame variant-id {... :fx-overrides ...})`
-  (per spec/002 §reg-frame).
+  this directly into `(rf/make-frame {:id variant-id ... :fx-overrides ...})`
+  (per spec/002 §Frame lifecycle).
 
   Each `:fx-override` decorator carries `{:fx-id <id> :response <data>}`.
   We synthesise a per-decorator replacement fx id of the form

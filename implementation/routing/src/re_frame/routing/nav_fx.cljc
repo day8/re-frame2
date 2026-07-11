@@ -6,7 +6,7 @@
   ownership is **explicit only**. `:rf.nav/push-url` / `:rf.nav/replace-url`
   MUST consult the calling frame's `:url-bound?` metadata before touching
   the browser history. A frame is URL-bound only when it carries an
-  explicit `(reg-frame :my-frame {:url-bound? true})` — including
+  explicit `(make-frame {:id :my-frame :url-bound? true})` — including
   `:rf/default`, which has **no** owns-by-default floor: the runtime never
   infers URL ownership from absence. Non-URL-bound frames no-op the fx
   (history.pushState would race with the URL-owning frame). When no frame
@@ -109,7 +109,7 @@
 
 (defn url-owner-frame-id
   "Return the single frame that has EXPLICITLY declared browser-history
-  ownership via `(reg-frame :id {:url-bound? true})`, or `nil` when no
+  ownership via `(make-frame {:id … :url-bound? true})`, or `nil` when no
   frame has declared it.
 
   URL ownership is an explicit host/bootstrap policy, not an absence repair.

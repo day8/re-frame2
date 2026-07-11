@@ -1,13 +1,14 @@
 (ns re-frame.frame-classification
   "Frame-owned observability sink policy per EP-0015 §9 (Frame-Owned
   Observability Sink Policy), graduated into
-  [`spec/015-Data-Classification.md`] and the `reg-frame` grammar in
+  [`spec/015-Data-Classification.md`] and the frame-config grammar in
   [`spec/002-Frames.md`].
 
-  A frame's `reg-frame` metadata MAY carry the `:observability` policy key:
+  A frame's `make-frame` record-config MAY carry the `:observability` policy key:
 
-      (rf/reg-frame :app/main
-        {:observability
+      (rf/make-frame
+        {:id :app/main
+         :observability
          {:handled-events [{:sink :my-app.sinks/datadog
                             :rf.egress/profile :rf.egress/off-box-observability
                             :opts {:service \"checkout-spa\"}}]
@@ -18,7 +19,7 @@
 
   ## EP-0025 — the durable app-db classification annotation is REMOVED
 
-  Durable app-db data classification is NO LONGER a `reg-frame` annotation.
+  Durable app-db data classification is NO LONGER a frame-config annotation.
   Per [EP-0025 §What is removed], the frame `:sensitive` / `:large {:app-db
   [[path] …]}` durable annotation is GONE — a frame is not app-db's
   definition site. The replacement is the B3 commit-plane classification
@@ -38,12 +39,12 @@
 
   HTTP carrier classification (app-specific secret-bearing header /
   query-param NAMES that union onto the immutable built-in denylists) is NO
-  LONGER a `reg-frame` annotation either. Per [EP-0025 §HTTP carriers] the
+  LONGER a frame-config annotation either. Per [EP-0025 §HTTP carriers] the
   carrier capability is the TRANSIENT-payload case: it lives on the
   `:rf.http/managed` `reg-fx` registration metadata (the
   `:carriers {:headers […] :query-params …}` block), resolved + unioned onto
   the built-in denylists by the http artefact itself (`re-frame.http.privacy`
-  reads `re-frame.registrar/handler-meta :fx :rf.http/managed`). A `reg-frame`
+  reads `re-frame.registrar/handler-meta :fx :rf.http/managed`). A frame config
   carrying a `:sensitive` key now FAILS LOUD (clean break) — there is no
   valid `:sensitive` content left on a frame (the durable `:app-db` block was
   already removed, and `:http` moved to `:rf.http/managed`). The diagnostic
@@ -53,7 +54,7 @@
 
   This namespace is the frame metadata **schema + registry** for the one
   surviving frame-owned classification key (`:observability`). It is the
-  validation seam `reg-frame` calls, atomically as part of frame creation,
+  validation seam the frame engine calls, atomically as part of frame creation,
   BEFORE `:initial-events` run.
 
   - **`:observability`** (`:handled-events` / `:errors`) is durable frame
@@ -80,7 +81,7 @@
   ## Keyword namespacing (EP-0015 §2)
 
   The frame-local grammar keys (`:observability`, `:handled-events`,
-  `:errors`, `:sink`, `:opts`) stay BARE — a `reg-frame` metadata map is a
+  `:errors`, `:sink`, `:opts`) stay BARE — a frame record-config map is a
   framework-owned grammar. The cross-surface egress key `:rf.egress/profile`
   is namespaced (it means the same thing across `project-egress`, sink
   policy, MCP, SSR, and tool options). User/library-owned sink ids
@@ -95,7 +96,7 @@
 
 (def ^:const classification-keys
   "The frame-owned policy metadata key this ns validates (EP-0015 §9
-  observability). A `reg-frame` metadata map carrying it triggers
+  observability). A frame record-config map carrying it triggers
   validation; every OTHER key is ordinary frame config and is passed
   through untouched.
 
@@ -109,7 +110,7 @@
   #{:observability})
 
 (def ^:const retired-frame-keys
-  "Retired top-level `reg-frame` classification keys that no longer name a
+  "Retired top-level frame-config classification keys that no longer name a
   frame annotation and FAIL LOUD on sight (EP-0025 clean break). A config
   carrying any of these is rejected before frame registration mutates state.
 
@@ -134,7 +135,7 @@
   [frame-id reason extras]
   (error/thrown-ex-info
     :rf.error/bad-frame-classification
-    'rf/reg-frame
+    'rf/make-frame
     reason
     {:recovery :fix-frame-classification
      :extra    (merge {:frame frame-id} extras)}))
@@ -150,7 +151,7 @@
 
 ;; ---- retired top-level frame key rejection (EP-0025 clean break) ---------
 ;;
-;; Both `:sensitive` and `:large` are retired `reg-frame` classification keys
+;; Both `:sensitive` and `:large` are retired frame-config classification keys
 ;; (EP-0025 §What is removed). The durable app-db `:sensitive` / `:large
 ;; {:app-db …}` annotations were removed (a frame is not app-db's definition
 ;; site — durable classification is the commit-plane effects), AND the
@@ -182,7 +183,7 @@
     (str "retired frame classification key " k " (EP-0025).")))
 
 (defn- reject-retired-frame-keys!
-  "Fail loud on any retired top-level `reg-frame` classification key
+  "Fail loud on any retired top-level frame-config classification key
   (`retired-frame-keys` — `:sensitive` / `:large`):
   `:rf.error/bad-frame-classification`, thrown before frame registration
   mutates state, naming the offending key. No-op when `config` carries no
@@ -222,7 +223,7 @@
   ;; `projection.cljc`'s `resolve-elision-opts` already throws on an unknown
   ;; profile at egress time, but that is far downstream of registration — a
   ;; typo'd profile would install silently and only blow up when the sink
-  ;; first fires. Validate at reg-frame so the enum is closed at the seam
+  ;; first fires. Validate at construction so the enum is closed at the seam
   ;; that owns the policy (fail-closed, parity with the carrier/key grammar).
   (when (contains? entry :rf.egress/profile)
     (let [profile (:rf.egress/profile entry)]
@@ -281,12 +282,12 @@
 ;; ---- validation seam ----------------------------------------------------
 
 (defn validate!
-  "Validate the frame-owned policy keys of a `reg-frame` `config` map — the
+  "Validate the frame-owned policy keys of a `make-frame` `config` map — the
   surviving `:observability` sink policy. Throws
   `:rf.error/bad-frame-classification` (canonical thrown-error shape) on ANY
   defect — a retired `:sensitive` / `:large` frame key, an unknown
   observability key, a malformed observability entry — so the failure fires
-  at `reg-frame` time, before any state mutates and before `:initial-events`
+  at construction time, before any state mutates and before `:initial-events`
   run.
 
   EP-0025: there is no durable app-db classification install here anymore —

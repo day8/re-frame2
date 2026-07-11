@@ -87,9 +87,8 @@
   ;; submit / retry have something to do. Story variants don't see
   ;; this — they allocate their own frames and the `force-fx-stub`
   ;; decorator overrides `:rf.http/managed` per-frame.
-  (rf/reg-frame :rf/default
-    {:doc          "Login-form testbed default frame."
-     :fx-overrides {:rf.http/managed :login/demo-http}})
+  (rf/make-frame {:id :rf/default :doc          "Login-form testbed default frame."
+                  :fx-overrides {:rf.http/managed :login/demo-http}})
   ;; Seed the FSM by routing a no-op event into :login/flow. The
   ;; machine self-initialises (per [005 §Restore semantics]) — its
   ;; :initial state and :data seed the snapshot on first dispatch.

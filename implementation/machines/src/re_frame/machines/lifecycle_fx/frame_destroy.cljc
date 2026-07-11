@@ -245,7 +245,7 @@
         (try (run-singleton-exit-cascade! frame-id actor-id)
              (catch #?(:clj Throwable :cljs :default) _ nil)))
       ;; Drop the frame's spawn-order slot — every recorded actor is
-      ;; gone, and a fresh `reg-frame` under the same id starts with a
+      ;; gone, and a fresh construction under the same id starts with a
       ;; clean order channel.
       (spawn-order/clear-frame! frame-id))
     nil))

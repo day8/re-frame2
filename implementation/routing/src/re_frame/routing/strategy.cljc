@@ -201,7 +201,8 @@
   no-server-rewrite static hosting and secretary-era v1 migrations.
   Declare it on the URL-owning frame:
 
-      (rf/reg-frame :app {:url-bound?   true
+      (rf/make-frame {:id :app
+                      :url-bound?   true
                           :url-strategy rf/hash-url-strategy})
 
   `route-url` still builds path-form `/active`; the strategy `:encode`s it
@@ -303,7 +304,8 @@
 
   Declare on the URL-owning frame:
 
-      (rf/reg-frame :app {:url-bound?   true
+      (rf/make-frame {:id :app
+                      :url-bound?   true
                           :url-strategy (routing/with-base-path
                                           routing/history-url-strategy
                                           \"/realworld\")})"
@@ -332,7 +334,7 @@
                 :clj {})))))
 
 ;; ---- frame-config resolution ---------------------------------------------
-;; A frame declares its URL strategy in its `reg-frame` config map under
+;; A frame declares its URL strategy in its `make-frame` config map under
 ;; `:url-strategy`, exactly as it declares `:url-bound?`. The four consult
 ;; points resolve the ACTIVE strategy by reading the URL owner's config,
 ;; defaulting to the history strategy when unset. This mirrors
@@ -369,8 +371,8 @@
   missing/non-callable legs and the offending value — when the shape is wrong;
   returns `strategy` UNCHANGED on success so callers can thread it.
 
-  `where-sym` names the resolving surface for the diagnostic (`'rf/reg-frame`:
-  the strategy is declared in the frame's `reg-frame` config); `context`
+  `where-sym` names the resolving surface for the diagnostic (`'rf/make-frame`:
+  the strategy is declared in the frame's `make-frame` config); `context`
   merges call-site slots (e.g. a frame id) into the ex-data."
   [strategy where-sym context]
   (when-not (map? strategy)
@@ -398,7 +400,7 @@
   strategy)
 
 (defn preflight-frame-config!
-  "Registration-time PREFLIGHT over a frame's FINAL expanded `reg-frame`
+  "Registration-time PREFLIGHT over a frame's FINAL expanded `make-frame`
   config (rf2-ktmto9). PURE validation — no writes, no side effects, no
   strategy-leg execution (shape/callability is the enforceable static
   contract; probing `:push!` / `:install-listener!` would itself cause
@@ -423,12 +425,12 @@
   value (and the installed URL listener) on a re-registration. Returns nil."
   [frame-id config]
   (when (contains? config :url-strategy)
-    (validate-url-strategy! (:url-strategy config) 'rf/reg-frame
+    (validate-url-strategy! (:url-strategy config) 'rf/make-frame
                             {:frame frame-id}))
   nil)
 
 (defn url-strategy-from-config
-  "Read `:url-strategy` from a frame's stored `reg-frame` config map,
+  "Read `:url-strategy` from a frame's stored `make-frame` config map,
   defaulting to `history-url-strategy` when unset (or when `config` is not
   a map). The default is the identity/path-form strategy.
 
@@ -442,7 +444,7 @@
   known-good and sits on the hot render path."
   [config]
   (if-let [declared (when (map? config) (:url-strategy config))]
-    (validate-url-strategy! declared 'rf/reg-frame nil)
+    (validate-url-strategy! declared 'rf/make-frame nil)
     history-url-strategy))
 
 (defn url-strategy-for-frame-id

@@ -181,9 +181,9 @@
   ;; own :initial-events, but :rf/hydrate (dispatched below) will REPLACE
   ;; the resulting app-db with the per-frame payload slice (locked
   ;; :replace-app-db policy).
-  (rf/reg-frame frame-a   {:initial-events [[::counter-init]]})
-  (rf/reg-frame frame-b   {:initial-events [[::counter-init]]})
-  (rf/reg-frame frame-log {:initial-events [[::log-init]]})
+  (rf/make-frame {:id frame-a :initial-events [[::counter-init]]})
+  (rf/make-frame {:id frame-b :initial-events [[::counter-init]]})
+  (rf/make-frame {:id frame-log :initial-events [[::log-init]]})
 
   (let [payload (read-server-payload)
         ;; payload shape:

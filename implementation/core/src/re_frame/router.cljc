@@ -467,7 +467,7 @@
 
   HOT PATH: fires on every dispatch. The dominant production path is
   override-free — most apps neither set per-frame `:fx-overrides` /
-  `:interceptor-overrides` / `:interceptors` in their `reg-frame`
+  `:interceptor-overrides` / `:interceptors` in their `make-frame`
   config nor pass per-call overrides in the dispatch envelope. On that
   path we short-circuit to shared empty sentinels rather than `merge`-
   ing empty maps and `vec`-ing an empty `concat`.
@@ -1944,7 +1944,7 @@
 ;; EP-0015 §8 (rf2-d2r3um): the former per-dispatch
 ;; `refresh-elision-from-schemas!` is removed — schemas no longer feed the
 ;; app-db egress registry. Durable app-db classification is frame-owned and
-;; installed once at `reg-frame` time (`re-frame.frame-classification`), so
+;; installed once at construction time (`re-frame.frame-classification`), so
 ;; there is nothing to refresh per dispatch.
 
 (defn- prepare-handler-ctx

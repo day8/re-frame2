@@ -52,7 +52,7 @@
   ;; `frame-provider` so the `use-subscribe` / `capture-frame` reads inside
   ;; `root` resolve to it.
   (rf/init! helix-adapter/adapter)
-  (rf/reg-frame :rf/default {})
+  (rf/make-frame {:id :rf/default})
   (rf/with-frame :rf/default
     (rf/dispatch-sync [:counter/init]))
   (.render app-root ($ helix-adapter/frame-provider {:frame :rf/default} ($ root))))

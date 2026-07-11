@@ -44,7 +44,7 @@
 ;;   :router      per-frame queue + drain-state FSM (defined in router.cljc)
 ;;   :sub-cache   per-frame sub-cache (defined in subs.cljc)
 ;;   :lifecycle   {:created-at :destroyed? :listeners}
-;;   :config      the metadata that reg-frame was given
+;;   :config      the record-config the constructor was given
 ;;
 ;; Per Spec 002 §One physical container, two projection reactions + Spec 006
 ;; §Frame-state container and partition projections:
@@ -275,7 +275,10 @@
 ;; `late-bind` so the trace tooling sibling can route emit-site trace events to
 ;; their owning frame's ring. Returns nil when no cascade is in flight
 ;; (frameless emits). The hook is sticky and read on every push-to-ring!.
-(late-bind/set-fn! :frame/current-frame-id (fn [] *current-frame*))
+;; Normalized to the frame ID (rf2-h1vqa4): `with-frame` / `with-new-frame`
+;; may bind a frame VALUE (`make-frame`'s token) into `*current-frame*`, and
+;; ring attribution must key on the record id, never a value map.
+(late-bind/set-fn! :frame/current-frame-id (fn [] (frame-value->id *current-frame*)))
 
 (defn resolve-current-frame
   "Resolve the active frame at a no-explicit-frame call site — the
@@ -307,10 +310,18 @@
   ;; once per loaded React-shaped adapter at ns-load time and routed
   ;; via `current-adapter`; it fires on every ambient resolution
   ;; (every ambient dispatch and every ambient subscribe).
-  #?(:cljs (if-let [f (late-bind/get-fn-cached :adapter/current-frame)]
-             (f)
-             (current-frame))
-     :clj  (current-frame)))
+  ;;
+  ;; NORMALIZED to the frame ID (rf2-h1vqa4): `with-frame` / `with-new-frame`
+  ;; may bind a frame VALUE (`make-frame`'s return token) into
+  ;; `*current-frame*`. Every consumer of the ambient scope keys records /
+  ;; rings / registries by the frame ID, so the reader yields the id — a
+  ;; keyword target passes through unchanged (`frame-value->id` is identity
+  ;; on non-values), and a value normalizes to its runnable id.
+  (frame-value->id
+    #?(:cljs (if-let [f (late-bind/get-fn-cached :adapter/current-frame)]
+               (f)
+               (current-frame))
+       :clj  (current-frame))))
 
 ;; ---- :rf.error/no-frame-context — the absence-is-the-corollary error ------
 ;;
@@ -365,7 +376,7 @@
            :reason      (str "a frame-scoped " (name operation) " ran with no frame "
                              "context — no carried frame stamp and no established "
                              "scope. Frame identity is carried, not found: declare "
-                             "your root frame (rf/reg-frame) and run the operation "
+                             "your root frame (rf/make-frame) and run the operation "
                              "inside that scope (with-frame / a frame-provider), or "
                              "pass an explicit {:frame <id>}. Per Spec 002 §The error "
                              "and its ladder.")}
@@ -597,11 +608,11 @@
   `id`, or nil when the frame is absent or destroyed.
 
   The token is the frame record's `:drain-lock` atom. `new-frame-record` builds
-  a fresh `:drain-lock` for every FIRST-time `reg-frame`, and every in-place
+  a fresh `:drain-lock` for every FIRST-time construction, and every in-place
   record swap over a frame's life — surgical re-registration, `set-generation!`,
   `mark-frame-destroyed!` — preserves that atom by identity. So the token is
   CONSTANT across one incarnation and DISTINCT across a `destroy-frame!` +
-  fresh `reg-frame` of the same id.
+  fresh construction of the same id.
 
   A lifecycle-sensitive registry mutation (cold `reg-flow`) captures this token
   while the frame is live, then admits its write ONLY while the SAME token is
@@ -1291,7 +1302,7 @@
     nil         {}
     (error/throw-error!
       :rf.error/unknown-preset
-      'rf/reg-frame
+      'rf/make-frame
       (str "unknown frame :preset " (pr-str preset)
            "; valid presets are :default, :test, :story, :ssr-server "
            "(or omit :preset). Use one of those.")
@@ -1378,7 +1389,7 @@
     ;; `:rf.frame/capabilities` config slot is gone with the image-capability
     ;; feature.)
     ;; EP-0027: `:initial-events` is DURABLE frame config — it stays in `:config`
-    ;; so a destroy + re-`reg-frame` (a full "reset" composition, rf2-lxwpob)
+    ;; so a destroy + re-`make-frame` (a full "reset" composition, rf2-lxwpob)
     ;; can re-dispatch the recorded setup. The retired
     ;; `:rf.frame/initial-db` reserved key is dissoc'd defensively (it is no
     ;; longer threaded; `:initial-db` fails loud upstream).
@@ -1416,7 +1427,7 @@
   is created so an invalid declaration leaves nothing half-registered.
 
   `where-sym` is the user-facing constructor symbol for the diagnostic
-  (`'rf/reg-frame` / `'rf/make-frame`). Returns `[]` for an absent / empty value
+  (`'rf/make-frame`). Returns `[]` for an absent / empty value
   (both mean \"no setup\").
 
   The strict shape (EP-0027 §`:initial-events`):
@@ -1647,7 +1658,7 @@
   `[:rf/set-db x]` case (rf2-vw5h1r).
 
   `base-opts` carries construction provenance shared by every step — the
-  `:rf.trace/call-site` of the `make-frame`/`reg-frame` declaration (gated on
+  `:rf.trace/call-site` of the `make-frame` declaration (gated on
   `interop/debug-enabled?` by the caller, so production CLJS builds DCE it) — so a
   setup event attributes back to where `:initial-events` was declared (EP-0027
   §Provenance). The step's own `:opts` overlay it (a step may carry `:rf.cofx`,
@@ -1669,7 +1680,7 @@
     ;; fail loud — tear down the partial frame (the container was already swapped
     ;; into `frames` by the caller) and throw, naming that the router is not
     ;; loaded. (The common path — re-frame.core requires re-frame.router, so the
-    ;; hook is published before any runtime reg-frame — is unaffected.)
+    ;; hook is published before any runtime frame construction — is unaffected.)
     (if-let [dispatch-sync! (late-bind/get-fn :router/dispatch-sync!)]
       ;; The always-on error-emit registry — the production-survivable axis the
       ;; router's IN-BAND error fan-out (handler / interceptor / cofx / flow
@@ -1859,8 +1870,8 @@
         ;; registered (EP-0027 §Failure — preflight validation; no frame left
         ;; registered). The normalized steps are dispatched after the container +
         ;; config are installed (first-registration branch below).
-        _              (reject-retired-construction-keys! config 'rf/reg-frame)
-        setup-steps    (normalize-initial-events (:initial-events config) 'rf/reg-frame)
+        _              (reject-retired-construction-keys! config 'rf/make-frame)
+        setup-steps    (normalize-initial-events (:initial-events config) 'rf/make-frame)
         ;; EP-0015 §9: validate the surviving frame-owned policy key
         ;; (`:observability` sink policy) EARLY — pure, container-independent,
         ;; fail-loud. A retired `:sensitive` / `:large` frame key, an unknown
@@ -1870,7 +1881,7 @@
         ;; `:initial-events`. Reached via late-bind: `re-frame.frame-classification`
         ;; requires this ns, so a static require would cycle; `re-frame.core`
         ;; requires it at boot so the hook is always published before any
-        ;; runtime `reg-frame`. No-op when the config carries no policy key
+        ;; runtime construction. No-op when the config carries no policy key
         ;; (the common case).
         ;;
         ;; EP-0025: durable app-db classification is NO LONGER a frame
@@ -1880,7 +1891,7 @@
         ;; `re-frame.elision`). HTTP carrier classification is NO LONGER a
         ;; frame annotation either — the `:sensitive {:http …}` block moved
         ;; onto the `:rf.http/managed` `reg-fx` registration (`:carriers`).
-        ;; So `reg-frame` only VALIDATES the surviving `:observability` policy;
+        ;; So construction only VALIDATES the surviving `:observability` policy;
         ;; it installs NOTHING into the elision registry. (The retired
         ;; `:sensitive` and `:large` frame keys now fail loud.)
         _              (when-let [validate (late-bind/get-fn
@@ -1912,7 +1923,7 @@
                          (when (contains? config :url-strategy)
                            (error/throw-error!
                              :rf.error/routing-artefact-missing
-                             'rf/reg-frame
+                             'rf/make-frame
                              (str "this frame config declares :url-strategy, which "
                                   "requires day8/re-frame2-routing on the classpath; "
                                   "add it to deps and require re-frame.routing at app "
@@ -1924,7 +1935,7 @@
         ;; write (the trace-suppression flags below).
         ;; `new-frame-record` calls `adapter/make-state-container`, which THROWS
         ;; (`:rf.error/no-adapter-installed` / `:rf.error/adapter-disposed`) when
-        ;; no adapter is installed — a `reg-frame` issued before `rf/init!` or
+        ;; no adapter is installed — a construction issued before `rf/init!` or
         ;; after `destroy-adapter!`. Building the record here means such a
         ;; construction failure escapes this `let` BEFORE
         ;; `trace/set-frame-no-emit!` runs, so a frame that never came into
@@ -1992,16 +2003,16 @@
           ;; bind it), so it distinguishes "created mid-cascade" from "top-level
           ;; boot under an ambient scope" precisely. The frame container was
           ;; already swapped into `frames` above; tear it back down before
-          ;; throwing so a handler-time `reg-frame` leaves NO half-registered
+          ;; throwing so a handler-time construction leaves NO half-registered
           ;; frame. (The Spec 002 NORMATIVE text recording this principle is a
           ;; separate hot-zone bead; this is the CODE guard.)
           (when trace/*handler-scope*
             (destroy-frame! id)
             (error/throw-error!
               :rf.error/frame-construction-in-handler
-              'rf/reg-frame
+              'rf/make-frame
               (str "constructing a frame inside an event handler is not supported "
-                   "(EP-0027) — got reg-frame " (pr-str id) " while a cascade is in "
+                   "(EP-0027) — got a frame construction for " (pr-str id) " while a cascade is in "
                    "flight. Frames are created by the VIEW (frame-provider) or at "
                    "TOP LEVEL; a handler changes app-db, and the view materializes "
                    "frames from it. Move the frame creation to a frame-provider in "
@@ -2012,16 +2023,16 @@
           ;; emitting :frame/created (Spec 002 §Frame creation; EP-0027
           ;; §Construction). The router/dispatch ns is reached through late-bind
           ;; (in the runner) to avoid a cyclic dep at compile time. `setup-steps`
-          ;; was already PREFLIGHT-validated at the top of `reg-frame` (so a bad
+          ;; was already PREFLIGHT-validated at the top of the engine (so a bad
           ;; shape threw before any container existed). A step that throws at
           ;; runtime tears down the partial frame inside the runner and rethrows.
           ;;
           ;; Each setup dispatch carries construction provenance: `:source
           ;; :frame-init` + its step index (added by the runner), plus the
-          ;; `make-frame`/`reg-frame` call-site captured as `:rf.trace/call-site`
+          ;; `make-frame` call-site captured as `:rf.trace/call-site`
           ;; here so the click-to-source affordance jumps to the
           ;; `(rf/make-frame {… :initial-events […]})` declaration line. The
-          ;; macro form of `reg-frame` binds `*pending-coords*`, which
+          ;; macro form of the retired reg-frame spelling bound `*pending-coords*`, which
           ;; `source-coords/merge-coords` merges into `config` as
           ;; `:ns`/`:file`/`:line`/`:column` — so the call-site is already on the
           ;; config map. Gated on `interop/debug-enabled?` (the OUTERMOST form, per
@@ -2037,7 +2048,7 @@
                                        (:line   config) (assoc :line   (:line   config))
                                        (:column config) (assoc :column (:column config)))))
                             {})]
-            (run-setup-events! id setup-steps base-opts 'rf/reg-frame))
+            (run-setup-events! id setup-steps base-opts 'rf/make-frame))
           (trace/emit! :rf.frame :rf.frame/created
                        {:frame id :config (dissoc config :rf.frame/generation
                                                   :rf.frame/initial-db)})
@@ -2064,7 +2075,7 @@
               ;; REPLACING the prior recording (and CLEARING it when the key is
               ;; absent), while durable app-db / sub-cache / queue are preserved.
               ;; The recorded setup is replayed ONLY by the opt-in full-replace
-              ;; composition (`destroy-frame!` then `reg-frame`, rf2-lxwpob),
+              ;; composition (`destroy-frame!` then `make-frame`, rf2-lxwpob),
               ;; never on a surgical re-registration / a React remount /
               ;; StrictMode double-invoke / Story re-eval.
               stored-config (dissoc config :rf.frame/generation :rf.frame/initial-db)]
@@ -2173,7 +2184,7 @@
 ;; the whole frame-state; the epoch derives `:db-before` from its app-db
 ;; projection.
 ;; nil outside a drain (an out-of-run `destroy-frame!` — hot-reload, a
-;; destroy + re-`reg-frame` reset composition, REPL — commits no
+;; destroy + re-`make-frame` reset composition, REPL — commits no
 ;; `:halted-destroy` record, so the slot is moot there).
 (def ^:dynamic *run-frame-state-before* nil)
 
@@ -2697,7 +2708,7 @@
         ;; Drop every schema registered against
         ;; the destroyed frame so a re-registered frame starts with a
         ;; clean schema slate. Without this hook, orphan app-db schemas
-        ;; from a prior `reg-frame` cycle persist and re-fire under the
+        ;; from a prior construction cycle persist and re-fire under the
         ;; rollback contract — manifesting as spurious rollbacks against
         ;; paths the new frame's :initial-events never wrote. No-op when
         ;; re-frame.schemas is absent (the artefact is optional).
@@ -2779,14 +2790,14 @@
         ;; late-bind so production CLJS bundles (no trace.tooling) no-op.
         (safe-call-hook! :trace.tooling/release-frame-ring! id)
         ;; rf2-zcl055: release the destroyed frame's trace-emission gate
-        ;; flag — the teardown counterpart to `reg-frame`'s
+        ;; flag — the teardown counterpart to construction's
         ;; `trace/set-frame-no-emit!`. A tool / inspector frame registered
         ;; with `:rf.trace/frame-no-emit? true` (e.g. `:rf/xray`) otherwise
         ;; leaves a permanent entry in trace.cljc's process-global
         ;; `trace-disabled-frames` set (the ring IS freed above; the flag
         ;; was not — a teardown asymmetry). Called directly (not via a
         ;; tooling hook) because `trace.cljc` is always loaded — the set +
-        ;; predicate live on the core trace surface, same as the `reg-frame`
+        ;; predicate live on the core trace surface, same as the construction
         ;; registration call. Idempotent no-op for application frames (the
         ;; common case, where the id was never added).
         (trace/clear-frame-no-emit-for! id)
@@ -2821,14 +2832,14 @@
                   (catch #?(:clj Throwable :cljs :default) _ nil)))))
           ;; Always clear the in-flight marker — even if a downstream step
           ;; throws unexpectedly, future `destroy-frame!` calls for `id`
-          ;; (after a fresh `reg-frame`) must not see a stale entry.
+          ;; (after a fresh construction) must not see a stale entry.
           (swap! destroying-frames disj id)))))))))
 
 ;; ---- reset-frame! — RETIRED (rf2-lxwpob) -----------------------------------
 ;;
-;; `reset-frame!` (destroy-frame! + reg-frame with the same config, full
+;; `reset-frame!` (destroy-frame! + make-frame with the same config, full
 ;; replace) was RETIRED in rf2-lxwpob (API-shrink #5, frame-lifecycle
-;; collapse): one axis (create/refresh via `reg-frame` / `make-frame`, destroy
+;; collapse): one axis (create/refresh via `make-frame`, destroy
 ;; via `destroy-frame!`), not three verbs. A full replace is reproducible by
 ;; composition — `(destroy-frame! id) (reg-frame id config)` (or `make-frame`
 ;; for an image-loaded frame, re-supplying the SAME `:images` the caller
@@ -2893,7 +2904,7 @@
   NOT a runtime path — `init!` does NOT call this (per Spec 002
   §`:rf/default` is an ordinary id: the runtime never synthesises
   a default frame). Application / SSR boot code that wants a default-named
-  app frame registers it explicitly via `(rf/reg-frame :rf/default {…})`."
+  app frame registers it explicitly via `(rf/make-frame {:id :rf/default …})`."
   []
   (when-not (get @frames :rf/default)
     (upsert-frame! :rf/default {:doc "Test-fixture default frame (ordinary id; not a runtime floor)."})))

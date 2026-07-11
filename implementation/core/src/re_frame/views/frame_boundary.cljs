@@ -52,7 +52,7 @@
 
   `:initial-events` therefore fire **ONCE on first successful creation in a
   committed frame-root/frame-id lifetime**, never on a re-mount or a
-  reconfiguration: `make-frame` fires them on first creation and `reg-frame`
+  reconfiguration: `make-frame` fires them on first creation and re-construction
   RE-RECORDS but does NOT REPLAY them on an idempotent re-registration
   (EP-0027 §Frame provider). React StrictMode's dev double-invoke of the layout
   effect is safe for the same reason — the second `make-frame` is idempotent
@@ -102,7 +102,7 @@
 ;; destroy-on-unmount, so there is no pending-destroy registry, no deferred-
 ;; destroy timer, and no StrictMode cancellation. The durable-state-survives-a-
 ;; remount property is `make-frame`'s idempotent replacement (EP-0024 §Duplicate
-;; id policy) + `reg-frame`'s re-record-but-don't-replay-`:initial-events`
+;; id policy) + the engine's re-record-but-don't-replay-`:initial-events`
 ;; re-registration (EP-0027), NOT a teardown trick.
 
 (defn acquire-frame-root!
@@ -287,7 +287,7 @@
 ;;   COMMIT (useLayoutEffect): `make-frame` (idempotent creation), record the
 ;;     committed opts baseline, flip the READY state. Only a render that COMMITS
 ;;     reaches here. StrictMode double-invoke is safe (idempotent make-frame,
-;;     reg-frame does not replay :initial-events).
+;;     re-construction does not replay :initial-events).
 ;;   PASS 2 (render, ready): scope the now-live frame's id to the children
 ;;     through the shared React context Provider.
 ;;
@@ -351,7 +351,7 @@
     ;; Commit-owned ENSURE: create the frame AFTER the render commits, record the
     ;; committed baseline, then mark ready so the children render. Empty deps ⇒
     ;; the effect arms once per committed mount; StrictMode's dev double-invoke is
-    ;; safe (make-frame idempotent; reg-frame does not replay :initial-events).
+    ;; safe (make-frame idempotent; re-construction does not replay :initial-events).
     (React/useLayoutEffect
       (fn frame-root-ensure-effect []
         (acquire-frame-root! opts)

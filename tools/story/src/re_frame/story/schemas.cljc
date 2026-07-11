@@ -927,7 +927,7 @@
     ;; SAME durable `{:app-db [[:auth :token]]}` form the four commit-plane
     ;; classification effects carry. EP-0025 removed the durable
     ;; frame annotation: the runtime no longer threads these onto the
-    ;; variant's `reg-frame` config — instead it lowers the `:app-db` paths
+    ;; variant's `make-frame` config — instead it lowers the `:app-db` paths
     ;; into the variant frame's elision registry as commit-plane
     ;; classification effects right after frame creation, BEFORE the lifecycle
     ;; / init events (`frames/apply-variant-classification!` →

@@ -78,7 +78,7 @@
             ;; hooks `re-frame.frame/upsert-frame!` consults to validate + install
             ;; frame-owned durable classification. No symbols are referenced
             ;; here; the require exists so the hooks are bound at boot before
-            ;; any runtime `reg-frame` call.
+            ;; any runtime frame construction.
             [re-frame.frame-classification]
             ;; EP-0015 §9 (rf2-t55hxg.7): frame-owned observability sink
             ;; routing — the central §9 claim made production-live. Required
@@ -783,7 +783,7 @@
   selection map, selecting registered descriptors by their `:rf.provenance/ns`),
   and `:registrations` (inline registrar-keyed sections). Returns a normalized,
   INERT image value — PURE: no realm, no registrar, no side effect (an image
-  is data, not registration). Supplied to `make-frame` / `reg-frame` via the
+  is data, not registration). Supplied to `make-frame` via the
   `:images` vector; composition resolves by image order (the later image wins,
   EP-0026 §Layered Resolution). The EP-0023 keys `:include-ns` / `:exclude-ns` /
   `:replace` / `:replace-standard` / `:rf.image/requires` are RETIRED (EP-0026)
@@ -1283,8 +1283,8 @@
        (with-new-frame [sym (rf/make-frame opts)] body+)
 
      `expr` may be `(rf/make-frame opts)` (EP-0023 — returns the live
-     frame OBJECT), `(rf/reg-frame :id opts)` (returns the keyword id),
-     or any expression yielding a frame target (object or id); whatever
+     frame OBJECT) or any expression yielding a frame target (object or
+     id); whatever
      is bound is destroyed on body exit (`dispatch` / `subscribe` /
      `destroy-frame!` accept either). Throws at compile time on a
      keyword argument — use `with-frame` to pin to an existing
@@ -2039,7 +2039,7 @@
 ;;              when the artefact is absent.
 ;;
 ;; `register-observability-sink!` is a DISTINCT verb, NOT a `:sink` stream
-;; (frame-policy sink-id, ALREADY-PROJECTED record, `reg-frame`
+;; (frame-policy sink-id, ALREADY-PROJECTED record, `make-frame`
 ;; `:observability` coupling) — see below.
 ;;
 ;; Unknown stream throws `:rf.error/unknown-listener-stream` (closed
@@ -2560,7 +2560,7 @@
   `init!` does NOT create a `:rf/default` frame. Per Spec 002 §`:rf/default`
   is an ordinary id (EP-0002), the runtime never synthesises a default
   frame — frame identity is carried, not found. Declare your app's root
-  frame explicitly (`(rf/reg-frame :app {…})` / `with-frame` / a
+  frame explicitly (`(rf/make-frame {:id :app …})` / `with-frame` / a
   frame-provider) and dispatch / subscribe within that scope. A small app
   or test may still choose `:rf/default` as its explicit frame id; the
   runtime will not infer it."

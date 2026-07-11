@@ -68,9 +68,8 @@
 ;; `:nine-states.http/managed-demo` stub, no backend in the loop.
 
 (defn- install-live-frame! []
-  (rf/reg-frame :rf/default
-    {:doc          "Nine-states showcase live-app frame."
-     :fx-overrides {:rf.http/managed :nine-states.http/managed-demo}})
+  (rf/make-frame {:id :rf/default :doc          "Nine-states showcase live-app frame."
+                  :fx-overrides {:rf.http/managed :nine-states.http/managed-demo}})
   ;; Now seed it. The `with-frame :rf/default` wrapper is what aims the
   ;; `dispatch-sync` at that frame — dispatch with no frame in scope and
   ;; you'd get `:rf.error/no-frame-context`.

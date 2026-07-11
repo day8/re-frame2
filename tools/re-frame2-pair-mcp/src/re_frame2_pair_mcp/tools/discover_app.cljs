@@ -201,13 +201,13 @@
                 ;; runtime capabilities; it does NOT register `:rf/default`
                 ;; (the runtime never synthesises a default frame — Spec 002
                 ;; §`:rf/default` is an ordinary id). The app registers its
-                ;; own frame explicitly (`reg-frame` / a root provider), so
+                ;; own frame explicitly (`make-frame` / a root provider), so
                 ;; the hint points at app boot / explicit registration
                 ;; rather than teaching `init!` as a way to create a default.
                 (wire/err-text {:ok? false :reason :no-frames-registered
                                 :hint (str "No frames registered yet. Wait for the app to boot, "
                                            "or register a frame explicitly "
-                                           "(`re-frame.core/reg-frame` / a root frame-provider). "
+                                           "(`re-frame.core/make-frame` / a root frame-root provider). "
                                            "`rf/init!` installs adapters but does NOT create a frame.")}))
 
               (:ambiguous-frame? health)

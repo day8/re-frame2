@@ -723,7 +723,7 @@
 
 (defn on-frame-destroyed!
   "Per Spec 002 §Destroy: drop every schema registered against the
-  destroyed frame so a subsequent `reg-frame` of the same id starts
+  destroyed frame so a subsequent construction of the same id starts
   with a clean schema slate. Called from `frame/destroy-frame!`
   through the `:schemas/on-frame-destroyed!` late-bind hook
   (mirrors the `:machines/on-frame-destroyed!` /

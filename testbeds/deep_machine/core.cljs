@@ -402,7 +402,7 @@
   ;; explicitly here (init! installs only the adapter). The boot dispatch
   ;; runs under the frame scope and the render is wrapped in a
   ;; `frame-provider` so in-tree dispatch/subscribe resolve to it.
-  (rf/reg-frame :rf/default {})
+  (rf/make-frame {:id :rf/default})
   (rf/with-frame :rf/default
     (rf/dispatch-sync [::initialise]))
   (rdc/render react-root [rf/frame-provider {:frame :rf/default} [root]]))

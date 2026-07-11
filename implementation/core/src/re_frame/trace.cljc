@@ -186,7 +186,7 @@
 ;; unaffected.
 ;;
 ;; Mechanism (not a hardcoded `:rf/xray` literal): `frame.cljc`'s
-;; `reg-frame` reads the config flag and calls `set-frame-no-emit!` —
+;; the frame engine reads the config flag and calls `set-frame-no-emit!` —
 ;; trace.cljc owns the canonical set + predicate so the gate is single-
 ;; sourced. The set is held under a defonce atom so a hot `:after-load`
 ;; cycle never wipes prior registrations; the empty-set common case (no
@@ -196,7 +196,7 @@
 
 (defonce ^:private trace-disabled-frames
   ;; Set of frame-ids whose trace emission is suppressed. Populated by
-  ;; `frame.cljc`'s `reg-frame` from the `:rf.trace/frame-no-emit?`
+  ;; `frame.cljc`'s engine from the `:rf.trace/frame-no-emit?`
   ;; config flag (and cleared on re-registration when the flag drops).
   (atom #{}))
 
@@ -395,7 +395,7 @@
   `:rf.frame`: `:rf.frame/created` / `:rf.frame/re-registered` /
   `:rf.frame/destroyed` / `:rf.frame/drain-interrupted`) stay UNCORRELATED.
 
-  The load-bearing case (rf2-7eel71): when `reg-frame` runs inside frame A's
+  The load-bearing case (rf2-7eel71): when a frame construction runs inside frame A's
   handler / fx scope — e.g. an fx that dynamically creates a modal / panel
   frame B — its `:rf.frame/created` emit is tagged `{:frame B}` but the
   scope carries A's cascade dispatch-id. Stamping A's id onto B's marker

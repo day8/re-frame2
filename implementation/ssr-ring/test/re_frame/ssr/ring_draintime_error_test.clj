@@ -82,6 +82,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
+            [re-frame.fx :as fx]
             [re-frame.schemas :as schemas]
             [re-frame.ssr.ring :as ssr-ring]
             [re-frame.ssr.ring.test-support :as ts])
@@ -251,7 +252,12 @@
         ;; Server-platform push-url so the navigate fx assembly resolves
         ;; on a :platform :server frame (no-op sink — the reject path
         ;; never pushes).
-        (rf/reg-fx :rf.nav/push-url
+        ;; FN form (no source-coord capture): this stubs the FRAMEWORK fx id
+        ;; :rf.nav/push-url (registered fn-form by routing with nil provenance
+        ;; ns) — the stub must REPLACE that source-store slot, not sit beside
+        ;; it as a cross-namespace duplicate that fails the request frame's
+        ;; default-image assembly loud (rf2-h1vqa4; :rf.error/image-duplicate-id).
+        (fx/reg-fx :rf.nav/push-url
                    {:platforms #{:server :client}}
                    (fn [_ _url] nil))
         (rf/reg-event :init/navigate-bad-param
