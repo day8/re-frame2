@@ -64,14 +64,14 @@
 ;; list every cache key showing this article — lists are paginated, scopes differ,
 ;; entries come and go — so instead of naming keys, you name a tag: patch every
 ;; cached entry carrying `[:article slug]`, reusing the very same tag index that
-;; `:invalidates` matches against. One descriptor covers the global reads (detail
-;; plus every list); a second covers the session feed, via the same
-;; `{:from-db :realworld/session}` resolver the feed resource itself uses. The
-;; detail stores `{:article …}` while the lists store `{:articles […]}`, so the
-;; patch fn (`apply-fav`, below) handles both envelope shapes. The session target
-;; is fail-closed: logged out, the resolver returns nil and that target quietly
-;; drops — an optimistic apply writes the cache, so it respects a read's leak
-;; boundary and never sneaks in an implicit global write.
+;; `:invalidates` matches against. One descriptor covers the viewer reads (detail
+;; plus every list, all `{:from-db :realworld/viewer}`-scoped now); a second
+;; covers the session feed, via the `{:from-db :realworld/session}` resolver the
+;; feed resource itself uses. The detail stores `{:article …}` while the lists
+;; store `{:articles […]}`, so the patch fn (`apply-fav`, below) handles both
+;; envelope shapes. Both derived-scope targets resolve against the acting reader
+;; at apply time — an optimistic apply writes the cache, so it respects each
+;; read's leak boundary and never sneaks in an implicit shared write.
 ;;
 ;; You write only the forward patch; the runtime records the inverse. At apply
 ;; time it snapshots each touched entry's `:before` and `:revision`, and from then
@@ -88,9 +88,9 @@
 ;;
 ;; One mutation, two scopes. `:invalidates` is the success-time counterpart of the
 ;; optimistic apply: a vector of per-target descriptors, each naming its own
-;; scope. The global descriptor refetches the article and lists; the session
-;; descriptor refetches the feed through the same resolver. No app-level
-;; cross-scope patching, no home-page watcher keeping things in sync.
+;; scope. The viewer descriptor refetches the article and lists; the session
+;; descriptor refetches the feed through the `:realworld/session` resolver. No
+;; app-level cross-scope patching, no home-page watcher keeping things in sync.
 
 (defn- toggle-article-fav
   "Flip one Article's `:favorited` flag and nudge `:favoritesCount` by ±1. Pure,
@@ -126,11 +126,13 @@
 (defn- optimistic-fav-tags
   "The `:optimistic-tags` plan, shared by favorite (`favorited? true`) and
    unfavorite (`favorited? false`): patch every entry tagged `[:article slug]` in
-   the global scope (detail + lists) and in the session scope (the feed) — the
-   same two scopes `:invalidates` covers. The session target is fail-closed, so
-   it's simply dropped when logged out."
+   the VIEWER scope (detail + lists) and in the session scope (the feed) — the
+   same two scopes `:invalidates` covers. Both derived-scope targets resolve
+   against the acting viewer at apply time; the session one is fail-closed and is
+   simply dropped when logged out (favoriting is auth-gated, so the viewer one is
+   the signed-in reader here)."
   [favorited? slug]
-  [{:scope :rf.scope/global
+  [{:scope {:from-db :realworld/viewer}
     :tags  #{[:article slug]}
     :patch #(apply-fav favorited? slug %)}
    {:scope {:from-db :realworld/session}
@@ -148,9 +150,11 @@
    `:db`/ctx of its own to source this from, so `:ui/favorite` threads it in via
    `:params` from the acting user's session at the call site — not from the
    decoded reply, whose `:author` here names the ARTICLE's author, not the
-   person who clicked the heart."
+   person who clicked the heart. The article + list tags resolve under
+   `{:from-db :realworld/viewer}` (the reads are viewer-scoped now), the feed
+   under `{:from-db :realworld/session}` — one mutation reaching both scopes."
   [{:keys [slug username]}]
-  [{:scope :rf.scope/global
+  [{:scope {:from-db :realworld/viewer}
     :tags  (cond-> #{[:article slug] [:article-list]}
              username (conj [:favorited-articles username]))}
    {:scope {:from-db :realworld/session}
@@ -159,7 +163,6 @@
 (rf/reg-mutation :realworld/favorite
   {:doc             "Favorite an article (optimistic). POST /articles/:slug/favorite."
    :params-schema   [:map [:slug :string] [:username {:optional true} :string]]
-   :scope           :rf.scope/global
    ;; Forward: flip the heart on and bump the count across the detail, every list,
    ;; and the session feed — immediately on click, before the request goes out.
    :optimistic-tags (fn [{:keys [slug]}] (optimistic-fav-tags true slug))
@@ -169,8 +172,8 @@
    ;; like a fetched one — and because it's authoritative, it's exempt from this
    ;; same mutation's `[:article slug]` refetch.
    :populates       (fn [{:keys [slug]} result]
-                      {{:resource :realworld/article :params {:slug slug} :scope :rf.scope/global} result})
-   ;; Reconcile: refetch the lists (global) and the feed (session) to truth. See
+                      {{:resource :realworld/article :params {:slug slug} :scope {:from-db :realworld/viewer}} result})
+   ;; Reconcile: refetch the lists (viewer) and the feed (session) to truth. See
    ;; `fav-invalidates` for why `[:favorited-articles username]` needs threading.
    :invalidates     (fn [params _result] (fav-invalidates params))
    ;; The conflict policy. It's the default, spelled out here so it's visible: if a
@@ -184,10 +187,9 @@
 (rf/reg-mutation :realworld/unfavorite
   {:doc             "Unfavorite an article (optimistic). DELETE /articles/:slug/favorite."
    :params-schema   [:map [:slug :string] [:username {:optional true} :string]]
-   :scope           :rf.scope/global
    :optimistic-tags (fn [{:keys [slug]}] (optimistic-fav-tags false slug))
    :populates       (fn [{:keys [slug]} result]
-                      {{:resource :realworld/article :params {:slug slug} :scope :rf.scope/global} result})
+                      {{:resource :realworld/article :params {:slug slug} :scope {:from-db :realworld/viewer}} result})
    ;; The unfavorited article is already a tagged member of any cached
    ;; Favorited-Articles page it appears on, so `[:article slug]` alone would
    ;; reach it there too — naming `[:favorited-articles username]` (via the same
@@ -205,18 +207,20 @@
 ;;
 ;; Following flips a profile's `:following` flag, so it invalidates that profile
 ;; read. The reply comes back as a full Profile, so `:populates` can seed the
-;; banner right away rather than waiting for the refetch.
+;; banner right away rather than waiting for the refetch. The profile read is
+;; viewer-scoped (its `:following` is relative to the acting viewer), so both the
+;; populate target and the invalidation descriptor name `{:from-db :realworld/viewer}`.
 
 (rf/reg-mutation :realworld/follow
   {:doc           "Follow a user. POST /profiles/:username/follow."
    :params-schema [:map [:username :string]]
-   :scope         :rf.scope/global
    ;; Seed the banner straight from the reply — the whole `{:profile …}` envelope,
    ;; which is exactly the `:realworld/profile` resource's stored shape — so it
-   ;; flips immediately.
+   ;; flips immediately, on the acting viewer's own profile entry.
    :populates     (fn [{:keys [username]} result]
-                    {{:resource :realworld/profile :params {:username username} :scope :rf.scope/global} result})
-   :invalidates   (fn [{:keys [username]} _result] #{[:profile username]})}
+                    {{:resource :realworld/profile :params {:username username} :scope {:from-db :realworld/viewer}} result})
+   :invalidates   (fn [{:keys [username]} _result]
+                    [{:scope {:from-db :realworld/viewer} :tags #{[:profile username]}}])}
   (fn [{:keys [username]} _ctx]
     {:request {:method :post :url (rh/full-url (str "/profiles/" username "/follow"))}
      :decode  schema/ProfileResponse}))
@@ -224,10 +228,10 @@
 (rf/reg-mutation :realworld/unfollow
   {:doc           "Unfollow a user. DELETE /profiles/:username/follow."
    :params-schema [:map [:username :string]]
-   :scope         :rf.scope/global
    :populates     (fn [{:keys [username]} result]
-                    {{:resource :realworld/profile :params {:username username} :scope :rf.scope/global} result})
-   :invalidates   (fn [{:keys [username]} _result] #{[:profile username]})}
+                    {{:resource :realworld/profile :params {:username username} :scope {:from-db :realworld/viewer}} result})
+   :invalidates   (fn [{:keys [username]} _result]
+                    [{:scope {:from-db :realworld/viewer} :tags #{[:profile username]}}])}
   (fn [{:keys [username]} _ctx]
     {:request {:method :delete :url (rh/full-url (str "/profiles/" username "/follow"))}
      :decode  schema/ProfileResponse}))
@@ -246,8 +250,10 @@
 (rf/reg-mutation :realworld/post-comment
   {:doc           "Post a comment. POST /articles/:slug/comments."
    :params-schema [:map [:slug :string] [:body :string]]
-   :scope         :rf.scope/global
-   :invalidates   (fn [{:keys [slug]} _result] #{[:comments slug]})}
+   ;; The comments read is viewer-scoped (each comment embeds its author's
+   ;; viewer-relative Profile), so the invalidation descriptor names the viewer.
+   :invalidates   (fn [{:keys [slug]} _result]
+                    [{:scope {:from-db :realworld/viewer} :tags #{[:comments slug]}}])}
   (fn [{:keys [slug body]} _ctx]
     {:request {:method :post
                :url    (rh/full-url (str "/articles/" slug "/comments"))
@@ -257,8 +263,8 @@
 (rf/reg-mutation :realworld/delete-comment
   {:doc           "Delete a comment. DELETE /articles/:slug/comments/:id."
    :params-schema [:map [:slug :string] [:id :int]]
-   :scope         :rf.scope/global
-   :invalidates   (fn [{:keys [slug]} _result] #{[:comments slug]})}
+   :invalidates   (fn [{:keys [slug]} _result]
+                    [{:scope {:from-db :realworld/viewer} :tags #{[:comments slug]}}])}
   (fn [{:keys [slug id]} _ctx]
     {:request {:method :delete
                :url    (rh/full-url (str "/articles/" slug "/comments/" id))}
@@ -271,8 +277,8 @@
 ;; Updating settings PUTs the User and gets the saved User back. The continuation
 ;; reads that out of the mutation instance result (`:rf.mutation/result`) and
 ;; pushes it into the auth slice. There's no profile resource keyed by the current
-;; user to populate, so instead `:invalidates` clears the public
-;; `[:profile username]` read — that way a later visit to your own profile
+;; user to populate, so instead `:invalidates` clears the `[:profile username]`
+;; read under the acting viewer — that way a later visit to your own profile
 ;; re-reads the new bio.
 
 (rf/reg-mutation :realworld/update-settings
@@ -283,8 +289,8 @@
                    [:bio      [:maybe :string]]
                    [:image    [:maybe :string]]
                    [:password {:optional true} [:maybe :string]]]
-   :scope         :rf.scope/global
-   :invalidates   (fn [{:keys [username]} _result] #{[:profile username]})}
+   :invalidates   (fn [{:keys [username]} _result]
+                    [{:scope {:from-db :realworld/viewer} :tags #{[:profile username]}}])}
   (fn [{:keys [username email bio image password]} _ctx]
     {:request {:method :put
                :url    (rh/full-url "/user")

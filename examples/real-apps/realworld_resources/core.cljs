@@ -148,18 +148,27 @@
   [:div.app
    [header]
    [pending-nav-dialog]
-   (case @(subscribe [:rf.route/id])
-     :realworld/home          [views/home-page]
-     :realworld/home-tag      [views/home-page]
-     :realworld.auth/login    [auth/login-page]
-     :realworld.auth/register [auth/register-page]
-     :realworld.article/show  [views/article-page]
-     :realworld.editor/new    [editor/editor-page]
-     :realworld.editor/edit   [editor/editor-page]
-     :realworld.profile/show      [views/profile-page]
-     :realworld.profile/favorites [views/profile-page]
-     :realworld.user/settings [settings/settings-page]
-     [not-found-page])
+   ;; While a cold-boot session restore is in flight, the viewer is genuinely
+   ;; UNKNOWN (a saved token is present but the user hasn't resolved yet), so the
+   ;; `:realworld/viewer` scope resolver is fail-closed and the route's viewer-
+   ;; scoped reads would raise 'scope unresolved' if rendered. Defer the route page
+   ;; for that one brief window — `:restore-session` / `:abandon-restore` resolve
+   ;; the viewer and re-ensure the route's reads the moment `GET /user` settles.
+   (if @(subscribe [:auth/viewer-resolving?])
+     [:div.container.page {:data-testid "session-restoring"}
+      [:p "Restoring your session…"]]
+     (case @(subscribe [:rf.route/id])
+       :realworld/home          [views/home-page]
+       :realworld/home-tag      [views/home-page]
+       :realworld.auth/login    [auth/login-page]
+       :realworld.auth/register [auth/register-page]
+       :realworld.article/show  [views/article-page]
+       :realworld.editor/new    [editor/editor-page]
+       :realworld.editor/edit   [editor/editor-page]
+       :realworld.profile/show      [views/profile-page]
+       :realworld.profile/favorites [views/profile-page]
+       :realworld.user/settings [settings/settings-page]
+       [not-found-page]))
    [footer]])
 
 ;; ============================================================================
