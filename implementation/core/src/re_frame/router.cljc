@@ -3111,10 +3111,16 @@
   "Release the drain-lock after a `::halt` outcome. The depth-exceeded
   handler has already forcibly cleared the queue and set `:scheduled?`
   false, so we only need to drop the lock. Taken under `locking router`
-  to serialize against `ensure-drain-scheduled!`'s flag-read."
-  [router drain-lock]
+  to serialize against `ensure-drain-scheduled!`'s flag-read.
+
+  Per rf2-x76af2.22 (b): a REENTRANT drain (`hold-lock?` true — driven by
+  `drain-reentrant!` for a thread already holding the frame's cold
+  serialization) does NOT drop the lock; the outer cold section owns it
+  and releases it in its own `finally`."
+  [router drain-lock hold-lock?]
   (locking router
-    (reset! drain-lock false)))
+    (when-not hold-lock?
+      (reset! drain-lock false))))
 
 (defn- try-release-on-empty!
   "Under the same lock that submitters take in `ensure-drain-scheduled!`,
@@ -3128,13 +3134,19 @@
                and now. Leave both flags set and return true so the
                caller recurs into another pass.
 
-  This is the orphan-prevention seam."
-  [router drain-lock]
+  This is the orphan-prevention seam.
+
+  Per rf2-x76af2.22 (b): a REENTRANT drain (`hold-lock?` true) still clears
+  `:scheduled?` on empty but LEAVES `:drain-lock` held — the outer cold
+  `call-serialized-with-drain!` section owns it and drops it in its own
+  `finally`, so its serialized window spans the nested cascade."
+  [router drain-lock hold-lock?]
   (locking router
     (let [{:keys [queue]} @router]
       (if (empty? queue)
         (do (swap! router assoc :scheduled? false)
-            (reset! drain-lock false)
+            (when-not hold-lock?
+              (reset! drain-lock false))
             false)
         true))))
 
@@ -3153,8 +3165,15 @@
   Outer loop re-enters whenever `try-release-on-empty!` reports a
   submitter raced in between the inner empty-check and the lock-protected
   release window. Per-event epoch snapshots (rf2-nj6p7) are taken inside
-  `run-one-pass!` per dequeued event, not here."
-  [frame-id router drain-lock drain-depth]
+  `run-one-pass!` per dequeued event, not here.
+
+  `hold-lock?` (rf2-x76af2.22 (b)): false on the normal async / sync
+  entries (`drain-try!` / `drain-block!`, which acquire the lock and must
+  release it when the queue empties); true on the REENTRANT entry
+  (`drain-reentrant!`), where the calling thread already owns the lock via
+  a cold `frame/call-serialized-with-drain!` section and the release phases
+  must leave it held for that outer section to drop."
+  [frame-id router drain-lock drain-depth hold-lock?]
   (loop []
     (let [outcome (try
                     (mark-drainer! router)
@@ -3162,8 +3181,8 @@
                     (finally
                       (clear-drainer! router)))]
       (case outcome
-        ::halt    (force-release-on-halt! router drain-lock)
-        ::settled (when (try-release-on-empty! router drain-lock)
+        ::halt    (force-release-on-halt! router drain-lock hold-lock?)
+        ::settled (when (try-release-on-empty! router drain-lock hold-lock?)
                     (recur))))))
 
 (defn- drain-emergency-release!
@@ -3191,7 +3210,7 @@
             drain-depth (get-in frame-record [:config :drain-depth] drain-depth-default)]
         (when (compare-and-set! drain-lock false true)
           (try
-            (drain-loop! frame-id router drain-lock drain-depth)
+            (drain-loop! frame-id router drain-lock drain-depth false)
             (catch #?(:clj Throwable :cljs :default) t
               (drain-emergency-release! router drain-lock)
               (throw t))))))))
@@ -3230,9 +3249,39 @@
             (recur)))
         (try
           (under-lock-fn)
-          (drain-loop! frame-id router drain-lock drain-depth)
+          (drain-loop! frame-id router drain-lock drain-depth false)
           (catch #?(:clj Throwable :cljs :default) t
             (drain-emergency-release! router drain-lock)
+            (throw t)))))))
+
+(defn- drain-reentrant!
+  "Reentrant synchronous-drain entry for a thread that ALREADY owns
+  `frame-id`'s drain serialization via a COLD
+  `frame/call-serialized-with-drain!` critical section (a Tool-Pair state
+  write, the `destroy-frame!` liveness flip, or any lifecycle op reached
+  from a serialized thunk). That thread already holds `:drain-lock`, so the
+  normal `drain-block!` spin-CAS-acquire would deadlock against itself
+  (rf2-x76af2.22 (b) — the same-thread self-deadlock).
+
+  Runs `under-lock-fn` (the front-of-queue seed-push) and the drain loop
+  DIRECTLY — no acquire (already held) and no release (`hold-lock?` true):
+  the outer cold section owns the lock and drops it in its own `finally`,
+  so its serialized window spans this nested cascade. On an unhandled
+  throw, clear `:scheduled?` / `:in-drain?` but LEAVE the lock held — the
+  cold section's `finally` releases it — mirroring
+  `drain-emergency-release!` minus the lock reset."
+  [frame-id under-lock-fn]
+  (let [frame-record (frame/frame frame-id)]
+    (when frame-record
+      (let [drain-lock  (:drain-lock frame-record)
+            router      (:router frame-record)
+            drain-depth (get-in frame-record [:config :drain-depth] drain-depth-default)]
+        (try
+          (under-lock-fn)
+          (drain-loop! frame-id router drain-lock drain-depth true)
+          (catch #?(:clj Throwable :cljs :default) t
+            (locking router
+              (swap! router assoc :scheduled? false :in-drain? nil))
             (throw t)))))))
 
 (defn- ensure-drain-scheduled!
@@ -3505,7 +3554,27 @@
                  same-thread-drain?
                  #?(:clj  (identical? (:in-drain? router-state) (Thread/currentThread))
                     :cljs (true? (:in-drain? router-state)))]
-             (or (:in-sync-drain? router-state) same-thread-drain?)))]
+             (or (:in-sync-drain? router-state) same-thread-drain?)))
+         ;; Per rf2-x76af2.22 (b): this thread already OWNS the frame's drain
+         ;; serialization via a COLD `frame/call-serialized-with-drain!`
+         ;; critical section (`:serialized-holder` = this thread) but is NOT
+         ;; the active drainer. A dispatch-sync issued from inside such a thunk
+         ;; (e.g. a Tool-Pair state write, or a lifecycle op reached from a
+         ;; serialized thunk) must RE-ENTER the drain directly — it already
+         ;; holds `:drain-lock`, so routing through `drain-block!`'s spin-CAS-
+         ;; acquire would deadlock against itself. Distinct from `nested-sync?`
+         ;; (a dispatch-sync from inside a running HANDLER, which stays the
+         ;; `:rf.error/dispatch-sync-in-handler` error): the cold holder is not
+         ;; a handler, so its dispatch-sync runs. Mirrors
+         ;; `frame/current-thread-owns-drain-serialization?` for the cold axis;
+         ;; on CLJS the marker is `true`/nil and the same equality
+         ;; discriminates. Checked only when NOT `nested-sync?` so the drainer
+         ;; axis wins if a thread were ever both.
+         reentrant-cold?
+         (when (and frame-record (not nested-sync?))
+           (let [holder @(:serialized-holder frame-record)]
+             #?(:clj  (identical? holder (Thread/currentThread))
+                :cljs (true? holder))))]
      (cond
        (nil? frame-record)
        ;; Per rf2-2hvga (= B + recover-but-emit): dispatch-sync into a
@@ -3555,16 +3624,25 @@
            ;; dispatch-sync from another thread; :scheduled? true
            ;; suppresses async drain scheduling mid-cascade.
            ;; :in-sync-drain? is cleared in the outer finally after
-           ;; drain-block! returns.
-           (drain-block!
-             (:frame envelope)
-             (fn []
-               (swap! router (fn [{:keys [queue] :as r}]
-                               (assoc r
-                                      :queue (into interop/empty-queue
-                                                   (cons envelope queue))
-                                      :scheduled?     true
-                                      :in-sync-drain? true)))))
+           ;; the drain returns.
+           ;;
+           ;; Per rf2-x76af2.22 (b): when this thread already holds the cold
+           ;; serialization (`reentrant-cold?`), route through
+           ;; `drain-reentrant!` instead — it runs the SAME seed-push + drain
+           ;; loop but WITHOUT re-acquiring or releasing `:drain-lock` (this
+           ;; thread already holds it; the outer cold section drops it), so a
+           ;; nested dispatch-sync re-enters rather than spin-CAS-deadlocking
+           ;; on its own lock.
+           (let [seed-push (fn []
+                             (swap! router (fn [{:keys [queue] :as r}]
+                                             (assoc r
+                                                    :queue (into interop/empty-queue
+                                                                 (cons envelope queue))
+                                                    :scheduled?     true
+                                                    :in-sync-drain? true))))]
+             (if reentrant-cold?
+               (drain-reentrant! (:frame envelope) seed-push)
+               (drain-block!     (:frame envelope) seed-push)))
            (finally
              (swap! router assoc :in-sync-drain? false)))))
      nil)))
@@ -3580,3 +3658,18 @@
 
 (late-bind/set-fn! :router/dispatch!       dispatch!)
 (late-bind/set-fn! :router/dispatch-sync!  dispatch-sync!)
+
+;; Per rf2-x76af2.22 (a): re-kick a fresh async drain for `frame-id`.
+;; `frame/call-serialized-with-drain!`'s COLD release calls this — through
+;; the late-bind seam (frame.cljc cannot `:require` router — load cycle) —
+;; when it finds the queue non-empty on release, because a `dispatch!` that
+;; arrived during the cold hold scheduled a `drain-try!` that CAS-lost to the
+;; cold holder and gave up (no drainer left to re-check). Schedules the drain
+;; UNCONDITIONALLY (no `:scheduled?` gate — the point is to re-establish a
+;; live `drain-try!` for the still-true `:scheduled?` flag); a redundant
+;; `drain-try!` merely CAS-loses and returns, so re-kicking when one is
+;; already pending is harmless. Mirrors `ensure-drain-scheduled!`'s scheduling
+;; action.
+(late-bind/set-fn! :router/reschedule-drain!
+                   (fn reschedule-drain! [frame-id]
+                     (interop/next-tick (fn [] (drain-try! frame-id)))))

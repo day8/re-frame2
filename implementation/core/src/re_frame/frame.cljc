@@ -1206,7 +1206,29 @@
             ;; free another thread may acquire it and stamp its own holder, so
             ;; clearing after the release could clobber that new owner.
             (reset! holder nil)
-            (reset! drain-lock false)))))
+            ;; Per rf2-x76af2.22 (a): the cold release must mirror the
+            ;; drainer's `try-release-on-empty!`. A `dispatch!` that arrived
+            ;; DURING the hold set `:scheduled?` true and scheduled a
+            ;; `drain-try!` that CAS-lost to us and gave up — and, because we
+            ;; are NOT a drainer, nothing is left to re-check the queue. So a
+            ;; plain `(reset! drain-lock false)` PERMANENTLY STRANDS the queue
+            ;; (`:scheduled?` stuck true no-ops every later
+            ;; `ensure-drain-scheduled!`). Under the same lock submitters take
+            ;; in `ensure-drain-scheduled!`, snapshot the queue (stable — we
+            ;; still hold `:drain-lock`, so no drainer is popping) and release;
+            ;; if non-empty, re-kick a fresh async `drain-try!` (via the
+            ;; `:router/reschedule-drain!` late-bind seam — frame cannot
+            ;; `:require` router) so the stranded events drain. Releasing
+            ;; first lets the re-kicked `drain-try!` CAS-acquire the now-free
+            ;; lock.
+            (let [router  (:router frame-record)
+                  strand? (locking router
+                            (let [pending? (seq (:queue @router))]
+                              (reset! drain-lock false)
+                              (boolean pending?)))]
+              (when strand?
+                (when-let [reschedule! (late-bind/get-fn :router/reschedule-drain!)]
+                  (reschedule! frame-id))))))))
     (f)))
 
 ;; ---- frame presets (Spec 002 §Frame presets) ------------------------------

@@ -103,6 +103,10 @@
    {:key         :router/dispatch-sync!
     :producer-ns 're-frame.router
     :description "Process an event synchronously, bypassing the drain queue."}
+   {:key         :router/reschedule-drain!
+    :producer-ns 're-frame.router
+    :design-bead "rf2-x76af2.22"
+    :description "Re-kick a fresh async drain for a frame. Called by frame/call-serialized-with-drain!'s cold-section release when the queue is non-empty (a dispatch! that arrived during the hold scheduled a drain-try! that CAS-lost to the cold holder and gave up), so the stranded events drain."}
 
    ;; ---- EP-0023 inline-registration lowering -------------------------------
    ;; `re-frame.image-assembly` lowers an image's inline `:registrations` fn
