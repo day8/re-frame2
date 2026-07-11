@@ -8,7 +8,7 @@
 
 **Two boundary shapes, two production gates.** The untrusted value arrives in one of two places, and only the matching gate counts:
 
-- **Event-payload** — the value rides *in the dispatched event vector* (an HTTP `:rf/reply`, a `postMessage` arg, a query-string map dispatched as `[:route/params-received params]`). The always-on gate is the `:rf.schema/at-boundary` interceptor ref in metadata `:interceptors` (it forces the handler's `:schema` to run over the **event vector** at run-time, production included), **or** a Managed HTTP `:decode <Schema>` on the originating request, **or** a custom registered interceptor that Malli-validates the event vector outside any `goog.DEBUG` guard.
+- **Event-payload** — the value rides *in the dispatched event vector* (a Managed HTTP reply envelope, appended as the last arg to a `:reply-to` / `:on-success` target; a `postMessage` arg; a query-string map dispatched as `[:route/params-received params]`). The always-on gate is the `:rf.schema/at-boundary` interceptor ref in metadata `:interceptors` (it forces the handler's `:schema` to run over the **event vector** at run-time, production included), **or** a Managed HTTP `:decode <Schema>` on the originating request, **or** a custom registered interceptor that Malli-validates the event vector outside any `goog.DEBUG` guard.
 - **Body-read** — the handler *reads the value mid-body* (`(.getItem js/localStorage …)`, `js/window.location.search`, a stashed `(.-data msg)`, an IndexedDB cursor) then writes it to `app-db`. `:rf.schema/at-boundary` is **useless here** — the value never appears in the event vector it checks. The gate must wrap the **raw value**: an unconditional `(m/validate Schema raw)` / `m/coerce` in the body (not behind `(when ^boolean js/goog.DEBUG …)`), **or** — better — a validating cofx / interceptor / fx-reply path that materialises and validates the value *before* the handler writes it.
 
 Detection logic, per candidate handler:
@@ -19,7 +19,7 @@ Detection logic, per candidate handler:
 
 Greppable signals — flag when **any** match AND no production gate is wired:
 
-- A `reg-event` handler whose `:fx` includes `:rf.http/managed`, `:http-xhrio`, or websocket-id keywords, or whose body reads `(:rf/reply event)` / `(:body event)` / `(:data event)` from a network or `postMessage` source.
+- A `reg-event` handler whose `:fx` includes `:rf.http/managed`, `:http-xhrio`, or websocket-id keywords, or a Managed-HTTP reply target (an `:on-success` / `:on-failure` / `:reply-to` handler) that writes the appended reply envelope's `(:value reply)` — or `(:body event)` / `(:data event)` from a network or `postMessage` source — into `app-db`.
 - A handler bound to `:*/loaded`, `:*/received`, `:*/decoded`, `:*/synced`, `:*/rehydrated`, `:*/restored` whose `:db` write is `(assoc db :foo/bar payload)` where `payload` originated outside the app's own dispatches.
 - An unstructured second arg — `(fn [{:keys [db]} [_ data]] {:db (assoc db :remote data)})` — where `data` is the raw boundary payload.
 - A handler that reads `js/window.location.search`, `js/localStorage`, `js/sessionStorage`, `js/postMessage`, or IndexedDB results and writes the result to `app-db`.
@@ -39,11 +39,15 @@ Greppable signals — flag when **any** match AND no production gate is wired:
 
 ```clojure
 (rf/reg-event :article/load
-  (fn [{:keys [db]} [_ {:keys [slug] :as msg}]]
-    (if-let [reply (:rf/reply msg)]
-      {:db (assoc db :article (:value reply))}                  ;; trust everything that comes back
-      {:db (assoc-in db [:article :status] :loading)
-       :fx [[:rf.http/managed {:request {:url (str "/articles/" slug)}}]]})))
+  (fn [{:keys [db]} [_ {:keys [slug]}]]
+    {:db (assoc-in db [:article :status] :loading)
+     :fx [[:rf.http/managed
+           {:request    {:url (str "/articles/" slug)}
+            :on-success [:article/loaded]}]]}))                  ;; addresses the reply — but no :decode gate
+
+(rf/reg-event :article/loaded
+  (fn [{:keys [db]} [_ reply]]                                  ;; reply envelope appended as the last arg
+    {:db (assoc db :article (:value reply))}))                  ;; trust everything that comes back
 ```
 
 **After** — schema-validated boundary with a production gate:
@@ -59,16 +63,23 @@ Greppable signals — flag when **any** match AND no production gate is wired:
 (rf/reg-app-schema [:article :data] Article)          ;; dev-only — validates the article PAYLOAD slice only
 
 (rf/reg-event :article/load
-  {:doc    "Load one article by slug."
-   :schema [:cat [:= :article/load] [:map [:slug :string]]]
-   :interceptors [:rf.schema/at-boundary]}                      ;; ALWAYS-ON ref — runs in production
-  (fn [{:keys [db]} [_ {:keys [slug] :as msg}]]
-    (if-let [reply (:rf/reply msg)]
-      {:db (assoc-in db [:article :data] (:value reply))}       ;; reply validated by Article on decode + path schema in dev
-      {:db (assoc-in db [:article :status] :loading)            ;; lifecycle status lives OFF the schema'd payload path
-       :fx [[:rf.http/managed
-             {:request {:url (str "/articles/" slug)}
-              :decode  Article}]]})))                            ;; ALWAYS-ON — Managed HTTP decode runs in prod
+  {:doc    "Load one article by slug; address its reply to :article/loaded."
+   :schema [:cat [:= :article/load] [:map [:slug :string]]]}    ;; dev-only — pins the (trusted) trigger shape
+  (fn [{:keys [db]} [_ {:keys [slug]}]]
+    {:db (assoc-in db [:article :status] :loading)              ;; lifecycle status lives OFF the schema'd payload path
+     :fx [[:rf.http/managed
+           {:request    {:url (str "/articles/" slug)}
+            :decode     Article                                 ;; ALWAYS-ON — decode validates the untrusted body in prod
+            :on-success [:article/loaded]
+            :on-failure [:article/load-failed]}]]}))
+
+(rf/reg-event :article/loaded
+  (fn [{:keys [db]} [_ reply]]                                  ;; reply envelope appended as the last arg
+    {:db (assoc-in db [:article :data] (:value reply))}))       ;; :value already validated by :decode Article (prod) + path schema (dev)
+
+(rf/reg-event :article/load-failed
+  (fn [{:keys [db]} [_ reply]]
+    {:db (assoc-in db [:article :error] (:error reply))}))      ;; classified :rf.http/* map at :error
 ```
 
 ## Regression example — body-read boundaries need the value validated, not the event

@@ -22,7 +22,7 @@ A typical trigger is a short pasted snippet. Consult the signals below and open 
 | `manual-retry-loops.md` | `setTimeout` + `dispatch` together; a `:*/retries` / `:*/attempts` counter; inline `Math.pow` back-off; a failure branch re-dispatching the originating id | `imperative-effects.md` (HTTP write) |
 | `boolean-discriminator-subs.md` | 3+ `?`-suffixed subs on one `app-db` path; a view `cond` over multiple sub derefs | `manual-loading-flags.md` |
 | `manual-loading-flags.md` | `(assoc db :*/loading? true)` paired with `dissoc`; `:*/loading?` / `:*/saving?` / `:*/in-flight?` keys | `boolean-discriminator-subs.md` |
-| `schemaless-events.md` | handler reads `:rf/reply` / `:body` / `:data`, or `js/localStorage` / `location.search` / `postMessage`; boundary event ids `:*/loaded` / `:*/received` / `:*/rehydrated` | — |
+| `schemaless-events.md` | a handler writes a Managed-HTTP reply's `(:value reply)` / `:body` / `:data`, or reads `js/localStorage` / `location.search` / `postMessage`; boundary event ids `:*/loaded` / `:*/received` / `:*/rehydrated` | — |
 | `imperative-effects.md` | `.setItem` / DOM `set!` / `js/setTimeout` / inline `rf/dispatch`; `js/Date.now` / `Math.random` / `.getItem`; `@(rf/subscribe …)` in a handler body | `manual-retry-loops.md` (HTTP write) |
 | `view-side-hook-state.md` | `(r/atom …)` / `reagent/atom` at a view or namespace top; `use-state` / `useReducer`; an event handler derefing a view-ns atom | — |
 
