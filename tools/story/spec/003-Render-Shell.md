@@ -186,6 +186,45 @@ node and reseats the workspace. Decorator fingerprinting tracks
 whether the decorator stack used by a mounted variant has changed at
 the registry level; stale variants re-mount.
 
+### One run owner (prepare / resume)
+
+A focused variant's run spans the real React render boundary — the
+frame must exist before the first render (so subscriptions deref
+against a live frame, not `nil`), and DOM play-steps must run **after**
+React commits. The shell therefore drives each variant's run through
+**one owner** split into two halves, so a shell auto-play executes
+**exactly once**:
+
+- **PREPARE** (`runtime/prepare-run!`) — allocate + reset the frame and
+  run loaders + setup (phases 0-2) to `:ready`, **without** the play
+  script. It is **idempotent per `run-key`** (the shell slice of
+  variant × active-modes × cell-overrides × substrate × hot-reload
+  tick): the selection-edge preallocation and the canvas post-commit
+  prepare for the same logical run collapse to **one** frame reset and
+  **one** run generation. A changed `run-key`, or a re-prepare after the
+  current generation was already resumed (a React remount), claims a
+  **fresh generation**.
+- **RESUME** (`runtime/resume-run!`) — run the auto-plays' play script +
+  terminal assertions (phase 4) **exactly once per prepared
+  generation**, then publish the unified result. The canvas post-commit
+  lifecycle is the primary resume caller; the selection-watcher and the
+  mount-time block also call it for the same generation. The generation
+  guard collapses every such call to **one** execution.
+
+A resume **superseded** by a newer prepare (a rapid re-selection /
+cell-override change while a prior run's async play is mid-flight)
+settles as an explicit superseded result — never `:pass`, and it never
+reads the successor frame; the successor's resume owns the one
+execution. The inner per-play run-token still guards play-key
+isolation; it is not the outer lifecycle owner.
+
+The headless `run-variant` (Test mode / MCP / sidebar Run-all) composes
+prepare + resume in one call — one generation claimed and immediately
+resumed — so it runs the full four-phase lifecycle exactly once with no
+render boundary to span. Ownership is per variant/frame (one registry
+slot per variant-id), so different variants run concurrently and
+independently — this is **not** a global lock.
+
 ## Multi-substrate side-by-side rendering
 
 For a variant declaring `:substrates #{:reagent :uix :helix}` (or any

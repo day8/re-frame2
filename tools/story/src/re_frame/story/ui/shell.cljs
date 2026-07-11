@@ -55,7 +55,6 @@
             [re-frame.story.config :as config]
             [re-frame.story.decorators :as decorators]
             [re-frame.story.frames :as frames]
-            [re-frame.story.play.runner-events :as play-runner-events]
             [re-frame.story.predicates :as pred]
             [re-frame.story.registrar :as registrar]
             [re-frame.story.runtime :as runtime]
@@ -285,25 +284,35 @@
   (trace-buffer/clear-buffer!))
 
 (defn- ensure-variant-frame!
-  "Drive `run-variant` for `variant-id` so its frame is allocated and
-  the `:events` slot dispatched before React renders the canvas.
+  "PREPARE `variant-id`'s one run owner (rf2-j538f7.34) on the selection
+  edge: allocate the frame and run loaders + setup (phases 0-2) so React's
+  first canvas render is safe — WITHOUT executing the play script. The
+  single resume owner (the canvas post-commit lifecycle) runs the script
+  exactly once after commit.
 
   Per rf2-zme7: clicking a variant row used to leave the variant's
   frame unallocated until the canvas's `:component-did-mount` lifecycle
   fired — which happens AFTER React's first commit. The first render
   thus tried to deref subscriptions against a non-existent frame, threw
   `IDeref.-deref defined for type null`, and React unmounted the shell
-  (blank page). Running the variant on the *selection edge* puts the
-  frame in place before any view code runs."
+  (blank page). Preparing the variant on the *selection edge* puts the
+  frame in place before any view code runs.
+
+  `prepare-run!` is idempotent per `:run-key`, so this selection-edge
+  prepare and the canvas's post-commit prepare for the same logical run
+  collapse to ONE frame reset + ONE generation — the shell no longer runs
+  the play-script here (which, with the canvas run and the post-commit
+  auto-run, made it execute up to three times)."
   [variant-id]
   (when (and config/enabled? variant-id)
     (let [shell @state/shell-state-atom
           opts  {:active-modes   (:active-modes shell)
                  :cell-overrides (get-in shell [:cell-overrides variant-id])
                  :substrate      (:substrate shell)
-                 :render?        true}]
+                 :render?        true
+                 :run-key        (canvas/run-key shell variant-id)}]
       (try
-        (runtime/run-variant variant-id opts)
+        (runtime/prepare-run! variant-id opts)
         (catch :default e
           ;; Swallow + breadcrumb. The canvas re-tries via
           ;; :component-did-mount / :component-did-update, and the
@@ -413,14 +422,18 @@
                      ;; position) + seed the RHS chip-row's user-
                      ;; override slot from the story's `:xray-panel`.
                      (xray-preset/on-variant-selected! now)
-                     ;; rf2-8i2a9: auto-run the variant's `:play-script`
-                     ;; if `:auto-run?` is true. Best-effort — yields one
-                     ;; tick via setTimeout so React commits the canvas
-                     ;; before the script's first dispatch lands; that
-                     ;; way `[:assert-dom selector :visible]` sees the
-                     ;; mounted DOM. Variants without `:play-script` no-op.
+                     ;; rf2-8i2a9 / rf2-j538f7.34: RESUME the one run owner —
+                     ;; run the auto-plays exactly once per prepared
+                     ;; generation. Yields one tick via setTimeout so React
+                     ;; commits the canvas before the script's first dispatch
+                     ;; lands; that way `[:assert-dom selector :visible]` sees
+                     ;; the mounted DOM. The canvas post-commit lifecycle also
+                     ;; calls `resume-run!` for this generation — the
+                     ;; generation guard collapses both to ONE execution, so
+                     ;; whichever fires first wins and the other no-ops.
+                     ;; Variants without `:play-script` / auto-plays no-op.
                      (js/setTimeout
-                       (fn [] (play-runner-events/auto-run! now))
+                       (fn [] (runtime/resume-run! now))
                        0))
                    (reset! selection-prev now))))))
 
@@ -970,19 +983,18 @@
              ;; change, so a pre-selected variant would otherwise miss
              ;; the preset).
              (xray-preset/on-variant-selected! vid)
-             ;; rf2-8i2a9 / rf2-chi9j3: mount-time auto-run for an
-             ;; already-selected variant (deep-link / persisted
-             ;; selection) — but ONLY when `hydrate-url-state!` did NOT
-             ;; just change the selection during THIS mount. When it did,
-             ;; `selection-watcher`'s change-handler already scheduled its
-             ;; own auto-run for `vid` (above); scheduling a second one
-             ;; here would run the deep-linked variant's `:play-script`
-             ;; TWICE (every dispatch doubled). Yields a tick so the
-             ;; canvas has committed before the script's first
-             ;; DOM-sensitive step runs.
+             ;; rf2-8i2a9 / rf2-chi9j3 / rf2-j538f7.34: mount-time RESUME for
+             ;; an already-selected variant (deep-link / persisted selection).
+             ;; The `mount-time-autorun-vid` guard (rf2-chi9j3) is retained so
+             ;; a deep-link that `hydrate-url-state!` just selected is resumed
+             ;; only by the selection-watcher, not twice — but the one run
+             ;; owner's generation guard is now the structural backstop: even
+             ;; if both scheduled a `resume-run!` for the same generation, only
+             ;; ONE would execute. Yields a tick so the canvas has committed
+             ;; before the script's first DOM-sensitive step runs.
              (when-let [run-vid (mount-time-autorun-vid pre-hydrate-vid vid)]
                (js/setTimeout
-                 (fn [] (play-runner-events/auto-run! run-vid))
+                 (fn [] (runtime/resume-run! run-vid))
                  0))))))
      :component-will-unmount
      (fn [_]
@@ -1002,6 +1014,9 @@
        ;; rf2-o4u18: drop popstate + shell-state URL watchers so a
        ;; re-mount doesn't accumulate listeners.
        (url-state/tear-down! state/shell-state-atom)
+       ;; rf2-j538f7.34: clear the one-run-owner registry so a fresh shell
+       ;; mount starts every variant's run generation from a clean slate.
+       (runtime/reset-run-owner!)
        (teardown-all-listeners!))
      :reagent-render
      (fn []

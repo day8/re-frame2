@@ -5,7 +5,10 @@
 
   - Watches the shell state's `:hot-reload-tick` so it re-mounts when the
     fingerprint detector ticks.
-  - Calls `run-variant` with the active modes / cell-overrides / substrate.
+  - Is the single RESUME owner of the variant's one run (rf2-j538f7.34):
+    post-commit it prepares the frame (idempotent per run-key) with the
+    active modes / cell-overrides / substrate and resumes the play script
+    exactly once per prepared generation.
   - Renders the variant's `:component` (registered re-frame view) under
     the `:hiccup` decorator stack from `resolve-decorators` — which reads
     the FULL stack (globals + story + variant chain) off the compiled
@@ -358,19 +361,6 @@
 
 ;; ---- the canvas component ------------------------------------------------
 
-(defn- run-with-shell-opts!
-  "Drive `run-variant` with the shell's current modes / cell overrides /
-  substrate. Returns nothing — the promise resolves async; the canvas
-  reads the variant's app-db-value reactively after each run."
-  [variant-id]
-  (let [shell @state/shell-state-atom
-        opts  {:active-modes   (:active-modes shell)
-               :cell-overrides (get-in shell [:cell-overrides variant-id])
-               :substrate      (:substrate shell)
-               :render?        true}]
-    (runtime/run-variant variant-id opts)
-    nil))
-
 (defn run-key
   "The shell-state slice that should trigger a fresh runtime run for
   `variant-id`. Ordinary app-db updates inside the variant frame must
@@ -417,7 +407,36 @@
   ([] (reset! first-rendered? #{}) nil)
   ([variant-id] (swap! first-rendered? disj variant-id) nil))
 
+(defn- prepare-with-shell-opts!
+  "PREPARE the variant's one run owner (rf2-j538f7.34) with the shell's
+  current modes / cell overrides / substrate: allocate + reset the frame and
+  run loaders + setup, WITHOUT executing the play script. Idempotent per
+  `:run-key`, so this canvas prepare and the shell's selection-edge prepare
+  for the same logical run collapse to ONE frame reset + ONE generation. The
+  single resume owner runs the script exactly once. Returns nothing — the
+  canvas reads the variant's app-db-value reactively after each run."
+  [variant-id]
+  (let [shell @state/shell-state-atom
+        opts  {:active-modes   (:active-modes shell)
+               :cell-overrides (get-in shell [:cell-overrides variant-id])
+               :substrate      (:substrate shell)
+               :render?        true
+               :run-key        (run-key shell variant-id)}]
+    (runtime/prepare-run! variant-id opts)
+    nil))
+
 (defn- run-if-needed!
+  "The canvas's single-owner lifecycle hook (rf2-j538f7.34). Runs only when
+  the `run-key` changed (a new selection, cell-override, mode, substrate, or
+  hot-reload tick) so ordinary in-frame app-db updates never re-run the
+  variant. On a change it PREPARES the frame (idempotent per run-key) and then
+  RESUMES the single run owner — running the play script EXACTLY ONCE per
+  prepared generation.
+
+  Called from `component-did-mount` / `component-did-update`, both POST-commit,
+  so the resumed script's DOM steps see the mounted view. `resume-run!` is
+  idempotent per generation, so the shell selection-watcher / mount-time block
+  calling it too for the same generation collapses to one execution."
   []
   (when config/enabled?
     (let [shell      @state/shell-state-atom
@@ -427,7 +446,10 @@
         (let [key (run-key shell variant-id)]
           (when (not= key @canvas-last-run-key)
             (reset! canvas-last-run-key key)
-            (run-with-shell-opts! variant-id)))))))
+            (prepare-with-shell-opts! variant-id)
+            ;; RESUME the one run owner post-commit. The generation guard makes
+            ;; this exactly-once even though the shell also schedules a resume.
+            (runtime/resume-run! variant-id)))))))
 
 (defn- variant-substrate-set
   "Resolve the variant's effective substrate set. Per `001-Authoring.md` §Registration macros
@@ -444,7 +466,7 @@
 (defn- canvas-inner
   "The inner render fn — reads the variant's app-db-value reactively. Split
   out so the outer `canvas` component can wrap with a lifecycle for
-  run-variant + tear-down.
+  prepare/resume + tear-down.
 
   The inner render branches on
   `(count (variant-substrate-set variant-id))`:
@@ -647,8 +669,10 @@
             (mark-variant-rendered! variant-id)))))))
 
 (def canvas
-  "Render the focused variant. Triggers a `run-variant` on mount and on
-  each `:hot-reload-tick` bump. Renders the variant's `:component` view
+  "Render the focused variant. Prepares the frame + resumes the one run owner
+  (rf2-j538f7.34) post-commit on mount and on each run-key change
+  (`:hot-reload-tick` / cell-override / mode / substrate). Renders the
+  variant's `:component` view
   with the resolved `:hiccup` decorator stack applied."
   (r/create-class
      {:display-name "rf-story-canvas"
