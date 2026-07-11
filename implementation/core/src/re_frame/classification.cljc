@@ -355,14 +355,62 @@
         (assoc tags slot redacted)))))
 
 (defn- project-fx-tags
-  "Walk `:rf.fx/handled` tag shape: `:rf.fx/id` carries the fx keyword and
-  `:rf.fx/args` carries the args value."
+  "Redact the fx args carried by ANY trace slot that stamps the `[:rf.fx/id
+  :rf.fx/args]` pair, against the fx REGISTRATION's declared `:sensitive` /
+  `:large`.
+
+  Covers the per-effect `:rf.fx/handled` success trace AND the always-on fx
+  ERROR traces (`:rf.error/fx-handler-exception` + its siblings) AND
+  `:rf.fx/skipped-on-platform` — every one stamps the SAME `:rf.fx/id` +
+  `:rf.fx/args`, so every one gets the SAME registration-owned redaction
+  (rf2-6h3c02). Keying off the SLOT SHAPE (both keys present) rather than op
+  `:rf.fx/handled` is what closes the error-trace `:rf.fx/args` leak — the
+  production-survivable `:rf.error/fx-handler-exception` fans out through the
+  always-on error-emit listener, not just the dev trace, so an fx that persists
+  / sends a classified value (a session token to localStorage, an auth header)
+  must NOT egress it raw when the fx throws.
+
+  A no-op when the fx declared no classification — which INCLUDES an
+  UNREGISTERED fx-id on `:rf.error/no-such-fx` (there is no registration to
+  read a `:sensitive` off, and an unaddressable arg is the known EP-0025
+  fail-open, not a bug this closes)."
   [tags]
   (let [fx-id (:rf.fx/id tags)
         class (classification-when :fx fx-id)]
-    (if-not class
+    (if (and class (contains? tags :rf.fx/args))
+      (assoc tags :rf.fx/args (redact-by-classification (:rf.fx/args tags) class))
+      tags)))
+
+(defn- project-event-fx-entry
+  "Redact ONE `[fx-id args …]` effect-vector entry against `fx-id`'s
+  registration classification. The args value is the SECOND element (Spec 002
+  §The effect vector); replace it IN PLACE so the fx-id + any trailing elements
+  survive. A no-op when the entry is not a `[fx-id args …]` vector (a nil /
+  empty conditional-fx no-op, or a reserved fx whose args carry no declarable
+  path — e.g. `:dispatch`, which declares no fx classification) or the fx
+  declared none."
+  [entry]
+  (if (and (vector? entry) (>= (count entry) 2))
+    (if-let [class (classification-when :fx (first entry))]
+      (assoc entry 1 (redact-by-classification (second entry) class))
+      entry)
+    entry))
+
+(defn- project-event-fx-tags
+  "Walk the `:rf.event/fx` slot carried by the `:rf.fx/do-fx` trace — the
+  handler's WHOLE returned effect vector (`[[fx-id args] …]`, stamped raw by
+  `re-frame.fx/do-fx`). Redact each entry's args through THAT fx-id's
+  registration classification, mirroring how `project-db-tags` covers the
+  sibling `:rf.event/db` slot (the two share posture — Spec 009 §Canonical
+  per-event trace sequence). This closes the aggregate-slot leak the per-effect
+  `:rf.fx/handled` redaction alone left open: a classified fx's args survived
+  RAW on this always-stamped `:rf.event/fx` vector even though `:rf.fx/handled`
+  redacted them (rf2-6h3c02)."
+  [tags]
+  (let [fx-vec (:rf.event/fx tags)]
+    (if-not (vector? fx-vec)
       tags
-      (assoc tags :rf.fx/args (redact-by-classification (:rf.fx/args tags) class)))))
+      (assoc tags :rf.event/fx (mapv project-event-fx-entry fx-vec)))))
 
 (defn- project-cofx-map-slot
   "Walk a `{cofx-id value}` map carried under `slot` in `tags`, redacting each
@@ -835,7 +883,20 @@
                         (contains? tags :event)
                         (project-event-tags :event)
 
-                        (= :rf.fx/handled operation)
+                        ;; `:rf.event/fx` — the WHOLE returned effect vector on
+                        ;; `:rf.fx/do-fx`; redact each entry's args through its
+                        ;; fx registration (sibling of the `:rf.event/db` walk).
+                        (contains? tags :rf.event/fx)
+                        (project-event-fx-tags)
+
+                        ;; ANY slot carrying the `[:rf.fx/id :rf.fx/args]` pair —
+                        ;; `:rf.fx/handled` AND the always-on fx error traces
+                        ;; (`:rf.error/fx-handler-exception` + siblings) +
+                        ;; `:rf.fx/skipped-on-platform`. Keyed off slot SHAPE,
+                        ;; not op `:rf.fx/handled`, so the production-survivable
+                        ;; error-trace args redact too (rf2-6h3c02).
+                        (and (contains? tags :rf.fx/id)
+                             (contains? tags :rf.fx/args))
                         (project-fx-tags)
 
                         (contains? tags :rf.event/coeffects)
