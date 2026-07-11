@@ -106,8 +106,8 @@
   (testing "rf2-3fc89f.33 — a clean submit issues the (sensitive) managed-HTTP
             request carrying the REAL password, nudges the machine with a
             CREDENTIAL-FREE :submit signal (no password anywhere in the machine
-            event), blanks [:draft :password], flips :status to :submitting,
-            clears :errors, latches :submit-attempted?, and leaves the email"
+            event), blanks [:draft :password], clears :errors, latches
+            :submit-attempted?, and leaves the email"
     (with-new-frame [f (frame/make-anon-frame-record! {})]
       (seed-draft! f "alice@example.com" "hunter2pw")
       (let [dispatched (atom [])
@@ -119,8 +119,17 @@
               "the password is blanked in the app-db slice draft after submit")
           (is (= "alice@example.com" (get-in s [:draft :email]))
               "only the SECRET is cleared — the email draft is left intact")
-          (is (= :submitting (:status s))
-              "the slice :status advanced to :submitting on the clean branch")
+          ;; rf2-fai6a8 — this machine-driven variant carries NO :status /
+          ;; :submitted / :submit-error mirror: the :auth.login/flow machine and
+          ;; its state tags own the submit/auth lifecycle, so the slice keeps no
+          ;; parallel status a view could read stale. Assert the mirror is gone
+          ;; on the clean branch (it used to advance :status to :submitting here).
+          (is (not (contains? s :status))
+              "no :status mirror — the machine + its state tags own the lifecycle")
+          (is (not (contains? s :submitted))
+              "the vestigial :submitted field is gone from the slice")
+          (is (not (contains? s :submit-error))
+              "the vestigial :submit-error field is gone from the slice")
           (is (= {} (:errors s))
               "stale field errors were cleared on the clean branch")
           (is (true? (:submit-attempted? s))
@@ -221,9 +230,9 @@
 (deftest invalid-submit-issues-nothing-and-retains-password
   (testing "rf2-t83ail — an invalid draft (bad email + short password) fails the
             pre-submit Credentials validation: :errors is populated per field,
-            :submit-attempted? latches, :status stays :idle, and NOTHING is
-            issued (no machine signal, no HTTP). The password is RETAINED for the
-            fix-up — nothing left the box, so this is not the leak the fix guards."
+            :submit-attempted? latches, and NOTHING is issued (no machine signal,
+            no HTTP). The password is RETAINED for the fix-up — nothing left the
+            box, so this is not the leak the fix guards."
     (with-new-frame [f (frame/make-anon-frame-record! {})]
       (seed-draft! f "not-an-email" "short")
       (let [dispatched (atom [])
@@ -236,8 +245,9 @@
               "the bad email produced a field error")
           (is (contains? (:errors s) :password)
               "the short password produced a field error")
-          (is (= :idle (:status s))
-              ":status did NOT advance to :submitting on an invalid submit")
+          (is (not (contains? s :status))
+              "rf2-fai6a8 — the slice carries no :status mirror on any branch;
+               the machine owns the lifecycle, not a parallel slice field")
           (is (zero? (count @dispatched))
               "no machine signal — the invalid draft was not handed off")
           (is (zero? (count @http))
