@@ -17,7 +17,7 @@ emit `:rf.error/schema-validation-failure` at all (per [spec/010
 
 | Button | `data-testid` | Category / `:where` | Recovery (per [spec/010 §Per-step recovery](../../spec/010-Schemas.md)) | Observable diff in app-db |
 |---|---|---|---|---|
-| A · :where :app-db | `violate-app-db` | `:rf.error/schema-validation-failure` `:where :app-db` | `:rollback? true`, `:recovery :no-recovery`. The `:db` effect is rolled back to its pre-handler value; flows do NOT evaluate and `:fx` does NOT walk for this dispatch. Downstream queued events still drain. | `[:auth :token]` stays at `"seed-token"`. The handler tried to commit `42` (an int) at a slot whose registered schema demands `:string`. |
+| A · :where :app-db | `violate-app-db` | `:rf.error/schema-validation-failure` `:where :app-db` | `:rollback? true` (transaction REJECTED — rf2-uhk9ko), `:recovery :no-recovery`. The candidate `:db` is rejected before install, so app-db keeps its pre-handler value; no `:rf.event/db-changed` fires and `:fx` does NOT walk for this dispatch. Downstream queued events still drain. | `[:auth :token]` stays at `"seed-token"`. The handler tried to commit `42` (an int) at a slot whose registered schema demands `:string`. |
 | B · :where :event | `violate-event` | `:rf.error/schema-validation-failure` `:where :event` | `:no-recovery` — handler not invoked; downstream queue continues. | `[:click-count :event]` stays at `0`. The handler's `:schema` is `[:cat [:= ::violate-event] pos-int?]`; the button dispatches it with the string `"not-a-number"`. |
 | C · cofx-value-invalid | `violate-cofx` | `:rf.error/cofx-value-invalid` (**throws**) | `:recovery :no-recovery` — a **halting production hard error**. The value is validated as the cofx is satisfied, before it folds into the handler context; on mismatch the runtime emits the error record and THROWS. The handler NEVER runs and the run halts (not the "skip handler, queue continues" recovery of the `:where` surfaces). The button uses `dispatch-sync*` + a `try`/`catch` so the throw is caught at the click boundary. | `[:click-count :cofx]` stays at `0`. The cofx's `:schema` is `pos-int?`; the value-returning supplier (declared via `:rf.cofx/requires`, EP-0017) deliberately returns `-1`. |
 | D · :where :fx-args | `violate-fx-args` | `:rf.error/schema-validation-failure` `:where :fx-args` | `:recovery :skipped` — the offending fx is skipped; sibling fx continue. The handler's `:db` already committed. | `[:click-count :fx]` increments per click (the handler's `:db` ran). The fx body never ran — its `:schema` (`[:map [:url :string]]`) rejected the vector args. |
@@ -73,13 +73,13 @@ suffix). Consumers that want the registration anchor reach
 ## Test scenarios from rf2-fe84r this surface enables
 
 **Xray (26)**:
-- Schema-validation-failure trace + `:rollback?` flag visible — Button A surfaces the rollback path; Buttons B/D verify the trace shape without `:rollback?`. Button C surfaces the distinct `:rf.error/cofx-value-invalid` hard-error record instead.
+- Schema-validation-failure trace + `:rollback?` flag visible — Button A surfaces the candidate-rejection path; Buttons B/D verify the trace shape without `:rollback?`. Button C surfaces the distinct `:rf.error/cofx-value-invalid` hard-error record instead.
 - `:rf.error/*` events highlighted in trace stream — `:rf.error/schema-validation-failure` (A/B/D) and `:rf.error/cofx-value-invalid` (C) are both surfaced in the dev-mode trace stream.
 - Click-to-source from trace event lands on source-coord line — each `reg-*` registration captures source coords; the failing-id in the trace links back to its declaration.
 
 **Cross-cutting (6)**:
-- Schema-validation-failure produces app-db rollback + `:rollback?` flag (rf2-hrqvg covers the flow analogue; this surface is the app-db analogue).
-- Subscribe → re-render → trace ordering preserved — Button A's `[:auth :token]` sub stays at the pre-handler value across the failed dispatch, which is the load-bearing rollback observability claim.
+- Schema-validation-failure produces app-db candidate rejection + `:rollback?` flag (rf2-hrqvg covers the flow analogue; this surface is the app-db analogue).
+- Subscribe → re-render → trace ordering preserved — Button A's `[:auth :token]` sub stays at the pre-handler value across the failed dispatch (never notified, never dirtied — the candidate never installed), which is the load-bearing rejection observability claim.
 
 **Story (18)**:
 - Recorder captures click → records `:play` → replays identically. Schema violation should replay deterministically (the inputs are pure).

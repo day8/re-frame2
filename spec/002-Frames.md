@@ -487,6 +487,7 @@ The closed top-level effect map carries **four further commit-plane effects** be
 They are **commit-plane** effects, applied **WITH the `:db` write** at the commit step (a frame-state transform into the per-frame elision declaration registry, `[:rf.runtime/elision …]` in runtime-db) — **not** routed through the `:fx` do-fx plane, and **not** [Conventions §Reserved fx-ids](Conventions.md#reserved-fx-ids) (which catalogues `do-fx`-dispatched fx, a different plane). Because the registry lives in runtime-db, a classification effect commits as a runtime-db partition write folded into the **same atomic frame-state transition** as `:db` (per §The two-partition frame contract). Consequences:
 
 - **Same-event ordering.** A path classified in an event is redacted from its *first* egress — the classification lands at the same commit boundary the value does. (A classification made earlier — at init, or any time before the value lands — trivially covers it.)
+- **Successful-transition-only install (rf2-uhk9ko).** The classification's registry write rides the CANDIDATE frame transition, which is schema-validated BEFORE install (per [010 §Per-step recovery row 4](010-Schemas.md#per-step-recovery)): on a schema-rejected dispatch the whole candidate — the `:db` write AND the classification registry write — is discarded pre-install, so a rejected event's classification never lands (and never needs unwinding; there is no rollback overlay).
 - **Value-independent.** Classify a path *before* any value exists there; the classification redacts whatever later occupies the path. A classification over an absent / differently-shaped value is a harmless no-op.
 - **Read only at egress.** The application — handlers, subs, views — always sees real values while events run; redaction happens only at the mediated-egress projection. The two axes (`:sensitive` / `:large`) are **independent** — clearing one never touches the other; clearing removes only the named paths.
 - **Fail-loud, pre-commit.** A malformed payload (a non-vector value, or a non-`:rf/path` entry) is rejected at the router's **FINAL-effects boundary** (in `commit-and-flow!`, immediately before the commit) with `:rf.error/classification-effect-shape` (per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)). The shape is checked by a **pure, non-throwing** validator (`re-frame.elision/classification-effect-defect`); the router emits the error **in-band** (not a throw — a throw here would escape the drain) and aborts the event with **no `:db` commit** and no classification install (no partial commit), mirroring the in-band legacy-runtime-root rejection at the same boundary. A *forgotten* classification is fail-open (the value ships raw); a malformed one is fail-loud.
@@ -1901,7 +1902,22 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
       ;;    `:db` nor `:rf.db/runtime`) installs nothing. By this point the
       ;;    flow-transform :after has already rewritten `(:db effects)`
       ;;    (step 1), so the app-db value installed here is the flow-derived
-      ;;    db. This is the moment sub-cache invalidation fires (per :fx
+      ;;    db.
+      ;;
+      ;;    VALIDATE BEFORE INSTALL (rf2-uhk9ko, Mike-ruled Option B): the
+      ;;    complete CANDIDATE transition — the nil-coerced flow-augmented
+      ;;    `:db`, any `:rf.db/runtime` value, and any commit-plane
+      ;;    classification-effect registry write — is built WITHOUT touching
+      ;;    the container, and dev-mode schema validation ([010 §Per-step
+      ;;    recovery row 4 + row 7](010-Schemas.md#per-step-recovery)) runs
+      ;;    over the candidate partition values. Only a full pass performs
+      ;;    the install below; a failure REJECTS the candidate — nothing is
+      ;;    written, NO change trace fires, no subscriber is notified, and
+      ;;    the dispatch reports `:rolled-back` (the stable public
+      ;;    transaction-REJECTED vocabulary). Success is exactly ONE commit;
+      ;;    there is no post-commit validation pass and no rollback write.
+      ;;
+      ;;    This is the moment sub-cache invalidation fires (per :fx
       ;;    ordering rule 4 above and per [006 §Subscription cache
       ;;    invalidation]); the projection-equality model means an app-only
       ;;    commit propagates only to app subs and a runtime-only commit only
@@ -1924,16 +1940,18 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
       ;;    change-detection is value equality (`=`); the cheap fast-path is
       ;;    reference identity.
       (when (or (contains? effects :db) (contains? effects :rf.db/runtime))
-        (substrate/commit-frame-transition!                ;; one atomic frame-state install
-          (:frame-state frame)
-          (cond-> {}
-            (contains? effects :db)            (assoc :rf.db/app     (:db effects))
-            (contains? effects :rf.db/runtime) (assoc :rf.db/runtime (:rf.db/runtime effects))))
-        (sub-cache/invalidate! frame))
+        (when (validate-candidate-transition! frame effects)   ;; rf2-uhk9ko — reject = skip install
+          (substrate/commit-frame-transition!              ;; the single atomic install
+            (:frame-state frame)
+            (cond-> {}
+              (contains? effects :db)            (assoc :rf.db/app     (:db effects))
+              (contains? effects :rf.db/runtime) (assoc :rf.db/runtime (:rf.db/runtime effects))))
+          (sub-cache/invalidate! frame)))
 
       ;; 3. Walk :fx in source order — SKIPPED on any pre-install throw
-      ;;    (handler / interceptor :after / flow): the event aborted at the
-      ;;    commit boundary, so no `:fx` runs. (:fx is the only POST-install
+      ;;    (handler / interceptor :after / flow) AND on a schema-REJECTED
+      ;;    candidate (rf2-uhk9ko): the event aborted at the commit
+      ;;    boundary, so no `:fx` runs. (:fx is the only POST-install
       ;;    stage.) On a clean settle, each entry's handler returns
       ;;    synchronously before the next begins. Errors trace and continue.
       ;;    The fx-handler is invoked with the binary `(m args)` contract
