@@ -92,13 +92,28 @@ automated:
 3. Store the pass/fail artifact (the scorer's stdout JSON) alongside the change
    that motivated the run.
 
+The four session facts each eval hangs on are scored by **entity-anchored
+`required_bindings`**, not free-floating contract vocabulary: eval 1 requires
+`cart-dev-a` bound to its *initiating call*, `cart-dev-b` *superseding*
+`cart-dev-a` (in that direction), the `tools/list` probe marked
+*unknown/incomplete*, and a **named** out-of-scope activity *excluded*; eval 2
+requires both candidate sessions (cart-coupon **and** auth-login) named around
+the ask. A transcript that merely repeats the contract words —
+`causal ledger`, `superseded`, `unknown`, `excluded` — with no fixture entities
+now **fails**, reporting the missing binding *by name* rather than as a generic
+regex miss. (This closed the lexical false-green where keyword soup scored as
+evidenced.)
+
 `bb .../score-session-evidence-eval.clj --self-test` validates the manifest +
 scorer on every run as a cheap guard that the eval machinery itself hasn't
 rotted. The always-on structural guard for the contract prose is
 `skills/shared/tests/retro_protocol_test.clj`, which pins the load-bearing
 phrasings of the contract and runs this scorer's `--self-test`. Not every
 clause is deterministically scoreable from the transcript; the manifest's
-`scored_vs_manual` block names the clauses that stay human-review-only.
+`scored_vs_manual` block names the clauses that stay human-review-only, so a
+machine PASS asserts **only** the entity-anchored bindings — never the residual
+semantic nuance — and never presents an unresolved manual clause as an
+unconditional full-contract pass.
 
 Like `evals.json`, this harness is a **repo-maintenance artifact** — it is
 **not shipped** (the `files` allow-list in `package.json` omits `evals/`), so a

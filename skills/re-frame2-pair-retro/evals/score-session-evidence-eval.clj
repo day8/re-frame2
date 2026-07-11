@@ -114,12 +114,34 @@
        :detail (str "output did NOT match required /" pattern "/")
        :why why})))
 
+;; --- Entity-anchored fixture bindings ----------------------------------------
+;; The four session facts each eval hangs on are scored HERE, not by the loose
+;; `required_output_patterns` class. A `required_binding` ties a rule to the
+;; fixture ENTITY it must attach to (cart-dev-a's initiating call, cart-dev-b
+;; superseding cart-dev-a, the tools/list probe, a NAMED out-of-scope activity),
+;; so a content-free transcript that merely repeats contract vocabulary
+;; ("causal ledger / superseded / unknown / excluded") with no fixture entities
+;; FAILS — and the failure is reported BY LABEL (which binding is absent),
+;; not as a generic regex miss. This is the fix for the lexical false-green
+;; where keyword soup scored as evidenced (rf2-j538f7.38).
+
+(defn- check-required-bindings [eval-spec transcript]
+  (let [out (str (:output transcript))]
+    (for [{:keys [label pattern why]} (:required_bindings eval-spec)
+          :let [re (re-pattern pattern)]
+          :when (not (re-find re out))]
+      {:check :missing-required-binding
+       :detail (str "output does not bind the required fixture fact "
+                    (pr-str label) " (no match for /" pattern "/)")
+       :why why})))
+
 (defn- score-eval [eval-spec transcript]
   (let [failures (concat
                   (check-forbidden-tool-calls eval-spec transcript)
                   (check-forbidden-output-substrings eval-spec transcript)
                   (check-forbidden-output-patterns eval-spec transcript)
-                  (check-required-output-patterns eval-spec transcript))]
+                  (check-required-output-patterns eval-spec transcript)
+                  (check-required-bindings eval-spec transcript))]
     {:eval_id (:id eval-spec)
      :name (:name eval-spec)
      :fixture (:fixture eval-spec)
@@ -193,110 +215,131 @@
     (doseq [e (:evals manifest)
             {:keys [pattern]} (concat (:forbidden_tool_calls e)
                                       (:forbidden_output_patterns e)
-                                      (:required_output_patterns e))]
+                                      (:required_output_patterns e)
+                                      (:required_bindings e))]
       (try (re-pattern pattern)
            (catch Exception ex
              (swap! errs conj (str "bad regex /" pattern "/: " (.getMessage ex))))))
 
     ;; =====================================================================
-    ;; EVAL 1 — one violation per negative, so no failure masks another.
+    ;; EVAL 1 — entity-anchored fixture bindings.
+    ;;
+    ;; Each canonical sentence satisfies exactly ONE required binding; a
+    ;; negative swaps ONE sentence to a WRONG entity so precisely that
+    ;; binding predicate fires (no failure masks another). The forbidden-
+    ;; pattern negatives keep all four bindings satisfied so only the
+    ;; forbidden regex trips.
     ;; =====================================================================
-    ;; missing the causal-ledger framing (has supersede + unknown + exclusion)
-    (neg "eval1 missing causal ledger"
-         (score-eval e1 {:eval_id 1
-                         :tool_calls []
-                         :output (str "cart-dev-b's attach supersedes cart-dev-a's "
-                                      "earlier result. Excluded the invoice-export CI "
-                                      "from another worker. The tools/list probe is "
-                                      "unknown/incomplete.")})
-         :missing-required-output-pattern "causal ledger")
-    ;; missing the supersession framing
-    (neg "eval1 missing supersession"
-         (score-eval e1 {:eval_id 1
-                         :tool_calls []
-                         :output (str "Causal ledger: the delayed result is bound to its "
-                                      "initiating call (cart-dev-a). Excluded the "
-                                      "invoice-export CI from another worker. The "
-                                      "tools/list probe is unknown/incomplete.")})
-         :missing-required-output-pattern "supersed")
-    ;; missing the unknown/incomplete framing
-    (neg "eval1 missing unknown"
-         (score-eval e1 {:eval_id 1
-                         :tool_calls []
-                         :output (str "Causal ledger: bound to its initiating call. "
-                                      "cart-dev-b supersedes cart-dev-a. Excluded the "
-                                      "invoice-export CI from another worker.")})
-         :missing-required-output-pattern "unknown")
-    ;; missing the exclusion framing
-    (neg "eval1 missing exclusion"
-         (score-eval e1 {:eval_id 1
-                         :tool_calls []
-                         :output (str "Causal ledger: bound to its initiating call. "
-                                      "cart-dev-b supersedes cart-dev-a. The tools/list "
-                                      "probe is unknown/incomplete.")})
-         :missing-required-output-pattern "exclud")
-    ;; superseded state presented as current/final
-    (neg "eval1 superseded-as-current"
-         (score-eval e1 {:eval_id 1
-                         :tool_calls []
-                         :output (str "Causal ledger: bound to its initiating call. "
-                                      "cart-dev-b's attach supersedes cart-dev-a; but the "
-                                      "session is still :no-runtime-connected. Excluded the "
-                                      "invoice-export CI. The tools/list probe is "
-                                      "unknown/incomplete.")})
-         :forbidden-output-pattern "no-runtime-connected")
-    ;; delayed cart-dev-a result mis-bound into a cart-dev-b regression
-    (neg "eval1 cart-dev-b regressed"
-         (score-eval e1 {:eval_id 1
-                         :tool_calls []
-                         :output (str "Causal ledger: bound to its initiating call. "
-                                      "cart-dev-b supersedes cart-dev-a, but then cart-dev-b "
-                                      "broke and went down. Excluded the invoice-export CI. "
-                                      "The tools/list probe is unknown/incomplete.")})
-         :forbidden-output-pattern "cart-dev-b")
-    ;; unrelated invoice-export CI framed as this session's root cause
-    (neg "eval1 CI as root cause"
-         (score-eval e1 {:eval_id 1
-                         :tool_calls []
-                         :output (str "Causal ledger: bound to its initiating call. "
-                                      "cart-dev-b supersedes cart-dev-a. The invoice-export "
-                                      "CI failure was the root cause of the session "
-                                      "friction; an unrelated worker run also appeared. The "
-                                      "tools/list probe is unknown/incomplete.")})
-         :forbidden-output-pattern "invoice-export")
-    ;; known-good eval 1
-    (pos "eval1"
-         (score-eval e1 {:eval_id 1
-                         :tool_calls []
-                         :output (str "Session scope: the cart-dev-b attach + "
-                                      ":cart/apply-coupon dispatch + :main epoch walk on the "
-                                      "coupon bug (session sentinel sess-7f3c). Causal "
-                                      "ledger: the delayed :no-runtime-connected is bound to "
-                                      "its initiating call, the earlier cart-dev-a "
-                                      "discover-app — not to its late arrival. cart-dev-b's "
-                                      "successful attach supersedes that earlier cart-dev-a "
-                                      "result; cart-dev-b stayed healthy throughout. Excluded "
-                                      "(not pair-session friction): the invoice-export CI run "
-                                      "from another worker, the code-review comment, and the "
-                                      "app README edit. The tools/list probe never returned, "
-                                      "so it is unknown/incomplete — not scored as success or "
-                                      "failure.")}))
+    (let [s-causal    (str "Causal ledger: the delayed :no-runtime-connected is bound to "
+                           "its initiating call, the earlier cart-dev-a discover-app.")
+          s-supersede (str "cart-dev-b's successful attach supersedes that earlier "
+                           "cart-dev-a result; cart-dev-b stayed healthy.")
+          s-unknown   "The tools/list probe never returned, so it is unknown/incomplete."
+          s-exclude   (str "Excluded (not pair-session friction): the invoice-export CI run "
+                           "from another worker, the code-review comment, and the app "
+                           "README edit.")
+          good1       (str s-causal " " s-supersede " " s-unknown " " s-exclude)
+          content-free "Causal ledger. This item superseded the prior state. Another fact is unknown. Excluded unrelated noise."]
+
+      ;; ---- the exact content-free reproduction (rf2-j538f7.38 repro) fails
+      ;;      EVERY fixture binding, not merely one generic regex ----
+      (neg "eval1 content-free keyword soup"
+           (score-eval e1 {:eval_id 1 :tool_calls [] :output content-free})
+           :missing-required-binding "causal-ledger-cart-dev-a")
+      (let [r (score-eval e1 {:eval_id 1 :tool_calls [] :output content-free})]
+        (doseq [lbl ["causal-ledger-cart-dev-a" "supersession-b-over-a"
+                     "tools-list-unknown" "exclude-out-of-scope"]]
+          (check (fires-detail? r :missing-required-binding lbl)
+                 (str "content-free reproduction did not report missing binding "
+                      (pr-str lbl) "; failures=" (pr-str (:failures r))))))
+
+      ;; ---- wrong-binding negatives: all four fixture facts MENTIONED, but
+      ;;      ONE bound to the wrong entity → exactly that binding fires ----
+      ;; A) causal ledger bound to the WRONG build (cart-dev-b, not cart-dev-a)
+      (neg "eval1 causal bound to wrong build"
+           (score-eval e1 {:eval_id 1 :tool_calls []
+                           :output (str "Causal ledger: the delayed :no-runtime-connected "
+                                        "is bound to its initiating call, cart-dev-b's "
+                                        "discover-app. " s-supersede " " s-unknown " " s-exclude)})
+           :missing-required-binding "causal-ledger-cart-dev-a")
+      ;; B) supersession stated in the WRONG direction (cart-dev-a over cart-dev-b)
+      (neg "eval1 supersession wrong direction"
+           (score-eval e1 {:eval_id 1 :tool_calls []
+                           :output (str s-causal " cart-dev-a's stale attach supersedes "
+                                        "cart-dev-b's earlier result; cart-dev-b stayed "
+                                        "healthy. " s-unknown " " s-exclude)})
+           :missing-required-binding "supersession-b-over-a")
+      ;; C) unknown/incomplete attached to the WRONG item (a build, not tools/list)
+      (neg "eval1 unknown bound to wrong item"
+           (score-eval e1 {:eval_id 1 :tool_calls []
+                           :output (str s-causal " " s-supersede " The tools/list probe "
+                                        "returned a clean result. Meanwhile the cart-dev-a "
+                                        "call is unknown/incomplete. " s-exclude)})
+           :missing-required-binding "tools-list-unknown")
+      ;; D) an IN-SCOPE build excluded as noise (wrong exclusion target)
+      (neg "eval1 excludes an in-scope build"
+           (score-eval e1 {:eval_id 1 :tool_calls []
+                           :output (str s-causal " " s-supersede " " s-unknown
+                                        " Excluded the cart-dev-b attach as unrelated noise.")})
+           :missing-required-binding "exclude-out-of-scope")
+
+      ;; ---- forbidden-pattern negatives: all four bindings satisfied so only
+      ;;      the forbidden regex fires ----
+      ;; superseded state presented as current/final
+      (neg "eval1 superseded-as-current"
+           (score-eval e1 {:eval_id 1 :tool_calls []
+                           :output (str good1 " But the session is still "
+                                        ":no-runtime-connected.")})
+           :forbidden-output-pattern "no-runtime-connected")
+      ;; delayed cart-dev-a result mis-bound into a cart-dev-b regression
+      (neg "eval1 cart-dev-b regressed"
+           (score-eval e1 {:eval_id 1 :tool_calls []
+                           :output (str s-causal " cart-dev-b's attach supersedes "
+                                        "cart-dev-a, but then cart-dev-b broke and went "
+                                        "down. " s-unknown " " s-exclude)})
+           :forbidden-output-pattern "cart-dev-b")
+      ;; unrelated invoice-export CI framed as this session's root cause
+      (neg "eval1 CI as root cause"
+           (score-eval e1 {:eval_id 1 :tool_calls []
+                           :output (str s-causal " " s-supersede " " s-unknown
+                                        " Excluded (not pair-session friction): the "
+                                        "code-review comment and the app README edit. "
+                                        "The invoice-export CI failure was the root cause "
+                                        "of the session friction.")})
+           :forbidden-output-pattern "invoice-export")
+
+      ;; known-good eval 1 — every fixture fact bound to its right entity
+      (pos "eval1"
+           (score-eval e1 {:eval_id 1 :tool_calls []
+                           :output (str "Session scope: the cart-dev-b attach + "
+                                        ":cart/apply-coupon dispatch + :main epoch walk on "
+                                        "the coupon bug (session sentinel sess-7f3c). "
+                                        good1)})))
 
     ;; =====================================================================
-    ;; EVAL 2 — ask-when-ambiguous.
+    ;; EVAL 2 — ask-when-ambiguous AND name both candidate sessions.
     ;; =====================================================================
-    ;; missing the ask (produced a retro instead of asking)
+    ;; named both candidates but did NOT ask (produced a retro instead)
     (neg "eval2 missing ask"
          (score-eval e2 {:eval_id 2
                          :tool_calls []
-                         :output "I reviewed the pair work and produced a friction list."})
+                         :output (str "Two pair sessions here: the cart-coupon session and "
+                                      "the auth-login session. I went ahead and reviewed them.")})
          :missing-required-output-pattern "which session")
-    ;; merged the two sessions
+    ;; a context-free ask that identifies NEITHER candidate session
+    (neg "eval2 context-free ask"
+         (score-eval e2 {:eval_id 2
+                         :tool_calls []
+                         :output "Which session should I review?"})
+         :missing-required-binding "names-both-candidates")
+    ;; merged the two sessions (both named, asked, then merged anyway)
     (neg "eval2 merged sessions"
          (score-eval e2 {:eval_id 2
                          :tool_calls []
-                         :output (str "Which session do you want? Meanwhile I merged the "
-                                      "two sessions into one friction list.")})
+                         :output (str "Two sessions: the cart-coupon session and the "
+                                      "auth-login session. Which session do you want? "
+                                      "Meanwhile I merged the two sessions into one "
+                                      "friction list.")})
          :forbidden-output-pattern "merg")
     ;; known-good eval 2
     (pos "eval2"
