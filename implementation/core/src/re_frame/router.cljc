@@ -1152,6 +1152,31 @@
                          :frame             frame}
                   phase (assoc :rf.trace/phase phase)))))
 
+(defn- restore-flow-snapshots!
+  "Roll the flow dirty-check (`last-inputs`) rows and the in-drain
+  abandoned-output-path queue BACK to the pre-transform snapshots the
+  outermost flows `:after` stashed on `ctx`, for an event that is NOT going to
+  commit (rf2-1b8yxb). The flow transform advances a recomputed flow's row and
+  read-and-clears the queued vacations EAGERLY, folding the result into the
+  pending `:db`; whether that `:db` lands is decided AFTER the chain, so every
+  NON-COMMIT outcome must undo those eager side effects in lock-step with the
+  discarded `:db` — else a fresh flow's output never re-materialises
+  (`last-inputs` stuck advanced past a write that never landed, Spec 013
+  §Failure semantics rule 2) and a queued vacation is lost (§clear-flow
+  cleanup). Shared by BOTH the post-commit schema rollback (below) AND the
+  in-band pre-commit aborts in `commit-and-flow!` (legacy-runtime-root /
+  classification-effect-shape) — the boundaries `run-flows-on-db`'s own
+  throw arm cannot reach. Frame-scoped and idempotent: a no-op when no flow
+  ran (the snapshot keys are absent) or the flows artefact never loaded (the
+  restore hooks are nil)."
+  [ctx frame]
+  (when (contains? ctx :rf/flow-last-inputs-before)
+    (when-let [restore-li (late-bind/get-fn-cached :flows/restore-last-inputs!)]
+      (restore-li frame (:rf/flow-last-inputs-before ctx))))
+  (when (contains? ctx :rf/flow-abandoned-paths-before)
+    (when-let [restore-ap (late-bind/get-fn-cached :flows/restore-abandoned-paths!)]
+      (restore-ap frame (:rf/flow-abandoned-paths-before ctx)))))
+
 (defn- commit-frame-effects!
   "Install the partitioned frame transition atomically (EP-0001,
   Spec 002 §Drain-loop pseudocode §commit + §An ordinary :db return replaces
@@ -1453,22 +1478,13 @@
                                frame
                                {frame/app-partition-key     db-before
                                 frame/runtime-partition-key runtime-restore})]
-              ;; Roll back the flow dirty-check
-              ;; (`last-inputs`) bookkeeping in lock-step with the app-db
-              ;; (frame-scoped). No-op when no flow ran or the
-              ;; flows artefact never loaded.
-              (when (contains? ctx :rf/flow-last-inputs-before)
-                (when-let [restore-li (late-bind/get-fn-cached :flows/restore-last-inputs!)]
-                  (restore-li frame (:rf/flow-last-inputs-before ctx))))
-              ;; Re-record the IN-DRAIN abandoned output paths the
-              ;; flow transform drained-and-cleared. The pending `:db` (which
-              ;; carried the vacated state) was just discarded by the rollback,
-              ;; so the `:path` move must re-attempt next drain rather than be
-              ;; silently lost — the exact mirror of the `last-inputs` restore
-              ;; above, at the post-commit boundary `run-flows-on-db` can't see.
-              (when (contains? ctx :rf/flow-abandoned-paths-before)
-                (when-let [restore-ap (late-bind/get-fn-cached :flows/restore-abandoned-paths!)]
-                  (restore-ap frame (:rf/flow-abandoned-paths-before ctx))))
+              ;; Roll back the flow dirty-check (`last-inputs`) rows AND re-
+              ;; record the in-drain abandoned output-path vacations the flow
+              ;; transform advanced/drained, in lock-step with the app-db
+              ;; rollback (frame-scoped) — the shared non-commit restore
+              ;; (rf2-1b8yxb) at the post-commit boundary `run-flows-on-db`
+              ;; can't see.
+              (restore-flow-snapshots! ctx frame)
               (when (contains? rb-changed frame/app-partition-key)
                 (emit-db-event! :rf.event/db-changed event-id emit-event frame :rollback))
               (emit-frame-state-changed! event-id emit-event frame rb-changed :rollback))
@@ -1564,7 +1580,27 @@
     :rf/default? true
     :after
     (fn [ctx]
-      (let [frame       (:rf.frame/id (:coeffects ctx))
+      ;; Chain-error short-circuit (rf2-1b8yxb): `execute-chain` runs the
+      ;; FULL `:after` pass for teardown even after a `:before` / handler /
+      ;; cofx / user-`:after` throw was captured into `:rf/interceptor-error`
+      ;; (interceptor.cljc). This framework-OUTERMOST flows `:after` is the
+      ;; LAST to fire, so without this guard it would run the flow transform
+      ;; against a DOOMED pending db — eagerly advancing each recomputed
+      ;; flow's dirty-check (`last-inputs`) row (flows.cljc) and read-and-
+      ;; clearing the queued in-drain output-path vacations (registry.cljc) —
+      ;; even though `commit-and-flow!` is about to abort THIS event
+      ;; (`:error`) WITHOUT committing. That poisons the dirty-check (a fresh
+      ;; flow's output never re-materialises), loses a queued vacation, and
+      ;; emits spurious `:rf.flow/computed` / t2 traces on an aborted event
+      ;; (Spec 013 §Failure semantics rule 2 / §clear-flow cleanup). When the
+      ;; chain already errored the event is over: return `ctx` untouched — no
+      ;; flow transform, no `last-inputs` advance, no vacation drain, no
+      ;; t1/t2. (A flow-eval throw is a DISTINCT category stashed under
+      ;; `:rf/flow-error`, NOT `:rf/interceptor-error`, so the flow-throw
+      ;; atomicity path below is unaffected.)
+      (if (:rf/interceptor-error ctx)
+        ctx
+        (let [frame       (:rf.frame/id (:coeffects ctx))
             effects     (:effects ctx)
             has-db?     (contains? effects :db)
             ;; EP-0001 §535-551: a runtime-db write also lands as
@@ -1717,7 +1753,7 @@
           ;; apps that never registered any flow). t1 above already fired
           ;; when the handler returned `:db`; t2 is by definition
           ;; impossible here (no flow could have transformed the value).
-          ctx)))))
+          ctx))))))
 
 (defn- emit-flow-eval-exception!
   "Surface a flow-eval throw (stashed by `flows-after-interceptor` under
@@ -2199,7 +2235,16 @@
     (when error
       (emit-pipeline-exception! error event-id event frame final-ctx start-ms))
     (cond
-      error :error
+      ;; A captured chain error (`:before` / handler / cofx / user-`:after`
+      ;; throw). The flows `:after` short-circuits on `:rf/interceptor-error`
+      ;; (rf2-1b8yxb) so NO dirty-check / vacation state was advanced and no
+      ;; snapshot was stashed — the restore is a belt-and-braces no-op kept for
+      ;; uniformity across the non-commit arms (and defence-in-depth should the
+      ;; short-circuit ever be weakened).
+      error
+      (do
+        (restore-flow-snapshots! final-ctx frame)
+        :error)
       ;; Per Spec 013 §Failure semantics (atomicity contract, Mike
       ;; 2026-05-24): a flow's `:derive` threw during the outermost
       ;; `:after` flow transform. A flow throw is a PRE-INSTALL throw, so
@@ -2228,6 +2273,12 @@
       (events/legacy-runtime-root? (:db effects))
       (do
         (emit-legacy-runtime-root! event event-id frame start-ms)
+        ;; The chain ran CLEANLY (no `:rf/interceptor-error`), so the flows
+        ;; `:after` DID advance the dirty-check + drain vacations and stash the
+        ;; snapshots before this in-band abort discards the pending `:db`.
+        ;; Restore them so a flow's row never advances past a write that did
+        ;; not land (rf2-1b8yxb).
+        (restore-flow-snapshots! final-ctx frame)
         :error)
       ;; EP-0025 FINAL-effects boundary: a malformed commit-plane classification
       ;; effect (`:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`)
@@ -2241,6 +2292,10 @@
       class-defect
       (do
         (emit-classification-effect-shape! class-defect event event-id frame start-ms)
+        ;; Same clean-chain in-band abort as legacy-root above: the flows
+        ;; `:after` advanced/stashed before this abort discards the pending
+        ;; `:db`, so roll the dirty-check + vacations back (rf2-1b8yxb).
+        (restore-flow-snapshots! final-ctx frame)
         :error)
       ;; Per Spec 010 §Per-step recovery row 4: `commit-frame-effects!`
       ;; returns false when post-commit app-db schema validation rejected

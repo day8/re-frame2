@@ -445,7 +445,13 @@
 (deftest flow-failed-fires-when-output-throws
   (testing "a flow whose :derive fn throws emits :rf.flow/failed; the exception propagates"
     (rf/reg-event :init       (fn [{:keys [db]} _] {:db {:n 1}}))
-    (rf/reg-event :bump       (fn [{:keys [db]} _] {:db (update db :n inc)}))
+    ;; A CLEAN re-attempt trigger: the initial `:init` drain aborts (the flow
+    ;; throws), so app-db never commits `:n` and an `(update db :n inc)` here
+    ;; would NPE — making `:bump` itself a HANDLER-throw, on which the flows
+    ;; `:after` is now correctly suppressed (rf2-1b8yxb). Set an absolute value
+    ;; so `:bump` is a clean input change (its handler cannot throw) whose flow
+    ;; re-attempt is a FLOW throw, not an aborted-event spurious computation.
+    (rf/reg-event :bump       (fn [{:keys [db]} _] {:db (assoc db :n 2)}))
     (rf/reg-flow :boom {:inputs [[:n]] :output-path [:doomed]} (fn [_] (throw (ex-info "boom" {:why :test}))))
     (reset! *captured* [])
     ;; The router catches the cascade-level throw and emits
