@@ -22,6 +22,7 @@
             [re-frame.resources.classification :as classification]
             [re-frame.resources.mutation-runtime :as mstate]
             [re-frame.resources.params :as params]
+            [re-frame.resources.scope-registry :as scope-registry]
             [re-frame.resources.state :as state]
             [re-frame.source-coords :as source-coords]))
 
@@ -396,26 +397,67 @@
   "Resolve the cache scope a mutation's invalidation / patch defaults to,
   in precedence order: the execute payload `:scope`, else the mutation
   spec's `:scope`, else `:rf.scope/global`. A mutation's EXECUTION scope has
-  NO fail-closed scope requirement (it is a causal write, not a cached read
-  with a leak boundary), so defaulting to `:rf.scope/global` is correct here.
-  This is distinct from the mutation's INVALIDATION scope, which IS
-  fail-closed: `:rf.resource/invalidate-tags` throws
+  NO fail-closed scope requirement on ABSENCE (it is a causal write, not a
+  cached read with a leak boundary), so defaulting to `:rf.scope/global`
+  when NO scope is named anywhere is correct here. This is distinct from the
+  mutation's INVALIDATION scope, which IS fail-closed:
+  `:rf.resource/invalidate-tags` throws
   `:rf.error/resource-invalidate-scope-required` without an explicit scope
   (rf2-pvdae1), `:cross-scope? true` being the only scope-agnostic opt-out.
   The resolved scope below is what the success-time invalidation supplies, so
-  the two compose: this fail-open execution default decides which cache scope
-  the success-time `:invalidate-tags` /
-  patch / populate target.
+  the two compose: this fail-open-on-absence execution default decides which
+  cache scope the success-time `:invalidate-tags` / patch / populate target.
 
-  Routes the resolved concrete scope through the SAME shared validation
-  path resources use (`state/canonicalize-scope`, rf2-lzv9xc): a host /
-  opaque scope value is rejected, a misspelled reserved `:rf.scope/*`
+  **The selected scope is a public ScopeInput** (rf2-l11670, Spec 016
+  §Resolver references): a CONCRETE scope value OR a `{:from-db
+  <resolver-id>}` named-resolver reference, resolved against `db` (the
+  execute handler's app-db coeffect) at event-execution time through the
+  single symmetric resolution arm (`scope-registry/resolve-scope-input`) —
+  `:rf.mutation/execute` is its third consumer, alongside the direct
+  invalidate-tags / clear-scope events (rf2-oo8cv7). A reference is NEVER
+  canonicalized literally (a literal `{:from-db …}` map keys nothing, so
+  every downstream tag match fails as a silent zero-match — the exact
+  failure mode rf2-oo8cv7 eliminated on invalidate-tags). The mutation
+  engine, trace, instance record, and continuation projections only ever
+  see the RESOLVED concrete scope. An unregistered resolver id throws
+  `:rf.error/resource-scope-not-registered` (via the shared arm) BEFORE any
+  mutation start.
+
+  Nil policy (Spec 016's fail-closed law): an EXPLICITLY supplied reference
+  — payload or spec tier — that resolves NIL throws
+  `:rf.error/resource-scope-unresolved-reference`. Execute is
+  scope-requiring for a supplied reference, like ensure / invalidate-tags —
+  NOT clear-scope's warn/no-op, and NOT the fail-open global default: a
+  session-derived write executing while logged out must fail loudly, never
+  silently operate on global entries (the cross-viewer leak). Fail-open
+  governs ONLY the absent case (no payload scope, no spec scope).
+
+  The concrete arm routes through the SAME shared validation path resources
+  use (`state/canonicalize-scope` via `resolve-scope-input`, rf2-lzv9xc): a
+  host / opaque scope value is rejected, a misspelled reserved `:rf.scope/*`
   keyword is rejected fail-closed (rf2-pd7akw), and the reserved global
   scope wrapped as the singleton `[:rf.scope/global]` is rejected fail-closed
   in favour of the canonical bare `:rf.scope/global` (rf2-bwwk6l) — so a
   mutation can never invalidate / patch a silent WRONG cache scope. Returns
-  the canonical scope. Per EP-0003 §Mutations (hybrid scope: fail-open
-  execution default, fail-closed invalidation)."
-  [mutation-id spec payload-scope]
-  (let [scope (or payload-scope (:scope spec) :rf.scope/global)]
-    (state/canonicalize-scope scope 'rf.mutation/execute mutation-id)))
+  the canonical concrete scope. Per EP-0003 §Mutations (hybrid scope:
+  fail-open on ABSENT execution scope, fail-closed on a wrong or
+  nil-resolving supplied one)."
+  [mutation-id spec payload-scope db]
+  (let [scope    (or payload-scope (:scope spec) :rf.scope/global)
+        from-db? (scope-registry/from-db-reference? scope)
+        resolved (scope-registry/resolve-scope-input
+                   scope db 'rf.mutation/execute mutation-id)]
+    (when (and from-db? (nil? resolved))
+      (error/throw-error!
+        :rf.error/resource-scope-unresolved-reference
+        'rf.mutation/execute
+        (str "a :rf.mutation/execute {:from-db …} :scope referenced named "
+             "scope resolver " (pr-str (:from-db scope)) ", but it resolved "
+             "NIL against the current db — FAIL-CLOSED. A derived scope that "
+             "cannot resolve is the unresolved condition, never permission "
+             "to execute against the global scope or fall through to another "
+             "tier. The resolver's declared :inputs are not present in db "
+             "(e.g. no logged-in user). Per Spec 016 §Resolver references.")
+        {:recovery :fix-scope
+         :extra    {:mutation-id mutation-id :from-db (:from-db scope)}}))
+    resolved))

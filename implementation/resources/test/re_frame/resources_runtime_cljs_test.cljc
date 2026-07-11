@@ -1133,19 +1133,19 @@
             :rf.scope/* typo is rejected through the same path resources use"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-invalid-scope"
-          (mreg/resolve-scope :m/x {} :rf.scope/glabal))))
+          (mreg/resolve-scope :m/x {} :rf.scope/glabal {}))))
   (testing "rf2-lzv9xc — a host / opaque mutation scope value is rejected"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-non-edn-params"
-          (mreg/resolve-scope :m/x {} {:fn (fn [])}))))
+          (mreg/resolve-scope :m/x {} {:fn (fn [])} {}))))
   (testing "rf2-lzv9xc — the default global scope still resolves to the bare
             :rf.scope/global"
-    (is (= :rf.scope/global (mreg/resolve-scope :m/x {} nil))))
+    (is (= :rf.scope/global (mreg/resolve-scope :m/x {} nil {}))))
   (testing "rf2-bwwk6l — the wrapped [:rf.scope/global] singleton is rejected
             fail-closed (no back-compat alias); supply the bare keyword"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-invalid-scope"
-          (mreg/resolve-scope :m/x {} [:rf.scope/global])))))
+          (mreg/resolve-scope :m/x {} [:rf.scope/global] {})))))
 
 ;; ===========================================================================
 ;; 17. resource-state fails closed without an explicit frame (rf2-c8lgy3)

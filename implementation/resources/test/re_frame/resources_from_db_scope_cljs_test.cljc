@@ -34,6 +34,8 @@
    ;; events / subs and resources' late-bound :routing/* integration hooks.
    [re-frame.resources]
    [re-frame.resources.events :as events]
+   [re-frame.resources.mutation-events :as mutation-events]
+   [re-frame.resources.mutation-runtime :as mstate]
    [re-frame.resources.registry :as registry]
    [re-frame.resources.route :as route]
    [re-frame.resources.state :as state]
@@ -651,3 +653,165 @@
              :db {:auth {:user {:username "jake"}}} :rf/time-ms 1}
             [:rf.resource/invalidate-tags
              {:scope {:from-db :t/nope} :tags #{[:feed]}}])))))
+
+;; ===========================================================================
+;; rf2-l11670 — :rf.mutation/execute resolves a `{:from-db <id>}` :scope
+;; SYMMETRICALLY with ensure / clear-scope / invalidate-tags (Spec 016
+;; §Resolver references — the single use-time rule; `resolve-scope-input`'s
+;; third consumer). Previously the execute payload :scope canonicalized a
+;; {:from-db …} reference LITERALLY under the fail-open global default — the
+;; literal map keyed nothing, so every downstream tag match was a silent
+;; zero-match. Execute now resolves the reference against the handler's app-db
+;; coeffect; a supplied reference resolving nil THROWS (scope-requiring, like
+;; ensure / invalidate-tags — NOT the fail-open global default); the ABSENT
+;; :scope global default is unchanged.
+;; ===========================================================================
+
+(defn- minstance
+  "The durable mutation instance row for `instance-id` (byte-key addressed)."
+  [instance-id]
+  (get-in (runtime-db) (mstate/instance-path instance-id)))
+
+(defn- reg-save-mutation!
+  "Register the `:t/save` test mutation with `extra` merged into its metadata
+  (e.g. an :invalidates plan + timing). Managed HTTP is stubbed by init!."
+  [extra]
+  (rf/reg-mutation :t/save
+    (merge {:params-schema [:map]} extra)
+    (fn [_p _ctx] {:request {:method :post :url "/save"}})))
+
+(deftest execute-from-db-resolves-identically-to-ensure
+  ;; The core symmetry proof: ensure resolves {:from-db :t/session} to jake's
+  ;; session key; an execute carrying the SAME reference resolves the SAME
+  ;; concrete scope — the instance records it, and the mutation-level default
+  ;; drives the (before-request) tag match in that resolved scope, marking
+  ;; exactly the entry ensure created.
+  (rf/dispatch-sync [:t/login "jake"])
+  (rf/dispatch-sync [:rf.resource/ensure {:resource :t/feed :params {:page 1}
+                                          :owner [:lease :m 1]}])
+  (settle-loaded! (session-key "jake" 1) {:for "jake"})
+  ;; release the owner so the invalidation MARKS STALE (a live owner would
+  ;; refetch + satisfy the invalidation, masking the durable stale fact)
+  (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :m 1]}])
+  ;; bare tag-set :invalidates ≡ :rf.scope/same (the mutation's RESOLVED
+  ;; execution scope); :before-request timing fires it at execute time, so no
+  ;; reply settling is needed to observe the scope the default resolved to.
+  (reg-save-mutation! {:invalidates       (fn [_p _r] #{[:feed]})
+                       :invalidate-timing :before-request})
+  (rf/dispatch-sync [:rf.mutation/execute {:mutation :t/save :params {}
+                                           :instance :save-1
+                                           :scope {:from-db :t/session}}])
+  (testing "the instance row records the RESOLVED concrete scope — never the
+            {:from-db} reference map (no reference in egress, rf2-l11670)"
+    (is (= [:rf.scope/session {:username "jake"}] (:scope (minstance :save-1))))
+    (is (not= {:from-db :t/session} (:scope (minstance :save-1)))))
+  (testing "the mutation-level default drove the tag match in the RESOLVED
+            scope — jake's session entry ensure created is marked stale
+            (symmetric use-time resolution, never a literal-map zero-match)"
+    (is (some? (:invalidated-at (entry (session-key "jake" 1)))))))
+
+(deftest execute-descriptor-scope-still-overrides-resolved-default
+  ;; A descriptor-level per-target :scope still OVERRIDES the mutation-level
+  ;; resolved default: a mutation whose execution scope resolves to jake's
+  ;; session invalidates a :rf.scope/global descriptor target in GLOBAL.
+  (rf/dispatch-sync [:t/login "jake"])
+  (rf/reg-resource :t/gnotes
+    {:scope         :rf.scope/global
+     :params-schema [:map]
+     :tags          (fn [_p _v] #{[:gfact]})}
+    (fn [_p _ctx] {:request {:method :get :url "/gnotes"}}))
+  (let [gkey (state/scoped-resource-key :rf.scope/global :t/gnotes {})]
+    (rf/dispatch-sync [:rf.resource/ensure {:resource :t/gnotes :params {}
+                                            :owner [:lease :g 1]}])
+    (settle-loaded! gkey {:g 1})
+    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :g 1]}])
+    (reg-save-mutation! {:invalidates       (fn [_p _r]
+                                              [{:scope :rf.scope/global
+                                                :tags  #{[:gfact]}}])
+                         :invalidate-timing :before-request})
+    (rf/dispatch-sync [:rf.mutation/execute {:mutation :t/save :params {}
+                                             :instance :save-g1
+                                             :scope {:from-db :t/session}}])
+    (testing "the execution scope resolved to jake's session on the instance"
+      (is (= [:rf.scope/session {:username "jake"}] (:scope (minstance :save-g1)))))
+    (testing "the descriptor's own :rf.scope/global governed its match — the
+              global entry is stale despite the session-resolved default"
+      (is (some? (:invalidated-at (entry gkey)))))))
+
+(deftest execute-from-db-nil-fails-closed-like-ensure
+  ;; a {:from-db} execute :scope resolving nil is FAIL-CLOSED with a THROW
+  ;; (:rf.error/resource-scope-unresolved-reference) — execute is
+  ;; scope-requiring for a SUPPLIED reference, like ensure / invalidate-tags,
+  ;; NOT the fail-open global default and NOT clear-scope's warn/no-op.
+  (reg-save-mutation! {})
+  (testing "the handler boundary throws the canonical unresolved-reference
+            error BEFORE any mutation start (asserted at the fn boundary — the
+            event loop otherwise surfaces a handler throw via the runtime
+            error path)"
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"resource-scope-unresolved-reference"
+          (mutation-events/execute-handler
+            {:rf.db/runtime {} :rf.frame/id :rf/default :db {} :rf/time-ms 1
+             :rf.resource/generation-allocation {:generation 1 :counter 1}}
+            [:rf.mutation/execute {:mutation :t/save :params {}
+                                   :instance :save-nil
+                                   :scope {:from-db :t/session}}]))))
+  (testing "exactly one :rf.resource/scope-resolved (:resolved-nil? true) row
+            is emitted before the throw (the causal evidence)"
+    (let [rows (record-scope-resolved!
+                 (fn []
+                   (try
+                     (mutation-events/execute-handler
+                       {:rf.db/runtime {} :rf.frame/id :rf/default :db {}
+                        :rf/time-ms 1
+                        :rf.resource/generation-allocation {:generation 1 :counter 1}}
+                       [:rf.mutation/execute {:mutation :t/save :params {}
+                                              :instance :save-nil
+                                              :scope {:from-db :t/session}}])
+                     (catch #?(:clj Throwable :cljs :default) _ nil))))
+          row  (some (fn [ev] (when (= :t/session (:resource-id (:tags ev))) (:tags ev))) rows)]
+      (is (some? row) "a scope-resolved row fired for the :t/session resolver")
+      (is (true? (:resolved-nil? row)) "the row records the nil resolution")
+      (is (nil? (:scope row)) "with a nil resolved scope")))
+  (testing "dispatched through the event the failure is caught by the runtime
+            error path — NO instance row exists and NO entry was touched
+            (no mutation start: fail-closed, never a global-default write)"
+    (rf/dispatch-sync [:rf.mutation/execute {:mutation :t/save :params {}
+                                             :instance :save-nil
+                                             :scope {:from-db :t/session}}])
+    (is (nil? (minstance :save-nil)) "no instance record was minted")
+    (is (empty? (entries)) "no entry created / touched under any scope")))
+
+(deftest execute-from-db-unregistered-resolver-throws
+  (rf/dispatch-sync [:t/login "jake"])
+  (reg-save-mutation! {})
+  (testing "a {:from-db} execute :scope naming an UNREGISTERED resolver throws
+            :rf.error/resource-scope-not-registered before any mutation start"
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"resource-scope-not-registered"
+          (mutation-events/execute-handler
+            {:rf.db/runtime {} :rf.frame/id :rf/default
+             :db {:auth {:user {:username "jake"}}} :rf/time-ms 1
+             :rf.resource/generation-allocation {:generation 1 :counter 1}}
+            [:rf.mutation/execute {:mutation :t/save :params {}
+                                   :instance :save-x
+                                   :scope {:from-db :t/nope}}])))))
+
+(deftest execute-absent-and-concrete-scopes-unchanged
+  ;; The rf2-l11670 ruling governs only a SUPPLIED reference that fails to
+  ;; resolve: the ABSENT-:scope fail-open global default and the concrete
+  ;; pass-through are byte-for-byte unchanged.
+  (reg-save-mutation! {})
+  (testing "an ABSENT :scope keeps the documented fail-open :rf.scope/global
+            default (unchanged)"
+    (rf/dispatch-sync [:rf.mutation/execute {:mutation :t/save :params {}
+                                             :instance :save-abs}])
+    (is (= :rf.scope/global (:scope (minstance :save-abs)))))
+  (testing "a CONCRETE :scope passes through the shared canonicalization
+            unchanged"
+    (rf/dispatch-sync [:rf.mutation/execute
+                       {:mutation :t/save :params {}
+                        :instance :save-conc
+                        :scope [:rf.scope/session {:username "abel"}]}])
+    (is (= [:rf.scope/session {:username "abel"}]
+           (:scope (minstance :save-conc))))))

@@ -667,11 +667,14 @@
 (defn resolve-scope-input
   "Resolve a public ScopeInput — a CONCRETE scope value OR a `{:from-db <id>}`
   named-resolver reference — to a canonical concrete cache scope, for a
-  scope-taking resource OPERATION at a CAUSAL boundary (the direct
-  `:rf.resource/invalidate-tags` and `:rf.resource/clear-scope` events). The
+  scope-taking OPERATION at a CAUSAL boundary (the direct
+  `:rf.resource/invalidate-tags` and `:rf.resource/clear-scope` events, and
+  the `:rf.mutation/execute` execution-scope resolution — its third consumer,
+  rf2-l11670). The
   single symmetric resolution arm (rf2-oo8cv7) so a `{:from-db …}` reference
   resolves IDENTICALLY at every public scope slot (event ensure / clear-scope /
-  invalidate-tags) — never a raw literal-canonicalize exception, which keys
+  invalidate-tags / mutation execute) — never a raw literal-canonicalize
+  exception, which keys
   nothing and fails as a silent zero-match. Per Spec 016 §Resolver references —
   the single use-time resolution rule, uniform across every site.
 
@@ -686,10 +689,11 @@
   Returns the canonical concrete scope, or nil ONLY when a `{:from-db …}`
   reference resolved nil (its declared `:inputs` are absent — e.g. no logged-in
   user). The nil POLICY stays per-operation at the CALL SITE: a scope-REQUIRING
-  operation (ensure / invalidate) throws
+  operation (ensure / invalidate / a supplied execute reference) throws
   `:rf.error/resource-scope-unresolved-reference`; the destructive-teardown
   clear-scope warns + no-ops (its deliberate exception). `where` names the
-  boundary; `resource-id` scopes the concrete-scope validation error (nil for a
+  boundary; `resource-id` scopes the concrete-scope validation error (the
+  mutation id for `:rf.mutation/execute`; nil for a
   tag invalidation that spans resources). Throws
   `:rf.error/resource-scope-not-registered` (via `resolve-from-db-reference`)
   when a reference names an unregistered resolver — before any mutation."

@@ -1139,6 +1139,20 @@
   §Deferred slices / EP-0003 §Mutations. Payload:
   `{:mutation :params :instance :scope :cause}`.
 
+  **`:scope` is a public ScopeInput** (rf2-l11670, Spec 016 §Resolver
+  references): a CONCRETE scope value OR a `{:from-db <resolver-id>}`
+  named-resolver reference, resolved against this handler's app-db coeffect
+  at event-execution time — SYMMETRIC with ensure / clear-scope /
+  invalidate-tags (`scope-registry/resolve-scope-input`, via
+  `mreg/resolve-scope`). A supplied reference that resolves NIL is
+  FAIL-CLOSED with `:rf.error/resource-scope-unresolved-reference` (execute
+  is scope-requiring for a supplied reference — never a fall-through to the
+  global default); an unregistered resolver id throws
+  `:rf.error/resource-scope-not-registered`. Both throw BEFORE any instance
+  / work-ledger write, optimistic patch, or transport lowering. An ABSENT
+  `:scope` keeps the documented fail-open precedence (spec `:scope`, else
+  `:rf.scope/global`).
+
   Reuses the resource work-ledger substrate (work-kind `:mutation`), the
   host-side generation allocator (the same monotone, never-rewinding
   high-water mark — so a pre-restore in-flight reply can never match a
@@ -1171,7 +1185,19 @@
         ;; explicit `{:params nil}` reaches `:params-schema` unchanged.
         cparams    (mreg/validate+canonicalize-params
                      mutation spec (state/params-present? payload) where)
-        cscope     (mreg/resolve-scope mutation spec scope)
+        ;; rf2-l11670 — the payload / spec :scope is a public ScopeInput: a
+        ;; concrete scope OR a `{:from-db <id>}` named-resolver reference,
+        ;; resolved against THIS handler's app-db coeffect at event-execution
+        ;; time, symmetric with ensure / clear-scope / invalidate-tags (the
+        ;; single use-time rule). A supplied reference resolving nil throws
+        ;; :rf.error/resource-scope-unresolved-reference and an unregistered
+        ;; resolver throws :rf.error/resource-scope-not-registered — both
+        ;; BEFORE any instance / work-ledger write, optimistic patch, or
+        ;; transport lowering. Everything downstream (instance row, trace,
+        ;; invalidation plans, continuation reply) sees only the RESOLVED
+        ;; concrete scope. An ABSENT :scope keeps the documented fail-open
+        ;; :rf.scope/global default.
+        cscope     (mreg/resolve-scope mutation spec scope app-db)
         ;; rf2-e8wj5t — reject a non-serializable caller-supplied instance id
         ;; BEFORE any runtime-db / work-ledger write or HTTP lowering (the
         ;; instance id is durable + trace-visible + epoch-restore-safe). A nil
