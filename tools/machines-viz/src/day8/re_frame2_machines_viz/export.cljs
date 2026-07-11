@@ -28,8 +28,10 @@
     the edge layer — by embedding the live viewport DOM in a
     `<foreignObject>` (rf2-sr6l3). The node bodies render with inline
     styles, so the foreignObject paints the same visual grammar a
-    sighted user sees, not just the edge `<svg>`. Embedded fonts +
-    `<title>` / `<desc>` summarise the machine for a screen-reader.
+    sighted user sees, not just the edge `<svg>`. Fonts are referenced BY
+    NAME (JetBrains Mono, with a system-monospace fallback) — the glyph
+    files are NOT embedded, so a host lacking the named font renders the
+    fallback. `<title>` / `<desc>` summarise the machine for a screen-reader.
   - **PNG** rasterises that complete SVG to a 2x-DPR `image/png` Blob
     on a transparent background; a `text/plain` alt-text sidecar rides
     the clipboard alongside the image. Because the SVG now carries the
@@ -228,11 +230,13 @@
 ;; so every node body + the current-state highlight were lost.
 ;;
 ;; The fix embeds the live viewport DOM in a `<foreignObject>` inside a
-;; standalone SVG. Two facts make this faithful AND self-contained:
+;; standalone SVG. Two facts make this faithful AND STYLE-self-contained
+;; (the layout + grammar need no external stylesheet; fonts are referenced
+;; BY NAME, not embedded — see `viewport-css`):
 ;;
 ;;   1. Every node component (chart.nodes/*) renders with INLINE styles
 ;;      (`:style {...}` on each div — box geometry, border, header wash,
-;;      box-shadow glow, fonts). Inline styles travel with the cloned
+;;      box-shadow glow, font-family). Inline styles travel with the cloned
 ;;      HTML, so the foreignObject paints the same grammar the operator
 ;;      sees with no external stylesheet to embed.
 ;;   2. xyflow positions each `.react-flow__node` wrapper with an inline
@@ -244,8 +248,11 @@
 
 (def ^:private viewport-css
   "The minimal xyflow positioning rules the cloned viewport needs, plus
-  the embedded font + edge-path defaults — embedded as a `<style>` inside
-  the export SVG so the `<foreignObject>` lays the chart out correctly.
+  the font-family + edge-path defaults — declared BY NAME in a `<style>`
+  inside the export SVG so the `<foreignObject>` lays the chart out
+  correctly. NOTE: the font is NAMED (`'JetBrains Mono',… ,monospace`), not
+  embedded — no `@font-face` with glyph data is emitted, so a host without
+  the named font renders the system-monospace fallback (rf2-mx6u22).
 
   rf2-sr6l3 — xyflow positions the `.react-flow__node` wrappers via its
   EXTERNAL stylesheet (`@xyflow/react/dist/base.css` —
@@ -388,7 +395,8 @@
   "Serialise the FULL rendered chart to an `image/svg+xml` string —
   boxed state nodes, compound/region containers, event chips, final
   rings, labels, the active-state border/glow, AND the edge layer — with
-  embedded fonts + a `<title>` / `<desc>` machine summary.
+  fonts referenced BY NAME (system-monospace fallback, not embedded glyph
+  data) + a `<title>` / `<desc>` machine summary.
 
   rf2-sr6l3 — captures the live `.react-flow__viewport` DOM inside a
   `<foreignObject>` (the visual grammar renders as inline-styled divs

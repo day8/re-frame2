@@ -1883,7 +1883,8 @@ summarises the machine: id, current state, node count, transition count.
 ```clojure
 (export/chart-as-svg chart-element)
 ;; => String — image/svg+xml (a <foreignObject>-embedded viewport
-;;    capture) with embedded fonts
+;;    capture); fonts are referenced BY NAME (system-monospace fallback),
+;;    NOT embedded as glyph data (no @font-face)
 
 (export/copy-svg-to-clipboard! chart-element)
 ;; => Promise; clipboard contains the SVG as image/svg+xml
