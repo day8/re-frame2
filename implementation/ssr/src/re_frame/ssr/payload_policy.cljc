@@ -374,24 +374,40 @@
   `re-frame.projection/project-egress` (over the shared `elide-wire-value`
   walker) — never a family-private elider.
 
-  No-live-frame ⇒ the slice rides VERBATIM, mirroring the sibling machines
-  snapshot projection (`re-frame.machines.ssr/project-snapshot-data` rides
-  verbatim when `frame-id` is nil). The route classification is a PATH-precise
-  redaction of declared `:query` / `:params` slots — like machines, it is not a
-  fail-closed whole-value scrub: with no live frame there are no route
-  declarations to apply, so the durable route slice (already allowlisted to
-  `:current`) passes through. A real server render always carries the live
-  request frame, so the projection runs against that frame's route declarations.
-  This is why we do NOT hand a kindless slice straight to `project-egress` with
-  a nil frame (which would fail closed and redact the whole `:current` slice to
-  `:rf/redacted`)."
+  Fail-closed on a lost frame (rf2-j538f7.15): an EXPLICIT `frame-id` is handed
+  STRAIGHT to `project-egress`, which is PATH-precise under a LIVE frame (an
+  unclassified route slice rides verbatim — only the declared `:query` /
+  `:params` slots redact / elide) and FAILS CLOSED under a destroyed /
+  re-registered / unresolvable one (the whole `:current` slice redacts to
+  `:rf/redacted`). This is the SAME fail-closed posture as
+  `project-app-db-egress`. It closes the teardown-race leak: a `:current` route
+  slice captured while its frame was live no longer rides RAW once that frame is
+  torn down (or re-registered under the same id) between capture and projection —
+  its classification authority is gone, so the slice fails closed rather than
+  serialising declared `:query` / `:params` under no policy. The PRIOR guard
+  rode the slice VERBATIM whenever the frame was not live, which is exactly the
+  leak: a stale explicit target shipped the raw classified route state.
+
+  A nil `frame-id` is the frameless / ambient-nil convenience (the one-arity
+  `project-runtime-db` called outside any frame): there is no frame policy to
+  lose, so the already-allowlisted durable `:current` slice rides VERBATIM.
+  Handing a nil frame to `project-egress` would fail closed and redact the whole
+  slice — wrong for genuinely frameless projection. The security-critical
+  builders always pass the live request frame explicitly, so the fail-closed arm
+  governs every real render; the verbatim arm is only the no-target convenience."
   [slice frame-id]
-  (if (and (some? frame-id) (some? (frame/frame frame-id)))
+  (if (some? frame-id)
+    ;; Explicit target: project-egress is precise under a live frame and fails
+    ;; closed (redacts whole) under a destroyed / re-registered / unresolvable
+    ;; one — no longer routed around (the former verbatim else-branch was the
+    ;; rf2-j538f7.15 leak).
     (projection/project-egress
       slice
       {:frame             frame-id
        :path              [:rf.runtime/routing]
        :rf.egress/profile :rf.egress/ssr-hydration})
+    ;; No explicit target (frameless / ambient-nil convenience): no frame policy
+    ;; to lose, so the allowlisted durable slice rides verbatim.
     slice))
 
 ;; ---- runtime-db hydration projection --------------------------------------
@@ -527,11 +543,27 @@
    (project-runtime-db runtime-db (frame/resolve-current-frame)))
   ([runtime-db frame-id]
    (when (map? runtime-db)
-    (let [project-machines (late-bind/get-fn :machines/project-ssr-runtime-db)
+    (let [;; rf2-j538f7.15 — an EXPLICIT `frame-id` that no longer resolves to a
+          ;; LIVE frame (destroyed, or re-registered under the same id, between
+          ;; the caller's state capture and this projection) has lost the
+          ;; per-frame elision registry that classifies every user-bearing
+          ;; runtime-db slice. Routing fails closed on its own (`project-routing-
+          ;; egress` delegates to `project-egress`, which redacts a dead-frame
+          ;; slice whole); but the MACHINES snapshot hook and the RESOURCE
+          ;; extension hook classify PRECISELY only under a live frame and would
+          ;; otherwise ride the captured, still-classified state VERBATIM under
+          ;; absent policy — so when the explicit target is stale we do NOT
+          ;; invoke them: the machines slice redacts whole and the resource slice
+          ;; is omitted. A nil `frame-id` is the frameless / ambient-nil
+          ;; convenience (no frame policy to lose) and stays precise, matching the
+          ;; established one-arity contract.
+          stale-target?    (and (some? frame-id) (nil? (frame/frame frame-id)))
+          project-machines (late-bind/get-fn :machines/project-ssr-runtime-db)
           machines-slice   (when (contains? runtime-db :rf.runtime/machines)
-                             (if project-machines
-                               (project-machines runtime-db frame-id)
-                               (:rf.runtime/machines runtime-db)))
+                             (cond
+                               stale-target?    :rf/redacted
+                               project-machines (project-machines runtime-db frame-id)
+                               :else            (:rf.runtime/machines runtime-db)))
           ;; Allowlist the durable routing keys (only `:current` rides; the
           ;; transient `:pending-navigation` / counter siblings stay off the
           ;; wire — fail-closed), THEN project the surviving slice against the
@@ -575,7 +607,13 @@
                   ;; hook is re-signatured `[runtime-db frame-id]`), so it projects
                   ;; under the same frame as every other slice, never a borrowed /
                   ;; mismatched ambient one — no `binding` rebind of ambient scope.
-                  (merge slice (extend-fn runtime-db frame-id))
+                  ;; rf2-j538f7.15 — but under a STALE explicit target its derived
+                  ;; `:entries` would ride verbatim under absent policy, so fail
+                  ;; closed by OMITTING the resource slice (do not invoke the hook
+                  ;; with a dead frame).
+                  (if stale-target?
+                    slice
+                    (merge slice (extend-fn runtime-db frame-id)))
                   slice)]
       (when (seq slice) slice)))))
 

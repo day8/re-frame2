@@ -110,3 +110,39 @@
         "sanity: the ambient frame inside the body is B, not A")
     (let [payload (rf/with-frame ambient-frame (build-a))]
       (assert-frame-a-redacts payload "mismatched ambient B"))))
+
+;; ===========================================================================
+;; rf2-j538f7.15 — the non-streaming Ring wrapper fails CLOSED on a frame lost
+;; during teardown, mirroring the streaming builder. A frame whose route slice
+;; was captured while it was live must not have that slice ride RAW once the
+;; frame is destroyed between capture and projection — its classification
+;; authority is gone, so app-db + routing fail closed.
+;; ===========================================================================
+
+(deftest build-payload-fails-closed-on-destroyed-frame
+  (testing "rf2-j538f7.15 (acceptance #3) — ring.payload/build-payload called
+            with an EXPLICIT frame that was destroyed after its app-db /
+            runtime-db were captured fails closed: app-db redacts whole and the
+            classified route :current slice redacts, so no raw :query :token /
+            :params blob / app-db secret rides. Mirrors the streaming builder's
+            teardown-race fail-closed."
+    (setup-frames!)
+    (let [runtime-db (frame/frame-runtime-db-value server-frame)
+          app-db     {:secret "app-db-secret" :public "ok"}]
+      ;; Teardown race: the request frame is gone before the wrapper projects.
+      (rf/destroy-frame! server-frame)
+      (let [payload (payload/build-payload
+                      server-frame app-db runtime-db "hash"
+                      {:payload :rf.ssr.payload/whole-app-db})]
+        (is (= server-frame (:rf/frame-id payload))
+            "the payload still names frame A as its target")
+        (is (= :rf/redacted (:rf/app-db payload))
+            "app-db fails closed (project-app-db-egress redacts whole under the dead frame)")
+        (is (= :rf/redacted (get-in payload [:rf/runtime-db :rf.runtime/routing]))
+            "the routing slice fails closed via project-routing-egress")
+        (is (not (.contains (pr-str payload) "secret-oauth-token"))
+            "no raw route token survives")
+        (is (not (.contains (pr-str payload) "huge-callback-blob-value"))
+            "no raw route blob survives")
+        (is (not (.contains (pr-str payload) "app-db-secret"))
+            "no raw app-db secret survives")))))
