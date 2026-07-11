@@ -861,20 +861,18 @@
             "children pass through unchanged")))))
 
 (deftest frame-provider-missing-or-nil-frame-key-fails-loud
-  ;; EP-0002 (rf2-9o48ih) + EP-0024 (provider collapse). The merged
-  ;; `frame-provider` dispatches on the prop map: a `{:frame …}` key selects
-  ;; the SCOPE-only shape, otherwise the ENSURE shape validates `:id`. So an
-  ;; EMPTY prop map (no `:frame`) is the ENSURE shape with no `:id` — a
-  ;; CONFIGURATION ERROR raising `:rf.error/ensure-frame-provider-missing-id`.
-  ;; An explicit `{:frame nil}` DOES carry the `:frame` key, so it selects the
-  ;; SCOPE shape; under the carried invariant there is no
-  ;; `(or (:frame props) :rf/default)` floor, so a nil `:frame` raises
-  ;; `:rf.error/no-frame-context` rather than synthesising a default (Spec 002
-  ;; §Frame target resolution).
-  (testing "frame-provider with no :frame key selects ENSURE and raises :rf.error/ensure-frame-provider-missing-id"
-    (is (thrown-with-msg? :default #":rf.error/ensure-frame-provider-missing-id"
+  ;; EP-0002 (rf2-9o48ih) + rf2-nyea0r (frame-boundary split). `frame-provider`
+  ;; is now SCOPE-only: it requires a keyword `:frame` and creates nothing. An
+  ;; EMPTY prop map (no `:frame`, no `:id`) is a SCOPE with a nil `:frame`;
+  ;; under the carried invariant there is no `(or (:frame props) :rf/default)`
+  ;; floor, so it raises `:rf.error/no-frame-context` (Spec 002 §Frame target
+  ;; resolution). An explicit `{:frame nil}` is the same. (An `:id` on a
+  ;; provider is the distinct did-you-mean `:rf.error/frame-provider-given-id`,
+  ;; covered in frame_root_lifecycle_cljs_test.)
+  (testing "frame-provider with no :frame key is a nil-scope → :rf.error/no-frame-context"
+    (is (thrown-with-msg? :default #":rf.error/no-frame-context"
           (rf/frame-provider {} [:span "x"]))
-        "an empty prop map is the ENSURE shape with no :id — a config error"))
+        "an empty prop map is a SCOPE with no :frame — a nil-scope config error"))
   (testing "frame-provider with explicit nil :frame raises :rf.error/no-frame-context"
     (is (thrown-with-msg? :default #":rf.error/no-frame-context"
           (rf/frame-provider {:frame nil} [:span "x"]))

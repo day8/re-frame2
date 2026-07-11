@@ -944,9 +944,9 @@
 ;; The URL-owning frame's LIFECYCLE (rf2-g8pbwg) drives the initial URL sync: a
 ;; `:url-bound? true` frame's (re-)registration installs its strategy listener
 ;; and immediately syncs the CURRENT browser URL into the route slice — and it
-;; does so SYNCHRONOUSLY during frame creation. `frame-provider` runs that
-;; creation in RENDER PHASE, BEFORE any child renders
-;; (`re-frame.views.owned-frame/ensure-frame-fc`), so a `root-view` reading
+;; does so SYNCHRONOUSLY during frame creation. `frame-root` runs that creation
+;; at COMMIT (`re-frame.views.frame-boundary/frame-root-fc`'s useLayoutEffect) and
+;; renders its children only AFTER the frame is live, so a `root-view` reading
 ;; `:rf/route` / `:rf.route/id` on its FIRST render sees the matched route, never
 ;; a nil slice — even for a deep link or a hard refresh. (This is the correct
 ;; ordering the retired imperative `install-url-listener!`-at-boot pattern could

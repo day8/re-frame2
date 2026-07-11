@@ -1,47 +1,50 @@
 (ns re-frame.views.provider
-  "Frame-provider family (Reagent shells) + per-render identity
+  "Frame-boundary components (Reagent shells) + per-render identity
   machinery for the Reagent-side views ns. Re-frame.views re-exports the
-  publicly-referenced surface (`frame-provider`, `build-frame-provider`,
-  `current-frame`, `mint-instance-token!`, `current-render-key`,
-  `*render-key*`).
+  publicly-referenced surface (`frame-provider`, `frame-root`,
+  `build-frame-provider`, `current-frame`, `mint-instance-token!`,
+  `current-render-key`, `*render-key*`).
 
-  Three cohesive concerns live here:
+  Four cohesive concerns live here:
 
-  1. `frame-provider` — the user-facing Reagent component for the MERGED
-     config-shaped provider (EP-0024 §Scope, carry, and ownership,
-     amended). ONE component, TWO config shapes, dispatched on the prop
-     map:
+  1. `frame-provider` — the user-facing Reagent component for the
+     SCOPE-only provider (rf2-nyea0r split; EP-0024 §Scope, carry, and
+     ownership, amended). `{:frame existing-id}`: provide an
+     ALREADY-CREATED frame's id to descendants; create / refresh / destroy
+     NOTHING; FAIL LOUD when the frame is absent. Reuses the scope-only
+     inner provide tier (`build-frame-provider` / `frame-provider-component`),
+     which is also the substrate hook the Reagent adapter installs at
+     `:register-context-provider`. (`rf/with-frame` remains for
+     lexical/non-React ambient scoping; scope-INTO-React is this component's
+     `{:frame …}` shape, because a dynamic var cannot cross React's render
+     boundary.) Given an `:id` it FAILS LOUD naming `frame-root`
+     (`:rf.error/frame-provider-given-id`). The React Context object is owned
+     by `re-frame.adapter.context` so adapters across substrates
+     (Reagent / UIx / Helix) read the same context.
 
-       - `{:frame existing-id}` → SCOPE-ONLY: provide an ALREADY-CREATED
-         frame's id to descendants; create / refresh / destroy NOTHING;
-         FAIL LOUD when the frame is absent. Reuses the scope-only inner
-         provide tier (`build-frame-provider` / `frame-provider-component`),
-         which is also the substrate hook the Reagent adapter installs at
-         `:register-context-provider` and the element the ENSURE shape
-         reaches once it has created the frame. (`rf/with-frame` remains for
-         lexical/non-React ambient scoping; scope-INTO-React is this
-         component's `{:frame …}` shape, because a dynamic var cannot cross
-         React's render boundary.) The React Context object is owned by
-         `re-frame.adapter.context` so adapters across substrates
-         (Reagent / UIx / Helix) read the same context.
-       - `{:id the-id …}` → ENSURE: create the frame if absent, REUSE it
-         WITHOUT re-seeding if present, provide its id to descendants; NO
-         destroy-on-unmount. The ensure-on-render handling lives once in
-         `re-frame.views.owned-frame`; this Reagent shell embeds that ns's
-         shared `ensure-frame-fc` via Reagent's `:r>` interop head.
+  2. `frame-root` — the user-facing Reagent component for the ENSURE
+     shape (rf2-nyea0r split). `{:id the-id …}`: create the frame if
+     absent, REUSE it WITHOUT re-seeding if present, provide its id to
+     descendants; NO destroy-on-unmount. It is a COMMIT-OWNED TWO-PASS
+     boundary — the create/seed runs in a client `useLayoutEffect`, NOT
+     during render — so a Suspense-aborted render creates + seeds nothing.
+     The two-pass handling lives once in `re-frame.views.frame-boundary`; this
+     Reagent shell embeds that ns's shared `frame-root-fc` via Reagent's
+     `:r>` interop head. Given a `:frame` it FAILS LOUD naming
+     `frame-provider` (`:rf.error/frame-root-given-frame`).
 
-     The owned destroy-on-unmount of the pre-amendment `frame-provider` is
+     The owned destroy-on-unmount of the pre-split `frame-provider` is
      RETIRED (it had zero product consumers). True ownership stays
      expressible as `rf/make-frame` + `rf/destroy-frame!` inside a
      `create-class`.
 
-  2. Per-render instance-token machinery — `mint-instance-token!`,
+  3. Per-render instance-token machinery — `mint-instance-token!`,
      `reagent-component-token`. Tokens disambiguate concurrently-
      mounted instances of the same view-kind. The `*render-key*`
      dynamic var lives in `re-frame.views` so the wrapper's binding
      and consumer reads share the same canonical Var.
 
-  3. `current-frame` — the resolution chain subscribe / dispatch
+  4. `current-frame` — the resolution chain subscribe / dispatch
      consult at render time (Spec 002 §Reading the frame from React
      context). Pairs with the `:contextType` static `reg-view*`
      attaches to its wrapper output.
@@ -55,7 +58,7 @@
   (:require [re-frame.adapter.context :as adapter-context]
             [re-frame.frame :as frame]
             [re-frame.late-bind :as late-bind]
-            [re-frame.views.owned-frame :as owned-frame]))
+            [re-frame.views.frame-boundary :as boundary]))
 
 ;; ---- the React context for frame propagation -----------------------------
 ;;
@@ -98,9 +101,9 @@
 
 (defn build-frame-provider
   "Used by re-frame.adapter.reagent/register-context-provider and by the
-  user-facing `frame-provider` (both config shapes) as its scope-only
-  provide tier. Returns a Reagent component that SCOPES a frame keyword to
-  its subtree (no create/destroy).
+  user-facing `frame-provider` as its scope-only provide tier. Returns a
+  Reagent component that SCOPES a frame keyword to its subtree (no
+  create/destroy).
 
   Zero-arity (rf2-4y60): the returned component takes the frame keyword
   at render time, and a single built component services every frame, so
@@ -112,88 +115,108 @@
   frame-provider-component)
 
 (defn frame-provider
-  "User-facing component — the MERGED config-shaped frame-provider (EP-0024
-  §Scope, carry, and ownership, amended). ONE component, TWO config shapes,
-  dispatched on the prop map. Per Spec 002 §`frame-provider`.
+  "User-facing SCOPE-only component (rf2-nyea0r split; EP-0024 §Scope, carry,
+  and ownership, amended). Per Spec 002 §`frame-provider`.
 
-  SHAPE 1 — `{:frame existing-id}` — SCOPE-ONLY. Provide an ALREADY-CREATED
-  frame's id to descendants via the shared React context. Creates / refreshes
-  / destroys NOTHING. Inside the subtree, `(rf/capture-frame)` /
-  `reg-view`-registered descendants resolve to the named frame. FAILS LOUD
-  when the named frame is ABSENT (`:rf.error/frame-provider-frame-absent`) —
-  scoping a subtree to a frame that does not exist is a configuration error.
-  `:frame` must be a KEYWORD frame id (EP-0002 carried invariant): a missing /
-  nil `:frame` is `:rf.error/no-frame-context`; a non-nil non-keyword `:frame`
-  is the distinct `:rf.error/bad-frame-provider-arg`.
+  `{:frame existing-id}` — SCOPE. Provide an ALREADY-CREATED frame's id to
+  descendants via the shared React context. Creates / refreshes / destroys
+  NOTHING. Inside the subtree, `(rf/capture-frame)` / `reg-view`-registered
+  descendants resolve to the named frame. FAILS LOUD when the named frame is
+  ABSENT (`:rf.error/frame-provider-frame-absent`) — scoping a subtree to a
+  frame that does not exist is a configuration error. `:frame` must be a
+  KEYWORD frame id (EP-0002 carried invariant): a missing / nil `:frame` is
+  `:rf.error/no-frame-context`; a non-nil non-keyword `:frame` is the distinct
+  `:rf.error/bad-frame-provider-arg`.
 
       [rf/frame-provider {:frame :session}
        [header]
        [main-area]]
 
-  SHAPE 2 — `{:id the-id …}` — ENSURE. CREATE the frame if absent, REUSE it
-  WITHOUT re-seeding if present, and provide its id to descendants. There is
-  NO destroy-on-unmount. It takes the same `:id` / `:images` (plus
-  record-config, incl. `:initial-events` / `:url-bound?`) opts as
-  `rf/make-frame`. `:id` is REQUIRED and must be a KEYWORD — a missing / nil /
-  non-keyword `:id` is `:rf.error/ensure-frame-provider-missing-id`.
-
-      [rf/frame-provider {:id :session :images [session-image] :initial-events []}
-       [header]
-       [main-area]
-       [footer]]
-
-  The SHAPE is selected by the presence of `:frame` vs `:id`: a `:frame` key
-  selects SCOPE-ONLY; otherwise the ENSURE shape validates its `:id`.
+  Given an `:id` (the ENSURE key), FAILS LOUD naming `frame-root`
+  (`:rf.error/frame-provider-given-id`) — providers scope, roots ensure. To
+  CREATE the frame if absent, use `rf/frame-root {:id …}`.
 
   Children are variadic (zero, one, or many). Same surface as the UIx and
   Helix variants, different rendering substrate. The three adapters share
   one React Context so a subtree under any frame-provider sees the right
   frame regardless of which substrate rendered the provider.
 
-  Idempotent re-mount of the ENSURE shape (hot reload / React StrictMode dev
-  double-invoke / Story re-evaluation): re-mounting under the same `:id` MUST
-  NOT destroy durable state NOR re-run `:initial-events` — `make-frame` is
-  idempotent replacement and `reg-frame` RE-RECORDS but does NOT REPLAY
-  `:initial-events`. Per `re-frame.views.owned-frame` for the shared ensure
-  core.
+  Scopes via the shared scope-only provide tier
+  (`build-frame-provider` / `frame-provider-component`), the same tier the
+  Reagent adapter installs at `:register-context-provider`."
+  [props & children]
+  (when (contains? props :id)
+    (boundary/reject-frame-provider-id!
+      (:id props)
+      're-frame.views.provider/frame-provider))
+  ;; SCOPE: validate the keyword `:frame`, fail loud if the frame is absent,
+  ;; then scope via the shared scope-only provide tier.
+  (let [frame-kw (frame/require-keyword-frame-provider-arg!
+                   (:frame props)
+                   're-frame.views.provider/frame-provider)]
+    (boundary/require-live-frame-for-scope!
+      frame-kw
+      're-frame.views.provider/frame-provider)
+    (into [(build-frame-provider) frame-kw] children)))
 
-  The owned destroy-on-unmount of the pre-amendment `frame-provider` is
-  RETIRED (zero product consumers). True ownership (modals, multi-instance
-  widgets) stays expressible as `rf/make-frame` + `rf/destroy-frame!` inside a
+(defn frame-root
+  "User-facing ENSURE component (rf2-nyea0r split). Per Spec 002 §`frame-root`.
+
+  `{:id the-id …}` — ENSURE. CREATE the frame if absent, REUSE it WITHOUT
+  re-seeding if present, and provide its id to descendants. There is NO
+  destroy-on-unmount. It takes the same `:id` / `:images` (plus record-config,
+  incl. `:initial-events` / `:url-bound?`) opts as `rf/make-frame`. `:id` is
+  REQUIRED and must be a KEYWORD — a missing / nil / non-keyword `:id` is
+  `:rf.error/frame-root-missing-id`.
+
+      [rf/frame-root {:id :session :images [session-image] :initial-events []}
+       [header]
+       [main-area]
+       [footer]]
+
+  COMMIT-OWNED TWO-PASS boundary (rf2-nyea0r): the create/seed runs in a client
+  `useLayoutEffect`, NOT during render. The first render emits no descendant
+  subtree; the ENSURE runs after commit; only then do the children render
+  against the now-live frame. A Suspense-aborted / concurrent-discarded render
+  therefore creates + seeds NOTHING (no ghost frame). `:initial-events` fire
+  ONCE on first successful creation per committed frame-id lifetime, never on a
+  re-mount / reconfiguration — `make-frame` is idempotent replacement and
+  `reg-frame` RE-RECORDS but does NOT REPLAY `:initial-events`. StrictMode dev
+  double-invoke is safe for the same reason. A keyed remount preserves durable
+  state (idempotent re-ensure, no re-seed); a MOUNTED `:id` / opts change FAILS
+  LOUD (`:rf.error/frame-root-reconfigured`). Per `re-frame.views.frame-boundary`
+  for the shared two-pass core.
+
+  Given a `:frame` (the SCOPE key), FAILS LOUD naming `frame-provider`
+  (`:rf.error/frame-root-given-frame`) — roots ensure, providers scope.
+
+  The owned destroy-on-unmount of the pre-split `frame-provider` is RETIRED
+  (zero product consumers). True ownership (modals, multi-instance widgets)
+  stays expressible as `rf/make-frame` + `rf/destroy-frame!` inside a
   `create-class`.
 
   The ENSURE lifecycle is realised through the shared React function component
-  `owned-frame/ensure-frame-fc`, embedded here via Reagent's `:r>` interop
-  head: the `#js {:rfOpts …}` prop reaches React untouched (bypassing
-  `convert-prop-value`, so the CLJS opts map survives intact), and the
-  TRAILING HICCUP children are translated by Reagent's renderer into React
-  children — exactly as `frame-provider-component` does for the scope-only
-  Provider. The SCOPE-ONLY shape goes through that same scope-only provide
-  tier (`build-frame-provider` / `frame-provider-component`)."
+  `boundary/frame-root-fc`, embedded here via Reagent's `:r>` interop head:
+  the `#js {:rfOpts …}` prop reaches React untouched (bypassing
+  `convert-prop-value`, so the CLJS opts map survives intact), and the TRAILING
+  HICCUP children are translated by Reagent's renderer into React children —
+  `frame-root-fc` reads its scoped subtree from React's standard
+  `props.children` and the opts from `:rfOpts`."
   [props & children]
-  (if (contains? props :frame)
-    ;; SCOPE-ONLY shape: validate the keyword `:frame`, fail loud if the frame
-    ;; is absent, then scope via the shared scope-only provide tier.
-    (let [frame-kw (frame/require-keyword-frame-provider-arg!
-                     (:frame props)
-                     're-frame.views.provider/frame-provider)]
-      (owned-frame/require-live-frame-for-scope!
-        frame-kw
-        're-frame.views.provider/frame-provider)
-      (into [(build-frame-provider) frame-kw] children))
-    ;; ENSURE shape: validate `:id` here (so the diagnostic names this fn),
-    ;; then embed the shared ensure FC via `:r>`. `:r>` passes the
-    ;; `#js {:rfOpts …}` prop through as a raw JS object (no
-    ;; `convert-prop-value`), and the trailing hiccup children become React
-    ;; children — `ensure-frame-fc` reads its scoped subtree from React's
-    ;; standard `props.children` and the opts from `:rfOpts`.
-    (do
-      (owned-frame/require-ensure-frame-id!
-        (:id props)
-        're-frame.views.provider/frame-provider)
-      (into [:r> owned-frame/ensure-frame-fc
-             #js {:rfOpts (owned-frame/ensure-frame-opts props)}]
-            children))))
+  (when (contains? props :frame)
+    (boundary/reject-frame-root-frame!
+      (:frame props)
+      're-frame.views.provider/frame-root))
+  ;; Validate `:id` here (so the diagnostic names this fn), then embed the
+  ;; shared two-pass FC via `:r>`. `:r>` passes the `#js {:rfOpts …}` prop
+  ;; through as a raw JS object (no `convert-prop-value`), and the trailing
+  ;; hiccup children become React children.
+  (boundary/require-frame-root-id!
+    (:id props)
+    're-frame.views.provider/frame-root)
+  (into [:r> boundary/frame-root-fc
+         #js {:rfOpts (boundary/frame-root-opts props)}]
+        children))
 
 ;; ---- in-flight Reagent component -----------------------------------------
 ;;

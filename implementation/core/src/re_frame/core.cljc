@@ -1324,45 +1324,65 @@
 
 ;; ---- view ergonomics (CLJS only) -----------------------------------------
 ;;
-;; The frame-provider — the merged config-shaped per-adapter React-context
-;; component re-exported here as the canonical user-facing surface (per
-;; Spec 002 §`frame-provider`); the impl lives in re-frame.views to keep
-;; React/Reagent off the JVM load path. ONE component, TWO config shapes
-;; dispatched on the prop map:
+;; The frame-boundary components (rf2-nyea0r split) — the SCOPE-only
+;; `frame-provider` and the ENSURE `frame-root`, per-adapter React-context
+;; components re-exported here as the canonical user-facing surface (per
+;; Spec 002 §`frame-provider` / §`frame-root`); the impls live in re-frame.views
+;; to keep React/Reagent off the JVM load path. Two components, one verb each:
 ;;
-;;   * {:frame existing-id} — SCOPE-only: provides an ALREADY-CREATED frame
-;;                            id through React context; creates / refreshes /
-;;                            destroys nothing; FAILS LOUD if the frame is
-;;                            absent.
-;;   * {:id the-id …}       — ENSURE: creates the frame if absent (via
-;;                            make-frame), REUSES it if present without
+;;   * frame-provider {:frame existing-id} — SCOPE-only: provides an
+;;                            ALREADY-CREATED frame id through React context;
+;;                            creates / refreshes / destroys nothing; FAILS LOUD
+;;                            if the frame is absent. Given an `:id`, FAILS LOUD
+;;                            naming frame-root.
+;;   * frame-root {:id the-id …}           — ENSURE (commit-owned two-pass):
+;;                            creates the frame if absent (via make-frame) in a
+;;                            client useLayoutEffect, REUSES it if present without
 ;;                            re-seeding, provides its id to descendants; NO
 ;;                            destroy-on-unmount. Takes
-;;                            {:id :images :initial-events :url-bound? …}.
+;;                            {:id :images :initial-events :url-bound? …}. Given a
+;;                            `:frame`, FAILS LOUD naming frame-provider.
 
-#?(:cljs (def ^{:doc "MERGED config-shaped Reagent component (EP-0024): ONE
-  component, TWO config shapes dispatched on the prop map.
+#?(:cljs (def ^{:doc "SCOPE-only Reagent component (rf2-nyea0r split).
 
-  SCOPE-ONLY — `[rf/frame-provider {:frame :todo} & children]`: provides an
-  ALREADY-CREATED frame's id to descendant views through React context and
-  creates / refreshes / destroys nothing. Children resolve `(current-frame-id)`
-  to the provided frame unless a lexical `with-frame` or dynamic binding
-  overrides. FAILS LOUD when the named frame is absent. The scope-into-React
-  counterpart to `rf/with-frame` (a dynamic var cannot cross React's render
-  boundary).
+  `[rf/frame-provider {:frame :todo} & children]`: provides an ALREADY-CREATED
+  frame's id to descendant views through React context and creates / refreshes /
+  destroys nothing. Children resolve `(current-frame-id)` to the provided frame
+  unless a lexical `with-frame` or dynamic binding overrides. FAILS LOUD when
+  the named frame is absent (`:rf.error/frame-provider-frame-absent`). The
+  scope-into-React counterpart to `rf/with-frame` (a dynamic var cannot cross
+  React's render boundary).
 
-  ENSURE — `[rf/frame-provider {:id :todo :images [todo-image]} & children]`:
-  CREATES the frame if absent (via `rf/make-frame`), REUSES it WITHOUT
-  re-seeding if present, provides its id to descendants; NO destroy-on-unmount.
-  Idempotent re-mount under the same `:id` preserves durable state (hot-reload /
-  StrictMode tolerant). Takes the `rf/make-frame` opts
-  (`:id` / `:images` / `:initial-events` / `:url-bound?` …).
-
-  The shape is selected by `:frame` vs `:id`. True ownership (modals,
-  multi-instance widgets) stays expressible as `rf/make-frame` +
-  `rf/destroy-frame!` inside a `create-class`. Per Spec 002
+  Given an `:id` (the ENSURE key), FAILS LOUD naming `frame-root`
+  (`:rf.error/frame-provider-given-id`) — providers scope; roots ensure. To
+  CREATE the frame if absent, use `rf/frame-root {:id …}`. Per Spec 002
   §`frame-provider`."}
          frame-provider views/frame-provider))
+
+#?(:cljs (def ^{:doc "ENSURE Reagent component — a COMMIT-OWNED TWO-PASS
+  boundary (rf2-nyea0r split).
+
+  `[rf/frame-root {:id :todo :images [todo-image]} & children]`: CREATES the
+  frame if absent (via `rf/make-frame`), REUSES it WITHOUT re-seeding if present,
+  provides its id to descendants; NO destroy-on-unmount. Takes the `rf/make-frame`
+  opts (`:id` / `:images` / `:initial-events` / `:url-bound?` …); `:id` is
+  REQUIRED and must be a keyword (a missing/non-keyword `:id` →
+  `:rf.error/frame-root-missing-id`).
+
+  The ENSURE runs in a client `useLayoutEffect` (NOT during render): the first
+  render emits no descendant subtree, the frame is created AFTER commit, and only
+  then do the children render against the now-live frame. A Suspense-aborted /
+  concurrent-discarded render therefore creates + seeds NOTHING (no ghost frame).
+  `:initial-events` fire ONCE on first successful creation per committed frame-id
+  lifetime, never on a re-mount / reconfiguration (idempotent re-mount preserves
+  durable state; StrictMode-tolerant). A keyed remount preserves durable state; a
+  MOUNTED `:id` / opts change FAILS LOUD (`:rf.error/frame-root-reconfigured`).
+
+  Given a `:frame` (the SCOPE key), FAILS LOUD naming `frame-provider`
+  (`:rf.error/frame-root-given-frame`). True ownership (modals, multi-instance
+  widgets) stays expressible as `rf/make-frame` + `rf/destroy-frame!` inside a
+  `create-class`. Per Spec 002 §`frame-root`."}
+         frame-root views/frame-root))
 
 ;; ---- routing helpers ------------------------------------------------------
 ;;

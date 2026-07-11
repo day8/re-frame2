@@ -1,32 +1,29 @@
 (ns re-frame.adapter.helix-frame-provider-ensure-dom-cljs-test
-  "Helix DOM/browser regression coverage for the NATIVE `frame-provider`
-  `defnc`'s ENSURE (`{:id …}`) arm through Helix's `$` → `extract-cljs-props`
-  marshalling seam (rf2-ipqu8p).
+  "Helix DOM/browser regression coverage for the NATIVE `frame-root` `defnc`'s
+  ENSURE (`{:id …}`) config through Helix's `$` → `extract-cljs-props`
+  marshalling seam (rf2-ipqu8p; rf2-nyea0r split).
 
-  WHY THIS EXISTS. `re-frame.adapter.helix/frame-provider` is a native Helix
-  `defnc` with TWO arms dispatched on the prop map (see the component
-  docstring): the SCOPE-ONLY `{:frame …}` arm and the ENSURE `{:id …}` arm.
-  The SCOPE-ONLY arm is already pinned end-to-end through `$` by
+  WHY THIS EXISTS. `re-frame.adapter.helix/frame-root` is a native Helix
+  `defnc` (the ENSURE component; rf2-nyea0r split `frame-provider` into
+  SCOPE-only `frame-provider` + ENSURE `frame-root`). The SCOPE-only
+  `frame-provider` is already pinned end-to-end through `$` by
   `frame-provider-trailing-children-propagate-frame`
   (helix_use_subscribe_dom_cljs_test) — the moved-up-seam regression
-  (rf2-z7hfp / rf2-7kii2). The ENSURE arm, by contrast, mounted NOTHING
-  through the native component anywhere in the Helix test tree: ENSURE
-  BEHAVIOUR is covered at the SHARED / core level (`ensure-frame-fc` built
-  with raw `createElement`; the reagent scenario-6 HOT-RELOAD GATE), but
-  NONE of those touch Helix's `$` → `extract-cljs-props` marshalling of the
-  ENSURE config. So whether `extract-cljs-props` faithfully beans the ENSURE
-  config — the `:id` KEYWORD, the nested `:initial-events` / `:images`
-  vectors, the `:url-bound?` boolean — before the `defnc` else arm hands
-  props to `owned-frame/ensure-frame-react-element` was UNTESTED. This is
-  exactly the prop-mangling class the SCOPE-ONLY regression exists to pin,
-  but only for the `:frame` arm.
+  (rf2-z7hfp / rf2-7kii2). The ENSURE `frame-root` config through `$` — the
+  `:id` KEYWORD, the nested `:initial-events` / `:images` vectors, the
+  `:url-bound?` boolean, beaned by `extract-cljs-props` before the `defnc`
+  hands props to `frame-boundary/frame-root-react-element` — needs its own pin.
+  ENSURE BEHAVIOUR is covered at the SHARED / core level (`frame-root-fc` built
+  with raw `createElement`; the reagent scenario-6 HOT-RELOAD GATE), but those
+  do not touch Helix's `$` → `extract-cljs-props` marshalling of the ENSURE
+  config.
 
   These tests mount the public ENSURE call shape
-  (`($ frame-provider {:id … :initial-events [[…]] …} ($ child))`) through
-  the real `$` under `act`, and assert the frame is CREATED live with the
-  config-seeded durable state AND a descendant `use-subscribe` reads it —
-  the structural proof that the ENSURE config survived `$` marshalling
-  intact. Twin of the UIx `glue-args` seam
+  (`($ frame-root {:id … :initial-events [[…]] …} ($ child))`) through the real
+  `$` under `act`, and assert the frame is CREATED live (at COMMIT, via the
+  two-pass `useLayoutEffect`) with the config-seeded durable state AND a
+  descendant `use-subscribe` reads it — the structural proof that the ENSURE
+  config survived `$` marshalling intact. Twin of the UIx `glue-args` seam
   (uix_frame_provider_ensure_dom_cljs_test, rf2-0bhnwm).
 
   ns ends in `-dom-cljs-test` so shadow-cljs's `:browser-test` (ns-regexp
@@ -86,7 +83,7 @@
 ;; ---- ENSURE `:id` + `:initial-events` + `:url-bound?` through `$` ----------
 
 (deftest ensure-id-arm-marshals-config-through-dollar
-  (testing "Helix — ($ frame-provider {:id .. :initial-events [[..]] :url-bound? ..}) ENSURE arm marshals config through $/extract-cljs-props (rf2-ipqu8p)"
+  (testing "Helix — ($ frame-root {:id .. :initial-events [[..]] :url-bound? ..}) ENSURE config marshals through $/extract-cljs-props (rf2-ipqu8p)"
     (if-not (browser?)
       (is true ":node-test: no DOM — :browser-test runner exercises the assertion")
       (let [act-fn (get-act)]
@@ -114,16 +111,16 @@
                     ;; vectors carrying the NAMESPACED `:rf/set-db` keyword +
                     ;; a nested seed map, and a `:url-bound?` boolean — all
                     ;; must survive `extract-cljs-props` before the `defnc`
-                    ;; else arm hands them to `ensure-frame-react-element`.
+                    ;; hands them to `frame-root-react-element`.
                     (.render root
-                      ($ helix-adapter/frame-provider
+                      ($ helix-adapter/frame-root
                          {:id             frame-kw
                           :initial-events [[:rf/set-db {:k :ensured}]]
                           :url-bound?     false}
                          ($ ProbeEnsure)))))
                 ;; :id survived $ as a KEYWORD — a stringified id would have
-                ;; thrown :rf.error/ensure-frame-provider-missing-id, and the
-                ;; frame would not be registered under the keyword.
+                ;; thrown :rf.error/frame-root-missing-id, and the frame would
+                ;; not be registered under the keyword.
                 (is (some? (frame/frame frame-kw))
                     "ENSURE created a live frame under the keyword :id (proves :id survived $ as a keyword)")
                 ;; The nested [[:rf/set-db {:k :ensured}]] vector + namespaced
@@ -142,7 +139,7 @@
 ;; ---- ENSURE `:images` through `$` -----------------------------------------
 
 (deftest ensure-images-arm-marshals-image-vector-through-dollar
-  (testing "Helix — ($ frame-provider {:id .. :images [img] :initial-events [[..]]}) ENSURE :images vector marshals through $/extract-cljs-props (rf2-ipqu8p)"
+  (testing "Helix — ($ frame-root {:id .. :images [img] :initial-events [[..]]}) ENSURE :images vector marshals through $/extract-cljs-props (rf2-ipqu8p)"
     (if-not (browser?)
       (is true ":node-test: no DOM — :browser-test runner exercises the assertion")
       (let [act-fn (get-act)]
@@ -163,7 +160,7 @@
                     ;; validate-images! would throw here; if the inline event
                     ;; id were lost, the seed would not apply below.
                     (.render root
-                      ($ helix-adapter/frame-provider
+                      ($ helix-adapter/frame-root
                          {:id             frame-kw
                           :images         [ensure-image]
                           :initial-events [[:rf.helix-ensure/seed :img-ensured]]}

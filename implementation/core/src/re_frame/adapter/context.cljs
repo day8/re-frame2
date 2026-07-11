@@ -91,8 +91,8 @@
   positional args, not a single array child.
 
   Shared by `re-frame.substrate.spine/build-frame-provider-element` (the
-  scope-only provider core) and `re-frame.views.owned-frame`'s
-  `ensure-frame-fc` / `ensure-frame-react-element` (the ENSURE provider
+  scope-only `frame-provider` core) and `re-frame.views.frame-boundary`'s
+  `frame-root-fc` / `frame-root-react-element` (the ENSURE `frame-root`
   cores) so the three element builders normalise children one identical
   way — `(apply provider-element frame-kw (normalize-children children))`."
   [children]

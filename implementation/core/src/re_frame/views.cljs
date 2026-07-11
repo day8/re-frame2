@@ -18,8 +18,8 @@
   Orchestration entry point that re-exports three internally-cohesive
   sub-namespaces:
 
-    - `re-frame.views.provider`                — frame-provider + the
-                                                 React-context bridge
+    - `re-frame.views.provider`                — frame-provider + frame-root
+                                                 + the React-context bridge
                                                  and per-render
                                                  instance-token
                                                  machinery
@@ -177,6 +177,7 @@
 ;; not surface a Var under the consuming ns.
 
 (def frame-provider provider/frame-provider)
+(def frame-root provider/frame-root)
 (def build-frame-provider provider/build-frame-provider)
 (def current-frame provider/current-frame)
 (def mint-instance-token! provider/mint-instance-token!)

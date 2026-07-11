@@ -88,7 +88,7 @@
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]
             [re-frame.views]
-            [re-frame.views.owned-frame :as owned-frame])
+            [re-frame.views.frame-boundary :as boundary])
   (:require-macros [re-frame.test-support :refer [with-trace-recorder!]]))
 
 ;; MAP-FORM fixture (`:async? true`): cljs.test requires `:each` fixtures to be
@@ -553,31 +553,34 @@
 ;; `rf/frame-provider {:id …}` is the ENSURE shape — create-if-absent,
 ;; reuse-if-present WITHOUT re-seeding, NO destroy-on-unmount. Scenario 6 above
 ;; covers the SCOPE-only `{:frame …}` shape under StrictMode — a pure context
-;; read, so the double-invoke is harmless. This ENSURE counterpart pins the
-;; reuse-no-reseed contract empirically under a real React lifecycle:
+;; read, so the double-invoke is harmless. This frame-root (ENSURE) counterpart
+;; pins the COMMIT-OWNED two-pass contract (rf2-nyea0r) empirically under a real
+;; React lifecycle:
 ;;
-;;   mount → effect-setup → effect-CLEANUP → effect-setup-AGAIN (StrictMode)
+;;   render(nil) → COMMIT → useLayoutEffect (make-frame) → ready → render(children)
+;;   then StrictMode: effect-setup → effect-CLEANUP → effect-setup-AGAIN
 ;;   then a SIMULATED :dev/after-load REMOUNT (hot reload) with a re-seeding opts
 ;;
 ;; on the SAME fiber for StrictMode, and a fresh element tree for the hot-reload
-;; remount. The ensure component (`re-frame.views.owned-frame/ensure-frame-fc`)
-;; ensures the frame in the RENDER phase (idempotent `make-frame`), gated on
-;; `id-ref.current` being nil; there is NO destroy effect. The contract this
-;; gate locks: across BOTH the StrictMode dev cycle AND a hot-reload remount
-;; that passes a DIFFERENT `:initial-events`, the existing frame is REUSED, its
-;; durable app-db survives, and `:initial-events` are NOT re-run (no re-seed).
+;; remount. `frame-root-fc` ensures the frame in a `useLayoutEffect` (COMMIT
+;; phase, idempotent `make-frame`), NOT during render; there is NO destroy
+;; effect. The contract this gate locks: across BOTH the StrictMode dev cycle AND
+;; a hot-reload remount that passes a DIFFERENT `:initial-events`, the existing
+;; frame is REUSED, its durable app-db survives, and `:initial-events` are NOT
+;; re-run (no re-seed). (rf2-nyea0r acceptance: StrictMode-once.)
 
-(deftest scenario-6-ensure-strict-mode-and-hot-reload-reuse-without-reseed
-  "Scenario 6 (ENSURE) — the HOT-RELOAD GATE. StrictMode double-invoke AND a
-   simulated `:dev/after-load` remount must REUSE the existing frame WITHOUT
-   re-seeding (EP-0024 amended ENSURE).
+(deftest scenario-6-frame-root-strict-mode-and-hot-reload-reuse-without-reseed
+  "Scenario 6 (frame-root ENSURE) — the HOT-RELOAD GATE. StrictMode
+   double-invoke AND a simulated `:dev/after-load` remount must REUSE the
+   existing frame WITHOUT re-seeding (rf2-nyea0r; commit-owned two-pass).
 
-   1. Mount `[rf/frame-provider {:id … :initial-events [[:rf/set-db {:n 7}]]}]`
-      inside `React.StrictMode`. Advance the macrotask window. The frame must
-      be live with `{:n 7}` (StrictMode double-invoke did not corrupt it, and —
-      ensure has no destroy effect — nothing tore it down).
+   1. Mount `frame-root {:id … :initial-events [[:rf/set-db {:n 7}]]}` inside
+      `React.StrictMode`. Advance the macrotask window. The frame must be live
+      with `{:n 7}` (the commit-phase ensure ran once; StrictMode's effect
+      double-invoke re-ensured idempotently without re-seeding, and — frame-root
+      has no destroy effect — nothing tore it down).
    2. Mutate durable state (`{:n 7}` → `{:n 42}`) through a dispatch.
-   3. Simulate a hot-reload remount: render a FRESH ensure element under the
+   3. Simulate a hot-reload remount: render a FRESH frame-root element under the
       SAME id with a RE-SEEDING `:initial-events [[:rf/set-db {:n 999}]]`. The
       existing frame must be REUSED — durable `{:n 42}` survives, NOT re-seeded
       to `{:n 999}` — because `make-frame` is idempotent replacement and
@@ -585,7 +588,7 @@
   (if-not (browser?)
     (is true ":node-test: no DOM — browser-test runner exercises the assertions")
     (async done
-      (let [target     :test/ensure-strict
+      (let [target     :test/frame-root-strict
             done?      (atom false)
             ;; `done`-once guard: the act() thenable + nested macrotask chain
             ;; has several exit paths (success, a thrown assertion, a promise
@@ -594,44 +597,39 @@
             done!      (fn [] (when (compare-and-set! done? false true) (done)))
             mount-node (make-mount-node!)
             ;; PURE React mount via `react-dom/client createRoot` (NOT Reagent's
-            ;; `rdc/create-root`): Reagent's own render scheduling commits the
-            ;; embedded `ensure-frame-fc` on a Reagent reaction tick OUTSIDE
-            ;; React's StrictMode subtree pass, so React's StrictMode effect
-            ;; double-invoke never fires for the FC. Mounting a NATIVE React
-            ;; element tree — `StrictMode > ensure-frame-react-element` — puts
-            ;; the FC directly under StrictMode, which is exactly the UIx/Helix
-            ;; substrate path (they build the ensure provider via
-            ;; `ensure-frame-react-element`, raw `createElement`). The shared
-            ;; `ensure-frame-fc` is common to all React-shaped adapters.
+            ;; `rdc/create-root`): mounting a NATIVE React element tree —
+            ;; `StrictMode > frame-root-react-element` — puts `frame-root-fc`
+            ;; directly under StrictMode, which is exactly the UIx/Helix
+            ;; substrate path (they build the frame-root via
+            ;; `frame-root-react-element`, raw `createElement`). The shared
+            ;; `frame-root-fc` is common to all React-shaped adapters.
             root       (react-dom-client/createRoot mount-node)
             cleanup!   (fn []
                          (try (.unmount root) (catch :default _ nil))
                          (try (frame/destroy-frame! target) (catch :default _ nil)))
-            child      (React/createElement "div" #js {} "ensure-strict")
-            ensure-el  (owned-frame/ensure-frame-react-element
+            child      (React/createElement "div" #js {} "frame-root-strict")
+            ensure-el  (boundary/frame-root-react-element
                          {:id target :initial-events [[:rf/set-db {:n 7}]]}
                          child
-                         'scenario-6-ensure-strict-mode-and-hot-reload-reuse-without-reseed)
+                         'scenario-6-frame-root-strict-mode-and-hot-reload-reuse-without-reseed)
             tree       (React/createElement (.-StrictMode React) nil ensure-el)
             act-fn     (get-act)]
         (if (nil? act-fn)
-          (do (is true "act() not reachable from this runner; scenario-6-ensure skipped")
+          (do (is true "act() not reachable from this runner; scenario-6-frame-root skipped")
               (done!))
-          ;; `act` flushes passive effects + drives StrictMode's effect
+          ;; `act` flushes passive + layout effects + drives StrictMode's effect
           ;; double-invoke on the same fiber. Await the returned thenable so the
-          ;; StrictMode passive passes flush, then advance two macrotasks before
-          ;; asserting (parity with the original timing; ensure has no deferred
-          ;; destroy, but the macrotask window keeps the gate robust against any
-          ;; scheduled React work). Every exit funnels through the guarded
-          ;; `done!`.
+          ;; StrictMode passes flush, then advance two macrotasks before
+          ;; asserting. Every exit funnels through the guarded `done!`.
           (-> (js/Promise.resolve (act-fn (fn [] (.render root tree))))
               (.then
                 (fn [_]
-                  ;; (1) Sanity: the frame was created + durable state seeded.
+                  ;; (1) Sanity: the commit-phase ensure created the frame +
+                  ;; seeded durable state.
                   (is (some? (frame/frame target))
-                      "ensure frame-provider created the frame on mount")
+                      "frame-root created the frame at COMMIT (useLayoutEffect)")
                   (is (= {:n 7} (rf/app-db-value target))
-                      ":initial-events seeded the durable app-db")
+                      ":initial-events seeded the durable app-db ONCE")
                   (js/Promise.resolve
                     (js/Promise.
                       (fn [resolve _]
@@ -641,26 +639,28 @@
               (.then
                 (fn [_]
                   ;; After the StrictMode cycle + macrotask window the frame
-                  ;; survives (ensure has no destroy effect; StrictMode did not
-                  ;; corrupt it).
+                  ;; survives (frame-root has no destroy effect; StrictMode did
+                  ;; not corrupt it or re-seed it — the double-invoked effect's
+                  ;; second make-frame was idempotent, not a replay).
                   (is (some? (frame/frame target))
-                      (str "the ensure frame is STILL LIVE after the StrictMode "
-                           "cycle — ENSURE has no destroy-on-unmount"))
+                      (str "the frame-root frame is STILL LIVE after the StrictMode "
+                           "cycle — frame-root has no destroy-on-unmount"))
                   (is (= {:n 7} (rf/app-db-value target))
-                      (str "durable app-db survived the StrictMode cycle intact (got "
+                      (str "STRICTMODE-ONCE: durable app-db is {:n 7}, not re-seeded "
+                           "by the effect double-invoke (got "
                            (pr-str (rf/app-db-value target)) ")"))
                   ;; (2) Mutate durable state so the hot-reload remount has
                   ;; something distinct to preserve.
                   (rf/dispatch-sync [:rf/set-db {:n 42}] {:frame target})
                   (is (= {:n 42} (rf/app-db-value target)) "durable state advanced to {:n 42}")
                   ;; (3) Simulate a :dev/after-load hot-reload remount: a FRESH
-                  ;; ensure element under the SAME id, with a RE-SEEDING
+                  ;; frame-root element under the SAME id, with a RE-SEEDING
                   ;; :initial-events. Reuse must preserve {:n 42}, NOT re-seed.
-                  (let [reload-child (React/createElement "div" #js {} "ensure-reload")
-                        reload-el    (owned-frame/ensure-frame-react-element
+                  (let [reload-child (React/createElement "div" #js {} "frame-root-reload")
+                        reload-el    (boundary/frame-root-react-element
                                        {:id target :initial-events [[:rf/set-db {:n 999}]]}
                                        reload-child
-                                       'scenario-6-ensure-strict-mode-and-hot-reload-reuse-without-reseed)
+                                       'scenario-6-frame-root-strict-mode-and-hot-reload-reuse-without-reseed)
                         reload-tree  (React/createElement (.-StrictMode React) nil reload-el)]
                     (js/Promise.resolve (act-fn (fn [] (.render root reload-tree)))))))
               (.then
@@ -676,52 +676,53 @@
                   (done!)))
               (.catch
                 (fn [err]
-                  (is false (str "scenario-6-ensure threw: " (pr-str err)))
+                  (is false (str "scenario-6-frame-root threw: " (pr-str err)))
                   (cleanup!)
                   (done!)))))))))
 
-;; ---- Scenario 6 (ENSURE): genuine unmount LEAVES the frame live -----------
+;; ---- Scenario 6 (frame-root): genuine unmount LEAVES the frame live -------
 ;;
-;; EP-0024 amendment: the ensure provider has NO destroy-on-unmount. A genuine
-;; unmount (no remount) must LEAVE the frame live — the inverse of the retired
-;; owned provider's destroy-on-unmount. True ownership (teardown) is now
-;; explicit (`make-frame` + `destroy-frame!` inside a `create-class`), never the
-;; provider's job. This pins that a real unmount does not tear the frame down.
+;; frame-root has NO destroy-on-unmount. A genuine unmount (no remount) must
+;; LEAVE the frame live — the inverse of the retired owned provider's
+;; destroy-on-unmount. True ownership (teardown) is now explicit (`make-frame` +
+;; `destroy-frame!` inside a `create-class`), never the boundary's job. This
+;; pins that a real unmount does not tear the frame down.
 
-(deftest scenario-6-ensure-genuine-unmount-leaves-frame-live
-  "Scenario 6 (ENSURE) — a genuine unmount LEAVES the ensure frame live
-   (EP-0024 amended; owned destroy-on-unmount retired). Mount (no StrictMode),
+(deftest scenario-6-frame-root-genuine-unmount-leaves-frame-live
+  "Scenario 6 (frame-root ENSURE) — a genuine unmount LEAVES the frame live
+   (rf2-nyea0r; owned destroy-on-unmount retired). Mount (no StrictMode),
    unmount, advance past any macrotask window, and assert the frame is STILL
    LIVE with its durable app-db intact."
   (if-not (browser?)
     (is true ":node-test: no DOM — browser-test runner exercises the assertions")
     (async done
-      (let [target     :test/ensure-survives
+      (let [target     :test/frame-root-survives
             done?      (atom false)
             done!      (fn [] (when (compare-and-set! done? false true) (done)))
             mount-node (make-mount-node!)
-            ;; Pure React mount (see scenario-6-ensure for why — Reagent's render
-            ;; scheduling otherwise commits the FC outside React's effect passes).
+            ;; Pure React mount so `frame-root-fc` commits under React's effect
+            ;; passes.
             root       (react-dom-client/createRoot mount-node)
             cleanup!   (fn [] (try (frame/destroy-frame! target) (catch :default _ nil)))
-            child      (React/createElement "div" #js {} "ensure-survives")
-            ensure-el  (owned-frame/ensure-frame-react-element
+            child      (React/createElement "div" #js {} "frame-root-survives")
+            ensure-el  (boundary/frame-root-react-element
                          {:id target :initial-events [[:rf/set-db {:n 3}]]}
                          child
-                         'scenario-6-ensure-genuine-unmount-leaves-frame-live)
+                         'scenario-6-frame-root-genuine-unmount-leaves-frame-live)
             act-fn     (get-act)]
         (if (nil? act-fn)
           (do (is true "act() not reachable from this runner; genuine-unmount scenario skipped")
               (done!))
-          ;; Mount under act so the FC commits, then unmount under act. There is
-          ;; no destroy effect, so the unmount is a no-op for the frame; advance
-          ;; the macrotask window anyway to prove no deferred teardown lurks.
+          ;; Mount under act so the FC commits (and the layout effect runs), then
+          ;; unmount under act. There is no destroy effect, so the unmount is a
+          ;; no-op for the frame; advance the macrotask window anyway to prove no
+          ;; deferred teardown lurks.
           (-> (js/Promise.resolve (act-fn (fn [] (.render root ensure-el))))
               (.then
                 (fn [_]
-                  (is (some? (frame/frame target)) "frame created on mount")
+                  (is (some? (frame/frame target)) "frame created at commit")
                   (is (= {:n 3} (rf/app-db-value target)) ":initial-events seeded app-db")
-                  ;; Genuine unmount — the ensure provider does NOT destroy.
+                  ;; Genuine unmount — frame-root does NOT destroy.
                   (js/Promise.resolve (act-fn (fn [] (.unmount root))))))
               (.then
                 (fn [_]
@@ -730,7 +731,7 @@
                       (js/setTimeout
                         (fn []
                           (is (some? (frame/frame target))
-                              "genuine unmount LEFT the frame live (ENSURE has no destroy-on-unmount)")
+                              "genuine unmount LEFT the frame live (frame-root has no destroy-on-unmount)")
                           (is (= {:n 3} (rf/app-db-value target))
                               "durable app-db survived the unmount intact")
                           (cleanup!)
@@ -739,7 +740,99 @@
                     4)))
               (.catch
                 (fn [err]
-                  (is false (str "ensure genuine-unmount scenario threw: " (pr-str err)))
+                  (is false (str "frame-root genuine-unmount scenario threw: " (pr-str err)))
+                  (cleanup!)
+                  (done!)))))))))
+
+;; ---- Scenario 6 (frame-root): a DISCARDED render creates NO frame ---------
+;;
+;; The core rf2-nyea0r fix: `frame-root` ensures at COMMIT (useLayoutEffect),
+;; not during render, so a render React DISCARDS before commit (an error thrown
+;; deeper in the subtree, a Suspense abort, a concurrent tear-off) creates + seeds
+;; NOTHING — no ghost frame whose once-per-lifetime initialization is consumed.
+;; This pins the ghost-frame regression: mount a frame-root whose SIBLING throws
+;; during render (aborting the whole commit), catch it in an error boundary, and
+;; assert the frame was NEVER created and its :initial-events NEVER fired.
+
+(defn- throwing-child []
+  (throw (js/Error. "boom during render — aborts the commit")))
+
+(def ^:private error-boundary-class
+  ;; A minimal React class-component error boundary (error boundaries MUST be
+  ;; class components). Renders its children; on a thrown render error it
+  ;; `getDerivedStateFromError`-swaps to a "caught" marker so the thrown render
+  ;; error is CONTAINED — React unmounts the aborted subtree rather than
+  ;; crashing the test host, and the frame-root's commit-phase effect (which
+  ;; never ran, because the commit was aborted) is proven to have created no
+  ;; frame.
+  (let [ctor (fn ErrorBoundary [props]
+               (this-as this
+                 (.call (.-Component React) this props)
+                 (set! (.-state this) #js {:caught false})
+                 this))]
+    (set! (.-prototype ctor) (js/Object.create (.-prototype (.-Component React))))
+    (set! (.. ctor -prototype -constructor) ctor)
+    (set! (.-getDerivedStateFromError ctor) (fn [_err] #js {:caught true}))
+    (set! (.. ctor -prototype -render)
+          (fn []
+            (this-as this
+              (if (.-caught (.-state this))
+                (React/createElement "div" nil "caught")
+                (.-children (.-props this))))))
+    ctor))
+
+(defn- react-error-boundary [child]
+  (React/createElement error-boundary-class nil child))
+
+(deftest scenario-6-frame-root-discarded-render-creates-no-frame
+  "Scenario 6 (frame-root ENSURE) — a render that never commits creates NO frame
+   and fires NO :initial-events (rf2-nyea0r ghost-frame fix). A sibling that
+   throws during render aborts the commit for the whole tree; because the ENSURE
+   runs in a COMMIT-phase useLayoutEffect, it never runs — so no frame is
+   registered under the id and its :initial-events never fire."
+  (if-not (browser?)
+    (is true ":node-test: no DOM — browser-test runner exercises the assertions")
+    (async done
+      (let [target     :test/frame-root-ghost
+            done?      (atom false)
+            done!      (fn [] (when (compare-and-set! done? false true) (done)))
+            mount-node (make-mount-node!)
+            root       (react-dom-client/createRoot mount-node)
+            cleanup!   (fn []
+                         (try (.unmount root) (catch :default _ nil))
+                         (try (frame/destroy-frame! target) (catch :default _ nil)))
+            ;; frame-root whose child is the throwing component: React renders
+            ;; the frame-root (PASS 1 → nil) and its child, the child throws,
+            ;; the whole commit is aborted. frame-root's layout effect never runs.
+            frame-root-el (boundary/frame-root-react-element
+                            {:id target :initial-events [[:rf/set-db {:n 7}]]}
+                            (React/createElement throwing-child nil)
+                            'scenario-6-frame-root-discarded-render-creates-no-frame)
+            ;; Error boundary so the thrown render error is contained (React
+            ;; unmounts the subtree rather than crashing the test host).
+            boundary   (react-error-boundary frame-root-el)
+            act-fn     (get-act)]
+        (if (nil? act-fn)
+          (do (is true "act() not reachable; discarded-render scenario skipped")
+              (done!))
+          (-> (js/Promise.resolve (act-fn (fn [] (.render root boundary))))
+              (.then
+                (fn [_]
+                  (js/setTimeout
+                    (fn []
+                      (is (nil? (frame/frame target))
+                          (str "GHOST-FRAME FIX: an aborted (never-committed) render "
+                               "created NO frame under " (pr-str target)
+                               " (frame-root ensures at commit, not during render)"))
+                      (cleanup!)
+                      (done!))
+                    8)))
+              (.catch
+                (fn [_err]
+                  ;; A thrown render may reject the act() thenable depending on the
+                  ;; error-boundary timing; the invariant still holds — no frame.
+                  (is (nil? (frame/frame target))
+                      "aborted render created NO frame (error path)")
                   (cleanup!)
                   (done!)))))))))
 
@@ -757,7 +850,7 @@
 ;; and on `react` directly (React 19). The harness uses whichever is
 ;; available; if neither is reachable the test SKIPS and files a bead
 ;; (per the bead's "no new test infrastructure" rule). `get-act` lives
-;; in the helpers section above (shared with the owned-frame StrictMode
+;; in the helpers section above (shared with the frame-root StrictMode
 ;; scenarios, which also need act() to drive React's effect double-invoke).
 
 (deftest scenario-7-concurrent-renders-survive-act-flush
