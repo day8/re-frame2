@@ -14,7 +14,9 @@
   The cross-family proofs (effect + route / flow / machine / resource on the same
   path) live in each family's own test suite; this core suite pins the effect
   path + the pure core operations (`add-claims` / `remove-claims` /
-  `remove-owner` / `replace-owner-claims`) + the source-aware rollback restore.
+  `remove-owner` / `replace-owner-claims`) + the rf2-uhk9ko
+  rejected-candidate pin (a classification riding a schema-rejected
+  transition never installs).
 
   Dual-runtime: `*_cljs_test.cljc` so both the shadow-cljs `:node-test` build
   (`npm run test:cljs`) and the JVM `clojure -M:test` runner run it."
@@ -24,6 +26,9 @@
             [re-frame.elision :as elision]
             [re-frame.frame :as frame]
             [re-frame.privacy :as privacy]
+            ;; rf2-uhk9ko: the rejected-candidate pin below needs the schemas
+            ;; artefact loaded (reg-app-schema + the Malli validator hooks).
+            [re-frame.schemas]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as ts]))
 
@@ -141,48 +146,32 @@
           "the marker carries a stable provenance keyword derived from the owners"))))
 
 ;; ===========================================================================
-;; (2) source-aware rollback restore — unwinds the in-band effect owner only
+;; (2) rejected candidate — in-band effect claims never install (rf2-uhk9ko)
 ;; ===========================================================================
+;;
+;; The former `restore-elision-slot` rollback-overlay tests are deleted with
+;; the fn: under validate-before-install a schema-rejected candidate is
+;; discarded BEFORE any container write, so an in-band classification effect
+;; on a rejected event simply never installs (pinned live below), and there
+;; is no rollback overlay to unit-test.
 
-(deftest rollback-unwinds-effect-preserves-out-of-band-owner
-  (testing "restore-elision-slot: on a schema rollback the in-band effect owner
-            unwinds to its PRE-cascade state while every out-of-band subsystem
-            owner (route/flow/machine/resource) is carried forward"
-    (let [pre  {:sensitive-declarations {[:a] #{{:source :route}}}}
-          ;; during the rejected event: effect ADDED [:a] and [:b]; a subsystem
-          ;; owner still claims [:a]; a new subsystem claim lowered [:c].
-          live {:sensitive-declarations {[:a] #{{:source :route} {:source :effect}}
-                                         [:b] #{{:source :effect}}
-                                         [:c] #{{:source :machine :actor-id :m#1}}}}
-          restored (elision/restore-elision-slot pre live)
-          s        (:sensitive-declarations restored)]
-      (is (= #{{:source :route}} (get s [:a]))
-          "the during-event effect claim on [:a] unwinds; the out-of-band route claim survives")
-      (is (nil? (get s [:b]))
-          "an in-band effect-only claim added this event is fully unwound")
-      (is (= #{{:source :machine :actor-id :m#1}} (get s [:c]))
-          "a during-event out-of-band subsystem lowering survives the rollback"))))
-
-(deftest rollback-restores-effect-claim-cleared-in-band
-  (testing "an effect claim that PREDATED the cascade and was cleared in-band by
-            the rejected event is restored on rollback (the clear unwinds too)"
-    (let [pre      {:sensitive-declarations {[:a] #{{:source :effect}}}}
-          live     {:sensitive-declarations {}}
-          restored (elision/restore-elision-slot pre live)]
-      (is (= #{{:source :effect}} (get-in restored [:sensitive-declarations [:a]]))
-          "the pre-cascade effect claim is restored"))))
-
-(deftest rollback-restores-dropped-out-of-band-old-path
-  (testing "rf2-o6rsi2: a mid-drain reentrant flow output-path MOVE that dropped
-            the OLD path's flow claim is restored from the pre-cascade snapshot,
-            while the NEW path's during-event flow claim survives from live"
-    (let [owner    {:source :flow :flow-id :f}
-          pre      {:sensitive-declarations {[:old] #{owner}}}
-          live     {:sensitive-declarations {[:new] #{owner}}}
-          restored (elision/restore-elision-slot pre live)
-          s        (:sensitive-declarations restored)]
-      (is (= #{owner} (get s [:old])) "the dropped old-path flow claim is restored from pre")
-      (is (= #{owner} (get s [:new])) "the during-event new-path flow claim survives"))))
+(deftest rejected-candidate-classification-never-installs
+  (testing "a classification effect riding a schema-REJECTED transition never
+            reaches the elision registry — the candidate (db + runtime-db
+            registry write) is discarded whole, pre-install (rf2-uhk9ko)"
+    (rf/reg-app-schema [:n] [:int])
+    (rf/reg-event :seed (fn [_ _] {:db {:n 0}}))
+    (rf/dispatch-sync [:seed])
+    (rf/reg-event :classify-and-break
+      (fn [{:keys [db]} _]
+        {:db        (assoc db :n "boom")          ;; violates [:n] [:int]
+         :sensitive [[:user :token]]}))           ;; rides the same candidate
+    (rf/dispatch-sync [:classify-and-break])
+    (is (= {:n 0} (rf/app-db-value (rf/current-frame-id)))
+        "the rejected candidate's :db never installed")
+    (is (not (contains? (elision/sensitive-declarations) [:user :token]))
+        "the rejected candidate's classification never installed either —
+         the whole transition (both partitions) was discarded pre-install")))
 
 ;; ===========================================================================
 ;; (3) the pure multi-owner operations

@@ -64,17 +64,18 @@
 ;; ----------------------------------------------------------------------------
 ;;
 ;; The handler returns a `:db` whose [:auth :token] slot holds an int.
-;; The post-handler app-db validation step (per [spec/010 §Validation
-;; order] step 4) catches it and emits the failure trace with
-;; :rollback? true. The :db effect is rolled back — :auth :token stays
-;; at "seed-token" — and the dispatch is treated as failed (flows do
-;; not evaluate, :fx does not walk).
+;; The candidate app-db validation step (per [spec/010 §Validation
+;; order] step 4, rf2-uhk9ko — the candidate transition validates
+;; BEFORE install) catches it and emits the failure trace with
+;; :rollback? true (transaction REJECTED). The :db effect is never
+;; installed — :auth :token stays at "seed-token" — and the dispatch is
+;; treated as failed (no :rf.event/db-changed fires, :fx does not walk).
 
 (rf/reg-event ::violate-app-db
   (fn [{:keys [db]} _ev]
     ;; HOT PATH — the commit site for :where :app-db.
-    ;; The runtime's post-handler validation re-reads [:auth :token]
-    ;; against AuthSlice and rejects the int 42.
+    ;; The runtime's candidate validation reads [:auth :token]
+    ;; against AuthSlice and rejects the int 42 pre-install.
     {:db (assoc-in db [:auth :token] 42)}))
 
 ;; ----------------------------------------------------------------------------
@@ -177,12 +178,12 @@
    [:p {:data-testid "schema-recovery-browser-semantics"
         :style       {:color "#666"}}
     "Malli validation is loaded for this browser build; the feature gate
-     asserts rollback, skipped handlers, the cofx-value-invalid throw,
-     skipped fx, and the matching Xray timeline traces."]
+     asserts candidate rejection, skipped handlers, the cofx-value-invalid
+     throw, skipped fx, and the matching Xray timeline traces."]
    [:div {:style {:display :flex :gap "0.5em" :flex-wrap :wrap}}
     [:button {:data-testid "violate-app-db"
               :on-click #(dispatch [::violate-app-db])}
-     "A · :where :app-db (rolled back)"]
+     "A · :where :app-db (rejected pre-install)"]
     [:button {:data-testid "violate-event"
               :on-click #(dispatch [::violate-event "not-a-number"])}
      "B · :where :event (handler skipped)"]

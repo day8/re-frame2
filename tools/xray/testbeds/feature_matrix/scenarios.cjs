@@ -3459,17 +3459,17 @@ async function runTwoFrameIsolation(page, state) {
   // Drive the APP-SCHEMA step in `:above` ONLY. The handler writes an int
   // (42) into `[:auth :token]`; the frame-local app-schema (`[:auth] →
   // [:map [:token :string]]`, registered once globally, resolved per-frame)
-  // REJECTS the write and the post-handler app-db validation ROLLS THE :db
-  // BACK — so `:above`'s `[:auth :token]` must still read the seed STRING
-  // "seed-token", NOT 42. The rolled-back-to-string read is the observable
-  // proof the schema fired AND the rollback engaged in `:above`'s frame.
-  // `:below` MUST be wholly untouched (still the seed string) — the schema
-  // violation + rollback are scoped to the driven frame.
+  // REJECTS the candidate BEFORE install (rf2-uhk9ko) — so `:above`'s
+  // `[:auth :token]` must still read the seed STRING "seed-token", NOT 42.
+  // The still-a-string read is the observable proof the schema fired AND
+  // the rejection engaged in `:above`'s frame. `:below` MUST be wholly
+  // untouched (still the seed string) — the schema violation + rejection
+  // are scoped to the driven frame.
   await runTwoFrameStep(page, 'above', TWO_FRAME_SCHEMA_STEP);
   const aAfterSchema = await waitForTwoFrameDb(
     page, 'above',
     (s) => s.token === '"seed-token"',
-    'above app-schema rung: int write to [:auth :token] rolled back — token still "seed-token" (frame-local schema fired + rollback engaged)',
+    'above app-schema rung: int write to [:auth :token] rejected pre-install — token still "seed-token" (frame-local schema fired + candidate rejection engaged)',
   );
   await waitForTwoFrameDb(
     page, 'below',
@@ -3477,14 +3477,14 @@ async function runTwoFrameIsolation(page, state) {
     'app-schema isolation: below frame [:auth :token] untouched (still "seed-token") by above\'s schema-violating write',
   );
 
-  // Drive the APP-SCHEMA step in `:below` too and assert its db likewise
-  // rolls back (token stays the seed string) — the same frame-local
-  // schema-rollback contract holds independently in the second frame.
+  // Drive the APP-SCHEMA step in `:below` too and assert its candidate is
+  // likewise rejected (token stays the seed string) — the same frame-local
+  // schema-rejection contract holds independently in the second frame.
   await runTwoFrameStep(page, 'below', TWO_FRAME_SCHEMA_STEP);
   await waitForTwoFrameDb(
     page, 'below',
     (s) => s.token === '"seed-token"',
-    'below app-schema rung: int write rolled back — token still "seed-token" (frame-local schema + rollback)',
+    'below app-schema rung: int write rejected pre-install — token still "seed-token" (frame-local schema + candidate rejection)',
   );
 
   // The runner `:step` cursors are also per-frame isolated — each frame's
@@ -3698,9 +3698,9 @@ const SCENARIOS = [
     // The two-frame isolation deck (rf2-4279q4): the standard-epochs ladder
     // mounted twice (`:above` / `:below`). Drives the FLOW rung (step 5 —
     // `:standard-epochs/derived` reg-flow recompute) + the APP-SCHEMA rung
-    // (step 19 — `[:auth :token]` schema rollback) in BOTH frames and
+    // (step 19 — `[:auth :token]` schema rejection) in BOTH frames and
     // asserts per-frame ISOLATION off each frame's app-db (`app-db-value`):
-    // a flow recompute / a schema violation+rollback in one frame never
+    // a flow recompute / a schema violation+rejection in one frame never
     // moves the other. These two cross-frame rungs were INERT before this
     // scenario — nothing exercised them in the above/below frames.
     name: 'two-frame isolation: flow + app-schema rungs exercise + isolate across :above / :below (rf2-4279q4)',

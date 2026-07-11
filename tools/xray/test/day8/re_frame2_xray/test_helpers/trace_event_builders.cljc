@@ -184,14 +184,13 @@
   so it is the sole signal that a runtime-ONLY cascade wrote frame-state.
 
   `partitions` is the partition tag set (e.g. `#{:runtime-db}`,
-  `#{:app-db}`, `#{:app-db :runtime-db}`). The 2-arg form stamps the
-  `:rf.trace/phase` (`:rollback` for the post-rollback re-emit); the
-  1-arg form is the forward commit."
-  ([partitions] (frame-state-changed-ev partitions nil))
-  ([partitions phase]
-   (ev :rf.event :rf.event/frame-state-changed
-       (cond-> {:rf.event/partitions partitions}
-         phase (assoc :rf.trace/phase phase)))))
+  `#{:app-db}`, `#{:app-db :runtime-db}`). Phase-less: the substrate
+  emits this only for the single forward commit (rf2-uhk9ko removed the
+  `:rf.trace/phase :rollback` re-emit — a schema-rejected candidate never
+  commits, so no second emission exists)."
+  [partitions]
+  (ev :rf.event :rf.event/frame-state-changed
+      {:rf.event/partitions partitions}))
 
 ;; ---- fx ----------------------------------------------------------------
 

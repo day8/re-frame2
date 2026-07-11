@@ -24,11 +24,11 @@
 ;; The schema-validation and flow-run hooks are published by the optional
 ;; `re-frame.schemas` / `re-frame.flows` artefacts (on the core test
 ;; classpath). The cascade-failure tests below stub those hooks through
-;; the late-bind table to drive the router's rollback / flow-throw
+;; the late-bind table to drive the router's rejection / flow-throw
 ;; branches. The fixture snapshots and restores the hook table so a stub
 ;; never leaks across tests, and resets the artefacts' global registries
 ;; (`schemas-by-frame`, `flows`) so a schema / flow registered by an
-;; earlier namespace cannot roll back this namespace's clean dispatches —
+;; earlier namespace cannot reject this namespace's clean dispatches —
 ;; the same isolation `smoke_test`'s fixture performs.
 ;;
 ;; `clear-all!` wipes the WHOLE registrar; in the shared `:node-test`
@@ -109,22 +109,22 @@
 
 ;; ---- 1b. Cascade-failure outcomes ----------------------------------------
 ;;
-;; A dispatch can fail AFTER the interceptor chain settled cleanly: a
-;; post-commit app-db schema validation can roll the :db effect back
-;; (Spec 010 §Per-step recovery row 4), or a flow's :output can throw
-;; (Spec 013 §Failure semantics rule 3). Both are detected inside the
+;; A dispatch can fail AFTER the interceptor chain settled cleanly: candidate
+;; app-db schema validation can REJECT the transition before install
+;; (Spec 010 §Per-step recovery row 4, rf2-uhk9ko), or a flow's :output can
+;; throw (Spec 013 §Failure semantics rule 3). Both are detected inside the
 ;; commit-and-flow! body; both MUST surface a non-:ok :outcome to off-box
 ;; observability shippers rather than mis-report a clean :ok.
 
-(deftest listener-marks-schema-rollback-as-non-ok-outcome
-  (testing "When a post-commit app-db schema validation rejects the new
-            state — the runtime rolls :db back to the pre-handler value
-            and skips flows + :fx — the event-emit record's :outcome is
+(deftest listener-marks-schema-rejection-as-non-ok-outcome
+  (testing "When candidate app-db schema validation rejects the transition
+            — nothing installs (app-db keeps its pre-handler value) and
+            flows + :fx are skipped — the event-emit record's :outcome is
             NON-:ok (the dispatch failed, even though the handler did not
             throw)."
     (let [seen (atom [])]
-      ;; Stub the schema-validate hook to reject every commit, driving
-      ;; commit-db-effect! down its rollback branch.
+      ;; Stub the schema-validate hook to reject every candidate, driving
+      ;; commit-frame-effects! down its rejection branch.
       (late-bind/set-fn! :schemas/validate-app-schema!
                          (fn [_db-after _event-id _frame] false))
       (rf/register-listener! :events
@@ -136,9 +136,10 @@
       (is (= 1 (count @seen)) "listener fired once for the dispatch")
       (let [outcome (:outcome (first @seen))]
         (is (not= :ok outcome)
-            "a rolled-back dispatch is NOT reported as a clean :ok")
+            "a rejected dispatch is NOT reported as a clean :ok")
         (is (= :rolled-back outcome)
-            "schema rollback surfaces as the distinct :rolled-back outcome")))))
+            "schema rejection surfaces as the distinct :rolled-back outcome
+             (the stable public vocabulary for transaction-rejected)")))))
 
 (deftest listener-marks-flow-throw-as-non-ok-outcome
   (testing "When a flow's :output throws during the outermost :after flow

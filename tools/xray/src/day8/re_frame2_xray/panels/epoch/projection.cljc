@@ -1920,12 +1920,14 @@
 ;; - THE `:db` COMMIT IS RECORDED BY `:rf.event/db-changed`, NOT a
 ;;   fx-id-less `:rf.fx/handled`. `re-frame.fx/emit-handled!` ALWAYS
 ;;   stamps `:rf.fx/id`; the framework's `:db` install path
-;;   (`re-frame.router/commit-db-effect!`) emits `:rf.event/db-changed`
-;;   (and a second one with `:rf.trace/phase :rollback` on a schema-fail
-;;   rollback) — it does NOT route `:db` through the fx pipeline. The
+;;   (`re-frame.router/commit-frame-effects!`) emits `:rf.event/db-changed`
+;;   for the single forward commit — it does NOT route `:db` through the
+;;   fx pipeline, and a schema-REJECTED candidate emits NO db-changed at
+;;   all (rf2-uhk9ko: validate-before-install; the rejection's signal is
+;;   the `:where :app-db` violation trace with `:rollback? true`). The
 ;;   pre-rf2-kt6js heuristic looked for a non-existent fx-id-less
 ;;   `:rf.fx/handled`, so the `:db` row only ever appeared on the
-;;   rollback path; a clean reg-event showed NO side-effects step at
+;;   rejection path; a clean reg-event showed NO side-effects step at
 ;;   all. Keying off `:rf.event/db-changed` fixes the ALWAYS-APPEARS
 ;;   contract tool-side.
 ;;
@@ -1985,9 +1987,11 @@
 
 (defn db-rolled-back?
   "True iff a `:where :app-db` schema-validation failure flagged the
-  cascade rolled back (rf2-kt6js; lifted from the rf2-8resu inline
-  signal). The `:db` sub-step paints ✗ in this case; the schema reason
-  attaches to the `:db` row via `attach-to-fx-db-row`."
+  cascade transaction-REJECTED — `:rollback? true` is the stable public
+  vocabulary; under rf2-uhk9ko the candidate is rejected BEFORE install,
+  so app-db was never touched (rf2-kt6js; lifted from the rf2-8resu
+  inline signal). The `:db` sub-step paints ✗ in this case; the schema
+  reason attaches to the `:db` row via `attach-to-fx-db-row`."
   [events]
   (boolean
     (some (fn [ev]
@@ -2014,13 +2018,14 @@
   "True iff this cascade attempted a `:db` commit (rf2-kt6js). Three
   signals, ANY sufficient:
 
-    (a) A `:rf.event/db-changed` trace — the framework's `commit-db-
-        effect!` emits this for EVERY actual `:db` install (forward
-        commit), and a second one with `:rf.trace/phase :rollback` on a
-        schema-fail rollback. This is the canonical `:db`-commit signal,
-        present for a plain reg-event that returns only `:db`.
-    (b) A `:where :app-db` schema violation — implies a commit was
-        ATTEMPTED even on the abort path.
+    (a) A `:rf.event/db-changed` trace — the framework emits this for
+        EVERY actual `:db` install (the single forward commit; rf2-uhk9ko
+        removed the `:phase :rollback` re-emit — a rejected candidate
+        emits none). This is the canonical `:db`-commit signal, present
+        for a plain reg-event that returns only `:db`.
+    (b) A `:where :app-db` schema violation — the candidate `:db` was
+        built and REJECTED pre-install (no db-changed fires), so the
+        commit was ATTEMPTED; the SIDE EFFECTS `:db` row surfaces it.
     (c) A `:rf.event/db-noop` trace (rf2-ekq28v) — the handler returned a
         `:db` effect that left app-db unchanged (the no-op fast-path
         skipped the write). The commit was ATTEMPTED, so the SIDE EFFECTS
@@ -2078,24 +2083,25 @@
 ;; EFFECTS row even when there is no `:db` and no `:fx`.
 
 (defn- frame-state-partitions
-  "The set of partition tags carried on the (forward, non-rollback)
-  `:rf.event/frame-state-changed` trace — a subset of
-  `#{:app-db :runtime-db}` (Spec 009). nil when no forward
-  frame-state-changed fired."
+  "The set of partition tags carried on the `:rf.event/frame-state-changed`
+  trace — a subset of `#{:app-db :runtime-db}` (Spec 009). nil when no
+  frame-state-changed fired. Every emission is a forward commit: rf2-uhk9ko
+  removed the `:rf.trace/phase :rollback` re-emit (a schema-rejected
+  candidate never commits, so at most one emission exists per cascade)."
   [events]
   (some (fn [ev]
-          (when (and (= :rf.event/frame-state-changed (op ev))
-                     (not= :rollback (common/tag-of ev :rf.trace/phase)))
+          (when (= :rf.event/frame-state-changed (op ev))
             (common/tag-of ev :rf.event/partitions)))
         events))
 
 (defn runtime-db-rolled-back?
   "True iff a `:where :machine-data` schema-validation failure flagged the
-  cascade rolled back (EP-0001 rf2-jbbp7 · Spec 010 §Per-step recovery
-  row 7). The runtime-db partition carries durable machine snapshots; its
-  post-commit boundary is the `:where :machine-data` validator (the
-  app-db sibling of `db-rolled-back?`'s `:where :app-db`). A `false` from
-  it rolls back the WHOLE transition, so the runtime-db row paints ✗ and
+  cascade transaction-REJECTED (EP-0001 rf2-jbbp7 · Spec 010 §Per-step
+  recovery row 7; under rf2-uhk9ko the candidate runtime-db is validated
+  BEFORE install). The runtime-db partition carries durable machine
+  snapshots; its commit boundary is the `:where :machine-data` validator
+  (the runtime sibling of `db-rolled-back?`'s `:where :app-db`). A `false`
+  from it rejects the WHOLE candidate, so the runtime-db row paints ✗ and
   the machine-data reason attaches to it via `attach-violations`."
   [events]
   (boolean
