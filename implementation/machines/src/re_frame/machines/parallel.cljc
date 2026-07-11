@@ -237,9 +237,30 @@
 (defn- build-region-machine
   "Construct a synthetic single-machine spec for one region of
   `parent-machine`. See `region-machine` for the contract — this is the
-  uncached compute path."
+  uncached compute path.
+
+  The region body is DESUGARED here — `:timeout` / `:on-timeout` lowered onto
+  `:after`, `:type :choice` / `:choice` onto `:always` — so the synthetic
+  region-spec is ALWAYS in the lowered form the engine drives, regardless of
+  whether `parent-machine` was desugared. This is the single choke-point where
+  region-specs are born (`region-machine` memoises the result), so the cache
+  holds the desugared form and BOTH the birth paths that call
+  `apply-transition-once` directly (`bootstrap-step`, `apply-root-region-target`
+  — which BYPASS the per-dispatch `machine-transition` desugar seam) and the
+  event path see identically-lowered region bodies. Without this, a
+  region-initial `:timeout` never armed at birth and a region-initial
+  `:type :choice` stayed stuck at its transient node (rf2-x76af2.7): the raw
+  region body was faulted into the cache during `build-initial-snapshot`'s tag
+  computation, then served — still raw — on those direct-apply paths. Both
+  desugars are idempotent and short-circuit for the common timeout/choice-free
+  region, so this costs one structural scan on the once-per-region cache miss.
+  A region-ROOT `:after` / `:timeout` is rejected at registration
+  (`validate-non-parallel-root-after!`, rf2-x76af2.10), so only region STATE
+  nodes carry lowerable `:timeout` / `:choice` by the time a body reaches here."
   [parent-machine region-name]
-  (let [region-body (get-in parent-machine [:regions region-name])]
+  (let [region-body (choice/desugar-choices
+                      (timeout/desugar-timeouts
+                       (get-in parent-machine [:regions region-name])))]
     (-> region-body
         (assoc :guards            (:guards parent-machine))
         (assoc :actions           (:actions parent-machine))
