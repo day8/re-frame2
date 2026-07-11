@@ -67,6 +67,25 @@
 ;; FAILURE shape, dispatched on `:ok?`. Both are co-located here.
 ;; ---------------------------------------------------------------------------
 
+(defn- realm-shaped-key?
+  "A map key whose namespace OR name mentions `realm` — the coordinate
+  EP-0023/rf2-udl74a removed from the operating-frame wire shape. Matched
+  case-insensitively over the keyword's full string form so `:realms`,
+  `:operating-realm`, `:frame-realms`, and a namespaced `:rf.realm/id`
+  all trip."
+  [k]
+  (and (keyword? k)
+       (boolean (re-find #"(?i)realm" (subs (str k) 1)))))
+
+(defn- no-realm-slots?
+  "True when `m` carries no realm-shaped key. This is the closed-key
+  NEGATIVE that gives the deliberately-OPEN `OperatingFrameSuccess`
+  schema real teeth against a re-introduced realm slot (rf2-txgs76): the
+  envelope stays open to legitimate non-realm additive decorations
+  (source-uri / freshness) while ANY realm-shaped key is rejected."
+  [m]
+  (not (some realm-shaped-key? (keys m))))
+
 (def OperatingFrameSuccess
   "The `{:ok? true ...}` operating-frame envelope per the Tool-Pair
   §Tool-surface-obligations contract as collapsed by EP-0023 (q8whbb).
@@ -85,19 +104,29 @@
                   AMBIGUOUS: two-plus app frames, no pin). A frame-id or nil.
 
   There are NO realm slots — the re-frame.realm substrate was removed
-  (rf2-udl74a); the wire shape is frame-only.
+  (rf2-udl74a); the wire shape is frame-only. This is enforced with
+  teeth by the `[:fn no-realm-slots?]` arm below — NOT by `:closed`,
+  which would also reject the legitimate additive decorations.
 
   Open map `{:closed false}` — additive envelope slots (the
   source-uri/freshness decorations the wire-pipeline layers on) compose
   without a schema bump. The LOAD-BEARING claim is that the public
-  addressing slots are present and correctly typed."
-  [:map
-   {:closed false}
-   [:ok?        [:= true]]
-   [:frames     [:sequential :keyword]]
-   [:app-frames [:sequential :keyword]]
-   [:selected   [:maybe :keyword]]
-   [:operating  [:maybe :keyword]]])
+  addressing slots are present and correctly typed AND that no
+  realm-shaped slot rides the envelope (rf2-txgs76): the closed-key
+  negative catches a real emitter re-introducing a realm coordinate,
+  which the open map alone would silently accept."
+  [:and
+   [:map
+    {:closed false}
+    [:ok?        [:= true]]
+    [:frames     [:sequential :keyword]]
+    [:app-frames [:sequential :keyword]]
+    [:selected   [:maybe :keyword]]
+    [:operating  [:maybe :keyword]]]
+   [:fn {:error/message (str "operating-frame envelope carries a realm-shaped slot — "
+                             "EP-0023/rf2-udl74a made the wire shape frame-only "
+                             "(no realm coordinate, public or internal)")}
+    no-realm-slots?]])
 
 (def OperatingFrameFailure
   "The `{:ok? false :reason <kw> ...}` operating-frame failure envelope.
@@ -230,13 +259,39 @@
 (deftest no-realm-slots-on-the-envelope
   ;; rf2-udl74a: the re-frame.realm substrate was removed atomically. The
   ;; operating-frame envelope is frame-only — no realm coordinate, public or
-  ;; internal. A regression that re-introduced a realm slot would surface here.
-  (doseq [[fixture-name fixture-value] success-fixtures]
-    (testing (str "fixture " fixture-name " carries no realm slots")
-      (is (not (contains? fixture-value :realms)))
-      (is (not (contains? fixture-value :operating-realm)))
-      (is (not (contains? fixture-value :selected-realm)))
-      (is (not (contains? fixture-value :frame-realms))))))
+  ;; internal.
+  ;;
+  ;; The teeth (rf2-txgs76): the guarantee is enforced by the SCHEMA's
+  ;; closed-key negative (`[:fn no-realm-slots?]` on `OperatingFrameSuccess`),
+  ;; NOT by iterating the author's own fixtures. A fixture-only absence check
+  ;; is self-referential — the schema is `{:closed false}`, so a real emitter
+  ;; re-introducing a `:realms` slot would validate against every
+  ;; schema-conformance gate AND never flow through a fixture `contains?`
+  ;; check. Asserting the SCHEMA rejects the slot catches the emitter
+  ;; regression the docstring names.
+  (testing "the local success-fixtures carry no realm slots (sanity on the fixtures themselves)"
+    (doseq [[fixture-name fixture-value] success-fixtures]
+      (testing (str "fixture " fixture-name)
+        (is (not (contains? fixture-value :realms)))
+        (is (not (contains? fixture-value :operating-realm)))
+        (is (not (contains? fixture-value :selected-realm)))
+        (is (not (contains? fixture-value :frame-realms))))))
+  (testing "the SCHEMA rejects a re-introduced realm slot (the emitter-regression guard)"
+    (let [base (:multi-frame-pinned success-fixtures)]
+      (doseq [realm-slot [:realms :operating-realm :selected-realm :frame-realms
+                          :frame-realm :rf.realm/id]]
+        (testing (str "a success envelope carrying " realm-slot " fails validation")
+          (is (not (m/validate OperatingFrameSuccess (assoc base realm-slot :whatever)))
+              (str "OperatingFrameSuccess MUST reject a re-introduced " realm-slot
+                   " slot — EP-0023/rf2-udl74a made the wire shape frame-only. "
+                   "The schema stays OPEN for non-realm additive decorations but "
+                   "the [:fn no-realm-slots?] arm rejects any realm-shaped key."))))
+      (testing "a non-realm additive decoration still validates (the schema stays open)"
+        (is (m/validate OperatingFrameSuccess
+                        (assoc base :rf.source/uri "app://x" :fresh? true))
+            (str "OperatingFrameSuccess MUST remain OPEN to legitimate additive "
+                 "wire decorations (source-uri / freshness) — the realm negative "
+                 "must not become a general closed-map rejection."))))))
 
 (deftest multi-frame-independent-resolution
   ;; Bead rf2-f0isjs finding 2: two distinct frame ids resolve
