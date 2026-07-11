@@ -171,17 +171,24 @@ const ARTEFACTS = [
       { source: 're-frame.http.managed classify-failure (decode-failure)',
         sentinel: 'rf.http/decode-failure' },
     ],
-    // Two consumer-side strings (Spec 014, rf2-5kpd split):
+    // Three consumer-side strings (Spec 014, rf2-5kpd split):
     //   `rf.http/managed`                — fx-name core's preset map
     //                                      maps to in :test/:story
     //                                      modes (frame.cljc).
     //   `rf.http/managed-canned-success` — canned-stub fx-name the
     //                                      preset map redirects to.
+    //   `rf.http/managed`                — rf2-32ffq1: the fx-args
+    //                                      classification walk's case key in
+    //                                      re-frame.classification/project-fx-args
+    //                                      (a keyword literal gating the
+    //                                      :http/project-managed-fx-args
+    //                                      late-bind consult — the blessed
+    //                                      consumer-side pattern, no :require).
     // The pattern uses a negative lookahead so `rf.http/managed-canned-
     // success` and `rf.http/managed` (without the suffix) each match
-    // exactly once, not three times by substring overlap.
+    // exactly once, not by substring overlap.
     consumerAllowList: /rf\.http\/managed-canned-success|rf\.http\/managed(?!-canned)/g,
-    expectedAllowListHits: 2,
+    expectedAllowListHits: 3,
   },
 
   // Epoch artefact (rf2-69ad2 / rf2-lt4e split — re-frame.epoch lives
