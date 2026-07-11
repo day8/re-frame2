@@ -735,3 +735,52 @@
                             #":rf.error/invalid-hiccup-head"
                             (streaming/render-shell el))
           (str "streaming path must fail loud on malformed head: " (pr-str el))))))
+
+;; ===========================================================================
+;; rf2-dtza9a — Form-2 raw-fn component renders (never leaks the inner fn's
+;; .toString as page text)
+;;
+;; A Form-2 component (an outer fn returning an inner render fn) previously
+;; resolved to a fn VALUE that fell through to `escape-html`, stringifying the
+;; fn's `.toString` (`user$…fn__…@…`) as visible page text. Both the sync
+;; emitter and the streaming shell walker MUST invoke the inner render fn
+;; (Form-2 semantics) and render its hiccup; a result that is STILL a fn after
+;; the single unwrap fails loud with `:rf.error/ssr-nonrenderable-component`.
+;; ===========================================================================
+
+(deftest emit-renders-form-2-component
+  (testing "rf2-dtza9a — a Form-2 component renders its inner hiccup, not the
+            inner fn's .toString, through BOTH the sync emit and streaming paths"
+    ;; The idiomatic Reagent/UIx/Helix Form-2 shapes: a 0-arity inner closing
+    ;; over the outer's args, AND a same-arity inner taking the args.
+    (let [form2-closed (fn [x] (fn [] [:div x]))
+          form2-arg    (fn [x] (fn [x] [:p (str "v=" x)]))]
+      (is (= "<div>hello</div>" (emit/emit-element [form2-closed "hello"]))
+          "sync emit renders the 0-arity-inner Form-2 output")
+      (is (= "<div>hello</div>"
+             (:shell-html (streaming/render-shell [form2-closed "hello"])))
+          "streaming renders the 0-arity-inner Form-2 output")
+      (is (= "<p>v=7</p>" (emit/emit-element [form2-arg 7]))
+          "sync emit renders the same-arity-inner Form-2 output")
+      (is (= "<p>v=7</p>"
+             (:shell-html (streaming/render-shell [form2-arg 7])))
+          "streaming renders the same-arity-inner Form-2 output")
+      ;; Belt-and-braces: no fn-identity toString leaks into the output.
+      (doseq [out [(emit/emit-element [form2-closed "hello"])
+                   (:shell-html (streaming/render-shell [form2-closed "hello"]))]]
+        (is (not (str/includes? out "fn__"))
+            "no inner-fn .toString (`…fn__…@…`) leaks as page text")
+        (is (not (str/includes? out "@"))
+            "no object-identity `@hash` leaks as page text"))))
+
+  (testing "rf2-dtza9a — a component that resolves to a fn even after the
+            Form-2 unwrap (deeper than Form-2) fails loud, never leaking a fn"
+    (let [deep (fn [x] (fn [] (fn [] [:div x])))]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                            #":rf.error/ssr-nonrenderable-component"
+                            (emit/emit-element [deep "z"]))
+          "sync emit fails loud on a deeper-than-Form-2 component")
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                            #":rf.error/ssr-nonrenderable-component"
+                            (streaming/render-shell [deep "z"]))
+          "streaming fails loud on a deeper-than-Form-2 component"))))

@@ -478,9 +478,14 @@
     ;; than resolving it (rf2-wtd8z finding 2 — same gap as the non-
     ;; streaming emitter). The keyword branch above (DOM tags, fragments,
     ;; `:>`, registered views) is reached first, so the only callables
-    ;; reaching here are fns and Var references. Invoke + recurse on the
+    ;; reaching here are fns and Var references. Resolve + recurse on the
     ;; body so the shell walk threads through the Var head.
-    (walk-shell (apply (first el) (rest el)) acc)
+    ;;
+    ;; rf2-dtza9a — `resolve-component-head` handles a Form-2 component
+    ;; (outer fn → inner render fn) identically to the sync emitter: the
+    ;; inner fn is invoked once with the same args rather than left to
+    ;; stringify its `.toString` as page text.
+    (walk-shell (emit/resolve-component-head (first el) (rest el)) acc)
 
     ;; rf2-y1jbaq — a vector reaching here (not a suspense boundary, not a
     ;; keyword head, not a callable head) has a malformed head (string / nil /

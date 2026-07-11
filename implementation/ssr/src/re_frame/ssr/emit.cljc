@@ -357,6 +357,63 @@
      :extra    {:head    (first el)
                 :element el}}))
 
+(defn- invoke-form-2-render-fn
+  "Invoke a Form-2 inner render fn with `args`, tolerating an inner that
+  declares FEWER params than the component was passed. The idiomatic
+  Reagent/UIx/Helix Form-2 inner either takes the SAME args as the outer
+  (`(fn [x] …)`) or ignores them and closes over the outer's (`(fn [] …)`).
+  On CLJS these are equivalent — JS arity leniency drops extra args — so
+  `(apply inner args)` renders both. The JVM is strict: `(apply inner args)`
+  throws `ArityException` for a lower-arity inner, so emulate CLJS leniency
+  by falling back to a no-arg call (the `(fn [] …)` shape)."
+  [inner args]
+  #?(:clj  (try
+             (apply inner args)
+             (catch clojure.lang.ArityException _
+               (inner)))
+     :cljs (apply inner args)))
+
+(defn resolve-component-head
+  "Resolve a callable-head hiccup component (`[component & args]`, where
+  `component` is a fn or a Var — the idiomatic Reagent/UIx/Helix SSR shape,
+  the same shape the render-tree hash walker supports) to renderable hiccup.
+
+  A Form-1 component returns hiccup directly. A Form-2 component returns an
+  INNER render fn; per Reagent/UIx/Helix Form-2 semantics it is invoked once
+  more with the SAME args (arity-tolerantly — see
+  `invoke-form-2-render-fn`) to obtain the hiccup. Resolving Form-2 here
+  does NOT perturb the structural hash — the hash walks the RAW tree
+  (`[component …]`, a raw fn head serialising to one fixed token, hash.cljc),
+  identical on server and client, so the resolved output cannot fire a
+  spurious hydration mismatch.
+
+  Per rf2-dtza9a — the prior bare `(apply head args)` left a Form-2 result
+  (a fn) to fall through to `escape-html`, which stringified the fn's
+  `.toString` (`user$…fn__…@…`) as visible page text (plus a guaranteed
+  downstream hydration mismatch). A result that is STILL a bare fn after the
+  single Form-2 unwrap is not a valid component render — fail loud with
+  `:rf.error/ssr-nonrenderable-component` rather than leak the fn text."
+  [head args]
+  (let [resolved (apply head args)]
+    (if (fn? resolved)
+      ;; Form-2 — the outer fn returned an inner render fn; invoke it once
+      ;; with the same args (Form-2 semantics) to get the hiccup.
+      (let [rendered (invoke-form-2-render-fn resolved args)]
+        (if (fn? rendered)
+          (error/throw-error!
+            :rf.error/ssr-nonrenderable-component
+            'rf.ssr/emit
+            (str "a callable hiccup component resolved to a fn even after the"
+                 " Form-2 unwrap (outer fn → inner render fn → still a fn). A"
+                 " Form-2 component's inner render fn must return hiccup, not"
+                 " another fn; SSR cannot render a bare fn — it would"
+                 " stringify the fn's .toString as visible page text. Return"
+                 " hiccup from the component's render fn.")
+            {:recovery :return-hiccup-from-the-component-render-fn
+             :extra    {:component head}})
+          rendered))
+      resolved)))
+
 (defn emit-element
   "Emit a hiccup node as an HTML string. The optional `root-attrs` map
   (per rf2-lxwse) carries attributes destined for the first DOM-tag
@@ -516,8 +573,14 @@
          ;; same kind of wrapping as a registered-view ref, so the root
          ;; hash / source-coord thread through the Var head onto the
          ;; resolved DOM root.
+         ;;
+         ;; rf2-dtza9a — `resolve-component-head` handles a Form-2 component
+         ;; (an outer fn returning an inner render fn): the inner fn is
+         ;; invoked once with the same args rather than left to fall through
+         ;; to `escape-html`, which stringified the fn's `.toString` as
+         ;; visible page text.
          (ifn? head)
-         (emit-element (apply head (rest el)) root-attrs)
+         (emit-element (resolve-component-head head (rest el)) root-attrs)
 
          ;; rf2-y1jbaq — a vector whose head is not a keyword and not a
          ;; callable (string / nil / number / boolean / collection head) is
