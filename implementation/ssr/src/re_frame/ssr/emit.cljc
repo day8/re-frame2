@@ -325,6 +325,38 @@
        :extra    {:tag    tag-name
                   :source source-head}})))
 
+(defn reject-invalid-hiccup-head!
+  "Throw `:rf.error/invalid-hiccup-head` for a hiccup vector whose head is
+  neither a keyword (DOM tag / registered view / `:<>` / `:>` /
+  `:rf/suspense-boundary`) nor a callable component (a fn or Var). A head
+  that is a string / nil / number / boolean / collection has no HTML
+  interpretation.
+
+  Per rf2-y1jbaq — the prior `(str el)` fallthrough stringified the WHOLE
+  hiccup vector RAW and UNESCAPED onto the wire, so a malformed-head vector
+  carrying attacker-controlled child strings (`[nil \"<script>…\"]`,
+  `[\"x\" \"<img … onerror=…>\"]`) shipped live `<script>` / `<img onerror>`
+  markup — an XSS-class bypass of the locked escape-at-every-leaf-or-fail-
+  loud invariant (Spec 011 §XSS at output boundaries). Fail loud instead,
+  mirroring `validate-tag-name!` and the `:>` / `:rf/suspense-boundary`
+  throws — never stringify an unescaped hiccup form to the wire. Shared by
+  the sync emitter and the streaming shell walker so both paths reject the
+  same malformed shape identically."
+  [el]
+  (error/throw-error!
+    :rf.error/invalid-hiccup-head
+    'rf.ssr/emit
+    (str "hiccup vector head " (pr-str (first el))
+         " (in element " (pr-str el) ") is not a valid hiccup head — a head"
+         " must be a keyword (DOM tag / registered view / :<> / :> /"
+         " :rf/suspense-boundary) or a callable component (fn / Var). A"
+         " string / nil / number / boolean / collection head has no HTML"
+         " interpretation; emitting its EDN form raw would bypass output"
+         " escaping (XSS). Produce a valid hiccup head.")
+    {:recovery :use-a-keyword-or-callable-hiccup-head
+     :extra    {:head    (first el)
+                :element el}}))
+
 (defn emit-element
   "Emit a hiccup node as an HTML string. The optional `root-attrs` map
   (per rf2-lxwse) carries attributes destined for the first DOM-tag
@@ -487,7 +519,11 @@
          (ifn? head)
          (emit-element (apply head (rest el)) root-attrs)
 
-         :else (str el)))
+         ;; rf2-y1jbaq — a vector whose head is not a keyword and not a
+         ;; callable (string / nil / number / boolean / collection head) is
+         ;; malformed. The prior `(str el)` shipped its EDN form RAW and
+         ;; UNESCAPED (XSS-class escape bypass); fail loud instead.
+         :else (reject-invalid-hiccup-head! el)))
 
      (sequential? el) (emit-children el)
      :else (html/escape-html el))))

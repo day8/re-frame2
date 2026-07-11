@@ -482,6 +482,15 @@
     ;; body so the shell walk threads through the Var head.
     (walk-shell (apply (first el) (rest el)) acc)
 
+    ;; rf2-y1jbaq — a vector reaching here (not a suspense boundary, not a
+    ;; keyword head, not a callable head) has a malformed head (string / nil /
+    ;; number / boolean / collection). Fail loud via the shared emit reject —
+    ;; identical to the sync emitter — rather than fall through to
+    ;; `(sequential? el)` and splice it as a child-seq, which silently drops
+    ;; the bad head and could ride attacker-controlled child strings.
+    (vector? el)
+    (emit/reject-invalid-hiccup-head! el)
+
     (sequential? el)
     (walk-children el acc)
 
