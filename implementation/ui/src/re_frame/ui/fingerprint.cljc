@@ -31,6 +31,14 @@
                             triples of every view in the build (sorted by
                             view-id so the digest is compile-order
                             independent)
+      config-fingerprint    \"cf1-\"  input: [frame-id config-source-map]
+                            — a root form's static frame plan (S1c,
+                            root-identity contract §6): the frame-root's
+                            literal :id plus its config SOURCE FORMS
+                            (:initial-events etc. as written, NOT their
+                            runtime values — config expressions evaluate
+                            at preflight; the fingerprint is what
+                            build-time plan-conflict detection compares)
 
   ## Canonical EDN
 
@@ -123,3 +131,13 @@
   triples, sorted by view-id (compile-order independent)."
   [triples]
   (digest "bd1-" (vec (sort-by (comp pr-str first) triples))))
+
+(defn config-fingerprint
+  "\"cf1-\" digest of a static frame plan (S1c root-identity contract §6):
+  `[frame-id config-source-map]` — the frame-root's literal `:id` plus its
+  config SOURCE forms (the props map minus `:id`, as written). Hashing the
+  source keeps the fingerprint computable with no evaluation (config
+  expressions are runtime values, evaluated at preflight); build-time
+  plan-conflict detection compares exactly this digest."
+  [frame-id config]
+  (digest "cf1-" [frame-id (or config {})]))

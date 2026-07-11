@@ -243,6 +243,16 @@
          (.push ~arr ~row))
        ~arr)))
 
+(defn- emit-frame-root
+  "S1: a top-region `frame-root` renders TRANSPARENTLY — children under a
+  Fragment. Its ENSURE semantics ride the extracted static plan (the
+  descriptor `:frame-plans` + the client preflight seam; the frame wiring
+  lands S2), never the rendered tree."
+  [node st inline?]
+  (jsx-call `re-frame.ui.runtime/Fragment []
+            (children-forms st (:children node) inline?)
+            {:present? false}))
+
 (defn emit-node
   "AST node -> CLJS form (nil for a statically-absent child)."
   [node st inline?]
@@ -254,6 +264,7 @@
     :html     nil ; carried by the parent element's dangerouslySetInnerHTML
     :element  (emit-element node st inline?)
     :fragment (emit-fragment node st inline?)
+    :frame-root (emit-frame-root node st inline?)
     :view     (emit-component node st inline?)
     :foreign  (emit-component node st inline?)
     :if       `(if ~(:test node)
@@ -267,6 +278,25 @@
                  ~@(when (not= ::ana/none (:default node))
                      [(emit-node (:default node) st false)]))
     :for      (emit-for node st)))
+
+;; ---------------------------------------------------------------------------
+;; Inline emission (root templates — S1c)
+;; ---------------------------------------------------------------------------
+
+(defn emit-inline
+  "Emit `ast` as ONE inline CLJS expression: what `hoist!` would lift to
+  module-level `def`s becomes `let` bindings around the body instead
+  (creation order preserves dependencies). The root-template path —
+  `ui/mount` / `ui/render!` / `ui/hydrate-root` sites may sit inside a
+  function body (an init fn), where module-level defs are illegal; module
+  hoisting stays a defview-only optimisation."
+  [ast name-hint]
+  (let [st    (new-state name-hint)
+        body  (emit-node ast st false)
+        binds (into [] (mapcat rest) (:defs @st))]  ; (def sym form) -> sym form
+    (if (seq binds)
+      `(let [~@binds] ~body)
+      body)))
 
 ;; ---------------------------------------------------------------------------
 ;; Header lowering (Q2)

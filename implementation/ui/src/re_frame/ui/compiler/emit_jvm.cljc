@@ -193,6 +193,10 @@
                 `(re-frame.ui.tree/fragment
                   ~(:present? k) ~(:expr k)
                   ~@(keep emit-node (:children node))))
+    ;; S1: a top-region frame-root is TRANSPARENT in the structural tree —
+    ;; its ENSURE plan rides the root descriptor, not the render output
+    :frame-root `(re-frame.ui.tree/fragment
+                  false nil ~@(keep emit-node (:children node)))
     :view     (emit-view node)
     :foreign  (emit-foreign node)
     :if       `(if ~(:test node)
