@@ -658,6 +658,33 @@
       (is (= [:reagent] (cljs-resolve/registered-substrates)))
       (is (= #{:reagent} (cljs-resolve/registered-substrates-set))))))
 
+(deftest provider-seams-are-symmetric-no-silent-asymmetry
+  ;; rf2-jyjadg — the substrate + a11y provider seams default to the SAME
+  ;; posture: NEITHER auto-wires, so out of the box BOTH report unavailable
+  ;; and a browser-local host binds BOTH. This locks the both-consistent
+  ;; contract against a re-introduced asymmetry (the old bug: a CLJS
+  ;; substrate default that auto-wired while a11y stayed nil, leaving
+  ;; `read-a11y-violations` falsely capability-unavailable in a process
+  ;; where the panel was live). NOTE: the `#?(:cljs …)` reader-conditional
+  ;; defaults cannot be exercised from this JVM suite (no CLJS build hosts
+  ;; story-mcp); this guards the symmetry the source now documents, plus
+  ;; the seam INDEPENDENCE binding one must not imply the other.
+  (testing "no binding ⇒ BOTH seams unavailable (the symmetric default)"
+    (is (false? (cljs-resolve/substrate-provider-available?)))
+    (is (false? (cljs-resolve/a11y-provider-available?)))
+    (is (= [] (cljs-resolve/registered-substrates)))
+    (is (= #{} (cljs-resolve/registered-substrates-set)))
+    (is (nil? (cljs-resolve/a11y-violations-by-frame))))
+  (testing "binding EITHER seam flips ONLY its own availability — independent seams"
+    (binding [cljs-resolve/*substrate-provider* (fn [] [:reagent])]
+      (is (true? (cljs-resolve/substrate-provider-available?)))
+      (is (false? (cljs-resolve/a11y-provider-available?))
+          "binding substrate must NOT imply a11y is available"))
+    (binding [cljs-resolve/*a11y-provider* (fn [] {:story.button/primary []})]
+      (is (true? (cljs-resolve/a11y-provider-available?)))
+      (is (false? (cljs-resolve/substrate-provider-available?))
+          "binding a11y must NOT imply substrate is available"))))
+
 ;; ---------------------------------------------------------------------------
 ;; Docs tools
 ;; ---------------------------------------------------------------------------
