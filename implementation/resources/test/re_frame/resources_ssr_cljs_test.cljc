@@ -884,6 +884,84 @@
         "no-data (metadata-only) → refetch")))
 
 ;; ===========================================================================
+;; 4a-bis. Empty infinite feed hydrates into a REFETCH, not fresh-forever
+;;         (rf2-x76af2.11)
+;; ===========================================================================
+;;
+;; An infinite feed's `:data` is the ordered PAGE VECTOR seeded `[]` (EP-0021
+;; R1). An SSR-serialized infinite feed that was ensured but never drained rides
+;; the wire with `:data []`, `:infinite? true`, `:stale-at nil`. The pre-fix
+;; `hydrated-data-usable?` used `(some? :data)`, so `[]` read as fresh-with-data
+;; → EXCLUDED from the refetch plan → the feed rendered permanently empty with no
+;; error and no recovery (a terminal no-op `load-more`). The fix delegates the
+;; usable-data question to `state/has-data?` (whose infinite branch is
+;; `(seq data)`), so an empty page vector is correctly refetched on hydration.
+
+(def ^:private fkey
+  ;; a global-scope INFINITE feed key
+  (state/scoped-resource-key :rf.scope/global :feed/timeline {}))
+
+(defn- infinite-entry* [m]
+  (assoc (entry m) :infinite? true))
+
+(deftest empty-infinite-feed-is-not-usable-data
+  (testing "rf2-x76af2.11 — hydrated-data-usable? mirrors state/has-data?'s
+            infinite empty-page-vector branch (an empty feed is NOT usable)"
+    (is (false? (ssr/hydrated-data-usable?
+                  (infinite-entry* {:resource-id :feed/timeline :data [] :status :idle})))
+        "empty infinite :data [] is NOT usable last-known-good data")
+    (is (true? (ssr/hydrated-data-usable?
+                 (infinite-entry* {:resource-id :feed/timeline :data [{:items [1]}]
+                                   :status :loaded :loaded-at 1000 :stale-at 9.0e15})))
+        "an infinite feed with at least one accumulated page IS usable")
+    (is (false? (ssr/hydrated-data-usable?
+                  (infinite-entry* {:resource-id :feed/timeline :data privacy/redacted-sentinel
+                                    :status :loaded})))
+        "a redacted infinite entry is still metadata-only (sentinel ruled out before has-data?)")))
+
+(deftest empty-infinite-feed-refetches-not-stranded-fresh-forever
+  (testing "rf2-x76af2.11 ADVERSARIAL — an SSR-serialized empty infinite feed
+            (:data [], never drained, :stale-at nil) appears in the refetch plan
+            with :reason :no-data; pre-fix it was treated as fresh-with-data and
+            stranded rendering permanently empty"
+    (let [empty-feed (infinite-entry* {:resource-id :feed/timeline :status :idle
+                                       :data [] :stale-at nil})]
+      (is (true? (ssr/entry-needs-refetch? empty-feed 5000))
+          "an empty infinite feed needs a client refetch — never fresh-forever")
+      (let [plan (->> (ssr/hydrate-refetch-plan (runtime-db-with {fkey empty-feed}) 5000)
+                      (into {} (map (juxt :resource/key identity))))]
+        (is (contains? plan fkey) "the empty infinite feed IS in the refetch plan")
+        (is (= :no-data (:reason (plan fkey)))
+            "reason is :no-data (no usable last-known-good page)")
+        (is (= :feed/timeline (:resource-id (plan fkey))))))))
+
+(deftest loaded-infinite-feed-with-page-not-double-fetched
+  (testing "rf2-x76af2.11 — the fix must not over-refetch: a FRESH infinite feed
+            WITH a page stays ABSENT from the plan (the SSR win, no double-fetch)"
+    (let [loaded-feed (infinite-entry* {:resource-id :feed/timeline :status :loaded
+                                        :data [{:items [1 2 3]}] :loaded-at 1000 :stale-at 9.0e15})]
+      (is (false? (ssr/entry-needs-refetch? loaded-feed 5000)))
+      (let [plan (->> (ssr/hydrate-refetch-plan (runtime-db-with {fkey loaded-feed}) 5000)
+                      (into {} (map (juxt :resource/key identity))))]
+        (is (not (contains? plan fkey))
+            "a fresh infinite feed WITH a page is NOT double-fetched")))))
+
+(deftest hydrate-settles-empty-infinite-loading-then-refetches
+  (testing "rf2-x76af2.11 END-TO-END repro — a server-side :loading empty infinite
+            feed settles to :idle (has-data? false) on hydration and the plan then
+            refetches it :no-data (the actual stranded-fresh-forever path)"
+    (let [e   (infinite-entry* {:resource-id :feed/timeline :status :loading
+                                :data [] :stale-at nil})
+          out (ssr/hydrate-runtime-db (runtime-db-with {fkey e}) :app/main)
+          se  (get-in out [state/resources-key :entries (state/key-id fkey)])]
+      (is (= :idle (:status se)) "empty infinite :loading → :idle (never dangling :loading)")
+      (is (= [] (:data se)) "the empty page vector is preserved")
+      (let [plan (->> (ssr/hydrate-refetch-plan out 5000)
+                      (into {} (map (juxt :resource/key identity))))]
+        (is (contains? plan fkey) "the settled empty infinite feed IS refetched")
+        (is (= :no-data (:reason (plan fkey))))))))
+
+;; ===========================================================================
 ;; 4b. Hydration refetch: redacted sentinel is metadata-only (rf2-fopuj9)
 ;; ===========================================================================
 ;;
