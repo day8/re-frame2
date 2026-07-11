@@ -403,7 +403,7 @@ Invalidation timing is explicit via **`:invalidate-timing`** — `:after-success
 
 !!! warning "Gotcha — match the scope or the invalidation silently misses"
 
-    A mutation's `:invalidates` matches only entries *in the mutation's resolved scope*. If a `:rf.scope/global`-defaulted mutation invalidates a tag owned by a session-scoped read (or the reverse), no entry matches, nothing refreshes, and **no error is raised** — it's a legitimate "no match in this scope." When a write affects session- or tenant-scoped reads, name the matching scope on the execute payload, or — cleaner — use the **per-target descriptor form**, where each descriptor carries its own scope:
+    A mutation's `:invalidates` matches only entries *in the mutation's resolved scope*. If a `:rf.scope/global`-defaulted mutation invalidates a tag owned by a session-scoped read (or the reverse), no entry matches, nothing refreshes, and **no error is raised** — it's a legitimate "no match in this scope." When a write affects session- or tenant-scoped reads, use the **per-target descriptor form**, where each descriptor carries its own scope, resolving a `{:from-db …}` reference against app-db:
 
     ```clojure
     :invalidates
@@ -426,7 +426,6 @@ Invalidation timing is explicit via **`:invalidate-timing`** — `:after-success
  {:mutation :realworld/favorite
   :params   {:slug slug}
   :instance [:favorite slug]            ;; caller-supplied (or generated) instance id
-  :scope    {:from-db :realworld/session}
   :cause    [:click :article/favorite]
   :reply-to [:favorite/replied slug]}]  ;; optional continuation (below)
 ```
@@ -442,7 +441,6 @@ A view reads the instance's progress through `:rf/mutation` (or the narrower `:r
                                     {:mutation :realworld/favorite
                                      :params   {:slug slug}
                                      :instance [:favorite slug]
-                                     :scope    {:from-db :realworld/session}
                                      :cause    [:click :article/favorite]}])}
      (cond
        (:pending? m) "Saving…"
