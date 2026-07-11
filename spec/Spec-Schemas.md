@@ -2865,6 +2865,22 @@ The EP-0016 action-wave **public input forms** — named scope resolvers (D3), p
    [:map [:from-db :keyword]]           ;; named-resolver reference, resolved at use time against frame db
    :any])                               ;; a concrete canonical scope value, e.g. [:rf.scope/session {…}]
 
+(def ScopeInput
+  ;; The public :scope slot on a DIRECT scope-taking resource-operation event —
+  ;; :rf.resource/ensure / refetch / clear-scope / invalidate-tags (rf2-oo8cv7).
+  ;; EITHER a concrete canonical scope value OR a {:from-db <id>} named-resolver
+  ;; reference resolved at use time against the handler's app-db coeffect —
+  ;; SYMMETRIC across every site (the single use-time rule, [016 §Resolver
+  ;; references]). Unlike ScopePolicy this does NOT admit :rf.scope/same: the
+  ;; "enclosing mutation's resolved scope" marker is descriptor-only, and a
+  ;; direct event has no enclosing mutation. The matcher + cache only ever see
+  ;; the RESOLVED canonical concrete scope; a nil resolution is fail-closed
+  ;; per-operation (ensure / invalidate throw; clear-scope warns + no-ops).
+  [:or
+   [:= :rf.scope/global]
+   [:map [:from-db :keyword]]           ;; named-resolver reference, resolved at use time against app-db
+   :any])                               ;; a concrete canonical scope value, e.g. [:rf.scope/session {…}]
+
 (def ResourceScopeResolver
   ;; A reg-resource-scope spec (the :resource-scope registrar kind). The
   ;; declared-input PRIMARY form; the whole-db fn sugar (fn [db ctx] …) is
