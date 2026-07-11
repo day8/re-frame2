@@ -58,7 +58,7 @@ The full configuration surface. Reach here when you're flipping a knob the facad
 | `default-layout-host-css-var` | `"--rf-xray-inline-width"` | The CSS custom property the host snippet reads for `flex-basis`. |
 | `default-layout-host-width` | `"560px"` | The default value Xray recommends for `--rf-xray-inline-width`. |
 | `default-accent-css-var` | `"--rf-xray-accent"` | The CSS custom property the host snippet publishes on `:root`. |
-| `default-accent` | `"#7C5CFF"` | The default brand-accent hex (matches `theme/tokens.cljc :accent-violet`). |
+| `default-accent` | `"#539bf5"` | The default brand-accent hex (matches `theme/tokens.cljc :accent`). |
 | `default-layout-host-snippet` | HTML + CSS block | Copy-pasteable host snippet. Carried in the missing-host diagnostic. |
 | `settings-storage-key` | `"day8.re-frame2-xray/settings/v1"` | localStorage key for the Settings popup state. |
 

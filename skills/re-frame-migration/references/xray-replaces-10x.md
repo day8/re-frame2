@@ -115,7 +115,7 @@ Add a right-side host to the app's HTML and CSS (DOM order: `<main>` first, `<as
 ```
 
 ```css
-:root { --rf-xray-accent: #7C5CFF; } /* brand-accent var — host stylesheets read var(--rf-xray-accent) to tint dev chrome */
+:root { --rf-xray-accent: #539bf5; } /* brand-accent var — host stylesheets read var(--rf-xray-accent) to tint dev chrome */
 .app-shell { display: flex; min-height: 100vh; }
 [data-rf-xray-host] {
   flex: 0 0 var(--rf-xray-inline-width, 560px);

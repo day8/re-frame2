@@ -88,7 +88,7 @@ right):
 ```
 
 ```css
-:root { --rf-xray-accent: #7C5CFF; } /* brand-accent var */
+:root { --rf-xray-accent: #539bf5; } /* brand-accent var */
 body { margin: 0; }
 .app-shell { display: flex; min-height: 100vh; }
 [data-rf-xray-host] {
