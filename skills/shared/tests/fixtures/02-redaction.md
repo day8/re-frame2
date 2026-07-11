@@ -48,7 +48,7 @@ The redaction targets, by category from §Redaction (universal):
 
 | Category | Strings to mask |
 |---|---|
-| Secrets / credentials | The JWT (`eyJhbG…`), the AWS access key (`AKIA…`), the AWS secret (`KrZ/wEm…`), the GitHub PAT (`ghp_…`), the signed-URL signature param (`signature=AKIA…&secret=wJa…`) |
+| Secrets / credentials | The JWT — its **payload** (`eyJzdWI…`, `sub` + `name` PII) and **signature** (`SflKx…`, HMAC) are the redaction targets; the header (`eyJhbG…`) is a non-secret constant present in every HS256 JWT. Plus the AWS access key (`AKIA…`), the AWS secret (`KrZ/wEm…`), the GitHub PAT (`ghp_…`), the signed-URL signature param (`signature=AKIA…&secret=wJa…`) |
 | Internal URLs | `prod-internal.acme.corp.intra`, the signed S3-style URL with embedded creds, `10.42.7.91` (RFC 1918), `nrepl://127.0.0.1:8777/dashboard-build` (loopback dev port; arguably OK, see notes) |
 | Local paths | `C:/Users/mike/code/internal-tools/dashboard`, `/home/mike/code/internal-tools/dashboard/src/acme/core.cljs` |
 | PII | `mike.thompsonator@gmail.com`, `Mike Thompson` (in JWT payload), `0412 345 678`, `+61-412-345-678` |

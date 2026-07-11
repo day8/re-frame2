@@ -71,7 +71,8 @@
         "Output paraphrases rather than block-quoting the raw transcript."
       ],
       "forbidden_output_substrings": [
-        {"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9", "why": "raw JWT header (fixture 02 secrets table)"},
+        {"value": "eyJzdWIiOiIxMjM0NSIsIm5hbWUiOiJNaWtlIFRob21wc29uIiwiaWF0IjoxNTE2MjM5MDIyfQ", "why": "raw JWT PAYLOAD — base64url of {\"sub\":\"12345\",\"name\":\"Mike Thompson\",\"iat\":1516239022}: the sensitive PII segment of the fixture-02 JWT. The redaction check keys on the PAYLOAD + SIGNATURE, NOT the constant header (base64url of {\"alg\":\"HS256\",\"typ\":\"JWT\"} — present in every HS256 JWT, zero secret), so a payload/signature leak with the header masked FAILS (rf2-xp0k14)."},
+        {"value": "SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c", "why": "raw JWT HMAC SIGNATURE — the crypto segment of the fixture-02 JWT (secrets table). Keyed here alongside the payload, not the non-secret header, so the redaction gate is aligned with sensitivity (rf2-xp0k14)."},
         {"value": "AKIAIOSFODNN7EXAMPLE", "why": "raw AWS access key in signed URL (fixture 02 secrets table)"},
         {"value": "AKIA1234567890ABCDEF", "why": "raw legacy AWS access key (fixture 02 secrets table)"},
         {"value": "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", "why": "raw AWS secret (fixture 02 secrets table)"},
@@ -85,19 +86,20 @@
         {"value": "code/internal-tools/dashboard", "why": "raw local-path tail (fixture 02 local-path table); a leak of either the C:/Users/... or /home/... path includes this distinctive segment. Keyed on the non-personal tail so the portability gate (scripts/check-no-hardcoded-paths.sh) stays green."}
       ],
       "forbidden_output_patterns": [
-        {"pattern": "<REDACTED>(?![-_])", "why": "bare <REDACTED> without a category + monotonic number violates the stable-placeholder rule (fixture 02 anti-expectation)"}
+        {"pattern": "<REDACTED>(?![-_])", "why": "bare <REDACTED> without a category + monotonic number violates the stable-placeholder rule (fixture 02 anti-expectation)"},
+        {"pattern": "eyJ[A-Za-z0-9_-]+\\.eyJ[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+", "why": "a whole HS256 JWT (header.payload.signature — a base64url triple) emitted raw. Catches a full-token leak even when its exact bytes differ from the fixture's, backstopping the pinned payload/signature substrings (rf2-xp0k14)."}
       ],
       "required_output_patterns": [
         {"pattern": "<REDACTED-[A-Z]+-[0-9]+>", "why": "must use the stable numbered placeholder convention (fixture 02 §Expected)"}
       ],
       "placeholder_identity": {
-        "note": "Scored against transcript.redaction_bindings[] as OCCURRENCE evidence (every placeholder captured for each original is kept, never collapsed to the last). Three checks: (1) one EXACT original captured with two different numbers is repeat-instability; (2) the same-value GROUP (the two phone spellings) must share one number; (3) DISTINCT secrets must not share a number. Fail-closed: when this block is present but the transcript carries no bindings, the eval FAILS — the stable-placeholder invariant cannot be certified from masked output text alone, so it must not silently PASS.",
+        "note": "Scored against transcript.redaction_bindings[] as OCCURRENCE evidence (every placeholder captured for each original is kept, never collapsed to the last). Three checks: (1) one EXACT original captured with two different numbers is repeat-instability; (2) the same-value GROUP (the two phone spellings) must share one number; (3) DISTINCT secrets must not share a number. The JWT distinct secret is anchored on its PAYLOAD (sub + name PII), not the constant header — two different JWTs share the header but differ in payload, so anchoring on the header would let distinct tokens masquerade as one secret (rf2-xp0k14). Fail-closed: when this block is present but the transcript carries no bindings, the eval FAILS — the stable-placeholder invariant cannot be certified from masked output text alone, so it must not silently PASS.",
         "same_value_groups": [
           {"label": "phone number — 0412 345 678 and +61-412-345-678 are the SAME number (fixture 02 L36-37, L132-136)",
            "originals": ["0412 345 678", "+61-412-345-678"]}
         ],
         "distinct_value_originals": [
-          "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+          "eyJzdWIiOiIxMjM0NSIsIm5hbWUiOiJNaWtlIFRob21wc29uIiwiaWF0IjoxNTE2MjM5MDIyfQ",
           "AKIAIOSFODNN7EXAMPLE",
           "AKIA1234567890ABCDEF",
           "KrZ/wEm9pNzL6yT8aQrXv4Bj2NfCXmHpYqUwTrIo",
