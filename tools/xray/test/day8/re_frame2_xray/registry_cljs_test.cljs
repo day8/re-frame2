@@ -1603,10 +1603,12 @@
     ;; covered in `open_in_editor_cljs_test.cljs`.
     (config/set-editor! :vscode)
     (let [captured (atom [])]
-      ;; Replace the open fx with a capture stub (same pattern as the
-      ;; time-travel reg-fx tests above).
-      (rf/reg-fx :rf.editor/open
-        (fn [_ctx args] (swap! captured conj args)))
+      ;; Capture via the frame's :fx-overrides seam (fn-value form) —
+      ;; rf2-h1vqa4: a cross-ns re-registration of the xray-owned fx id
+      ;; fails the frame's default-image assembly loud.
+      (rf/make-frame {:id :rf/xray
+                      :fx-overrides {:rf.editor/open
+                                     (fn [_ctx args] (swap! captured conj args))}})
       (rf/with-frame :rf/xray
         (rf/dispatch-sync [:rf.xray/open-in-editor
                            {:file "src/x.cljs" :line 10 :column 5}])
@@ -1646,10 +1648,17 @@
 
 (defonce ^:private captured-fx (atom []))
 
-(defn- install-capture-fx! []
+(defn- install-capture-fx!
+  "rf2-h1vqa4: the capture rides the `:rf/xray` frame's `:fx-overrides`
+  (fn-value form); re-`make-frame` is a surgical config update on the
+  live frame the fixture created."
+  []
   (reset! captured-fx [])
-  (rf/reg-fx :rf.xray.fx/copy-to-clipboard
-    (fn [_ctx args] (swap! captured-fx conj [:rf.xray.fx/copy-to-clipboard args]))))
+  (rf/make-frame {:id :rf/xray
+                  :fx-overrides {:rf.xray.fx/copy-to-clipboard
+                                 (fn [_ctx args]
+                                   (swap! captured-fx conj
+                                          [:rf.xray.fx/copy-to-clipboard args]))}}))
 
 (deftest fx-copy-value-to-clipboard-fires-with-pr-str
   (testing ":rf.xray/copy-value-to-clipboard routes through the clipboard fx"

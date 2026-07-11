@@ -19,7 +19,8 @@
   beyond the registrar's harmless `:rf.warning/handler-replaced`
   emit (which the test fixtures' `make-reset-runtime-fixture` rolls back
   via the captured registrar snapshot)."
-  (:require [re-frame.core :as rf]))
+  (:require [re-frame.core :as rf]
+            [re-frame.source-store :as source-store]))
 
 (defn install!
   "Register the counter app's events + subs. Matches the canonical
@@ -27,6 +28,18 @@
   `:counter/initialise` seeds the slot at `5`, `:counter/inc` and
   `:counter/dec` walk it."
   []
+  ;; rf2-h1vqa4 bundle co-load hygiene: the story testbed
+  ;; `counter-with-stories.events` registers the SAME canonical counter ids
+  ;; at its ns load (the whole point of both is to mirror the canonical
+  ;; counter example). Two provenance rows for one id fail the host frame's
+  ;; default-image assembly loud, so the fixture CLAIMS each id — dropping
+  ;; any sibling-namespace rows before registering its own. Suites that own
+  ;; those siblings restore them from their fixture baselines per test.
+  (doseq [[kind id] [[:event :counter/initialise]
+                     [:event :counter/inc]
+                     [:event :counter/dec]
+                     [:sub   :counter/value]]]
+    (source-store/forget-id! kind id))
   (rf/reg-event :counter/initialise
     (fn [{:keys [db]} _event] {:db {:counter/value 5}}))
 

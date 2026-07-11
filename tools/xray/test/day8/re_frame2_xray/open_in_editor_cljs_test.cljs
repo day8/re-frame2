@@ -352,16 +352,23 @@
   []
   (reset! captured-editor-fx [])
   (registry/register-xray-handlers!)
-  (rf/make-frame {:id :rf/xray})
-  (rf/reg-fx :rf.editor/open
-    (fn [_ctx args]
-      ;; Record the raw fx args AND the URI the coord resolves to, so
-      ;; tests can assert either the new `:source-coord` shape or the
-      ;; equivalent resolved `:uri`.
-      (swap! captured-editor-fx conj
-             (assoc args
-                    :uri (when-let [coord (:source-coord args)]
-                           (open-in-editor/resolve-uri coord)))))))
+  ;; rf2-h1vqa4: capture via the frame's `:fx-overrides` (fn-value form) —
+  ;; the DESIGNED per-frame fx-replacement seam — instead of re-registering
+  ;; `:rf.editor/open` from this test ns, which would sit beside Xray's own
+  ;; registration as a cross-namespace duplicate and fail the `:rf/xray`
+  ;; frame's default-image assembly loud.
+  (rf/make-frame
+    {:id :rf/xray
+     :fx-overrides
+     {:rf.editor/open
+      (fn [_ctx args]
+        ;; Record the raw fx args AND the URI the coord resolves to, so
+        ;; tests can assert either the new `:source-coord` shape or the
+        ;; equivalent resolved `:uri`.
+        (swap! captured-editor-fx conj
+               (assoc args
+                      :uri (when-let [coord (:source-coord args)]
+                             (open-in-editor/resolve-uri coord)))))}}))
 
 (deftest open-in-editor-event-emits-fx-with-resolved-uri
   (testing "rf2-g5q8d — dispatching `:rf.xray/open-in-editor` with

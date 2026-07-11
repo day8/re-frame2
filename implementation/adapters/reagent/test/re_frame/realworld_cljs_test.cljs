@@ -126,6 +126,18 @@
 ;; survives the per-test reset.
 (reg-canned-success! :realworld.test/canned-success-empty {})
 
+
+;; rf2-h1vqa4 BUNDLE CO-LOAD HYGIENE: this app registers the reserved
+;; per-app `:rf.route/not-found` route at ns load. Co-loaded example apps
+;; each do the same, and two provenance rows for the id fail default-image
+;; assembly loud for every suite whose fixture baseline is captured after
+;; the second app loads. Sequester OUR app's row at ns load; the fixture
+;; init reinstates it (registrar + source store in lockstep) for this
+;; suite's own tests.
+(def ^:private not-found-route-row
+  (test-support/sequester-app-registration!
+    :route :rf.route/not-found "realworld-http.routing"))
+
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
     ;; EP-0002 (rf2-9o48ih): each helper spins its OWN top-level frame via
@@ -134,7 +146,18 @@
     ;; being treated as a mid-cascade child-frame creation. In-body dispatches
     ;; carry explicit `{:frame f}` or run inside the `with-new-frame` scope.
     {:adapter       reagent-adapter/adapter
-     :ambient-frame nil}))
+     :ambient-frame nil
+     ;; rf2-h1vqa4: reinstate the sequestered per-app not-found route for
+     ;; this suite's own tests (see the sequester def above).
+     :init-fn       (fn []
+                      ;; rf2-h1vqa4: the realworld-http tree is sequestered at
+                      ;; the sibling resources suite's ns load (bundle co-load
+                      ;; hygiene), which runs before ANY test — reinstate the
+                      ;; whole app tree for THIS suite's tests (registrar +
+                      ;; source store in lockstep).
+                      (test-support/reinstate-app-namespaces! "realworld-http.")
+                      (test-support/reinstate-app-registration!
+                        not-found-route-row))}))
 
 ;; ============================================================================
 ;; auth — the auth state machine

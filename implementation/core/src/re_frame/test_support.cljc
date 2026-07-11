@@ -89,7 +89,8 @@
     in-flight registry entries appearing/clearing). NOT for
     timer-semantics tests — those should keep their sleep and annotate
     that intent locally (the sleep IS the contract under test)."
-  (:require [re-frame.registrar :as registrar]
+  (:require [clojure.string]
+            [re-frame.registrar :as registrar]
             [re-frame.error :as error]
             ;; The runtime fixture resets the ONE `frame/frames` registry, which
             ;; (EP-0024 — the second live-frame registry dissolved into it) clears
@@ -152,6 +153,108 @@
 #?(:clj (set! *warn-on-reflection* true))
 
 ;; ---- registrar snapshot/restore -------------------------------------------
+
+(defn- restore-source-store!
+  "Reset the live source store to the suite's ns-load `baseline` (EP-0026
+  source-store isolation; the store leg of the per-test rollback). NOTE
+  (rf2-h1vqa4): a suite registering top-level state AFTER its
+  `use-fixtures` form places those rows outside this baseline — register
+  above the fixture form, or re-seed in the suite's :init-fn (frames
+  resolve through the STORE: the default image is assembled from it)."
+  [baseline]
+  (reset! source-store/kind->id->ns->descriptor baseline)
+  nil)
+
+(defn sequester-app-registration!
+  "BUNDLE CO-LOAD HYGIENE (rf2-h1vqa4). Remove ONE app namespace's
+  registration row for `(kind, id)` from the live registrar AND the
+  provenance source store, returning the captured source-store descriptor
+  (or nil when absent). Reinstate per-test with
+  [[reinstate-app-registration!]].
+
+  Why: the CLJS node runner loads every test namespace into ONE bundle
+  before running ANY test, so two co-loaded example apps that each
+  register the same PER-APP id (the canonical case: `:rf.route/not-found`,
+  the reserved per-app route customization point) leave TWO provenance
+  rows in the shared source store. Any suite whose fixture baseline is
+  captured after the second app loads then fails default-image assembly
+  loud (`:rf.error/image-duplicate-id`) on every `make-frame`. Each
+  consuming test ns calls this at NS LOAD (right after requiring its app
+  ns) so no other suite's baseline ever sees more than one row."
+  [kind id provenance-ns]
+  (let [row (get-in @source-store/kind->id->ns->descriptor
+                    [kind id provenance-ns])]
+    (swap! registrar/kind->id->metadata update kind dissoc id)
+    (source-store/forget-descriptor! kind id provenance-ns)
+    row))
+
+(defn reinstate-app-registration!
+  "Reinstate a descriptor captured by [[sequester-app-registration!]]
+  through `registrar/register!` — registrar + source store in lockstep
+  (an image-loaded frame resolves through the STORE; a raw registrar-atom
+  write would be invisible to its generation). No-op on nil."
+  [descriptor]
+  (when descriptor
+    (registrar/register! (:kind descriptor) (:id descriptor) descriptor))
+  nil)
+
+(defonce ^:private sequestered-namespace-rows
+  ;; prefix-string -> captured rows (vector of source-store descriptors).
+  ;; Memoized so a SECOND suite sequestering the same app prefix is a no-op
+  ;; that still exposes the captured rows for reinstatement.
+  (atom {}))
+
+(defn sequester-app-namespaces!
+  "BUNDLE CO-LOAD HYGIENE (rf2-h1vqa4), namespace-tree form: remove EVERY
+  source-store row whose provenance namespace starts with `ns-prefix` (and
+  the matching registrar ids), capturing them once (memoized per prefix).
+  Two co-loaded example apps that share id vocabulary (the RealWorld
+  twins both register `:settings/load`, …) otherwise fail default-image
+  assembly loud for every suite whose baseline is captured after the
+  second app loads. Reinstate a suite's own app with
+  [[reinstate-app-namespaces!]]. Returns the captured row count."
+  [ns-prefix]
+  (let [captured (get @sequestered-namespace-rows ns-prefix)
+        rows     (or captured
+                     (vec (for [[kind id->ns] @source-store/kind->id->ns->descriptor
+                                [id ns->d]    id->ns
+                                [pns d]       ns->d
+                                :when (and (string? pns)
+                                           (clojure.string/starts-with? pns ns-prefix))]
+                            d)))]
+    (when-not captured
+      (swap! sequestered-namespace-rows assoc ns-prefix rows))
+    ;; Scrub on EVERY call (capture only the first): the merge-form store
+    ;; restore preserves slots a suite's baseline does not know about, so a
+    ;; suite that must stay clear of the sibling app's rows re-sequesters in
+    ;; its per-test init as well.
+    (do
+      (doseq [{:keys [kind id] :as d} rows]
+        ;; Registrar leg: remove the (kind, id) row ONLY when the CURRENT
+        ;; registrar metadata belongs to the sequestered prefix — for an id
+        ;; BOTH apps register (the collision case this helper exists for)
+        ;; the registrar's single row is the LAST writer's, which may be the
+        ;; SIBLING app's; deleting it would leave the id to whatever
+        ;; leftover an earlier suite's restore folds around (rf2-h1vqa4).
+        (swap! registrar/kind->id->metadata update kind
+               (fn [m]
+                 (let [cur (get m id)]
+                   (if (and cur
+                            (some-> (:ns cur) str
+                                    (clojure.string/starts-with? ns-prefix)))
+                     (dissoc m id)
+                     m))))
+        (source-store/forget-descriptor! kind id (:rf.provenance/ns d)))
+      (count rows))))
+
+(defn reinstate-app-namespaces!
+  "Reinstate every row [[sequester-app-namespaces!]] captured for
+  `ns-prefix` through `registrar/register!` (registrar + source store in
+  lockstep). Call from a suite's per-test init-fn."
+  [ns-prefix]
+  (doseq [d (get @sequestered-namespace-rows ns-prefix)]
+    (registrar/register! (:kind d) (:id d) d))
+  nil)
 
 (defn snapshot-registrar
   "Capture the current registrar contents.
@@ -394,7 +497,7 @@
   [ns-load-baseline source-store-baseline]
   (restore-registrar!
     (merge-registrar-snapshots (snapshot-registrar) ns-load-baseline))
-  (reset! source-store/kind->id->ns->descriptor source-store-baseline)
+  (restore-source-store! source-store-baseline)
   (image-assembly/clear-generation-cache!)
   (let [snapshot-fn (late-bind/get-fn :schemas/snapshot-by-frame)]
     {:snap         (snapshot-registrar)
@@ -438,7 +541,7 @@
   [{:keys [snap restore-fn schemas-snap]} source-store-baseline]
   (restore-registrar! snap)
   (when restore-fn (restore-fn schemas-snap))
-  (reset! source-store/kind->id->ns->descriptor source-store-baseline)
+  (restore-source-store! source-store-baseline)
   (image-assembly/clear-generation-cache!)
   (reset! frame/frames {})
   (when-let [reset-flows! (late-bind/get-fn :flows/reset-flows!)]
@@ -661,7 +764,8 @@
    ;; `reinstate-and-snapshot!` (run-order independence; see that helper and
    ;; the shared-halves section comment above for the full EP-0026 rationale).
    (let [ns-load-baseline      (snapshot-registrar)
-         source-store-baseline @source-store/kind->id->ns->descriptor
+         source-store-baseline* @source-store/kind->id->ns->descriptor
+         source-store-baseline (fn [] source-store-baseline*)
          ambient-frame         (if (contains? opts :ambient-frame)
                                  (:ambient-frame opts)
                                  :rf/default)
@@ -690,7 +794,7 @@
        (let [ctx-atom (atom nil)]
          {:before
           (fn before-reset-runtime []
-            (let [ctx (reinstate-and-snapshot! ns-load-baseline source-store-baseline)]
+            (let [ctx (reinstate-and-snapshot! ns-load-baseline (source-store-baseline))]
               (reset! ctx-atom ctx)
               (reset-runtime! opts (:clear-fn ctx))
               ;; Establish the ambient scope PERSISTENTLY — `set!` on the root
@@ -710,7 +814,7 @@
             ;; races the async body.
             (when scope?
               (set! frame/*current-frame* nil))
-            (finish-runtime-reset! @ctx-atom source-store-baseline)
+            (finish-runtime-reset! @ctx-atom (source-store-baseline))
             (reset! ctx-atom nil))})
        ;; ---- sync fn-form (default; clojure.test + non-async cljs.test) ----
        ;; EP-0002 (rf2-nn0jqa): when an adapter is installed the fixture
@@ -720,7 +824,7 @@
        ;; inner `with-frame` re-binds and an explicit `{:frame …}` opt still
        ;; wins. The `finally` restore fires even on a test exception.
        (fn [test-fn]
-         (let [ctx (reinstate-and-snapshot! ns-load-baseline source-store-baseline)]
+         (let [ctx (reinstate-and-snapshot! ns-load-baseline (source-store-baseline))]
            (try
              (reset-runtime! opts (:clear-fn ctx))
              (if scope?
@@ -731,7 +835,7 @@
                  (run-init!)
                  (test-fn)))
              (finally
-               (finish-runtime-reset! ctx source-store-baseline)))))))))
+               (finish-runtime-reset! ctx (source-store-baseline))))))))))
 
 ;; ---- test-flavoured helpers (rf2-0l3s / rf2-hkr5) -------------------------
 ;;

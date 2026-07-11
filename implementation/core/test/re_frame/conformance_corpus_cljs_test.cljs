@@ -32,6 +32,8 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
+            [re-frame.source-store :as source-store]
+            [re-frame.image-assembly :as image-assembly]
             [re-frame.flows :as flows]
             [re-frame.schemas :as schemas]
             [re-frame.subs :as subs]
@@ -39,6 +41,7 @@
             [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.trace :as trace]
             [re-frame.error-emit :as error-emit]
+            [re-frame.events]
             [re-frame.late-bind :as late-bind]
             [re-frame.routing :as routing]
             ;; rf2-dbiv8 — the test-only `:rf.test/simulate-http-resolution`
@@ -95,6 +98,15 @@
   ;; Mutable cell, set on deftest / self-test entry.
   (atom nil))
 
+(def ^:private pretest-source-store
+  ;; rf2-h1vqa4: the SOURCE STORE snapshot paired with `pretest-registrar`.
+  ;; Frames now resolve through the store (the default image is assembled
+  ;; from it), so the inter-fixture rollback must keep the two in lockstep —
+  ;; a registrar-only rollback leaves prior fixtures' rows in the store,
+  ;; and a generation-resolved frame would silently run STALE handlers the
+  ;; registrar no longer knows about.
+  (atom nil))
+
 ;; ---- runtime reset (CLJS-specific: snapshot/restore) ----------------------
 
 (defn- reset-runtime! []
@@ -103,6 +115,21 @@
   ;;    tuples can collide with the fixture's equal-score cases). The fixture
   ;;    re-registers every route it needs.
   (reset! registrar/kind->id->metadata @pretest-registrar)
+  ;; rf2-h1vqa4: roll the SOURCE STORE back in lockstep and drop the
+  ;; resolved-generation cache — the raw `reset!` does not bump the store
+  ;; generation counter, so a stale cache entry keyed on [identity counter]
+  ;; could otherwise alias a DIFFERENT store content assembled earlier.
+  (reset! source-store/kind->id->ns->descriptor @pretest-source-store)
+  (image-assembly/clear-generation-cache!)
+  ;; rf2-h1vqa4: re-seed the routing test-support fixture event. THIS ns is
+  ;; the namespace that loads `re-frame.routing.test-support`, so any suite
+  ;; running right before the corpus leaves the live store rolled back to a
+  ;; baseline captured BEFORE that load — the pretest snapshot above then
+  ;; misses the row and every fixture generation would resolve the
+  ;; simulate dispatch to nothing (the CLJS analogue of the JVM reset's
+  ;; `(require … :reload)` re-seeding).
+  (re-frame.events/reg-event :rf.test/simulate-http-resolution
+    re-frame.routing.test-support/simulate-http-resolution-handler)
   (registrar/clear-kind! :route)
   ;; 2. Clear per-process state held outside the registrar.
   (reset! frame/frames {})
@@ -164,10 +191,13 @@
   ;; has registered). try/finally restores it even if a fixture assertion
   ;; throws mid-suite, leaving subsequent namespaces' state intact.
   (reset! pretest-registrar @registrar/kind->id->metadata)
+  (reset! pretest-source-store @source-store/kind->id->ns->descriptor)
   (try
     (runner/run-corpus fixtures host "CLJS")
     (finally
-      (reset! registrar/kind->id->metadata @pretest-registrar))))
+      (reset! registrar/kind->id->metadata @pretest-registrar)
+      (reset! source-store/kind->id->ns->descriptor @pretest-source-store)
+      (image-assembly/clear-generation-cache!))))
 
 ;; ---- rf2-xurchk acceptance self-tests -------------------------------------
 ;;
@@ -194,6 +224,7 @@
 
 (deftest epoch-records-checked-on-cljs
   (reset! pretest-registrar @registrar/kind->id->metadata)
+  (reset! pretest-source-store @source-store/kind->id->ns->descriptor)
   (try
     (let [result (runner/run-fixture epoch-mismatch-fixture host)]
       (is (not (:passed? result))
@@ -201,7 +232,9 @@
       (is (seq (:epoch-failures result))
           "the failure MUST be attributed to the epoch-records matcher (not silently ignored)"))
     (finally
-      (reset! registrar/kind->id->metadata @pretest-registrar))))
+      (reset! registrar/kind->id->metadata @pretest-registrar)
+      (reset! source-store/kind->id->ns->descriptor @pretest-source-store)
+      (image-assembly/clear-generation-cache!))))
 
 (deftest unknown-expect-key-fails-loud
   (is (seq (runner/unknown-expect-keys
@@ -216,6 +249,7 @@
 ;; the registrar (like the corpus runner) so it doesn't leak into siblings.
 (deftest derivation-graph-expect-graph-guard-cljs
   (reset! pretest-registrar @registrar/kind->id->metadata)
+  (reset! pretest-source-store @source-store/kind->id->ns->descriptor)
   (try
     (reset-runtime!)
     (let [run (fn [call] (runner/run-call call))]
@@ -235,4 +269,6 @@
                           :expect-graph {:mode :static}}))
           "the true static graph shape must pass"))
     (finally
-      (reset! registrar/kind->id->metadata @pretest-registrar))))
+      (reset! registrar/kind->id->metadata @pretest-registrar)
+      (reset! source-store/kind->id->ns->descriptor @pretest-source-store)
+      (image-assembly/clear-generation-cache!))))

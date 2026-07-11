@@ -117,6 +117,27 @@
                  reg
                  resource-kind-snapshots)))
 
+
+;; rf2-h1vqa4: the RealWorld twins share id vocabulary (`:settings/load`,
+;; …) — sequester the SIBLING app's whole namespace tree so this suite's
+;; fixture baseline never carries both provenances for one id (the
+;; realworld-http suites' baselines were captured before this ns loaded,
+;; and their fixtures restore those baselines per test, so they are
+;; unaffected; later-loading realworld-http consumers reinstate via
+;; test-support/reinstate-app-namespaces!).
+(test-support/sequester-app-namespaces! "realworld-http.")
+
+;; rf2-h1vqa4 BUNDLE CO-LOAD HYGIENE: this app registers the reserved
+;; per-app `:rf.route/not-found` route at ns load. Co-loaded example apps
+;; each do the same, and two provenance rows for the id fail default-image
+;; assembly loud for every suite whose fixture baseline is captured after
+;; the second app loads. Sequester OUR app's row at ns load; the fixture
+;; init reinstates it (registrar + source store in lockstep) for this
+;; suite's own tests.
+(def ^:private not-found-route-row
+  (test-support/sequester-app-registration!
+    :route :rf.route/not-found "realworld-resources.routing"))
+
 (defn- init!
   "Per-test setup. The example owns the URL through `:rf/default`
    (`:url-bound? true`); re-register it that way, re-install the example's
@@ -124,11 +145,25 @@
    counters, re-publish the late-bound routing integration, and stub managed-HTTP
    + url-push so ensure / navigation are deterministic without a fetch / browser."
   []
+  ;; rf2-h1vqa4: re-scrub the sibling app's rows per test — the merge-form
+  ;; store restore preserves slots this suite's baseline does not know
+  ;; about, so an earlier realworld-http suite's restored rows would
+  ;; otherwise collide with ours at default-image assembly.
+  (test-support/sequester-app-namespaces! "realworld-http.")
+  (test-support/reinstate-app-registration! not-found-route-row)
   (reset! last-managed-args nil)
   (rf/make-frame {:id :rf/default :url-bound? true
                   :doc "realworld-resources default app frame."})
   ;; Re-install the example's ns-load resource/mutation/scope registrations.
-  (swap! registrar/kind->id->metadata merge resource-kind-snapshots)
+  ;; rf2-h1vqa4: reinstate through `registrar/register!` — NOT a raw
+  ;; registrar-atom swap. Image-loaded frames resolve through the SOURCE
+  ;; STORE (the default image is assembled from it), and the reset hook's
+  ;; clear-kind! forgot the store rows too; register! writes registrar +
+  ;; store in lockstep and marks the live-frame projection dirty, so the
+  ;; frame's next resolution sees the reinstated registrations.
+  (doseq [[kind id->meta] resource-kind-snapshots
+          [id meta] id->meta]
+    (registrar/register! kind id meta))
   (routing/reset-counters!)
   (resources-route/install-routing-integration!)
   (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))

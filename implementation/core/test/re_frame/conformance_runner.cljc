@@ -64,6 +64,7 @@
     [re-frame.cofx :as cofx]
     [re-frame.frame :as frame]
     [re-frame.registrar :as registrar]
+    [re-frame.source-store :as source-store]
     [re-frame.subs :as subs]
     [re-frame.conformance :as conformance]
     [re-frame.identity :as identity]
@@ -310,6 +311,22 @@
 ;; and the registry `reg-machine` registrations.
 (declare realise-machine-handlers)
 
+(defn- claim-fixture-id!
+  "Bundle co-load hygiene (rf2-h1vqa4): before a fixture registers `(kind,
+  id)`, drop every NON-nil-provenance source-store row for the id — a
+  co-loaded app/testbed namespace registering the same id would otherwise
+  sit beside the fixture's row and fail default-image assembly loud. The
+  nil-provenance slot is deliberately KEPT: the fixture's fn-form
+  registration REPLACES it in place, so a framework registration (e.g. the
+  `:rf/time-ms` cofx) is never erased from the store — a plain
+  `forget-id!` here poisoned every LATER suite's lazily-captured
+  source-store baseline with the framework row missing."
+  [kind id]
+  (doseq [pns (keys (get-in @source-store/kind->id->ns->descriptor [kind id]))
+          :when (some? pns)]
+    (source-store/forget-descriptor! kind id pns))
+  nil)
+
 (defn- realise-handlers [fixture]
   (let [handlers-map   (or (:fixture/handlers fixture) {})
         event-registry (get-in fixture [:fixture/registry :event] {})
@@ -335,6 +352,7 @@
           ;; — its VALUE rides the dispatch token via `:rf.cofx`. Post-#4104,
           ;; `reg-cofx` rejects `provided? true` + a supplier, so register
           ;; without one.
+          (claim-fixture-id! :cofx cofx-id) ;; claim (see claim-fixture-id!)
           (if (:provided? meta)
             (cofx/reg-cofx cofx-id meta)
             (cofx/reg-cofx cofx-id meta (conformance/realise-cofx-supplier body))))))
@@ -366,6 +384,13 @@
                                      ks))
             event-meta     (cond-> (get event-registry id {})
                              (seq cofx-ids) (assoc :rf.cofx/requires cofx-ids))]
+        ;; CLAIM the id first (rf2-h1vqa4 bundle co-load hygiene): a fixture
+        ;; owns its registration vocabulary for the run; a co-loaded testbed
+        ;; app registering the same id from ITS namespace (e.g. the story
+        ;; counter testbed's :counter/inc) would otherwise sit beside the
+        ;; fixture's row and fail default-image assembly loud. The reset
+        ;; fixture restores the suite baseline afterward.
+        (claim-fixture-id! :event id)
         (if (seq event-meta)
           (events/reg-event id event-meta handler)
           (events/reg-event id handler))))
@@ -374,6 +399,7 @@
     ;; callable value; source-coord capture is intentionally bypassed for
     ;; these fixture-synthesised registrations.
     (doseq [[id steps] (get handlers-map :sub)]
+      (claim-fixture-id! :sub id) ;; claim (see claim-fixture-id!)
       (let [{:keys [kind inputs body]} (conformance/realise-sub steps)
             sub-meta (get sub-registry id {})]
         (case kind
@@ -423,13 +449,16 @@
             ;; FN form (no source-coord capture): a fixture stub of a
             ;; framework fx id (e.g. :rf.http/managed, :rf.nav/*) replaces
             ;; the framework's nil-provenance source-store slot instead of
-            ;; colliding at default-image assembly (rf2-h1vqa4).
+            ;; colliding at default-image assembly (rf2-h1vqa4). CLAIM the
+            ;; id first so a co-loaded app-namespace row can't collide.
+            (claim-fixture-id! :fx id)
             (fx/reg-fx id (assoc meta :handler-fn handler) handler)))))
     ;; route registrations. rf2-wvh95f F1: the path pattern is the 3-slot
     ;; VALUE; lift it out of the fixture meta map so the middle slot is a pure
     ;; metadata map.
     (doseq [[id meta] (get handlers-map :route)]
-      (rf/reg-route id (dissoc meta :path) (:path meta)))
+      (do (claim-fixture-id! :route id) ;; claim (see claim-fixture-id!)
+          (rf/reg-route id (dissoc meta :path) (:path meta))))
     ;; view registrations — DSL bodies map to fns that realise hiccup with
     ;; reflection forms resolved at call-time.
     (doseq [[id steps] (get handlers-map :view)]
@@ -663,7 +692,8 @@
   ;; emit a deterministic shadow warning.
   (doseq [[id meta] (sort-by (comp str key)
                              (get-in fixture [:fixture/registry :route]))]
-    (rf/reg-route id (dissoc meta :path) (:path meta))))
+    (do (claim-fixture-id! :route id) ;; claim (see claim-fixture-id!)
+          (rf/reg-route id (dissoc meta :path) (:path meta)))))
 
 (defn- register-resources!
   "rf2-djofbh — register a fixture's `:fixture/registry :resource` entries

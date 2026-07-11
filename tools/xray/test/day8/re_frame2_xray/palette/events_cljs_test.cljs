@@ -51,13 +51,17 @@
 (def ^:private popout-calls (atom 0))
 
 (defn- install-popout-counter!
-  "Install the counting stub AFTER `setup!` has run — `register-xray-
-  handlers!` re-registers `:rf.xray.palette.fx/popout` from
-  events.cljs, so a stub installed before setup would be clobbered."
+  "Install the counting stub AFTER `setup!` has run. rf2-h1vqa4: the stub
+  rides the `:rf/xray` frame's `:fx-overrides` (fn-value form) — the
+  designed per-frame fx-replacement seam — instead of re-registering the
+  xray-owned fx id from this test ns, which would sit beside the
+  events.cljs registration as a cross-namespace duplicate and fail the
+  frame's default-image assembly loud."
   []
   (reset! popout-calls 0)
-  (rf/reg-fx :rf.xray.palette.fx/popout
-             (fn [_ _] (swap! popout-calls inc) nil)))
+  (rf/make-frame {:id :rf/xray
+                  :fx-overrides {:rf.xray.palette.fx/popout
+                                 (fn [_ _] (swap! popout-calls inc) nil)}}))
 
 (defn- xray-db []
   (rf/app-db-value :rf/xray))
