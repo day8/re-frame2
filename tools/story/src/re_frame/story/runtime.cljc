@@ -1005,9 +1005,23 @@
   runner drives directly.
 
   Rendering is owned by the UI shell and `render-variant`, not this
-  orchestrator."
-  [{:keys [variant-id loaders-complete? plan] :as ctx}]
-  (if-not loaders-complete?
+  orchestrator.
+
+  `:force-play?` on the ctx (rf2-j538f7.34) runs the auto-plays EVEN WHEN
+  `loaders-complete?` is false — the loader-incomplete-but-drained case where
+  the loader events ran (e.g. `:story.counter-matrix/loader-never-completes`
+  seeds `:count` to 13) but the `:loaders-complete-when` predicate reported
+  not-ready, so the lifecycle parks at `:loading` yet the canvas still renders
+  the user view (the recorded loader-incomplete assertion turns the skeleton
+  off). Only the interactive shell's `resume-run!` sets it: in the browser the
+  view is mounted and the auto-play must run against it and publish a play-
+  runner run-state — the exact behaviour the pre-split browser `auto-run!` had,
+  which the Story/Xray play-scripts browser gate reads via
+  `runner-events/current-state`. The headless `run-variant` / inline paths
+  never set it, so their contract (loader-incomplete ⇒ events + play skipped,
+  lifecycle parks at `:loading`) is unchanged."
+  [{:keys [variant-id loaders-complete? plan force-play?] :as ctx}]
+  (if-not (or loaders-complete? force-play?)
     [ctx (async/resolved (read-assertions variant-id))]
     (let [plays      (get-in plan [:world :scripts] [])
           auto-plays (runner/auto-runnable-plays plays)
@@ -1447,8 +1461,21 @@
                  ;; generation before publishing so a supersession DURING the
                  ;; async script settles as superseded rather than reading the
                  ;; successor frame.
+                 ;;
+                 ;; `:force-play?` so a loader-incomplete-but-drained variant
+                 ;; (`:story.counter-matrix/loader-never-completes` — loaders
+                 ;; ran and seeded state, but `:loaders-complete-when` reported
+                 ;; not-ready) STILL runs its auto-play against the rendered
+                 ;; view and publishes a play-runner run-state. In the browser
+                 ;; the canvas renders the user view for such a variant (the
+                 ;; recorded loader-incomplete assertion turns the skeleton
+                 ;; off), so the auto-play must run — matching the pre-split
+                 ;; browser `auto-run!` the Story/Xray play-scripts gate reads.
+                 ;; The headless `run-variant` (via `resume-ctx!`) sets no such
+                 ;; flag, so its loader-incomplete contract (play skipped,
+                 ;; lifecycle parks at :loading) is unchanged.
                  :else
-                 (let [[ctx' play-promise] (run-phase-4! (:ctx attempt))]
+                 (let [[ctx' play-promise] (run-phase-4! (assoc (:ctx attempt) :force-play? true))]
                    (-> play-promise
                        (async/then
                          (fn [_]
