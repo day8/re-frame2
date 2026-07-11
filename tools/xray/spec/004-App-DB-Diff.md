@@ -735,6 +735,18 @@ on-box analogue of the off-box redaction call site
 frame-owned, fail-closed `project-egress` boundary, here the on-box render
 default rather than the off-box wire.
 
+> **Status (rf2-g7zayk): the operator reveal act is not yet wired.** The
+> `raw?` **mechanism** exists end-to-end — `local-render-value`'s `raw?`
+> arg resolves to `:rf.egress/local-raw` and is unit-tested
+> (`local_render_cljs_test` §local-raw-opt-in-reveals-sensitive) — but no
+> operator surface (no App-DB panel affordance) flips it today. Every
+> on-box App-DB render therefore currently uses the
+> `:rf.egress/local-redacted` default (`raw?` false), so the panel **fails
+> closed**. Surfacing sensitive on-box values is a **deferred**
+> per-(tool,frame) affordance, not a shipped reveal path; when it lands it
+> is the caller passing `raw? true` at the `local-render-value` call site,
+> not a change to this contract.
+
 ## "Show me when this changed"
 
 The high-leverage right-click affordance. When invoked on any path:
