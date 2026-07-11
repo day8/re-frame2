@@ -20,7 +20,8 @@
   structural tree + the DOM conversion table
   (jvm-tree-and-conversion-contract.md)."
   #?(:cljs (:require-macros [re-frame.ui]))
-  (:require #?@(:clj  [[re-frame.ui.compiler :as compiler]
+  (:require [re-frame.error :as error]
+            #?@(:clj  [[re-frame.ui.compiler :as compiler]
                        [re-frame.ui.tree :as tree]
                        [re-frame.ui.rules :as rules]]
                 :cljs [[re-frame.ui.eq :as eq]
@@ -73,23 +74,23 @@
   compile error); actual reads land with the S2 reactivity slice — until
   then every call raises :rf.error/ui-sub-unavailable."
   [query]
-  #?(:clj  (throw (ex-info
-                   (str "[:rf.error/ui-sub-unavailable] (sub " (pr-str query)
-                        ") — reactive reads land with the S2 slice; no "
-                        "Stage-1 Tier-1 fixture may exercise a sub read.")
-                   {:rf.error/id :rf.error/ui-sub-unavailable :query query}))
+  #?(:clj  (error/throw-error!
+            :rf.error/ui-sub-unavailable 're-frame.ui/sub
+            (str "(sub " (pr-str query) ") — reactive reads land with the S2 "
+                 "reactivity slice; no Stage-1 Tier-1 fixture may exercise a "
+                 "sub read")
+            {:extra {:query query}})
      :cljs (runtime/sub* query)))
 
 (defn lease
   "(lease descriptor) — declares resource liveness at a view site.
   Grammar-only at S1; lands with the S2 observation slice."
   [descriptor]
-  #?(:clj  (throw (ex-info
-                   (str "[:rf.error/ui-lease-unavailable] (lease "
-                        (pr-str descriptor) ") — leases land with the S2 "
-                        "observation slice.")
-                   {:rf.error/id :rf.error/ui-lease-unavailable
-                    :descriptor descriptor}))
+  #?(:clj  (error/throw-error!
+            :rf.error/ui-lease-unavailable 're-frame.ui/lease
+            (str "(lease " (pr-str descriptor) ") — leases land with the S2 "
+                 "observation slice")
+            {:extra {:descriptor descriptor}})
      :cljs (runtime/lease* descriptor)))
 
 ;; ---------------------------------------------------------------------------
@@ -113,11 +114,11 @@
   identically. Direct JVM calls build the trusted-HTML node."
   [s]
   #?(:clj  (tree/html s)
-     :cljs (throw (ex-info
-                   (str "[:rf.error/ui-tree-malformed] (ui/html ...) is a "
-                        "template form — it renders as the sole child of a "
-                        "DOM element: [:div (ui/html s)]")
-                   {:rf.error/id :rf.error/ui-tree-malformed}))))
+     :cljs (error/throw-error!
+            :rf.error/ui-tree-malformed 're-frame.ui/html
+            (str "(ui/html ...) is a template form — it renders as the sole "
+                 "child of a DOM element: [:div (ui/html s)]")
+            {:extra {:value s}})))
 
 (defn raw-fn
   "(ui/raw-fn f) — identity-as-protocol callback marker: the fn passes
@@ -134,9 +135,9 @@
   error by design."
   ([_base] (spread nil nil))
   ([_base _overrides]
-   (throw (ex-info
-           (str "[:rf.ui/spread-outside-template] (ui/spread ...) is a "
-                "template form — it is legal only in a DOM element's props "
-                "position, where the compiler wires it through the "
-                "conversion rule table.")
-           {:rf.error/id :rf.ui/spread-outside-template}))))
+   (error/throw-error!
+    :rf.error/ui-spread-outside-template 're-frame.ui/spread
+    (str "(ui/spread ...) is a template form — it is legal only in a DOM "
+         "element's props position, where the compiler wires it through "
+         "the conversion rule table")
+    nil)))

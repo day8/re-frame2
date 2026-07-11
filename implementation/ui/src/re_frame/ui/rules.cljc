@@ -21,7 +21,8 @@
   CSS kebab space (the space our authors write). `void-tags` and
   `boolean-attrs` were probed against react-dom/server 19.2.0 (renders +
   throw behaviour); see the S1b PR body for the row-by-row outcomes."
-  (:require [clojure.string :as str]))
+  (:require [clojure.string :as str]
+            [re-frame.error :as error]))
 
 ;; ---------------------------------------------------------------------------
 ;; Shared vocabulary
@@ -649,10 +650,10 @@
     (number? v)   (js-number-str v)
     (keyword? v)  (name v)
     (symbol? v)   (name v)
-    (coll? v)     (throw (ex-info
-                          (str "collection value for attribute " attr-kw
-                               " — collections are only meaningful for :class/:style"
-                               " (React would render \"[object Object]\" garbage)")
-                          {:rf.ui/error :rf.ui.error/collection-attr-value
-                           :attr attr-kw :value v}))
+    (coll? v)     (error/throw-error!
+                   :rf.error/ui-tree-malformed 're-frame.ui/render
+                   (str "collection value for attribute " attr-kw
+                        " — collections are only meaningful for :class/:style"
+                        " (React would render \"[object Object]\" garbage)")
+                   {:extra {:attr attr-kw :value v}})
     :else         (str v)))

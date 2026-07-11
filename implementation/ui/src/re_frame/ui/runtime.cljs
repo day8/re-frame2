@@ -13,6 +13,7 @@
   (:require ["react" :as react]
             ["react/jsx-runtime" :as jsxrt]
             [clojure.string :as str]
+            [re-frame.error :as error]
             [re-frame.registrar :as registrar]
             [re-frame.ui.eq :as eq]
             [re-frame.ui.rules :as rules]))
@@ -75,13 +76,12 @@
   [ev]
   (if-let [f @dispatch-hook]
     (f ev)
-    (throw (ex-info
-            (str "[:rf.error/ui-dispatch-unwired] compiled-view dispatch "
-                 "is not wired in the S1 compiler slice — frame dispatch "
-                 "lands with reactivity (S2/S3). Tests: install a hook "
-                 "via re-frame.ui.runtime/set-dispatch-hook!.")
-            {:rf.error/id :rf.error/ui-dispatch-unwired
-             :event ev}))))
+    (error/throw-error!
+     :rf.error/ui-dispatch-unwired 're-frame.ui/dispatch
+     (str "compiled-view dispatch is not wired in the S1 compiler slice — "
+          "frame dispatch lands with reactivity (S2/S3); tests install a "
+          "hook via re-frame.ui.runtime/set-dispatch-hook!")
+     {:extra {:event ev}})))
 
 (defn dynamic-handler
   "Runtime classification of a DYNAMIC handler-position value (Spec 004
@@ -119,11 +119,11 @@
     (fn? v) v
 
     :else
-    (throw (ex-info
-            (str "[:rf.error/ui-dispatch-unwired] a dynamic handler "
-                 "expression produced an unusable value — handlers "
-                 "classify by type: event vector, options map, fn, or nil")
-            {:rf.error/id :rf.error/ui-dispatch-unwired :value v}))))
+    (error/throw-error!
+     :rf.error/ui-tree-malformed 're-frame.ui/render
+     (str "a dynamic handler expression produced " (pr-str v) " — handlers "
+          "classify by type: event vector, options map, handler fn, or nil")
+     {:extra {:value v}})))
 
 ;; ---------------------------------------------------------------------------
 ;; sub — S1 stub (grammar compiles; reads land S2)
@@ -131,18 +131,19 @@
 
 (defn sub*
   [query]
-  (throw (ex-info
-          (str "[:rf.error/ui-sub-unavailable] (sub " (pr-str query) ") — "
-               "reactive reads land with the S2 reactivity slice; no "
-               "Stage-1 Tier-1 fixture may exercise a sub read.")
-          {:rf.error/id :rf.error/ui-sub-unavailable :query query})))
+  (error/throw-error!
+   :rf.error/ui-sub-unavailable 're-frame.ui/sub
+   (str "(sub " (pr-str query) ") — reactive reads land with the S2 "
+        "reactivity slice; no Stage-1 Tier-1 fixture may exercise a sub read")
+   {:extra {:query query}}))
 
 (defn lease*
   [descriptor]
-  (throw (ex-info
-          (str "[:rf.error/ui-lease-unavailable] (lease " (pr-str descriptor)
-               ") — leases land with the S2 observation slice.")
-          {:rf.error/id :rf.error/ui-lease-unavailable :descriptor descriptor})))
+  (error/throw-error!
+   :rf.error/ui-lease-unavailable 're-frame.ui/lease
+   (str "(lease " (pr-str descriptor) ") — leases land with the S2 "
+        "observation slice")
+   {:extra {:descriptor descriptor}}))
 
 ;; ---------------------------------------------------------------------------
 ;; Dev checks (goog.DEBUG-stripped in production)
@@ -168,13 +169,13 @@
   [x]
   (when ^boolean js/goog.DEBUG
     (when (or (seq? x) (coll? x) (keyword? x) (symbol? x))
-      (throw (ex-info
-              (str "[:rf.error/ui-tree-malformed] a dynamic child produced "
-                   (pr-str x) " — a runtime value cannot be a template. "
-                   "Strings/numbers/nil/false render; markup needs a view "
-                   "(or ui/raw for a host element); lists need (for ...) "
-                   "with :key.")
-              {:rf.error/id :rf.error/ui-tree-malformed :value x}))))
+      (error/throw-error!
+       :rf.error/ui-tree-malformed 're-frame.ui/render
+       (str "a dynamic child produced " (pr-str x) " — a runtime value "
+            "cannot be a template. Strings/numbers/nil/false render; markup "
+            "needs a view (or ui/raw for a host element); lists need "
+            "(for ...) with :key")
+       {:extra {:value x}})))
   x)
 
 ;; ---------------------------------------------------------------------------
