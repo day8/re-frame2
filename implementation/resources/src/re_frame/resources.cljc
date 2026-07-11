@@ -49,6 +49,7 @@
             [re-frame.frame :as frame]
             [re-frame.fx :as fx]
             [re-frame.late-bind :as late-bind]
+            [re-frame.resources.classification :as classification]
             [re-frame.resources.events :as resource-events]
             [re-frame.resources.mutation-events :as mutation-events]
             [re-frame.resources.mutation-registry :as mutation-registry]
@@ -559,15 +560,41 @@
 ;; `:entries` and a fine-grained-classified field would ride egress verbatim
 ;; (rf2-x76af2.13). The reconcile is idempotent + value-independent, so it is
 ;; safe to add and rides unchanged when a handler makes no durable write.
-;; `:rf.mutation/clear` is a causal INSTANCE reset (no resource-entry write), so
-;; it stays unwrapped.
+;; rf2-825mzj — the mutation INSTANCE-mutating handlers ALSO lower each live
+;; instance's owner-declared projection-relative `:sensitive` / `:large`
+;; classification into the per-frame elision registry (under `:source :mutation`,
+;; via `with-mutation-classification-lowering`), so a `:sensitive [[:params
+;; :password]]` mutation's durable instance `:params` redacts at every registry-
+;; reading egress boundary (epoch export, off-box tool, MCP) while the raw value
+;; stays on the instance for the success-path `:invalidates` / `:patches`. This
+;; is the mutation peer of the resource-entry `with-classification-lowering`
+;; fold. `:rf.mutation/clear` DROPS an instance, so it is wrapped too (the
+;; self-dropping reconcile removes the cleared instance's lowered declaration).
+(defn- with-mutation-classification-lowering
+  "Wrap a mutation event handler `f` so the `:rf.db/runtime` value of its returned
+  effects map is reconciled through `classification/reconcile-mutation-registry`
+  (resolver = `mutation-registry/mutation-meta`) — lowering each live mutation
+  instance's projection-relative classification into the per-frame elision
+  registry under `:source :mutation`. Composes with the resource-entry
+  `resource-events/with-classification-lowering` (each reconcile touches only its
+  own registry owner, so order is immaterial). A returned map with no
+  `:rf.db/runtime` key rides unchanged."
+  [f]
+  (fn [& args]
+    (let [effects (apply f args)]
+      (if (and (map? effects) (contains? effects :rf.db/runtime))
+        (update effects :rf.db/runtime
+                classification/reconcile-mutation-registry mutation-registry/mutation-meta)
+        effects))))
 (events/reg-event :rf.mutation/execute
                      generation-meta
                      (resource-events/with-classification-lowering
-                       mutation-events/execute-handler))
+                       (with-mutation-classification-lowering
+                         mutation-events/execute-handler)))
 (events/reg-event :rf.mutation/clear
                      framework-authority-meta
-                     mutation-events/clear-handler)
+                     (with-mutation-classification-lowering
+                       mutation-events/clear-handler))
 ;; The mutation reply handlers consume the reply token's
 ;; causal `:rf/time-ms` for the canonical reply's `:completed-at` → the durable
 ;; instance `:settled-at` + any patch / populate `:loaded-at`, so they declare
@@ -575,11 +602,13 @@
 (events/reg-event :rf.mutation.internal/succeeded
                      time-meta
                      (resource-events/with-classification-lowering
-                       mutation-events/succeeded-handler))
+                       (with-mutation-classification-lowering
+                         mutation-events/succeeded-handler)))
 (events/reg-event :rf.mutation.internal/failed
                      time-meta
                      (resource-events/with-classification-lowering
-                       mutation-events/failed-handler))
+                       (with-mutation-classification-lowering
+                         mutation-events/failed-handler)))
 
 ;; Passive mutation subs. Per Spec 016 §Mutations.
 (mutation-subs/register-subs!)

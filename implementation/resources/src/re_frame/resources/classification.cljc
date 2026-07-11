@@ -60,6 +60,7 @@
             [re-frame.elision :as elision]
             [re-frame.path :as path]
             [re-frame.projection :as projection]
+            [re-frame.resources.mutation-runtime :as mutation-runtime]
             [re-frame.resources.state :as state]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -217,6 +218,51 @@
         ->decl (fn [paths] (into {} (map (fn [p] [p {:source :owner-declaration}])) paths))]
     {:data   {:sensitive (->decl (:data s))   :large (->decl (:data l))}
      :params {:sensitive (->decl (:params s)) :large (->decl (:params l))}}))
+
+;; ---------------------------------------------------------------------------
+;; Mutation continuation-reply projection (rf2-825mzj / EP-0025 §subsystems).
+;;
+;; A `:reply-to` mutation continuation dispatches a canonical reply map carrying
+;; the accepted attempt's `:params` + resolved `:scope` (Spec 016 §Mutation
+;; completion continuations). Those are the SAME owner-classified facts the
+;; durable instance stores, so an owner that declared `:sensitive [[:params
+;; :password]]` must not repeat the raw value on the continuation reply (which
+;; rides the trace bus AND is dispatched into app workflow). The mutation OWNER
+;; declaration is the single source — this redacts the reply IN THE SAME
+;; construction step resources builds it, deriving the paths from the spec (never
+;; a second classification language). The mutation `:request` handler already ran
+;; on the RAW params before the instance was minted, so the causal write is
+;; unaffected; only the completion echo is projected.
+;; ---------------------------------------------------------------------------
+
+(defn redact-continuation-reply
+  "Redact the owner-declared `:sensitive` / `:large` param + scope subpaths of a
+  mutation continuation REPLY map, deriving the paths from the mutation `spec`'s
+  projection-relative declaration (`split-projection-paths`). The reply carries
+  `:params` + `:scope` as siblings and the decoded result under `:value`, so a
+  `:params`-rooted decl `[:password]` redacts reply `[:params :password]`, a
+  `:scope`-rooted decl redacts reply `[:scope …]`, and a `:data`-rooted decl
+  redacts the reply's `:value` (the mutation-result projection). Sensitive wins
+  over large at a shared path (the shared elision walker's ordering). A `spec`
+  that declares neither axis — or a nil spec (unregistered owner) — rides the
+  reply UNCHANGED. Pure / value-independent."
+  [reply spec]
+  (let [s       (split-projection-paths spec :sensitive)
+        l       (split-projection-paths spec :large)
+        ;; reply-relative re-rooting: the `:params` bucket holds params-rooted
+        ;; paths (head stripped) AND `:scope`-rooted paths (kept WITH their
+        ;; `[:scope …]` head), so a scope entry indexes the reply's sibling
+        ;; `:scope` verbatim while a params entry re-roots under `[:params …]`.
+        ;; The `:data` bucket re-roots under the reply's `:value` result slot.
+        ->reply (fn [{:keys [data params]}]
+                  (into (mapv #(into [:value] %) data)
+                        (mapv (fn [p] (if (= :scope (first p)) p (into [:params] p)))
+                              params)))
+        sens    (->reply s)
+        large   (->reply l)]
+    (if (or (seq sens) (seq large))
+      (classification/redact-with-paths reply sens large)
+      reply)))
 
 ;; ---------------------------------------------------------------------------
 ;; Schemas validate; they do NOT classify durably.
@@ -620,4 +666,122 @@
       (assoc base elision-registry-key {})
 
       ;; nothing ever classified → leave the key absent (no stray sub-tree).
+      :else base)))
+
+;; ---------------------------------------------------------------------------
+;; Per-instance MUTATION lowering into the per-frame elision registry
+;; (rf2-825mzj — the mutation peer of the resource-entry lowering above).
+;;
+;; A mutation INSTANCE lives at `[:rf.runtime/mutations <key-id>]` and stores the
+;; canonical `:params`, resolved `:scope`, and decoded `:result` (Spec 016
+;; §Cache home). The owner `reg-mutation` spec declares its sensitive slots
+;; PROJECTION-RELATIVE to that instance projection (`:sensitive [[:params
+;; :password]]`), and the runtime LOWERS the declaration into the SAME per-frame
+;; elision registry PER INSTANCE, re-rooting each projection-relative path to the
+;; instance's ABSOLUTE runtime-db path under `:source :mutation` — exactly as
+;; resource entries lower under `:source :resource`. The durable instance keeps
+;; the RAW value (the success-path `:invalidates` / `:patches` / `:populates`
+;; read it, and the request handler already consumed it); only the egress
+;; boundaries that read this registry (epoch export, off-box tool, MCP) redact.
+;;
+;; Re-rooting (per instance, keyed on the instance id's byte `key-id`):
+;;   - a `:params`-rooted path → `[:rf.runtime/mutations <key-id> :params …]`;
+;;   - a `:scope`-rooted path  → `[:rf.runtime/mutations <key-id> :scope …]`;
+;;   - a `:data`-rooted / bare path → `[:rf.runtime/mutations <key-id> :result …]`
+;;     (the mutation's decoded result is its data projection).
+;; ---------------------------------------------------------------------------
+
+(defn- mutation-instance-declaration-paths
+  "The ABSOLUTE `{:sensitive [paths] :large [paths]}` runtime-db paths a single
+  mutation instance contributes, re-rooting `spec`'s projection-relative
+  declarations under the instance's byte `key-id`. `:params`-rooted paths
+  re-root under the instance `:params`; `:scope`-rooted paths under `:scope`;
+  `:data`-rooted / bare paths under `:result`. Pure; returns `{:sensitive []
+  :large []}` when the spec declares neither axis."
+  [key-id spec]
+  (let [s            (split-projection-paths spec :sensitive)
+        l            (split-projection-paths spec :large)
+        inst-prefix  (conj (mutation-runtime/instances-path) key-id)
+        result-pre   (conj inst-prefix :result)
+        params-pre   (conj inst-prefix :params)
+        scope-pre    (conj inst-prefix :scope)
+        ;; a `:params`-bucket path is either a params-rooted path (head stripped)
+        ;; or a `:scope`-rooted path (kept WITH its `[:scope …]` head); re-root
+        ;; each to the matching instance slot.
+        ->key-abs    (fn [p]
+                       (if (= :scope (first p))
+                         (into scope-pre (subvec (vec p) 1))
+                         (into params-pre p)))
+        ->abs        (fn [axis]
+                       (into (mapv #(into result-pre %) (:data axis))
+                             (mapv ->key-abs (:params axis))))]
+    {:sensitive (->abs s)
+     :large     (->abs l)}))
+
+(def ^:private mutation-source
+  "The elision-registry `:source` tag a mutation-lowered declaration carries —
+  the mutation peer of `:source :resource`. Source-scoped so reconciliation /
+  clear touch only mutation-sourced entries (an evicted instance self-drops)."
+  :mutation)
+
+(def ^:private mutation-owner
+  "The multi-owner elision-registry owner identity a mutation instance lowering
+  claims under. The reconcile rebuilds the full mutation-owned claim set from the
+  live instances each commit (self-dropping), so `replace-owner-claims` drops a
+  cleared instance's claims and installs current ones in one step."
+  {:source mutation-source})
+
+(defn reconcile-mutation-registry
+  "PURE per-instance MUTATION lowering: given a base `runtime-db` value and a
+  `spec-of` resolver `(fn [mutation-id] -> spec|nil)`, return the runtime-db with
+  the `[:rf.runtime/elision …]` registry's `:source :mutation` claims REPLACED by
+  the declarations of EVERY current mutation instance (re-rooted absolute per the
+  instance's byte `key-id`), delegating to `re-frame.elision/replace-owner-claims`.
+  The mutation peer of `reconcile-registry` — the standard EP-0025 lowering.
+
+  Operates on a VALUE so a mutation handler's durable `:rf.db/runtime` transition
+  folds the registry update into the SAME atomic commit that mints / settles /
+  clears the instance. IDEMPOTENT + SELF-DROPPING: the full mutation-owned claim
+  set is rebuilt from the current `:rf.runtime/mutations` instances, so a cleared
+  instance's declarations vanish and a newly-minted instance's appear, with no
+  separate drop hook. Value-INDEPENDENT. A path ALSO claimed by another owner
+  (`:source :resource` / `:effect` / …) rides untouched and unions at
+  egress-lookup time.
+
+  `spec-of` is injected (the mutation registry requires this ns, so a static
+  back-require would cycle) — the caller passes `mutation-registry/mutation-meta`.
+  A mutation id with no registered spec, or a spec that declares no
+  classification, contributes nothing.
+
+  Reconcile-aware (mirrors `reconcile-registry`): when the lowering emptied a
+  base that carried a registry, it emits an EXPLICIT (possibly cleared)
+  `:rf.runtime/elision` key so a whole-value runtime-db commit honours a clear's
+  drop verbatim; the never-classified case emits no key."
+  [runtime-db spec-of]
+  (let [base      (or runtime-db {})
+        instances (get-in base (mutation-runtime/instances-path))
+        reg       (get base elision-registry-key)
+        {:keys [sensitive large]}
+        (reduce-kv
+          (fn [acc key-id inst]
+            (let [mid  (:mutation/id inst)
+                  spec (when mid (spec-of mid))]
+              (if-not spec
+                acc
+                (let [{:keys [sensitive large]} (mutation-instance-declaration-paths key-id spec)]
+                  (-> acc
+                      (update :sensitive into sensitive)
+                      (update :large into large))))))
+          {:sensitive [] :large []}
+          (or instances {}))
+        new-reg   (-> (or reg {})
+                      (elision/replace-owner-claims :sensitive-declarations mutation-owner sensitive)
+                      (elision/replace-owner-claims :declarations mutation-owner large))]
+    (cond
+      (seq new-reg)
+      (assoc base elision-registry-key new-reg)
+
+      (contains? base elision-registry-key)
+      (assoc base elision-registry-key {})
+
       :else base)))
