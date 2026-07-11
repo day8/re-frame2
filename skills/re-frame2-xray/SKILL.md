@@ -319,8 +319,12 @@ redaction contract, the rewind detail) when the question needs more than
 the one-liner.
 
 - **L1 frame picker.** The Frame control on the L1 ribbon chooses *which
- frame* Xray observes — every tab and the spine rebind to it
- (mode-independent: it scopes both Dynamic and Static). It **always
+ frame* Xray observes — it moves the per-frame *live* projections and the
+ spine's observed frame; the process-global catalogues (Graph Declared,
+ Frames, the Static definition catalogues) read the same in every frame and
+ do **not** follow the picker (see the scope matrix above). It is
+ mode-independent: the frame-observation axis moves in both Dynamic and
+ Static. It **always
  renders**; on a single-frame app it is a working one-entry dropdown (only a
  zero-frame state disables it). The button face shows the currently-selected
  frame id live (e.g. `:rf/default ▾`). The pin is a **transient view
