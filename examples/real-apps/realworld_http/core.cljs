@@ -13,7 +13,7 @@
    - Defines :app/initialise — the boot event, run via the frame's
      :initial-events.
    - Defines the root-view that switches on :rf.route/id to pick the page.
-   - Mounts the React root. One `frame-provider {:id …}` at the render root
+   - Mounts the React root. One `frame-root {:id …}` at the render root
      creates and seeds the app frame in a single place — its `:url-bound?
      true` + base-path-aware `:url-strategy` automatically install the URL
      listener for Back/Forward.
@@ -346,7 +346,7 @@
                      (js/document.getElementById "app"))]
     (when-not @react-root
       (reset! react-root (rdc/create-root el)))
-    ;; Here's where the frame is born. A single `frame-provider {:id …}` at
+    ;; Here's where the frame is born. A single `frame-root {:id …}` at
     ;; the render root creates, configures, and seeds the app frame all in one
     ;; place. The first mount conjures `:rf/default` and applies its config:
     ;;   - `:url-bound? true` — this frame owns the browser URL.
@@ -391,7 +391,7 @@
     ;; uninitialised auth slice. No explicit `:rf.route/handle-url-change`
     ;; initial event is needed.
     (rdc/render @react-root
-                [rf/frame-provider {:id              :rf/default
+                [rf/frame-root {:id              :rf/default
                                     :doc             "Realworld demo frame."
                                     :url-bound?      true
                                     :url-strategy    routing/url-strategy

@@ -14,7 +14,7 @@
    truth, and both read from it.
 
    The whole frame is set up in one place: the render root's
-   `frame-provider {:id …}` creates the app frame, configures it, and runs its
+   `frame-root {:id …}` creates the app frame, configures it, and runs its
    `:initial-events` seed exactly once.
 
    Worth watching here:
@@ -233,7 +233,7 @@
 ;; out of each other's way. See examples/TESTING.md (Example mount-isolation).
 (defonce react-root (atom nil))
 
-;; The frame's whole life happens in one place: the `frame-provider {:id app-frame …}`
+;; The frame's whole life happens in one place: the `frame-root {:id app-frame …}`
 ;; down in `mount!`. On the first mount it creates the frame, applies its config,
 ;; and fires `:initial-events` once to seed app-db (that's `:crud/initialise`).
 ;; From then on, every `dispatch` and `subscribe` in the tree below it lands in
@@ -257,7 +257,7 @@
     (when-not @react-root
       (reset! react-root (rdc/create-root el)))
     (rdc/render @react-root
-                [rf/frame-provider {:id             app-frame
+                [rf/frame-root {:id             app-frame
                                     :initial-events [[:crud/initialise]]}
                  [crud-view]])))
 

@@ -378,7 +378,7 @@
 (defonce react-root (atom nil))
 
 ;; re-frame2 won't conjure a frame for you — an app stands up its own. We
-;; do it in exactly one place: the `frame-provider {:id app-frame}` in
+;; do it in exactly one place: the `frame-root {:id app-frame}` in
 ;; `mount!` below. First mount creates the frame and fires
 ;; `:initial-events` once to seed app-db before anything paints; a hot
 ;; reload finds the frame already there and skips the seed. From then on
@@ -399,7 +399,7 @@
     (when-not @react-root
       (reset! react-root (rdc/create-root el)))
     (rdc/render @react-root
-                [rf/frame-provider {:id app-frame
+                [rf/frame-root {:id app-frame
                                     :initial-events [[:notebook/initialise]]}
                  [notebook]])))
 

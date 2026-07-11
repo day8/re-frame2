@@ -225,7 +225,7 @@
 
 ;; The guard is a registered interceptor, referenced by id
 ;; (`:realworld-resources.routing/auth-guard`) from the demo frame's
-;; `:interceptors` chain — set in the `frame-provider {:id …}` ensure form in
+;; `:interceptors` chain — set in the `frame-root {:id …}` ensure form in
 ;; core.cljs rather than dropped in inline. The timing works out because
 ;; `reg-interceptor` is a top-level load-time registration, and core.cljs requires
 ;; this ns: the descriptor is registered well before the provider's config goes

@@ -206,7 +206,7 @@ Its other shape, `{:id …}`, **ensures** a named frame. It creates the frame th
 ;; (and runs :initial-events); a remount under the same :id reuses it
 ;; without re-seeding. No boot-time reg-frame needed — the provider ensures it.
 (rf/reg-view counter-widget [label]
-  [rf/frame-provider {:id             :counter/widget
+  [rf/frame-root {:id             :counter/widget
                       :initial-events [[:rf/set-db {:n 0}]]}
    [counter-panel label]])
 ```

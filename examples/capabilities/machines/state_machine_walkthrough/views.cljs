@@ -118,7 +118,7 @@
 ;; DOM setup lives in `mount!`, tagged `^:dev/after-load` so shadow-cljs re-runs
 ;; it after each hot reload — edited views re-render into the same root and frame.
 (defn ^:dev/after-load mount! []
-  ;; `frame-provider {:id …}` is the do-everything entry point for the frame:
+  ;; `frame-root {:id …}` is the do-everything entry point for the frame:
   ;; it creates it, configures it, and seeds it. First mount creates the
   ;; `:rf/default` frame, applies the config, and runs `:initial-events` once.
   ;; A hot reload reuses that same frame and skips the re-seed — which is the
@@ -141,7 +141,7 @@
     (when-not @react-root
       (reset! react-root (rdc/create-root el)))
     (rdc/render @react-root
-                [rf/frame-provider {:id              :rf/default
+                [rf/frame-root {:id              :rf/default
                                     :doc             "State-machines walkthrough demo frame."
                                     :fx-overrides    {:rf.http/managed :walkthrough.login/canned-failure}
                                     :initial-events  [[:walkthrough.login/initialise-form]]}

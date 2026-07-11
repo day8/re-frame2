@@ -93,7 +93,7 @@
 
 (defonce react-root (atom nil))
 
-;; The frame comes from the `frame-provider {:id app-frame …}` at the
+;; The frame comes from the `frame-root {:id app-frame …}` at the
 ;; render root below. First mount creates the frame, applies its config,
 ;; and runs `:initial-events` (our `[:app/initialise]` boot dispatch)
 ;; exactly once; a hot reload reuses the same frame and skips the
@@ -111,7 +111,7 @@
     (when-not @react-root
       (reset! react-root (rdc/create-root el)))
     (rdc/render @react-root
-                [rf/frame-provider {:id app-frame
+                [rf/frame-root {:id app-frame
                                     :initial-events [[:app/initialise]]}
                  [views/root-view]])))
 

@@ -3,7 +3,7 @@
   the frame and seed it.
 
   Everything else leans on this wiring. `init!` picks the reactive substrate
-  (here, Reagent). The render root is a `frame-provider {:id …}`: on first
+  (here, Reagent). The render root is a `frame-root {:id …}`: on first
   mount it creates the app frame, marks it `:url-bound?` so the frame owns the
   address bar, and declares `:url-strategy rf/hash-url-strategy` so the router
   speaks hash URLs (`#/active`) — because TodoMVC's URLs are hash-based. The
@@ -34,7 +34,7 @@
 ;; `^:dev/after-load`, which is shadow's cue to re-run it on each reload so your
 ;; edited views actually re-render.
 ;;
-;; The render root is a `frame-provider {:id app-frame …}`. First mount creates
+;; The render root is a `frame-root {:id app-frame …}`. First mount creates
 ;; the app frame and runs `:initial-events`; every reload after that reuses the
 ;; same frame and skips the seed, so your todos survive a code change.
 ;;
@@ -59,7 +59,7 @@
                 ;; browser listener (`hashchange`, per `:url-strategy`) and
                 ;; dispatches `:rf.route/handle-url-change` for us — see the
                 ;; boot! comment below.
-                [rf/frame-provider {:id             app-frame
+                [rf/frame-root {:id             app-frame
                                     :doc            "TodoMVC demo frame."
                                     :url-bound?     true
                                     :url-strategy   routing/hash-url-strategy

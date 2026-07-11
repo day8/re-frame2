@@ -73,7 +73,7 @@
 
 (defonce react-root (atom nil))
 
-;; The app frame is born in exactly one place: the `frame-provider {:id
+;; The app frame is born in exactly one place: the `frame-root {:id
 ;; app-frame …}` at the render root below. On first mount the provider
 ;; creates the frame, applies its config, and fires `:initial-events` once
 ;; to seed it — that's the `[:counter/initialise]` dispatch. From then on
@@ -95,13 +95,13 @@
     (when-not @react-root
       (reset! react-root (rdc/create-root el)))
     (rdc/render @react-root
-                [rf/frame-provider {:id app-frame
+                [rf/frame-root {:id app-frame
                                     :initial-events [[:counter/initialise]]}
                  [counter-app]])))
 
 (defn boot!
   "Stand the example up. Two steps: install the slim adapter, then lazily
-   mount `counter-app` into `#app` under a `frame-provider {:id app-frame …}`.
+   mount `counter-app` into `#app` under a `frame-root {:id app-frame …}`.
    The provider does the frame work — creates it, seeds it (see the comment
    just above).
 

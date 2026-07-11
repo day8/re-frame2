@@ -336,7 +336,7 @@
 ;;
 ;; The React root is created lazily inside `run`, not at ns-load, so a test can
 ;; mount this app in its own frame. There's exactly one place the app stands its
-;; frame up: the render-root `frame-provider {:id …}`. On first mount the
+;; frame up: the render-root `frame-root {:id …}`. On first mount the
 ;; provider creates `app-frame` and applies its config — `:url-bound? true` so
 ;; the frame owns the browser URL, and the `:rf.http/managed` override that
 ;; aims page fetches at the canned stub so the demo runs on its own. The
@@ -361,7 +361,7 @@
     ;; reuses it on hot reload. Route entry ensures page 0, so there's no need
     ;; for `:initial-events`.
     (rdc/render @react-root
-                [rf/frame-provider {:id           app-frame
+                [rf/frame-root {:id           app-frame
                                     :doc          "Infinite-feed demo frame."
                                     :url-bound?   true
                                     :fx-overrides {:rf.http/managed :infinite-feed.demo/http-stub}}

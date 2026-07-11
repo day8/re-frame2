@@ -78,7 +78,7 @@
 
 (defonce react-root (atom nil))
 
-;; The whole frame lifecycle lives in one spot — the `frame-provider {:id
+;; The whole frame lifecycle lives in one spot — the `frame-root {:id
 ;; app-frame …}` down in `run`. The first mount creates the app frame and
 ;; runs its `:initial-events` once to seed app-db. After that, every
 ;; `use-subscribe` hook and every render-time `(rf/capture-frame)` resolves to
@@ -104,7 +104,7 @@
     (when-not @react-root
       (reset! react-root (uix-dom/create-root el)))
     (uix-dom/render-root
-      ($ uix-adapter/frame-provider {:id app-frame
+      ($ uix-adapter/frame-root {:id app-frame
                                      :initial-events [[:counter/initialise]]}
          ($ counter-app))
       @react-root)))

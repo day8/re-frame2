@@ -139,7 +139,7 @@
     ;; runtime-db the first time the flow runs
     ;; (see docs/machines/glossary.md#snapshot).
     (uix-dom/render-root
-      ($ uix-adapter/frame-provider {:id  :rf/default
+      ($ uix-adapter/frame-root {:id  :rf/default
                                      :doc "Login (UIx) demo frame."
                                      ;; `:&` spreads the substrate-free
                                      ;; `model/frame-config` (demo-stub

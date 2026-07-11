@@ -183,29 +183,33 @@ That's a complete UIx app: pick the substrate at boot (Step 1), write `defui` vi
 
 ## Step 5 — Ensure a view's own frame
 
-The `{:frame …}` scope shape from Step 4 scopes a frame that already exists. The same `frame-provider`'s other shape, `{:id …}`, instead *ensures* one — a modal, a tab, a per-tenant panel that brings its frame into being on first mount. The two config shapes are detailed in [Frames — Two config shapes](../frames.md#two-config-shapes-scope-an-existing-frame-or-ensure-a-named-one); picking the wrong key is the most common mount-time stumble, so here are the opts each shape takes and the matched errors when you cross them:
+`frame-provider {:frame …}` from Step 4 scopes a frame that already exists. Its sibling component, `frame-root {:id …}`, instead *ensures* one — a modal, a tab, a per-tenant panel that brings its frame into being on first mount. **Roots ensure; providers scope** — one verb per component. The two are detailed in [Frames — frame-provider and frame-root](../frames.md#frame-provider-and-frame-root); reaching for the wrong one is the most common mount-time stumble, so here are the opts each takes and the matched errors when you cross them:
 
-- **`{:frame …}` (scope)** — Step 4. One opt: `:frame` (a required keyword id). Creates and destroys nothing.
-- **`{:id …}` (ensure)** — brings the frame into being. Takes the same construction opts as `rf/make-frame`: `:id` (a required keyword), `:images` (the [image](../glossary.md#image) — events, subs, effects — the new frame is born with), and `:initial-events` (the ordered setup events dispatched synchronously right after creation). Creates the frame if absent, reuses it without re-seeding if present; **no destroy-on-unmount**.
+- **`frame-provider {:frame …}` (scope)** — Step 4. One opt: `:frame` (a required keyword id). Creates and destroys nothing.
+- **`frame-root {:id …}` (ensure)** — brings the frame into being. Takes the same construction opts as `rf/make-frame`: `:id` (a required keyword), `:images` (the [image](../glossary.md#image) — events, subs, effects — the new frame is born with), and `:initial-events` (the ordered setup events dispatched synchronously right after creation). Creates the frame if absent, reuses it without re-seeding if present; **no destroy-on-unmount**.
 
 ```clojure
 ;; ENSURE a view's frame: create on first mount, run its setup, reuse on remount.
-($ uix-adapter/frame-provider
+($ uix-adapter/frame-root
    {:id :checkout
     :images [checkout-image]
     :initial-events [[:rf/set-db {}] [:checkout/initialise]]}
    ($ checkout-app))
 ```
 
-And here is that stumble: **the prop map selects the shape.** A `:frame` key selects scope; *anything else* selects ensure, which **requires** a keyword `:id`. So if you mean to ensure a frame but forget `:id` (or pass an empty `{}`), the provider reads it as an ensure shape with no id and raises `:rf.error/ensure-frame-provider-missing-id`. The fix is in the message: pass `:id` to ensure a frame, or `:frame` to scope an existing one.
+And here is that stumble: **pick the component, not a prop-map key.** `frame-root` ensures and takes `:id`; `frame-provider` scopes and takes `:frame`. Cross them and each fails loud naming its sibling: a `frame-root` given `:frame` raises `:rf.error/frame-root-given-frame`, a `frame-provider` given `:id` raises `:rf.error/frame-provider-given-id`, and a `frame-root` with no keyword `:id` raises `:rf.error/frame-root-missing-id`. The fix is in the message: `frame-root {:id …}` to ensure a frame, or `frame-provider {:frame …}` to scope an existing one.
+
+!!! note "frame-root is a commit-owned boundary"
+
+    `frame-root` creates the frame in a client `useLayoutEffect` (at commit), **not** during render: its first render emits no descendant subtree, the frame is created after commit, and only then do the children render against the now-live frame. A render React discards before commit — a Suspense abort, a concurrent tear-off — therefore creates and seeds **nothing**. No ghost frame.
 
 !!! note "Idempotent re-mount is safe"
 
-    Re-mounting the ensure shape under the same `:id` — hot reload, React StrictMode's dev double-invoke, a Story re-evaluation — does **not** destroy durable state or replay `:initial-events`. `make-frame` is idempotent replacement: a remount refreshes config and the image while preserving `app-db`, the sub-cache, and the queue. You don't have to special-case dev tooling.
+    Re-mounting `frame-root` under the same `:id` — hot reload, React StrictMode's dev double-invoke, a Story re-evaluation — does **not** destroy durable state or replay `:initial-events`. `make-frame` is idempotent replacement: a remount refreshes config and the image while preserving `app-db`, the sub-cache, and the queue. (A mounted `frame-root` whose `:id` or opts *change* is a different story — that fails loud with `:rf.error/frame-root-reconfigured`; give it a React `key` that changes to scope a different frame.)
 
 !!! note "True ownership is explicit"
 
-    The ensure shape deliberately does *not* destroy the frame on unmount — a genuine unmount leaves the frame live, and a remount reuses it. When a component should own a frame's whole lifetime (a modal that wants its world torn down on close), make that explicit: `rf/make-frame` + `rf/destroy-frame!` inside a `create-class`, where the component declares it owns both the birth and the death.
+    `frame-root` deliberately does *not* destroy the frame on unmount — a genuine unmount leaves the frame live, and a remount reuses it. When a component should own a frame's whole lifetime (a modal that wants its world torn down on close), make that explicit: `rf/make-frame` + `rf/destroy-frame!` inside a `create-class`, where the component declares it owns both the birth and the death.
 
 !!! warning "Gotcha — a captured handle can outlive a destroyed frame"
 
@@ -265,7 +269,7 @@ Once you've seen all four substrates, the whole port collapses to one table. The
 | View form | `reg-view` + hiccup | `defui` + `$` | `defnc` + `helix.dom` |
 | Registry-keyed view (when needed) | `reg-view` | `(rf/reg-view* id render-fn)` | `(rf/reg-view* id render-fn)` |
 | Scope an existing frame | `[rf/frame-provider {:frame f} [app]]` | `($ uix-adapter/frame-provider {:frame f} ($ app))` | `($ helix-adapter/frame-provider {:frame f} ($ app))` |
-| Ensure a named frame | `[rf/frame-provider {:id f :images […]} [app]]` | `($ uix-adapter/frame-provider {:id f :images […]} ($ app))` | `($ helix-adapter/frame-provider {:id f :images […]} ($ app))` |
+| Ensure a named frame | `[rf/frame-root {:id f :images […]} [app]]` | `($ uix-adapter/frame-root {:id f :images […]} ($ app))` | `($ helix-adapter/frame-root {:id f :images […]} ($ app))` |
 | Flush renders in a test | `r/flush` (stock) / `flush-views!` (slim) | `(uix-adapter/flush-views!)` | `(helix-adapter/flush-views!)` |
 
 There's one Reagent footgun that doesn't port at all, and that's good news: the lazy-seq deref trap — the *"Reactive deref not supported in lazy seq, it should be wrapped in doall"* warning. It exists because Reagent tracks derefs *during* render, and a lazy seq can defer a deref until after render has finished. On Reagent the fix is to realise the seq inside the render fn — `(doall (for …))`, `(mapv child @sub)`, or `(into [:<>] (map child) @sub)`.

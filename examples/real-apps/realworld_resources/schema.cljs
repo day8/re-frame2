@@ -75,7 +75,7 @@
 ;; ============================================================================
 ;;
 ;; reg-app-schemas is frame-local, so a bare ns-load call with no frame context
-;; would fail. This app runs in `:rf/default` (the `frame-provider {:id …}` form
+;; would fail. This app runs in `:rf/default` (the `frame-root {:id …}` form
 ;; in core.cljs creates it at the render root), so we name that id here. Worth
 ;; being precise about what this is: a frame-local registration scoped by id, not
 ;; a frame creation or seed. It binds the id at ns-load; the frame itself doesn't

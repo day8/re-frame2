@@ -157,7 +157,7 @@
     ;; controlled the moment the slice is seeded — the exact warning this seeding
     ;; avoids.
     (.render @react-root
-             ($ helix-adapter/frame-provider
+             ($ helix-adapter/frame-root
                 {:id  :rf/default
                  :doc "Login (Helix) demo frame."
                  :&   model/frame-config}

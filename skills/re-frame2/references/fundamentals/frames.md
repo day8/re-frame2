@@ -14,7 +14,7 @@ The one rule (EP-0002 carried invariant): **frame identity is a value that trave
 | Pin a lexical scope to an existing frame | `with-frame` |
 | Create + own + destroy a frame for a scope (tests / SSR) | `with-new-frame` |
 | Scope a React subtree to an **existing** frame | `frame-provider {:frame …}` (SCOPE-only) |
-| Ensure a **named** frame for a subtree (create-if-absent, reuse-no-reseed) | `frame-provider {:id …}` (ENSURE) |
+| Ensure a **named** frame for a subtree (create-if-absent, reuse-no-reseed) | `frame-root {:id …}` (ENSURE) |
 | Hold a frame's ops as a value (async / closures) | `capture-frame` — the one public carry primitive |
 | One-off explicit routing (`dispatch` / `subscribe`) | `{:frame …}` trailing opt — `(rf/dispatch [:foo] {:frame …})` / `(rf/subscribe query-v {:frame …})` (same shape both sides) |
 | Read a frame's app-db / its id | `app-db-value` / `current-frame-id` |
@@ -162,10 +162,10 @@ User-supplied keys win on conflict with preset expansion.
   [rf/frame-provider {:frame :stories} [my-story-shell]]
   ```
 
-- **`frame-provider {:id the-id …}`** — the **ENSURE** shape. **Creates the frame if absent, reuses it without re-seeding if present** (idempotent re-mount preserves durable state and does NOT replay `:initial-events`), and provides its id to descendants; **no destroy-on-unmount**. It takes the **same constructor opts as `make-frame`** (`:id` / `:images` / `:initial-events` / record-config) — for view-driven named-frame lifetimes: comparison pages, Story canvases, embedded widgets:
+- **`frame-root {:id the-id …}`** — the **ENSURE** shape. **Creates the frame if absent, reuses it without re-seeding if present** (idempotent re-mount preserves durable state and does NOT replay `:initial-events`), and provides its id to descendants; **no destroy-on-unmount**. It takes the **same constructor opts as `make-frame`** (`:id` / `:images` / `:initial-events` / record-config) — for view-driven named-frame lifetimes: comparison pages, Story canvases, embedded widgets:
 
   ```clojure
-  [rf/frame-provider {:id :todo/left :images [todo-image] :initial-events [[:rf/set-db {...}]]} [todo-pane]]
+  [rf/frame-root {:id :todo/left :images [todo-image] :initial-events [[:rf/set-db {...}]]} [todo-pane]]
   ```
 
 (`with-frame` remains for lexical / non-React ambient scoping — it binds a dynamic var, which cannot cross React's render boundary, which is why scope-into-React needs a context component rather than `with-frame`. True lifetime *ownership* — destroy-on-unmount — is now explicit: `make-frame` + `destroy-frame!` inside a `create-class`, where the component declares it owns the frame's life.)

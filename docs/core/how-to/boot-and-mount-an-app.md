@@ -43,7 +43,7 @@ function. Keep the process setup inline in `run`, and put the DOM work in `mount
     (when-not @react-root
       (reset! react-root (rdc/create-root el)))
     (rdc/render @react-root
-                [rf/frame-provider {:id             app-frame
+                [rf/frame-root {:id             app-frame
                                     :initial-events [[:counter/initialise]]}
                  [counter-app]])))
 
@@ -72,7 +72,7 @@ coeffects, subscriptions, views, routes, resources, machines, and schemas.
 This form:
 
 ```clojure
-[rf/frame-provider {:id             app-frame
+[rf/frame-root {:id             app-frame
                     :initial-events [[:counter/initialise]]}
  [counter-app]]
 ```
@@ -178,7 +178,7 @@ Use `{:id ...}` when the rendered subtree should ensure its own frame exists —
 it brings one:
 
 ```clojure
-[rf/frame-provider {:id             :counter/widget
+[rf/frame-root {:id             :counter/widget
                     :initial-events [[:counter/initialise]]}
  [counter-app]]
 ```

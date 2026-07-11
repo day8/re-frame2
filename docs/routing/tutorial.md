@@ -41,7 +41,7 @@ A route is one row in a table: an **id**, a **metadata map**, and a **path**. Re
 (defn run []
   (rf/init! reagent-adapter/adapter)
   (rdc/render (rdc/create-root (js/document.getElementById "app"))
-              [rf/frame-provider {:id :rf/default :url-bound? true}  ;; ← this flag
+              [rf/frame-root {:id :rf/default :url-bound? true}  ;; ← this flag
                [root-view]]))
 ```
 
@@ -186,7 +186,7 @@ Back in Step 1, the mount had one routing flag you took on faith. Time to cash t
 (defn run []
   (rf/init! reagent-adapter/adapter)
   (rdc/render (rdc/create-root (js/document.getElementById "app"))
-              [rf/frame-provider {:id         :rf/default
+              [rf/frame-root {:id         :rf/default
                                   :url-bound? true}  ;; ← this frame owns the address bar
                [root-view]]))
 ```

@@ -71,7 +71,7 @@ which renders the tree inside the provider:
 ```clojure
 (rf/init! reagent-adapter/adapter)              ;; install the adapter (NOT a frame)
 (rdc/render @react-root
-  [rf/frame-provider {:id app-frame             ;; stand the frame up: create + seed
+  [rf/frame-root {:id app-frame             ;; stand the frame up: create + seed
                       :initial-events [[:counter/initialise]]}
    [counter-app]])
 ```

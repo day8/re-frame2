@@ -201,7 +201,7 @@
     ;; and updates its `:rf/route` slice. Idempotent, so hot reload never
     ;; stacks up duplicate listeners.
     (rdc/render @react-root
-                [rf/frame-provider {:id app-frame
+                [rf/frame-root {:id app-frame
                                     :doc "Routing demo frame."
                                     :url-bound? true
                                     :initial-events [[:routing.app/initialise]]}

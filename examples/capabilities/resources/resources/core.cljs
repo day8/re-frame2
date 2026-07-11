@@ -507,7 +507,7 @@
 ;; ============================================================================
 ;;
 ;; `run` is the boot sequence. It creates the React root on the first call, then
-;; renders. The interesting piece is the `frame-provider {:id …}` at the root: it
+;; renders. The interesting piece is the `frame-root {:id …}` at the root: it
 ;; both creates and configures the app frame in one go — `:url-bound? true` so
 ;; this frame owns the browser URL, plus the HTTP-stub override. Every dispatch
 ;; and subscribe anywhere in the tree resolves to this one frame, and a hot
@@ -532,14 +532,14 @@
                      (js/document.getElementById "app"))]
     (when-not @react-root
       (reset! react-root (rdc/create-root el)))
-    ;; Here's the frame, created and configured by `frame-provider {:id …}`.
+    ;; Here's the frame, created and configured by `frame-root {:id …}`.
     ;; `:fx-overrides` is the trick that lets the demo stand alone: it reroutes
     ;; every `:rf.http/managed` ensure to the per-URL canned stub up above. The
     ;; override is frame-wide, which is fine here precisely because this example
     ;; never makes a request we'd actually want to reach the network — a blanket
     ;; override is the right grain.
     (rdc/render @react-root
-                [rf/frame-provider {:id           app-frame
+                [rf/frame-root {:id           app-frame
                                     :doc          "Resources demo frame."
                                     :url-bound?   true
                                     :fx-overrides {:rf.http/managed :resources.demo/http-stub}}
