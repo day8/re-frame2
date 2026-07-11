@@ -1381,6 +1381,30 @@
                           :recovery          :logged-and-skipped})
       false)))
 
+;; ---- dry-run effect sink (rf2-j538f7.39) ----------------------------------
+
+(def ^:dynamic *effect-sink*
+  "Dry-run EFFECT SINK. When bound to an atom holding a vector, `do-fx`
+  RECORDS every source-ordered, well-shaped `[fx-id args]` entry into it and
+  SKIPS execution ENTIRELY — no `:fx-overrides` resolution, no reserved-fx
+  body, no user handler, no frame-image / inline fx runs. `nil` (the default)
+  is the normal execute path.
+
+  This makes a dry-run STRUCTURALLY unable to execute an effect: interception
+  is at the SINGLE universal effect executor (`do-fx`), BEFORE any per-fx
+  resolution, so it covers the reject-tier reserved fx (`:rf.machine/spawn`,
+  `:rf.machine/destroy`, `:rf.fx/reg-flow`, `:rf.fx/clear-flow`,
+  `:rf.route/with-nav-token`), frame-image / inline / hot-registered fx, and
+  unknown ids WITHOUT enumerating the registrar. Every `do-fx` call within the
+  bound dynamic extent — the top-level event fx walk, a machine exit-cascade
+  walk, a resource-release walk — records-and-skips, so no effect body escapes.
+
+  The re-frame2-pair dry-run primitive binds this around a `dispatch-sync`,
+  reads the recorded vector, then rolls the tentative `:db` back via
+  `restore-epoch!`; no handler runs before that rollback. INTERNAL — a
+  trusted-in-process dev-tool seam, NOT a `re-frame.core` facade export."
+  nil)
+
 (defn do-fx
   "Walk the :fx vector in source order. Per Spec 002 §`:fx` ordering rule 3:
   each entry's handler returns synchronously before the next begins.
@@ -1395,6 +1419,12 @@
   run. This composes one level down from rf2-24zly's whole-`:fx`-value
   check (events.cljc/`fx-value-ok?`), which already rejected a
   non-sequential `:fx` value before it reached this walk.
+
+  Dry-run (rf2-j538f7.39): when `*effect-sink*` is bound, each well-shaped
+  `[fx-id args]` entry is RECORDED into it and its execution is SKIPPED — no
+  override resolution, no reserved-fx body, no handler runs. This is the
+  single universal effect-execution choke point, so binding the sink makes a
+  dry-run structurally unable to fire ANY fx. See `*effect-sink*`.
 
   Per Spec 002 §Per-frame and per-call overrides: an fx-id override map
   may be provided via `opts`. Each [fx-id args] is rewritten through that
@@ -1450,8 +1480,17 @@
      ;; conditional-fx no-op; a well-shaped entry walks normally. Composes
      ;; with rf2-24zly's whole-:fx-value check one level up (events.cljc).
      (when (fx-entry-ok? pair frame-id origin-event)
-       (handle-one-fx frame-id pair active-platform (or overrides {})
-                      origin-event parent-envelope)))
+       (if-let [sink *effect-sink*]
+         ;; Dry-run (rf2-j538f7.39): RECORD the source-ordered `[fx-id args]`
+         ;; entry and SKIP execution ENTIRELY. Interception is HERE — the
+         ;; single universal effect executor, BEFORE `handle-one-fx`'s
+         ;; override resolution / reserved-fx dispatch / user-handler invoke —
+         ;; so a dry-run is structurally unable to execute ANY fx (reject-tier
+         ;; reserved fx, frame-image / inline fx, hot registrations, unknown
+         ;; ids) with no registrar enumeration. See `*effect-sink*`.
+         (swap! sink conj [(first pair) (second pair)])
+         (handle-one-fx frame-id pair active-platform (or overrides {})
+                        origin-event parent-envelope))))
    ;; Per rf2-twt7m Change 2: stamp `:fx` + `:db-present?` onto the
    ;; `:event/do-fx` marker's `:tags` when the caller supplied the
    ;; effects map. The full `:db` VALUE is NOT stamped — slice
