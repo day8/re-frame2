@@ -51,6 +51,13 @@
             (str "defview " vname ": missing argument vector — "
                  "(defview name docstring? opts? [props?] template)")
             {:view vname}))
+    ;; a lone template vector reads as an argv — diagnose the real mistake
+    (when (and (empty? body) (keyword? (first argv)))
+      (fail :rf.ui.compile/bad-defview-args
+            (str "defview " vname ": " (pr-str argv) " looks like the "
+                 "template, but the argument vector is missing — write "
+                 "(defview " vname " [] " (pr-str argv) ") for a zero-prop view")
+            {:view vname}))
     (when (not= 1 (count body))
       (fail :rf.ui.compile/multi-form-body
             (str "defview " vname ": the body is exactly ONE template form "
