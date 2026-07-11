@@ -101,7 +101,7 @@ The corpus at [`spec/conformance/`](../../spec/conformance) is host-agnostic dat
 ## Reference files (all one level deep)
 
 - [`references/cardinal-rules.md`](references/cardinal-rules.md) — the eleven rules in prose + anti-pattern corollaries.
-- [`references/phase-1-decisions.md`](references/phase-1-decisions.md) — Phase 1 walkthrough, seven decision blocks.
+- [`references/phase-1-decisions.md`](references/phase-1-decisions.md) — Phase 1 walkthrough, eight decision blocks (D1–D7 plus D5b).
 - [`references/decision-record.md`](references/decision-record.md) — fill-in template for the locked-decision record.
 - [`references/phase-2-impl-order.md`](references/phase-2-impl-order.md) — EP-by-EP implementation order.
 - [`references/reference-impl-tour.md`](references/reference-impl-tour.md) — guided tour of the CLJS reference; what's substrate-specific vs pattern-required.
