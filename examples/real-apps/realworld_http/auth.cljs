@@ -176,6 +176,7 @@
              (rh/request {:method     :post
                           :path       "/users/login"
                           :body       {:user {:email email :password password}}
+                          :sensitive? true
                           :decode     schema/UserResponse
                           :on-success [:auth/flow [:auth/success]]
                           :on-failure [:auth/flow [:auth/failure]]})]]})
@@ -189,6 +190,7 @@
                           :body       {:user {:username username
                                               :email email
                                               :password password}}
+                          :sensitive? true
                           :decode     schema/UserResponse
                           :on-success [:auth/flow [:auth/success]]
                           :on-failure [:auth/flow [:auth/failure]]})]]})
@@ -297,6 +299,14 @@
 (def register-form-defaults {:username "" :email "" :password ""})
 
 (rf/reg-event :auth.login-form/initialise
+  {:doc "Seed the login-form slice AND classify its draft-password path
+         :sensitive, in the first durable write that creates the slice — so the
+         raw password is redacted at every app-db egress (snapshot, epoch,
+         off-box shipper, SSR) from the very first keystroke, while handlers
+         still read the live value. Classification is egress-only + path-based,
+         mirroring :auth/classify-token for the JWT (core.cljs). See the
+         keep-secrets how-to:
+         ../../../docs/core/how-to/keep-secrets-out-of-traces.md"}
   (fn [{:keys [db]} _]
     {:db (assoc-in db [:auth :login-form]
               {:draft             login-form-defaults
@@ -305,7 +315,8 @@
                :errors            {}
                :touched           #{}
                :submit-attempted? false
-               :submit-error      nil})}))
+               :submit-error      nil})
+     :sensitive [[:auth :login-form :draft :password]]}))
 
 (rf/reg-event :auth.login-form/edit-field
   {:schema [:cat [:= :auth.login-form/edit-field] :keyword :string]}
@@ -323,6 +334,9 @@
        :fx [[:dispatch [:auth/flow [:auth/login draft]]]]})))
 
 (rf/reg-event :auth.register-form/initialise
+  {:doc "Seed the register-form slice AND classify its draft-password path
+         :sensitive, in the first durable write that creates the slice — same
+         egress-only, path-based discipline as the login form above."}
   (fn [{:keys [db]} _]
     {:db (assoc-in db [:auth :register-form]
               {:draft             register-form-defaults
@@ -331,7 +345,8 @@
                :errors            {}
                :touched           #{}
                :submit-attempted? false
-               :submit-error      nil})}))
+               :submit-error      nil})
+     :sensitive [[:auth :register-form :draft :password]]}))
 
 (rf/reg-event :auth.register-form/edit-field
   (fn [{:keys [db]} [_ field value]]

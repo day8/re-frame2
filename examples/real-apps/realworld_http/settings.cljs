@@ -97,6 +97,16 @@
    ;; :data shape is validated right here via [:schemas :data] — an app-schema
    ;; only sees the app-db partition.
    :schemas {:data app-schema/SettingsFormData}
+   ;; The password the user types to change their credentials lands in this
+   ;; machine's :data — the live draft at [:data :draft :password] and, once
+   ;; a submit is in flight, the snapshot at [:data :submitted :password].
+   ;; Both are credentials, so classify them :sensitive relative to the
+   ;; snapshot's :data (EP-0025 projection-relative machine classification,
+   ;; lowered per actor at spawn). The snapshot then reads :rf/redacted at
+   ;; every egress — machine-transition traces, epoch, off-box shipper, SSR —
+   ;; while the action bodies still read the live value to send it.
+   :sensitive [[:data :draft :password]
+               [:data :submitted :password]]
 
    :actions
    {:seed-from-user
@@ -258,6 +268,7 @@
                           :body       {:user (cond-> (select-keys draft [:image :username :bio :email])
                                                (seq (:password draft))
                                                (assoc :password (:password draft)))}
+                          :sensitive? true
                           :decode     schema/UserResponse
                           :on-success [:settings/submit-success]
                           :on-failure [:settings/submit-error]})]]})))

@@ -54,10 +54,10 @@
             [re-frame.ssr]
             [re-frame.adapter.reagent :as reagent-adapter]
             [realworld-shared.avatar :as avatar]
-            ;; The in-process Conduit demo backend shared by both RealWorld
-            ;; examples — wired under an app-local fx-id below.
-            [realworld-shared.demo-backend :as demo]
             [realworld-http.schema]
+            ;; Requiring http registers the demo `:rf.http/managed` override fx
+            ;; (`:realworld.demo/http-stub`) the frame's `:fx-overrides` reference
+            ;; below, alongside the request-builder + retry policy.
             [realworld-http.http]
             [realworld-http.routing :as routing]
             [realworld-http.auth :as auth]
@@ -105,13 +105,34 @@
 ;; external tool, a hydration payload — sees the token redacted, while the
 ;; running app keeps the raw value it needs.
 ;;
-;; One path is all this app has to classify by hand. The outbound
-;; `Authorization` Bearer header is already on the framework's built-in HTTP
-;; carrier denylist, so it's redacted off-box with zero config. And the
-;; login / register password drafts at [:auth :login-form] /
-;; [:auth :register-form] are throwaway form state that never leaves app-db,
-;; so there's nothing there to protect. See the keep-secrets how-to:
+;; The JWT is not the only credential in this app, and it is a mistake to think
+;; the login / register / settings PASSWORD is safe just because it is
+;; "throwaway form state". A password is a credential the moment it is typed,
+;; and it egresses raw unless classified: the draft lives in app-db
+;; ([:auth :login-form :draft :password] / [:auth :register-form :draft
+;; :password], both classified :sensitive at slice-init in auth.cljs); it rides
+;; the outbound HTTP body ({:user {:password …}}, classified on the managed-HTTP
+;; request below); and the settings password lives in the :settings/form
+;; machine's :data (classified :sensitive on the machine, settings.cljs). Each
+;; surface is classified on its own — classification is fail-open and does not
+;; propagate. See the keep-secrets how-to:
 ;; ../../../docs/core/how-to/keep-secrets-out-of-traces.md
+;;
+;; The one carrier we deliberately do NOT classify by hand is the outbound
+;; `Authorization` Bearer header: it is already on the framework's built-in HTTP
+;; carrier denylist, so it is redacted off-box with zero config — over-declaring
+;; a built-in would only teach a redundant ritual.
+;;
+;; One structural corner is worth calling out honestly, because it is the exact
+;; gotcha the keep-secrets how-to warns about: the credential also travels
+;; through the auth machine as a POSITIONAL sub-event
+;; ([:auth/flow [:auth/login {… :password …}]]). A positional arg is not
+;; path-addressable — only a map payload is — so a secret riding one still ships
+;; raw in the dispatched-event and :rf.machine/* trace slots, and no :sensitive
+;; mark can reach it. The examples/core/login model sidesteps this by keeping
+;; its machine credential-free (the form issues the request and the machine only
+;; sees a bare :submit signal); this app instead routes login/register through
+;; the machine, so it wears that limitation openly.
 (rf/reg-event :auth/classify-token
   {:doc "Mark the durable JWT path [:auth :token] sensitive, at frame
          creation."}
@@ -232,24 +253,16 @@
 ;; Out of the box this example talks to no server at all. Normally it would hit
 ;; the hosted Conduit API (https://api.realworld.show/api —
 ;; `realworld-http.http/api-base`), but a live backend is slow and flaky for a
-;; demo, and we'd like you to be able to clone-and-run on a plane. So we override
-;; `:rf.http/managed` with the in-process demo backend both RealWorld examples
-;; share (`realworld-shared.demo-backend`): one canonical Conduit corpus + a
-;; URL/method request router + a canned-reply adapter, wired here under an
-;; app-local fx-id. The shared `respond` does the routing and defers each reply
-;; through the framework's canned-success / canned-failure fxs.
+;; demo, and we'd like you to be able to clone-and-run on a plane. So the demo
+;; `:rf.http/managed` override — `:realworld.demo/http-stub`, defined in
+;; `http.cljs` alongside the request builder and referenced from the frame's
+;; `:fx-overrides` in `mount!` below — routes every request through the
+;; in-process demo backend both RealWorld examples share
+;; (`realworld-shared.demo-backend`): one canonical Conduit corpus + a
+;; URL/method request router + a canned-reply adapter. The stub (and its
+;; request-body `:sensitive` classification) lives with the rest of the app's
+;; HTTP surface in `http.cljs`.
 ;; ----------------------------------------------------------------------------
-
-(rf/reg-fx :realworld.demo/http-stub
-  {:doc       "This example's `:rf.http/managed` override: the shared in-process
-               Conduit demo backend (`realworld-shared.demo-backend`), wired
-               under an app-local fx-id and referenced from the frame's
-               `:fx-overrides` in `mount!`. All the routing + canned-reply
-               machinery (including the `::decode-failure` session-restore path)
-               lives in the shared backend; this is just the app-local seam."
-   :platforms #{:server :client}}
-  (fn fx-managed-demo-stub [frame-ctx args-map]
-    (demo/respond frame-ctx args-map)))
 
 ;; The React root lives in an atom and gets created lazily inside `run`, so
 ;; that merely loading this namespace touches no DOM. That restraint earns
