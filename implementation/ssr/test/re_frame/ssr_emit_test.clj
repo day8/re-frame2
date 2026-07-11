@@ -693,3 +693,45 @@
         (is (= "<section><span>x</span></section>" shell-html)
             (str "nested Var head resolved in the shell walk; got: "
                  shell-html))))))
+
+;; ===========================================================================
+;; rf2-y1jbaq — malformed-head hiccup vector fails loud, never emits raw
+;; unescaped output (XSS-class escape bypass)
+;;
+;; A hiccup vector whose head is a string / nil / number / boolean (not a
+;; keyword and not a callable) previously hit `:else (str el)` and shipped its
+;; WHOLE EDN form RAW — a `[nil "<script>…"]` put a live `<script>` on the
+;; wire. Both the sync emitter and the streaming shell walker MUST reject it
+;; with `:rf.error/invalid-hiccup-head`; no raw angle-brackets may reach output.
+;; ===========================================================================
+
+(deftest emit-rejects-malformed-hiccup-head
+  (testing "rf2-y1jbaq — a nil / string / number / boolean head throws
+            :rf.error/invalid-hiccup-head through render-to-string"
+    (doseq [el [[nil "<script>alert(1)</script>"]
+                ["x" "<img src=x onerror=alert(1)>"]
+                [42 "<script>x</script>"]
+                [true "<script>y</script>"]]]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                            #":rf.error/invalid-hiccup-head"
+                            (emit/render-to-string el {}))
+          (str "malformed-head vector must fail loud, not emit raw: " (pr-str el)))))
+
+  (testing "rf2-y1jbaq — no raw `<script>` / `<img onerror>` survives to output
+            for a malformed-head vector (the throw prevents any emission)"
+    (doseq [el [[nil "<script>alert(1)</script>"]
+                ["x" "<img src=x onerror=alert(1)>"]]]
+      (let [out (try (emit/render-to-string el {}) (catch Throwable _ ::threw))]
+        (is (= ::threw out)
+            (str "no wire output produced for malformed head: " (pr-str el)))))))
+
+(deftest streaming-rejects-malformed-hiccup-head
+  (testing "rf2-y1jbaq — the streaming shell walker rejects a malformed-head
+            vector identically to the sync emitter (it must NOT splice it as a
+            child-seq and ride the raw child strings)"
+    (doseq [el [[nil "<script>alert(1)</script>"]
+                ["x" "<img src=x onerror=alert(1)>"]]]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                            #":rf.error/invalid-hiccup-head"
+                            (streaming/render-shell el))
+          (str "streaming path must fail loud on malformed head: " (pr-str el))))))
