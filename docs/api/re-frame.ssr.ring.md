@@ -50,14 +50,14 @@ Ships in the `day8/re-frame2-ssr-ring` artefact. See [Server-side rendering — 
   - `:html-shell` — `(body-html payload-edn opts) → string`; defaults to [`default-html-shell`](#default-html-shell).
   - `:content-type` — default `"text/html; charset=utf-8"`.
 
-  Error handling — `:error-view` vs `:on-error`. These two opts handle two different failures, and a robust deployment wires both. A buggy `:error-view` falls back to the default template; a buggy `:on-error` falls back to `default-on-error`. Neither bug bypasses the error boundary.
+  Error handling — `:error-view` vs `:on-error`. These two opts handle two different failures, and a robust deployment wires both. Classification is by the **projected status**: a projected **4xx** (routing miss / bad client input) keeps the app's own not-found / bad-request body + hydration payload and does **not** call `:error-view`; a projected **5xx** (server fault) ships the error page. A buggy `:error-view` — whether it throws OR depends on a reactive sub that recovers to `nil` — falls back once to the default template; a buggy `:on-error` falls back to `default-on-error`. Neither bug bypasses the error boundary.
 
   | Aspect | `:error-view` | `:on-error` |
   |---|---|---|
-  | Which failure? | An exception inside the re-frame drain or the render walk. The error projector catches these. | A transport / Ring-layer failure the projector cannot see: a per-request frame setup throw, a render-time CLJ exception, a header/cookie materialise throw, or a thrown initial-event. |
-  | What does it produce? | The projected error-page body (hiccup): a registered-view keyword (resolved as `[error-view public-error]`) or a `(public-error) → hiccup` fn. It renders through the standard SSR emitter. | A raw Ring response map `{:status … :headers … :body …}` returned verbatim to the server. |
-  | What is its input? | The public-error map, sanitised by the projector and safe to render. | The raw `(request throwable)`, carrying the unsanitised throwable. The locked default never reads it. |
-  | Default when omitted? | Minimal default error template. | Minimal locked 500 ([`default-on-error`](#default-on-error), topology-leak-safe). |
+  | Which failure? | A projected **5xx** the error projector catches: a drain-time handler/fx/sub exception, a render-time view throw, or an unrenderable root/shell throw. A projected **4xx** does NOT reach it — the app keeps its own body. | A transport / Ring-layer failure the projector cannot see: a per-request frame setup throw, a render-time CLJ exception, a header/cookie materialise throw, or a thrown initial-event. |
+  | What does it produce? | The projected error-page body (hiccup): a registered-view keyword (resolved as `[error-view public-error]`) or a `(public-error) → hiccup` fn. It renders through the standard SSR emitter, with no app body / hydration payload alongside it. | A raw Ring response map `{:status … :headers … :body …}` returned verbatim to the server. |
+  | What is its input? | ONLY the public-error map, sanitised by the projector and safe to render (never the request, throwable, or frame). | The raw `(request throwable)`, carrying the unsanitised throwable. The locked default never reads it. |
+  | Default when omitted? | Minimal default error template (absence does NOT keep the root body). | Minimal locked 500 ([`default-on-error`](#default-on-error), topology-leak-safe). |
 
   Trusted shell-hook string opts. Four optional strings cross the trust boundary into the rendered HTML envelope, split by injection position:
 

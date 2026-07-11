@@ -248,20 +248,20 @@
                     "both paths produce the same projector-driven
                      status (the unification contract)")
                 ;; Both paths run through the default projector →
-                ;; both carry `:internal-error` semantics. Path A
-                ;; renders the projector's body directly because
-                ;; `render-to-string` threw; Path B renders the
-                ;; root-view because the throw happened in the drain
-                ;; before render started. Different rendered output;
-                ;; SAME pipeline. The shared contract: both go through
-                ;; `apply-error-projection!` and stamp the projector's
-                ;; status on the response.
+                ;; both carry `:internal-error` semantics and, since
+                ;; rf2-oytx7j classifies a projected 5xx as the error
+                ;; arm, both now render the PROJECTED error body (not the
+                ;; root): Path A because `render-to-string` threw; Path B
+                ;; because the drain-time 500 diverts to the error arm.
+                ;; Different trigger; SAME pipeline. The shared contract:
+                ;; both go through `apply-error-projection!` and stamp the
+                ;; projector's status on the response.
                 (is (or (str/includes? body-a "Something went wrong")
                         (str/includes? body-a "internal-error"))
                     "Path A: projector-driven render-time body")
                 (is (string? body-b)
-                    "Path B: drain-time path still produces a wire
-                     body (which is the rendered root-view)")))))))))
+                    "Path B: drain-time 500 produces a wire body (the
+                     projected-error arm, rf2-oytx7j)")))))))))
 
 ;; ===========================================================================
 ;; Test 2 — CRLF-bearing cookie value → 500 status, no Set-Cookie on the wire

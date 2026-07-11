@@ -77,10 +77,29 @@
   #{:status :code :message :retryable?})
 
 (defn- public-error-shape?
-  "True if x is a conformant :rf/public-error map."
+  "True if x is a conformant :rf/public-error map. TIGHTENED (rf2-oytx7j)
+  from \"integer status + the four typed keys present\" to a CLOSED,
+  RANGE-CHECKED shape so the redaction boundary is real, not nominal:
+
+    - EXACTLY the four locked keys (`public-error-keys`) — no extra key,
+      including a caller-supplied `:details`. Only the runtime appends
+      `:details`, AFTER this validation, under `:dev-error-detail?`; a
+      projector that returns its own `:details` (or any other stray key)
+      now fails conformance and takes the locked generic-500 fallback,
+      closing the leak where arbitrary projector-supplied keys crossed the
+      public boundary.
+    - `:status` an HTTP ERROR status in 400..599. A projector that returns
+      an out-of-range status (a 200/302, a negative, a >599) is not a
+      well-formed error projection — it takes the same sanitised fallback.
+
+  Host adapters classify a conformant public-error by its `:status`: 400..499
+  is the client-fault / app-renderable arm; 500..599 is the server-fault
+  error-page arm (Spec 011 §Drain-time error classification)."
   [x]
   (and (map? x)
+       (= public-error-keys (set (keys x)))
        (integer?  (:status     x))
+       (<= 400    (:status     x) 599)
        (keyword?  (:code       x))
        (string?   (:message    x))
        (boolean?  (:retryable? x))))

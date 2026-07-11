@@ -8,17 +8,25 @@
        synchronously). On failure, returns a {:short-circuit ring-resp}
        map so the outer pipeline emits the on-error response without
        attempting render.
-    2. `ssr/get-response`     — read the resolved response accumulator
-       (flushes any pending error projection).
-    3. branch on :redirect    — short-circuit to a Location response via
-       `ssr-response->ring-response`, OR `build-full-response` — render
-       the root-view, build the hydration payload, wrap in the html-
-       shell, materialise to Ring.
+    2. `ssr/flush-response-result!` — read the resolved response accumulator
+       AND the projected `:public-error` (flushes any pending error
+       projection once).
+    3. classify (Spec 011 §Drain-time error classification):
+         - `:redirect` set        → short-circuit to a Location response;
+         - projected 5xx          → `materialise-projected-error` — the
+           projected status + safe headers/cookies + a plain-String error
+           body (`:error-view` or the locked default), NO root-view / shell /
+           hydration payload / app-db;
+         - projected 4xx / none   → `build-full-response` — render the
+           root-view, build the hydration payload, wrap in the html-shell,
+           materialise to Ring (the app renders its OWN not-found /
+           bad-request UI and hydrates into a working SPA).
     4. `destroy-frame-quietly!` in `finally` clears the frame and its
        request-scoped side channels.
 
-  Render-time exceptions use the same projector and public-error wire body as
-  drain-time exceptions. Transport failures outside that projector use the
+  Render-time exceptions (an unrenderable root/shell throw) and a post-render
+  recovered-to-nil sub 5xx use the SAME projector and error-body arm as
+  drain-time 5xx errors. Transport failures outside that projector use the
   handler's fixed-detail fallback."
   (:require [re-frame.core :as rf]
             [re-frame.error :as error]
@@ -205,6 +213,36 @@
                      (str "Error code: " code* " (status " status* ")")])]]]
     (ssr/render-to-string hiccup {:doctype? true :emit-hash? false})))
 
+(defn ^:private emit-error-view-failed!
+  "Emit the recoverable-degradation `:rf.error/ssr-ring-error-view-failed`
+  (Spec 009) on BOTH observability axes — the dev trace bus (`emit-error!`)
+  and the always-on error-emit axis (surface #4) — then return nil. Shared
+  by the two containment arms of `resolve-error-body`:
+
+    - a THROWING error view (`detail` is the `Throwable` — carries
+      `:exception` message + `:ex-class`), and
+    - a reactive sub INSIDE the error view that RECOVERED to nil under
+      production hardening (`detail` is a keyword `:reason`, rf2-oytx7j).
+
+  NON-PROJECTING by design: the SSR `error-emit-projection-listener` skips
+  this category (`non-projection-eligible-errors`), so the emit ships the
+  off-box record but NEVER re-projects the secondary failure or flips the
+  ORIGINAL projected status/headers — the boundary is one-way."
+  [frame-id detail]
+  (let [common     {:frame    frame-id
+                    :recovery :fell-back-to-default-error-template}
+        detail-map (if (instance? Throwable detail)
+                     {:exception (.getMessage ^Throwable detail)
+                      :ex-class  (.getName (class detail))}
+                     {:reason detail})]
+    (trace/emit-error! :rf.error/ssr-ring-error-view-failed
+                       (merge common detail-map))
+    (lifecycle/emit-always-on-error!
+      (merge common detail-map
+             {:error :rf.error/ssr-ring-error-view-failed
+              :time  (interop/now-ms)}))
+    nil))
+
 (defn resolve-error-body
   "Resolve the projected-error HTML body (Spec 011 §Server error
   projection step 5 — \"a registered view (or the host's default error
@@ -220,13 +258,24 @@
     - a 1-arity fn → called with the public-error map, returning hiccup.
 
   Both paths render via `render-to-string` (no doctype, no hash — the
-  error body is the inner shell body). If the error-view itself throws
-  (a buggy error page must not take down the error response), we fall
-  back to the host default `render-error-body` — the boundary cannot be
-  bypassed by a bug in the caller's error view, mirroring the runtime's
-  projector-throws-→-locked-500 fallback (Spec 011 §Where sanitisation
-  happens). When no `:error-view` is supplied, the default template is
-  used directly."
+  error body is the inner shell body). When no `:error-view` is supplied,
+  the default template is used directly.
+
+  Containment is ONE-WAY — a buggy error view must not bypass the error
+  boundary. Two failure modes fall back ONCE to the locked host default
+  `render-error-body` (from the ORIGINAL public-error) with NO re-projection,
+  emitting `:rf.error/ssr-ring-error-view-failed`:
+
+    1. The error view THROWS — caught below.
+    2. A reactive sub INSIDE the error view RECOVERS to nil under production
+       hardening — it does NOT throw, so the `try/catch` cannot see it, but
+       it buffers a fail-closed projection. On entry to the error arm the
+       pending-error buffer is empty (the drain / render-throw / post-render
+       flush already consumed it), so `ssr/pending-error-trace?` after the
+       render can only be that recovered-to-nil error-view sub (rf2-oytx7j —
+       the open-proof that the `try` alone cannot claim complete containment).
+       We fall back and clear the buffer so the secondary failure is never
+       projected."
   [frame-id error-view public-error]
   (if (nil? error-view)
     (render-error-body public-error)
@@ -241,28 +290,75 @@
                        (str ":error-view must be a registered-view keyword "
                             "or a 1-arity fn; pass one of those to ssr-handler.")
                        {:recovery :supply-a-view-keyword-or-1-arity-fn
-                        :extra    {:received error-view}}))]
-        (rf/with-frame frame-id
-          (ssr/render-to-string hiccup {:doctype? false :emit-hash? false})))
+                        :extra    {:received error-view}}))
+            body   (rf/with-frame frame-id
+                     (ssr/render-to-string hiccup {:doctype? false :emit-hash? false}))]
+        ;; Open-proof containment (rf2-oytx7j): a reactive sub inside the
+        ;; error view that recovered-to-nil buffered a fail-closed projection
+        ;; without throwing. Detect it (pure peek), fall back ONCE to the
+        ;; locked template, and clear the buffer so it is never re-projected.
+        (if (ssr/pending-error-trace? frame-id)
+          (do
+            (emit-error-view-failed! frame-id
+                                     :reactive-sub-recovered-to-nil-in-error-view)
+            (ssr/clear-pending-error-traces! frame-id)
+            (render-error-body public-error))
+          body))
       (catch Throwable t
-        ;; A buggy error-view must not bypass the error boundary —
-        ;; surface the throw on the trace bus and fall back to the
-        ;; locked host default template.
-        (trace/emit-error! :rf.error/ssr-ring-error-view-failed
-                           {:frame     frame-id
-                            :exception (.getMessage t)
-                            :ex-class  (.getName (class t))
-                            :recovery  :fell-back-to-default-error-template})
-        ;; Always-on but non-projecting: this is degradation of an existing
-        ;; error response, not a second status transition.
-        (lifecycle/emit-always-on-error!
-          {:error     :rf.error/ssr-ring-error-view-failed
-           :frame     frame-id
-           :time      (interop/now-ms)
-           :exception (.getMessage t)
-           :ex-class  (.getName (class t))
-           :recovery  :fell-back-to-default-error-template})
+        ;; A buggy error-view must not bypass the error boundary — surface
+        ;; the throw on both observability axes and fall back to the locked
+        ;; host default template, mirroring the runtime's projector-throws-→-
+        ;; locked-500 fallback (Spec 011 §Where sanitisation happens).
+        (emit-error-view-failed! frame-id t)
         (render-error-body public-error)))))
+
+(defn projected-5xx?
+  "Classification predicate (Spec 011 §Drain-time error classification,
+  rf2-oytx7j). True when `public-error` is a projected SERVER FAULT
+  (`:status` in 500..599): the app-db is in an arbitrary partial state, so
+  the request diverts to the projected error page BEFORE the body commits.
+
+  False for a projected 4xx (400..499 — a routing miss / bad client input:
+  the app renders its OWN not-found / bad-request UI and hydrates into a
+  working SPA) AND for a nil `public-error` (no error was projected — e.g. an
+  app that manually `:rf.server/set-status`-es a 500 stays on the app arm;
+  status alone is not proof of a projection). Both handlers branch on this
+  after the initial-event drain and again after the render/shell work; a
+  redirect is checked FIRST, so a pending projection never overrides it."
+  [public-error]
+  (boolean (when-let [s (:status public-error)]
+             (<= 500 s 599))))
+
+(defn ^:private materialise-error-arm
+  "Materialise the projected-error arm onto `resp`: resolve the error body
+  (the caller's `:error-view`, or the locked default template) under the
+  request frame scope and wrap it, KEEPING the response accumulator's
+  Content-Type (a projected error is HTML — the successful-body
+  `:content-type` override does not apply). Shared by the render-throw path
+  (`project-render-throw->ring-response`) and the already-projected drain /
+  post-render 5xx path (`materialise-projected-error`)."
+  [frame-id resp public-error opts]
+  (rf/with-frame frame-id
+    (ssr-response->ring-response
+      resp
+      (resolve-error-body frame-id (:error-view opts) public-error))))
+
+(defn materialise-projected-error
+  "Materialise an ALREADY-projected 5xx (a drain-time handler/fx exception,
+  a custom 5xx projection, or a post-render recovered-to-nil sub) to a Ring
+  error response, WITHOUT re-projecting: keep the projected `:status` and the
+  safe headers/cookies already accumulated in `resp`, ship a plain-String
+  error body (`:error-view`, or the locked default template), and emit NO
+  root-view / html-shell / `__rf_payload` / app-db / render or head hashes.
+
+  Besides avoiding a misleading half-drained page, dropping the payload
+  removes a needless partial-state egress surface when the caller opted into
+  whole-app-db hydration. Redirect precedence is honoured by the caller (it
+  branches on `:redirect` first); stale Content-Length is stripped by the
+  shared materialiser. Per Spec 011 §Drain-time error classification
+  (rf2-oytx7j)."
+  [frame-id resp public-error opts]
+  (materialise-error-arm frame-id resp public-error opts))
 
 (defn ^:private build-full-response*
   "The non-error path of `build-full-response`. Split into its own fn
@@ -334,10 +430,20 @@
         ;; Re-flush after rendering. A hardened reactive subscription may recover
         ;; to nil while buffering a projected failure; reading only the pre-render
         ;; response would incorrectly ship that broken render as 200. Re-read the
-        ;; full accumulator so post-render headers and cookies also survive.
-        post-render-resp (ssr/flush-response! frame-id)]
-    ;; A non-nil construction option overrides the seeded/app Content-Type.
-    (ssr-response->ring-response post-render-resp html content-type)))
+        ;; full accumulator (AND the projected public-error) so post-render
+        ;; headers and cookies survive AND a post-render projected 5xx diverts
+        ;; to the error arm (rf2-oytx7j).
+        {post-render-resp :response post-error :public-error}
+        (ssr/flush-response-result! frame-id)]
+    (if (projected-5xx? post-error)
+      ;; A recovered-to-nil sub buffered a fail-closed 5xx during the render
+      ;; walk. DISCARD the degraded html + hydration payload and materialise
+      ;; the projected-error arm instead (Spec 011 §Drain-time error
+      ;; classification — projected 5xx before commit → error page, no
+      ;; hydration; never a degraded body shipped under a 500).
+      (materialise-projected-error frame-id post-render-resp post-error opts)
+      ;; A non-nil construction option overrides the seeded/app Content-Type.
+      (ssr-response->ring-response post-render-resp html content-type))))
 
 (defn project-render-throw->ring-response
   "Route a render-time `Throwable` through the SSR error projector and
@@ -373,17 +479,20 @@
   `[error-view public-error]` view lookup); `resolve-error-body` re-pins
   `*current-frame*` around its own render."
   [frame-id ^Throwable t opts]
-  (rf/with-frame frame-id
-    (let [public-error  (ssr/project-render-exception! frame-id t)
-          resp*         (ssr/peek-response frame-id)
-          public-error* (or public-error
-                            {:status 500 :code :internal-error
-                             :message "Something went wrong"
-                             :retryable? false})
-          body-html     (resolve-error-body frame-id (:error-view opts) public-error*)]
-      ;; The construction-time Content-Type labels only successful bodies. A
-      ;; projected error is HTML, so keep the response accumulator's header.
-      (ssr-response->ring-response resp* body-html))))
+  (let [public-error  (ssr/project-render-exception! frame-id t)
+        resp*         (ssr/peek-response frame-id)
+        ;; An unrenderable root/shell throw cannot supply a body, so it ALWAYS
+        ;; takes the error page — even when a custom projector chose a 4xx
+        ;; (e.g. the 418 teapot test): classification-by-status is the
+        ;; drain/post-render rule; a render throw is the necessary exception
+        ;; (Spec 011 §Drain-time error classification). When projection returns
+        ;; nil (no server frame) the locked generic-500 is substituted.
+        public-error* (or public-error ssr/fallback-public-error)]
+    ;; The construction-time Content-Type labels only successful bodies; a
+    ;; projected error is HTML, so `materialise-error-arm` keeps the
+    ;; accumulator's header. It re-pins the request frame for the error-body
+    ;; render, mirroring the happy path.
+    (materialise-error-arm frame-id resp* public-error* opts)))
 
 (defn build-full-response
   "Render the caller's `:root-view` against `frame-id`, build the

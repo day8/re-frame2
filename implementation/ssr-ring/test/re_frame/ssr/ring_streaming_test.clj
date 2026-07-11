@@ -582,13 +582,16 @@
            streamed chunked body"))))
 
 (deftest stream-handler-rendertime-sub-throw-fails-closed
-  (testing "rf2-r06pc / rf2-vvwmi: a production-mode reactive sub that
-            THROWS during the streaming shell render recovers to nil (the
-            walk does NOT throw) but buffers a fail-closed 500 on the
-            always-on error-emit substrate; the post-shell `get-response`
-            re-read stamps the 500 onto the committed Ring head — NOT the
-            stale pre-render 200 the old daemon-writer-first order shipped
-            (Spec 011 §744/§750)."
+  (testing "rf2-r06pc / rf2-vvwmi / rf2-oytx7j: a production-mode reactive sub
+            that THROWS during the streaming shell render recovers to nil (the
+            walk does NOT throw) but buffers a fail-closed 500 on the always-on
+            error-emit substrate; the post-shell `flush-response-result!`
+            re-read surfaces the projected 5xx and DIVERTS to the NON-STREAMED
+            projected-error arm — no writer thread, no partial-state shell.
+            rf2-oytx7j SUPERSEDES the earlier stream-the-degraded-shell-under-
+            500 behaviour: a 5xx before the chunked head commits must not ship
+            a misleading half-drained page (Spec 011 §Streaming pre-commit
+            rule)."
     (rf/reg-sub :throwing-sub (fn [_db _] (throw (ex-info "sub-boom" {}))))
     (rf/reg-view ^{:rf/id :test/uses-throwing-sub} uses-throwing-sub []
       (let [v @(rf/subscribe [:throwing-sub])]
@@ -611,17 +614,18 @@
           (is (= 500 (:status response))
               "render-time sub-throw under production hardening →
                buffered fail-closed 500 re-read AFTER the shell render →
-               committed Ring status 500. Before rf2-r06pc this was a
-               silent 200 (the stale pre-render status committed onto the
-               chunked head before the daemon writer ran the render).")
-          ;; The shell recovered-to-nil and rendered, so the streamed body
-          ;; (carried under the 500 status) is still well-formed HTML —
-          ;; the status is the fail-closed signal, mirroring the non-
-          ;; streaming handler (rf2-c0bq1).
+               committed Ring status 500.")
+          ;; rf2-oytx7j: the recovered-to-nil 5xx now fails closed to the
+          ;; NON-STREAMED projected-error arm — a plain-String error body, NOT
+          ;; a chunked InputStream, and NOT the degraded shell.
+          (is (not (instance? InputStream (:body response)))
+              "the 5xx before the head commits fails closed to a plain-String
+               projected-error body — no chunked writer thread spawned")
           (let [body (streamed-body (:body response))]
-            (is (str/includes? body "header that renders")
-                "the recovered shell still streamed (the 500 status is the
-                 fail-closed signal; the body is moot under a non-200)")))))))
+            (is (str/includes? body "Something went wrong")
+                "the projected-error arm's locked default template rendered")
+            (is (not (str/includes? body "header that renders"))
+                "the degraded shell was DISCARDED — never streamed under 500")))))))
 
 (deftest stream-handler-clean-render-stays-200
   (testing "rf2-r06pc: the request-thread shell render + post-shell
@@ -676,41 +680,43 @@
 ;; architecture (it is set only by the `:rf.server/redirect` fx during the
 ;; `:initial-events` drain — caught by the EARLY branch — and the error projector
 ;; stamps `:status` only, never `:redirect`). So this is a LATENT fail-open:
-;; we simulate the latent condition by stubbing `ssr/get-response` to return
-;; a non-redirect on the FIRST call (so the early branch passes through to
-;; the shell render) and a redirect on the SECOND call (the post-shell
-;; re-read). This exercises the new post-shell redirect branch directly.
+;; we simulate the latent condition by stubbing `ssr/flush-response-result!`
+;; (the read both handler branches use, rf2-oytx7j) to return a non-redirect
+;; on the FIRST call (so the early branch passes through to the shell render)
+;; and a redirect on the SECOND call (the post-shell re-read). This exercises
+;; the new post-shell redirect branch directly.
 
 (deftest stream-handler-post-shell-redirect-bodiless
-  (testing "rf2-5knxf.1: a :redirect surfacing at the POST-SHELL get-response
-            re-read ships a bodiless Location response (NOT a streamed
-            body), spawns NO writer thread, and destroys the frame inline."
+  (testing "rf2-5knxf.1: a :redirect surfacing at the POST-SHELL re-read ships
+            a bodiless Location response (NOT a streamed body), spawns NO
+            writer thread, and destroys the frame inline."
     (rf/reg-event :rf.test.server/init-min
       {:platforms #{:server}}
       (fn [_ _] {:db {}}))
     (rf/reg-view ^{:rf/id :test/plain-root} plain-root []
       [:main [:h1 "rendered shell"]])
-    (let [real-get-response ssr/get-response
+    (let [real-flush ssr/flush-response-result!
           ;; Per-frame call counter so we stub ONLY the second
-          ;; get-response (the post-shell re-read) for our frame, leaving
-          ;; the first (early-branch drain read) untouched. Keying on the
-          ;; arg-count of calls keeps the stub from perturbing any other
-          ;; frame's reads.
+          ;; flush-response-result! (the post-shell re-read) for our frame,
+          ;; leaving the first (early-branch drain read) untouched. Keying on
+          ;; the call count keeps the stub from perturbing any other frame's
+          ;; reads.
           calls (atom 0)
           redirect-resp {:status   302
                          :headers  []
                          :cookies  []
                          :redirect {:status 302 :location "/post-shell-login"}}]
-      (with-redefs [ssr/get-response
+      (with-redefs [ssr/flush-response-result!
                     (fn [fid]
                       (let [n (swap! calls inc)]
                         ;; 1st call = early-branch drain read → real value
                         ;; (no redirect, so the handler proceeds to render
                         ;; the shell). 2nd call = post-shell re-read → inject
-                        ;; the latent redirect.
+                        ;; the latent redirect (public-error nil so the 5xx
+                        ;; branch does not fire).
                         (if (= n 2)
-                          redirect-resp
-                          (real-get-response fid))))]
+                          {:response redirect-resp :public-error nil}
+                          (real-flush fid))))]
         (let [handler       (ssr-ring/stream-handler
                               {:initial-events [[:rf.test.server/init-min]]
                                :root-view [:test/plain-root]

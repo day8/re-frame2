@@ -200,14 +200,16 @@
                stamped on :rf/response by get-response → ring :status.
                A regression that dropped the :frame stamp would no-op the
                projector and ship the default 200 here.")
-          ;; Status-only error per Spec 011 §Server error projection — the
-          ;; 4xx owns the wire status, the body is still the rendered
-          ;; root-view (not an error template; the drain-time path does NOT
-          ;; route through build-full-response's render-time catch).
+          ;; Explicit 4xx-app-arm choice (rf2-oytx7j §Drain-time error
+          ;; classification): a projected 4xx is a CLIENT fault / renderable
+          ;; app — the 4xx owns the wire status but the app renders its OWN
+          ;; not-found root body (and hydration payload) and `:error-view` is
+          ;; NOT called. This is deliberate, not incidental: only a projected
+          ;; 5xx (server fault) diverts to the projected-error arm.
           (is (str/includes? (:body response) "Not found page renders")
-              "the root-view still renders — the 404 is a status-only
-               response (the drain-time projector stamps :status, it does
-               not replace the body the way the render-time path does)")))
+              "the root-view still renders — a projected 404 keeps the app's
+               own not-found UI (the 4xx app arm), it does NOT route through
+               the projected-error arm the way a 5xx does")))
 
       (testing "bytes-on-the-wire through Jetty — a real HTTP server
                 preserves the projected 404 status"
@@ -276,9 +278,9 @@
                    → ring :status. A dropped :frame stamp would no-op the
                    projector and ship the default 200.")
               (is (str/includes? (:body response) "Article page renders")
-                  "the root-view still renders — status-only 400 (the
-                   navigate-reject is a drain-time status stamp, not a
-                   render-time body replacement)")))
+                  "the root-view still renders — a projected 400 keeps the
+                   app's own bad-request UI (the 4xx app arm, rf2-oytx7j); only
+                   a projected 5xx diverts to the projected-error arm")))
 
           (testing "bytes-on-the-wire through Jetty — 400 survives the round-trip"
             (ts/with-jetty [port handler]

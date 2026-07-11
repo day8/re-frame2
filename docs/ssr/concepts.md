@@ -374,7 +374,8 @@ The framework ships a default projector that maps the obvious cases — a routin
 The wiring facts, one at a time:
 
 - **The projector is named per frame** — `:ssr {:public-error-id :myapp/public-error}` on the frame's metadata — so a server-rendering frame and a dev-tooling frame in one process can run different ones.
-- **The error page cannot leak.** It's a registered view that receives the *public* shape only; the internal trace never reaches it, so there's nothing to leak.
+- **4xx keeps your app; 5xx gets the error page.** Classification is by the *projected status*. A projected **4xx** (a routing miss, a bad-input `400`, an auth `401`/`403`) is the app *working correctly* — it renders your own not-found / bad-request UI and ships the hydration payload, so the client hydrates into a working SPA. A projected **5xx** means the app broke mid-drain and app-db is in a partial state — so the framework discards the half-drained body and hydration payload and renders your `:error-view` (or the default template) instead of presenting a half-populated page as if real. An app-set `500` with no error projected stays on your own page (status alone isn't a projected error).
+- **The error page cannot leak.** It's a registered view that receives the *public* shape only; the internal trace never reaches it, so there's nothing to leak. Only exactly the four public keys cross the boundary — a projector that returns an out-of-range status or any extra key (even its own `:details`) takes the locked generic-500 fallback.
 - **Dev builds can carry detail.** With `:ssr {:dev-error-detail? true}` the public shape gains an extra `:details` key holding the full trace; in prod that key is simply absent.
 - **Monitoring keeps the rich trace.** Projection governs the HTTP boundary only — the full trace still flows unchanged to your sinks and the always-on [error records](../core/glossary.md#error-record) your listeners depend on.
 
@@ -382,7 +383,7 @@ The full error story lives in the [error dossier](../core/errors.md).
 
 !!! note "Why this matters — two error opts, two jobs"
 
-    The Ring handler exposes `:error-view` *and* `:on-error`, and a robust deployment wires both. `:error-view` is the **projected page** — it fires for a failure the projector caught (drain or render), takes the sanitised `:rf/public-error` map, and renders hiccup. `:on-error` is the **transport net** — it fires for a Ring-layer failure the projector can't see (per-request frame setup throw, a header-materialise throw), takes the raw `(request throwable)`, and returns a verbatim Ring response. Both are bug-contained: a buggy `:error-view` falls back to the default template, a buggy `:on-error` falls back to the locked topology-safe 500 — neither can bypass the error boundary.
+    The Ring handler exposes `:error-view` *and* `:on-error`, and a robust deployment wires both. `:error-view` is the **projected page** for a **5xx** server fault the projector caught (a drain-time exception, a render-time throw) — it takes the sanitised `:rf/public-error` map and renders hiccup (a projected 4xx keeps your own app body instead). `:on-error` is the **transport net** — it fires for a Ring-layer failure the projector can't see (per-request frame setup throw, a header-materialise throw), takes the raw `(request throwable)`, and returns a verbatim Ring response. Both are bug-contained, and `:error-view` is one-way: a buggy `:error-view` — whether it throws OR depends on a reactive sub that recovers to `nil` — falls back once to the default template without re-projecting; a buggy `:on-error` falls back to the locked topology-safe 500 — neither can bypass the error boundary.
 
 ## Streaming: `:rf/suspense-boundary`
 

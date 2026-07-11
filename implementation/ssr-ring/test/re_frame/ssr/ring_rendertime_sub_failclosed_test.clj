@@ -136,13 +136,23 @@
       (with-redefs [interop/debug-enabled? false]
         (testing "direct in-process handler call — render-time sub-throw
                   fails closed to 500 (the buffered fail-closed status,
-                  re-flushed after the render walk per rf2-c0bq1)"
-          (let [response (handler {:uri "/uses-throwing-sub" :request-method :get})]
+                  re-flushed after the render walk per rf2-c0bq1), and
+                  rf2-oytx7j DIVERTS to the projected-error arm rather than
+                  shipping the degraded body under a 500"
+          (let [response (handler {:uri "/uses-throwing-sub" :request-method :get})
+                body     (:body response)]
             (is (= 500 (:status response))
                 "render-time sub-throw → buffered fail-closed 500 re-read
                  AFTER the render walk → ring :status 500. Before the
                  rf2-c0bq1 re-flush this was a silent 200 (the stale
-                 pre-render status materialised onto the wire).")))
+                 pre-render status materialised onto the wire).")
+            (is (str/includes? body "Something went wrong")
+                "rf2-oytx7j: the post-render 500 diverts to the projected-error
+                 arm (locked default template), not the degraded HTML")
+            (is (not (str/includes? body "header that renders"))
+                "the degraded recovered-to-nil body is DISCARDED under the 500")
+            (is (not (str/includes? body "__rf_payload"))
+                "no hydration payload ships on the projected-error arm")))
 
         (testing "bytes-on-the-wire through Jetty — the 500 survives the
                   full round-trip"
