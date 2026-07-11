@@ -2497,6 +2497,11 @@
                                               caches — work-ledger host
                                               handles + generation
                                               high-water mark.
+         :http/on-frame-destroyed!          — abort the frame's plain
+                                              managed HTTP still in flight
+                                              (live fetch/future + sleeping
+                                              backoff handles), reply-
+                                              suppressed.
     5. emit-frame-destroyed-trace!  — emit :frame/destroyed AFTER the
                                       machine cascade.
     6. dissoc-frame!                — remove from the `frames` atom.
@@ -2658,6 +2663,17 @@
         ;; destroyed frame in each host cache. No-op when re-frame.resources
         ;; is absent (the artefact is optional).
         (safe-call-hook! :resources/on-frame-destroyed! id)
+        ;; Abort the destroyed frame's still-in-flight PLAIN managed HTTP
+        ;; (rf2-j538f7.8) — ordinary event-handler `:rf.http/managed` work with
+        ;; no actor id, the exposed path that actor/resource teardown above does
+        ;; NOT catch. Each frame-stamped live fetch/future + sleeping-backoff
+        ;; handle is cancelled with the reply-suppressing `:reason
+        ;; :frame-destroyed` (no delivery into the now-destroyed frame), its
+        ;; external `:abort-signal` listener detaches, and both registry indexes
+        ;; clear. Ordered AFTER machines/resources so their more specific
+        ;; `:actor-destroyed` / ledger teardown wins first and this generic sweep
+        ;; no-ops on already-cleared handles. No-op when re-frame.http is absent.
+        (safe-call-hook! :http/on-frame-destroyed! id)
         ;; Cancel + drop the destroyed frame's still-pending
         ;; `:dispatch-later` host timers (rf2-uxz52g). Each arms a host-clock
         ;; timer whose thunk dispatches the deferred event into THIS frame;

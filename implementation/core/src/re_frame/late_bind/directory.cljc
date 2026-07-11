@@ -675,6 +675,10 @@
     :producer-ns 're-frame.http.managed
     :design-bead "rf2-u5kmf8"
     :description "Epoch-restore host-transient quiesce for NON-resource managed HTTP. Consulted by `re-frame.epoch.tool-pair/perform-restore!` AFTER a successful install: aborts every in-flight `:rf.http/managed` request the restored frame issued with the reply-suppressing `:reason :epoch-restored` (no delivery to the original `:rf/reply-to`) and emits the EP-0011 `:status :stale` / `:rf.reply/work-status :suppressed` envelope facts. The non-ledger-backed counterpart of the resources work-id dangling, so a pre-restore in-flight reply cannot mutate the restored state (Managed-Effects §SSR, preload, hydration, and restore: \"epoch restore MUST NOT revive host work\")."}
+   {:key         :http/on-frame-destroyed!
+    :producer-ns 're-frame.http.managed
+    :design-bead "rf2-j538f7.8"
+    :description "Frame-DESTROY host-transient abort for managed HTTP. Consulted by core `frame/destroy-frame!` AFTER machine + resource teardown: aborts every in-flight `:rf.http/managed` request the destroyed frame issued with the reply-suppressing `:reason :frame-destroyed` (no delivery into the now-destroyed frame's `:rf/reply-to`) and emits the EP-0011 `:status :stale` / `:rf.reply/work-status :suppressed` envelope facts with `:recovery :suppressed-on-frame-destroy`. The frame-teardown counterpart of `:http/abort-in-flight-for-frame!` (epoch restore); catches the exposed PLAIN managed-HTTP path (ordinary event-handler issuance, no actor id) that actor/resource teardown does not, cancelling the live fetch/future or sleeping backoff timer, detaching any external `:abort-signal` listener, and clearing both indexes so no host I/O outlives the frame (Managed-Effects §Cancellation; the hard frame-ownership boundary for SSR per-request frames, Story/test variants, hot reload, and multi-frame apps)."}
    {:key         :http/register-managed-machine!
     :producer-ns 're-frame.http.managed
     :design-bead "rf2-ijm7"
