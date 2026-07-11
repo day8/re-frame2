@@ -3635,6 +3635,144 @@
             (is (= [] (get s k)) (str k " defaults to [] rather than nil"))))))))
 
 ;; ---------------------------------------------------------------------------
+;; rf2-j538f7.31 — the lifecycle :timeout-ms ceiling must bound the
+;; SYNCHRONOUS Story work, not just the post-return deref window.
+;;
+;; On the JVM `story/run-variant` executes synchronously (a `[:wait ms]`
+;; step is an inline `Thread/sleep`), so it returns an ALREADY-settled
+;; future. The old `run-variant-blocking` deref'd that already-settled
+;; future under `:timeout-ms` — a no-op — so a variant whose synchronous
+;; work blew past the advertised ceiling still reported `:pass` (false
+;; green) AND monopolised the single-threaded stdio loop for the full
+;; wait. The regressions below use a REAL registered variant with a REAL
+;; `[:wait]` (not a `with-redefs` never-settling future) so they exercise
+;; the synchronous-constructor path this bug lives on. The advertised
+;; bound must be real: an over-budget synchronous run is BOUNDED near the
+;; ceiling and reports the canonical `:error` verdict, never a false
+;; `:pass`.
+;; ---------------------------------------------------------------------------
+
+(deftest run-variant-synchronous-wait-is-bounded-and-honest
+  (testing "an over-budget SYNCHRONOUS `[:wait]` is bounded near :timeout-ms and reports :error, never a false :pass"
+    (config/set-allow-writes! true)
+    ;; A variant whose play-script sleeps far past the deadline. On the JVM
+    ;; the `[:wait 3000]` is a synchronous `Thread/sleep` inside
+    ;; `story/run-variant` — the exact synchronous-work path the advertised
+    ;; ceiling must cover.
+    (story/reg-variant :story.button/slow-wait
+      {:doc    "Play-script sleeps far past the deadline."
+       :args   {:label "Slow"}
+       :tags   #{:dev}
+       :script [[:wait 3000]]})
+    (with-clean-frame [vid :story.button/slow-wait]
+      (let [t0      (System/nanoTime)
+            r       (invoke "run-variant" {:variant-id "story.button/slow-wait"
+                                           :timeout-ms 100})
+            elapsed (/ (double (- (System/nanoTime) t0)) 1e6)
+            s       (:structuredContent r)]
+        (is (success? r)
+            "the tool call itself succeeds — the deadline outcome rides IN the run-result")
+        (is (not= :pass (:status s))
+            "an over-budget synchronous run must NOT report a false :pass")
+        (is (= :error (:status s))
+            "the bounded-deadline-exceeded run reports the canonical :error verdict")
+        (is (story/valid-run-result? s)
+            (str "the deadline outcome conforms to the frozen RunResult schema; "
+                 (story/explain-run-result s)))
+        (doseq [k [:schema-violations :warnings :effects :sub-runs :renders :narrative]]
+          (is (= [] (get s k)) (str k " defaults to [] rather than nil")))
+        (is (< elapsed 2000.0)
+            (str "the run must be BOUNDED near the 100ms :timeout-ms ceiling, "
+                 "not the 3000ms wait — synchronous work is under the deadline. "
+                 "elapsed=" elapsed "ms"))))))
+
+(deftest preview-variant-synchronous-wait-is-bounded-and-honest
+  (testing "preview-variant shares the same bounded-deadline policy over synchronous `[:wait]`"
+    (config/set-allow-writes! true)
+    (story/reg-variant :story.button/slow-preview
+      {:doc    "Play-script sleeps far past the deadline."
+       :args   {:label "Slow"}
+       :tags   #{:dev}
+       :script [[:wait 3000]]})
+    (with-clean-frame [vid :story.button/slow-preview]
+      (let [t0      (System/nanoTime)
+            r       (invoke "preview-variant" {:variant-id "story.button/slow-preview"
+                                               :timeout-ms 100})
+            elapsed (/ (double (- (System/nanoTime) t0)) 1e6)
+            s       (:structuredContent r)]
+        (is (success? r))
+        (is (not= :pass (:status s))
+            "preview must not report a false :pass over budget either")
+        (is (= :error (:status s)))
+        (is (= :error (:lifecycle s))
+            "preview keeps the :lifecycle :error loader-state on the deadline outcome")
+        (is (< elapsed 2000.0)
+            (str "preview is BOUNDED near the 100ms ceiling, not the 3000ms wait. "
+                 "elapsed=" elapsed "ms"))))))
+
+(deftest run-variant-short-wait-within-timeout-still-passes
+  (testing "a fast `[:wait]` well within :timeout-ms still settles :pass — the fix doesn't break the happy path"
+    (config/set-allow-writes! true)
+    (story/reg-variant :story.button/quick-wait
+      {:doc    "Short wait, comfortably inside the timeout."
+       :args   {:label "Quick"}
+       :tags   #{:dev}
+       :script [[:wait 20]]})
+    (with-clean-frame [vid :story.button/quick-wait]
+      (let [r (invoke "run-variant" {:variant-id "story.button/quick-wait"
+                                     :timeout-ms 5000})
+            s (:structuredContent r)]
+        (is (success? r))
+        (is (= :pass (:status s))
+            "a fast variant within a generous timeout still settles :pass")
+        (is (story/valid-run-result? s))))))
+
+(deftest stdio-loop-freed-after-lifecycle-deadline
+  (testing "a timed-out run-variant does NOT monopolise the single-threaded
+            stdio loop — a following `ping` is answered bounded near the
+            ceiling, not held for the full Story wait (rf2-j538f7.31)"
+    (story/reg-variant :story.button/slow-loop
+      {:doc    "Runaway wait that would park the whole stdio loop pre-fix."
+       :args   {:label "Slow"}
+       :tags   #{:dev}
+       :script [[:wait 3000]]})
+    (with-clean-frame [vid :story.button/slow-loop]
+      (let [frames   [{:jsonrpc "2.0" :id 1 :method "initialize"
+                       :params  {:protocolVersion "2025-06-18"
+                                 :capabilities    {}
+                                 :clientInfo      {:name "test" :version "0"}}}
+                      {:jsonrpc "2.0" :id 2 :method "tools/call"
+                       :params  {:name      "run-variant"
+                                 :arguments {:variant-id "story.button/slow-loop"
+                                             :timeout-ms 100
+                                             :dedup      false}}}
+                      ;; The liveness probe RIGHT BEHIND the runaway call. In
+                      ;; the single-threaded loop it is only READ after
+                      ;; run-variant returns — so its answer is held for
+                      ;; however long run-variant blocks.
+                      {:jsonrpc "2.0" :id 3 :method "ping"}]
+            input    (apply str (map #(str (cheshire/generate-string %) "\n") frames))
+            reader   (java.io.BufferedReader. (java.io.StringReader. input))
+            writer   (java.io.StringWriter.)
+            t0       (System/nanoTime)
+            _        (server/run-loop! reader writer)
+            elapsed  (/ (double (- (System/nanoTime) t0)) 1e6)
+            by-id    (into {}
+                           (comp (remove #(zero? (count ^String %)))
+                                 (map #(cheshire/parse-string % true))
+                                 (map (juxt :id identity)))
+                           (seq (.split ^String (str writer) "\n")))]
+        ;; The whole loop — the runaway run-variant AND the trailing ping —
+        ;; completes bounded near the 100ms ceiling, NOT the 3000ms wait.
+        (is (< elapsed 2000.0)
+            (str "the stdio loop is freed at the ceiling, not held for the "
+                 "full 3000ms wait. elapsed=" elapsed "ms"))
+        (is (= "error" (get-in by-id [2 :result :structuredContent :status]))
+            "the over-budget run reports :error over the wire, never a false :pass")
+        (is (= {} (get-in by-id [3 :result]))
+            "the following ping IS answered — the loop was not monopolised past the deadline")))))
+
+;; ---------------------------------------------------------------------------
 ;; rf2-iapjh7: ONE lifecycle execution owner for both consumers
 ;;
 ;; `run-variant` (tools.testing) + `preview-variant` (tools.dev) share the
