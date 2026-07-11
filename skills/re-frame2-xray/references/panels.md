@@ -387,12 +387,11 @@ xyflow canvas through the shared machines-viz **MachineChart**
 (`day8.re-frame2-machines-viz.chart`), mounted via the Xray-side
 [`panels/machine_canvas.cljs`](../../../tools/xray/src/day8/re_frame2_xray/panels/machine_canvas.cljs)
 wrapper (per §021 §6.0) — not Stately Inspect, not native Reagent. Nodes,
-edges, current-state pulse, parallel-region containers, and final-state
-double-rings all come from that chart, which carries its own styling.
-[`panels/machines/xyflow_style.cljs`](../../../tools/xray/src/day8/re_frame2_xray/panels/machines/xyflow_style.cljs)
-(+ `machines/topology.cljs`) is the self-contained, JVM-portable,
-unit-tested fallback projector / style catalogue — **not** on the live
-render path.
+edges, current-state highlight, parallel-region containers, and final-state
+double-rings all come from that chart, which carries its own styling. The
+former Xray-local fallback projector / style catalogue
+(`panels/machines/xyflow_style.cljs` + `machines/topology.cljs`) was
+DELETED (rf2-5fm165) — it had no live-render-path consumer.
 
 **Current-state precedence** — a 4-source walk-back resolves the
 machine's current state for the focused epoch:
@@ -402,10 +401,11 @@ machine's current state for the focused epoch:
 3. **Epoch-history walk-back** — scan the buffer back to the most-recent transition
 4. **Snapshot** — fall back to the substrate's per-frame machine state
 
-The resolved current state node carries the `rf-xray-machine-pulse`
-keyframe (1.2s ease-in-out, interpolated through
-`--rf-xray-motion-scale` so reduced-motion collapses it; §021
-§17.4.5).
+The resolved current state node carries a **static** highlight — a runtime
+accent border + a soft `box-shadow` glow ring + a faint header wash (§021
+§17.4.5). It does **not** pulse: Mike rejected the continuous active-state
+pulse (rf2-2sez0), so machines-viz locked "no continuous animation"; the
+old pulse keyframes were retired (rf2-wct1s8).
 
 The focused-epoch **transition row** is a single prominent row: a header
 verb `<before-state → after-state>` (larger / bolder / magenta, doubling

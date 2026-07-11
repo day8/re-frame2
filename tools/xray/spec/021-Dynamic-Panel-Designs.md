@@ -1077,7 +1077,7 @@ for the work cost of rebuilding auto-layout / zoom-pan-fit from scratch.
 |---|---|
 | Nested state containment | xyflow's group/parent-node mechanic. Parent state renders as a containing rect; child states are nested xyflow nodes whose `parentNode` references the parent. |
 | Transition edge animation | xyflow's `animated: true` edge prop. Color via Xray palette (`:accent` — the single GitHub-blue accent — for "fired this epoch"; `:text-tertiary` for "registered but not fired this epoch"). |
-| Current-state highlight pulse | Custom node CSS class that applies the `pulse` keyframe (~1.2s ease-in-out; CSS-variable interpolated through `--rf-xray-motion-scale` so `prefers-reduced-motion` collapses it). Pulse outline color = `:green` (the panel-domain accent). |
+| Current-state highlight (static) | machines-viz signals the active state **statically** — a runtime accent border + a soft `box-shadow` glow ring + a faint header wash on the state box, never a continuous pulse. Mike rejected the continuous active-state pulse (rf2-2sez0; machines-viz `spec/Principles.md` "No continuous animation" — a looping pulse would compete with the transition highlights). |
 | Auto-layout | **elkjs** (the Eclipse Layout Kernel, `Layered` algorithm) runs as xyflow's layout backend inside `MachineChart` (2026-05-19 ELK lock — superseded the originally-sketched dagre `getLayoutedElements`). Async one-shot layout, cached per machine-id; recomputed only when topology changes. |
 | Zoom + pan + fit | xyflow's built-in `<Controls>` component ONLY (mounted `{:showZoom true :showFitView true :showInteractive false}`; xyflow positions it bottom-left). The cluster ships **zoom-in `+` / zoom-out `−` / fit-view `⛶`** buttons — no `NN%` zoom-readout chip, no `Reset` button, no custom Xray toolbar. Default framing: fit-on-mount via `:fitViewOptions {:padding 0.1}`; Xray re-frames on panel-entry by bumping the orthogonal `:fit-signal` nonce (rf2-6tw7t). See spec/007 §"Controls" for the authoritative reconciliation. |
 | Label-on-edge transitions | xyflow's `label` prop on edges; rendered inline on the edge, not in a side legend. Font: JetBrains Mono 10px (`:micro` size). |
@@ -1095,8 +1095,8 @@ panel, not a generic xyflow diagram):
               :color      (:text-primary tokens)    ; "#E8EAF0"
               :font-family mono-stack
               :font-size  (:body-tight type-scale)}
- :state-node-current {:border (str "2px solid " (:green tokens))
-                      :animation "rf-xray-machine-pulse 1.2s ease-in-out infinite"}
+ :state-node-current {:border (str "2px solid " (:accent tokens))    ; static accent border — no pulse (rf2-2sez0)
+                      :box-shadow (str "0 0 0 3px " (:accent tokens))} ; soft static glow ring
  :state-node-final   {:border (str "2px solid " (:green tokens))
                       :box-shadow (str "inset 0 0 0 1px " (:bg-2 tokens))}
  :region-container   {:background "transparent"
@@ -1174,7 +1174,7 @@ accent; the fired transition edge carries its **event label + guard + action inl
 │ │ │           guard: token? [pass]                        │   loading→error  ││
 │ │ │           do: fetch!                                  │                  ││
 │ │ └───────────────────────────────────────────────────────┘                 ││
-│ │  FROM = dashed/dim · TO = double-circle, mode-accent, pulse                 ││
+│ │  FROM = dashed/dim · TO = double-circle, mode-accent, static                ││
 │ │  fired edge = mode-accent 2px animated · registered = dim 1px · error = red ││
 │ │ ┌──────┐                                                                    ││
 │ │ │ + − ⛶ │ ← xyflow <Controls> (bottom-left)                                 ││
@@ -5439,7 +5439,6 @@ swapped.
 | Interaction feedback (hover, focus, press) | **≤ 200ms** (typical 120-180ms) | `ease-out` |
 | Panel switch / tab transition | ≤ 400ms — currently 180ms cross-fade (`theme/motion :fade-duration-ms`) | `ease-in-out` |
 | Diff flash on changed value | 400ms (`theme/motion :flash-duration-ms`) | `ease-out` |
-| Machine-state current-state pulse (§6) | 1.2s | `ease-in-out infinite` |
 | xyflow edge "fired this epoch" animation | xyflow built-in (≈ 1s loop) | xyflow default |
 
 All durations multiply through `var(--rf-xray-motion-scale, 1)` so
@@ -5491,7 +5490,7 @@ operators will see.
 │  │   │:empty │ ╴ ╴ ╴ ╴ ╴ ╴▷ │:populated │ ═════▶ │:submitting│  │ │
 │  │   ╰───────╯                ╰───────────╯  :submit ╰─────◉───╯  │ │
 │  │                              (last seen)            ↑ current   │ │
-│  │                                                     (pulses)    │ │
+│  │                                                     (static)    │ │
 │  │                                                                  │ │
 │  │   ╭──────────╮                                                  │ │
 │  │   │ :settled │ (registered; no path from current)               │ │
@@ -5506,7 +5505,7 @@ operators will see.
 │  │     ╭─╮ standard state                     :bg-2 + :border-def  │ │
 │  │     ╭═╮ final state                        :bg-2 + 2px :green   │ │
 │  │     ╭◉╮ current state                      :bg-2 + 2px :green   │ │
-│  │            + 1.2s pulse animation                                │ │
+│  │            + static glow, no loop                                │ │
 │  │   ┌──────┐                                                      │ │
 │  │   │ + − ⛶ │ ← xyflow <Controls> (bottom-left); zoom-±/fit only,  │ │
 │  │   └──────┘    no NN% chip, no Reset                              │ │
@@ -5531,7 +5530,7 @@ operators will see.
 |---|---|---|
 | Rounded rect (`border-radius: 6px`) | Standard state | `:standard` |
 | Rounded rect + 2px solid `:green` outer + 1px `:bg-2` inner gap (double-ring) | Final state | `:final` |
-| **Double-circle** (`border-radius: 50%`) in the mode `:accent` — 3px accent border + concentric inner-gap + inner-ring (stacked `inset` box-shadows) + 1.2s breathing pulse | Current / TO state (most recent visit) | `:current` |
+| **Double-circle** (`border-radius: 50%`) in the mode `:accent` — 3px accent border + concentric inner-gap + inner-ring (stacked `inset` box-shadows) + a static accent glow ring (**no pulse** — rf2-2sez0) | Current / TO state (most recent visit) | `:current` |
 | Dashed/dim circle (`border-radius: 50%`, `2px dashed :text-tertiary`, transparent fill) | FROM state — source of the focused fired transition | `:from` |
 | Rounded rect with dashed border (`2px dashed :border-default`) wrapping the focused FROM/TO pair | `active (compound)` focused-transition container | `:compound` |
 | Rounded rect with dashed border (`1px dashed :border-default`) | Parallel-region container | `:region` |
@@ -5544,8 +5543,10 @@ dimmed). `:compound` is distinct from `:region` — the former is the
 single focused-transition lens, the latter is the parallel-region sibling
 container. The accent double-circle replaces the former green single
 ring so the active node reads as the Stately/xstate convention the Figma
-fixes; it animates via `rf-xray-machine-pulse-active` (the accent
-counterpart of the green `rf-xray-machine-pulse`).
+fixes; it is a **static** affordance (accent border + inner rings + a soft
+box-shadow glow), **not** a continuous pulse — Mike rejected the active-state
+pulse (rf2-2sez0; machines-viz `spec/Principles.md` "No continuous animation":
+a looping pulse would compete with the transition highlights).
 
 **Parallel-machine node-ids are region-scoped (rf2-wnzha).** The sole
 projector (machines-viz `chart.layout/project-definition`) walks EVERY
@@ -5643,19 +5644,19 @@ machine-root / parallel-root nodes + `:history?` pseudo-states, per
 machine-level / parallel-root / region-`:on-done` fallback edges (real
 transitions the deleted Xray-local projector silently dropped).
 
-The `rf-xray-machine-pulse` keyframe (the green legacy pulse) and the
-`rf-xray-machine-pulse-active` keyframe (the mode-accent double-circle
-pulse per the Figma reconcile · rf2-ad7zx.10) live in the existing
-`theme/global_styles motion-css` block — alongside the diff-flash + fade
-keyframes under the same `prefers-reduced-motion` collapsing mechanic.
-They remain the spec/021 §6.2 Case C / §17.4.2 active-state pulse
-contract; the deleted `xyflow_style.cljs` was their in-tree applicator, so
-wiring them onto the live machines-viz current-state node is now an open
-follow-on (the keyframes are retained pending that wiring, not deleted).
-The active keyframe re-states the concentric inner-gap + inner-ring on
-every stop (box-shadow sets the whole property each frame) and rides
-`--rf-xray-accent` so the halo tracks the mode (orange Dynamic / cyan
-Static).
+The former active-state **pulse** keyframes were **retired** (rf2-wct1s8,
+per the rf2-2sez0 ruling). Mike rejected the continuous active-state pulse
+when he inspected the chart (rf2-2sez0, 2026-05-20); machines-viz locked
+the "No continuous animation" principle accordingly (`tools/machines-viz/
+spec/Principles.md`): the active state is signalled **statically** — a
+runtime accent border + a soft `box-shadow` glow ring + a faint header wash
+— because a looping pulse would compete with the once-per-event transition
+highlights. rf2-5fm165 had already deleted the keyframes' only in-tree
+applicator (`xyflow_style.cljs`), leaving them applicator-less; rather than
+wire a pulse Mike had already rejected, rf2-wct1s8 deleted the two keyframes
+(and their guard tests) from `theme/global_styles motion-css`. The live
+machines-viz current-state chrome (accent border, header wash, static glow,
+`data-active` attrs) is the contract.
 
 ### §17.5 Follow-on bead candidates (visual layer)
 
@@ -5713,8 +5714,9 @@ already drafted in §13.
   glyph palette + per-glyph color token + HCM remap. Worker implements
   against §17.1.5 + §17.1.3 mapping.
 
-- **rf2-?????** — *Xray: machine-state pulse keyframe.* Add
-  `rf-xray-machine-pulse` keyframe to `theme/global_styles motion-css`
-  alongside the existing flash + fade keyframes. 1.2s ease-in-out
-  infinite; interpolated through `--rf-xray-motion-scale` for
-  reduced-motion collapse. Gates: xyflow current-state node rendering.
+- **DONE (retired · rf2-wct1s8 / rf2-2sez0)** — *Xray: machine-state pulse
+  keyframe.* Originally sketched as an active-state pulse keyframe in
+  `theme/global_styles motion-css`. RETIRED, not shipped: Mike rejected the
+  continuous active-state pulse (rf2-2sez0), so machines-viz signals the
+  active state statically (accent border + glow ring + header wash) instead.
+  The applicator-less keyframes + their guard tests were deleted (rf2-wct1s8).

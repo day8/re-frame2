@@ -460,67 +460,6 @@
     "  from { opacity: 0; transform: translateY(2px); }\n"
     "  to   { opacity: 1; transform: translateY(0); }\n"
     "}\n"
-    ;; rf2-ezx8w — machine-state pulse (spec/021 §17.4.2 + §17.4.5).
-    ;; The active `:current` state node carries `:animation
-    ;; rf-xray-machine-pulse 1.2s ease-in-out infinite`. (rf2-5fm165 —
-    ;; the xray-local fallback style catalogue that applied this was
-    ;; deleted when machines-viz became the sole topology projector; the
-    ;; keyframe remains as the spec/021 active-state pulse contract.)
-    ;; The keyframe alternates `box-shadow` + `opacity` so the green
-    ;; outer ring gently breathes — subtle scale-less pulse that reads
-    ;; as "this is the live state" without becoming a strobe across
-    ;; multi-machine canvases.
-    ;;
-    ;; The 1.2s duration is documented in §17.2 (interaction-state
-    ;; matrix → animation timings) as the machine-state current-state
-    ;; pulse cadence. It runs through `--rf-xray-motion-scale` like
-    ;; every other Xray animation, so the `prefers-reduced-motion:
-    ;; reduce` seam (+ the rf2-ybjkx user override) collapses it to
-    ;; a single resolve frame.
-    ;;
-    ;; `0%` and `100%` carry the resting frame; the midpoint adds a
-    ;; faint green glow + a 0.85 opacity dip. The xyflow node's base
-    ;; rectangle stays painted at full opacity — only the box-shadow
-    ;; halo around it pulses (alternate-style breath rather than the
-    ;; node itself flickering).
-    "@keyframes rf-xray-machine-pulse {\n"
-    "  0%, 100% {\n"
-    "    box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.45);\n"
-    "  }\n"
-    "  50% {\n"
-    "    box-shadow: 0 0 0 4px rgba(74, 222, 128, 0);\n"
-    "  }\n"
-    "}\n"
-    ;; rf2-ad7zx.10 — active-state DOUBLE-CIRCLE pulse (spec/021
-    ;; §6.2 Case C + §17.4.2). The Figma reconcile draws the focused
-    ;; TO / current state as a concentric double-circle in the single
-    ;; `:accent` (GitHub blue), not the former green single ring. The
-    ;; active `:current` state node carries `:animation
-    ;; rf-xray-machine-pulse-active 1.2s …`. (rf2-5fm165 — the xray-local
-    ;; fallback style catalogue that applied this was deleted when
-    ;; machines-viz became the sole topology projector; the keyframe
-    ;; remains as the spec/021 §6.2 Case C active-state pulse contract.)
-    ;;
-    ;; box-shadow sets the WHOLE property each frame, so the keyframe
-    ;; must re-state the STATIC concentric rings (inner `:bg-1` gap +
-    ;; inner accent ring — matching the `:current` node's base
-    ;; box-shadow) on every stop, then ADD the breathing outer halo as
-    ;; the trailing layer. `--rf-xray-accent` is the single GitHub-blue
-    ;; accent, so the halo is blue in both modes. Runs through
-    ;; `--rf-xray-motion-scale` like the green pulse, so the
-    ;; `prefers-reduced-motion` seam collapses it to a resolved frame.
-    "@keyframes rf-xray-machine-pulse-active {\n"
-    "  0%, 100% {\n"
-    "    box-shadow: inset 0 0 0 3px var(--rf-xray-bg-1),\n"
-    "                inset 0 0 0 5px var(--rf-xray-accent),\n"
-    "                0 0 0 0 color-mix(in srgb, var(--rf-xray-accent) 45%, transparent);\n"
-    "  }\n"
-    "  50% {\n"
-    "    box-shadow: inset 0 0 0 3px var(--rf-xray-bg-1),\n"
-    "                inset 0 0 0 5px var(--rf-xray-accent),\n"
-    "                0 0 0 5px color-mix(in srgb, var(--rf-xray-accent) 0%, transparent);\n"
-    "  }\n"
-    "}\n"
     ;; rf2-fxde5 — global `:focus-visible` focus ring. Xray-wide
     ;; keyboard-only focus indicator scoped to descendants of the
     ;; shell roots (`[data-testid="rf-xray-shell"]` for Dynamic,
