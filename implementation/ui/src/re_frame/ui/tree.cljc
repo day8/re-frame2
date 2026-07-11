@@ -204,9 +204,11 @@
                                           [(let [s (style-semantic v)]
                                              (if (seq s) (assoc m :style s) m))
                                            es pp]
-                                          (throw (ex-info ":style must be a map"
-                                                          {:rf.error/id :rf.error/ui-tree-malformed
-                                                           :value v})))
+                                          (error/throw-error!
+                                           :rf.error/ui-tree-malformed
+                                           're-frame.ui/render
+                                           "a dynamic :style value must be a map of style entries"
+                                           {:extra {:value v}}))
                (str/starts-with? n "on-") [m (let [c (classify-event v)]
                                                (if c (assoc es k c) es)) pp]
                (and properties (properties k)) [(assoc m k v) es (conj pp k)]
