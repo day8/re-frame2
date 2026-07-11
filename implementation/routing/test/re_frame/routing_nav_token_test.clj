@@ -5,7 +5,6 @@
   error precedence). Split from routing_test.clj per rf2-u8qe7y finding 3."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.reply :as reply]
             [re-frame.routing :as routing]
             [re-frame.routing.test-support]
             [re-frame.routing-test-support :as rts]))
@@ -610,8 +609,9 @@
 ;; (rf2-068eo5 retired the older ad-hoc :do fx-entry sugar): on the live branch
 ;; the production :rf.route/with-nav-token handler normalizes + completes the
 ;; reply target through the shared re-frame.reply/complete, and on the stale
-;; branch it threads the target into route-reply/suppress so the authorized
-;; :dispatch-stale? target path is honored at the production routing surface.
+;; branch it SUPPRESSES — the app reply target is NEVER dispatched (rf2-j538f7.14:
+;; a superseded async completion must not mutate app state), so no reply target,
+;; however authored, receives a stale reply at the production routing surface.
 ;; These tests drive the canonical :rf/reply-to surface through the production fx.
 
 (deftest with-nav-token-fx-reply-to-completes-live-through-shared-substrate
@@ -694,118 +694,60 @@
         (is (= :stale (-> stale :tags :rf.reply/status)))
         (is (= :suppressed (-> stale :tags :rf.reply/work-status)))))))
 
-(deftest with-nav-token-fx-reply-to-honours-stale-delivery-authority
-  (testing "rf2-2avo53 — the AUTHORIZED :dispatch-stale? path works at the
-            production routing surface: a framework/tool target carrying the
-            stale-delivery capability + :dispatch-stale? true RECEIVES the
-            stale reply; an APP target asking for it without authority FAILS LOUD"
+(deftest with-nav-token-never-delivers-stale-to-any-target
+  (testing "rf2-j538f7.14 — PRODUCTION-PATH regression (AC4): NO app :rf/reply-to
+            target — plain, spelling the removed :dispatch-stale? flag, or FORGING
+            a truthy authority datum (the exact reproduced exploit, and what a
+            wire/EDN-authored target could carry) — can make a superseded route
+            completion deliver. The app handler NEVER runs and app-db + runtime-db
+            are unchanged; the completion suppresses silently (no throw — there is
+            no authority concept left to violate)"
     (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
-    ;; A framework/tool reply target that records the (stale) reply it receives.
-    (rf/reg-event :tool/observe-stale
-                     (fn [{:keys [db]} [_ marker reply]]
-                       {:db (assoc db :tool-saw {:marker marker :reply reply})}))
-    ;; Completion threading an authorized framework/tool target through the fx.
-    (rf/reg-event :tool/completed
+    ;; An app handler that WRITES a marker — a spurious stale delivery would be
+    ;; observable as an app-db mutation. Under the fix it must never run.
+    (rf/reg-event :app/observe-stale
+                     (fn [{:keys [db]} [_ reply]]
+                       {:db (assoc db :app-saw {:reply reply})}))
+    ;; Completion issuing :rf.route/with-nav-token with an app-authored
+    ;; :rf/reply-to. `target-fn` builds the target for each overreach shape.
+    (rf/reg-event :app/completed
                      (fn [_ctx [_ {:keys [carried-token target]}]]
                        {:fx [[:rf.route/with-nav-token
                               {:rf/reply-to target
                                :nav-token   carried-token
                                :route-id    :route/article}]]}))
-    ;; Completion threading an UNAUTHORIZED app target that sets :dispatch-stale?.
-    (rf/reg-event :app/completed
-                     (fn [_ctx [_ {:keys [carried-token]}]]
-                       {:fx [[:rf.route/with-nav-token
-                              {:rf/reply-to {:event [:tool/observe-stale :app]
-                                             :dispatch-stale? true}
-                               :nav-token   carried-token
-                               :route-id    :route/article}]]}))
 
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::stale-authority (fn [ev] (swap! traces conj ev)))
-      ;; Land on A (nav-1), supersede with B (nav-2) so both completions are stale.
-      (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])
-      (rf/dispatch-sync [:rf.route/transitioned "/articles/B"])
-
-      (testing "a framework/tool-authorised :dispatch-stale? target RECEIVES the stale reply"
-        ;; with-stale-authority stamps the namespaced-private capability marker;
-        ;; only framework/tool code can reach it.
-        (let [authed (reply/with-stale-authority
-                       {:event [:tool/observe-stale :tool] :dispatch-stale? true})]
-          (rf/dispatch-sync [:tool/completed {:carried-token "nav-1" :target authed}])
-          (let [{:keys [marker reply]} (:tool-saw (rf/app-db-value :rf/default))]
-            (is (= :tool marker) "the framework/tool target ran (stale delivery authorised)")
-            (is (= :stale (:status reply)) "it received the :status :stale reply")
-            (is (true? (:stale? reply)))
-            (is (= [:rf.work/route :route/article "nav-1" :tool/observe-stale]
-                   (:rf.reply/work-id reply))
-                "the stale reply carries the route work-id"))))
-
-      (testing "an APP target setting :dispatch-stale? true WITHOUT authority FAILS LOUD"
-        ;; The shared substrate throws :rf.reply/unauthorized-stale-delivery; the
-        ;; router TRAPS the fx-handler throw (Spec 009/011 — production-survivable,
-        ;; fanned out as :rf.error/fx-handler-exception, not propagated). The
-        ;; load-bearing facts: the unauthorised app target does NOT receive a
-        ;; stale delivery, and the throw surfaces on the error stream.
-        (rf/dispatch-sync [:app/completed {:carried-token "nav-1"}])
-        (is (not= :app (:marker (:tool-saw (rf/app-db-value :rf/default))))
-            "the unauthorised app target did NOT receive a stale delivery")
-        (rf/unregister-listener! :trace ::stale-authority)
-        (let [err (some (fn [ev]
-                          (when (and (= :rf.error/fx-handler-exception (:operation ev))
-                                     (= :rf.route/with-nav-token (-> ev :tags :rf.fx/id)))
-                            ev))
-                        @traces)]
-          (is (some? err)
-              "the unauthorised stale delivery surfaced as a trapped fx-handler exception
-               (:rf.reply/unauthorized-stale-delivery — an app target cannot grant itself
-               stale delivery at the routing surface)"))))))
-
-(deftest with-nav-token-forged-authority-does-not-deliver-stale
-  (testing "rf2-3fc89f.13 — PRODUCTION-PATH regression: an app :rf/reply-to
-            target that FORGES the authority (spelling the namespaced key and
-            setting it truthy — the exact reproduced exploit, and exactly what a
-            wire/EDN-authored target could carry) drives a real stale route
-            completion but NEVER runs the app handler; app-db + runtime-db are
-            unchanged and the overreach surfaces as a trapped fx-handler throw"
-    (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
-    ;; An app handler that WRITES a marker — so a spurious stale delivery would
-    ;; be observable as an app-db mutation. Under the fix it must never run.
-    (rf/reg-event :app/forged-observe
-                     (fn [{:keys [db]} [_ reply]]
-                       {:db (assoc db :forged-app-saw {:reply reply})}))
-    ;; A completion issuing :rf.route/with-nav-token with a FORGED :rf/reply-to:
-    ;; the namespaced authority key spelled directly + set truthy. Pre-fix this
-    ;; delivered the stale envelope into :app/forged-observe (state corruption).
-    (rf/reg-event :forged/completed
-                     (fn [_ctx [_ {:keys [carried-token]}]]
-                       {:fx [[:rf.route/with-nav-token
-                              {:rf/reply-to {:event [:app/forged-observe]
-                                             :dispatch-stale? true
-                                             :re-frame.reply/stale-authority true}
-                               :nav-token   carried-token
-                               :route-id    :route/article}]]}))
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::forged-authority (fn [ev] (swap! traces conj ev)))
-      ;; Land on A (nav-1), supersede with B (nav-2) so the nav-1 completion is stale.
-      (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])
-      (rf/dispatch-sync [:rf.route/transitioned "/articles/B"])
-      (let [db-before (rf/app-db-value :rf/default)]
-        (rf/dispatch-sync [:forged/completed {:carried-token "nav-1"}])
-        (rf/unregister-listener! :trace ::forged-authority)
-        (let [db-after (rf/app-db-value :rf/default)]
-          (is (nil? (:forged-app-saw db-after))
-              "the forged app target NEVER ran — no stale envelope reached app state")
-          (is (= db-before db-after)
-              "app-db is unchanged by the forged stale completion (no user-visible mutation)")
-          (let [err (some (fn [ev]
-                            (when (and (= :rf.error/fx-handler-exception (:operation ev))
-                                       (= :rf.route/with-nav-token (-> ev :tags :rf.fx/id)))
-                              ev))
-                          @traces)]
-            (is (some? err)
-                "the forged stale delivery surfaced as a trapped fx-handler exception
-                 (:rf.reply/unauthorized-stale-delivery — a forged authority datum
-                 cannot grant stale delivery at the routing surface)")))))))
+    (doseq [target [;; a plain app short form
+                    [:app/observe-stale]
+                    ;; a descriptor spelling the removed :dispatch-stale? flag
+                    {:event [:app/observe-stale] :dispatch-stale? true}
+                    ;; a FORGED authority datum spelled directly + set truthy
+                    {:event [:app/observe-stale]
+                     :dispatch-stale? true
+                     :re-frame.reply/stale-authority true}]]
+      (let [traces (atom [])]
+        (rf/register-listener! :trace ::stale-nondelivery (fn [ev] (swap! traces conj ev)))
+        ;; Land on A (nav-1), supersede with B (nav-2) so the nav-1 completion is stale.
+        (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])
+        (rf/dispatch-sync [:rf.route/transitioned "/articles/B"])
+        (let [db-before  (rf/app-db-value :rf/default)
+              rdb-before (:rf.db/runtime (rf/frame-state-value :rf/default))]
+          (rf/dispatch-sync [:app/completed {:carried-token "nav-1" :target target}])
+          (rf/unregister-listener! :trace ::stale-nondelivery)
+          (is (nil? (:app-saw (rf/app-db-value :rf/default)))
+              (str "target " (pr-str target) " NEVER ran — no stale envelope reached app state"))
+          (is (= db-before (rf/app-db-value :rf/default))
+              (str "app-db is unchanged by the stale completion for " (pr-str target)))
+          (is (= rdb-before (:rf.db/runtime (rf/frame-state-value :rf/default)))
+              (str "runtime-db is unchanged by the stale completion for " (pr-str target)))
+          ;; The suppression trace still fires (the only effect of a stale
+          ;; completion); no fx-handler exception is raised — suppress no longer
+          ;; throws, it silently declines to deliver.
+          (is (some (fn [ev] (= :rf.route.nav-token/stale-suppressed (:operation ev))) @traces)
+              (str "a stale-suppressed trace fired for " (pr-str target)))
+          (is (not-any? (fn [ev] (= :rf.error/fx-handler-exception (:operation ev))) @traces)
+              (str "no fx-handler exception — suppression is silent non-delivery for "
+                   (pr-str target))))))))
 
 ;; ============================================================================
 ;; rf2-25i7r7 — finding 3: route failure semantics across multiple :on-match

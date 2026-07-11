@@ -1,11 +1,12 @@
 (ns re-frame.reply-stale-authority-elision-prod-test
-  "Per rf2-3fc89f.13 — the stale-delivery AUTHORITY boundary is a correctness
-  boundary, so it MUST survive production elision (`:advanced` +
-  `goog.DEBUG=false`). The capability is a provenance-bearing, opaque,
-  non-serializable object compared by IDENTITY — it does not rely on any
-  dev-gated assertion or `goog.DEBUG` branch, so the forgery must still fail
-  loud and the legitimate framework/tool path must still deliver under an
-  advanced-compiled bundle.
+  "Per rf2-j538f7.14 — a stale async completion NEVER app-delivers, and that is
+  a CORRECTNESS boundary, so it MUST survive production elision (`:advanced` +
+  `goog.DEBUG=false`). `re-frame.reply/suppress` returns `:deliver? false` for
+  EVERY target with NO dev-gated assertion or `goog.DEBUG` branch — no
+  debug-only elision can create or remove a delivery decision — so a superseded
+  completion is non-delivering under an advanced-compiled bundle exactly as
+  under dev. (The former per-target stale-delivery capability / authority is
+  deleted; there is no issuer for app code to reach, at any optimization level.)
 
   Naming convention: files ending in `-elision-prod-test.cljs` are picked up
   ONLY by the `:browser-test-prod-elision` build (`:advanced` +
@@ -17,36 +18,34 @@
 (def ^:private carried {:g 1})
 (def ^:private current {:g 2})
 
-(deftest forged-authority-fails-loud-under-prod
-  (testing "rf2-3fc89f.13: under `:advanced` + `goog.DEBUG=false`, a FORGED
-            authority datum (an app/EDN/wire target spelling the namespaced key
-            truthy) is NOT the capability, so `suppress` fails loud rather than
-            deliver a stale envelope to app state — the identity boundary holds
-            with no dev-gated code to elide"
-    (let [forged {:event [:app/replied]
-                  :dispatch-stale? true
-                  :re-frame.reply/stale-authority true}]
-      (is (false? (reply/stale-authority? forged))
-          "a forged truthy datum is not identical? to the capability under prod")
-      (let [id (try (reply/suppress forged carried current)
-                    ::no-throw
-                    (catch ExceptionInfo e (:rf.error/id (ex-data e))))]
-        (is (= :rf.error/reply-unauthorized-stale-delivery id)
-            "the forged app target fails loud under prod — it never delivers")))))
+(deftest stale-suppression-never-delivers-under-prod
+  (testing "rf2-j538f7.14: under `:advanced` + `goog.DEBUG=false`, `suppress` is
+            universally non-delivering — a plain app target, one spelling the
+            removed :dispatch-stale? flag, and one forging a truthy authority
+            datum all yield :deliver? false; a stale envelope never reaches app
+            state, with no dev-gated code to elide"
+    (doseq [target [[:app/replied]
+                    {:event [:app/replied] :dispatch-stale? true}
+                    {:event [:app/replied] :dispatch-stale? true :re-frame.reply/stale-authority true}]]
+      (let [{:keys [deliver? reply]} (reply/suppress target carried current)]
+        (is (false? deliver?)
+            "the stale outcome is non-delivering under advanced compilation")
+        (is (= :stale (:status reply)) "still a well-formed stale reply")
+        (is (not (contains? reply :value)) "no :value can mutate app state")))))
 
-(deftest legitimate-capability-delivers-under-prod
-  (testing "rf2-3fc89f.13: the framework/tool capability still authorises stale
-            delivery under prod — `with-stale-authority` attaches the opaque
-            capability object and `suppress` grants delivery by identity"
-    (let [authd (reply/with-stale-authority {:event [:x] :dispatch-stale? true})]
-      (is (true? (reply/stale-authority? authd))
-          "the capability survives advanced compilation (identity intact)")
-      (is (true? (:deliver? (reply/suppress authd carried current)))
-          "the authorised framework/tool target receives the stale envelope under prod"))))
+(deftest observer-may-self-dispatch-under-prod
+  (testing "rf2-j538f7.14: a framework/tool observer can still self-dispatch the
+            stale :reply on its OWN authority under prod — observation is
+            ordinary `complete` + dispatch, structurally separate from the
+            (universally non-delivering) suppress boundary"
+    (let [{:keys [reply]} (reply/suppress [:app/replied] carried current)]
+      (is (= [:tool/observed reply] (reply/complete [:tool/observed] reply))
+          "the observer builds the completed event from the stale reply itself"))))
 
-(deftest capability-stripped-from-durable-target-under-prod
-  (testing "rf2-3fc89f.13: durable projection drops the capability under prod —
-            a persisted target re-acquires no authority"
-    (let [authd (reply/with-stale-authority {:event [:x] :dispatch-stale? true})]
-      (is (false? (reply/stale-authority? (reply/durable-target authd)))
-          "durable-target strips the capability under advanced compilation"))))
+(deftest durable-target-strips-ephemeral-under-prod
+  (testing "rf2-j538f7.14: durable projection strips the ephemeral ::post slot
+            under prod — a mapped target becomes data-only when persisted"
+    (let [mapped (reply/map-completed-event (fn [e] e) [:x 1])]
+      (is (false? (reply/data-only-target? mapped)))
+      (is (true? (reply/data-only-target? (reply/durable-target mapped)))
+          "durable-target strips ::post under advanced compilation"))))

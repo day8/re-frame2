@@ -118,21 +118,22 @@
         (is (not (contains? reply :completed-at))
             ":completed-at is omitted when the caller supplies none")))))
 
-(deftest suppress-honours-dispatch-stale-opt-in
-  (testing "a framework test/tool target may opt into stale delivery via :dispatch-stale?
-            (app targets MUST NOT) — delegated to re-frame.reply/suppress"
+(deftest suppress-is-universally-non-delivering
+  (testing "rf2-j538f7.14 — a stale route completion is UNIVERSALLY non-delivering
+            through route-reply/suppress: no reply target, app or otherwise,
+            receives it (delegated to re-frame.reply/suppress)"
     (is (false? (:deliver? (route-reply/suppress {:nav-token "nav-1"} "nav-2" nil)))
-        "no opt-in → not delivered")
+        "no target → not delivered")
     (is (false? (:deliver? (route-reply/suppress {:nav-token "nav-1"} "nav-2"
-                                                 {:event [:t] :dispatch-stale? false})))
-        ":dispatch-stale? false → not delivered")
-    (is (true? (:deliver? (route-reply/suppress {:nav-token "nav-1"} "nav-2"
-                                                (reply/with-stale-authority {:event [:t] :dispatch-stale? true}))))
-        ":dispatch-stale? true on a framework/tool-authorised target → delivered")
-    (is (thrown? clojure.lang.ExceptionInfo
-                 (route-reply/suppress {:nav-token "nav-1"} "nav-2"
-                                       {:event [:t] :dispatch-stale? true}))
-        "an APP route target setting :dispatch-stale? true without framework authority FAILS LOUD")))
+                                                 {:event [:t]})))
+        "a plain descriptor → not delivered")
+    (is (false? (:deliver? (route-reply/suppress {:nav-token "nav-1"} "nav-2"
+                                                 {:event [:t] :dispatch-stale? true})))
+        "an inert :dispatch-stale? flag grants nothing → not delivered")
+    (is (false? (:deliver? (route-reply/suppress {:nav-token "nav-1"} "nav-2"
+                                                 {:event [:t] :dispatch-stale? true
+                                                  :re-frame.reply/stale-authority true})))
+        "a forged authority datum grants nothing → not delivered")))
 
 ;; ---- rf2-2avo53 — live completion through the shared substrate -------------
 

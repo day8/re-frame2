@@ -39,7 +39,6 @@
   (:require [re-frame.frame :as frame]
             [re-frame.fx :as fx]
             [re-frame.interop :as interop]
-            [re-frame.reply :as reply]
             [re-frame.routing.reply :as route-reply]
             [re-frame.trace :as trace]))
 
@@ -166,18 +165,14 @@ identity. Per Spec 012 §Lowering onto the uniform reply envelope."})
   mutation families that already carry `:completed-at`. Absent ⇒ omitted
   (a route loader that did not source a completion time).
 
-  rf2-2avo53 — `:target` is the (optional) normalized `:rf/reply-to` reply
-  target. It is threaded into `route-reply/suppress` so the EP-0011
-  stale-delivery AUTHORITY rule applies at the PRODUCTION routing surface:
-  the default is non-delivery (the app target MUST NOT run on a stale
-  completion), but a FRAMEWORK/TOOL target that carries the
-  `::stale-authority` capability and sets `:dispatch-stale? true` is honoured
-  — and an app target that sets `:dispatch-stale? true` without authority
-  FAILS LOUD (the shared substrate throws). Returns the full
-  `re-frame.reply/suppress` outcome (`{:deliver? :reply :rf.reply/work-status :trace}`)
-  so the caller can complete + dispatch the stale reply when (and only when)
-  `:deliver?` is true — the same shape the live branch's `complete-live`
-  produces."
+  rf2-2avo53 / rf2-j538f7.14 — `:target` is the (optional) normalized
+  `:rf/reply-to` reply target. It is threaded into `route-reply/suppress` for
+  call-site uniformity, but a stale completion is UNIVERSALLY non-delivering at
+  the production routing surface: the app reply target MUST NOT run on a
+  superseded completion (it would mutate app state for a newer navigation), so
+  `:deliver?` is always false. Returns the full `re-frame.reply/suppress`
+  outcome (`{:deliver? :reply :rf.reply/work-status :trace}`); the caller emits
+  the suppression trace and dispatches nothing (the app target is never run)."
   [{:keys [carried-token current-token event-id frame-id route-id loader-id completed-at target]}]
   (let [{:keys [reply trace] :as outcome}
         (route-reply/suppress
@@ -204,8 +199,9 @@ identity. Per Spec 012 §Lowering onto the uniform reply envelope."})
                            ;; a sourced completion time is unaffected.
                            :completed-at completed-at}
                           current-token
-                          ;; rf2-2avo53 — the reply target, consulted only for
-                          ;; its `:dispatch-stale?` opt-in + `::stale-authority`.
+                          ;; rf2-2avo53 / rf2-j538f7.14 — the reply target,
+                          ;; threaded for call-site uniformity but not consulted
+                          ;; for delivery (a stale outcome never app-delivers).
                           target)]
     (trace/emit-error! :rf.route.nav-token/stale-suppressed
                        (cond-> {:carried-token     carried-token
@@ -249,11 +245,9 @@ identity. Per Spec 012 §Lowering onto the uniform reply envelope."})
                          ;; mutation families carry. Absent ⇒ omitted.
                          (some? (:completed-at reply))
                          (assoc :completed-at (:completed-at reply))))
-    ;; rf2-2avo53 — return the full suppression outcome so the caller can
-    ;; complete + dispatch the stale reply when (and only when) `:deliver?` is
-    ;; true (a framework/tool-authorised `:dispatch-stale?` target). The
-    ;; default app path leaves `:deliver?` false and the caller dispatches
-    ;; nothing — the trace above is the only effect of a suppressed completion.
+    ;; rf2-j538f7.14 — return the full suppression outcome for the caller's
+    ;; bookkeeping. `:deliver?` is always false — a stale completion NEVER
+    ;; dispatches the app reply target; the trace above is the only effect.
     outcome))
 
 (def with-nav-token-meta
@@ -273,9 +267,9 @@ Match → complete the continuation; mismatch → suppress and emit
 The continuation is named by the canonical `:rf/reply-to` reply target (an
 event-vector prefix or descriptor — the EP-0011 lowering: on match the route
 loader's `:status :ok` reply map is appended to the target via the shared
-`re-frame.reply/complete`, and on a framework/tool-authorised `:dispatch-stale?`
-target the stale reply is delivered the same way). `:rf/reply-to` is the single,
-required continuation surface."
+`re-frame.reply/complete`; on mismatch the completion is suppressed and the app
+reply target is never dispatched). `:rf/reply-to` is the single, required
+continuation surface."
    :schema [:map
             ;; rf2-2avo53 — the CANONICAL `:rf/reply-to` reply target: the
             ;; single, required EP-0011 property-9 target key. The route
@@ -334,10 +328,10 @@ required continuation surface."
      the shared substrate, exercising the EP-0011 mapping/completion law at the
      actual navigation wrapper), then dispatched.
 
-   - on mismatch the target is threaded into `re-frame.reply/suppress`, so a
-     framework/tool-authorised `:dispatch-stale? true` target receives the
-     stale reply (and an app target asking for it without authority FAILS
-     LOUD); the default app path suppresses (no dispatch).
+   - on mismatch the target is threaded into `re-frame.reply/suppress`, which is
+     UNIVERSALLY non-delivering (rf2-j538f7.14): the app reply target is NEVER
+     dispatched on a stale completion (a superseded async result must not mutate
+     app state for a newer navigation). The suppression trace is the only effect.
 
   Match completes the continuation; mismatch emits
   `:rf.route.nav-token/stale-suppressed` joined to the route work-id."
@@ -407,22 +401,16 @@ required continuation surface."
 
       ;; Stale — suppress through the shared reply-envelope correctness
       ;; boundary. rf2-7d30s — `frame-id` frame-attributes the suppression so
-      ;; it lands in the emitting frame's epoch / Xray. rf2-2avo53 — the reply
-      ;; target is threaded in so a framework/tool-authorised `:dispatch-stale?`
-      ;; target receives the stale reply; the default app path does not.
-      (let [{:keys [deliver? reply]}
-            (emit-stale-suppressed!
-              (assoc reply-ctx
-                     :carried-token nav-token
-                     :current-token current
-                     :event-id      loader-id
-                     :frame-id      frame-id
-                     :target        reply-target))]
-        ;; rf2-2avo53 — authorised stale delivery: complete the target with the
-        ;; STALE reply and dispatch it. `:deliver?` is true ONLY for a
-        ;; framework/tool target that opted in via an authorised
-        ;; `:dispatch-stale? true` (the substrate already FAILED LOUD on an
-        ;; unauthorised app target). The default app path leaves `:deliver?`
-        ;; false → no dispatch, the suppression trace is the only effect.
-        (when (and deliver? (some? reply-target))
-          (dispatch! [:dispatch (reply/complete reply-target reply)]))))))
+      ;; it lands in the emitting frame's epoch / Xray. rf2-j538f7.14 — a stale
+      ;; completion is UNIVERSALLY non-delivering: the app reply target is NEVER
+      ;; dispatched (a superseded async result must not mutate app state for a
+      ;; newer navigation). The suppression trace `emit-stale-suppressed!` emits
+      ;; is the only effect; the reply target is threaded for call-site
+      ;; uniformity but nothing is dispatched.
+      (emit-stale-suppressed!
+        (assoc reply-ctx
+               :carried-token nav-token
+               :current-token current
+               :event-id      loader-id
+               :frame-id      frame-id
+               :target        reply-target)))))
