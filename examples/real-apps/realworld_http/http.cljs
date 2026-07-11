@@ -17,14 +17,22 @@
    architecture: the `request` builder and `paginate-path`.
 
    BACKEND MODES (see this example's README §Running against a real backend):
-   - canned demo stub (DEFAULT) — `core.cljs` overrides `:rf.http/managed`
-     with an in-process router built on `realworld-shared.demo-backend`, so the
-     app runs with NO network at all. `api-base` is never contacted.
+   - canned demo stub (DEFAULT) — the demo `:rf.http/managed` override fx
+     (`:realworld.demo/http-stub`, defined at the bottom of this ns and wired
+     from `core.cljs`'s frame `:fx-overrides`) routes through an in-process
+     backend built on `realworld-shared.demo-backend`, so the app runs with NO
+     network at all. `api-base` is never contacted.
    - official hosted API — point `api-base` at the hosted Conduit API,
      `https://api.realworld.show/api`, and drop the demo-stub override.
    - local reference backend — the upstream Node/Postgres backend on
      `http://localhost:3000/api`."
-  (:require [realworld-shared.http :as wh]))
+  (:require [re-frame.core :as rf]
+            [realworld-shared.http :as wh]
+            ;; The in-process Conduit demo backend shared by both RealWorld
+            ;; examples — wired under an app-local fx-id at the bottom of this ns
+            ;; (the demo `:rf.http/managed` override `core.cljs` references from
+            ;; the frame's `:fx-overrides`).
+            [realworld-shared.demo-backend :as demo]))
 
 ;; ============================================================================
 ;; CONFIG
@@ -119,7 +127,7 @@
                          :retry  rh/data-fetch-retry})]]}"
   [{:keys [method path body decode accept retry timeout-ms
            on-success on-failure reply-to request-id abort-signal
-           extra-headers]
+           extra-headers sensitive?]
     :or   {method :get
            decode :json}
     :as   args}]
@@ -127,8 +135,18 @@
         req     (cond-> {:method method
                          :url    (full-url path)
                          :headers headers}
-                  body (assoc :body body
-                              :request-content-type :json))
+                  body       (assoc :body body
+                                    :request-content-type :json)
+                  ;; `:sensitive? true` tells the REAL managed-HTTP handler to
+                  ;; scrub the whole request body (and params) from every
+                  ;; `:rf.http/*` trace event — the run mode that talks to a real
+                  ;; Conduit backend. A credential-bearing call (login / register
+                  ;; / settings) sets it. Note the DEFAULT run mode overrides
+                  ;; `:rf.http/managed` with the demo stub, which bypasses this
+                  ;; scrub — that path is covered by the stub's own `:sensitive`
+                  ;; (core.cljs). See keep-secrets:
+                  ;; ../../../docs/core/how-to/keep-secrets-out-of-traces.md
+                  sensitive? (assoc :sensitive? true))
         out     (cond-> {:request req
                          :decode  decode}
                   retry        (assoc :retry retry)
@@ -172,3 +190,41 @@
 ;; dispatch opts (`{:rf.cofx {:rf/time-ms 1781078400123}}`); live code just
 ;; lets the router stamp the real time. See the coeffects guide:
 ;; ../../../docs/core/coeffects.md#two-grades-ambient-and-recordable
+
+;; ============================================================================
+;; DEMO BACKEND
+;; ============================================================================
+;;
+;; Out of the box this example talks to no server at all. Normally it would hit
+;; the hosted Conduit API (`api-base`), but a live backend is slow and flaky for
+;; a demo, and we'd like you to be able to clone-and-run on a plane. So we
+;; override `:rf.http/managed` with the in-process demo backend both RealWorld
+;; examples share (`realworld-shared.demo-backend`): one canonical Conduit corpus
+;; + a URL/method request router + a canned-reply adapter, wired here under an
+;; app-local fx-id. `core.cljs` references it from the demo frame's
+;; `:fx-overrides` — there is no explicit install call to make. The shared
+;; `respond` does the routing and defers each reply through the framework's
+;; canned-success / canned-failure fxs.
+
+(rf/reg-fx :realworld.demo/http-stub
+  {:doc       "This example's `:rf.http/managed` override: the shared in-process
+               Conduit demo backend (`realworld-shared.demo-backend`), wired
+               under an app-local fx-id and referenced from the frame's
+               `:fx-overrides` in `core.cljs`. All the routing + canned-reply
+               machinery (including the `::decode-failure` session-restore path)
+               lives in the shared backend; this is just the app-local seam."
+   ;; This stub is the CLASSIFIED OWNER of the request body it receives. The
+   ;; login / register / settings requests carry the plaintext password at
+   ;; [:request :body :user :password] (the Conduit `{user {…}}` envelope). The
+   ;; real `:rf.http/managed` handler would scrub a `:sensitive?`-marked request
+   ;; body itself, but the frame's `:fx-overrides` remap `:rf.http/managed` to
+   ;; THIS stub, BYPASSING that scrub. When the override fires, `handle-one-fx`
+   ;; stamps the always-emitted `:rf.fx/handled` trace with THIS fx's id and its
+   ;; RAW args, and the classification projector redacts `:rf.fx/args` off the
+   ;; RESOLVED fx's own `:sensitive`. So the stub must declare its own — without
+   ;; it the password would ride raw on the one wire every tool reads
+   ;; (docs/core/how-to/keep-secrets-out-of-traces.md).
+   :sensitive [[:request :body :user :password]]
+   :platforms #{:server :client}}
+  (fn fx-managed-demo-stub [frame-ctx args-map]
+    (demo/respond frame-ctx args-map)))

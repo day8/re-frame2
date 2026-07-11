@@ -296,5 +296,10 @@
                :url    (rh/full-url "/user")
                :body   {:user (cond-> {:username username :email email
                                        :bio bio :image image}
-                                (seq password) (assoc :password password))}}
+                                (seq password) (assoc :password password))}
+               ;; Scrub the whole body from `:rf.http/*` traces when this
+               ;; mutation lowers onto the REAL managed handler (real-backend
+               ;; run mode). The default demo run mode overrides `:rf.http/managed`
+               ;; with the stub, covered by the stub's own `:sensitive` (http.cljs).
+               :sensitive? true}
      :decode  schema/UserResponse}))

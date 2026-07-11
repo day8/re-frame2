@@ -257,6 +257,16 @@
 ;;     app-db before the bearer-auth interceptor fires its first authenticated
 ;;     request.
 ;;
+;; The token is not the only credential, though: the login / register / settings
+;; PASSWORD is one too, the moment it is typed. Its app-db drafts are classified
+;; :sensitive at slice-init (auth.cljs / settings.cljs) and its outbound HTTP
+;; body is classified on the demo stub (http.cljs) — same discipline as the
+;; token, applied where the password actually rests and travels. (One corner it
+;; can't reach: login/register ride the auth machine as a POSITIONAL sub-event
+;; and settings rides `:rf.mutation/execute`'s :params — a positional / framework
+;; payload a path-based :sensitive cannot address, so those trace slots still
+;; ship raw; keeping a credential out of such payloads is the only real fix.)
+;;
 ;; Two things we deliberately DON'T classify, since under-redacting and
 ;; over-redacting are both mistakes. The outbound `Authorization` Bearer header
 ;; is already redacted off-box by the framework's built-in HTTP carrier denylist,

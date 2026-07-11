@@ -60,10 +60,17 @@
          pure Form-1: a re-render never re-runs the load, so edits you've got in
          flight survive. Seeds `:touched` alongside `:draft` — the FormSlice
          schema (schema.cljs) requires both, so a slice with only `:draft`
-         would fail its own schema until the first field edit."}
+         would fail its own schema until the first field edit.
+
+         Also classifies the draft-password path :sensitive in this same seed
+         write (classify-before-write, mirroring :auth/classify-token), so the
+         new-password the user types reads :rf/redacted at every app-db egress
+         while the submit handler still reads the live value. See keep-secrets:
+         ../../../docs/core/how-to/keep-secrets-out-of-traces.md"}
   (fn [{:keys [db]} _]
-    {:db (assoc-in db [:settings-form] {:draft   (draft-from-user (get-in db [:auth :user]))
-                                        :touched #{}})}))
+    {:db        (assoc-in db [:settings-form] {:draft   (draft-from-user (get-in db [:auth :user]))
+                                               :touched #{}})
+     :sensitive [[:settings-form :draft :password]]}))
 
 (rf/reg-event :settings/edit-field
   {:schema [:cat [:= :settings/edit-field] :keyword :string]}
