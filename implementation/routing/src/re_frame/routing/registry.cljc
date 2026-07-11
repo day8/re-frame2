@@ -326,10 +326,15 @@
 
   Computes :rf.route/rank AND a :rf.route/compiled regex at registration
   time so match-url can sort candidates by rank and match without
-  re-parsing on each call. If a previously-registered route has an
-  equal structural rank, emits :rf.warning/route-shadowed-by-equal-score
-  (per Spec 012 §Route ranking algorithm — rule 6) so tooling can flag
-  the conflict."
+  re-parsing on each call. If a previously-registered route has an equal
+  structural rank AND a co-matchable pattern (some URL matches both —
+  Spec 012 §Route ranking algorithm rule 6's 'same URL family'), emits
+  :rf.warning/route-shadowed-by-equal-score so tooling can flag the
+  conflict. Earlier registration wins the rule-6 tiebreak at match time,
+  so the NEW route is the shadowed one: the warning's :route-id names it,
+  :shadowed-by names the existing winner, and :rank carries the tied
+  structural tuple. Equal rank alone never warns — /x/:id and /y/:slug
+  tie structurally but can never both match one URL (rf2-6gzobp)."
   [id metadata path]
   ;; Reject non-map metadata FIRST (rf2-45b95 authoring-boundary guard) with
   ;; the canonical `:rf.error/route-bad-metadata`. Under the 3-slot
@@ -417,20 +422,44 @@
                        compiled      (assoc :rf.route/compiled compiled)
                        query-coerce  (assoc :rf.route/query-coerce query-coerce)
                        params-coerce (assoc :rf.route/params-coerce params-coerce))]
-    ;; Spec 012 rule-6 warning: scan existing routes for one whose
-    ;; structural rank (rules 1-5) equals ours. The match-time tuple
-    ;; (`:rf.route/rank`) carries `(- reg-index)` as its trailing
-    ;; element and is structurally one longer; drop that suffix.
+    ;; Spec 012 rule-6 warning (rf2-6gzobp): scan existing routes for one
+    ;; whose structural rank (rules 1-5) equals ours AND whose pattern can
+    ;; match a common URL. The rank tie is only a PREFILTER — rank tuples
+    ;; ignore literal segment text, so every same-shape pair ties
+    ;; regardless of literals (/home vs /about; /x/:id vs /y/:slug), and
+    ;; warning on the tie alone floods every ordinary multi-page app with
+    ;; spurious warnings. The real rule-6 condition is co-matchability
+    ;; ("the same URL family"): after the tie, `match/patterns-intersect?`
+    ;; decides exactly whether some URL matches both patterns via
+    ;; product-automaton reachability over the two segment automata.
+    ;; The match-time tuple (`:rf.route/rank`) carries `(- reg-index)` as
+    ;; its trailing element and is structurally one longer; drop that
+    ;; suffix for the tie test.
+    ;;
+    ;; Payload direction: earlier registration WINS the rule-6 tiebreak
+    ;; (the trailing `(- reg-index)` sorts earlier routes higher), so the
+    ;; NEW route is the shadowed one — `:route-id` names it, `:shadowed-by`
+    ;; names the existing winner, `:rank` carries the tied structural
+    ;; tuple (the Spec-Schemas `:rf/route-rank` 5-tuple). When several
+    ;; existing routes tie AND intersect, the one that actually wins at
+    ;; match time — the earliest-registered, i.e. the highest full
+    ;; 6-tuple — is named.
     (when structural
-      (when-let [shadowed
-                 (some (fn [[other-id other-meta]]
-                         (when-let [other-rank (:rf.route/rank other-meta)]
-                           (when (and (not= other-id id)
-                                      (= structural (subvec other-rank 0 5)))
-                             other-id)))
-                       (registrar/registrations :route))]
+      (when-let [winner
+                 (->> (registrar/registrations :route)
+                      (filter (fn [[other-id other-meta]]
+                                (when-let [other-rank (:rf.route/rank other-meta)]
+                                  (and (not= other-id id)
+                                       (= structural (subvec other-rank 0 5))
+                                       (match/patterns-intersect?
+                                         pattern (:path other-meta))))))
+                      (sort-by (fn [[_ m]] (:rf.route/rank m))
+                               #(compare %2 %1))
+                      ffirst)]
         (trace/emit! :warning :rf.warning/route-shadowed-by-equal-score
-                     {:route-id id :shadowed shadowed})))
+                     {:route-id    id
+                      :shadowed-by winner
+                      :rank        structural})))
     (let [previous (registrar/lookup :route id)]
       (registrar/register! :route id meta')
       ;; Cache invalidation is automatic — the registrar's `:route` map

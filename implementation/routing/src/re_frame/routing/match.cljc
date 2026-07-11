@@ -404,6 +404,216 @@
               (recur end depth (conj parts (regex-escape static-seg)) names
                      inner group-stack counts'))))))))
 
+;; ---- pattern co-matchability (rf2-6gzobp) ----------------------------------
+;; Spec 012 §Route ranking algorithm rule 6 scopes the MUST-warn
+;; `:rf.warning/route-shadowed-by-equal-score` to routes with an equal
+;; structural score ON THE SAME URL FAMILY — patterns that can actually
+;; match a common URL. Equal rank alone is not ambiguity: `/x/:id` and
+;; `/y/:slug` tie structurally, but no URL matches both, so rule 6's
+;; registration-order tiebreak can never fire between them.
+;;
+;; Co-matchability is decided EXACTLY, by language intersection over
+;; segment automata — NOT by comparing corresponding literal segments,
+;; which has false negatives once optional groups shift positions
+;; (`/a{/x}?/b` vs `/a/x{/b}?` share no literal column yet both match
+;; `/a/x/b`) and once params cross positions (`/x/:id` vs `/:kind/y`
+;; intersect at `/x/y`).
+;;
+;; The segment model mirrors the compiled-regex semantics `match-against`
+;; applies, at segment granularity:
+;;   - a literal segment matches exactly its canonical text (case-sensitive,
+;;     %-encoding compared as written — exactly the `regex-escape`d literal);
+;;   - a `:name` param matches exactly ONE arbitrary non-empty segment
+;;     (`[^/]+`);
+;;   - a final `*name` / bare `*` splat matches ONE OR MORE remaining
+;;     segments (`(.+)`) — and, when the splat is the pattern's only atom
+;;     (`/*` / `/*rest`, regex `^/?(.+)$`), also the zero-segment root URL
+;;     `/` (the capture is the literal `/` — the rf2-1ugs5u root quirk);
+;;   - a `{/…}?` optional group contributes its inner segments OR nothing
+;;     (an epsilon branch).
+;; Both patterns are canonical at registration (trailing slashes stripped by
+;; `canonical-route-pattern`) and matched against identically-normalised
+;; URLs (`registry/normalize-match-path`), so segment-level intersection
+;; over these atoms coincides with regex-language intersection restricted
+;; to the URLs `match-url` can ever receive.
+
+(defn- optional-group-tokens
+  "Tokenize a validated `{/seg…}?` group BODY (the text between the braces,
+  starting with `/`) into its inner segment atoms — `[:lit text]` or
+  `:param`. Splats are rejected inside groups at validation, and the body
+  carries no empty segments, so the split is total."
+  [body]
+  (mapv (fn [seg]
+          (if (clojure.string/starts-with? seg ":")
+            :param
+            [:lit seg]))
+        (rest (clojure.string/split body #"/"))))
+
+(defn- segment-tokens
+  "Tokenize a canonical, validation-passed route pattern into
+  segment-granularity atoms: `[:lit text]`, `:param`, `:splat`, or
+  `[:opt [inner…]]`. Returns nil when the pattern is NOT segment-aligned —
+  the degenerate (grammar-permitted but pathological) shapes where an
+  optional group's boundary cuts inside a segment: raw text glued directly
+  after `}?` (`{/x}?abc`), or a group opening right after a top-level `/`
+  (`/a/{/x}?`, whose elided branch leaves an empty segment). Their
+  languages are not unions of whole segments; `patterns-intersect?` treats
+  nil as conservatively co-matchable so the Spec 012 rule-6 MUST-warn is
+  never lost on them."
+  [^String pattern]
+  (let [n (count pattern)]
+    (loop [i      (if (and (pos? n) (= \/ (.charAt pattern 0))) 1 0)
+           tokens []]
+      (if (>= i n)
+        tokens
+        (let [ch (.charAt pattern i)]
+          (cond
+            (= ch \/)
+            ;; A `/` immediately followed by `{` yields an EMPTY segment
+            ;; when the group elides — not segment-representable.
+            (if (and (< (inc i) n) (= \{ (.charAt pattern (inc i))))
+              nil
+              (recur (inc i) tokens))
+
+            (= ch \:)
+            (recur (segment-end pattern n (inc i)) (conj tokens :param))
+
+            (= ch \*)
+            (recur (segment-end pattern n (inc i)) (conj tokens :splat))
+
+            (= ch \{)
+            (let [close (.indexOf pattern "}" i)
+                  after (+ close 2)] ;; skip `}?`
+              (if (and (< after n)
+                       (not (or (= \/ (.charAt pattern after))
+                                (= \{ (.charAt pattern after)))))
+                nil ;; text glued onto `}?` — not segment-aligned
+                (recur after
+                       (conj tokens [:opt (optional-group-tokens
+                                            (subs pattern (inc i) close))]))))
+
+            :else
+            (let [end (loop [j i]
+                        (if (or (>= j n)
+                                (= \/ (.charAt pattern j))
+                                (= \{ (.charAt pattern j)))
+                          j
+                          (recur (inc j))))]
+              (recur end (conj tokens [:lit (subs pattern i end)])))))))))
+
+(defn- tokens->nfa
+  "Compile segment tokens into a tiny epsilon-NFA over the segment
+  alphabet. Returns `{:edges {state [[label to] …]} :eps {state #{to}}
+  :start 0 :accept <state> :root? <bool>}` where `label` is `[:lit text]`
+  / `:param` / `:any`, `:eps` carries the optional-group skip edges, and
+  `:root?` marks the splat-only quirk (`/*` / `/*rest` additionally match
+  the zero-segment root URL `/`)."
+  [tokens]
+  (loop [ts    (seq tokens)
+         state 0
+         edges {}
+         eps   {}]
+    (if-not ts
+      {:edges edges :eps eps :start 0 :accept state
+       :root? (= [:splat] tokens)}
+      (let [t (first ts)]
+        (cond
+          (= :param t)
+          (recur (next ts) (inc state)
+                 (update edges state (fnil conj []) [:param (inc state)])
+                 eps)
+
+          (= :splat t)
+          ;; Consume ≥1 segments then accept: pre —any→ post —any→ post.
+          ;; (The splat is grammatically final, so `post` becomes :accept.)
+          (let [post (inc state)]
+            (recur (next ts) post
+                   (-> edges
+                       (update state (fnil conj []) [:any post])
+                       (update post  (fnil conj []) [:any post]))
+                   eps))
+
+          (= :lit (first t))
+          (recur (next ts) (inc state)
+                 (update edges state (fnil conj []) [t (inc state)])
+                 eps)
+
+          :else ;; [:opt inner]
+          (let [entry state
+                [edges' exit]
+                (reduce (fn [[e s] inner-tok]
+                          [(update e s (fnil conj []) [inner-tok (inc s)])
+                           (inc s)])
+                        [edges entry]
+                        (second t))]
+            (recur (next ts) exit edges'
+                   (update eps entry (fnil conj #{}) exit))))))))
+
+(defn- eps-closure
+  "The forward epsilon-closure of `state` under the NFA's optional-group
+  skip edges."
+  [eps state]
+  (loop [seen     #{state}
+         frontier [state]]
+    (if (empty? frontier)
+      seen
+      (let [fresh (remove seen (mapcat #(get eps % #{}) frontier))]
+        (recur (into seen fresh) (vec fresh))))))
+
+(defn- labels-compatible?
+  "True when some single URL segment satisfies BOTH edge labels: `:any`
+  (splat) and `:param` match every non-empty segment; two literals are
+  compatible iff their canonical texts are identical."
+  [la lb]
+  (or (= :any la) (= :any lb)
+      (= :param la) (= :param lb)
+      (= la lb)))
+
+(defn patterns-intersect?
+  "True when some URL path can match BOTH canonical route patterns — the
+  Spec 012 §Route ranking algorithm rule-6 'same URL family' test behind
+  `:rf.warning/route-shadowed-by-equal-score` (rf2-6gzobp). Decided by
+  product-automaton reachability over the two patterns' segment automata
+  (see the section comment above): the product walks pairs of states,
+  advancing both automata one co-compatible segment at a time; a reachable
+  pair of accepting states is a common URL. Exact for the segment-aligned
+  grammar; the degenerate glued-group shapes (see `segment-tokens`)
+  conservatively return true. Both arguments must be CANONICAL patterns
+  (as produced by `canonical-route-pattern` / stored on route metadata)."
+  [pattern-a pattern-b]
+  (let [ta (segment-tokens pattern-a)
+        tb (segment-tokens pattern-b)]
+    (if (or (nil? ta) (nil? tb))
+      true
+      (let [na       (tokens->nfa ta)
+            nb       (tokens->nfa tb)
+            close-a  (memoize #(eps-closure (:eps na) %))
+            close-b  (memoize #(eps-closure (:eps nb) %))
+            ;; A state accepts when its closure reaches :accept — or, for
+            ;; the splat-only `:root?` quirk, at the start state (the
+            ;; zero-segment root URL `/` is also in the language).
+            accept-a? (fn [s] (or (contains? (close-a s) (:accept na))
+                                  (and (:root? na) (= s (:start na)))))
+            accept-b? (fn [s] (or (contains? (close-b s) (:accept nb))
+                                  (and (:root? nb) (= s (:start nb)))))
+            start     [(:start na) (:start nb)]]
+        (loop [queue   [start]
+               visited #{start}]
+          (if (empty? queue)
+            false
+            (let [[sa sb] (peek queue)]
+              (if (and (accept-a? sa) (accept-b? sb))
+                true
+                (let [succs (for [a'      (close-a sa)
+                                  [la ta'] (get (:edges na) a')
+                                  b'      (close-b sb)
+                                  [lb tb'] (get (:edges nb) b')
+                                  :when   (labels-compatible? la lb)]
+                              [ta' tb'])
+                      fresh (remove visited succs)]
+                  (recur (into (pop queue) fresh)
+                         (into visited fresh)))))))))))
+
 ;; ---- match-against --------------------------------------------------------
 
 (defn match-against

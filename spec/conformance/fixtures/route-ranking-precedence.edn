@@ -9,7 +9,7 @@
 {:fixture/id           :routing/ranking-precedence
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:routing/ranking}
- :fixture/doc          "Deterministic route-ranking cascade. Six overlapping registration sets exercise rules 1-6; each URL has exactly one winner across all conforming implementations. Equal-score conflicts emit :rf.warning/route-shadowed-by-equal-score."
+ :fixture/doc          "Deterministic route-ranking cascade. Six overlapping registration sets exercise rules 1-6; each URL has exactly one winner across all conforming implementations. Equal-score CO-MATCHABLE conflicts (same URL family) emit :rf.warning/route-shadowed-by-equal-score; equal rank alone does not warn (rf2-6gzobp)."
 
  :fixture/registry
  {:route
@@ -107,9 +107,21 @@
   {:call :assert-rank-greater :winner :route/docs.page  :loser :route/docs.optional}]
 
  :fixture/expect
- {;; Rule 6 also emits a registration-time warning for the equal-score pair.
+ {;; Rule 6 also emits a registration-time warning for the equal-score pair —
+  ;; but ONLY because the pair is CO-MATCHABLE (identical literals, different
+  ;; param names — every /equal-score/* URL matches both). Equal rank alone
+  ;; is not a conflict (rf2-6gzobp): e.g. :route/files.named (/files/:name)
+  ;; ties :route/users.detail (/users/:id) structurally, yet no URL matches
+  ;; both, so no warning fires for that pair (a negative :trace-emissions
+  ;; assertion is not expressible here — the matcher is subset-tolerant —
+  ;; so the zero-warning side is pinned by the reference implementation's
+  ;; routing tests). Payload direction: the EARLIER registration wins the
+  ;; rule-6 tiebreak at match time, so the NEW route (:route-id) is the
+  ;; shadowed one and :shadowed-by names the existing winner; :rank (the
+  ;; tied structural tuple) also rides the tags but is not asserted here —
+  ;; absolute tuple values are implementation-flexible, as above.
   :trace-emissions
   [{:operation :rf.warning/route-shadowed-by-equal-score
     :op-type   :warning
-    :tags      {:route-id :rf.route/equal.second
-                :shadowed :rf.route/equal.first}}]}}
+    :tags      {:route-id    :rf.route/equal.second
+                :shadowed-by :rf.route/equal.first}}]}}

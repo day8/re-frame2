@@ -126,7 +126,7 @@ When two patterns could both match one URL, a structural ranking breaks the tie:
 
 ??? note "The full ranking cascade"
 
-    The five path elements above are the whole grammar; the ranking cascade, when two patterns compete, runs six rules deep: (1) more static segments win; (2) the *bare* catch-all `/*` is demoted below everything; (3) longer paths win; (4) named params beat splats; (5) exact routes beat optional-group routes; (6) registration order is the final, discouraged tiebreak — and the runtime warns (`:rf.warning/route-shadowed-by-equal-score`) at registration if two routes tie all the way down. You won't need past rule (1) for everyday routes.
+    The five path elements above are the whole grammar; the ranking cascade, when two patterns compete, runs six rules deep: (1) more static segments win; (2) the *bare* catch-all `/*` is demoted below everything; (3) longer paths win; (4) named params beat splats; (5) exact routes beat optional-group routes; (6) registration order is the final, discouraged tiebreak — and the runtime warns (`:rf.warning/route-shadowed-by-equal-score`) at registration if two routes tie all the way down *and* could actually match the same URL (`/a/:x` and `/a/:y` warn; `/x/:id` and `/y/:slug` don't — they tie structurally but never compete). The warning names the new, shadowed route (`:route-id`), the earlier-registered winner (`:shadowed-by`), and the tied score (`:rank`). You won't need past rule (1) for everyday routes.
 
 ## Move 2: navigation is an event
 

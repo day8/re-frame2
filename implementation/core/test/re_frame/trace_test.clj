@@ -218,8 +218,11 @@
       (rf/dispatch-sync [:loop-forever] {:frame :test/main})
 
       ;; ---- Routing: :rf.warning/route-shadowed-by-equal-score -------------
-      ;; Two routes with the same structural rank (same path shape, both
-      ;; concrete). The second registration sees the first and warns.
+      ;; Two routes with the same structural rank AND the same URL family
+      ;; (identical patterns, so trivially co-matchable — rf2-6gzobp). The
+      ;; second registration sees the first and warns; the earlier
+      ;; registration wins at match time, so the NEW route is the shadowed
+      ;; one.
       (rf/reg-route :route/a {} "/foo")
       (rf/reg-route :route/b {} "/foo")
 
@@ -328,12 +331,18 @@
             (is (= #{:client}      (:rf.fx/registered-platforms t)))
             (is (set? (:rf.fx/registered-platforms t)))))
 
-        (testing ":warning :rf.warning/route-shadowed-by-equal-score fires on equal-rank route registration"
+        (testing ":warning :rf.warning/route-shadowed-by-equal-score fires on equal-rank co-matchable route registration"
           (is (has-op? events :warning :rf.warning/route-shadowed-by-equal-score)
               "expected :warning :rf.warning/route-shadowed-by-equal-score")
+          ;; rf2-6gzobp payload direction: earlier registration wins the
+          ;; rule-6 tiebreak, so :route-id names the NEW (shadowed) route,
+          ;; :shadowed-by the existing winner, and :rank carries the tied
+          ;; rules-1-5 structural tuple.
           (let [t (:tags (find-op events :warning :rf.warning/route-shadowed-by-equal-score))]
             (is (keyword? (:route-id t)))
-            (is (keyword? (:shadowed t)))))
+            (is (keyword? (:shadowed-by t)))
+            (is (vector? (:rank t)))
+            (is (= 5 (count (:rank t))))))
 
         ;; ---- :rf.frame op-type ---------------------------------------------
         (testing ":rf.frame :rf.frame/created fires on first reg-frame for an id"

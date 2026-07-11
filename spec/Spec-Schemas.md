@@ -1445,11 +1445,13 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:offending-frame :keyword]])
 
 (def RouteShadowedByEqualScoreTags
+  ;; rf2-6gzobp payload direction: the EARLIER registration wins the rule-6
+  ;; tiebreak at match time, so the NEW route is the shadowed one.
   [:map
-   [:category  :keyword]
-   [:route-id  :keyword]
-   [:shadowed  :keyword]
-   [:rank      {:optional true} :any]])
+   [:category    :keyword]
+   [:route-id    :keyword]   ;; the NEW route — the shadowed one
+   [:shadowed-by :keyword]   ;; the existing route that wins the rule-6 tie
+   [:rank        :any]])     ;; the tied rules-1-5 structural tuple (:rf/route-rank)
 
 (def StaleSuppressedTags
   [:map
@@ -3322,7 +3324,7 @@ The structural-rank tuple `match-url` computes for each registered route, per [0
           [:enum 0 1]])                                                   ;; rule 5 — has optional group? 0 = yes; 1 = no
 ```
 
-Implementations rank candidates by descending `route-rank` then by ascending registration time (stable sort). Equal-score candidates emit `:rf.warning/route-shadowed-by-equal-score` at registration time per [API.md §Error contract](API.md#error-contract); the warning's `:tags` carry `{:route-id <new> :shadowed <existing> :rank <RouteRank>}`.
+Implementations rank candidates by descending `route-rank` then by ascending registration time (stable sort) — the **earlier** registration wins an equal-score tie. Equal-score candidates **whose patterns can match a common URL** (the [012 §Route ranking algorithm](012-Routing.md#route-ranking-algorithm) rule-6 "same URL family" — co-matchability, decided by language intersection over the patterns' segment automata) emit `:rf.warning/route-shadowed-by-equal-score` at registration time per [API.md §Error contract](API.md#error-contract). Equal rank alone MUST NOT warn — rank tuples ignore literal segment text, so `/x/:id` and `/y/:slug` tie structurally yet never co-match (rf2-6gzobp). The warning's `:tags` carry `{:route-id <the NEW, shadowed route> :shadowed-by <the existing winner> :rank <the tied structural RouteRank>}`.
 
 ### `:rf/route-slice`
 

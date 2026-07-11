@@ -40,7 +40,7 @@ Throughout, `rf` is the `re-frame.core` facade alias (`[re-frame.core :as rf]`).
   - carries `:path` (the path pattern belongs in the third slot), or
   - carries a bare (unqualified) key outside the reserved set below. Namespaced keys (`:myapp/analytics-id`) always pass.
 
-  Emits `:rf.warning/route-shadowed-by-equal-score` when an already-registered route has an equal structural rank. Emits `:rf.route/registered` on first-time registration.
+  Emits `:rf.warning/route-shadowed-by-equal-score` when an already-registered route has an equal structural rank **and** the two patterns can match a common URL (`/a/:x` vs `/a/:y` warns; `/x/:id` vs `/y/:slug` doesn't — they tie structurally but never compete for a URL). The earlier registration wins the tiebreak at match time, so the *new* route is the shadowed one: the warning's tags name it under `:route-id`, the existing winner under `:shadowed-by`, and the tied structural tuple under `:rank`. Emits `:rf.route/registered` on first-time registration.
 
 #### A minimal route
 
