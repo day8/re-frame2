@@ -246,6 +246,34 @@ function probeTargetFromBaseUrl(baseUrl, opts = {}) {
   return { host: parsed.hostname, port, path, protocol: parsed.protocol };
 }
 
+// The address a server BINDS to is not always an address a client can
+// CONNECT to, so a readiness prove must derive its probe host from the bind
+// host rather than defaulting to loopback. A readiness check MUST address the
+// same interface the server actually listens on: an IPv6-loopback-only bind
+// (`::1`) is unreachable via IPv4 `127.0.0.1` (and vice versa), so probing the
+// wrong loopback times out against a perfectly healthy server. Every CONCRETE
+// bind host — a loopback literal, `localhost`, or a hostname — is therefore
+// threaded through to the probe unchanged.
+//
+// The exception is a WILDCARD bind. `0.0.0.0` / `::` mean "listen on every
+// interface"; they are bind targets, never portable client destinations, and
+// connecting to an unspecified address is not reliable. Each maps to its
+// matching loopback — a concrete, reachable address a wildcard-bound server
+// necessarily answers on: `0.0.0.0` -> `127.0.0.1`, `::` -> `::1`. This never
+// broadens a server's bind surface; it only picks a client-usable address for
+// the liveness/ownership handshake.
+function deriveProbeHost(bindHost) {
+  switch (bindHost) {
+    case '0.0.0.0':
+      return '127.0.0.1';
+    case '::':
+    case '[::]':
+      return '::1';
+    default:
+      return bindHost;
+  }
+}
+
 async function waitForHttpReady(port, deadline, opts = {}) {
   const pollMs = opts.pollMs || 200;
   const isAborted = opts.isAborted || (() => false);
@@ -525,6 +553,14 @@ function ownedReadinessFailureDiagnostic(result, port, timeoutMs) {
 //                 asset tree is never valid.
 //   - port       (required) — the resolved, already-free port to bind.
 //   - host       — bind address (default '127.0.0.1').
+//   - probeHost  — the address the owned-readiness handshake CONNECTS to.
+//                 Defaults to a client-usable derivation of `host`
+//                 (deriveProbeHost): a concrete bind (`::1`, `localhost`, a
+//                 hostname) probes itself; a wildcard bind (`0.0.0.0`/`::`)
+//                 probes the matching loopback. Both the liveness probe and
+//                 the ownership-token fetch use this SAME host, so they can
+//                 never diverge onto different interfaces (a server bound to
+//                 `::1` must be proven ready over `::1`, not IPv4 loopback).
 //   - cwd        — spawn cwd (where node_modules / http-server resolves).
 //   - execPath   — node binary to run http-server under (default
 //                 process.execPath, shell-free).
@@ -568,6 +604,7 @@ async function startLocalHttpServer(opts = {}) {
     root,
     port,
     host = '127.0.0.1',
+    probeHost = deriveProbeHost(host),
     cwd,
     execPath = process.execPath,
     readyTimeoutMs = 30000,
@@ -666,11 +703,16 @@ async function startLocalHttpServer(opts = {}) {
   // Accept ready:true ONLY when the responder serves this run's token; return
   // ready:false for every other structured outcome, with a reason-specific
   // diagnostic.
+  // Prove owned readiness against the SAME interface the server bound to.
+  // `probeHost` is threaded through the single options object both probeHttp
+  // and fetchToken read, so the liveness probe and the ownership-token fetch
+  // address one host — never loopback-by-default while the server listens on
+  // a non-default bind (e.g. `::1`), which would time out a healthy server.
   const result = await waitForOwnedHttpReady(
     port,
     token,
     Date.now() + readyTimeoutMs,
-    { isAborted: aborted },
+    { isAborted: aborted, host: probeHost },
   );
   if (!result.ok) {
     log(ownedReadinessFailureDiagnostic(result, port, readyTimeoutMs));
@@ -683,6 +725,7 @@ async function startLocalHttpServer(opts = {}) {
 module.exports = {
   TOKEN_FILE_BASENAME,
   createHarnessCleanup,
+  deriveProbeHost,
   fetchToken,
   findFreePort,
   isPortFree,

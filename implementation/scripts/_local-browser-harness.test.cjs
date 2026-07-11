@@ -11,6 +11,7 @@ const path = require('path');
 const {
   TOKEN_FILE_BASENAME,
   createHarnessCleanup,
+  deriveProbeHost,
   fetchToken,
   findFreePort,
   isPortFree,
@@ -29,6 +30,33 @@ const tests = [];
 
 function test(name, fn) {
   tests.push({ name, fn });
+}
+
+// The IPv6-loopback owned-readiness tests need a `::1` that both binds AND
+// accepts a client connection. Most modern Windows/macOS/Linux hosts have it,
+// but minimal CI containers occasionally disable IPv6, so those tests SKIP
+// (rather than fail) where it is unavailable — the deriveProbeHost mapping
+// unit test plus the wildcard/default functional coverage still pin the fix
+// on every platform. (Per the repo's cross-platform maintainer discipline: a
+// script must not hard-require a feature a maintainer's box may lack.)
+function testIpv6(name, fn) {
+  tests.push({ name, fn, needsIpv6: true });
+}
+
+function ipv6LoopbackAvailable() {
+  return new Promise((resolve) => {
+    const srv = net.createServer();
+    srv.once('error', () => resolve(false));
+    srv.listen(0, '::1', () => {
+      const { port } = srv.address();
+      // Bindable — now confirm a client can actually reach it over ::1.
+      const client = net.connect({ host: '::1', port }, () => {
+        client.destroy();
+        srv.close(() => resolve(true));
+      });
+      client.once('error', () => { srv.close(() => resolve(false)); });
+    });
+  });
 }
 
 function listenOnLoopback(server) {
@@ -1052,9 +1080,150 @@ test('startLocalHttpServer cleanup unlinks its own ownership token in the non-ov
   }
 });
 
+// rf2-j538f7.12 — startLocalHttpServer must PROVE owned readiness against the
+// interface the server actually bound to, not a hard-coded 127.0.0.1 default.
+// It advertises a configurable `host` (passed to http-server as `-a <host>`)
+// but previously dropped it when waiting for owned readiness: the readiness
+// call passed only `{isAborted}`, so probeHttp/fetchToken defaulted to
+// 127.0.0.1. A server bound `::1` (IPv6 loopback only) was therefore probed on
+// IPv4 loopback and falsely reported timeout — a false-red gate against a
+// healthy server, plus a cleanup that kills it. The fix threads a `probeHost`
+// (derived from `host`) through the single options object both the liveness
+// probe and the ownership-token fetch read, so they cannot diverge.
+
+test('deriveProbeHost keeps concrete binds and maps wildcards to loopback (rf2-j538f7.12)', () => {
+  // Concrete binds probe THEMSELVES — the readiness check must address the
+  // same interface the server listens on (an ::1 server is unreachable via
+  // 127.0.0.1, and vice versa).
+  assert.equal(deriveProbeHost('127.0.0.1'), '127.0.0.1');
+  assert.equal(deriveProbeHost('::1'), '::1');
+  assert.equal(deriveProbeHost('localhost'), 'localhost');
+  assert.equal(deriveProbeHost('staging.internal'), 'staging.internal');
+  // Wildcard binds are "every interface" bind targets, never portable client
+  // destinations — map each to the matching, reachable loopback.
+  assert.equal(deriveProbeHost('0.0.0.0'), '127.0.0.1');
+  assert.equal(deriveProbeHost('::'), '::1');
+  assert.equal(deriveProbeHost('[::]'), '::1');
+});
+
+testIpv6('startLocalHttpServer proves owned readiness over a non-default IPv6-loopback bind (rf2-j538f7.12)', async () => {
+  const { dir, binPath } = mkFakeBin(FAKE_HTTP_SERVER, 'fake-http-server.cjs');
+  const port = await findFreePort();
+  const cleanup = createHarnessCleanup({ onError: () => {} });
+  const tokenPath = path.join(dir, TOKEN_FILE_BASENAME);
+  try {
+    const { server, ready } = await startLocalHttpServer({
+      cleanup,
+      httpServerBin: binPath,
+      root: dir,
+      port,
+      host: '::1', // bind IPv6 loopback ONLY
+      cwd: dir,
+      readyTimeoutMs: 5000,
+      log: () => {},
+    });
+    // THE regression: readiness is proven over the configured ::1 bind. On the
+    // pre-fix code the prove defaulted to 127.0.0.1 and TIMED OUT against this
+    // healthy IPv6-only server, so `ready` would be false here.
+    assert.equal(ready, true, 'owned readiness must be proven over the configured ::1 bind host');
+    // The `-a <host>` bind host propagated to spawn (recorded argv).
+    const argv = JSON.parse(fs.readFileSync(path.join(dir, '.fake-argv.json'), 'utf8'));
+    assert.deepEqual(argv, [dir, '-a', '::1', '-p', String(port), '-s', '-c-1']);
+    // The exact ownership token was fetched over ::1.
+    assert.equal(
+      await fetchToken(port, { host: '::1' }),
+      fs.readFileSync(tokenPath, 'utf8'),
+      'the ownership token must be fetchable over ::1',
+    );
+    // TEETH: the same server is NOT reachable through 127.0.0.1 — so the
+    // success above came from host propagation, not dual-stack behaviour in
+    // the fake. A 127.0.0.1 fetch must find nothing.
+    assert.equal(
+      await fetchToken(port, { host: '127.0.0.1', timeout: 500 }),
+      null,
+      'the IPv6-only server must be unreachable via 127.0.0.1 (proves host propagation, not dual-stack)',
+    );
+    // Cleanup terminates the child and removes this run's ownership token.
+    const exited = waitForExit(server, 30000);
+    await cleanup.cleanup();
+    await exited;
+    assert.equal(
+      fs.existsSync(tokenPath),
+      false,
+      'cleanup must remove this run\'s ownership token',
+    );
+  } finally {
+    await cleanup.cleanup();
+    rmTmp(dir);
+  }
+});
+
+testIpv6('startLocalHttpServer readiness follows probeHost, not the bind host (rf2-j538f7.12)', async () => {
+  // Bind IPv6 loopback but OVERRIDE the probe to IPv4 loopback. The server is
+  // healthy and serving its token over ::1, yet readiness must FAIL — proving
+  // the owned-readiness prove connects to `probeHost` for BOTH the liveness
+  // probe and the token fetch, never a hard-coded/derived default that could
+  // diverge from where the caller pointed it.
+  const { dir, binPath } = mkFakeBin(FAKE_HTTP_SERVER, 'fake-http-server.cjs');
+  const port = await findFreePort();
+  const cleanup = createHarnessCleanup({ onError: () => {} });
+  try {
+    const { ready, isDown } = await startLocalHttpServer({
+      cleanup,
+      httpServerBin: binPath,
+      root: dir,
+      port,
+      host: '::1',
+      probeHost: '127.0.0.1', // deliberately mismatched with the bind
+      cwd: dir,
+      readyTimeoutMs: 800,
+      log: () => {},
+    });
+    assert.equal(ready, false, 'probing 127.0.0.1 against an ::1-only server must not prove ready');
+    assert.equal(isDown(), false, 'the server is healthy — it was simply not probed on its interface');
+  } finally {
+    await cleanup.cleanup();
+    rmTmp(dir);
+  }
+});
+
+test('startLocalHttpServer proves readiness against loopback for a wildcard 0.0.0.0 bind (rf2-j538f7.12)', async () => {
+  const { dir, binPath } = mkFakeBin(FAKE_HTTP_SERVER, 'fake-http-server.cjs');
+  const port = await findFreePort();
+  const cleanup = createHarnessCleanup({ onError: () => {} });
+  try {
+    const { ready } = await startLocalHttpServer({
+      cleanup,
+      httpServerBin: binPath,
+      root: dir,
+      port,
+      host: '0.0.0.0', // wildcard bind — a bind target, not a client address
+      cwd: dir,
+      readyTimeoutMs: 5000,
+      log: () => {},
+    });
+    // deriveProbeHost maps 0.0.0.0 -> 127.0.0.1, a concrete reachable loopback
+    // the wildcard-bound server answers on; the prove must never connect to
+    // the unspecified 0.0.0.0 itself.
+    assert.equal(ready, true, 'a wildcard-bound server must be proven ready via 127.0.0.1');
+    const argv = JSON.parse(fs.readFileSync(path.join(dir, '.fake-argv.json'), 'utf8'));
+    assert.deepEqual(argv, [dir, '-a', '0.0.0.0', '-p', String(port), '-s', '-c-1']);
+  } finally {
+    await cleanup.cleanup();
+    rmTmp(dir);
+  }
+});
+
 (async () => {
+  const hasIpv6 = await ipv6LoopbackAvailable();
   let failed = 0;
-  for (const { name, fn } of tests) {
+  let skipped = 0;
+  for (const { name, fn, needsIpv6 } of tests) {
+    if (needsIpv6 && !hasIpv6) {
+      skipped += 1;
+      console.log(`SKIP ${name} (no IPv6 loopback available)`);
+      continue;
+    }
     try {
       await fn();
     } catch (err) {
@@ -1069,7 +1238,10 @@ test('startLocalHttpServer cleanup unlinks its own ownership token in the non-ov
     process.exit(1);
   }
 
-  console.log(`local-browser-harness tests: ${tests.length} passed.`);
+  console.log(
+    `local-browser-harness tests: ${tests.length - skipped} passed` +
+      (skipped ? `, ${skipped} skipped (no IPv6 loopback).` : '.'),
+  );
 })().catch((err) => {
   console.error(err && err.stack ? err.stack : err);
   process.exit(1);
