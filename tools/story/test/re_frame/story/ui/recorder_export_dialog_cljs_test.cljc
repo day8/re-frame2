@@ -15,6 +15,7 @@
     replay / close buttons all surface)."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
+            [re-frame.story.recorder                    :as recorder]
             [re-frame.story.recorder.play-export        :as export]
             [re-frame.story.recorder.play-export-events :as export-events]
             #?(:cljs [re-frame.story.ui.recorder-export-dialog :as export-dialog])))
@@ -135,25 +136,50 @@
 
 #?(:cljs
    (deftest dialog-survives-fresh-recording
-     (testing "starting a fresh recording while the export dialog is open does
-              NOT mutate the in-flight export — the snapshot is taken at open
-              time, NOT read live off the recorder atom"
-       (export-dialog/open-dialog!
-         {:source-id :story.a/source
-          :events    [[:auth/login] [:counter/inc]]})
-       (let [before (str (export-dialog/export-dialog))]
-         (is (str/includes? before ":auth/login"))
-         ;; A fresh recording starts (recorder reset, new events) — this
-         ;; would be the same race the parent save-dialog dodges via
-         ;; rf2-8x9nb. The export dialog inherits the safety because it
-         ;; carries its own snapshot.
-         (reset! export-dialog/ui-dialog
-                 (assoc @export-dialog/ui-dialog :events []))
-         ;; The dialog state was directly poked → render reflects the poke.
-         ;; This test merely demonstrates the snapshot is on the ratom we
-         ;; own. The integration guarantee against recorder-atom mutation
-         ;; is by construction: open-dialog! deref'd events at call time.
-         (is true)))))
+     (testing "the export dialog holds its OWN snapshot of the captured
+              events, taken when the export-open handler runs; mutating the
+              recorder afterwards (a fresh recording + a new keystroke, then
+              a discard) does NOT change the in-flight export. Drives the REAL
+              call-site (open-from-recorder-dialog!) with the recorder's live
+              capture, then churns the recorder — exercising the
+              snapshot-independence the test name promises, NOT a self-poke of
+              the dialog's own ratom (rf2-x76af2.20)."
+       ;; Seed the recorder with a completed capture.
+       (recorder/clear!)
+       (recorder/start-recording! :story.a/source)
+       (recorder/record-event! [:auth/login])
+       (recorder/record-event! [:counter/inc])
+       (is (seq (recorder/recorded-events))
+           "sanity: the recorder captured the seeded events")
+       ;; Drive the export-open handler EXACTLY as the toolbar :on-export
+       ;; closure does — deref the recorder AT click time and pass the
+       ;; snapshot. :source-id nil keeps the frame-db snapshot out of scope.
+       (export-dialog/open-from-recorder-dialog!
+         {:events    (recorder/recorded-events)
+          :entries   (recorder/recorded-entries)
+          :source-id nil})
+       (let [snap-events  (:events  @export-dialog/ui-dialog)
+             snap-entries (:entries @export-dialog/ui-dialog)]
+         (is (str/includes? (str (export-dialog/export-dialog)) ":auth/login")
+             "the export dialog snapshotted the captured events at open time")
+         ;; MUTATE THE RECORDER: a fresh recording resets the atom, a new
+         ;; keystroke lands, then a discard — the exact churn the snapshot
+         ;; must survive. Were any link reading the recorder live, the
+         ;; already-open export would change.
+         (recorder/start-recording! :story.b/other)
+         (recorder/record-event! [:counter/dec])
+         (recorder/clear!)
+         (is (= snap-events (:events @export-dialog/ui-dialog))
+             "recorder churn did not change the export dialog :events snapshot")
+         (is (= snap-entries (:entries @export-dialog/ui-dialog))
+             "recorder churn did not change the export dialog :entries snapshot")
+         (let [after (str (export-dialog/export-dialog))]
+           (is (str/includes? after ":auth/login")
+               "the rendered export still carries the originally-captured events")
+           (is (not (str/includes? after ":counter/dec"))
+               "the post-open recorder keystroke never leaked into the export")))
+       ;; Leave the recorder idle for the next test.
+       (recorder/clear!))))
 
 #?(:cljs
    (deftest dialog-auto-assert-includes-assertions-in-snippet
