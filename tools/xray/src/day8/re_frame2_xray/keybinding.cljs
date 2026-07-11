@@ -227,6 +227,27 @@
           ;; one coerced read carries the same truth value.
           (boolean (.-isContentEditable target))))))
 
+(defn- target-activatable?
+  "True when `event.target` is an activatable control that natively
+  consumes Space (and Enter) for its OWN activation — a `<button>`,
+  `<summary>`, or `[role=button]`. Even inside Xray's shell, Space
+  belongs to the focused control (activating it), NOT to the spine's
+  `Space` → live-pause toggle. Without this exemption the spine branch
+  hijacks Space from a focused ribbon `<button>` / `<summary>` and
+  `.preventDefault`s it, blocking the control's native activation
+  (rf2-d716o9). Mirrors `target-editable?` for text surfaces: when a
+  native control owns the keystroke, the spine yields.
+
+  (`<a href>` links activate on Enter, which is not a spine key, so
+  they are unaffected — the concrete victims are `<button>` /
+  `<summary>` / `[role=button]`.)"
+  [^js event]
+  (when-let [^js target (.-target event)]
+    (let [tag (some-> target .-tagName .toUpperCase)]
+      (or (= tag "BUTTON")
+          (= tag "SUMMARY")
+          (= "button" (some-> target (.getAttribute "role")))))))
+
 (defn- target-inside-modal?
   "True when `event.target` is a DOM node inside one of Xray's modal
   surfaces (Settings popup, command palette) — identified by the
@@ -384,6 +405,10 @@
     (when (and (mount/visible?)
                (target-inside-xray? event)
                (not (target-editable? event))
+               ;; rf2-d716o9 — yield to a focused activatable control
+               ;; (button / summary / [role=button]) so Space activates
+               ;; the control instead of being hijacked as live-pause.
+               (not (target-activatable? event))
                (not (target-inside-modal? event)))
       (when-let [event-id (spine-key-id event)]
         (.preventDefault event)
