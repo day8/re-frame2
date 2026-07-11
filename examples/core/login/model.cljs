@@ -220,6 +220,17 @@
                classified `:auth.login/succeeded` event (which owns the session
                token), failure to the machine's `:auth.login/failure`
                sub-event."
+   ;; This stub is the CLASSIFIED OWNER of the request body it receives. The
+   ;; login request carries the plaintext password at [:request :body :password],
+   ;; and `submit-form` marks the request `:sensitive? true` — but that scrub
+   ;; lives inside the REAL `:rf.http/managed` handler, which the `:fx-overrides`
+   ;; remap to this stub BYPASSES. When the override fires, `handle-one-fx`
+   ;; stamps the always-emitted `:rf.fx/handled` trace with THIS fx's id and its
+   ;; RAW args, and the classification projector redacts `:rf.fx/args` off the
+   ;; RESOLVED fx's own `:sensitive`. So the stub must declare its own — without
+   ;; it the password would ride raw on the one wire every tool reads
+   ;; (docs/core/how-to/keep-secrets-out-of-traces.md).
+   :sensitive [[:request :body :password]]
    :platforms #{:server :client}}
   (fn fx-managed-login-demo [frame-ctx args-map]
     (let [{:keys [url body]} (:request args-map)
