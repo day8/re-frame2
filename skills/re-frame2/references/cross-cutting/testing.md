@@ -340,8 +340,11 @@ For HTTP stubs, the fn form lets the test return a canned response shape without
 (rf/dispatch-sync [:user/login {:email "user@example.com"}]
   {:fx-overrides {:rf.http/managed
                   (fn [m args]
-                    (when-let [on-success (:on-success args)]
-                      (rf/dispatch (conj on-success {:status 200 :body {:user "u1"}})
+                    ;; Deliver the CANONICAL reply envelope ({:status :ok :value …}),
+                    ;; appended to the request's reply target — NOT a raw
+                    ;; {:status 200 :body …} (that dialect was retired).
+                    (when-let [target (or (:reply-to args) (:on-success args))]
+                      (rf/dispatch (conj target {:status :ok :value {:user "u1"}})
                                    {:frame (:frame m)})))}})
 ```
 

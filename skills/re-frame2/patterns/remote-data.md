@@ -62,7 +62,7 @@ The dominant shape; used wherever an explicit `:status` keyword and Pattern-Remo
   ;; The HTTP `:on-success` reply IS the canonical EP-0011 envelope
   ;; `{:status :ok :value v …}` (no reshape); here we only need
   ;; the decoded body, so destructure `:value`. (The envelope also carries
-  ;; `:work/id` / `:completed-at` — read `(:completed-at reply)` when you want
+  ;; `:rf.reply/work-id` / `:completed-at` — read `(:completed-at reply)` when you want
   ;; the causal completion time off the reply itself; below we use the
   ;; declared recordable clock instead.) The recorded clock arrives flat as
   ;; `rf/time-ms` (declared above), the durable causal time.
