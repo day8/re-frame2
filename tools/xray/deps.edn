@@ -50,6 +50,18 @@
          ;; installed by the host still governs the runtime path.
          day8/reagent-slim {:local/root "../../implementation/adapters/reagent-slim"}
 
+         ;; Xray's own views require stock Reagent directly — e.g.
+         ;; `day8.re-frame2-xray.views.resizable-table` requires
+         ;; `reagent.core` for its component-local Ratom state — so Xray
+         ;; declares the stock `reagent/reagent` dep itself. It previously
+         ;; inherited Reagent transitively from core, but core is now
+         ;; Reagent-free (re-frame.views late-binds via the
+         ;; `:adapter/current-component` hook), so every artefact that
+         ;; requires reagent.* must declare it. This is dev-only (Xray is a
+         ;; devtools panel excluded from production bundles) and independent
+         ;; of the reagent-slim adapter above, which carries no stock Reagent.
+         reagent/reagent {:mvn/version "2.0.1"}
+
          ;; Editscript is the shared pure-data diff representation for
          ;; the tree inspector, flat diff view, and runtime accessor.
          juji/editscript {:mvn/version "0.6.5"}

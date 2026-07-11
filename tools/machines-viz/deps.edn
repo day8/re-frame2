@@ -34,7 +34,19 @@
          ;; pulls transit through machines-viz — NOT because the dep is
          ;; test-scoped (moving it to :test would break share.cljs at
          ;; runtime).
-         com.cognitect/transit-cljs {:mvn/version "0.8.280"}}
+         com.cognitect/transit-cljs {:mvn/version "0.8.280"}
+
+         ;; The MachineChart component and viewer require stock Reagent
+         ;; directly (`reagent.core` for component-local Ratom state,
+         ;; `reagent.dom.client` in the standalone viewer), so machines-viz
+         ;; declares the stock `reagent/reagent` dep itself. It previously
+         ;; inherited Reagent transitively from core, but core is now
+         ;; Reagent-free (re-frame.views late-binds via the
+         ;; `:adapter/current-component` hook), so every artefact that
+         ;; requires reagent.* must declare it. This is dev-only: the whole
+         ;; machines-viz jar is bundle-isolated, so a consumer's production
+         ;; bundle never pulls Reagent through it.
+         reagent/reagent {:mvn/version "2.0.1"}}
 
  :aliases
  {:test {:extra-paths ["test"]

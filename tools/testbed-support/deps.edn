@@ -3,7 +3,16 @@
 {:paths ["src"]
  :deps  {org.clojure/clojure {:mvn/version "1.12.0"}
          ;; Supplies the source-coordinate resolver used by the server.
-         day8/re-frame2      {:local/root "../../implementation/core"}}
+         day8/re-frame2      {:local/root "../../implementation/core"}
+
+         ;; The story-host testbed helper requires stock Reagent directly
+         ;; (`re-frame.testbed.story-host` requires `reagent.dom.client`),
+         ;; so testbed-support declares the stock `reagent/reagent` dep
+         ;; itself. It previously inherited Reagent transitively from core,
+         ;; but core is now Reagent-free (re-frame.views late-binds via the
+         ;; `:adapter/current-component` hook), so every artefact that
+         ;; requires reagent.* must declare it. Dev-only test-support tool.
+         reagent/reagent     {:mvn/version "2.0.1"}}
 
  :aliases
  {:test {:extra-paths ["test"]
