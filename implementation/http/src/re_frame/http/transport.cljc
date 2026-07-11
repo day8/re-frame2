@@ -25,7 +25,8 @@
   backoff `maybe-retry!` decides between retry, immediate-final-failure,
   and successful completion based on the failing attempt's failure
   category and the request's `:retry` config."
-  (:require [re-frame.http.decode       :as decode]
+  (:require [re-frame.error             :as error]
+            [re-frame.http.decode       :as decode]
             [re-frame.http.encoding     :as encoding]
             [re-frame.http.middleware   :as middleware]
             [re-frame.http.privacy      :as privacy]
@@ -121,6 +122,59 @@
   #?(:cljs (transport-cljs/detach-external-abort! (:external-abort ctx)))
   nil)
 
+(defn- emit-reply-tail-error!
+  "Surface a REPLY-TAIL exception — a throw AFTER the transport already
+  completed, during reply delivery: an `:after` interceptor throw
+  (classified `:rf.error/http-interceptor-failed`), or a malformed reply
+  target the dispatch-time guard did not catch (`:rf.error/http-bad-reply-
+  target`, belt-and-braces path).
+
+  Per Spec 014 §Failure mode a response-side throw MUST NOT be reclassified
+  as a transport rejection. Letting it propagate back into the platform
+  completion handler retried a request whose wire outcome already SUCCEEDED —
+  on CLJS a 2xx re-send storm (the `.catch` fed `classify-cljs-error` →
+  `:rf.http/transport` → `maybe-retry!`, and the retry mints a FRESH handle,
+  bypassing the once-only `:finalised?` guard); on the JVM the throw escaped
+  the unobserved `whenComplete` future and vanished (the caller hung). This
+  boundary catches the reply-tail throw and surfaces it ONCE as
+  `:rf.error/http-reply-tail-failed` — the response-side analogue of the
+  request-side `:rf.error/fx-handler-exception` boundary — observably (not
+  swallowed on the JVM) and WITHOUT retry.
+
+  The request is already finalised (the once-only reply CAS was won and the
+  registry cleared BEFORE the reply tail ran), so no teardown is performed
+  here — only the observable emit. The reply itself is not delivered (delivery
+  is what threw); the emit names the situation and the failing interceptor /
+  target so the broken `:after` / reply target is fixable. Dev-gated
+  (`interop/debug-enabled?`), diagnostic channel, and privacy-composed (the
+  URL redacts under the per-call `:sensitive?` flag / query-param denylist)
+  matching the sibling `:rf.http/*` error rows."
+  [ctx e]
+  (when interop/debug-enabled?
+    (let [reply-error-id (:rf.error/id (ex-data e))]
+      (trace/emit-error!
+        :rf.error/http-reply-tail-failed
+        (privacy/prepare-emit-tags
+          {:url            (:url ctx)
+           :kind           (:kind ctx)
+           :reply-error-id reply-error-id
+           :cause          (error/ex-message-safe e)
+           :recovery       :no-recovery
+           :reason         (str "A managed-HTTP reply tail threw AFTER the "
+                                "transport completed"
+                                (when reply-error-id
+                                  (str " (" reply-error-id ")"))
+                                " — reply delivery / an `:after` interceptor / "
+                                "the reply target failed. The throw is NOT "
+                                "classified as a transport rejection (no retry, "
+                                "no re-send of the already-completed request) "
+                                "and is surfaced here rather than swallowed. Fix "
+                                "the `:after` interceptor or reply target so it "
+                                "does not throw (Spec 014 §Middleware §Failure mode).")}
+          (true? (:sensitive? ctx))
+          {:frame (:frame ctx)}))))
+  nil)
+
 (defn- dispatch-reply!
   "Threads the reply-payload through the per-frame `:after` interceptor
   chain (REVERSE registration order) BEFORE handing off to the
@@ -138,26 +192,46 @@
   build a ctx directly without going through `managed-handler`), the
   `:after` chain is skipped and the reply-payload passes through
   unchanged — the chain's contract is to see the `:before`'s ctx, not a
-  synthesised one."
+  synthesised one.
+
+  rf2-ln85eg — the `:after` chain + late-bind dispatch is the REPLY TAIL,
+  and it runs AFTER the transport already succeeded (the once-only reply CAS
+  is won and the registry cleared before this fn is reached). A throw here (a
+  throwing `:after`, or a belt-and-braces malformed-reply-target throw) MUST
+  NOT propagate back into the platform completion handler — on CLJS the Fetch
+  `.catch` would reclassify it as `:rf.http/transport` and `maybe-retry!`
+  would re-send the already-completed 2xx (a retry-storm, because the retry
+  mints a fresh handle that bypasses the once-only guard); on the JVM the
+  throw would escape the unobserved `whenComplete` future and vanish (the
+  caller hangs). The fence catches it and routes it to a NON-retrying,
+  once-observable `:rf.error/http-reply-tail-failed` emit — never the
+  transport-rejection classifier. Per Spec 014 §Failure mode."
   [{:keys [origin-event explicit-on-success explicit-on-failure
-           kind reply-payload frame middleware-ctx completed-at]}]
+           kind reply-payload frame middleware-ctx completed-at]
+    :as   ctx}]
   (let [explicit (case kind
                    :success explicit-on-success
                    :failure explicit-on-failure)]
     ;; Live and canned replies share this `:after` + late-bind path. The
     ;; `:after` chain is skipped when no middleware-ctx is present
     ;; (synthetic / test-path callers).
-    (middleware/run-after-then-dispatch!
-      {:frame          frame
-       :middleware-ctx middleware-ctx
-       :origin-event   origin-event
-       :explicit-on    explicit
-       :reply-payload  reply-payload
-       :kind           kind
-       ;; EP-0010 / EP-0017 (rf2-n1rh0f / rf2-alc1lf): the host completion time
-       ;; rides the reply dispatch's `:rf.cofx` `:rf/time-ms` so a reply reducer
-       ;; reads it as causal data, never a fresh clock.
-       :completed-at   completed-at})))
+    (try
+      (middleware/run-after-then-dispatch!
+        {:frame          frame
+         :middleware-ctx middleware-ctx
+         :origin-event   origin-event
+         :explicit-on    explicit
+         :reply-payload  reply-payload
+         :kind           kind
+         ;; EP-0010 / EP-0017 (rf2-n1rh0f / rf2-alc1lf): the host completion time
+         ;; rides the reply dispatch's `:rf.cofx` `:rf/time-ms` so a reply reducer
+         ;; reads it as causal data, never a fresh clock.
+         :completed-at   completed-at})
+      ;; rf2-ln85eg — reply-tail fence. Post-transport-success throw → a
+      ;; non-retrying, observable `:rf.error/http-reply-tail-failed`, NOT the
+      ;; transport-rejection classifier (no CLJS retry-storm, no JVM swallow).
+      (catch #?(:clj Throwable :cljs :default) e
+        (emit-reply-tail-error! ctx e)))))
 
 ;; Every completion (success, failure, or abort) flows through one canonical
 ;; reply map built in `re-frame.http.reply` — `:status` (`:ok` / `:error` /
