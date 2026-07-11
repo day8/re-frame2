@@ -328,7 +328,9 @@ Blocks (server polls ~100ms cadence) until the predicate holds — `{:ok? true :
 
 **Why this works:** a Story variant *is* a re-frame2 frame — the variant id is the frame id. Every re-frame2-pair op taking a `frame:` arg works against a variant out of the box. Full pattern: [variant-as-frame.md](variant-as-frame.md).
 
-**Setup.** A Story-enabled build is running (`re-frame.story` loaded; some variants registered). The variant is either already mounted in the canvas or you mount it via story-mcp / `run-variant`.
+> **Two Story hosts — pick the browser one for a live app.** For the **running browser app's own** registered variants, drive `re-frame.story/*` directly through `eval-cljs` — the pair is the live-browser Story host. The `mcp__re-frame2-story-mcp__run-variant` tool used below targets story-mcp's **headless same-JVM** host, which cannot see the browser registry. See [stories.md §Driving Story directly in the browser](stories.md#driving-story-directly-in-the-browser-via-eval-cljs) for the enumerate → run → read recipe against the browser heap.
+
+**Setup.** A Story-enabled build is running (`re-frame.story` loaded; some variants registered). The variant is either already mounted in the canvas or you mount it (browser: `eval-cljs {form: "(re-frame.story/run-variant :story.counter/loaded)", await: true}`; story-mcp's headless host: `run-variant`).
 
 **Procedure:**
 
