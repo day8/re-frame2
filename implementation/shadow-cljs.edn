@@ -140,6 +140,13 @@
                 ;; holds: no production build :requires re-frame.ui.*.
                 "ui/src"
                 "ui/test"
+                ;; rf2-vxgfnd.6 — the G-1 direct-render parity bench
+                ;; surface (compiled bench views + hand-written
+                ;; jsx-runtime baselines + the estimator harness).
+                ;; Consumed ONLY by the :ui-bench release build below
+                ;; (npm run test:ui-g1); nothing under a production
+                ;; build or another test build :requires it.
+                "ui/bench"
                 ;; rf2-3cfvt — adversarial-property SECURITY tier. A small
                 ;; cross-artefact test tree probing the three security
                 ;; boundaries the pin-and-assert regime missed: SSR escaping
@@ -696,6 +703,23 @@
    :main      re-frame.test-quiet.shadow-node/main
    :compiler-options {:warnings      {:redef false}
                       :infer-externs false}}
+
+  ;; rf2-vxgfnd.6 — the G-1 direct-render parity gate (07 §5) for the
+  ;; re-frame.ui compiled-view substrate. A :node-script RELEASE build
+  ;; (:advanced — the gate measures + inspects PRODUCTION emission):
+  ;; compiled bench views vs hand-written jsx-runtime baselines under
+  ;; the revised noise-robust estimator (alternating interleaved
+  ;; rounds, median-of-rounds; supersedes the S-1 spike's
+  ;; best-round/min), p50/p95 within 10% per component, plus the
+  ;; emitted-JS golden (scripts/run-ui-bench.cjs greps this bundle for
+  ;; direct jsx calls and the IFn-dispatch trap — S-1's landmine).
+  ;; Run via `npm run test:ui-g1` under NODE_ENV=production.
+  :ui-bench
+  {:target    :node-script
+   :main      re-frame.ui.bench.main/-main
+   :output-to "out/ui-bench.js"
+   :compiler-options {:optimizations :advanced
+                      :infer-externs :auto}}
 
   ;; rf2-2hrj8 — `:browser-test` is narrowed to DOM-dependent tests only.
   ;; The ns-regexp `-dom-cljs-test$` matches files whose namespace ends in

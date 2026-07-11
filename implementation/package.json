@@ -29,6 +29,7 @@
     "test:security": "shadow-cljs compile node-test-security && node out/node-test-security.js",
     "test:testbed-support": "shadow-cljs compile node-test-testbed-support && node out/node-test-testbed-support.js",
     "test:ui": "shadow-cljs compile node-test-ui && node out/node-test-ui.js",
+    "test:ui-g1": "node scripts/run-ui-bench.cjs",
     "test:cljs-perf-emit-nightly": "shadow-cljs compile node-test-perf-nightly && node out/node-test-perf-nightly.js",
     "test:browser": "shadow-cljs compile browser-test && node scripts/serve-and-run-browser-tests.cjs",
     "test:browser-schemas-boundary-prod": "shadow-cljs release browser-test-schemas-boundary-prod && node scripts/serve-and-run-browser-tests.cjs --root out/browser-test-schemas-boundary-prod --port 8022",
