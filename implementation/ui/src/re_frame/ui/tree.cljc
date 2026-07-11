@@ -326,11 +326,12 @@
   "Registrar `:view` entry for a compiled view — the JVM twin of
   `re-frame.ui.runtime/register-view!` (JVM builds are dev builds; no
   elision concern here)."
-  [id view-fn metadata]
-  (registrar/register! :view id (assoc metadata
-                                       :rf/id id
-                                       :handler-fn view-fn
-                                       :rf.ui/compiled? true))
+  [id view-fn manifest]
+  (registrar/register! :view id (cond-> {:rf/id id
+                                         :handler-fn view-fn
+                                         :rf.ui/compiled? true
+                                         :rf.ui/manifest manifest}
+                                  (:doc manifest) (assoc :doc (:doc manifest))))
   view-fn)
 
 (defn render
