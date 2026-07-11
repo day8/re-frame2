@@ -27,6 +27,12 @@ artefacts=(
   # resources-only change therefore skipped the JVM tier locally. Added
   # here alongside the matching jvm-resources PR-CI job (test.yml).
   implementation/resources
+  # rf2-vxgfnd.1 — the re-frame.ui compiled-view substrate (epic
+  # rf2-vxgfnd). S1a skeleton: the :test alias runs the classpath probe
+  # (re-frame.ui.skeleton-cljs-test's :clj arm) so the artefact's JVM
+  # side is exercised from day one; the compiler-slice suites (S1b+,
+  # where the .cljc compiler genuinely runs on the JVM) grow here.
+  implementation/ui
   # rf2-gj2ae — the adversarial-property security tier is `.cljc` and
   # advertises a cross-runtime contract (e.g. `re-frame.security.gen`'s
   # JVM `:clj` `long`-multiply vs the CLJS `Math.imul` arm, pinned by

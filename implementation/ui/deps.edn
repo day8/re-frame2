@@ -1,0 +1,26 @@
+;; day8/re-frame2-ui — the compiled-view substrate artefact (epic
+;; rf2-vxgfnd; the ratified re-frame.ui program, 08 §5 R-1..R-6).
+;;
+;; S1a skeleton (rf2-vxgfnd.1): artefact shape + classpath wiring only.
+;; The compiler slice (template AST + analyzer + CLJS emitter + JVM
+;; emitter) lands from S1b (rf2-vxgfnd.2); root identity + mount surface
+;; from S1c; `re-frame.ui.test` (in-artefact, dev/test scope) from S1d.
+;;
+;; Per the program plan the compiler namespaces are `.cljc` — they run
+;; on the JVM during CLJS compilation (and for JVM-tree emission, later
+;; consumed by the ssr artefact) — and the client kernel is `.cljs`.
+;;
+;; NO :clein deploy aliases yet — deliberate, not an omission. The
+;; version-lockstep gate (.github/scripts/verify-version-lockstep.sh)
+;; requires every implementation/*/deps.edn carrying a :clein/build
+;; alias to appear in its ARTEFACTS inventory AND the release.yml deploy
+;; matrix. This artefact is pre-publication (nothing to deploy until the
+;; substrate is real), so the publishing wiring lands with the stage
+;; that first publishes it.
+{:paths ["src"]
+ :deps  {day8/re-frame2 {:local/root "../core"}}
+
+ :aliases
+ {:test {:extra-paths ["test"]
+         :extra-deps  {day8/re-frame2-test-quiet {:local/root "../test-quiet"}}
+         :main-opts   ["-m" "re-frame.test-quiet.runner"]}}}

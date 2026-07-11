@@ -51,7 +51,12 @@
          ;; EP-0003). Managed resource queries: reg-resource, the
          ;; :rf.resource/* events + passive subs, work ledger,
          ;; invalidation/GC, and hydration — runtime landed and tested.
-         day8/re-frame2-resources {:local/root "resources"}}
+         day8/re-frame2-resources {:local/root "resources"}
+         ;; rf2-vxgfnd.1 — the re-frame.ui compiled-view substrate (epic
+         ;; rf2-vxgfnd). Pre-publication: S1a skeleton only
+         ;; (empty-but-loadable compiler .cljc + client-kernel .cljs
+         ;; stubs); the S1b compiler slice lands the real surface.
+         day8/re-frame2-ui        {:local/root "ui"}}
 
  :aliases
  {;; Combined CLJS-test path: convenient for ad-hoc REPL work that wants
@@ -79,6 +84,8 @@
                  "epoch/test"
                  ;; rf2-p10npe — Resources artefact test tree.
                  "resources/test"
+                 ;; rf2-vxgfnd.1 — re-frame.ui artefact test tree.
+                 "ui/test"
                  ;; examples are organised by concept; each bucket is a
                  ;; classpath root so JVM tests can `require` the example
                  ;; source namespaces like `ssr.core` (under

@@ -33,6 +33,11 @@ Two top-level groupings:
   each plugged into core via the `re-frame.late-bind` hook table per
   [Conventions §Independence rule](../spec/Conventions.md#independence-rule).
 
+The `ui/` artefact (the re-frame.ui compiled-view substrate, epic
+rf2-vxgfnd) sits beside `core/` and — for the duration of the program —
+`adapters/`: it is the substrate slated to replace the adapter trio, not
+another adapter under `adapters/` and not a late-bind feature artefact.
+
 ```
 implementation/
   deps.edn                   Top-level coordinator: :local/root deps for every artefact.
@@ -149,6 +154,16 @@ implementation/
                                    + passive subs, :resource registrar kind, work-ledger.
     test/re_frame/                 CLJS surface/wiring smoke + runtime behaviour tests
                                    (ensure/refetch, work ledger, invalidation/GC, hydration).
+
+  ui/                        day8/re-frame2-ui — the re-frame.ui compiled-view substrate
+                             (epic rf2-vxgfnd; S1a skeleton per rf2-vxgfnd.1 — the
+                             compiler slice lands from S1b).
+    deps.edn                 :local/root dep on ../core; own :test alias (pre-publication,
+                             so no :clein deploy aliases yet).
+    src/re_frame/ui.cljc           Public-surface root stub (defview et al. land S1b+).
+    src/re_frame/ui/compiler.cljc  Compiler entry stub (AST / analyzer / emitters, S1b).
+    src/re_frame/ui/client.cljs    Client-kernel stub (mount surface S1c; reactivity S2).
+    test/re_frame/                 Classpath + build-id probe (npm run test:ui).
 
   ssr-ring/                  day8/re-frame2-ssr-ring — Ring host adapter for the SSR pipeline
                              (rf2-ny6v7).
