@@ -699,11 +699,13 @@ as-element
 | `:>` | React component interop | `(apply React.createElement (second hiccup) (convert-props (third hiccup)) children)` |
 | `:<>` | React Fragment | `(apply React.createElement React.Fragment ...)` |
 | `:r>` | raw `React.createElement` | identity passthrough; `make-element` |
-| `:f>` | function-component dispatch | `(apply React.createElement (fn-to-class (second hiccup)) ...)` |
+| `:f>` | function-component dispatch | `React.createElement` on a cached **function-component** wrapper for `(second hiccup)` (via `as-fn-component`) — NOT `fn-to-class`; the wrapper calls the fn with the user args and `as-element`s its hiccup return |
 | user CLJS fn | reagent component | wrapped in a class via `fn-to-class` |
 | reagent class | reagent component | passed through |
 
 The dispatch is small and concrete. Stage 4 references `reagent.impl.template:vec-to-elem` for the canonical shape and re-implements without the compiler-customisation indirection (Stage 1 §2.4 + Stage 2 §2.2).
+
+`:f>` deliberately renders a **real React function component** (rf2-bf4uw2): the head's defining purpose is to let React hooks (`useState`, `useEffect`, …) run inside the fn, which requires a function component — calling a hook during a class render throws `Invalid hook call`. The wrapper is cached on the fn (`.-cljsFnComponent`) so repeated renders reuse one component type (stable reconciliation). Reactivity boundary: a function component does NOT get the class path's bare-RAtom-deref capture; it sources reactive state through `useSyncExternalStore`-shaped subscription hooks (§4.7), the same as the UIx / Helix substrates — `:f>` is the escape hatch to React hooks.
 
 ### §7.2 Target-aware `convert-prop-value`
 
