@@ -899,7 +899,10 @@ All forthcoming keys follow the `:rf.xray/*` convention.
   patterns to auto-hide (e.g. `["my-app.noisy" "re-com.box"]`).
 - `:rf.xray/filters-auto-hide-error-overrides? <bool>` — when an
   auto-hidden event raises an exception, surface it anyway (default
-  `true`). Errors override filters.
+  `true`). Errors override filters. **Implemented (rf2-jqqsh9)** —
+  wired through `configure!` + the `:rf.xray/filtered-event-bundles`
+  data-layer chain (`filters.error-override`); see
+  [`018-Event-Spine.md`](./018-Event-Spine.md) §7 Error overrides.
 - `:rf.xray/buffer-retained-epochs <int>` — exposed retainer-N depth
   control (re-frame-10x's `retained-epochs`). Floor 25; ceiling 5000.
 - Theme — already wired in v1 via `:rf.xray/settings`. Future:

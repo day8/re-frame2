@@ -213,6 +213,9 @@
    ;; to the behaviour name `:rf.xray/focused-event-bundle-detail`.
    :rf.xray/focused-event-bundle-detail
    :rf.xray/filtered-event-bundles
+   ;; rf2-jqqsh9 — the error-override bypass posture consulted by the
+   ;; filtered-event-bundle chain (spec/018 §7 Error overrides).
+   :rf.xray/filters-auto-hide-error-overrides?
    ;; rf2-jvghz — model behind the L2 'N hidden by filters' indicator
    ;; (raw vs filtered visible counts + the active filter cause).
    :rf.xray/hidden-by-filters

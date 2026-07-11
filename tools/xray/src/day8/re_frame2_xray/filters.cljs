@@ -27,6 +27,7 @@
             [re-frame.frame :as frame]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.filters.edit-popup :as edit-popup]
+            [day8.re-frame2-xray.filters.error-override :as error-override]
             [day8.re-frame2-xray.filters.hidden :as hidden]
             [day8.re-frame2-xray.filters.matcher :as matcher]
             [day8.re-frame2-xray.filters.persistence :as persistence]
@@ -207,19 +208,41 @@
   ;; off the strict frame filter drops it, matching the default
   ;; silent-by-default L2 list (no frameless bucket leaks into the data
   ;; layer when nobody asked for it).
+  ;; rf2-jqqsh9 — the error-override bypass posture
+  ;; (`:rf.xray/filters-auto-hide-error-overrides?`, default true). A
+  ;; boot-time `configure!` slot, not a per-event-bundle reactive Settings
+  ;; key, so it reads the config atom directly (mirrors
+  ;; `:rf.xray/editor-host-default`) — no app-db mirror needed.
+  (rf/reg-sub :rf.xray/filters-auto-hide-error-overrides?
+    (fn [_db _query]
+      (config/error-override-bypass-enabled?)))
+
+  ;; rf2-jqqsh9 — ERROR OVERRIDES (spec/018 §7). An errored event a FILTER
+  ;; would hide is surfaced anyway (§5.4: `error` is never filtered out) — the
+  ;; silent-failure footgun the feature prevents. The frame is a VIEW SCOPE,
+  ;; not a filter, so the override operates on the frame-SCOPED list: an
+  ;; errored event from another frame is never dragged into the current
+  ;; frame's view (frames are isolated contexts). `scoped` is the list after
+  ;; the view scope; `filtered` is `scoped` after the pill + mute filters;
+  ;; `apply-error-overrides` re-adds any errored bundle the filters dropped,
+  ;; tagged `:rf.xray/filter-bypassed?` for the row's filter-bypass cue. Gated
+  ;; on `:rf.xray/filters-auto-hide-error-overrides?` (default true).
   (rf/reg-sub :rf.xray/filtered-event-bundles
     :<- [:rf.xray/event-bundles]
     :<- [:rf.xray/active-filters]
     :<- [:rf.xray/view-scope-frame]
     :<- [:rf.xray/muted-event-ids]
     :<- [:rf.xray/show-ungrouped?]
-    (fn [[event-bundles filters view-scope-frame muted show-ungrouped?] _query]
-      (-> event-bundles
-          (cond->
-            show-ungrouped?       (matcher/filter-event-bundles-by-view-scope view-scope-frame)
-            (not show-ungrouped?) (matcher/filter-event-bundles-by-frame view-scope-frame))
-          (typed/filter-event-bundles filters)
-          (spine-filters/filter-event-bundles muted))))
+    :<- [:rf.xray/filters-auto-hide-error-overrides?]
+    (fn [[event-bundles filters view-scope-frame muted show-ungrouped?
+          error-overrides?] _query]
+      (let [scoped   (cond-> event-bundles
+                       show-ungrouped?       (matcher/filter-event-bundles-by-view-scope view-scope-frame)
+                       (not show-ungrouped?) (matcher/filter-event-bundles-by-frame view-scope-frame))
+            filtered (-> scoped
+                         (typed/filter-event-bundles filters)
+                         (spine-filters/filter-event-bundles muted))]
+        (error-override/apply-error-overrides scoped filtered error-overrides?))))
 
   ;; The 'N events hidden by filters' message model. Composes the raw +
   ;; filtered event-bundle lists and the active filter state into the pure
