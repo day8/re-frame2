@@ -1389,82 +1389,87 @@ within `:timeout-ms` (default `5000`) returns
 Simulate a re-frame2 cascade WITHOUT committing it (rf2-17hvp). Full
 reducer + interceptor chain runs, schema validation fires, machine
 transitions simulate, sub-runs and renders are recorded — but NO fx
-execute (every registered fx is redirected to a recording stub via
-`:fx-overrides`) and the framework rolls back the app-db via
-`restore-epoch`. The fundamental "experiment without consequences"
-primitive: every fx the cascade WOULD have fired is enumerated in
-`:would-fire-effects` (with its args), so the operator reasons about
-real-world impact without paying it.
+execute and the framework rolls back the app-db via `restore-epoch`.
+The fundamental "experiment without consequences" primitive: every fx
+the cascade WOULD have fired is enumerated in `:would-fire-effects`
+(with its args), so the operator reasons about real-world impact
+without paying it.
 
 ### Why this is NOT `--allow-writes`-gated
 
-Dry-run's contract IS "no observable effect". The fx-override set
-redirects every registered fx to a recording stub, so no http /
-navigation / persisted-write side-effect escapes. The framework's
-`restore-epoch` rewinds the app-db and trims the assembled would-be
-epoch from the ring. There is no state change for the
-`--allow-writes` gate to protect against; pairing dry-run behind that
-gate would force the operator to opt INTO writes to experiment with
-NOT writing, which inverts the gate's intent.
+Dry-run's contract IS "no observable effect", and that guarantee is
+STRUCTURAL (rf2-j538f7.39). The framework's dry-run effect sink
+(`re-frame.fx/*effect-sink*`) intercepts at the single universal
+effect executor (`do-fx`), BEFORE any per-fx override resolution,
+reserved-fx dispatch, or user-handler invoke — RECORDING every
+source-ordered `[fx-id args]` and running NO body. So no http /
+navigation / persisted write, machine spawn/destroy, flow
+register/clear, nav-token, or image-only inline fx escapes. The
+framework's `restore-epoch` then rewinds the app-db and trims the
+assembled would-be epoch from the ring. There is no state change for
+the `--allow-writes` gate to protect against; pairing dry-run behind
+that gate would force the operator to opt INTO writes to experiment
+with NOT writing, which inverts the gate's intent.
 
-### How it works (no framework hack required)
+### How it works (the effect sink)
 
-The framework's existing `:fx-overrides` seam (Spec 002 §Per-frame and
-per-call overrides) and the existing `restore-epoch` primitive
-(Tool-Pair §Time-travel) compose into a true dry-run with no internal
-framework entry point needed:
+The framework's dry-run effect SINK and the existing `restore-epoch`
+primitive (Tool-Pair §Time-travel) compose into a dry-run that is
+structurally unable to execute an effect:
 
 1. Snapshot the head epoch-id (the rollback target).
-2. Build an `:fx-overrides` map redirecting every registered fx to a
-   recording fn-value stub. Each stub captures its own original
-   fx-id, appends `{:fx-id ... :args ...}` to a recording atom, and
-   returns nil — short-circuiting the would-be side-effect.
+2. Bind `re-frame.fx/*effect-sink*` to a fresh atom. `do-fx` — the
+   SINGLE effect executor every fx flows through (the event fx walk, a
+   machine exit-cascade walk, a resource-release walk) — RECORDS each
+   well-shaped `[fx-id args]` entry and SKIPS execution, BEFORE any
+   override / reserved-fx / handler runs. This is the whole no-effect
+   guarantee: it covers reject-tier reserved fx and image-only inline
+   fx WITHOUT enumerating the registrar (the old override-recording
+   composition missed both — the security hole this bead closed).
 3. `dispatch-sync` — the reducer + interceptor chain run normally
    (schema validation, machine-step machinery, sub re-evaluation, all
    live here); the cascade ASSEMBLES a real epoch on the ring.
 4. Read the new head epoch — this IS the cascade-summary source.
 5. `restore-epoch` back to the pre-call head. The framework's
    canonical undo gesture rewinds db and trims the would-be epoch
-   from history.
+   from history. No handler ran before this, so there is nothing
+   external to unwind.
 
 The recorded fx calls AND the would-be epoch's cascade-summary
 project together into the response shape.
 
 ### Edge cases
 
-- **`:dispatch` / `:dispatch-later`** are caught by the override and
-  recorded; the recursive dispatch never happens. This matches the
-  bead's `:max-effect-chain-depth 1` default: simulate this event's
-  reducer + its direct fx + LIST what those fx would dispatch (don't
-  simulate that next level).
+- **`:dispatch` / `:dispatch-later`** are recorded by the sink; the
+  recursive dispatch never happens. This matches the bead's
+  `:max-effect-chain-depth 1` default: simulate this event's reducer +
+  its direct fx + LIST what those fx would dispatch (don't simulate
+  that next level).
 - **Schema violation** — the reducer's schema check fires the same
   way; the epoch settles with the violation in `:trace-events`,
   cascade-summary surfaces it via `:outcome :error`.
 - **Machine transitions** — the machine-step machinery runs (pure
   data per Spec 005); transitions appear in cascade-summary's
   `:machine-transitions` slot. Machine-fired fx (timer schedules,
-  spawn/destroy) are stubbed.
+  spawn/destroy) are RECORDED + SKIPPED by the sink — the reject-tier
+  spawn/destroy bodies never install or clear runtime state.
 - **Frame mismatch** — the runtime fails with `:reason
-  :ambiguous-frame` before the override set is built; no rollback
-  needed.
+  :ambiguous-frame` before the dispatch; no rollback needed.
 - **Listener fan-out** — `register-listener!` / `register-epoch-
   listener!` consumers DO see the would-be epoch land between step 3
   and step 5. This is a documented limitation: the framework has no
   "private dispatch" primitive. Production builds elide the entire
   listener path anyway; dev-tier listeners observing a phantom epoch
-  is acceptable in exchange for the simpler composition. A follow-on
-  bead can elevate this to a first-class framework primitive once
-  the cost is justified.
+  is acceptable in exchange for the simpler composition.
 
-### Composes with `:fx-overrides`
+### Rejects `:fx-overrides` (rf2-j538f7.39)
 
-The caller MAY pass an `:fx-overrides` map that PRE-stubs some fx
-(e.g. redirecting `:rf.http/managed` to a canned stub-handler for the
-experiment). User-supplied overrides win on conflict — the recorder
-fires only for fx the caller did NOT pre-stub. This lets the
-experimenter compose realistic conditions ("what would happen if the
-http call resolved to this response?") without losing the dry-run's
-roll-back guarantee.
+A caller `:fx-overrides` is REJECTED loudly (`:reason
+:fx-overrides-unsupported`, an isError). Because the effect sink
+records + skips every fx BEFORE override resolution, an override could
+only "compose realistic conditions" by executing a handler body — the
+exact thing dry-run must not do. To try a canned http stub, use
+`dispatch` (not dry-run) with `:fx-overrides` and roll back yourself.
 
 ### Composes with `cofx` — scripted recordable coeffects (rf2-3q7gep · EP-0017)
 
