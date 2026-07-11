@@ -21,6 +21,7 @@
         "The output distinguishes :loading from :fetching as separate status values — uses both keywords and explains the empty-page-spinner vs background-revalidate distinction.",
         "The output produces a 5-key slice shape matching the canonical declaration: keys include :status, :data, :error, :loaded-at, :attempt (or a clearly equivalent superset).",
         "The output uses :rf.http/managed (or names the host's HTTP fx surface) — does NOT invent a parallel HTTP layer.",
+        "The managed-HTTP call supplies an EXPLICIT reply address — :reply-to (unified) or :on-success / :on-failure (split sugar) — and does NOT rely on any co-located / reply-to-origin default or branch on (:rf/reply msg); a reply handler reads the canonical envelope appended as its final arg and branches on (:status reply) (:ok / :error, and :cancelled where cancellation is in play) rather than assuming success.",
         "The output does NOT invoke a separate re-frame v1 reference, nor synthesise its own pattern from first principles."
       ]
     },

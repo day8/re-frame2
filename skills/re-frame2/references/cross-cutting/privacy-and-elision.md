@@ -106,9 +106,11 @@ Values that flow *through* the cascade rather than *living* in durable state are
   {:sensitive [[:password] [:totp-code]]}
   (fn [{:keys [db]} [_ {:keys [email password]}]]
     {:db db
-     :rf.http/managed
-     {:request {:method :post :url "/api/login"
-                :body {:email email :password password}}}}))
+     :fx [[:rf.http/managed
+           {:request    {:method :post :url "/api/login"
+                         :body {:email email :password password}}
+            :on-success [:auth/login-succeeded]
+            :on-failure [:auth/login-failed]}]]}))
 
 (rf/reg-sub
   :partner/api-token
