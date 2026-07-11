@@ -132,6 +132,115 @@
       (is (str/includes? s "Domain=example.com"))
       (is (str/includes? s "Path=/articles")))))
 
+;; ===========================================================================
+;; rf2-j538f7.16 — a raw `;` in a structured cookie attribute is the RFC 6265
+;; cookie-attribute delimiter, so it escapes its assigned attribute and
+;; fabricates additional attributes (SameSite=None, Secure, Domain, …). The
+;; CR/LF/NUL-only gate accepted it. The attribute gate now rejects `;` too;
+;; cookie :value stays delimiter-tolerant because it is percent-encoded.
+;; ===========================================================================
+
+(deftest cookie-attribute-semicolon-injection-rejected
+  (testing "rf2-j538f7.16 — a `;` in :path forges extra Set-Cookie
+            attributes and must be rejected (the bead's public repro)"
+    (is (thrown-with-msg?
+          clojure.lang.ExceptionInfo
+          #":rf\.error/cookie-invalid-attribute"
+          (ssr-ring/cookie->set-cookie-header
+            {:name "sid" :value "abc" :path "/; SameSite=None; Secure"}))))
+
+  (testing "rf2-j538f7.16 — a `;` in string :max-age forges attributes (repro 2)"
+    (is (thrown-with-msg?
+          clojure.lang.ExceptionInfo
+          #":rf\.error/cookie-invalid-attribute"
+          (ssr-ring/cookie->set-cookie-header
+            {:name "sid" :value "abc" :max-age "3600; SameSite=None; Secure"}))))
+
+  (testing "rf2-j538f7.16 — a `;` in :domain is rejected"
+    (is (thrown-with-msg?
+          clojure.lang.ExceptionInfo
+          #":rf\.error/cookie-invalid-attribute"
+          (ssr-ring/cookie->set-cookie-header
+            {:name "sid" :value "abc" :domain "evil.com; Secure"}))))
+
+  (testing "rf2-j538f7.16 — a `;` in string :same-site is rejected"
+    (is (thrown-with-msg?
+          clojure.lang.ExceptionInfo
+          #":rf\.error/cookie-invalid-attribute"
+          (ssr-ring/cookie->set-cookie-header
+            {:name "sid" :value "abc" :same-site "Lax; Secure"}))))
+
+  (testing "rf2-j538f7.16 — the offending attribute + original value ride the
+            structured error payload"
+    (try
+      (ssr-ring/cookie->set-cookie-header
+        {:name "sid" :value "abc" :path "/; SameSite=None"})
+      (is false "expected a thrown :rf.error/cookie-invalid-attribute")
+      (catch clojure.lang.ExceptionInfo e
+        (let [data (ex-data e)]
+          (is (= :rf.error/cookie-invalid-attribute (:rf.error/id data))
+              "the catalogued attribute-injection id is thrown")
+          (is (= :path (:attribute data))
+              "the offending attribute (:path) rides the :attribute slot")
+          (is (= "/; SameSite=None" (:value data))
+              "the original attribute value rides the :value slot")))))
+
+  (testing "rf2-j538f7.16 — a `;` in cookie :value is DATA, not a delimiter:
+            it is percent-encoded (`%3B`), so it must NOT be over-rejected"
+    (let [s (ssr-ring/cookie->set-cookie-header
+              {:name "sid" :value "a;b" :path "/"})]
+      (is (str/includes? s "sid=a%3Bb")
+          "semicolon in :value serialises as %3B (data stays data)")
+      (is (not (str/includes? s "a;b"))
+          "the raw `;` does not survive into the wire value")
+      (is (str/includes? s "Path=/"))))
+
+  (testing "rf2-j538f7.16 — clean attributes (canonical `/` path, plain
+            domain, integer max-age) still serialise unchanged"
+    (let [s (ssr-ring/cookie->set-cookie-header
+              {:name    "sid"  :value "abc"
+               :path    "/app" :domain "example.com"
+               :max-age 3600   :same-site :none})]
+      (is (str/includes? s "Path=/app"))
+      (is (str/includes? s "Domain=example.com"))
+      (is (str/includes? s "Max-Age=3600"))
+      (is (str/includes? s "SameSite=None")))))
+
+;; rf2-j538f7.16 — end-to-end: a hostile `;`-bearing attribute value routed
+;; through the public :rf.server/set-cookie effect and the Ring handler MUST
+;; NOT emit a forged Secure/SameSite attribute; the structured failure routes
+;; through the fx error contract and no cookie header is written.
+(deftest handler-cookie-semicolon-attribute-cannot-forge-set-cookie
+  (testing "rf2-j538f7.16 — a `;`-bearing :path cannot smuggle SameSite=None;
+            Secure into the emitted Set-Cookie header"
+    (rf/reg-event :init/hostile-cookie
+      {:platforms #{:server}}
+      (fn [_ _]
+        {:fx [[:rf.server/set-cookie
+               {:name  "sid"
+                :value "abc"
+                :path  "/; SameSite=None; Secure"}]]}))
+    (rf/reg-view* :pages/hostile-cookie
+      (fn [] [:div "hostile"]))
+    (let [handler  (ssr-ring/ssr-handler
+                     {:initial-events [[:init/hostile-cookie]]
+                      :root-view [:pages/hostile-cookie]
+                      :payload :rf.ssr.payload/whole-app-db})
+          response (handler {:uri "/" :request-method :get})
+          headers  (:headers response)
+          set-cookie (or (get headers "Set-Cookie") (get headers "set-cookie"))]
+      ;; The fx boundary rejects the hostile attribute, so no cookie is
+      ;; accumulated and no Set-Cookie header is emitted — the forged
+      ;; SameSite/Secure attributes never reach the wire.
+      (is (nil? set-cookie)
+          "hostile cookie is rejected at the fx boundary — no Set-Cookie header")
+      (when (some? set-cookie)
+        (let [wire (str/join "\n" (if (vector? set-cookie) set-cookie [set-cookie]))]
+          (is (not (str/includes? wire "SameSite=None"))
+              "no forged SameSite=None attribute")
+          (is (not (str/includes? wire "Secure"))
+              "no forged Secure attribute"))))))
+
 (deftest cookie-name-rfc6265-token-grammar
   (testing "rf2-rpedl §P2.4 — cookie :name violating the RFC 6265 §4.1.1
             token grammar throws :rf.error/cookie-invalid-name"
