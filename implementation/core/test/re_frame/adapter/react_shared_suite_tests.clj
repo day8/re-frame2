@@ -221,6 +221,10 @@
    {:test 'partition-real-change-propagates-to-its-subs
     :fn   'assert-real-partition-change-propagates-to-its-subs}
 
+   {:section "schema-rejected candidate — zero sub notifications (rf2-uhk9ko)"}
+   {:test 'schema-rejection-zero-sub-notifications
+    :fn   'assert-schema-rejection-zero-sub-notifications}
+
    {:section "derived-value duplicate-source disposal (rf2-he7se finding 2)"}
    {:test 'derived-dispose-releases-duplicate-source-watches
     :fn   'assert-derived-dispose-releases-duplicate-source-watches}
