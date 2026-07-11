@@ -1,8 +1,8 @@
 /* {{name}} — minimal stylesheet.
  *
  * A handful of rules. Plain CSS — no Tailwind, no garden, no spade.
- * Replace or extend as your app grows; or swap to Tailwind via
- * :css :tailwind when that template flag lands. */
+ * Replace or extend as your app grows; or scaffold with
+ * :css :tailwind for the Tailwind v4 variant instead. */
 
 body { font: 16px/1.4 system-ui, sans-serif; margin: 0; }
 .rf2-app-shell { display: flex; min-height: 100vh; }
