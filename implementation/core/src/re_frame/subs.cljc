@@ -617,7 +617,7 @@
 ;; (`clear-sub-cache!`) is reached through `re-frame.core`'s defalias
 ;; pointing at `re-frame.subs.cache/*` directly (no facade re-export).
 
-(declare subscribe subscribe-in-frame unsubscribe)
+(declare subscribe subscribe-in-frame unsubscribe compute-and-cache!)
 
 ;; The memo wrappers (`make-layer-1-memoised-body`,
 ;; `make-layer-n-single-input-memoised-body`, `make-layer-n-memoised-body`) and
@@ -758,12 +758,97 @@
                           :recovery         :ignored})
       nil)))
 
-(defn- compute-and-cache!
+;; ---- :<- dependency-cycle guard (rf2-x76af2.24) --------------------------
+;;
+;; A `:<-` input graph that closes a cycle (`:a :<- [:b]`, `:b :<- [:a]`, or a
+;; self-edge `:self :<- [:self]`) recurses `compute-and-cache!` →
+;; `subscribe-in-frame` (input) → `compute-and-cache!` … with no build-in-
+;; progress marker, and each reaction is cached only AFTER its inputs resolve,
+;; so the first subscribe/compute blew the host stack with a RAW
+;; StackOverflowError instead of a structured `:rf.error/*` — a fail-loud
+;; violation (`subs/cache.cljc`'s `transitive-dependent-closure` already treats
+;; cyclic `:<-` graphs as an acknowledged input class, and flows ship a typed
+;; `:rf.error/flow-cycle`). The guard tracks a per-thread stack of the query-
+;; vectors currently resolving their inputs; a re-entry for a key already on the
+;; stack is a cycle, reported as the structured `:rf.error/sub-cycle`
+;; (diagnostic channel, mirroring flows' typed cycle) and RECOVERED to a nil-
+;; yielding reaction. The marker is held ONLY across input resolution (not the
+;; cache-install / collision-retry phase), so a legitimate post-race rebuild of
+;; the SAME query-v is never mis-read as a cycle.
+
+(def ^:dynamic *subs-under-construction*
+  "Per-thread stack of `[frame-id query-v]` build keys currently resolving their
+  `:<-` inputs in `build-and-cache!*` — the reactive `:<-` cycle guard
+  (rf2-x76af2.24). A re-entry for a key already on the stack is a dependency
+  cycle. Bound only across input resolution, so it is empty at the outermost
+  subscribe entry AND during the cache-install phase (the collision-retry
+  rebuild therefore never trips the guard)."
+  [])
+
+(defn- sub-cycle-path
+  "Closing-repeat cycle-id path for a detected reactive `:<-` cycle: the sub-ids
+  on the build `stack` from the first occurrence of the re-entered
+  `construction-key`, closed by re-entering `query-v`'s id — e.g. `[:a :b :a]`
+  for `:a :<- [:b]` / `:b :<- [:a]`, or `[:self :self]` for a self-edge."
+  [stack construction-key query-v]
+  (-> (into [] (comp (drop-while #(not= construction-key %))
+                     (map (fn [[_frame qv]] (first qv))))
+            stack)
+      (conj (first query-v))))
+
+(defn- sub-cycle-ex
+  "The canonical `:rf.error/sub-cycle` sentinel thrown at the detection point to
+  unwind the WHOLE partial build (so no half-wired cyclic reaction is cached);
+  the outermost `compute-and-cache!` catches it, emits the diagnostic error and
+  recovers to nil. Routed through `error/thrown-ex-info` so the message is
+  conformant (Spec 009 §The thrown-error shape) even on the unlikely path where
+  it escapes the guard."
+  [frame-id query-v cycle-path]
+  (error/thrown-ex-info
+    :rf.error/sub-cycle 're-frame.subs/subscribe
+    (str "Subscription `" (first query-v) "` sits on a :<- dependency cycle "
+         (pr-str cycle-path) "; a subscription's :<- inputs must form a DAG. "
+         "Break the cycle so no sub (transitively) lists itself among its inputs.")
+    {:recovery :replaced-with-default
+     :extra    {:cycle          cycle-path
+                :frame          frame-id
+                :rf.sub/query-v query-v}}))
+
+(defn- emit-sub-cycle!
+  "Emit the structured `:rf.error/sub-cycle` on the DIAGNOSTIC trace channel
+  (mirroring flows' typed `:rf.error/flow-cycle` classification — dev-only,
+  DCEs under `:advanced` + `goog.DEBUG=false`). `where` distinguishes the
+  reactive `:subscribe` boundary from the pure `:compute-sub` path. `frame-id`
+  is nil on the `compute-sub` path (no reactive frame)."
+  [frame-id query-v cycle-path where]
+  (trace/emit-error! :rf.error/sub-cycle
+                     {:category       :rf.error/sub-cycle
+                      :frame          frame-id
+                      :rf.sub/id      (first query-v)
+                      :rf.sub/query-v query-v
+                      :cycle          cycle-path
+                      :where          where
+                      :recovery       :replaced-with-default}))
+
+(defn- compute-sub-cycle-path
+  "Closing-repeat cycle-id path from the `compute-sub` per-call `building` stack
+  (a vector of query-vectors) for a re-entered `query-v`."
+  [building query-v]
+  (-> (into [] (comp (drop-while #(not= query-v %)) (map first)) building)
+      (conj (first query-v))))
+
+(defn- build-and-cache!*
   "Build the reaction for query-v and cache it. Per Spec 006 §Lookup
   algorithm: recursively resolve the input query-vectors (the literal
   `:<-` list for `:static`, or the realized `(input-fn query-v)` result
   for `:parametric`), build the reaction, attach on-dispose to evict the
   cache slot.
+
+  The materialisation worker behind the cycle-guarding `compute-and-cache!`
+  entry (rf2-x76af2.24): it pushes the per-thread under-construction marker
+  ONLY across its input resolution, so a re-entrant `:<-` cycle is detected by
+  the entry while the legitimate collision-retry rebuild (which runs after the
+  marker is popped) is not.
 
   The compute fn handed to the substrate adapter is built in two
   layers, each named:
@@ -880,7 +965,15 @@
         inputs        (cond
                         container-fn [(container-fn frame-id)]
                         input-error? []
-                        :else        (mapv (fn [input-q] (subscribe-in-frame frame-id input-q)) input-qs))
+                        ;; Push this query-v onto the per-thread build stack for
+                        ;; the duration of input resolution ONLY (rf2-x76af2.24):
+                        ;; a nested input `subscribe-in-frame` that recurses back
+                        ;; to this query-v re-enters `compute-and-cache!` with the
+                        ;; key still on the stack → the cycle is detected there.
+                        :else        (binding [*subs-under-construction*
+                                               (conj *subs-under-construction*
+                                                     [frame-id (cache-key query-v)])]
+                                       (mapv (fn [input-q] (subscribe-in-frame frame-id input-q)) input-qs)))
         parametric?   (= :parametric input-kind)
         memoised-body (cond
                         input-error?
@@ -1031,6 +1124,39 @@
           (doseq [input-q input-signals]
             (release-input-ref! frame-id input-q :not-cached-release)))
         reaction))))
+
+(defn- compute-and-cache!
+  "Cycle-guarding entry to the reactive sub build (rf2-x76af2.24). Detects a
+  `:<-` dependency cycle — a re-entry for a query-v already mid-build on this
+  thread's `*subs-under-construction*` stack — and, at the OUTERMOST build,
+  recovers it to a structured `:rf.error/sub-cycle` + nil-yielding reaction
+  instead of a raw host StackOverflowError. Delegates the actual
+  materialisation to `build-and-cache!*`, which pushes the per-thread marker
+  across its input resolution."
+  [frame-id query-v]
+  (let [construction-key [frame-id (cache-key query-v)]
+        stack            *subs-under-construction*]
+    (when (some #(= construction-key %) stack)
+      ;; This query-v is already resolving its inputs higher on the stack — a
+      ;; `:<-` cycle. Throw the sentinel to unwind the WHOLE partial build so no
+      ;; half-wired cyclic reaction is cached; the outermost build (below)
+      ;; catches it, emits the diagnostic error and recovers to nil.
+      (throw (sub-cycle-ex frame-id query-v
+               (sub-cycle-path stack construction-key query-v))))
+    (if (empty? stack)
+      ;; Outermost build: a cycle thrown anywhere in the input recursion unwinds
+      ;; to here. Emit the structured error (diagnostic, mirroring flow-cycle)
+      ;; and recover to a nil-yielding reaction — NOT cached, mirroring the
+      ;; no-such-sub miss so a later registration fix rebuilds cleanly.
+      (try
+        (build-and-cache!* frame-id query-v)
+        (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
+          (if (= :rf.error/sub-cycle (:rf.error/id (ex-data e)))
+            (do
+              (emit-sub-cycle! frame-id query-v (:cycle (ex-data e)) :subscribe)
+              (adapter/make-derived-value [] (constantly nil)))
+            (throw e))))
+      (build-and-cache!* frame-id query-v))))
 
 ;; ---- the sub-override subscribe seam (CLJS, dev-only) --------------------
 ;;
@@ -1475,8 +1601,23 @@
   ;; is honoured as a HIT — unregistered subs and recovery-to-nil both
   ;; memoise nil, and a keyword sentinel is not reliably reference-equal
   ;; under `identical?` on CLJS.
-  (if (contains? @memo query-v)
+  (cond
+    ;; :<- dependency cycle (rf2-x76af2.24): query-v is already mid-computation
+    ;; on THIS call's recursion — a re-entry while it sits on the per-call
+    ;; `::building` stack. Emit the structured `:rf.error/sub-cycle`
+    ;; (diagnostic) and recover to nil, memoising the recovery so the rest of
+    ;; the call sees nil rather than re-detecting. The per-call memo doubles as
+    ;; the under-construction marker here (there is no reactive frame / cache).
+    (some #(= % query-v) (::building @memo))
+    (do (emit-sub-cycle! nil query-v (compute-sub-cycle-path (::building @memo) query-v)
+                         :compute-sub)
+        (swap! memo assoc query-v nil)
+        nil)
+
+    (contains? @memo query-v)
     (get @memo query-v)
+
+    :else
     (let [query-id (first query-v)
           meta     (registrar/lookup :sub query-id)]
       (if-not meta
@@ -1484,6 +1625,9 @@
         ;; reference within the same call is also a single resolution.
         (do (swap! memo assoc query-v nil) nil)
         (do
+          ;; Mark query-v mid-computation for the cycle guard above; popped
+          ;; after its inputs resolve + its body runs (rf2-x76af2.24).
+          (swap! memo update ::building (fnil conj []) query-v)
           ;; Per Spec 009 §:op-type vocabulary: :rf.sub/run marks a sub recompute.
           ;; The pure compute-sub form fires the same op-type as the reactive
           ;; recompute path so tools can observe both call sites uniformly.
@@ -1674,6 +1818,9 @@
                                   (interop/now-ms)          ;; time
                                   tags)))
                             nil)))]
+            ;; Pop the under-construction marker now that this sub's inputs +
+            ;; body have resolved (LIFO — our own query-v is last; rf2-x76af2.24).
+            (swap! memo update ::building pop)
             (swap! memo assoc query-v v)
             v))))))
 
