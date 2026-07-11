@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """No-bead-id + verification-posture + launcher-canonical + machine-handler-
-recipe drift guard for the re-frame2 (authoring) skill.
+recipe + managed-http-recipe drift guard for the re-frame2 (authoring) skill.
 
 `spec/design.md` is the single normative source for the skill's locked
 decisions (L1–L11), file structure, cardinal rules, and verification posture;
@@ -63,6 +63,24 @@ existing automated guards did not catch (the no-bead-id guard was scoped to
      warning that names the shape — so the retained advanced-note mention on
      `reg-machine.md` / `api-cheatsheet.md` stays legal, but a copy-pasteable
      footgun recipe cannot reappear in any user-facing leaf.
+
+  5. **The retired Managed-HTTP reply contract.** The runtime retired the
+     co-located reply default pre-alpha (`rf2-et4c1s` / PR #5449): every
+     `:rf.http/managed` fx-form request must now address its reply with at
+     least one of `:reply-to` / `:on-success` / `:on-failure`, and omitting all
+     three throws `:rf.error/http-no-reply-target` at fx-call time — a
+     targetless canonical recipe cannot even start a request. The skill's
+     primary HTTP example had drifted to teach exactly that removed shape
+     (`rf2-j538f7.35` / PR #5603 repaired the leaf prose). This guard makes the
+     retired teaching a build failure so it cannot re-enter: (5a) a fenced
+     fx-form `[:rf.http/managed …]` recipe that carries a `:request` but no
+     reply target; (5b) reading the removed co-located key `(:rf/reply …)`; and
+     (5c) bare `:work/id` asserted as a TRANSIENT reply field (whose spelling is
+     `:rf.reply/work-id` — bare `:work/id` is the durable ledger / machine-
+     `:data` / correlation identity). The machine-form `:spawn {:machine-id
+     :rf.http/managed …}` (which dispatches back to its parent and needs no
+     `:reply-to`), the `[:rf.http/managed-abort …]` dispatch, and legitimate
+     durable-ledger `:work/id` prose are deliberately allowed.
 
 Scanned leaves (globbed, so a new leaf is covered automatically):
     SKILL.md, README.md, references/**/*.md, patterns/**/*.md,
@@ -203,6 +221,117 @@ def machine_handler_recipe_problems(text: str) -> list[tuple[int, str]]:
     return problems
 
 
+# --- Rule 5: no retired Managed-HTTP reply-contract teaching (rf2-723lgn,
+#     follow-up to rf2-j538f7.35 / PR #5603).
+#
+# 5a — a targetless fx-form `:rf.http/managed` REQUEST recipe. The fx form
+#      `:fx [[:rf.http/managed {:request …}]]` MUST address its reply with at
+#      least one of :reply-to / :on-success / :on-failure; the runtime throws
+#      :rf.error/http-no-reply-target at fx-call time otherwise, so a targetless
+#      canonical recipe cannot even start a request (there is no co-located
+#      default that routes the reply back to the originating event). Scanned
+#      per-FENCED-BLOCK (the tokens span lines). Only the `[:rf.http/managed`
+#      fx invocation head is matched — never `:machine-id :rf.http/managed` (the
+#      machine-form spawn dispatches back to its parent and needs no reply key)
+#      and never `[:rf.http/managed-abort …]` (a dispatch with no :request).
+FX_MANAGED_RE = re.compile(r"\[:rf\.http/managed(?!-)\b")
+HTTP_REQUEST_RE = re.compile(r":request\b")
+HTTP_REPLY_TARGET_RE = re.compile(r":reply-to\b|:on-success\b|:on-failure\b")
+MANAGED_HTTP_TARGETLESS_MSG = (
+    "HTTP-TARGETLESS-RECIPE: this fenced fx-form `:rf.http/managed` recipe "
+    "supplies a `:request` but names NO reply target. The current contract "
+    "REQUIRES at least one of `:reply-to` / `:on-success` / `:on-failure`; "
+    "omitting all three throws :rf.error/http-no-reply-target at fx-call time, "
+    "so the recipe cannot start a request — there is no co-located default that "
+    "routes the reply back to the originating event (retired pre-alpha, "
+    "rf2-et4c1s / PR #5449). Add an explicit reply target. (The machine-form "
+    "`:spawn {:machine-id :rf.http/managed …}` dispatches back to its parent "
+    "and is the allowed exception — it is not matched here.)"
+)
+
+# 5b — reading the RETIRED co-located reply key `(:rf/reply …)`. The current
+#      contract has no implicit reply routed back to the originating event, so a
+#      handler that reads `:rf/reply` teaches the removed recipe. The negative
+#      lookahead excludes the internal descriptor `:rf/reply-to`; the transient
+#      `:rf.reply/work-id` is a different token and never matches.
+RF_REPLY_READ_RE = re.compile(r":rf/reply(?![-\w])")
+
+# 5c — bare `:work/id` asserted as a TRANSIENT reply field. The reply map /
+#      payload / envelope spells the attempt identity `:rf.reply/work-id`; bare
+#      `:work/id` is the durable ledger / machine-`:data` / correlation identity.
+#      Fires only in a reply-map context carrying bare `:work/id` UNLESS the line
+#      also spells `:rf.reply/work-id` or marks the id as the durable / ledger /
+#      machine-`:data` / correlation / verification / abstract identity.
+REPLYMAP_CTX_RE = re.compile(
+    r"reply map|reply payload|reply envelope|transient reply", re.IGNORECASE
+)
+BARE_WORKID_RE = re.compile(r"`:work/id`")
+WORKID_ALLOW_RE = re.compile(
+    r":rf\.reply/work-id|ledger|durab|verification|abstract|:data|correlat",
+    re.IGNORECASE,
+)
+
+
+def reply_contract_problems(line: str) -> list[str]:
+    """Rule 5b/5c — retired Managed-HTTP reply-contract teaching on a single
+    line: reading the removed `:rf/reply` co-located key, or spelling bare
+    `:work/id` on a transient reply map. (5a is a cross-line fenced-block shape,
+    scanned separately in `managed_http_recipe_problems`.)"""
+    problems: list[str] = []
+    if RF_REPLY_READ_RE.search(line):
+        problems.append(
+            "HTTP-REPLY-CO-LOCATED: `:rf/reply` is the RETIRED co-located reply "
+            "key. The current Managed HTTP contract routes replies to an EXPLICIT "
+            "target (`:reply-to` / `:on-success` / `:on-failure`), not back to "
+            "the originating event, and omitting a target throws "
+            ":rf.error/http-no-reply-target. Don't read `:rf/reply` — branch on "
+            "`(:status reply)` in the reply handler (spec/Managed-Effects.md, "
+            "patterns/managed-http.md)."
+        )
+    if (
+        REPLYMAP_CTX_RE.search(line)
+        and BARE_WORKID_RE.search(line)
+        and not WORKID_ALLOW_RE.search(line)
+    ):
+        problems.append(
+            "HTTP-REPLY-WORKID-SPELLING: the TRANSIENT reply map spells the "
+            "attempt identity `:rf.reply/work-id`; bare `:work/id` is the durable "
+            "ledger / machine-`:data` / correlation identity. Don't put bare "
+            "`:work/id` on the reply map (one fact, two spellings across the "
+            "record↔reply boundary — spec/Managed-Effects.md)."
+        )
+    return problems
+
+
+def managed_http_recipe_problems(text: str) -> list[tuple[int, str]]:
+    """Rule 5a — a fenced code block whose fx-form `[:rf.http/managed …]`
+    invocation carries a `:request` args map but names no reply target is the
+    retired targetless canonical recipe. Returns (opening-fence-lineno, message)
+    tuples. Scanned per-FENCED-BLOCK (the tokens span lines of one block); the
+    machine-form `:machine-id :rf.http/managed` spawn and the
+    `[:rf.http/managed-abort …]` dispatch are deliberately not matched."""
+    problems: list[tuple[int, str]] = []
+    in_block = False
+    block_start = 0
+    block_lines: list[str] = []
+    for lineno, line in enumerate(text.splitlines(), start=1):
+        if FENCE_RE.match(line):
+            if not in_block:
+                in_block, block_start, block_lines = True, lineno, []
+            else:
+                body = "\n".join(block_lines)
+                if (
+                    FX_MANAGED_RE.search(body)
+                    and HTTP_REQUEST_RE.search(body)
+                    and not HTTP_REPLY_TARGET_RE.search(body)
+                ):
+                    problems.append((block_start, MANAGED_HTTP_TARGETLESS_MSG))
+                in_block, block_lines = False, []
+        elif in_block:
+            block_lines.append(line)
+    return problems
+
+
 # --- Rule 3: launcher points at BOTH canonical files, without regrowing the
 #     tree / locks sections. Operates on the whole authoring-prompt.md body
 #     (not the line-by-line leaf scan). `design.md` / `inputs.md` are the
@@ -309,12 +438,16 @@ def find_drift(files: list[Path]) -> tuple[list[str], int]:
         body = _slurp(path)
         for lineno, line in enumerate(body.splitlines(), start=1):
             lines_checked += 1
-            for label in beadid_problems(line) + posture_problems(line):
+            for label in (beadid_problems(line) + posture_problems(line)
+                          + reply_contract_problems(line)):
                 problems.append(f"{rel}:{lineno}: {label}\n    {line.strip()}")
-        # Rule 4 — the machine-registration footgun is a cross-line shape
-        # (reg-event and make-machine-handler on different lines of one fenced
-        # block), so it is scanned per-block rather than per-line.
+        # Rules 4 & 5a — the machine-registration footgun and the targetless
+        # Managed-HTTP recipe are cross-line shapes (their tokens land on
+        # different lines of one fenced block), so they are scanned per-block
+        # rather than per-line.
         for start_lineno, label in machine_handler_recipe_problems(body):
+            problems.append(f"{rel}:{start_lineno}: {label}")
+        for start_lineno, label in managed_http_recipe_problems(body):
             problems.append(f"{rel}:{start_lineno}: {label}")
 
     # Rule 3 — the launcher (authoring-prompt.md) is checked as a whole body,
@@ -346,9 +479,9 @@ def run(*, verbose: bool, ci: bool) -> int:
     if verbose:
         print(
             "re-frame2 no-bead-id + verify-posture + launcher-canonical + "
-            f"machine-handler-recipe guard: scanned {len(files)} user-facing "
-            f"leaves ({lines_checked} lines) plus the spec/authoring-prompt.md "
-            "launcher."
+            "machine-handler-recipe + managed-http-recipe guard: scanned "
+            f"{len(files)} user-facing leaves ({lines_checked} lines) plus the "
+            "spec/authoring-prompt.md launcher."
         )
 
     if not problems:
@@ -356,8 +489,9 @@ def run(*, verbose: bool, ci: bool) -> int:
             print(
                 "re-frame2-drift: no bead-id leaks, no agent-run verification-"
                 "posture drift, no bare reg-event + make-machine-handler recipe, "
-                "and the launcher points at design.md + inputs.md without "
-                "regrowing the tree / locks."
+                "no retired Managed-HTTP reply-contract teaching, and the "
+                "launcher points at design.md + inputs.md without regrowing the "
+                "tree / locks."
             )
         return 0
 
@@ -369,7 +503,9 @@ def run(*, verbose: bool, ci: bool) -> int:
         "bead ids out of the user-facing leaves (L10), keep the "
         "authoring-only verification posture (Q14 / L3: the author runs the "
         "gates, the skill names them), author machines with reg-machine (not a "
-        "bare reg-event + make-machine-handler recipe), and keep the launcher "
+        "bare reg-event + make-machine-handler recipe), address every Managed-"
+        "HTTP reply with an explicit :reply-to/:on-success/:on-failure (no "
+        "retired co-located `:rf/reply` default), and keep the launcher "
         "pointing at the canonical design.md + inputs.md instead of re-holding "
         "the tree / locks."
     )
@@ -581,6 +717,105 @@ def _self_test() -> int:
     expect(
         machine_handler_recipe_problems, clean_simple,
         dirty=False, label="I3 fenced plain reg-event (no machine handler)",
+    )
+
+    # --- Rule 5a: targetless fx-form :rf.http/managed recipe (rf2-723lgn).
+    #     `managed_http_recipe_problems` takes the WHOLE body (the tokens span
+    #     lines of one fenced block), so these fixtures are multi-line prose
+    #     with fences.
+    dirty_targetless_http = (
+        "Issue the request:\n\n"
+        "```clojure\n"
+        "(rf/reg-event :article/load\n"
+        "  (fn [_ _]\n"
+        "    {:fx [[:rf.http/managed {:request {:url \"/x\"} :decode S}]]}))\n"
+        "```\n"
+    )
+    expect(
+        managed_http_recipe_problems, dirty_targetless_http,
+        dirty=True, label="J1 fx-form :rf.http/managed request with no reply target",
+    )
+    # CLEAN — the corrected fx recipe with an explicit reply target.
+    clean_http_reply_to = (
+        "```clojure\n"
+        "{:fx [[:rf.http/managed {:request {:url \"/x\"} :reply-to [:article/replied]}]]}\n"
+        "```\n"
+    )
+    expect(
+        managed_http_recipe_problems, clean_http_reply_to,
+        dirty=False, label="K1 fx-form request WITH :reply-to (explicit address)",
+    )
+    clean_http_split_sugar = (
+        "```clojure\n"
+        "{:fx [[:rf.http/managed {:request {:url \"/x\"}\n"
+        "                         :on-success [:ok] :on-failure [:err]}]]}\n"
+        "```\n"
+    )
+    expect(
+        managed_http_recipe_problems, clean_http_split_sugar,
+        dirty=False, label="K2 fx-form request WITH :on-success/:on-failure split sugar",
+    )
+    # CLEAN — the machine-form spawn dispatches back to its parent; no :reply-to.
+    clean_http_machine_form = (
+        "```clojure\n"
+        "{:authenticating\n"
+        " {:spawn {:machine-id :rf.http/managed :data {:request {:url \"/login\"}}}}}\n"
+        "```\n"
+    )
+    expect(
+        managed_http_recipe_problems, clean_http_machine_form,
+        dirty=False, label="K3 machine-form :spawn of :rf.http/managed (no reply key needed)",
+    )
+    # CLEAN — the abort dispatch is not a request recipe.
+    clean_http_abort = (
+        "```clojure\n"
+        "(rf/dispatch [:rf.http/managed-abort req-id])\n"
+        "```\n"
+    )
+    expect(
+        managed_http_recipe_problems, clean_http_abort,
+        dirty=False, label="K4 :rf.http/managed-abort dispatch (no request)",
+    )
+
+    # --- Rule 5b: reading the retired co-located `:rf/reply` key. DRIFT fixture.
+    expect(
+        reply_contract_problems,
+        "(rf/reg-event :article/load (fn [_ [_ msg]] (when-let [r (:rf/reply msg)] r)))",
+        dirty=True, label="L1 reads the retired co-located :rf/reply key",
+    )
+    # CLEAN — the current explicit-target contract and the INTERNAL descriptor.
+    expect(
+        reply_contract_problems,
+        "The request names `:reply-to [:article/replied]`; the handler branches on `(:status reply)`.",
+        dirty=False, label="M1 explicit :reply-to target, no :rf/reply read",
+    )
+    expect(
+        reply_contract_problems,
+        "The public `:reply-to` normalizes to the internal `:rf/reply-to` descriptor.",
+        dirty=False, label="M2 internal :rf/reply-to descriptor is not the retired :rf/reply",
+    )
+
+    # --- Rule 5c: bare :work/id on a transient reply map. DRIFT fixture.
+    expect(
+        reply_contract_problems,
+        "The reply map exposes `:status`, `:value`, and `:work/id`.",
+        dirty=True, label="N1 bare :work/id asserted on the transient reply map",
+    )
+    # CLEAN — the transient spelling, and legitimate durable-ledger prose.
+    expect(
+        reply_contract_problems,
+        "The durable ledger row keeps bare `:work/id`; the transient reply map spells `:rf.reply/work-id`.",
+        dirty=False, label="O1 reply map spells :rf.reply/work-id; ledger keeps bare :work/id",
+    )
+    expect(
+        reply_contract_problems,
+        "The reply envelope correlates a late completion by the child's `:work/id` for stale suppression.",
+        dirty=False, label="O2 :work/id as the correlation identity is allowed",
+    )
+    expect(
+        reply_contract_problems,
+        "The durable work-ledger row is keyed by bare `:work/id`.",
+        dirty=False, label="O3 durable-ledger :work/id prose (no reply-map context)",
     )
 
     if failures:
