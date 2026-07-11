@@ -1,21 +1,26 @@
 ;; Conformance fixture: image/duplicate-image-id
 ;;
-;; EP-0026 §Image Keys (../../docs/EP/EP-0026-image-api-simplification.md): image
-;; ids MUST be unique within a single `:images` composition. The shadow report
-;; identifies images by id, so two images sharing an id in one composition could
-;; not be told apart — assembly fails loud with
-;; :rf.error/image-duplicate-image-id. Anonymous images (no `:id`) are exempt: an
-;; absent id is not a shared id (the control below composes two anonymous images
-;; cleanly).
+;; EP-0026 §Image Keys (../../docs/EP/EP-0026-image-api-simplification.md): the
+;; images in an `:images` composition MUST each be nameable by a DISTINCT id. The
+;; shadow report identifies every image by id, so in a MULTI-image composition:
+;;   * two images sharing an `:id` could not be told apart; and
+;;   * an ANONYMOUS image (no `:id`) is un-nameable — it cannot participate in
+;;     composition (rf/image contract: anonymous images are valid only for local
+;;     tests/examples that do NOT compose). An anonymous image in a composition
+;;     would leave a cross-image shadow with a nil loser/winner — a degenerate
+;;     `{:image nil :shadowed-by nil}` report entry (rf2-x76af2.30).
+;; Both conditions fail loud with :rf.error/image-duplicate-image-id. A SINGLE
+;; anonymous image still assembles (there is no second image, so no shadow to
+;; name — the local-test / default-image case).
 ;;
-;; Mode-B `:assemble-image` call op. The negative call carries `:expect-error`
+;; Mode-B `:assemble-image` call op. The negative calls carry `:expect-error`
 ;; (Spec 009 §The thrown-error shape — `case` on `:rf.error/id`, never the
 ;; message string).
 
 {:fixture/id           :image/duplicate-image-id
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/image}
- :fixture/doc          "EP-0026 image-id uniqueness: two images sharing an :id within one :images composition fail loud with :rf.error/image-duplicate-image-id (the shadow report identifies images by id). Anonymous images (no :id) are exempt — two compose cleanly."
+ :fixture/doc          "EP-0026 image-id uniqueness: in a MULTI-image :images composition every image must be nameable by a distinct :id — two images sharing an :id, OR an anonymous image (no :id, un-nameable in the shadow report), fail loud with :rf.error/image-duplicate-image-id (rf2-x76af2.30). A SINGLE anonymous image still assembles (no second image, so no shadow to name)."
 
  :fixture/registry {}
  :fixture/handlers {}
@@ -29,10 +34,21 @@
             {:id :dup :select-ns {:include ["b.core"]}}]
    :expect-error :rf.error/image-duplicate-image-id}
 
-  ;; (2) CONTROL: two ANONYMOUS images (no :id) with disjoint inline [kind id]s
-  ;; compose cleanly — an absent id is not a shared id.
+  ;; (2) Two ANONYMOUS images (no :id) in one composition — fail loud too: an
+  ;; un-nameable image cannot participate in composition (rf2-x76af2.30). Even
+  ;; with disjoint [kind id]s the anonymous images are rejected at the boundary,
+  ;; so the shadow report never carries a degenerate {:image nil :shadowed-by nil}
+  ;; entry.
   {:call :assemble-image
    :pool []
    :images [{:registrations {:reg-fx [[:a/post :a]]}}
             {:registrations {:reg-fx [[:b/post :b]]}}]
-   :expect-present [[:fx :a/post] [:fx :b/post]]}]}
+   :expect-error :rf.error/image-duplicate-image-id}
+
+  ;; (3) CONTROL: a SINGLE anonymous image (no :id) composes cleanly — with no
+  ;; second image there is no cross-image shadow to name, so a lone anonymous
+  ;; image is the valid local-test / example case.
+  {:call :assemble-image
+   :pool []
+   :images [{:registrations {:reg-fx [[:a/post :a]]}}]
+   :expect-present [[:fx :a/post]]}]}

@@ -243,12 +243,25 @@
           d    (err-data #(asm/assemble [img1 img2] []))]
       (is (= :rf.error/image-duplicate-image-id (:rf.error/id d)))
       (is (= [:dup] (:duplicate-image-ids d)))))
-  (testing "distinct ids compose cleanly; ANONYMOUS images (no :id) are exempt"
-    (let [img1 (image/image {:registrations {:reg-fx [[:a {} ::a]]}})
-          img2 (image/image {:registrations {:reg-fx [[:b {} ::b]]}})
+  (testing "distinct NAMED ids compose cleanly"
+    (let [img1 (image/image {:id :img/a :registrations {:reg-fx [[:a {} ::a]]}})
+          img2 (image/image {:id :img/b :registrations {:reg-fx [[:b {} ::b]]}})
           gen  (asm/assemble [img1 img2] [])]
       (is (contains? (:rf.gen/resolver gen) [:fx :a]))
-      (is (contains? (:rf.gen/resolver gen) [:fx :b])))))
+      (is (contains? (:rf.gen/resolver gen) [:fx :b]))))
+  (testing "an ANONYMOUS image (no :id) in a MULTI-image composition now fails
+            loud — it is un-nameable in the shadow report, so it cannot
+            participate in composition (rf2-x76af2.30; rf/image contract:
+            anonymous images are for local tests/examples that do not compose)"
+    (let [img1 (image/image {:registrations {:reg-fx [[:a {} ::a]]}})
+          img2 (image/image {:registrations {:reg-fx [[:b {} ::b]]}})]
+      (is (= :rf.error/image-duplicate-image-id
+             (err-id #(asm/assemble [img1 img2] []))))))
+  (testing "a SINGLE anonymous image still assembles (the anonymous rule is
+            multi-image only)"
+    (let [img (image/image {:registrations {:reg-fx [[:a {} ::a]]}})
+          gen (asm/assemble [img] [])]
+      (is (contains? (:rf.gen/resolver gen) [:fx :a])))))
 
 ;; ===========================================================================
 ;; 5. Framework standards are protected — an app [kind id] colliding with a
