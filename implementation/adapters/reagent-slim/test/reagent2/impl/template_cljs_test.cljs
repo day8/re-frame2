@@ -489,6 +489,22 @@
       (is (= Comp (.-type el)))
       (is (= "shaped" (-> el .-props .-already))))))
 
+(deftest as-element-raw-key-does-not-mutate-caller-props-rf2-mdgt8t
+  (testing "rf2-mdgt8t (d): stamping :key on an :r> element COPIES the
+            caller-supplied js-props object instead of mutating it. The
+            caller's object must be unchanged after render."
+    (let [Comp     (fn FakeRaw [_props] nil)
+          js-props #js {:already "shaped"}
+          ^js el   (template/as-element ^{:key "k"} [:r> Comp js-props])]
+      (is (= "k" (.-key el)) "the React key is stamped on the element")
+      (is (= "shaped" (-> el .-props .-already)) "props still flow through")
+      ;; The caller's object must NOT have gained a :key (the pre-fix bug
+      ;; set! (.-key js-props) key directly on this input object).
+      (is (undefined? (.-key js-props))
+          "caller's js-props object was NOT mutated with :key")
+      (is (= 1 (.-length (js/Object.keys js-props)))
+          "caller's js-props gained no extra own keys"))))
+
 (deftest as-element-function-component-is-real-fn-component-rf2-bf4uw2
   (testing "rf2-bf4uw2: [:f> f] renders f as a REAL React FUNCTION
             component — NOT a class. The prior fn-to-class lowering
@@ -732,16 +748,34 @@
       (is (= "img" (.-type el)))
       (is (= "x.png" (-> el .-props .-src))))))
 
-(deftest as-element-void-tag-children-dropped
-  (testing "void tag with child positions: child arg ignored"
-    ;; Per HTML5: br/hr/img/input/etc cannot have children; React would
-    ;; otherwise warn. The renderer drops children for void tags.
-    (let [^js el (template/as-element [:br "should-not-render"])]
-      (is (= "br" (.-type el)))
-      ;; React.createElement(br, props) with no children → undefined
-      ;; or nil children.
-      (is (or (nil? (-> el .-props .-children))
-              (js/Array.isArray (-> el .-props .-children)))))))
+(deftest as-element-void-tag-children-warns-and-drops-rf2-mdgt8t
+  (testing "rf2-mdgt8t (c): a void tag given children still DROPS them
+            (documented leniency — no render crash) but emits a DEBUG dev
+            warning so the app bug is NON-silent, not masked."
+    (let [captured (atom nil)
+          calls    (atom [])]
+      (with-warn-spy calls
+        #(reset! captured (template/as-element [:br "should-not-render"])))
+      (let [^js el @captured]
+        (is (= "br" (.-type el)))
+        ;; children still dropped: React.createElement(br, props) → no children
+        (is (or (nil? (-> el .-props .-children))
+                (js/Array.isArray (-> el .-props .-children)))
+            "children dropped (lenient)"))
+      ;; but NON-silent: exactly one warning naming the void tag
+      (is (= 1 (count @calls)) "one dev warning fired for the dropped children")
+      (is (re-find #"void element" (first @calls)) "warning names the offence")
+      (is (re-find #"<br>" (first @calls)) "warning names the void tag"))))
+
+(deftest as-element-void-tag-no-children-does-not-warn-rf2-mdgt8t
+  (testing "rf2-mdgt8t (c): a void tag WITHOUT children does not warn"
+    (let [calls (atom [])]
+      (with-warn-spy calls
+        #(do (template/as-element [:br])
+             (template/as-element [:input {:type "text"}])
+             (template/as-element [:img {:src "x.png"}])))
+      (is (zero? (count @calls))
+          "no warning when void tags carry no children"))))
 
 ;; ---------------------------------------------------------------------------
 ;; React keys

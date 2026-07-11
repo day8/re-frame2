@@ -397,6 +397,14 @@
       (set! (.-componentWillUnmount proto)
             (fn []
               (this-as ^js this
+                ;; Clear the dirty flag on unmount (rf2-mdgt8t (a)). A
+                ;; component queued via batching/queue-render! (which sets
+                ;; cljsIsDirty) and THEN unmounted would otherwise stay
+                ;; dirty, so the next flush-render drain sees (dirty? c)
+                ;; true and calls forceUpdate on the unmounted instance —
+                ;; a React no-op on 18+/19 but a stock-parity gap and free
+                ;; churn (stock clears the flag on unmount).
+                (batching/mark-rendered this)
                 (when-some [rea (.-cljsRenderRea this)]
                   (ratom/dispose! rea)
                   (set! (.-cljsRenderRea this) nil))

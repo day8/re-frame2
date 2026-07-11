@@ -635,7 +635,23 @@
         void-elem? (and (string? component) (void-tag? component))]
     (cond
       void-elem?
-      (react/createElement component js-props)
+      (do
+        ;; HTML5 void tags (br/hr/img/input/…) take no children — React
+        ;; RAISES "<tag> is a void element tag and must neither have
+        ;; children…" if any are passed. The slim renderer stays LENIENT
+        ;; (it drops the children rather than crashing the render), but
+        ;; that leniency is now INTENTIONAL and NON-SILENT: a DEBUG-gated
+        ;; warning surfaces the app bug instead of masking it
+        ;; (rf2-mdgt8t (c)). Elided under :advanced + goog.DEBUG=false.
+        (when ^boolean js/goog.DEBUG
+          (when (and (pos? n-children) (exists? js/console))
+            (.warn js/console
+                   (str "[reagent-slim] void element <" component
+                        "> was given " n-children
+                        " child element(s); HTML5 void tags cannot have"
+                        " children — the children are dropped. Remove them"
+                        " from the hiccup (rf2-mdgt8t)."))))
+        (react/createElement component js-props))
 
       (== n-children 0)
       (react/createElement component js-props)
@@ -779,10 +795,17 @@
   no prop conversion."
   [argv]
   (let [component (nth argv 1 nil)
-        js-props  (or (nth argv 2 nil) #js {})]
-    (when-some [key (-> (meta argv) :key)]
-      (set! (.-key js-props) key))
-    (make-element argv component js-props 3)))
+        supplied  (nth argv 2 nil)]
+    (if-some [key (-> (meta argv) :key)]
+      ;; Copy the caller's js-props before stamping :key (rf2-mdgt8t (d)).
+      ;; js-props here is the caller-supplied object (nth argv 2); mutating
+      ;; it with (set! (.-key …)) is a user-visible mutation of an input.
+      ;; native-element / react-component-element mint fresh props objects,
+      ;; so only :r> was affected. Shallow-copy so the stamp is ours alone.
+      (let [js-props (js/Object.assign #js {} (or supplied #js {}))]
+        (set! (.-key js-props) key)
+        (make-element argv component js-props 3))
+      (make-element argv component (or supplied #js {}) 3))))
 
 (defn- as-fn-component
   "Wrap a plain CLJS render fn `f` as a REAL React FUNCTION component so
