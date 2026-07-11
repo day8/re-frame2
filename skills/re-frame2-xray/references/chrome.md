@@ -59,8 +59,10 @@ Spec [`007-UX-IA.md` §Frame slot contract](../../../tools/xray/spec/007-UX-IA.m
 
 The L2 spine live-tails new events at the head (**LIVE**) until you pick a
 historical event or pause, which drops to **RETRO** (inspecting a past
-epoch). `Space` pauses/resumes LIVE; `L` snaps back to LIVE; the head row
-pulses while live. Spec
+epoch). `Space` pauses/resumes LIVE; `L` snaps back to LIVE. There is **no
+mode pill and no animated head-row cue** — LIVE vs RETRO is conveyed by the
+`[◀ ▶ ⏭]` nav cluster plus the focused-row state (a background wash + a
+leading `>` caret on the focused row, which in LIVE tracks the head). Spec
 [`007-UX-IA.md` §L1](../../../tools/xray/spec/007-UX-IA.md).
 
 ## Time-travel: passive inspect vs explicit rewind
