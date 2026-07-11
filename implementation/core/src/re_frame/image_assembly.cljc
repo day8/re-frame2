@@ -889,14 +889,26 @@
   `:rf/set-db`, EP-0027) into the regular registrar/source store too, so the
   registrar-direct (non-generation) resolution path can find them. Those
   source-store shadows are NOT ordinary app registrations — they are the
-  framework standard's own copy. The default image's WHOLE-STORE selection must
-  drop any descriptor whose `[kind id]` is a framework standard: the standard is
-  unioned in separately (and protected), so projecting its registrar-shadow as
-  an app descriptor would make the default frame fail
-  `check-standard-collision!` against the very standard it shadows. An EXPLICIT
-  `:select-ns` image is unaffected — it selects by provenance namespace, and a
-  standard's registrar shadow carries no `:rf.provenance/ns`, so it is never
-  glob-selectable anyway."
+  framework standard's own copy, recorded with NO `:rf.provenance/ns` (a
+  nil-provenance registrar slot). The default image's WHOLE-STORE selection
+  drops ONLY that framework-own copy — a descriptor whose `[kind id]` is a
+  framework standard AND whose `:rf.provenance/ns` is nil: the standard is
+  unioned in separately (and protected), so projecting its own registrar-shadow
+  as an app descriptor would make the default frame fail
+  `check-standard-collision!` against the very standard it shadows.
+
+  The filter is deliberately NOT a blanket `[kind id]` match (rf2-x76af2.29): a
+  PROVENANCED app descriptor colliding with a framework standard MUST survive
+  selection so it reaches `check-standard-collision!` and FAILS LOUD with
+  `:rf.error/image-standard-replacement-forbidden` — exactly as an explicit
+  image's collision does — rather than being silently dropped by the filter and
+  letting the standard resolve unnoticed. A blanket match would bypass the
+  standard-collision gate on the default path only, breaking the documented
+  guarantee that the default path fails loud exactly as the explicit path.
+
+  An EXPLICIT `:select-ns` image is unaffected — it selects by provenance
+  namespace, and a standard's registrar shadow carries no `:rf.provenance/ns`,
+  so it is never glob-selectable anyway."
   [image descriptors]
   (lower-inline-descriptors
     (if (default-image? image)
@@ -904,7 +916,13 @@
                                 (map descriptor-kind+id)
                                 (standard-descriptors))]
         (into []
-              (remove #(contains? standard-keys (descriptor-kind+id %)))
+              ;; Drop ONLY the framework's OWN no-provenance registrar shadow of
+              ;; a standard (rf2-x76af2.29). A PROVENANCED app descriptor
+              ;; colliding with a standard must SURVIVE so it reaches
+              ;; `check-standard-collision!` and fails loud — symmetric with the
+              ;; explicit path — instead of being silently dropped here.
+              (remove #(and (contains? standard-keys (descriptor-kind+id %))
+                            (nil? (:rf.provenance/ns %))))
               descriptors))
       (image/select-descriptors image descriptors))))
 
