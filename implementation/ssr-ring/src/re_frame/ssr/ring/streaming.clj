@@ -173,8 +173,9 @@
   Throws propagate to the caller (the handler's outer try/catch routes
   them through the projector to a fail-closed non-200. The
   recovered-to-nil sub case does NOT throw here — its buffered fail-
-  closed status is picked up by the handler's post-shell `get-response`
-  re-read."
+  closed 5xx is picked up by the handler's post-shell
+  `flush-response-result!` re-read, which then diverts to the non-streamed
+  projected-error arm (rf2-oytx7j)."
   [frame-id {:keys [root-view] :as opts}]
   ;; Blocking route resources settle before the shell; suspense continuation
   ;; deferral is a separate axis. Absent resource hooks make this a no-op.
@@ -436,6 +437,23 @@
     (finally
       (lifecycle/destroy-frame-quietly! frame-id))))
 
+(defn- stream-projected-error!
+  "Materialise a projected 5xx as a plain-String error response on the
+  REQUEST thread — NO pipe, NO writer thread — and destroy the per-request
+  frame inline (the writer thread whose `finally` normally tears the frame
+  down is never spawned on this branch). Mirrors the non-streaming
+  projected-error arm: the projected status + safe accumulated headers/cookies,
+  an `:error-view` (or the locked default template) body, and NO shell /
+  continuations / `__rf_payload` / app-db. Shared by the drain-time 5xx branch
+  and the post-shell recovered-to-nil 5xx branch of `stream-handler`. Per
+  Spec 011 §Drain-time error classification + §Streaming pre-commit rule
+  (rf2-oytx7j)."
+  [frame-id resp public-error opts]
+  (try
+    (pipeline/materialise-projected-error frame-id resp public-error opts)
+    (finally
+      (lifecycle/destroy-frame-quietly! frame-id))))
+
 (defn- render-shell-or-projected-error
   "Render the streaming shell on THIS (request) thread, BEFORE the chunked
   response is materialised. The shell render is the
@@ -456,9 +474,11 @@
 
   A production reactive-sub throw during the shell render does NOT throw here —
   it recovers to nil but buffers a fail-closed 500 on the always-on error-emit
-  substrate; the caller's post-shell `ssr/get-response` re-read
-  drains that buffer and stamps the 500 onto the response accumulator before
-  the chunked head is materialised."
+  substrate; the caller's post-shell `ssr/flush-response-result!` re-read
+  drains that buffer, and a projected 5xx then diverts to the non-streamed
+  projected-error arm (`stream-projected-error!`) — no writer thread, no
+  partial-state shell — rather than streaming the degraded shell under a 500
+  (rf2-oytx7j)."
   [frame-id opts]
   (try
     (render-streaming-shell! frame-id opts)
@@ -569,15 +589,15 @@
       precedence) AND destroys the per-request frame inline (the writer
       thread is never spawned on this branch),
     - otherwise renders the shell on the request thread before materialising
-      the response head. A root-view
-      / shell-walk throw escalates to `:rf.error/ssr-render-failed` via
-      the projector and a production reactive-sub throw during the shell
-      render buffers a fail-closed status the post-shell `get-response`
-      re-read picks up — both fail closed to a non-200 projected error
-      page on the request thread, with no pipe or writer thread spawned. The
-      streaming response is selected only once the shell is known-renderable
-      (clean render and a success
-      status),
+      the response head. A root-view / shell-walk throw escalates to
+      `:rf.error/ssr-render-failed` via the projector, and a production
+      reactive-sub throw during the shell render buffers a fail-closed 5xx
+      the post-shell `flush-response-result!` re-read picks up — BOTH fail
+      closed to a non-200 projected error page (`:error-view` or the locked
+      default template) on the request thread, with NO pipe or writer thread
+      spawned and NO partial-state shell / hydration payload shipped
+      (rf2-oytx7j). The streaming response is selected only once the shell is
+      known-renderable (a clean render AND no projected 5xx),
     - then materialises the response head (status / headers / cookies)
       — so a header/cookie serialisation throw on a value that escaped
       the fx boundary's partial validation short-circuits to `:on-error`
@@ -665,30 +685,51 @@
             ;; the chunked head ONLY once the shell is known-renderable. The
             ;; helpers (`render-shell-or-projected-error`, `stream-rendered-
             ;; response`, `redirect-response!`) carry the per-step rationale.
-            (let [resp (ssr/get-response frame-id)]
-              (if (some? (:redirect resp))
-                ;; Redirect — short-circuit per Spec 011 §Redirect precedence.
-                (redirect-response! resp frame-id)
+            (let [{:keys [response public-error]} (ssr/flush-response-result! frame-id)]
+              (cond
+                ;; Redirect precedence FIRST (Spec 011 §Redirect precedence).
+                (some? (:redirect response))
+                (redirect-response! response frame-id)
+
+                ;; A drain-time projected 5xx — NO shell, NO writer thread; a
+                ;; plain-String projected-error body on the request thread
+                ;; (Spec 011 §Streaming pre-commit rule, rf2-oytx7j).
+                (pipeline/projected-5xx? public-error)
+                (stream-projected-error! frame-id response public-error opts)
+
+                :else
                 (let [rendered (render-shell-or-projected-error frame-id opts)]
                   (if (reduced? rendered)
                     ;; Shell render threw — return the projected error page
                     ;; (frame already torn down inline).
                     @rendered
-                    ;; Shell rendered cleanly. Re-read the accumulator to
-                    ;; surface any fail-closed status before materialising the head.
-                    ;;
-                    ;; A redirect here is defense in depth:
-                    ;; in v1 it cannot surface at the post-shell re-read
-                    ;; (only the `:initial-events`-drain `:rf.server/redirect`
-                    ;; sets it, caught by the early branch above; the error
-                    ;; projector stamps `:status` only, never `:redirect`).
-                    ;; The branch aligns the streaming path with the
-                    ;; non-streaming handler's redirect-ignores-body parity
-                    ;; for a future render-phase fx / hand-built accumulator
-                    ;; that learns to redirect.
-                    (let [resp2 (ssr/get-response frame-id)]
-                      (if (some? (:redirect resp2))
+                    ;; Shell rendered cleanly. Re-read the accumulator AND the
+                    ;; projected public-error to surface any fail-closed status
+                    ;; before materialising the head.
+                    (let [{resp2 :response err2 :public-error}
+                          (ssr/flush-response-result! frame-id)]
+                      (cond
+                        ;; A redirect here is defense in depth: in v1 it
+                        ;; cannot surface at the post-shell re-read (only the
+                        ;; `:initial-events`-drain `:rf.server/redirect` sets
+                        ;; it, caught by the early branch; the error projector
+                        ;; stamps `:status` only, never `:redirect`). The
+                        ;; branch aligns the streaming path with the
+                        ;; non-streaming handler's redirect-ignores-body parity
+                        ;; for a future render-phase fx that learns to redirect.
+                        (some? (:redirect resp2))
                         (redirect-response! resp2 frame-id)
+
+                        ;; A recovered-to-nil sub during the shell render
+                        ;; buffered a fail-closed 5xx — take the NON-STREAMED
+                        ;; error arm (no writer thread, plain-String body).
+                        ;; rf2-oytx7j SUPERSEDES the old stream-the-degraded-
+                        ;; shell-under-500 behaviour: a 5xx before the chunked
+                        ;; head commits never ships a partial-state shell.
+                        (pipeline/projected-5xx? err2)
+                        (stream-projected-error! frame-id resp2 err2 opts)
+
+                        :else
                         (stream-rendered-response
                           frame-id rendered resp2 content-type opts)))))))
             (catch Throwable t

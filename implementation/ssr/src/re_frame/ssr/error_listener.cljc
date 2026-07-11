@@ -404,6 +404,34 @@
   (-> (response/response-of frame-id)
       (dissoc response/status-writes-key response/redirect-writes-key)))
 
+(defn flush-response-result!
+  "Drain any pending error projection for `frame-id` ONCE and return BOTH
+  the resolved response accumulator AND the projected `:rf/public-error`
+  map (`nil` when no projection fired):
+
+      {:response     <resolved-response-map>
+       :public-error <projected-public-error-or-nil>}
+
+  Host adapters branch on `:public-error` to classify the drain-time
+  outcome — a projected 4xx (client-fault / renderable app) keeps the app
+  root body + hydration payload, a projected 5xx (server fault, before the
+  body commits) diverts to the error page — WITHOUT re-inferring projection
+  from `(:status response)`. Status alone is not proof that an error was
+  projected: an app that manually `:rf.server/set-status`-es a 500 with no
+  error projected returns `:public-error nil` and stays on the app arm.
+
+  Side-effecting — this is the SAME single drain `flush-response!` /
+  `get-response` perform, so calling it consumes the pending trace: a
+  SECOND call returns `{:response … :public-error nil}` for the
+  already-consumed projection. `flush-response!` and `get-response`
+  delegate to `(:response (flush-response-result! …))`, so response-only
+  reads are unchanged. Per Spec 011 §Server error projection §Drain-time
+  error classification (rf2-oytx7j)."
+  [frame-id]
+  (let [public-error (apply-error-projection! frame-id)]
+    {:response     (peek-response frame-id)
+     :public-error public-error}))
+
 (defn flush-response!
   "Drain any pending error projection for `frame-id` and return the
   resolved response. Side-effecting — every call clears the projector
@@ -413,10 +441,10 @@
   This is the explicit-side-effect spelling. `get-response` is the
   canonical host-adapter alias for the same drain-then-read sequence;
   `peek-response` is the pure-read counterpart for callers that want
-  to opt out of the drain side effect."
+  to opt out of the drain side effect. `flush-response-result!` is the
+  variant that ALSO returns the projected `:public-error` for classification."
   [frame-id]
-  (apply-error-projection! frame-id)
-  (peek-response frame-id))
+  (:response (flush-response-result! frame-id)))
 
 (defn get-response
   "Read the resolved response accumulator for a frame. Public surface
@@ -435,6 +463,22 @@
   callers can opt into the side-effect explicitly."
   [frame-id]
   (flush-response! frame-id))
+
+(defn pending-error-trace?
+  "PURE predicate — true when `frame-id` has at least one buffered error
+  trace still awaiting projection. Does NOT consume, drain, or project.
+
+  Host adapters use this to close the error-view containment hole
+  (rf2-oytx7j): the `resolve-error-body` `try/catch` catches a THROWING
+  error view, but a reactive sub INSIDE the error view that RECOVERS to nil
+  under production hardening does not throw — it silently buffers a
+  fail-closed projection here. On entry to the error arm the buffer is
+  empty (the drain / render-throw / post-render flush already consumed it),
+  so a pending trace after the error-view render can only be that
+  recovered-to-nil error-view sub — the signal to fall back once to the
+  locked template."
+  [frame-id]
+  (boolean (seq (get @pending-error-traces (frame/frame-address frame-id)))))
 
 (defn clear-pending-error-traces!
   "Drop frame-id's entry from the pending-error-traces buffer.

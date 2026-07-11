@@ -145,8 +145,16 @@
                       inherit this override.
 
     :error-view     — registered-view keyword or `(fn [public-error] hiccup)`
-                      for projected drain/render errors. A failing error view
-                      falls back to the host template.
+                      rendering the projected error page for a projected 5xx
+                      (a drain-time OR render-time SERVER fault) and for an
+                      unrenderable root/shell throw. Receives ONLY the
+                      sanitised `:rf/public-error` map (never the request,
+                      throwable, frame, or trace). A projected 4xx (routing
+                      miss / bad client input) does NOT call it — the app
+                      renders its own not-found / bad-request UI + hydration
+                      payload. A failing error view (a throw, OR a reactive
+                      sub that recovered to nil inside it) falls back ONCE to
+                      the host default template, without re-projecting.
     :on-error       — `(fn [request throwable] ring-response)` for setup,
                       materialisation, and transport failures outside the
                       projector. Its default and fallback expose no throwable
@@ -181,9 +189,10 @@
       → reg-frame                   (drains :initial-events synchronously;
                                      the `:rf.server/request` cofx
                                      reads from the populated slot)
-        → read get-response          (flushes error projections)
-        → branch on :redirect
-        → render-to-string + payload
+        → flush-response-result!     (flushes error projections once;
+                                     returns {:response :public-error})
+        → classify: :redirect | projected-5xx error arm |
+                     projected-4xx/none → render-to-string + payload
         → materialise to Ring map
       → finally: destroy-frame!     (the `:ssr/on-frame-destroyed`
                                      hook clears the request slot)
@@ -222,14 +231,32 @@
         (if short-circuit
           short-circuit
           (try
-            ;; `ssr/get-response` reads the per-frame accumulated
-            ;; status/headers/cookies/redirect, and the redirect materialiser
-            ;; ships that response; both name the frame explicitly.
-            (let [resp (ssr/get-response frame-id)]
-              (if (some? (:redirect resp))
-                ;; Redirect — short-circuit per Spec 011 §Redirect precedence.
-                (pipeline/ssr-response->ring-response resp nil)
-                (pipeline/build-full-response frame-id resp opts)))
+            ;; `ssr/flush-response-result!` reads the per-frame accumulated
+            ;; status/headers/cookies/redirect AND the projected `:public-error`
+            ;; (one drain), so the handler classifies the drain-time outcome
+            ;; without re-inferring projection from `(:status resp)`.
+            (let [{:keys [response public-error]} (ssr/flush-response-result! frame-id)]
+              (cond
+                ;; Redirect precedence FIRST (Spec 011 §Redirect precedence) —
+                ;; a pending projection is ignored while a redirect stands.
+                (some? (:redirect response))
+                (pipeline/ssr-response->ring-response response nil)
+
+                ;; A projected 5xx discovered during the drain (a handler/fx
+                ;; exception, a custom 5xx projection) — the app-db is in an
+                ;; arbitrary partial state, so DISCARD the root body + payload
+                ;; and ship the projected-error arm (Spec 011 §Drain-time error
+                ;; classification, rf2-oytx7j).
+                (pipeline/projected-5xx? public-error)
+                (pipeline/materialise-projected-error frame-id response public-error opts)
+
+                ;; A projected 4xx (routing miss / bad client input) or no
+                ;; projection keeps the app's OWN body: the root view renders
+                ;; (the app's not-found / bad-request UI) and the client
+                ;; hydrates into a working SPA. A post-render recovered-to-nil
+                ;; 5xx is caught inside `build-full-response`.
+                :else
+                (pipeline/build-full-response frame-id response opts)))
             (catch Throwable t
               ;; A failing caller hook falls back to the locked response.
               (lifecycle/safe-on-error on-error request t))

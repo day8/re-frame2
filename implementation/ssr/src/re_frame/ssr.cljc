@@ -72,11 +72,20 @@
 ;; `peek-response` is a pure read (no projector drain);
 ;; `flush-response!` drains pending error projections then reads.
 ;; `get-response` is kept as the drain-then-read host-adapter alias.
+;; `flush-response-result!` is the drain-then-read variant that ALSO returns
+;; the projected `:public-error` so host adapters classify drain-time
+;; outcomes (4xx app arm vs 5xx error arm) without re-inferring from status.
 (def peek-response                   error-listener/peek-response)
 (def flush-response!                 error-listener/flush-response!)
+(def flush-response-result!          error-listener/flush-response-result!)
 ;; framework-private at the public surface — Spec 011 §Per-request
 ;; frame teardown. Tests reach the var via `(resolve ...)`.
 (def ^:private pending-error-traces  error-listener/pending-error-traces)
+;; The error-view containment peek + one-shot clear (rf2-oytx7j) — a host
+;; adapter detects a reactive sub that recovered-to-nil inside the error view
+;; and falls back to the locked template without re-projecting.
+(def pending-error-trace?            error-listener/pending-error-trace?)
+(def clear-pending-error-traces!     error-listener/clear-pending-error-traces!)
 ;; Private at the façade. Tests reach via
 ;; `re-frame.ssr.test-fixture/reset-runtime` (the canonical reset surface)
 ;; or by `:require`-ing `re-frame.ssr.request` directly. Production
