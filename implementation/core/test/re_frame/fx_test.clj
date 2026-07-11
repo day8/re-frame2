@@ -1589,3 +1589,51 @@
               ":rf.event/coeffects key ABSENT on :tags when no user cofx injected"))
         (finally
           (rf/unregister-listener! :trace ::no-cofx))))))
+
+;; ---- reg-fx handler-required (rf2-x76af2.26) ------------------------------
+;;
+;; A `reg-fx` MUST supply a callable handler. The metadata-only form
+;; `(reg-fx :id {…})` (a plausible typo) previously registered a nil
+;; `:handler-fn` and failed LATE at fire-time as a misleading
+;; `:rf.error/fx-handler-exception` (an NPE blaming the ABSENT handler for
+;; THROWING). It now fails LOUD at REGISTRATION time — symmetric with
+;; reg-cofx's registration-time missing-supplier rejection.
+
+(deftest reg-fx-with-no-handler-is-registration-invalid
+  (testing "`reg-fx` with metadata only and NO handler fn throws
+            `:rf.error/fx-registration-invalid` at REGISTRATION time, naming
+            the missing handler (rf2-x76af2.26). Mirrors reg-cofx's
+            registration-time missing-supplier rejection — no more deferring
+            to a misleading fire-time `:rf.error/fx-handler-exception`."
+    (let [ex (try (rf/reg-fx :fx-test.x76af2-26/no-handler
+                             {:doc "typo — handler omitted"})
+                  nil (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? ex) "the handler-less registration threw at registration time")
+      (is (= :rf.error/fx-registration-invalid (:rf.error/id (ex-data ex)))
+          "rejected as a malformed fx registration shape, not a late fire-time NPE")
+      (is (= :fx-test.x76af2-26/no-handler (:rf.fx/id (ex-data ex)))
+          "the offending id rides the error payload")
+      (is (re-find #"no handler" (:reason (ex-data ex)))
+          "the reason names the missing handler")
+      (is (nil? (registrar/lookup :fx :fx-test.x76af2-26/no-handler))
+          "the handler-less fx did NOT register (no nil `:handler-fn` left behind)")))
+
+  (testing "a non-callable positional value (a number typo'd as the handler)
+            is ALSO rejected — the guard is `ifn?`, not merely non-nil"
+    (let [ex (try (rf/reg-fx :fx-test.x76af2-26/bad-handler 42)
+                  nil (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? ex) "the non-callable-handler registration threw")
+      (is (= :rf.error/fx-registration-invalid (:rf.error/id (ex-data ex)))
+          "a non-IFn handler is a malformed registration shape")
+      (is (nil? (registrar/lookup :fx :fx-test.x76af2-26/bad-handler))
+          "the malformed fx did NOT register")))
+
+  (testing "the well-formed `(reg-fx :id (fn …))` and `(reg-fx :id {…} (fn …))`
+            shapes still register cleanly — the guard rejects only the
+            handler-less / non-callable cases"
+    (rf/reg-fx :fx-test.x76af2-26/ok-bare (fn [_ _] :ok))
+    (rf/reg-fx :fx-test.x76af2-26/ok-meta {:doc "with meta"} (fn [_ _] :ok))
+    (is (fn? (:handler-fn (registrar/lookup :fx :fx-test.x76af2-26/ok-bare)))
+        "the bare-handler form registered its `:handler-fn`")
+    (is (fn? (:handler-fn (registrar/lookup :fx :fx-test.x76af2-26/ok-meta)))
+        "the metadata+handler form registered its `:handler-fn`")))
