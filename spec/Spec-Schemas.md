@@ -3536,15 +3536,16 @@ The sanitised, client-safe projection of an internal error trace event. Per [011
 
 ```clojure
 (def PublicError
-  [:map {:closed true}                                                     ;; closed in prod — extra keys are a leak risk
-   [:status     :int]
+  [:map {:closed true}                                                     ;; closed to EXACTLY the four keys below — a 5th key (incl. a projector-supplied :details) fails conformance
+   [:status     [:int {:min 400 :max 599}]]                                ;; HTTP error status; 400..499 client-fault arm, 500..599 server-fault arm
    [:code       :keyword]                                                  ;; stable category (:not-found :bad-request :unauthorised :internal-error ...)
    [:message    :string]                                                   ;; one-sentence human-facing
-   [:retryable? :boolean]
-   [:details    {:optional true} :any]])                                   ;; dev-only; the full trace event for developer view
+   [:retryable? :boolean]])
 ```
 
-The map is **closed** — production must not silently leak unknown keys. The `:details` key is dev-only (gated by `:dev-error-detail?`); production builds elide it.
+This is the exact shape the runtime validator `public-error-shape?` enforces (per [011 §Server error projection](011-SSR.md#server-error-projection)): the map is **closed to exactly these four keys**, and `:status` is an HTTP **error** status in **400..599**. A projector that returns any extra key — including its own `:details` — or an out-of-range `:status` (a `200`/`302`, a negative, a `>599`) fails conformance, and the runtime substitutes the locked generic-500 fallback (`{:status 500 :code :internal-error :message "Something went wrong" :retryable? false}`).
+
+In **dev** builds (gated by the frame's `:ssr {:dev-error-detail? true}`), the runtime appends a `:details` key carrying the raw trace event **after** this validation — it is a runtime augmentation, not part of the projector-returned contract, and production builds omit it.
 
 ### Standard fx args schemas
 
