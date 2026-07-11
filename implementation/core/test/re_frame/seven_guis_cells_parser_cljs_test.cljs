@@ -180,6 +180,46 @@
     (is (= :error/eval (cells/evaluate-ast true {} #{})))))
 
 ;; ===========================================================================
+;; value->display — the marker→hash display mapping (rf2-3xn8qr)
+;; ===========================================================================
+;;
+;; The evaluator emits typed keyword markers; the grid's `value->display` must
+;; translate EVERY one to a spreadsheet hash-code. A marker with no mapping falls
+;; through to `(str value)` and leaks its raw `:error/…` keyword into the cell —
+;; which is exactly what used to happen to `:error/unknown-op` (a list whose head
+;; is not + - * /, reachable from real user input like `=(1 2)`): the display
+;; cond had no branch for it, so the cell rendered the literal ":error/unknown-op".
+
+(deftest value->display-maps-every-error-marker-to-a-hash-code
+  (testing "each typed error marker shows its spreadsheet hash-code, never a raw
+            keyword"
+    (doseq [[marker hash] {:error/cycle       "#CYCLE"
+                           :error/eval        "#EVAL"
+                           :error/type        "#TYPE"
+                           :error/div-by-zero "#DIV/0"
+                           :error/unknown-op  "#OP?"}]
+      (is (= hash (cells/value->display marker))
+          (str marker " must display as " hash))
+      (is (not (re-find #":error/" (cells/value->display marker)))
+          (str marker " must not leak its raw keyword to the grid"))))
+  (testing "a parse-error pair shows #PARSE, and a plain value is stringified"
+    (is (= "#PARSE" (cells/value->display [:error/parse "boom"])))
+    (is (= "42" (cells/value->display 42)))
+    (is (= "hi" (cells/value->display "hi")))))
+
+(deftest unknown-op-formula-renders-hash-not-raw-keyword
+  (testing "=(1 2) — a list whose head is a number, not an operator — reaches the
+            evaluator as :error/unknown-op, and the grid maps it to a hash-code
+            rather than leaking the raw ':error/unknown-op' keyword (rf2-3xn8qr)"
+    (let [v (cells/evaluate-cell "A1" {"A1" (cell-entry "=(1 2)")} #{})]
+      (is (= :error/unknown-op v)
+          "the evaluator emits the typed marker for a non-operator-headed list")
+      (is (= "#OP?" (cells/value->display v))
+          "the grid maps :error/unknown-op to its hash-code")
+      (is (not (re-find #":error/" (cells/value->display v)))
+          "no raw keyword leaks to the grid — the bug was the missing display branch"))))
+
+;; ===========================================================================
 ;; evaluate-cell / evaluate-ast — arithmetic + empty-cell semantics
 ;; ===========================================================================
 

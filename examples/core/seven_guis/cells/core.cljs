@@ -401,6 +401,29 @@
 ;; VIEW
 ;; ============================================================================
 
+;; The typed error markers the evaluator emits, each mapped to the familiar
+;; spreadsheet hash-code a user expects to see. EVERY marker `evaluate-ast` /
+;; `evaluate-cell` can produce needs an entry here — a marker with no mapping
+;; falls through to `(str value)` in `value->display` and leaks its raw
+;; `:error/…` keyword into the grid.
+(def error-marker->hash
+  {:error/cycle       "#CYCLE"
+   :error/eval        "#EVAL"
+   :error/type        "#TYPE"
+   :error/div-by-zero "#DIV/0"
+   :error/unknown-op  "#OP?"})   ;; a list whose head isn't + - * / (e.g. =(1 2))
+
+(defn value->display
+  "Turn a computed cell value into the text the grid shows. A parse error arrives
+   as an `[:error/parse msg]` pair and shows as #PARSE; every other typed error
+   marker maps through `error-marker->hash` to its spreadsheet hash-code; anything
+   else is just the value, stringified. Pure — it takes no view state — so the
+   marker→hash mapping is unit-testable away from the DOM."
+  [value]
+  (or (when (parse-error? value) "#PARSE")
+      (error-marker->hash value)
+      (str value)))
+
 ;; One cell. It has two faces: while you're editing it shows an <input> holding
 ;; the raw text; otherwise it shows the computed value. Which face we wear comes
 ;; straight from subscriptions, so any edit anywhere just flows back in.
@@ -412,17 +435,10 @@
         ;; A parse error arrives as `[:error/parse msg]`; pull the message out so
         ;; we can show it on hover.
         parse-err  (parse-error-text value)
-        ;; Pick what the cell shows. The error markers map to the familiar
-        ;; spreadsheet hash-codes (#CYCLE, #DIV/0, …); anything else is just the
-        ;; value, stringified.
-        display    (cond
-                     editing?                  raw
-                     parse-err                 "#PARSE"
-                     (= value :error/cycle)    "#CYCLE"
-                     (= value :error/eval)     "#EVAL"
-                     (= value :error/type)     "#TYPE"
-                     (= value :error/div-by-zero) "#DIV/0"
-                     :else                     (str value))]
+        ;; While editing, show the raw text; otherwise show the computed value
+        ;; mapped through `value->display` — error markers become spreadsheet
+        ;; hash-codes (#CYCLE, #DIV/0, …), never a raw keyword.
+        display    (if editing? raw (value->display value))]
     ;; The `data-*` attributes are hooks for tests and tooling: `data-cell`
     ;; tags the coordinate, and `data-testid` follows the same naming the other
     ;; seven-GUIs examples use, so one selector convention covers them all. When
