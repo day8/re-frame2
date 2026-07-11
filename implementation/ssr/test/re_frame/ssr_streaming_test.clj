@@ -292,15 +292,28 @@
           ;; rf2-gtgf9: explicit fail-closed payload policy. This test
           ;; pins the shape of the canonical payload — opt in to whole-
           ;; app-db so the existing :rf/app-db assertion still holds.
+          ;; rf2-lm2yzy: `:client-frame-id` names the stable WIRE :rf/frame-id;
+          ;; the per-request projection frame `fid` never rides the wire.
           payload (streaming/build-final-payload fid "deadbeef"
-                                                 {:version       7
-                                                  :schema-digest "abc123"
-                                                  :payload :rf.ssr.payload/whole-app-db})]
+                                                 {:version         7
+                                                  :schema-digest   "abc123"
+                                                  :payload         :rf.ssr.payload/whole-app-db
+                                                  :client-frame-id :app/main})]
       (is (= 7 (:rf/version payload)))
-      (is (= fid (:rf/frame-id payload)))
+      (is (= :app/main (:rf/frame-id payload))
+          "the WIRE :rf/frame-id is the supplied stable client id, not the projection frame")
       (is (= "deadbeef" (:rf/render-hash payload)))
       (is (= "abc123" (:rf/schema-digest payload)))
-      (is (= {:articles [{:id "a"}]} (:rf/app-db payload))))))
+      (is (= {:articles [{:id "a"}]} (:rf/app-db payload)))))
+
+  (testing "rf2-lm2yzy — with NO :client-frame-id, the anonymous per-request
+            projection frame is OMITTED from the wire payload (never stamped as
+            a per-request gensym the client hydrate guard would reject)"
+    (let [fid     (make-frame {:db {:articles [{:id "a"}]}})
+          payload (streaming/build-final-payload fid "deadbeef"
+                                                 {:payload :rf.ssr.payload/whole-app-db})]
+      (is (not (contains? payload :rf/frame-id))
+          "streaming final-payload omits :rf/frame-id when no stable wire id is named"))))
 
 (deftest build-final-payload-version-honours-runtime-version-hook
   (testing "rf2-via0g / rf2-g00l2t — streaming payload :rf/version reads the

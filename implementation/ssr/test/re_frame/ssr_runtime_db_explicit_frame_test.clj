@@ -144,8 +144,11 @@
           current (get-in payload [:rf/runtime-db :rf.runtime/routing :current])
           snap    (get-in payload [:rf/runtime-db :rf.runtime/machines
                                    :snapshots machine-id])]
-      (is (= server-frame (:rf/frame-id payload))
-          "payload names frame A as its target")
+      ;; rf2-lm2yzy — wire :rf/frame-id decoupled from the projection frame;
+      ;; no `:client-frame-id` opt ⇒ omitted. Redaction below proves the
+      ;; projection targeted the explicit frame A.
+      (is (not (contains? payload :rf/frame-id))
+          "anonymous per-request frame omits the wire :rf/frame-id")
       (is (= :rf/redacted (get-in current [:query :token]))
           "route-declared sensitive :query :token redacted under frame A")
       (is (contains? (get-in current [:params :payload]) :rf.size/large-elided)
@@ -340,8 +343,11 @@
                     (streaming/build-final-payload
                       server-frame "hash"
                       {:payload :rf.ssr.payload/whole-app-db}))]
-      (is (= server-frame (:rf/frame-id payload))
-          "the payload still names frame A as its target")
+      ;; rf2-lm2yzy — wire :rf/frame-id decoupled from the projection frame;
+      ;; no `:client-frame-id` opt ⇒ omitted. Fail-closed redaction below still
+      ;; proves the projection targeted the explicit frame A.
+      (is (not (contains? payload :rf/frame-id))
+          "anonymous per-request frame omits the wire :rf/frame-id")
       (is (= :rf/redacted (:rf/app-db payload))
           "app-db fails closed to :rf/redacted (the frame vanished before projection)")
       (is (not (contains? payload :rf/runtime-db))
@@ -372,8 +378,11 @@
                     (streaming/build-final-payload
                       server-frame "hash"
                       {:payload :rf.ssr.payload/whole-app-db}))]
-      (is (= server-frame (:rf/frame-id payload))
-          "the payload still names frame A as its target")
+      ;; rf2-lm2yzy — wire :rf/frame-id decoupled from the projection frame;
+      ;; no `:client-frame-id` opt ⇒ omitted. Fail-closed redaction below still
+      ;; proves the projection targeted the explicit frame A.
+      (is (not (contains? payload :rf/frame-id))
+          "anonymous per-request frame omits the wire :rf/frame-id")
       (is (= :rf/redacted (:rf/app-db payload))
           "app-db fails closed — the re-registered frame's absent policy is not substituted")
       (is (not (contains? payload :rf/runtime-db))

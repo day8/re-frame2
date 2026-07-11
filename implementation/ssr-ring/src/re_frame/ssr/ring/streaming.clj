@@ -268,7 +268,7 @@
   ;; catch arm can name the in-flight phase.
   (let [phase (volatile! [:shell-prefix nil])]
    (try
-    (let [{:keys [emit-hash? version schema-digest payload root-view]} opts
+    (let [{:keys [emit-hash? version schema-digest payload root-view client-frame-id]} opts
           ;; Body and head hashes were computed before the drain. The body may
           ;; be recomputed for final payload state; the head is drain-invariant.
           {:keys [head-html html-attrs body-attrs
@@ -374,11 +374,13 @@
                       doc-hash)]
                 (streaming/build-final-payload
                   frame-id post-drain-hash
-                  {:version       version
-                   :schema-digest schema-digest
-                   :payload       payload
+                  {:version         version
+                   :schema-digest   schema-digest
+                   :payload         payload
                    ;; Head state is drain-invariant.
-                   :head-hash     head-hash})))]
+                   :head-hash       head-hash
+                   ;; rf2-lm2yzy — stable WIRE :rf/frame-id (nil ⇒ omit).
+                   :client-frame-id client-frame-id})))]
         ;; Shared id-pinned, script-body-escaped payload element.
         (write-chunk! out (shell/payload-script-tag (pr-str final-payload))))
       ;; Chunk N+3 — shell suffix close.

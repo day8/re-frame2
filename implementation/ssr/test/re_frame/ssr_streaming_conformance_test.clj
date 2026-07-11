@@ -99,7 +99,14 @@
           payload (ssr/streaming-build-final-payload
                     :rf/default
                     (:render-hash input)
-                    (dissoc input :render-hash))]
+                    ;; rf2-lm2yzy — the WIRE :rf/frame-id is decoupled from the
+                    ;; projection frame. This fixture's stable `:rf/default`
+                    ;; server frame is named as the `:client-frame-id` wire id,
+                    ;; so the payload carries `:rf/frame-id` to match the
+                    ;; fixture's pinned canonical keys. (Anonymous per-request
+                    ;; frames omit it — see ssr_streaming_test.)
+                    (assoc (dissoc input :render-hash)
+                           :client-frame-id :rf/default))]
       (testing "payload carries every fixture-pinned key"
         (is (clojure.set/subset? (:payload-keys expect)
                                  (set (keys payload)))))

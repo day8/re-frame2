@@ -611,10 +611,18 @@
   client-side bootstrap can read either streaming or non-streaming
   payloads with the same code path. Both are thin wrappers over the
   shared `re-frame.ssr.payload-policy/build-payload` (rf2-8wrzz.4):
-  version resolution (`:rf/version`) and the four-key assembly live
+  version resolution (`:rf/version`) and the canonical assembly live
   once there. The streaming path differs only in sourcing `app-db` —
   it reads the live frame's `app-db` after every continuation has
   drained, where the non-streaming path is handed it directly.
+
+  `frame-id` is the REAL per-request PROJECTION frame (drives the
+  app-db / runtime-db egress projections). The WIRE `:rf/frame-id` is
+  decoupled (rf2-lm2yzy): sourced from the optional `:client-frame-id`
+  policy-opt (a stable, ahead-of-time-agreed client id) and defaulting
+  to nil, so an anonymous per-request server frame OMITS `:rf/frame-id`
+  rather than stamping a per-request gensym the client's hydrate guard
+  would reject — symmetric with the non-streaming wrapper.
 
   Version source-of-truth: `re-frame.ssr.payload-policy/resolve-version`
   — caller opt wins, falling back to the `:rf2/runtime-version`
@@ -662,7 +670,9 @@
                         (identical? token (frame/frame-incarnation-token frame-id)))]
     (if coherent?
       (payload-policy/build-payload
-       frame-id
+       ;; WIRE :rf/frame-id — the stable client id from `:client-frame-id`, or
+       ;; nil to omit (never the per-request projection gensym). rf2-lm2yzy.
+       (:client-frame-id policy-opts)
        ;; rf2-bt9kct — allowlist FIRST (`apply-policy`), THEN run the surviving
        ;; slice through the centralized `:rf.egress/ssr-hydration` projection
        ;; seeded at the request frame (defense-in-depth, EP-0015 §14) — symmetric
@@ -686,7 +696,8 @@
       ;; runtime-db — while still stamping the requested target so the client sees
       ;; a well-formed, safe payload rather than a leak.
       (payload-policy/build-payload
-       frame-id
+       ;; WIRE :rf/frame-id — stable client id or nil to omit (rf2-lm2yzy).
+       (:client-frame-id policy-opts)
        :rf/redacted
        render-hash
        (assoc policy-opts :runtime-db nil)))))
