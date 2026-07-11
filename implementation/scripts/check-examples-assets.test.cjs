@@ -651,6 +651,58 @@ const INVENTORY_CASES = [
     // both survive; the duplicate og meta collapses.
     assetSourceSet: { '_shared/img/og.png': ['<link rel="icon" href>', 'og:image'] },
   },
+  {
+    // Inert markup: a link/meta/script/img that lives ONLY inside a closed HTML
+    // comment is never fetched nor exposed as metadata by the browser, so it
+    // contributes ZERO references to any of the three views (rf2-j538f7.28).
+    name: 'inert HTML comment — commented link/meta/script/img contribute no references (rf2-j538f7.28)',
+    html: [
+      '<script src="main.js"></script>',
+      '<!--',
+      '  <link rel="icon" href="_shared/img/favicon.svg">',
+      '  <meta property="og:image" content="_shared/img/og.png">',
+      '  <link rel="stylesheet" href="_shared/css/style.css">',
+      '  <img src="commented.png">',
+      '-->',
+    ].join('\n'),
+    localExact: ['main.js'],
+    ogExact: [],
+    assetExcludes: [
+      '_shared/img/favicon.svg',
+      '_shared/img/og.png',
+      '_shared/css/style.css',
+      'commented.png',
+    ],
+  },
+  {
+    // Live references immediately before and after a comment retain their order
+    // and classification, and a tag following a CLOSED comment is still
+    // discovered — the strip removes only the inert span (rf2-j538f7.28).
+    name: 'inert HTML comment — live refs before/after keep order; post-comment tag still seen (rf2-j538f7.28)',
+    html: [
+      '<link rel="stylesheet" href="before.css">',
+      '<!-- <link rel="icon" href="commented.svg"> -->',
+      '<script src="after.js"></script>',
+    ].join('\n'),
+    localExact: ['before.css', 'after.js'],
+    assetSourceIncludes: { 'before.css': 'link', 'after.js': 'script' },
+    assetExcludes: ['commented.svg'],
+  },
+  {
+    // An UNTERMINATED `<!--` comments out the remainder of the document, so the
+    // would-be tags after it are inert rather than satisfying the gate
+    // (rf2-j538f7.28).
+    name: 'inert HTML comment — an unterminated <!-- makes the rest of the document inert (rf2-j538f7.28)',
+    html: [
+      '<script src="live.js"></script>',
+      '<!-- unterminated comment swallows the rest',
+      '<link rel="stylesheet" href="never.css">',
+      '<meta property="og:image" content="never-og.png">',
+    ].join('\n'),
+    localExact: ['live.js'],
+    ogExact: [],
+    assetExcludes: ['never.css', 'never-og.png'],
+  },
 ];
 
 for (const c of INVENTORY_CASES) {
@@ -689,6 +741,56 @@ for (const c of INVENTORY_CASES) {
     }
   });
 }
+
+it('TEETH: required shared refs that exist ONLY inside an HTML comment are reported missing (rf2-j538f7.28)', () => {
+  // The false-GREEN case this bead closes: a maintainer comments out the three
+  // required refs while debugging. The files still exist on disk (fullIo), but
+  // the live page ships without its stylesheet, favicon, and social-preview —
+  // so the gate must report all three missing. A commented tag is inert.
+  const html = [
+    '<!doctype html><html><head>',
+    '<!--',
+    '<meta property="og:image" content="_shared/img/og.png">',
+    '<link rel="icon" href="_shared/img/favicon.svg">',
+    '<link rel="stylesheet" href="_shared/css/style.css">',
+    '-->',
+    '</head><body><script src="main.js"></script></body></html>',
+  ].join('\n');
+  const { errors } = scanPage(fullIo({ [PAGE]: html }), PAGE);
+  for (const need of [
+    '_shared/img/og.png',
+    '_shared/img/favicon.svg',
+    '_shared/css/style.css',
+  ]) {
+    assert.ok(
+      errors.some((e) =>
+        e.includes(`missing required shared asset reference '${need}'`),
+      ),
+      `commented-out required ref '${need}' must be reported missing, got: ${errors.join(' | ')}`,
+    );
+  }
+});
+
+it('TEETH: a commented remote ref does not trip the network policy and a commented missing local ref is not resolved (rf2-j538f7.28)', () => {
+  // The false-FAIL polarity: inert markup must be absent from BOTH verdicts. A
+  // commented remote <script> is not a direct-network violation, and a
+  // commented missing local <link> is not a disk-resolution failure. goodHtml
+  // keeps the three required refs live, so the page is otherwise clean.
+  const html = goodHtml().replace(
+    '</head>',
+    '<!-- <script src="https://cdn.evil/x.js"></script>' +
+      '<link rel="stylesheet" href="missing-local.css"> -->\n</head>',
+  );
+  const { errors } = scanPage(fullIo({ [PAGE]: html }), PAGE);
+  assert.ok(
+    !errors.some((e) => e.includes('cdn.evil')),
+    `a commented remote ref must not trip the network policy, got: ${errors.join(' | ')}`,
+  );
+  assert.ok(
+    !errors.some((e) => e.includes('missing-local.css')),
+    `a commented missing local ref must not be resolved on disk, got: ${errors.join(' | ')}`,
+  );
+});
 
 it('TEETH: a missing LOCAL srcset candidate is reported (rf2-arkvq8)', () => {
   // The page references two responsive candidates; the 640w one is absent on

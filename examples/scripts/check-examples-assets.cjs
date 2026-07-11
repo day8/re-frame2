@@ -461,6 +461,18 @@ function stripCssComments(css) {
   return css.replace(/\/\*[\s\S]*?\*\//g, '');
 }
 
+// Strip HTML comment spans `<!-- … -->` from a source before scanning it for
+// live tags. A tag inside a comment is inert — the browser never fetches it nor
+// exposes it as document metadata — so a commented link/meta/script/img must
+// not satisfy a required-asset contract, trip the direct-network policy, or
+// enter on-disk resolution (rf2-j538f7.28). An UNTERMINATED `<!--` (no closing
+// `-->`) comments out the remainder of the document, so it is stripped through
+// end-of-input too. Mirrors the stripCssComments posture: one lexical pass feeds
+// the single inventory walk, no general HTML parser.
+function stripHtmlComments(html) {
+  return html.replace(/<!--[\s\S]*?-->/g, '').replace(/<!--[\s\S]*/, '');
+}
+
 // Build the page's complete HTML reference inventory in ONE pass over its tags
 // (rf2-6a3rgx). Every supported reference shape — a quoted OR unquoted attribute
 // (rf2-3dzb6h), each srcset/imagesrcset candidate + a <video> poster
@@ -528,7 +540,10 @@ function extractHtmlReferenceInventory(html) {
   };
   const mediaEls = new Set(['img', 'source', 'video', 'audio', 'track']);
 
-  for (const m of html.matchAll(/<([a-zA-Z][a-zA-Z0-9:-]*)[^>]*>/g)) {
+  // Remove inert comment markup FIRST so a commented tag contributes zero
+  // references to any of the three views below (rf2-j538f7.28), mirroring the
+  // stripCssComments strip the CSS extractors already perform.
+  for (const m of stripHtmlComments(html).matchAll(/<([a-zA-Z][a-zA-Z0-9:-]*)[^>]*>/g)) {
     const tag = m[0];
     const el = m[1].toLowerCase();
 
