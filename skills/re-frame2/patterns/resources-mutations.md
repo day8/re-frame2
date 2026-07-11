@@ -89,16 +89,18 @@ Bare shorthand stays valid — it means *invalidate those tags in the mutation's
 :invalidates #{[:article slug] [:article-list]}
 ```
 
-But one write often touches facts in **different scopes** — a global article fact *and* the viewer's session-scoped feed — which the bare form cannot say. (Tags name remote *facts*; scopes name *viewers*; stale is a property of a `(fact, viewer)` pair.) The **descriptor form** gives each target its own scope:
+But one write often touches facts in **different scopes** — the viewer-relative article/list facts *and* the viewer's session-scoped feed — which the bare form cannot say. (Tags name remote *facts*; scopes name *viewers*; stale is a property of a `(fact, viewer)` pair.) The **descriptor form** gives each target its own scope:
 
 ```clojure
 :invalidates
 (fn [{:keys [slug]} _result]
-  [{:scope :rf.scope/global                  ;; global facts
+  [{:scope {:from-db :viewer}                ;; the article + lists, per viewer (favorited is viewer-relative)
     :tags  #{[:article slug] [:article-list]}}
-   {:scope {:from-db :session}              ;; viewer-relative fact (named resolver — see resources.md)
+   {:scope {:from-db :session}              ;; the private feed, per session (named resolvers — see resources.md)
     :tags  #{[:feed]}}])
 ```
+
+> **Why the article is `{:from-db :viewer}` here, not `:rf.scope/global`.** A favourite sets the *current viewer's* `favorited` flag, embedded in an otherwise-public article payload — so "publicly readable" does NOT make it globally cacheable (see [`resources.md` §Scope](resources.md), "public is not global"). The generic `:rf.scope/global` article shown in the mechanics examples below is a stand-in for a truly-invariant read; a real Conduit-style article is viewer-scoped, as worked in `examples/real-apps/realworld_resources/`.
 
 A descriptor `:scope` may be: `:rf.scope/same` (the mutation's resolved scope — the default if omitted, and the meaning of bare shorthand); `:rf.scope/global`; a concrete canonical scope value; or a named-resolver reference `{:from-db <resolver-id>}` (resolved against db at settle time — [`resources.md` §Named scope resolvers](resources.md#named-scope-resolvers--reg-resource-scope)). Both forms lower to **one** invalidation engine.
 

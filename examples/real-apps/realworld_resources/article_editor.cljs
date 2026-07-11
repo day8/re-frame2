@@ -6,14 +6,14 @@
 
    1. The write is a mutation. `:realworld/save-article` POSTs `/articles` to
       create or PUTs `/articles/:slug` to edit, and declares per-target scoped
-      `:invalidates` descriptors — the global article tags (`[:article slug]` /
-      `[:article-list]`) in `:rf.scope/global`, and the session `[:feed]` in
-      `{:from-db :realworld/session}`. So on success the detail read, every list
-      showing the article, and the session feed all refetch with no further wiring
-      — one mutation reaching across both scopes. `:realworld/delete-article`
-      invalidates the same tags. The write lifecycle is the mutation INSTANCE,
-      watched through `[:rf/mutation {:instance …}]`; there's no `:status`
-      field in app-db.
+      `:invalidates` descriptors — the viewer-relative article tags
+      (`[:article slug]` / `[:article-list]`) in `{:from-db :realworld/viewer}`,
+      and the session `[:feed]` in `{:from-db :realworld/session}`. So on success
+      the detail read, every list showing the article, and the session feed all
+      refetch with no further wiring — one mutation reaching across both scopes.
+      `:realworld/delete-article` invalidates the same tags. The write lifecycle
+      is the mutation INSTANCE, watched through `[:rf/mutation {:instance …}]`;
+      there's no `:status` field in app-db.
 
    2. The can-submit gate is a flow. `:editor/can-submit?` materialises one
       derived fact — 'the draft is valid AND differs from the loaded baseline' —
@@ -159,28 +159,28 @@
                    [:description :string]
                    [:body  :string]
                    [:tagList [:vector :string]]]
-   :scope         :rf.scope/global
-   ;; The lists (global scope) go stale so they re-read with the new article, and
+   ;; The lists (viewer scope) go stale so they re-read with the new article, and
    ;; an edit's slug also stales its own detail entry. A create has no prior slug,
    ;; so it stales only the lists — the new detail is read fresh on navigate
    ;; anyway. The session feed lives in the session scope, so it gets its own
    ;; per-target descriptor naming `{:from-db :realworld/session}`: one mutation,
-   ;; reaching across both scopes.
+   ;; reaching across both scopes. Both derived-scope targets resolve against the
+   ;; acting author at settle time.
    ;;
    ;; A third descriptor stales the author's OWN `:realworld/author-articles`
    ;; (My Articles) cache, keyed off the reply's `:article :author :username` —
    ;; the fact the decoded result carries, not `params` (a create has no `:slug`
-   ;; to key against, and `[:article-list]` above only reaches the global feed's
+   ;; to key against, and `[:article-list]` above only reaches the viewer feed's
    ;; list-identity tag, which `:realworld/author-articles` never carries — see
    ;; its `:tags` fn in resources.cljs). Without this, a freshly-created article
    ;; is invisible on My Articles until its cached page naturally goes stale.
    :invalidates   (fn [{:keys [slug]} result]
-                    [{:scope :rf.scope/global
+                    [{:scope {:from-db :realworld/viewer}
                       :tags  (cond-> #{[:article-list]}
                                slug (conj [:article slug]))}
                      {:scope {:from-db :realworld/session}
                       :tags  #{[:feed]}}
-                     {:scope :rf.scope/global
+                     {:scope {:from-db :realworld/viewer}
                       :tags  #{[:author-articles (get-in result [:article :author :username])]}}])}
   (fn [{:keys [slug] :as draft} _ctx]
     {:request {:method (if slug :put :post)
@@ -194,11 +194,10 @@
   {:doc           "Delete an article. DELETE /articles/:slug. Invalidates the
                    detail + lists + feed."
    :params-schema [:map [:slug :string]]
-   :scope         :rf.scope/global
-   ;; Global article tags plus the session feed, each in its own scope (same shape
-   ;; as :realworld/save-article above).
+   ;; Viewer-scoped article tags plus the session feed, each in its own scope
+   ;; (same shape as :realworld/save-article above).
    :invalidates   (fn [{:keys [slug]} _result]
-                    [{:scope :rf.scope/global
+                    [{:scope {:from-db :realworld/viewer}
                       :tags  #{[:article slug] [:article-list]}}
                      {:scope {:from-db :realworld/session}
                       :tags  #{[:feed]}}])}

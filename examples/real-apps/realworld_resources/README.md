@@ -28,16 +28,18 @@ Every read in Conduit is a resource. The article list, an article, its comments,
 
 None of these need a `:loading?` flag in `app-db`, because the cache does not live in `app-db` at all. It lives in the framework-owned half of the frame: [runtime-db](../../../docs/core/glossary.md#runtime-db), under `:rf.runtime/resources`. Keeping it there means an ordinary [event handler](../../../docs/core/glossary.md#event-handler) cannot reach in and clobber it by accident. You read the cache through subscriptions and change it through events — the same in-through-events, out-through-subscriptions rule as the rest of re-frame2, with the storage moved next door.
 
-| Resource | Read |
-|---|---|
-| `:realworld/articles` | the global article list — `:tag`-filtered when the `/tag/:tag` route is active, and `:page`-paginated. Tag and page both ride in params, so a filtered list and each page are distinct cache entries. |
-| `:realworld/article` | article detail by slug |
-| `:realworld/comments` | an article's comments — a sub-resource, which is just an ordinary resource whose params happen to carry the parent slug |
-| `:realworld/profile` | a user's public profile banner |
-| `:realworld/author-articles` | the articles a profile wrote (paginated) — the profile's **My Articles** tab |
-| `:realworld/favorited-articles` | the articles a profile **favorited** (`GET /articles?favorited=username`, paginated) — the profile's **Favorited Articles** tab |
-| `:realworld/tags` | the popular-tags sidebar |
-| `:realworld/feed` | your personalised feed — **session-scoped** (more on that below), paginated |
+| Resource | Read | Scope |
+|---|---|---|
+| `:realworld/articles` | the article list — `:tag`-filtered when the `/tag/:tag` route is active, and `:page`-paginated. Tag and page both ride in params, so a filtered list and each page are distinct cache entries. | **viewer** |
+| `:realworld/article` | article detail by slug | **viewer** |
+| `:realworld/comments` | an article's comments — a sub-resource, which is just an ordinary resource whose params happen to carry the parent slug | **viewer** |
+| `:realworld/profile` | a user's public profile banner | **viewer** |
+| `:realworld/author-articles` | the articles a profile wrote (paginated) — the profile's **My Articles** tab | **viewer** |
+| `:realworld/favorited-articles` | the articles a profile **favorited** (`GET /articles?favorited=username`, paginated) — the profile's **Favorited Articles** tab | **viewer** |
+| `:realworld/tags` | the popular-tags sidebar | **global** |
+| `:realworld/feed` | your personalised feed, paginated | **session** |
+
+The **scope** column is the leak boundary — more on it below. The six **viewer**-scoped reads are readable logged-out but return bytes that vary with the (optional) authenticated viewer — an Article's `favorited`, a Profile's `following`. Only the popular tags are truly the same for everyone (**global**); only the private feed depends on being signed in (**session**).
 
 Three things are worth noticing. Each is work the framework does for you that you would otherwise write by hand.
 
@@ -51,13 +53,13 @@ Every write is a `reg-mutation` — most in `mutations.cljs`, with the editor's 
 
 | Mutation | Write | What it does to the cache |
 |---|---|---|
-| `:realworld/favorite` / `:realworld/unfavorite` | POST/DELETE `/articles/:slug/favorite` | **Optimistic** (see below). Commits the detail from the reply, then invalidates the public article tags, the session feed, **and** the acting user's own Favorited-Articles cache (`[:favorited-articles username]`, threaded in via the mutation's `:params` — `:invalidates` has no `:db` of its own to source it from). |
-| `:realworld/follow` / `:realworld/unfollow` | POST/DELETE `/profiles/:username/follow` | populates the profile banner from the reply; invalidates `[:profile username]` |
-| `:realworld/post-comment` | POST `/articles/:slug/comments` | invalidates `[:comments slug]`, so the mounted page's comments refetch |
-| `:realworld/delete-comment` | DELETE `/articles/:slug/comments/:id` | invalidates `[:comments slug]` |
-| `:realworld/save-article` | POST `/articles` (create) / PUT `/articles/:slug` (edit) | invalidates the global lists (and the article's own detail, on edit), the session feed, **and** the author's own My Articles cache (`[:author-articles username]`, keyed off the reply, since a create has no prior slug to key against) |
+| `:realworld/favorite` / `:realworld/unfavorite` | POST/DELETE `/articles/:slug/favorite` | **Optimistic** (see below). Commits the detail from the reply, then invalidates the viewer-scoped article tags, the session feed, **and** the acting user's own Favorited-Articles cache (`[:favorited-articles username]`, threaded in via the mutation's `:params` — `:invalidates` has no `:db` of its own to source it from). |
+| `:realworld/follow` / `:realworld/unfollow` | POST/DELETE `/profiles/:username/follow` | populates the viewer-scoped profile banner from the reply; invalidates `[:profile username]` under the viewer |
+| `:realworld/post-comment` | POST `/articles/:slug/comments` | invalidates `[:comments slug]` under the viewer, so the mounted page's comments refetch |
+| `:realworld/delete-comment` | DELETE `/articles/:slug/comments/:id` | invalidates `[:comments slug]` under the viewer |
+| `:realworld/save-article` | POST `/articles` (create) / PUT `/articles/:slug` (edit) | invalidates the viewer-scoped lists (and the article's own detail, on edit), the session feed, **and** the author's own My Articles cache (`[:author-articles username]`, keyed off the reply, since a create has no prior slug to key against) |
 | `:realworld/delete-article` | DELETE `/articles/:slug` | invalidates the article, the lists, **and** the session feed |
-| `:realworld/update-settings` | PUT `/user` | invalidates `[:profile username]` so a later profile visit re-reads the new bio |
+| `:realworld/update-settings` | PUT `/user` | invalidates `[:profile username]` under the viewer so a later profile visit re-reads the new bio |
 
 Two things make mutations feel like infrastructure rather than glue:
 
@@ -88,42 +90,53 @@ The button reads a derived `:optimistic?` flag off the mutation state to show a 
 
 ## Scope: the leak boundary you can't forget
 
-Every resource declares a **scope** — whose data the cached read belongs to. Conduit reads two kinds of server data, and they need different scopes.
+Every resource declares a **scope** — whose data the cached read belongs to. The trap this example exists to teach is a subtle one:
 
-Most reads are **public**: the article lists, an article, a profile, the tags. The same params produce the same bytes for everyone, so each declares `:scope :rf.scope/global`. There is no default. Forget the scope and registration fails *loud* with `:rf.error/resource-missing-scope-policy`. (Xray even lists every `:rf.scope/global` resource for you as a standing security-review list — "here is everything you have declared safe to share.")
+> **"Public" is an *access* policy, not a cache-identity proof.** A response can be readable anonymously and *still* return bytes that vary with the (optional) authenticated viewer.
 
-Your feed is the other kind. What `/articles/feed` returns depends on *who is asking*, so it must never be shared across users. A logged-out user, or the *next* user, must not read the previous user's feed out of the cache. That is a **session scope**, `[:rf.scope/session {:username …}]`. A session scope that cannot resolve fails closed: it raises rather than quietly serve someone else's data.
+Conduit is the textbook case. Its article and profile endpoints allow anonymous access — but every Article carries a per-viewer `favorited` flag and every Profile a per-viewer `following` flag (both mandatory in the wire contract, `realworld-shared.schema`). GET the *same* article as Alice, as Bob, and logged-out, and you get three *different* payloads. If you cached those under one shared key because "the endpoint is public," Alice's `favorited: true` would surface in Bob's UI — and a click would then send Bob's client a favourite/unfavourite verb chosen from *Alice's* state. So Conduit reads three kinds of server data, with three scopes:
 
-"Who is the current viewer?" is one fact, and it shows up in many places. The feed resource needs it. The home route needs it to plan the feed. The favourite, save, and delete mutations need it to invalidate the feed. Logout needs it to clear the feed. So this app names it **once**, as a resource-scope resolver (`scope.cljs`):
+- **Truly invariant** — the popular tags (`/tags`). A bare list of strings, the same bytes for everyone. This is the *only* read that earns `:scope :rf.scope/global`. (Xray lists every `:rf.scope/global` resource as a standing security-review list — "here is everything you have declared safe to share.")
+- **Optional-auth** — the article list, an article, a profile, comments, the two profile-tab lists. Readable logged-out, but the payload embeds the *current viewer's* relationship flags. So each carries a **viewer scope**, `[:rf.scope/viewer {:username …}]` (or `[:rf.scope/viewer :anonymous]` for a confirmed logged-out reader).
+- **Session** — the private feed (`/articles/feed`). Depends on being signed in at all. A **session scope**, `[:rf.scope/session {:username …}]`, nil (fail-closed) when logged out.
+
+There is no default scope. Forget it and registration fails *loud* with `:rf.error/resource-missing-scope-policy`.
+
+"Who is the current viewer?" is one fact, and it shows up in many places, so this app names it **once** — two resolvers in `scope.cljs`. The viewer resolver is the interesting one, because it distinguishes *three* conditions the cache must keep apart:
 
 ```clojure
-(rf/reg-resource-scope :realworld/session
-  {:inputs {:username [:db [:auth :user :username]]}}
-  (fn [{:keys [username]} _ctx]
-    (when username
-      [:rf.scope/session {:username username}])))
+(rf/reg-resource-scope :realworld/viewer
+  {:inputs {:username [:db [:auth :user :username]]
+            :token    [:db [:auth :token]]}}
+  (fn [{:keys [username token]} _ctx]
+    (cond
+      username           [:rf.scope/viewer {:username username}]  ; signed in
+      (str/blank? token) [:rf.scope/viewer :anonymous]            ; confirmed logged out
+      :else              nil)))                                    ; token present, user not resolved YET → fail closed
 ```
 
-Every site then refers to it as `{:from-db :realworld/session}` — one way to resolve scope for the whole app. The `:inputs` declaration tells the runtime which app-db fact decides the scope. So a `{:from-db …}` subscription **re-keys** when you log in or out: a live feed subscription tracks the new user automatically, with no login listener to wire up.
+That third branch is the sharp edge. During cold-boot session restore a saved token is present *before* the durable user identity resolves — and the bearer interceptor would make any read fired in that window *authenticated*, so its bytes are the token-holder's, **not** anonymous's. Labelling them shareable under the anonymous identity is exactly the cross-viewer leak. So the resolver returns `nil` (fail-closed) until restore settles, at which point `:auth/ensure-viewer-route` (auth.cljs) re-plans the active route under the now-resolved viewer, without navigating. (The `:token` input is read only for its *presence* — it never rides the derived scope, which carries at most a username, and the framework redacts the scope-resolution trace off-box.)
 
-`nil` is the fail-closed condition everywhere it appears. A logged-out feed subscription resolves to `nil` and becomes a loud "scope unresolved" diagnostic, not a silent shared read. A logged-out route entry or invalidation descriptor resolves to `nil` and does nothing. Logout resolves to `nil` and skips the clear.
+Every site then refers to a resolver as `{:from-db :realworld/viewer}` / `{:from-db :realworld/session}` — one way to resolve scope for the whole app. The `:inputs` declaration tells the runtime which app-db facts decide the scope, so a `{:from-db …}` subscription **re-keys** when you log in, log out, or switch accounts: a live subscription tracks the new viewer automatically, with no login listener to wire up.
+
+`nil` is the fail-closed condition everywhere it appears. An unresolved subscription becomes a loud "scope unresolved" diagnostic, not a silent shared read; an unresolved route entry or invalidation descriptor resolves to `nil` and does nothing; logout resolves each departing scope and clears it, or skips the clear if there is nothing there.
 
 ### One mutation, two scopes
 
-This is the subtle part, where scope and invalidation meet. A favourite changes two kinds of read in two different scopes: the public article and lists (global), and your private feed (session). A plain tag-set `:invalidates` resolves under one scope, so a global-scope mutation could never reach the session feed on its own. Invalidation is fail-closed by design: it will not guess that you meant to cross a scope boundary.
+This is the subtle part, where scope and invalidation meet. A favourite changes reads in two different scopes: the viewer-relative article and lists (viewer), and your private feed (session). A plain tag-set `:invalidates` resolves under one scope, so it could never reach a second scope on its own. Invalidation is fail-closed by design: it will not guess that you meant to cross a scope boundary.
 
 So `:invalidates` is a vector of **per-target descriptors**, each naming its own scope:
 
 ```clojure
 :invalidates
 (fn [{:keys [slug]} _result]
-  [{:scope :rf.scope/global               ; the public article + lists
+  [{:scope {:from-db :realworld/viewer}   ; the article + lists, per viewer
     :tags  #{[:article slug] [:article-list]}}
    {:scope {:from-db :realworld/session}  ; the session feed, via the named resolver
     :tags  #{[:feed]}}])
 ```
 
-One mutation reaches both scopes. There is no app-level cross-scope patch and no home-page watcher keeping the feed in sync by hand. The session descriptor uses the same `{:from-db :realworld/session}` resolver the feed resource declares, resolved at settle time against the frame's db. Save-article and delete-article use the identical two-descriptor shape.
+One mutation reaches both scopes, each resolved at settle time against the frame's db. There is no app-level cross-scope patch and no home-page watcher keeping the feed in sync by hand. The same viewer / session descriptors carry the optimistic patch, the populate targets, and the follow-author detail continuation; save-article and delete-article use the identical shape.
 
 ## Pagination, the cheapest kind
 
@@ -149,16 +162,16 @@ The follow-up after save or delete — navigate to the article, or home on delet
 Login, register, session-restore, and logout are a [Spec 005 state machine](../../../spec/005-StateMachines.md) (`auth.cljs`). It issues managed HTTP from its actions and owns the `:idle → :submitting / :restoring → :authed | :error` lifecycle. Auth is a *command*: it does a thing and transitions. It is not a cached read, so it is deliberately not forced into a resource. (The one auth-adjacent *write* that *is* a mutation is the settings update, because it really does invalidate a cached read.) Four details are worth a closer look, because each fixes a bug you would otherwise hit:
 
 - **One Bearer header for the whole API.** Resources, mutations, and the auth machine all run on `:rf.http/managed`. So a single frame-wide HTTP [interceptor](../../../docs/core/glossary.md#interceptor) (`:realworld/bearer-auth`, in `core.cljs`) adds `Authorization: Token <jwt>` to *every* outbound request — authenticated reads, every write, the restore `GET /user`. No `:request` fn threads the token per call. The auth slice is the single source of truth, and the interceptor is the single read site. It reads the token from the *carried* frame, so the header follows a renamed or multi-frame mount, and it passes the request through untouched when there is no token (login, register, and logged-out public reads are unaffected). The resource surface alone could not show this kind of cross-cutting decoration.
-- **Logout must clear the session cache.** On logout the machine clears the session *and* drops the session-scoped resource cache via `:rf.resource/clear-scope` — the causal operation for exactly that — so the next user cannot read the previous user's feed. It resolves the old scope with the `rf/resolve-resource-scope` helper against the handler's *coeffect* db (the pre-transition value, which still carries the logging-out user) and the same named `:realworld/session` resolver every other site uses. Public global reads are left alone, since they are the same for everyone.
-- **Restore keeps the route; only interactive login navigates.** Cold-booting with a saved JWT runs a restore transition that stores the session *without* navigating. Deep-link to `/article/x` with a valid token and you stay there. Only an *interactive* login or register sends you to the guard-stashed return route (or home).
-- **A user switch with no route change has to re-ensure the feed.** This is the subtle trap. A `{:from-db :realworld/session}` feed subscription re-keys when the user changes — but the re-key is *passive*. It does not fetch. New-scope data loads only when a *cause* ensures it. Almost every user switch in this app comes with a route change that re-ensures the feed for free. The exception is cold-boot restore, which writes the user *after* the home route was already entered logged-out (where the feed resolved to `nil` and was not planned). So restore dispatches an explicit `:rf.resource/ensure` of the feed under a stable lease. Without it, the feed would re-key and then sit at `:idle` forever — the "feed stuck loading after login" mystery.
+- **Logout must clear the departing principal's caches.** On logout the machine clears the session *and* drops *both* principal-scoped resource caches via `:rf.resource/clear-scope` — the departing user's session feed **and** their viewer-scoped reads (articles / profiles / comments carrying that user's flags) — so the next user cannot read a stale entry of theirs. It resolves each old scope with the `rf/resolve-resource-scope` helper against the handler's *coeffect* db (the pre-transition value, which still carries the logging-out user) and the same named `:realworld/session` / `:realworld/viewer` resolvers every other site uses. The truly-invariant tags read (`:rf.scope/global`) is left alone.
+- **Restore keeps the route; only interactive login navigates.** Cold-booting with a saved JWT runs a restore transition that stores the session *without* navigating. Deep-link to `/article/x` with a valid token and you stay there. Only an *interactive* login or register sends you to the guard-stashed return route (or home). A restore that *fails* (expired/revoked token) also stays put — it confirms an anonymous viewer and re-plans the current route's public reads, rather than yanking you home.
+- **A principal switch with no route change has to re-ensure the route.** This is the subtle trap. A `{:from-db …}` subscription re-keys when the viewer changes — but the re-key is *passive*. It does not fetch. New-scope data loads only when a *cause* ensures it. Almost every switch in this app comes with a route change that re-plans for free. The exception is cold-boot restore, which resolves the viewer *after* the route was already entered with the viewer unresolved (so every `{:from-db …}` read failed closed and was not planned). So both restore outcomes dispatch `:auth/ensure-viewer-route`, which re-reads the current route's own `:resources` metadata and re-ensures each read under the current route owner — one generalised re-plan covering every viewer read *and* the feed, on whatever route the deep link landed on. While restore is in flight the app shell shows a brief "restoring session" state, since the viewer is genuinely unknown and its reads must not render yet.
 
 ### The JWT is a classified secret, redacted at the boundary
 
 The token is a real secret, so it is *classified* once rather than redacted by hand at each sink. The durable fact — the JWT at `[:auth :token]` — is marked `:sensitive`, and the decoded reply that introduces it marks the user schema's `:token` field as sensitive too. The result: anything that *leaves the box* — an Xray or observability capture, an off-box tool, an SSR hydration payload — sees the token redacted, while on-box rendering keeps the real value. Two points are easy to get subtly wrong:
 
 - The outbound `Authorization` header is **not** declared separately. It is already on the framework's built-in HTTP carrier denylist, so it is redacted off-box with no app config.
-- The session-scope *key* (`[:auth :user :username]`) that keys the cache is **deliberately not** classified. It is identity, not a secret. Redacting it would hide the very cache-leak boundary this whole example exists to show.
+- The viewer / session-scope *key* (`[:auth :user :username]`) that keys the cache is **deliberately not** classified. It is identity, not a secret. Redacting it would hide the very cache-leak boundary this whole example exists to show. (The viewer resolver *reads* the sensitive `[:auth :token]` for its presence, to tell "confirmed anonymous" apart from "restore in flight" — but the token never rides the derived scope, and the framework redacts the scope-resolution trace's inputs off-box, so the JWT stays classified through this seam too.)
 
 ## Files
 
@@ -166,10 +179,10 @@ The token is a real secret, so it is *classified* once rather than redacted by h
 |---|---|
 | `core.cljs` | Entry point, app shell, route switch, mount; installs the demo `:rf.http/managed` override (a thin app-local fx wiring the shared in-process Conduit demo backend, `../realworld_shared/demo_backend.cljs`), the focus/reconnect revalidation listeners, the frame-wide `:realworld/bearer-auth` HTTP interceptor, and the JWT egress classification. |
 | `resources.cljs` | Every RealWorld read as `reg-resource` (identity / scope / `:request` / `:tags` / stale + GC policy); `:page` rides in `:params` and the arithmetic (`page-size` / `page->limit-offset`) is the shared Conduit contract (`realworld-shared.http`, re-exposed via `rh/*`). |
-| `mutations.cljs` | The social, comment, and settings writes as `reg-mutation` — favourite / unfavourite are optimistic (`:optimistic-tags` + `:on-conflict :invalidate`); `:populates` seeds/commits, `:invalidates` as per-target `{:scope … :tags …}` descriptors (including the session-feed target, so one mutation reaches both scopes). The save / delete article pair lives in `article_editor.cljs`. |
-| `scope.cljs` | The named `reg-resource-scope :realworld/session` resolver — the single scope-resolution currency every resource site references as `{:from-db :realworld/session}`. |
+| `mutations.cljs` | The social, comment, and settings writes as `reg-mutation` — favourite / unfavourite are optimistic (`:optimistic-tags` + `:on-conflict :invalidate`); `:populates` seeds/commits, `:invalidates` as per-target `{:scope … :tags …}` descriptors (naming `{:from-db :realworld/viewer}` for the article/profile/comment reads and `{:from-db :realworld/session}` for the feed, so one mutation reaches both scopes). The save / delete article pair lives in `article_editor.cljs`. |
+| `scope.cljs` | The two named resolvers — `reg-resource-scope :realworld/viewer` (the per-viewer representation boundary for the optional-auth reads; anonymous / signed-in / fail-closed-while-restoring) and `reg-resource-scope :realworld/session` (the private feed) — the scope-resolution currency every site references as `{:from-db …}`. |
 | `routing.cljs` | Routes with `:resources` metadata (the `?page=` query → resource params + `:keep-previous?`, the session feed as a `:scope {:from-db :realworld/session}` route resource, the `/tag/:tag` PATH tag route, and the favorites tab route) + the `auth-guard` interceptor. |
-| `auth.cljs` | The `:auth/flow` auth machine (login / register / restore-without-navigating / logout) + the login/register forms; logout resolves the session scope and clears it; cold-boot restore re-ensures the feed under the new principal. |
+| `auth.cljs` | The `:auth/flow` auth machine (login / register / restore-without-navigating / logout) + the login/register forms; logout resolves the departing viewer *and* session scopes and clears both; both cold-boot restore outcomes re-ensure the current route's reads under the resolved viewer (`:auth/ensure-viewer-route`); the `:auth/viewer-resolving?` gate the shell reads while restore is in flight. |
 | `settings.cljs` | The settings page as a mutation instance (`:rf/mutation`); the save-success continuation is the mutation's `:reply-to [:settings/replied]` target — a plain Form-1 view, no off-render reaction. |
 | `article_editor.cljs` | Create / edit / delete an article: the `:realworld/save-article` + `:realworld/delete-article` mutations, the `:editor/can-submit?` flow, the `:editor/can-leave?` guard, the `:reply-to [:editor/replied]` save/delete continuation, and the one remaining Form-3 reaction (seed-on-load from the article read). |
 | `views.cljs` | Passive pages (home / article / profile-with-two-tabs) + the numbered `pagination` control + the keep-previous list render + the small UI event glue (favourite / follow / comment / page navigation); the article-detail contextual controls (author follow + author Edit/Delete) whose follow/delete continuations are `:reply-to` targets. The article body renders through `realworld-shared.markdown/render` (sanitized CommonMark → hiccup). |

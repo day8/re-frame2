@@ -20,11 +20,15 @@
    off-render reaction anywhere in this ns.
 
    On scope: every page reads through `[:rf.resource/*]` subs that resolve their
-   own scope. The public reads carry the sub-resolvable `:rf.scope/global` policy;
-   the session-scoped feed declares `:scope {:from-db :realworld/session}`
-   (resources.cljs), a named-resolver reference the subscription resolves against
-   app-db and re-keys reactively across login / logout. No view ever threads a
-   `:scope` payload — the resolver is the one and only place scope gets resolved."
+   own scope — no view ever threads a `:scope` payload. The optional-auth reads
+   (article / list / profile / comments) declare `:scope {:from-db
+   :realworld/viewer}` and the personalised feed declares
+   `:scope {:from-db :realworld/session}` (resources.cljs); both are named-resolver
+   references the subscription resolves against app-db and re-keys reactively
+   across login / logout / account switch, so a viewer never reads another
+   viewer's `favorited` / `following` flags out of cache. The lone truly-invariant
+   read (popular tags) carries `:rf.scope/global`. The resolver is the one and
+   only place scope gets resolved."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.resources]
@@ -161,12 +165,20 @@
          refetches. The follow mutation already invalidates `[:profile username]`,
          but the detail's embedded author flag lives in the `[:article slug]`
          entry — and only this call site knows the slug. The slug rides along as a
-         static call-site arg, with the reply map appended after it. Global scope,
-         since the article read is `:rf.scope/global`."}
-  (fn [_ [_ slug {:keys [status]}]]
-    (if (= :ok status)
+         static call-site arg, with the reply map appended after it.
+
+         The article read is viewer-scoped, so the invalidation must reach the
+         ACTING viewer's `[:article slug]` entry. Unlike a mutation descriptor (the
+         engine resolves those `{:from-db …}` references itself), the direct
+         `:rf.resource/invalidate-tags` event takes a CONCRETE scope — so we
+         resolve it here from the handler's db with `rf/resolve-resource-scope`,
+         the same idiom logout's `clear-scope` uses. Follow is auth-gated, so the
+         viewer resolves to the signed-in reader; a nil (unresolved) viewer
+         fail-closes to no-op."}
+  (fn [{:keys [db]} [_ slug {:keys [status]}]]
+    (if-let [viewer (and (= :ok status) (rf/resolve-resource-scope db :realworld/viewer))]
       {:fx [[:dispatch [:rf.resource/invalidate-tags
-                        {:scope :rf.scope/global
+                        {:scope viewer
                          :tags  #{[:article slug]}
                          :cause [:follow-author-detail-sync slug]}]]]}
       {})))

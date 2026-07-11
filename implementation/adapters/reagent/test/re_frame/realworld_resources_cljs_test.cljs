@@ -186,10 +186,26 @@
   ([scoped-key] (entry :rf/default scoped-key))
   ([frame-id scoped-key] (get-in (runtime-db frame-id) (state/entry-path scoped-key))))
 
+(defn- viewer-scope
+  "The concrete `[:rf.scope/viewer {:username …}]` scope for a signed-in reader —
+   the identity the `:realworld/viewer` resolver derives for the optional-auth
+   reads (rf2-j538f7.29)."
+  [username]
+  [:rf.scope/viewer {:username username}])
+
+(def ^:private anon-viewer-scope
+  "The confirmed-anonymous viewer scope (no user, no token)."
+  [:rf.scope/viewer :anonymous])
+
+;; The optional-auth reads (article / profile / comments) are now VIEWER-scoped:
+;; each carries the reader's own `favorited` / `following` flags, so its cache
+;; identity is the viewer (rf2-j538f7.29). The mutation / populate / seed tests
+;; below act as the logged-in user "alice", so their reads land under alice's
+;; viewer scope — the 1-arity helpers default to that; the 2-arity form names an
+;; explicit viewer for the cross-viewer leak tests.
 (defn- article-key
-  "The global-scope :realworld/article detail key for a slug."
-  [slug]
-  (state/scoped-resource-key :rf.scope/global :realworld/article {:slug slug}))
+  ([slug] (article-key "alice" slug))
+  ([viewer slug] (state/scoped-resource-key (viewer-scope viewer) :realworld/article {:slug slug})))
 
 (defn- feed-key
   "The session-scoped :realworld/feed key for username + page."
@@ -197,14 +213,17 @@
   (state/scoped-resource-key [:rf.scope/session {:username username}] :realworld/feed {:page page}))
 
 (defn- profile-key
-  "The global-scope :realworld/profile banner key for a username."
-  [username]
-  (state/scoped-resource-key :rf.scope/global :realworld/profile {:username username}))
+  ([subject] (profile-key "alice" subject))
+  ([viewer subject] (state/scoped-resource-key (viewer-scope viewer) :realworld/profile {:username subject})))
 
 (defn- comments-key
-  "The global-scope :realworld/comments key for a slug."
-  [slug]
-  (state/scoped-resource-key :rf.scope/global :realworld/comments {:slug slug}))
+  ([slug] (comments-key "alice" slug))
+  ([viewer slug] (state/scoped-resource-key (viewer-scope viewer) :realworld/comments {:slug slug})))
+
+(defn- tags-key
+  "The truly-invariant global-scope :realworld/tags key (the one read still global)."
+  []
+  (state/scoped-resource-key :rf.scope/global :realworld/tags {}))
 
 (defn- reply-success!
   "Replay the captured `:on-success` with the transport's success result
@@ -265,16 +284,52 @@
              (scope/session-scope {:username "alice"}))
           "scope/session-scope matches the named resolver's value"))))
 
-(deftest feed-resource-spec-scope-is-the-named-from-db-reference
-  (testing "examples/real-apps/realworld_resources — the :realworld/feed resource
-            declares :scope {:from-db :realworld/session} (a derived-scope
-            REFERENCE the runtime resolves at every site)"
+(deftest resource-scope-policies-viewer-vs-global-vs-session
+  (testing "examples/real-apps/realworld_resources — the SIX optional-auth reads
+            (whose payloads carry the viewer's favorited/following flags) declare
+            :scope {:from-db :realworld/viewer}; only the truly-invariant popular
+            tags stays :rf.scope/global; the private feed stays {:from-db
+            :realworld/session} (rf2-j538f7.29)"
+    ;; the feed is the private, session-scoped read (unchanged).
     (is (= {:from-db :realworld/session}
            (:scope (rf/resource-meta :realworld/feed)))
-        "the feed resource's scope is the named resolver reference")
-    ;; the public reads are the explicit auditable global claim
-    (is (= :rf.scope/global (:scope (rf/resource-meta :realworld/articles))))
-    (is (= :rf.scope/global (:scope (rf/resource-meta :realworld/article))))))
+        "the feed resource's scope is the session resolver reference")
+    ;; every optional-auth read is now VIEWER-scoped, not global — 'public' is an
+    ;; access policy, not a cache-identity proof.
+    (doseq [rid [:realworld/articles :realworld/article :realworld/comments
+                 :realworld/profile :realworld/author-articles :realworld/favorited-articles]]
+      (is (= {:from-db :realworld/viewer} (:scope (rf/resource-meta rid)))
+          (str rid " is viewer-scoped (viewer-relative payload)")))
+    ;; only the tags sidebar (bare list of strings, no viewer-relative field) is
+    ;; the explicit auditable global claim.
+    (is (= :rf.scope/global (:scope (rf/resource-meta :realworld/tags)))
+        "the popular-tags read alone is the truly-invariant global claim")))
+
+(deftest viewer-scope-resolver-distinguishes-anon-authed-and-unresolved
+  (testing "examples/real-apps/realworld_resources — the :realworld/viewer resolver
+            keys a signed-in reader by username, a CONFIRMED anonymous reader by
+            :anonymous, and FAILS CLOSED (nil) while a saved token is present but
+            the user has not restored yet — so each viewer's representation gets a
+            distinct cache identity and the token-authenticated restore window
+            never labels a read shareable-anonymous (rf2-j538f7.29)"
+    ;; signed in → per-user viewer scope
+    (is (= [:rf.scope/viewer {:username "alice"}]
+           (rf/resolve-resource-scope {:auth {:user {:username "alice"} :token "jwt"}} :realworld/viewer)))
+    (is (= [:rf.scope/viewer {:username "bob"}]
+           (rf/resolve-resource-scope {:auth {:user {:username "bob"} :token "jwt"}} :realworld/viewer)))
+    ;; confirmed anonymous (no user, no token) → the shareable anonymous identity
+    (is (= [:rf.scope/viewer :anonymous]
+           (rf/resolve-resource-scope {:auth {:user nil :token nil}} :realworld/viewer)))
+    (is (= [:rf.scope/viewer :anonymous]
+           (rf/resolve-resource-scope {} :realworld/viewer)))
+    ;; UNRESOLVED — token present but user not restored yet → nil, FAIL-CLOSED
+    (is (nil? (rf/resolve-resource-scope {:auth {:user nil :token "jwt-restore"}} :realworld/viewer))
+        "token present + user unresolved → nil (never an anonymous/global read of an authenticated payload)")
+    ;; alice and bob resolve DISTINCT scopes → distinct cache keys for the same read
+    (is (not= (rf/resolve-resource-scope {:auth {:user {:username "alice"}}} :realworld/viewer)
+              (rf/resolve-resource-scope {:auth {:user {:username "bob"}}} :realworld/viewer)))
+    (is (not= (rf/resolve-resource-scope {:auth {:user {:username "alice"}}} :realworld/viewer)
+              anon-viewer-scope))))
 
 ;; ============================================================================
 ;; 2. BEARER-HEADER DECORATION — the frame-wide HTTP interceptor
@@ -462,36 +517,47 @@
 ;; 5. LOGOUT TEARDOWN — clear-scope + lease release
 ;; ============================================================================
 
-(deftest logout-clears-the-session-scoped-feed-and-releases-the-lease
+(deftest logout-clears-both-principal-scopes-and-leaves-global-tags
   (testing "examples/real-apps/realworld_resources — :auth/clear-session clears the
-            auth slice, drops the session-scoped cache via :rf.resource/clear-scope
-            (so the next user never reads the prior user's feed), and releases the
-            principal-switch lease. Public global reads are untouched."
+            auth slice and drops BOTH the departing user's session feed AND their
+            viewer-scoped reads (articles / profiles carrying that user's
+            favorited/following flags) via :rf.resource/clear-scope, so the next
+            user can never read a stale entry of theirs. Only the truly-invariant
+            global tags read is left alone (rf2-j538f7.29)."
     (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op}})]
       (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
-      ;; ensure the session feed under the principal-switch lease the app uses
-      (rf/dispatch-sync [:auth/ensure-session-feed] {:frame f})
+      ;; alice's SESSION feed
+      (rf/dispatch-sync [:rf.resource/ensure
+                         {:resource :realworld/feed :params {:page 1} :owner [:lease :test/feed]}]
+                        {:frame f})
       (reply-success! @last-managed-args {:articles [{:slug "x"}] :articlesCount 1} f)
-      ;; :auth/ensure-session-feed defaults `:page` to 1 (rf2-01jbr9) so it hits
-      ;; the SAME canonical `{:page 1}` key the home route + feed subscription
-      ;; use on the no-`?page=` URL — assert against that key, not `{:page nil}`.
+      ;; alice's VIEWER-scoped article (carries her favorited flag)
+      (rf/dispatch-sync [:rf.resource/ensure
+                         {:resource :realworld/article :params {:slug "hello-conduit"}
+                          :owner [:lease :test/detail]}]
+                        {:frame f})
+      (reply-success! @last-managed-args {:article {:slug "hello-conduit" :title "Hi" :favorited true}} f)
+      ;; the truly-invariant GLOBAL tags read
+      (rf/dispatch-sync [:rf.resource/ensure
+                         {:resource :realworld/tags :scope :rf.scope/global :params {}
+                          :owner [:lease :test/tags]}]
+                        {:frame f})
+      (reply-success! @last-managed-args {:tags ["clojure" "conduit"]} f)
       (let [fk (feed-key "alice" 1)]
-        (is (some? (entry f fk)) "the session feed entry exists for alice")
-        ;; also seed a PUBLIC global read so we can prove logout leaves it alone
-        (rf/dispatch-sync [:rf.resource/ensure
-                           {:resource :realworld/article :scope :rf.scope/global
-                            :params {:slug "hello-conduit"} :owner [:lease :test/pub]}]
-                          {:frame f})
-        (reply-success! @last-managed-args {:article {:slug "hello-conduit" :title "Public"}} f)
-        (is (some? (entry f (article-key "hello-conduit"))) "the public read exists")
+        (is (some? (entry f fk)) "alice's session feed exists")
+        (is (true? (-> (entry f (article-key "hello-conduit")) :data :article :favorited))
+            "alice's viewer-scoped article carries her favorited=true")
+        (is (some? (entry f (tags-key))) "the global tags read exists")
         ;; LOGOUT
         (rf/dispatch-sync [:auth/clear-session] {:frame f})
         (is (nil? (get-in (rf/app-db-value f) [:auth :user])) "auth user cleared")
         (is (nil? (entry f fk))
             "the session-scoped feed was dropped (clear-scope) — no cross-user leak")
-        (is (some? (entry f (article-key "hello-conduit")))
-            "the public :rf.scope/global read is untouched by logout")))))
+        (is (nil? (entry f (article-key "hello-conduit")))
+            "alice's viewer-scoped article was dropped — her favorited=true can't leak")
+        (is (some? (entry f (tags-key)))
+            "the truly-invariant :rf.scope/global tags read is untouched by logout")))))
 
 ;; ============================================================================
 ;; 6. THE AUTH MACHINE — login drives :idle → :submitting → :authed
@@ -694,43 +760,62 @@
 ;;     plus the passive-re-key feed re-ensure (rf2-svj926)
 ;; ============================================================================
 
-(deftest session-restore-with-token-stays-put-and-re-ensures-the-feed
-  (testing "examples/real-apps/realworld_resources — a cold boot with a saved token
-            drives :idle → :restoring → :authed via :restore-session, stores the
-            session, re-ensures the session feed under the restored principal (the
-            passive-re-key footgun fix), and does NOT navigate (a deep link must
-            survive a refresh)"
+(defn- articles-list-key
+  "The :realworld/articles home-list key for a viewer scope + page."
+  ([scope] (articles-list-key scope 1))
+  ([scope page] (state/scoped-resource-key scope :realworld/articles {:tag nil :page page})))
+
+(deftest session-restore-success-stays-put-and-re-ensures-route-under-the-viewer
+  (testing "examples/real-apps/realworld_resources — cold boot with a saved token:
+            during the token-present/user-unresolved window the viewer scope is
+            fail-closed (nil), so a deep-link home route's viewer-scoped reads are
+            NOT stored under any viewer/anonymous/global identity (no
+            authenticated-response leak). Once GET /user settles, :restore-session
+            stores the session, re-ensures the CURRENT route's reads under the
+            resolved viewer via :auth/ensure-viewer-route, and does NOT navigate
+            (the deep link survives) (rf2-j538f7.29)"
     (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op
                                                       :realworld-resources.session/persist :rf/no-op}})]
-      ;; Land on a resource-free public route (a deep link stand-in), as a refresh
-      ;; would; assert restore leaves us right here.
-      (rf/dispatch-sync [:rf.route/navigate :realworld.auth/register] {:frame f})
-      (is (= :realworld.auth/register (route-id f)) "cold boot lands on the deep link")
-      ;; Boot WITH a saved token → the :has-token? guard routes to :begin-restore
-      ;; (the actual restore path; the pre-existing tests only pass token nil, which
-      ;; takes the :idle no-op branch).
+      ;; Boot WITH a saved token → :begin-restore (GET /user in flight). Capture
+      ;; that request now, before the route plan below lowers others.
       (rf/dispatch-sync [:auth/initialise]
                         {:frame f :rf.cofx {:realworld-resources.session/token "jwt-restore"}})
-      (is (= :restoring (rf/compute-sub [:auth/state] (state-value f)))
-          "a non-blank token → :begin-restore (GET /user in flight)")
-      ;; the GET /user reply settles the machine
-      (reply-success! @last-managed-args
-                      {:user {:username "alice" :email "alice@example.com" :token "jwt-restore"}}
-                      f)
-      (is (= :authed (rf/compute-sub [:auth/state] (state-value f)))
-          ":auth/success in :restoring → :restore-session → :authed")
-      (is (= "alice" (:username (rf/compute-sub [:auth/user] (state-value f))))
-          "the restored session is stored")
-      (is (= "jwt-restore" (get-in (rf/app-db-value f) [:auth :token]))
-          "the token rode :auth/initialise into durable app-db")
-      ;; THE PASSIVE-RE-KEY FIX: restore re-ensures the feed under the new principal
-      ;; (a `{:from-db :realworld/session}` re-key alone is passive — it won't fetch).
-      (is (some? (entry f (feed-key "alice" 1)))
-          ":restore-session re-ensures the session feed under the restored scope")
-      ;; THE INVARIANT: restore stays put — it does NOT fire :auth/post-login-redirect.
-      (is (= :realworld.auth/register (route-id f))
-          "restore stays put — it does NOT navigate (unlike interactive login)"))
+      (is (= :restoring (rf/compute-sub [:auth/state] (state-value f))))
+      (let [restore-req @last-managed-args]
+        ;; The viewer is UNKNOWN during restore — the shell gate is up and the
+        ;; viewer scope is fail-closed.
+        (is (true? (rf/compute-sub [:auth/viewer-resolving?] (state-value f)))
+            "the shell defers rendering while the viewer is unresolved")
+        (is (nil? (rf/resolve-resource-scope (rf/app-db-value f) :realworld/viewer))
+            "token present + user unresolved → viewer scope nil (fail-closed)")
+        ;; The URL syncs to a HOME deep link (stand-in). Its viewer-scoped reads
+        ;; fail closed — no articles entry is stored under ANY identity.
+        (rf/dispatch-sync [:rf.route/navigate :realworld/home] {:frame f})
+        (is (= :realworld/home (route-id f)) "cold boot lands on the home deep link")
+        (is (nil? (entry f (articles-list-key (viewer-scope "alice"))))
+            "no articles stored under a signed-in viewer during restore")
+        (is (nil? (entry f (articles-list-key anon-viewer-scope)))
+            "no articles stored under the anonymous viewer during restore")
+        (is (nil? (entry f (state/scoped-resource-key :rf.scope/global :realworld/articles {:tag nil :page 1})))
+            "no articles stored under :rf.scope/global during restore — the leak the fix closes")
+        ;; GET /user settles → :restore-session stores alice + re-ensures the route.
+        (reply-success! restore-req
+                        {:user {:username "alice" :email "alice@example.com" :token "jwt-restore"}}
+                        f)
+        (is (= :authed (rf/compute-sub [:auth/state] (state-value f))))
+        (is (= "alice" (:username (rf/compute-sub [:auth/user] (state-value f)))))
+        (is (false? (rf/compute-sub [:auth/viewer-resolving?] (state-value f)))
+            "the gate lifts once the viewer resolves")
+        ;; restore stays put — it does NOT navigate (unlike interactive login).
+        (is (= :realworld/home (route-id f))
+            "restore stays put on the deep link — no post-login redirect")
+        ;; the home route's reads are NOW ensured under alice's viewer + session,
+        ;; WITHOUT any navigation (via :auth/ensure-viewer-route).
+        (is (some? (entry f (articles-list-key (viewer-scope "alice"))))
+            "the article list is re-ensured under alice's viewer scope")
+        (is (some? (entry f (feed-key "alice" 1)))
+            "the session feed is re-ensured under alice's session scope")))
 
     ;; CONTRAST — an interactive login DOES bounce home, proving navigation is
     ;; observable in this harness (so the non-navigation above is a real signal).
@@ -749,6 +834,85 @@
       (is (= :authed (rf/compute-sub [:auth/state] (state-value f))))
       (is (= :realworld/home (route-id f))
           "interactive login bounces home via :store-session → :auth/post-login-redirect"))))
+
+(deftest session-restore-failure-stays-put-and-re-ensures-under-anonymous
+  (testing "examples/real-apps/realworld_resources — a restore that FAILS (the saved
+            token was rejected) clears the session and STAYS PUT on the public deep
+            link, then re-ensures the current route's reads under the now-confirmed
+            ANONYMOUS viewer (:abandon-restore → :auth/ensure-viewer-route), without
+            navigating home (rf2-j538f7.29, gate 5 failure branch)"
+    (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
+                                       :fx-overrides {:rf.nav/push-url :rf/no-op
+                                                      :realworld-resources.session/persist :rf/no-op}})]
+      (rf/dispatch-sync [:auth/initialise]
+                        {:frame f :rf.cofx {:realworld-resources.session/token "jwt-stale"}})
+      (is (= :restoring (rf/compute-sub [:auth/state] (state-value f))))
+      (let [restore-req @last-managed-args]
+        ;; deep link to a public article page
+        (rf/dispatch-sync [:rf.route/navigate :realworld.article/show {:slug "public-post"}] {:frame f})
+        (is (= :realworld.article/show (route-id f)))
+        ;; during restore the viewer read fails closed — nothing stored anywhere
+        (is (nil? (entry f (article-key "alice" "public-post"))))
+        (is (nil? (entry f (article-key "public-post"))) "not under a signed-in viewer")
+        (is (nil? (entry f (state/scoped-resource-key anon-viewer-scope :realworld/article {:slug "public-post"})))
+            "not under the anonymous viewer yet either (viewer still unresolved)")
+        ;; GET /user is REJECTED (401) → :auth/restore-failed → :abandon-restore
+        (rf/dispatch-sync (conj (:on-failure restore-req) {:status :error :error {:rf.http/status 401}})
+                          {:frame f})
+        (is (= :idle (rf/compute-sub [:auth/state] (state-value f)))
+            "restore failure lands the machine back at :idle")
+        (is (nil? (get-in (rf/app-db-value f) [:auth :token])) "the stale token is cleared")
+        (is (false? (rf/compute-sub [:auth/viewer-resolving?] (state-value f)))
+            "the viewer is now RESOLVED (confirmed anonymous)")
+        ;; STAYS PUT — a failed restore does not yank a public deep link home.
+        (is (= :realworld.article/show (route-id f))
+            "restore failure keeps the public deep link in place (no navigate home)")
+        ;; the article read is re-ensured under the ANONYMOUS viewer, not alice/global.
+        (is (some? (entry f (state/scoped-resource-key anon-viewer-scope :realworld/article {:slug "public-post"})))
+            "the article is re-ensured under the anonymous viewer")
+        (is (nil? (entry f (article-key "alice" "public-post")))
+            "never stored under a signed-in viewer")
+        (is (nil? (entry f (state/scoped-resource-key :rf.scope/global :realworld/article {:slug "public-post"})))
+            "never stored under :rf.scope/global")))))
+
+(deftest optional-auth-representation-is-not-shared-across-viewers
+  (testing "examples/real-apps/realworld_resources — THE CORE FIX: viewer A's
+            optional-auth representation is NOT served to viewer B or an anonymous
+            reader. The same article read resolves a DISTINCT cache key per viewer,
+            so alice's favorited=true never surfaces in bob's or an anonymous
+            reader's UI — and the favorite verb (POST vs DELETE) is therefore chosen
+            from the CURRENT viewer's bytes, not the departing one's (rf2-j538f7.29,
+            gates 3 + 4)"
+    (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
+                                       :fx-overrides {:rf.nav/push-url :rf/no-op}})]
+      ;; ALICE loads the article; her representation carries favorited=true.
+      (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt-a"}] {:frame f})
+      (rf/dispatch-sync [:rf.resource/ensure
+                         {:resource :realworld/article :params {:slug "leak-test"}
+                          :owner [:lease :test/detail]}]
+                        {:frame f})
+      (reply-success! @last-managed-args
+                      {:article {:slug "leak-test" :title "Leak" :favorited true :favoritesCount 9
+                                 :author {:username "carol" :following true}}}
+                      f)
+      (is (true? (-> (entry f (article-key "alice" "leak-test")) :data :article :favorited))
+          "alice's viewer-scoped article carries HER favorited=true")
+      (let [read (fn [] (rf/compute-sub [:rf/resource {:resource :realworld/article :params {:slug "leak-test"}}]
+                                        (state-value f)))]
+        ;; account SWITCH to bob (no logout): his read resolves a DIFFERENT key.
+        (rf/dispatch-sync [:auth/store-session {:username "bob" :token "jwt-b"}] {:frame f})
+        (let [bob-state (read)]
+          (is (not (:has-data? bob-state))
+              "bob's viewer-scoped read does NOT see alice's cached representation")
+          (is (nil? (get-in bob-state [:data :article :favorited]))
+              "bob sees no favorited flag from alice — his favorite verb is chosen from his own (empty) read"))
+        ;; alice's entry is untouched at HER key — bob didn't clobber it.
+        (is (true? (-> (entry f (article-key "alice" "leak-test")) :data :article :favorited)))
+        ;; and a CONFIRMED anonymous reader (logged out) is a distinct key too.
+        (rf/dispatch-sync [:auth/clear-session] {:frame f})
+        (let [anon-state (read)]
+          (is (not (:has-data? anon-state))
+              "an anonymous reader does not see alice's favorited=true either"))))))
 
 ;; ============================================================================
 ;; 11. NON-FAVORITE MUTATIONS + failure->message (rf2-xm57ne)
@@ -772,9 +936,11 @@
                                        :fx-overrides {:rf.nav/push-url :rf/no-op}})]
       (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
       ;; Seed the article detail with favorited=true, favoritesCount=0 (the edge:
-      ;; a zero count that an unfavorite would otherwise push to -1).
+      ;; a zero count that an unfavorite would otherwise push to -1). No :scope on
+      ;; the ensure — the read's spec policy {:from-db :realworld/viewer} resolves
+      ;; alice's viewer scope, the same key the optimistic patch targets.
       (rf/dispatch-sync [:rf.resource/ensure
-                         {:resource :realworld/article :scope :rf.scope/global
+                         {:resource :realworld/article
                           :params {:slug "hello-conduit"} :owner [:lease :test/detail]}]
                         {:frame f})
       (reply-success! @last-managed-args
@@ -804,9 +970,10 @@
     (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op}})]
       (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
-      ;; own + load the profile banner (following=false) so :populates has an entry.
+      ;; own + load the profile banner (following=false) so :populates has an
+      ;; entry. No :scope — the spec policy lands it under alice's viewer scope.
       (rf/dispatch-sync [:rf.resource/ensure
-                         {:resource :realworld/profile :scope :rf.scope/global
+                         {:resource :realworld/profile
                           :params {:username "eve"} :owner [:lease :test/profile]}]
                         {:frame f})
       (reply-success! @last-managed-args {:profile {:username "eve" :bio "" :image "" :following false}} f)
@@ -838,9 +1005,10 @@
     (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op}})]
       (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
-      ;; own + load the comments read so the invalidation has a live owner to refetch.
+      ;; own + load the comments read so the invalidation has a live owner to
+      ;; refetch. No :scope — the spec policy lands it under alice's viewer scope.
       (rf/dispatch-sync [:rf.resource/ensure
-                         {:resource :realworld/comments :scope :rf.scope/global
+                         {:resource :realworld/comments
                           :params {:slug "hello-conduit"} :owner [:lease :test/comments]}]
                         {:frame f})
       (reply-success! @last-managed-args {:comments [{:id 1 :body "hi" :author {:username "eve"}}]} f)
@@ -904,9 +1072,10 @@
     (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op}})]
       (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
-      ;; own + load the article detail so the re-stale has a live owner to refetch.
+      ;; own + load the article detail so the re-stale has a live owner to
+      ;; refetch. No :scope — the spec policy lands it under alice's viewer scope.
       (rf/dispatch-sync [:rf.resource/ensure
-                         {:resource :realworld/article :scope :rf.scope/global
+                         {:resource :realworld/article
                           :params {:slug "hello-conduit"} :owner [:lease :test/detail]}]
                         {:frame f})
       (reply-success! @last-managed-args

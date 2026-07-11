@@ -90,28 +90,38 @@
 ;; ../../../docs/resources/glossary.md#managed-http.
 
 ;; ============================================================================
-;; PUBLIC READS — :scope :rf.scope/global (same for every viewer)
+;; OPTIONAL-AUTH READS — :scope {:from-db :realworld/viewer} (per-viewer bytes)
 ;; ============================================================================
 ;;
-;; `:scope :rf.scope/global` is an explicit, auditable promise: this read is the
-;; same for every user, tenant, and locale. There's no implicit default to lean
-;; on — leave the scope off and registration fails loudly rather than guessing.
-;; Failing closed beats a silent shared cache. See scope:
-;; ../../../docs/resources/glossary.md#scope.
+;; These six reads are all readable logged-out — but 'public' is an ACCESS
+;; policy, not a cache-identity proof. Each payload embeds the current viewer's
+;; relationship state: an Article carries a per-viewer `favorited` flag and its
+;; author a per-viewer `following` flag; a Profile carries `following`; a Comment
+;; embeds its author's Profile (see `realworld-shared.schema`). So the same
+;; params return DIFFERENT bytes to Alice, to Bob, and to an anonymous reader —
+;; which means the viewer is part of the read's identity. Each declares
+;; `:scope {:from-db :realworld/viewer}`, the named resolver (scope.cljs) that
+;; keys `[:rf.scope/viewer {:username …}]` per signed-in reader and
+;; `[:rf.scope/viewer :anonymous]` for a confirmed logged-out one — so no
+;; viewer's `favorited`/`following` flags ever surface in another's cache.
+;; (Only `:realworld/tags` below is TRULY invariant, and it alone stays
+;; `:rf.scope/global`.) See scope: ../../../docs/resources/glossary.md#scope.
 
 (rf/reg-resource :realworld/articles
-  {:doc            "The global article list, optionally filtered by `:tag` and
-                    paginated by `:page` (1-indexed). Every server-visible option
-                    — both the tag and the page — lives in params, so the
-                    tag-filtered list, the unfiltered list, and each page are all
-                    distinct cache entries. Back-navigate to a page you've already
-                    loaded and it's a cache-hit; the route's `:keep-previous?`
-                    keeps the prior page on screen while the next loads."
+  {:doc            "The article list, optionally filtered by `:tag` and paginated
+                    by `:page` (1-indexed). Every server-visible option — both the
+                    tag and the page — lives in params, so the tag-filtered list,
+                    the unfiltered list, and each page are all distinct cache
+                    entries. The per-Article `favorited` flag is viewer-relative,
+                    so the list is `{:from-db :realworld/viewer}`-scoped.
+                    Back-navigate to a page you've already loaded and it's a
+                    cache-hit; the route's `:keep-previous?` keeps the prior page
+                    on screen while the next loads."
    :params-schema  [:map
                     [:tag  {:optional true} [:maybe :string]]
                     [:page {:optional true} [:maybe :int]]]
    :data-schema    schema/ArticlesResponse
-   :scope          :rf.scope/global
+   :scope          {:from-db :realworld/viewer}
    :stale-after-ms stale-after-ms
    :gc-after-ms    gc-after-ms
    ;; Tag the list itself AND every article in it. That way, favoriting one
@@ -126,10 +136,12 @@
      :retry   rh/data-fetch-retry}))
 
 (rf/reg-resource :realworld/article
-  {:doc            "Article detail by slug (public)."
+  {:doc            "Article detail by slug (optional-auth). The Article's own
+                    `favorited` flag and its author's `following` flag are
+                    viewer-relative, so it's `{:from-db :realworld/viewer}`-scoped."
    :params-schema  [:map [:slug :string]]
    :data-schema    schema/ArticleResponse
-   :scope          :rf.scope/global
+   :scope          {:from-db :realworld/viewer}
    :stale-after-ms stale-after-ms
    :gc-after-ms    gc-after-ms
    ;; Tag both the per-article identity and the list identity, so a save or
@@ -141,13 +153,14 @@
      :retry   rh/data-fetch-retry}))
 
 (rf/reg-resource :realworld/comments
-  {:doc            "Comments for an article (public). It's a sub-resource of the
-                    article, but there's nothing special about it — just an
-                    ordinary resource whose params carry the parent's identity
-                    (the slug)."
+  {:doc            "Comments for an article (optional-auth). A sub-resource of the
+                    article whose params carry the parent's identity (the slug).
+                    Each Comment embeds its author's Profile, whose `following`
+                    flag is viewer-relative, so it's `{:from-db :realworld/viewer}`-
+                    scoped like the rest."
    :params-schema  [:map [:slug :string]]
    :data-schema    schema/CommentsResponse
-   :scope          :rf.scope/global
+   :scope          {:from-db :realworld/viewer}
    :stale-after-ms stale-after-ms
    :gc-after-ms    gc-after-ms
    :tags           (fn [{:keys [slug]} _data] #{[:comments slug]})}
@@ -157,10 +170,12 @@
      :retry   rh/data-fetch-retry}))
 
 (rf/reg-resource :realworld/profile
-  {:doc            "A user's public profile banner (public)."
+  {:doc            "A user's public profile banner (optional-auth). The Profile's
+                    `following` flag is relative to the CURRENT viewer, so it's
+                    `{:from-db :realworld/viewer}`-scoped."
    :params-schema  [:map [:username :string]]
    :data-schema    schema/ProfileResponse
-   :scope          :rf.scope/global
+   :scope          {:from-db :realworld/viewer}
    :stale-after-ms stale-after-ms
    :gc-after-ms    gc-after-ms
    :tags           (fn [{:keys [username]} _data] #{[:profile username]})}
@@ -170,13 +185,15 @@
      :retry   rh/data-fetch-retry}))
 
 (rf/reg-resource :realworld/author-articles
-  {:doc            "Articles a profile has authored (public). Paginated by
-                    `:page`, so each page is its own cache entry."
+  {:doc            "Articles a profile has authored (optional-auth). Each embedded
+                    Article carries a viewer-relative `favorited` flag, so it's
+                    `{:from-db :realworld/viewer}`-scoped. Paginated by `:page`, so
+                    each page is its own cache entry."
    :params-schema  [:map
                     [:username :string]
                     [:page {:optional true} [:maybe :int]]]
    :data-schema    schema/ArticlesResponse
-   :scope          :rf.scope/global
+   :scope          {:from-db :realworld/viewer}
    :stale-after-ms stale-after-ms
    :gc-after-ms    gc-after-ms
    :tags           (fn [{:keys [username]} data]
@@ -189,9 +206,11 @@
      :retry   rh/data-fetch-retry}))
 
 (rf/reg-resource :realworld/favorited-articles
-  {:doc            "Articles a profile has favorited (public). GET
+  {:doc            "Articles a profile has favorited (optional-auth). GET
                     `/articles?favorited=:username` — the read behind the
-                    profile's Favorited-Articles tab. Paginated by `:page`. It
+                    profile's Favorited-Articles tab. Each embedded Article's
+                    `favorited` flag is viewer-relative, so it's
+                    `{:from-db :realworld/viewer}`-scoped. Paginated by `:page`. It
                     tags both its own list identity and every article in it, so
                     the favorite / unfavorite mutations (which stale
                     `[:article slug]`) refetch this list for free — unfavorite an
@@ -201,7 +220,7 @@
                     [:username :string]
                     [:page {:optional true} [:maybe :int]]]
    :data-schema    schema/ArticlesResponse
-   :scope          :rf.scope/global
+   :scope          {:from-db :realworld/viewer}
    :stale-after-ms stale-after-ms
    :gc-after-ms    gc-after-ms
    :tags           (fn [{:keys [username]} data]
@@ -214,7 +233,10 @@
      :retry   rh/data-fetch-retry}))
 
 (rf/reg-resource :realworld/tags
-  {:doc            "The popular-tags sidebar (public)."
+  {:doc            "The popular-tags sidebar. The ONE truly representation-
+                    invariant read in the app — a bare list of tag strings with no
+                    viewer-relative field anywhere in the payload — so it alone
+                    keeps the explicit, auditable `:scope :rf.scope/global` claim."
    :params-schema  [:map]
    :data-schema    schema/TagsResponse
    :scope          :rf.scope/global
