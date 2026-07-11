@@ -390,6 +390,49 @@
   [n]
   (camelize n))
 
+(def dom-attr-aliases
+  "React prop name -> the DOM attribute name react-dom/server writes when
+  the two differ — the serialiser half of the conversion table (consumed
+  by normalization N and, at S5, by the SSR serialiser). Everything NOT
+  in this map serialises as the prop name verbatim (react-dom 19.2.0
+  emits e.g. `readOnly` verbatim — HTML attribute names are ASCII
+  case-insensitive; probed, see the S1b/S1f PR bodies).
+
+  Derived from `standard-names`' hyphenated author spellings (the SVG
+  kebab attrs + the hyphenated HTML attrs `accept-charset`/`http-equiv`
+  — react-dom's alias set is the same DOM metadata), plus the `xlink:`/
+  `xml:` colon families and the probed HTML specials (`class`, `for`,
+  `tabindex`)."
+  (merge (into {}
+               (keep (fn [[k v]] (when (str/includes? k "-") [v k])))
+               standard-names)
+         {"className"    "class"
+          "htmlFor"      "for"
+          "tabIndex"     "tabindex"
+          "xlinkActuate" "xlink:actuate"
+          "xlinkArcrole" "xlink:arcrole"
+          "xlinkHref"    "xlink:href"
+          "xlinkRole"    "xlink:role"
+          "xlinkShow"    "xlink:show"
+          "xlinkTitle"   "xlink:title"
+          "xlinkType"    "xlink:type"
+          "xmlBase"      "xml:base"
+          "xmlLang"      "xml:lang"
+          "xmlSpace"     "xml:space"
+          "xmlnsXlink"   "xmlns:xlink"}))
+
+(defn dom-attr-name
+  "Author kebab attr NAME (string, no namespace) -> the serialised DOM
+  attribute name (the serialiser/normalization half of the table; the
+  client-emitter half is `react-prop-name`). data-*/aria-* verbatim;
+  otherwise the React prop name mapped through `dom-attr-aliases`,
+  falling back to the prop name verbatim."
+  [n]
+  (if (or (str/starts-with? n "data-") (str/starts-with? n "aria-"))
+    n
+    (let [p (react-prop-name n)]
+      (get dom-attr-aliases p p))))
+
 ;; ---------------------------------------------------------------------------
 ;; :style
 ;; ---------------------------------------------------------------------------
@@ -435,12 +478,59 @@
     (str/starts-with? n "-ms-")     (camelize (subs n 1))
     :else (camelize n)))
 
+#?(:clj
+   (defn- js-double-str
+     "ECMA-262 `Number::toString(10)` for a FINITE, NON-INTEGRAL double.
+  Built from the JVM's shortest round-trip decimal (`Double/toString` —
+  Ryu shortest digits, the same digit selection JS engines use), then
+  re-laid-out per the ECMA rules: plain notation while the decimal
+  exponent n is in (-6, 21], exponential (`1e+21`, `1.23e-7`) outside.
+  Fixes the previous host-format fallback, which leaked Java notation
+  (`0.0001` -> \"1.0E-4\", `1e21` -> \"1.0E21\") — parity-corpus row 10
+  residual, discharged at S1f."
+     [^double d]
+     (let [neg?   (neg? d)
+           s      (Double/toString (Math/abs d))
+           ;; -> [digits n] with value = 0.d1d2... * 10^n
+           [ds n] (if-let [ei (str/index-of s "E")]
+                    (let [mant   (subs s 0 ei)
+                          ex     (Long/parseLong (subs s (inc ei)))
+                          digits (str/replace mant "." "")]
+                      ;; Java E-notation mantissa is d.ddd (one leading digit)
+                      [digits (inc ex)])
+                    (let [di   (str/index-of s ".")
+                          i    (subs s 0 di)
+                          f    (subs s (inc di))]
+                      (if (= i "0")
+                        (let [z (count (take-while #(= \0 %) f))]
+                          [(subs f z) (- z)])
+                        [(str i f) (count i)])))
+           ds     (let [t (str/replace ds #"0+$" "")]
+                    (if (= t "") "0" t))
+           k      (count ds)
+           body   (cond
+                    ;; 0 handled by the integral path upstream
+                    (and (<= k n) (<= n 21))
+                    (str ds (apply str (repeat (- n k) "0")))
+
+                    (and (< 0 n) (<= n 21))
+                    (str (subs ds 0 n) "." (subs ds n))
+
+                    (and (< -6 n) (<= n 0))
+                    (str "0." (apply str (repeat (- n) "0")) ds)
+
+                    :else
+                    (str (subs ds 0 1)
+                         (when (> k 1) (str "." (subs ds 1)))
+                         "e" (when (pos? (dec n)) "+") (dec n)))]
+       (str (when neg? "-") body))))
+
 (defn js-number-str
   "JS `ToString` semantics for numbers, on both hosts. The pinned case is
   integral doubles rendering WITHOUT a trailing `.0` ([S1-CONFIRM] row
-  10); very large/small magnitudes fall back to the host's default
-  formatting on the JVM (exponent-notation drift is a parity-corpus
-  concern, not an S1 row)."
+  10); non-integral doubles follow the full ECMA layout via
+  `js-double-str` (plain notation in the (-6, 21] decimal-exponent
+  window, `e`-notation outside — the parity corpus pins both)."
   [x]
   #?(:cljs (str x)
      :clj  (cond
@@ -454,7 +544,7 @@
                  (and (== d (Math/rint d))
                       (< (Math/abs d) 1.0E21))
                  (str (.toBigInteger (java.math.BigDecimal. d)))
-                 :else (str d)))
+                 :else (js-double-str d)))
              (ratio? x) (js-number-str (double x))
              :else (str x))))
 
