@@ -780,3 +780,70 @@
               ":recovery is :no-recovery — there is no fallback path")
           (is (string? (:reason thrown))
               ":reason carries an actionable message"))))))
+
+;; ---------------------------------------------------------------------------
+;; Framework-default shouldComponentUpdate — argv-equality gate (rf2-5al9d7)
+;;
+;; Prototype-level unit coverage: the install is present on every class, and
+;; the predicate exercises all four branches — equal argv skips, changed argv
+;; renders, missing argv renders, and a THROWING comparison fails OPEN
+;; (renders), tightening stock Reagent's fail-CLOSED default. The real-React
+;; reconciliation-bailout proof (equal argv → the child's render + update
+;; lifecycles do NOT run) lives in the DOM twin
+;; reagent_slim_scu_argv_gate_dom_cljs_test: sCU is only consulted by a live
+;; reconciler, so these direct-invocation tests assert the predicate contract,
+;; not React's use of it.
+;; ---------------------------------------------------------------------------
+
+(defn- scu-call
+  "Invoke `klass`'s shouldComponentUpdate with `this` bound to a synthesised
+  instance carrying `prev-argv` under `.props.__rfArgv`, and React's incoming
+  props carrying `next-argv`. Returns the boolean the gate produced."
+  [^js klass prev-argv next-argv]
+  (let [scu  (.. klass -prototype -shouldComponentUpdate)
+        inst #js {:props #js {:__rfArgv prev-argv}}]
+    (.call scu inst #js {:__rfArgv next-argv})))
+
+(deftest scu-installed-on-every-class
+  (testing "create-class* installs a framework-default shouldComponentUpdate"
+    (let [^js klass (component/create-class* {:reagent-render (fn [_] [:div])})]
+      (is (fn? (.. klass -prototype -shouldComponentUpdate))
+          "shouldComponentUpdate is present on the class prototype")))
+  (testing "fn-to-class (Form-1/2) classes also carry the default sCU"
+    (let [^js klass (component/fn-to-class (fn [_] [:div]))]
+      (is (fn? (.. klass -prototype -shouldComponentUpdate))
+          "the sCU rides through fn-to-class → create-class*"))))
+
+(deftest scu-skips-equal-argv
+  (testing "structurally-= argv → false (skip the parent-propagated re-render)"
+    (let [^js klass (component/create-class* {:reagent-render (fn [_] [:div])})]
+      ;; Fresh vectors, equal contents — the slim per-render argv shape.
+      (is (false? (scu-call klass [:head {:a 1} [1 2 3]] [:head {:a 1} [1 2 3]]))
+          "= argv (distinct vectors, equal contents) skips"))))
+
+(deftest scu-renders-changed-argv
+  (testing "not= argv → true (render)"
+    (let [^js klass (component/create-class* {:reagent-render (fn [_] [:div])})]
+      (is (true? (scu-call klass [:head {:a 1}] [:head {:a 2}]))
+          "a changed arg renders"))))
+
+(deftest scu-renders-when-argv-missing
+  (testing "either argv missing → true (fall back to React's always-render)"
+    (let [^js klass (component/create-class* {:reagent-render (fn [_] [:div])})
+          scu       (.. klass -prototype -shouldComponentUpdate)]
+      (is (true? (scu-call klass nil [:head]))
+          "missing prev argv renders")
+      (is (true? (scu-call klass [:head] nil))
+          "missing next argv renders")
+      (is (true? (.call scu #js {:props #js {}} #js {}))
+          "undefined __rfArgv on both sides renders"))))
+
+(deftest scu-fails-open-on-throwing-comparison
+  (testing "a comparison that THROWS → true (fail OPEN, tightening stock's fail-closed)"
+    ;; Distinct values whose `=` throws (a throwing -equiv) force the
+    ;; comparison to throw. The gate must render rather than risk a stale UI.
+    (let [^js klass (component/create-class* {:reagent-render (fn [_] [:div])})
+          boom1 (reify IEquiv (-equiv [_ _] (throw (js/Error. "equiv boom"))))
+          boom2 (reify IEquiv (-equiv [_ _] (throw (js/Error. "equiv boom"))))]
+      (is (true? (scu-call klass [boom1] [boom2]))
+          "throwing `=` fails open (renders)"))))
