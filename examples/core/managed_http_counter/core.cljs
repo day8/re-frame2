@@ -235,16 +235,21 @@
          ;; so we mirror that: the canonical envelope is the appended last arg.
          :abort-fn (fn [reason]
                      (http-registry/clear-in-flight! request-id)
-                     ;; The canonical abort reply uses `:status :cancelled`,
-                     ;; with the `:rf.http/aborted` map under
-                     ;; `:error` (mirrors the live transport's abort path).
+                     ;; The canonical abort reply uses `:status :cancelled`
+                     ;; with `:cancelled? true`, carries the abort reason
+                     ;; under the uniform reply contract's namespaced field
+                     ;; `:rf.reply/cancel-reason`, and rides the
+                     ;; `:rf.http/aborted` map under `:error` — the exact
+                     ;; shape the live transport's abort path emits (see
+                     ;; `re-frame.http.reply/failure-reply`). It passes
+                     ;; `re-frame.reply/validate-reply` unchanged.
                      (rf/dispatch [:http-counter/start-long
-                                   {:status        :cancelled
-                                    :cancelled?    true
-                                    :cancel/reason reason
-                                    :error         {:kind       :rf.http/aborted
-                                                    :request-id request-id
-                                                    :reason     reason}}]
+                                   {:status                 :cancelled
+                                    :cancelled?             true
+                                    :rf.reply/cancel-reason reason
+                                    :error                  {:kind       :rf.http/aborted
+                                                             :request-id request-id
+                                                             :reason     reason}}]
                                   {:frame frame}))}))
     nil))
 
