@@ -395,6 +395,48 @@
       (is (= :rf.error/image-duplicate-image-id (:rf.error/id d)))
       (is (= [:dup] (:duplicate-image-ids d))))))
 
+(deftest anonymous-image-in-multi-composition-fails-loud
+  (testing "an ANONYMOUS image (no :id) in a MULTI-image composition fails loud —
+            it is un-nameable in the shadow report, so it cannot participate in
+            composition (rf/image contract). The shadow report thus never carries
+            a degenerate {:image nil :shadowed-by nil} entry (rf2-x76af2.30)"
+    (testing "the EXACT repro: two anonymous images COLLIDING on a [kind id] →
+              :rf.error/image-duplicate-image-id, NOT a degenerate nil/nil shadow"
+      (let [pool  [(reg-desc "app.a" :event :x ::a)
+                   (reg-desc "app.b" :event :x ::b)]
+            anon-a (image/image {:select-ns {:include ["app.a"]}})
+            anon-b (image/image {:select-ns {:include ["app.b"]}})
+            d      (assembly-error-data #(asm/assemble [anon-a anon-b] pool))]
+        (is (= :rf.error/image-duplicate-image-id (:rf.error/id d)))
+        (is (= 2 (:anonymous-image-count d)))))
+    (testing "even DISJOINT anonymous images fail loud — an un-nameable image
+              cannot participate in composition regardless of a collision"
+      (let [pool  [(reg-desc "app.a" :event :x ::a)
+                   (reg-desc "app.b" :event :y ::b)]
+            anon-a (image/image {:select-ns {:include ["app.a"]}})
+            anon-b (image/image {:select-ns {:include ["app.b"]}})]
+        (is (= :rf.error/image-duplicate-image-id
+               (assembly-error-id #(asm/assemble [anon-a anon-b] pool))))))
+    (testing "a NAMED image composed with an ANONYMOUS one also fails loud"
+      (let [pool  [(reg-desc "app.a" :event :x ::a)
+                   (reg-desc "app.b" :event :y ::b)]
+            named (image/image {:id :app/a :select-ns {:include ["app.a"]}})
+            anon  (image/image {:select-ns {:include ["app.b"]}})]
+        (is (= :rf.error/image-duplicate-image-id
+               (assembly-error-id #(asm/assemble [named anon] pool))))))))
+
+(deftest single-anonymous-image-still-assembles
+  (testing "a SINGLE anonymous image (the local-test / example case) still
+            assembles — the anonymous rule applies only to MULTI-image
+            compositions, where the shadow report must name each image
+            (rf2-x76af2.30)"
+    (let [pool [(reg-desc "app.a" :event :x ::a)]
+          anon (image/image {:select-ns {:include ["app.a"]}})
+          gen  (asm/assemble [anon] pool)]
+      (is (contains? (:rf.gen/resolver gen) [:event :x]))
+      (is (= [] (asm/generation-shadows gen))
+          "a lone image produces no cross-image shadow"))))
+
 ;; ===========================================================================
 ;; 9b. Cross-image SHADOW REPORT (EP-0026 §Shadow Report, rf2-ke7w5j) — a flat
 ;;     [{:registration [kind id] :image <defined-in> :shadowed-by <winner>}]

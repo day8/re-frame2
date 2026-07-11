@@ -850,18 +850,56 @@
 ;; ===========================================================================
 
 (defn check-unique-image-ids!
-  "FAIL LOUD when two images share an `:id` within one `:images` composition
-  (EP-0026 §Image Keys). The shadow report (rf2-ke7w5j) identifies images by id,
-  so two images sharing an id in one composition is an error — the two ids could
-  not name exactly one image each. Anonymous images (no `:rf.image/id`) are
-  exempt: an absent id is not a shared id. Returns `images`. Throws
+  "FAIL LOUD when the images in an `:images` composition cannot each be named by a
+  DISTINCT, PRESENT id (EP-0026 §Image Keys). The shadow report (rf2-ke7w5j)
+  identifies every image by its `:rf.image/id`, so a MULTI-image composition must
+  name each image uniquely — otherwise a cross-image shadow could not name its
+  loser + winner and the report would carry a degenerate entry (rf2-x76af2.30).
+  Two conditions fail, both `:rf.error/image-duplicate-image-id`:
+
+    * an ANONYMOUS image (no `:rf.image/id`) in a composition of MORE THAN ONE
+      image — un-nameable, so it cannot participate in composition. This is the
+      `re-frame.image/image` contract: an anonymous image is valid ONLY for
+      \"local tests/examples that do not participate in composition\". An
+      anonymous loser/winner would produce a degenerate
+      `{:image nil :shadowed-by nil}` shadow-report entry (violating the
+      shadow-report id invariant — every entry names a real image + a real
+      shadowing image), so it is rejected at the composition boundary rather than
+      surfaced as a broken report.
+    * two images sharing the same `:rf.image/id` — the two ids could not name
+      exactly one image each.
+
+  A SINGLE-image composition is EXEMPT from the anonymous rule: with no second
+  image there is no cross-image shadow to name, so a lone anonymous image (the
+  local-test / default-image case) still assembles. Returns `images`. Throws
   `:rf.error/image-duplicate-image-id`."
   [images]
-  (let [ids  (keep :rf.image/id images)
-        dups (->> ids
-                  (frequencies)
-                  (keep (fn [[id n]] (when (> n 1) id)))
-                  (sort))]
+  (let [multi?    (> (count images) 1)
+        ;; In a MULTI-image composition an anonymous image is un-nameable in the
+        ;; shadow report (a lone image needs no id — there is no shadow to name).
+        anonymous (if multi? (filterv #(nil? (:rf.image/id %)) images) [])
+        ids       (keep :rf.image/id images)
+        dups      (->> ids
+                       (frequencies)
+                       (keep (fn [[id n]] (when (> n 1) id)))
+                       (sort))]
+    (when (seq anonymous)
+      (error/throw-error!
+        :rf.error/image-duplicate-image-id
+        'rf/make-frame
+        (str "rf/image assembly: a composition of " (count images) " images "
+             "contains " (count anonymous) " ANONYMOUS image(s) (no :id). In a "
+             "multi-image composition EVERY image MUST carry a distinct :id — the "
+             "shadow report identifies each image by id, so an un-nameable image "
+             "could not be named as a shadow loser or winner (it would produce a "
+             "degenerate {:image nil :shadowed-by nil} report entry). An anonymous "
+             "image is valid only for a LONE image (local tests/examples that do "
+             "not participate in composition). Give every image in the composition "
+             "a distinct :id.")
+        {:recovery :give-each-image-in-the-composition-a-distinct-id
+         :extra    {:anonymous-image-count (count anonymous)
+                    :image-count           (count images)
+                    :image-ids             (vec ids)}}))
     (when (seq dups)
       (error/throw-error!
         :rf.error/image-duplicate-image-id
