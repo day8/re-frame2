@@ -1770,3 +1770,116 @@
           ;; Restore the prior hook binding (nil in the resources-free routing
           ;; suite) so this spy never leaks into a sibling test.
           (late-bind/set-fn! :routing/on-route-entry prior))))))
+
+;; ============================================================================
+;; rf2-p1aipi — URL-driven fragment-only path emits the resolved scroll-fx
+;; ============================================================================
+;;
+;; Spec 012 §Fragments rules 3-4 / §Scroll restoration. The URL-driven
+;; fragment-only doors — `:rf.route/transitioned` (forward nav, default scroll
+;; `:top`) and `:rf.route/handle-url-change` (popstate / Back-Forward, default
+;; `:restore`) — short-circuit the full commit (no fresh nav-token, no
+;; `:on-match` re-fire). But before rf2-p1aipi they DROPPED the resolved
+;; scroll-fx: `fragment-only-fx` emitted only the scroll CAPTURE. So a user
+;; clicking a `#section` link, or Back-Forward to a fragment, computed WHERE to
+;; scroll and then never scrolled — `pushState`/popstate do not scroll to a
+;; fragment natively. The programmatic door (`fragment-only-nav-fx`, rf2-k4exp1)
+;; already emits `:rf.nav/scroll`; this mirrors that emission onto the URL-driven
+;; door (capture → scroll; NO push — the address bar already changed).
+
+(defn- reg-scroll-fxs-capturing!
+  "Register the URL-driven fragment door's scroll fxs (`:rf.nav/scroll` +
+  `:rf.nav/capture-scroll`) plus `:rf.nav/push-url` (so an unexpected push would
+  be observable) with capturing handlers on both server+client so they route on
+  the JVM. Returns a map of atoms: `:scroll` (args vectors), `:capture` (args
+  vectors), `:push` (URL vectors), and `:order` (an ordered `[fx-id args]` log)."
+  []
+  (let [scrolled (atom [])
+        captured (atom [])
+        pushed   (atom [])
+        order    (atom [])]
+    (rf/reg-fx :rf.nav/scroll {:platforms #{:server :client}}
+               (fn [_ args] (swap! scrolled conj args) (swap! order conj [:rf.nav/scroll args])))
+    (rf/reg-fx :rf.nav/capture-scroll {:platforms #{:server :client}}
+               (fn [_ args] (swap! captured conj args) (swap! order conj [:rf.nav/capture-scroll args])))
+    (rf/reg-fx :rf.nav/push-url {:platforms #{:server :client}}
+               (fn [_ url]  (swap! pushed conj url)   (swap! order conj [:rf.nav/push-url url])))
+    {:scroll scrolled :capture captured :push pushed :order order}))
+
+(deftest url-driven-fragment-only-emits-scroll-rf2-p1aipi
+  (testing "rf2-p1aipi: a URL-driven fragment-only change (:rf.route/transitioned,
+            forward nav) emits the resolved :rf.nav/scroll (default :top, targeting
+            the new fragment), captures the leaving position FIRST, and pushes NO
+            URL — mirroring the programmatic fragment-only door (rf2-k4exp1). Before
+            the fix the scroll-fx was DROPPED (only capture rode along)."
+    (let [on-match-calls (atom 0)]
+      (rf/reg-event :docs/load (fn [{:keys [db]} _] (swap! on-match-calls inc) {:db db}))
+      (rf/reg-route :route/docs {:on-match [[:docs/load]]} "/docs/:page")
+      (let [fxs (reg-scroll-fxs-capturing!)]
+        ;; Full nav to /docs/routing#a → loader fires once, allocates nav-1.
+        (rf/dispatch-sync [:rf.route/transitioned "/docs/routing#a"])
+        (is (= 1 @on-match-calls) ":on-match fired once on the full nav")
+        (is (= "nav-1" (:nav-token (nav-slice))) "first nav allocated nav-1")
+        (reset! (:scroll fxs) [])
+        (reset! (:capture fxs) [])
+        (reset! (:order fxs) [])
+        ;; Fragment-only forward nav: #a → #b (same route-id/params/query).
+        (rf/dispatch-sync [:rf.route/transitioned "/docs/routing#b"])
+        ;; The fragment-only short-circuit still holds …
+        (is (= "b" (:fragment (nav-slice))) "fragment updated to #b")
+        (is (= "nav-1" (:nav-token (nav-slice))) "rule 3: no NEW nav-token")
+        (is (= 1 @on-match-calls) "rule 4: :on-match did NOT re-fire")
+        ;; … AND the resolved scroll-fx is now emitted (the rf2-p1aipi fix).
+        ;; TEETH — this is exactly the effect the URL-driven door used to drop.
+        (is (= 1 (count @(:scroll fxs)))
+            "TEETH: the URL-driven fragment-only nav emits exactly one :rf.nav/scroll
+             (was DROPPED before rf2-p1aipi)")
+        (let [args (first @(:scroll fxs))]
+          (is (= :top (:strategy args)) "forward-nav default scroll strategy is :top")
+          (is (= "b"  (:fragment args)) ":rf.nav/scroll targets the new #b fragment"))
+        ;; Ordering: capture the leaving position, THEN scroll. No push — the
+        ;; address bar already changed (URL-driven doors never drive the URL).
+        (is (= [:rf.nav/capture-scroll :rf.nav/scroll] (mapv first @(:order fxs)))
+            "ordered: capture the leaving scroll, then scroll to the new fragment")
+        (is (= {:url "/docs/routing#a"} (first @(:capture fxs)))
+            "capture-scroll saves the position of the route being left (#a)")
+        (is (empty? @(:push fxs))
+            "URL-driven door pushes NO URL (the address bar already changed)")))))
+
+(deftest url-driven-popstate-fragment-only-emits-restore-scroll-rf2-p1aipi
+  (testing "rf2-p1aipi: a popstate fragment-only change (:rf.route/handle-url-change)
+            emits :rf.nav/scroll with the :restore default (Back-Forward restores
+            the saved position), still short-circuiting (no new token / no re-fire)."
+    (let [on-match-calls (atom 0)]
+      (rf/reg-event :docs/load (fn [{:keys [db]} _] (swap! on-match-calls inc) {:db db}))
+      (rf/reg-route :route/docs {:on-match [[:docs/load]]} "/docs/:page")
+      (let [fxs (reg-scroll-fxs-capturing!)]
+        (rf/dispatch-sync [:rf.route/handle-url-change "/docs/routing#a"])
+        (is (= 1 @on-match-calls) ":on-match fired once on the full popstate nav")
+        (reset! (:scroll fxs) [])
+        ;; Back/Forward to the SAME page, only the #fragment differs.
+        (rf/dispatch-sync [:rf.route/handle-url-change "/docs/routing#b"])
+        (is (= "b" (:fragment (nav-slice))) "fragment updated to #b")
+        (is (= "nav-1" (:nav-token (nav-slice))) "rule 3: no NEW nav-token on popstate fragment-only")
+        (is (= 1 @on-match-calls) "rule 4: :on-match did NOT re-fire on popstate fragment-only")
+        (is (= 1 (count @(:scroll fxs)))
+            "TEETH: the popstate fragment-only nav emits exactly one :rf.nav/scroll
+             (was DROPPED before rf2-p1aipi)")
+        (is (= :restore (:strategy (first @(:scroll fxs))))
+            "popstate default scroll strategy is :restore")
+        (is (empty? @(:push fxs))
+            "URL-driven popstate door pushes NO URL")))))
+
+(deftest url-driven-fragment-only-scroll-false-suppresses-rf2-p1aipi
+  (testing "rf2-p1aipi: `:scroll false` on the route meta suppresses the
+            :rf.nav/scroll effect on a URL-driven fragment-only change, but still
+            updates :fragment (mirrors the programmatic :scroll-false suppression)."
+    (rf/reg-route :route/docs {:scroll false} "/docs/:page")
+    (let [fxs (reg-scroll-fxs-capturing!)]
+      (rf/dispatch-sync [:rf.route/transitioned "/docs/routing#a"])
+      (reset! (:scroll fxs) [])
+      (rf/dispatch-sync [:rf.route/transitioned "/docs/routing#b"])
+      (is (= "b" (:fragment (nav-slice))) ":fragment still updates with :scroll false")
+      (is (empty? @(:scroll fxs))
+          ":scroll false suppressed the :rf.nav/scroll effect on the URL-driven
+           fragment-only door"))))
