@@ -3416,7 +3416,7 @@ Per [011 §The `:rf/hydrate` event](011-SSR.md#the-rfhydrate-event). The **canon
 (def HydrationPayload
   [:map
    [:rf/version       :int]                                                ;; pattern-protocol version (integer; v1 = 1)
-   [:rf/frame-id      :keyword]                                            ;; the frame id to seed
+   [:rf/frame-id      {:optional true} :keyword]                           ;; the frame the SERVER rendered under — payload metadata + mismatch-validation evidence, NOT a target resolver (the client passes its hydration target explicitly). OPTIONAL: an absent value is no conflict — the explicit dispatch target stands (per [011 §The :rf/hydrate event](011-SSR.md#the-rfhydrate-event))
    [:rf/app-db        :any]                                                ;; serialised app-db PARTITION (authoritative)
    [:rf/runtime-db    {:optional true} :rf/runtime-db]                     ;; serialised SERIALIZABLE runtime-db projection — machine snapshots, route slice, elision declarations, SSR metadata (per [011 §The :rf/hydrate event](011-SSR.md#the-rfhydrate-event)). Carries ONLY durable facts; transient side channels (request/response accumulators, head snapshots, streaming registries, host handles) are excluded. Together with :rf/app-db the two slices install a coherent FRAME-STATE. Absent on a frame that hydrates no framework runtime state.
    [:rf/ssr-rendered-at {:optional true} :int]                             ;; ms-since-epoch the server completed render
