@@ -93,7 +93,9 @@ Produced after acceptance gate 2 passes. This is the final report for the port's
 - **Substrate:** <D2>
 - **Claimed capability tag set:**
   ```
-  :core/*
+  :core/*                 ; always — pattern-required
+  :identity/*             ; always — v1-required (EP-0012 path algebra + CEDN-1 identity)
+  :data-classification/*  ; always — v1-required (Spec 015 egress/redaction)
   <list of optional tags from D7>
   ```
 - **Conformance score:** <claimed-applicable> / <claimed-applicable> on corpus commit <corpus-commit-hash>.
