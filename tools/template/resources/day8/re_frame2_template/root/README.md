@@ -51,21 +51,23 @@ you a clean reload:
    **only when none is already seated**. Per EP-0002 (Spec 002 §Frame
    target resolution) `init!` does **not** create the `:rf/default`
    frame — the runtime never synthesises a frame from absence. The
-   scaffold's `core/init` registers the app frame explicitly with
-   `(rf/reg-frame :rf/default {})` right after `init!`, then runs its
-   frame-local boot (schema attach + seed dispatch) inside a
-   `(rf/with-frame :rf/default …)` scope. A second `init!` call (which
+   scaffold's app frame is created by the **view**: the `rf/frame-root`
+   element in `core.cljs` ENSURES `:rf/default` at mount — it creates
+   the frame the first time (running the `:initial-events` seed
+   synchronously) and REUSES the already-live frame **without
+   re-seeding** on every later mount. A second `init!` call (which
    every hot reload makes) does **not** re-install the adapter, does
-   **not** snapshot the registrar, and does **not** touch app-db; a
-   second `reg-frame :rf/default` is an idempotent update of the
-   already-live frame. So the reload is a no-op for your state.
+   **not** snapshot the registrar, and does **not** touch app-db; the
+   re-rendered `frame-root` finds the frame already live and leaves
+   your state alone. So the reload is a no-op for your state.
 
-The thing that re-seeds the demo state on reload is the entry fn's own
-explicit `rf/dispatch-sync [:counter/initialise]` call in `core.cljs`
-(inside the `with-frame :rf/default` scope) — not `init!`. That is the
-reset boundary: the `:counter/initialise` event handler writes the
-starter app-db, so editing it (or removing the `dispatch-sync` call) is
-what changes what a reload re-seeds.
+The thing that seeds the demo state is the `frame-root` element's
+`:initial-events [[:counter/initialise]]` declaration in `core.cljs` —
+run once, at frame creation, never replayed by a hot reload. That is
+the reset boundary: the `:counter/initialise` event handler writes the
+starter app-db, so editing what it writes changes what a **fresh**
+mount (a browser refresh) seeds; to re-seed an already-running app,
+refresh the tab.
 
 ## In-app devtools (Xray)
 
@@ -399,9 +401,11 @@ resolution): `reg-app-schema` targets a frame and the runtime never
 synthesises one from absence. Registering with no established scope and
 no explicit `:frame` raises `:rf.error/no-frame-context` — so a bare
 `reg-app-schema` call at namespace-load time would throw. The scaffold
-therefore puts the registration in a `register-schema!` fn that
-`core/init` calls **after** `reg-frame` makes the app's `:rf/default`
-frame live, inside a `(rf/with-frame :rf/default …)` scope:
+therefore puts the registration in a `register-schema!` fn that names
+the app frame **explicitly** (the optional middle metadata map's
+`:frame` slot) and that `core/init` calls at boot — before the
+`rf/frame-root` mount even creates the frame, so the frame's
+`:initial-events` seed is validated from its very first write:
 
 ```clojure
 (def CounterDb
@@ -410,16 +414,16 @@ frame live, inside a `(rf/with-frame :rf/default …)` scope:
 
 ;; in schema.cljs — NOT a load-time side-effect
 (defn register-schema! []
-  (rf/reg-app-schema [] CounterDb))
+  (rf/reg-app-schema [] {:frame :rf/default} CounterDb))
 
-;; in core.cljs — called under a live frame scope at boot
-(rf/with-frame :rf/default
-  (schema/register-schema!))
+;; in core.cljs — called once at boot (see init)
+(schema/register-schema!)
 ```
 
-If you prefer not to wrap a scope, name the frame explicitly in the
-optional middle metadata map under `:frame`:
-`(rf/reg-app-schema [] {:frame :rf/default} CounterDb)`.
+If you are already inside an established frame scope
+(`rf/with-frame`, a handler, a view), the two-slot form
+`(rf/reg-app-schema [] CounterDb)` attaches to the ambient frame
+instead of naming one.
 
 Closed maps catch typos (`:countr/value` → schema rejection); open
 maps admit new keys during development. The starter uses closed —
@@ -446,7 +450,7 @@ Schema validation elides automatically under `:advanced`
 `goog.DEBUG=false` builds — registrations stay in source but cost
 nothing in production hot paths.
 
-### Privacy / egress classification — declare it on the frame
+### Privacy / egress classification — declare it where data is written
 
 re-frame2 makes runtime state highly observable: one trace stream feeds
 Xray (default-on in dev — see above), Story (ships in release if you opt
@@ -462,10 +466,11 @@ exists so the framework can redact / elide those values at egress.
 **App-db schemas validate shape; they do NOT classify egress.** The
 `schema.cljs` schema above says what app-db *looks like*; it says nothing
 about which paths are sensitive or large. Egress classification for
-**durable app-db paths** is owned by the **frame**, declared on
-`reg-frame` — never re-attached to a schema. (Spec 015 deliberately keeps
-one route per fact: frame config owns durable app-db classification;
-schemas own shape — see
+**durable app-db paths** is recorded per frame but authored by the
+**event that writes the data** — the `:sensitive` / `:large`
+commit-plane effects returned alongside `:db` — never re-attached to a
+schema. (Spec 015 deliberately keeps one route per fact: the commit
+plane owns durable app-db classification; schemas own shape — see
 [§Schemas describe shape, not durable app-db egress policy](https://github.com/day8/re-frame2/blob/main/spec/015-Data-Classification.md#schemas-describe-shape-not-durable-app-db-egress-policy).)
 
 The starter counter has nothing sensitive. As soon as you add auth/API

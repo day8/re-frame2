@@ -23,9 +23,11 @@
    shadow's hot-reload pipeline re-invokes it on each rebuild."
   []
   (rf/init! reagent-adapter/adapter)
-  ;; `init!` installs the adapter but does not create a frame. Register the
-  ;; app frame before running frame-local boot work, and provide that same
-  ;; frame to the rendered tree below.
+  ;; `init!` installs the adapter but does not create a frame. The
+  ;; `rf/frame-root` element below ENSURES the app frame at mount: it creates
+  ;; `:rf/default` the first time (running the `:initial-events` seed
+  ;; synchronously, so the initial render sees the seeded app-db), and REUSES
+  ;; the live frame WITHOUT re-seeding on every hot-reload re-render.
   ;;
   ;; Schemas validate shape; they do not classify durable app-db egress.
   ;; Classify a path from the event that writes it by returning `:sensitive`
@@ -36,11 +38,11 @@
   ;;        :sensitive [[:auth :token]]
   ;;        :large     [[:documents :upload]]}))
   ;; See the README's privacy section for HTTP carriers and response bodies.
-  (rf/reg-frame :rf/default {})
-  (rf/with-frame :rf/default
-    ;; Schema attachment is frame-local and must run after reg-frame.
-    (schema/register-schema!)
-    ;; dispatch-sync so the initial render sees the seeded app-db rather
-    ;; than a transient empty frame.
-    (rf/dispatch-sync [:counter/initialise]))
-  (rdc/render root [rf/frame-provider {:frame :rf/default} [views/counter-app]]))
+  ;;
+  ;; Schema attachment is frame-local; it names the app frame explicitly so
+  ;; the `:initial-events` seed below is validated from the very first write.
+  (schema/register-schema!)
+  (rdc/render root
+              [rf/frame-root {:id             :rf/default
+                              :initial-events [[:counter/initialise]]}
+               [views/counter-app]]))

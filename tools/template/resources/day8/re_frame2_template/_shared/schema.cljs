@@ -36,10 +36,13 @@
   [:map {:closed true}
    [:counter/value :int]])
 
-;; App-db schemas are frame-local, so core/init calls this after reg-frame
-;; instead of registering it as a namespace-load side effect.
+;; App-db schemas are frame-local, so core/init calls this at boot instead of
+;; registering it as a namespace-load side effect. The registration names the
+;; app frame EXPLICITLY (`{:frame :rf/default}`), so it can run BEFORE the
+;; `rf/frame-root` mount creates the frame — the frame's `:initial-events`
+;; seed is then validated from the very first write.
 (defn register-schema!
-  "Attach the whole-app-db schema to the app's frame. Call once at boot,
-   under the app's frame scope (see core/init)."
+  "Attach the whole-app-db schema to the app's frame. Call once at boot
+   (see core/init)."
   []
-  (rf/reg-app-schema [] CounterDb))
+  (rf/reg-app-schema [] {:frame :rf/default} CounterDb))
