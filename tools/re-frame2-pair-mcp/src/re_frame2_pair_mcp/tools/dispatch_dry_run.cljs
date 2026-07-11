@@ -10,11 +10,16 @@
   ## Why this is NOT `--allow-writes`-gated
 
   Dry-run is the OPPOSITE of a write — its whole contract is 'no
-  observable effect'. The fx-override set redirects every registered
-  fx to a recording stub, so no http / navigation / persisted-write
-  side-effect escapes. The framework's `restore-epoch` rewinds the
-  app-db AND trims the assembled would-be epoch from the ring. There
-  is no state change for the `--allow-writes` gate to protect against.
+  observable effect'. The framework's dry-run effect sink
+  (`re-frame.fx/*effect-sink*`, rf2-j538f7.39) RECORDS + SKIPS every fx
+  at the single universal effect executor (`do-fx`), BEFORE any override
+  resolution / reserved-fx dispatch / user-handler invoke — so the
+  no-effect guarantee is STRUCTURAL: no http / navigation / persisted
+  write, machine spawn/destroy, flow register/clear, nav-token, or
+  image-only inline fx escapes, with no registrar enumeration. The
+  framework's `restore-epoch` rewinds the app-db AND trims the assembled
+  would-be epoch from the ring. There is no state change for the
+  `--allow-writes` gate to protect against.
 
   ## Why this IS `--allow-sensitive-reads`-gated
 
@@ -85,15 +90,14 @@
   (`(println :x)`) is rejected the same way; the wire boundary is the
   same security gate.
 
-  ## Composes with fx-overrides
+  ## Rejects fx-overrides (rf2-j538f7.39)
 
-  The caller MAY pass an `:fx-overrides` map that PRE-stubs some fx
-  (e.g. redirecting `:rf.http/managed` to a canned stub-handler for
-  the experiment). User-supplied overrides win on conflict — the
-  recorder fires only for fx the caller did NOT pre-stub. This lets
-  the experimenter compose realistic conditions (e.g. 'what would
-  happen if the http call resolved to this stub response?') without
-  losing the dry-run's roll-back guarantee.
+  A caller `:fx-overrides` is REJECTED loudly (`:reason
+  :fx-overrides-unsupported`, an isError). Because the effect sink
+  records + skips every fx BEFORE override resolution, an override could
+  only 'compose realistic conditions' by executing a handler body — the
+  exact thing dry-run must not do. To try a canned http stub, use
+  `dispatch` (not dry-run) with `:fx-overrides` and roll back yourself.
 
   ## Accepts scripted recordable coeffects (EP-0017)
 
@@ -123,7 +127,21 @@
 ;; parse's position ahead of the nREPL eval and the privacy gates.
 
 (def ^:private missing-event-hint
-  "usage: dispatch-dry-run {event '[:ev/id ...]' [frame :foo] [fx-overrides {...}] [cofx '{:rf/time-ms ...}']}")
+  "usage: dispatch-dry-run {event '[:ev/id ...]' [frame :foo] [cofx '{:rf/time-ms ...}']}")
+
+(def ^:private fx-overrides-rejected
+  "Loud rejection (rf2-j538f7.39) for a caller-supplied `:fx-overrides`. The
+  runtime's dry-run records+skips every fx at the effect sink BEFORE override
+  resolution, so an override cannot influence the simulation without executing
+  a body — dry-run therefore refuses it rather than silently ignoring it."
+  {:ok?    false
+   :reason :fx-overrides-unsupported
+   :hint   (str "dispatch-dry-run does not accept :fx-overrides. A dry-run "
+                "RECORDS + SKIPS every effect at the framework effect sink (no "
+                "fx handler runs), so an override can neither redirect nor stub "
+                "anything without executing a body. To try a canned stub, use "
+                "`dispatch` with :fx-overrides and roll back yourself; every "
+                "would-be effect is already listed in :would-fire-effects.")})
 
 (defn- redact-fx-args-src
   "CLJS source for a fn that FAIL-CLOSES the `:would-fire-effects[*]
@@ -211,15 +229,11 @@
   (let [event-str    (wire/arg raw-args :event)
         build-id     (wire/arg-build conn raw-args)
         frame        (some-> (wire/arg raw-args :frame) args/->frame-keyword)
-        ;; Coerce override VALUES (colon-prefixed string -> keyword) and
-        ;; REJECT any other value. A raw `js->clj
-        ;; :keywordize-keys true` leaves a `{":http": ":stub-http"}`
-        ;; target as the string `":stub-http"`, which core silently falls
-        ;; through to the original fx — for dry-run that defeats the
-        ;; no-fx-execute guarantee (a string override can replace the
-        ;; recording stub and fire the real effect). See `parse-fx-overrides`.
-        fx-r         (args/parse-fx-overrides (wire/arg raw-args :fx-overrides))
-        fx-overrides (when (= :ok (first fx-r)) (second fx-r))
+        ;; rf2-j538f7.39: dry-run no longer accepts `:fx-overrides`. The
+        ;; effect sink records+skips every fx BEFORE override resolution, so an
+        ;; override cannot influence the simulation without executing a body —
+        ;; a supplied one is REJECTED loudly below rather than threaded.
+        fx-overrides-present? (some? (wire/arg raw-args :fx-overrides))
         ;; EP-0017 — caller-scripted recordable coeffects, the
         ;; same data-not-source gate `dispatch` carries. The agent
         ;; supplies `cofx "{:rf/time-ms …}"` (EDN data, parsed by the SHARED
@@ -276,10 +290,11 @@
                        (ef/emit (ef/rt-call 'current-frame)))
         [tag payload] (args/parse-event-arg event-str missing-event-hint)]
     (cond
-      ;; Reject an invalid fx-overrides target up front so a
-      ;; string stub can't silently defeat the no-fx-execute guarantee.
-      (= :err (first fx-r))
-      (js/Promise.resolve (wire/err-text (second fx-r)))
+      ;; rf2-j538f7.39: reject a caller `:fx-overrides` LOUDLY — dry-run's
+      ;; effect sink records+skips every fx before override resolution, so an
+      ;; override cannot influence the simulation without executing a body.
+      fx-overrides-present?
+      (js/Promise.resolve (wire/err-text fx-overrides-rejected))
 
       ;; EP-0017 — a malformed `cofx` map (non-map / unreadable
       ;; / non-integer :rf/time-ms) short-circuits to an honest isError
@@ -295,7 +310,6 @@
       (let [event-vec payload
             opts-form (cond-> {}
                         frame        (assoc :frame frame)
-                        fx-overrides (assoc :fx-overrides fx-overrides)
                         ;; EP-0017 — thread the scripted
                         ;; recordable coeffects under the flat `:rf.cofx`
                         ;; opts key the router reads, exactly as `dispatch`
