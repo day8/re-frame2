@@ -429,16 +429,20 @@
 ;; the resources reconcile, published as the `:http/abort-in-flight-for-frame!`
 ;; late-bind hook the epoch boundary fires AFTER a successful install.
 
-(defn- emit-restore-stale-trace!
+(defn- emit-frame-boundary-stale-trace!
   "Emit the canonical EP-0011 `:status :stale` / `:rf.reply/work-status :suppressed`
-  reply-envelope trace for one managed HTTP attempt aborted because epoch
-  restore unwound its timeline (rf2-u5kmf8), WITHOUT dispatching any app target.
+  reply-envelope trace for one managed HTTP attempt aborted at a FRAME-LIFECYCLE
+  boundary — epoch restore (rf2-u5kmf8) OR frame destruction (rf2-j538f7.8) —
+  WITHOUT dispatching any app target. `recovery` names the boundary
+  (`:suppressed-on-epoch-restore` vs `:suppressed-on-frame-destroy`) so the two
+  reply-suppressing boundaries stay discriminable on the trace stream while
+  sharing the identical carried-id-against-nil-current suppression gate.
   Mirrors `http-transport/emit-superseded-stale-trace!` (the supersede sibling):
   the carried work-id is the aborted attempt's identity; there is no current
-  work-id (restore replaces the attempt with nothing) so the gate suppresses the
-  carried id against a nil current. Gated on `debug-enabled?` like the other
-  `:rf.http/*` trace rows."
-  [handle]
+  work-id (the boundary replaces the attempt with nothing) so the gate
+  suppresses the carried id against a nil current. Gated on `debug-enabled?`
+  like the other `:rf.http/*` trace rows."
+  [handle recovery]
   (when interop/debug-enabled?
     (let [stale-ctx {:request-id   (:request-id handle)
                      :origin-event (:origin-event handle)
@@ -458,8 +462,40 @@
                             :rf.reply/work-kind             :http
                             :rf.reply/carried      (:rf.reply/carried trace)
                             :rf.reply/current      (:rf.reply/current trace)
-                            :recovery              :suppressed-on-epoch-restore}
+                            :recovery              recovery}
                      (:frame handle) (assoc :frame (:frame handle)))))))
+
+(defn- abort-frame-handles!
+  "Shared frame-scoped abort walk for the two reply-suppressing frame-lifecycle
+  boundaries: epoch restore (`:epoch-restored`) and frame destroy
+  (`:frame-destroyed`). Walks BOTH indexes (an anonymous-from-actor request is
+  only in `actor-in-flight`), filtering on the handle's `:frame` stamp, and
+  dedupes by identity so a handle present in both indexes fires once. For each
+  matching handle: emit the EP-0011 stale-suppression envelope facts with
+  `recovery`, then fire its `:abort-fn` with `reason` — a reply-suppressing
+  reason, so the late completion does NOT deliver to its original `:rf/reply-to`
+  target. The abort-fn cascade clears the registry slot via `clear-in-flight!`.
+
+  Snapshots the handles before firing so an abort-fn's own `clear-in-flight!`
+  swap cannot trip a concurrent-modification on the iteration. Each abort-fn is
+  fired defensively — a throwing one must not strand the rest. Idempotent and a
+  no-op for a frame with no in-flight managed HTTP (an app that issues none pays
+  nothing, and a second sweep over already-cleared indexes finds no handles).
+  Returns nil."
+  [frame-id reason recovery]
+  (when frame-id
+    (let [handles (->> (concat (vals @in-flight)
+                               (mapcat val @actor-in-flight))
+                       (filter #(= frame-id (:frame %)))
+                       (reduce (fn [acc h]
+                                 (if (some #(identical? % h) acc) acc (conj acc h)))
+                               []))]
+      (doseq [handle handles]
+        (emit-frame-boundary-stale-trace! handle recovery)
+        (when-let [abort-fn (:abort-fn handle)]
+          (try (abort-fn reason)
+               (catch #?(:clj Throwable :cljs :default) _ nil))))))
+  nil)
 
 (defn abort-in-flight-for-frame!
   "Abort every in-flight managed HTTP request issued by `frame-id`, because epoch
@@ -479,19 +515,34 @@
   with no in-flight managed HTTP (an app that issues none pays nothing). Returns
   nil."
   [frame-id]
-  (when frame-id
-    (let [handles (->> (concat (vals @in-flight)
-                               (mapcat val @actor-in-flight))
-                       (filter #(= frame-id (:frame %)))
-                       (reduce (fn [acc h]
-                                 (if (some #(identical? % h) acc) acc (conj acc h)))
-                               []))]
-      (doseq [handle handles]
-        (emit-restore-stale-trace! handle)
-        (when-let [abort-fn (:abort-fn handle)]
-          (try (abort-fn :epoch-restored)
-               (catch #?(:clj Throwable :cljs :default) _ nil))))))
-  nil)
+  (abort-frame-handles! frame-id :epoch-restored :suppressed-on-epoch-restore))
+
+(defn abort-in-flight-on-frame-destroyed!
+  "Abort every in-flight managed HTTP request issued by `frame-id`, because the
+  owning frame is being DESTROYED (rf2-j538f7.8). The frame-teardown counterpart
+  of `abort-in-flight-for-frame!` (epoch restore): the SAME frame-filtered,
+  identity-deduped, sibling-preserving walk over both indexes, but fires each
+  `:abort-fn` with `:reason :frame-destroyed` and stamps the stale-suppression
+  trace with `:recovery :suppressed-on-frame-destroy`.
+
+  Frame destroy is reply-suppressing: the target frame is already marked
+  destroyed, so dispatching a live cancellation reply into it is invalid.
+  `:frame-destroyed` is a member of `http-transport/reply-suppressing-abort-
+  reasons`, so the abort cascade cancels the live fetch/future or sleeping
+  backoff timer, detaches any external `:abort-signal` listener, clears both
+  registry indexes, and delivers NOTHING to the original `:rf/reply-to` target —
+  no `:rf.error/frame-destroyed` dispatch into the dead frame.
+
+  Published as the `:http/on-frame-destroyed!` late-bind hook and called from
+  core `frame/destroy-frame!` AFTER machine + resource teardown, so actor-owned
+  work gets its more specific `:actor-destroyed` semantics and resource-owned
+  work gets its ledger/lease cleanup first; this generic sweep then catches the
+  remaining PLAIN managed requests (ordinary event-handler issuance with no
+  actor id — the exposed path) and no-ops on any handle already cleared (the
+  already-empty indexes yield no handles). Does NOT overload `:epoch-restored`.
+  Idempotent; a no-op for a frame with no in-flight managed HTTP. Returns nil."
+  [frame-id]
+  (abort-frame-handles! frame-id :frame-destroyed :suppressed-on-frame-destroy))
 
 ;; ---- spawned-actor detection (rf2-ma0wvq inversion) -----------------------
 ;;

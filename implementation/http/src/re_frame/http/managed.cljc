@@ -284,6 +284,12 @@
 ;; abort suppresses app replies and records stale-suppression facts. This remains
 ;; late-bound so the epoch artefact does not acquire an HTTP dependency.
 (late-bind/set-fn! :http/abort-in-flight-for-frame!       registry/abort-in-flight-for-frame!)
+;; Frame destroy aborts the destroyed frame's still-in-flight PLAIN managed HTTP
+;; (rf2-j538f7.8). Called from core `frame/destroy-frame!` AFTER machine +
+;; resource teardown, suppressing app replies (`:reason :frame-destroyed`) so no
+;; late completion routes into the dead frame. Late-bound so core does not
+;; acquire an HTTP dependency; the frame-teardown counterpart of the restore hook.
+(late-bind/set-fn! :http/on-frame-destroyed!              registry/abort-in-flight-on-frame-destroyed!)
 (late-bind/set-fn! :http/clear-all-http-interceptors!     clear-all-http-interceptors!)
 (late-bind/set-fn! :http/clear-all-in-flight!             clear-all-in-flight!)
 (late-bind/set-fn! :http/clear-http-interceptor           clear-http-interceptor)

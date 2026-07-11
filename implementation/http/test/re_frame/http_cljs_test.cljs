@@ -951,6 +951,79 @@
                       (is false (str "rf2-wj8vv — unexpected: " e))
                       (done))))))))
 
+;; ---- rf2-j538f7.8 — frame destroy aborts + suppresses managed HTTP (CLJS) --
+;;
+;; The CLJS counterpart of `re-frame.http-frame-destroy-abort-test` (the JVM
+;; CompletableFuture path). Proves the Fetch/backoff path: a plain managed
+;; request sleeping in the `js/setTimeout` backoff window when its OWNING FRAME
+;; is destroyed has its pending retry cancelled (no attempt N+1 fetch) and its
+;; outcome SUPPRESSED — unlike a `:rf.http/managed-abort` (which delivers a live
+;; `:cancelled` reply, reason `:user`), frame destroy fires the reply-suppressing
+;; `:reason :frame-destroyed`, so NO reply reaches the destroyed frame. Before the
+;; destroy-frame! → :http/on-frame-destroyed! wiring the backoff timer survived
+;; destroy and fired a second fetch into the dead frame.
+
+(deftest cljs-destroy-frame-cancels-backoff-and-suppresses-reply
+  (testing "rf2-j538f7.8 — destroying a frame with a managed request sleeping in
+            the backoff window cancels the pending retry (no second fetch) and
+            SUPPRESSES the reply (nothing delivered into the destroyed frame)"
+    (async done
+      (rf/init! reagent-adapter/adapter)
+      (frame/ensure-default-frame!)
+      (rf/reg-frame :frame/req {:doc "the frame that owns the in-flight request"})
+      (http-managed/clear-all-in-flight!)
+      (let [fetch-count (atom 0)
+            replies     (atom [])
+            restore     (with-counting-500-fetch fetch-count)
+            backoff-ms  80]
+        (rf/reg-event :reply/recorder
+          (fn [_ [_ payload]] (swap! replies conj payload) {}))
+        (rf/reg-event :issue
+          (fn [_ _]
+            {:fx [[:rf.http/managed
+                   {:request    {:url "/always-500"}
+                    :decode     :json
+                    :retry      {:on           #{:rf.http/http-5xx}
+                                 :max-attempts 5
+                                 :backoff      {:base-ms backoff-ms :factor 1
+                                                :max-ms  backoff-ms}}
+                    :request-id :destroy/race
+                    :on-failure [:reply/recorder]
+                    :on-success [:reply/recorder]}]]}))
+        (rf/dispatch-sync [:issue] {:frame :frame/req})
+        ;; Poll until attempt #1 has fetched, failed 5xx, and the request is
+        ;; sleeping in the backoff window (the backoff handle lacks `:finalised?`,
+        ;; distinguishing it from a still-in-flight attempt).
+        (-> (test-support/poll-until
+              #(let [handle (get (registry/in-flight-snapshot) :destroy/race)]
+                 (and (= 1 @fetch-count)
+                      (some? handle)
+                      (nil? (:finalised? handle))))
+              {:timeout-ms 2000 :label "cljs backoff sleeping (destroy)"})
+            (.then (fn [_]
+                     (is (= :frame/req (:frame (registry/lookup-in-flight :destroy/race)))
+                         "precondition: the backoff handle carries its owning frame")
+                     ;; Destroy the owning frame via the REAL recipe.
+                     (rf/destroy-frame! :frame/req)
+                     (is (empty? (registry/in-flight-snapshot))
+                         "the registry cleared the instant the frame was destroyed")
+                     ;; Wait past the original backoff deadline: the retry must
+                     ;; never fetch again (timer cancelled) and no reply may land.
+                     (js/Promise.
+                       (fn [resolve _]
+                         (js/setTimeout resolve (+ backoff-ms 150))))))
+            (.then (fn [_]
+                     (is (= 1 @fetch-count)
+                         "the retry MUST NOT fetch after the owning frame is destroyed")
+                     (is (empty? @replies)
+                         "frame destroy SUPPRESSES the reply — nothing delivered into the destroyed frame")
+                     (restore)
+                     (done)))
+            (.catch (fn [e]
+                      (restore)
+                      (is false (str "rf2-j538f7.8 — unexpected: " e))
+                      (done))))))))
+
 ;; ---- rf2-065xo — managed body-prep failure delivery (CLJS) ----------------
 ;;
 ;; The JVM suite (re-frame.http-body-prep-failure-test) pins the same

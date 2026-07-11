@@ -54,17 +54,22 @@
   restore unwound the timeline this request belonged to; per EP-0011 /
   Managed-Effects §restore (\"epoch restore MUST NOT revive host work\") a
   pre-restore completion MUST NOT deliver to its original `:rf/reply-to` target.
-  Both still emit their trace facts (the suppressed-attempt's stale envelope);
+  `:frame-destroyed` means the request's owning frame was DESTROYED
+  (rf2-j538f7.8): the target frame is already marked destroyed, so dispatching a
+  live cancellation reply into it is invalid — the late completion MUST NOT
+  deliver to its original `:rf/reply-to` target either.
+  All still emit their trace facts (the suppressed-attempt's stale envelope);
   only the app dispatch is suppressed.
 
   Cross-ref: this set gates only the REPLY. For `:request-id-superseded`
   the canonical EP-0011 stale-trace is NOT emitted here — it is emitted
   separately by `managed-handler` → `emit-superseded-stale-trace!` at
-  supersede time (the `:epoch-restored` sibling is emitted by
-  `http-registry/abort-in-flight-for-frame!`). `dispatch-aborted!` here
-  fires only the `:rf.http/aborted` error trace and then suppresses the
-  reply for these reasons."
-  #{:request-id-superseded :epoch-restored})
+  supersede time (the `:epoch-restored` / `:frame-destroyed` siblings are
+  emitted by `http-registry/abort-in-flight-for-frame!` /
+  `abort-in-flight-on-frame-destroyed!`). `dispatch-aborted!` here fires only
+  the `:rf.http/aborted` error trace and then suppresses the reply for these
+  reasons."
+  #{:request-id-superseded :epoch-restored :frame-destroyed})
 
 (defn reply-suppressing-abort-reason?
   "True when an `:rf.http/aborted` failure carrying `reason` must NOT dispatch
