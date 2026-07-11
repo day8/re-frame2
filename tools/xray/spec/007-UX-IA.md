@@ -1200,6 +1200,12 @@ contract for this section — trim any spec drift back to it):
   stealing keystrokes from the host app, from text fields, and from a
   modal's own inner mnemonics (per spec/018 §3 + §6 and rf2-ttnst).
 
+Every binding fires **once per physical key press**: OS key-repeat
+(`event.repeat`) is ignored for the toggle chords and the toggle-style
+spine keys so a held chord does not flap the surface open↔closed. The
+sole exemption is the `j` / `k` step keys, where held-key auto-repeat
+deliberately walks the event feed (rf2-llecpa).
+
 ### Global chords
 
 | Key | Action | Predicate |
