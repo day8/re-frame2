@@ -288,8 +288,37 @@
         (and (not shift?) (or (= "s" k) (= "KeyS" code)))
         :rf.xray/settings-toggle))))
 
+(defn- step-key?
+  "True when `event` is one of the repeat-friendly spine STEP bindings —
+  unmodified `j` / `k` (spec/018 §3 event-feed stepping). Held-key OS
+  auto-repeat is DESIRABLE here: you hold `j` / `k` to walk the feed.
+  These are therefore the sole exemption from the `handle-keydown`
+  repeat guard that suppresses held toggle chords (rf2-llecpa). Mirrors
+  the no-modifier / no-shift shape of `spine-key-id`'s j / k arms so the
+  exemption tracks exactly the keys that want repeat."
+  [^js event]
+  (and (not (.-ctrlKey event))
+       (not (.-metaKey event))
+       (not (.-altKey event))
+       (not (.-shiftKey event))
+       (let [k    (.-key event)
+             code (.-code event)]
+         (or (= "j" k) (= "KeyJ" code)
+             (= "k" k) (= "KeyK" code)))))
+
 (defn- handle-keydown [^js event]
   (cond
+    ;; rf2-llecpa — ignore OS key-repeat for every binding EXCEPT the
+    ;; j / k step keys. Holding a toggle chord (Ctrl+Shift+C shell,
+    ;; Cmd/Ctrl+K palette, Cmd/Ctrl+Shift+M mode, Space live-pause,
+    ;; `,`/`s` settings) would otherwise re-fire the toggle at the OS
+    ;; key-repeat rate and flap the surface open↔closed. `.repeat` is set
+    ;; on every keydown the OS emits while a key is held; swallow those
+    ;; here so a held toggle fires once per physical press, while held
+    ;; j / k still walk the feed.
+    (and (.-repeat event) (not (step-key? event)))
+    nil
+
     (xray-toggle-key? event)
     (do (.preventDefault event)
         (.stopPropagation event)

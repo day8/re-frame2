@@ -731,3 +731,100 @@
     (reset! frame/frames {})
     (is (false? (#'keybinding/editor-hint-open?))
         "false when the :rf/xray frame is absent — Esc falls through")))
+
+;; ---- (8) rf2-llecpa — held toggle chords must not flap (repeat guard) ----
+;;
+;; No `event.repeat` guard meant HOLDING a toggle chord fired it at the
+;; OS key-repeat rate — the shell / palette / mode / live-pause flapped
+;; open↔closed. `handle-keydown` now swallows `.repeat` keydowns for
+;; every binding EXCEPT the j / k step keys (which WANT auto-repeat so a
+;; held key walks the feed). `step-key?` is the exemption predicate.
+
+(defn- step-key?
+  "Reach the private step-exemption predicate via var access."
+  [event]
+  (#'keybinding/step-key? event))
+
+(defn- mk-spy-event
+  "KeyboardEvent-shaped object with preventDefault / stopPropagation
+  spies plus arbitrary modifier + `.repeat` fields, so a test can assert
+  whether `handle-keydown` consumed (acted on) a synthetic keydown."
+  [opts]
+  (let [{:keys [key code ctrl? shift? meta? alt? repeat?]
+         :or   {ctrl? false shift? false meta? false alt? false repeat? false}} opts
+        prevented (atom false)
+        stopped   (atom false)]
+    {:event     (js-obj "key"             key
+                        "code"            code
+                        "ctrlKey"         ctrl?
+                        "shiftKey"        shift?
+                        "metaKey"         meta?
+                        "altKey"          alt?
+                        "repeat"          repeat?
+                        "preventDefault"  (fn [] (reset! prevented true))
+                        "stopPropagation" (fn [] (reset! stopped true)))
+     :prevented prevented
+     :stopped   stopped}))
+
+(deftest step-key-exempts-only-unmodified-j-and-k
+  (testing "rf2-llecpa — step-key? is the SOLE repeat exemption: the
+            feed-stepping keys j / k (which want held-key auto-repeat)"
+    (is (true? (boolean (step-key? (mk-event {:key "j"})))))
+    (is (true? (boolean (step-key? (mk-event {:key "k"})))))
+    (is (true? (boolean (step-key? (mk-event {:code "KeyJ"})))))
+    (is (true? (boolean (step-key? (mk-event {:code "KeyK"}))))))
+  (testing "toggles + idempotent snaps are NOT step keys — they get
+            repeat-guarded so a held press fires once per physical press"
+    (is (false? (boolean (step-key? (mk-event {:key " "})))) "Space")
+    (is (false? (boolean (step-key? (mk-event {:key "l"})))) "snap-LIVE")
+    (is (false? (boolean (step-key? (mk-event {:key "G" :shift? true})))) "go-to-head")
+    (is (false? (boolean (step-key? (mk-event {:key "s"})))) "settings")
+    (is (false? (boolean (step-key? (mk-event {:key ","})))) "settings"))
+  (testing "MODIFIED j / k are not the bare step binding (Ctrl+j etc.) —
+            those never matched the spine anyway, so no exemption applies"
+    (is (false? (boolean (step-key? (mk-event {:key "j" :ctrl? true})))))
+    (is (false? (boolean (step-key? (mk-event {:key "k" :meta? true})))))
+    (is (false? (boolean (step-key? (mk-event {:key "j" :shift? true})))))))
+
+(deftest held-toggle-chords-are-ignored
+  (testing "rf2-llecpa — a repeat keydown for a toggle chord is swallowed:
+            handle-keydown bails at the first cond arm before the action,
+            so it never preventDefaults / stopPropagations / toggles.
+            Proves shell (Ctrl+Shift+C), palette (Cmd/Ctrl+K), and mode
+            (Cmd/Ctrl+Shift+M) toggles fire once per PHYSICAL press, not
+            once per OS repeat tick."
+    (doseq [chord [{:key "C" :ctrl? true :shift? true :repeat? true}    ;; shell
+                   {:key "k" :meta? true :repeat? true}                 ;; palette (mac)
+                   {:key "k" :ctrl? true :repeat? true}                 ;; palette (win/linux)
+                   {:key "M" :ctrl? true :shift? true :repeat? true}]]  ;; mode
+      (let [{:keys [event prevented stopped]} (mk-spy-event chord)]
+        (handle-keydown event)
+        (is (false? @prevented)
+            (str "repeat chord " chord " must be ignored — not consumed"))
+        (is (false? @stopped)
+            (str "repeat chord " chord " must not stopPropagation"))))))
+
+(deftest held-space-does-not-toggle-live-pause
+  (testing "rf2-llecpa — a HELD Space (auto-repeat) inside the shell does
+            not re-fire the LIVE pause toggle. The runtime + shell-visible
+            plumbing that a genuine Space press needs is the browser lane;
+            here we assert the repeat is swallowed at the guard (no
+            preventDefault) — the spine branch is never reached."
+    (let [{:keys [event prevented stopped]} (mk-spy-event {:key " " :repeat? true})]
+      (handle-keydown event)
+      (is (false? @prevented) "repeat Space is ignored — not consumed")
+      (is (false? @stopped)))))
+
+(deftest held-escape-does-not-redismiss-hint
+  (testing "rf2-llecpa — a HELD Escape (auto-repeat) does not re-fire the
+            editor-hint dismiss; the first physical press already acted.
+            The non-repeat Escape path stays live (see
+            esc-dismisses-open-editor-hint), so this also proves a plain
+            keydown is NOT over-blocked by the guard."
+    (setup-xray-runtime!)
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/editor-hint-show]))
+    (let [{:keys [event prevented stopped]} (mk-spy-event {:key "Escape" :repeat? true})]
+      (handle-keydown event)
+      (is (false? @prevented) "repeat Escape is ignored — not consumed")
+      (is (false? @stopped)))))
