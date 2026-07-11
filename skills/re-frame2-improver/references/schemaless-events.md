@@ -91,25 +91,16 @@ This is the trap. The handler below carries **both** a `:schema` for its event i
 
 **Why it flags.** `:rf.schema/at-boundary` validates only the trivially-valid `[:session/rehydrate]` dispatch; it has no visibility into `raw`, and the `reg-app-schema` write-check is elided in production — so nothing validates the JSON a tampered/stale `localStorage` returns.
 
-**The fix — validate the raw value, two equivalent shapes:**
+**The fix — a recordable validating cofx.** The value feeds **durable** app-db (`:session`), so two boundaries must close at once: the **trust** boundary (validate the untrusted value, always-on) *and* the **replay** boundary (a durable write folds a *recorded* fact, never a live host read). One `reg-cofx` **recordable generator** does both — it reads `localStorage` once at processing-start, validates it, records the result on the causal token, and re-presents that recorded value verbatim under epoch-restore / SSR-hydration / time-travel:
 
 ```clojure
-;; (a) Always-on Malli check over the raw value, before the write:
-(rf/reg-event :session/rehydrate
-  (fn [{:keys [db]} _]
-    (let [raw    (.getItem js/globalThis.localStorage "session")
-          parsed (some-> raw js/JSON.parse (js->clj :keywordize-keys true))]
-      (if (m/validate Session parsed)                            ;; ALWAYS-ON — runs in production
-        {:db (assoc db :session parsed)}
-        {:fx [[:session/clear-corrupt]]}))))                     ;; reject, don't ingest
-
-;; (b) Better — move the read+validation into a value-returning cofx; the handler only sees a clean value:
 (rf/reg-cofx :session/stored
-  {:doc "Materialise + validate the persisted session; nil if absent/corrupt."}
+  {:recordable? true                                            ;; durable write folds a RECORDED fact
+   :doc "Materialise + validate the persisted session; nil if absent/corrupt (a recordable generator)."}
   (fn []
     (let [parsed (some-> (.getItem js/globalThis.localStorage "session")
                          js/JSON.parse (js->clj :keywordize-keys true))]
-      (when (m/validate Session parsed) parsed))))               ;; ALWAYS-ON validation; returns the value
+      (when (m/validate Session parsed) parsed))))               ;; ALWAYS-ON validation; recorded + re-presented
 
 (rf/reg-event :session/rehydrate
   {:rf.cofx/requires [:session/stored]}
@@ -117,9 +108,9 @@ This is the trap. The handler below carries **both** a `:schema` for its event i
     (cond-> {} stored (assoc :db (assoc db :session stored)))))
 ```
 
-Both gates validate the **value the body would have read**, closing the boundary in production — not just the dispatch shape.
+The generator's `(m/validate Session parsed)` is the always-on **trust** gate — it runs in production (no `goog.DEBUG` guard), so a tampered or stale `localStorage` payload is rejected before it reaches `app-db`. `:recordable? true` is what makes it **replay-safe**: without it the cofx is *ambient* (the `reg-cofx` default), so epoch-restore / SSR-hydration / time-travel re-run the generator against **live** `localStorage` and the replayed `:session/rehydrate` folds a *different* value than the one first written. This is the canonical recordable-generator shape ([`cofx.md`](../../re-frame2/references/fundamentals/cofx.md) §the app-owned recordable generator — the shipped `:todo.storage/todos` boot read).
 
-> **Validation closes the trust boundary, not the replay boundary.** A boundary read feeding **durable** state (here `:session` in `:db`) is separately subject to the durable-write rule — see [`imperative-effects.md` §the durable/diagnostic fork](imperative-effects.md#reads--the-durablediagnostic-fork-ep-0010). A boot/rehydrate value is the legitimate edge (the persisted durable state itself — no prior epoch to diverge from).
+> **Two boundaries, and this read crosses both.** Validation alone closes the **trust** boundary; it does not close the **replay** boundary. For a body-read that does **not** feed durable state — the handler rejects the value, or forwards it to an fx without folding it into `app-db` / runtime-db / a snapshot — an unconditional `(m/validate Schema raw)` **in the handler body** (never behind `(when ^boolean js/goog.DEBUG …)`) is a sufficient trust gate on its own. What forces the recordable cofx *here* is the **durable** destination (`:session`): a boundary read feeding durable state is separately subject to the durable-write rule — durable state folds a *recorded* fact, never an ambient/inline host read at the write site — see [`imperative-effects.md` §the durable/diagnostic fork](imperative-effects.md#reads--the-durablediagnostic-fork-ep-0010). A boot/rehydrate read is **not** exempt: epoch-restore, SSR-hydration, and time-travel re-fold `:session/rehydrate`, so it must fold the *recorded* value, not a live re-read. (The ambient-boot-read shape — a `localStorage` read registered ambient and folded into durable app-db on `:*/initialise` — was ruled a replay hole and remediated to a recordable generator in the shipped examples; see EP-0017 §Implementation errata.)
 
 ## Edge cases — when schemaless is fine
 
