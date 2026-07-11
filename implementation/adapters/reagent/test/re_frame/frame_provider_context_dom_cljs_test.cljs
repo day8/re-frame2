@@ -612,7 +612,12 @@
                          {:id target :initial-events [[:rf/set-db {:n 7}]]}
                          child
                          'scenario-6-frame-root-strict-mode-and-hot-reload-reuse-without-reseed)
-            tree       (React/createElement (.-StrictMode React) nil ensure-el)
+            ;; Keyed (v1) so the hot-reload remount below (v2) forces React to
+            ;; unmount this instance and mount a FRESH one — the keyed-remount
+            ;; path (rf2-nyea0r acceptance). A same-instance re-render with
+            ;; changed :initial-events would instead be a fail-loud reconfiguration.
+            tree       (React/createElement (.-StrictMode React) nil
+                                            (React/cloneElement ensure-el #js {:key "v1"}))
             act-fn     (get-act)]
         (if (nil? act-fn)
           (do (is true "act() not reachable from this runner; scenario-6-frame-root skipped")
@@ -654,14 +659,18 @@
                   (rf/dispatch-sync [:rf/set-db {:n 42}] {:frame target})
                   (is (= {:n 42} (rf/app-db-value target)) "durable state advanced to {:n 42}")
                   ;; (3) Simulate a :dev/after-load hot-reload remount: a FRESH
-                  ;; frame-root element under the SAME id, with a RE-SEEDING
-                  ;; :initial-events. Reuse must preserve {:n 42}, NOT re-seed.
+                  ;; frame-root instance (KEYED v2, so React unmounts v1 and
+                  ;; mounts a fresh one — the keyed-remount path) under the SAME
+                  ;; id, with a RE-SEEDING :initial-events. The fresh instance's
+                  ;; commit re-ensures under the same :id (idempotent make-frame),
+                  ;; so durable {:n 42} is preserved, NOT re-seeded to {:n 999}.
                   (let [reload-child (React/createElement "div" #js {} "frame-root-reload")
                         reload-el    (boundary/frame-root-react-element
                                        {:id target :initial-events [[:rf/set-db {:n 999}]]}
                                        reload-child
                                        'scenario-6-frame-root-strict-mode-and-hot-reload-reuse-without-reseed)
-                        reload-tree  (React/createElement (.-StrictMode React) nil reload-el)]
+                        reload-tree  (React/createElement (.-StrictMode React) nil
+                                                          (React/cloneElement reload-el #js {:key "v2"}))]
                     (js/Promise.resolve (act-fn (fn [] (.render root reload-tree)))))))
               (.then
                 (fn [_]
@@ -776,9 +785,9 @@
     (set! (.. ctor -prototype -render)
           (fn []
             (this-as this
-              (if (.-caught (.-state this))
+              (if (.-caught (.-state ^js this))
                 (React/createElement "div" nil "caught")
-                (.-children (.-props this))))))
+                (.-children (.-props ^js this))))))
     ctor))
 
 (defn- react-error-boundary [child]
@@ -801,16 +810,25 @@
             cleanup!   (fn []
                          (try (.unmount root) (catch :default _ nil))
                          (try (frame/destroy-frame! target) (catch :default _ nil)))
-            ;; frame-root whose child is the throwing component: React renders
-            ;; the frame-root (PASS 1 → nil) and its child, the child throws,
-            ;; the whole commit is aborted. frame-root's layout effect never runs.
+            ;; frame-root beside a SIBLING that throws during render. Because
+            ;; frame-root's PASS-1 render emits no descendant subtree, a THROWING
+            ;; CHILD would never run (frame-root would commit fine and its effect
+            ;; would create the frame). The thrower must be a SIBLING: when it
+            ;; throws during the render phase, React discards the ENTIRE
+            ;; work-in-progress tree (including frame-root's fiber) WITHOUT
+            ;; committing — so frame-root's layout effect never runs and no frame
+            ;; is created. The error boundary catches the throw and re-renders a
+            ;; fallback (which does NOT contain frame-root).
             frame-root-el (boundary/frame-root-react-element
                             {:id target :initial-events [[:rf/set-db {:n 7}]]}
-                            (React/createElement throwing-child nil)
+                            (React/createElement "div" #js {} "root-child")
                             'scenario-6-frame-root-discarded-render-creates-no-frame)
+            subtree    (React/createElement (.-Fragment React) nil
+                                            frame-root-el
+                                            (React/createElement throwing-child nil))
             ;; Error boundary so the thrown render error is contained (React
-            ;; unmounts the subtree rather than crashing the test host).
-            boundary   (react-error-boundary frame-root-el)
+            ;; unwinds to the boundary rather than crashing the test host).
+            boundary   (react-error-boundary subtree)
             act-fn     (get-act)]
         (if (nil? act-fn)
           (do (is true "act() not reachable; discarded-render scenario skipped")
