@@ -684,7 +684,19 @@
   Machine `:data` surfaces in several differently-shaped trace slots, and EVERY
   one is redacted: `:before` / `:after` / `:snapshot` (full snapshot maps),
   `:data` (bare `:data` map, one level shallower), `:input` (`{:data … :event
-  …}`), and `:cascade` (step vector each with a `:data-delta`)."
+  …}`), and `:cascade` (step vector each with a `:data-delta`).
+
+  The trace ALSO ECHOES the ROUTED inner event into two slots — top-level
+  `:event` and `[:input :event]` (per Spec 005 §Trace events; the router copies
+  `(second outer-event)` there). A `:sensitive` payload carried THROUGH the
+  machine as that routed event would otherwise ship RAW in these echo slots —
+  the generic `project-event-tags` keys off the INNER event-id, which is
+  typically unregistered (rf2-ghgbqi, rf2-agb5jk item 2). So the machine's own
+  EVENT-rooted classification paths redact these echo slots too. That is safe to
+  union with the `:data` snapshot paths on the SAME declaration because the two
+  roots are disjoint: an integer event index never matches a `:data`-prefixed
+  snapshot key, and a `:data`-prefixed key never matches a vector index — each
+  path bites only the surface it is rooted at."
   [tags frame-id]
   ;; The CHILD-OWNED synthetic on-error payload and the `:start` payload are
   ;; summarized UNCONDITIONALLY (independent of the parent/spawn machine's
@@ -708,8 +720,15 @@
             project    (fn [v] (when v (redact-with-paths v sens large)))
             project-data (fn [v] (when v (redact-with-paths v data-sens data-large)))
             project-input (fn [input]
-                            (if (and (map? input) (contains? input :data))
-                              (assoc input :data (project-data (:data input)))
+                            (if (map? input)
+                              (cond-> input
+                                ;; `:data` is snapshot-relative (one level
+                                ;; shallower than a full snapshot map).
+                                (contains? input :data)  (update :data project-data)
+                                ;; `:event` echoes the routed inner event —
+                                ;; redacted by the machine's EVENT-rooted paths
+                                ;; (rf2-ghgbqi), mirroring the top-level `:event`.
+                                (contains? input :event) (update :event project))
                               input))
             project-cascade (fn [cascade]
                               (when (vector? cascade)
@@ -724,6 +743,11 @@
           (contains? tags :after)    (assoc :after    (project (:after    tags)))
           (contains? tags :snapshot) (assoc :snapshot (project (:snapshot tags)))
           (contains? tags :data)     (assoc :data     (project-data (:data tags)))
+          ;; The routed inner event echoed at the top level — redacted by the
+          ;; machine's EVENT-rooted classification (rf2-ghgbqi). `project` is
+          ;; a whole-value path walk; only the machine's event-rooted paths
+          ;; bite here (the disjoint-root reasoning in the docstring).
+          (contains? tags :event)    (assoc :event    (project (:event    tags)))
           (contains? tags :input)    (assoc :input    (project-input (:input tags)))
           (contains? tags :cascade)  (assoc :cascade  (project-cascade (:cascade tags))))))))
 
