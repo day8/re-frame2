@@ -272,6 +272,38 @@
              (str "resource " resource-id "'s spec must be a map, got "
                   (pr-str (type spec)))
              {:resource-id resource-id :value spec})))
+  ;; `:page-data-schema` is a RETIRED infinite-only key (rf2-x76af2.12;
+  ;; EP-0021 R5 superseded by EP-0025). It once purported to be the per-page
+  ;; egress/classification contract, but drove NEITHER validation NOR egress —
+  ;; a dead key that set a privacy trap: an author who marked sensitive page
+  ;; fields via its Malli `:sensitive?` slots (and added no projection-relative
+  ;; declaration) got NO redaction, shipping raw per-page fields on SSR
+  ;; hydration / tool projection. It is DELETED. A spec that still carries it is
+  ;; HARD-REJECTED pre-storage (never silently accepted): the caller supplied a
+  ;; privacy-relevant known key the runtime cannot honour, so the cascade cannot
+  ;; honestly continue. The reason names BOTH replacements — per-page VALIDATION
+  ;; moves to the request's `:decode` (a Malli schema on the managed-HTTP args
+  ;; validates each page before it settles), and durable per-page egress
+  ;; CLASSIFICATION moves to the projection-relative `:sensitive` / `:large`
+  ;; path declarations (the index-free walk classifies the field on every page).
+  ;; There are zero non-test in-repo registrations to migrate; the loud error is
+  ;; the pre-alpha migration boundary. Per Spec 016 §Registration — :infinite.
+  (when (contains? spec :page-data-schema)
+    (throw (registration-error
+             :rf.error/resource-bad-spec
+             'rf/reg-resource
+             (str "resource " resource-id " declares :page-data-schema — a "
+                  "RETIRED key that is no longer accepted (it drove neither "
+                  "validation nor egress). Move per-page VALIDATION to the "
+                  ":request's :decode (a Malli schema on the returned "
+                  "managed-HTTP args validates each page before it settles), "
+                  "and move durable per-page egress CLASSIFICATION to "
+                  "projection-relative :sensitive / :large path declarations on "
+                  "the resource (e.g. {:sensitive [[:data :author-email]]} — "
+                  "the index-free walk classifies the field on every page). Per "
+                  "Spec 016 §Registration — :infinite (EP-0021 R5, superseded "
+                  "by EP-0025).")
+             {:resource-id resource-id :key :page-data-schema})))
   ;; `:scope` is REQUIRED, fail-closed (rf2-6rrz53). No silent global default.
   (when-not (valid-scope-policy? (:scope spec))
     (throw (registration-error

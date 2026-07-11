@@ -58,7 +58,6 @@
                     :prev-page-param   (fn [first-page _all] (get-in first-page [:page-info :prev-cursor]))
                     :page->items       :items
                     :initial-page-param "p0"
-                    :page-data-schema  :app/timeline-page
                     :refetch           {:refetch-all-pages? false :refetch-window 3}) base-infinite-request)))))
 
 (deftest infinite-without-next-page-param-rejected
@@ -161,3 +160,58 @@
     (is (true? (registry/infinite-resource? (base-infinite-spec))))
     (is (false? (registry/infinite-resource? {:infinite false})))
     (is (false? (registry/infinite-resource? {})))))
+
+;; ===========================================================================
+;; rf2-x76af2.12 — `:page-data-schema` is a RETIRED key: HARD-REJECTED, never
+;; silently stored. It once claimed to be the per-page egress/classification
+;; contract but drove neither validation nor egress (a privacy trap). The reject
+;; NAMES BOTH replacements: per-page VALIDATION → the request's `:decode`;
+;; durable per-page egress CLASSIFICATION → projection-relative
+;; `:sensitive` / `:large`. (EP-0021 R5 superseded by EP-0025.)
+;; ===========================================================================
+
+(defn- capture-ex
+  "Run `thunk`, return the thrown ex-info (or nil if it did not throw)."
+  [thunk]
+  (try (thunk) nil
+       (catch #?(:clj Throwable :cljs :default) e e)))
+
+(deftest retired-page-data-schema-key-is-hard-rejected
+  (testing "an infinite spec that still carries :page-data-schema is REJECTED
+            (resource-bad-spec) — the retired key is never silently stored"
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"resource-bad-spec"
+          (registry/reg-resource :feed/retired
+                                 (assoc (base-infinite-spec)
+                                        :page-data-schema :app/timeline-page)
+                                 base-infinite-request))))
+  (testing "the reject fails BEFORE storage — no registrar entry is written"
+    (is (nil? (registry/resource-meta :feed/retired))
+        "a rejected registration leaves nothing behind (pre-storage gate)"))
+  (testing "the error carries the retired key + names BOTH replacements"
+    (let [ex   (capture-ex
+                 #(registry/reg-resource :feed/retired2
+                                         (assoc (base-infinite-spec)
+                                                :page-data-schema :app/timeline-page)
+                                         base-infinite-request))
+          data (ex-data ex)
+          msg  (ex-message ex)]
+      (is (= :rf.error/resource-bad-spec (:rf.error/id data))
+          "the reject rides the existing :rf.error/resource-bad-spec family")
+      (is (= :page-data-schema (:key data))
+          "ex-data names the retired key (actionable)")
+      (is (= :feed/retired2 (:resource-id data)) "ex-data names the resource")
+      (is (re-find #":decode" msg)
+          "the reason names the VALIDATION replacement (request :decode)")
+      (is (re-find #":sensitive" msg)
+          "the reason names the CLASSIFICATION replacement (:sensitive/:large)")))
+  (testing "the retired key is rejected on an ORDINARY (non-infinite) resource
+            too — it is rejected WHEREVER it appears"
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"resource-bad-spec"
+          (registry/reg-resource :res/retired-plain
+                                 {:scope :rf.scope/global
+                                  :params-schema [:map [:slug :string]]
+                                  :page-data-schema :app/whatever}
+                                 (fn [_ _] {:request {:method :get :url "/x"}}))))
+    (is (nil? (registry/resource-meta :res/retired-plain)))))

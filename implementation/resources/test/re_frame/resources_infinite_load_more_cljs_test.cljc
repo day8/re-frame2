@@ -361,6 +361,107 @@
         (is (= 2 (state/page-count e)) "the retried page appended")))))
 
 ;; ===========================================================================
+;; 6b. per-page VALIDATION rides the request :decode (rf2-x76af2.12) — the
+;;     WIRED replacement for the retired :page-data-schema.
+;; ===========================================================================
+;;
+;; The retired :page-data-schema purported to validate one page but was dead.
+;; The real per-page validation surface is the managed-HTTP request's :decode:
+;; a Malli page schema JSON-decodes + validates each page BEFORE a success
+;; reply exists. A page whose body fails that schema surfaces as the transport's
+;; {:kind :rf.http/decode-failure :schema-validation-failure? true} envelope
+;; (Spec 014 — re-frame.http.transport §decode). It is a NON-abort failure, so
+;; the page reply handlers route it with the correct page-0-vs-page-N semantics:
+;;   - a PAGE-0 (first-load) decode failure settles first-load :error (no feed);
+;;   - a LOAD-MORE (page N>0) decode failure preserves the prior pages + records
+;;     :page-error (the third channel — never :error / :refresh-error).
+;; Both settle a terminal :failed work row.
+
+(def ^:private PageSchema
+  "A Malli page schema supplied on the request :decode — the per-page validation
+  surface that REPLACES the retired :page-data-schema (rf2-x76af2.12)."
+  [:map
+   [:items [:vector :keyword]]
+   [:page-info [:map [:next-cursor {:optional true} [:maybe :string]]]]])
+
+(defn- decode-failure
+  "The managed-HTTP failure envelope the real transport produces when a response
+  body fails the request's Malli :decode schema (Spec 014 — re-frame.http.
+  transport: :kind :rf.http/decode-failure, :schema-validation-failure? true)."
+  [body-text]
+  {:kind                       :rf.http/decode-failure
+   :body-text                  body-text
+   :cause                      "the decoded response body failed Malli schema validation"
+   :schema-validation-failure? true})
+
+(def ^:private decoding-feed-request
+  "A feed :request that supplies the per-page schema on :decode — the wired
+  per-page validation surface (rf2-x76af2.12)."
+  (fn [{:keys [filter]} {:rf.resource/keys [page-param page-index]}]
+    {:request {:method :get :url "/api/feed"
+               :params (cond-> {:filter filter :page-index page-index}
+                         page-param (assoc :cursor page-param))}
+     :decode  PageSchema}))
+
+(deftest page-schema-rides-request-decode
+  (testing "rf2-x76af2.12 — the per-page schema is supplied on the request
+            :decode (the wired validation surface replacing :page-data-schema);
+            it rides the lowered managed-HTTP args UNCHANGED"
+    (rf/reg-resource :dec/feed (feed-spec) decoding-feed-request)
+    (ensure! :dec/feed)
+    (is (= PageSchema (:decode @last-managed-args))
+        "the page schema rides the managed-HTTP request :decode")))
+
+(deftest page-0-decode-failure-settles-first-load-error
+  (testing "rf2-x76af2.12 — a PAGE-0 body that fails the :decode schema surfaces
+            as :rf.http/decode-failure and settles first-load :error (no pages),
+            with a terminal :failed work row"
+    (rf/reg-resource :dec0/feed (feed-spec) decoding-feed-request)
+    (ensure! :dec0/feed)
+    (let [k   (feed-key :dec0/feed)
+          wid (:current-work (entry k))]
+      (reply-failure! (decode-failure "{\"items\":[1,2,3]}"))
+      (let [e (entry k)]
+        (is (= :error (:status e)) "first-load decode failure settles :error")
+        (is (= :rf.http/decode-failure (:kind (:error e)))
+            "the :error envelope is the decode-failure the schema produced")
+        (is (true? (:schema-validation-failure? (:error e)))
+            "flagged a schema-validation failure (not a JSON syntax error)")
+        (is (nil? (:data e))
+            "no usable pages — the first-load :error clears :data (mirrors the scalar path)")
+        (is (nil? (:current-work e)) "no in-flight work after the settle")
+        (is (nil? (:page-error e)) "NOT the load-more :page-error channel"))
+      (is (= :failed (:status (work-ledger/get-record (runtime-db) wid)))
+          "the work row settles terminal :failed"))))
+
+(deftest load-more-decode-failure-keeps-pages-records-page-error
+  (testing "rf2-x76af2.12 — a LOAD-MORE page that fails the :decode schema
+            preserves the prior pages + records :page-error (never :error /
+            :refresh-error), with a terminal :failed work row"
+    (rf/reg-resource :decn/feed (feed-spec) decoding-feed-request)
+    (ensure! :decn/feed)
+    (reply-success! (page [:a] "c1"))          ;; page 0 validates + appends
+    (let [k (feed-key :decn/feed)]
+      (is (= 1 (state/page-count (entry k))) "page 0 accumulated")
+      (load-more! :decn/feed)
+      (let [wid (:current-work (entry k))]
+        (reply-failure! (decode-failure "{\"items\":[1]}"))
+        (let [e (entry k)]
+          (is (= :loaded (:status e)) "feed returns to :loaded (NOT :error)")
+          (is (= 1 (state/page-count e)) "the prior page is preserved")
+          (is (= [(page [:a] "c1")] (:data e)) "page vector untouched")
+          (is (= "c1" (:next-page-param e)) "cursor untouched — retry is possible")
+          (is (= :rf.http/decode-failure (:kind (:page-error e)))
+              ":page-error records the decode-failure (third channel)")
+          (is (true? (:schema-validation-failure? (:page-error e)))
+              "the schema-validation flag rides the page-error envelope")
+          (is (nil? (:error e)) "NOT the first-load :error channel")
+          (is (nil? (:refresh-error e)) "NOT the refresh :refresh-error channel")
+          (is (nil? (:current-work e)) ":current-work cleared"))
+        (is (= :failed (:status (work-ledger/get-record (runtime-db) wid)))
+            "the work row settles terminal :failed")))))
+
+;; ===========================================================================
 ;; 7. refetch reset — R6 window-preserving default + opt-ins
 ;; ===========================================================================
 

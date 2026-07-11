@@ -260,7 +260,12 @@ Beyond `:next-page-param` (required) and `:page->items`, an infinite resource al
 - `:prev-page-param` — the bidirectional mirror, for prepending older pages (see the prepend callout at the end).
 - `:initial-page-param` — the first page's cursor (default `nil`).
 - `:refetch` — the refetch-window policy (see [Refetch and reset](#refetch-and-reset)).
-- `:page-data-schema` — a schema that validates **one page** (the thing your request decodes). This is the grain that matters: the resource's accumulated `:data` is the *sequence* of pages, so a whole-feed `:data-schema` would be wrong — you want to validate (and, where a page carries sensitive fields, [classify on egress](../../core/glossary.md#data-classification)) one page at a time. That's why it's `:page-data-schema`, not `:data-schema`.
+Per-page **validation** and per-page **egress classification** are *not* infinite-only keys — they ride the same two surfaces every resource uses, at the page grain:
+
+- **Validate one page** with the request's `:decode`. Put a Malli page schema there (in place of `:json` above) and it validates each page's decoded value before it settles — on page 0, load-more, and every refetch leg. This is the grain that matters: the resource's accumulated `:data` is the *sequence* of pages, so a whole-feed `:data-schema` would be wrong — you validate one page at a time, which is exactly what `:decode` already does.
+- **Classify sensitive page fields on egress** with the resource's projection-relative `:sensitive` / `:large` declarations (e.g. `:sensitive [[:data :author-email]]` — see [data classification](../../core/glossary.md#data-classification)). The index-free walk matches `[:data :author-email]` against every indexed page path `[:data 0 :author-email]`, `[:data 1 :author-email]`, … so the field redacts on **every** page at every mediated egress boundary (SSR / tool / trace). Schemas *validate*; these declarations *classify*.
+
+(There is no `:page-data-schema`. It was a retired key that claimed both roles but drove neither — `reg-resource` now hard-rejects it, naming both replacement surfaces above.)
 
 ??? info "Coming from TanStack Query?"
 

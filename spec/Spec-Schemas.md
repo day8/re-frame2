@@ -2940,7 +2940,11 @@ The **additive `:infinite`-only slice** of the `reg-resource` registration args-
    [:initial-page-param {:optional true} :any]    ;; page-0 param; framework default nil (TanStack initialPageParam analogue)
    [:page->items       {:optional true}           ;; REQUIRED for a non-vector / enveloped page (R3) — loud over guessing :items/:data
                        [:or :keyword fn?]]         ;;   a key (e.g. :items) or (fn [page] → seq-of-items); a vector page flattens by identity
-   [:page-data-schema  {:optional true} :any]      ;; validates ONE page (decode target) + the PER-PAGE egress/classification contract (R5); :data-schema is NOT used for the accumulated vector
+   ;; NO :page-data-schema — the retired key (R5, superseded by EP-0025) that
+   ;; drove neither validation nor egress is a hard reg-resource error. Per-page
+   ;; VALIDATION rides the :request's :decode; durable per-page CLASSIFICATION
+   ;; rides the projection-relative :sensitive / :large declarations — neither is
+   ;; an infinite-only registration key, so neither appears in this slice.
    [:refetch           {:optional true} RefetchPolicy]]) ;; the R6 refetch policy; omitted ⇒ window-preserving default
 ```
 

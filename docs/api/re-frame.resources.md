@@ -78,7 +78,7 @@ These three (`:params-schema`, `:scope`, request fn) are the registration gate. 
 - `:transport` — initial scope: `:rf.http/managed`.
 - `:stale-after-ms`, `:gc-after-ms`
 - `:poll-interval-ms` — the active-owner poll interval. See [Polling](#polling).
-- `:infinite`, plus the infinite-only keys `:next-page-param`, `:prev-page-param`, `:page->items`, `:initial-page-param`, `:page-data-schema`, and `:refetch`. See [Infinite resources](#infinite-resources).
+- `:infinite`, plus the infinite-only keys `:next-page-param`, `:prev-page-param`, `:page->items`, `:initial-page-param`, and `:refetch`. See [Infinite resources](#infinite-resources). (There is no `:page-data-schema` — it is a retired key that `reg-resource` hard-rejects; per-page validation rides the request's `:decode` and per-page classification rides `:sensitive` / `:large`.)
 - `:tags`
 - `:sensitive?` / `:large?` / schema-based classification
 
@@ -365,7 +365,7 @@ An infinite resource is the load-more / infinite-scroll feed kind (see [EP-0021]
    :infinite         true
    :params-schema    [:map [:filter :keyword]]   ;; FEED identity (filter/sort) — NOT the page cursor
    :scope            {:from-db :app/session}
-   :page-data-schema :app/timeline-page          ;; validates ONE page (decode target + per-page egress)
+   :sensitive        [[:data :author-email]]      ;; durable per-page classification (index-free walk — every page)
    :next-page-param  (fn [last-page _all-pages]    ;; REQUIRED; nil = the single terminal
                        (get-in last-page [:page-info :next-cursor]))
    :page->items      :items                        ;; REQUIRED when a page is non-vector/enveloped (loud over guessing)
@@ -375,14 +375,14 @@ An infinite resource is the load-more / infinite-scroll feed kind (see [EP-0021]
   (fn [{:keys [filter]} {:rf.resource/keys [page-param]}]
     {:request {:method :get :url "/api/timeline"
                :params (cond-> {:filter filter :limit 20} page-param (assoc :cursor page-param))}
-     :decode  :app/timeline-page}))
+     :decode  :app/timeline-page}))            ;; per-page VALIDATION — validates ONE page
 ```
 
 Key semantics:
 
 - **`:infinite true` makes `:next-page-param` required.** Omitting it raises a loud `:rf.error/infinite-missing-next-page-param`. The fn is pure: `(last-page all-pages) → next-param-or-nil`. Returning `nil` is the single canonical terminal, exposed as the derived `:has-next-page?`.
 - **One scoped entry per feed.** Pages accumulate as an ordered vector inside the one `:rf.runtime/resources` entry — not N per-page entries, and not an app-db slice. The feed therefore has one owner set, one freshness clock, one GC clock, one SSR-restore unit, and one Xray row. The per-page param is internal sequencing state, never part of the cache key. Changing the identity params yields a different feed instance.
-- **`:page-data-schema` validates one page** and is the per-page egress/classification contract (applied per page on SSR/tool projection); `:data-schema` is not used for the accumulated vector.
+- **Per-page validation + classification.** Per-page **validation** rides the request's **`:decode`** (a Malli schema validates one page before its reply exists, on page 0 / load-more / every refetch leg). Durable per-page **classification** rides the projection-relative **`:sensitive` / `:large`** declarations — the index-free walk matches `[:data :field]` against every indexed page path `[:data <page-idx> :field]`, so the field redacts on every page. `:data-schema` is not used for the accumulated vector. (There is no `:page-data-schema` — it is a retired key `reg-resource` hard-rejects.)
 - **Other infinite-only keys**:
     - `:prev-page-param` — the bidirectional derivation mirror. Defined, but the `load-prev` prepend event is deferred; v1 ships next-direction load-more only.
     - `:initial-page-param` — the first-page param. Default `nil`.
