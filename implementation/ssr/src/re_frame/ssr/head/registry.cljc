@@ -186,8 +186,10 @@
     (render-head head-id {:frame frame-id :route route})
 
   When `:route` is absent, the active route slice (at
-  `[:rf.runtime/routing :current]`) is read from the frame's app-db.
-  The produced fragment is recorded in
+  `[:rf.runtime/routing :current]`) is read from the frame's runtime-db
+  (via `frame-route` → `frame-runtime-db-value`; the head fn itself
+  reads the frame's app-db for its model, but the route slice is a
+  runtime-db read). The produced fragment is recorded in
   the per-frame snapshot so `head-snapshot` reflects the most recent
   render-head output.
 
