@@ -1,6 +1,6 @@
 # Stories — driving and asserting against Story variants from a re-frame2-pair session
 
-> The five story-mcp tools allow-listed by `re-frame2-pair` (`run-variant`, `read-failures`, `snapshot-identity`, `read-a11y-violations`, `record-as-variant`) and how they compose with the live-runtime surface. Assumes you've read `SKILL.md` (the trace + epoch primitives) and `variant-as-frame.md` (variant-id IS frame-id).
+> Two ways to reach Story from a re-frame2-pair session. **(A) The running app's own stories** — drive `re-frame.story/*` in the live browser heap through `eval-cljs` (this is the live-browser Story host; see [§Driving Story directly in the browser](#driving-story-directly-in-the-browser-via-eval-cljs) first). **(B) story-mcp's own headless host** — the five allow-listed story-mcp tools (`run-variant`, `read-failures`, `snapshot-identity`, `read-a11y-violations`, `record-as-variant`) that drive/assert against a variant in story-mcp's same-JVM registry. Assumes you've read `SKILL.md` (the trace + epoch primitives) and `variant-as-frame.md` (variant-id IS frame-id).
 
 ## When to load this leaf
 
@@ -8,7 +8,73 @@
 - A re-frame2-pair session needs to *assert* against a variant — was the play sequence valid? did the cascade meet `:rf.assert/*` expectations? did axe-core find a regression?
 - The user wants to capture a live cascade back into a `:play-script` snippet to bake the current interaction into a variant body.
 
-Do **not** load this leaf to author variants from scratch (no live runtime in the loop) — that's `skills/re-frame2/references/tooling/stories.md`. Load this leaf for the five live-session tools and the composition patterns with re-frame2-pair's reads/writes/watches.
+Do **not** load this leaf to author variants from scratch (no live runtime in the loop) — that's `skills/re-frame2/references/tooling/stories.md`. Load this leaf for the browser-native `eval-cljs` path below, the five live-session story-mcp tools, and the composition patterns with re-frame2-pair's reads/writes/watches.
+
+## Driving Story directly in the browser via `eval-cljs`
+
+**One live door — reach the running app's stories through the pair, not story-mcp.** The five story-mcp tools below run Story in story-mcp's own **headless, same-JVM** host — a registry story-mcp built in its own process. That host **cannot see a browser tab's Story registry**: variants a `shadow-cljs watch` build registered in the browser heap are unreachable from story-mcp (a capability boundary, not a bug). The re-frame2-pair session **is** the live-browser Story host — its `eval-cljs` channel evaluates ClojureScript in the attached browser heap, so `re-frame.story/*` (the exact API the app's own Story shell calls) is reachable there today, with no extra transport. So when the user wants to enumerate or run the **running app's** stories, drive `re-frame.story/*` through `eval-cljs`; reach for the story-mcp tools only for story-mcp's own headless host.
+
+The Story namespace is loaded in any Story-enabled build, so reference it by its full name in an `eval-cljs` form (there is no `story` alias in the browser unless the app made one).
+
+**1. Enumerate the registry.** `ids` takes a registrar kind — `:story` for the parent stories, `:variant` for every concrete variant; `variants-of` returns one story's variants:
+
+```
+mcp__re-frame2-pair__eval-cljs {form: "(sort (re-frame.story/ids :story))"}
+;; => (:story.login :story.cart …)
+
+mcp__re-frame2-pair__eval-cljs {form: "(sort (re-frame.story/variants-of :story.login))"}
+;; => (:story.login/empty :story.login/filled :story.login/success …)
+```
+
+**2. Run a variant — it returns a Promise, so `await`.** `run-variant` allocates the variant's frame and runs setup → loaders → events → play, resolving to the unified run-result. In the browser it returns a **JS Promise**, so eval it with `await: true` — the server awaits the thenable and returns the resolved value as `:value` (a plain eval would hand back an unresolved Promise). Project down to the verdict in the SAME round-trip so the whole (potentially large) result never crosses the wire — `eval-cljs` is un-elided, so returning only `:status` + failing assertions is both smaller and privacy-safer than shipping the variant's whole `:app-db`:
+
+```
+mcp__re-frame2-pair__eval-cljs {
+  form: "(.then (re-frame.story/run-variant :story.login/success)
+                (fn [res]
+                  {:status   (re-frame.story/result-status res)
+                   :passed?  (re-frame.story/result-passed? res)
+                   :failures (filterv #(not= :pass (:status %))
+                                      (:assertions res))}))",
+  await: true, timeout-ms: 10000
+}
+;; => {:status :pass :passed? true :failures []}
+```
+
+The resolved run-result is the frozen spec/017 §Run-result contract: `:status` (`:pass` | `:fail` | `:cannot-run` | `:error` — read via `re-frame.story/result-status`; `result-passed?` is true only for `:pass`, a `:cannot-run` is NOT a pass), `:assertions` (the unified records, each with `:status` / `:passed?` / `:expected` / `:actual` / `:reason`), `:checks`, plus optional `:app-db` / `:elapsed-ms` / `:narrative` / `:effects` / `:sub-runs` / `:renders`. To inspect the whole result, `await` the bare `(re-frame.story/run-variant …)` form instead of the projection.
+
+**3. Frame-scoped dispatch — the variant id IS the frame id.** Per [variant-as-frame.md](variant-as-frame.md), a running variant is an ordinary isolated frame; poke it with any frame-targeted op by pinning it or passing `frame:` per-call:
+
+```
+set-operating-frame {frame: ":story.login/success"}
+mcp__re-frame2-pair__read-sub {sub: "[:auth.login/status]"}
+mcp__re-frame2-pair__dispatch {event: "[:auth.login/submit]", frame: ":story.login/success"}
+```
+
+A fresh `run-variant` calls `reset-frame!` and wipes anything you injected between runs — bake durable setup into the variant's `:loaders` / `:events`, not a REPL dispatch.
+
+### Verified transcript (condensed)
+
+Against a Story-enabled build with the `:story.login` example loaded (`examples/core/login`), one enumerate → run → read pass:
+
+```
+eval-cljs {form: "(sort (re-frame.story/variants-of :story.login))"}
+;; :value (:story.login/auth-error :story.login/empty :story.login/filled
+;;          :story.login/invalid-credentials :story.login/locked-out
+;;          :story.login/submitting :story.login/success)
+
+eval-cljs {form: "(.then (re-frame.story/run-variant :story.login/success)
+                         (fn [res] [(re-frame.story/result-status res)
+                                    (count (:assertions res))]))",
+           await: true}
+;; :value [:pass 3]
+```
+
+The entry-point names (`ids` / `variants-of` / `run-variant` / `result-status` / `result-passed?`) and the Promise-return + result shape are confirmed against `tools/story/src/re_frame/story.cljc`; substitute your app's own `:story.<name>` ids.
+
+### First-class pair Story tools — a demand-gated future option
+
+`ids` / `variants-of` / `run-variant` are reachable **today** through the generic `eval-cljs` workhorse, so there is deliberately no dedicated pair tool for them. Promoting them to named pair tools (a `list-stories` / `run-variant` on the pair surface, mirroring the story-mcp ones but pointed at the browser) is a **later option held behind a demand bar** — reach for it only if the eval-cljs path proves too noisy in practice. Do not build it pre-emptively.
 
 ## The five live-session tools — drive + assert palette
 
