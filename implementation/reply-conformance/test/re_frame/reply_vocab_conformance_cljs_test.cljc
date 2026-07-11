@@ -555,24 +555,41 @@
 ;; own the matching live dispatch-envelope `:rf.cofx` checks.
 ;; ---------------------------------------------------------------------------
 
+;; The completion-time gate factored into two shared predicates. Each primary
+;; tier below asserts the predicate TRUE for canonical replies; each fails-closed
+;; control asserts it FALSE for a mutated fixture. Because both sides call the
+;; SAME predicate, weakening it reddens one side or the other — the gate cannot
+;; be gutted silently (rf2-hliknn, the rf2-lo28u "green gate, no teeth" class).
+
+(defn- completion-time-propagated?
+  "True iff `reply` carries the supplied causal completion time as a durable
+   `:completed-at` fact — the propagation half of the completion-time gate."
+  [reply expected-ms]
+  (and (contains? reply :completed-at)
+       (= expected-ms (:completed-at reply))))
+
+(defn- completion-time-omitted?
+  "True iff `reply` OMITS `:completed-at` entirely (never nil-fills it) — the
+   omission half of the completion-time gate."
+  [reply]
+  (not (contains? reply :completed-at)))
+
 (deftest completion-time-propagates-uniformly-across-families
   (testing "every family propagates the supplied causal completion time"
     (doseq [{:keys [family success]} families
             :let [reply (success)]]
       (testing (str family " success → :completed-at present + uniform")
-        (is (contains? reply :completed-at)
-            (str family " success reply MUST carry the :completed-at causal "
-                 "completion fact when the completion time was supplied"))
-        (is (= completion-time-ms (:completed-at reply))
-            (str family " success :completed-at must be the supplied causal "
-                 "time " completion-time-ms ", got " (:completed-at reply)))))))
+        (is (completion-time-propagated? reply completion-time-ms)
+            (str family " success reply MUST carry the supplied causal completion "
+                 "time " completion-time-ms " as a durable :completed-at fact; got "
+                 (pr-str (:completed-at reply))))))))
 
 (deftest completion-time-is-omitted-not-nil-when-absent
   (testing "a family not supplied a completion time omits :completed-at"
     (doseq [{:keys [family success-no-time]} families
             :let [reply (success-no-time)]]
       (testing (str family " success (no time supplied) → :completed-at omitted")
-        (is (not (contains? reply :completed-at))
+        (is (completion-time-omitted? reply)
             (str family " success reply MUST OMIT :completed-at when no "
                  "completion time was supplied — never nil-fill it (a nil "
                  "sentinel would let a reducer derive a bogus durable "
@@ -613,14 +630,12 @@
         (let [with-reply (with-builder)
               no-reply   (no-builder)]
           (testing (str family " / " situation " → supplied :completed-at propagates unchanged")
-            (is (contains? with-reply :completed-at)
-                (str family " " situation " with-time reply MUST carry :completed-at "
-                     "when the completion time was supplied"))
-            (is (= completion-time-ms (:completed-at with-reply))
-                (str family " " situation " with-time :completed-at must be the supplied "
-                     "causal time " completion-time-ms ", got " (:completed-at with-reply))))
+            (is (completion-time-propagated? with-reply completion-time-ms)
+                (str family " " situation " with-time reply MUST carry the supplied "
+                     "causal time " completion-time-ms " as :completed-at; got "
+                     (pr-str (:completed-at with-reply)))))
           (testing (str family " / " situation " → absent :completed-at omitted (never nil-filled)")
-            (is (not (contains? no-reply :completed-at))
+            (is (completion-time-omitted? no-reply)
                 (str family " " situation " no-time reply MUST OMIT :completed-at when no "
                      "completion time was supplied — never nil-fill it (a nil sentinel "
                      "would let a reducer derive a bogus durable timestamp). Got "
@@ -728,6 +743,15 @@
           (str family " stale reply MUST NOT carry a :value — a stale reply "
                "mutates NO app state")))))
 
+(defn- correlation-facts-present?
+  "True iff a stale suppression outcome carries BOTH correlation trace facts
+   (`:rf.reply/carried` and `:rf.reply/current`) the correlation gate requires.
+   Shared with the fails-closed control, which asserts it FALSE for a stripped
+   outcome — so gutting the gate reddens one side or the other."
+  [out]
+  (and (some? (get-in out [:trace :rf.reply/carried]))
+       (some? (get-in out [:trace :rf.reply/current]))))
+
 (deftest stale-replies-carry-a-carried-and-current-correlation-gate
   ;; Delegating implementations expose carried/current facts on the suppress
   ;; outcome trace. Machine and timer replies carry their gates inline.
@@ -749,10 +773,9 @@
           (str family " stale suppression MUST NOT deliver the app target"))
       (is (= :suppressed (:rf.reply/work-status out))
           (str family " stale suppression outcome is :rf.reply/work-status :suppressed"))
-      (is (some? (get-in out [:trace :rf.reply/carried]))
-          (str family " stale trace carries the :rf.reply/carried correlation"))
-      (is (some? (get-in out [:trace :rf.reply/current]))
-          (str family " stale trace carries the :rf.reply/current correlation")))))
+      (is (correlation-facts-present? out)
+          (str family " stale trace MUST carry BOTH the :rf.reply/carried and "
+               ":rf.reply/current correlation facts")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Negative fixture for a stale outcome that lacks carried/current trace facts.
@@ -764,23 +787,22 @@
   (update out :trace dissoc :rf.reply/carried :rf.reply/current))
 
 (deftest stale-correlation-gate-fails-closed-on-a-non-conforming-family
-  (testing "a stale outcome can remain canonical apart from missing correlation facts"
+  (testing "the correlation gate REJECTS a stale outcome missing its facts"
     (doseq [[family out] [[:http     (strip-correlation-trace (http-stale-out))]
                           [:mutation (strip-correlation-trace (mutation-stale-out))]]]
-      ;; The outcome still suppresses delivery and carries canonical statuses.
+      ;; The outcome still suppresses delivery and carries canonical statuses —
+      ;; the ONLY departure is the stripped correlation facts.
       (is (false? (:deliver? out))
           (str family " control outcome still suppresses delivery"))
       (is (= :suppressed (:rf.reply/work-status out))
           (str family " control outcome is still :rf.reply/work-status :suppressed"))
       (is (= :stale (get-in out [:reply :status]))
           (str family " control reply is still :status :stale"))
-      ;; The missing facts are the only condition rejected by the correlation gate.
-      (is (nil? (get-in out [:trace :rf.reply/carried]))
-          (str family " control DROPPED :rf.reply/carried — the gate's "
-               ":rf.reply/carried assertion would FAIL on this outcome"))
-      (is (nil? (get-in out [:trace :rf.reply/current]))
-          (str family " control DROPPED :rf.reply/current — the gate's "
-               ":rf.reply/current assertion would FAIL on this outcome")))))
+      ;; The teeth: run the SAME predicate the primary gate asserts TRUE and
+      ;; require it to go FALSE here. Gutting the predicate reddens this control.
+      (is (not (correlation-facts-present? out))
+          (str family " control STRIPPED the correlation facts, yet the correlation "
+               "gate accepted the outcome — the gate has lost its teeth")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Negative fixtures for dropped and nil-filled completion times.
@@ -797,9 +819,7 @@
   (assoc reply :completed-at nil))
 
 (deftest completion-time-gate-fails-closed-on-a-non-conforming-family
-  (testing "a success reply that DROPS :completed-at is detected — the
-            propagation gate's `(= completion-time-ms (:completed-at reply))`
-            and `(contains? reply :completed-at)` would go RED on it"
+  (testing "the propagation gate REJECTS a success reply that DROPS :completed-at"
     (doseq [{:keys [family success]} families
             :let [bad (drop-completion-time (success))]]
       ;; The reply remains a valid :ok envelope because completion time is optional.
@@ -807,30 +827,25 @@
           (str family " control reply is still :status :ok"))
       (is (reply/valid-reply? bad)
           (str family " control reply still validates: " (reply/validate-reply bad)))
-      ;; The propagation comparison rejects the missing supplied fact.
-      (is (not (contains? bad :completed-at))
-          (str family " control DROPPED :completed-at — the propagation gate's "
-               "`contains?` + value assertions would FAIL on this reply"))))
-  (testing "a success reply that NIL-FILLS :completed-at is detected — the
-            omit-when-absent gate's `(not (contains? reply :completed-at))`
-            would go RED on a present-but-nil slot"
+      ;; The teeth: the propagation predicate the primary asserts TRUE must go
+      ;; FALSE on the dropped fact. Gutting the predicate reddens this control.
+      (is (not (completion-time-propagated? bad completion-time-ms))
+          (str family " control DROPPED :completed-at, yet the propagation gate "
+               "accepted the reply — the gate has lost its teeth"))))
+  (testing "the omit-when-absent gate REJECTS a no-time reply that NIL-FILLS :completed-at"
     (doseq [{:keys [family success-no-time]} families
             :let [bad (nil-fill-completion-time (success-no-time))]]
-      (is (contains? bad :completed-at)
-          (str family " control NIL-FILLED :completed-at (present-but-nil) — the "
-               "omit-when-absent gate's `(not (contains? …))` assertion would "
-               "FAIL on this reply, catching the nil-sentinel anti-pattern"))
-      (is (nil? (:completed-at bad))
-          (str family " control's :completed-at is the nil sentinel the gate "
-               "forbids")))))
+      ;; The teeth: the omission predicate must reject a present-but-nil slot.
+      (is (not (completion-time-omitted? bad))
+          (str family " control NIL-FILLED :completed-at (present-but-nil), yet the "
+               "omit-when-absent gate accepted it — the nil-sentinel anti-pattern "
+               "slipped past the gate")))))
 
 ;; The same fail-closed controls for the NON-SUCCESS terminals — proving the
 ;; shared `completion-time-propagates-and-omits-across-nonsuccess-terminals`
 ;; gate has teeth on error / cancel / stale replies too, not only on success.
 (deftest nonsuccess-completion-time-gate-fails-closed-on-drop-and-nil-fill
-  (testing "a non-success terminal that DROPS its supplied :completed-at is
-            detected — the propagation gate's `(contains? …)` + value assertions
-            would go RED on it"
+  (testing "the propagation gate REJECTS a non-success terminal that DROPS :completed-at"
     (doseq [{:keys [family] :as f} families
             [situation with-k _] time-pair-situations
             :let [with-builder (get f with-k)]
@@ -839,21 +854,18 @@
       ;; Completion time is optional, so the reply is otherwise still valid.
       (is (reply/valid-reply? bad)
           (str family " " situation " control still validates: " (reply/validate-reply bad)))
-      (is (not (contains? bad :completed-at))
-          (str family " " situation " control DROPPED :completed-at — the propagation "
-               "gate's `contains?` + value assertions would FAIL on this reply"))))
-  (testing "a non-success terminal that NIL-FILLS its no-time reply is detected —
-            the omit-when-absent gate's `(not (contains? …))` would go RED on a
-            present-but-nil slot"
+      ;; The teeth: the SHARED propagation predicate must go FALSE on the drop.
+      (is (not (completion-time-propagated? bad completion-time-ms))
+          (str family " " situation " control DROPPED :completed-at, yet the "
+               "propagation gate accepted the reply — the gate has lost its teeth"))))
+  (testing "the omit-when-absent gate REJECTS a no-time terminal that NIL-FILLS :completed-at"
     (doseq [{:keys [family] :as f} families
             [situation _ no-k] time-pair-situations
             :let [no-builder (get f no-k)]
             :when no-builder
             :let [bad (nil-fill-completion-time (no-builder))]]
-      (is (contains? bad :completed-at)
-          (str family " " situation " control NIL-FILLED :completed-at (present-but-nil) — "
-               "the omit-when-absent gate's `(not (contains? …))` assertion would FAIL, "
-               "catching the nil-sentinel anti-pattern"))
-      (is (nil? (:completed-at bad))
-          (str family " " situation " control's :completed-at is the nil sentinel the gate "
-               "forbids")))))
+      ;; The teeth: the SHARED omission predicate must reject a present-but-nil slot.
+      (is (not (completion-time-omitted? bad))
+          (str family " " situation " control NIL-FILLED :completed-at (present-but-nil), "
+               "yet the omit-when-absent gate accepted it — the nil-sentinel "
+               "anti-pattern slipped past the gate")))))
