@@ -15,10 +15,14 @@
 ;; implementation/ssr/ (`day8/re-frame2-ssr`); the Tool-Pair epoch surface
 ;; lives in implementation/epoch/ (`day8/re-frame2-epoch`).
 ;;
-;; Reagent appears as a dependency here because re-frame.views (CLJS-only
-;; reg-view) is Reagent-coupled per Spec 006 §CLJS reference scope. That
-;; coupling lives at the views.cljs layer; the *substrate* adapter ns
-;; (re-frame.adapter.reagent) lives in the Reagent artefact.
+;; Stock reagent/reagent is intentionally NOT a dep of this artefact: no
+;; core ns requires reagent.* at require time. re-frame.views (the CLJS-only
+;; reg-view path) late-binds the in-flight Reagent component through the
+;; `:adapter/current-component` hook (see views/provider.cljs) rather than
+;; statically requiring reagent.core, so core stays substrate-neutral and
+;; day8/reagent-slim consumers get a Reagent-free core classpath. The stock
+;; Reagent dep lives in the Reagent adapter artefact
+;; (implementation/adapters/reagent), the only artefact that requires it.
 ;;
 ;; metosin/malli is intentionally NOT a dep of this artefact: the schemas
 ;; artefact owns the Malli relationship. The runtime resolves of
@@ -29,8 +33,7 @@
 ;; carries Malli) alongside core.
 {:paths ["src"]
  :deps  {org.clojure/clojure       {:mvn/version "1.12.0"}
-         org.clojure/clojurescript {:mvn/version "1.12.145"}
-         reagent/reagent           {:mvn/version "2.0.1"}}
+         org.clojure/clojurescript {:mvn/version "1.12.145"}}
 
  :aliases
  {;; The core artefact's tests exercise schema-aware, machine-aware,
