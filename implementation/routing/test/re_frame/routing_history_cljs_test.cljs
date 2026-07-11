@@ -736,6 +736,47 @@
       (is (= 1 (count (get-in @*history-state* [:listeners "popstate"])))
           "still exactly one popstate listener — no stacking"))))
 
+(deftest invalid-strategy-reregistration-rejects-and-preserves-listener-cljs-rf2-j538f7-11
+  (testing "rf2-j538f7.11: re-registering the active URL owner with a MALFORMED
+            custom :url-strategy (missing the CLJS browser legs) fails LOUD with
+            :rf.error/invalid-url-strategy and does NOT tear down the incumbent
+            working listener — validation throws at strategy resolution, BEFORE
+            any teardown, so the owner is never orphaned (the pre-fix path tore
+            the good listener down and only then hit a raw nil-function error)"
+    (rf/reg-route :hist/home {} "/")
+    (rf/reg-route :hist/cart {} "/cart")
+    (rf/reg-frame :owner/a {:url-bound? true})       ;; history owner → popstate
+    (let [incumbent (first (get-in @*history-state* [:listeners "popstate"]))]
+      (is (some? incumbent) "A's popstate listener is installed")
+      (is (= 1 (count (get-in @*history-state* [:listeners "popstate"]))))
+      ;; Re-register A with an invalid strategy: shape-valid on the JVM
+      ;; (encode+decode) but MISSING the required CLJS browser legs
+      ;; (:push! / :replace! / :install-listener!). Resolution validates and
+      ;; throws before the reconcile touches the incumbent listener.
+      (let [ex (try
+                 (rf/reg-frame :owner/a {:url-bound?   true
+                                         :url-strategy {:encode identity
+                                                        :decode (constantly "/")}})
+                 nil
+                 (catch :default e e))]
+        (is (some? ex) "the malformed re-registration throws")
+        (is (= :rf.error/invalid-url-strategy (:rf.error/id (ex-data ex)))
+            "the canonical structured error id is stamped"))
+      ;; The incumbent listener SURVIVED — same instance, still exactly one.
+      (is (identical? incumbent (first (get-in @*history-state* [:listeners "popstate"])))
+          "the working popstate listener instance was NOT torn down")
+      (is (= 1 (count (get-in @*history-state* [:listeners "popstate"])))
+          "still exactly one popstate listener — no orphaning, no stacking")
+      ;; And it still drives A: forward-nav then Back through the surviving
+      ;; listener updates A's slice.
+      (rf/dispatch-sync [:rf.route/navigate :hist/cart] {:frame :owner/a})
+      (.back (.-history js/globalThis.window))
+      (.dispatchEvent js/globalThis.window #js {:type "popstate"})
+      (is (= :hist/home
+             (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :owner/a))
+                                [:rf.runtime/routing :current])))
+          "Back drove A's slice back to / via the surviving popstate listener"))))
+
 ;; ---- rf2-9vgyp7: first-load / deep-link route hydration at frame create ----
 ;;
 ;; The URL-owning frame's LIFECYCLE (rf2-g8pbwg) drives the initial URL sync: a
