@@ -27,7 +27,7 @@
 (defn- fragment-only-fx
   "Spec 012 §Fragments rules 1-4: the new URL differs from the current
   route slice ONLY in its `#fragment`. Update `:fragment`, emit the
-  `:rf.route/fragment-changed` op trace, and return the cofx
+  `:rf.route/fragment-changed` op trace, and return the effects
   map — WITHOUT allocating a fresh nav-token (rule 3) or re-firing
   `:on-match` (rule 4). The canonical op-name says what fires it (only a
   `#fragment` differed) and disambiguates from the runtime event
@@ -39,9 +39,27 @@
   like every other routing trace inside a known navigation cascade (Spec
   012 §Multi-frame routing / Spec 009 — without `:frame`, epoch/Xray
   capture and frame-level trace suppression can drop or bypass the op).
-  Scroll-capture (for the position the user is leaving) still rides
-  along."
-  [rdb prev next-fragment frame]
+
+  Scroll (rf2-p1aipi — the URL-driven counterpart to rf2-k4exp1's
+  programmatic `navigate.cljc` fragment-only door): capture the LEAVING
+  position, THEN emit the resolved `:rf.nav/scroll`. Both fx are the
+  entry-point's already-resolved `plan/scroll-plan` outputs, threaded in
+  by the caller (`capture-fx` / `scroll-fx`) — the SAME pair the full-
+  commit sibling in `url-change-fx` uses — so the fragment-only door and
+  the full-commit door resolve scroll identically. Before this fix the
+  URL-driven door computed a scroll plan but DROPPED the scroll-fx: a
+  user clicking a `#section` link (`:rf.route/transitioned`, default
+  `:top` → scroll to the fragment) or Back-Forward to a fragment
+  (`:rf.route/handle-url-change`, default `:restore` → the saved
+  position) computed where to scroll and then never scrolled. This
+  URL-driven door does NOT drive the browser URL (the address bar already
+  changed via link-click pushState / popstate), so — unlike the
+  programmatic door — it emits NO `:rf.nav/push-url`; but `pushState` /
+  popstate do NOT scroll to a fragment natively, so `:rf.nav/scroll` IS
+  required. `:scroll false` on the route meta suppresses it: `scroll-fx`
+  arrives nil (`plan/scroll-plan` → `::suppress`) and no scroll fx is
+  emitted."
+  [rdb prev next-fragment capture-fx scroll-fx frame]
   (trace/emit! :rf.event :rf.route/fragment-changed
                {:route-id      (:route-id prev)
                 :prev-fragment (:fragment prev)
@@ -49,9 +67,10 @@
                 :frame         frame})
   ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db
   ;; state — read/write the runtime-db partition.
-  (let [capture-fx (scroll/capture-scroll-fx-entry rdb)]
+  (let [fx (vec (concat (when capture-fx [capture-fx])
+                        (when scroll-fx  [scroll-fx])))]
     (cond-> {:rf.db/runtime (assoc-in rdb [:rf.runtime/routing :current :fragment] next-fragment)}
-      capture-fx (assoc :fx [capture-fx]))))
+      (seq fx) (assoc :fx fx))))
 
 (defn- url-change-fx
   "Pure helper: given runtime-db + url + default scroll strategy (+ the
@@ -192,8 +211,14 @@
       ;; carried `frame` is threaded through so the emitted
       ;; `:rf.route/fragment-changed` trace is frame-attributed (rf2-n0851k),
       ;; consistent with the commit-path lifecycle traces below.
+      ;; rf2-p1aipi: pass the already-resolved scroll pair (`capture-fx` +
+      ;; `scroll-fx` from the shared `plan/scroll-plan` above) so the
+      ;; fragment-only door EMITS the resolved `:rf.nav/scroll` (capture →
+      ;; scroll), matching the programmatic `navigate.cljc` door
+      ;; (rf2-k4exp1). No push-fx — the URL-driven door never drives the
+      ;; browser URL. `:scroll false` → `scroll-fx` nil → suppressed.
       fragment-only?
-      (fragment-only-fx rdb prev fragment frame)
+      (fragment-only-fx rdb prev fragment capture-fx scroll-fx frame)
 
       :else
       (do
