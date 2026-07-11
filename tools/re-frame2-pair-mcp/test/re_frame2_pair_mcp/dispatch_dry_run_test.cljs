@@ -2,10 +2,12 @@
   "Unit tests for the dispatch-dry-run tool.
 
   Simulate a re-frame2 cascade without committing — the framework's
-  `:fx-overrides` + `restore-epoch` primitives compose into a true
-  dry-run on the runtime side. The MCP tool is a thin wrapper that parses
-  the event-vector arg (same EDN-data posture as `dispatch`) and surfaces
-  the structured runtime envelope.
+  dry-run effect sink (`re-frame.fx/*effect-sink*`, rf2-j538f7.39) +
+  `restore-epoch` compose into a dry-run that is STRUCTURALLY unable to
+  execute an effect on the runtime side. The MCP tool is a thin wrapper
+  that parses the event-vector arg (same EDN-data posture as `dispatch`)
+  and surfaces the structured runtime envelope; a caller `:fx-overrides`
+  is rejected (the sink records every fx before override resolution).
 
   Dry-run is an AI-facing READ surface: its
   `:db-state-after-simulation` (would-be app-db) and
@@ -161,13 +163,14 @@
                          ":frame threaded into runtime opts"))
                    (done)))))))
 
-(deftest threads-fx-overrides-arg
-  ;; User-supplied :fx-overrides ride into the runtime opts; the
-  ;; runtime merges them on top of the dry-run override set. The
-  ;; documented colon-prefixed string target `":stub-http"` MUST
-  ;; coerce to the KEYWORD `:stub-http` in the emitted opts, never the
-  ;; raw string (which core silently falls through to the original fx,
-  ;; defeating the no-fx-execute guarantee).
+(deftest rejects-caller-fx-overrides
+  ;; rf2-j538f7.39: dry-run no longer accepts :fx-overrides. The runtime's
+  ;; effect sink records+skips every fx BEFORE override resolution, so an
+  ;; override cannot influence the simulation without executing a body. A
+  ;; supplied :fx-overrides is REJECTED as an :isError envelope BEFORE the
+  ;; eval, never threaded — so it can never defeat the no-fx-execute
+  ;; guarantee. (A valid-looking `:stub-http` target and a bare-string
+  ;; target are both refused the same way — the whole opt is gone.)
   (async done
     (let [forms (atom [])]
       (-> (with-captured-eval! forms (wrap {:ok? true :dry-run? true :rolled-back? true} 0)
@@ -175,31 +178,9 @@
               (dry-run/dispatch-dry-run-tool (fresh-conn)
                                              #js {:event "[:cart/checkout]"
                                                   :fx-overrides #js {":http" ":stub-http"}})))
-          (.then (fn [_]
-                   (let [form (dispatch-form forms)]
-                     (is (str/includes? form ":fx-overrides")
-                         ":fx-overrides threaded into runtime opts")
-                     (is (str/includes? form ":stub-http")
-                         "the stub target rides as a keyword")
-                     (is (not (str/includes? form "\"stub-http\""))
-                         "NOT a string target — a string would fall through to the real fx"))
-                   (done)))))))
-
-(deftest rejects-string-fx-overrides-target
-  ;; A bare (non-colon) string override target can't redirect over the
-  ;; wire (core would silently fall it through to the real fx).
-  ;; For dry-run that defeats the no-fx-execute guarantee, so reject it as
-  ;; an :isError envelope BEFORE the eval rather than ship a broken stub.
-  (async done
-    (let [forms (atom [])]
-      (-> (with-captured-eval! forms (wrap {:ok? true} 0)
-            (fn []
-              (dry-run/dispatch-dry-run-tool (fresh-conn)
-                                             #js {:event "[:cart/checkout]"
-                                                  :fx-overrides #js {":http" "stub-http"}})))
           (.then (fn [r]
                    (is (err? r)
-                       "a bare-string override target ⇒ :isError, never a silent fall-through")
+                       "a caller :fx-overrides ⇒ :isError (rejected, not threaded)")
                    (is (nil? (dispatch-form forms))
                        "the dispatch-dry-run eval never fired — rejected up front")
                    (done)))))))
