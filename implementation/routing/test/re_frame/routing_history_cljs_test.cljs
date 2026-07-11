@@ -884,11 +884,19 @@
                     (fn [{:keys [db]} _] (swap! probe inc) {:db db}))
       (assert-zero-residue-first-registration!
         :ktmto9/bad-first-mf
+        ;; 2-arity with an explicit EMPTY descriptor pool: the shared node
+        ;; test bundle's LIVE source store carries cross-namespace same-id
+        ;; registrations, so the default-image projection would fail loud
+        ;; (:rf.error/image-duplicate-id) BEFORE the engine is reached. The
+        ;; empty pool resolves a valid empty default generation (standards
+        ;; only) and the construction proceeds to the engine's preflight —
+        ;; which is the surface under test.
         #(rf/make-frame {:id                      :ktmto9/bad-first-mf
                          :url-bound?              true
                          :url-strategy            {:decode (constantly "/")}
                          :rf.trace/frame-no-emit? true
-                         :initial-events          [[:ktmto9/probe2!]]})
+                         :initial-events          [[:ktmto9/probe2!]]}
+                        [])
         probe))))
 
 (deftest throwing-installer-preserves-incumbent-listener-cljs-rf2-ktmto9
