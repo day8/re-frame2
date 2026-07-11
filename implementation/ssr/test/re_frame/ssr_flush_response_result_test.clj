@@ -83,10 +83,10 @@
   (testing "no buffered error → :public-error nil and the default 200 response.
             A host that reads a 200 with nil public-error stays on the app arm
             (status alone is not proof of a projection)."
-    (let [fid (make-server-frame :ssr/frr-clean)]
-      (let [{:keys [response public-error]} (ssr/flush-response-result! fid)]
-        (is (nil? public-error) "no projection fired")
-        (is (= 200 (:status response)))))))
+    (let [fid (make-server-frame :ssr/frr-clean)
+          {:keys [response public-error]} (ssr/flush-response-result! fid)]
+      (is (nil? public-error) "no projection fired")
+      (is (= 200 (:status response))))))
 
 (deftest second-flush-returns-nil-public-error
   (testing "the projection is consumed ONCE — a second flush returns
