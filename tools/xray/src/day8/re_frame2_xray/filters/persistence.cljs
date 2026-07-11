@@ -111,13 +111,19 @@
 (defn <-edn
   "Parse a stored EDN string. Returns the parsed map on success, or
   `{:in [] :out []}` on parse failure / unrecognised shape — the
-  load path never throws into init."
+  load path never throws into init.
+
+  Each of `:in` / `:out` is coerced fail-soft: a non-sequential value
+  (a corrupt / hand-edited scalar like `{:in 5}` or `{:in :oops}`)
+  degrades to `[]` rather than throwing `(vec 5)` (\"not ISeqable\")
+  out of init. Per-field, so a good `:in` survives a scalar `:out`."
   [s]
   (let [parsed (try (reader/read-string s)
-                    (catch :default _ nil))]
+                    (catch :default _ nil))
+        as-vec (fn [v] (if (sequential? v) (vec v) []))]
     (if (map? parsed)
-      {:in  (vec (get parsed :in []))
-       :out (vec (get parsed :out []))}
+      {:in  (as-vec (:in parsed))
+       :out (as-vec (:out parsed))}
       {:in [] :out []})))
 
 ;; ---- public API ----------------------------------------------------------

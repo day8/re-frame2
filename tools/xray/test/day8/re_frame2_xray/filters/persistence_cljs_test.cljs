@@ -67,6 +67,28 @@
          (persistence/<-edn "[1 2 3]"))
       "non-map parsed value collapses to default"))
 
+(deftest from-edn-scalar-in-out-degrades-not-throws
+  ;; rf2-oa1va6 — a parseable, map-shaped, but corrupt / hand-edited
+  ;; payload whose :in / :out value is a NON-seqable scalar must NOT
+  ;; throw `(vec 5)` ("5 is not ISeqable") out of `<-edn`, escaping the
+  ;; load path into init. The prior guard only rejected non-map / non-
+  ;; parseable payloads; a scalar :in / :out slipped past the `map?`
+  ;; check and blew up on the `(vec …)` coercion. Each field now
+  ;; degrades fail-soft to [] — the documented never-throws-into-init
+  ;; contract.
+  (is (= {:in [] :out []}
+         (persistence/<-edn "{:in 5 :out []}"))
+      "scalar :in (a number) degrades to [] instead of throwing ISeqable")
+  (is (= {:in [] :out []}
+         (persistence/<-edn "{:in :oops :out []}"))
+      "scalar :in (a keyword) degrades to []")
+  (is (= {:in [] :out []}
+         (persistence/<-edn "{:in [] :out true}"))
+      "scalar :out (a boolean) degrades to []")
+  (is (= {:in [{:pattern :auth/*}] :out []}
+         (persistence/<-edn "{:in [{:pattern :auth/*}] :out 9}"))
+      "per-field: a good :in survives while a scalar :out degrades to []"))
+
 ;; -------------------------------------------------------------------------
 ;; (2) save! / load round-trip (depends on localStorage being available)
 ;; -------------------------------------------------------------------------
