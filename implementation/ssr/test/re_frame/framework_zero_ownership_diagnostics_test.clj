@@ -57,6 +57,7 @@
   above are not vacuously empty."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.fx :as fx]
             [re-frame.elision :as elision]
             ;; The routing / ssr / machines subsystem namespaces are loaded
             ;; (and re-installed between tests) by `tf/reset-runtime`, so
@@ -91,7 +92,7 @@
     a))
 
 (defn- stub-push-url! []
-  (rf/reg-fx :rf.nav/push-url
+  (fx/reg-fx :rf.nav/push-url
              {:platforms #{:server :client}}
              (fn [_ _] nil)))
 

@@ -500,7 +500,7 @@
   (testing "rf2-kfh1v — SUBSCRIPTIONS row leads with the sub-id /
             sub-vec (operator can tell WHICH sub recomputed)"
     (epoch-orchestrator/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (rf/with-frame :rf/xray
       (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
                   :rows [{:sub-id :counter/total :sub-vec [:counter/total]
@@ -519,7 +519,7 @@
             to the new 3-button bar. Only the changed row renders;
             the new `[all][changed][unchanged]` bar is present."
     (epoch-orchestrator/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (rf/with-frame :rf/xray
       (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
                   :rows [{:sub-id :a :sub-vec [:a] :changed? true :before 1 :after 2}
@@ -543,7 +543,7 @@
             DELETED (pre-alpha posture, no coexistence). The button-bar
             is the new chrome."
     (epoch-orchestrator/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (rf/with-frame :rf/xray
       (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
                   :rows [{:sub-id :a :sub-vec [:a] :changed? true :before 1 :after 2}
@@ -568,7 +568,7 @@
             every row renders. Clicking `unchanged` shows only
             unchanged rows."
     (epoch-orchestrator/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (rf/with-frame :rf/xray
       (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
                   :rows [{:sub-id :a :sub-vec [:a] :changed? true :before 1 :after 2}
@@ -597,7 +597,7 @@
             form. Both halves anchored to `:rf/xray` regardless of
             host frame."
     (epoch-orchestrator/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
                 :rows [{:sub-id :a :sub-vec [:a] :changed? true :before 1 :after 2}
                        {:sub-id :b :sub-vec [:b] :changed? false}]
@@ -626,7 +626,7 @@
             SUBSCRIPTIONS step renders a DISPOSED sub-section listing
             each evicted sub; header reads `N recomputed (...); L disposed`"
     (epoch-orchestrator/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (rf/with-frame :rf/xray
       (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
                   :rows [{:sub-id :a :sub-vec [:a] :changed? true :before 1 :after 2}]
@@ -661,7 +661,7 @@
             sub-section renders; header reads the legacy `N recomputed
             (...)` shape"
     (epoch-orchestrator/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (rf/with-frame :rf/xray
       (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
                   :rows [{:sub-id :a :sub-vec [:a] :changed? true :before 1 :after 2}]
@@ -678,7 +678,7 @@
             recomputes) the step still renders; the recompute table
             is absent; header reads `L disposed`"
     (epoch-orchestrator/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (rf/with-frame :rf/xray
       (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
                   :rows []
@@ -711,7 +711,7 @@
             db-after) descendant rather than the prior `:diff` /
             `:full` / `:full+diff` per-mode descendants."
     (epoch-orchestrator/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (testing ":db-only with empty diff still renders the slot"
       (let [tree (rf/with-frame :rf/xray
                    (view/render-handler-step
@@ -752,7 +752,7 @@
             full post-cascade app-db (the pre-rf2-wnvid `:db-after`
             fallback)."
     (epoch-orchestrator/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (testing "rf2-oqi0c — handler THREW → the :db sub-section is OMITTED
               entirely (the inline exception card is the signal); no
               redundant '— no :db (handler threw)' line"
@@ -806,7 +806,7 @@
             (`rf-xray-epoch-flow-db-diff-<id>`), NOT the legacy scalar
             before→after line. This is what keeps the flow's `:derived`
             recompute SEPARATE from the HANDLER step's `:db`."
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     ;; testids embed `(name flow-id)` — `:standard-epochs/derived` → `derived`.
     (let [tree (rf/with-frame :rf/xray
                  (view/render-flow-step
@@ -830,7 +830,7 @@
             fixture) the FLOW step falls back to the legacy
             `[path] before → after` scalar line so older epochs still
             render."
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (let [tree (rf/with-frame :rf/xray
                  (view/render-flow-step
                    {:step :flow :badge :FLOW :step-number 4
@@ -1255,7 +1255,7 @@
   (testing "rf2-j630b — the :db row's args slot is the clickable
             '→ app-db' DESTINATION marker (NOT the db diff — that lives in
             the App-db panel). Clicking it jumps to the App-db tab."
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (rf/with-frame :rf/xray
       (let [tree   (view/render-side-effects-step
                      (side-effects-step [{:fx-id :db :status :ok}]))
@@ -1312,7 +1312,7 @@
             `defreg-macro` → `coords-form` absolutisation path
             `reg-sub` uses) so the integration round-trip is testable
             here."
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (rf/with-frame :rf/xray
       (rf/reg-fx :rf.g1mfc-fixture/ping
         (fn [_ctx _args] nil))
@@ -2130,7 +2130,7 @@
             assertion (`:diff` mode mini mounts) retired with the
             toggle."
     (epoch-orchestrator/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (rf/with-frame :rf/xray
       (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
                   :rows [{:sub-id :counter/total :sub-vec [:counter/total]
@@ -2257,7 +2257,7 @@
             retired; FULL+DIFF is the single rendering. The container-
             path mount uses the hoisted wrapper style."
     (epoch-orchestrator/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (rf/with-frame :rf/xray
       (let [;; Container-path rows so the wrapper div is mounted (leaf-
             ;; scalar paths take a different shape via rf2-fyd8u).
@@ -2286,7 +2286,7 @@
             rf2-vv3m6 (2026-05-29) — the prior `:full+diff` dispatch
             bootstrap is gone; FULL+DIFF is the single rendering."
     (epoch-orchestrator/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (rf/with-frame :rf/xray
       (testing "0 → 1 (counter/value)"
         (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
@@ -2361,7 +2361,7 @@
             fine. The wrapper carries `:data-rf-xray-subs-leaf
             \"unchanged\"` and is NOT the changed / added wrapper."
     (epoch-orchestrator/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (rf/with-frame :rf/xray
       ;; render in `:all` mode so the unchanged row is in the tree.
       (rf/dispatch-sync [:rf.xray.epoch/set-subs-filter-mode :all])
@@ -2402,7 +2402,7 @@
             leading `+` glyph / wash) with NO `← was` annotation.
             Acceptance criterion 4."
     (epoch-orchestrator/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (rf/with-frame :rf/xray
       (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
                   :rows [{:sub-id :counter/value :sub-vec [:counter/value]
@@ -2434,7 +2434,7 @@
             (`-leaf-changed-` / `-leaf-added-`) are NOT mounted on the
             container path. Acceptance criterion 7."
     (epoch-orchestrator/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (rf/with-frame :rf/xray
       (testing "map sub return — container path"
         (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
@@ -2489,7 +2489,7 @@
             canonical syntax-token chrome (keyword magenta) — parity
             with the sibling sub-id rendering."
     (epoch-orchestrator/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (rf/with-frame :rf/xray
       (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
                   :rows [{:sub-id :counter/value :sub-vec [:counter/value]
@@ -2517,7 +2517,7 @@
             does NOT mount the chrome. The cell stays at the
             sub-id-only baseline shape."
     (epoch-orchestrator/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (rf/with-frame :rf/xray
       (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
                   :rows [{:sub-id :counter/value :sub-vec [:counter/value]
@@ -2587,7 +2587,7 @@
             `reg-sub` captures `:file`/`:line` at the test call-site
             so the integration round-trip is testable here."
     (epoch-orchestrator/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (rf/with-frame :rf/xray
       (rf/reg-sub :rf.uo4e2-fixture/items
         (fn [db _] (get db :items [])))
@@ -2635,7 +2635,7 @@
             captures `:file`/`:line` at the test call-site so the
             integration round-trip is testable here."
     (epoch-orchestrator/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (rf/with-frame :rf/xray
       (rf/reg-sub :rf.aesni-fixture/items
         (fn [db _] (get db :items [])))
@@ -2676,7 +2676,7 @@
             the query-v), so the cell reads its REAL input sub
             (`chain-root`) regardless of cascade state."
     (epoch-orchestrator/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (rf/with-frame :rf/xray
       ;; L1 — reads app-db directly (genuine `:input-signals []`).
       (rf/reg-sub :rf.87c8a-fixture/chain-root
@@ -2759,7 +2759,7 @@
             the row's realized `:inputs` slot — exactly the cascade-
             attributed path the bug mis-iterated."
     (epoch-orchestrator/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (rf/with-frame :rf/xray
       ;; UNREGISTERED sub-id → `sub-input-signals` resolves nil → the cell
       ;; reads the row's realized `:inputs` slot (the cause-sub path).
@@ -2792,7 +2792,7 @@
             already a vector OF query-vectors) still renders one mini per
             edge — the wrap is cause-sub-only and does not double-wrap"
     (epoch-orchestrator/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (rf/with-frame :rf/xray
       (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
                   :rows [{:sub-id  :report/summary
@@ -2821,7 +2821,7 @@
             Canonical case: the `[:rf/route]` map sub on a /counter
             view-mount epoch — a first run returning a map."
     (epoch-orchestrator/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (rf/with-frame :rf/xray
       (let [route-map {:id :counter :params {} :query {} :transition :idle}
             step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
@@ -2853,7 +2853,7 @@
             EMPTY container (`{}` / `[]`) still reads `:added`. The
             engine reports root `:added` for `(missing-sentinel, {})`."
     (epoch-orchestrator/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (rf/with-frame :rf/xray
       (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
                   :rows [{:sub-id :app/empty-map :sub-vec [:app/empty-map]
@@ -2875,7 +2875,7 @@
             resizable-table's :row-extras slot — not pooled at the foot
             of the step. Mirrors the FX step's `fx-row-with-violations`."
     (epoch-orchestrator/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (rf/with-frame :rf/xray
       (let [violation {:where :sub-return
                        :failing-id :cart/preview
@@ -2901,7 +2901,7 @@
             `violation-blocks :subscriptions` call (parity preserved —
             only per-row violations moved to inline)."
     (epoch-orchestrator/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (rf/with-frame :rf/xray
       (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
                   :rows []
@@ -3211,7 +3211,7 @@
   (testing "rf2-yz57h — a coeffect-injection exception renders the shared
             'Exception Thrown' card UNDER the COEFFECT step (button-19)"
     (epoch-orchestrator/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (let [tree (rf/with-frame :rf/xray
                  (view/render-coeffect-step
                    {:step :coeffect :badge :COEFFECT :step-number 2
@@ -3245,7 +3245,7 @@
             interceptor's id + phase chip + the shared 'Exception Thrown'
             card (button-17 :before)"
     (epoch-orchestrator/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (let [tree (rf/with-frame :rf/xray
                  (view/render-interceptor-step
                    {:step :interceptor :badge :INTERCEPTOR :step-number 3
@@ -3287,7 +3287,7 @@
 
   (testing "rf2-yz57h — an :after interceptor row carries the :after chip"
     (epoch-orchestrator/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (let [tree (rf/with-frame :rf/xray
                  (view/render-interceptor-step
                    {:step :interceptor :badge :INTERCEPTOR :step-number 3
@@ -3309,7 +3309,7 @@
             the single glyph. The `->interceptor` macro captures the coord;
             the projection lifts it onto the row."
     (epoch-orchestrator/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (let [tree (rf/with-frame :rf/xray
                  (view/render-interceptor-step
                    {:step :interceptor :badge :INTERCEPTOR :step-number 3
@@ -3334,7 +3334,7 @@
             a plain `<span>` (the ->interceptor* fn / framework-interceptor
             path; no clickable affordance, no glyph)"
     (epoch-orchestrator/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (let [tree (rf/with-frame :rf/xray
                  (view/render-interceptor-step
                    {:step :interceptor :badge :INTERCEPTOR :step-number 3
@@ -3356,7 +3356,7 @@
   (testing "rf2-se9a9t / EP-0022 §11 — the INTERCEPTORS step (plural) renders
             the AUTHORED chain: each ref's id + hook shape + coord link"
     (epoch-orchestrator/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (let [tree (rf/with-frame :rf/xray
                  (view/render-interceptors-step
                    {:step :interceptors :badge :INTERCEPTORS :step-number 3
@@ -3396,7 +3396,7 @@
 
   (testing "rf2-se9a9t — an UNREGISTERED ref renders a MISSING badge"
     (epoch-orchestrator/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (let [tree (rf/with-frame :rf/xray
                  (view/render-interceptors-step
                    {:step :interceptors :badge :INTERCEPTORS :step-number 3
@@ -3409,7 +3409,7 @@
 
   (testing "rf2-se9a9t — :interceptors is wired into render-step (the dispatcher)"
     (epoch-orchestrator/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (let [tree (rf/with-frame :rf/xray
                  (view/pipeline-view
                    [{:step :interceptors :badge :INTERCEPTORS :step-number 1
@@ -3424,7 +3424,7 @@
             threw) renders the SKIPPED body, NOT the misleading
             'returned no :db' (buttons 17/19)"
     (epoch-orchestrator/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (let [tree (rf/with-frame :rf/xray
                  (view/render-handler-step
                    {:step :handler :badge :HANDLER :step-number 4

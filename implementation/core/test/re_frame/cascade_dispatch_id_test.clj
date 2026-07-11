@@ -69,7 +69,7 @@
 
 (deftest dispatch-id-rides-every-event-in-the-cascade
   (testing "every trace event emitted while a drain is in flight carries the cascade's :rf.trace/dispatch-id"
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-event :seed
                      (fn [_ _]
                        {:db {:n 1}
@@ -96,7 +96,7 @@
 
 (deftest dispatch-id-rides-on-error-events-inside-the-cascade
   (testing "errors emitted inside the drain carry the cascade's :rf.trace/dispatch-id"
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-event :throws (fn [{:keys [db]} _] {:db (throw (ex-info "oops" {}))}))
     (let [evs        (record-traces
                        (fn [] (rf/dispatch-sync [:throws] {:frame :test/main})))
@@ -110,7 +110,7 @@
 
 (deftest child-dispatch-gets-its-own-dispatch-id-and-parents-the-outer
   (testing "child dispatches from inside fx handlers get a fresh :rf.trace/dispatch-id and the parent's id rides on :rf.trace/parent-dispatch-id"
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-event :parent
                      (fn [_ _]
                        {:fx [[:dispatch [:child]]]}))
@@ -132,7 +132,7 @@
 
 (deftest parent-dispatch-id-only-on-event-dispatched
   (testing ":rf.trace/parent-dispatch-id is scoped to :rf.event/dispatched events only — not on :rf.sub/run, :rf.event/db-changed, :rf.fx/handled, etc."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-event :outer (fn [_ _] {:fx [[:dispatch [:inner]]]}))
     (rf/reg-event :inner (fn [{:keys [db]} _] {:db (assoc db :v 1)}))
     (let [evs (record-traces
@@ -151,7 +151,7 @@
     (let [seen (atom [])]
       (rf/register-listener! :trace ::rec (fn [ev] (swap! seen conj ev)))
       (try
-        (rf/reg-frame :test/outside {})
+        (rf/make-frame {:id :test/outside})
         ;; reg-event / reg-fx emit :rf.registry/handler-registered traces
         ;; via the registrar; these fire OUTSIDE any drain.
         (rf/reg-event :foo (fn [{:keys [db]} _] {:db db}))
@@ -168,7 +168,7 @@
 
 (deftest dispatch-id-is-fresh-across-cascade-boundaries
   (testing "two sequential dispatches get distinct :dispatch-ids on every event in their respective cascades"
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-event :bump (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (let [evs1 (record-traces
                  (fn [] (rf/dispatch-sync [:bump] {:frame :test/main})))

@@ -42,7 +42,7 @@
   (apply str (repeat 40000 \x)))
 
 (defn- mk-frame! [frame-id]
-  (rf/reg-frame frame-id {})
+  (rf/make-frame {:id frame-id})
   ;; Install durable classification through the commit-plane path.
   (frame/swap-runtime-db! frame-id
     (fn [rt] (elision/apply-classification-effects rt

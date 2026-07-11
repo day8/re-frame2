@@ -105,7 +105,7 @@
                            :rf.view/deref-subs [[:counter/value]]}}]}])
 
 (defn- seed-evicted-pin! []
-  (frame/reg-frame :rf/xray {})
+  (rf/make-frame {:id :rf/xray})
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:test/seed-evicted-pin
                        {:pinned-epoch-id evicted-id

@@ -30,6 +30,7 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
+   [re-frame.fx :as fx]
    ;; load-bearing side-effecting require: the façade registers the
    ;; :rf.resource/* + :rf.mutation/* events with the meta under test.
    [re-frame.resources]
@@ -50,7 +51,7 @@
   refetch / execute land deterministically without a live fetch."
   [f]
   (reset! last-managed-args nil)
-  (rf/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
+  (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
   (f))
 
 (use-fixtures :each

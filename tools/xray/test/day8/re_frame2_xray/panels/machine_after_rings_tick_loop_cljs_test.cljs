@@ -62,7 +62,7 @@
      :post-reset (fn []
                    (registry/register-xray-handlers!)
                    (xray-test-support/install-test-overrides!)
-                   (frame/reg-frame :rf/xray {}))})
+                   (rf/make-frame {:id :rf/xray}))})
   {:before (fn [] (after-rings/stop-tick!))
    :after  (fn [] (after-rings/stop-tick!))})
 

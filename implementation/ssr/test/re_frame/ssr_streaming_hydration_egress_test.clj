@@ -43,9 +43,8 @@
     (fn [_ [_ v]]
       {:db        v
        :sensitive [[:session :token]]}))
-  (rf/reg-frame sframe
-    {:platform       :server
-     :initial-events [[:rf.uc3cs4/seed db]]}))
+  (rf/make-frame {:id sframe :platform       :server
+                  :initial-events [[:rf.uc3cs4/seed db]]}))
 
 ;; ---- project-delta: allowlist + projection on the streaming delta ---------
 

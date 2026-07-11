@@ -35,7 +35,7 @@
   (test-support/make-reset-runtime-fixture
     {:adapter plain-atom/adapter
      :init-fn (fn []
-                (rf/reg-frame :test/rs {})
+                (rf/make-frame {:id :test/rs})
                 ;; a db-reading resolver (the :inherit default — fail-closed
                 ;; off-box); NOT explicitly declassified.
                 (rf/reg-resource-scope :rs/session

@@ -59,8 +59,8 @@
 
 (deftest rollback-does-not-clobber-sibling-frame-row-deterministic
   (testing "frame A's throwing-flow rollback leaves frame B's last-inputs row intact"
-    (rf/reg-frame :a {:doc "frame A — has a throwing flow"})
-    (rf/reg-frame :b {:doc "frame B — sibling, drains successfully"})
+    (rf/make-frame {:id :a :doc "frame A — has a throwing flow"})
+    (rf/make-frame {:id :b :doc "frame B — sibling, drains successfully"})
 
     ;; Frame A: a flow that always throws when it recomputes.
     (rf/reg-flow :flow-x {:frame :a :inputs [[:n]] :output-path [:out]} (fn [_] (throw (ex-info "boom-A" {}))))
@@ -98,7 +98,7 @@
 
 (deftest single-frame-rollback-still-reverts-prior-flow-advance
   (testing "on one frame, a throwing flow rolls back a prior flow's last-inputs advance"
-    (rf/reg-frame :solo {:doc "single frame"})
+    (rf/make-frame {:id :solo :doc "single frame"})
     (let [a-row-before (atom nil)]
       ;; :A succeeds (advances its row); :B (downstream of :A's output)
       ;; throws — so :A's advance must be rolled back.
@@ -141,8 +141,8 @@
   (testing (str "frame A throwing-flow drains × " stress-iters
                 " interleaved with frame B stable-input drains — "
                 "B's flow recomputes exactly once (no spurious recompute)")
-    (rf/reg-frame :rf2-94ol5/a {:doc "throwing-flow frame"})
-    (rf/reg-frame :rf2-94ol5/b {:doc "stable sibling frame"})
+    (rf/make-frame {:id :rf2-94ol5/a :doc "throwing-flow frame"})
+    (rf/make-frame {:id :rf2-94ol5/b :doc "stable sibling frame"})
 
     (rf/reg-event :rf2-94ol5/set-n (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
 

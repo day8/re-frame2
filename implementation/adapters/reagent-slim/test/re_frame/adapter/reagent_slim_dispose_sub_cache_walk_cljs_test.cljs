@@ -86,8 +86,8 @@
   live frame is disposed AND every frame's sub-cache atom is empty"
     ;; Set up two frames each with a cached subscription, mirroring the
     ;; counter-with-stories shape (one frame per Story variant).
-    (rf/reg-frame :walk/a {})
-    (rf/reg-frame :walk/b {})
+    (rf/make-frame {:id :walk/a})
+    (rf/make-frame {:id :walk/b})
     (rf/reg-event :seed (fn [{:keys [db]} [_ n]] {:db {:n n}}))
     (rf/reg-sub :n (fn [db _] (:n db)))
 
@@ -145,8 +145,8 @@
   previously pinned ONLY on the Reagent adapter; this slim sibling closes
   the gap so a future spine refactor that drops the per-entry try/catch
   is caught at the slim surface too (slim claims drop-in Reagent parity)."
-    (rf/reg-frame :walk/a {})
-    (rf/reg-frame :walk/b {})
+    (rf/make-frame {:id :walk/a})
+    (rf/make-frame {:id :walk/b})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 1}}))
     (rf/reg-sub :n (fn [db _] (:n db)))
 

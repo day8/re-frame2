@@ -76,9 +76,9 @@
   Idempotent — `reg-frame` is harmless to re-call (registrar replace
   is a warning, not an error)."
   []
-  (frame/reg-frame frame-a {})
-  (frame/reg-frame frame-b {})
-  (frame/reg-frame frame-log {})
+  (rf/make-frame {:id frame-a})
+  (rf/make-frame {:id frame-b})
+  (rf/make-frame {:id frame-log})
   nil)
 
 (defn install-and-init!

@@ -80,7 +80,7 @@
                      :component-did-update
                      (fn [_this _prev-argv _snapshot]
                        (swap! update-count inc))})]
-        (rf/reg-frame frame-kw {:doc "sCU argv-gate probe frame"})
+        (rf/make-frame {:id frame-kw :doc "sCU argv-gate probe frame"})
         (rf/reg-event ::seed       (fn [_ _] {:db {:tick 0 :child-v 1}}))
         (rf/reg-event ::bump-tick  (fn [{:keys [db]} _] {:db (update db :tick inc)}))
         (rf/reg-event ::bump-child (fn [{:keys [db]} _] {:db (update db :child-v inc)}))

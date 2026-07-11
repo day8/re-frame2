@@ -100,8 +100,8 @@
   before any test-event fires. Mirrors the parallel-frames testbed's
   `(reg-frame :above {:initial-events [[::initialise]]})` mount path."
   []
-  (frame/reg-frame frame-above {})
-  (frame/reg-frame frame-below {})
+  (rf/make-frame {:id frame-above})
+  (rf/make-frame {:id frame-below})
   (rf/dispatch-sync [::initialise] {:frame frame-above})
   (rf/dispatch-sync [::initialise] {:frame frame-below}))
 

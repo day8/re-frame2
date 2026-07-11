@@ -24,7 +24,7 @@
   (try (rf/init! plain-atom/adapter)
        (catch :default _ nil))
   (frame/ensure-default-frame!)
-  (frame/reg-frame bf {:doc "settled-boundary cljs drain test frame"})
+  (rf/make-frame {:id bf :doc "settled-boundary cljs drain test frame"})
   (test-fn))
 
 (use-fixtures :each reset-frame!)

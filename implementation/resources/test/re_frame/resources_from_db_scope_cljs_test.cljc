@@ -30,6 +30,7 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
+   [re-frame.fx :as fx]
    ;; load-bearing side-effecting requires: register the resources + routing
    ;; events / subs and resources' late-bound :routing/* integration hooks.
    [re-frame.resources]
@@ -60,13 +61,13 @@
   push-url so ensure / navigation are deterministic without a fetch /
   browser."
   []
-  (rf/reg-frame :rf/default {:url-bound? true
-                             :doc "from-db scope suite default app frame."})
+  (rf/make-frame {:id :rf/default :url-bound? true
+                  :doc "from-db scope suite default app frame."})
   (routing/reset-counters!)
   (route/install-routing-integration!)
   (registrar/clear-kind! :resource-scope)
-  (rf/reg-fx :rf.http/managed (fn [_ctx _args] nil))
-  (rf/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
+  (fx/reg-fx :rf.http/managed (fn [_ctx _args] nil))
+  (fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
   ;; the named db-derived viewer-session resolver (EP-0016 D3 canonical form)
   (rf/reg-resource-scope :t/session
     {:inputs {:username [:db [:auth :user :username]]}}

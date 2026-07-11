@@ -163,7 +163,7 @@
             shape MUST NOT carry the raw secret string anywhere — the
             promise the MCP wire boundary makes to Security.md §Epoch
             privacy posture (line 104)."
-    (rf/reg-frame :test/mcp {})
+    (rf/make-frame {:id :test/mcp})
     (install-mcp-style-schemas! :test/mcp)
     (let [shipped (atom [])
           ship!   (fn [record]
@@ -185,7 +185,7 @@
             :rf.size/large-elided marker (a map containing :path, :bytes,
             :digest), not the raw bytes. An MCP forwarder downstream of
             the token-cap walker depends on this."
-    (rf/reg-frame :test/mcp {})
+    (rf/make-frame {:id :test/mcp})
     (install-mcp-style-schemas! :test/mcp)
     (let [shipped (atom [])]
       (rf/register-listener! :epoch ::forwarder
@@ -209,7 +209,7 @@
             tool routing, :rf.epoch/sensitive? to display the
             sensitivity badge — all MUST survive the projection
             verbatim (Spec Security.md §Epoch privacy posture line 103)."
-    (rf/reg-frame :test/mcp {})
+    (rf/make-frame {:id :test/mcp})
     (install-mcp-style-schemas! :test/mcp)
     (drive-mixed-ring! :test/mcp)
     (let [raw       (rf/epoch-history :test/mcp)
@@ -228,7 +228,7 @@
             transform — it MUST NOT mutate the underlying ring, the
             schemas registry, or the elision registry. A forwarder
             running on every cascade would compound any side effect."
-    (rf/reg-frame :test/mcp {})
+    (rf/make-frame {:id :test/mcp})
     (install-mcp-style-schemas! :test/mcp)
     (drive-mixed-ring! :test/mcp)
     (let [ring-before        (rf/epoch-history :test/mcp)
@@ -269,7 +269,7 @@
             irreversible across passes. Once a record has been projected,
             re-projecting it yields the same shape, byte-for-byte at
             the substitution points."
-    (rf/reg-frame :test/mcp {})
+    (rf/make-frame {:id :test/mcp})
     (install-mcp-style-schemas! :test/mcp)
     (drive-mixed-ring! :test/mcp)
     (let [raw    (rf/epoch-history :test/mcp)
@@ -319,7 +319,7 @@
             irreversible across passes: once `:rf.size/large-elided`,
             always `:rf.size/large-elided` with the SAME `:bytes` /
             `:digest` slots. Parallel to the sensitive-case guarantee."
-    (rf/reg-frame :test/mcp {})
+    (rf/make-frame {:id :test/mcp})
     (install-mcp-style-schemas! :test/mcp)
     (drive-mixed-ring! :test/mcp)
     (let [raw    (rf/epoch-history :test/mcp)
@@ -354,7 +354,7 @@
             projected map for a real record. A forwarder that mixes
             optional / present records (cursor mid-stream, an epoch-id
             lookup that lost the race) MUST be able to call uniformly."
-    (rf/reg-frame :test/mcp {})
+    (rf/make-frame {:id :test/mcp})
     (install-mcp-style-schemas! :test/mcp)
     (drive-mixed-ring! :test/mcp)
     (let [raw    (rf/epoch-history :test/mcp)
@@ -380,7 +380,7 @@
             bulk output MUST NOT leak the raw secret OR the raw large
             payload anywhere in its structure — the same per-record
             guarantee, lifted to the bulk surface."
-    (rf/reg-frame :test/mcp {})
+    (rf/make-frame {:id :test/mcp})
     (install-mcp-style-schemas! :test/mcp)
     (drive-mixed-ring! :test/mcp)
     (let [snapshot (epoch/projected-history :test/mcp)]
@@ -398,7 +398,7 @@
             equivalence so the MCP server can use either entry without
             shape drift; the bulk-egress path MUST NOT diverge from
             the per-record path."
-    (rf/reg-frame :test/mcp {})
+    (rf/make-frame {:id :test/mcp})
     (install-mcp-style-schemas! :test/mcp)
     (drive-mixed-ring! :test/mcp)
     (let [raw            (rf/epoch-history :test/mcp)
@@ -414,7 +414,7 @@
             server's resume-cursor (`:after-id` keyed off the last
             epoch-id) addresses a stable point in the projected stream.
             A reordering would break cursor pagination."
-    (rf/reg-frame :test/mcp {})
+    (rf/make-frame {:id :test/mcp})
     (install-mcp-style-schemas! :test/mcp)
     (drive-mixed-ring! :test/mcp)
     (let [raw      (rf/epoch-history :test/mcp)
@@ -429,7 +429,7 @@
             booted app, a just-cleared session) MUST receive the empty
             vector — not a missing-frame error. The snapshot path is
             shape-stable across the empty case."
-    (rf/reg-frame :test/mcp {})
+    (rf/make-frame {:id :test/mcp})
     (install-mcp-style-schemas! :test/mcp)
     (is (= [] (epoch/projected-history :test/mcp))
         "empty-ring snapshot is the empty vector")
@@ -441,7 +441,7 @@
             MUST be pure — repeat calls (the initial snapshot, a
             resync-after-reconnect, a debug print) MUST NOT mutate the
             ring or any registry."
-    (rf/reg-frame :test/mcp {})
+    (rf/make-frame {:id :test/mcp})
     (install-mcp-style-schemas! :test/mcp)
     (drive-mixed-ring! :test/mcp)
     (let [ring-before    (rf/epoch-history :test/mcp)
@@ -487,7 +487,7 @@
             This is the exact conflation the include-sensitive bypass
             introduced: asking for sensitive APP-DB values must NOT lift the
             fx-arg payload."
-    (rf/reg-frame :test/mcp {})
+    (rf/make-frame {:id :test/mcp})
     (install-fx-and-runtime-schemas! :test/mcp)
     (let [creds {:password secret-password :token "tok-abc"}]
       (rf/reg-fx :fxp/login (fn [_ _] nil))
@@ -517,7 +517,7 @@
             boundary is governed by the orthogonal `:include-runtime-db?`
             opt; asking for sensitive APP-DB values must not lift the
             machine snapshots / route slice / SSR metadata."
-    (rf/reg-frame :test/mcp {})
+    (rf/make-frame {:id :test/mcp})
     (install-fx-and-runtime-schemas! :test/mcp)
     ;; Write BOTH the app-db sensitive leaf and a runtime-db partition value
     ;; (via the reserved :rf.db/runtime effect) in one cascade.
@@ -558,7 +558,7 @@
             `:large?` slot elided to the `:rf.size/large-elided` marker.
             Large is governed by the independent `:include-large?` opt;
             the sensitive opt-in must not pull the full payload off-box."
-    (rf/reg-frame :test/mcp {})
+    (rf/make-frame {:id :test/mcp})
     (install-fx-and-runtime-schemas! :test/mcp)
     (rf/reg-event :seed-large
                      (fn [{:keys [db]} _] {:db {:auth {:password secret-password}
@@ -588,7 +588,7 @@
             stage of the two-stage projection; a raw bypass would skip it
             entirely. We install a `:redact-fn` that stamps a sentinel slot
             and assert it lands even with the sensitive opt-in on."
-    (rf/reg-frame :test/mcp {})
+    (rf/make-frame {:id :test/mcp})
     (install-fx-and-runtime-schemas! :test/mcp)
     (rf/configure! {:epoch-history {:redact-fn (fn [record]
                                  (assoc record :rf.test/redact-fn-ran true))}})
@@ -618,7 +618,7 @@
             vocabulary MUST see uniform shapes across the per-record and
             bulk-egress paths — divergence would force per-path branching
             client-side. Pinned per-record-AND-bulk against the same ring."
-    (rf/reg-frame :test/mcp {})
+    (rf/make-frame {:id :test/mcp})
     (install-mcp-style-schemas! :test/mcp)
     (drive-mixed-ring! :test/mcp)
     (let [raw        (rf/epoch-history :test/mcp)
@@ -667,7 +667,7 @@
             event vector carried a secret POSITIONALLY ([:login secret])
             MUST NOT egress the secret. projected-record fails closed: the
             head event-id is retained, the positional arg is :rf/redacted."
-    (rf/reg-frame :test/mcp {})
+    (rf/make-frame {:id :test/mcp})
     (install-mcp-style-schemas! :test/mcp)
     (rf/reg-event :login (fn [{:keys [db]} [_ pw]]
                            {:db (assoc-in db [:auth :password] pw)}))
@@ -688,7 +688,7 @@
   (testing "rf2-nm611o — a secret nested in a MAP arg of the dispatched
             event vector ([:auth/login {:password secret}]) also fails
             closed off-box: the whole arg redacts to :rf/redacted."
-    (rf/reg-frame :test/mcp {})
+    (rf/make-frame {:id :test/mcp})
     (install-mcp-style-schemas! :test/mcp)
     (rf/reg-event :auth/login (fn [{:keys [db]} [_ {:keys [password]}]]
                                 {:db (assoc-in db [:auth :password] password)}))
@@ -704,7 +704,7 @@
             sensitive/large axes (and vice-versa). Asking for event args
             must not lift the app-db sensitive leaf, and asking for app-db
             sensitive values must not lift the event args."
-    (rf/reg-frame :test/mcp {})
+    (rf/make-frame {:id :test/mcp})
     (install-mcp-style-schemas! :test/mcp)
     (rf/reg-event :login (fn [{:keys [db]} [_ pw]]
                            {:db (assoc-in db [:auth :password] pw)}))

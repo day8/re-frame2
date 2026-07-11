@@ -20,6 +20,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.set :as set]
             [re-frame.core :as rf]
+            [re-frame.fx :as fx]
             [re-frame.frame :as frame]
             [re-frame.derivation.graph :as graph]
             [re-frame.schemas :as schemas]
@@ -782,7 +783,7 @@
   ;; Host handle teardown is owned and tested by the respective subsystems;
   ;; this arm covers the graph-node boundary.
   (register-one-of-each!)
-  (rf/reg-frame :checkout/frame {:doc "a frame to destroy"})
+  (rf/make-frame {:id :checkout/frame :doc "a frame to destroy"})
   ;; Materialize frame-owned facts: a committed route slice + a live singleton
   ;; machine snapshot, both in :checkout/frame.
   (rf/dispatch-sync [:rf.route/navigate :route/article {:slug "welcome"}]
@@ -880,8 +881,8 @@
   ;; the GENUINE live nav-token owner minted by the real navigation, and the
   ;; RELEASE is driven entirely by the real supersession hook — never by editing
   ;; the post-state.
-  (rf/reg-fx :rf.http/managed       (fn [_ctx _args] nil))
-  (rf/reg-fx :rf.http/managed-abort (fn [_ctx _args] nil))
+  (fx/reg-fx :rf.http/managed       (fn [_ctx _args] nil))
+  (fx/reg-fx :rf.http/managed-abort (fn [_ctx _args] nil))
   (rf/reg-resource :article/by-slug
                    {:scope         :rf.scope/global
                     :params-schema [:map [:slug :string]]}
@@ -1217,7 +1218,7 @@
   ;; egress boundary, asserting no raw secret survives anywhere, the
   ;; non-sensitive resource id remains visible, all identity positions use the
   ;; same stable opaque scoped key, and edges still connect.
-  (rf/reg-frame egress-frame {:doc "off-box egress conformance frame"})
+  (rf/make-frame {:id egress-frame :doc "off-box egress conformance frame"})
   (let [raw      (graph/live-derivation-graph egress-frame (egress-live-contributors))
         redacted (egress/project-graph raw egress-frame)]
 
@@ -1301,7 +1302,7 @@
 (deftest g-graph-egress-for-unknown-frame-fails-closed
   ;; An unreachable frame has no usable value policy, so value-bearing fields
   ;; fail closed. Resource identity projection is independent of that policy.
-  (rf/reg-frame egress-frame {})
+  (rf/make-frame {:id egress-frame})
   ;; Install the classification through the same runtime-db effect used by the
   ;; commit plane.
   (frame/swap-runtime-db! egress-frame
@@ -1353,7 +1354,7 @@
   ;; Forwarders may project the same graph more than once. Full graph equality
   ;; catches fresh handles in any identity-bearing position, including realized
   ;; inputs that would not be detected by node-key checks alone.
-  (rf/reg-frame egress-frame {})
+  (rf/make-frame {:id egress-frame})
   (let [raw   (graph/live-derivation-graph egress-frame (egress-live-contributors))
         once  (egress/project-graph raw egress-frame)
         twice (egress/project-graph once egress-frame)
@@ -1402,7 +1403,7 @@
 (def ^:private real-egress-frame :app/real-resource-egress)
 
 (deftest gplus-resource-cache-graph-egress-via-the-tooling-path
-  (rf/reg-frame real-egress-frame {:doc "real resource-cache graph egress conformance frame"})
+  (rf/make-frame {:id real-egress-frame :doc "real resource-cache graph egress conformance frame"})
   (rf/reg-resource :secret/tenant-article
                    {:scope         :rf.scope/global
                     :params-schema [:map [:auth-token :string]]

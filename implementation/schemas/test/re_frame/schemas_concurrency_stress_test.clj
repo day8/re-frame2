@@ -117,8 +117,7 @@
   the `:each` reset-runtime fixture between scenarios re-initialises
   the per-frame side-table to `{}`."
   []
-  (rf/reg-frame stress-frame
-                {:doc "shared frame for schemas concurrency stress"}))
+  (rf/make-frame {:id stress-frame :doc "shared frame for schemas concurrency stress"}))
 
 ;; ---- 1. Hot-reload race: N threads × M reg-app-schemas -------------------
 
@@ -606,7 +605,7 @@
                                   (range n-threads))
           mk-schema (fn [t m] [:enum (keyword (str "t" t "-i" m))])]
       (doseq [fid per-thread-frames]
-        (rf/reg-frame fid {:doc (str "isolation-stress frame " fid)}))
+        (rf/make-frame {:id fid :doc (str "isolation-stress frame " fid)}))
       (let [latch   (CountDownLatch. 1)
             futures
             (vec

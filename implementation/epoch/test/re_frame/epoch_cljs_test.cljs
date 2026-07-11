@@ -387,8 +387,8 @@
             refused, the new generation's observation survives a same-id
             re-registration, and frame destroy silences only the live generation
             exactly once"
-    (rf/reg-frame :j538/main {})
-    (rf/reg-frame :j538/other {})
+    (rf/make-frame {:id :j538/main})
+    (rf/make-frame {:id :j538/other})
     (let [silences (atom [])]
       (trace-tooling/register-listener! ::rec
         (fn [ev]

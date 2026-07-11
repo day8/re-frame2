@@ -121,7 +121,7 @@
             trace already shows :rf/redacted at [:auth :password]. The
             egress re-root then keeps it redacted (idempotent) and covers
             the not-emit-redacted shapes (pinned by the unit tests)"
-    (rf/reg-frame :test/eg {})
+    (rf/make-frame {:id :test/eg})
     (install-sensitive-schema! :test/eg)
     (rf/reg-event :login (fn [{:keys [db]} _] {:db (assoc-in db [:auth :password] secret)}))
     (rf/dispatch-sync [:login] {:frame :test/eg})
@@ -153,7 +153,7 @@
             tag at the app-db root; an already-:rf/redacted scalar passes
             through unchanged (idempotent), and a raw leaf would be
             redacted (pinned directly by the unit tests below)"
-    (rf/reg-frame :test/eg {})
+    (rf/make-frame {:id :test/eg})
     (install-sensitive-schema! :test/eg)
     (rf/reg-event :login (fn [{:keys [db]} _] {:db (assoc-in db [:auth :password] secret)}))
     (rf/dispatch-sync [:login] {:frame :test/eg})
@@ -179,7 +179,7 @@
             the same per-event re-root: no projected record in the ring
             leaks the sensitive leaf nested inside a t1/t2 trace's
             :rf.event/db tag"
-    (rf/reg-frame :test/eg {})
+    (rf/make-frame {:id :test/eg})
     (install-sensitive-schema! :test/eg)
     (rf/reg-event :seed  (fn [{:keys [db]} _] {:db {}}))
     (rf/reg-event :login (fn [{:keys [db]} _] {:db (assoc-in db [:auth :password] secret)}))
@@ -205,7 +205,7 @@
             shape) is redacted by projected-record's re-root. This is the
             source-behaviour pin: deleting reroot-trace-event-db-slots
             leaves the raw secret nested in the projected trace"
-    (rf/reg-frame :test/eg {})
+    (rf/make-frame {:id :test/eg})
     (install-sensitive-schema! :test/eg)
     (let [t1-event    {:op-type   :rf.event
                        :operation :rf.event/db-pending
@@ -241,7 +241,7 @@
             whose tags carry a value at a NON-app-db-rooted path is NOT
             re-rooted (the bulk walk handles it at its real root, where the
             frame-declared [:auth :password] does not match)"
-    (rf/reg-frame :test/eg2 {})
+    (rf/make-frame {:id :test/eg2})
     (install-sensitive-schema! :test/eg2)
     (let [;; A non-t1/t2 op carrying a nested map at a slot that is NOT the
           ;; frame's app-db root — the re-root must skip it (op not in the
@@ -273,7 +273,7 @@
   (testing "rf2-ta0y7 — the re-root also surfaces a :large?-declared leaf
             nested inside a t1 trace's :rf.event/db tag: the projection
             substitutes an elision marker, not the raw bytes"
-    (rf/reg-frame :test/eg {})
+    (rf/make-frame {:id :test/eg})
     (install-large-schema! :test/eg)
     (let [payload   (big-string 50000)
           t1-event  {:op-type   :rf.event
@@ -309,7 +309,7 @@
   (testing "rf2-ta0y7 — a t1/t2 event LACKING the :rf.event/db tag, and a
             non-map :trace-events entry, pass through the re-root untouched
             (no throw, no fabrication)"
-    (rf/reg-frame :test/eg {})
+    (rf/make-frame {:id :test/eg})
     (install-sensitive-schema! :test/eg)
     (let [no-db-tag {:op-type :rf.event :operation :rf.event/db-pending :tags {}}
           record    {:epoch-id      1
@@ -359,7 +359,7 @@
             nested t1 :rf.event/db sensitive leaf as the :rf/redacted
             sentinel (the re-root's own target); forwarder pipelines that
             double-project do not corrupt or re-leak the nested slot"
-    (rf/reg-frame :test/eg {})
+    (rf/make-frame {:id :test/eg})
     (install-sensitive-schema! :test/eg)
     (rf/reg-event :login (fn [{:keys [db]} _] {:db (assoc-in db [:auth :password] secret)}))
     (rf/dispatch-sync [:login] {:frame :test/eg})
@@ -423,7 +423,7 @@
   (testing "rf2-t55hxg.6 — an UNSCHEMATIZED :rf.http/replied body (stamped
             :rf.http/off-box-body :omit) is OMITTED off-box: the :value tag
             is replaced with :rf/redacted, leaking nothing"
-    (rf/reg-frame :test/http {})
+    (rf/make-frame {:id :test/http})
     (let [record    (http-record :test/http :rf.http/replied :value
                                   {:token http-body-secret :user-id 42} :omit)
           projected (epoch/projected-record record)
@@ -436,7 +436,7 @@
 (deftest off-box-omits-unschematized-accept-failure-body
   (testing "rf2-t55hxg.6 — an UNSCHEMATIZED :rf.http/accept-failure body rides
             at :decoded; stamped :omit, it is omitted off-box"
-    (rf/reg-frame :test/http {})
+    (rf/make-frame {:id :test/http})
     (let [record    (http-record :test/http :rf.http/accept-failure :decoded
                                   {:token http-body-secret} :omit)
           projected (epoch/projected-record record)
@@ -449,7 +449,7 @@
             as the classified projection emitted on-box (its sensitive slots
             already :rf/redacted, non-sensitive structure intact); the off-box
             projector does NOT omit it"
-    (rf/reg-frame :test/http {})
+    (rf/make-frame {:id :test/http})
     ;; The on-box emit already redacted the sensitive [:token] slot; the
     ;; non-sensitive [:user-id] structure rides classified.
     (let [classified {:token :rf/redacted :user-id 42}
@@ -465,7 +465,7 @@
   (testing "rf2-t55hxg.6 — a trusted-local :include-sensitive? opt-in lifts
             the off-box omission (the local-raw boundary): the unschematized
             body rides for the trusted operator who opted sensitive back in"
-    (rf/reg-frame :test/http {})
+    (rf/make-frame {:id :test/http})
     (let [body      {:token http-body-secret :user-id 42}
           record    (http-record :test/http :rf.http/replied :value body :omit)
           projected (epoch/projected-record record {:include-sensitive? true})
@@ -478,7 +478,7 @@
             unschematized body rides verbatim on the ring (the local operator
             sees their own process). The omission is the OFF-BOX boundary, not
             an on-ring mutation"
-    (rf/reg-frame :test/http {})
+    (rf/make-frame {:id :test/http})
     (let [body   {:token http-body-secret :user-id 42}
           record (http-record :test/http :rf.http/replied :value body :omit)
           ev     (first (:trace-events record))]
@@ -490,7 +490,7 @@
   (testing "rf2-t55hxg.6 — an :rf.http/replied event with NO :rf.http/off-box-body
             stamp (a body slot but no disposition) passes through the omission
             pass untouched (the omission gates strictly on the :omit stamp)"
-    (rf/reg-frame :test/http {})
+    (rf/make-frame {:id :test/http})
     (let [body      {:k "v"}
           record    (http-record :test/http :rf.http/replied :value body nil)
           projected (epoch/projected-record record)
@@ -513,7 +513,7 @@
 (deftest off-box-omits-raw-http-5xx-body
   (testing "rf2-t55hxg.10 — a raw :rf.http/http-5xx body (stamped :omit) is
             OMITTED off-box: the :body tag is replaced with :rf/redacted"
-    (rf/reg-frame :test/http {})
+    (rf/make-frame {:id :test/http})
     (let [record    (http-record :test/http :rf.http/http-5xx :body
                                   (str "error echoing " http-body-secret) :omit)
           projected (epoch/projected-record record)
@@ -525,7 +525,7 @@
 
 (deftest off-box-omits-raw-http-4xx-body
   (testing "rf2-t55hxg.10 — a raw :rf.http/http-4xx body is omitted off-box"
-    (rf/reg-frame :test/http {})
+    (rf/make-frame {:id :test/http})
     (let [record    (http-record :test/http :rf.http/http-4xx :body
                                   (str "forbidden " http-body-secret) :omit)
           projected (epoch/projected-record record)
@@ -536,7 +536,7 @@
 (deftest off-box-omits-raw-decode-failure-body-text
   (testing "rf2-t55hxg.10 — a raw :rf.http/decode-failure body-text is omitted
             off-box (the decode is what failed, so the body is unschematized)"
-    (rf/reg-frame :test/http {})
+    (rf/make-frame {:id :test/http})
     (let [record    (http-record :test/http :rf.http/decode-failure :body-text
                                   (str "not-json " http-body-secret) :omit)
           projected (epoch/projected-record record)
@@ -549,7 +549,7 @@
   (testing "rf2-t55hxg.10 — a :rf.http/retry-attempt nests the intermediate
             failure's raw body at [:failure :body]; stamped :omit it is omitted
             off-box (a retry-eligible 4xx/5xx echoing a token)"
-    (rf/reg-frame :test/http {})
+    (rf/make-frame {:id :test/http})
     (let [record    {:epoch-id      1
                      :frame         :test/http
                      :committed-at  0
@@ -582,7 +582,7 @@
 (deftest off-box-include-sensitive-lifts-raw-error-body-omission
   (testing "rf2-t55hxg.10 — a trusted-local :include-sensitive? opt-in lifts
             the off-box omission of a raw error body (the local-raw boundary)"
-    (rf/reg-frame :test/http {})
+    (rf/make-frame {:id :test/http})
     (let [body      (str "raw error " http-body-secret)
           record    (http-record :test/http :rf.http/http-5xx :body body :omit)
           projected (epoch/projected-record record {:include-sensitive? true})
@@ -594,7 +594,7 @@
   (testing "rf2-t55hxg.10 — the ON-BOX ring record is NOT projected: the raw
             error body rides verbatim on the ring (the local operator sees
             their own process). The omission is the OFF-BOX boundary."
-    (rf/reg-frame :test/http {})
+    (rf/make-frame {:id :test/http})
     (let [body   (str "raw error " http-body-secret)
           record (http-record :test/http :rf.http/http-5xx :body body :omit)
           ev     (first (:trace-events record))]

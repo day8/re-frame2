@@ -50,8 +50,8 @@
 (deftest two-frames-with-overlapping-timer-ids-stay-isolated
   (testing "schedule + cancellation on one frame must not perturb the other's table"
     (rf/reg-machine :iso/m spec)
-    (rf/reg-frame :iso/left  {:doc "left frame — timer-isolation regression"})
-    (rf/reg-frame :iso/right {:doc "right frame — timer-isolation regression"})
+    (rf/make-frame {:id :iso/left :doc "left frame — timer-isolation regression"})
+    (rf/make-frame {:id :iso/right :doc "right frame — timer-isolation regression"})
 
     ;; Drive each frame into :loading; the pure side emits one
     ;; `:rf.machine/after-schedule` fx and the timer fx handler installs
@@ -94,8 +94,8 @@
 (deftest destroy-frame-clears-only-the-destroyed-frames-timers
   (testing "the :machines/on-frame-destroyed! late-bind hook releases just the destroyed frame's entries"
     (rf/reg-machine :ds/m spec)
-    (rf/reg-frame :ds/keep    {:doc "survives"})
-    (rf/reg-frame :ds/discard {:doc "destroyed"})
+    (rf/make-frame {:id :ds/keep :doc "survives"})
+    (rf/make-frame {:id :ds/discard :doc "destroyed"})
     (rf/dispatch-sync [:ds/m [:fetch]] {:frame :ds/keep})
     (rf/dispatch-sync [:ds/m [:fetch]] {:frame :ds/discard})
     (is (and (contains? @timer/after-timers :ds/keep)
@@ -112,8 +112,8 @@
 (deftest zero-arity-reset-timers-clears-every-frame
   (testing "0-arity reset-timers! preserves its pre-rf2-ysa94 contract"
     (rf/reg-machine :iso0/m spec)
-    (rf/reg-frame :iso0/a {})
-    (rf/reg-frame :iso0/b {})
+    (rf/make-frame {:id :iso0/a})
+    (rf/make-frame {:id :iso0/b})
     (rf/dispatch-sync [:iso0/m [:fetch]] {:frame :iso0/a})
     (rf/dispatch-sync [:iso0/m [:fetch]] {:frame :iso0/b})
     (is (seq @timer/after-timers) "preconditions: both frames have entries")
@@ -126,8 +126,8 @@
 (deftest after-cancel-fx-scoped-to-active-frame
   (testing "exiting an :after-bearing state in one frame must not cancel sibling frames' timers"
     (rf/reg-machine :sc/m spec)
-    (rf/reg-frame :sc/A {})
-    (rf/reg-frame :sc/B {})
+    (rf/make-frame {:id :sc/A})
+    (rf/make-frame {:id :sc/B})
     (rf/dispatch-sync [:sc/m [:fetch]] {:frame :sc/A})
     (rf/dispatch-sync [:sc/m [:fetch]] {:frame :sc/B})
     (is (and (contains? @timer/after-timers :sc/A)

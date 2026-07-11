@@ -2080,8 +2080,7 @@
     ;; exercises the realistic live-frame snippet-cofx path. No path is
     ;; classified, so the cofx (`:counter/delta`, not at a declared-sensitive
     ;; path) ships raw under EP-0025 fail-open and surfaces in the snippet.
-    (rf/reg-frame :story.button/primary
-                  {:doc "live source frame for the cofx-preservation test"})
+    (rf/make-frame {:id :story.button/primary :doc "live source frame for the cofx-preservation test"})
     (try
       ;; Drive a single dispatch carrying a recorded flat :rf.cofx map.
       (drive-events-during-recording
@@ -2762,10 +2761,9 @@
   before the tool call runs."
   [variant-id]
   (when (nil? (frame-container variant-id))
-    (rf/reg-frame variant-id
-                  {:doc        (str "test frame for " variant-id)
-                   :rf/story?  true
-                   :rf/variant variant-id})))
+    (rf/make-frame {:id variant-id :doc        (str "test frame for " variant-id)
+                    :rf/story?  true
+                    :rf/variant variant-id})))
 
 (defn- destroy-variant-frame!
   "Tear down `variant-id`'s frame so the next test starts fresh. The

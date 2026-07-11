@@ -60,10 +60,9 @@
              update fid (fnil conj [])
              {:op-type :error :operation :rf.error/composition-probe})
       ;; Make-frame + render-head to populate head-snapshot.
-      (rf/reg-frame fid
-        {:doc       "composition test"
-         :platform  :server
-         :initial-events [[:rf.test.composition/noop]]})
+      (rf/make-frame {:id fid :doc       "composition test"
+                      :platform  :server
+                      :initial-events [[:rf.test.composition/noop]]})
       (rf/reg-event :rf.test.composition/noop (fn [{:keys [db]} _] {:db db}))
       (rf/render-head :head/composition-test {:frame fid})
 
@@ -106,10 +105,9 @@
     (let [fid :rf.test/idempotence-target]
       (request/set-request! fid {:uri "/i" :request-method :get})
       (response/swap-response! fid (fn [r] (assoc r :status 201)))
-      (rf/reg-frame fid
-        {:doc       "idempotence test"
-         :platform  :server
-         :initial-events [[:rf.test.composition/noop]]})
+      (rf/make-frame {:id fid :doc       "idempotence test"
+                      :platform  :server
+                      :initial-events [[:rf.test.composition/noop]]})
       (rf/reg-event :rf.test.composition/noop (fn [{:keys [db]} _] {:db db}))
       (rf/render-head :head/idempotence {:frame fid})
 
@@ -150,10 +148,9 @@
         (swap! error-listener/pending-error-traces
                update fid (fnil conj [])
                {:op-type :error :operation :rf.error/iso-probe})
-        (rf/reg-frame fid
-          {:doc       (str "iso " (name fid))
-           :platform  :server
-           :initial-events [[:rf.test.composition/noop]]})
+        (rf/make-frame {:id fid :doc       (str "iso " (name fid))
+                        :platform  :server
+                        :initial-events [[:rf.test.composition/noop]]})
         (rf/reg-event :rf.test.composition/noop (fn [{:keys [db]} _] {:db db}))
         (rf/render-head :head/iso {:frame fid}))
 

@@ -26,6 +26,7 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
+   [re-frame.fx :as fx]
    ;; load-bearing side-effecting require: the façade registers the
    ;; :rf.resource/* events (incl. the internal poll-fired / gc-fired events +
    ;; the timer fxs) and the test-support reset hook that clears timer-table.
@@ -50,8 +51,8 @@
 (def ^:private long-ms 1000000)
 
 (defn- capturing-fixture [f]
-  (rf/reg-fx :rf.http/managed (fn [_ctx _args] nil))
-  (rf/reg-fx :rf.http/managed-abort (fn [_ctx _work-id] nil))
+  (fx/reg-fx :rf.http/managed (fn [_ctx _args] nil))
+  (fx/reg-fx :rf.http/managed-abort (fn [_ctx _work-id] nil))
   (f))
 
 (use-fixtures :each

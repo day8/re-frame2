@@ -42,7 +42,7 @@
   (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
   ;; EP-0002 (rf2-9o48ih): `init!` no longer synthesises `:rf/default`.
-  (rf/reg-frame :rf/default {})
+  (rf/make-frame {:id :rf/default})
   (rf/with-frame :rf/default
     (test-fn)))
 
@@ -170,7 +170,7 @@
   (testing "a per-frame :interceptor-overrides also produces a run-start summary"
     (reg-noop-ic! ::log-a)
     (reg-noop-ic! ::log-b)
-    (rf/reg-frame :sum/framed {:interceptor-overrides {::log-a nil}})
+    (rf/make-frame {:id :sum/framed :interceptor-overrides {::log-a nil}})
     (rf/reg-event :sum/run
       {:interceptors [::log-a ::log-b]}
       (fn [{:keys [db]} _] {:db db}))

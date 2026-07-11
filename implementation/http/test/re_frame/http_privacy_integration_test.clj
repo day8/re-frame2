@@ -9,6 +9,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
+            [re-frame.fx :as fx]
             [re-frame.registrar :as registrar]
             [re-frame.http.managed :as http-managed]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -192,7 +193,7 @@
             extends header redaction to app-defined names"
     ;; EP-0025 — re-register :rf.http/managed with the app's :carriers block;
     ;; the redactor unions it onto the immutable defaults at trace egress.
-    (rf/reg-fx :rf.http/managed
+    (fx/reg-fx :rf.http/managed
       {:carriers {:headers ["X-Honeycomb-Team"]}}
       http-managed/managed-handler)
     (let [srv (start-server!
@@ -312,7 +313,7 @@
   (testing "a :rf.http/managed :carriers {:query-params [..]} carrier
             (EP-0025) extends URL redaction to app-defined params"
     ;; EP-0025 — re-register :rf.http/managed with the app's query-param carrier.
-    (rf/reg-fx :rf.http/managed
+    (fx/reg-fx :rf.http/managed
       {:carriers {:query-params ["shop_token"]}}
       http-managed/managed-handler)
     (let [srv (start-server!

@@ -61,8 +61,8 @@
 
 (deftest fires-on-cross-frame-dispatch-sync-during-drain
   (testing "frame A mid-drain calling dispatch-sync! on frame B emits the warning, continues, and frame B's handler runs"
-    (rf/reg-frame :cfx.test/a {:doc "caller frame"})
-    (rf/reg-frame :cfx.test/b {:doc "target frame"})
+    (rf/make-frame {:id :cfx.test/a :doc "caller frame"})
+    (rf/make-frame {:id :cfx.test/b :doc "target frame"})
 
     (let [b-ran (atom false)]
       (rf/reg-event :b/leaf
@@ -122,7 +122,7 @@
     ;; carry it explicitly so the inner dispatch hits the same-frame
     ;; reentry guard (rather than raising :rf.error/no-frame-context for a
     ;; frameless call — there is no longer a :rf/default floor).
-    (rf/reg-frame :cfx.test/a {:doc "same-frame reentry frame"})
+    (rf/make-frame {:id :cfx.test/a :doc "same-frame reentry frame"})
     (rf/reg-event :leaf {:frame :cfx.test/a} (fn [{:keys [db]} _] {:db (assoc db :leaf? true)}))
     (rf/reg-event :nested-same-frame
       {:frame :cfx.test/a}
@@ -145,8 +145,8 @@
     ;; Tests / REPL callers routinely call dispatch-sync! with explicit
     ;; :frame opts. That use case must not produce spurious warnings —
     ;; the warning is specifically for the IN-FLIGHT-DRAIN case.
-    (rf/reg-frame :cfx.test/a {})
-    (rf/reg-frame :cfx.test/b {})
+    (rf/make-frame {:id :cfx.test/a})
+    (rf/make-frame {:id :cfx.test/b})
     (rf/reg-event :b/leaf {:frame :cfx.test/b}
       (fn [{:keys [db]} _] {:db (assoc db :b-ran? true)}))
 
@@ -168,8 +168,8 @@
     ;; through dispatch-sync (which sets :in-sync-drain?=true AND, inside
     ;; drain!, also :in-drain?=true). Either flag's truthiness should be
     ;; sufficient to trigger the warning.
-    (rf/reg-frame :cfx.test/a {})
-    (rf/reg-frame :cfx.test/b {})
+    (rf/make-frame {:id :cfx.test/a})
+    (rf/make-frame {:id :cfx.test/b})
 
     (let [b-ran (atom false)]
       (rf/reg-event :b/leaf {:frame :cfx.test/b}

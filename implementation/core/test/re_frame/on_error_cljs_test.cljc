@@ -255,7 +255,7 @@
             a subsequent dispatch / subscribe RECOVERS and emits
             `:rf.error/frame-destroyed` through the always-on listener —
             the genuine use-after-destroy case (not just unknown-id)."
-    (rf/reg-frame :doomed/frame {:doc "to be destroyed"})
+    (rf/make-frame {:id :doomed/frame :doc "to be destroyed"})
     (rf/destroy-frame! :doomed/frame)
     (let [seen (atom [])]
       (rf/register-listener! :errors :test/recorder

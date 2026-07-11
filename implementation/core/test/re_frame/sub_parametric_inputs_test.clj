@@ -383,8 +383,8 @@
             frame as the outer subscription — composes with frame-target
             resolution. Two isolated frames hold different state; each
             parametric read resolves its inputs in its OWN frame."
-    (rf/reg-frame :frame-a {:doc "tenant a"})
-    (rf/reg-frame :frame-b {:doc "tenant b"})
+    (rf/make-frame {:id :frame-a :doc "tenant a"})
+    (rf/make-frame {:id :frame-b :doc "tenant b"})
     (rf/reg-sub :item/by-id (fn [db [_ id]] (get-in db [:items id])))
     (rf/reg-sub :item/title
                 (fn [[_ id]] [[:item/by-id id]])

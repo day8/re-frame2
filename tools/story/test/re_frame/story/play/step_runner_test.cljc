@@ -211,7 +211,7 @@
   ;; `[:assert …]` checkpoint's dispatched atom records onto the slot.
   (story/install-canonical-vocabulary!)
   (frame/ensure-default-frame!)
-  (frame/reg-frame step-frame {:doc "tagged step-runner test frame"})
+  (rf/make-frame {:id step-frame :doc "tagged step-runner test frame"})
   (rf/reg-event :step/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
   (rf/reg-event :step/set (fn [{:keys [db]} [_ v]] {:db (assoc db :v v)}))
   (test-fn))

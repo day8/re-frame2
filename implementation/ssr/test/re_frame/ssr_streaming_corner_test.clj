@@ -45,10 +45,9 @@
   ([] (make-server-frame {}))
   ([db]
    (let [fid (keyword "rf.frame" (str (gensym "")))]
-     (rf/reg-frame fid
-       {:doc       "streaming-corner frame"
-        :platform  :server
-        :initial-events [(if (seq db) [:rf.test/seed-db db] [:rf.test/noop])]})
+     (rf/make-frame {:id fid :doc       "streaming-corner frame"
+                     :platform  :server
+                     :initial-events [(if (seq db) [:rf.test/seed-db db] [:rf.test/noop])]})
      fid)))
 
 ;; ===========================================================================
@@ -557,10 +556,9 @@
         {:fx [[:rf.server/set-header {:name "X-Internal-Token" :value "secret"}]
               [:rf.server/set-cookie {:name "session" :value "sess-abc"}]]}))
     (let [fid (keyword "rf.frame" (str (gensym "")))]
-      (rf/reg-frame fid
-        {:doc       "privacy-invariant frame"
-         :platform  :server
-         :initial-events [[:test/server-write]]})
+      (rf/make-frame {:id fid :doc       "privacy-invariant frame"
+                      :platform  :server
+                      :initial-events [[:test/server-write]]})
       (let [app-db (frame/frame-app-db-value fid)]
         ;; Spec 011 §Response storage substrate: NO app-db key may
         ;; carry the accumulator. Pin both the published reserved key and the
@@ -590,10 +588,9 @@
             Authorization, X-Forwarded-For; an app-db backing would
             default-leak it onto the hydration payload."
     (let [fid (keyword "rf.frame" (str (gensym "")))]
-      (rf/reg-frame fid
-        {:doc       "request-slot privacy frame"
-         :platform  :server
-         :initial-events [[:rf.test/noop]]})
+      (rf/make-frame {:id fid :doc       "request-slot privacy frame"
+                      :platform  :server
+                      :initial-events [[:rf.test/noop]]})
       (let [secret-request {:uri            "/secret"
                             :request-method :get
                             :headers        {"authorization" "Bearer SECRET_TOKEN"

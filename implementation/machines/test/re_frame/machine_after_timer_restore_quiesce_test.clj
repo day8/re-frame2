@@ -49,8 +49,8 @@
   (testing "rf2-u5kmf8 — cancel-frame-timers-on-restore! drops the frame's
             armed :after host-clock handles (and only that frame's)"
     (rf/reg-machine :rq/m spec)
-    (rf/reg-frame :rq/restored {:doc "the frame being restored"})
-    (rf/reg-frame :rq/sibling  {:doc "an unrelated concurrent frame"})
+    (rf/make-frame {:id :rq/restored :doc "the frame being restored"})
+    (rf/make-frame {:id :rq/sibling :doc "an unrelated concurrent frame"})
     (rf/dispatch-sync [:rq/m [:fetch]] {:frame :rq/restored})
     (rf/dispatch-sync [:rq/m [:fetch]] {:frame :rq/sibling})
     (is (and (contains? @timer/after-timers :rq/restored)
@@ -66,7 +66,7 @@
   (testing "rf2-u5kmf8 — each released timer emits one
             :rf.machine.timer/cancelled trace with :reason :on-restore"
     (rf/reg-machine :rq2/m spec)
-    (rf/reg-frame :rq2/f {:doc "restore-reason trace frame"})
+    (rf/make-frame {:id :rq2/f :doc "restore-reason trace frame"})
     (rf/dispatch-sync [:rq2/m [:fetch]] {:frame :rq2/f})
     (is (seq (get @timer/after-timers :rq2/f)) "precondition: a timer is armed")
     (let [seen (atom [])
@@ -91,7 +91,7 @@
   (testing "rf2-u5kmf8 — driving the published :machines/on-frame-restored!
             hook (the path the epoch boundary uses) clears the frame's timers"
     (rf/reg-machine :rq3/m spec)
-    (rf/reg-frame :rq3/f {:doc "end-to-end hook frame"})
+    (rf/make-frame {:id :rq3/f :doc "end-to-end hook frame"})
     (rf/dispatch-sync [:rq3/m [:fetch]] {:frame :rq3/f})
     (is (contains? @timer/after-timers :rq3/f) "precondition: a timer is armed")
     ((late-bind/get-fn :machines/on-frame-restored!) :rq3/f)

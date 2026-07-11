@@ -89,10 +89,9 @@
                                   (fn [record] (swap! sink-seen conj record)))
       (rf/register-listener! :errors :test/listener
                                    (fn [record] (swap! listener-seen conj record)))
-      (rf/reg-frame :obs/teardown
-        {:observability
-         {:errors [{:sink :test.sinks/sentry
-                    :rf.egress/profile :rf.egress/off-box-observability}]}})
+      (rf/make-frame {:id :obs/teardown :observability
+                      {:errors [{:sink :test.sinks/sentry
+                                 :rf.egress/profile :rf.egress/off-box-observability}]}})
       ;; Drive the SHARED non-event helper directly (the same fn frame.cljc
       ;; reaches via the :error-emit/dispatch-frame-teardown-report hook).
       (error-emit/dispatch-frame-teardown-report!
@@ -139,10 +138,9 @@
       ;; [:hook-failures 0 :exception-data :token] (the vector index 0 is
       ;; ridden index-free — same shape the route-error! test relies on for
       ;; the [:auth :token] decl matching the event's [1 :auth :token]).
-      (rf/reg-frame :obs/sensitive
-        {:observability
-         {:errors [{:sink :test.sinks/sentry
-                    :rf.egress/profile :rf.egress/off-box-observability}]}})
+      (rf/make-frame {:id :obs/sensitive :observability
+                      {:errors [{:sink :test.sinks/sentry
+                                 :rf.egress/profile :rf.egress/off-box-observability}]}})
       ;; EP-0025: classify the path via the commit-plane effect path (the
       ;; durable frame annotation is removed) so the projector redacts it.
       (frame/swap-runtime-db! :obs/sensitive
@@ -181,10 +179,9 @@
     (let [sink-seen (atom [])]
       (rf/register-observability-sink! :test.sinks/public
                                   (fn [record] (swap! sink-seen conj record)))
-      (rf/reg-frame :obs/public
-        {:observability
-         {:errors [{:sink :test.sinks/public
-                    :rf.egress/profile :rf.egress/public-error}]}})
+      (rf/make-frame {:id :obs/public :observability
+                      {:errors [{:sink :test.sinks/public
+                                 :rf.egress/profile :rf.egress/public-error}]}})
       ;; An SSR-shaped non-event record carrying a top-level :exception.
       (error-emit/dispatch-error-record!
         {:error     :rf.error/ssr-render-failed
@@ -213,7 +210,7 @@
                                   (fn [record] (swap! sink-seen conj record)))
       (rf/register-listener! :errors :test/listener
                                    (fn [record] (swap! listener-seen conj record)))
-      (rf/reg-frame :obs/nopolicy {})
+      (rf/make-frame {:id :obs/nopolicy})
       (error-emit/dispatch-frame-teardown-report!
         :obs/nopolicy
         [{:hook :ssr/on-frame-destroyed :exception (ex-info "x" {}) :where :safe-call-hook!}]
@@ -287,12 +284,11 @@
                                   (fn [record] (swap! good-seen conj record)))
       (rf/register-listener! :errors :test/listener
                                    (fn [record] (swap! listener-seen conj record)))
-      (rf/reg-frame :obs/sib
-        {:observability
-         {:errors [{:sink :test.sinks/boom
-                    :rf.egress/profile :rf.egress/off-box-observability}
-                   {:sink :test.sinks/good
-                    :rf.egress/profile :rf.egress/off-box-observability}]}})
+      (rf/make-frame {:id :obs/sib :observability
+                      {:errors [{:sink :test.sinks/boom
+                                 :rf.egress/profile :rf.egress/off-box-observability}
+                                {:sink :test.sinks/good
+                                 :rf.egress/profile :rf.egress/off-box-observability}]}})
       ;; Must not throw out of the emit.
       (is (nil? (error-emit/dispatch-frame-teardown-report!
                   :obs/sib

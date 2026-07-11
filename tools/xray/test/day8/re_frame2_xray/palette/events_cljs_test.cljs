@@ -44,7 +44,7 @@
 
 (defn- setup! []
   (registry/register-xray-handlers!)
-  (frame/reg-frame :rf/xray {}))
+  (rf/make-frame {:id :rf/xray}))
 
 ;; ---- helpers -----------------------------------------------------------
 
@@ -361,7 +361,7 @@
   ;; Ensure :rf/cart-frame exists so the spine handler resolves
   ;; epoch-history without throwing — the canonical set-frame event
   ;; queries `rf/epoch-history` for the new target.
-  (frame/reg-frame :rf/cart-frame {})
+  (rf/make-frame {:id :rf/cart-frame})
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray/palette-open])
     (rf/dispatch-sync
@@ -501,7 +501,7 @@
   ;; effects` writes a `:source :effect` declaration (index-free :rf/path) on
   ;; the host frame's elision registry, the SAME registry the off-box egress
   ;; walker consults (the same write a reg-event returning `:sensitive` makes).
-  (frame/reg-frame host-frame {})
+  (rf/make-frame {:id host-frame})
   (frame/swap-runtime-db! host-frame
     (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:auth :password]]})))
   (rf/with-frame host-frame
@@ -558,7 +558,7 @@
   (setup!)
   (let [sinks (capture-snapshot-sinks!)]
     (try
-      (frame/reg-frame host-frame {})
+      (rf/make-frame {:id host-frame})
       ;; EP-0025: commit-plane :large classification (index-free :rf/path) on
       ;; the host frame's elision registry — the size sibling of the sensitive
       ;; seed above (`:source :effect`).

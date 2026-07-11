@@ -34,7 +34,7 @@
 
 (deftest focus-slice-path-dispatch-writes-xray-frame
   (events/install!)
-  (frame/reg-frame :rf/xray {})
+  (rf/make-frame {:id :rf/xray})
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray/focus-slice-path [:cart :items]]))
   (is (= [:cart :items]

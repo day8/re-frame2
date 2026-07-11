@@ -39,10 +39,9 @@
   "A `:server`-platform frame using the default projector (no-such-handler →
   404, handler-exception → 500)."
   [id]
-  (rf/reg-frame id
-    {:platform :server
-     :ssr      {:public-error-id   :rf.ssr/default-error-projector
-                :dev-error-detail? false}})
+  (rf/make-frame {:id id :platform :server
+                  :ssr      {:public-error-id   :rf.ssr/default-error-projector
+                             :dev-error-detail? false}})
   id)
 
 (defn- buffer-error!

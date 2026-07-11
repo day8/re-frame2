@@ -191,7 +191,7 @@
             frame's registry at the entry's absolute :data path,
             project-entry-data walks the bare :data through project-egress seeded
             at that offset and redacts the declared :ssn slot; a sibling rides"
-    (rf/reg-frame :reg/frame {})
+    (rf/make-frame {:id :reg/frame})
     (let [k       (state/scoped-resource-key :rf.scope/global :acct/profile {:slug "x"})
           k-id    (state/key-id k)
           rdb     (runtime-db-with {k (entry {:resource-id :acct/profile
@@ -211,7 +211,7 @@
   (reg! :report/card {:large [[:data :blob]]})
   (testing "rf2-d3pku1 / rf2-260yhk: a registry-lowered :data :large declaration
             ELIDES its slot to the :rf.size/large-elided marker at egress"
-    (rf/reg-frame :reg/large {})
+    (rf/make-frame {:id :reg/large})
     (let [big     (apply str (repeat 500 "x"))
           k       (state/scoped-resource-key :rf.scope/global :report/card {:slug "r"})
           k-id    (state/key-id k)
@@ -234,7 +234,7 @@
   (testing "rf2-d3pku1: project-entry-params walks the scoped-key params component
             through project-egress seeded at the lowered :resource/key params
             offset and redacts the declared :account-id slot"
-    (rf/reg-frame :reg/params {})
+    (rf/make-frame {:id :reg/params})
     (let [k       (state/scoped-resource-key :rf.scope/global :report/by-account
                                              {:account-id "acct-secret-42" :slug "q3"})
           k-id    (state/key-id k)
@@ -283,7 +283,7 @@
     ;; the SSR projection resolves the current frame; classify a path on it via
     ;; the commit-plane effect at the entry's absolute :data path (the frame may
     ;; additionally classify a subsystem absolute path — Spec 015 L149).
-    (rf/reg-frame :rcfg/ssr {})
+    (rf/make-frame {:id :rcfg/ssr})
     (let [k    (state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "x"})
           k-id (state/key-id k)
           e    (entry {:resource-id :article/by-slug
@@ -307,7 +307,7 @@
             :data-rooted :sensitive declaration is LOWERED into the registry
             redacts that slot on SSR projection — the registry-driven egress
             read fires (the standard model)"
-    (rf/reg-frame :rcfg/owner-data {})
+    (rf/make-frame {:id :rcfg/owner-data})
     (let [k   (state/scoped-resource-key :rf.scope/global :profile/card {:slug "x"})
           e   (entry {:resource-id :profile/card
                       :data {:pan "4111-1111-1111-1111" :name "Alice"}})
@@ -326,7 +326,7 @@
   (testing "rf2-260yhk / rf2-d3pku1 END-TO-END: a :serialize resource whose OWN
             :data-rooted :large declaration is lowered ELIDES that slot on SSR
             projection (the registry-driven owner surface fires)"
-    (rf/reg-frame :rcfg/owner-large {})
+    (rf/make-frame {:id :rcfg/owner-large})
     (let [big (apply str (repeat 1000 "q"))
           k   (state/scoped-resource-key :rf.scope/global :report/blob {:slug "r"})
           e   (entry {:resource-id :report/blob :data {:blob big :name "ok"}})
@@ -347,7 +347,7 @@
             :params-rooted :sensitive declaration is lowered must NOT ride that
             slot RAW in the projected wire KEY — the params surface is co-equal
             with the data surface (Spec 016 clause 4)"
-    (rf/reg-frame :rcfg/owner-params {})
+    (rf/make-frame {:id :rcfg/owner-params})
     (let [k   (state/scoped-resource-key :rf.scope/global :report/by-account
                                          {:account-id "acct-secret-42" :slug "q3"})
           e   (entry {:resource-id :report/by-account :data {:total 99}})
@@ -392,7 +392,7 @@
             :data-rooted :sensitive declaration is lowered redacts that field on
             EVERY page during SSR projection (the index-free decl matches every
             indexed page path)"
-    (rf/reg-frame :rcfg/infinite {})
+    (rf/make-frame {:id :rcfg/infinite})
     (let [k    (state/scoped-resource-key :rf.scope/global :feed/timeline {:slug "t"})
           e    (infinite-entry-with-pages
                  :feed/timeline

@@ -89,7 +89,7 @@
   []
   (registry/register-xray-handlers!)
   (xray-test-support/install-test-overrides!)
-  (frame/reg-frame :rf/xray {}))
+  (rf/make-frame {:id :rf/xray}))
 
 ;; ---- focus ↔ registry single-source-of-truth cross-check ----------------
 ;;

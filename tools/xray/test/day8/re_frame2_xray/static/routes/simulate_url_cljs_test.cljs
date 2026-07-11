@@ -68,7 +68,7 @@
 (defn- setup-xray-frame! []
   (registry/register-xray-handlers!)
   (xray-test-support/install-test-overrides!)
-  (frame/reg-frame :rf/xray {}))
+  (rf/make-frame {:id :rf/xray}))
 
 (def cart-routes
   {:route/cart      {:path "/cart"      :doc "cart"}

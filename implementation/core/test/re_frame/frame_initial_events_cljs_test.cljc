@@ -129,11 +129,10 @@
             order, draining each before the next — app-db is fully settled by
             the time reg-frame returns"
     (reg-test-events!)
-    (rf/reg-frame :boot/seq
-      {:initial-events [[:test/set-db {:n 0 :log []}]
-                        [:test/inc]
-                        [:test/inc]
-                        [:test/add :marker :done]]})
+    (rf/make-frame {:id :boot/seq :initial-events [[:test/set-db {:n 0 :log []}]
+                                     [:test/inc]
+                                     [:test/inc]
+                                     [:test/add :marker :done]]})
     (let [db (rf/app-db-value :boot/seq)]
       (is (= 2 (:n db)) "the two :test/inc steps ran in order after the seed")
       (is (= :done (:marker db)) "the trailing :test/add step ran last")
@@ -153,10 +152,9 @@
   (testing "a map step {:event … :opts {:rf.cofx {:rf/time-ms …}}} passes the
             ordinary dispatch-sync opts — the deterministic clock is observable"
     (reg-test-events!)
-    (rf/reg-frame :clock/main
-      {:initial-events [[:test/set-db {}]
-                        {:event [:test/stamp-time]
-                         :opts  {:rf.cofx {:rf/time-ms 1781078400123}}}]})
+    (rf/make-frame {:id :clock/main :initial-events [[:test/set-db {}]
+                                     {:event [:test/stamp-time]
+                                      :opts  {:rf.cofx {:rf/time-ms 1781078400123}}}]})
     (is (= 1781078400123 (:stamped-at (rf/app-db-value :clock/main)))
         "the map step's :rf.cofx clock reached the handler via dispatch-sync opts")))
 
@@ -164,8 +162,8 @@
   (testing "omitting :initial-events and supplying [] both mean no setup — the
             frame is created with an empty app-db"
     (reg-test-events!)
-    (rf/reg-frame :empty/a {:doc "no key"})
-    (rf/reg-frame :empty/b {:initial-events []})
+    (rf/make-frame {:id :empty/a :doc "no key"})
+    (rf/make-frame {:id :empty/b :initial-events []})
     (is (= {} (rf/app-db-value :empty/a)) "no :initial-events key ⇒ app-db {}")
     (is (= {} (rf/app-db-value :empty/b)) "[] :initial-events ⇒ app-db {}")))
 
@@ -183,9 +181,8 @@
         (fn [ev]
           (when (= :rf.event/dispatched (:operation ev))
             (swap! dispatched conj ev))))
-      (rf/reg-frame :prov/main
-        {:initial-events [[:test/set-db {:n 0}]
-                          [:test/inc]]})
+      (rf/make-frame {:id :prov/main :initial-events [[:test/set-db {:n 0}]
+                                       [:test/inc]]})
       (rf/unregister-listener! :trace ::prov)
       (let [sources (->> @dispatched (map :source) (filter #{:frame-init}))]
         (is (= 2 (count sources))
@@ -221,7 +218,7 @@
   (testing "a bare event vector at the TOP LEVEL fails :rf.error/initial-events-bare-event"
     (reg-test-events!)
     (is (= :rf.error/initial-events-bare-event
-           (err-id #(rf/reg-frame :bad/bare {:initial-events [:test/set-db {:n 0}]})))
+           (err-id #(rf/make-frame {:id :bad/bare :initial-events [:test/set-db {:n 0}]})))
         "[:test/set-db {…}] at top level is rejected (wrap as [[…]])")
     (is (nil? (frame/frame :bad/bare))
         "no frame is left registered when preflight validation throws")))
@@ -230,9 +227,8 @@
   (testing "a :frame in a map step's :opts fails :rf.error/initial-events-bad-opts"
     (reg-test-events!)
     (is (= :rf.error/initial-events-bad-opts
-           (err-id #(rf/reg-frame :bad/frame-opt
-                      {:initial-events [{:event [:test/set-db {}]
-                                         :opts  {:frame :somewhere-else}}]})))
+           (err-id #(rf/make-frame {:id :bad/frame-opt :initial-events [{:event [:test/set-db {}]
+                                                      :opts  {:frame :somewhere-else}}]})))
         ":frame is forced to the constructed frame and may not be supplied")
     (is (nil? (frame/frame :bad/frame-opt)) "no frame left registered")))
 
@@ -240,17 +236,16 @@
   (testing "a non-map :opts fails :rf.error/initial-events-bad-opts"
     (reg-test-events!)
     (is (= :rf.error/initial-events-bad-opts
-           (err-id #(rf/reg-frame :bad/opts-shape
-                      {:initial-events [{:event [:test/set-db {}] :opts :nope}]}))))))
+           (err-id #(rf/make-frame {:id :bad/opts-shape :initial-events [{:event [:test/set-db {}] :opts :nope}]}))))))
 
 (deftest unknown-step-shape-is-rejected
   (testing "a step that is neither event vector nor map fails :rf.error/initial-events-bad-step"
     (reg-test-events!)
     (is (= :rf.error/initial-events-bad-step
-           (err-id #(rf/reg-frame :bad/step {:initial-events [42]})))
+           (err-id #(rf/make-frame {:id :bad/step :initial-events [42]})))
         "a number step is rejected")
     (is (= :rf.error/initial-events-bad-step
-           (err-id #(rf/reg-frame :bad/step2 {:initial-events :not-a-vector})))
+           (err-id #(rf/make-frame {:id :bad/step2 :initial-events :not-a-vector})))
         "a non-vector top-level value is rejected as bad-step")
     (is (nil? (frame/frame :bad/step)) "no frame left registered")))
 
@@ -259,15 +254,13 @@
             :rf.error/initial-events-bad-event"
     (reg-test-events!)
     (is (= :rf.error/initial-events-bad-event
-           (err-id #(rf/reg-frame :bad/empty {:initial-events [[]]})))
+           (err-id #(rf/make-frame {:id :bad/empty :initial-events [[]]})))
         "an empty event vector is not a valid step")
     (is (= :rf.error/initial-events-bad-event
-           (err-id #(rf/reg-frame :bad/no-event
-                      {:initial-events [{:opts {:rf.cofx {}}}]})))
+           (err-id #(rf/make-frame {:id :bad/no-event :initial-events [{:opts {:rf.cofx {}}}]})))
         "a map step with no :event is rejected")
     (is (= :rf.error/initial-events-bad-event
-           (err-id #(rf/reg-frame :bad/event-kw
-                      {:initial-events [{:event :not-a-vector}]})))
+           (err-id #(rf/make-frame {:id :bad/event-kw :initial-events [{:event :not-a-vector}]})))
         "a map step whose :event is not a vector is rejected")))
 
 ;; ===========================================================================
@@ -278,7 +271,7 @@
   (testing ":on-create supplied to construction fails :rf.error/on-create-retired"
     (reg-test-events!)
     (is (= :rf.error/on-create-retired
-           (err-id #(rf/reg-frame :ret/oc {:on-create [:test/inc]})))
+           (err-id #(rf/make-frame {:id :ret/oc :on-create [:test/inc]})))
         "reg-frame rejects :on-create")
     (is (= :rf.error/on-create-retired
            (err-id #(lf/make-frame {:id :ret/oc2 :on-create [:test/inc]})))
@@ -289,7 +282,7 @@
   (testing ":initial-db supplied to construction fails :rf.error/initial-db-retired"
     (reg-test-events!)
     (is (= :rf.error/initial-db-retired
-           (err-id #(rf/reg-frame :ret/idb {:initial-db {:n 0}})))
+           (err-id #(rf/make-frame {:id :ret/idb :initial-db {:n 0}})))
         "reg-frame rejects :initial-db")
     (is (= :rf.error/initial-db-retired
            (err-id #(lf/make-frame {:id :ret/idb2 :initial-db {:n 0}})))
@@ -309,7 +302,7 @@
     (reg-test-events!)
     (let [config {:initial-events [[:test/set-db {:n 0}]
                                    [:test/inc]]}]
-      (rf/reg-frame :reset/main config)
+      (rf/make-frame (assoc config :id :reset/main))
       (is (= 1 (:n (rf/app-db-value :reset/main))) "construction settled to n=1")
       ;; Mutate away from the constructed state.
       (rf/dispatch-sync [:test/inc] {:frame :reset/main})
@@ -317,7 +310,7 @@
       (is (= 3 (:n (rf/app-db-value :reset/main))) "runtime moved it to n=3")
       ;; Reset re-runs the recorded setup: seed {:n 0} then one :test/inc ⇒ n=1.
       (frame/destroy-frame! :reset/main)
-      (rf/reg-frame :reset/main config)
+      (rf/make-frame (assoc config :id :reset/main))
       (is (= 1 (:n (rf/app-db-value :reset/main)))
           "destroy + re-reg-frame replayed the recorded :initial-events, back to n=1"))))
 
@@ -331,8 +324,8 @@
     (reg-test-events!)
     (let [config {:initial-events [[:test/set-db {:n 0}]
                                    [:test/inc]]}
-          reset! (fn [] (frame/destroy-frame! :reset/idem) (rf/reg-frame :reset/idem config))]
-      (rf/reg-frame :reset/idem config)
+          reset! (fn [] (frame/destroy-frame! :reset/idem) (rf/make-frame (assoc config :id :reset/idem)))]
+      (rf/make-frame (assoc config :id :reset/idem))
       (is (= 1 (:n (rf/app-db-value :reset/idem))) "construction settled to n=1")
       ;; Mutate away, then reset TWICE in a row.
       (rf/dispatch-sync [:test/inc] {:frame :reset/idem})
@@ -432,22 +425,21 @@
   (testing "an idempotent re-reg-frame under the same id RE-RECORDS the new
             :initial-events but does NOT replay it — durable app-db is preserved"
     (reg-test-events!)
-    (rf/reg-frame :remount/main
-      {:initial-events [[:test/set-db {:n 0}]
-                        [:test/inc]]})
+    (rf/make-frame {:id :remount/main :initial-events [[:test/set-db {:n 0}]
+                                     [:test/inc]]})
     (is (= 1 (:n (rf/app-db-value :remount/main))) "first creation ran setup")
     ;; Move durable state.
     (rf/dispatch-sync [:test/inc] {:frame :remount/main})
     (is (= 2 (:n (rf/app-db-value :remount/main))) "runtime moved to n=2")
     ;; Re-register with a DIFFERENT :initial-events.
     (let [new-config {:initial-events [[:test/set-db {:n 999}]]}]
-      (rf/reg-frame :remount/main new-config)
+      (rf/make-frame (assoc new-config :id :remount/main))
       (is (= 2 (:n (rf/app-db-value :remount/main)))
           "re-registration did NOT replay the new setup — durable app-db preserved")
       ;; The recording IS replaced: a subsequent destroy + re-reg-frame replays
       ;; the NEW setup.
       (frame/destroy-frame! :remount/main)
-      (rf/reg-frame :remount/main new-config)
+      (rf/make-frame (assoc new-config :id :remount/main))
       (is (= 999 (:n (rf/app-db-value :remount/main)))
           "destroy + re-reg-frame after re-reg replays the RE-RECORDED setup (n=999)"))))
 
@@ -468,10 +460,9 @@
             :step-index + :event — the ESCAPING-throw detection route"
     (reg-test-events!)
     (let [data (err-data
-                 #(rf/reg-frame :teardown/main
-                    {:initial-events [[:test/set-db {:n 0}]
-                                      [:test/needs-missing-cofx]
-                                      [:test/inc]]}))]
+                 #(rf/make-frame {:id :teardown/main :initial-events [[:test/set-db {:n 0}]
+                                                   [:test/needs-missing-cofx]
+                                                   [:test/inc]]}))]
       (is (= :rf.error/initial-events-step-failed (:rf.error/id data))
           "the throwing step raises :rf.error/initial-events-step-failed")
       (is (= 1 (:step-index data)) "the error names the failing step's 0-based index")
@@ -499,10 +490,9 @@
     ;; map. The seed BEFORE it succeeds, so a partial frame exists when the bad
     ;; step runs — exactly the half-created-frame scenario teardown must clean up.
     (let [data (err-data
-                 #(rf/reg-frame :set-db-bad/main
-                    {:initial-events [[:rf/set-db {:n 0}]
-                                      [:rf/set-db :not-a-map]
-                                      [:test/inc]]}))]
+                 #(rf/make-frame {:id :set-db-bad/main :initial-events [[:rf/set-db {:n 0}]
+                                                   [:rf/set-db :not-a-map]
+                                                   [:test/inc]]}))]
       (is (= :rf.error/initial-events-step-failed (:rf.error/id data))
           "the in-band-captured handler-exception raises :rf.error/initial-events-step-failed")
       (is (= 1 (:step-index data)) "the error names the failing step's 0-based index")
@@ -521,10 +511,9 @@
     ;; :rf.error/handler-exception and returns nil (no escaping throw). Strict
     ;; construction detects the captured error and tears down.
     (let [data (err-data
-                 #(rf/reg-frame :boom/main
-                    {:initial-events [[:test/set-db {:n 0}]
-                                      [:test/boom]
-                                      [:test/inc]]}))]
+                 #(rf/make-frame {:id :boom/main :initial-events [[:test/set-db {:n 0}]
+                                                   [:test/boom]
+                                                   [:test/inc]]}))]
       (is (= :rf.error/initial-events-step-failed (:rf.error/id data))
           "the in-band handler-body throw raises :rf.error/initial-events-step-failed")
       (is (= 1 (:step-index data)) "the error names the failing step's 0-based index")
@@ -547,9 +536,8 @@
         (late-bind/set-fn! :router/dispatch-sync! nil)
         (late-bind/invalidate-cache! :router/dispatch-sync!)
         (let [data (err-data
-                     #(rf/reg-frame :unavailable/main
-                        {:initial-events [[:test/set-db {:n 0}]
-                                          [:test/inc]]}))]
+                     #(rf/make-frame {:id :unavailable/main :initial-events [[:test/set-db {:n 0}]
+                                                       [:test/inc]]}))]
           (is (= :rf.error/initial-events-runner-unavailable (:rf.error/id data))
               "an unbound runner with steps to run fails loud, not a silent drop")
           (is (= 2 (:step-count data)) "the error reports the dropped step count")
@@ -564,7 +552,7 @@
       (try
         (late-bind/set-fn! :router/dispatch-sync! nil)
         (late-bind/invalidate-cache! :router/dispatch-sync!)
-        (rf/reg-frame :unavailable/empty {:initial-events []})
+        (rf/make-frame {:id :unavailable/empty :initial-events []})
         (is (some? (frame/frame :unavailable/empty))
             "no steps ⇒ the runner is never consulted; an unbound hook is a no-op")
         (finally
@@ -586,10 +574,9 @@
       (rf/reg-event :handler/makes-frame
         (fn [{:keys [db]} _]
           (reset! caught
-                  (err-id #(rf/reg-frame :child/in-handler
-                             {:initial-events [[:test/set-db {:n 0}]]})))
+                  (err-id #(rf/make-frame {:id :child/in-handler :initial-events [[:test/set-db {:n 0}]]})))
           {:db db}))
-      (rf/reg-frame :parent/main {:initial-events [[:test/set-db {}]]})
+      (rf/make-frame {:id :parent/main :initial-events [[:test/set-db {}]]})
       (rf/dispatch-sync [:handler/makes-frame] {:frame :parent/main})
       (is (= :rf.error/frame-construction-in-handler @caught)
           "a reg-frame inside a handler fails loud")
@@ -616,8 +603,7 @@
       (rf/reg-event :fx/makes-frame
         (fn [{:keys [db]} _]
           (reset! caught
-                  (err-id #(rf/reg-frame :child/via-fx
-                             {:initial-events [[:test/set-db {:n 0}]]})))
+                  (err-id #(rf/make-frame {:id :child/via-fx :initial-events [[:test/set-db {:n 0}]]})))
           {:db db}))
       ;; The originating handler emits the construction attempt via :fx
       ;; :dispatch (the EXPLICITLY forbidden EP-0027 route), so the child
@@ -625,7 +611,7 @@
       (rf/reg-event :handler/fx-makes-frame
         (fn [{:keys [db]} _]
           {:db db :fx [[:dispatch [:fx/makes-frame]]]}))
-      (rf/reg-frame :parent/fx {:initial-events [[:test/set-db {}]]})
+      (rf/make-frame {:id :parent/fx :initial-events [[:test/set-db {}]]})
       (rf/dispatch-sync [:handler/fx-makes-frame] {:frame :parent/fx})
       (is (= :rf.error/frame-construction-in-handler @caught)
           "a reg-frame on the :fx /nested-dispatch re-entry path fails loud —
@@ -652,14 +638,13 @@
       (rf/reg-event :nested/makes-frame
         (fn [{:keys [db]} _]
           (reset! caught
-                  (err-id #(rf/reg-frame :child/via-nested
-                             {:initial-events [[:test/set-db {:n 0}]]})))
+                  (err-id #(rf/make-frame {:id :child/via-nested :initial-events [[:test/set-db {:n 0}]]})))
           {:db db}))
       ;; The parent handler queues the nested dispatch via the :dispatch effect.
       (rf/reg-event :nested/parent
         (fn [{:keys [db]} _]
           {:db db :fx [[:dispatch [:nested/makes-frame]]]}))
-      (rf/reg-frame :parent/nested {:initial-events [[:test/set-db {}]]})
+      (rf/make-frame {:id :parent/nested :initial-events [[:test/set-db {}]]})
       (rf/dispatch-sync [:nested/parent] {:frame :parent/nested})
       (is (= :rf.error/frame-construction-in-handler @caught)
           "a reg-frame inside a nested mid-cascade dispatch fails loud")

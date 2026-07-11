@@ -67,7 +67,7 @@
 
 (defn- xray-setup! []
   (registry/register-xray-handlers!)
-  (frame/reg-frame :rf/xray {}))
+  (rf/make-frame {:id :rf/xray}))
 
 (defn- dispatch-trace-ev
   "Minimal :rf.event/dispatched fixture — same shape the shell tests

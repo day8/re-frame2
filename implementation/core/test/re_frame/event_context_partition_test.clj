@@ -65,7 +65,7 @@
 
 (deftest db-coeffect-is-app-db-not-whole-frame
   (testing ":db coeffect equals the app-db partition value, not the frame-state"
-    (rf/reg-frame :ctx/db-is-app-db {:doc "ctx"})
+    (rf/make-frame {:id :ctx/db-is-app-db :doc "ctx"})
     (rf/reg-event :ctx/seed (fn [{:keys [db]} [_ db]] {:db db}))
     (rf/dispatch-sync [:ctx/seed {:user/id 42}] {:frame :ctx/db-is-app-db})
     (let [captured (atom nil)]
@@ -87,7 +87,7 @@
 
 (deftest runtime-and-frame-id-coeffects-present
   (testing ":rf.db/runtime and :rf.frame/id are threaded into the event context"
-    (rf/reg-frame :ctx/partitions {:doc "ctx"})
+    (rf/make-frame {:id :ctx/partitions :doc "ctx"})
     (let [captured (atom nil)]
       (rf/reg-interceptor :ctx/capture-probe
         {:before (fn [ctx] (reset! captured (:coeffects ctx)) ctx)})
@@ -117,7 +117,7 @@
 
 (deftest runtime-db-effect-is-not-a-shape-error
   (testing "a framework-authority handler returning :rf.db/runtime emits no :rf.error/effect-map-shape"
-    (rf/reg-frame :ctx/runtime-fx {:doc "ctx"})
+    (rf/make-frame {:id :ctx/runtime-fx :doc "ctx"})
     (let [recorded (record-traces! ::no-shape-err)]
       ;; :rf/machine? marks framework-write authority (machine registrar mints
       ;; framework-authority handlers — Spec 002 §Write authority).
@@ -130,7 +130,7 @@
 
 (deftest foreign-top-level-key-still-a-shape-error
   (testing "a foreign top-level key (legacy :http) is still policed after the widening"
-    (rf/reg-frame :ctx/foreign-fx {:doc "ctx"})
+    (rf/make-frame {:id :ctx/foreign-fx :doc "ctx"})
     (let [recorded (record-traces! ::foreign-err)]
       (rf/reg-event :ctx/foreign
         (fn [_ _] {:db {:ok? true} :http {:url "/api"}}))
@@ -150,7 +150,7 @@
 
 (deftest app-handler-runtime-effect-warns
   (testing "an ORDINARY app handler returning :rf.db/runtime fires the dev diagnostic"
-    (rf/reg-frame :ctx/app-runtime {:doc "ctx"})
+    (rf/make-frame {:id :ctx/app-runtime :doc "ctx"})
     (let [recorded (record-traces! ::app-warn)]
       (rf/reg-event :ctx/app-emits-runtime
         (fn [_ _] {:rf.db/runtime {:rf.runtime/routing {}}}))
@@ -170,7 +170,7 @@
 
 (deftest framework-authority-runtime-effect-does-not-warn
   (testing "a framework-authority handler (:rf/machine? true) does NOT fire the diagnostic"
-    (rf/reg-frame :ctx/fw-authority {:doc "ctx"})
+    (rf/make-frame {:id :ctx/fw-authority :doc "ctx"})
     (let [recorded (record-traces! ::fw-quiet)]
       (rf/reg-event :ctx/fw-emits-runtime
         {:doc "framework-authority" :rf/machine? true}
@@ -181,7 +181,7 @@
 
 (deftest plain-db-fx-handler-does-not-warn
   (testing "an ordinary handler that does NOT return :rf.db/runtime stays silent"
-    (rf/reg-frame :ctx/plain {:doc "ctx"})
+    (rf/make-frame {:id :ctx/plain :doc "ctx"})
     (let [recorded (record-traces! ::plain-quiet)]
       (rf/reg-event :ctx/plain-db
         (fn [{:keys [db]} _] {:db (assoc db :touched? true) :fx []}))
@@ -228,7 +228,7 @@
 
 (deftest db-handler-returning-legacy-runtime-root-surfaces-hard-error
   (testing "a reg-event handler whose {:db ...} return carries a :rf/runtime root surfaces :rf.error/legacy-runtime-root"
-    (rf/reg-frame :ctx/legacy-db {:doc "ctx"})
+    (rf/make-frame {:id :ctx/legacy-db :doc "ctx"})
     (let [recorded (record-traces! ::legacy-db)]
       (rf/reg-event :ctx/writes-legacy-root
         (fn [{:keys [db]} _] {:db (assoc db :rf/runtime {:rf.runtime/machines {:m 1}})}))
@@ -246,7 +246,7 @@
 
 (deftest fx-handler-returning-legacy-runtime-root-surfaces-hard-error
   (testing "a reg-event handler whose {:db :fx} return carries :rf/runtime in its :db effect surfaces the hard error"
-    (rf/reg-frame :ctx/legacy-fx {:doc "ctx"})
+    (rf/make-frame {:id :ctx/legacy-fx :doc "ctx"})
     (let [recorded (record-traces! ::legacy-fx)]
       (rf/reg-event :ctx/fx-writes-legacy-root
         (fn [{:keys [db]} _] {:db (assoc db :rf/runtime {:rf.runtime/routing {}})}))
@@ -260,7 +260,7 @@
 
 (deftest legitimate-runtime-db-effect-is-not-a-legacy-root-error
   (testing "a framework :rf.db/runtime effect (the NEW partition) is NOT the legacy-root hard error"
-    (rf/reg-frame :ctx/new-runtime {:doc "ctx"})
+    (rf/make-frame {:id :ctx/new-runtime :doc "ctx"})
     (let [recorded (record-traces! ::new-runtime)]
       (rf/reg-event :ctx/fw-runtime
         {:doc "framework-authority" :rf/machine? true}
@@ -302,7 +302,7 @@
 
 (deftest after-interceptor-malformed-fx-is-policed-not-thrown
   (testing "an :after interceptor replacing [:effects :fx] with a non-sequential value is policed (dropped), not a raw host throw after the :db commit"
-    (rf/reg-frame :ctx/after-bad-fx {:doc "ctx"})
+    (rf/make-frame {:id :ctx/after-bad-fx :doc "ctx"})
     (let [recorded (record-traces! ::after-bad-fx)
           ;; The :after runs AFTER the handler-wrapper's :before checks, so
           ;; `commit-fx-effects`/`fx-value-ok?` never saw this value.
@@ -331,7 +331,7 @@
 
 (deftest after-interceptor-foreign-effect-key-is-policed
   (testing "an :after interceptor inserting a foreign top-level effect key is policed (dropped) — not silently ignored at the partition commit"
-    (rf/reg-frame :ctx/after-foreign {:doc "ctx"})
+    (rf/make-frame {:id :ctx/after-foreign :doc "ctx"})
     (let [recorded (record-traces! ::after-foreign)
           foreign  (after-icpt ::foreign
                                (fn [ctx]
@@ -351,7 +351,7 @@
 
 (deftest after-interceptor-legacy-runtime-root-is-rejected
   (testing "an :after interceptor inserting :rf/runtime into [:effects :db] is rejected at the final boundary — never lands in app-db, drain survives"
-    (rf/reg-frame :ctx/after-legacy {:doc "ctx"})
+    (rf/make-frame {:id :ctx/after-legacy :doc "ctx"})
     (let [recorded (record-traces! ::after-legacy)
           ;; Insert the retired :rf/runtime root into the FINAL :db effect,
           ;; AFTER the in-chain `reject-legacy-runtime-root!` :before guard ran.
@@ -389,7 +389,7 @@
 
 (deftest full-context-interceptor-malformed-fx-is-policed
   (testing "a full-context interceptor whose context carries a non-sequential :fx is policed at the boundary"
-    (rf/reg-frame :ctx/ctx-bad-fx {:doc "ctx"})
+    (rf/make-frame {:id :ctx/ctx-bad-fx :doc "ctx"})
     (let [recorded (record-traces! ::ctx-bad-fx)]
       (rf/reg-interceptor :ctx/ctx-writes-probe
         {:before
@@ -410,7 +410,7 @@
 
 (deftest full-context-interceptor-foreign-key-is-policed
   (testing "a full-context interceptor whose context carries a foreign top-level effect key is policed at the boundary"
-    (rf/reg-frame :ctx/ctx-foreign {:doc "ctx"})
+    (rf/make-frame {:id :ctx/ctx-foreign :doc "ctx"})
     (let [recorded (record-traces! ::ctx-foreign)]
       (rf/reg-interceptor :ctx/ctx-foreign-writes-probe
         {:before
@@ -433,7 +433,7 @@
 
 (deftest well-shaped-final-effects-emit-no-shape-error
   (testing "a clean reg-event {:db :fx} return ({:db .. :fx [..]}) emits NO :rf.error/effect-map-shape from the final boundary (no double-policing)"
-    (rf/reg-frame :ctx/clean-final {:doc "ctx"})
+    (rf/make-frame {:id :ctx/clean-final :doc "ctx"})
     (let [recorded (record-traces! ::clean-final)]
       (rf/reg-fx :ctx/noop-fx (fn [_ _]))
       (rf/reg-event :ctx/clean

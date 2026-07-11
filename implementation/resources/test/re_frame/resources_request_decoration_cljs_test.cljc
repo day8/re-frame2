@@ -53,6 +53,7 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
+   [re-frame.fx :as fx]
    ;; load-bearing side-effecting requires: register the :rf.resource/* +
    ;; :rf.mutation/* events + subs + the generation cofx/fx.
    [re-frame.resources]
@@ -96,7 +97,7 @@
   ;; the shared resource reset hook — drop it so each test starts with an
   ;; empty chain (otherwise a prior test's interceptor leaks forward).
   (http-managed/clear-all-http-interceptors!)
-  (rf/reg-fx :rf.http/managed
+  (fx/reg-fx :rf.http/managed
              (fn [frame-ctx args]
                (let [ctx (http-test-support/run-request-chain frame-ctx args)]
                  (reset! last-decorated
@@ -104,7 +105,7 @@
                           :on-success (:on-success args)
                           :on-failure (:on-failure args)}))
                nil))
-  (rf/reg-fx :rf.resource/schedule-timers (fn [_ _] nil))
+  (fx/reg-fx :rf.resource/schedule-timers (fn [_ _] nil))
   (f))
 
 (use-fixtures :each

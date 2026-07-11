@@ -71,7 +71,7 @@
             its installed value is durable), not a success that was silently
             overwritten by the event commit."
     (let [frame-id :drainlin/restore]
-      (rf/reg-frame frame-id {:doc "restore drain-serialization frame"})
+      (rf/make-frame {:id frame-id :doc "restore drain-serialization frame"})
       (rf/reg-event :set (fn [{:keys [db]} [_ v]] {:db {:n v}}))
 
       ;; Barrier plumbing.
@@ -159,7 +159,7 @@
             partition update lost, no synthetic anchor describing a state that
             was never a serial frame state."
     (let [frame-id :drainlin/replace]
-      (rf/reg-frame frame-id {:doc "replace drain-serialization frame"})
+      (rf/make-frame {:id frame-id :doc "replace drain-serialization frame"})
       (rf/reg-event :seed
         (fn [_ _]
           {:db            {:app :v0}
@@ -254,7 +254,7 @@
             drain lock. This is the same-thread reentrancy contract the fix must
             preserve on CLJ (and, single-threaded, CLJS)."
     (let [frame-id :drainlin/reentrant]
-      (rf/reg-frame frame-id {:doc "reentrant refusal frame"})
+      (rf/make-frame {:id frame-id :doc "reentrant refusal frame"})
       (rf/reg-event :seed (fn [_ _] {:db {:n 0}}))
       (rf/dispatch-sync [:seed] {:frame frame-id})
       (let [target-eid (:epoch-id (last (rf/epoch-history frame-id)))

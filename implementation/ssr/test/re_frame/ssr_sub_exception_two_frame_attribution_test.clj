@@ -92,14 +92,16 @@
   (rf/reg-sub :clean-sub (fn [_db _] :ok)))
 
 (defn- make-server-frame [frame-id]
-  ;; `reg-frame` (not `make-frame`) so the two frames carry STABLE, named
-  ;; ids. Both are `:platform :server` so `error-projector/server-frame?`
+  ;; An EXPLICIT `:id` so the two frames carry STABLE, named ids (an
+  ;; id-less `make-frame` gensyms an anonymous one). Returns the ID — these
+  ;; tests read the per-frame response accumulator by id. Both are
+  ;; `:platform :server` so `error-projector/server-frame?`
   ;; recognises them. The default projector maps `:rf.error/sub-exception`
   ;; → 500 (Spec 011 §Default projector).
-  (rf/reg-frame frame-id
-    {:platform :server
-     :ssr      {:public-error-id   :rf.ssr/default-error-projector
-                :dev-error-detail? false}}))
+  (rf/make-frame {:id frame-id :platform :server
+                  :ssr      {:public-error-id   :rf.ssr/default-error-projector
+                             :dev-error-detail? false}})
+  frame-id)
 
 ;; ===========================================================================
 ;; (1) Two live server frames, production hardening — a sub-throw in frame-a

@@ -163,7 +163,7 @@
   payload."
   []
   (let [fid (keyword "rf.frame" (str (gensym "stream-client-")))]
-    (rf/reg-frame fid {:doc "streaming-client-test frame" :platform :client})
+    (rf/make-frame {:id fid :doc "streaming-client-test frame" :platform :client})
     (rf/reg-sub :sct/card (fn [db [_ id]] (get-in db [:cards id])))
     fid))
 

@@ -33,6 +33,7 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
+   [re-frame.fx :as fx]
    ;; load-bearing side-effecting requires: register the :rf.resource/* events
    ;; (ensure / release-owner / gc-fired) + the named-resolver scope plumbing.
    [re-frame.resources]
@@ -55,10 +56,10 @@
   `{:from-db :t/tenant}` reference, plus a GC policy so the entry arms a GC
   re-check timer. `:t/switch-tenant` writes the resolver's app-db input."
   []
-  (rf/reg-frame :rf/default {:url-bound? true
-                             :doc "scoped-lease-lifecycle suite default app frame."})
+  (rf/make-frame {:id :rf/default :url-bound? true
+                  :doc "scoped-lease-lifecycle suite default app frame."})
   (registrar/clear-kind! :resource-scope)
-  (rf/reg-fx :rf.http/managed (fn [_ctx _args] nil))
+  (fx/reg-fx :rf.http/managed (fn [_ctx _args] nil))
   (rf/reg-resource-scope :t/tenant
     {:inputs {:tenant [:db [:viewer :tenant-id]]}}
     (fn [{:keys [tenant]} _ctx]

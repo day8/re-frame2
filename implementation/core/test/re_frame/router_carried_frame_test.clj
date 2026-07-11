@@ -113,7 +113,7 @@
 (deftest dispatch-under-with-frame-works
   (testing "a dispatch inside `with-frame` resolves the scope frame and
             runs the handler against it"
-    (rf/reg-frame :app/main {:doc "scope frame"})
+    (rf/make-frame {:id :app/main :doc "scope frame"})
     (rf/reg-event :app/inc {:frame :app/main}
       (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (rf/with-frame :app/main
@@ -124,7 +124,7 @@
 (deftest dispatch-via-binding-scope-works
   (testing "a dispatch under a *current-frame* binding (the dynamic-var
             scope tier with-frame expands to) resolves that frame"
-    (rf/reg-frame :app/main {:doc "scope frame"})
+    (rf/make-frame {:id :app/main :doc "scope frame"})
     (rf/reg-event :app/inc {:frame :app/main}
       (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (binding [frame/*current-frame* :app/main]
@@ -138,7 +138,7 @@
             unwinds — with a bare `dispatch` (no captured handle) — fails:
             the dynamic binding did not survive the async escape, so there
             is no carried stamp"
-    (rf/reg-frame :app/main {:doc "scope frame"})
+    (rf/make-frame {:id :app/main :doc "scope frame"})
     (rf/reg-event :app/noop {:frame :app/main} (fn [{:keys [db]} _] {:db db}))
     ;; Capture a thunk inside the scope; the bare dispatch reads the
     ;; ambient frame at INVOKE time, not capture time.
@@ -157,7 +157,7 @@
   (testing "a capture-frame CAPTURED inside the scope carries the frame
             stamp as a VALUE; calling its `:dispatch` after the scope
             unwinds still targets the captured frame (the hold tier)"
-    (rf/reg-frame :app/main {:doc "scope frame"})
+    (rf/make-frame {:id :app/main :doc "scope frame"})
     (rf/reg-event :app/inc {:frame :app/main}
       (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (let [handle (rf/with-frame :app/main
@@ -175,7 +175,7 @@
             dynamic-rebinding primitive, API-shrink #1 rf2-csbbwu) re-
             establishes the captured scope so an inner bare dispatch
             resolves the captured frame after unwind"
-    (rf/reg-frame :app/main {:doc "scope frame"})
+    (rf/make-frame {:id :app/main :doc "scope frame"})
     (rf/reg-event :app/inc {:frame :app/main}
       (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (let [bound (rf/with-frame :app/main
@@ -190,7 +190,7 @@
 (deftest explicit-default-works-when-registered
   (testing "explicit `{:frame :rf/default}` is an override and works when
             `:rf/default` is registered as an ordinary frame"
-    (rf/reg-frame :rf/default {:doc "ordinary explicit frame"})
+    (rf/make-frame {:id :rf/default :doc "ordinary explicit frame"})
     (rf/reg-event :app/inc {:frame :rf/default}
       (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     ;; No surrounding scope — the explicit override carries the stamp.
@@ -226,8 +226,8 @@
 (deftest explicit-frame-overrides-scope
   (testing "an explicit `{:frame …}` opt wins over an established
             with-frame scope (override beats scope)"
-    (rf/reg-frame :app/main  {:doc "scope frame"})
-    (rf/reg-frame :app/other {:doc "override target"})
+    (rf/make-frame {:id :app/main :doc "scope frame"})
+    (rf/make-frame {:id :app/other :doc "override target"})
     (rf/reg-event :app/inc {:frame :app/other}
       (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (rf/with-frame :app/main

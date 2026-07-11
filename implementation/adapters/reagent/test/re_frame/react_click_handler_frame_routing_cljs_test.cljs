@@ -52,7 +52,7 @@
      :async?        true
      :ambient-frame nil
      :init-fn       (fn []
-                      (rf/reg-frame :rf/xray {:doc "Xray surrogate for the routing tests"})
+                      (rf/make-frame {:id :rf/xray :doc "Xray surrogate for the routing tests"})
                       (rf/reg-event :rf-tvu99/set-mode
                                     (fn [{:keys [db]} [_ mode]] {:db (assoc db :mode mode)}))
                       (rf/reg-sub :rf-tvu99/mode

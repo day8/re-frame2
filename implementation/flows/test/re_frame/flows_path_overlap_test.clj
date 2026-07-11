@@ -230,8 +230,8 @@
 
 (deftest reg-flow-overlap-is-frame-scoped
   (testing "rf2-um6d9 — overlapping output :paths on DIFFERENT frames are NOT an overlap (frames are isolated app-dbs)"
-    (rf/reg-frame :frame-a {:doc "isolated frame a"})
-    (rf/reg-frame :frame-b {:doc "isolated frame b"})
+    (rf/make-frame {:id :frame-a :doc "isolated frame a"})
+    (rf/make-frame {:id :frame-b :doc "isolated frame b"})
     ;; Same flow-id-shape, same output :output-path, but DIFFERENT frames —
     ;; their writes land in different app-dbs, so no collision.
     (rf/reg-flow :x {:frame :frame-a :inputs [[:in]] :output-path [:dest]} identity)

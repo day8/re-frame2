@@ -70,7 +70,7 @@
 (defn- setup-xray-frame! []
   (registry/register-xray-handlers!)
   (xray-test-support/install-test-overrides!)
-  (frame/reg-frame :rf/xray {}))
+  (rf/make-frame {:id :rf/xray}))
 
 ;; ---- fixtures: registry + entries + ledger ------------------------------
 
@@ -565,7 +565,7 @@
   ;; (rf2-aw9cfs) — data at `[…entries <key-id> :data]`, scope at
   ;; `[…entries <key-id> :resource/key 0]`, params at `[… :resource/key 2]`.
   ;; The on-box egress re-roots each slot to exactly these coordinates.
-  (frame/reg-frame zix-observed-frame {})
+  (rf/make-frame {:id zix-observed-frame})
   (frame/swap-runtime-db! zix-observed-frame
     (fn [rt]
       (elision/apply-classification-effects rt

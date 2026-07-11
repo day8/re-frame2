@@ -29,6 +29,7 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
+   [re-frame.fx :as fx]
    ;; load-bearing side-effecting requires: register the :rf.resource/* +
    ;; :rf.mutation/* events + subs + the generation cofx/fx.
    [re-frame.resources]
@@ -59,8 +60,8 @@
 
 (defn- capturing-transport-fixture [f]
   (reset! last-managed-args nil)
-  (rf/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
-  (rf/reg-fx :rf.resource/schedule-timers (fn [_ _] nil))
+  (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
+  (fx/reg-fx :rf.resource/schedule-timers (fn [_ _] nil))
   (f))
 
 (use-fixtures :each
@@ -253,7 +254,7 @@
   ;; fx + the invalidated trace so we prove the read-path-recovery path ran.
   (let [refetched? (atom false)]
     (rf/reg-fx :rf.resource/refetch (fn [_ _] (reset! refetched? true) nil))
-    (rf/reg-fx :rf.resource/schedule-timers (fn [_ _] nil))
+    (fx/reg-fx :rf.resource/schedule-timers (fn [_ _] nil))
     (let [traces (traces-of [:rf.mutation/optimistic-rolled-back
                              :rf.resource/invalidated]
                    #(reply-failure! @last-managed-args {:kind :rf.http/http-5xx :status 500}))
@@ -408,9 +409,9 @@
 (defn- stub-lifecycle-fx! []
   ;; no-op the host-timer / refetch fx the rollback + release + GC paths emit,
   ;; so the pure durable-state assertions run without wall-clock side effects.
-  (rf/reg-fx :rf.resource/schedule-timers   (fn [_ _] nil))
-  (rf/reg-fx :rf.resource/cancel-timers     (fn [_ _] nil))
-  (rf/reg-fx :rf.resource/cancel-poll-timers (fn [_ _] nil))
+  (fx/reg-fx :rf.resource/schedule-timers   (fn [_ _] nil))
+  (fx/reg-fx :rf.resource/cancel-timers     (fn [_ _] nil))
+  (fx/reg-fx :rf.resource/cancel-poll-timers (fn [_ _] nil))
   (rf/reg-fx :rf.resource/refetch           (fn [_ _] nil)))
 
 (deftest release-mid-flight-does-not-resurrect-the-owner-on-rollback

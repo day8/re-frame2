@@ -108,7 +108,7 @@
             IMAGE handler END-TO-END — proving process-event! wraps the run
             with call-with-frame-resolution (rf2-uejnt3), NOT a manual binding."
     ;; A runnable frame RECORD under :counter/main (EP-0013 substrate).
-    (rf/reg-frame :counter/main {:doc "image-loaded counter frame"})
+    (rf/make-frame {:id :counter/main :doc "image-loaded counter frame"})
     ;; The GLOBAL handler — the value the run would write if it (wrongly)
     ;; resolved through the global registrar.
     (rf/reg-event :counter/inc
@@ -139,7 +139,7 @@
             (rf/subscribe [:counter/value] {:frame :counter/main}) builds the IMAGE sub
             END-TO-END — proving subscribe wraps the build with
             call-with-frame-resolution (rf2-uejnt3)."
-    (rf/reg-frame :counter/main {:doc "image-loaded counter frame"})
+    (rf/make-frame {:id :counter/main :doc "image-loaded counter frame"})
     ;; GLOBAL sub.
     (rf/reg-sub :counter/value (fn [_db _] :global))
     ;; The frame's IMAGE registers the SAME sub id with a DIFFERENT computation.
@@ -162,8 +162,8 @@
             handling [:boot/init] resolve that id to their OWN image's handler
             under a REAL frame-targeted dispatch (EP-0023 §Independent Surfaces
             On One Page — the heart of the same-id story, end-to-end)"
-    (rf/reg-frame :todo/main    {:doc "todo surface"})
-    (rf/reg-frame :counter/main {:doc "counter surface"})
+    (rf/make-frame {:id :todo/main :doc "todo surface"})
+    (rf/make-frame {:id :counter/main :doc "counter surface"})
     ;; A GLOBAL [:boot/init] neither frame should ever run.
     (rf/reg-event :boot/init
       (fn [{:keys [db]} _] {:db (assoc db :booted-by :global)}))
@@ -196,7 +196,7 @@
             EP-0013 frame) resolves a frame-targeted dispatch + subscribe through
             the GLOBAL registrar unchanged — the load-bearing absence-is-default
             fall-through that keeps every existing caller byte-identical"
-    (rf/reg-frame :plain/main {:doc "no image-loaded object for this frame"})
+    (rf/make-frame {:id :plain/main :doc "no image-loaded object for this frame"})
     (rf/reg-event :plain/set
       (fn [{:keys [db]} _] {:db (assoc db :written-by :global)}))
     (rf/reg-sub :plain/value (fn [db _] (:written-by db)))
@@ -220,7 +220,7 @@
             [:counter/inc] handler re-enters process-event! for :counter/main
             and re-derives the generation — so it ALSO resolves through the
             frame's image (the drain stays coherent across child dispatches)"
-    (rf/reg-frame :counter/main {:doc "image-loaded counter frame"})
+    (rf/make-frame {:id :counter/main :doc "image-loaded counter frame"})
     ;; GLOBAL versions both children should NEVER run.
     (rf/reg-event :counter/inc  (fn [{:keys [db]} _] {:db (assoc db :inc :global)}))
     (rf/reg-event :counter/step (fn [{:keys [db]} _] {:db (assoc db :step :global)}))
@@ -410,7 +410,7 @@
             runs that handler END-TO-END under a frame-targeted dispatch — the
             inline body lowers to the same runnable descriptor shape a
             :include-ns-selected handler carries (rf2-ffc6s0)"
-    (rf/reg-frame :inline/main {:doc "inline-image counter frame"})
+    (rf/make-frame {:id :inline/main :doc "inline-image counter frame"})
     ;; A GLOBAL handler the run would (wrongly) execute if it resolved through
     ;; the global registrar — present so the assertion proves the IMAGE ran.
     (rf/reg-event :counter/inc
@@ -437,7 +437,7 @@
   (testing "an image built from INLINE :registrations with a REAL layer-1 sub
             fn body computes that sub END-TO-END under a frame-targeted
             subscribe (rf2-ffc6s0)"
-    (rf/reg-frame :inline/main {:doc "inline-image counter frame"})
+    (rf/make-frame {:id :inline/main :doc "inline-image counter frame"})
     (rf/reg-sub :counter/value (fn [_db _] :global))
     (let [img (image/image
                 {:id :inline/counter
@@ -460,7 +460,7 @@
   (testing "an image built from INLINE :registrations with a REAL fx fn body
             runs that effect END-TO-END when an inline event handler emits it
             (rf2-ffc6s0)"
-    (rf/reg-frame :inline/main {:doc "inline-image fx frame"})
+    (rf/make-frame {:id :inline/main :doc "inline-image fx frame"})
     (let [fired (atom [])
           img (image/image
                 {:id :inline/fx

@@ -5,6 +5,7 @@
   routing_test.clj per rf2-u8qe7y finding 3."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.fx :as fx]
             [re-frame.frame :as frame]
             [re-frame.routing :as routing]
             [re-frame.routing.nav-fx :as nav-fx]
@@ -53,12 +54,12 @@
       ;; Override the spec's :platforms #{:client} default for the JVM
       ;; test — re-register :rf.nav/scroll on both server+client so the
       ;; do-fx interpreter actually invokes our capture.
-      (rf/reg-fx :rf.nav/scroll
+      (fx/reg-fx :rf.nav/scroll
                  {:platforms #{:server :client}}
                  (fn [_ args] (swap! calls conj args)))
       ;; :rf.nav/push-url is :platforms #{:client} by default; suppress on
       ;; the JVM the same way the other routing tests do.
-      (rf/reg-fx :rf.nav/push-url
+      (fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ _] nil))
 
@@ -259,10 +260,10 @@
     ;; [:rf.runtime/routing ...], so they cannot egress to trace/epoch/SSR.
     (routing/reset-scroll-cache!)
     (rf/reg-route :route/home {} "/")
-    (rf/reg-fx :rf.nav/scroll        {:platforms #{:server :client}} (fn [_ _] nil))
-    (rf/reg-fx :rf.nav/push-url      {:platforms #{:server :client}} (fn [_ _] nil))
+    (fx/reg-fx :rf.nav/scroll        {:platforms #{:server :client}} (fn [_ _] nil))
+    (fx/reg-fx :rf.nav/push-url      {:platforms #{:server :client}} (fn [_ _] nil))
     ;; Capture a position for the :rf/default frame via the production fx.
-    (rf/reg-fx :rf.nav/capture-scroll {:platforms #{:server :client}}
+    (fx/reg-fx :rf.nav/capture-scroll {:platforms #{:server :client}}
                (fn [ctx args]
                  ;; mirror the handler but supply an explicit position (no
                  ;; window on the JVM) so the save path is exercised here.
@@ -282,7 +283,7 @@
   (testing "destroy-frame! releases the destroyed frame's host scroll cache
             entry via the :routing/on-frame-destroyed! teardown hook"
     (routing/reset-scroll-cache!)
-    (rf/reg-frame :frame/scrollee {})
+    (rf/make-frame {:id :frame/scrollee})
     (routing/save-scroll-position! :frame/scrollee "/x" [0 100])
     (is (some? (routing/frame-scroll-cache :frame/scrollee))
         "precondition: the frame has a host cache entry")
@@ -299,9 +300,9 @@
     (rf/reg-route :route/article {:params [:map [:id :string]]
                                   :scroll :restore} "/articles/:id")
     (let [calls (atom [])]
-      (rf/reg-fx :rf.nav/scroll {:platforms #{:server :client}}
+      (fx/reg-fx :rf.nav/scroll {:platforms #{:server :client}}
                  (fn [_ args] (swap! calls conj args)))
-      (rf/reg-fx :rf.nav/push-url {:platforms #{:server :client}}
+      (fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}}
                  (fn [_ _] nil))
       ;; Seed a saved position for "/articles/intro" in the host cache,
       ;; as a prior visit's capture would have.
@@ -385,10 +386,10 @@
     (rf/reg-route :route/silent  {:scroll false} "/silent")
     (rf/reg-route :route/silent2 {:scroll false} "/silent2")
     (let [calls (atom [])]
-      (rf/reg-fx :rf.nav/scroll
+      (fx/reg-fx :rf.nav/scroll
                  {:platforms #{:server :client}}
                  (fn [_ args] (swap! calls conj args)))
-      (rf/reg-fx :rf.nav/push-url
+      (fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ _] nil))
       ;; Without an opts override the route's :scroll false suppresses.
@@ -406,10 +407,10 @@
             concrete :scroll strategy"
     (rf/reg-route :route/loud {:scroll :restore} "/loud")
     (let [calls (atom [])]
-      (rf/reg-fx :rf.nav/scroll
+      (fx/reg-fx :rf.nav/scroll
                  {:platforms #{:server :client}}
                  (fn [_ args] (swap! calls conj args)))
-      (rf/reg-fx :rf.nav/push-url
+      (fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ _] nil))
       (rf/dispatch-sync [:rf.route/navigate :route/loud {} {:scroll false}])
@@ -420,10 +421,10 @@
             fx args verbatim — the resolver does not coerce or drop them"
     (rf/reg-route :route/custom {:scroll {:behavior :smooth :block :center}} "/custom")
     (let [calls (atom [])]
-      (rf/reg-fx :rf.nav/scroll
+      (fx/reg-fx :rf.nav/scroll
                  {:platforms #{:server :client}}
                  (fn [_ args] (swap! calls conj args)))
-      (rf/reg-fx :rf.nav/push-url
+      (fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ _] nil))
       (rf/dispatch-sync [:rf.route/navigate :route/custom])
@@ -506,7 +507,7 @@
     ;; A non-URL-bound frame skips the history push with :reason
     ;; :frame-not-url-bound — the OTHER routing skip path. It must carry
     ;; the canonical identity tag too.
-    (rf/reg-frame :story/variant {})              ;; no :url-bound?
+    (rf/make-frame {:id :story/variant})              ;; no :url-bound?
     (let [tags (capture-fx-traces
                  #(nav-fx/push-url-handler {:frame :story/variant} "/articles"))]
       (is (= 1 (count tags))

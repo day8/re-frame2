@@ -58,7 +58,7 @@
   (registrar/clear-kind! :resource)
   ;; FRAME classification: the viewer-identity path is sensitive (commit-plane
   ;; effect path, :source :effect).
-  (rf/reg-frame frame-id {})
+  (rf/make-frame {:id frame-id})
   (frame/swap-runtime-db! frame-id
     (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:auth :user :username]]})))
   ;; resolver reading the sensitive viewer-identity path — NO propagation now.

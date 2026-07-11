@@ -107,7 +107,7 @@
 (deftest rollup-false-on-non-sensitive-cascade
   (testing "no sensitive handler, no frame-declared sensitive path —
             rollup reads strict false"
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
     (let [r (last-record :test/main)]
@@ -122,7 +122,7 @@
             it no longer stamps trace events, so the rollup reads
             false for a cascade whose only sensitive signal was the
             (now-ignored) handler annotation."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-event :secret-write
                      {:sensitive? true}   ;; stored, no longer consulted
                      (fn [{:keys [db]} _] {:db (assoc db :token "shh")}))
@@ -135,7 +135,7 @@
   (testing "a frame-declared sensitive path that resolves to a non-nil
             leaf in :db-after triggers the rollup even when no handler
             in scope is sensitive"
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (install-sensitive-schema! :test/main)
     (rf/reg-event :login
                      (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
@@ -148,7 +148,7 @@
             recorded :db-before / :db-after carry no value at the path
             — rollup reads false (the declaration is structural; the
             cascade carried no actual sensitive material)"
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (install-sensitive-schema! :test/main)
     (rf/reg-event :unrelated (fn [{:keys [db]} _] {:db (assoc db :n 42)}))
     (rf/dispatch-sync [:unrelated] {:frame :test/main})
@@ -161,7 +161,7 @@
   (testing "a sensitive value present in :db-before (the pre-cascade
             snapshot) triggers the rollup even when the handler clears
             the value during the cascade"
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (install-sensitive-schema! :test/main)
     (rf/reg-event :seed
                      (fn [{:keys [db]} _] {:db {:auth {:password "old-secret"}}}))
@@ -199,7 +199,7 @@
             walk finds no non-nil sensitive leaf and the rollup is a
             strict `false` — proving the rollup walks the real (non-nil)
             db without NPE and without a spurious true."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (install-sensitive-schema! :test/main)
     ;; Trigger a real cascade so capture-buffers carries a run-start;
     ;; on destroy mid-drain the halted-destroy record fires.
@@ -260,7 +260,7 @@
 (deftest projected-record-redacts-sensitive-in-db-after
   (testing "frame-declared sensitive path in :db-after lands as
             :rf/redacted in the projected record"
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (install-sensitive-schema! :test/main)
     (rf/reg-event :login
                      (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
@@ -277,7 +277,7 @@
   (testing ":db-before is also walked through the projection — a value
             present pre-cascade lands as :rf/redacted in the projected
             record"
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (install-sensitive-schema! :test/main)
     (rf/reg-event :seed
                      (fn [{:keys [db]} _] {:db {:auth {:password "original-secret"}}}))
@@ -298,7 +298,7 @@
 (deftest projected-record-elides-large-in-db-after
   (testing "frame-declared :large? path in :db-after lands as a
             :rf.size/large-elided marker in the projected record"
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (install-large-schema! :test/main)
     (rf/reg-event :store
                      (fn [{:keys [db]} [_ payload]]
@@ -328,7 +328,7 @@
             contract (the pre-fix leak). The non-value row metadata
             (`:sub-id`, `:query-v`, `:value-changed?`, `:cascade?`) is
             preserved, and the now-spent `:large?` row flag is stripped."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     ;; A whole-output `:large?` sub: its output is treated as large for
     ;; downstream egress. EP-0025: this is a REGISTRATION override (read via
@@ -393,7 +393,7 @@
 (deftest projected-record-bookkeeping-passes-through
   (testing "bookkeeping slots are preserved by the projection — the
             projection only mutates payload-bearing slots"
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (install-sensitive-schema! :test/main)
     (rf/reg-event :login
                      (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
@@ -419,7 +419,7 @@
             egress case is pinned by `projected-record-elides-large-sub-output`.
             (`:effects` is NOT pass-through any more — its `:args` fail closed,
             pinned by the rf2-rlt3sv tests below.)"
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (install-sensitive-schema! :test/main)
     (rf/reg-event :login
                      (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
@@ -450,7 +450,7 @@
   (testing "an :ok fx row's :args are payload-bearing and fail closed off-box;
             the raw ring keeps them (negative control); :fx-id / :outcome are
             preserved; :include-fx-args? true lifts the redaction"
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (let [secret {:password "topsecret" :token "abc123"}]
       (rf/reg-fx :fxp/login (fn [_ _] nil))
       (rf/reg-event :do-login
@@ -480,7 +480,7 @@
 (deftest projected-record-elides-fx-args-skipped-on-platform-row
   (testing "a :skipped-on-platform fx row's :args fail closed off-box (the
             skip path's args are not pre-redacted)"
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (let [secret {:k "session-key" :v "secret-value"}]
       ;; :client-only fx is skipped on the JVM (:server) host.
       (rf/reg-fx :fxp/local-storage {:platforms #{:client}} (fn [_ _] nil))
@@ -502,7 +502,7 @@
 (deftest projected-record-elides-fx-args-no-such-fx-row
   (testing "a :rf.error/no-such-fx row's :args fail closed off-box; :error
             metadata (:outcome / :error-trace) is preserved"
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (let [secret {:card "4111-1111-1111-1111"}]
       ;; No fx registered under :fxp/missing → :rf.error/no-such-fx.
       (rf/reg-event :charge
@@ -525,7 +525,7 @@
 (deftest projected-record-elides-fx-args-handler-exception-row
   (testing "an :rf.error/fx-handler-exception row's :args fail closed off-box;
             :error metadata is preserved"
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (let [secret {:ssn "123-45-6789"}]
       (rf/reg-fx :fxp/boom (fn [_ _] (throw (ex-info "boom" {}))))
       (rf/reg-event :explode
@@ -548,7 +548,7 @@
 (deftest projected-record-fx-args-projection-is-idempotent
   (testing "re-projecting an already-projected :effects row leaves :args as the
             :rf/redacted sentinel (no drift under double-projection)"
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-fx :fxp/login (fn [_ _] nil))
     (rf/reg-event :do-login
                      (fn [_ [_ creds]] {:fx [[:fxp/login creds]]}))
@@ -570,7 +570,7 @@
             classification walker cannot match them — the projection FAILS
             CLOSED: the head event-id keyword is retained as the summary,
             every positional arg is redacted to :rf/redacted."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (install-sensitive-schema! :test/main)
     ;; The secret rides POSITIONALLY in the event vector — there is no
     ;; app-db sensitive declaration that could match the trigger-event
@@ -602,7 +602,7 @@
             transient payloads too — an unmarked map arg cannot be proven
             safe by the app-db walker, so the whole arg redacts to
             :rf/redacted (no per-key descent that could leak the value)."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (install-sensitive-schema! :test/main)
     (rf/reg-event :auth/login
                      (fn [{:keys [db]} [_ {:keys [password]}]]
@@ -632,7 +632,7 @@
             surfaces (schema-validation error traces, fx args derived from
             the event); it is the trigger-event slot specifically that
             fails closed."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (install-sensitive-schema! :test/main)
     (rf/reg-event :auth/login
                      {:sensitive [[:password]]}
@@ -652,7 +652,7 @@
             inspecting their own running app). It is ORTHOGONAL to the
             app-db :include-sensitive? / :include-large? opt-ins — those do
             NOT lift it; only :include-event-args? does."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (install-sensitive-schema! :test/main)
     (rf/reg-event :login
                      (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
@@ -676,7 +676,7 @@
             the trigger-event args as the :rf/redacted sentinel (no drift,
             no re-leak under double-projection — a forwarder pipeline may
             project the same record twice)."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-event :login
                      (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
     (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
@@ -694,7 +694,7 @@
             declared both :sensitive? AND :large? lands as :rf/redacted,
             never as a :rf.size/large-elided marker (the marker would
             leak :path / :bytes / :digest)"
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     ;; EP-0025: classify `[:secret-pdf]` BOTH sensitive AND large via the
     ;; commit-plane classification effect path. The egress WALKER applies the
     ;; sensitive-wins-over-large rule (sensitive is checked before large per
@@ -772,7 +772,7 @@
             enables, while the :rf.egress/off-box-observability default
             omits it. Both still elide the large value (no raw bytes
             egress)."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (install-large-schema! :test/main)
     (rf/reg-event :store
                      (fn [{:keys [db]} [_ payload]]
@@ -815,7 +815,7 @@
             still lands as :rf/redacted under :rf.egress/off-box-tool (the
             tool profile only adds structural indicators for elided large
             values, it does not reveal sensitive content)."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (install-sensitive-schema! :test/main)
     (rf/reg-event :login
                      (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
@@ -831,7 +831,7 @@
   (testing "rf2-1afn7q: an unknown :rf.egress/profile is rejected against
             the shared closed enum — a typo is a loud error, never a
             silent fall-through to a permissive walk."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (install-large-schema! :test/main)
     (rf/reg-event :store
                      (fn [{:keys [db]} [_ payload]]
@@ -850,7 +850,7 @@
             :rf.egress/off-box-tool profile to every record — the
             structural :digest rides each elided large slot off the
             whole-ring egress path too."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (install-large-schema! :test/main)
     (rf/reg-event :store
                      (fn [{:keys [db]} [_ payload]]
@@ -869,7 +869,7 @@
 (deftest projected-history-walks-the-ring
   (testing "projected-history returns one projected record per ring
             entry, in oldest-first order"
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (install-sensitive-schema! :test/main)
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {}}))
     (rf/reg-event :login
@@ -905,7 +905,7 @@
             restore drivers depend on the raw :db-after; a silent
             projection would break them. Forwarders that egress
             off-box opt INTO projection at the wire boundary."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (install-sensitive-schema! :test/main)
     (let [seen (atom [])]
       (rf/register-listener! :epoch ::raw-listener
@@ -923,7 +923,7 @@
   (testing "the canonical off-box-forwarder pattern: register raw,
             project at egress. This pins the recommended shape for
             tools (Xray-MCP watch-epochs, story / pair recorders)."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (install-sensitive-schema! :test/main)
     (let [shipped (atom [])
           ship!   (fn [record]
@@ -946,7 +946,7 @@
             elision path is reachable cheaply — drive >5 cascades, the
             oldest records lose :trace-events but keep the structured
             projections (per rf2-mrsck)"
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 
@@ -972,7 +972,7 @@
   (testing ":trace-events-keep 0 drops :trace-events from every
             record — the structured projections survive"
     (rf/configure! {:epoch-history {:trace-events-keep 0}})
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 
@@ -991,7 +991,7 @@
   (testing "an explicit :trace-events-keep value >= the depth cap
             keeps every record's :trace-events — the opt-back-in path"
     (rf/configure! {:epoch-history {:trace-events-keep 100}})
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 

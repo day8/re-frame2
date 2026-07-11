@@ -72,7 +72,7 @@
             takes when a scheduled drain reaches the write AFTER destroy."
     (let [frame-id :rf-9od6t/race]
       (with-trace-recorder! [errs {:pred write-after-destroy-pred}]
-        (rf/reg-frame frame-id {:doc "rf2-9od6t race reproducer"})
+        (rf/make-frame {:id frame-id :doc "rf2-9od6t race reproducer"})
         (rf/destroy-frame! frame-id)
         (let [container (frame/app-db-container frame-id)]
           (is (nil? container)

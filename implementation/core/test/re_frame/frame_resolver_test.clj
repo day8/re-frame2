@@ -147,7 +147,7 @@
 (deftest default-frame-remains-a-legal-explicit-id
   (testing ":rf/default is an ordinary id a program may register EXPLICITLY"
     (is (nil? (frame/frame :rf/default)) "precondition: not present")
-    (rf/reg-frame :rf/default {:doc "The app frame for this program."})
+    (rf/make-frame {:id :rf/default :doc "The app frame for this program."})
     (is (some? (frame/frame :rf/default))
         ":rf/default registers like any ordinary frame id when chosen explicitly")
     ;; And once explicitly in scope, ambient resolution returns it — an

@@ -72,11 +72,10 @@
                                   (fn [record] (swap! seen conj record)))
       ;; The frame declares the sink under :observability, AND classifies
       ;; [:auth :token] sensitive (so the projector has policy to apply).
-      (rf/reg-frame :obs/main
-        {:observability
-         {:handled-events [{:sink :test.sinks/datadog
-                            :rf.egress/profile :rf.egress/off-box-observability
-                            :opts {:service "checkout-spa"}}]}})
+      (rf/make-frame {:id :obs/main :observability
+                      {:handled-events [{:sink :test.sinks/datadog
+                                         :rf.egress/profile :rf.egress/off-box-observability
+                                         :opts {:service "checkout-spa"}}]}})
       ;; EP-0025: classify [:auth :token] sensitive via the commit-plane
       ;; effect path (the durable frame annotation is removed) so the
       ;; projector has policy to apply.
@@ -114,10 +113,9 @@
       ;; sink consumes an already-projected record, not a raw one. We
       ;; classify the event-arg path [:1 :card] sensitive so the projected
       ;; :event has it redacted even though the profile is local-raw.
-      (rf/reg-frame :obs/raw
-        {:observability
-         {:handled-events [{:sink :test.sinks/local
-                            :rf.egress/profile :rf.egress/local-raw}]}})
+      (rf/make-frame {:id :obs/raw :observability
+                      {:handled-events [{:sink :test.sinks/local
+                                         :rf.egress/profile :rf.egress/local-raw}]}})
       (rf/reg-event :pay/submit
                        {:frame :obs/raw}
                        (fn [{:keys [db]} _] {:db db}))
@@ -140,10 +138,9 @@
     (let [seen (atom [])]
       (rf/register-observability-sink! :test.sinks/sentry
                                   (fn [record] (swap! seen conj record)))
-      (rf/reg-frame :obs/err
-        {:observability
-         {:errors [{:sink :test.sinks/sentry
-                    :rf.egress/profile :rf.egress/off-box-observability}]}})
+      (rf/make-frame {:id :obs/err :observability
+                      {:errors [{:sink :test.sinks/sentry
+                                 :rf.egress/profile :rf.egress/off-box-observability}]}})
       ;; EP-0025: classify [:auth :token] sensitive via the commit-plane
       ;; effect path (the durable frame annotation is removed) so the
       ;; projector redacts it inside the error record's :event tree slot.
@@ -184,10 +181,9 @@
                                        (fn [record] (swap! seen conj record)))
       ;; The frame declares the error sink but NO :sensitive classification at
       ;; all — the redaction must come from the EVENT registration, not the frame.
-      (rf/reg-frame :obs/reg-marks
-        {:observability
-         {:errors [{:sink :test.sinks/sentry2
-                    :rf.egress/profile :rf.egress/off-box-observability}]}})
+      (rf/make-frame {:id :obs/reg-marks :observability
+                      {:errors [{:sink :test.sinks/sentry2
+                                 :rf.egress/profile :rf.egress/off-box-observability}]}})
       ;; The handler OWNS the sensitivity of its own event arg: [:password] in
       ;; the arg-map (the registration-marks paths are rooted at the arg-map).
       (rf/reg-event :auth/reg-login
@@ -216,7 +212,7 @@
     (let [seen (atom [])]
       (rf/register-observability-sink! :test.sinks/unused
                                   (fn [record] (swap! seen conj record)))
-      (rf/reg-frame :obs/none {})
+      (rf/make-frame {:id :obs/none})
       (rf/reg-event :evt/noop {:frame :obs/none} (fn [{:keys [db]} _] {:db db}))
       (rf/dispatch-sync [:evt/noop] {:frame :obs/none})
       (is (empty? @seen)
@@ -251,12 +247,11 @@
                                   (fn [_record] (throw (ex-info "sink bug" {}))))
       (rf/register-observability-sink! :test.sinks/good
                                   (fn [record] (swap! seen conj record)))
-      (rf/reg-frame :obs/sib
-        {:observability
-         {:handled-events [{:sink :test.sinks/boom
-                            :rf.egress/profile :rf.egress/off-box-observability}
-                           {:sink :test.sinks/good
-                            :rf.egress/profile :rf.egress/off-box-observability}]}})
+      (rf/make-frame {:id :obs/sib :observability
+                      {:handled-events [{:sink :test.sinks/boom
+                                         :rf.egress/profile :rf.egress/off-box-observability}
+                                        {:sink :test.sinks/good
+                                         :rf.egress/profile :rf.egress/off-box-observability}]}})
       (rf/reg-event :evt/go {:frame :obs/sib} (fn [{:keys [db]} _] {:db db}))
       ;; The throwing sink must not blow up the dispatch nor starve the good
       ;; sink.

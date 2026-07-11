@@ -172,8 +172,7 @@
       ;; futures only READ from `frame/frames` (per-frame state lives
       ;; in independent app-db containers).
       (doseq [{:keys [frame-id]} per-thread]
-        (rf/reg-frame frame-id
-                      {:doc "per-thread frame for flows stress test"}))
+        (rf/make-frame {:id frame-id :doc "per-thread frame for flows stress test"}))
       ;; Per-thread :seed event (writes :n once so the flow has an
       ;; input value) and :bump-input event (changes :n every iter so
       ;; the dirty-check fires). These events are global (registrar

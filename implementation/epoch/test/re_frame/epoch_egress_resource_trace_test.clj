@@ -49,7 +49,7 @@
   (test-support/make-reset-runtime-fixture
     {:adapter plain-atom/adapter
      :init-fn (fn []
-                (rf/reg-frame :test/rt {})
+                (rf/make-frame {:id :test/rt})
                 ;; a :sensitive? resource — scope + params tokenize off-box.
                 (rf/reg-resource :secret/article
                   {:scope         :rf.scope/global

@@ -16,6 +16,7 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core                 :as rf]
+            [re-frame.frame                :as frame]
             [re-frame.fx                   :as fx]
             [re-frame.image                :as image]
             [re-frame.late-bind            :as late-bind]
@@ -39,7 +40,7 @@
   (testing "an image whose sealed generation carries an inline event AND an
             inline fx absent from (rf/registrations :fx): under *effect-sink*
             the fx body's counter stays at zero and exactly one row records"
-    (rf/reg-frame :inline/main {:doc "inline-image fx frame"})
+    (rf/make-frame {:id :inline/main :doc "inline-image fx frame"})
     (let [fired (atom [])
           img   (image/image
                   {:id :inline/fx
@@ -81,7 +82,7 @@
 (deftest dry-run-skips-and-records-registrar-reject-tier-fx
   (testing "spawn / destroy / with-nav-token (+ a custom control) all record
             under the sink and NONE runs; without the sink all run"
-    (rf/reg-frame :rt/frame {})
+    (rf/make-frame {:id :rt/frame})
     (let [hits    (atom {})
           record! (fn [id] (fn [_ctx args] (swap! hits assoc id args)))
           emitted [[:custom/control          {:c 1}]
@@ -89,7 +90,12 @@
                    [:rf.machine/destroy       {:actor :a}]
                    [:rf.route/with-nav-token  {:t 1}]]]
       (doseq [[id _] emitted]
-        (rf/reg-fx id (record! id)))
+        ;; FN form (no source-coord capture): these OVERRIDE framework
+        ;; reserved fx ids (machines spawn/destroy, routing with-nav-token)
+        ;; — the override must REPLACE the framework's source-store slot,
+        ;; not collide as a cross-ns duplicate at default-image assembly
+        ;; (rf2-h1vqa4).
+        (fx/reg-fx id (record! id)))
       (rf/reg-event :rt/go
         (fn [{:keys [db]} _] {:db (assoc db :ran true) :fx emitted}))
       ;; DRY RUN.
@@ -102,9 +108,16 @@
         (is (= emitted @sink)
             "every emitted fx recorded, source-ordered, incl. the reject-tier
              reserved ids"))
-      ;; POSITIVE CONTROL.
+      ;; POSITIVE CONTROL. Resolve via the REGISTRAR-ATOM path — an
+      ;; engine-seated, generation-less frame (rf2-h1vqa4): the reserved
+      ;; machine fx ids ride the framework-STANDARDS pool inside a sealed
+      ;; image generation (EP-0026 §Framework standards), so a test
+      ;; re-registration cannot shadow them there; the registrar path is
+      ;; where the recorder stubs are observable, and the control only
+      ;; proves the stub fx bodies EXECUTE without the sink.
       (reset! hits {})
-      (rf/dispatch-sync [:rt/go] {:frame :rt/frame})
+      (frame/upsert-frame! :rt/frame-bare {})
+      (rf/dispatch-sync [:rt/go] {:frame :rt/frame-bare})
       (is (= {:custom/control         {:c 1}
               :rf.machine/spawn        {:actor :a}
               :rf.machine/destroy      {:actor :a}
@@ -116,7 +129,7 @@
   (testing ":rf.fx/reg-flow / :rf.fx/clear-flow (core reserved-table ids whose
             body core strips :fx-overrides for) record under the sink and their
             real body (the :flows/* late-bind hook) never fires"
-    (rf/reg-frame :rf/frame {})
+    (rf/make-frame {:id :rf/frame})
     (let [hits      (atom [])
           old-reg   (late-bind/get-fn :flows/reg-flow)
           old-clear (late-bind/get-fn :flows/clear-flow)]
@@ -156,8 +169,8 @@
 (deftest dry-run-two-frames-same-fx-id-different-bodies
   (testing "frame A and frame B each resolve [:same/fx] to a DIFFERENT inline
             body; a dry-run against A records A's entry and runs neither body"
-    (rf/reg-frame :f/a {})
-    (rf/reg-frame :f/b {})
+    (rf/make-frame {:id :f/a})
+    (rf/make-frame {:id :f/b})
     (let [fired-a (atom false)
           fired-b (atom false)
           img-a   (image/image
@@ -194,7 +207,7 @@
   (testing "an event emitting external-effect fx interleaved with a :dispatch
             fx: the external sentinel stays untouched, no child dispatch runs,
             and the sink is complete + source-ordered"
-    (rf/reg-frame :ord/frame {})
+    (rf/make-frame {:id :ord/frame})
     (let [escaped     (atom :untouched)
           child-ran   (atom false)]
       (rf/reg-fx :ext/http (fn [_ _] (reset! escaped :ESCAPED)))
@@ -233,7 +246,7 @@
   (testing "an fx id absent from the process-global :fx registrar is still
             recorded + skipped — the guarantee is executor-sited, not
             enumeration-inferred"
-    (rf/reg-frame :ni/main {})
+    (rf/make-frame {:id :ni/main})
     (let [ran (atom false)
           img (image/image
                 {:id :ni/img

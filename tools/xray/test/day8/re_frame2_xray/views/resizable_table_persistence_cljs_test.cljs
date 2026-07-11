@@ -41,7 +41,7 @@
   slot. Mirrors `filters/persistence_cljs_test`'s `xray-setup!`."
   []
   (registry/register-xray-handlers!)
-  (frame/reg-frame :rf/xray {})
+  (rf/make-frame {:id :rf/xray})
   (rt/hydrate!))
 
 (defn- frame-sub [q]

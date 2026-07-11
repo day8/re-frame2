@@ -20,6 +20,7 @@
   `re-frame.http-privacy-integration-test`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.fx :as fx]
             [re-frame.http.managed :as http-managed]
             [re-frame.http.privacy :as privacy]
             [re-frame.http.privacy-headers :as headers]
@@ -772,7 +773,7 @@
   shape). `registrar/clear-all!` in the reset fixture clears the framework's
   own registration, so each carrier test installs the carriers it needs."
   [carriers]
-  (rf/reg-fx :rf.http/managed {:carriers carriers} http-managed/managed-handler))
+  (fx/reg-fx :rf.http/managed {:carriers carriers} http-managed/managed-handler))
 
 (deftest managed-carriers-resolves-registration-carriers
   (testing "managed-carriers reads the :rf.http/managed :carriers block"
@@ -783,7 +784,7 @@
       (is (= #{"x-honeycomb-team"} (:headers carriers)))
       (is (= #{"shop_token"} (:query-params carriers))))
     (testing "a registration with no :carriers block resolves to nil"
-      (rf/reg-fx :rf.http/managed {} http-managed/managed-handler)
+      (fx/reg-fx :rf.http/managed {} http-managed/managed-handler)
       (is (nil? (privacy/managed-carriers))))
     (testing "an unregistered :rf.http/managed resolves to nil"
       (registrar/clear-all!)
@@ -804,7 +805,7 @@
       (is (= "application/json" (get-in out [:headers "Content-Type"]))
           "ordinary header preserved"))
     (testing "without a :carriers block, only the built-in defaults redact"
-      (rf/reg-fx :rf.http/managed {} http-managed/managed-handler)
+      (fx/reg-fx :rf.http/managed {} http-managed/managed-handler)
       (let [tags {:headers {"X-Honeycomb-Team" "hc-secret"
                             "Authorization"    "Bearer abc"}}
             out  (privacy/prepare-emit-tags tags false)]
@@ -822,7 +823,7 @@
       (is (true? (:sensitive? out))
           "a carrier query-param hit stamps :sensitive? (the name is the signal)"))
     (testing "without a :carriers block the same param rides unredacted (built-in only)"
-      (rf/reg-fx :rf.http/managed {} http-managed/managed-handler)
+      (fx/reg-fx :rf.http/managed {} http-managed/managed-handler)
       (let [tags {:url "https://api.example.com/x?shop_token=abc&page=2"}
             out  (privacy/prepare-emit-tags tags false)]
         (is (= "https://api.example.com/x?shop_token=abc&page=2" (:url out)))))))
@@ -855,7 +856,7 @@
       (is (= "https://api.example.com/x?token=abc&api_key=:rf/redacted&page=2" (:url out))
           "excepted default visible; non-excepted default still redacted"))
     (testing "without a :carriers block the default param redacts as usual"
-      (rf/reg-fx :rf.http/managed {} http-managed/managed-handler)
+      (fx/reg-fx :rf.http/managed {} http-managed/managed-handler)
       (let [tags {:url "https://api.example.com/x?token=abc&page=2"}
             out  (privacy/prepare-emit-tags tags false)]
         (is (= "https://api.example.com/x?token=:rf/redacted&page=2" (:url out)))))))

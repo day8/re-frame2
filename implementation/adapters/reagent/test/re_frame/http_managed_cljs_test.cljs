@@ -34,6 +34,7 @@
             ;; validator; without this require they'd soft-pass.
             [re-frame.schemas.malli]
             [re-frame.core :as rf]
+            [re-frame.fx :as fx]
             [re-frame.frame :as frame]
             [re-frame.http.managed :as http-managed]
             ;; rf2-cdmle — canned-stub fxs (`:rf.http/managed-canned-success`,
@@ -177,7 +178,7 @@
             (NO per-call :fx-overrides) is intercepted by the stub and the real
             :rf.http/managed fx slot is NEVER invoked"
     (let [real-fx-invoked? (atom false)]
-      (rf/reg-fx :rf.http/managed
+      (fx/reg-fx :rf.http/managed
                  (fn [_frame-ctx _args] (reset! real-fx-invoked? true) nil))
       (rf/reg-event :rzqan/load
         (fn [_ [_ msg reply]]

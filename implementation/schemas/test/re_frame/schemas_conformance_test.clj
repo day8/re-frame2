@@ -442,7 +442,7 @@
             ;; `*current-frame*` is bound (Spec 002 §reg-frame from inside a
             ;; handler), which would land the seed AFTER the first dispatch.
             _            (binding [frame/*current-frame* nil]
-                           (rf/reg-frame :rf/default frame-config))
+                           (rf/make-frame (assoc frame-config :id :rf/default)))
             dispatches   (or (:fixture/dispatches fixture) [])
             ;; EP-0017 `:expect-error` mismatches (rf2-hqwki4) — a context-assembly
             ;; throw the dispatch declared but did not raise (or raised wrong).

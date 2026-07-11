@@ -421,7 +421,10 @@
      ;; no installed substrate adapter, and destroy fires the dispatch /
      ;; teardown machinery a bare frame doesn't need. `reset-for-test!`
      ;; (in the outer fixture) already clears the per-frame rings.
-     (frame/reg-frame host-frame {})
+     ;; Deliberate ENGINE seat (frame/upsert-frame!) — this suite runs
+     ;; without a substrate adapter and manages the bare record directly;
+     ;; the public rf/make-frame constructor is not the surface under test.
+     (frame/upsert-frame! host-frame {})
      (try (test-fn)
           (finally (swap! frame/frames dissoc host-frame)))))
 

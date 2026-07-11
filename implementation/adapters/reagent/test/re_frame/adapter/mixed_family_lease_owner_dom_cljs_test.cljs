@@ -39,6 +39,7 @@
             [reagent.dom.client :as rdc]
             ["react" :as React]
             [re-frame.core :as rf]
+            [re-frame.fx :as fx]
             [re-frame.frame :as frame]
             [re-frame.adapter.reagent :as reagent-adapter]
             ;; The shared React-hook lease Var — the very one UIx / Helix
@@ -74,7 +75,7 @@
                       ;; No real fetch — ensure only needs to write the :loading
                       ;; entry + attach the owner for the owner-index /
                       ;; release-owner assertions.
-                      (rf/reg-fx :rf.http/managed (fn [_ctx _args] nil))
+                      (fx/reg-fx :rf.http/managed (fn [_ctx _args] nil))
                       (rf/reg-resource resource-id
                         {:scope         :rf.scope/global
                          :params-schema [:map [:page :int]]

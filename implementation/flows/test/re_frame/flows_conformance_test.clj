@@ -570,8 +570,8 @@
           ;; around `realise-flows!` + the dispatch loop.
           _            (if (seq frames-spec)
                          (doseq [f frames-spec]
-                           (rf/reg-frame (:id f) (dissoc f :id)))
-                         (rf/reg-frame :rf/default frame-config))
+                           (rf/make-frame (assoc (dissoc f :id) :id (:id f))))
+                         (rf/make-frame (assoc frame-config :id :rf/default)))
           dispatches   (or (:fixture/dispatches fixture) [])]
       ;; EP-0002: reg-flow + bare single-frame dispatches are context-required
       ;; frame-local. Pin :rf/default as the established scope for the

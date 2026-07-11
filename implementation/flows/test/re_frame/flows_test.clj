@@ -1282,8 +1282,8 @@
 
 (deftest clear-flow-routes-via-frame-opt
   (testing "the same flow id registers independently against two frames"
-    (rf/reg-frame :left  {:doc "left frame"})
-    (rf/reg-frame :right {:doc "right frame"})
+    (rf/make-frame {:id :left :doc "left frame"})
+    (rf/make-frame {:id :right :doc "right frame"})
     (rf/reg-event :seed (fn [{:keys [db]} [_ n]] {:db {:n n}}))
     ;; Register :compute against both frames with DIFFERENT :derive fns
     ;; so sibling-frame-untouched is observable in the materialised output.
@@ -1448,8 +1448,8 @@
 
 (deftest hot-reload-on-one-frame-does-not-invalidate-sibling-frames-last-inputs
   (testing "Per rf2-jfpf3: re-register :shared on :left; :right's last-inputs row survives"
-    (rf/reg-frame :left  {:doc "left frame"})
-    (rf/reg-frame :right {:doc "right frame"})
+    (rf/make-frame {:id :left :doc "left frame"})
+    (rf/make-frame {:id :right :doc "right frame"})
     (rf/reg-event :seed (fn [{:keys [db]} [_ n]] {:db {:n n}}))
     ;; Register :shared against both frames with the same shape.
     (rf/reg-flow :shared {:frame :left :inputs [[:n]] :output-path [:result]} (fn [n] (* 2 (or n 0))))
@@ -1492,8 +1492,8 @@
 
 (deftest per-frame-store-keeps-frame-divergent-definitions
   (testing "the SAME flow-id registered against two frames returns each frame's OWN divergent definition via flow-meta-at; no frame-blind registrar slot"
-    (rf/reg-frame :left  {:doc "left frame"})
-    (rf/reg-frame :right {:doc "right frame"})
+    (rf/make-frame {:id :left :doc "left frame"})
+    (rf/make-frame {:id :right :doc "right frame"})
     (let [f-left  (fn [n] (* 2 (or n 0)))
           f-right (fn [n] (* 100 (or n 0)))]
       (rf/reg-flow :shared {:frame :left :inputs [[:n]] :output-path [:result-left]} f-left)
@@ -1512,8 +1512,8 @@
 
 (deftest clear-flow-of-one-frame-leaves-sibling-authoritative-in-place
   (testing "clearing one frame's entry leaves the sibling's per-frame entry intact and authoritative; no slot to re-point (rf2-en00bk)"
-    (rf/reg-frame :left  {:doc "left frame"})
-    (rf/reg-frame :right {:doc "right frame"})
+    (rf/make-frame {:id :left :doc "left frame"})
+    (rf/make-frame {:id :right :doc "right frame"})
     (let [f-left  (fn [n] (* 2 (or n 0)))
           f-right (fn [n] (* 100 (or n 0)))]
       (rf/reg-flow :shared {:frame :left :inputs [[:n]] :output-path [:result]} f-left)
@@ -1529,8 +1529,8 @@
 
 (deftest clear-flow-non-owner-frame-leaves-owner-intact
   (testing "clearing a frame that does NOT register the id leaves the registering frame's entry untouched (rf2-en00bk)"
-    (rf/reg-frame :left  {:doc "left frame"})
-    (rf/reg-frame :right {:doc "right frame"})
+    (rf/make-frame {:id :left :doc "left frame"})
+    (rf/make-frame {:id :right :doc "right frame"})
     (rf/reg-flow :shared {:frame :right :inputs [[:n]] :output-path [:result]} (fn [n] n))
     ;; :left never registered :shared — clearing it is a frame-local no-op for
     ;; :right's entry.

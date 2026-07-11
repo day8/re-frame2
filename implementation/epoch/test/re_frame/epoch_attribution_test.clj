@@ -222,7 +222,7 @@
             DIFFERENT subs must each carry their OWN sub-run. THE multi-cascade
             assertion the whole class of escapes was missing — pre-fix A's
             sub-run leaked into B's epoch (the one-epoch lag)."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-event :seed         (fn [{:keys [db]} _] {:db {:title "a" :counter 0}}))
     (rf/reg-event :title-loaded (fn [{:keys [db]} _] {:db (assoc db :title "loaded")}))
     (rf/reg-event :counter-inc  (fn [{:keys [db]} _] {:db (update db :counter inc)}))
@@ -263,7 +263,7 @@
             belongs to that cascade and is buffered normally, NOT back-filled.
             Pins that the post-settle back-fill does not poach in-flight
             sub-runs."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :sub-during
       (fn [{:keys [db]} _]
@@ -287,7 +287,7 @@
   (testing "rf2-wi900 — a sub-run that fires before any cascade has settled
             (no last-settled epoch for the frame) is a silent no-op: no record
             materialises, no listener fan-out, no throw."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (let [seen (atom [])]
       (rf/register-listener! :epoch ::watcher (fn [r] (swap! seen conj r)))
       (emit-sub-run! :test/main :orphan-sub nil :computed)
@@ -343,7 +343,7 @@
             (the rollup considers :trace-events overlap). Pre-fix the rollup
             stayed stale-false — a coarse drop-gate consumer would not drop
             a record whose only sensitive content arrived via back-fill."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 
@@ -374,7 +374,7 @@
   (testing "rf2-j1ec6.1 — a back-fill of a NON-sensitive sub-run does NOT
             flip the rollup (the OR is fail-CLOSED, not fail-open): a clean
             cascade with a clean back-fill stays false."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 
@@ -403,7 +403,7 @@
             DIFFERENT views must each carry their OWN render. Pre-fix A's
             title-view render leaked into B's epoch — a counter-inc epoch
             reporting title-view, which is IMPOSSIBLE."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-event :seed         (fn [{:keys [db]} _] {:db {:title "a" :counter 0}}))
     (rf/reg-event :title-loaded (fn [{:keys [db]} _] {:db (assoc db :title "loaded")}))
     (rf/reg-event :counter-inc  (fn [{:keys [db]} _] {:db (update db :counter inc)}))
@@ -437,7 +437,7 @@
   (testing "rf2-qs6dl — a render that fires WITH a cascade in flight
             (synchronous flush — SSR / a render inside the cascade) belongs to
             that cascade and is buffered normally, NOT back-filled."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :render-during
       (fn [{:keys [db]} _]
@@ -458,7 +458,7 @@
   (testing "rf2-qs6dl — a render that fires before any cascade has settled
             (no last-settled epoch) is a silent no-op: no record, no fan-out,
             no throw."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (let [seen (atom [])]
       (rf/register-listener! :epoch ::watcher (fn [r] (swap! seen conj r)))
       (emit-render! :test/main :orphan-view)
@@ -481,7 +481,7 @@
             their multi-cascade tests re-render a DIFFERENT view each cascade,
             never a view that mounts in epoch A and commits a late mount-burst
             tail in epoch B with unchanged inputs."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-event :seed        (fn [{:keys [db]} _] {:db {:counter 0}}))
     (rf/reg-event :counter-inc (fn [{:keys [db]} _] {:db (update db :counter inc)}))
 
@@ -531,7 +531,7 @@
   (testing "rf2-vh1k3 — a mount-burst tail render that resolves back to its
             mount epoch (where the instance already rendered) is de-duped: it
             does not add a second :renders row for the same render-key."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-event :seed        (fn [{:keys [db]} _] {:db {:counter 0}}))
     (rf/reg-event :counter-inc (fn [{:keys [db]} _] {:db (update db :counter inc)}))
 
@@ -560,7 +560,7 @@
             THAT cascade, not redirected back to the mount epoch. The
             mount-epoch anchor only governs mount-burst tails — it must not
             over-reach and collapse genuine re-renders."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-event :seed        (fn [{:keys [db]} _] {:db {:counter 0}}))
     (rf/reg-event :counter-inc (fn [{:keys [db]} _] {:db (update db :counter inc)}))
 
@@ -599,7 +599,7 @@
             structured `:sub-runs` (learned dep + `:value-changed? true`) when
             the raw stream is absent, so the render lands on the CURRENT epoch."
     (rf/configure! {:epoch-history {:trace-events-keep 0}})
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-event :seed        (fn [{:keys [db]} _] {:db {:counter 0}}))
     (rf/reg-event :counter-inc (fn [{:keys [db]} _] {:db (update db :counter inc)}))
 
@@ -659,7 +659,7 @@
             counter sub's NEW value (2), not the prior cascade's lagged result.
             Two cascades, distinct values + distinct cause-subs, each pinned to
             its own epoch."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-event :seed        (fn [{:keys [db]} _] {:db {:counter 0}}))
     (rf/reg-event :counter-inc (fn [{:keys [db]} _] {:db (update db :counter inc)}))
 
@@ -710,7 +710,7 @@
             at settle time) re-sync to the corrected :sub-runs +
             :rf.sub/value-changed? attribution. Without the re-fan a cached panel
             would show the stale settle-time record (the value-change absent)."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 
@@ -736,7 +736,7 @@
   (testing "rf2-qs6dl — the render sibling of the re-fan: back-filling a
             post-settle render re-fans the corrected record so the Xray Views
             / Reactive panel re-syncs to the corrected :renders."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 
@@ -770,7 +770,7 @@
             check, isolated from the mount path: BOTH views are already
             mounted in an earlier epoch, so the discriminator is the value
             change alone, not the mount anchor."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-event :seed        (fn [{:keys [db]} _] {:db {:counter 0 :sidebar :open}}))
     (rf/reg-event :counter-inc (fn [{:keys [db]} _] {:db (update db :counter inc)}))
 
@@ -846,7 +846,7 @@
     (rf/reg-event :inc      (fn [{:keys [db]} _] {:db (update db :n inc)}))
     ;; reg-frame dispatch-syncs :initial-events (settles epoch 1), THEN emits the
     ;; orphan :rf.frame/created.
-    (rf/reg-frame :test/main {:initial-events [[:app/init]]})
+    (rf/make-frame {:id :test/main :initial-events [[:app/init]]})
     ;; The next dequeued user event.
     (rf/dispatch-sync [:inc] {:frame :test/main})
 
@@ -875,7 +875,7 @@
             and assert none is a :frame op."
     (rf/reg-event :app/init (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :inc      (fn [{:keys [db]} _] {:db (update db :n inc)}))
-    (rf/reg-frame :test/main {:initial-events [[:app/init]]})
+    (rf/make-frame {:id :test/main :initial-events [[:app/init]]})
     (rf/dispatch-sync [:inc] {:frame :test/main})
     (rf/dispatch-sync [:inc] {:frame :test/main})
 
@@ -1121,12 +1121,12 @@
   (testing "rf2-7eel71 — re-registering a SIBLING frame from inside another
             frame's fx must not strand a `:rf.frame/re-registered` marker in the
             sibling frame's capture buffer."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     ;; B exists (top-level creation — uncorrelated, drops cleanly).
-    (rf/reg-frame :test/modal {})
+    (rf/make-frame {:id :test/modal})
     ;; An fx that re-registers the (existing) sibling frame B, run from inside
     ;; frame A's cascade — so A's dispatch-id is in scope at the emit.
-    (rf/reg-fx :test/re-reg-modal (fn [_ frame-id] (rf/reg-frame frame-id {:extra :v})))
+    (rf/reg-fx :test/re-reg-modal (fn [_ frame-id] (rf/make-frame {:id frame-id :extra :v})))
     (rf/reg-event :app/reopen (fn [_ _] {:fx [[:test/re-reg-modal :test/modal]]}))
 
     (rf/dispatch-sync [:app/reopen] {:frame :test/main})
@@ -1143,9 +1143,9 @@
             the stranded marker (foreign dispatch-id) survived every :loop settle
             as 'theirs' and `commit-halt-record!`'s full harvest swept it into the
             halt record's :trace-events."
-    (rf/reg-frame :test/main {})
-    (rf/reg-frame :test/modal {:drain-depth 5})
-    (rf/reg-fx :test/re-reg-modal (fn [_ frame-id] (rf/reg-frame frame-id {:drain-depth 5})))
+    (rf/make-frame {:id :test/main})
+    (rf/make-frame {:id :test/modal :drain-depth 5})
+    (rf/reg-fx :test/re-reg-modal (fn [_ frame-id] (rf/make-frame {:id frame-id :drain-depth 5})))
     (rf/reg-event :app/reopen (fn [_ _] {:fx [[:test/re-reg-modal :test/modal]]}))
     (rf/reg-event :loop
       (fn [{:keys [db]} _]
@@ -1204,8 +1204,8 @@
       ;; Mirror the runtime: the observer frame registers
       ;; `:rf.trace/frame-no-emit? true` (what `mount/ensure-xray-frame!` does
       ;; for `:rf/xray`); reg-frame routes the flag to the trace gate.
-      (rf/reg-frame app {})
-      (rf/reg-frame observer {:rf.trace/frame-no-emit? true})
+      (rf/make-frame {:id app})
+      (rf/make-frame {:id observer :rf.trace/frame-no-emit? true})
       (is (trace/frame-trace-disabled? observer)
           "the observer frame is registered trace-disabled (reg-frame honoured
            :rf.trace/frame-no-emit?)")
@@ -1245,7 +1245,7 @@
             frame-no-emit SUPPRESSION at work, not an unrelated filter — and is
             the exact leak the bug exhibited."
     (let [app :test/app]
-      (rf/reg-frame app {})
+      (rf/make-frame {:id app})
       (rf/reg-event :app/seed (fn [{:keys [db]} _] {:db {:counter 0}}))
       (rf/reg-event :app/inc  (fn [{:keys [db]} _] {:db (update db :counter inc)}))
 
@@ -1279,7 +1279,7 @@
             sources from the POST-render :rf.view/rendered op precisely so it
             carries this data (the render-START :rf.view/render carries only the
             render-key)."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
 
@@ -1306,7 +1306,7 @@
   (testing "rf2-8wrzz.1 — a structural re-render (no :rf.view/triggered-by on
             the op — none of the view's own subs changed) lands a :renders row
             WITHOUT :triggered-by; :elapsed-ms still rides."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
 
@@ -1342,7 +1342,7 @@
             lands :cause-event-id on the :renders projection row, end-to-end —
             the slot the Story :view causal surface reads. Pre-fix render-row
             dropped it and the surface silently measured 0 (false GREEN)."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
 
@@ -1366,7 +1366,7 @@
             the op carries no :rf.view/cause-event-id) lands a :renders row
             WITHOUT :cause-event-id. OMITTED-vs-nil parity with the sub-row:
             absent tag → absent slot, never an attributed nil."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
 
@@ -1502,7 +1502,7 @@
             entries — it shrinks back toward empty (bounded), NOT retained
             until whole-frame destroy. Pre-fix every ever-mounted instance
             left a permanent entry; the map grew without bound across churn."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-event :seed       (fn [{:keys [db]} _] {:db {:rows (vec (range 5))}}))
     (rf/reg-event :drop-rows  (fn [{:keys [db]} _] {:db (assoc db :rows [])}))
 
@@ -1597,7 +1597,7 @@
             silently dropped. THE regression guard: pre-fix the unmount hit
             the orphan-drop branch and produced no signal, so Xray's VIEWS
             step had nothing to surface (button-deck button 13)."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-event :seed         (fn [{:keys [db]} _] {:db {:show-child? true}}))
     (rf/reg-event :hide-child   (fn [{:keys [db]} _] {:db (assoc db :show-child? false)}))
 
@@ -1625,7 +1625,7 @@
             carry their OWN unmount, attributed to the cascade that caused
             it (no one-epoch lag, no cross-attribution). The multi-cascade
             assertion mirroring inv-2 for renders."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-event :seed       (fn [{:keys [db]} _] {:db {:a? true :b? true}}))
     (rf/reg-event :hide-a     (fn [{:keys [db]} _] {:db (assoc db :a? false)}))
     (rf/reg-event :hide-b     (fn [{:keys [db]} _] {:db (assoc db :b? false)}))
@@ -1658,7 +1658,7 @@
             synchronous teardown inside a drain) belongs to that cascade and
             is buffered normally, NOT back-filled. Pins that the post-settle
             routing does not poach an in-flight unmount."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :unmount-during
       (fn [{:keys [db]} _]
@@ -1681,7 +1681,7 @@
   (testing "rf2-59hx3 — an unmount that fires before any cascade has settled
             (no last-settled epoch for the frame) is a silent no-op: no
             record materialises, no listener fan-out, no throw."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (let [seen (atom [])]
       (rf/register-listener! :epoch ::watcher (fn [r] (swap! seen conj r)))
       (emit-unmount! :test/main :orphan-view)
@@ -1722,7 +1722,7 @@
             pre-restore last-settled epoch. THE corruption: pre-fix the anchor
             still named the most-recent epoch the frame was rewound PAST, so the
             repaint smeared into that epoch's :renders."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-event :seed        (fn [{:keys [db]} _] {:db {:counter 0}}))
     (rf/reg-event :counter-inc (fn [{:keys [db]} _] {:db (update db :counter inc)}))
 
@@ -1765,7 +1765,7 @@
   (testing "rf2-w4q9gt — the SUBS sibling. A restore-induced reactive recompute
             (React-deref timing) must not land in the stale pre-restore epoch's
             :sub-runs. Mirrors inv-1 across a time-travel rewind."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-event :seed        (fn [{:keys [db]} _] {:db {:counter 0}}))
     (rf/reg-event :counter-inc (fn [{:keys [db]} _] {:db (update db :counter inc)}))
 
@@ -1794,7 +1794,7 @@
   (testing "rf2-w4q9gt — the UNMOUNT sibling. A restore that rewinds past a view
             spawn tears that view down; the post-settle unmount must not land in
             the stale pre-restore epoch's :trace-events. Mirrors inv-8."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-event :seed        (fn [{:keys [db]} _] {:db {:counter 0}}))
     (rf/reg-event :counter-inc (fn [{:keys [db]} _] {:db (update db :counter inc)}))
 
@@ -1824,7 +1824,7 @@
             frame's attribution exactly as the most-recent real cascade left it.
             Post-failure activity still attributes to that genuine last-settled
             epoch — the re-anchor is success-ONLY."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-event :seed        (fn [{:keys [db]} _] {:db {:counter 0}}))
     (rf/reg-event :counter-inc (fn [{:keys [db]} _] {:db (update db :counter inc)}))
 
@@ -1883,7 +1883,7 @@
             carries value-changed sub-run evidence for the view (but no prior
             render row) must NOT be back-filled into that stale epoch; it
             attributes to the restored-target epoch."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-event :seed        (fn [{:keys [db]} _] {:db {:counter 0}}))
     (rf/reg-event :counter-inc (fn [{:keys [db]} _] {:db (update db :counter inc)}))
 
@@ -1934,7 +1934,7 @@
             repaint to the stale epoch and the de-dup arm SILENTLY ABSORBS it
             (target gets nothing). The anchor bound must resolve to the target
             so the repaint is recorded there."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-event :seed        (fn [{:keys [db]} _] {:db {:counter 0}}))
     (rf/reg-event :counter-inc (fn [{:keys [db]} _] {:db (update db :counter inc)}))
 
@@ -2018,7 +2018,7 @@
             (re-derived inside the swap), NOT the stale positional neighbour."
     ;; depth 3 — small cap so an append after filling evicts the front.
     (rf/configure! {:epoch-history {:depth 3 :trace-events-keep 50}})
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 
@@ -2072,7 +2072,7 @@
             (a stale up-front index would have spliced the evicted target's old
             slot into a surviving, unrelated epoch)."
     (rf/configure! {:epoch-history {:depth 2 :trace-events-keep 50}})
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 

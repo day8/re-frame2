@@ -131,7 +131,7 @@
   (testing "the same flow-id on two frames yields two distinct nodes (frame-scoped)"
     ;; Flows are frame-scoped — the same id may carry different :inputs /
     ;; :output-path on different frames. The view preserves the frame dimension.
-    (rf/reg-frame :other {:doc "second frame for the frame-scoped view test"})
+    (rf/make-frame {:id :other :doc "second frame for the frame-scoped view test"})
     (rf/reg-flow :shared {:frame :rf/default :inputs [[:a]] :output-path [:out :default]} (fn [a] a))
     (rf/reg-flow :shared {:frame :other :inputs [[:b]] :output-path [:out :other]} (fn [b] b))
     (let [view (flows-tooling/flow-algebra-view)]

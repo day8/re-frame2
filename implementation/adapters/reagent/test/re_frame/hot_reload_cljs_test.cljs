@@ -135,7 +135,7 @@
     ;; real frame rather than the render raising :rf.error/no-frame-context.
     ;; (The `reg-view*` fn-form tests above register raw fns with no handle
     ;; injection, so they need no scope.)
-    (rf/reg-frame :rf.hot-reload-test/banner-frame {:doc "render scope for the macro hot-reload test"})
+    (rf/make-frame {:id :rf.hot-reload-test/banner-frame :doc "render scope for the macro hot-reload test"})
     (let [observed (atom nil)]
       (reg-view ^{:rf/id :rf.hot-reload-test/banner} banner-v1 [t]
         (reset! observed [:m1 t])

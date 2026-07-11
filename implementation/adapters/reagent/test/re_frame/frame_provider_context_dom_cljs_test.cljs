@@ -160,8 +160,8 @@
     (is true ":node-test: no DOM — browser-test runner exercises the assertions")
     (let [outer :rf-22ds-1-outer
           inner :rf-22ds-1-inner]
-      (rf/reg-frame outer {:doc "outer scenario-1 frame"})
-      (rf/reg-frame inner {:doc "inner scenario-1 frame"})
+      (rf/make-frame {:id outer :doc "outer scenario-1 frame"})
+      (rf/make-frame {:id inner :doc "inner scenario-1 frame"})
       (rf/reg-event :seed-1 (fn [{:keys [db]} [_ v]] {:db {:v v}}))
       ;; Each frame's app-db carries a distinct value so the subscribe
       ;; tells us unambiguously which frame served the read.
@@ -219,7 +219,7 @@
   (if-not (browser?)
     (is true ":node-test: no DOM — browser-test runner exercises the assertions")
     (let [target :rf-22ds-2-scope]
-      (rf/reg-frame target {:doc "scenario-2 explicit-scope frame"})
+      (rf/make-frame {:id target :doc "scenario-2 explicit-scope frame"})
       (rf/reg-event :seed-2 (fn [{:keys [db]} _] {:db {:n 99}}))
       (rf/dispatch-sync [:seed-2] {:frame target})
       (rf/reg-sub :scenario-2/n (fn [db _] (:n db)))
@@ -398,7 +398,7 @@
   (if-not (browser?)
     (is true ":node-test: no DOM — browser-test runner exercises the assertions")
     (let [target :rf-22ds-4-wrapped]
-      (rf/reg-frame target {:doc "scenario-4 wrapped frame"})
+      (rf/make-frame {:id target :doc "scenario-4 wrapped frame"})
       (rf/reg-event :seed-4 (fn [{:keys [db]} [_ v]] {:db {:s v}}))
       ;; Seed the wrapped frame explicitly. EP-0002 (rf2-69r7ui): no bare
       ;; `:rf/default` seed — the assertion is that the wrapped-frame
@@ -446,11 +446,11 @@
     (is true ":node-test: no DOM — browser-test runner exercises the assertions")
     (let [target  :rf-22ds-5-wrapped
           sibling :rf-22ds-5-sibling]
-      (rf/reg-frame target {:doc "scenario-5 wrapped frame"})
+      (rf/make-frame {:id target :doc "scenario-5 wrapped frame"})
       ;; EP-0002 (rf2-69r7ui): no `:rf/default` floor — use an explicit
       ;; sibling frame to prove the dispatch did NOT leak outside the
       ;; provider scope.
-      (rf/reg-frame sibling {:doc "scenario-5 sibling (no provider above)"})
+      (rf/make-frame {:id sibling :doc "scenario-5 sibling (no provider above)"})
       (rf/reg-event :scenario-5/stamp (fn [{:keys [db]} _] {:db (assoc db :stamped :here)}))
 
       (rf/reg-view* :rf.22ds-5/probe
@@ -502,7 +502,7 @@
   (if-not (browser?)
     (is true ":node-test: no DOM — browser-test runner exercises the assertions")
     (let [target :rf-22ds-6-strict]
-      (rf/reg-frame target {:doc "scenario-6 strict-mode frame"})
+      (rf/make-frame {:id target :doc "scenario-6 strict-mode frame"})
       (rf/reg-event :seed-6 (fn [{:keys [db]} _] {:db {:s :strict-mode-app-db}}))
       (rf/dispatch-sync [:seed-6] {:frame target})
       (rf/reg-sub :scenario-6/s (fn [db _] (:s db)))
@@ -895,7 +895,7 @@
         ;; skip rather than yak-shave a new harness primitive.
         (is true (str "act() not reachable from this test runner; "
                       "scenario-7 skipped — bead filed (see suite docstring)."))
-        (let [_ (rf/reg-frame target {:doc "scenario-7 concurrent frame"})
+        (let [_ (rf/make-frame {:id target :doc "scenario-7 concurrent frame"})
               _ (rf/reg-event :seed-7 (fn [{:keys [db]} _] {:db {:n 1}}))
               _ (rf/reg-event :inc-7  (fn [{:keys [db]} _] {:db (update db :n inc)}))
               _ (rf/dispatch-sync [:seed-7] {:frame target})
@@ -957,7 +957,7 @@
   away."
   ;; The merged provider's SCOPE-only `{:frame …}` shape fails loud if the
   ;; frame is absent, so register it live before composing the element.
-  (rf/reg-frame :rf-22ds-sanity-x {})
+  (rf/make-frame {:id :rf-22ds-sanity-x})
   (let [child       [:span "x"]
         tree        (rf/frame-provider {:frame :rf-22ds-sanity-x} child)
         head        (first tree)
@@ -996,7 +996,7 @@
   (if-not (browser?)
     (is true ":node-test: no DOM — browser-test runner exercises the assertions")
     (let [target :rf-22ds-ns/tenant-admin]
-      (rf/reg-frame target {:doc "namespaced frame-id regression"})
+      (rf/make-frame {:id target :doc "namespaced frame-id regression"})
       (rf/reg-event :rf-22ds-ns/seed (fn [{:keys [db]} [_ v]] {:db {:tag v}}))
       (rf/dispatch-sync [:rf-22ds-ns/seed :wrapped-value] {:frame target})
       (rf/reg-sub :rf-22ds-ns/tag (fn [db _] (:tag db)))

@@ -114,7 +114,7 @@
   picker-aligned-on-install invariant rather than relying on whatever
   the head walk picks."
   [target]
-  (frame/reg-frame :rf/xray {})
+  (rf/make-frame {:id :rf/xray})
   ;; D3=b sync entrypoint — snapshot every registered host frame's
   ;; per-frame ring + the frameless secondary ring into Xray's
   ;; `:trace-buffer` slot so the cascade subs read the pre-mount
@@ -152,8 +152,8 @@
     (install-xray-handlers-and-collector!)
     ;; Register both host frames BEFORE pre-mount dispatches — same
     ;; shape as the parallel-frames testbed mount.
-    (frame/reg-frame frame-above {})
-    (frame/reg-frame frame-below {})
+    (rf/make-frame {:id frame-above})
+    (rf/make-frame {:id frame-below})
     (install-counter-handlers!)
     ;; Drive ONE event into each frame BEFORE Xray's frame mounts —
     ;; the trace bus accumulates pre-mount cascades the same way it
@@ -183,7 +183,7 @@
   (the user is observing this host frame) — mount-time seed must align
   them just like the picker (`set-frame-reducer`) does at picker-write."
     (install-xray-handlers-and-collector!)
-    (frame/reg-frame frame-above {})
+    (rf/make-frame {:id frame-above})
     (install-counter-handlers!)
     (rf/dispatch-sync [:counter/inc] {:frame frame-above})
     (mount-xray-with-target! frame-above)
@@ -217,7 +217,7 @@
   because the focused `:dispatch-id` did not change in LIVE auto-
   track mode."
     (install-xray-handlers-and-collector!)
-    (frame/reg-frame :rf/default {})
+    (rf/make-frame {:id :rf/default})
     (install-throw-handlers!)
     (mount-xray-with-target! :rf/default)
     ;; Dispatch A — its handler throws, the router catches, an issue
@@ -280,8 +280,8 @@
   substring set since rows no longer carry `:dispatch-id` (the focused
   epoch IS the scope)."
     (install-xray-handlers-and-collector!)
-    (frame/reg-frame frame-above {})
-    (frame/reg-frame frame-below {})
+    (rf/make-frame {:id frame-above})
+    (rf/make-frame {:id frame-below})
     (install-throw-handlers!)
     ;; Dispatch :above first, :below second — :below is "head" by the
     ;; global ordering and would have been auto-focused pre-fix.

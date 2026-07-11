@@ -65,7 +65,7 @@
 (defn- setup-xray! []
   (registry/register-xray-handlers!)
   (xray-test-support/install-test-overrides!)
-  (frame/reg-frame :rf/xray {}))
+  (rf/make-frame {:id :rf/xray}))
 
 ;; A one-shot read of an `:rf.xray/*` sub, in the :rf/xray frame (where the
 ;; panel's mode / override / target-frame slots live). `subscribe-once`'s
@@ -186,7 +186,7 @@
             :rf.xray/derivation-graph call live-derivation-graph with :frame"
     (setup-xray!)
     ;; A real host frame to observe.
-    (frame/reg-frame :app/main {})
+    (rf/make-frame {:id :app/main})
     (rf/dispatch-sync [:rf.xray/set-derivation-graph-mode :live] {:frame :rf/xray})
     (rf/dispatch-sync [:rf.xray/set-target-frame :app/main] {:frame :rf/xray})
     (let [graph (read-xray [:rf.xray/derivation-graph])]
@@ -210,8 +210,8 @@
   (testing "a live fact in the TARGET frame surfaces as a live node through
             the Xray consumer path (graph + tab-data carry it)"
     (setup-xray!)
-    (frame/reg-frame :app/main {})
-    (frame/reg-frame :app/other {})
+    (rf/make-frame {:id :app/main})
+    (rf/make-frame {:id :app/other})
     ;; Register a route and materialize the route slice in :app/main by
     ;; navigating (the live route slice view reads runtime-db, ungated).
     (rf/with-frame :app/main

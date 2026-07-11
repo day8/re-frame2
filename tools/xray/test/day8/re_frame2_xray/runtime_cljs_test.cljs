@@ -1895,7 +1895,7 @@
   ;; Register a non-default frame, install a sensitive declaration on IT
   ;; (NOT :rf/default), and seed the secret into ITS app-db. The ambient
   ;; fixture scope stays :rf/default (no declaration there).
-  (rf/reg-frame host-frame {:doc "non-default host frame for egress classification"})
+  (rf/make-frame {:id host-frame :doc "non-default host frame for egress classification"})
   (frame/swap-runtime-db! host-frame
     (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:auth :password]]})))
   (rf/reg-event :host/seed-auth
@@ -1997,7 +1997,7 @@
     ;; value-bearing slots — under [:tags ...]. The :rf/default ambient frame
     ;; (the fixture's scope) carries NO such declaration, so under the bug the
     ;; value would project under :rf/default and leak.
-    (rf/reg-frame host-frame {:doc "host frame for trace-event-frame egress"})
+    (rf/make-frame {:id host-frame :doc "host frame for trace-event-frame egress"})
     (frame/swap-runtime-db! host-frame
       (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:tags :secret]]})))
     (let [ev {:op-type   :sub

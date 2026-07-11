@@ -170,7 +170,7 @@
             still RAW — storage-side redaction was REMOVED (EP-0015 §15 +
             open-issue 6). The ring is causal replay material; restore
             fidelity is preserved by construction."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     ;; A :redact-fn that WOULD wipe :db-after if it ran at storage time.
     (rf/configure! {:epoch-history {:redact-fn (fn [r] (assoc r :db-after :rf/redacted))}})
     (rf/reg-event :login
@@ -186,7 +186,7 @@
   (testing "the listener fan-out delivers the RAW record — the
             :redact-fn does NOT run before fan-out (it is applied only at
             the off-box egress boundary, inside projected-record)."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (let [seen (atom nil)]
       (rf/configure! {:epoch-history {:redact-fn (fn [r] (assoc r :db-after :rf/redacted))}})
       (rf/register-listener! :epoch ::watch (fn [r] (reset! seen r)))
@@ -205,7 +205,7 @@
   (testing "the :redact-fn fires ZERO times across a settle — it is not
             a storage-side hook. (It fires only when projected-record is
             called; see invariant 2.)"
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (let [invocations (atom 0)]
       (rf/configure! {:epoch-history {:redact-fn (fn [r] (swap! invocations inc) r)}})
       (rf/register-listener! :epoch ::watch (fn [_] nil))
@@ -224,7 +224,7 @@
   (testing "projected-record applies the installed :redact-fn to the
             PROJECTED record (the advanced override). The override runs
             ONCE per projection call, after the frame/profile projection."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (let [invocations (atom 0)]
       (rf/configure! {:epoch-history {:redact-fn (fn [r]
                                   (swap! invocations inc)
@@ -247,7 +247,7 @@
             path is already :rf/redacted when the override runs. The
             override is the escape for material the projection cannot
             prove (a non-frame-declared slot)."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (install-sensitive-schema! :test/main)
     (let [observed (atom nil)]
       ;; The override records what it SEES at [:db-after :auth :password]
@@ -283,7 +283,7 @@
   (testing "projected-record over the same record N times invokes the
             :redact-fn N times (once per egress) — it is the egress
             override, applied per projection call, not cached."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (let [invocations (atom 0)]
       (rf/configure! {:epoch-history {:redact-fn (fn [r] (swap! invocations inc) r)}})
       (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
@@ -304,7 +304,7 @@
             the frame-declared sensitive leaves the cascade touched — a
             trustworthy off-box-branch signal independent of any
             projection-side redaction."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (install-sensitive-schema! :test/main)
     (rf/reg-event :login
                      (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
@@ -327,7 +327,7 @@
             at PROJECTION time and falls back to the projected
             (frame/profile-redacted) record — neither the drain nor the
             egress breaks, and the RAW ring record is untouched."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (install-sensitive-schema! :test/main)
     (rf/reg-event :login
                      (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
@@ -367,7 +367,7 @@
   (testing "a throwing :redact-fn stays registered — each projection call
             re-attempts (the registration is not removed on first throw;
             the framework's posture is 'log and continue')."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
 
@@ -391,7 +391,7 @@
             frame/profile projection — no override stage. A frame-declared
             sensitive path is redacted by the projection; everything else
             passes through."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (install-sensitive-schema! :test/main)
     (rf/reg-event :login
                      (fn [{:keys [db]} [_ pw]]
@@ -413,7 +413,7 @@
   (testing "without :redact-fn installed, every recorded ring record is
             the raw shape (the default-nil posture — apps opt in to the
             advanced override explicitly)."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
     (let [r (last-record :test/main)]
@@ -430,7 +430,7 @@
   (testing "the settle! event commit path stores the raw record —
             the :redact-fn does not run at this seam (it runs
             projection-side, in projected-record)."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/configure! {:epoch-history {:redact-fn (fn [r] (assoc r :rf/test-tag :redacted))}})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
@@ -445,7 +445,7 @@
             the RAW synthetic record (pair-tool injection / story tools land
             the synthetic :rf.epoch/db-replaced record through this seam);
             the override applies only on projection."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (let [synthetic (atom nil)]
       (rf/register-listener! :epoch ::watch (fn [r] (reset! synthetic r)))
       (rf/configure! {:epoch-history {:redact-fn (fn [r] (assoc r :rf/test-tag :redacted))}})
@@ -467,7 +467,7 @@
             mid-drain `destroy-frame!` (the handler destroys its own
             frame, matching the live wiring) and asserts UNCONDITIONALLY
             that exactly one :halted-destroy record reached the listener."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (let [halted-records (atom [])]
       (rf/register-listener! :epoch ::watch
                              (fn [r]
@@ -499,7 +499,7 @@
   (testing "an explicitly-installed nil :redact-fn is equivalent to 'no
             redact-fn' — the projection is the plain frame/profile shape,
             no override stage."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/configure! {:epoch-history {:redact-fn nil}})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
@@ -544,7 +544,7 @@
   (testing "EP-0015 §15 — a post-settle SUB-RUN back-fill stores the RAW
             value in BOTH the re-notified listener record AND the ring. The
             ring is causal replay material; no storage-side redaction runs."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     ;; A :redact-fn that WOULD scrub the value if it ran at storage time.
     (rf/configure! {:epoch-history {:redact-fn (fn [r] (assoc r :rf/scrubbed true))}})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
@@ -580,7 +580,7 @@
             record is projected for off-box egress: the frame/profile
             projection redacts a frame-declared sub-value, and the
             :redact-fn override can scrub a non-declared one."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (install-sensitive-schema! :test/main)
     ;; The override scrubs the :secret sub-run's :value (a non-frame-
     ;; declared, non-app-db-rooted slot the projection cannot prove).
@@ -617,7 +617,7 @@
             value passes through both the raw ring and the frame/profile
             projection unchanged (the attribution behaviour is intact;
             redaction is opt-in via the override or schema classification)."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 
@@ -664,7 +664,7 @@
             frame-state equals the RAW un-redacted value. Redaction is a
             projection-side EGRESS concern; the durable ring the restore reads
             is replay-faithful, untouched by the override."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     ;; Frame-owned sensitive classification (EP-0015 §8) AND a wiping
     ;; projection-side :redact-fn — BOTH redaction routes active. Neither may
     ;; corrupt the stored ring the restore replays from.

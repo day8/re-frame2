@@ -37,7 +37,7 @@
   ;; `reg-frame …:initial-events` still drain synchronously — the lifecycle
   ;; async/sync split keys off `*handler-scope*` (a real cascade), not
   ;; this ambient scope.
-  (rf/reg-frame :rf/default {})
+  (rf/make-frame {:id :rf/default})
   (rf/with-frame :rf/default
     (test-fn)))
 
@@ -112,7 +112,7 @@
     (let [traces (atom [])]
       (rf/register-listener! :trace ::depth (fn [ev] (swap! traces conj ev)))
       ;; Reg a frame with a small drain-depth so the test runs quickly.
-      (rf/reg-frame :drain.test/loop {:drain-depth 8})
+      (rf/make-frame {:id :drain.test/loop :drain-depth 8})
       (rf/reg-event :loop-forever
         (fn [_ _]
           {:fx [[:dispatch [:loop-forever]]]}))
@@ -139,7 +139,7 @@
   (testing "after the abort the queue is cleared (no stuck pending work)"
     (let [traces (atom [])]
       (rf/register-listener! :trace ::depth-2 (fn [ev] (swap! traces conj ev)))
-      (rf/reg-frame :drain.test/loop2 {:drain-depth 4})
+      (rf/make-frame {:id :drain.test/loop2 :drain-depth 4})
       (rf/reg-event :loop2
         (fn [_ _]
           {:fx [[:dispatch [:loop2]]]}))
@@ -167,9 +167,8 @@
     ;; Frame seeded via :initial-events so the baseline is non-empty.
     (rf/reg-event :seed/init
       (fn [{:keys [db]} _] {:db {:step :pre-drain :counter 0}}))
-    (rf/reg-frame :drain.rollback/main
-      {:initial-events   [[:seed/init]]
-       :drain-depth 4})
+    (rf/make-frame {:id :drain.rollback/main :initial-events   [[:seed/init]]
+                    :drain-depth 4})
     (let [traces (atom [])]
       (rf/register-listener! :trace ::rollback (fn [ev] (swap! traces conj ev)))
       ;; A handler that COMMITS a :db write (advancing :step, bumping
@@ -205,9 +204,8 @@
     ;; durable AND the overflow drain's own per-event writes stay durable
     ;; (no rollback).
     (rf/reg-event :seed2/init (fn [{:keys [db]} _] {:db {:phase :seeded :n 0}}))
-    (rf/reg-frame :drain.rollback/two
-      {:initial-events   [[:seed2/init]]
-       :drain-depth 3})
+    (rf/make-frame {:id :drain.rollback/two :initial-events   [[:seed2/init]]
+                    :drain-depth 3})
     ;; First drain: a clean settle that mutates :phase.
     (rf/reg-event :advance (fn [{:keys [db]} _] {:db (assoc db :phase :first-settled)}))
     (rf/dispatch-sync [:advance] {:frame :drain.rollback/two})
@@ -244,7 +242,7 @@
             traces   (atom [])
             event-id (keyword "drain.count" (str "tick-" n))]
         (rf/register-listener! :trace ::count (fn [ev] (swap! traces conj ev)))
-        (rf/reg-frame frame-id {:drain-depth n})
+        (rf/make-frame {:id frame-id :drain-depth n})
         (rf/reg-event event-id
           (fn [_ _]
             (swap! runs inc)
@@ -429,8 +427,8 @@
   ;;   ordinary async path — drain does not span frames. Cross-frame
   ;;   coordination uses regular async (dispatch ev {:frame other}).\""
   (testing "dispatching to frame B from inside frame A's handler does NOT interleave with A's drain"
-    (rf/reg-frame :drain.test/A {:doc "frame A"})
-    (rf/reg-frame :drain.test/B {:doc "frame B"})
+    (rf/make-frame {:id :drain.test/A :doc "frame A"})
+    (rf/make-frame {:id :drain.test/B :doc "frame B"})
     (let [order (atom [])
           b-done (promise)]
       (rf/reg-event :A/work
@@ -465,8 +463,8 @@
   (testing "two interleaved dispatch-sync calls keep their queues separate"
     ;; This pins the per-frame router contract: each frame has its own
     ;; queue and :scheduled?/:in-drain? flags.
-    (rf/reg-frame :drain.test/X {:doc "X"})
-    (rf/reg-frame :drain.test/Y {:doc "Y"})
+    (rf/make-frame {:id :drain.test/X :doc "X"})
+    (rf/make-frame {:id :drain.test/Y :doc "Y"})
     (rf/reg-event :tick (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (rf/dispatch-sync [:tick] {:frame :drain.test/X})
     (rf/dispatch-sync [:tick] {:frame :drain.test/Y})
@@ -490,13 +488,11 @@
             depth-exceeded trace carries :B"
     (rf/reg-event :seed/A (fn [{:keys [db]} _] {:db {:where :A :counter 0 :marker :pristine}}))
     (rf/reg-event :seed/B (fn [{:keys [db]} _] {:db {:where :B :counter 0 :marker :pristine}}))
-    (rf/reg-frame :drain.iso/A
-                  {:initial-events   [[:seed/A]]
-                   :drain-depth 50})
+    (rf/make-frame {:id :drain.iso/A :initial-events   [[:seed/A]]
+                    :drain-depth 50})
     ;; Frame :B has the tight drain-depth so :B's loop event trips it.
-    (rf/reg-frame :drain.iso/B
-                  {:initial-events   [[:seed/B]]
-                   :drain-depth 4})
+    (rf/make-frame {:id :drain.iso/B :initial-events   [[:seed/B]]
+                    :drain-depth 4})
 
     ;; Capture :A's pre-dispatch state — this is what we'll compare to.
     (let [a-pre  (rf/app-db-value :drain.iso/A)
@@ -563,7 +559,7 @@
       ;; surface that survives production.
       (rf/register-listener! :errors ::depth-always-on
                              (fn [rec] (swap! records conj rec)))
-      (rf/reg-frame :drain.always-on/loop {:drain-depth 6})
+      (rf/make-frame {:id :drain.always-on/loop :drain-depth 6})
       ;; A two-event cycle: :ping → :pong → :ping → … so the tail ring shows a
       ;; repeating suffix (the cycle evidence), not just one repeated id.
       (rf/reg-event :ping (fn [_ _] {:fx [[:dispatch [:pong]]]}))

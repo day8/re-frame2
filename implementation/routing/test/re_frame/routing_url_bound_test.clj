@@ -5,6 +5,7 @@
   Split from routing_test.clj per rf2-u8qe7y finding 3."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.fx :as fx]
             [re-frame.late-bind :as late-bind]
             [re-frame.routing :as routing]
             [re-frame.routing.test-support]
@@ -28,7 +29,7 @@
       ;; EP-0002 (rf2-nn0jqa): URL ownership is explicit. This suite's
       ;; fixture registered `:rf/default {:url-bound? true}` as the declared
       ;; owner, so a second frame opting in collides with it.
-      (rf/reg-frame :my-frame {:url-bound? true})
+      (rf/make-frame {:id :my-frame :url-bound? true})
       (rf/unregister-listener! :trace ::dup-bind)
       (is (some (fn [ev]
                   (and (= :rf.error/duplicate-url-binding (:operation ev))
@@ -43,8 +44,8 @@
             and emits no duplicate-binding trace"
     (let [traces (atom [])]
       (rf/register-listener! :trace ::no-dup (fn [ev] (swap! traces conj ev)))
-      (rf/reg-frame :story/variant-A {})              ;; no :url-bound?
-      (rf/reg-frame :test/fixture    {:url-bound? false}) ;; explicit off
+      (rf/make-frame {:id :story/variant-A})              ;; no :url-bound?
+      (rf/make-frame {:id :test/fixture :url-bound? false}) ;; explicit off
       (rf/unregister-listener! :trace ::no-dup)
       (is (empty? (filter #(= :rf.error/duplicate-url-binding (:operation %))
                           @traces))
@@ -53,13 +54,13 @@
 (deftest push-url-noop-from-non-url-bound-frame
   (testing ":rf.nav/push-url skips on a non-URL-bound frame and emits
             :rf.fx/skipped-on-platform with :reason :frame-not-url-bound"
-    (rf/reg-frame :story/variant-A {})
+    (rf/make-frame {:id :story/variant-A})
     (rf/reg-route :route/home {} "/")
     ;; Register :rf.nav/push-url with a capture spy AND :platforms
     ;; #{:server :client} so the JVM path doesn't already skip on
     ;; platform.
     (let [pushed (atom [])]
-      (rf/reg-fx :rf.nav/push-url
+      (fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [{:keys [frame]} url]
                    (swap! pushed conj {:frame frame :url url})))
@@ -76,7 +77,7 @@
       ;; We exercise the production behaviour by re-registering the
       ;; default fx body — verifying it skips for the non-bound frame.
       (reset! pushed [])
-      (rf/reg-fx :rf.nav/push-url
+      (fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}
                   :doc       "test re-registration with the production
                               url-bound-frame? gating"}
@@ -101,8 +102,8 @@
     ;; missing `:url-bound?` reads as default-true, so it keeps winning the
     ;; ownership tie and :step-deck's navs never push the URL. Releasing
     ;; the default (`:url-bound? false`) hands ownership to :step-deck.
-    (rf/reg-frame :rf/default {:url-bound? false})
-    (rf/reg-frame :step-deck  {:url-bound? true})
+    (rf/make-frame {:id :rf/default :url-bound? false})
+    (rf/make-frame {:id :step-deck :url-bound? true})
     (is (= :step-deck (routing/url-owner-frame-id))
         "with :rf/default opted out, the lone :url-bound? true frame owns the URL")
 
@@ -113,7 +114,7 @@
     ;; in the resolution itself, which is the bug rf2-6qgbs.3 surfaced).
     (rf/reg-route :route/home {} "/home")
     (let [pushed (atom [])]
-      (rf/reg-fx :rf.nav/push-url
+      (fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}
                   :doc       "test re-registration consulting the production
                               url-owner-frame-id resolver"}
@@ -182,7 +183,7 @@
       (rf/register-listener! :trace ::dup-once (fn [ev] (swap! traces conj ev)))
       ;; :rf/default is implicitly :url-bound? true; one second binding is
       ;; one conflict.
-      (rf/reg-frame :my-conflicting-frame {:url-bound? true})
+      (rf/make-frame {:id :my-conflicting-frame :url-bound? true})
       (rf/unregister-listener! :trace ::dup-once)
       (let [dups (filter #(= :rf.error/duplicate-url-binding (:operation %)) @traces)]
         (is (= 1 (count dups))
@@ -208,7 +209,7 @@
             registration, BOTH frames carry :url-bound? true in the
             registry (the losing binding is stored, not rejected) and
             the existing owner (:rf/default) is unchanged"
-    (rf/reg-frame :second-owner {:url-bound? true})
+    (rf/make-frame {:id :second-owner :url-bound? true})
     (is (true? (:url-bound? (frame/frame-meta :second-owner)))
         "the offending frame's :url-bound? true is visible in frame metadata")
     ;; :rf/default keeps implicit ownership (its metadata is unchanged by
@@ -225,13 +226,13 @@
             and NOT the alphabetically-first id — the duplicate :second-owner
             claims after :rf/default, so :rf/default stays owner and the
             newcomer loses."
-    (rf/reg-frame :second-owner {:url-bound? true})   ;; conflicts with :rf/default
+    (rf/make-frame {:id :second-owner :url-bound? true})   ;; conflicts with :rf/default
     (rf/reg-route :route/home {} "/home")
     (let [pushed (atom [])]
       ;; Re-register the production-gated fx that consults the REAL
       ;; url-owner-frame-id resolver (a reimplemented gate can't catch a
       ;; resolution regression).
-      (rf/reg-fx :rf.nav/push-url
+      (fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}
                   :doc       "test fx consulting the production url-owner resolver"}
                  (fn [{:keys [frame]} url]
@@ -268,7 +269,7 @@
         "precondition: :rf/default is the incumbent URL owner")
     ;; The duplicate sorts alphabetically BEFORE :rf/default (\":aaa-early\" <
     ;; \":rf/default\"). Under the buggy alphabetical resolver this stole the URL.
-    (rf/reg-frame :aaa-early {:url-bound? true})
+    (rf/make-frame {:id :aaa-early :url-bound? true})
     (is (true? (:url-bound? (frame/frame-meta :aaa-early)))
         "the duplicate's :url-bound? true is stored (binding is reported, not rejected)")
     (is (= :rf/default (routing/url-owner-frame-id))
@@ -282,11 +283,11 @@
             Exercises the REAL push-url path through the production
             url-owner-frame-id resolver (a reimplemented gate cannot catch a
             resolution regression — cf rf2-lo28u)."
-    (rf/reg-frame :aaa-early {:url-bound? true})       ;; sorts before :rf/default
+    (rf/make-frame {:id :aaa-early :url-bound? true})       ;; sorts before :rf/default
     (rf/reg-route :route/home {} "/home")
     (let [pushed (atom [])]
       ;; Production-gated fx consulting the REAL resolver.
-      (rf/reg-fx :rf.nav/push-url
+      (fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}
                   :doc       "test fx consulting the production url-owner resolver"}
                  (fn [{:keys [frame]} url]
@@ -310,7 +311,7 @@
         "the sole :url-bound? true frame is the owner")
     (rf/reg-route :route/home {} "/home")
     (let [pushed (atom [])]
-      (rf/reg-fx :rf.nav/push-url
+      (fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}
                   :doc       "test fx consulting the production url-owner resolver"}
                  (fn [{:keys [frame]} url]
@@ -326,11 +327,11 @@
             binding — self-healing, NOT frozen on the now-unbound incumbent"
     ;; :rf/default is the incumbent; add an earlier-sorting duplicate that
     ;; claimed second.
-    (rf/reg-frame :aaa-early {:url-bound? true})
+    (rf/make-frame {:id :aaa-early :url-bound? true})
     (is (= :rf/default (routing/url-owner-frame-id))
         "incumbent :rf/default owns while it carries the binding")
     ;; The incumbent opts out — ownership must NOT stay frozen on it.
-    (rf/reg-frame :rf/default {:url-bound? false})
+    (rf/make-frame {:id :rf/default :url-bound? false})
     (is (= :aaa-early (routing/url-owner-frame-id))
         "ownership re-resolves to the next live claimant (:aaa-early) once the
          incumbent relinquishes its binding")))
@@ -371,9 +372,9 @@
             (alphabetically first), stealing the URL from :zz-incumbent."
     ;; Simulate two frames registered before routing's hook observed them: the
     ;; registry carries both bindings but no claim was recorded.
-    (rf/reg-frame :rf/default  {:url-bound? false})  ;; clear the fixture incumbent
-    (rf/reg-frame :zz-incumbent {:url-bound? true})
-    (rf/reg-frame :aa-late      {:url-bound? true})
+    (rf/make-frame {:id :rf/default :url-bound? false})  ;; clear the fixture incumbent
+    (rf/make-frame {:id :zz-incumbent :url-bound? true})
+    (rf/make-frame {:id :aa-late :url-bound? true})
     ;; Drop the claims the live hook recorded, reproducing the "claims never
     ;; recorded because the frames pre-existed the hook" condition.
     (routing/reset-url-claims!)
@@ -388,8 +389,8 @@
             FIX (no reconcile + id-sort fallback): :aaa-stealer would win."
     ;; Establish a single pre-load incumbent whose id sorts AFTER a later
     ;; duplicate, with no recorded claim (the pre-routing-load state).
-    (rf/reg-frame :rf/default   {:url-bound? false})  ;; clear the fixture incumbent
-    (rf/reg-frame :zz-incumbent {:url-bound? true})
+    (rf/make-frame {:id :rf/default :url-bound? false})  ;; clear the fixture incumbent
+    (rf/make-frame {:id :zz-incumbent :url-bound? true})
     (routing/reset-url-claims!)
     ;; The façade runs reconcile at load time; reproduce that step explicitly
     ;; for the frame(s) that pre-existed the hook.
@@ -399,7 +400,7 @@
     ;; A later duplicate whose id sorts BEFORE the incumbent now registers
     ;; through the LIVE hook — it must append after the seeded incumbent and
     ;; NOT steal ownership.
-    (rf/reg-frame :aaa-stealer {:url-bound? true})
+    (rf/make-frame {:id :aaa-stealer :url-bound? true})
     (is (= :zz-incumbent (routing/url-owner-frame-id))
         "the earlier-sorting later duplicate does NOT steal — incumbent unchanged")))
 
@@ -408,9 +409,9 @@
             unrecoverable claim order, reconcile fails closed (no owner) and
             emits a duplicate-url-binding diagnostic per extra binding —
             it does NOT silently pick one by id sort"
-    (rf/reg-frame :rf/default   {:url-bound? false})  ;; clear the fixture incumbent
-    (rf/reg-frame :zz-incumbent {:url-bound? true})
-    (rf/reg-frame :aa-late      {:url-bound? true})
+    (rf/make-frame {:id :rf/default :url-bound? false})  ;; clear the fixture incumbent
+    (rf/make-frame {:id :zz-incumbent :url-bound? true})
+    (rf/make-frame {:id :aa-late :url-bound? true})
     (routing/reset-url-claims!)
     (let [traces (atom [])]
       (rf/register-listener! :trace ::reconcile-dup (fn [ev] (swap! traces conj ev)))

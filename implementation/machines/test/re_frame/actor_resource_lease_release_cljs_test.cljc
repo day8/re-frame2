@@ -37,6 +37,7 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
+   [re-frame.events :as events]
    [re-frame.machines]
    [re-frame.machines.test-support :as mtest]
    #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
@@ -58,7 +59,7 @@
   ;; Register a stub `:rf.resource/release-owner` event handler that records
   ;; the released owner — the machine side dispatches this by NAME (it never
   ;; :requires resources). This stands in for the real resources handler.
-  (rf/reg-event :rf.resource/release-owner
+  (events/reg-event :rf.resource/release-owner
     (fn [_ [_ {:keys [owner]}]]
       (swap! released conj owner)
       {})))

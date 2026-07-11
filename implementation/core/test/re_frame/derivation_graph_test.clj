@@ -212,8 +212,8 @@
   ;; flow does NOT overwrite another's when their ids match.
   (testing "the SAME flow-id registered on two frames yields TWO distinct
             composed flow nodes, keyed by [:flow <frame-id> <flow-id>]"
-    (rf/reg-frame :app/a {})
-    (rf/reg-frame :app/b {})
+    (rf/make-frame {:id :app/a})
+    (rf/make-frame {:id :app/b})
     ;; Same flow-id, different output paths, on two different frames.
     (rf/with-frame :app/a
       (rf/reg-flow :shared/total {:inputs [[:cart :items]] :output-path [:a-total]} count))

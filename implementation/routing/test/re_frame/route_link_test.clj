@@ -24,6 +24,7 @@
   `route-link` row."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.fx :as fx]
             [re-frame.registrar :as registrar]
             [re-frame.routing :as routing]
             [re-frame.routing-test-support :as rts]))
@@ -151,7 +152,7 @@
 
     ;; Suppress the :client-only :rf.nav/push-url fx on the JVM (matches
     ;; the pattern in routing_test.clj).
-    (rf/reg-fx :rf.nav/push-url
+    (fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
 

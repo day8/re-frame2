@@ -322,7 +322,7 @@
           "digest matches \"sha256:\" + 16 lowercase hex chars")
       ;; Empty schema set — registered against a frame with no schemas
       ;; — produces the well-defined empty-set digest.
-      (rf/reg-frame :test/empty-cljs {})
+      (rf/make-frame {:id :test/empty-cljs})
       (is (= "sha256:e3b0c44298fc1c14"
              (schemas/app-schemas-digest :test/empty-cljs))
           "empty-set digest is byte-identical with the JVM path"))))

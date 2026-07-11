@@ -92,12 +92,12 @@
   ;; (envelope dropped or double-processed).
   (testing (str "cross-frame dispatch never drops or duplicates "
                 "envelopes across " stress-iters " iterations")
-    (rf/reg-frame :rgj.exec/a {:doc "originating frame"})
-    (rf/reg-frame :rgj.exec/b {:doc "target frame, drains on executor"
-                                ;; Generous drain-depth so the cascade
-                                ;; doesn't hit the default-100 ceiling
-                                ;; under the stress pattern below.
-                                :drain-depth 10000})
+    (rf/make-frame {:id :rgj.exec/a :doc "originating frame"})
+    (rf/make-frame {:id :rgj.exec/b :doc "target frame, drains on executor"
+                     ;; Generous drain-depth so the cascade
+                     ;; doesn't hit the default-100 ceiling
+                     ;; under the stress pattern below.
+                     :drain-depth 10000})
 
     (let [failures    (atom [])
           ;; Per-iter B-counter, threaded through a global indirection
@@ -196,10 +196,10 @@
   ;; that case here by hammering B from one thread only.
   (testing (str "cross-frame interleave — B's count is exact; warnings observable "
                 "across " stress-iters " bumps")
-    (rf/reg-frame :rgj.sync/a {:doc "frame A — async drain on executor"
-                                :drain-depth 200000})
-    (rf/reg-frame :rgj.sync/b {:doc "frame B — main-thread sync drainer"
-                                :drain-depth 200000})
+    (rf/make-frame {:id :rgj.sync/a :doc "frame A — async drain on executor"
+                     :drain-depth 200000})
+    (rf/make-frame {:id :rgj.sync/b :doc "frame B — main-thread sync drainer"
+                     :drain-depth 200000})
     (rf/reg-event :bump
       (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
 
@@ -295,8 +295,8 @@
   ;; clock resolution.
   (testing (str "sustained dispatch + concurrent re-registration — "
                 "every event runs exactly once across " stress-iters " events")
-    (rf/reg-frame :rgj.reload/main {:doc "hot-reload race target"
-                                     :drain-depth 100000})
+    (rf/make-frame {:id :rgj.reload/main :doc "hot-reload race target"
+                     :drain-depth 100000})
     ;; Two structurally-identical handler bodies. Either may be active
     ;; when an event is processed; both produce the same effect so the
     ;; final count is deterministic.

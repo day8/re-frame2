@@ -60,7 +60,7 @@
        ;; Allocate the :rf/xray frame so `note-suppressed!`'s dispatch
        ;; guard passes. Without the frame, `note-suppressed!` skips the
        ;; dispatch entirely — which would mask the loop scenario.
-       (frame/reg-frame :rf/xray {})
+       (rf/make-frame {:id :rf/xray})
        ;; Re-install the trace collector. The reset tier above cleared it.
        (preload/register-trace-collector!)
        (trace-collector/reset-for-test!)

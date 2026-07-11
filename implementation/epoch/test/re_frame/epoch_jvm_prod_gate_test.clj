@@ -176,7 +176,7 @@
             longer a storage-side hook. The ring record is RAW; the
             override fires only when `projected-record` is called."
     (let [invocations (atom 0)]
-      (rf/reg-frame :prod-gate.dev/frame {})
+      (rf/make-frame {:id :prod-gate.dev/frame})
       (rf/configure! {:epoch-history {:redact-fn (fn [r] (swap! invocations inc) r)}})
       (rf/reg-event :prod-gate.redact/dev-inc
                        (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
@@ -215,7 +215,7 @@
             time, never at settle. Pinned so a future refactor that
             re-attaches redaction to the storage seam would break visibly."
     (let [warnings (atom [])]
-      (rf/reg-frame :prod-gate.throw/frame {})
+      (rf/make-frame {:id :prod-gate.throw/frame})
       (rf/register-listener! :trace ::warn-watch
                              (fn [ev]
                                (when (= :warning (:op-type ev))

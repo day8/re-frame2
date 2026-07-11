@@ -441,7 +441,7 @@
       "the sensitive axis was never populated for this path"))
 
 (deftest registries-are-frame-isolated
-  (frame/reg-frame :elision-test/other {})
+  (rf/make-frame {:id :elision-test/other})
   (install-class! :rf/default [] [[:blob]])
   (install-class! :elision-test/other [] [])
   (is (contains? (elision/declarations :rf/default) [:blob]))
@@ -456,8 +456,8 @@
   ;; frame applied to every bundle. The sharp edge is UNDER-redaction: a
   ;; frame-A value A declares sensitive but the operating frame B does not
   ;; would leak across the off-box MCP→LLM boundary.
-  (frame/reg-frame :elision-test/frame-a {})
-  (frame/reg-frame :elision-test/frame-b {})
+  (rf/make-frame {:id :elision-test/frame-a})
+  (rf/make-frame {:id :elision-test/frame-b})
   ;; Frame A declares :secret-a sensitive; frame B declares :secret-b
   ;; sensitive. Neither marks the OTHER frame's slot.
   (install-class! :elision-test/frame-a [[:secret-a]] [])
@@ -655,7 +655,7 @@
   ;; A frame that WAS registered (and could have carried a real `:large` /
   ;; `:sensitive` policy) but has since been destroyed is no longer
   ;; resolvable ⇒ fail closed. `frame/frame` returns nil for a destroyed id.
-  (frame/reg-frame :elision-test/doomed {})
+  (rf/make-frame {:id :elision-test/doomed})
   (frame/destroy-frame! :elision-test/doomed)
   (binding [frame/*current-frame* nil]
     (is (= :rf/redacted
@@ -701,7 +701,7 @@
   ;; A stale scope id that no longer resolves to a live frame must fail
   ;; closed exactly like an explicit unknown `:frame` opt (the same
   ;; `frame/frame` liveness check governs both resolution tiers).
-  (frame/reg-frame :elision-test/stale {})
+  (rf/make-frame {:id :elision-test/stale})
   (frame/destroy-frame! :elision-test/stale)
   (binding [frame/*current-frame* :elision-test/stale]
     (is (= :rf/redacted

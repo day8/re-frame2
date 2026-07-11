@@ -59,7 +59,7 @@
             time — the gate resolves the handler meta through the frame's image
             generation, not a bare (generation-blind) registrar lookup
             (rf2-x76af2.25)"
-    (rf/reg-frame :img/main {:doc "image-loaded no-emit frame"})
+    (rf/make-frame {:id :img/main :doc "image-loaded no-emit frame"})
     ;; The handler exists ONLY in the frame's image (never globally registered),
     ;; so a bare enqueue-time lookup would miss it entirely — the pre-fix bug.
     (let [img (image/image
@@ -85,7 +85,7 @@
             :rf.trace/no-emit? DOES emit :rf.event/dispatched — so the
             suppression above is the flag's effect, not that image-frame
             dispatches never emit (rf2-x76af2.25)"
-    (rf/reg-frame :img/main {:doc "image-loaded normal frame"})
+    (rf/make-frame {:id :img/main :doc "image-loaded normal frame"})
     (let [img (image/image
                 {:id :img/normal
                  :registrations

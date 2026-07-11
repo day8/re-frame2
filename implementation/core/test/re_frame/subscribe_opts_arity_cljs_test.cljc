@@ -43,8 +43,8 @@
   "Register two frames, a seed event, and a layer-1 sub; seed each frame's
   app-db with a distinct value so a read proves WHICH frame it resolved."
   []
-  (rf/reg-frame :soa/t1 {:doc "frame 1"})
-  (rf/reg-frame :soa/t2 {:doc "frame 2"})
+  (rf/make-frame {:id :soa/t1 :doc "frame 1"})
+  (rf/make-frame {:id :soa/t2 :doc "frame 2"})
   (rf/reg-event :soa/seed (fn [{:keys [db]} [_ v]] {:db (assoc db :v v)}))
   (rf/reg-sub   :soa/val  (fn [db _] (:v db)))
   (rf/dispatch-sync [:soa/seed :A] {:frame :soa/t1})

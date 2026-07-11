@@ -135,7 +135,7 @@
   ;; `reg-frame …:initial-events` still drain synchronously — the lifecycle
   ;; async/sync split keys off `*handler-scope*` (a real cascade), not
   ;; this ambient scope.
-  (rf/reg-frame :rf/default {})
+  (rf/make-frame {:id :rf/default})
   (rf/with-frame :rf/default
     (test-fn)))
 
@@ -173,11 +173,10 @@
                                {:id "b" :title "Article B" :body "Body B"}])))))
     (let [fid          (keyword "rf.frame" (str (gensym "")))
           _            (ssr/set-request! fid {:uri "/articles"})
-          f            (rf/reg-frame fid
-                         {:doc          "ssr-example test frame"
-                          :platform     :server
-                          :initial-events [[:rf/server-init]]
-                          :fx-overrides {:rf.http/managed :ssr.http/canned-articles}})
+          f            (rf/make-frame {:id fid :doc          "ssr-example test frame"
+                                       :platform     :server
+                                       :initial-events [[:rf/server-init]]
+                                       :fx-overrides {:rf.http/managed :ssr.http/canned-articles}})
           final-db     (rf/app-db-value f)
           ;; The root view's body invokes the articles-page render fn,
           ;; which calls (rf/subscribe-once [:articles]). Both run
@@ -329,10 +328,9 @@
           _               (rf/reg-app-schema [:articles] {:frame fid} articles-schema)
           f               (rf/with-fx-overrides
                             {:rf.http/managed :ssr.http/canned-articles}
-                            (rf/reg-frame fid
-                              {:doc       "ssr-example per-request validation frame"
-                               :platform  :server
-                               :initial-events [[:rf/server-init]]}))
+                            (rf/make-frame {:id fid :doc       "ssr-example per-request validation frame"
+                                            :platform  :server
+                                            :initial-events [[:rf/server-init]]}))
           final-db        (rf/app-db-value f)]
       ;; 1. The schema is bound to the PER-REQUEST frame — explicitly.
       (is (= articles-schema (schemas/app-schema-at [:articles] {:frame fid}))
@@ -572,8 +570,7 @@
                "would conflict with the fixed :rf/default client frame)"))
       ;; Hydrate the example's OWN client frame (:rf/default, a :client frame).
       (let [client-frame @(resolve 'ssr.core/app-frame)
-            _            (rf/reg-frame client-frame
-                           {:doc "ssr-example client frame" :platform :client})
+            _            (rf/make-frame {:id client-frame :doc "ssr-example client frame" :platform :client})
             returned     (ssr/hydrate! {:frame client-frame :payload payload})]
         (is (= payload returned)
             "hydrate! applied the payload (no frame-id conflict thrown)")
@@ -639,9 +636,8 @@
       ;; is browser-side), so reference its value (`:rf/default`) directly
       ;; here — the JVM cannot resolve a reader-conditional `:cljs` def.
       (let [client-frame :rf/default
-            _            (rf/reg-frame client-frame
-                           {:doc "ssr-streaming-example client frame"
-                            :platform :client})
+            _            (rf/make-frame {:id client-frame :doc "ssr-streaming-example client frame"
+                                         :platform :client})
             returned     (ssr/hydrate! {:frame client-frame :payload payload})]
         (is (= payload returned)
             "hydrate! applied the final-payload (no frame-id conflict thrown)")
@@ -719,9 +715,8 @@
             "the SSR-preloaded resource settled :loaded before render"))
       ;; Hydrate the example's OWN :rf/default client frame.
       (let [client-frame @(resolve 'resources-ssr.core/app-frame)
-            _            (rf/reg-frame client-frame
-                           {:doc "resources-ssr-example client frame"
-                            :platform :client})
+            _            (rf/make-frame {:id client-frame :doc "resources-ssr-example client frame"
+                                         :platform :client})
             returned     (ssr/hydrate! {:frame client-frame :payload payload})]
         (is (= payload returned)
             "hydrate! applied the payload (no frame-id conflict thrown)")
@@ -783,9 +778,8 @@
               "the baked entry declares no rotting absolute :stale-at (never-stale policy)")))
       ;; ── Hydrate the example's OWN :rf/default client frame ───────────────
       (let [client-frame @(resolve 'resources-ssr.core/app-frame)
-            _            (rf/reg-frame client-frame
-                           {:doc "resources-ssr static-payload client frame"
-                            :platform :client})
+            _            (rf/make-frame {:id client-frame :doc "resources-ssr static-payload client frame"
+                                         :platform :client})
             returned     (ssr/hydrate! {:frame client-frame :payload payload})]
         (is (= payload returned)
             "hydrate! applied the static payload (frame-id present-and-equal, no conflict)")

@@ -60,7 +60,7 @@
    :rf.cofx/generated merge."
     ;; A generator-backed recordable cofx minting a distinct, stable value.
     (let [seen (atom ::unset)]
-      (rf/reg-frame :test/main {})
+      (rf/make-frame {:id :test/main})
       (rf/reg-cofx :replay/gen {:recordable? true} (fn [] 100))
       (rf/reg-machine :replay/mint (mint-machine seen))
 
@@ -97,7 +97,7 @@
    reset is needed."
     (let [live-seen   (atom ::unset)
           replay-seen (atom ::unset)]
-      (rf/reg-frame :test/main {})
+      (rf/make-frame {:id :test/main})
       (rf/reg-cofx :replay/gen {:recordable? true} (fn [] 100))
       (rf/reg-machine :replay/mint   (mint-machine live-seen))
       (rf/reg-machine :replay/replay (mint-machine replay-seen))
@@ -128,7 +128,7 @@
    replay token lacks :replay/gen and a :strict replay would diverge from the
    live :done."
     (let [seen (atom ::unset)]
-      (rf/reg-frame :test/main {})
+      (rf/make-frame {:id :test/main})
       (rf/reg-cofx :replay/gen {:recordable? true} (fn [] 100))
       (rf/reg-machine :replay/mint (mint-machine seen))
 

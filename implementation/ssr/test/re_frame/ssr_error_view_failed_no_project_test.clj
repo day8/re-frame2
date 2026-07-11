@@ -61,10 +61,9 @@
   ;; `:platform :server` so `error-projector/server-frame?` recognises it;
   ;; the default projector would map any PROJECTED `:rf.error/*` → 500, so
   ;; a 200 below proves the error-view-failed trace was NOT projected.
-  (rf/reg-frame server-frame
-    {:platform :server
-     :ssr      {:public-error-id   :rf.ssr/default-error-projector
-                :dev-error-detail? false}})
+  (rf/make-frame {:id server-frame :platform :server
+                  :ssr      {:public-error-id   :rf.ssr/default-error-projector
+                             :dev-error-detail? false}})
   server-frame)
 
 ;; ===========================================================================

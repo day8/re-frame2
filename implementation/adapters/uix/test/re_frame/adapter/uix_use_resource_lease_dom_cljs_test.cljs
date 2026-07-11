@@ -28,6 +28,7 @@
             ["react-dom/client" :as react-dom-client]
             [uix.core :as uix :refer-macros [defui $]]
             [re-frame.core :as rf]
+            [re-frame.events :as events]
             [re-frame.frame :as frame]
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.test-support :as test-support]))
@@ -72,10 +73,10 @@
 (defn- install-spies! []
   (reset! ensures [])
   (reset! releases [])
-  (rf/reg-frame lease-frame {:doc "use-resource-lease spy frame"})
-  (rf/reg-event :rf.resource/ensure
+  (rf/make-frame {:id lease-frame :doc "use-resource-lease spy frame"})
+  (events/reg-event :rf.resource/ensure
                 (fn [_cofx [_ payload]] (swap! ensures conj payload) {}))
-  (rf/reg-event :rf.resource/release-owner
+  (events/reg-event :rf.resource/release-owner
                 (fn [_cofx [_ payload]] (swap! releases conj payload) {})))
 
 ;; Wait two macrotasks so the router's next-tick drain has run.

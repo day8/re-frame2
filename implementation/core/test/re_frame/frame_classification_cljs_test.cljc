@@ -60,8 +60,7 @@
             carrying ANY `:sensitive` block is rejected."
     ;; The retired durable `:app-db` block.
     (let [data (bad-classification-ex
-                 #(rf/reg-frame :app/retired-sens-appdb
-                    {:sensitive {:app-db [[:auth :token]]}}))]
+                 #(rf/make-frame {:id :app/retired-sens-appdb :sensitive {:app-db [[:auth :token]]}}))]
       (is (= :rf.error/bad-frame-classification (:rf.error/id data)))
       (is (= :sensitive (:bad-key data))
           "the retired :sensitive frame key is the offending slot"))
@@ -69,8 +68,7 @@
         "the retired annotation threw before any frame state mutated")
     ;; The retired `:http` carrier block (now lives on :rf.http/managed).
     (let [data (bad-classification-ex
-                 #(rf/reg-frame :app/retired-sens-http
-                    {:sensitive {:http {:headers ["X-Honeycomb-Team"]}}}))]
+                 #(rf/make-frame {:id :app/retired-sens-http :sensitive {:http {:headers ["X-Honeycomb-Team"]}}}))]
       (is (= :rf.error/bad-frame-classification (:rf.error/id data)))
       (is (= :sensitive (:bad-key data))
           "the retired :sensitive frame key (carrying :http) is the offending slot"))
@@ -86,8 +84,7 @@
             not silently register and install nothing (a removed-annotation
             footgun)."
     (let [data (bad-classification-ex
-                 #(rf/reg-frame :app/retired-large
-                    {:large {:app-db [[:documents :csv-upload]]}}))]
+                 #(rf/make-frame {:id :app/retired-large :large {:app-db [[:documents :csv-upload]]}}))]
       (is (= :rf.error/bad-frame-classification (:rf.error/id data)))
       (is (= :large (:bad-key data))
           "the retired top-level :large key is the offending slot"))
@@ -107,11 +104,10 @@
 
 (deftest valid-observability-retained-on-config
   (testing "well-formed :observability rides the frame config"
-    (rf/reg-frame :app/full
-      {:observability {:handled-events [{:sink :my-app.sinks/datadog
-                                         :rf.egress/profile :rf.egress/off-box-observability
-                                         :opts {:service "checkout-spa"}}]
-                       :errors         [{:sink :my-app.sinks/sentry}]}})
+    (rf/make-frame {:id :app/full :observability {:handled-events [{:sink :my-app.sinks/datadog
+                                                      :rf.egress/profile :rf.egress/off-box-observability
+                                                      :opts {:service "checkout-spa"}}]
+                                    :errors         [{:sink :my-app.sinks/sentry}]}})
     (let [meta (rf/frame-meta :app/full)]
       (is (= :my-app.sinks/datadog
              (get-in meta [:observability :handled-events 0 :sink]))
@@ -122,7 +118,7 @@
             `:sensitive` / `:large` effects (the replacement for the removed
             frame annotation), written into the elision registry under
             `:source :effect`"
-    (rf/reg-frame :app/effects {})
+    (rf/make-frame {:id :app/effects})
     ;; The same registry write a reg-event returning `:sensitive` / `:large`
     ;; alongside `:db` performs.
     (frame/swap-runtime-db! :app/effects
@@ -145,22 +141,19 @@
 (deftest fail-loud-on-unknown-classification-key
   (testing "any :sensitive block fails loud — the whole frame key is retired"
     (let [data (bad-classification-ex
-                 #(rf/reg-frame :app/bad2
-                    {:sensitive {:bogus [:x]}}))]
+                 #(rf/make-frame {:id :app/bad2 :sensitive {:bogus [:x]}}))]
       (is (= :rf.error/bad-frame-classification (:rf.error/id data)))
       (is (= :sensitive (:bad-key data))))
     ;; Unknown :observability stream key.
     (let [data (bad-classification-ex
-                 #(rf/reg-frame :app/bad2b
-                    {:observability {:bogus-stream []}}))]
+                 #(rf/make-frame {:id :app/bad2b :observability {:bogus-stream []}}))]
       (is (= :rf.error/bad-frame-classification (:rf.error/id data)))
       (is (= [:observability :bogus-stream] (:bad-key data))))))
 
 (deftest fail-loud-on-bad-observability-entry
   (testing "an :observability entry without a :sink keyword fails loudly"
     (let [data (bad-classification-ex
-                 #(rf/reg-frame :app/bad4
-                    {:observability {:handled-events [{:opts {:service "x"}}]}}))]
+                 #(rf/make-frame {:id :app/bad4 :observability {:handled-events [{:opts {:service "x"}}]}}))]
       (is (= :rf.error/bad-frame-classification (:rf.error/id data)))
       (is (= [:observability :handled-events :sink] (:bad-key data))))))
 
@@ -171,10 +164,9 @@
   ;; only blow up downstream when the sink first fires.
   (testing "an :observability entry naming an unknown :rf.egress/profile fails loudly"
     (let [data (bad-classification-ex
-                 #(rf/reg-frame :app/bad-profile
-                    {:observability
-                     {:handled-events [{:sink :my-app.sinks/datadog
-                                        :rf.egress/profile :rf.egress/bogus-profile}]}}))]
+                 #(rf/make-frame {:id :app/bad-profile :observability
+                                  {:handled-events [{:sink :my-app.sinks/datadog
+                                                     :rf.egress/profile :rf.egress/bogus-profile}]}}))]
       (is (= :rf.error/bad-frame-classification (:rf.error/id data)))
       (is (= [:observability :handled-events :rf.egress/profile] (:bad-key data)))
       (is (= :rf.egress/bogus-profile (:bad-value data)))
@@ -182,16 +174,14 @@
           "the error carries the closed profile enum"))
     ;; The :errors stream is validated identically.
     (let [data (bad-classification-ex
-                 #(rf/reg-frame :app/bad-profile-err
-                    {:observability
-                     {:errors [{:sink :my-app.sinks/sentry
-                                :rf.egress/profile :not-even-egress-namespaced}]}}))]
+                 #(rf/make-frame {:id :app/bad-profile-err :observability
+                                  {:errors [{:sink :my-app.sinks/sentry
+                                             :rf.egress/profile :not-even-egress-namespaced}]}}))]
       (is (= :rf.error/bad-frame-classification (:rf.error/id data)))
       (is (= [:observability :errors :rf.egress/profile] (:bad-key data)))))
   (testing "a well-formed :rf.egress/profile from the closed enum is accepted"
-    (rf/reg-frame :app/good-profile
-      {:observability {:handled-events [{:sink :my-app.sinks/datadog
-                                         :rf.egress/profile :rf.egress/off-box-observability}]}})
+    (rf/make-frame {:id :app/good-profile :observability {:handled-events [{:sink :my-app.sinks/datadog
+                                                      :rf.egress/profile :rf.egress/off-box-observability}]}})
     (is (= :my-app.sinks/datadog
            (get-in (rf/frame-meta :app/good-profile)
                    [:observability :handled-events 0 :sink])))))
@@ -202,24 +192,22 @@
   ;; rather than handing junk to the sink at fire time.
   (testing "an :observability entry with non-map :opts fails loudly"
     (let [data (bad-classification-ex
-                 #(rf/reg-frame :app/bad-opts
-                    {:observability
-                     {:handled-events [{:sink :my-app.sinks/datadog
-                                        :opts "not-a-map"}]}}))]
+                 #(rf/make-frame {:id :app/bad-opts :observability
+                                  {:handled-events [{:sink :my-app.sinks/datadog
+                                                     :opts "not-a-map"}]}}))]
       (is (= :rf.error/bad-frame-classification (:rf.error/id data)))
       (is (= [:observability :handled-events :opts] (:bad-key data)))
       (is (= "not-a-map" (:bad-value data)))))
   (testing "nil :opts and an omitted :opts are both accepted"
-    (rf/reg-frame :app/nil-opts
-      {:observability {:handled-events [{:sink :my-app.sinks/datadog :opts nil}]
-                       :errors         [{:sink :my-app.sinks/sentry}]}})
+    (rf/make-frame {:id :app/nil-opts :observability {:handled-events [{:sink :my-app.sinks/datadog :opts nil}]
+                                    :errors         [{:sink :my-app.sinks/sentry}]}})
     (is (= :my-app.sinks/datadog
            (get-in (rf/frame-meta :app/nil-opts)
                    [:observability :handled-events 0 :sink])))))
 
 (deftest no-policy-keys-is-a-no-op
   (testing "a frame with no policy keys installs no classification + registers cleanly"
-    (rf/reg-frame :app/plain {:doc "no classification"})
+    (rf/make-frame {:id :app/plain :doc "no classification"})
     (is (some? (frame/frame :app/plain)) "the frame registered")
     (is (empty? (elision/sensitive-declarations :app/plain)))
     (is (empty? (elision/declarations :app/plain)))))

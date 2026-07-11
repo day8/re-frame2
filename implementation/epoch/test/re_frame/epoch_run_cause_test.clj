@@ -84,7 +84,7 @@
             yields a map carrying ONLY :rendered-so-far 0; the
             :cause-event-id / :cause-subs / :value-changed-subs slots are
             OMITTED, never nil"
-    (rf/reg-frame :test/cc {})
+    (rf/make-frame {:id :test/cc})
     (let [result (capture/run-cause :test/cc)]
       (is (= {:rendered-so-far 0} result)
           "empty buffer → only :rendered-so-far 0, other slots omitted")
@@ -94,7 +94,7 @@
 
   (testing "a buffer with traces but NO :event/run-start (no run
             trigger) still omits :cause-event-id"
-    (rf/reg-frame :test/cc2 {})
+    (rf/make-frame {:id :test/cc2})
     (seed-buffer! :test/cc2 [(sub-run :a true)])
     (let [result (capture/run-cause :test/cc2)]
       (is (not (contains? result :cause-event-id))
@@ -107,7 +107,7 @@
 (deftest cause-event-id-is-first-run-start-event-id
   (testing ":cause-event-id is the event-id of the FIRST :event/run-start
             in the run buffer — the dispatching run's trigger"
-    (rf/reg-frame :test/cc {})
+    (rf/make-frame {:id :test/cc})
     (seed-buffer! :test/cc
                   [(run-start :counter/inc)
                    (sub-run :counter/value true)
@@ -123,7 +123,7 @@
 (deftest cause-subs-distinct-first-seen-order
   (testing ":cause-subs collects distinct sub-ids in FIRST-SEEN order; a
             sub that runs multiple times in the run contributes once"
-    (rf/reg-frame :test/cc {})
+    (rf/make-frame {:id :test/cc})
     (seed-buffer! :test/cc
                   [(run-start :ev)
                    (sub-run :a)
@@ -139,7 +139,7 @@
   (testing ":cause-subs is bounded by `sub-cap` (default 100; overridable
             via the 2-arity). Once the cap is reached, further distinct
             subs are dropped — the per-run view-render cap counterpart"
-    (rf/reg-frame :test/cc {})
+    (rf/make-frame {:id :test/cc})
     (seed-buffer! :test/cc
                   (into [(run-start :ev)]
                         (map (fn [i] (sub-run (keyword (str "s" i)))))
@@ -162,7 +162,7 @@
             reported :rf.sub/value-changed? true — the slot views.cljs reads
             to derive :rf.view/triggered-by (the precise per-view re-render
             cause). Structural re-renders (no changed sub) omit the slot"
-    (rf/reg-frame :test/cc {})
+    (rf/make-frame {:id :test/cc})
     (seed-buffer! :test/cc
                   [(run-start :ev)
                    (sub-run :changed   true)
@@ -179,7 +179,7 @@
 (deftest value-changed-subs-omitted-when-no-sub-changed
   (testing "when no sub reports value-changed? true (a structural
             re-render), :value-changed-subs is OMITTED — not an empty set"
-    (rf/reg-frame :test/cc {})
+    (rf/make-frame {:id :test/cc})
     (seed-buffer! :test/cc
                   [(run-start :ev)
                    (sub-run :a false)
@@ -193,7 +193,7 @@
 (deftest value-changed-subs-deduped-across-repeats
   (testing "a value-changed sub that runs multiple times in the run
             contributes ONCE to :value-changed-subs (it is a set)"
-    (rf/reg-frame :test/cc {})
+    (rf/make-frame {:id :test/cc})
     (seed-buffer! :test/cc
                   [(run-start :ev)
                    (sub-run :a true)
@@ -210,7 +210,7 @@
             pathological run with > sub-cap distinct value-changed
             sub-ids must NOT grow the set past sub-cap — that is the
             documented bound + the per-run view-render cap's intent"
-    (rf/reg-frame :test/cc {})
+    (rf/make-frame {:id :test/cc})
     (seed-buffer! :test/cc
                   (into [(run-start :ev)]
                         (map (fn [i] (sub-run (keyword (str "v" i)) true)))
@@ -234,7 +234,7 @@
   (testing ":rendered-so-far counts the :rf.view/rendered emits already in
             the run — the views.cljs emit site reads it to enforce the
             per-run view-render cap"
-    (rf/reg-frame :test/cc {})
+    (rf/make-frame {:id :test/cc})
     (seed-buffer! :test/cc
                   [(run-start :ev)
                    (rendered)
@@ -250,7 +250,7 @@
             :rf.view/rendered-cap-reached marker — so once the marker fires,
             n-so-far stays > cap and the emit site's :else branch suppresses
             subsequent emits (the marker is one-shot per run)"
-    (rf/reg-frame :test/cc {})
+    (rf/make-frame {:id :test/cc})
     (seed-buffer! :test/cc
                   [(run-start :ev)
                    (rendered)
@@ -268,7 +268,7 @@
   (testing "a realistic run buffer (run-start + mixed value-changed
             subs + renders) yields all four slots correctly populated in
             one pass"
-    (rf/reg-frame :test/cc {})
+    (rf/make-frame {:id :test/cc})
     (seed-buffer! :test/cc
                   [(run-start :counter/inc)
                    (sub-run :counter/value true)
@@ -291,7 +291,7 @@
   (testing "run-cause body is gated on interop/debug-enabled?; under
             the disabled gate it returns nil (the whole epoch surface
             elides — views.cljs gates its consumption under the same gate)"
-    (rf/reg-frame :test/cc {})
+    (rf/make-frame {:id :test/cc})
     (seed-buffer! :test/cc [(run-start :ev) (sub-run :a true) (rendered)])
     (with-redefs [interop/debug-enabled? false]
       (is (nil? (capture/run-cause :test/cc))

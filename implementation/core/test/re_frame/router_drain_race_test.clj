@@ -139,7 +139,7 @@
       ;; partial cascade per Spec 002 §Run-to-completion §Rules rule 3.
       ;; This test is about the single-drainer invariant, not depth-
       ;; limit behaviour.
-      (rf/reg-frame :stress.race/main {:drain-depth (* 4 (+ total 2))})
+      (rf/make-frame {:id :stress.race/main :drain-depth (* 4 (+ total 2))})
       (rf/reg-event :bump
         (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
       ;; Spin up submitter threads. They all dispatch concurrently.

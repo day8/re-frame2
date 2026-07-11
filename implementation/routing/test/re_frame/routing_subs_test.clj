@@ -5,6 +5,7 @@
   trace). Split from routing_test.clj per rf2-u8qe7y finding 3."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.fx :as fx]
             [re-frame.routing :as routing]
             [re-frame.routing.test-support]
             [re-frame.routing-test-support :as rts]))
@@ -44,7 +45,7 @@
 (deftest sub-rf-route-fragment
   (testing ":rf.route/fragment reads the slice's :fragment"
     (rf/reg-route :route/docs {} "/docs/:page")
-    (rf/reg-fx :rf.nav/push-url
+    (fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     ;; Land on a URL with a fragment — the slice carries :fragment "x"
@@ -62,7 +63,7 @@
     (rf/reg-route :route/account             {} "/account")
     (rf/reg-route :route/account.settings    {:parent :route/account} "/account/settings")
     (rf/reg-route :route/account.profile     {:parent :route/account.settings} "/account/settings/profile")
-    (rf/reg-fx :rf.nav/push-url
+    (fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     ;; Land on the deepest leaf — chain walks up to the root.
@@ -90,7 +91,7 @@
     (rf/reg-event :editor/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
     (rf/reg-sub :editor/can-leave?
                 (fn [db _] (not (get-in db [:editor :dirty?]))))
-    (rf/reg-fx :rf.nav/push-url
+    (fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     ;; No pending nav yet
@@ -121,7 +122,7 @@
   (testing "the durable route slice is keyed :route-id (not bare :id);
             the :rf.route/id sub-id is unchanged and reads the new key"
     (rf/reg-route :route/cart {} "/cart")
-    (rf/reg-fx :rf.nav/push-url
+    (fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     (rf/dispatch-sync [:rf.route/navigate :route/cart])
@@ -148,7 +149,7 @@
             navigation (rf2-dn26r). Same-id navigation emits NEITHER."
     (rf/reg-route :route/from {} "/from")
     (rf/reg-route :route/to   {} "/to")
-    (rf/reg-fx :rf.nav/push-url
+    (fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     ;; First nav: no prior route → only :rf.route/activated fires.

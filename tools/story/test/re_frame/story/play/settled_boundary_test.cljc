@@ -115,7 +115,7 @@
   (try (rf/init! plain-atom/adapter)
        (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _ nil))
   (frame/ensure-default-frame!)
-  (frame/reg-frame bf {:doc "settled-boundary drain test frame"})
+  (rf/make-frame {:id bf :doc "settled-boundary drain test frame"})
   (test-fn))
 
 (use-fixtures :each reset-frame!)

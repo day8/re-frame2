@@ -147,6 +147,7 @@
             [re-frame.frame          :as frame]
             [re-frame.interop        :as interop]
             [re-frame.error          :as error]
+            [re-frame.late-bind      :as late-bind]
             [re-frame.trace          :as trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -1243,7 +1244,23 @@
     ;; Only the transition false→true schedules — the burst's subsequent calls
     ;; observe the flag already true and add no second tick.
     (when (compare-and-set! pending-reprojection? false true)
-      (interop/next-tick deferred-flush!)))
+      ;; The deferred tick is CLJS-ONLY (rf2-h1vqa4). In the browser the
+      ;; microtask boundary is the dev hot-reload seam: the flush runs after
+      ;; the reloaded namespace's synchronous reg-* burst and BEFORE the next
+      ;; user interaction, so tools observing generations between events see
+      ;; fresh projections without a dispatch. On the JVM there is no such
+      ;; boundary to serve — the executor tick ran a CONCURRENT sweep racing
+      ;; the caller thread's synchronous cascades (observed as
+      ;; nondeterministic trace/epoch bookkeeping contamination under the
+      ;; make-frame migration, where every frame is image-loaded and every
+      ;; reg-* armed a tick) — and the read-time coalesced flush in
+      ;; `call-with-frame-resolution` already guarantees a dirty projection
+      ;; is flushed before the next resolution, on the resolving thread
+      ;; itself. So the JVM marks the flag and lets the NEXT RESOLUTION (or
+      ;; an explicit `flush-pending-reprojection!`) flush it synchronously —
+      ;; single-threaded semantics, deterministic tests.
+      #?(:cljs (interop/next-tick deferred-flush!)
+         :clj  nil)))
   nil)
 
 (defn reproject-on-registration-change!
@@ -1273,4 +1290,11 @@
 (defonce ^:private _auto-reprojection-hook
   (when interop/debug-enabled?
     (registrar/add-registration-hook! reproject-on-registration-change!)
+    ;; The REMOVAL twin (rf2-h1vqa4): `unregister!` / `clear-kind!` /
+    ;; `clear-all!` are source-store changes exactly like a `reg-*` — a
+    ;; cleared handler must DISAPPEAR from live default-image frames, not
+    ;; linger in a sealed generation the store no longer backs. The registrar
+    ;; cannot require this ns (cycle), so it consults this late-bind key on
+    ;; its removal paths; same dirty-mark + coalescing as the register side.
+    (late-bind/set-fn! :live-frame/mark-projection-dirty! mark-dirty-and-schedule!)
     :installed))

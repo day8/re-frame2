@@ -24,6 +24,7 @@
   is a separate bead; this is the routing-focused regression."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.fx :as fx]
             [re-frame.routing :as routing]
             [re-frame.routing.test-support]
             [re-frame.routing-test-support :as rts]))
@@ -46,7 +47,7 @@
     a))
 
 (defn- stub-push-url! []
-  (rf/reg-fx :rf.nav/push-url
+  (fx/reg-fx :rf.nav/push-url
              {:platforms #{:server :client}}
              (fn [_ _] nil)))
 

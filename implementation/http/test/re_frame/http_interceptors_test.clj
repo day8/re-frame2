@@ -246,7 +246,7 @@
                       (reset! hit-other true)))
                 (write-response! ex 200 "application/json" "{}"))))]
       (try
-        (rf/reg-frame :other-frame {:doc "alt frame"})
+        (rf/make-frame {:id :other-frame :doc "alt frame"})
         ;; Register interceptor ONLY on :rf/default. :other-frame has none.
         (rf/reg-http-interceptor :marker
           {:frame  :rf/default

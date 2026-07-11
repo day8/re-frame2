@@ -382,7 +382,7 @@
             the OWNER's coarse :sensitive? claim still redacts the whole key."
     ;; FRAME classification: the resolver's :db input path is sensitive
     ;; (commit-plane effect path, :source :effect).
-    (rf/reg-frame :sens/frame {:doc "frame with a sensitive tenant-id"})
+    (rf/make-frame {:id :sens/frame :doc "frame with a sensitive tenant-id"})
     (frame/swap-runtime-db! :sens/frame
       (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:session :tenant-id]]})))
     ;; resolver reading the frame-sensitive path — NO propagation now.
@@ -409,7 +409,7 @@
       ;; a FRESH frame so only the secret-article rides the view (its redacted
       ;; key is content-addressed, so a raw-key lookup would miss — assert the
       ;; whole frame view is secret-free instead).
-      (rf/reg-frame :sens/frame2 {:doc "second frame for the revert check"})
+      (rf/make-frame {:id :sens/frame2 :doc "second frame for the revert check"})
       (rf/reg-resource :derived/secret-article
                        (article-spec {:scope      {:from-db :session/tenant}
                                       :sensitive? true})

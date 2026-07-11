@@ -32,7 +32,7 @@
 
 (deftest override-free-dispatch-omits-both-keys
   (testing "no per-call overrides => the record carries neither key"
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-event :probe/noop (fn [{:keys [db]} _] {:db db}))
     (rf/dispatch-sync [:probe/noop] {:frame :test/main})
     (let [r (last-record :test/main)]
@@ -44,7 +44,7 @@
 (deftest keyword-valued-fx-override-is-captured-and-resuppliable
   (testing "an id-valued :fx-overrides entry rides the record verbatim, and
    re-supplying the captured map on a fresh dispatch reproduces the redirect"
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (let [real-fired (atom false)
           stub-fired (atom false)]
       (rf/reg-fx :probe/real-fx (fn [_m _args] (reset! real-fired true)))
@@ -77,7 +77,7 @@
 (deftest fn-valued-fx-override-is-marker-ized-never-a-fn
   (testing "a CLJS-reference fn-valued :fx-overrides entry is recorded as the
    opaque :rf/fn-override sentinel, never the fn itself"
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-fx :probe/real-fx (fn [_m _args] nil))
     (rf/reg-event :probe/emit-fx (fn [_ _] {:fx [[:probe/real-fx nil]]}))
 
@@ -93,7 +93,7 @@
   (testing "a per-call :interceptor-overrides entry is captured verbatim,
    EDN round-trips through the record, and re-supplying it reproduces the
    removal"
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (let [seen (atom 0)]
       (rf/reg-interceptor ::counting-icpt
         {:before (fn [ctx] (swap! seen inc) ctx)})
@@ -126,7 +126,7 @@
     (rf/reg-fx :probe/frame-fx (fn [_m _args] nil))
     (rf/reg-fx :probe/frame-fx-stub (fn [_m _args] nil))
     (rf/reg-event :probe/emit-frame-fx (fn [_ _] {:fx [[:probe/frame-fx nil]]}))
-    (rf/reg-frame :test/main {:fx-overrides {:probe/frame-fx :probe/frame-fx-stub}})
+    (rf/make-frame {:id :test/main :fx-overrides {:probe/frame-fx :probe/frame-fx-stub}})
 
     (rf/dispatch-sync [:probe/emit-frame-fx] {:frame :test/main})
 

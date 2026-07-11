@@ -45,7 +45,7 @@
 
 (deftest capture-frame-returns-operation-bundle
   (testing "(capture-frame frame-id) returns {:frame :dispatch :dispatch-sync :subscribe}"
-    (rf/reg-frame :fh/shape {:doc "shape probe"})
+    (rf/make-frame {:id :fh/shape :doc "shape probe"})
     (let [h (rf/capture-frame :fh/shape)]
       (is (= :fh/shape (:frame h))
           ":frame is the captured frame id")
@@ -58,7 +58,7 @@
 (deftest capture-frame-captures-frame-at-creation
   (testing "(capture-frame) captures the active frame at CREATION; the bundle's
             :dispatch routes to THAT frame after the with-frame scope unwinds"
-    (rf/reg-frame :fh/A {:doc "frame A — the capture target"})
+    (rf/make-frame {:id :fh/A :doc "frame A — the capture target"})
     (rf/reg-event :fh/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     ;; Capture inside :fh/A; fire OUTSIDE.
     (let [{:keys [dispatch]} (rf/with-frame :fh/A (rf/capture-frame))]
@@ -76,7 +76,7 @@
 (deftest capture-frame-subscribe-captures-frame
   (testing "the bundle's :subscribe op resolves against the captured frame
             after the with-frame scope unwinds"
-    (rf/reg-frame :fh/B {:doc "frame B — the subscribe target"})
+    (rf/make-frame {:id :fh/B :doc "frame B — the subscribe target"})
     (rf/reg-event :fh/seed (fn [{:keys [db]} [_ v]] {:db {:value v}}))
     (rf/reg-sub :fh/value (fn [db _] (:value db)))
     (rf/dispatch-sync [:fh/seed :B-value] {:frame :fh/B})
@@ -94,8 +94,8 @@
 (deftest capture-frame-locked-frame-cannot-be-overridden
   (testing "a per-call :frame in dispatch opts MUST NOT override the captured
             frame — the handle is LOCKED to one frame"
-    (rf/reg-frame :fh/locked {:doc "the locked target"})
-    (rf/reg-frame :fh/other  {:doc "the would-be override"})
+    (rf/make-frame {:id :fh/locked :doc "the locked target"})
+    (rf/make-frame {:id :fh/other :doc "the would-be override"})
     (rf/reg-event :fh/touch (fn [{:keys [db]} _] {:db (assoc db :touched? true)}))
     (let [{:keys [dispatch]} (rf/capture-frame :fh/locked)]
       ;; Attempt to redirect to :fh/other via a per-call :frame opt.
@@ -152,7 +152,7 @@
   (testing "(frame/bind-fn frame-id f) wraps f so *current-frame* is
             re-established on each call, even after the surrounding
             with-frame scope has unwound"
-    (rf/reg-frame :fbf/A {:doc "bind-fn capture target"})
+    (rf/make-frame {:id :fbf/A :doc "bind-fn capture target"})
     (rf/reg-event :fbf/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (let [cb (rf/with-frame :fbf/A
                (frame/bind-fn :fbf/A (fn [] (rf/dispatch [:fbf/inc]))))]
@@ -166,7 +166,7 @@
 (deftest bind-fn-binds-explicit-frame-with-no-surrounding-scope
   (testing "(frame/bind-fn frame-id f) binds an explicit frame — no
             surrounding with-frame needed"
-    (rf/reg-frame :fbf/C {:doc "bind-fn explicit target"})
+    (rf/make-frame {:id :fbf/C :doc "bind-fn explicit target"})
     (rf/reg-event :fbf/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (let [cb (frame/bind-fn :fbf/C (fn [] (rf/dispatch [:fbf/inc])))]
       (is (nil? frame/*current-frame*) "no with-frame scope was ever entered")
@@ -181,7 +181,7 @@
             already-held fn (e.g. one that itself calls current-frame-id) —
             the genuinely-different semantics from capture-frame's pre-bound
             op bundle that the Codex caveat required to survive internally"
-    (rf/reg-frame :fbf/D {:doc "bind-fn current-frame-id probe"})
+    (rf/make-frame {:id :fbf/D :doc "bind-fn current-frame-id probe"})
     (let [captured (rf/with-frame :fbf/D
                      (frame/bind-fn :fbf/D rf/current-frame-id))]
       (is (nil? frame/*current-frame*) "scope has unwound")
@@ -194,7 +194,7 @@
   (testing "(current-frame-id) reads the established scope's id inside a scope,
             and raises :rf.error/no-frame-context outside any scope — no
             :rf/default floor (rf2-jue6sp / EP-0002)"
-    (rf/reg-frame :cfi/probe {:doc "probe"})
+    (rf/make-frame {:id :cfi/probe :doc "probe"})
     ;; Inside a scope: the bound id.
     (is (= :cfi/probe (rf/with-frame :cfi/probe (rf/current-frame-id)))
         "inside with-frame: the bound id")
@@ -212,7 +212,7 @@
 
 (deftest app-db-value-returns-a-value
   (testing "(app-db-value frame-id) returns the app-db VALUE (a plain map), not a container"
-    (rf/reg-frame :fdb/probe {:doc "probe"})
+    (rf/make-frame {:id :fdb/probe :doc "probe"})
     (rf/reg-event :fdb/seed (fn [{:keys [db]} _] {:db {:k :v}}))
     (rf/dispatch-sync [:fdb/seed] {:frame :fdb/probe})
     (let [db (rf/app-db-value :fdb/probe)]

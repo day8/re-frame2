@@ -143,8 +143,8 @@
             same-id/different-frame FIRST registration was misclassified
             as a replacement — a per-frame flow inventory built from
             `op-type :flow` missed it."
-    (rf/reg-frame :left  {:doc "left frame"})
-    (rf/reg-frame :right {:doc "right frame"})
+    (rf/make-frame {:id :left :doc "left frame"})
+    (rf/make-frame {:id :right :doc "right frame"})
     ;; First-time registration on :left — emits with :frame :left.
     (rf/reg-flow :shared {:frame :left :inputs [[:n]] :output-path [:result]} (fn [n] (* 2 (or n 0))))
     ;; First-time registration of the SAME id on :right — an INDEPENDENT
@@ -165,7 +165,7 @@
             `:rf.registry/handler-replaced`, emitted directly by reg-flow
             under rf2-en00bk single-store) — the per-frame gating must
             not over-fire for the replacement case."
-    (rf/reg-frame :left {:doc "left frame"})
+    (rf/make-frame {:id :left :doc "left frame"})
     (rf/reg-flow :shared {:frame :left :inputs [[:n]] :output-path [:result]} (fn [n] (* 2 (or n 0))))
     (is (= 1 (count (by-op :rf.flow/registered)))
         "first-time registration on :left emitted once")

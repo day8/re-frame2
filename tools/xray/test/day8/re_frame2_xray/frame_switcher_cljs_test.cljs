@@ -40,7 +40,7 @@
 
 (defn- setup! []
   (registry/register-xray-handlers!)
-  (frame/reg-frame :rf/xray {})
+  (rf/make-frame {:id :rf/xray})
   ;; Pre-mount seeds (via `seed-trace-for-test!`) land in the
   ;; frameless ring but can't reach `:rf/xray`'s app-db `:trace-buffer`
   ;; slot until the frame is registered. Re-sync now so the cascade
@@ -190,7 +190,7 @@
     (setup!)
     ;; Register a frame so the spine's epoch-history lookup doesn't
     ;; throw — the canonical handler queries rf/epoch-history.
-    (frame/reg-frame :rf/cart-frame {})
+    (rf/make-frame {:id :rf/cart-frame})
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/select-frame :rf/cart-frame])
       (is (= :rf/cart-frame (get-in (xray-db) [:focus :frame]))
@@ -202,7 +202,7 @@
   (testing "the canonical event-fx fires the `:rf.xray.frame-switcher/
             persist` fx so the user's selection survives a reload"
     (setup!)
-    (frame/reg-frame :rf/cart-frame {})
+    (rf/make-frame {:id :rf/cart-frame})
     (let [persisted (atom nil)]
       ;; Swap the fx with a counting stub so we don't touch
       ;; localStorage in the test runtime (Node has no jsdom).
@@ -232,7 +232,7 @@
             (focus :frame + :target-frame + persistence) is identical
             to a ribbon picker click."
     (setup!)
-    (frame/reg-frame :rf/cart-frame {})
+    (rf/make-frame {:id :rf/cart-frame})
     (let [persisted (atom nil)]
       (rf/reg-fx :rf.xray.frame-switcher/persist
         (fn [_ctx frame-id]

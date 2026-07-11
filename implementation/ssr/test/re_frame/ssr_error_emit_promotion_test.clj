@@ -64,10 +64,9 @@
   PROJECTED `:rf.error/*` → 500), so a 200 below proves the always-on
   record was NOT projected onto the status."
   []
-  (rf/reg-frame server-frame
-    {:platform :server
-     :ssr      {:public-error-id   :rf.ssr/default-error-projector
-                :dev-error-detail? false}})
+  (rf/make-frame {:id server-frame :platform :server
+                  :ssr      {:public-error-id   :rf.ssr/default-error-projector
+                             :dev-error-detail? false}})
   server-frame)
 
 (defn- capture-always-on!
@@ -150,10 +149,9 @@
       (rf/reg-error-projector :test/throwing-projector
         {:doc "always throws — to exercise the sanitised fallback"}
         (fn [_event] (throw (ex-info "projector boom" {}))))
-      (rf/reg-frame server-frame
-        {:platform :server
-         :ssr      {:public-error-id   :test/throwing-projector
-                    :dev-error-detail? false}})
+      (rf/make-frame {:id server-frame :platform :server
+                      :ssr      {:public-error-id   :test/throwing-projector
+                                 :dev-error-detail? false}})
       (with-redefs [interop/debug-enabled? false]
         (let [public-error (error-projector/project-error
                             fid {:op-type   :error
@@ -308,10 +306,9 @@
       ;; Distinct frame per category so a (hypothetical) status flip in one
       ;; iteration cannot bleed into the next via the shared response slot.
       (let [fid (keyword "ssr" (str "promote-noproject-" (name cat)))]
-        (rf/reg-frame fid
-          {:platform :server
-           :ssr      {:public-error-id   :rf.ssr/default-error-projector
-                      :dev-error-detail? false}})
+        (rf/make-frame {:id fid :platform :server
+                        :ssr      {:public-error-id   :rf.ssr/default-error-projector
+                                   :dev-error-detail? false}})
         (with-redefs [interop/debug-enabled? false]
           (error-listener/error-emit-projection-listener
             {:error     cat

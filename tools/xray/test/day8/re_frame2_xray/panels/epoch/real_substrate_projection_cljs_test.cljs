@@ -60,7 +60,7 @@
 
 (defn- setup! []
   (registry/register-xray-handlers!)
-  (frame/reg-frame :rf/xray {})
+  (rf/make-frame {:id :rf/xray})
   ;; Activate the trace-collector so `trace/emit!` calls land in
   ;; Xray's ring buffer.
   (preload/register-trace-collector!))

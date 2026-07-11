@@ -5,6 +5,8 @@
   routing_test.clj per rf2-u8qe7y finding 3."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.events :as events]
+            [re-frame.fx :as fx]
             [re-frame.late-bind :as late-bind]
             [re-frame.routing :as routing]
             [re-frame.routing.registry :as registry]
@@ -34,7 +36,7 @@
                   ;; "OK to leave" = NOT dirty.
                   (not (get-in db [:editor :dirty?]))))
 
-    (rf/reg-fx :rf.nav/push-url
+    (fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
 
@@ -94,7 +96,7 @@
   (testing ":rf.route/cancel and :rf.route/continue are safe no-ops when
             :rf/pending-navigation is empty (no slot to resolve)"
     (rf/reg-route :route/home {} "/")
-    (rf/reg-fx :rf.nav/push-url
+    (fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     ;; Land on home; no navigation is pending.
@@ -132,7 +134,7 @@
     (rf/reg-event :editor/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
     (rf/reg-sub :editor/can-leave?
                 (fn [db _] (not (get-in db [:editor :dirty?]))))
-    (rf/reg-fx :rf.nav/push-url
+    (fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
@@ -161,7 +163,7 @@
     (rf/reg-event :editor/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
     (rf/reg-sub :editor/can-leave?
                 (fn [db _] (not (get-in db [:editor :dirty?]))))
-    (rf/reg-fx :rf.nav/push-url
+    (fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
@@ -194,7 +196,7 @@
     (rf/reg-event :editor/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
     (rf/reg-sub :editor/can-leave?
                 (fn [db _] (not (get-in db [:editor :dirty?]))))
-    (rf/reg-fx :rf.nav/push-url
+    (fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     ;; Land on editor; dirty the form; try to leave; guard blocks.
@@ -223,7 +225,7 @@
     (rf/reg-event :editor/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
     (rf/reg-sub :editor/can-leave?
                 (fn [db _] (not (get-in db [:editor :dirty?]))))
-    (rf/reg-fx :rf.nav/push-url
+    (fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
@@ -247,7 +249,7 @@
     (rf/reg-sub :editor/can-leave?
                 (fn [db _] (not (get-in db [:editor :dirty?]))))
     (let [pushed (atom [])]
-      (rf/reg-fx :rf.nav/push-url
+      (fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
       (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
@@ -270,7 +272,7 @@
     (rf/reg-event :editor/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
     (rf/reg-sub :editor/can-leave?
                 (fn [db _] (not (get-in db [:editor :dirty?]))))
-    (rf/reg-fx :rf.nav/push-url
+    (fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
@@ -291,7 +293,7 @@
     (rf/reg-event :editor/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
     (rf/reg-sub :editor/can-leave?
                 (fn [db _] (not (get-in db [:editor :dirty?]))))
-    (rf/reg-fx :rf.nav/push-url
+    (fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
@@ -333,11 +335,11 @@
       (rf/reg-event :editor/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
       (rf/reg-sub :editor/can-leave?
                   (fn [db _] (not (get-in db [:editor :dirty?]))))
-      (rf/reg-fx :rf.nav/push-url
+      (fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ _] nil))
       ;; App registers its OWN handler over the framework default no-op.
-      (rf/reg-event :rf.route/navigation-blocked
+      (events/reg-event :rf.route/navigation-blocked
                        (fn [_ [_ pending-nav]]
                          (reset! seen pending-nav)
                          {}))
@@ -364,7 +366,7 @@
                      (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
     ;; Polarity bug: returns a truthy non-boolean (42).
     (rf/reg-sub :editor/leave? (fn [db _] (get-in db [:editor :dirty?])))
-    (rf/reg-fx :rf.nav/push-url
+    (fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
@@ -399,7 +401,7 @@
     ;; A truthy non-boolean must BLOCK nav (rf2-5pyyl).
     (rf/reg-sub :editor/leave?
                 (fn [db _] (get-in db [:editor :dirty?])))
-    (rf/reg-fx :rf.nav/push-url
+    (fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
@@ -446,8 +448,8 @@
 (deftest navigation-blocked-trace-carries-frame-rf2-dbmj6x
   (testing "rf2-dbmj6x: :rf.route/navigation-blocked stamps :frame for a
             non-default frame"
-    (rf/reg-frame :rf/default {})
-    (rf/reg-frame :route/owner {})
+    (rf/make-frame {:id :rf/default})
+    (rf/make-frame {:id :route/owner})
     (rf/reg-route :editor/article
                   {:params    [:map [:id :string]]
                    :can-leave :editor/can-leave?} "/editor/articles/:id")
@@ -455,7 +457,7 @@
     (rf/reg-event :editor/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
     (rf/reg-sub :editor/can-leave?
                 (fn [db _] (not (get-in db [:editor :dirty?]))))
-    (rf/reg-fx :rf.nav/push-url
+    (fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"] {:frame :route/owner})
@@ -474,8 +476,8 @@
 (deftest can-leave-non-boolean-trace-carries-frame-rf2-dbmj6x
   (testing "rf2-dbmj6x: :rf.error/can-leave-non-boolean stamps :frame for a
             non-default frame (the guard already resolves the sub against it)"
-    (rf/reg-frame :rf/default {})
-    (rf/reg-frame :route/owner {})
+    (rf/make-frame {:id :rf/default})
+    (rf/make-frame {:id :route/owner})
     (rf/reg-route :editor/article
                   {:params    [:map [:id :string]]
                    :can-leave [:editor/leave?]} "/editor/articles/:id")
@@ -483,7 +485,7 @@
     (rf/reg-event :editor/set-dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
     ;; Polarity bug: return the dirty-flag directly → truthy non-boolean.
     (rf/reg-sub :editor/leave? (fn [db _] (get-in db [:editor :dirty?])))
-    (rf/reg-fx :rf.nav/push-url
+    (fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"] {:frame :route/owner})
@@ -502,13 +504,13 @@
 (deftest can-leave-subs-artefact-missing-trace-carries-frame-rf2-dbmj6x
   (testing "rf2-dbmj6x: :rf.warning/can-leave-subs-artefact-missing stamps
             :frame for a non-default frame when the subs hook is unbound"
-    (rf/reg-frame :rf/default {})
-    (rf/reg-frame :route/owner {})
+    (rf/make-frame {:id :rf/default})
+    (rf/make-frame {:id :route/owner})
     (rf/reg-route :editor/article
                   {:params    [:map [:id :string]]
                    :can-leave :editor/can-leave?} "/editor/articles/:id")
     (rf/reg-route :route/cart {} "/cart")
-    (rf/reg-fx :rf.nav/push-url
+    (fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"] {:frame :route/owner})
@@ -535,10 +537,10 @@
   (testing "rf2-dbmj6x: :rf.route/url-requested external-URL branch stamps :frame
             for a non-default frame (symmetric with the programmatic
             `:rf.route/navigate {:url ...}` external path, which already tags)"
-    (rf/reg-frame :rf/default {})
-    (rf/reg-frame :route/owner {})
+    (rf/make-frame {:id :rf/default})
+    (rf/make-frame {:id :route/owner})
     (rf/reg-route :route/home {} "/")
-    (rf/reg-fx :rf.nav/push-url
+    (fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     (rf/dispatch-sync [:rf.route/transitioned "/"] {:frame :route/owner})
@@ -576,7 +578,7 @@
             navigation proceeds to :rf.route/not-found instead of an
             uncaught exception escaping `dispatch-sync`"
     (rf/reg-route :route/home {} "/")
-    (rf/reg-fx :rf.nav/push-url
+    (fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     (rf/dispatch-sync [:rf.route/transitioned "/"])
@@ -603,7 +605,7 @@
     (rf/reg-event :editor/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
     (rf/reg-sub :editor/can-leave?
                 (fn [db _] (not (get-in db [:editor :dirty?]))))
-    (rf/reg-fx :rf.nav/push-url
+    (fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])

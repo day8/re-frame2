@@ -64,7 +64,7 @@
 
 (deftest framework-coeffect-key-set-is-exact
   (testing "a vanilla event with no user cofx sees EXACTLY the framework keys"
-    (rf/reg-frame :ck/exact {:doc "ctx"})
+    (rf/make-frame {:id :ck/exact :doc "ctx"})
     (let [cofx (capture-coeffects :ck/exact)]
       ;; rf2-n0myjq — `:rf.cofx/mint-policy` (the resolved effective mint policy)
       ;; is a framework coeffect stamped by `assemble-initial-ctx` so the machine
@@ -81,7 +81,7 @@
 
 (deftest no-frame-coeffect-even-with-trace-id
   (testing "threading a :trace-id adds :trace-id but never re-introduces :frame"
-    (rf/reg-frame :ck/traced {:doc "ctx"})
+    (rf/make-frame {:id :ck/traced :doc "ctx"})
     (let [cofx (capture-coeffects :ck/traced {:trace-id "tid-1"})]
       (is (= #{:db :event :rf.db/runtime :rf.frame/id :rf.cofx :rf.cofx/mint-policy :source :trace-id}
              (set (keys cofx)))
@@ -91,7 +91,7 @@
 
 (deftest user-injected-cofx-do-not-mask-the-absence-of-frame
   (testing "a declared cofx adds its own key but :frame stays gone"
-    (rf/reg-frame :ck/user {:doc "ctx"})
+    (rf/make-frame {:id :ck/user :doc "ctx"})
     (rf/reg-cofx :ck/now (fn [] 42))
     (let [captured (atom nil)]
       (rf/reg-interceptor :capture/probe

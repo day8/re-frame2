@@ -32,6 +32,7 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
+   [re-frame.fx :as fx]
    [re-frame.frame :as frame]
    ;; load-bearing side-effecting requires: register the :rf.resource/*
    ;; events + subs + the generation cofx/fx these tests dispatch.
@@ -79,7 +80,7 @@
   ;; rf2-rak684 — the in-flight registry is module-level host state; clear any
   ;; entry a prior test seeded so the teardown-abort regressions start clean.
   (http-registry/clear-all-in-flight!)
-  (rf/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
+  (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
   (f)
   (http-registry/clear-all-in-flight!))
 
@@ -438,7 +439,7 @@
 (deftest lowering-stamps-receiving-frame-into-reply-payload
   (rf/reg-resource :ff/article (article-spec) article-spec-request)
   (let [fa :ff/frame-a]
-    (rf/reg-frame fa {:doc "frame stamp frame A"})
+    (rf/make-frame {:id fa :doc "frame stamp frame A"})
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :ff/article :scope :rf.scope/global
                         :params {:slug "w"} :owner [:lease :ff 1]}]
@@ -455,8 +456,8 @@
   (let [fa :xf/frame-a
         fb :xf/frame-b
         k  (state/scoped-resource-key :rf.scope/global :xf/article {:slug "w"})]
-    (rf/reg-frame fa {:doc "xframe A"})
-    (rf/reg-frame fb {:doc "xframe B"})
+    (rf/make-frame {:id fa :doc "xframe A"})
+    (rf/make-frame {:id fb :doc "xframe B"})
     ;; both frames issue the SAME resource at the SAME generation (gen 1) —
     ;; the collision case the bare-work-id correlation could not tell apart.
     (rf/dispatch-sync [:rf.resource/ensure {:resource :xf/article :scope :rf.scope/global
@@ -597,7 +598,7 @@
   (rf/reg-resource :fdab/article (article-spec) article-spec-request)
   (let [fa :fdab/frame-a
         k  (state/scoped-resource-key :rf.scope/global :fdab/article {:slug "w"})]
-    (rf/reg-frame fa {:doc "teardown-abort frame"})
+    (rf/make-frame {:id fa :doc "teardown-abort frame"})
     (rf/dispatch-sync [:rf.resource/ensure {:resource :fdab/article :scope :rf.scope/global
                                             :params {:slug "w"} :owner [:lease :fdab 1]}]
                       {:frame fa})
@@ -643,7 +644,7 @@
   (let [fr :rab/reused
         k  (state/scoped-resource-key :rf.scope/global :rab/article {:slug "w"})]
     ;; ---- first incarnation: start a load; capture the reply addressing ----
-    (rf/reg-frame fr {:doc "reuse frame — first incarnation"})
+    (rf/make-frame {:id fr :doc "reuse frame — first incarnation"})
     (rf/dispatch-sync [:rf.resource/ensure {:resource :rab/article :scope :rf.scope/global
                                             :params {:slug "w"} :owner [:lease :rab 1]}]
                       {:frame fr})
@@ -670,7 +671,7 @@
         (is (nil? (http-registry/lookup-in-flight old-request-id))
             "no surviving in-flight request to deliver a late success"))
       (reset! last-managed-args nil)
-      (rf/reg-frame fr {:doc "reuse frame — second incarnation"})
+      (rf/make-frame {:id fr :doc "reuse frame — second incarnation"})
       (rf/dispatch-sync [:rf.resource/ensure {:resource :rab/article :scope :rf.scope/global
                                               :params {:slug "w"} :owner [:lease :rab 2]}]
                         {:frame fr})

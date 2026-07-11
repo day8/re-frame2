@@ -278,7 +278,7 @@
 #?(:clj
    (deftest with-invariants-passes-across-multiple-dispatches
      (testing "a holding invariant across multiple dispatches reports only passes"
-       (rf/reg-frame :test/main {})
+       (rf/make-frame {:id :test/main})
        (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
        (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
        (let [reports (with-captured-reports
@@ -296,7 +296,7 @@
 #?(:clj
    (deftest with-invariants-reports-once-per-failing-epoch
      (testing "a failing invariant reports exactly once per failing epoch"
-       (rf/reg-frame :test/main {})
+       (rf/make-frame {:id :test/main})
        (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
        (rf/reg-event :dec  (fn [{:keys [db]} _] {:db (update db :n dec)}))
        (let [reports (with-captured-reports
@@ -312,7 +312,7 @@
 #?(:clj
    (deftest with-invariants-isolates-listener-exception
      (testing "a throwing invariant predicate does not break the run; it reports"
-       (rf/reg-frame :test/main {})
+       (rf/make-frame {:id :test/main})
        (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
        (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
        (let [body-completed (atom false)
@@ -330,7 +330,7 @@
 #?(:clj
    (deftest with-invariants-listener-unregistered-after-body
      (testing "the sentinel listener is removed on exit — later epochs are not observed"
-       (rf/reg-frame :test/main {})
+       (rf/make-frame {:id :test/main})
        (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
        (rf/reg-event :dec  (fn [{:keys [db]} _] {:db (update db :n dec)}))
        (let [reports (with-captured-reports
@@ -346,7 +346,7 @@
 #?(:clj
    (deftest with-invariants-works-with-destroyed-frame
      (testing "destroying the frame mid-run does not break the sentinel; the body completes"
-       (rf/reg-frame :test/main {})
+       (rf/make-frame {:id :test/main})
        (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
        (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
        (let [body-completed (atom false)]

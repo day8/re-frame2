@@ -1217,7 +1217,7 @@
             (EP-0017 §6). No host read, no fresh per-run value."
     (let [gen-calls (atom 0)
           fired?    (atom false)]
-      (rf/reg-frame :mint-test/strict-frame {:preset :test})
+      (rf/make-frame {:id :mint-test/strict-frame :preset :test})
       (rf/reg-cofx :mint-test/strict-delta
         {:recordable? true}
         (fn [] (swap! gen-calls inc) 3))
@@ -1292,7 +1292,7 @@
             binding point (EP-0017 §6)."
     (let [gen-calls  (atom 0)
           seen-delta (atom nil)]
-      (rf/reg-frame :mint-test/escape-frame {:preset :test})
+      (rf/make-frame {:id :mint-test/escape-frame :preset :test})
       (rf/reg-cofx :mint-test/escape-delta
         {:recordable? true}
         (fn [] (swap! gen-calls inc) 9))

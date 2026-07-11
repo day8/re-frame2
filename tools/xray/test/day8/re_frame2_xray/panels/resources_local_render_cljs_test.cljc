@@ -89,8 +89,8 @@
                 :large     [[:rows]]}))))
 
 (defn- init-fn []
-  (rf/reg-frame plain-frame {})
-  (rf/reg-frame secure-frame {})
+  (rf/make-frame {:id plain-frame})
+  (rf/make-frame {:id secure-frame})
   (install-policy!))
 
 (use-fixtures :each

@@ -5,6 +5,7 @@
   routing_test.clj per rf2-u8qe7y finding 3."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.fx :as fx]
             [re-frame.routing :as routing]
             [re-frame.routing.test-support]
             [re-frame.routing-test-support :as rts]))
@@ -23,7 +24,7 @@
                        {:db (throw (ex-info "boom" {:reason :test}))}))
     (rf/reg-route :route/dashboard
                   {:on-match [[:load/throw]]} "/dashboard")
-    (rf/reg-fx :rf.nav/push-url
+    (fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     (rf/dispatch-sync [:rf.route/transitioned "/dashboard"])
@@ -53,7 +54,7 @@
     (rf/reg-route :route/cart
                   {:on-match [[:load/throw2]]
                    :on-error [:route/cart-load-failed]} "/cart")
-    (rf/reg-fx :rf.nav/push-url
+    (fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     (rf/dispatch-sync [:rf.route/transitioned "/cart"])
@@ -76,7 +77,7 @@
                        {:db (throw (ex-info "x" {}))}))
     (rf/reg-route :route/page
                   {:on-match [[:load/throw3]]} "/page")
-    (rf/reg-fx :rf.nav/push-url
+    (fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     (rf/dispatch-sync [:rf.route/transitioned "/page"])
@@ -99,7 +100,7 @@
                   {:on-match [[:load/throw4]]
                    ;; bare keyword form
                    :on-error :handle/error} "/p")
-    (rf/reg-fx :rf.nav/push-url
+    (fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     (rf/dispatch-sync [:rf.route/transitioned "/p"])
@@ -125,7 +126,7 @@
                        {:db (throw (ex-info "attributed-boom" {:why :test}))}))
     (rf/reg-route :route/attributed
                   {:on-match [[:load/throw-attribute]]} "/attributed")
-    (rf/reg-fx :rf.nav/push-url
+    (fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     (rf/dispatch-sync [:rf.route/transitioned "/attributed"])
@@ -158,7 +159,7 @@
                        {:db (throw (ex-info "source-boom" {:why :test}))}))
     (rf/reg-route :route/source-attributed
                   {:on-match [[:load/throw-source]]} "/source-attributed")
-    (rf/reg-fx :rf.nav/push-url
+    (fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     (let [traces (atom [])]
@@ -217,7 +218,7 @@
       (rf/reg-route :route/collide
                     {:on-match [[:app/load-x "route"]]
                      :on-error [:app/route-on-error]} "/collide")
-      (rf/reg-fx :rf.nav/push-url
+      (fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ _] nil))
       (rf/dispatch-sync [:rf.route/transitioned "/collide"])
@@ -247,7 +248,7 @@
                      ;; match the FULL vector, not just the id.
                      :on-match [[:app/genuine-load 42]]
                      :on-error [:app/genuine-on-error]} "/genuine")
-      (rf/reg-fx :rf.nav/push-url
+      (fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ _] nil))
       (rf/dispatch-sync [:rf.route/transitioned "/genuine"])

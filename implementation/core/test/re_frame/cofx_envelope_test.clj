@@ -101,7 +101,7 @@
 
 (deftest stamps-time-ms-when-absent
   (testing "the router stamps :rf.cofx {:rf/time-ms ...} when the caller omits it"
-    (rf/reg-frame :wi/stamp {:doc "ctx"})
+    (rf/make-frame {:id :wi/stamp :doc "ctx"})
     (let [env   (build-envelope [:noop] {:frame :wi/stamp})
           world (:rf.cofx env)]
       (is (map? world) ":rf.cofx is present on the envelope")
@@ -111,7 +111,7 @@
 
 (deftest preserves-caller-supplied-time-ms
   (testing "a caller-supplied :rf/time-ms is preserved verbatim — the router does NOT overwrite it"
-    (rf/reg-frame :wi/supplied {:doc "ctx"})
+    (rf/make-frame {:id :wi/supplied :doc "ctx"})
     (let [env (build-envelope [:noop]
                               {:frame :wi/supplied
                                :rf.cofx {:rf/time-ms 1781078400123}})]
@@ -120,7 +120,7 @@
 
 (deftest preserves-caller-supplied-extra-keys-and-fills-time-ms
   (testing "extra recordable-coeffect facts ride through (flat); a missing :rf/time-ms is filled, supplied facts untouched"
-    (rf/reg-frame :wi/extra {:doc "ctx"})
+    (rf/make-frame {:id :wi/extra :doc "ctx"})
     (let [uuid  #uuid "018ff2b4-9bbd-7a0a-a4df-cf2a91cbe86d"
           env   (build-envelope [:noop]
                                 {:frame :wi/extra
@@ -146,7 +146,7 @@
 
 (deftest non-map-cofx-is-a-hard-error
   (testing "a supplied non-map :rf.cofx is a hard error (not silently stamped)"
-    (rf/reg-frame :wi/bad-shape {:doc "ctx"})
+    (rf/make-frame {:id :wi/bad-shape :doc "ctx"})
     (testing "build-envelope throws even with the dev gate OFF (prod-survivable)"
       (with-redefs [interop/debug-enabled? false]
         (is (thrown? clojure.lang.ExceptionInfo
@@ -170,7 +170,7 @@
 
 (deftest non-integer-time-ms-is-a-hard-error
   (testing "a supplied :rf/time-ms that is not an integer is a hard error"
-    (rf/reg-frame :wi/bad-time {:doc "ctx"})
+    (rf/make-frame {:id :wi/bad-time :doc "ctx"})
     (testing "build-envelope throws on a string :rf/time-ms (even dev-gate OFF)"
       (with-redefs [interop/debug-enabled? false]
         (is (thrown? clojure.lang.ExceptionInfo
@@ -202,7 +202,7 @@
 
 (deftest valid-cofx-shapes-pass
   (testing "the valid shapes the validator must NOT reject"
-    (rf/reg-frame :wi/valid {:doc "ctx"})
+    (rf/make-frame {:id :wi/valid :doc "ctx"})
     (testing "nil :rf.cofx passes (the router stamps a fresh map)"
       (is (number? (get-in (build-envelope [:noop] {:frame :wi/valid
                                                     :rf.cofx nil})
@@ -319,7 +319,7 @@
   ;; THE adversarial acceptance leg: a non-EDN supplied cofx value throws
   ;; :rf.error/cofx-value-invalid; an EDN one passes.
   (testing "a supplied host-handle cofx value throws cofx-value-invalid (dev mode)"
-    (rf/reg-frame :wi/edn-bad {:doc "ctx"})
+    (rf/make-frame {:id :wi/edn-bad :doc "ctx"})
     (let [ex   (try
                  (build-envelope [:noop] {:frame   :wi/edn-bad
                                           :rf.cofx {:rf/time-ms 1781078400123
@@ -341,7 +341,7 @@
           "the bad-type names the host class — NEVER the raw object")
       (is (= :no-recovery (:recovery data)) "no recovery")))
   (testing "the bad value is BURIED — the path locates it inside the fact"
-    (rf/reg-frame :wi/edn-buried {:doc "ctx"})
+    (rf/make-frame {:id :wi/edn-buried :doc "ctx"})
     (let [ex   (try
                  (build-envelope [:noop]
                                  {:frame   :wi/edn-buried
@@ -354,7 +354,7 @@
       (is (= [:app/blob :items 0 :dom] (:path data))
           "the path threads the fact id, vector index, and map keys")))
   (testing "an EDN supplied cofx value PASSES the structural check"
-    (rf/reg-frame :wi/edn-ok {:doc "ctx"})
+    (rf/make-frame {:id :wi/edn-ok :doc "ctx"})
     (let [cofx (get (build-envelope [:noop]
                                     {:frame   :wi/edn-ok
                                      :rf.cofx {:rf/time-ms 1781078400123
@@ -377,7 +377,7 @@
   ;; — the same `:dispatched-at` causal-token precedent the map-shape /
   ;; `:rf/time-ms` checks already enforce in production.
   (testing "with the dev gate OFF a non-EDN supplied value IS structurally rejected"
-    (rf/reg-frame :wi/edn-prod {:doc "ctx"})
+    (rf/make-frame {:id :wi/edn-prod :doc "ctx"})
     (with-redefs [interop/debug-enabled? false]
       (let [ex   (try
                    (build-envelope [:noop]
@@ -396,7 +396,7 @@
         (is (= [:app/handle] (:path data))
             "the path is rooted at the failing fact key"))))
   (testing "the MAP-SHAPE check stays always-on even with the dev gate OFF"
-    (rf/reg-frame :wi/edn-prod2 {:doc "ctx"})
+    (rf/make-frame {:id :wi/edn-prod2 :doc "ctx"})
     (with-redefs [interop/debug-enabled? false]
       (is (thrown? clojure.lang.ExceptionInfo
                    (build-envelope [:noop] {:frame :wi/edn-prod2
@@ -411,7 +411,7 @@
   ;; marker; if the clock is read before validation, that marker surfaces.
   (testing "a malformed :rf.cofx throws the validation error WITHOUT
             reading the causal-token clock first"
-    (rf/reg-frame :wi/order2 {:doc "ctx"})
+    (rf/make-frame {:id :wi/order2 :doc "ctx"})
     (with-redefs [interop/epoch-now-ms
                   (fn [] (throw (ex-info "clock read before validation"
                                          {::clock-read true})))]
@@ -429,7 +429,7 @@
 
 (deftest invalid-cofx-raised-through-full-dispatch
   (testing "the full dispatch path (not just build-envelope) raises the validation error"
-    (rf/reg-frame :wi/dispatch-bad {:doc "ctx"})
+    (rf/make-frame {:id :wi/dispatch-bad :doc "ctx"})
     (rf/reg-event :wi/bad-noop (fn [{:keys [db]} _] {:db db}))
     (is (thrown? clojure.lang.ExceptionInfo
                  (rf/dispatch-sync [:wi/bad-noop]
@@ -443,7 +443,7 @@
 
 (deftest child-dispatch-gets-fresh-time-ms
   (testing "a :fx [[:dispatch ...]] child gets its OWN :rf.cofx — :rf/time-ms NOT inherited"
-    (rf/reg-frame :wi/cascade {:doc "ctx"})
+    (rf/make-frame {:id :wi/cascade :doc "ctx"})
     (let [envelopes (atom [])]
       ;; A user fx-handler receives the parent dispatch envelope under
       ;; (:envelope m); each handler in the cascade fires its own capture,
@@ -505,7 +505,7 @@
   (testing "a :fx [[:dispatch-later …]] child is stamped a FRESH :rf.cofx at
             FIRE time — :rf/time-ms is the fire-time clock, NOT the parent token,
             NOT the enqueue-time clock; inherited fields still propagate"
-    (rf/reg-frame :wi/later {:doc "ctx"})
+    (rf/make-frame {:id :wi/later :doc "ctx"})
     (let [;; mutable wall clock — the value `epoch-now-ms` reads moves between
           ;; enqueue (parent dispatch) and fire (deferred thunk run).
           clock          (atom 1000)
@@ -590,7 +590,7 @@
 
 (deftest cofx-visible-as-coeffect
   (testing "handlers read :rf.cofx from the coeffect map"
-    (rf/reg-frame :wi/cofx {:doc "ctx"})
+    (rf/make-frame {:id :wi/cofx :doc "ctx"})
     (let [cofx (capture-coeffects :wi/cofx
                                   {:rf.cofx {:rf/time-ms 1781078400456}})]
       (is (contains? cofx :rf.cofx)
@@ -614,7 +614,7 @@
 
 (deftest dispatched-at-is-gone
   (testing "EP-0010 rider b: :dispatched-at is retired from the envelope (no coexistence)"
-    (rf/reg-frame :wi/no-dispatched-at {:doc "ctx"})
+    (rf/make-frame {:id :wi/no-dispatched-at :doc "ctx"})
     (testing "absent even with the dev gate ON (it is not merely prod-elided — it is gone)"
       (with-redefs [interop/debug-enabled? true]
         (is (not (contains? (build-envelope [:noop] {:frame :wi/no-dispatched-at})
@@ -634,7 +634,7 @@
   ;; dev-gated warn), the dispatch PROCEEDS, and the warning message appends a
   ;; did-you-mean naming (:rf/time-ms (:rf.cofx envelope)).
   (testing "supplying :dispatched-at does NOT throw — it is an unrecognised opt"
-    (rf/reg-frame :wi/retired-supply {:doc "ctx"})
+    (rf/make-frame {:id :wi/retired-supply :doc "ctx"})
     (testing "build-envelope does not throw on the retired draft key (it is unknown, not a hard error)"
       (is (map? (build-envelope [:noop] {:frame :wi/retired-supply
                                          :dispatched-at 123}))
@@ -688,7 +688,7 @@
 (deftest supplied-uuid-random-become-durable-ids-exactly
   (testing "a handler reads owner-qualified facts from the flat :rf.cofx coeffect
             and the supplied values land in app-db EXACTLY as supplied"
-    (rf/reg-frame :wi/todos {:doc "ctx"})
+    (rf/make-frame {:id :wi/todos :doc "ctx"})
     ;; The durable handler: reads the causal token's scripted id + colour from
     ;; the :rf.cofx coeffect (NOT an ambient `random-uuid` / `rand-nth`) and
     ;; folds them into a durable app-db entity. A `reg-event` handler so we can
@@ -720,7 +720,7 @@
   (testing "re-running the SAME causal token reproduces the SAME durable id
             (replay-stable), where an ambient random-uuid / rand-nth would have
             diverged run-to-run (EP-0010 §Restore, Replay, And Hydration)"
-    (rf/reg-frame :wi/replay {:doc "ctx"})
+    (rf/make-frame {:id :wi/replay :doc "ctx"})
     (rf/reg-event :todo/create-from-token
       (fn [{:keys [db] cofx :rf.cofx} _]
         (let [id    (:todo/id cofx)
@@ -781,7 +781,7 @@
 (deftest ambient-diagnostic-time-differs-while-durable-committed-at-holds
   (testing "same causal token under two different ambient clocks → durable
             :committed-at EQUAL while the diagnostic trace :time DIFFERS"
-    (rf/reg-frame :wi/split {:doc "ctx"})
+    (rf/make-frame {:id :wi/split :doc "ctx"})
     (rf/reg-event :wi/note (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (let [token-time   1781078400123     ; the supplied causal token :rf/time-ms
           ;; capture the diagnostic trace :time of THIS frame's :wi/note event

@@ -34,6 +34,7 @@
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [clojure.string :as str]
    [re-frame.core :as rf]
+   [re-frame.fx :as fx]
    [re-frame.frame :as frame]
    [re-frame.late-bind :as late-bind]
    [re-frame.privacy :as privacy]
@@ -75,8 +76,8 @@
   real fetch / abort fires. Composed INSIDE the reset-runtime fixture."
   [f]
   (reset! aborts [])
-  (rf/reg-fx :rf.http/managed (fn [_ctx _args] nil))
-  (rf/reg-fx :rf.http/managed-abort (fn [_ctx request-id] (swap! aborts conj request-id) nil))
+  (fx/reg-fx :rf.http/managed (fn [_ctx _args] nil))
+  (fx/reg-fx :rf.http/managed-abort (fn [_ctx request-id] (swap! aborts conj request-id) nil))
   (f))
 
 (use-fixtures :each
@@ -418,7 +419,7 @@
   partition, returning frame-id. Used to stand up a live SSR-like frame the
   drain loop reads/writes."
   [frame-id runtime-db]
-  (rf/reg-frame frame-id {:doc "ssr blocking-drain test frame" :platform :server})
+  (rf/make-frame {:id frame-id :doc "ssr blocking-drain test frame" :platform :server})
   (frame/replace-runtime-db! frame-id runtime-db)
   frame-id)
 
@@ -580,7 +581,7 @@
             host handle is cleared (EP-0011 §SSR: SSR waits for ledger rows to
             become terminal)"
     (let [fid :ssr/drain-ledger-terminal]
-      (rf/reg-frame fid {:doc "ssr ledger-terminal drain frame" :platform :server})
+      (rf/make-frame {:id fid :doc "ssr ledger-terminal drain frame" :platform :server})
       ;; REAL ensure: writes the entry :loading + a :running ledger row + a host
       ;; handle, then publishes the blocking slot the drain reads.
       (rf/dispatch-sync [:rf.resource/ensure
@@ -644,7 +645,7 @@
             settles the entry to a first-load failure (it never releases on a
             partial / wall-clock signal while the row is non-terminal)"
     (let [fid :ssr/drain-ledger-nonterminal]
-      (rf/reg-frame fid {:doc "ssr ledger-nonterminal drain frame" :platform :server})
+      (rf/make-frame {:id fid :doc "ssr ledger-nonterminal drain frame" :platform :server})
       (rf/dispatch-sync [:rf.resource/ensure
                          {:resource :article/by-slug :scope :rf.scope/global
                           :params {:slug "x"} :owner [:ssr "req-2" "nav-2"]}]
@@ -677,7 +678,7 @@
             rides the hydration wire (EP-0011 §SSR: hydration serializes the
             allowed resource projection, not host work)"
     (let [fid :ssr/drain-no-ledger-on-wire]
-      (rf/reg-frame fid {:doc "ssr no-ledger-on-wire frame" :platform :server})
+      (rf/make-frame {:id fid :doc "ssr no-ledger-on-wire frame" :platform :server})
       ;; real ensure → a live :running work-ledger row exists in the frame's
       ;; runtime-db alongside the resource entry.
       (rf/dispatch-sync [:rf.resource/ensure

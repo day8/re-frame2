@@ -11,6 +11,7 @@
   (:require [clojure.string]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.fx :as fx]
             [re-frame.http.json :as util-json]
             [re-frame.registrar :as registrar]
             [re-frame.http.decode :as http-decode]
@@ -1106,7 +1107,7 @@
     (let [real-fx-invoked? (atom false)]
       ;; Shadow the production fx slot with a sentinel. Reaching THIS proves
       ;; the override was absent (the pre-fix bug). The stub path bypasses it.
-      (rf/reg-fx :rf.http/managed
+      (fx/reg-fx :rf.http/managed
                  (fn [_frame-ctx _args] (reset! real-fx-invoked? true) nil))
       (rf/reg-event :rzqan/load
         (fn [{:keys [db]} [_ msg reply]]

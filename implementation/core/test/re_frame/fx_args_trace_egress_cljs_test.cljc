@@ -44,7 +44,7 @@
 (def ^:private frame-id :fx-args-egress/frame)
 
 (defn- register! []
-  (rf/reg-frame frame-id {})
+  (rf/make-frame {:id frame-id})
   ;; A CLASSIFIED fx — its own registration declares [:token] sensitive.
   (rf/reg-fx :fx-args/store {:sensitive [[:token]]}
     (fn [_ _] nil))

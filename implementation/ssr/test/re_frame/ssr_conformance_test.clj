@@ -98,6 +98,7 @@
             [clojure.string :as str]
             [re-frame.conformance :as conformance]
             [re-frame.core :as rf]
+            [re-frame.events :as events]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
             [re-frame.ssr :as ssr]
@@ -350,8 +351,11 @@
             meta      (cond-> base-meta
                         (seq cofx-ids) (assoc :rf.cofx/requires cofx-ids))]
         (if (seq meta)
-          (rf/reg-event id meta handler)
-          (rf/reg-event id handler))))
+          ;; FN form (nil provenance): a fixture overriding a framework
+          ;; event id (e.g. :rf/hydrate) must REPLACE its source-store slot,
+          ;; not collide at default-image assembly (rf2-h1vqa4).
+          (events/reg-event id meta handler)
+          (events/reg-event id handler))))
     ;; ---- subs ----------------------------------------------------------
     (doseq [[id steps] (:sub hmap)]
       (let [{:keys [kind inputs body]} (conformance/realise-sub steps)
@@ -626,7 +630,7 @@
           ;; Destroy first so the fixture's :initial-events cascade fires
           ;; under its declared :platform / :ssr config.
           _            (rf/destroy-frame! :rf/default)
-          _            (rf/reg-frame :rf/default frame-config)
+          _            (rf/make-frame (assoc frame-config :id :rf/default))
           dispatches   (or (:fixture/dispatches fixture) [])
           ;; rf2-sb47ni — accumulate per-dispatch boundary-throw mismatches
           ;; (the `:expect-error` cofx-delivery assertions). Mirrors the core

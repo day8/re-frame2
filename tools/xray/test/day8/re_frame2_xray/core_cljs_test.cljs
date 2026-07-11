@@ -49,7 +49,7 @@
   "Per-test boot: register handlers, allocate the :rf/xray frame."
   []
   (registry/register-xray-handlers!)
-  (frame/reg-frame :rf/xray {}))
+  (rf/make-frame {:id :rf/xray}))
 
 ;; ---- (1) re-export identity --------------------------------------------
 
