@@ -1,6 +1,6 @@
 # Spec 004 — Views
 
-> Status: Drafting. **v1-required.** A view is a pure function `(state, props) → render-tree`, with the render-tree as a serialisable nested data structure. The CLJS reference's `reg-view` is a **defn-shape macro** that auto-defs the symbol you supply, auto-derives the registered id from `(keyword *ns* sym)`, and lexically auto-injects frame-bound `dispatch`/`subscribe` — an ergonomic realisation of the explicit-frame contract. The plain-fn surface `reg-view*` is the runtime-callable escape hatch. Hiccup is the CLJS render-tree; other hosts use their own shape. SSR ([Spec 011](011-SSR.md)) renders the same views to a string on the server without React.
+> Status: Drafting. **v1-required.** A view is a pure function `(state, props) → render-tree`. A portable view has one deterministic, serialisable template representation consumed by each host emitter; emitted host values may be host-native and need not themselves be serialisable. In the CLJS reference the hiccup a view returns is that template representation — the client substrate and the JVM HTML emitter both consume it directly. The CLJS reference's `reg-view` is a **defn-shape macro** that auto-defs the symbol you supply, auto-derives the registered id from `(keyword *ns* sym)`, and lexically auto-injects frame-bound `dispatch`/`subscribe` — an ergonomic realisation of the explicit-frame contract. The plain-fn surface `reg-view*` is the runtime-callable escape hatch. Hiccup is the CLJS render-tree; other hosts use their own shape. SSR ([Spec 011](011-SSR.md)) renders the same views to a string on the server without React.
 
 ## Abstract
 
@@ -8,7 +8,7 @@ A view is a **pure function `(state, props) → render-tree`**. The pattern-leve
 
 1. **Pure.** No render-time side-effects, no implicit reads from ambient state beyond what's declared in inputs.
 2. **Frame-explicit.** The view targets a specific frame; that frame is part of the render-time inputs (via parameter, closure, or implementation-specific injection that resolves to the same observable).
-3. **Render-tree is serialisable data.** A nested data structure (hiccup, JSX-as-data, virtual-DOM nodes — host choice) that the runtime can render to a string for SSR (per [011](011-SSR.md)) or to a client-side substrate.
+3. **The template representation is serialisable data.** A portable view has one deterministic, serialisable template representation (hiccup, JSX-as-data, a compiled template AST — host choice) consumed by each host emitter — rendered to a string for SSR (per [011](011-SSR.md)) or to the client-side substrate. Emitted host values (React elements, DOM nodes) may be host-native and need not themselves be serialisable. Where a host consumes the template by interpreting the view's runtime render result (the CLJS reference's hiccup), that render result *is* the template representation and carries its serialisation obligations; where a host compiles the template ahead of time, the obligations attach to the compiled template AST, not to the emitted host values.
 
 These are pattern-level commitments; they hold across the eight in-scope JS-cross-compile-to-React+VDOM languages (per [000 §The pattern](000-Vision.md#the-pattern-js-cross-compile-language-agnostic) — ClojureScript, TypeScript, Melange / ReScript / Reason, Fable (F#), Squint, Scala.js, PureScript, Kotlin/JS).
 
@@ -18,7 +18,7 @@ The render-tree shape is specified in [§The render-tree shape](#the-render-tree
 
 Per [011](011-SSR.md):
 
-- **Server-renderable:** the view function itself (pure `(state, props) → render-tree`); the render-tree as a string (pure hiccup → string is JVM-runnable); the subscription computation (pure `state → value`); machine transitions (pure).
+- **Server-renderable:** the view function itself (pure `(state, props) → render-tree`); the template representation as a string (the pure template → string emitter is JVM-runnable; hiccup → string in the CLJS reference); the subscription computation (pure `state → value`); machine transitions (pure).
 - **Pure render-time input:** the frame's `app-db` value; the frame id; the props passed to the view.
 - **Client-only:** the React mount/commit lifecycle; reactive sub *tracking* (auto-subscribe-on-deref); the React-context-driven `frame-provider` machinery; DOM-mutation effects; browser APIs (clipboard, IndexedDB, etc.).
 
@@ -26,7 +26,7 @@ The view function's *body* — including `subscribe` calls that yield values, an
 
 ### The render-tree shape (pattern-level contract)
 
-Three things are specified separately to avoid conflating them: the **conceptual node shape** (the data model every host shares), the **carrier** (the host-language data structure that holds the shape), and the **serialisation boundary** (which parts of the shape survive a print/read round-trip).
+Three things are specified separately to avoid conflating them: the **conceptual node shape** (the data model every host's template representation shares), the **carrier** (the host-language template form that holds the shape — consumed by the host's emitters either by runtime interpretation or by ahead-of-time compilation), and the **serialisation boundary** (which parts of the template representation survive a print/read round-trip).
 
 #### Conceptual node shape
 
@@ -38,11 +38,11 @@ A render-tree node is conceptually one of:
   - **`attrs`** — an open map of key-value pairs: DOM attributes, event handlers, style, props.
   - **`children`** — zero or more child render-tree nodes.
 
-This conceptual shape is **host-independent** — it is what every conformant view contract produces.
+This conceptual shape is **host-independent** — it is what every conformant view contract's template representation encodes.
 
 #### Carrier (host-specific)
 
-The conceptual node shape is encoded into the host's idiomatic data structure:
+The conceptual node shape is encoded into the host's idiomatic template form:
 
 | Host | Carrier | Example |
 |---|---|---|
@@ -54,7 +54,7 @@ The conceptual node shape is encoded into the host's idiomatic data structure:
 | PureScript | `React.Basic.DOM` element constructors | `R.div [ R.className "x" ] [ R.text "hi" ]` |
 | Kotlin/JS | kotlin-react DSL trees | `div { className = ClassName("x"); +"hi" }` |
 
-The carrier is the host's choice; the conceptual shape is what every host's renderer walks. **Template-string DSLs (Mustache, Jinja, etc.) are NOT a valid carrier** — strings don't compose, don't diff, don't lint, don't round-trip. The pattern requires structured data the runtime can walk.
+The carrier is the host's choice; the conceptual shape is what every host's emitter consumes — walked at runtime or compiled ahead of time. **Template-string DSLs (Mustache, Jinja, etc.) are NOT a valid carrier** — strings don't compose, don't diff, don't lint, don't round-trip. The pattern requires structured data an emitter can consume.
 
 The pattern does NOT commit to:
 - A specific tag-name vocabulary for DOM (HTML elements vs custom).
@@ -66,14 +66,14 @@ These are carrier-level choices.
 
 #### Serialisation boundary
 
-The render-tree's *structure* — the tags, the children nesting, and the **non-function values** inside `attrs` (strings, numbers, keywords, plain maps, vectors of the same) — is **fully serialisable** and survives a print/read round-trip. SSR ([011](011-SSR.md)) relies on this for the server-side render-to-string path.
+The template representation's *structure* — the tags, the children nesting, and the **non-function values** inside `attrs` (strings, numbers, keywords, plain maps, vectors of the same) — is **fully serialisable** and survives a print/read round-trip. SSR ([011](011-SSR.md)) relies on this for the server-side render-to-string path. Emitted host values (the React elements a client emitter produces from the template) lie outside this boundary — they may be host-native and need not be serialisable.
 
 **Function values inside `attrs` (`:on-click` lambdas, `:ref` callbacks, custom prop closures) are NOT serialisable** and lie outside the serialisation boundary. SSR's discipline:
 
 - The server's render-to-string path walks the render-tree and emits HTML for the structure; it ignores function-valued attrs (they would not survive the wire and have no client-side meaning until hydration).
 - On the client, hydration re-renders the same view function under the same `app-db` value; the client-side render produces the function-valued attrs at render time and React/the substrate attaches them.
 
-The contract therefore: **structure is serialisable; behaviour (functions) is not**. This is consistent with the broader spec position that the wire carries data and behaviour is registered at runtime per host.
+The contract therefore: **template structure is serialisable; behaviour (functions) and emitted host values are not required to be**. This is consistent with the broader spec position that the wire carries data and behaviour is registered at runtime per host.
 
 ### Render-tree primitives
 
