@@ -490,6 +490,26 @@
     :rf.fx/clear-flow
     :rf.route/with-nav-token})
 
+(defn- real-reject-override?
+  "True iff `overrides` carries a GENUINE reject-tier override attempt for
+  reserved `fx-id` — i.e. `fx-id` is in `rejected-reserved-fx-ids` AND its
+  override VALUE is a real override (a fn body or keyword redirect, or any
+  other non-noop value), NOT the documented nil/false no-op placeholder.
+
+  rf2-x76af2.27: the reject-tier gates previously tested bare key PRESENCE
+  (`contains?`), so an override entry `{:rf.fx/reg-flow nil}` — the collapsed
+  `{:some-fx (when cond? stub)}` no-op idiom (spec/002 §`:fx-overrides`:
+  \"nil/false → no override, fall through\") — was treated as an ATTEMPTED
+  reject-tier override and emitted a spurious `:rf.error/reserved-fx-override`
+  onto the always-on error channel PER dispatched event. The OVERRIDABLE tier
+  (`resolve-fx-with-overrides`) already treats nil/false as a silent no-op;
+  gating the reject tier on the VALUE mirrors that treatment — nil/false falls
+  through silently, only a real fn/keyword override emits + is neutralised."
+  [overrides fx-id]
+  (and (contains? rejected-reserved-fx-ids fx-id)
+       (let [v (get overrides fx-id)]
+         (and (some? v) (not (false? v))))))
+
 ;; Inheritable envelope fields — copied from parent to child when
 ;; `:dispatch` / `:dispatch-later` queue a new envelope. Per Spec 002
 ;; §Cascade propagation (line 1162) and §Drain-loop pseudocode
@@ -768,16 +788,20 @@
   front (the dev-only `handle-one-fx` per-call emit DCEs under :advanced).
 
   Returns the same map untouched (identity, no churn) when it carries no
-  reject-tier key — the dominant path. `frame-id` / `origin-event` carry
-  cascade context for the emit; both read-only here. Public so the router
-  can call it; not part of the user surface."
+  reject-tier REAL override — the dominant path. A reject-tier id mapped to
+  the documented nil/false no-op placeholder is NOT a real override
+  (rf2-x76af2.27): it is left in place and falls through silently at
+  resolution, mirroring the OVERRIDABLE tier's nil/false no-op treatment —
+  no `:rf.error/reserved-fx-override` is emitted. `frame-id` / `origin-event`
+  carry cascade context for the emit; both read-only here. Public so the
+  router can call it; not part of the user surface."
   [overrides frame-id origin-event]
   (if (and (map? overrides)
-           (some #(contains? overrides %) rejected-reserved-fx-ids))
+           (some #(real-reject-override? overrides %) rejected-reserved-fx-ids))
     (let [origin-event-id (when (vector? origin-event) (first origin-event))]
       (reduce-kv
         (fn [acc fx-id override-target]
-          (if (contains? rejected-reserved-fx-ids fx-id)
+          (if (real-reject-override? overrides fx-id)
             (do
               (emit-reserved-fx-override! fx-id override-target frame-id
                                           origin-event origin-event-id
@@ -1011,8 +1035,14 @@
         ;; `:rf.machine/dispatch-to-system`, `:rf.nav/*`) are NOT in the
         ;; reject set, so they flow through unchanged — the rf2-nrpj1
         ;; fn-value-pre-empts-reserved-body contract stays intact.
-        reject-override? (and (contains? overrides original-fx-id)
-                              (contains? rejected-reserved-fx-ids original-fx-id))
+        ;;
+        ;; rf2-x76af2.27: gate on the override VALUE, not bare key presence —
+        ;; a reject-tier id mapped to the documented nil/false no-op
+        ;; placeholder is NOT an override attempt and falls through silently
+        ;; (mirroring the OVERRIDABLE tier), so it emits NO spurious
+        ;; `:rf.error/reserved-fx-override`. Only a real fn/keyword override
+        ;; is rejected + neutralised.
+        reject-override? (real-reject-override? overrides original-fx-id)
         _ (when reject-override?
             (emit-reserved-fx-override! original-fx-id
                                         (get overrides original-fx-id)

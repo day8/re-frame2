@@ -1389,6 +1389,71 @@
       (is (identical? m (fx/strip-rejected-overrides m :rf/default [:e]))
           "no churn: the same map is returned untouched on the dominant path"))))
 
+(deftest reject-tier-nil-false-placeholder-stays-silent
+  ;; rf2-x76af2.27: the reject-tier gates tested bare key PRESENCE
+  ;; (`contains?`), so a reject-tier reserved id mapped to the documented
+  ;; nil/false no-op placeholder (`{:rf.fx/reg-flow nil}` — the collapsed
+  ;; `{:some-fx (when cond? stub)}` idiom) was treated as an ATTEMPTED override
+  ;; and emitted a spurious `:rf.error/reserved-fx-override` onto the ALWAYS-ON
+  ;; error channel per dispatched event. The reject tier now mirrors the
+  ;; OVERRIDABLE tier's nil/false silent no-op treatment: nil/false falls
+  ;; through silently; only a REAL fn/keyword override emits + is neutralised.
+  (testing "dev per-call handle-one-fx: a nil/false reject-tier override falls
+            through silently — NO :rf.error/reserved-fx-override on the trace
+            OR always-on axes; the reserved :rf.fx/reg-flow body still runs"
+    (doseq [noop-value [nil false]]
+      (flows/reset-flows!)
+      (let [traces (collect-traces! ::reject-noop-trace)
+            errors (collect-errors! ::reject-noop-errors)
+            flow   [:fx-test.x76af2-27/flow
+                    {:inputs [[:fx-test.x76af2-27 :seed]]
+                     :output-path [:fx-test.x76af2-27 :out]}
+                    (fn [_] 1)]]
+        (rf/reg-event :fx-test.x76af2-27/install-flow
+          (fn [_ _] {:fx [[:rf.fx/reg-flow flow]]}))
+        (rf/dispatch-sync
+          [:fx-test.x76af2-27/install-flow]
+          {:fx-overrides {:rf.fx/reg-flow noop-value}})
+        (rf/unregister-listener! :trace  ::reject-noop-trace)
+        (rf/unregister-listener! :errors ::reject-noop-errors)
+        (is (empty? (filter #(= :rf.error/reserved-fx-override (:operation %)) @traces))
+            (str "NO reserved-fx-override trace for the nil/false placeholder "
+                 (pr-str noop-value)))
+        (is (empty? (filter #(= :rf.error/reserved-fx-override (:error %)) @errors))
+            (str "NO reserved-fx-override on the always-on axis for the "
+                 "nil/false placeholder " (pr-str noop-value)))
+        (is (contains? (get (flows/flows-snapshot) :rf/default) :fx-test.x76af2-27/flow)
+            (str "the reserved :rf.fx/reg-flow body ran (silent fall-through) for "
+                 (pr-str noop-value))))))
+
+  (testing "production prod-strip: a nil/false reject-tier override is NOT
+            stripped and emits NO error; a REAL reject-tier override IS still
+            stripped + emitted (one error, naming the real override only)"
+    (let [traces   (collect-traces! ::reject-noop-strip)
+          stub     (fn [_ _] :stub)
+          stripped (fx/strip-rejected-overrides
+                     {:rf.fx/reg-flow   nil    ;; reject-tier NO-OP — kept, silent
+                      :rf.fx/clear-flow false  ;; reject-tier NO-OP — kept, silent
+                      :rf.machine/spawn stub   ;; reject-tier REAL — stripped + emitted
+                      :my-app/http      stub}  ;; user fx — kept
+                     :rf/default
+                     [:some/event])]
+      (rf/unregister-listener! :trace ::reject-noop-strip)
+      (is (= {:rf.fx/reg-flow nil :rf.fx/clear-flow false :my-app/http stub}
+             stripped)
+          "the nil/false reject-tier placeholders fall through untouched; only the real override is stripped")
+      (let [rejected (filter #(= :rf.error/reserved-fx-override (:operation %)) @traces)]
+        (is (= 1 (count rejected))
+            "exactly ONE reserved-fx-override — for the real :rf.machine/spawn override only")
+        (is (= :rf.machine/spawn (get-in (first rejected) [:tags :rf.fx/id]))
+            "the emitted error names the REAL override, not the nil/false placeholders"))))
+
+  (testing "an all-nil/false reject-tier override map is returned by identity
+            (no churn) — the guard sees no REAL reject-tier override"
+    (let [m {:rf.fx/reg-flow nil :rf.fx/clear-flow false :dispatch (fn [_ _])}]
+      (is (identical? m (fx/strip-rejected-overrides m :rf/default [:e]))
+          "no real reject-tier override → identity return, no spurious churn"))))
+
 (deftest cascade-exclusion-reject-tier-not-inherited
   (testing "a reject-tier override does NOT propagate into a [:dispatch …] child"
     ;; The cascade-exclusion (child-dispatch-opts) runs unconditionally (dev +
