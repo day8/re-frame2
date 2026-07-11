@@ -473,14 +473,14 @@ Registered views referenced from hiccup inherit the surrounding frame from React
      [counter "Other-frame inner"])]) ;; nested scope re-points to an existing frame
 ```
 
-To re-point children to an **already-existing** frame, scope them with `rf/with-frame` (lexical / non-React) or the merged `rf/frame-provider {:frame existing-id}` SCOPE-only shape (scope an existing frame into a React subtree; fails loud if the frame is absent). The deepest scope in context wins. (The merged provider's other shape, `rf/frame-provider {:id …}`, instead **ensures** a named frame — create-if-absent / reuse-no-reseed / provide id, no destroy-on-unmount — rather than scoping to an existing one; see [002 §the merged `frame-provider`](002-Frames.md#the-merged-config-shaped-frame-provider-cljs-reference).)
+To re-point children to an **already-existing** frame, scope them with `rf/with-frame` (lexical / non-React) or `rf/frame-provider {:frame existing-id}` (scope an existing frame into a React subtree; fails loud if the frame is absent). The deepest scope in context wins. (Its sibling component `rf/frame-root {:id …}` instead **ensures** a named frame — create-if-absent / reuse-no-reseed / provide id, no destroy-on-unmount — rather than scoping to an existing one; see [002 §`frame-root`](002-Frames.md#frame-root--the-ensure-component-cljs-reference).)
 
 ## Reusable components
 
 Reusable-component concerns are addressed by:
 
 1. **Reusable widgets need to subscribe and dispatch** — `reg-view`'s frame-bound injection.
-2. **Reusable widgets need access to surrounding context** (theme, locale, router, frame) — the frame scope established by a `with-frame` or a [`frame-provider`](002-Frames.md#the-merged-config-shaped-frame-provider-cljs-reference) (the merged config-shaped provider — scope an existing frame with `{:frame …}` or ensure a named one with `{:id …}`) plus user-defined React contexts for non-frame state.
+2. **Reusable widgets need access to surrounding context** (theme, locale, router, frame) — the frame scope established by a `with-frame` or a [`frame-provider {:frame …}`](002-Frames.md#frame-provider--the-scope-only-component-cljs-reference) (scope an existing frame; its sibling [`frame-root {:id …}`](002-Frames.md#frame-root--the-ensure-component-cljs-reference) ensures a named one) plus user-defined React contexts for non-frame state.
 
 ## View antipatterns
 
