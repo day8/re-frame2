@@ -3148,28 +3148,19 @@ The canonical shape every managed *async* surface — HTTP ([014](014-HTTPReques
   ;; and future public surfaces needing explicit delivery options. The
   ;; runtime appends the reply map as the final event argument on :append
   ;; (the only public delivery mode). :suppress carries data-only stale
-  ;; gates; :dispatch-stale? (framework test/tool targets only) REQUESTS
-  ;; receiving stale envelopes — it is a request, never the authority. The
-  ;; framework/tool AUTHORITY for stale delivery is a PROVENANCE-bearing
-  ;; capability: an opaque, non-serializable token compared by IDENTITY (not
-  ;; any field spellable here), attached only by framework/tool code via
-  ;; re-frame.reply/with-stale-authority and unreachable from this public
-  ;; app-target data. An app/EDN/wire target built from this data cannot
-  ;; obtain, spell, serialize, or reconstruct the capability, so
-  ;; :dispatch-stale? true without it FAILS LOUD
-  ;; (:rf.reply/unauthorized-stale-delivery) rather than delivering a stale
-  ;; envelope to app state — a forged truthy authority field is not the
-  ;; capability. The capability is stripped by durable-target and never rides
-  ;; durable/EDN/wire data. A namespaced keyword is NOT an access-control
-  ;; boundary; the identity of the capability value is. Per
-  ;; [Managed-Effects §The reply target].
+  ;; gates. A STALE completion is UNIVERSALLY non-delivering (rf2-j538f7.14):
+  ;; the app reply target is NEVER dispatched for a superseded async result, so
+  ;; a reply target — app/data that could itself carry a capability — can never
+  ;; carry stale-delivery authority through it. There is no per-target opt-in
+  ;; and no capability object; a framework/tool test that wants to OBSERVE a
+  ;; stale reply reads it off the suppress outcome and dispatches it on its own
+  ;; authority. Per [Managed-Effects §The reply target].
   [:or
    [:vector :any]                                            ;; short form: an event-vector prefix [:event-id arg …]
    [:map
     [:event           [:vector :any]]                        ;; the event-vector prefix to complete
     [:delivery        {:optional true} [:enum :append]]      ;; :append is the only PUBLIC delivery mode
-    [:suppress        {:optional true} :map]                 ;; data-only gates that must still match before delivery
-    [:dispatch-stale? {:optional true} :boolean]]])          ;; framework test/tool REQUEST for stale delivery; app targets MUST NOT set it (authority is the unforgeable identity-compared stale-delivery capability, never this field)
+    [:suppress        {:optional true} :map]]])              ;; data-only gates that must still match before delivery
 ```
 
 `:rf/reply-map` and `:rf/reply-target` are the schema ids for `ReplyMap` and `ReplyTarget`. The closed `:status` taxonomy, the value/error conventions per status (`:value` on `:ok`/`:partial`; `:error` with a family `:kind` on `:error`/`:partial`; `:rf.reply/cancel-reason` on `:cancelled`; `:stale? true` + `:rf.reply/stale-reason` and no `:value` on `:stale`), the work-identity correlation rule (one attempt has one work id — no `:stale-key` synonym, per [EP-0007](../docs/EP/EP-0007-one-name-per-fact.md)), and the data-only invariant are all owned normatively by [Managed-Effects §The uniform reply envelope](Managed-Effects.md#the-uniform-reply-envelope); this catalogue carries the shape. The `:error` envelope on a `:status :error`/`:partial` reply carries the closed `:rf.http/*` (or family-specific) failure-map shapes owned by the per-family spec. A `:status :stale` reply's `:rf.reply/work-status` is `:suppressed` and the linked `WorkLedger` row (above) reaches `:suppressed` — the reply target and a ledger row are the same fact, the ledger's `:reply-to` being this target made durable.
@@ -3397,14 +3388,14 @@ Args of the framework-supplied `:rf.route/with-nav-token` fx wrapper, per [012 �
 ```clojure
 (def WithNavTokenFxArgs
   [:map
-   [:rf/reply-to :any]                                                    ;; CANONICAL reply target (EP-0011 §The reply target): an event-vector prefix or descriptor. The single, required continuation surface. On match the route loader's :status :ok reply map is APPENDED to the target via the shared re-frame.reply/complete and dispatched; on a framework/tool-authorised :dispatch-stale? target the stale reply is delivered the same way.
+   [:rf/reply-to :any]                                                    ;; CANONICAL reply target (EP-0011 §The reply target): an event-vector prefix or descriptor. The single, required continuation surface. On match the route loader's :status :ok reply map is APPENDED to the target via the shared re-frame.reply/complete and dispatched; on mismatch the completion is suppressed and the app target is never dispatched (a stale completion never app-delivers).
    [:nav-token :any]                                                      ;; the token captured at scheduling time (gensym or counter)
    [:route-id {:optional true} :any]                                      ;; OPTIONAL captured route id: when present, a cross-route stale completion attributes its work-id to the route-loader attempt, not the route live at arrival. Captured together with :nav-token via the framework :rf.route/route-id cofx — see below.
    [:value {:optional true} :any]                                         ;; OPTIONAL live reply :value (the loader's decoded result); rides the :status :ok reply map a matched :rf/reply-to target is completed with
    [:completed-at {:optional true} :any]])                                ;; OPTIONAL reply completion time — the recordable :rf/time-ms fact on the reply token; when a stale completion supplies it, the suppressed reply/trace carries it so route completion time tracks the other managed-async families
 ```
 
-Registered under spec id `:rf.fx/with-nav-token-args`. The continuation is named by the canonical `:rf/reply-to` reply target (the [EP-0011](Managed-Effects.md#the-uniform-reply-envelope) lowering — the wrapper normalizes + completes the target through the shared `re-frame.reply` substrate, exercising the reply-completion/mapping law at the actual navigation wrapper); `:rf/reply-to` is the single, required continuation surface. The wrapper checks the carried `:nav-token` against the current route slice's (`[:rf.runtime/routing :current]`) `:nav-token` (the [stale-suppression](Managed-Effects.md#stale-suppression) gate). Match → complete the continuation (`:status :ok`). Mismatch → suppress + emit `:rf.route.nav-token/stale-suppressed` trace; the app reply target does NOT run unless it is a framework/tool target carrying the `::stale-authority` capability and `:dispatch-stale? true` (an app target asking for stale delivery without authority fails loud).
+Registered under spec id `:rf.fx/with-nav-token-args`. The continuation is named by the canonical `:rf/reply-to` reply target (the [EP-0011](Managed-Effects.md#the-uniform-reply-envelope) lowering — the wrapper normalizes + completes the target through the shared `re-frame.reply` substrate, exercising the reply-completion/mapping law at the actual navigation wrapper); `:rf/reply-to` is the single, required continuation surface. The wrapper checks the carried `:nav-token` against the current route slice's (`[:rf.runtime/routing :current]`) `:nav-token` (the [stale-suppression](Managed-Effects.md#stale-suppression) gate). Match → complete the continuation (`:status :ok`). Mismatch → suppress + emit `:rf.route.nav-token/stale-suppressed` trace; the app reply target does NOT run — a stale completion is universally non-delivering, so no reply target, however authored, receives a stale reply (rf2-j538f7.14).
 
 The capture-side facts are supplied by two framework coeffects a handler declares via `:rf.cofx/requires` (per [001 §`:rf.cofx/requires`](001-Registration.md#rfcofxrequires--the-declaration-key)): `:rf.route/nav-token` (the live navigation epoch token) and `:rf.route/route-id` (the live route id). Declaring BOTH and threading them into this fx makes the route-loader work-id `[:rf.work/route route-id nav-token loader-id]` carry its complete attempt identity, so the documented path cannot emit a nil-route route work-id.
 

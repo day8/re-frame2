@@ -840,7 +840,7 @@ When a route is loading and the user navigates away before the load completes, t
        ...))
    ```
 
-3. **Threading.** Async completions either (a) carry the captured facts in their follow-up event payload, or (b) use the framework-supplied `:rf.route/with-nav-token` fx wrapper, which names the continuation by the canonical `:rf/reply-to` reply target (the [uniform reply envelope](Managed-Effects.md#the-uniform-reply-envelope) lowering — on match the route loader's `:status :ok` reply map is appended to the target via the shared `re-frame.reply/complete`; on a framework/tool-authorised `:dispatch-stale?` target the stale reply is delivered the same way) and threads the captured token + route id for the gate and the work-id:
+3. **Threading.** Async completions either (a) carry the captured facts in their follow-up event payload, or (b) use the framework-supplied `:rf.route/with-nav-token` fx wrapper, which names the continuation by the canonical `:rf/reply-to` reply target (the [uniform reply envelope](Managed-Effects.md#the-uniform-reply-envelope) lowering — on match the route loader's `:status :ok` reply map is appended to the target via the shared `re-frame.reply/complete`; on mismatch the completion is suppressed and the app target is never dispatched — a stale completion never app-delivers) and threads the captured token + route id for the gate and the work-id:
 
    ```clojure
    {:fx [[:rf.route/with-nav-token
