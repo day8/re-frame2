@@ -39,7 +39,7 @@
 (defn- contains-sentinel?
   "True when the sentinel survives anywhere in `x`, including stringified data."
   [x]
-  (gen/contains-string? x sentinel false))
+  (gen/contains-string? x sentinel))
 
 (def ^:private sensitive-machine-id :sec/sensitive-machine)
 (def ^:private plain-machine-id     :sec/plain-machine)

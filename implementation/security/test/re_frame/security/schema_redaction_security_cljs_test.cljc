@@ -81,10 +81,10 @@
   "Deep-walk `x`; true when the sentinel string appears anywhere (as a
   value - matched as a SUBSTRING - inside a collection, or inside a
   stringified form, e.g. a keyword or symbol form built from it). Thin
-  wrapper over the shared `gen/contains-string?` (rf2-n5bkm7); the sentinel
-  is matched as a substring (`exact? false`)."
+  wrapper over the shared `gen/contains-string?` (rf2-n5bkm7), which
+  matches the sentinel as a substring."
   [x]
-  (gen/contains-string? x sentinel false))
+  (gen/contains-string? x sentinel))
 
 ;; ---------------------------------------------------------------------------
 ;; Recursive generator - build [schema db] where a :sensitive? scalar slot

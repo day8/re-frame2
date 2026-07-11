@@ -105,9 +105,9 @@
   "Deep-walk `x`; true when the sentinel string appears anywhere (as a
   value - matched as a SUBSTRING - inside a collection, or inside a
   stringified form). Thin wrapper over the shared `gen/contains-string?`
-  (rf2-n5bkm7); the sentinel is matched as a substring (`exact? false`)."
+  (rf2-n5bkm7), which matches the sentinel as a substring."
   [x]
-  (gen/contains-string? x sentinel false))
+  (gen/contains-string? x sentinel))
 
 ;; ---------------------------------------------------------------------------
 ;; Trace capture — register a listener, run `f`, return the single
