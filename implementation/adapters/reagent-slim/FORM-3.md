@@ -150,24 +150,42 @@ in a Form-2 component:
       [:div precomputed (str props)])))
 ```
 
-### `:should-component-update` → React.memo at the user's call site, or accept the re-render
+### `:should-component-update` → the framework installs one for you
 
-`shouldComponentUpdate` returned `false` to skip a re-render. The React-blessed
-replacement is `React.memo` (for function components) or `React.PureComponent`
-(for class components). reagent-slim ships neither as a Form-3 cap key, but
-users can apply `React.memo` at the call site by reactifying their component:
+`shouldComponentUpdate` returned `false` to skip a re-render. reagent-slim does
+**not** accept `:should-component-update` as a user cap key — and you almost
+never need it, because the framework installs its own.
 
-```clojure
-(def memoised-thing
-  (js/React.memo (reagent2.core/reactify-component thing)))
-```
+**The framework default.** Every reagent-slim class carries an internal,
+framework-owned `shouldComponentUpdate` that compares the component's hiccup
+argv with `=`. A child whose argv is `=` to its previous argv is **not**
+re-rendered just because its parent re-rendered — the fine-grained-re-render
+property, matching stock Reagent. This is a framework invariant, not a user
+surface: you cannot override it through the cap (a `:should-component-update`
+key is still rejected at registration time, per §1), and you do not need to —
+it is always on.
 
-In re-frame2's idiom, the more common answer is **accept the re-render**:
-re-frame2's reactive substrate already gates render at the subscription level
-(views only re-render when their subscribed values change), so most
-`:should-component-update` use cases are subsumed by sub graph design. If a
-component is re-rendering too often, the diagnosis is usually "your sub is
-firing too often," not "this component needs a manual gate."
+**What still triggers a render.** The argv gate skips *only* equal-argv parent
+propagation. A view still re-renders when:
+
+- its argv **changes** — a parent passed a value that is `not=` the previous one;
+- a **subscription it deref's is invalidated** — the reactive substrate targets
+  that view directly (the update drains as a `forceUpdate`, which React
+  specifies bypasses `shouldComponentUpdate`), so a view's *own* data changes
+  always commit;
+- its **local reactive state** (a Form-2 `reagent2.core/atom`) changes;
+- an ancestor **React context** it consumes changes;
+- something calls **force-update** on it.
+
+So the accurate contract is two-sided: the reactive substrate gates a view's
+*subscription-driven* re-renders to the moment its subscribed values change, and
+the argv gate additionally spares it from its *parent's* unrelated re-renders.
+It does **not** mean "a view only ever re-renders when a subscribed value
+changes" — the causes above still apply. If a component re-renders more than you
+expect, the usual diagnosis is "your sub is firing too often" or "the value you
+pass down is `not=` every render" (an inline `(fn …)` closure — never `=` to
+another — or a freshly-built collection whose contents differ), not "this
+component needs a manual gate."
 
 ### `:get-initial-state` → outer-fn Form-2 closure, or `:initial-events`
 

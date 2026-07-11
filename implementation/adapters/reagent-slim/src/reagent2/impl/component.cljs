@@ -530,6 +530,70 @@
                        (._run cached-rea false))]
           (->react-element hiccup))))))
 
+;; ---------------------------------------------------------------------------
+;; Framework-default shouldComponentUpdate — argv-equality gate (rf2-5al9d7)
+;;
+;; Stock Reagent installs a default `shouldComponentUpdate` that compares a
+;; component's argv with `=`: a child whose args did not change does NOT
+;; re-render just because its parent did (the signature "fine-grained
+;; re-render" property). reagent-slim shipped without it, so React took its
+;; always-render default and every slim class re-rendered on every parent
+;; re-render — an observable lifecycle-frequency divergence from stock
+;; (`:component-did-update` / `:get-snapshot-before-update` firing on
+;; value-identical argvs) plus wasted work down Reagent-shaped subtrees. This
+;; restores the invariant.
+;;
+;; This is a FRAMEWORK-INTERNAL default, NOT a user surface. `:should-
+;; component-update` stays OUT of the 7-key `create-class` cap — a user
+;; override is still rejected at registration time (see `cap-keys`). The
+;; framework merely restores its own invariant.
+;;
+;; It does NOT suppress subscription- or local-state-driven updates. Every
+;; reactive update in reagent-slim (a subscription invalidation or a Form-2
+;; RAtom change) drains through `reagent2.impl.batching` as a `forceUpdate`,
+;; and React specifies that `forceUpdate` re-renders WITHOUT consulting
+;; `shouldComponentUpdate`. Parent propagation and reactive invalidation are
+;; therefore separate causes: this gate skips equal-argv PARENT re-renders
+;; while a subscription change still commits its own view. Context changes
+;; (React forces `contextType` consumers to re-render regardless of sCU) and
+;; error-boundary state transitions (`getDerivedStateFromError`) are likewise
+;; not gated away — they are non-prop causes React drives independently.
+;;
+;; Fail-open: `=` over an app-owned argv can throw (a value with a throwing
+;; `-equiv`, a same-reference foreign object mutated in place). Stock Reagent
+;; fails CLOSED (skips); we fail OPEN (render) with a dev warning — skipping
+;; on a comparison failure risks a stale UI, and a class component is always
+;; correct WITH a render. The extra render is the safe branch (rf2-5al9d7).
+;; ---------------------------------------------------------------------------
+
+(defn- argv-should-update?
+  "Framework-default `shouldComponentUpdate` body. `this` is the mounted
+  instance (current props under `.-props`); `next-props` is React's incoming
+  props. Returns `true` to render, `false` to skip.
+
+  Renders when either argv is missing (nothing to compare — fall back to
+  React's always-render default) or the argvs are NOT `=`. Skips only when
+  both argvs are present and `=`. Fails OPEN (renders + dev-warns) if the
+  `=` comparison itself throws."
+  [^js this ^js next-props]
+  (let [prev-argv (some-> (.-props this) .-__rfArgv)
+        next-argv (some-> next-props .-__rfArgv)]
+    (if (or (nil? prev-argv) (nil? next-argv))
+      true
+      (try
+        (not= prev-argv next-argv)
+        (catch :default _e
+          (when ^boolean js/goog.DEBUG
+            (when (exists? js/console)
+              (.warn js/console
+                     (str "[reagent-slim] shouldComponentUpdate argv `=` "
+                          "comparison threw; rendering this component "
+                          "(fail-open). Argv shapes — prev: "
+                          (pr-str (diag/value-summary prev-argv))
+                          ", next: "
+                          (pr-str (diag/value-summary next-argv)) "."))))
+          true)))))
+
 (defn create-class*
   "Build a React component class from a Form-3 spec map. Validates
   the spec against the 7-key cap (per IMPL-SPEC §6.1) — any
@@ -579,6 +643,16 @@
     ;; make-render-method's body re-stashes argv from props at render
     ;; entry, so a single install is sufficient.
     (set! (.. klass -prototype -render) (make-render-method render-fn))
+
+    ;; Framework-default shouldComponentUpdate: restore stock Reagent's
+    ;; argv-equality gate on every slim class (rf2-5al9d7). Internal — NOT a
+    ;; user cap key. React skips sCU on the initial render and for forceUpdate
+    ;; (the reactive-update drain in reagent2.impl.batching), so this gates
+    ;; only parent-propagated re-renders: an equal-argv child is skipped.
+    (set! (.. klass -prototype -shouldComponentUpdate)
+          (fn [next-props _next-state]
+            (this-as this
+              (argv-should-update? this next-props))))
 
     (install-lifecycle! klass spec)
     klass))
