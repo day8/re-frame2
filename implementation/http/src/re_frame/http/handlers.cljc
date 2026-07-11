@@ -121,6 +121,13 @@
                "`:request :url` is required and must be a non-blank string per Spec 014 §Request envelope; a missing / nil / blank url cannot be dispatched"
                {:extra {:url url}})))))
 
+(defn- valid-reply-target?
+  "Per Spec 014 §Reply addressing — a reply target is an event VECTOR or
+  `nil` (`nil` silences the branch / is explicit fire-and-forget). Anything
+  else (a bare keyword, a map, a string, …) cannot be dispatched as an event."
+  [v]
+  (or (nil? v) (vector? v)))
+
 (defn- validate-reply-target!
   "Per Spec 014 §Reply addressing (rf2-et4c1s) — every `:rf.http/managed`
   request MUST address its reply. A reply is addressed by `:reply-to` (the
@@ -128,19 +135,40 @@
   canonical envelope's `:status`), or by `:on-success` / `:on-failure` (the
   split routing sugar; an explicit `nil` silences that branch).
 
-  The CO-LOCATED DEFAULT — the reply merged under `:rf/reply` back to the
-  originating event id when NO target was supplied — was RETIRED pre-alpha:
-  omitting EVERY reply target now FAILS LOUD at fx-call time with
-  `:rf.error/http-no-reply-target` rather than silently routing the reply
-  back to the dispatching event. Fires at the dispatch site (before
-  `run-attempt!`), matching the other args-map guards (`validate-retry!` →
-  `:rf.error/http-bad-retry-on`; `validate-url!` → `:rf.error/http-bad-request`)."
+  Two dispatch-time guards, both fired BEFORE `run-attempt!` (matching the
+  other args-map guards — `validate-retry!` → `:rf.error/http-bad-retry-on`;
+  `validate-url!` → `:rf.error/http-bad-request`):
+
+  1. PRESENCE — the CO-LOCATED DEFAULT (the reply merged under `:rf/reply`
+     back to the originating event id when NO target was supplied) was
+     RETIRED pre-alpha: omitting EVERY reply target FAILS LOUD with
+     `:rf.error/http-no-reply-target` rather than silently routing the reply
+     back to the dispatching event.
+
+  2. SHAPE (rf2-bvw9ut) — each SUPPLIED `:reply-to` / `:on-success` /
+     `:on-failure` must be an event VECTOR or `nil`. Per Spec 014 §Request
+     envelope this shape check is a DISPATCH-TIME guard (alongside
+     `:retry :on` and `:url`). Previously the vector-or-nil check lived ONLY
+     in `encoding/build-reply-event`, firing at COMPLETION time — so a typo'd
+     bare keyword (`:on-success :items/loaded`) issued the request and then
+     threw `:rf.error/http-bad-reply-target` async in the reply tail (feeding
+     the rf2-ln85eg reply-tail leak). Validating the shape here fails fast,
+     BEFORE the network call. `build-reply-event`'s guard stays as
+     belt-and-braces for any non-args-map descriptor path."
   [args-map]
   (when-not (some #(contains? args-map %) [:reply-to :on-success :on-failure])
     (throw (error/thrown-ex-info
              :rf.error/http-no-reply-target :rf.http/managed
              "`:rf.http/managed` must address its reply — supply `:reply-to` (one target for both success and failure; the app branches on the canonical envelope's `:status`), or `:on-success` / `:on-failure` (an explicit `nil` silences a branch). The co-located default (reply merged under `:rf/reply` back to the originating event) was retired pre-alpha. Per Spec 014 §Reply addressing"
-             {:extra {:args-keys (vec (keys args-map))}}))))
+             {:extra {:args-keys (vec (keys args-map))}})))
+  (doseq [k [:reply-to :on-success :on-failure]]
+    (when (contains? args-map k)
+      (let [v (get args-map k)]
+        (when-not (valid-reply-target? v)
+          (throw (error/thrown-ex-info
+                   :rf.error/http-bad-reply-target :rf.http/managed
+                   "`:reply-to` / `:on-success` / `:on-failure` must be an event vector or nil per Spec 014 §Reply addressing; a non-vector non-nil value (a bare keyword, map, string, …) cannot be dispatched as an event. Validated at dispatch time, before the request is issued"
+                   {:extra {:key k :value v}})))))))
 
 (defn- normalise-args
   "Validate + normalise the args map. Returns a context ready for the
