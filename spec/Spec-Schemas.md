@@ -2867,7 +2867,9 @@ The EP-0016 action-wave **public input forms** — named scope resolvers (D3), p
 
 (def ScopeInput
   ;; The public :scope slot on a DIRECT scope-taking resource-operation event —
-  ;; :rf.resource/ensure / refetch / clear-scope / invalidate-tags (rf2-oo8cv7).
+  ;; :rf.resource/ensure / refetch / clear-scope / invalidate-tags (rf2-oo8cv7)
+  ;; — and on the :rf.mutation/execute payload + mutation-spec :scope tiers
+  ;; (the execution-scope resolution, rf2-l11670).
   ;; EITHER a concrete canonical scope value OR a {:from-db <id>} named-resolver
   ;; reference resolved at use time against the handler's app-db coeffect —
   ;; SYMMETRIC across every site (the single use-time rule, [016 §Resolver
@@ -2875,7 +2877,10 @@ The EP-0016 action-wave **public input forms** — named scope resolvers (D3), p
   ;; "enclosing mutation's resolved scope" marker is descriptor-only, and a
   ;; direct event has no enclosing mutation. The matcher + cache only ever see
   ;; the RESOLVED canonical concrete scope; a nil resolution is fail-closed
-  ;; per-operation (ensure / invalidate throw; clear-scope warns + no-ops).
+  ;; per-operation (ensure / invalidate / a supplied execute reference throw;
+  ;; clear-scope warns + no-ops; an ABSENT execute :scope keeps its documented
+  ;; fail-open :rf.scope/global default — [016 §Mutation scope is two distinct
+  ;; scopes (hybrid)]).
   [:or
    [:= :rf.scope/global]
    [:map [:from-db :keyword]]           ;; named-resolver reference, resolved at use time against app-db

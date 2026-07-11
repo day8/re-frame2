@@ -403,7 +403,7 @@ Invalidation timing is explicit via **`:invalidate-timing`** — `:after-success
 
 !!! warning "Gotcha — match the scope or the invalidation silently misses"
 
-    A mutation's `:invalidates` matches only entries *in the mutation's resolved scope*. If a `:rf.scope/global`-defaulted mutation invalidates a tag owned by a session-scoped read (or the reverse), no entry matches, nothing refreshes, and **no error is raised** — it's a legitimate "no match in this scope." When a write affects session- or tenant-scoped reads, use the **per-target descriptor form**, where each descriptor carries its own scope, resolving a `{:from-db …}` reference against app-db:
+    A mutation's `:invalidates` matches only entries *in the mutation's resolved scope*. If a `:rf.scope/global`-defaulted mutation invalidates a tag owned by a session-scoped read (or the reverse), no entry matches, nothing refreshes, and **no error is raised** — it's a legitimate "no match in this scope." When a write affects session- or tenant-scoped reads, name the matching scope on the execute payload (`:scope` accepts a concrete scope *or* a `{:from-db …}` resolver reference, resolved against app-db at execute time — and a reference that resolves to `nil`, e.g. logged out, fails loud rather than falling through to global), or — cleaner when one write touches facts in *different* scopes — use the **per-target descriptor form**, where each descriptor carries its own scope:
 
     ```clojure
     :invalidates
@@ -426,6 +426,10 @@ Invalidation timing is explicit via **`:invalidate-timing`** — `:after-success
  {:mutation :realworld/favorite
   :params   {:slug slug}
   :instance [:favorite slug]            ;; caller-supplied (or generated) instance id
+  :scope    {:from-db :realworld/session} ;; optional — a concrete scope or a {:from-db <id>}
+                                          ;; resolver reference, resolved against app-db at
+                                          ;; execute time; omitted ⇒ the registration :scope,
+                                          ;; else :rf.scope/global
   :cause    [:click :article/favorite]
   :reply-to [:favorite/replied slug]}]  ;; optional continuation (below)
 ```
@@ -519,7 +523,7 @@ Resources lean hard on the [fail-loud](../core/glossary.md#fail-loud-not-silent)
 | `:rf.error/resource-missing-scope-policy` | at `reg-resource` | You didn't declare `:scope`. "I forgot this read is user-scoped" is unrepresentable — say `:rf.scope/global` (a claim) or name a resolver. |
 | `:rf.error/resource-bad-spec` | at `reg-resource` | A malformed spec — usually `:request` left *inside* the metadata map (it's the third slot), or a missing/bad `:params-schema`, or a malformed `:sensitive` / `:large` path-vector. |
 | `:rf.error/resource-sub-unresolved-scope` | at a subscription | A `[:rf/resource …]` whose scope can't be resolved — pass `:scope` on the payload, the same scope the owning route/event ensured under. Never a silent `:idle`, never a silent global read. |
-| `:rf.error/resource-scope-unresolved-reference` | at an ensure / route site | The ensure/route counterpart to the sub-side error above: a `{:from-db <id>}` scope reference that resolved to `nil` against the current db (e.g. logged out) at a scope-*requiring* event or route. A derived scope that can't resolve is fail-closed — never a fall-through to global. |
+| `:rf.error/resource-scope-unresolved-reference` | at an ensure / route / `:rf.mutation/execute` site | The ensure/route counterpart to the sub-side error above: a `{:from-db <id>}` scope reference that resolved to `nil` against the current db (e.g. logged out) at a scope-*requiring* site — an event, a route, or a supplied mutation-execute `:scope`. A derived scope that can't resolve is fail-closed — never a fall-through to global. |
 | `:rf.error/resource-invalidate-scope-required` | at `:rf.resource/invalidate-tags` | A bare invalidate with no scope. Name the scope, or opt into the audited `:cross-scope? true`. The fail-closed floor — never silently global. |
 | `:rf.error/resource-route-plan` | at a route with `:resources` | A route resource couldn't be planned — its params or scope didn't resolve, its params failed the schema, or a `:when` guard threw. Recorded on the route slice's `:error` (visible to the `:rf/route` sub and Xray) so navigation surfaces the failure instead of silently dropping the read. |
 | `:rf.error/resource-ssr-blocking-timeout` | at SSR render | A `:blocking? true` resource exceeded the render deadline. Each unsettled blocking entry settles as a first-load `:error` (`{:kind :rf.http/timeout :reason :ssr-blocking-timeout}`) so the render never hangs; the client picks the read up on hydration. |
