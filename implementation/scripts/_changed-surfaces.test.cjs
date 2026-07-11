@@ -1019,6 +1019,73 @@ test('all-required-passed aggregator needs tenant-switcher-testbed-smoke (rf2-h5
   );
 });
 
+// rf2-vxgfnd.6 — the re-frame.ui compiled-view substrate's surfaces.
+// Before this case a ui-only PR left every output false (the whole
+// artefact's suites + the S1f parity corpus + the G-1/G-14 gates all
+// skipped — a false-green hole).
+
+test('implementation/ui source change arms jvm + node-test + ui_gates (rf2-vxgfnd.6)', () => {
+  const result = classify('implementation/ui/src/re_frame/ui/rules.cljc');
+  assert.equal(result.implementation_jvm, 'true');
+  assert.equal(result.cljs_node_test, 'true');
+  assert.equal(result.ui_gates, 'true');
+  assert.notEqual(result.story_xray_browser, 'true');
+  assert.notEqual(result.adapter_testbed_smokes, 'true');
+});
+
+test('implementation/ui bench/test changes arm the same trio (rf2-vxgfnd.6)', () => {
+  const result = classify('implementation/ui/bench/re_frame/ui/bench/main.cljs');
+  assert.equal(result.ui_gates, 'true');
+  const result2 = classify('implementation/ui/test/re_frame/ui/parity_fixtures.cljc');
+  assert.equal(result2.implementation_jvm, 'true');
+  assert.equal(result2.cljs_node_test, 'true');
+});
+
+test('build-config trio arms ui_gates; generic scripts do not (rf2-vxgfnd.6)', () => {
+  assert.equal(classify('implementation/shadow-cljs.edn').ui_gates, 'true');
+  assert.equal(classify('implementation/package.json').ui_gates, 'true');
+  assert.equal(classify('implementation/package-lock.json').ui_gates, 'true');
+  assert.notEqual(classify('implementation/scripts/check-elision.cjs').ui_gates, 'true');
+});
+
+test('the G-1 launcher script fires the gate it drives (rf2-vxgfnd.6)', () => {
+  const result = classify('implementation/scripts/run-ui-bench.cjs');
+  assert.equal(result.ui_gates, 'true');
+  // widens, never narrows: the generic scripts surfaces stay armed
+  assert.equal(result.cljs_node_test, 'true');
+  assert.equal(result.bundle_isolation, 'true');
+});
+
+test('spec-only changes do not arm ui_gates (rf2-vxgfnd.6)', () => {
+  assert.notEqual(classify('spec/Conventions.md').ui_gates, 'true');
+});
+
+test('jvm-ui is job-level gated on implementation_jvm (rf2-vxgfnd.6)', () => {
+  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'jvm-ui');
+  assert.match(block, /needs: detect_changed_surfaces/);
+  assert.match(
+    block,
+    /if: needs\.detect_changed_surfaces\.outputs\.implementation_jvm == 'true'/,
+  );
+  assert.match(block, /working-directory: implementation\/ui/);
+});
+
+test('cljs-ui-g1 is job-level gated on ui_gates and runs the gate script (rf2-vxgfnd.6)', () => {
+  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'cljs-ui-g1');
+  assert.match(block, /needs: detect_changed_surfaces/);
+  assert.match(
+    block,
+    /if: needs\.detect_changed_surfaces\.outputs\.ui_gates == 'true'/,
+  );
+  assert.match(block, /npm run test:ui-g1/);
+});
+
+test('all-required-passed aggregator needs jvm-ui + cljs-ui-g1 (rf2-vxgfnd.6)', () => {
+  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'all-required-passed');
+  assert.match(block, /- jvm-ui\r?\n/, 'aggregator must list jvm-ui in needs:');
+  assert.match(block, /- cljs-ui-g1\r?\n/, 'aggregator must list cljs-ui-g1 in needs:');
+});
+
 let failed = 0;
 for (const { name, fn } of tests) {
   try {
