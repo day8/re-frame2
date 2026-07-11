@@ -1592,8 +1592,22 @@
                    :else
                    (recur (inc i) (conj parts (str ch)))))))
            parts
-           (loop [i     0
-                  parts []]
+           ;; `elided?` threads the PREFIX RULE for sequential optional groups
+           ;; (rf2-rpjb5i). The match-time regex reads adjacent optional groups
+           ;; POSITIONALLY (`/docs{/:section}?{/:page}?` →
+           ;; `^/?docs(?:/([^/]+))?(?:/([^/]+))?$`, capture 1 = section, capture
+           ;; 2 = page), so emitting a LATER group after an EARLIER sibling
+           ;; ELIDED builds a URL whose later value lands in the earlier group's
+           ;; capture slot: `route-url {:page "5"}` → `/docs/5` → `match-url`
+           ;; reads `{:section "5"}`, a SILENT prism-law break (both keys
+           ;; optional, so both legs pass `:params` validation). Fail CLOSED on
+           ;; emission — once a group is elided, no later group may emit — the
+           ;; same fail-closed rationale as the empty-string-segment reject
+           ;; above. Sequential optional groups therefore form a PREFIX chain: a
+           ;; later group is reachable only when every earlier group is present.
+           (loop [i       0
+                  parts   []
+                  elided? false]
              (if-not (< i n)
                parts
                (let [ch (.charAt ^String pattern i)]
@@ -1602,8 +1616,29 @@
                    (let [{:keys [inner-names close-end]} (get groups i)
                          all-present? (every? #(some? (get path-params (keyword %))) inner-names)]
                      (if all-present?
-                       (let [[i' parts'] (emit-group (inc i) parts)]
-                         (recur i' parts'))
+                       (do
+                         ;; Prefix-rule violation: this group would emit into a
+                         ;; slot the regex reads AFTER an already-elided earlier
+                         ;; group's slot, so `match-url` cannot recover the
+                         ;; supplied params. Reject on emission rather than build
+                         ;; a silently un-round-trippable URL.
+                         (when elided?
+                           (throw (route-error
+                                    :rf.error/route-url-validation
+                                    'rf/route-url
+                                    (str "route " route-id
+                                         " supplies a later optional group ("
+                                         (str/join ", " (map keyword inner-names))
+                                         ") while an earlier optional group was elided — "
+                                         "sequential optional groups form a prefix chain, so a "
+                                         "later group's params cannot round-trip through match-url "
+                                         "unless every earlier group is also present")
+                                    {:route-id route-id
+                                     :slot     :params
+                                     :value    path-params
+                                     :group    (mapv keyword inner-names)})))
+                         (let [[i' parts'] (emit-group (inc i) parts)]
+                           (recur i' parts' elided?)))
                        ;; Elide the group. Valid route patterns put the leading
                        ;; slash inside the group, so removing the group also
                        ;; removes its separator.
@@ -1623,7 +1658,7 @@
                                                       (and at-end? (not root-only?))))
                                            (pop parts)
                                            parts)]
-                         (recur close-end parts'))))
+                         (recur close-end parts' true))))
 
                    ;; `:name` / `*name` in the top-level pattern — the
                    ;; value is REQUIRED; `require-param` throws on absent.
@@ -1640,10 +1675,10 @@
                          v       (->> (require-param k (if splat? "splat" "path"))
                                       (assert-url-value! route-id :params k)
                                       (enum-keyword-token (get params-coerce k)))]
-                     (recur end (conj parts (encode-param splat? v))))
+                     (recur end (conj parts (encode-param splat? v)) elided?))
 
                    :else
-                   (recur (inc i) (conj parts (str ch)))))))
+                   (recur (inc i) (conj parts (str ch)) elided?)))))
            ;; A pattern whose entire path is a leading optional
            ;; group (`{/:base}?`) elides to the empty string when the param
            ;; is absent — but the empty string is not a URL. Normalise it to

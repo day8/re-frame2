@@ -2208,6 +2208,47 @@
          MORE optional groups) wins the tie for a URL both match — rule 6
          registration-order tiebreak, not rule 5's group count")))
 
+;; ---- rf2-rpjb5i: sequential optional groups form a prefix chain -----------
+;;
+;; The match-time regex reads adjacent optional groups POSITIONALLY, so
+;; supplying only the LATER param elides the earlier group but emits the later
+;; one into the earlier group's capture slot — `route-url {:page "5"}` on
+;; `/docs{/:section}?{/:page}?` used to build `/docs/5`, which `match-url` reads
+;; back as `{:section "5"}`: a SILENT prism-law break (both keys optional, so
+;; both legs pass validation). route-url now fails CLOSED on emission (the
+;; prefix rule: a later optional group is reachable only when every earlier
+;; group is present), and every prefix-respecting combination still round-trips.
+
+(deftest sequential-optional-groups-prefix-rule-rf2-rpjb5i
+  (rf/reg-route :route/docs
+                {:params [:map
+                          [:section {:optional true} :string]
+                          [:page    {:optional true} :string]]}
+                "/docs{/:section}?{/:page}?")
+  (testing "the confirmed corruption: supplying ONLY the later param throws
+            :rf.error/route-url-validation instead of silently emitting a URL
+            that match-url reads into the earlier group's slot"
+    (let [ex (try (registry/route-url :route/docs {:page "5"})
+                  nil
+                  (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? ex) "route-url {:page \"5\"} throws")
+      (is (= :rf.error/route-url-validation (:rf.error/id (ex-data ex))))
+      (is (= [:page] (:group (ex-data ex)))
+          "the offending later group is named in the ex-data")))
+  (testing "the PRISM LAW holds for every prefix-respecting combination:
+            match-url(route-url(x)) recovers x"
+    (doseq [params [{} {:section "a"} {:section "a" :page "b"}]]
+      (let [url (registry/route-url :route/docs params)
+            round (:params (routing/match-url url))]
+        (is (= params round)
+            (str "round-trip for " (pr-str params) " via " (pr-str url)
+                 " recovered " (pr-str round))))))
+  (testing "sanity: the ambiguous URL the pre-fix path would have built
+            (/docs/5) still reads back as the FIRST group — proving the
+            positional ambiguity the emission-side reject exists to prevent"
+    (is (= {:section "5"} (:params (routing/match-url "/docs/5")))
+        "/docs/5 matches section, not page — so emitting page-only would corrupt")))
+
 (deftest match-against-root-pattern-matches-root-path
   (testing "rf2-aleg9 — the special `/` pattern matches the root URL
             and returns an empty params map; a deeper URL returns nil"
