@@ -431,6 +431,37 @@
              (emit/render-to-string [:<> [:div "x"]] {}))
           "without :emit-hash?/:render-hash the fragment root emits no marker"))))
 
+(deftest render-hash-threads-through-lazy-seq-root
+  (testing "rf2-a73idu — root-attrs (the render-hash marker) thread through a
+            `lazy-seq` / list ROOT onto the first DOM-tag element, per Spec 011
+            §Source-coord annotation / §Hydration-mismatch detection (a
+            lazy-seq root is 'passed through the injection'). The prior
+            `(sequential? el)` branch used plain `emit-children`, DROPPING
+            root-attrs, so a lazy-seq-rooted tree silently lost its
+            data-rf-render-hash marker."
+    (testing ":emit-hash? lands the marker on a (list …) root's first DOM child"
+      (is (re-matches #"<div data-rf-render-hash=\"[0-9a-f]+\">x</div>"
+                      (emit/render-to-string (list [:div "x"]) {:emit-hash? true}))
+          "single-child list root gets the marker on the div"))
+    (testing ":emit-hash? lands the marker on a (map …) lazy-seq root"
+      (is (re-matches #"<div data-rf-render-hash=\"[0-9a-f]+\">1</div>"
+                      (emit/render-to-string (map (fn [i] [:div i]) [1]) {:emit-hash? true}))
+          "a lazy-seq produced by map gets the marker on its first DOM child"))
+    (testing "the marker lands on the FIRST DOM child only across a multi-child seq"
+      (let [html (emit/render-to-string (for [i [1 2]] [:p i]) {:emit-hash? true})]
+        (is (re-matches #"<p data-rf-render-hash=\"[0-9a-f]+\">1</p><p>2</p>" html)
+            (str "exactly one marker, on the first <p>; got: " html))
+        (is (= 1 (count (re-seq #"data-rf-render-hash=" html)))
+            "marker appears exactly once across the seq's children")))
+    (testing "an explicit :render-hash threads through the lazy-seq root"
+      (is (= "<div data-rf-render-hash=\"deadbeef\">x</div>"
+             (emit/render-to-string (list [:div "x"]) {:render-hash "deadbeef"}))
+          "the supplied hash drives the marker through the seq root"))
+    (testing "no opts → no marker (seq branch unchanged when root-attrs nil)"
+      (is (= "<div>x</div>"
+             (emit/render-to-string (list [:div "x"]) {}))
+          "without :emit-hash?/:render-hash the lazy-seq root emits no marker"))))
+
 ;; ===========================================================================
 ;; rf2-bee5i — :rf/suspense-boundary is a streaming-only marker. The standard
 ;; emitter must REJECT it (fail loud, parallel to :>) rather than emit a

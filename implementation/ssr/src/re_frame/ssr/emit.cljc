@@ -588,7 +588,15 @@
          ;; UNESCAPED (XSS-class escape bypass); fail loud instead.
          :else (reject-invalid-hiccup-head! el)))
 
-     (sequential? el) (emit-children el)
+     ;; A non-vector sequential ROOT (a lazy-seq / list — e.g. the result of
+     ;; `(map …)` or `(for …)` at the root). Per Spec 011 §Source-coord
+     ;; annotation / §Hydration-mismatch detection a lazy-seq root is
+     ;; "passed through the injection — the attribute lands on the eventual
+     ;; DOM root." rf2-a73idu — the prior plain `emit-children` DROPPED
+     ;; `root-attrs`, so a lazy-seq-rooted tree silently lost its
+     ;; `data-rf-render-hash` marker; thread it onto the first DOM child,
+     ;; exactly like the `:<>` fragment root.
+     (sequential? el) (emit-children-threading-root-attrs el root-attrs)
      :else (html/escape-html el))))
 
 (defn render-to-string
