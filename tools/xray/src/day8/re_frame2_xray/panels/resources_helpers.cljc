@@ -74,6 +74,31 @@
   "Runtime-db-relative path to the cache entries map. Per Spec 016."
   [resources-key :entries])
 
+(defn resource-payload-path-suffix
+  "The lowered-declaration path SUFFIX, relative to an entry's `key-id`, a
+  payload `slot-key` re-roots under (rf2-aw9cfs) — mirrors
+  `re-frame.resources.classification/instance-declaration-paths`'s re-rooting:
+  a `:data`-rooted declaration lands directly under the entry (`[key-id
+  :data]`); a `:scope`- / `:params`-rooted one lands under the scoped-key
+  `:resource/key` carrier at index 0 / 2 (the scoped key is `[scope
+  resource-id params]`). `:error` / `:refresh-error` are not currently lowered
+  by the resources registry but live at the entry's own key, so they re-root
+  there too — a harmless no-match today that is correct the day the registry
+  starts classifying them.
+
+  The absolute egress `:path` for a slot is
+  `(into (conj (vec entries-rel-path) key-id) (resource-payload-path-suffix
+  slot-key))`. Canonical home for the pure path logic so BOTH the off-box
+  accessors (`runtime/resource-egress-fn`) and the on-box Resources-panel
+  egress (`resources/on-box-resource-egress-fn`, rf2-9zix0u) re-root each slot
+  to the SAME absolute coordinate the resources artefact lowers its per-instance
+  `:sensitive?` / `:large?` declarations to — one source of truth, no drift."
+  [slot-key]
+  (case slot-key
+    :scope  [:resource/key 0]
+    :params [:resource/key 2]
+    [slot-key]))
+
 (def tag-index-rel-path
   "Runtime-db-relative path to the reverse tag index."
   [resources-key :tag-index])
