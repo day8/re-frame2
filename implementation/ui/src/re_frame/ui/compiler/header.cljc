@@ -39,7 +39,9 @@
 (defn- entry [k pattern]
   (when (= k :key)
     (fail :rf.ui.compile/key-prop-declared
-          ":key cannot be a view prop — it is reserved (it feeds React's key slot)"
+          (str ":key cannot be a view prop — it is reserved (it feeds React's "
+               "key slot). Callers pass :key at the call site; it never "
+               "arrives in props — remove the :key binding")
           {:key k}))
   (when (= k :ref)
     (fail :rf.ui.compile/ref-prop-declared-s1

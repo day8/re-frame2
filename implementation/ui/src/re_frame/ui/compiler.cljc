@@ -113,8 +113,23 @@
       (:line m)   (assoc :line (:line m))
       (:column m) (assoc :column (:column m)))))
 
-(defn defview*
-  "The defview macro body. `form` = &form, `menv` = &env."
+(defn- anchored
+  "Run `thunk`; a compile error escaping it gains the declaration form's
+  source coordinates (:file/:line/:column) in its ex-data — the S1e
+  file:line anchoring, so every {:rf.ui.compile/error <id>} carries WHERE
+  alongside id + didactic message. Existing ex-data wins on collisions;
+  id, message and cause are preserved."
+  [coords thunk]
+  (try
+    (thunk)
+    (catch clojure.lang.ExceptionInfo ex
+      (let [data (ex-data ex)]
+        (throw
+         (if (and (:rf.ui.compile/error data) (nil? (:file data)))
+           (ex-info (ex-message ex) (merge coords data) ex)
+           ex))))))
+
+(defn- defview**
   [form menv vname forms]
   (when-not (simple-symbol? vname)
     (fail :rf.ui.compile/bad-defview-args
@@ -130,7 +145,9 @@
                   (when (contains? #{:key :ref} k)
                     (fail :rf.ui.compile/key-prop-declared
                           (str "defview " vname ": " k " cannot be declared in "
-                               ":props — it is a reserved React slot")
+                               ":props — it is a reserved React slot (callers "
+                               "pass it at the call site; it never arrives as "
+                               "a prop). Remove the schema entry")
                           {:view vname :key k})))
         slots       (header/declared-slots hdr schema-keys)
         children?   (boolean (or (:children? hdr)
@@ -192,12 +209,15 @@
       (emit-cljs/emit-defview args)
       (emit-jvm/emit-defview args))))
 
-(defn custom-element*
-  "The RULED custom-element declaration grammar (Mike, 2026-07-12):
-  (ui/custom-element tag {:properties #{...}}) — top-level,
-  compile-resolvable, registers like defview. The :properties set is the
-  ENTIRE v1 grammar (options map closed); future keys are new rulings,
-  not silent growth."
+(defn defview*
+  "The defview macro body. `form` = &form, `menv` = &env. Every compile
+  error thrown during expansion is anchored with the defview form's
+  source coordinates (S1e roster: id + didactic message + file:line)."
+  [form menv vname forms]
+  (anchored (source-coords form (some? (:ns menv)))
+            #(defview** form menv vname forms)))
+
+(defn- custom-element**
   [tag opts]
   (when-not (and (keyword? tag) (nil? (namespace tag))
                  (str/includes? (name tag) "-"))
@@ -233,5 +253,16 @@
     ;; at render via the same registry)
     (rules/register-custom-element! tag {:properties props})
     `(re-frame.ui.rules/register-custom-element! ~tag {:properties ~props})))
+
+(defn custom-element*
+  "The RULED custom-element declaration grammar (Mike, 2026-07-12):
+  (ui/custom-element tag {:properties #{...}}) — top-level,
+  compile-resolvable, registers like defview. The :properties set is the
+  ENTIRE v1 grammar (options map closed); future keys are new rulings,
+  not silent growth. `form` = &form, `menv` = &env — compile errors are
+  anchored with the declaration form's source coordinates (S1e)."
+  [form menv tag opts]
+  (anchored (source-coords form (some? (:ns menv)))
+            #(custom-element** tag opts)))
 
 ))

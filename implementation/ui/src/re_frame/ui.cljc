@@ -62,7 +62,7 @@
      property-props are named by :rf.ui/property-props and applied at
      hydration."
      [tag opts]
-     (compiler/custom-element* tag opts)))
+     (compiler/custom-element* &form &env tag opts)))
 
 ;; ---------------------------------------------------------------------------
 ;; Reactive-read grammar (S1: compiles; reads land S2)

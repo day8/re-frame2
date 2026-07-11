@@ -29,7 +29,33 @@
 (def ^:private ui-spread-fqns #{'re-frame.ui/spread})
 (def ^:private sub-fqns       #{'re-frame.ui/sub})
 (def ^:private lease-fqns     #{'re-frame.ui/lease})
-(def ^:private map-fqns       #{'clojure.core/map 'cljs.core/map})
+(def markup-map-fqns
+  "The map family — heads whose (f render-fn coll) idiom generates markup
+  rows lazily. Rejected in child position (:rf.ui.compile/markup-returning-map)
+  with the keyed-(for ...) escape. CLOSED vocabulary: additions are S1e
+  roster changes."
+  #{'clojure.core/map          'cljs.core/map
+    'clojure.core/map-indexed  'cljs.core/map-indexed
+    'clojure.core/mapcat       'cljs.core/mapcat
+    'clojure.core/keep         'cljs.core/keep
+    'clojure.core/keep-indexed 'cljs.core/keep-indexed})
+
+(def lazy-seq-fqns
+  "Core seq producers whose value in child position is a RAW SEQ — the
+  grammar rejects raw lazy seqs (Spec 004 rewrite §Template grammar:
+  they hide keys and laziness). Rejected in child position
+  (:rf.ui.compile/lazy-seq-child). CLOSED vocabulary: additions are S1e
+  roster changes. Note: these heads stay legal everywhere expressions
+  are opaque — prop values, for-collections, if-tests — only RENDERED
+  CONTENT positions reject them."
+  (into #{}
+        (mapcat (fn [s] [(symbol "clojure.core" (name s))
+                         (symbol "cljs.core" (name s))]))
+        '[filter remove take take-while take-nth take-last drop drop-while
+          drop-last concat interpose interleave sequence repeat repeatedly
+          iterate cycle range distinct dedupe flatten partition
+          partition-all partition-by sort sort-by reverse rest next butlast
+          keys vals seq re-seq]))
 
 (def ^:private control-heads
   #{'if 'if-not 'when 'when-not 'cond 'case 'let 'letfn 'do 'for})
@@ -115,7 +141,8 @@
   (let [s (name head)]
     (when (namespace head)
       (env/fail! e :rf.ui.compile/bad-tag
-                 (str "element head " head " must be an unqualified keyword")
+                 (str "element head " head " must be an unqualified keyword — "
+                      "tag keywords carry no namespace (write :" s ")")
                  {:head head}))
     (when (or (str/blank? s) (str/starts-with? s ".") (str/starts-with? s "#"))
       (env/fail! e :rf.ui.compile/bad-tag
@@ -130,7 +157,10 @@
                   (str/starts-with? seg "#")
                   (if (:id acc)
                     (env/fail! e :rf.ui.compile/duplicate-id-sugar
-                               (str "two #id segments on " head) {:head head})
+                               (str "two #id segments on " head " — an element "
+                                    "has one id. Keep one #id segment (or move "
+                                    "the id to an :id prop)")
+                               {:head head})
                     (assoc acc :id (subs seg 1)))
                   (str/starts-with? seg ".")
                   (update acc :classes conj (subs seg 1))
@@ -201,17 +231,25 @@
                           "{:event :prevent-default :stop-propagation :capture "
                           ":passive :once}")
                      {:prop k :form form}))
+        (when (and (:passive form) (:prevent-default form))
+          (env/fail! e :rf.ui.compile/contradictory-handler-options
+                     (str ":passive true with :prevent-default true at " k
+                          " — a passive listener promises the browser it will "
+                          "NEVER call preventDefault, so the combination is a "
+                          "contradiction (in any stage). Drop one of them")
+                     {:prop k :form form}))
         (when-not (vector? (:event form))
           (env/fail! e :rf.ui.compile/bad-handler-options
                      (str "handler options map at " k " needs a literal "
-                          ":event vector")
+                          ":event vector — {:event [:domain/event args...] "
+                          ":prevent-default true ...}")
                      {:prop k :form form}))
         (when (or (:passive form) (:once form))
           (env/fail! e :rf.ui.compile/handler-option-unavailable-s1
                      (str ":passive/:once at " k " land with the committed-"
                           "handler slice (S3) — the React host cannot express "
                           "them as element props; S1 rejects rather than "
-                          "silently dropping them")
+                          "silently dropping them. Remove the option for now")
                      {:prop k :form form}))
         (analyze-event-vector! e k (:event form))
         (env/add-site! e :events {:prop k :handler form :path (:path e)
@@ -304,7 +342,10 @@
     (let [entries (mapv (fn [[k v]]
                           (when-not (keyword? k)
                             (env/fail! e :rf.ui.compile/bad-style
-                                       ":style keys must be literal keywords"
+                                       (str ":style keys must be literal "
+                                            "keywords — for computed names, "
+                                            "pass the whole :style value as "
+                                            "one dynamic expression")
                                        {:key k :form form}))
                           (when-not (literal-scalar? v) (walk-expr e v))
                           {:css-name (name k) :value v :literal? (literal-scalar? v)})
@@ -410,7 +451,8 @@
                                                 (str "collection value for attribute " k
                                                      " — collections are only meaningful "
                                                      "for :class/:style (React renders "
-                                                     "\"[object Object]\" garbage)")
+                                                     "\"[object Object]\" garbage). Pass "
+                                                     "a string, e.g. (str/join \" \" xs)")
                                                 {:prop k :value v}))
                                    (when (fn-form? v)
                                      (env/fail! e :rf.ui.compile/bare-fn-prop
@@ -674,7 +716,9 @@
   (cond
     (empty? clauses) {:op :nothing :static? true}
     (odd? (count clauses))
-    (env/fail! e :rf.ui.compile/bad-cond "cond needs test/branch pairs" {:form form})
+    (env/fail! e :rf.ui.compile/bad-cond
+               "cond needs test/branch pairs: (cond test1 branch1 ... :else fallback)"
+               {:form form})
     :else
     (let [[t b & more] clauses]
       (if (= :else t)
@@ -800,7 +844,7 @@
             (env/fail! e :rf.ui.compile/constant-list-key
                        (str "constant :key " (pr-str (:expr k)) " in a list — a "
                             "key must vary per row (a constant key guarantees "
-                            "duplicates)")
+                            "duplicates). Key on row data: {:key (:id x)}")
                        {:form form})))
         {:op :for
          :seq-exprs seq-exprs
@@ -863,11 +907,21 @@
                    {:form form})
 
         (and (symbol? head) (not (contains? (:locals e) head))
-             (env/resolves-to? e head map-fqns))
+             (env/resolves-to? e head markup-map-fqns))
         (env/fail! e :rf.ui.compile/markup-returning-map
-                   (str "(map f coll) in child position — markup-returning map "
-                        "is rejected: it hides keys and laziness. Use "
-                        "(for [x coll] [row {:key ...}])")
+                   (str "(" head " f coll) in child position — markup-returning "
+                        "map is rejected: it hides keys and laziness. Use "
+                        "(for [x coll] [row {:key (:id x)}])")
+                   {:form form})
+
+        (and (symbol? head) (not (contains? (:locals e) head))
+             (env/resolves-to? e head lazy-seq-fqns))
+        (env/fail! e :rf.ui.compile/lazy-seq-child
+                   (str "(" head " ...) in child position produces a raw seq — "
+                        "raw lazy seqs are rejected: they hide keys and "
+                        "laziness. Render rows with (for [x coll] "
+                        "[row {:key (:id x)}]); render text with "
+                        "(str/join ...)")
                    {:form form})
 
         :else
@@ -906,5 +960,7 @@
     :else
     (env/fail! e :rf.ui.compile/unsupported-form
                (str "unsupported template form " (pr-str form) " of type "
-                    (type form))
+                    (type form) " — template content is strings/numbers/"
+                    "nil/false, [:tag ...] vectors, control forms, and "
+                    "expressions. Render a value as text with (str ...)")
                {:form form})))
