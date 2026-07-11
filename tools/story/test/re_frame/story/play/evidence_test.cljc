@@ -581,3 +581,45 @@
       (is (not (and (= :pass (:status sibling-says-ok))
                     (not tape-red?)))
           "cannot be both sibling-green and tape-clean"))))
+
+;; ===========================================================================
+;; RUN-TAPE TRUNCATION SIGNAL  (rf2-4u5zl4)
+;; ===========================================================================
+;;
+;; `run-tape-truncated?` observes whether the bounded per-frame ring evicted
+;; the run's baseline record (front-eviction): if NO retained record still
+;; sits at/before the baseline, the ring overflowed with run epochs and the
+;; earliest run evidence is GONE. Depth-free — it needs only the full ring +
+;; the baseline id.
+
+(deftest run-tape-truncated-detects-evicted-baseline
+  (testing "baseline still covered (a record ≤ baseline survives) → NOT truncated"
+    ;; baseline 100; the ring still holds record 100 (the baseline itself) and
+    ;; newer run records — nothing evicted.
+    (let [full-ring [(epoch 100 {}) (epoch 103 {}) (epoch 107 {})]]
+      (is (false? (evidence/run-tape-truncated? full-ring 100))
+          "the baseline record survives → the ring holds every run record")))
+
+  (testing "baseline evicted (every retained record > baseline) → TRUNCATED"
+    ;; baseline 100 but the oldest surviving record is 142 — the baseline
+    ;; (and the run's earliest epochs) were pushed off the ring's front.
+    (let [full-ring [(epoch 142 {}) (epoch 150 {}) (epoch 159 {})]]
+      (is (true? (evidence/run-tape-truncated? full-ring 100))
+          "no record ≤ baseline survives → the run overflowed the ring")))
+
+  (testing "a pre-baseline record older than the baseline also counts as covered"
+    ;; The ring may hold records OLDER than the baseline (a same-id rerun
+    ;; inherits pre-run history); any record ≤ baseline proves no run epoch
+    ;; was evicted.
+    (let [full-ring [(epoch 88 {}) (epoch 100 {}) (epoch 140 {})]]
+      (is (false? (evidence/run-tape-truncated? full-ring 100)))))
+
+  (testing "a fresh inline frame (zero / nil baseline) is never flagged"
+    ;; No baseline record exists to evict, and depth-free detection cannot
+    ;; tell overflow from an exact fill without the ring depth — so it does
+    ;; not over-claim.
+    (is (false? (evidence/run-tape-truncated? [(epoch 1 {}) (epoch 2 {})] 0)))
+    (is (false? (evidence/run-tape-truncated? [(epoch 1 {}) (epoch 2 {})] nil))))
+
+  (testing "an empty ring is not truncated"
+    (is (false? (evidence/run-tape-truncated? [] 100)))))

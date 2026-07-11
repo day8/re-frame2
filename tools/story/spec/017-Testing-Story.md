@@ -1511,8 +1511,35 @@ the key is a no-cascade opt-out ONLY and is rejected on `:rf.assert/caused`
 (whose positive-claim semantics are unchanged — `:observed-cause-count` rides
 its record as a diagnostic only). The verdict precedence for a causal record
 is: no `:event` → `:fail`; no `:reactive-counts` evidence → `:cannot-run`;
-(no-cascade only) `c = 0` without the opt-out → `:cannot-run`; else the
-existing `min ≤ n ≤ max` bounds.
+(no-cascade only) `c = 0` without the opt-out → `:cannot-run`; a TRUNCATED run
+whose in-bounds `:pass` has a finite upper bound → `:cannot-run` (below); else
+the existing `min ≤ n ≤ max` bounds.
+
+##### Truncation honesty: a bounded ring cannot prove an upper bound (rf2-4u5zl4)
+
+The effect count `n` is projected off the run-sliced `:epoch-tape`, itself a
+bounded per-frame ring (`epoch-history`, default depth 50, **front-eviction**).
+A run that commits more epochs than the ring holds loses its EARLIEST epochs —
+they are evicted and gone. Because eviction only ever LOWERS `n` (dropped effect
+rows are never counted), truncation can turn a would-be over-render into a false
+GREEN: an upper-bounded assertion (`:rf.assert/no-cascade-rerender`'s `[0,0]`, a
+`:rf.assert/caused {:max N}`) reads in-bounds only because the failing evidence
+was truncated away, not because the over-effect did not happen. This is the
+truncation sibling of the unobserved-cause honesty fix above.
+
+So a **per-run truncation signal** (`re-frame.story.play.evidence/run-tape-truncated?`
+→ the `:epoch-truncated?` matcher input) gates the verdict: when the ring evicted
+the run's earliest epochs, an otherwise in-bounds causal `:pass` **against a finite
+upper bound** resolves **`:cannot-run`** — the retained tape cannot PROVE the bound
+held. A **min-only** expectation (no `:max`, e.g. `:rf.assert/caused`'s default
+`{:min 1}`) is NOT affected: the true count is `≥` the retained one, so an in-bounds
+min-only pass stays honest under truncation. A run whose ring was NOT overflowed
+(the common case — no eviction of the run's own epochs) keeps the exact bounds
+logic. The signal is DEPTH-FREE — it observes that the ring no longer covers the
+run's baseline record (the baseline was evicted), which proves at least `depth`
+newer run epochs displaced it — so it needs no configured ring depth. A fresh
+inline frame (zero baseline, empty starting ring) carries no baseline record to
+evict and is not flagged.
 
 These are PURE expectations, **not** agreement-floor signals — an over-render
 is a `:fail` of a declared `:rf.assert/no-cascade-rerender`, not a tape-floor

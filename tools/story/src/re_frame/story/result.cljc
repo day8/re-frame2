@@ -578,8 +578,9 @@
   `n` is the measured effect count (`causal-count`); `c` is the
   `:observed-cause-count` — how many run-owned epoch records named the
   cause (`observed-cause-count`); `reactive?` is whether the run carried
-  ANY reactive evidence (a `:reactive-counts` slot). The verdict, in
-  precedence:
+  ANY reactive evidence (a `:reactive-counts` slot); `truncated?` is whether
+  the bounded `epoch-history` ring evicted the run's EARLIEST epochs
+  (`evidence/run-tape-truncated?`, rf2-4u5zl4). The verdict, in precedence:
 
   - a degenerate atom that names no `:event` → `:fail` (it asserts nothing
     measurable);
@@ -598,19 +599,32 @@
     explicit opt-out: it lets `c = 0` proceed to the normal bounds, so a
     legitimately-optional interaction's `[0,0]` may pass with a reason that
     states the vacuity was explicitly enabled;
+  - a TRUNCATED run whose bounds would otherwise `:pass` AND whose
+    expectation carries a finite upper bound (`:max`) → `:cannot-run`
+    (rf2-4u5zl4) — the ring evicted the run's earliest epochs, and the
+    dropped effect evidence could carry additional effects that would push
+    the true count ABOVE `:max` (a false GREEN: the assertion read in-bounds
+    only because the failing evidence was truncated away, not because the
+    over-effect did not happen). A min-only expectation (no `:max`, e.g.
+    `:rf.assert/caused`'s `{:min 1}`) is NOT affected — dropped effects can
+    only LOWER the count, so an in-bounds min-only `:pass` stays honest under
+    truncation (the true count is `≥` the retained one, still `≥ :min`);
   - else the expectation passes iff `n` is within the `[:min :max]` bounds.
 
   A cause observed ONCE with zero matching renders (`c = 1`, `n = 0`) stays
   `:pass` — the premise held and the guard was honoured. `:rf.assert/caused`
-  is unchanged: `c` rides its `:actual` as a diagnostic only; its
-  positive-claim `{:min 1}` still fails closed on `n = 0`.
+  is unchanged for its default (min-only) shape: `c` rides its `:actual` as a
+  diagnostic only; its positive-claim `{:min 1}` still fails closed on
+  `n = 0` and is not truncation-gated. An explicit `:rf.assert/caused
+  {:max N}` DOES gain the truncation guard (a finite upper bound).
 
   The record carries the declared spec as `:expected` and the measured
-  count + observed-cause-count + bounds as `:actual` so a failing / refused
-  expectation reads diagnostically. `:count` stays the EFFECT count `n`;
-  `:observed-cause-count` is the additive premise diagnostic `c`."
+  count + observed-cause-count + bounds + `:truncated?` as `:actual` so a
+  failing / refused expectation reads diagnostically. `:count` stays the
+  EFFECT count `n`; `:observed-cause-count` is the additive premise
+  diagnostic `c`."
   [{:keys [atom id event surface min max require-cause?] :as expectation}
-   n c reactive?]
+   n c reactive? truncated?]
   (let [degenerate?    (nil? event)
         ;; The no-cascade premise gate: active unless the author explicitly
         ;; opted out with `{:require-cause? false}`. `:rf.assert/caused`
@@ -625,12 +639,21 @@
                             (false? require-cause?)
                             (zero? c))
         in-bounds?     (causal-in-bounds? expectation n)
+        ;; The truncation honesty guard (rf2-4u5zl4): a would-be `:pass`
+        ;; against a finite upper bound cannot be TRUSTED when the ring
+        ;; evicted the run's earliest epochs — the dropped effect evidence
+        ;; could push the true count above `:max`. Only an in-bounds pass
+        ;; with a finite `:max` is affected (a min-only claim is safe: lost
+        ;; effects only lower the count). Ordered after `unobserved?` so a
+        ;; c=0 no-cascade keeps its more-specific 'not observed' refusal.
+        truncation-unsafe? (and truncated? in-bounds? (some? max))
         status         (cond
-                         degenerate?     :fail
-                         (not reactive?) :cannot-run
-                         unobserved?     :cannot-run
-                         in-bounds?      :pass
-                         :else           :fail)]
+                         degenerate?        :fail
+                         (not reactive?)    :cannot-run
+                         unobserved?        :cannot-run
+                         truncation-unsafe? :cannot-run
+                         in-bounds?         :pass
+                         :else              :fail)]
     {:assertion   id
      :payload     (vec (rest atom))
      :passed?     (= :pass status)
@@ -638,7 +661,8 @@
      :cannot-run? (= :cannot-run status)
      :expected    (:spec expectation)
      :actual      {:event event :surface surface :count n
-                   :observed-cause-count c :min min :max max}
+                   :observed-cause-count c :min min :max max
+                   :truncated? (boolean truncated?)}
      :reason      (cond
                     degenerate?
                     (str (name id) " names no :event — a causal assertion MUST "
@@ -652,6 +676,14 @@
                          "retained run tape; " (name id) " cannot establish "
                          "its required cause premise (pass :require-cause? "
                          "false to allow vacuous evaluation)")
+                    truncation-unsafe?
+                    (str "event " (pr-str event) " caused " n " "
+                         (pr-str surface) " effect(s) within bounds "
+                         "[" min " " (or max "∞") "], but the epoch-history "
+                         "ring evicted earlier run epochs; the dropped "
+                         "evidence could carry additional effects exceeding "
+                         "the upper bound, so " (name id) " cannot be proven "
+                         "from the retained run tape — :cannot-run")
                     vacuity-opt?
                     (str "event " (pr-str event) " was not observed in the "
                          "retained run tape, but :require-cause? false "
@@ -696,17 +728,29 @@
   `:rf.assert/no-cascade-rerender` that count is the required-premise signal:
   an unobserved cause (0) resolves `:cannot-run` rather than passing the
   `[0,0]` default vacuously (unless the author opted out with
-  `{:require-cause? false}`)."
-  [causal-atoms evidence]
-  (let [reactive? (contains? evidence :reactive-counts)
-        tape      (:epoch-tape evidence)]
-    {:records (mapv (fn [a]
-                      (let [exp (assertions/causal-expectation a)]
-                        (causal-record exp
-                                       (causal-count exp evidence)
-                                       (observed-cause-count (:event exp) tape)
-                                       reactive?)))
-                    (or causal-atoms []))}))
+  `{:require-cause? false}`).
+
+  `truncated?` (rf2-4u5zl4) is the per-run epoch-tape truncation signal
+  (`evidence/run-tape-truncated?`): true when the bounded `epoch-history`
+  ring evicted the run's earliest epochs. When true, an otherwise in-bounds
+  causal `:pass` against a finite upper bound resolves `:cannot-run` — the
+  dropped effect evidence could carry effects exceeding the bound, so the
+  retained tape cannot PROVE the bound held (fail closed, never a truncation
+  false-green). The 2-arity defaults `truncated?` to false (a complete tape —
+  the common case, existing bounds logic stands)."
+  ([causal-atoms evidence]
+   (match-causal-expectations causal-atoms evidence false))
+  ([causal-atoms evidence truncated?]
+   (let [reactive? (contains? evidence :reactive-counts)
+         tape      (:epoch-tape evidence)]
+     {:records (mapv (fn [a]
+                       (let [exp (assertions/causal-expectation a)]
+                         (causal-record exp
+                                        (causal-count exp evidence)
+                                        (observed-cause-count (:event exp) tape)
+                                        reactive?
+                                        truncated?)))
+                     (or causal-atoms []))})))
 
 ;; ===========================================================================
 ;; THE UNIFIED RUN RESULT  (spec/017 §Run result)
@@ -758,6 +802,16 @@
                           failure); a run with no reactive rows is caught
                           upstream by the `:reactive-counts` fail-closed
                           evidence-slot check (`:cannot-run`).
+  - `:epoch-truncated?` — the per-run epoch-tape truncation signal
+                          (`evidence/run-tape-truncated?`, rf2-4u5zl4): true
+                          when the bounded `epoch-history` ring evicted the
+                          run's earliest epochs. When true, an otherwise
+                          in-bounds causal `:pass` against a finite upper
+                          bound resolves `:cannot-run` (the dropped effect
+                          evidence could exceed the bound — a truncation
+                          false-green). Defaults to false (a complete tape).
+                          NOT surfaced on the result — an internal input to
+                          the causal matcher only.
   - `:consumed-selectors` — additional schema-violation selectors to excuse
                           from the agreement floor (§Schema rule), unioned
                           with whatever `:schema-expectations` consumed. A
@@ -785,7 +839,8 @@
   green while the tape is red, and the verdict is computed from the
   PROJECTED evidence, not a sibling accumulator."
   [{:keys [epoch-tape assertions script check->atoms consumed-selectors
-           schema-expectations causal-expectations unmet app-db attribution]
+           schema-expectations causal-expectations unmet app-db attribution
+           epoch-truncated?]
     :as   parts}]
   (let [tape           (vec (or epoch-tape []))
         ;; `:attribution` (the runner / replay-recorded
@@ -821,7 +876,11 @@
         ;; the minted records join `:assertions` and the verdict reads them
         ;; through `aggregate-status`. A run with no reactive rows is caught
         ;; upstream by the `:reactive-counts` fail-closed evidence-slot check.
-        causal-match   (match-causal-expectations causal-expectations evidence-slots)
+        ;; `epoch-truncated?` (rf2-4u5zl4) refuses an in-bounds finite-upper-bound
+        ;; `:pass` when the ring evicted the run's earliest epochs (a truncation
+        ;; false-green) — the retained tape cannot prove the upper bound held.
+        causal-match   (match-causal-expectations
+                         causal-expectations evidence-slots (boolean epoch-truncated?))
         records        (-> (assertion-records assertions)
                            (into (:records schema-match))
                            (into (:records causal-match)))

@@ -955,6 +955,106 @@
       (is (= :fail (:status rec)))
       (is (= 0 (get-in rec [:actual :observed-cause-count]))))))
 
+;; ===========================================================================
+;; CAUSAL TRUNCATION HONESTY (rf2-4u5zl4)
+;; ===========================================================================
+;;
+;; The effect count is projected off the bounded epoch-history ring; a run
+;; that overflows the ring loses its EARLIEST epochs (front-eviction). Because
+;; eviction only LOWERS the count, an upper-bounded causal assertion can read
+;; a false GREEN — it passed its bounds only because the failing evidence was
+;; truncated away. The `:epoch-truncated?` matcher input refuses such a
+;; verdict: an in-bounds `:pass` with a finite `:max` resolves :cannot-run.
+;; A min-only expectation is UNAFFECTED (lost effects only lower the count, so
+;; an in-bounds min-only pass stays honest). These tests drive the PURE
+;; result assembly directly with `:epoch-truncated?` — the runtime computes
+;; the flag from the real ring (`evidence/run-tape-truncated?`, unit-tested in
+;; evidence_test).
+
+(deftest no-cascade-truncation-in-bounds-is-cannot-run
+  (testing "TEETH: an over-render whose epoch was EVICTED reads in-bounds [0,0]
+            in the retained tape, but the truncation flag refuses the false
+            GREEN → :cannot-run (NOT :pass)"
+    ;; :counter/inc IS observed (c=1) and rendered :counter once, but produced
+    ;; ZERO retained :results renders (n=0 ∈ [0,0]). WITHOUT truncation this is
+    ;; a genuine :pass. WITH truncation, an evicted epoch could have carried a
+    ;; :results over-render for :counter/inc, so the retained tape cannot prove
+    ;; the [0,0] guard held.
+    (let [tape [(reactive-epoch :counter/inc :total 1 :counter 1)]
+          decl [[:rf.assert/no-cascade-rerender {:event :counter/inc :view :results}]]
+          ;; fully-retained window (control): the existing bounds :pass stands.
+          r-complete  (result/run-result
+                        {:epoch-tape tape :causal-expectations decl})
+          ;; truncated window (teeth): the same in-bounds count → :cannot-run.
+          r-truncated (result/run-result
+                        {:variant/id :story.counter/badge
+                         :epoch-tape tape :causal-expectations decl
+                         :epoch-truncated? true})
+          rec-complete  (no-cascade-rec r-complete)
+          rec-truncated (no-cascade-rec r-truncated)]
+      ;; --- control: no truncation → the bounds logic is UNCHANGED ---
+      (is (= :pass (:status rec-complete))
+          "a fully-retained in-bounds window still passes — existing logic stands")
+      (is (false? (get-in rec-complete [:actual :truncated?])))
+      ;; --- teeth: truncation → the would-be pass becomes :cannot-run ---
+      (is (= :cannot-run (:status rec-truncated))
+          "an evicted over-render epoch → :cannot-run, never a truncation false-green")
+      (is (true?  (:cannot-run? rec-truncated)))
+      (is (false? (:passed? rec-truncated)))
+      (is (true?  (get-in rec-truncated [:actual :truncated?])))
+      (is (= 1 (get-in rec-truncated [:actual :observed-cause-count]))
+          "the cause WAS observed — this is a truncation refusal, not an unobserved-cause one")
+      (is (re-find #"evicted earlier run epochs" (:reason rec-truncated)))
+      (is (nil? (re-find #"not observed" (:reason rec-truncated)))
+          "distinct from the unobserved-cause reason (the cause here was observed)")
+      ;; --- run aggregation + frozen contract + host bridge ---
+      (is (= :cannot-run (:status r-truncated)) "the run aggregates to :cannot-run")
+      (is (result/valid-run-result? r-truncated))
+      (is (some #(= :fail (:type %)) (result/result->reports r-truncated))
+          "a :cannot-run assertion reports a host :fail, never a silent pass"))))
+
+(deftest caused-explicit-max-truncation-is-cannot-run
+  (testing ":rf.assert/caused {:max N} gains the truncation guard (a finite
+            upper bound): an in-bounds pass under truncation → :cannot-run"
+    (let [tape [(reactive-epoch :counter/inc :total 0 :badge 2)]   ; 2 :badge renders
+          decl [[:rf.assert/caused {:event :counter/inc :view :badge :max 3}]]
+          rec  (fn [r] (first (filter #(= :rf.assert/caused (:assertion %)) (:assertions r))))
+          r-complete  (rec (result/run-result {:epoch-tape tape :causal-expectations decl}))
+          r-truncated (rec (result/run-result
+                             {:epoch-tape tape :causal-expectations decl
+                              :epoch-truncated? true}))]
+      (is (= :pass (:status r-complete)) "n=2 ∈ [1,3] passes on a complete tape")
+      (is (= 2 (get-in r-complete [:actual :count])))
+      (is (= :cannot-run (:status r-truncated))
+          "under truncation the finite :max cannot be proven → :cannot-run")
+      (is (re-find #"exceeding the upper bound" (:reason r-truncated))))))
+
+(deftest caused-min-only-truncation-still-passes
+  (testing ":rf.assert/caused's default min-only {:min 1} is NOT truncation-gated:
+            lost effects only LOWER the count, so an in-bounds pass stays honest"
+    (let [tape [(reactive-epoch :counter/inc :total 3 :counter 0)]  ; 3 :total recomputes
+          decl [[:rf.assert/caused {:event :counter/inc :sub :total}]]
+          rec  (fn [r] (first (filter #(= :rf.assert/caused (:assertion %)) (:assertions r))))
+          r-truncated (rec (result/run-result
+                             {:epoch-tape tape :causal-expectations decl
+                              :epoch-truncated? true}))]
+      (is (= :pass (:status r-truncated))
+          "min-only (no :max) → truncation cannot create a false green; stays :pass")
+      (is (= 3 (get-in r-truncated [:actual :count])))
+      (is (true? (get-in r-truncated [:actual :truncated?])) "the flag still rides the diagnostic"))))
+
+(deftest truncation-does-not-rescue-a-genuine-over-render-fail
+  (testing "a real over-render (n > max) under truncation stays :fail — the
+            guard only refuses a would-be PASS, it never masks a failure"
+    (let [tape [(reactive-epoch :counter/inc :total 0 :results 3)]  ; 3 :results renders
+          decl [[:rf.assert/no-cascade-rerender {:event :counter/inc :view :results}]]
+          rec  (no-cascade-rec
+                 (result/run-result {:epoch-tape tape :causal-expectations decl
+                                     :epoch-truncated? true}))]
+      (is (= :fail (:status rec))
+          "n=3 > [0,0] is a genuine over-render — truncation does not convert it to :cannot-run")
+      (is (= 3 (get-in rec [:actual :count]))))))
+
 ;; ---- projections AGREE with the tape (§B5) -------------------------------
 
 (deftest result-projections-agree-with-the-tape
