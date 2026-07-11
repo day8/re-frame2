@@ -45,7 +45,7 @@ Scope in this slice is HTTP-only:
   {:doc "Article detail by slug."
 
    :params-schema [:map [:slug :string]]      ;; REQUIRED — validates + canonicalizes params
-   :data-schema   :app/article                ;; validates successful data when decode supports it
+   :data-schema   :app/article                ;; static shape decl for tooling — runtime validation rides :decode
 
    :scope          :rf.scope/global            ;; REQUIRED — an explicit, auditable claim
    :transport      :rf.http/managed            ;; the only initial-scope transport
@@ -69,12 +69,12 @@ Scope in this slice is HTTP-only:
 | `:scope` | The scope **policy**: `:rf.scope/global`, a resolver, or `:rf.scope/from-caller`. Fail-closed: omitting the policy raises a loud `:rf.error/resource-missing-scope-policy`. There is no implicit default; a user-scoped read must say so. |
 | request fn (3rd positional arg) | For `:transport :rf.http/managed`, returns a [managed-HTTP args map](re-frame.http.md). It MUST NOT supply `:request-id` / `:on-success` / `:on-failure` — the runtime supplies those from the scoped key + generation. Supplying one raises `:rf.error/resource-reserved-request-key`. |
 
-These three (`:params-schema`, `:scope`, request fn) are the registration gate. A `reg-resource` missing any of them throws. `:data-schema` is not part of the gate: it validates successful data when present, but the gate does not enforce it.
+These three (`:params-schema`, `:scope`, request fn) are the registration gate. A `reg-resource` missing any of them throws. `:data-schema` is not part of the gate: it is an optional static declaration of the data's shape (surfaced to tooling), not a runtime validator, so the gate does not enforce it. Runtime shape-validation of a response rides the request's `:decode`.
 
 **Optional keys**:
 
 - `:doc`
-- `:data-schema` — validates successful data when present and the transport decode supports it. Not enforced by the gate.
+- `:data-schema` — an optional static declaration of the decoded-data shape, surfaced to tooling (the resource's `:schema` fact) and `resource-meta`. It does not validate at runtime (runtime shape-validation rides the request's `:decode`) and is not enforced by the gate.
 - `:transport` — initial scope: `:rf.http/managed`.
 - `:stale-after-ms`, `:gc-after-ms`
 - `:poll-interval-ms` — the active-owner poll interval. See [Polling](#polling).
