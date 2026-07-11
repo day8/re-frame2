@@ -347,13 +347,19 @@
   10000)
 
 (defn resolve-timeout-ms
-  "Resolve the caller-supplied `:timeout-ms` arg into the JVM blocking
-  deref ceiling for a lifecycle tool. Reads the slot via the cross-MCP
-  `args/parse-positive-int` parser (string-form ints accepted), defaults
-  to `default-timeout-ms` when absent/unparseable, and clamps DOWN to
-  `max-timeout-ms` so one slow request can't park the single-threaded
-  stdio loop. Shared by `tool-run-variant` and `tool-preview-variant` so
-  the two lifecycle tools can never drift in their blocking policy."
+  "Resolve the caller-supplied `:timeout-ms` arg into the END-TO-END
+  lifecycle deadline for a lifecycle tool. Reads the slot via the
+  cross-MCP `args/parse-positive-int` parser (string-form ints accepted),
+  defaults to `default-timeout-ms` when absent/unparseable, and clamps
+  DOWN to `max-timeout-ms` so one slow request can't park the
+  single-threaded stdio loop. Shared by `tool-run-variant` and
+  `tool-preview-variant` so the two lifecycle tools can never drift in
+  their blocking policy.
+
+  The deadline this resolves is enforced by `tools.lifecycle/
+  run-variant-blocking` over the SYNCHRONOUS Story work (a JVM
+  `[:wait]` is an inline `Thread/sleep`), not just the post-return
+  dereference — see that fn's docstring (rf2-j538f7.31)."
   [arguments]
   (min max-timeout-ms
        (args/parse-positive-int (:timeout-ms arguments) default-timeout-ms)))

@@ -173,15 +173,27 @@ Given `:variant-id` (plus optional `:substrate`, `:active-modes`,
 and returns the post-pipeline state plus a sharable URL.
 
 `preview-variant` blocks on the SAME `story/run-variant` lifecycle as
-`run-variant`, so it accepts the SAME tunable `:timeout-ms` blocking
-ceiling (rf2-ovmc5e): default 10 s, hard ceiling 30 s (matches
+`run-variant`, so it accepts the SAME tunable `:timeout-ms` end-to-end
+deadline (rf2-ovmc5e): default 10 s, hard ceiling 30 s (matches
 `:rf.http/timeout-ms` per rf2-it1cd), caller values above the ceiling
 clamp DOWN rather than reject. The MCP request loop is single-threaded
-so an unbounded blocking deref would park unrelated calls; both
+so an unbounded lifecycle call would park unrelated calls; both
 lifecycle tools resolve the slot through the shared
 `tools.args/resolve-timeout-ms` helper (advertised via
 `schemas/with-timeout-ms`) so their blocking policy cannot drift by
 copy-paste.
+
+The deadline bounds the SYNCHRONOUS Story work, not just the
+post-return dereference (rf2-j538f7.31). On the JVM `story/run-variant`
+executes synchronously (a `[:wait ms]` step is an inline `Thread/sleep`)
+and returns an already-settled future, so the lifecycle owner runs the
+whole invoke-and-settle on a bounded worker future and waits at most
+`:timeout-ms`. When the deadline elapses the worker is cancelled — its
+`Thread/sleep` interrupts, the scheduled post-wait continuation never
+fires, and the stdio loop is freed at the ceiling — and the call returns
+the canonical `:status :error` run-result. An over-budget run is
+therefore bounded and reports an honest deadline-exceeded outcome, never
+a false `:pass`.
 
 Wire-egress posture: `:app-db` is routed through
 `re-frame.core/elide-wire-value` against the variant frame's

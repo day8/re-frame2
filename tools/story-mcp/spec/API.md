@@ -47,13 +47,28 @@ agent-onboarding text.
  :include-sensitive boolean (optional, gated — see below)}
 ```
 
-`:timeout-ms` is the JVM blocking ceiling for the lifecycle run.
+`:timeout-ms` is the END-TO-END deadline for the lifecycle run.
 `preview-variant` blocks on the SAME `story/run-variant` lifecycle as
 `run-variant`, so it exposes the SAME tunable knob (rf2-ovmc5e): default
 10 s, hard ceiling 30 s (matches `:rf.http/timeout-ms` per rf2-it1cd),
 caller values above the ceiling clamp DOWN rather than reject. Both
 tools resolve it through the shared `tools.args/resolve-timeout-ms`
 helper so their blocking policy cannot drift.
+
+The deadline covers the SYNCHRONOUS Story work, not just the
+post-return dereference (rf2-j538f7.31). On the JVM `story/run-variant`
+runs synchronously — a `[:wait ms]` play-step is an inline
+`Thread/sleep` — so it returns an already-settled future; a deadline
+that only fenced the dereference of that settled future would be a lie
+(the advertised ceiling would never bound the real work) and a runaway
+variant would monopolise the single-threaded stdio loop while still
+reporting `:pass`. The lifecycle owner therefore runs the whole
+invoke-and-settle on a bounded worker future and waits at most
+`:timeout-ms`; when the deadline elapses the worker is cancelled
+(interrupting its `Thread/sleep` so the scheduled post-wait continuation
+never fires and the stdio loop is freed at the ceiling) and the call
+returns the canonical `:status :error` run-result — an honest
+bounded-deadline-exceeded outcome, NEVER a false `:pass`.
 
 `:include-sensitive` is honoured ONLY when the server was started
 with `--allow-sensitive-reads` (rf2-g9fje); when that boot gate is
