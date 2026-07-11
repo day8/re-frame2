@@ -102,7 +102,7 @@ Vectors and lists preserve element order and stay distinct; sets are unordered. 
 
 The canonicalizer **rejects by default** anything outside the domain — functions; atoms / refs / volatiles / promises / futures; DOM nodes, React elements, AbortControllers, request handles, timers; arbitrary host objects or class instances; floating-point values, ratios, decimals, `NaN`, infinities; and mutable by-reference objects. An out-of-domain value buried *anywhere* in a structure fails the **whole** identity closed (error id `:rf.error/non-edn-identity`) — never a silent host-comparison fallback.
 
-The fix is to **encode host values into portable EDN at the boundary** before they reach an identity. Coerce a host `Date` to an EDN `#inst` instant in your resource params / route coercion; after that it is an instant *fact*, not a host object. A subsystem may choose a *smaller* input domain (resources reject date-like host values in params, demanding the coerced instant) — that is a stated narrowing, not a fork.
+The fix is to **encode host values into portable EDN at the boundary** before they reach an identity. Instants are the one deliberate carve-out: host instant types (`js/Date`, `java.util.Date`, `java.time.Instant` — an EDN `#inst` reads as one) are in-domain instant *inputs*, and `canonical` normalizes them to the reserved tagged tuple `[:rf.identity/instant "<RFC-3339 UTC millisecond text>"]`, so an instant param stays **distinct** from a look-alike string param on both identity surfaces (Conventions §The tagged-instant canonical form). A subsystem may choose a *smaller* input domain — that is a stated narrowing, not a fork.
 
 ### Identity vs digest
 
