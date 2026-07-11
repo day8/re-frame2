@@ -44,6 +44,37 @@
 (declare finalise-failure!)
 (declare schedule-backoff-handle!)
 
+;; ---- test-only interleaving seam (rf2-6nczv9) ------------------------------
+;;
+;; The abort-vs-retry race lives in the TRANSITIONAL window between
+;; `maybe-retry!`'s abort-snapshot and the backoff handle taking over the
+;; request-id slot. On the JVM the completion runs on a ForkJoinPool thread and
+;; the abort dispatch on the event thread, so the window is only reachable by
+;; wall-clock timing — non-deterministic. This seam lets a JVM concurrency test
+;; DETERMINISTICALLY inject an abort at a named point in that window (the audit
+;; noted deterministic repro needs interleaving injection, not timing). It is a
+;; single atom-holder deref at each call site; nil in production (never set),
+;; so the cost is one volatile read on the retry path and nothing else.
+
+(defonce ^:private test-interleave-hook
+  ;; A fn `(fn [point ctx])` invoked at named lifecycle points, or nil.
+  (atom nil))
+
+(defn set-test-interleave-hook!
+  "Test-only (rf2-6nczv9): install a `(fn [point ctx])` interleaving hook, or
+  clear it with nil. Not part of the user-facing API."
+  [f]
+  (reset! test-interleave-hook f)
+  nil)
+
+(defn- interleave!
+  "Invoke the test interleaving hook for `point` if one is installed. A no-op
+  (single atom deref) in production."
+  [point ctx]
+  (when-let [f @test-interleave-hook]
+    (f point ctx))
+  nil)
+
 (def ^:private reply-suppressing-abort-reasons
   "Abort reasons whose `:rf.http/aborted` failure is NOT dispatched to the app
   `:on-failure` reply target — the cancellation replaces the original outcome,
@@ -808,7 +839,7 @@
   "rf2-wj8vv — arm the retry backoff timer AND keep the request
   registered (and therefore cancellable) for the whole backoff window.
 
-  Two cells coordinate the timer-fires-vs-cancel race:
+  Cells coordinating the transition:
    - `fired?` is a once-only CAS owned jointly by the timer callback and
      the abort-fn. Whoever wins it owns the transition out of the
      backoff state; the loser is a no-op. This is the source of truth —
@@ -820,6 +851,19 @@
      which is constructed before the handle exists. The abort-fn reads
      it lazily and calls `interop/clear-timeout!` (a best-effort fast
      cancel layered over the authoritative `fired?` CAS).
+   - `finalised?` / `aborted?` are the just-completed live-fetch attempt's
+     REQUEST-LEVEL cells, REUSED here (rf2-6nczv9) rather than minted fresh.
+     `finalised?` is the once-only reply guard; `aborted?` is the abort-
+     precedence cell. Reusing the prior handle's cells makes the prior
+     live-fetch handle and this backoff handle act as ONE reply-guarded,
+     one-abort unit across the transition, so (a) an abort that resolves
+     the prior handle mid-transition and delivers the terminal reply is
+     visible here (the post-arm re-check reads `aborted?`), and (b) two
+     abort-fns firing for the same request (e.g. actor-destroy walking both
+     handles while both are transiently in the actor index) dispatch AT
+     MOST ONE reply (both CAS the shared `finalised?`). See Spec 014
+     §486-492 (abort always wins / a cancelled request MUST NOT issue a
+     fresh attempt / an abort during the backoff MUST cancel the retry).
 
   The backoff handle carries the same `:request-id` / `:actor-id` /
   `:url` / `:sensitive?` shape every cancellation path expects, so
@@ -833,12 +877,33 @@
   correct carried work-id (issuance/attempt preserved) rather than a
   default first-attempt id.
 
+  `prev-handle` is the just-completed live-fetch attempt's handle. This
+  registers the backoff handle FIRST (taking over the request-id slot),
+  THEN clears `prev-handle` — CONTINUOUS REGISTRATION (rf2-6nczv9): the
+  request is never absent from the registry for an instant, so an abort
+  landing anywhere in the transition always resolves SOME live handle
+  (the narrower-sibling window where an abort resolved no handle is
+  closed). The prior early clear-then-arm left that gap.
+
   `interop/set-timeout!` / `interop/clear-timeout!` are defined on both
   platforms (CLJS: `js/setTimeout` / `js/clearTimeout`; JVM:
   `ScheduledExecutorService` + `ScheduledFuture.cancel`), so the backoff
   scheduling and its cancellation are uniform across hosts."
-  [ctx delay-ms]
+  [ctx delay-ms prev-handle]
+  ;; rf2-6nczv9 — test-only interleaving seam: an abort injected HERE resolves
+  ;; the prior live-fetch handle (still registered — the backoff has not yet
+  ;; taken over the slot), reproducing the transitional / narrower-sibling
+  ;; window deterministically. No-op in production.
+  (interleave! :backoff/before-register ctx)
   (let [{:keys [request-id actor-id]} ctx
+        ;; rf2-6nczv9 — REUSE the just-completed attempt's request-level cells
+        ;; (see docstring). The prior live-fetch handle always carries them
+        ;; (stamped in `run-attempt!`) on the production retry path. Synthetic /
+        ;; test-path callers may pass a nil `prev-handle` (no prior phase); fall
+        ;; back to fresh cells so the abort-fn's `reset!` / `compare-and-set!`
+        ;; always operate on a real atom.
+        finalised? (or (:finalised? prev-handle) (atom false))
+        aborted?   (or (:aborted? prev-handle) (atom nil))
         fired?     (atom false)
         timer-cell (atom nil)
         ;; rf2-meq28 — forward-reference cell for the stamped handle, the
@@ -849,6 +914,11 @@
         ;; fire time (always after registration completes).
         handle-cell (atom nil)
         abort-fn   (fn [reason]
+                     ;; rf2-6nczv9 — abort always wins: flip the shared
+                     ;; precedence cell FIRST (before racing `fired?`), so a
+                     ;; concurrent timer-fire (its `run-attempt!` guard) and the
+                     ;; post-arm re-check both observe the cancellation.
+                     (reset! aborted? {:reason reason :actor-id actor-id})
                      ;; Win the once-only transition; a concurrent timer
                      ;; fire that loses here bails without retrying.
                      (when (compare-and-set! fired? false true)
@@ -862,24 +932,18 @@
                        ;; This mirrors the rf2-lz7se fix at the live-fetch
                        ;; abort-fn in `run-attempt!` and the by-identity
                        ;; clear the timer-fires path below already uses.
-                       ;; The earlier 1-arg form resolved by request-id and
-                       ;; no-op'd on a nil id — correct only under the
-                       ;; implicit, load-bearing invariant that an anonymous
-                       ;; (request-id-less, issued-from-actor) request can be
-                       ;; aborted SOLELY via actor-destroy (which eager-
-                       ;; dissocs the actor slot first). An anonymous request
-                       ;; can carry a `:retry` config and sit in this backoff
-                       ;; window with `actor-id` set / `request-id` nil; any
-                       ;; future non-pre-clearing trigger (frame-level
-                       ;; abort-all, timeout-driven abort of a sleeping retry)
-                       ;; would strand the handle. Passing the handle drops
-                       ;; that fragility: the 2-arg `remove-from-actor-index!`
-                       ;; is an identity-based vector remove that no-ops
-                       ;; against an already-cleared (or absent) slot, so it
-                       ;; is a safe idempotent no-op on the actor-destroy path
-                       ;; while closing the gap for any future trigger.
                        (registry/clear-in-flight! request-id @handle-cell)
-                       (dispatch-aborted! ctx reason)))
+                       ;; rf2-6nczv9 — dispatch guarded by the SHARED once-only
+                       ;; reply guard so a prior-phase abort-fn (the just-
+                       ;; completed live-fetch handle, resolvable during the
+                       ;; transition) that already delivered the terminal reply
+                       ;; is not doubled. In steady state (an abort during the
+                       ;; settled backoff window) `finalised?` is still false —
+                       ;; the retry path never consumed it — so this CAS wins
+                       ;; and the canonical aborted reply is dispatched exactly
+                       ;; as before.
+                       (when (compare-and-set! finalised? false true)
+                         (dispatch-aborted! ctx reason))))
         handle     (registry/record-in-flight!
                      request-id actor-id
                      {:abort-fn   abort-fn
@@ -908,12 +972,29 @@
                       :origin-event (:origin-event ctx)
                       :issuance     (:issuance ctx)
                       :attempt      (:attempt ctx)})
+        ;; rf2-6nczv9 — the shared `finalised?` / `aborted?` cells are NOT
+        ;; stamped onto the backoff handle: the abort-fn closes over them
+        ;; lexically, and the re-check / timer-guard read the same lexical
+        ;; bindings, so a handle copy would be dead weight. The backoff handle
+        ;; deliberately carries NO `:finalised?` — that absence is the
+        ;; documented invariant distinguishing a sleeping-backoff handle from a
+        ;; live-fetch handle (the fetch handle carries `:finalised?`).
         ;; rf2-meq28 — publish the stamped handle so the abort-fn closure
         ;; (defined above, before `handle` was bound) can pass it to the
         ;; 2-arg `clear-in-flight!` via `@handle-cell`. The reset! happens
         ;; synchronously here, before the timer is armed, so the cell is
         ;; always populated by the time any abort can fire.
         _          (reset! handle-cell handle)
+        ;; rf2-6nczv9 — CONTINUOUS REGISTRATION. The backoff handle now owns the
+        ;; request-id slot (`record-in-flight!` overwrote it). Clear the PRIOR
+        ;; live-fetch handle only NOW — AFTER the backoff is registered — so the
+        ;; request is never absent from the registry for an instant. The 2-arg
+        ;; clear is identity-conditional (rf2-ous9e5): the request-id slot holds
+        ;; the backoff handle (not `prev-handle`) so it no-ops on the request-id
+        ;; index and only drops the prior handle from the actor index (rf2-wvkn
+        ;; — no stale accumulation across retries).
+        _          (when prev-handle
+                     (registry/clear-in-flight! request-id prev-handle))
         ;; rf2-3fc89f.9 — ownership transfer: rebind the external
         ;; `:abort-signal` from the just-completed live-fetch handle onto THIS
         ;; sleeping-backoff handle's canonical abort-fn, so a signal that fires
@@ -922,11 +1003,15 @@
         ;; the next attempt starts. `bind-external-abort!` detaches the prior
         ;; live-fetch listener first. An already-aborted signal fires the
         ;; backoff abort-fn synchronously (winning `fired?`); the trailing
-        ;; `(when @fired? clear-timeout!)` below then disarms the armed timer.
+        ;; re-check below then disarms the armed timer.
         #?@(:cljs
             [_     (transport-cljs/bind-external-abort!
                      (:external-abort ctx)
                      (fn [] ((:abort-fn handle) :user)))])
+        ;; rf2-6nczv9 — test-only interleaving seam: an abort injected HERE
+        ;; resolves the BACKOFF handle (now registered), the settled-window
+        ;; path. No-op in production.
+        _          (interleave! :backoff/after-register ctx)
         ;; Schedule AFTER registering so the request is cancellable the
         ;; instant the timer is armed. The callback wins/loses the same
         ;; `fired?` CAS: on a win it clears its own handle and proceeds;
@@ -935,18 +1020,42 @@
                      (fn []
                        (when (compare-and-set! fired? false true)
                          (registry/clear-in-flight! request-id handle)
-                         (run-attempt! (-> ctx
-                                           (dissoc :handle)
-                                           (update :attempt inc)))))
+                         ;; rf2-6nczv9 — never re-issue a fresh attempt for a
+                         ;; request the caller already cancelled. If the shared
+                         ;; `:aborted?` cell was flipped during the backoff
+                         ;; window, the terminal aborted reply already went out;
+                         ;; issuing attempt N+1 would re-send a cancelled
+                         ;; (possibly non-idempotent) request (Spec 014
+                         ;; §486-492). This is load-bearing for the interleaving
+                         ;; where the prior handle's abort-fn EXECUTES after the
+                         ;; post-arm re-check ran — the re-check missed the flip
+                         ;; but the fresh attempt is still suppressed here.
+                         (when-not (some? @aborted?)
+                           (run-attempt! (-> ctx
+                                             (dissoc :handle)
+                                             (update :attempt inc))))))
                      delay-ms)]
     (reset! timer-cell timer)
-    ;; rf2-wj8vv — a cancel that arrived between `record-in-flight!` and
-    ;; this `reset!` already won `fired?` (so the timer callback will
-    ;; no-op) but may have read `timer-cell` as nil and skipped
-    ;; `clear-timeout!`. Re-check and cancel the now-known timer so the
-    ;; scheduler doesn't carry a doomed task for the full backoff.
-    (when @fired?
-      (interop/clear-timeout! timer))
+    (cond
+      ;; rf2-wj8vv — the backoff handle's own abort-fn already fired (won
+      ;; `fired?`): it cleared the registry + guarded-dispatched. It may have
+      ;; read `timer-cell` as nil and skipped `clear-timeout!`; re-check and
+      ;; disarm the now-known timer so the scheduler carries no doomed task.
+      @fired?
+      (interop/clear-timeout! timer)
+
+      ;; rf2-6nczv9 — the SHARED abort cell is flipped but this backoff's own
+      ;; abort-fn never ran: an abort resolved the PRIOR live-fetch handle
+      ;; during the transition into this backoff and already delivered the
+      ;; single terminal reply through the shared once-only guard. Win the
+      ;; transition, disarm the timer, and DROP the freshly-registered backoff
+      ;; handle so NO fresh network attempt fires for the cancelled request. Do
+      ;; NOT re-dispatch — the prior handle's abort-fn already replied.
+      (and (some? @aborted?)
+           (compare-and-set! fired? false true))
+      (do
+        (interop/clear-timeout! timer)
+        (registry/clear-in-flight! request-id handle)))
     nil))
 
 (defn- maybe-retry!
@@ -1012,13 +1121,25 @@
                          (or (contains? failure :body)
                              (contains? failure :body-text))
                          (assoc :rf.http/off-box-body :omit))))
-        ;; Clear the prior attempt's live-fetch handle from both indexes;
-        ;; `schedule-backoff-handle!` immediately re-registers a fresh
-        ;; backoff handle so the request is never invisible to a
-        ;; cancellation path. Without the clear the actor-in-flight index
-        ;; would accumulate stale handles across retries (rf2-wvkn).
-        (registry/clear-in-flight! request-id (:handle ctx))
-        (schedule-backoff-handle! ctx delay-ms))
+        ;; rf2-6nczv9 — test-only interleaving seam: an abort injected HERE
+        ;; (after `aborted?` was already sampled `false`, so `can-retry?` is
+        ;; committed) resolves the PRIOR live-fetch handle, still registered
+        ;; because the clear is now deferred into `schedule-backoff-handle!`.
+        ;; No-op in production.
+        (interleave! :maybe-retry/before-schedule ctx)
+        ;; rf2-6nczv9 — hand the prior attempt's live-fetch handle to
+        ;; `schedule-backoff-handle!`, which registers the backoff handle FIRST
+        ;; and only THEN clears the prior handle (continuous registration). The
+        ;; earlier shape cleared the prior handle HERE, before arming, which (a)
+        ;; opened a window where an abort resolved no handle and was lost, and
+        ;; (b) sampled the abort cell only once (`aborted?` above) so an abort
+        ;; landing during the arm re-issued a cancelled request. Deferring the
+        ;; clear closes both: the prior handle stays resolvable through the
+        ;; transition, and `schedule-backoff-handle!` re-checks the shared abort
+        ;; cell after arming (Spec 014 §486-492). The actor-in-flight
+        ;; accumulation the clear prevents (rf2-wvkn) still happens — just after
+        ;; registration, by identity.
+        (schedule-backoff-handle! ctx delay-ms (:handle ctx)))
       (do
         ;; rf2-upexd.3 — terminal failure: emit the final `:rf.http/retry-
         ;; attempt` trace (with `:next-backoff-ms nil`) ONLY when retries

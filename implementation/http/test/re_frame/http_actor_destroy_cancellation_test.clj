@@ -518,7 +518,11 @@
           ;; test — the abort-fn wins the once-only `fired?` CAS and the
           ;; timer callback (which would otherwise also reach the registry)
           ;; bails on its lost CAS.
-          _        (schedule-backoff-handle! ctx 600000)
+          ;; rf2-6nczv9 — the 3rd arg is the prior live-fetch handle whose
+          ;; request-level cells the backoff reuses; this synthetic ctx has no
+          ;; prior phase, so pass nil (schedule-backoff-handle! mints fresh
+          ;; cells in that case).
+          _        (schedule-backoff-handle! ctx 600000 nil)
           slot     (get (http-managed/actor-in-flight-snapshot) actor-id)
           handle   (first slot)]
       (is (= 1 (count slot))
