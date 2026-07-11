@@ -1657,6 +1657,13 @@
                 ;; committed reaction stored here once `subscribe-fn` has run
                 ;; (post-commit), falling back to the render-phase handle only
                 ;; for the very first pre-commit snapshot.
+                ;;
+                ;; rf2-naz09e: the ref stores the committed reaction KEY-TAGGED
+                ;; as `#js [stable-key committed]` (see `subscribe-fn` and
+                ;; `get-snap` below) so a query-v/frame change on a mounted
+                ;; component can't serve the PREVIOUS target's value for the
+                ;; change-commit — `get-snap` reads the tag only while it
+                ;; matches the current render's key.
                 committed-ref (React/useRef nil)
                 stable-key
                 (let [prev (.-current key-ref)
@@ -1745,15 +1752,42 @@
                 ;; value `=` the render-phase one (rf2-cmfln), so the source
                 ;; swap is tear-free.
                 ;;
-                ;; Deps include `reaction` so the pre-commit fallback never
-                ;; closes over a stale (perf-discarded) render-phase handle;
-                ;; once `committed-ref` is populated post-commit, `get-snap`'s
-                ;; identity is irrelevant to correctness — React drives tear
-                ;; detection off the returned VALUE, and the committed source
-                ;; is read through the ref on every call.
+                ;; rf2-naz09e — the committed reaction is stored KEY-TAGGED as
+                ;; `#js [stable-key committed]`, and `get-snap` reads it ONLY
+                ;; when the stored key is `identical?` the CURRENT render's
+                ;; `stable-key`; otherwise it falls back to the render-phase
+                ;; handle. This closes the KEY-CHANGE window. When query-v /
+                ;; frame change on a mounted component, `committed-ref`
+                ;; transiently still holds the PREVIOUS target's reaction — the
+                ;; old `subscribe-fn`'s ref-clearing cleanup is a passive effect
+                ;; that runs AFTER this render commits, and the NEW
+                ;; `subscribe-fn` that repopulates the ref also runs
+                ;; post-commit. Without the key guard `get-snap` would serve the
+                ;; OLD target's value for the change-commit — a torn commit (old
+                ;; data under the new query args) that any same-commit
+                ;; layout-effect / ref read deterministically observes and which
+                ;; under a transition lane can paint before the passive-phase
+                ;; store-consistency check forces a corrective re-render. The
+                ;; render-phase `reaction` memo is keyed on `#js [stable-key]`,
+                ;; so on a key change it already holds the NEW target: the
+                ;; fallback serves the NEW value for that very commit, matching
+                ;; the Reagent substrate's in-render recompute (no tear). The
+                ;; earlier claim — "once committed-ref is populated post-commit,
+                ;; get-snap's identity is irrelevant to correctness" — was
+                ;; UNTRUE across a key change: committed-ref points at the WRONG
+                ;; (old) reaction until the passive cleanup runs.
+                ;;
+                ;; Deps include `reaction` so the fallback path always closes
+                ;; over the CURRENT render's handle — both the pre-commit first
+                ;; snapshot AND the key-change render — never a stale
+                ;; perf-discarded one.
                 get-snap
                 (use-callback (fn []
-                                (let [r (or (.-current committed-ref) reaction)]
+                                (let [stored (.-current committed-ref)
+                                      r (if (and stored
+                                                 (identical? (aget stored 0) stable-key))
+                                          (aget stored 1)
+                                          reaction)]
                                   (when r @r)))
                               #js [stable-key reaction])
                 ;; The store-subscribe fn — React's COMMIT-OWNED acquire/release
@@ -1787,11 +1821,17 @@
                     ;; reaction is the live cached one and `=` (often identical)
                     ;; to the render-phase handle `reaction`.
                     (let [committed (subs/subscribe stable-query-v {:frame stable-frame-kw})]
-                      ;; rf2-sqhjtu: publish the durable committed reaction so
-                      ;; `get-snap` derefs THIS live handle (source watches +
+                      ;; rf2-sqhjtu / rf2-naz09e: publish the durable committed
+                      ;; reaction KEY-TAGGED with this invocation's `stable-key`
+                      ;; so `get-snap` derefs THIS live handle (source watches +
                       ;; current sub body) rather than the disposed render-phase
-                      ;; one. Set post-commit (here), cleared on teardown below.
-                      (set! (.-current committed-ref) committed)
+                      ;; one — but ONLY while the current render's key matches
+                      ;; the tag. Set post-commit (here), cleared on teardown
+                      ;; below. The key tag is what lets `get-snap` reject a
+                      ;; stale committed reaction across a query-v / frame
+                      ;; change (the change-commit reads the render-phase handle
+                      ;; for the NEW target instead).
+                      (set! (.-current committed-ref) #js [stable-key committed])
                       ;; UNIQUE watch key per `subscribe-fn` INVOCATION,
                       ;; closed over by the returned cleanup. The key MUST
                       ;; NOT derive from `(hash reaction)`: subscriptions are
@@ -1813,15 +1853,18 @@
                           (add-watch committed k (fn [_ _ _ _] (on-change))))
                         (fn unsubscribe []
                           (when committed (remove-watch committed k))
-                          ;; rf2-sqhjtu: clear the published committed reaction,
-                          ;; but ONLY if it still points at THIS invocation's
-                          ;; handle. A later `subscribe-fn` re-acquire (e.g. a
-                          ;; subscribe-identity change) may have already
-                          ;; overwritten `committed-ref` with the NEW committed
-                          ;; reaction before this older cleanup runs; clobbering
-                          ;; it to nil would strand `get-snap` on the fallback.
-                          (when (identical? (.-current committed-ref) committed)
-                            (set! (.-current committed-ref) nil))
+                          ;; rf2-sqhjtu / rf2-naz09e: clear the published
+                          ;; committed reaction, but ONLY if it still holds THIS
+                          ;; invocation's handle (compare the tagged reaction at
+                          ;; index 1). A later `subscribe-fn` re-acquire (e.g. a
+                          ;; subscribe-identity / key change) may have already
+                          ;; overwritten `committed-ref` with the NEW tagged
+                          ;; committed reaction before this older cleanup runs;
+                          ;; clobbering it to nil would strand `get-snap` on the
+                          ;; fallback.
+                          (let [stored (.-current committed-ref)]
+                            (when (and stored (identical? (aget stored 1) committed))
+                              (set! (.-current committed-ref) nil)))
                           ;; Release the durable committed ref — symmetric with
                           ;; the `subs/subscribe` above. Runs on unmount /
                           ;; key change / teardown.

@@ -4108,6 +4108,184 @@
             (finally
               (try (.unmount root) (catch :default _ nil))))))))))
 
+;; ---- key-change serves the NEW target (rf2-naz09e) ------------------------
+;;
+;; THE BUG (UIx + Helix shared spine only — Reagent recomputes in-render and
+;; never tears; a cross-substrate correctness divergence). When query-v (or the
+;; resolved frame) changes to a DIFFERENT subscription target on a MOUNTED
+;; use-subscribe component, the pre-fix spine served the PREVIOUS target's value
+;; for the change-commit:
+;;
+;;   • render — stable-key recomputes to a fresh #js object; the
+;;     `[stable-key]`-keyed reaction memo re-runs to the NEW target; get-snap +
+;;     subscribe-fn take new identities.
+;;   • but committed-ref.current STILL holds the OLD committed reaction — the old
+;;     subscribe-fn's ref-clearing cleanup AND the new subscribe-fn that
+;;     repopulates the ref are BOTH post-commit effects.
+;;   • the pre-fix get-snap `(or committed-ref reaction)` therefore returned the
+;;     OLD reaction's value; useSyncExternalStore committed it (it equals the
+;;     prior snapshot, so nothing flags a tear) → ONE commit renders the OLD
+;;     target's value under the NEW query args. The passive-phase store-
+;;     consistency check then forces a corrective re-render — so the tear self-
+;;     heals, but the torn commit is real (a same-commit layout-effect / ref read
+;;     observes it; a transition lane can paint it).
+;;
+;; The fix key-tags committed-ref as `#js [stable-key committed]` and has
+;; get-snap read it ONLY while the tag matches the current render's key — so the
+;; change-commit falls back to the render-phase handle (the NEW target),
+;; matching Reagent's in-render recompute.
+;;
+;; TWO PROOFS (both FAIL on the pre-fix spine, PASS after) + a control:
+;;   (1) VALUE — the child records use-subscribe's return every render; the FIRST
+;;       render after the key change already shows the NEW value and the OLD value
+;;       never reappears. (Deterministic here: the two targets hold DISTINCT
+;;       values, unlike rf2-sqhjtu where both handles deref the same value.)
+;;   (2) OBJECT IDENTITY — a subs/subscribe spy tags reactions by generation (the
+;;       rf2-sqhjtu deref-recording proxy); no get-snap deref after the change
+;;       hits the OLD target's committed generation.
+;;   CONTROL — a re-render with an UNCHANGED query-v keeps serving the committed
+;;   reaction (value stable, ref-count still 1: no over-invalidation / no churn).
+
+(defn assert-use-subscribe-key-change-serves-new-target
+  "rf2-naz09e: a query-v / frame change on a mounted use-subscribe probe must
+  render the NEW target's value on the change-commit (parity with Reagent's
+  in-render recompute), never the previous target's. Value proof + object-
+  identity deref proof; plus a stable-key control (no over-invalidation).
+
+  cfg keys:
+    :probe-key-change-element  thunk -> parent element. The parent owns a
+                               use-state tick and stashes its set-tick into
+                               :key-change-set-tick; the child reads the
+                               :key-change-frame / :key-change-query atoms (2-arg
+                               explicit-pin use-subscribe) and records each
+                               use-subscribe return into :key-change-observed.
+    :key-change-set-tick :key-change-frame :key-change-query :key-change-observed
+    :kc-frame :kc-frame2 :kc-query-a :kc-query-b"
+  [{:keys [name probe-key-change-element key-change-set-tick
+           key-change-frame key-change-query key-change-observed
+           kc-frame kc-frame2 kc-query-a kc-query-b]}]
+  (testing (str name " — use-subscribe serves the NEW target on a query-v / frame change (rf2-naz09e)")
+    (with-browser-act
+     (fn [act-fn]
+      ;; Two frames; kc-query-a / kc-query-b read DISTINCT db keys so every
+      ;; (frame, query) target carries a distinct value.
+      (rf/reg-frame kc-frame  {:doc "rf2-naz09e key-change probe frame A"})
+      (rf/reg-frame kc-frame2 {:doc "rf2-naz09e key-change probe frame B"})
+      (rf/reg-event ::kc-seed-a (fn [_ _] {:db {:va "A"   :vb "B"}}))
+      (rf/reg-event ::kc-seed-b (fn [_ _] {:db {:va "FA2" :vb "FB2"}}))
+      (rf/dispatch-sync [::kc-seed-a] {:frame kc-frame})
+      (rf/dispatch-sync [::kc-seed-b] {:frame kc-frame2})
+      (rf/reg-sub kc-query-a (fn [db _] (:va db)))
+      (rf/reg-sub kc-query-b (fn [db _] (:vb db)))
+      ;; ---- deref-recording subscribe spy (object-identity proof) -----------
+      (let [real-subscribe subs/subscribe
+            gen-counter    (atom 0)
+            real->gen      (atom {})
+            deref-log      (atom [])
+            gen-of         (fn [real]
+                             (or (get @real->gen real)
+                                 (let [g (swap! gen-counter inc)]
+                                   (swap! real->gen assoc real g)
+                                   g)))
+            wrap           (fn [real]
+                             (let [g (gen-of real)]
+                               (reify
+                                 IDeref
+                                 (-deref [_] (swap! deref-log conj g) @real)
+                                 IWatchable
+                                 (-add-watch [this k f]
+                                   (add-watch real k (fn [_ _ old nu] (f k this old nu)))
+                                   this)
+                                 (-remove-watch [_ k] (remove-watch real k) nil)
+                                 (-notify-watches [_ _o _n] nil))))]
+        (with-redefs [subs/subscribe
+                      (fn spy-subscribe
+                        ([query-v]      (wrap (real-subscribe query-v {:frame (frame/resolve-current-frame)})))
+                        ([query-v opts] (wrap (real-subscribe query-v opts))))]
+          ;; ============ PHASE 1 — QUERY-V change (frame fixed) =============
+          (reset! key-change-frame kc-frame)
+          (reset! key-change-query [kc-query-a])
+          (reset! key-change-observed [])
+          (let [cache      (:sub-cache (frame/frame kc-frame))
+                mount-node (make-mount-node!)
+                root       (react-dom-client/createRoot mount-node)]
+            (try
+              (act-fn (fn [] (.render root (probe-key-change-element))))
+              (is (= "A" (last @key-change-observed))
+                  "precondition: mounted probe shows target-A's value")
+              (is (= "v=A" (.-textContent mount-node))
+                  "precondition: DOM shows target-A")
+              (let [committed-a     (get-in @cache [[kc-query-a] :reaction])
+                    committed-a-gen (get @real->gen committed-a)]
+                (is (some? committed-a-gen)
+                    "the committed target-A reaction was seen through the subscribe spy")
+                ;; ---- drive the QUERY-V change on the MOUNTED child ---------
+                (reset! deref-log [])
+                (reset! key-change-observed [])
+                (act-fn (fn []
+                          (reset! key-change-query [kc-query-b])
+                          (@key-change-set-tick inc)))
+                ;; VALUE proof.
+                (is (seq @key-change-observed)
+                    "the query-v change re-rendered the child")
+                (is (= "B" (first @key-change-observed))
+                    (str "the FIRST render after the query-v change already shows the "
+                         "NEW target (kc-query-b => \"B\"), not the previous target's "
+                         "\"A\". Observed " @key-change-observed))
+                (is (not (some #{"A"} @key-change-observed))
+                    (str "the OLD target's value \"A\" never appears after the query-v "
+                         "change. Observed " @key-change-observed))
+                (is (= "v=B" (.-textContent mount-node))
+                    "post-change DOM settles on target-B")
+                ;; OBJECT-IDENTITY proof: no get-snap deref after the change hit
+                ;; the OLD (target-A) committed reaction's generation.
+                (is (not (some #{committed-a-gen} @deref-log))
+                    (str "no get-snap deref after the query-v change hit the OLD "
+                         "target-A committed reaction (gen " committed-a-gen "). "
+                         "Observed gens " @deref-log)))
+              ;; ---- CONTROL: an UNCHANGED query-v keeps serving correctly ----
+              (reset! key-change-observed [])
+              (reset! deref-log [])
+              (act-fn (fn [] (@key-change-set-tick inc)))
+              (is (seq @key-change-observed)
+                  "the control re-render ran the child")
+              (is (every? #{"B"} @key-change-observed)
+                  (str "a re-render with an UNCHANGED query-v keeps serving the "
+                       "committed target-B value — no over-invalidation. Observed "
+                       @key-change-observed))
+              (is (= 1 (or (get-in @cache [[kc-query-b] :ref-count]) 0))
+                  "stable-key control holds exactly one durable ref (no re-subscribe churn)")
+              (finally
+                (try (act-fn (fn [] (.unmount root))) (catch :default _ nil)))))
+          ;; ============ PHASE 2 — FRAME change (query-v fixed) =============
+          (reset! deref-log [])
+          (reset! key-change-frame kc-frame)
+          (reset! key-change-query [kc-query-a])
+          (reset! key-change-observed [])
+          (let [mount-node (make-mount-node!)
+                root       (react-dom-client/createRoot mount-node)]
+            (try
+              (act-fn (fn [] (.render root (probe-key-change-element))))
+              (is (= "A" (last @key-change-observed))
+                  "precondition: mounted probe shows frame-A's value")
+              (reset! key-change-observed [])
+              (act-fn (fn []
+                        (reset! key-change-frame kc-frame2)
+                        (@key-change-set-tick inc)))
+              (is (seq @key-change-observed)
+                  "the frame change re-rendered the child")
+              (is (= "FA2" (first @key-change-observed))
+                  (str "the FIRST render after the FRAME change already shows the NEW "
+                       "frame's value (frame-B => \"FA2\"), not frame-A's \"A\". "
+                       "Observed " @key-change-observed))
+              (is (not (some #{"A"} @key-change-observed))
+                  (str "frame-A's value \"A\" never appears after the frame change. "
+                       "Observed " @key-change-observed))
+              (is (= "v=FA2" (.-textContent mount-node))
+                  "post-change DOM settles on frame-B")
+              (finally
+                (try (act-fn (fn [] (.unmount root))) (catch :default _ nil)))))))))))
+
 ;; ---- unsubscribe arity contract (rf2-gizlj) -------------------------------
 ;;
 ;; The shared spine's `use-subscribe` useEffect cleanup calls

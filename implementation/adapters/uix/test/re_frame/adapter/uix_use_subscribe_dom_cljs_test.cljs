@@ -49,6 +49,14 @@
 (def ^:private probe-frame-provider-observed (atom []))
 (def ^:private refcount-target               (atom nil))
 (def ^:private stable-deps-set-tick          (atom nil))
+;; rf2-naz09e key-change probe side-channels: the child reads its (frame,
+;; query-v) from these atoms (2-arg explicit-pin use-subscribe) and records
+;; every use-subscribe return; the parent stashes its set-tick here so the
+;; suite can swap the target on the MOUNTED child and force a re-render.
+(def ^:private key-change-set-tick           (atom nil))
+(def ^:private key-change-frame              (atom nil))
+(def ^:private key-change-query              (atom nil))
+(def ^:private key-change-observed           (atom []))
 
 (defui Probe []
   (let [target @refcount-target
@@ -163,6 +171,27 @@
     ($ :div {:data-tick tick}
        ($ ProbeStableDepsChild))))
 
+;; ---- key-change probes (rf2-naz09e) ---------------------------------------
+;; A child that reads its (frame, query-v) from side-channel atoms via the
+;; 2-arg explicit-pin use-subscribe and records every observed value, under a
+;; parent that owns a tick + stashes its set-tick. The suite swaps the atoms
+;; and bumps the tick to change the subscription target on the MOUNTED child.
+
+(defui ProbeKeyChangeChild []
+  (let [fr @key-change-frame
+        qv @key-change-query
+        v  (uix-adapter/use-subscribe fr qv)]
+    (swap! key-change-observed conj v)
+    ($ :div (str "v=" v))))
+
+(defui ProbeKeyChangeParent []
+  (let [[tick set-tick] (uix/use-state 0)]
+    (uix/use-effect
+      (fn [] (reset! key-change-set-tick set-tick) js/undefined)
+      [])
+    ($ :div {:data-tick tick}
+       ($ ProbeKeyChangeChild))))
+
 ;; ---- cfg + forwarded deftests ---------------------------------------------
 
 (def ^:private cfg
@@ -219,6 +248,16 @@
    :stable-deps-set-tick  stable-deps-set-tick
    :stable-deps-frame     :rf.uix-stable-deps/probe-frame
    :stable-deps-query     :rf.uix-stable-deps/p
+   ;; rf2-naz09e — key-change serves the NEW target
+   :probe-key-change-element (fn [] (uix/$ ProbeKeyChangeParent))
+   :key-change-set-tick   key-change-set-tick
+   :key-change-frame      key-change-frame
+   :key-change-query      key-change-query
+   :key-change-observed   key-change-observed
+   :kc-frame              :rf.uix-key-change/frame-a
+   :kc-frame2             :rf.uix-key-change/frame-b
+   :kc-query-a            :rf.uix-key-change/qa
+   :kc-query-b            :rf.uix-key-change/qb
    ;; rf2-40a84 — flush-render! synchronous-commit proof. Reuses the Probe
    ;; (reads :refcount-target for its frame, queries :rf.uix-use-subscribe-test/n)
    ;; under a fresh isolated frame so it can't collide with the use-subscribe
@@ -286,6 +325,13 @@
 ;; reaction hazard). Object-identity proof; reuses the refcount-probe surface.
 (deftest use-subscribe-getsnapshot-tracks-committed-reaction
   (suite/assert-use-subscribe-getsnapshot-tracks-committed-reaction cfg))
+
+;; rf2-naz09e — a query-v / frame change on a MOUNTED component must render the
+;; NEW target's value on the change-commit (parity with Reagent's in-render
+;; recompute), never the previous target's. Value + object-identity proof, plus
+;; a stable-key control (no over-invalidation).
+(deftest use-subscribe-key-change-serves-new-target
+  (suite/assert-use-subscribe-key-change-serves-new-target cfg))
 
 ;; rf2-40a84 — flush-render! synchronously commits a pending render (the
 ;; proof the pair-MCP headless dispatch→render loop depends on).
