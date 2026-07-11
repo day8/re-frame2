@@ -582,7 +582,7 @@
      ;;
      ;; Per Mike Q8: the `:show-tool-frames?` toggle lives under a
      ;; `── Power user ──` divider at the bottom of General. Default
-     ;; OFF. Flipping on reveals `:rf/xray` + `:rf/pair2` in the L1
+     ;; OFF. Flipping on reveals `:rf/xray` + `:rf/re-frame2-pair` in the L1
      ;; frame-picker dropdown (per spec/007-UX-IA.md §Frame-observation
      ;; isolation invariant I1).
      [:div {:data-testid "rf-xray-settings-power-user-divider"

@@ -977,7 +977,7 @@
     incrementally.
   - `:show-tool-frames?` (boolean, default `false`) — when true the
     L1 frame picker dropdown reveals tool frames (`:rf/xray`,
-    `:rf/pair2`). OFF by default per spec/007-UX-IA.md §Frame-
+    `:rf/re-frame2-pair`). OFF by default per spec/007-UX-IA.md §Frame-
     observation isolation invariant I1.
   - `:long-keyword-threshold` (integer, default 24) — character count
     above which a fully-qualified keyword is elided in compact list

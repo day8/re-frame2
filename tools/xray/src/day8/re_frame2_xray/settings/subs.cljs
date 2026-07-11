@@ -103,7 +103,7 @@
         (if (#{:cosy :compact} d) d :cosy))))
 
   ;; rf2-ttnst — convenience sub: should the L1 frame-picker dropdown
-  ;; include tool frames (`:rf/xray`, `:rf/pair2`)? OFF by default
+  ;; include tool frames (`:rf/xray`, `:rf/re-frame2-pair`)? OFF by default
   ;; per spec/007-UX-IA.md §Frame-observation isolation invariant I1.
   (rf/reg-sub :rf.xray/show-tool-frames?
     (fn [db _query]
