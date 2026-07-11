@@ -1668,7 +1668,11 @@ per-machine in localStorage).
   do not re-layout — they just update node highlights.
 - **`:after` countdown rings** update at 60Hz only when the panel is
   visible; backgrounded panels pause the countdown render (the timer
-  itself runs at framework-time).
+  itself runs at framework-time). The rAF tick loop is MOUNT-gated: it
+  stops within one frame when the rings overlay UNMOUNTS (e.g. switching
+  to another L3 tab) even while an `:after` timer stays armed, so it can
+  never outlive its panel dispatching in the background (rf2-e64drj); a
+  remount re-arms it.
 - **Transition history** virtualises past 200 entries; older entries
   scroll into view but are not retained in DOM.
 
