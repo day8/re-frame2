@@ -972,15 +972,57 @@
       (is (true? (:final? boom))))))
 
 (deftest project-definition-error-flag-needs-final
-  (testing "rf2-b4loj — a stray :error? on a NON-final node never lights the
-            ring: :error? is gated on :final? so it stays false"
-    (let [{:keys [nodes]} (layout/project-definition
-                           {:initial :a
-                            :states  {:a {:error? true :on {:go :b}}
-                                      :b {}}})
-          a (first (filter #(= [:a] (:path %)) nodes))]
-      (is (false? (:final? a)))
-      (is (false? (:error? a)) ":error? requires :final?"))))
+  (testing "rf2-b4loj + rf2-j538f7.18 — a stray :error? on a NON-final node is
+            now REJECTED by the recursive grammar gate (:error? is only
+            meaningful on a :final? state). project-definition rejects the
+            machine BEFORE graph construction and returns a value-free
+            :definition-error carrying the canonical
+            :rf.error/machine-error-flag-without-final defect, rather than
+            projecting the node with :error? silently gated to false."
+    (let [result (layout/project-definition
+                  {:initial :a
+                   :states  {:a {:error? true :on {:go :b}}
+                             :b {}}})]
+      (is (empty? (:nodes result))
+          "no nodes/edges are projected for the rejected machine (no ELK, no orphans)")
+      (is (empty? (:edges result)))
+      (is (= :rf.error/machine-error-flag-without-final
+             (get-in result [:definition-error :defect :category]))
+          ":error? on a non-final node surfaces the canonical error-flag-without-final defect"))))
+
+(deftest project-definition-rejects-structurally-invalid-before-elk
+  (testing "rf2-j538f7.18 — a structurally-invalid definition is REJECTED
+            before graph construction: no nodes / edges are produced (nothing
+            reaches ELK, no orphan edges to absent nodes), and the result
+            carries the value-free canonical defect category so the chart
+            renders a rejection placeholder"
+    (doseq [[label definition expected]
+            [["nested compound missing :initial"
+              {:initial :outer :states {:outer {:states {:inner {}}}}}
+              :rf.error/machine-compound-state-missing-initial]
+             ["dangling transition target"
+              {:initial :idle :states {:idle {:on {:go :missing}}}}
+              :rf.error/machine-unresolved-target]
+             ["unknown bare node key"
+              {:initial :idle :states {:idle {:on-entry :oops}}}
+              :rf.error/machine-unknown-node-key]]]
+      (let [{:keys [nodes edges definition-error]} (layout/project-definition definition)]
+        (is (empty? nodes) (str label ": no nodes reach ELK"))
+        (is (empty? edges) (str label ": no orphan edges to absent nodes"))
+        (is (= expected (get-in definition-error [:defect :category]))
+            (str label ": carries the canonical defect category"))
+        ;; the value-free summary never leaks a raw node/value.
+        (is (some? (:keys definition-error))
+            (str label ": carries the structural top-level key set")))))
+
+  (testing "a nil definition is NOT an error (it is the empty-state placeholder),
+            and a VALID definition still projects nodes"
+    (is (nil? (:definition-error (layout/project-definition nil))))
+    (is (empty? (:nodes (layout/project-definition nil))))
+    (let [{:keys [nodes definition-error]}
+          (layout/project-definition {:initial :a :states {:a {:on {:go :b}} :b {}}})]
+      (is (nil? definition-error) "a valid definition carries no :definition-error")
+      (is (seq nodes) "a valid definition still projects nodes"))))
 
 ;; ---- :on-done (XState onDone) completion edge (rf2-41goo) ---------------
 ;;

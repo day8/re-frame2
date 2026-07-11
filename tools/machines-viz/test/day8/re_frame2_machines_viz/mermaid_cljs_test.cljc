@@ -672,7 +672,8 @@
                              :states  {:a1 {:on {:go :a2}}
                                        :a2 {:final? true}}}
                          :b {:initial :b1
-                             :states  {:b1 {:on {:go :b2}}}}}}
+                             :states  {:b1 {:on {:go :b2}}
+                                       :b2 {:final? true}}}}}
           out (m/emit m {:fenced? false :header-comment? false})]
       (is (str/includes? out "note right of a")
           "the region's own action-only on-done surfaces as a note on the region root")

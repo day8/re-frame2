@@ -108,7 +108,7 @@
   {:initial :idle
    :states  {:idle          {:on {:login [:authenticated :browsing]}}
              :authenticated {:initial :browsing
-                             :states  {:browsing {:on {:logout :idle}}
+                             :states  {:browsing {:on {:checkout :paying}}
                                        :paying   {}}}}})
 
 (def vector-path-namespaced-segment-machine
@@ -1090,6 +1090,7 @@
                 :states {:off    {:on {:resume [:player :hist]}}
                          :player {:initial :stopped
                                   :states  {:stopped {:on {:play :playing}}
+                                            :playing {}
                                             :hist    {:type :history}}}}}
           xml  (scxml/spec->scxml spec)
           back (scxml/scxml->spec xml)

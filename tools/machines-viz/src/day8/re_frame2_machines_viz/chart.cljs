@@ -1443,6 +1443,39 @@
                          :border-radius "6px"}}
            "Machine definition is not introspectable — no topology to render."]
 
+          ;; rf2-j538f7.18 — a structurally-invalid definition was REJECTED by
+          ;; the recursive grammar gate (`chart.layout/project-definition`)
+          ;; BEFORE graph construction, so nothing reached ELK. Render a
+          ;; rejection placeholder carrying the value-free canonical defect
+          ;; category (`:rf.error/machine-*`) + structural path — never the raw
+          ;; definition. Must precede the empty-nodes branch (a rejected
+          ;; definition also has empty `:nodes`).
+          (:definition-error parsed)
+          (let [{:keys [defect]} (:definition-error parsed)]
+            [:div {:data-testid         (str testid "-invalid-definition")
+                   :data-machine-id     (str machine-id)
+                   :data-invalid-definition (str (:category defect))
+                   :role                "img"
+                   :aria-label          (str "State machine"
+                                             (when machine-id (str ": " (name machine-id)))
+                                             " has an invalid definition"
+                                             (when (:category defect)
+                                               (str " (" (name (:category defect)) ")"))
+                                             ".")
+                   :style {:padding       "16px"
+                           :font-family   tokens/sans-stack
+                           :font-size     "12px"
+                           :color         (:text-tertiary tokens/tokens)
+                           :background    (:bg-2 tokens/tokens)
+                           :border        (str "1px dashed " (:border-default tokens/tokens))
+                           :border-radius "6px"}}
+             (str "Machine definition is structurally invalid"
+                  (when (:category defect)
+                    (str " — " (name (:category defect))))
+                  (when (seq (:path defect))
+                    (str " at " (pr-str (:path defect))))
+                  " — nothing to render.")])
+
           (empty? (:nodes parsed))
           [:div {:data-testid (str testid "-empty")
                  :data-machine-id (str machine-id)
