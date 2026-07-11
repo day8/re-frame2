@@ -1033,7 +1033,7 @@ The category table below is retained as the canonical **"what counts as an issue
 | Subscription design advisories | Views tab → per-sub advisory chip on sub-row |
 | Framework-internal `console.warn` | Dev console (where they originate) |
 | Recoverable HTTP retries (recovered = not an issue) | Trace tab (visible when `fx` chip ON) |
-| Filtered-OUT events that errored (already surfaced via row error-override) | Event list with `⚠` + `▽` filter-bypass gutter |
+| Filtered-OUT events that errored (already surfaced via row error-override) | Event list — re-added by `filters.error-override`, painted with the pink issue-wash + tagged `data-rf-xray-filter-bypassed` |
 
 ### §5.5 Machines tab — see [`003-Machine-Inspector.md`](003-Machine-Inspector.md)
 
@@ -1381,7 +1381,11 @@ Full per-pill management lives in the ribbon strip + per-pill edit popup + mute 
 
 ### Error overrides
 
-When a filtered event raises an exception, surface it anyway (`:rf.xray/filters-auto-hide-error-overrides?` config key, default `true`). The row appears with both `⚠` and `▽` (filter-bypass) gutter; user knows "this would normally be hidden, but it errored."
+When a filtered event raises an exception, surface it anyway (`:rf.xray/filters-auto-hide-error-overrides?` config key, default `true`) — hiding an error behind a filter is the silent-failure footgun this feature prevents (`error` is *never filtered out*, §5.4). Implemented in the DATA layer (`filters.error-override/apply-error-overrides`, wired into `:rf.xray/filtered-event-bundles`): an errored event-bundle a filter dropped — an OUT-pill match, a failure to match an active IN pill, or a mute — is re-added in its original position and tagged `:rf.xray/filter-bypassed? true`.
+
+**Frame is a VIEW SCOPE, not a filter** (§7 Frame dropdown): the override operates on the frame-SCOPED list, so an errored event from *another* frame is never dragged into the current frame's view — only pill/mute drops within the observed frame's scope are re-added.
+
+**Row treatment.** The re-added errored row already carries the L2 pink issue-wash (errored ⇒ `event-bundle-has-issue?` ⇒ rose wash, §5.4) so it reads as an error at a glance. The `:rf.xray/filter-bypassed?` tag additionally surfaces as a machine-readable `data-rf-xray-filter-bypassed="true"` row attribute + a hover-tooltip line ("shown because it errored — a filter would normally hide it"), so the user knows *"this would normally be hidden, but it errored."* (The earlier `⚠` + `▽` leading-gutter glyphs were superseded by the rf2-pjjwh clean-mock row + the pink issue-wash error signal.)
 
 ### Data-layer filtering
 

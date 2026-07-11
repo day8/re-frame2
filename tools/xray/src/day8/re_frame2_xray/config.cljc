@@ -1533,6 +1533,50 @@
   []
   @filters-storage-key)
 
+;; ---- error-override filter bypass (rf2-jqqsh9) --------------------------
+;;
+;; spec/018-Event-Spine.md §7 Error overrides + §5.4 (`error` never filtered
+;; out) + spec/015-Configuration.md §Must-haves: an errored event that a
+;; filter (an OUT-pill match, a failure to match an active IN pill, or a mute)
+;; would hide is surfaced ANYWAY — hiding an error behind a filter is the
+;; silent-failure footgun the feature exists to prevent. DEFAULT `true`.
+;; The frame picker is a VIEW SCOPE, not a filter (spec/018 §7), so this
+;; override never re-adds an errored event from ANOTHER frame — only ones the
+;; pill/mute filters dropped WITHIN the observed frame's scope.
+
+(def default-filters-auto-hide-error-overrides?
+  "The default for `:rf.xray/filters-auto-hide-error-overrides?` — `true`.
+  Errors override filters (spec/018 §7 + spec/015 §Must-haves)."
+  true)
+
+(defonce
+  ^{:doc "Atom holding whether an errored event a filter would hide is
+         surfaced anyway (spec/018 §7 Error overrides). Default `true`
+         (`default-filters-auto-hide-error-overrides?`). Set `false` via
+         `(xray-config/configure!
+         {:rf.xray/filters-auto-hide-error-overrides? false})` to let filters
+         hide errored events too (opt OUT of the bypass). Read by the
+         `:rf.xray/filters-auto-hide-error-overrides?` sub the filtered-
+         event-bundle chain consults."}
+  filters-auto-hide-error-overrides?
+  (atom default-filters-auto-hide-error-overrides?))
+
+(defn set-filters-auto-hide-error-overrides!
+  "Replace the error-override bypass flag (spec/018 §7). `nil` resets to the
+  default (`true` — errors override filters). Any other value coerces to a
+  boolean."
+  [v]
+  (reset! filters-auto-hide-error-overrides?
+          (if (nil? v) default-filters-auto-hide-error-overrides? (boolean v)))
+  nil)
+
+(defn error-override-bypass-enabled?
+  "Return true when an errored event a filter would hide should be surfaced
+  anyway (the `:rf.xray/filters-auto-hide-error-overrides?` posture). The
+  filtered-event-bundle sub consults this via its own convenience sub."
+  []
+  @filters-auto-hide-error-overrides?)
+
 ;; ---- configure! convenience ---------------------------------------------
 
 (defn configure!
@@ -1615,6 +1659,12 @@
        the filter persistence layer reads / writes. Default
        `\"re-frame2.xray.filters.v1\"`. Hosts that run multiple
        Xray instances (Story testbeds) override for isolation.
+    `{:rf.xray/filters-auto-hide-error-overrides? <bool>}` — when an
+       errored event would be hidden by a filter (an OUT-pill match, a
+       failure to match an active IN pill, or a mute), surface it anyway
+       (spec/018 §7 Error overrides — the silent-failure footgun the
+       feature prevents). Default `true`; set `false` to let filters hide
+       errored events too. `nil` resets to the default.
 
   Future phases extend this with theme / buffer / placement keys.
 
@@ -1643,6 +1693,7 @@
     egress-profile-opt  :rf.xray/egress-profile
     filters-opt         :rf.xray/filters
     filters-key-opt     :rf.xray/filters-storage-key
+    error-overrides-opt :rf.xray/filters-auto-hide-error-overrides?
     :as opts}]
   ;; Gate on key PRESENCE, not value `some?`. `set-editor!` treats `nil`
   ;; as the reset-to-default + clear-the-explicit-flag case (the per-key
@@ -1713,6 +1764,11 @@
     (set-filters-storage-key! filters-key-opt))
   (when (contains? opts :rf.xray/filters)
     (set-filter-seed! filters-opt))
+  ;; Error-override bypass (rf2-jqqsh9). `contains?`-gated so an explicit
+  ;; `nil` resets to the default (`true`) and an ABSENT key leaves the atom
+  ;; untouched — matching every other key above.
+  (when (contains? opts :rf.xray/filters-auto-hide-error-overrides?)
+    (set-filters-auto-hide-error-overrides! error-overrides-opt))
   nil)
 
 ;; ---- pass-through: editor-uri --------------------------------------------

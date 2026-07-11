@@ -292,12 +292,18 @@
         handler       (:handler event-bundle)
         handler-ms    (or (:elapsed-ms handler)
                           (get-in handler [:tags :elapsed-ms]))
+        ;; rf2-jqqsh9 — the filter-bypass cue. An errored event a filter would
+        ;; hide is surfaced anyway (spec/018 §7 Error overrides); the tooltip
+        ;; tells the operator WHY it is visible so a bypassed row never reads
+        ;; as an escaped filter.
+        bypassed?     (:rf.xray/filter-bypassed? event-bundle)
         lines (cond-> []
                 (vector? event-vec) (conj (pr-str event-vec))
                 (some? dispatch-id) (conj (str "#" dispatch-id))
                 (some? frame-id)    (conj (str "frame: " frame-id))
                 (some? coord-str)   (conj (str "source: " coord-str))
                 (some? handler-ms)  (conj (str "handler: " handler-ms "ms"))
+                bypassed?           (conj "⚠ shown because it errored — a filter would normally hide it")
                 true                (conj "Click → open Event detail"))]
     (str/join "\n" lines)))
 
@@ -1581,6 +1587,14 @@
                   ;; test (issue epoch → "true"; clean row → absent) without
                   ;; parsing the inline gradient string.
                   :data-rf-xray-issue-row (when has-issue? "true")
+                  ;; rf2-jqqsh9 — machine-readable filter-bypass flag. An
+                  ;; errored event a filter would hide is surfaced anyway
+                  ;; (spec/018 §7 Error overrides), tagged in the data layer
+                  ;; by `filters.error-override`; the errored row already
+                  ;; carries the pink issue-wash above, and this flag makes
+                  ;; the "shown despite a filter" reason pinnable from a unit
+                  ;; test + queryable by tooling.
+                  :data-rf-xray-filter-bypassed (when (:rf.xray/filter-bypassed? event-bundle) "true")
                   :role        "button"
                   :tab-index   "0"
                   :aria-label  (if ev-id
