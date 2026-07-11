@@ -26,7 +26,16 @@
 
    Distinct from rf2-j538f7.30 (the reply/effect token leak) and rf2-6h3c02 (the
    projector walking every fx-arg slot): this is the demo stub missing its OWN
-   `:sensitive` declaration — the registration the projector consumes."
+   `:sensitive` declaration — the registration the projector consumes.
+
+   POST-rf2-2siusz the framework closes the same class GENERALLY: a keyword
+   redirect stamps the ORIGINAL id as `:rf.fx/from` on the handled trace and
+   the projector composes the ORIGINAL `:rf.http/managed` id's DYNAMIC
+   classification (the per-call `:sensitive? true` whole-body scrub) over the
+   stub's own static path — so the stub's handled slot now shows the SAME
+   whole-body redaction the real-backend run-mode's dedicated composers
+   apply (run-mode parity), not just the stub-declared password path. The
+   stub's own declaration remains load-bearing for UNFLAGGED requests."
   (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
             [re-frame.core :as rf]
             [re-frame.classification :as classification]
@@ -100,8 +109,10 @@
 (deftest stub-fx-handled-trace-redacts-request-body-password
   (testing "on a real submit routed through the demo stub, the plaintext password
             in the request body is NOT raw in the stub's :rf.fx/handled trace —
-            it reads :rf/redacted off the stub's own :sensitive declaration
-            (rf2-a6zmmu)"
+            post-rf2-2siusz the redirect stamps :rf.fx/from :rf.http/managed and
+            the projector composes the ORIGINAL id's dynamic :sensitive? true
+            classification, so the WHOLE body reads :rf/redacted (run-mode
+            parity with the real managed handler's composers)"
     (with-new-frame [f (frame/make-anon-frame-record! {})]
       (let [traces (record-traces! ::probe)]
         (seed+submit! f)
@@ -113,14 +124,12 @@
               "the demo stub emitted a :rf.fx/handled trace (the override fired
                and the fx actually ran)")
           (doseq [ev handled]
+            (is (= :rf.http/managed (get-in ev [:tags :rf.fx/from]))
+                "the redirect provenance rides the stub's handled trace")
             (is (= privacy/redacted-sentinel
-                   (get-in ev [:tags :rf.fx/args :request :body :password]))
-                "the request-body password reads :rf/redacted in the stub's
-                 :rf.fx/handled :rf.fx/args slot")
-            ;; shape retained — the non-secret sibling and the url are still there
-            (is (= "alice@example.com"
-                   (get-in ev [:tags :rf.fx/args :request :body :email]))
-                "shape retained — the non-secret email rides through unredacted")
+                   (get-in ev [:tags :rf.fx/args :request :body]))
+                "the :sensitive? true request's WHOLE body reads :rf/redacted in
+                 the stub's :rf.fx/handled :rf.fx/args slot")
             (is (= "/api/login"
                    (get-in ev [:tags :rf.fx/args :request :url]))
                 "shape retained — the request url is still visible")
