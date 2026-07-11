@@ -428,7 +428,7 @@
   written to it (trimming `sb` to the newest `stderr-buffer-cap`
   characters) and forwards NOTHING to the real stderr.  The runner reads
   `sb` back at `:summary` time and replays it only on red
-  (`install-summary-replay-hook!`); on green the buffer is dropped."
+  (`make-summary-replay-method`); on green the buffer is dropped."
   ^java.io.Writer [^StringBuilder sb]
   (let [append! (fn [^String s]
                   ;; Serialize the WHOLE append-plus-front-trim transaction on
@@ -443,7 +443,7 @@
                   ;; otherwise-valid test. StringBuilder (unlike StringBuffer) has
                   ;; no synchronized methods, so nothing else contends for this
                   ;; monitor; the summary snapshot in
-                  ;; `install-summary-replay-hook!` locks on the SAME `sb`, so a
+                  ;; `make-summary-replay-method` locks on the SAME `sb`, so a
                   ;; red replay never reads a half-applied mutation.
                   (locking sb
                     (.append sb s)
@@ -470,70 +470,101 @@
       (flush [])
       (close []))))
 
-(defn- install-summary-replay-hook!
-  "Install a `clojure.test/report :summary` override that replays the
-  buffered stderr (`sb`) to `real-err` when the run is red, then delegates
-  to whatever `:summary` method was installed before us so the canonical
-  summary line still prints.
+(defn- install-summary-method!
+  "Install `f` as `clojure.test/report`'s `:summary` method, or — when `f`
+  is nil — remove any installed method so the multimethod falls back to its
+  default. Centralises the `MultiFn` mutation (and its type hint) that
+  `-main` uses to install this invocation's replay method and to restore the
+  prior one."
+  [f]
+  (if f
+    (.addMethod ^clojure.lang.MultiFn clojure.test/report :summary f)
+    (remove-method clojure.test/report :summary)))
+
+(defn- make-summary-replay-method
+  "Build the `clojure.test/report :summary` method for ONE `-main`
+  invocation.  On a RED run it replays the buffered stderr ring `sb` to
+  `real-err`, then delegates to `prior` (the `:summary` method installed
+  before this invocation) so the canonical summary line still prints.
 
   `:summary` is the JVM-side counterpart to the CLJS `:end-run-tests`
   reporter: it fires once at the end of `run-tests` from the same
   fail/error counts cognitect reads to compute the exit code, and it runs
-  on the test-driver thread inside the `binding` that rebinds `*err*`,
-  so it runs before cognitect's `System/exit` and can flush the captured
-  context. A run is red iff `(pos? (+ fail error))`, matching cognitect's
+  on the test-driver thread inside the `binding` that rebinds `*err*`, so it
+  runs before cognitect's `System/exit` and can flush the captured context.
+  A run is red iff `(pos? (+ fail error))`, matching cognitect's
   `(zero? (+ fail error))` green test.
 
-  The replay is bounded to the test-run red path. cognitect only
-  fires `:summary` once it has reached `run-tests`, so the buffered stderr
-  is replayed only for a red run that actually executed tests.  The
-  non-test exit-1 path — a CLI parse error
-  (`cognitect.test-runner/-main` prints the parse diagnostics + usage and
-  `System/exit`s 1 BEFORE ever calling `run-tests`) — never fires
-  `:summary`, so its buffer is dropped, not replayed.  That is sound here:
-  on the parse-error path the diagnostics cognitect emits go to `*out*`
-  (the banner-filtering writer), NOT `*err*`, so nothing diagnostic is
-  lost — the only thing dropped is whatever incidental `*err*`/`System.err`
-  noise was written before the parse failed (in practice none; arg parsing
-  does not log to stderr).  A `finally`-flush in `-main` cannot widen the
-  scope: cognitect `System/exit`s straight from the parse-error branch, so
-  `-main`'s `finally` never runs on that path; it runs on returning paths
-  such as `-H` help.
+  This method is INVOCATION-SCOPED, not a permanent global override: `-main`
+  installs it via `install-summary-method!` before the delegated run and
+  RESTORES `prior` on every returning/throwing path (its `finally`). A
+  returning `-main` — notably `-H` help, or an embedded/REPL/in-process
+  call — therefore leaves no global closure over this run's ring/`real-err`
+  installed for a later, unrelated `clojure.test` run to trip over, and
+  repeated invocations never chain wrapper-over-wrapper.
 
-  The replay goes to the original stderr writer. The `*err*` ring is still
-  bound at this point, so using `*err*`/`println` here would feed the replay
-  straight back into the buffer. Each captured chunk is
-  written verbatim; a header marks it as a red-run replay so it is
-  distinguishable from the reporter's own stdout, mirroring the CLJS
-  replay's `[test-quiet]` prefix.  On green the buffer is simply dropped
-  (never written)."
-  [^StringBuilder sb ^java.io.Writer real-err]
-  (let [prior-summary (get-method clojure.test/report :summary)]
-    (defmethod clojure.test/report :summary [m]
-      (let [{:keys [fail error]} m]
-        (when (pos? (+ (or fail 0) (or error 0)))
-          ;; Snapshot the ring under `sb`'s monitor — the SAME lock every
-          ;; writer in `buffering-stderr-writer` takes — so the `.length`
-          ;; guard and the `.toString` copy observe a consistent ring rather
-          ;; than a mutation half-applied by a still-live background writer.
-          ;; Copy out under the lock, then do the (unbounded) real-err replay
-          ;; I/O OUTSIDE it so a writer is never blocked on the replay. An
-          ;; empty ring yields `nil` and replays nothing, exactly as the prior
-          ;; `(pos? (.length sb))` guard did.
-          (let [captured (locking sb
-                           (when (pos? (.length sb))
-                             (.toString sb)))]
-            (when captured
-              (.write real-err
-                      (str "\n[test-quiet] buffered stderr replayed"
-                           " because the run was RED:\n"))
-              (.write real-err captured)
-              (when-not (.endsWith captured "\n")
-                (.write real-err "\n"))
-              (.flush real-err)))))
-      ;; Delegate to the prior :summary so the canonical
-      ;; "Ran N tests…/K failures, J errors." line still prints.
-      (when prior-summary (prior-summary m)))))
+  The replay is bounded to the test-run red path. cognitect only fires
+  `:summary` once it has reached `run-tests`, so the buffered stderr is
+  replayed only for a red run that actually executed tests.  The non-test
+  exit-1 path — a CLI parse error (`cognitect.test-runner/-main` prints the
+  parse diagnostics + usage and `System/exit`s 1 BEFORE ever calling
+  `run-tests`) — never fires `:summary`, so its buffer is dropped, not
+  replayed.  That is sound: on the parse-error path the diagnostics cognitect
+  emits go to `*out*` (the banner-filtering writer), NOT `*err*`, so nothing
+  diagnostic is lost — the only thing dropped is whatever incidental
+  `*err*`/`System.err` noise preceded the parse failure (in practice none;
+  arg parsing does not log to stderr).
+
+  The replay goes to `real-err` — the ORIGINAL stderr writer captured before
+  the `*err*` ring was bound — so it is never fed back into the buffer. Each
+  captured chunk is written verbatim under a red-run header, mirroring the
+  CLJS replay's `[test-quiet]` prefix.  On green the buffer is dropped."
+  [^StringBuilder sb ^java.io.Writer real-err prior]
+  (fn summary-replay [m]
+    (let [{:keys [fail error]} m]
+      (when (pos? (+ (or fail 0) (or error 0)))
+        ;; Snapshot the ring under `sb`'s monitor — the SAME lock every
+        ;; writer in `buffering-stderr-writer` takes — so the `.length`
+        ;; guard and the `.toString` copy observe a consistent ring rather
+        ;; than a mutation half-applied by a still-live background writer.
+        ;; Copy out under the lock, then do the (unbounded) real-err replay
+        ;; I/O OUTSIDE it so a writer is never blocked on the replay. An
+        ;; empty ring yields `nil` and replays nothing, exactly as the prior
+        ;; `(pos? (.length sb))` guard did.
+        (let [captured (locking sb
+                         (when (pos? (.length sb))
+                           (.toString sb)))]
+          (when captured
+            (.write real-err
+                    (str "\n[test-quiet] buffered stderr replayed"
+                         " because the run was RED:\n"))
+            (.write real-err captured)
+            (when-not (.endsWith captured "\n")
+              (.write real-err "\n"))
+            (.flush real-err)))))
+    ;; Delegate to the prior :summary so the canonical
+    ;; "Ran N tests…/K failures, J errors." line still prints.
+    (when prior (prior m))))
+
+(def ^:dynamic *register-flush-hook!*
+  "Test seam over the JVM shutdown-hook registry for `-main`'s stdout
+  flush-on-exit hook.  Called with the hook `Thread`; it must register the
+  hook and RETURN a 0-arg deregister fn that `-main` invokes on every
+  returning/throwing path.  Deregistering matters because a returning `-main`
+  (help, or an embedded/in-process call) does NOT terminate the JVM: without
+  removal, each such invocation would leave its filtering-writer hook
+  registered until shutdown, accumulating one per call.
+
+  Defaults to the real `Runtime` registry.  Tests rebind it to observe the
+  add/remove lifecycle in-process without mutating the test JVM's own
+  shutdown-hook set."
+  (fn [^Thread hook]
+    (.addShutdownHook (Runtime/getRuntime) hook)
+    (fn deregister-flush-hook []
+      ;; `removeShutdownHook` throws only while the JVM is already shutting
+      ;; down; a returning `-main` never is, so this is safe. It returns
+      ;; false (harmless) if the hook already ran or was removed.
+      (.removeShutdownHook (Runtime/getRuntime) hook))))
 
 (defn -main [& args]
   ;; Bind `*out*` to a line-filtering writer over the real stdout that
@@ -570,17 +601,29 @@
   ;; parse error) drops its buffer rather than replaying it — sound because
   ;; cognitect's parse diagnostics go to `*out*` (the filter), not `*err*`,
   ;; and that path `System/exit`s before `-main`'s `finally` can run (see
-  ;; `install-summary-replay-hook!`).
+  ;; `make-summary-replay-method`).
   (let [real-out   *out*
         real-err   *err*
         sys-err    System/err
         filtering  (java.io.PrintWriter. (banner-filtering-writer real-out))
         stderr-sb  (StringBuilder.)
         buffered-w (buffering-stderr-writer stderr-sb)
-        buffered-e (java.io.PrintWriter. buffered-w)]
-    (.addShutdownHook (Runtime/getRuntime)
-                      (Thread. ^Runnable #(.flush filtering)))
-    (install-summary-replay-hook! stderr-sb real-err)
+        buffered-e (java.io.PrintWriter. buffered-w)
+        ;; The flush-on-`System/exit` hook for the stdout filtering writer,
+        ;; registered through the `*register-flush-hook!*` seam. Its
+        ;; `deregister-flush-hook!` is called on every returning/throwing path
+        ;; so repeated in-process/help invocations don't accumulate a
+        ;; filtering-writer hook apiece.
+        flush-hook (Thread. ^Runnable #(.flush filtering))
+        deregister-flush-hook! (*register-flush-hook!* flush-hook)
+        ;; Capture the `:summary` method installed before us, then install
+        ;; THIS invocation's replay method. The override is invocation-scoped:
+        ;; we DELEGATE to `prior-summary` during the run and RESTORE it on exit
+        ;; (see the `finally`), never leaving a global closure over this run's
+        ;; ring/`real-err` behind.
+        prior-summary (get-method clojure.test/report :summary)
+        summary-fn    (make-summary-replay-method stderr-sb real-err prior-summary)]
+    (install-summary-method! summary-fn)
     ;; Route raw `System/err` bytes into the same ring as `*err*` so a
     ;; library that writes `System.err` directly is buffered too. Each chunk
     ;; is decoded to a `String` and appended to the ring (this buffer is the
@@ -620,6 +663,16 @@
         (apply cognitect.test-runner/-main args)
         (finally
           (.flush filtering)
-          ;; Returning paths (notably help) restore System/err. `System/exit`
-          ;; paths terminate without running this `finally`.
-          (System/setErr sys-err))))))
+          ;; Returning paths (notably help) restore System/err + the prior
+          ;; `:summary` reporter and deregister the flush hook. `System/exit`
+          ;; paths terminate WITHOUT running this `finally`, which is correct:
+          ;; the summary replay already fired during the run, and the flush
+          ;; hook must survive to flush stdout at shutdown.
+          (System/setErr sys-err)
+          ;; Restore the prior `:summary` method — but ONLY if ours is still
+          ;; the installed one. If an unrelated run replaced it during this
+          ;; invocation, that run now owns the method and must not be
+          ;; clobbered by a blind restore.
+          (when (identical? summary-fn (get-method clojure.test/report :summary))
+            (install-summary-method! prior-summary))
+          (deregister-flush-hook!))))))
