@@ -312,8 +312,10 @@ overlays, or fixed-position chrome as part of the default developer
 experience. `Ctrl+Shift+C` shows the existing shell again; no React
 remount is required.
 
-The global show/hide route — the `Ctrl+Shift+C` toggle and the command
-palette's "show the shell first" step — is surface-**preserving**: it
+The global show/hide route — the `Ctrl+Shift+C` toggle, the command
+palette's "show the shell first" step, and the auto-open-on-error
+watcher's reopen (see [`016-Auxiliary-Panels.md` §Auto-open-on-error
+semantics](./016-Auxiliary-Panels.md)) — is surface-**preserving**: it
 reopens whatever physical surface the shell was last realized on. A
 hidden overlay reopens as the overlay (a CSS-only show under
 `document.body`); a hidden inline shell reopens inline; the first-ever

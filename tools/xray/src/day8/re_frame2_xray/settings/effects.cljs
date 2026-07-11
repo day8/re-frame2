@@ -108,6 +108,20 @@
       (boolean (:visible? (js->clj (status-fn) :keywordize-keys true))))
     (catch :default _ false)))
 
+(defn- reopen-preserving-surface!
+  "Show a hidden shell again via the mode-aware generic reopen
+  `mount/toggle!` — NOT the surface-CHANGING `mount/open!`. A reopen must
+  not re-parent a hidden overlay back inline: `toggle!` shows whatever
+  physical surface the shell was last realized on, so a hidden overlay
+  reopens as the overlay (and, with no layout host, is never stranded
+  hidden). This is the rf2-j538f7.41 surface-preserving contract; the
+  auto-open-on-error watcher (rf2-kggzi4) routes its reopen through here
+  — it is the THIRD reopen route, joining the `Ctrl+Shift+C` toggle and
+  the Cmd/Ctrl+K palette. Spec: 011-Launch-Modes §Closed state +
+  016-Auxiliary-Panels §Auto-open-on-error."
+  []
+  (call-mount-fn! "toggle_BANG_"))
+
 ;; ---- DOM helpers ---------------------------------------------------------
 
 (defn- shell-root-element
@@ -509,8 +523,11 @@
 ;;
 ;; The auto-open-on-error wiring is a sub-watcher: we subscribe to the
 ;; `:rf.xray/issues-ribbon` composite (registered in `registry.cljs`)
-;; and dispatch `mount/open!` on the first transition from empty →
-;; non-empty IFF the toggle is on AND Xray is not already visible. Two
+;; and drive the surface-preserving generic reopen `mount/toggle!` on
+;; the first transition from empty → non-empty IFF the toggle is on AND
+;; Xray is not already visible. (`toggle!` not `open!`: a reopen must
+;; not re-parent a hidden overlay back inline — rf2-kggzi4, mirroring
+;; the rf2-j538f7.41 fix on the palette + Ctrl+Shift+C routes.) Two
 ;; install triggers, both idempotent: (1) `mount/ensure-xray-frame!`
 ;; on first Xray open when the persisted toggle is on, (2)
 ;; `:rf.xray/settings-update` on toggle flip-on. Detached on flip-off.
@@ -553,9 +570,11 @@
 
 (defn install-auto-open-watcher!
   "Subscribe to `:rf.xray/issues-ribbon` and arrange for the watcher
-  to dispatch the late-bound `mount/open!` on the first transition
-  from empty → non-empty issue list IFF `:auto-open-on-error?` is on
-  AND Xray is not already visible.
+  to drive the late-bound surface-preserving reopen `mount/toggle!` on
+  the first transition from empty → non-empty issue list IFF
+  `:auto-open-on-error?` is on AND Xray is not already visible.
+  (`toggle!` reopens on the last-realized surface — rf2-kggzi4 —
+  rather than `open!`, which would revert a hidden overlay to inline.)
 
   The sub is created via a `(rf/capture-frame :rf/xray)` `:subscribe`
   so the watcher reads the Xray frame's app-db (where the issues feed
@@ -590,7 +609,14 @@
                                     (pos? n)
                                     (zero? prev)
                                     (not (visible-shell?)))
-                           (call-mount-fn! "open_BANG_"))))]
+                           ;; Surface-preserving reopen (rf2-kggzi4): the
+                           ;; `(not (visible-shell?))` guard above proves the
+                           ;; shell is hidden, so route through the mode-aware
+                           ;; `toggle!` (which reopens on the last-realized
+                           ;; surface) — NOT the surface-CHANGING `open!` that
+                           ;; would revert a hidden overlay to inline. See
+                           ;; `reopen-preserving-surface!`'s docstring.
+                           (reopen-preserving-surface!))))]
         ;; Seed the baseline from the reaction's CURRENT value before
         ;; `add-watch` — a reagent/re-frame reaction is already live the
         ;; instant `subscribe` returns (it may have run against issues

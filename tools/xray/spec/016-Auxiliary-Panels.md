@@ -657,8 +657,16 @@ density at `:cosy`.
 When `:auto-open-on-error?` flips ON, a sub-watcher is installed
 against the existing `:rf.xray/issues-ribbon` sub. On the **first
 empty → non-empty** transition (and only when Xray is not already
-visible) the watcher dispatches the late-bound `mount/open!` browser
-API export. Two install triggers (both idempotent): (1) on toggle
+visible) the watcher drives the late-bound **surface-preserving**
+reopen `mount/toggle!` browser API export — **not** `mount/open!`.
+Auto-open is a *reopen*, not an explicit surface request: the
+"not already visible" guard proves the shell is hidden, so `toggle!`
+shows whatever physical surface the shell was last realized on
+(a hidden overlay reopens as the overlay, not silently re-parented
+back inline). This is the same generic-reopen contract the
+`Ctrl+Shift+C` toggle and the command palette's "show the shell
+first" step honour — see [`011-Launch-Modes.md` §Closed
+state](./011-Launch-Modes.md). Two install triggers (both idempotent): (1) on toggle
 flip-on inside `:rf.xray/settings-update`, and (2) on first Xray
 open via `mount/ensure-xray-frame!` when the persisted toggle is
 already on. The install is a **defensive no-op pre-mount** — if the
