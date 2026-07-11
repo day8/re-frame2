@@ -756,10 +756,14 @@
       under a sensitive key would otherwise ship the secret in `:path` /
       `:reason` despite `:value` / `:explain` being redacted. When the key
       schema declares sensitivity, the key segment is scrubbed.
-    - `:map` keys, `:vector` / `:sequential` / `:tuple` / `:cat` / `:catn`
-      integer indices — navigable scalar locators; KEEP them so `:path`
-      stays a useful `get-in` locator for those shapes (the bead's regression
-      requirement).
+    - DECLARED `:map` keys, `:vector` / `:sequential` / `:tuple` / `:cat` /
+      `:catn` integer indices — navigable scalar locators; KEEP them so
+      `:path` stays a useful `get-in` locator for those shapes (the bead's
+      regression requirement). A `:map` segment that is NOT a declared child
+      is different (rf2-j538f7.13): a `[:map {:closed true} …]` extra-key
+      failure reports the CALLER-SUPPLIED extra key itself as the segment —
+      user data, possibly a credential — so the key-not-found branch fails
+      closed INCLUDING the current segment.
     - Transparent wrappers contribute NO `:in` segment — descend without
       consuming. `:maybe` is genuinely single-child (`[:maybe inner]`) so
       the lockstep walk continues precisely. `:and` / `:or` are MULTI-child
@@ -817,8 +821,8 @@
                 children (children-of schema)
                 seg      (nth in 0)]
             (cond
-              ;; `:map` — real app-db key; keep it and descend into the
-              ;; named child's tail schema.
+              ;; `:map` — a DECLARED key is a real app-db locator; keep it
+              ;; and descend into the named child's tail schema.
               (contains? name-bearing-ops op)
               (if-let [child (some (fn [c]
                                      (when (and (vector? c) (>= (count c) 2)
@@ -830,8 +834,19 @@
                                   (when (>= (count child) 3) (nth child 2))
                                   (nth child 1))]
                   (recur tail (subvec in 1) (conj out seg)))
-                ;; Key not found (shape drift) — fail-closed on the rest.
-                (fail-closed-tail (conj out seg) (subvec in 1)))
+                ;; Key not found — the segment is NOT a declared slot, so it
+                ;; cannot be proven a structural locator (rf2-j538f7.13). For
+                ;; a `[:map {:closed true} …]` extra-key failure Malli reports
+                ;; the CALLER-SUPPLIED EXTRA KEY VALUE itself as the `:in`
+                ;; segment — arbitrary user data (decoded JSON keys, headers,
+                ;; hostile input) that may itself be a credential. Keeping it
+                ;; (the earlier `(conj out seg)` shape) shipped the secret
+                ;; VERBATIM through `:path` / `:reason` despite `:value` /
+                ;; `:explain` being redacted. Fail closed INCLUDING the
+                ;; current segment; declared keys keep the precise branch
+                ;; above (an OPEN map never emits an extra-key error, so only
+                ;; undeclared / shape-drift segments land here).
+                (fail-closed-tail out in))
 
               ;; `:set` — the segment is the failing ELEMENT VALUE. ALWAYS
               ;; scrub (unnavigable + value-bearing) and descend into the
