@@ -3564,12 +3564,12 @@ The `:rf/effect-map`'s `:fx` is `[[fx-id args] ...]`. Each *standard* `fx-id` (t
 (def DispatchLaterFxArgs
   [:or
    [:map
-    [:ms       :int]                                                        ;; non-negative
-    [:dispatch [:vector :any]]]
+    [:ms    :int]                                                           ;; non-negative
+    [:event [:vector :any]]]
    [:vector
     [:map
-     [:ms       :int]
-     [:dispatch [:vector :any]]]]])
+     [:ms    :int]
+     [:event [:vector :any]]]]])
 
 ;; :http — pattern-level HTTP fx (per Pattern-RemoteData). Args are user-supplied;
 ;; the framework treats them opaquely. Schema is recommendation, not contract.
