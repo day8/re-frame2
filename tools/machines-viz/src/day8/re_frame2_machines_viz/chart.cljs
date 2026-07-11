@@ -339,8 +339,12 @@
   #js {:id "root"
        :layoutOptions (clj->js (elk-layout-options parsed layout-options
                                                    direction))
+       ;; rf2-0pmi2y — thread the RESOLVED direction so each guarded-fork
+       ;; branch's `elk.position` within-layer hint lands on the cross axis of
+       ;; the ACTUAL layout direction (X for `:tb`, Y for `:lr`). `:auto` routes
+       ;; branchy forks to `:lr`, where the cross axis is Y, not X.
        :children (clj->js (projection/->elk-children parsed measured-dims chart-vc
-                                                     context-rows))
+                                                     context-rows direction))
        ;; Edge-label dims share the `measured-dims` map (it is keyed by
        ;; elk-edge-id for any labelled edge); under events-as-nodes the
        ;; transition text is on the event-node so this is normally a no-op,

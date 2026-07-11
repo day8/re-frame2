@@ -3708,6 +3708,42 @@
         (is (nil? (opts-of (projection/event-node-id set-edge)))
             "non-fork event-node is unpinned")))))
 
+(deftest elk-children-fork-hint-axis-follows-resolved-direction
+  (testing "rf2-0pmi2y — the guarded-fork `elk.position` within-layer hint
+            rides the CROSS axis of the RESOLVED ELK direction: X for `:tb`
+            (DOWN — layers stack vertically), Y for `:lr` (RIGHT — layers
+            stack horizontally). `post-elk/aspect-direction` routes exactly
+            these branchy forks to `:lr` on the `:auto` path, so the hint must
+            be direction-aware or it lands on the wrong coordinate for the
+            very machines that trigger it."
+    (let [parsed   (layout/project-definition gate-fork-machine)
+          edges    (:edges parsed)
+          checks   (filter #(= :gate/check (:event %)) edges)
+          by-guard (into {} (map (juxt :guard identity) checks))
+          ev       #(projection/event-node-id (get by-guard %))
+          opts-for (fn [direction]
+                     (let [kids (root-children
+                                  (projection/->elk-children parsed nil nil 0 direction))]
+                       (fn [id] (-> (filter #(= id (:id %)) kids) first :layoutOptions))))]
+      (testing ":tb (DOWN) → the index rides X: (order,0)"
+        (let [opts-of (opts-for :tb)]
+          (is (= {"elk.position" "(1,0)"} (opts-of (ev :gate-high?))))
+          (is (= {"elk.position" "(2,0)"} (opts-of (ev :gate-low?))))
+          (is (= {"elk.position" "(3,0)"} (opts-of (ev nil))))))
+      (testing ":lr (RIGHT) → the index rides Y: (0,order) — the cross axis flips"
+        (let [opts-of (opts-for :lr)]
+          (is (= {"elk.position" "(0,1)"} (opts-of (ev :gate-high?)))
+              "branch 1 pinned at cross-axis y=1 under :lr")
+          (is (= {"elk.position" "(0,2)"} (opts-of (ev :gate-low?)))
+              "branch 2 pinned at cross-axis y=2 under :lr")
+          (is (= {"elk.position" "(0,3)"} (opts-of (ev nil)))
+              "branch 3 pinned at cross-axis y=3 under :lr")))
+      (testing "the default (no-direction) arity keeps the :tb X-axis hint (byte-identical)"
+        (let [kids    (root-children (projection/->elk-children parsed))
+              opts-of (fn [id] (-> (filter #(= id (:id %)) kids) first :layoutOptions))]
+          (is (= {"elk.position" "(1,0)"} (opts-of (ev :gate-high?)))
+              "the arity without direction defaults to :tb"))))))
+
 (deftest elk-children-no-fork-no-position-pins
   (testing "rf2-p75kbg — a machine with no guarded fork carries NO
             `elk.position` pins on any child (the ordering machinery is a

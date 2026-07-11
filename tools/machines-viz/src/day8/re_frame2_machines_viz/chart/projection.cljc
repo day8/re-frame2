@@ -843,11 +843,21 @@
   frame's TOP padding only (`context-band-height`), so the first child ELK
   lays out below the title strip clears the painted Context band too. 0 /
   nil ⇒ no band, no extra top reservation — every non-root container is
-  unaffected regardless."
-  ([parsed] (->elk-children parsed nil nil 0))
-  ([parsed measured-dims] (->elk-children parsed measured-dims nil 0))
-  ([parsed measured-dims chart-vc] (->elk-children parsed measured-dims chart-vc 0))
-  ([{:keys [nodes edges] :as parsed} measured-dims chart-vc context-rows]
+  unaffected regardless.
+
+  The optional `direction` (the RESOLVED ELK direction `chart.cljs` feeds
+  ELK — `:tb` DOWN / `:lr` RIGHT, threaded by `->elk-input`) sets the axis of
+  each guarded-fork branch's `elk.position` within-layer hint: the cross axis
+  is X for `:tb` and Y for `:lr`, so the priority index rides the coordinate
+  semiInteractive actually orders by (rf2-0pmi2y). Defaults to `:tb` (the DOWN
+  default) — the non-fork machines never emit the hint, so the default is a
+  no-op for them."
+  ([parsed] (->elk-children parsed nil nil 0 :tb))
+  ([parsed measured-dims] (->elk-children parsed measured-dims nil 0 :tb))
+  ([parsed measured-dims chart-vc] (->elk-children parsed measured-dims chart-vc 0 :tb))
+  ([parsed measured-dims chart-vc context-rows]
+   (->elk-children parsed measured-dims chart-vc context-rows :tb))
+  ([{:keys [nodes edges] :as parsed} measured-dims chart-vc context-rows direction]
   (let [resolved-vc   (or chart-vc vc/chart)
         ;; the default container padding (no initial-marker reservation). A
         ;; container whose own initial substate carries a marker takes the
@@ -907,13 +917,20 @@
                       pos   (get fork-positions ev-id)]
                   (cond-> (elk-event-child e measured-dims)
                     pid (assoc ::event-parent pid)
-                    ;; `elk.position` is a KVector `(x,y)`. With the chart's
-                    ;; DOWN direction the layers stack vertically, so the
-                    ;; WITHIN-LAYER (cross) axis is X — the priority index
-                    ;; goes in x; y is left 0. semiInteractive reads this to
-                    ;; order the branches 1,2,3 left-to-right.
+                    ;; `elk.position` is a KVector `(x,y)` semiInteractive reads
+                    ;; to order the within-layer branches. The WITHIN-LAYER
+                    ;; (cross) axis depends on the RESOLVED ELK `direction`: for
+                    ;; `:tb` (DOWN) layers stack vertically so the cross axis is
+                    ;; X → `(pos,0)`; for `:lr` (RIGHT) layers stack
+                    ;; horizontally so the cross axis is Y → `(0,pos)`. Writing
+                    ;; the index on the off-axis coordinate leaves the branch
+                    ;; order unconstrained for exactly the branchy forks
+                    ;; `post-elk/aspect-direction` routes to `:lr` (rf2-0pmi2y).
                     pos (assoc :layoutOptions
-                               {"elk.position" (str "(" pos ",0)")}))))
+                               {"elk.position"
+                                (if (= direction :lr)
+                                  (str "(0," pos ")")
+                                  (str "(" pos ",0)"))}))))
               edges)
         by-parent (group-by :parent-id nodes)
         events-by-parent (group-by ::event-parent event-children)
