@@ -29,6 +29,7 @@
   consumer-side while the prefix-detection logic is shared."
   (:require [clojure.string :as str]
             #?(:clj [clojure.edn :as edn])
+            [re-frame.mcp-base.overflow :as overflow]
             [re-frame.mcp-base.vocab :as vocab])
   #?(:cljs (:require [cljs.reader])))
 
@@ -244,10 +245,43 @@
            (and (contains? marker-keys k)
                 (map? body))))))
 
+;; ---------------------------------------------------------------------------
+;; Size bound — the BODY dimension of "sub-cap by construction".
+;;
+;; Closure alone does not bound the marker's SIZE. A COMPLETE, CLOSED,
+;; single-key `{:rf.mcp/overflow {:blob <100 KB>}}` passes both gates above
+;; (leading token + closed single-key map body) yet its rendered text is
+;; arbitrarily large. Classifying it as a marker lets the fast-path skip
+;; egress an over-budget payload un-capped — a reserved-`:rf.mcp/*`-namespace
+;; handler result (the same abnormal precondition rf2-j538f7.20's sibling
+;; case required) bypassing cap enforcement. rf2-vd1uyn.
+;;
+;; The invariant the skip actually relies on is "a marker is sub-cap BY
+;; CONSTRUCTION". We enforce it DIRECTLY against the documented convention
+;; cap (`overflow/default-max-tokens`): a marker candidate whose rendered
+;; text estimates over the default cap is NOT sub-cap by construction, so it
+;; is not a marker and falls through to normal cap enforcement. The two real
+;; markers are tiny fixed-shape maps (a few hundred chars ≈ ~100 tokens), so
+;; they pass with vast headroom; only an over-budget reserved-key-shaped
+;; payload is caught. Anything this fn calls a marker is therefore GUARANTEED
+;; under the default cap — skipping the cap step on it can never leak an
+;; over-default-cap body. The O(1) `count` also short-circuits an adversarial
+;; 100 KB input before the O(n) `closed-marker-envelope?` read.
+;; ---------------------------------------------------------------------------
+
+(defn- marker-sized?
+  "Is `text` small enough to be a genuine, sub-cap-by-construction marker —
+  i.e. does its rendered-text token estimate stay within the documented
+  default cap (`overflow/default-max-tokens`)? A single-key reserved-`:rf.mcp/*`
+  wrapper whose BODY pushes the rendered text over the default cap is NOT a
+  marker (rf2-vd1uyn); it continues through cap enforcement like any payload."
+  [text]
+  (<= (overflow/token-estimate text) overflow/default-max-tokens))
+
 (defn marker-text?
   "Is `text` (the rendered EDN text of a response's first content slot)
   a wire-bounded `:rf.mcp/*` marker envelope — a COMPLETE, CLOSED,
-  single-key marker map?
+  single-key marker map whose BODY is within the default cap?
 
   Returns true for `:rf.mcp/cache-hit` / `:rf.mcp/overflow` markers —
   the two envelopes the cache + cap steps emit themselves. The
@@ -255,18 +289,24 @@
   Clojure map, `j/get :text` from a JS object) and passes the string
   here; this fn owns the shared recognition logic across hosts.
 
-  Two gates, both required:
+  Three gates, all required:
 
     1. A cheap leading-token PRE-FILTER — the EXACT marker key must be
        the first top-level key (not merely a prefix of it): a lookalike
        leading key such as `:rf.mcp/overflowed` or
        `:rf.mcp/cache-hit-extra` is NOT a marker (see §Exact-key match
        in envelope.md).
-    2. A structural CONFIRMATION — the whole `text` must parse to a
+    2. A SIZE bound — the rendered text must estimate within the
+       documented default cap (`marker-sized?`). Closure proves the
+       wrapper is closed but NOT small; a single-key
+       `{:rf.mcp/overflow {…100 KB…}}` is closed yet over-budget.
+       Bounding the body is the BODY dimension of \"sub-cap by
+       construction\": an over-budget single-key marker is NOT a marker
+       and continues through cap enforcement (rf2-vd1uyn).
+    3. A structural CONFIRMATION — the whole `text` must parse to a
        closed single-key map whose sole key is a marker key and whose
        body is a map. The pre-filter proves only the FIRST key; this
-       proves the invariant the fast-path skip relies on: that the
-       marker is sub-cap BY CONSTRUCTION. A mixed wrapper with an
+       proves the OUTER wrapper is closed. A mixed wrapper with an
        unexpected top-level sibling
        (`{:rf.mcp/overflow {...} :unexpected \"<big>\"}`), a trailing
        EDN form, a tagged literal, or a non-map root/body is NOT a
@@ -274,9 +314,14 @@
        Additive fields inside the body remain allowed — only the OUTER
        wrapper must be closed.
 
+  Gates 1-3 together make the invariant the fast-path skip relies on TRUE:
+  anything this fn calls a marker is a closed single-key `:rf.mcp/*` map
+  GUARANTEED under the default cap.
+
   Nil-safe: a nil / non-string `text` is not a marker."
   [text]
   (boolean
     (and (string? text)
+         (marker-sized? text)
          (some #(exact-marker-prefix? text %) marker-prefixes)
          (closed-marker-envelope? text))))

@@ -548,6 +548,33 @@
     (is (false? (envelope/marker-text? nil)))))
 
 ;; ---------------------------------------------------------------------------
+;; 7c. marker-text? bounds the marker BODY size on CLJS too (rf2-vd1uyn).
+;;     Closure alone does NOT bound the marker's SIZE: a CLOSED single-key
+;;     {:rf.mcp/overflow {…huge…}} is over-budget by construction, yet the
+;;     pre-fix recogniser returned true and let the pair-mcp fast-path skip
+;;     egress it un-capped. The size gate bounds the rendered text at the
+;;     documented default cap, so an over-default-cap single-key marker is
+;;     NOT skip-eligible and continues through cap enforcement. This runs on
+;;     the CLJS runtime the pair server actually executes (FLAT print form).
+;; ---------------------------------------------------------------------------
+
+(deftest marker-text?-bounds-body-size-cljs
+  (let [over-budget (apply str (repeat (* 8 overflow/default-max-tokens) "x"))] ;; ~2× the default cap
+    (is (> (overflow/token-estimate over-budget) overflow/default-max-tokens)
+        "precondition: the injected body estimates over the default cap")
+    (testing "RED-then-GREEN: an over-budget single-key marker is NOT a marker on CLJS"
+      (is (false? (envelope/marker-text?
+                    (pr-str {vocab/overflow-key {:limit :reached :blob over-budget}})))
+          "an over-default-cap overflow BODY must be capped on CLJS, not skipped")
+      (is (false? (envelope/marker-text?
+                    (pr-str {vocab/cache-hit-key {:tool "x" :blob over-budget}})))
+          "the same hole for cache-hit on CLJS")))
+  (testing "genuine tiny markers stay under the bound and STILL take the fast path"
+    (is (true? (envelope/marker-text?
+                 (pr-str {vocab/overflow-key {:limit :reached :token-count 9000 :cap-tokens 5000}}))))
+    (is (true? (envelope/marker-text? (pr-str {vocab/cache-hit-key {:hash "abc" :tool "snapshot"}}))))))
+
+;; ---------------------------------------------------------------------------
 ;; 8. `sensitive.cljc` CLJS reader-conditional arms.
 ;;
 ;;    `re-frame.mcp-base.sensitive` is the spec/009 §Privacy default-suppress
