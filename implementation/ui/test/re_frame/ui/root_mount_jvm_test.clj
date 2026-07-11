@@ -128,6 +128,31 @@
            (compile-error-id #(macroexpand form)))
         (str "JVM-host expansion rejected for " (pr-str (first form))))))
 
+(defn- compile-error-data
+  "ex-data of the compile error `f` throws (cause-chain walked)."
+  [f]
+  (try (f) nil
+       (catch Throwable t
+         (loop [e t]
+           (when (some? e)
+             (if (:rf.ui.compile/error (ex-data e))
+               (ex-data e)
+               (recur (ex-cause e))))))))
+
+(deftest mount-surface-compile-errors-carry-source-anchor
+  ;; S1e file:line anchoring parity: errors thrown through the
+  ;; mount-surface expansion path carry the call form's source
+  ;; coordinates in ex-data (mirrors compiler.cljc's `anchored`).
+  (doseq [form ['(re-frame.ui/mount [:div "x"] node)
+                '(re-frame.ui/create-root node {:root-id :page/shop})
+                '(re-frame.ui/hydrate-root node [:div "x"])]]
+    (let [data (compile-error-data
+                #(macroexpand (with-meta form {:line 42 :column 7})))]
+      (is (some? (:file data)) (str (pr-str (first form)) " anchors :file"))
+      (is (= 42 (:line data)) (str (pr-str (first form)) " anchors :line"))
+      (is (= 7 (:column data)) (str (pr-str (first form)) " anchors :column"))
+      (is (some? (:rf.ui.compile/error data)) "id survives anchoring"))))
+
 (deftest unmount!-is-a-jvm-host-op
   (let [ex (try (ui/unmount! ::fake-root) nil
                 (catch clojure.lang.ExceptionInfo e e))]
