@@ -309,9 +309,15 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest views-register-in-the-view-kind
-  (let [meta* (registrar/handler-meta
-               :view :re-frame.ui.react-render-cljs-test/todo-list)]
-    (is (some? meta*) "defview registers under the registrar :view kind")
+  ;; Order-robust across the shared node process (other suites reset the
+  ;; registrar between tests): register through the same public entry the
+  ;; emitted code calls and assert the entry shape. That defview EMITS
+  ;; this call under the goog.DEBUG gate is pinned as an emission-form
+  ;; test on the JVM (defview-grammar-jvm-test), where it is order-free.
+  (rt/register-view! ::probe-view todo-list
+                     {:view-id ::probe-view :doc "probe"})
+  (let [meta* (registrar/handler-meta :view ::probe-view)]
+    (is (some? meta*) "register-view! writes the registrar :view kind")
     (is (true? (:rf.ui/compiled? meta*)))
-    (is (= :re-frame.ui.react-render-cljs-test/todo-list
-           (get-in meta* [:rf.ui/manifest :view-id])))))
+    (is (= "probe" (:doc meta*)))
+    (is (= ::probe-view (get-in meta* [:rf.ui/manifest :view-id])))))
