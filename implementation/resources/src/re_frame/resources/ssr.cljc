@@ -1549,17 +1549,25 @@
 
 (defn hydrated-data-usable?
   "True iff a HYDRATED `entry` carries USABLE last-known-good `:data` — i.e.
-  `:data` is present AND is NOT the redaction sentinel
-  (`privacy/redacted-sentinel`). A `:sensitive?` resource projects its data
-  as the sentinel (`project-entry` `:redact`), so on the wire the entry's
-  `:data` is `:rf/redacted` — metadata only, never usable. An `:large?`
-  resource OMITS the `:data` key entirely (nil — also not usable). This is the
-  hydration-side counterpart of `state/has-data?`, which does NOT know about
-  the wire sentinel because it only ever sees live durable data. Per Spec 016
-  §SSR and hydration (redacted entries hydrate as metadata only)."
+  `:data` is NOT the redaction sentinel (`privacy/redacted-sentinel`) AND the
+  durable `state/has-data?` predicate reports usable data. A `:sensitive?`
+  resource projects its data as the sentinel (`project-entry` `:redact`), so on
+  the wire the entry's `:data` is `:rf/redacted` — metadata only, never usable.
+  An `:large?` resource OMITS the `:data` key entirely (nil — also not usable).
+
+  This DELEGATES the 'is there usable last-known-good data?' question to
+  `state/has-data?` so the two never drift: crucially, an INFINITE feed's
+  `:data` is the ordered PAGE VECTOR (seeded `[]`), and an EMPTY page vector is
+  NO usable data (EP-0021 R1) — a naive `(some? :data)` would treat `[]` as
+  present and strand an empty hydrated feed fresh-forever (rf2-x76af2.11). The
+  sentinel exclusion is checked FIRST (short-circuit): a redacted infinite
+  entry keeps `:infinite?`, and `has-data?` would `(seq sentinel)` — the
+  sentinel is a keyword, so it must be ruled out before `has-data?` runs. Per
+  Spec 016 §SSR and hydration (redacted entries hydrate as metadata only)."
   [entry]
   (let [d (:data entry)]
-    (and (some? d) (not= privacy/redacted-sentinel d))))
+    (and (not= privacy/redacted-sentinel d)
+         (state/has-data? entry))))
 
 (defn entry-needs-refetch?
   "Decide whether a hydrated `entry` needs a client refetch against
@@ -1630,7 +1638,13 @@
                                                  ;; sensitive-redaction refetch from a
                                                  ;; large-omission one (rf2-fopuj9).
                                                  (= privacy/redacted-sentinel (:data entry)) :metadata-only
-                                                 (nil? (:data entry))         :no-data
+                                                 ;; no usable last-known-good data — a nil
+                                                 ;; scalar (omitted `:large?`) OR an EMPTY
+                                                 ;; infinite page vector `[]` (EP-0021 R1;
+                                                 ;; rf2-x76af2.11). `state/has-data?` is the
+                                                 ;; single home for the infinite-empty branch,
+                                                 ;; reached only after the sentinel is ruled out.
+                                                 (not (state/has-data? entry))       :no-data
                                                  (state/entry-stale? entry clock-ms) :stale
                                                  :else                         :metadata-only)})))
                        entries)]
