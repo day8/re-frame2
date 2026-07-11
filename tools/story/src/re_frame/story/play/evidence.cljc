@@ -936,3 +936,59 @@
               :renders           render-rows
               :narrative         (narrative script narr-tape)}
        (some? rc) (assoc :reactive-counts rc)))))
+
+;; ===========================================================================
+;; RUN-TAPE TRUNCATION  (rf2-4u5zl4 — the causal-assertion honesty floor)
+;; ===========================================================================
+;;
+;; The retained epoch tape is a bounded per-frame ring (`epoch-history`,
+;; default depth 50, front-eviction). A run that commits MORE epochs than the
+;; ring holds loses its EARLIEST epochs — they are evicted from the front and
+;; gone from the tape. A causal assertion's effect COUNT is projected off that
+;; tape, so an evicted effect epoch UNDER-counts the true effects: a would-be
+;; over-render an evicted epoch carried never reaches the count, so an
+;; upper-bounded assertion (`:rf.assert/no-cascade-rerender`'s `[0,0]`, a
+;; `:rf.assert/caused {:max N}`) can read a false GREEN — it passed its bounds
+;; only because the failing evidence was truncated away, NOT because the
+;; effect did not happen. This is the truncation sibling of rf2-x76af2.17's
+;; unobserved-cause honesty fix: `run-tape-truncated?` is the per-run signal
+;; the causal matcher (`result/match-causal-expectations`) reads to refuse
+;; such a verdict — an in-bounds causal `:pass` with a finite upper bound
+;; resolves `:cannot-run` (honest) when the run overflowed the ring, because
+;; the retained evidence cannot PROVE the bound held.
+
+(defn run-tape-truncated?
+  "True iff the bounded `epoch-history` ring evicted the run's baseline
+  record — i.e. the run committed at least `depth` epochs to the frame and
+  its EARLIEST run epochs were dropped from the ring's front (rf2-4u5zl4).
+  Pure data → data.
+
+  `full-ring` is the frame's COMPLETE retained ring (oldest-first — the raw
+  `re-frame.core/epoch-history`, NOT the baseline-filtered run tape);
+  `baseline` is the last-committed `:epoch-id` at run start
+  (`record-result-map`'s `:epoch-baseline`), which is the ring-newest record
+  at that moment.
+
+  Detection is DEPTH-FREE: front-eviction is monotonic, so the baseline
+  record — present in the ring at run start — survives iff fewer than `depth`
+  newer records were appended after it. Every record newer than the baseline
+  is a RUN record, so if NO retained record still has `:epoch-id <= baseline`
+  the baseline (and the run's earliest epochs) were evicted → the run tape is
+  TRUNCATED. If any record at/older-than the baseline survives, the ring
+  still holds every run record (all newer than the baseline) → the tape is
+  COMPLETE. The ring is per-frame, so epochs another frame committed never
+  evict THIS frame's baseline — the signal is not perturbed by concurrent
+  frames (the global `:epoch-id` counter is shared, but each frame's ring
+  holds only its own records).
+
+  Only a POSITIVE baseline (a same-frame rerun inheriting a populated ring)
+  carries a baseline record to evict; a zero/absent baseline (a fresh inline
+  frame whose ring started empty) has none, so this returns false — a
+  fresh-frame overflow is not distinguishable from an exact fill without the
+  ring depth (which no facade exposes), and this fn does not over-claim."
+  [full-ring baseline]
+  (boolean
+    (and (some? baseline)
+         (pos? baseline)
+         (seq full-ring)
+         (not-any? #(<= (or (:epoch-id %) 0) baseline) full-ring))))

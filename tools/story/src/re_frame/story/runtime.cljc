@@ -600,8 +600,19 @@
         ;; rather than dropping a count, remains correct when the bounded ring
         ;; evicts records from its front. Inline runs use a fresh frame and a
         ;; zero baseline, so the same filter covers both paths.
+        ;; The FULL retained ring (oldest-first, before the baseline filter).
+        ;; rf2-4u5zl4: reading it whole is what lets the truncation signal see
+        ;; whether the ring evicted the baseline record itself — the
+        ;; baseline-filtered `tape` alone cannot witness its own truncation.
+        full-ring (rf/epoch-history variant-id)
+        ;; The per-run epoch-tape truncation signal (rf2-4u5zl4): true when
+        ;; the bounded ring evicted the run's earliest epochs (the baseline is
+        ;; no longer covered). Threaded to `result/run-result` so an in-bounds
+        ;; causal `:pass` against a finite upper bound resolves `:cannot-run`
+        ;; rather than a truncation false-green.
+        truncated? (evidence/run-tape-truncated? full-ring epoch-baseline)
         tape     (vec (filter #(> (or (:epoch-id %) 0) (or epoch-baseline 0))
-                              (rf/epoch-history variant-id)))
+                              full-ring))
         ;; The runner-recorded per-dispatch-step settle boundaries light
         ;; up the EXACT narrative attribution
         ;; (`evidence/spans-from-stamps`). The
@@ -673,6 +684,12 @@
                     ;; dispatched — collected from the plan.
                     :causal-expectations (plan-causal-expectations
                                            plan executed-script)
+                    ;; rf2-4u5zl4: whether the bounded ring truncated the run
+                    ;; tape (evicted the earliest run epochs). An in-bounds
+                    ;; causal `:pass` against a finite upper bound resolves
+                    ;; `:cannot-run` under truncation — the dropped effects
+                    ;; could exceed the bound (a truncation false-green).
+                    :epoch-truncated?    truncated?
                     ;; The per-requirement `:cannot-run` refusals
                     ;; the runner could not even attempt (above). Folded into
                     ;; the verdict + surfaced on `:cannot-run` by
