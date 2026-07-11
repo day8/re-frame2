@@ -125,11 +125,19 @@ projection (redaction / omission / scoped-key privacy / index omission),
 and the client hydration reconcile + refetch plan all run end-to-end.
 
 The `index.html` next to this file carries a **pre-baked** hydration
-payload — a `:loaded` `:articles/list` entry under
-`[:rf.scope/global :articles/list {}]` — so the browser-side `run` runs
-without a Clojure server in the box. It's an **illustrative** stand-in
-for what `handle-request` emits behind a real server, not a byte-exact
-capture. One visible difference is the frame-id. This hand-written
+payload — a `:loaded` `:articles/list` entry — so the browser-side `run`
+runs without a Clojure server in the box. Like the live runtime, the entry
+is **map-keyed by its CEDN-1 byte `key-id`** (the storage identity public
+reads look up under) and carries the canonical scoped key
+`[:rf.scope/global :articles/list {}]` as its own **`:resource/key`** (the
+scoped resource fact the reverse indexes and refetch plan re-key from) —
+*not* under the scoped-key vector as a map key. It's an **illustrative**
+stand-in for what `handle-request` emits behind a real server, not a
+byte-exact capture. Because `:articles/list` declares no time-based
+staleness policy, the baked entry carries `:stale-at nil` and stays
+deterministically fresh — no rotting absolute deadline — so on hydration
+it renders immediately and the client does **not** refetch. One visible
+difference is the frame-id. This hand-written
 payload pins `:rf/frame-id :rf/default` — present *and equal* to the
 client's fixed target, a valid no-conflict shape a static file can
 hand-pick. `handle-request` instead *drops* `:rf/frame-id`, because its

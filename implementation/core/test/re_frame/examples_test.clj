@@ -20,6 +20,7 @@
   (:require [clojure.set]
             [clojure.string]
             [clojure.edn :as edn]
+            [clojure.java.io :as io]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines :as machines]
@@ -34,6 +35,12 @@
             ;; and the late-bound SSR runtime-db projection + hydration
             ;; reconcile hooks the `resources-ssr` example drives.
             [re-frame.resources]
+            ;; Byte `key-id` + client refetch-plan helpers — the
+            ;; `resources-ssr` static-payload hydration regression asserts the
+            ;; baked `:entries` are keyed on `state/key-id` and that a fresh
+            ;; hydrated entry issues no client refetch.
+            [re-frame.resources.state :as res-state]
+            [re-frame.resources.ssr :as res-ssr]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.error-listener :as ssr-error-listener]
             [re-frame.ssr.request :as ssr-request]
@@ -726,6 +733,94 @@
               "the hydrated resource entry installed into the client frame")
           (is (= :loaded (-> client-entries vals first :status))
               "the hydrated entry is :loaded (renders immediately, no refetch)"))))))
+
+(deftest resources-ssr-example-static-index-payload-hydrates-into-live-cache
+  (testing "examples/capabilities/ssr/resources_ssr — the ACTUAL checked-in
+            `index.html` `__rf_payload` (the offline stand-in a reader opens
+            without a Clojure server) hydrates into the LIVE resource cache:
+            after `ssr/hydrate!` the public `rf/resource-state` /
+            `[:rf/resource …]` view reads the two baked articles on the FIRST
+            client render, the baked `:entries` are keyed on the CEDN byte
+            `key-id` (each entry carrying the scoped vector as `:resource/key`,
+            no legacy vector-map-key row), and the fresh entry issues NO client
+            refetch (rf2-j538f7.26). Reads the file itself — NOT a hand-built
+            payload — so a future drift back to the pre-EP-0012 vector-keyed /
+            rotting-absolute-`:stale-at` shape fails here."
+    (require 'resources-ssr.core :reload)
+    (rf/init! ssr/adapter)
+    ;; Read the SHIPPED static host page off the classpath (the
+    ;; `../../examples/capabilities/ssr` source root is a `:test` classpath
+    ;; entry, so `resources_ssr/index.html` resolves next to `core.cljc`) and
+    ;; extract the same `__rf_payload` EDN the browser reader parses.
+    (let [index-html (some-> (io/resource "resources_ssr/index.html") slurp)
+          payload    (some-> index-html
+                             (->> (re-find #"(?s)id=\"__rf_payload\" type=\"application/edn\">(.*?)</script>"))
+                             second
+                             edn/read-string)]
+      (is (some? index-html)
+          "the checked-in resources_ssr/index.html is on the test classpath")
+      (is (some? payload)
+          "the __rf_payload EDN parsed out of the static index.html body")
+      ;; ── The baked payload is the CURRENT projector shape ─────────────────
+      ;; `:entries` are map-keyed on the CEDN-1 byte `key-id` (rf2-9e0tyq), each
+      ;; entry carrying the scoped `[scope resource-id params]` vector as its own
+      ;; `:resource/key`. A legacy vector-map-key row would key by the vector and
+      ;; leave `:resource/key` nil — unreachable through the byte-key lookup.
+      (let [baked-entries (get-in payload [:rf/runtime-db :rf.runtime/resources :entries])
+            scoped-key    [:rf.scope/global :articles/list {}]
+            expected-kid  (res-state/key-id scoped-key)]
+        (is (= 1 (count baked-entries)) "one resource entry rides the static payload")
+        (is (= #{expected-kid} (set (keys baked-entries)))
+            "the baked entry is map-keyed by (state/key-id scoped-key), NOT the scoped vector")
+        (is (every? string? (keys baked-entries))
+            "no legacy vector-keyed :entries row survives (byte key-id is a string)")
+        (let [entry (first (vals baked-entries))]
+          (is (= scoped-key (:resource/key entry))
+              "the entry carries the canonical scoped vector as :resource/key")
+          (is (= expected-kid (res-state/key-id (:resource/key entry)))
+              "the map key equals the byte key-id of the entry's own :resource/key")
+          (is (nil? (:stale-at entry))
+              "the baked entry declares no rotting absolute :stale-at (never-stale policy)")))
+      ;; ── Hydrate the example's OWN :rf/default client frame ───────────────
+      (let [client-frame @(resolve 'resources-ssr.core/app-frame)
+            _            (rf/reg-frame client-frame
+                           {:doc "resources-ssr static-payload client frame"
+                            :platform :client})
+            returned     (ssr/hydrate! {:frame client-frame :payload payload})]
+        (is (= payload returned)
+            "hydrate! applied the static payload (frame-id present-and-equal, no conflict)")
+        ;; The live cache serves the baked entry through the PUBLIC read — the
+        ;; property that regressed: before the fix this returned nil.
+        (let [state (rf/resource-state {:resource :articles/list
+                                        :scope    :rf.scope/global
+                                        :params   {}
+                                        :frame    client-frame})]
+          (is (= :loaded (:status state))
+              "rf/resource-state reads the baked entry :loaded from the live cache")
+          (is (= [{:slug "welcome"   :title "Welcome to re-frame2"}
+                  {:slug "resources" :title "Server-state as resources"}]
+                 (:data state))
+              "both baked articles are reachable through the live resource read"))
+        ;; The example's OWN view renders both titles on the first client render
+        ;; (no skeleton, no empty <ul>) — the pre-rendered static rows stay put.
+        (let [html (rf/with-frame client-frame
+                     (rf/render-to-string ((rf/view :app/root)) {}))]
+          (is (clojure.string/includes? html "Welcome to re-frame2")
+              "first client render shows the first article title")
+          (is (clojure.string/includes? html "Server-state as resources")
+              "first client render shows the second article title"))
+        ;; No double-fetch: a fresh hydrated entry is ABSENT from the refetch
+        ;; plan, so the route-free client boot issues no transport request.
+        (let [rdb  (:rf.db/runtime (rf/frame-state-value client-frame))
+              plan (res-ssr/hydrate-refetch-plan rdb)]
+          (is (empty? plan)
+              "the fresh baked entry issues NO client refetch (no double-fetch)")
+          ;; And the entry installed under the SAME byte key-id, with the SSR
+          ;; owner reconciled away (never trusted from the wire).
+          (let [client-entries (get-in rdb [:rf.runtime/resources :entries])]
+            (is (= #{(res-state/key-id [:rf.scope/global :articles/list {}])}
+                   (set (keys client-entries)))
+                "the client cache keys the installed entry on the byte key-id")))))))
 
 ;; ============================================================================
 ;; state-machine-walkthrough — chapter §Headless testing. Two flavours:

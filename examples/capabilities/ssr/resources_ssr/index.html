@@ -24,16 +24,29 @@
 
     The load-bearing detail vs the plain `ssr/` example: the page's
     server-state rides `:rf/runtime-db` as a RESOURCE projection under
-    `:rf.runtime/resources :entries`, keyed by the scoped resource key
-    `[<scope> <resource-id> <canonical-params>]` — NOT as an app-db value.
-    This is exactly what `payload-policy/project-runtime-db` emits in
-    `handle-request`: only the durable `:entries` are serialized; the
-    `:tag-index` / `:owner-index` are EXCLUDED (recomputed from `:entries` on
-    install — Spec 016 §SSR / §Restore part 5), `:current-work` is stripped on
-    the wire, and host handles never serialize. On hydration the framework
-    `:rf/hydrate` installs this projection into the client frame's runtime
-    partition; the reconcile orphans the SSR owner + recomputes the indexes; a
-    fresh entry renders immediately and does NOT immediately re-fetch.
+    `:rf.runtime/resources :entries`. Each entry is MAP-KEYED by its CEDN-1
+    byte `key-id` — `(state/key-id [<scope> <resource-id> <canonical-params>])`,
+    the string `"v[k::rf.scope/global k::articles/list m{}]"` below — and
+    carries the canonical scoped key vector `[<scope> <resource-id>
+    <canonical-params>]` as its own `:resource/key`. Byte key-id = storage
+    identity (what public reads look up under); `:resource/key` = the scoped
+    resource fact (what the reverse indexes and refetch plan re-key from). It
+    is NOT an app-db value. This is exactly the shape
+    `payload-policy/project-runtime-db` emits in `handle-request`: only the
+    durable `:entries` are serialized; the `:tag-index` / `:owner-index` are
+    EXCLUDED (recomputed from `:entries` on install — Spec 016 §SSR / §Restore
+    part 5), `:current-work` is stripped on the wire, and host handles never
+    serialize. On hydration the framework `:rf/hydrate` installs this projection
+    into the client frame's runtime partition; the reconcile orphans the
+    `[:ssr …]` SSR owner + recomputes the indexes; a fresh entry renders
+    immediately and does NOT immediately re-fetch.
+
+    Freshness: this article list declares NO time-based staleness policy
+    (`:articles/list` omits `:stale-after-ms`), so its entry never ages out on
+    a timer and the baked `:stale-at` is nil. That keeps this offline fixture
+    deterministically fresh indefinitely — no rebased clock, no rotting
+    absolute deadline — with explicit invalidation as the real freshness
+    authority. So the hydrated entry is fresh, and the client does NOT refetch.
   -->
   <div id="app">
     <div class="page">
@@ -51,16 +64,19 @@
  :rf/runtime-db
  {:rf.runtime/resources
   {:entries
-   {[:rf.scope/global :articles/list {}]
-    {:resource/id :articles/list
-     :status      :loaded
-     :data        [{:slug "welcome"   :title "Welcome to re-frame2"}
-                   {:slug "resources" :title "Server-state as resources"}]
-     :error       nil
-     :loaded-at   1780752000000
-     :stale-at    1780752060000
-     :generation  1
-     :tags        #{[:article-list]}}}}}
+   {"v[k::rf.scope/global k::articles/list m{}]"
+    {:resource/key   [:rf.scope/global :articles/list {}]
+     :resource/id    :articles/list
+     :status         :loaded
+     :data           [{:slug "welcome"   :title "Welcome to re-frame2"}
+                      {:slug "resources" :title "Server-state as resources"}]
+     :error          nil
+     :loaded-at      1780752000000
+     :stale-at       nil
+     :invalidated-at nil
+     :generation     1
+     :active-owners  #{[:ssr :ssr/req-1 :ssr/nav-1]}
+     :tags           #{[:article-list]}}}}}
  :rf/render-hash nil}
   </script>
   <script src="main.js"></script>
