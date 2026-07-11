@@ -203,6 +203,49 @@
       (is (true? (:view-cap-truncated? dag)))
       (is (false? (:sub-cap-truncated? dag))))))
 
+(deftest aggregate-cascade-truncated-flag-only-when-exceeding-cap
+  (testing "rf2-x76af2.31 — the truncation flag fires ONLY when an entry is
+            genuinely elided. `conj-bounded` already caps growth, so the prior
+            `>=` post-conj check over-flagged at EXACTLY the cap (nothing
+            dropped). EXACTLY the cap retains all entries and is NOT truncated;
+            one MORE elides one and sets the flag."
+    (let [run (fn [i] {:operation :rf.sub/run
+                       :tags {:rf.sub/id      (keyword (str "s" i))
+                              :rf.sub/query-v [(keyword (str "s" i))]}})]
+      (testing "exactly sub-cap subs recomputed → not truncated (none elided)"
+        (let [dag (cascade/aggregate-cascade (map run (range cascade/sub-cap)))]
+          (is (= cascade/sub-cap (count (:subs-recomputed dag))))
+          (is (false? (:sub-cap-truncated? dag))
+              "a cascade with EXACTLY sub-cap subs elides nothing")))
+      (testing "one OVER sub-cap → truncated (the cap+1-th sub is dropped)"
+        (let [dag (cascade/aggregate-cascade (map run (range (inc cascade/sub-cap))))]
+          (is (= cascade/sub-cap (count (:subs-recomputed dag))))
+          (is (true? (:sub-cap-truncated? dag)))))))
+
+  (testing "the boundary holds for :rf.sub/skip too (shares :sub-cap-truncated?)"
+    (let [skip (fn [i] {:operation :rf.sub/skip
+                        :tags {:rf.sub/id                    (keyword (str "k" i))
+                               :rf.sub/query-v               [(keyword (str "k" i))]
+                               :rf.sub/reason                :input-value-equal
+                               :rf.sub/input-paths-unchanged []}})]
+      (is (false? (:sub-cap-truncated?
+                    (cascade/aggregate-cascade (map skip (range cascade/sub-cap))))))
+      (is (true? (:sub-cap-truncated?
+                   (cascade/aggregate-cascade (map skip (range (inc cascade/sub-cap)))))))))
+
+  (testing "the boundary holds for :rf.view/render (:view-cap-truncated?)"
+    (let [view (fn [i] {:operation :rf.view/render
+                        :tags {:rf.view/render-key [:v (str "v" i)]
+                               :triggered-by       :db-change}})
+          at   (cascade/aggregate-cascade (map view (range cascade/view-cap)))
+          over (cascade/aggregate-cascade (map view (range (inc cascade/view-cap))))]
+      (is (= cascade/view-cap (count (:views-rendered at))))
+      (is (false? (:view-cap-truncated? at))
+          "exactly view-cap views elides nothing")
+      (is (= cascade/view-cap (count (:views-rendered over))))
+      (is (true? (:view-cap-truncated? over))
+          "the view-cap+1-th view is dropped → truncated"))))
+
 ;; ---- :rf.sub/run value-change + cascade attribution (rf2-l1jz8) --------------
 ;;
 ;; The reactive recompute path (subs.memo/validate-and-trace) enriches the
