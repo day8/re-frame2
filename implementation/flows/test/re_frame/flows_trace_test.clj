@@ -187,6 +187,31 @@
     (is (= 1 (count (by-op :rf.flow/registered)))
         "only :a's register trace; :b's was rolled back")))
 
+(deftest reg-flow-self-cycle-does-NOT-emit-registered-or-replaced
+  (testing "a rejected self-referential flow emits NO success trace — neither a
+            first-time :rf.flow/registered nor a hot-reload
+            :rf.registry/handler-replaced (rf2-j538f7.6 AC-4)"
+    ;; First-time self-cycle: throws, no :rf.flow/registered.
+    (is (thrown? Throwable
+                 (rf/reg-flow :probe/self {:inputs [[:x]] :output-path [:x]} inc)))
+    (is (zero? (count (by-op :rf.flow/registered)))
+        "no :rf.flow/registered fired for the rejected self-cyclic flow")
+    ;; A valid flow first (its own success traces are irrelevant here) …
+    (rf/reg-flow :double {:inputs [[:n]] :output-path [:derived :doubled]} (fn [n] (* 2 n)))
+    ;; … then a REPLACEMENT that introduces a self-cycle. `handler-replaced`
+    ;; is op-type :rf.registry (not :flow), so capture the FULL trace stream
+    ;; for this rejected call and assert the replaced signal never fired.
+    (let [all (record-all-traces
+                (fn []
+                  (is (thrown? Throwable
+                               (rf/reg-flow :double {:inputs      [[:derived :doubled]]
+                                                     :output-path [:derived :doubled]}
+                                            inc)))))]
+      (is (empty? (filterv #(= :rf.registry/handler-replaced (:operation %)) all))
+          "the rejected self-cyclic REPLACEMENT emitted no :rf.registry/handler-replaced")
+      (is (empty? (filterv #(= :rf.flow/registered (:operation %)) all))
+          "and no :rf.flow/registered for the rejected replacement"))))
+
 ;; ---------------------------------------------------------------------------
 ;; 2. :rf.flow/computed fires when a flow recomputes
 ;; ---------------------------------------------------------------------------

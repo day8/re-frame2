@@ -103,21 +103,27 @@
 (defn topo-sort
   "Return flow ids in Kahn topological order.
 
-  Throws `:rf.error/flow-cycle` with a closing-repeat `:cycle` path. This is
-  intentionally unmemoized: frame flow maps are small and lifecycle changes
-  would require explicit cache invalidation."
+  Throws `:rf.error/flow-cycle` with a closing-repeat `:cycle` path. A flow
+  whose own :inputs overlap its own :output-path depends on itself; that is a
+  single-node cycle reported as `[id id]`. A flow is a pure derivation of
+  independently-owned facts, never a recurrence over its own prior output
+  (Spec 013 §Dependency rule), so the dependency graph RETAINS the `id -> id`
+  self-edge and Kahn rejects it exactly like a multi-node cycle — there is no
+  separate self-edge case and no singleton fast path that could smuggle one in.
+  This is intentionally unmemoized: frame flow maps are small and lifecycle
+  changes would require explicit cache invalidation."
   [flow-map]
   (let [ids (vec (keys flow-map))]
-    ;; Avoid the quadratic graph build for the trivial cases.
-    (case (count ids)
-      0 []
-      1 ids
+    (if (empty? ids)
+      []
+      ;; Build the full dependency graph — INCLUDING any `id -> id` self-edge —
+      ;; even for a singleton. A one-flow registry whose input overlaps its own
+      ;; output is a self-cycle and must be rejected, not fast-pathed to `[id]`.
       (let [graph (into {}
                         (map (fn [id]
                                (let [flow (flow-map id)]
                                  [id (into #{}
-                                           (filter #(and (not= id %)
-                                                         (depends-on? flow (flow-map %))))
+                                           (filter #(depends-on? flow (flow-map %)))
                                            ids)])))
                         ids)]
         (loop [ready     (filterv #(empty? (graph %)) ids)
@@ -126,7 +132,9 @@
           (if-let [node-id (peek ready)]
             ;; Peel `node-id` from the remaining graph: drop its row, then
             ;; walk every other node, dropping the edge into `node-id` from
-            ;; its dep-set. A dep-set that empties out is newly-ready.
+            ;; its dep-set. A dep-set that empties out is newly-ready. A
+            ;; self-edged node never becomes ready (its own row is skipped by
+            ;; `remaining-without-node`), so it stays stuck → cycle.
             (let [remaining-without-node (dissoc remaining node-id)
                   [remaining' ready']
                   (reduce-kv (fn [[acc-remaining acc-ready] dep-id dep-set]
@@ -143,7 +151,7 @@
               ;; so callers can correct the graph and retry.
               (error/throw-error!
                 :rf.error/flow-cycle 'rf/reg-flow
-                "Cyclic flow dependency — at least one pair of flows' :output-path / :inputs overlap mutually (per Spec 013 §Dependency rule). The closing-repeat :cycle vector names the offending chain."
+                "Cyclic flow dependency — either two-or-more flows' :output-path / :inputs overlap mutually, or one flow's :inputs overlap its own :output-path (a self-cycle) (per Spec 013 §Dependency rule). The closing-repeat :cycle vector names the offending chain; a self-cycle repeats one id, e.g. [id id]."
                 {:recovery :fix-registration
                  :extra    {:cycle (extract-cycle-path graph
                                                        (set (keys remaining)))}})
