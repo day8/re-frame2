@@ -506,7 +506,7 @@
     (late-bind/set-fn! hook-key
                        (fn [& _] (throw (ex-info "probe teardown-hook throw"
                                                  {:hook :probe}))))
-    (rf/reg-frame :rf.probe/teardown-frame {:doc "throwing teardown hook"})
+    (rf/make-frame {:id :rf.probe/teardown-frame :doc "throwing teardown hook"})
     (try
       ;; The accumulated always-on report flushes (survives prod), and the
       ;; per-hook DEV diagnostic emits at its causal position (DCEs in prod).
@@ -752,7 +752,7 @@
   ;;     (the rf2-cprm0q trap). This touch roots the gated emit so the control
   ;;     build (DEBUG=true) contains the `:reason` sentinel and the production
   ;;     build (DEBUG=false) must NOT — giving the elision assertion teeth.
-  (rf/reg-frame :rf.probe/drain-depth {:drain-depth 4})
+  (rf/make-frame {:id :rf.probe/drain-depth :drain-depth 4})
   (rf/reg-event :rf.probe/loop-forever
     (fn [_ _] {:fx [[:dispatch [:rf.probe/loop-forever]]]}))
   (rf/dispatch-sync [:rf.probe/loop-forever] {:frame :rf.probe/drain-depth}))

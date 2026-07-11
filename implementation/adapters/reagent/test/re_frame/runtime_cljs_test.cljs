@@ -88,7 +88,7 @@
             handle still targets that frame after with-frame unwinds
             (API-shrink #1, rf2-csbbwu removed frame-bound-fn/frame-bound-fn*
             from the facade — capture-frame is the one public carry primitive)"
-    (rf/reg-frame :side {:doc "side frame"})
+    (rf/make-frame {:id :side :doc "side frame"})
     (rf/reg-event :seed (fn [{:keys [db]} [_ n]] {:db {:n n}}))
     (rf/dispatch-sync [:seed 99] {:frame :side})
     (let [handle (with-frame :side (rf/capture-frame))]
@@ -196,8 +196,8 @@
 
 (deftest multi-frame-state-isolation
   (testing "two frames carry independent app-db state, share handler registry"
-    (rf/reg-frame :left  {:doc "left frame"})
-    (rf/reg-frame :right {:doc "right frame"})
+    (rf/make-frame {:id :left :doc "left frame"})
+    (rf/make-frame {:id :right :doc "right frame"})
     (rf/reg-event :counter/init (fn [{:keys [db]} [_ n]] {:db {:count n}}))
     (rf/reg-event :counter/inc  (fn [{:keys [db]} _] {:db (update db :count inc)}))
     (rf/reg-sub :count (fn [db _] (:count db)))
@@ -798,7 +798,7 @@
 
 (deftest epoch-history-cljs
   (testing "drain-settle commits a record; register-epoch-listener! fires per-cascade"
-    (rf/reg-frame :epoch/cljs {})
+    (rf/make-frame {:id :epoch/cljs})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 
@@ -830,7 +830,7 @@
   (testing "[rf/frame-provider {:frame :a} child] emits a Provider element with :a"
     ;; The merged provider's SCOPE-only `{:frame …}` shape fails loud if the
     ;; frame is absent, so register it live before scoping.
-    (rf/reg-frame :a {})
+    (rf/make-frame {:id :a})
     (let [child       [:span "hi"]
           tree        (rf/frame-provider {:frame :a} child)
           [head value & rest] tree]
@@ -881,9 +881,9 @@
 (deftest frame-provider-variadic-children
   (testing "frame-provider accepts zero, one, or many children"
     ;; SCOPE-only `{:frame …}` fails loud if absent — register the frames.
-    (rf/reg-frame :z {})
-    (rf/reg-frame :one {})
-    (rf/reg-frame :many {})
+    (rf/make-frame {:id :z})
+    (rf/make-frame {:id :one})
+    (rf/make-frame {:id :many})
     ;; Zero children — the wrapper still renders the Provider element with
     ;; no inner content. React-side that's a valid empty subtree.
     (let [tree (rf/frame-provider {:frame :z})]
@@ -906,7 +906,7 @@
 (deftest frame-provider-keyword-frame
   (testing "frame-provider only handles keyword frame ids (per Spec 002 §Frame ids)"
     ;; SCOPE-only `{:frame …}` fails loud if absent — register the frame.
-    (rf/reg-frame :rf.frame/anonymous-1 {})
+    (rf/make-frame {:id :rf.frame/anonymous-1})
     ;; The component threads whatever keyword the user supplies through to the
     ;; scope tier.
     (let [tree (rf/frame-provider {:frame :rf.frame/anonymous-1} [:p])]
@@ -923,7 +923,7 @@
     ;; rf2-4y60: build-frame-provider is 0-arity — the returned component
     ;; takes the frame keyword at render time. The merged provider's SCOPE
     ;; shape fails loud if absent, so register :hello live first.
-    (rf/reg-frame :hello {})
+    (rf/make-frame {:id :hello})
     (let [provider     (re-frame.views/build-frame-provider)
           substrate-tree (provider :hello [:span "x"])
           wrapper-tree   (rf/frame-provider {:frame :hello} [:span "x"])
@@ -982,7 +982,7 @@
   (testing "a Reagent-backed reaction held across restore-epoch! derefs
   to the restored value — proving the restore goes through the same
   reactive-graph notification path as a drain :db commit."
-    (rf/reg-frame :restore/cljs {})
+    (rf/make-frame {:id :restore/cljs})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (rf/reg-sub :n (fn [db _] (:n db)))
@@ -1006,8 +1006,8 @@
   (testing "restoring frame A does not cause frame B's reactions to
   re-derive to a different value. Frame-isolation under the reactive
   substrate."
-    (rf/reg-frame :restore/a {})
-    (rf/reg-frame :restore/b {})
+    (rf/make-frame {:id :restore/a})
+    (rf/make-frame {:id :restore/b})
     (rf/reg-event :seed (fn [{:keys [db]} [_ n]] {:db {:n n}}))
     (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (rf/reg-sub :n (fn [db _] (:n db)))

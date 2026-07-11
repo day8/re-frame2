@@ -65,7 +65,7 @@
   (apply str (repeat 40000 \x)))
 
 (defn- mk-frame! []
-  (rf/reg-frame frame-id {})
+  (rf/make-frame {:id frame-id})
   ;; Seed the same runtime registry that classification effects update.
   (frame/swap-runtime-db! frame-id
     (fn [rt] (elision/apply-classification-effects rt

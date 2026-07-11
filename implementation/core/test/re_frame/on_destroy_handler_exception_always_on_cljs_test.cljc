@@ -75,9 +75,8 @@
       (rf/reg-event :ondestroy/blow-up
                        (fn [{:keys [db]} _] {:db (throw (ex-info "intentional :on-destroy throw"
                                                  {:purpose :test-fixture}))}))
-      (rf/reg-frame :ondestroy/worker
-                    {:doc        "throwing :on-destroy"
-                     :on-destroy [:ondestroy/blow-up]})
+      (rf/make-frame {:id :ondestroy/worker :doc        "throwing :on-destroy"
+                      :on-destroy [:ondestroy/blow-up]})
       ;; Teardown MUST NOT propagate the throw.
       (is (nil? (rf/destroy-frame! :ondestroy/worker))
           "destroy-frame! returns nil even though :on-destroy threw")
@@ -104,8 +103,7 @@
                                    (fn [record] (swap! seen conj record)))
       (rf/reg-event :ondestroy/blow-up-2
                        (fn [{:keys [db]} _] {:db (throw (ex-info "again" {}))}))
-      (rf/reg-frame :ondestroy/teardown
-                    {:on-destroy [:ondestroy/blow-up-2]})
+      (rf/make-frame {:id :ondestroy/teardown :on-destroy [:ondestroy/blow-up-2]})
       (rf/destroy-frame! :ondestroy/teardown)
       (is (nil? (frame/frame :ondestroy/teardown))
           "the frame is fully torn down (teardown continued past the throw)")
@@ -119,7 +117,7 @@
       (rf/register-listener! :errors :test/recorder
                                    (fn [record] (swap! seen conj record)))
       (rf/reg-event :ondestroy/clean (fn [{:keys [db]} _] {:db db}))
-      (rf/reg-frame :ondestroy/ok {:on-destroy [:ondestroy/clean]})
+      (rf/make-frame {:id :ondestroy/ok :on-destroy [:ondestroy/clean]})
       (rf/destroy-frame! :ondestroy/ok)
       (is (empty? (filter #(= :rf.error/on-destroy-handler-exception (:error %)) @seen))
           "no record when :on-destroy completes cleanly"))))
@@ -141,8 +139,7 @@
           original (late-bind/get-fn :router/dispatch-sync!)]
       (rf/register-listener! :errors :test/recorder
                                    (fn [record] (swap! seen conj record)))
-      (rf/reg-frame :ondestroy/infra-fault
-                    {:on-destroy [:ondestroy/never-reached]})
+      (rf/make-frame {:id :ondestroy/infra-fault :on-destroy [:ondestroy/never-reached]})
       ;; Make the dispatch-sync! infrastructure itself fault.
       (late-bind/set-fn! :router/dispatch-sync!
                          (fn [& _] (throw (ex-info "dispatch infra fault" {}))))
@@ -194,8 +191,7 @@
       ;; B: the inner frame; its :on-destroy throws.
       (rf/reg-event :ondestroy/inner-throw
                        (fn [{:keys [db]} _] {:db (throw (ex-info "inner B :on-destroy threw" {}))}))
-      (rf/reg-frame :ondestroy/inner-B
-                    {:on-destroy [:ondestroy/inner-throw]})
+      (rf/make-frame {:id :ondestroy/inner-B :on-destroy [:ondestroy/inner-throw]})
       ;; A's :on-destroy: destroy B (nested), THEN throw. The nested destroy of
       ;; B runs fully (incl. B's own transient capture install + finally
       ;; remove) BEFORE A's throw — so a constant key would have removed A's
@@ -204,8 +200,7 @@
                        (fn [{:keys [db]} _]
                          (rf/destroy-frame! :ondestroy/inner-B)
                          {:db (throw (ex-info "outer A :on-destroy threw" {}))}))
-      (rf/reg-frame :ondestroy/outer-A
-                    {:on-destroy [:ondestroy/outer-throw]})
+      (rf/make-frame {:id :ondestroy/outer-A :on-destroy [:ondestroy/outer-throw]})
       (is (nil? (rf/destroy-frame! :ondestroy/outer-A))
           "the outer destroy returns nil despite both :on-destroy throws")
       (let [reports  (filter #(= :rf.error/on-destroy-handler-exception (:error %)) @seen)

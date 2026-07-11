@@ -74,7 +74,7 @@
         ;; captures `(current-frame-id)`, which REQUIRES an established
         ;; scope — there is no `:rf/default` floor. Render under an
         ;; explicit `with-frame` scope so the handle captures a real frame.
-        (rf/reg-frame :rf2-cry25/click-frame {:doc "the render-time frame"})
+        (rf/make-frame {:id :rf2-cry25/click-frame :doc "the render-time frame"})
         (rf/reg-event :rf2-cry25/clicked (fn [{:keys [db]} _] {:db db}))
         ;; `dispatch` here is the INJECTED noun (shadowing the macro) per
         ;; Spec 004 §reg-view. The reg-view definition site is the coord
@@ -114,7 +114,7 @@
     (let [seen (atom [])]
       (rf/register-listener! :trace ::rec (fn [ev] (swap! seen conj ev)))
       (try
-        (rf/reg-frame :rf2-cry25/render-frame {:doc "the render-time frame"})
+        (rf/make-frame {:id :rf2-cry25/render-frame :doc "the render-time frame"})
         (rf/reg-event :rf2-cry25/clicked (fn [{:keys [db]} _] {:db db}))
         (rf/reg-view frame-view [_n]
           [:button {:on-click #(dispatch [:rf2-cry25/clicked])} "go"])
@@ -155,7 +155,7 @@
         ;; under an explicit `with-frame` so the :subscribe op runs against
         ;; a real frame and the miss emits :rf.error/no-such-sub (rather
         ;; than the render itself raising :rf.error/no-frame-context).
-        (rf/reg-frame :rf2-cry25/sub-frame {:doc "the render-time frame"})
+        (rf/make-frame {:id :rf2-cry25/sub-frame :doc "the render-time frame"})
         ;; :rf2-cry25/missing is NOT registered — the subscribe miss emits a
         ;; synchronous :rf.error/no-such-sub inside the :subscribe op's call.
         (rf/reg-view sub-view [_n]

@@ -35,7 +35,7 @@
 (def ^:private big-string (apply str (repeat 40000 \x)))
 
 (defn- mk-frame! [frame-id]
-  (rf/reg-frame frame-id {})
+  (rf/make-frame {:id frame-id})
   ;; Install the durable app-db classification through the commit-plane path.
   (frame/swap-runtime-db! frame-id
     (fn [rt] (elision/apply-classification-effects rt
@@ -107,7 +107,7 @@
 (deftest large-app-db-elides-to-structural-marker
   (testing "a classified :large :app-db leaf elides to a structural marker —
             the off-box-tool profile carries the indicator, no raw bytes"
-    (rf/reg-frame :pub/large {})
+    (rf/make-frame {:id :pub/large})
     (frame/swap-runtime-db! :pub/large
       (fn [rt] (elision/apply-classification-effects rt {:large [[:upload]]})))
     (let [out (rf/project-egress {:upload big-string :public "ok"}
@@ -119,7 +119,7 @@
 (deftest sensitive-wins-over-large-at-projection
   (testing "a path declared BOTH :sensitive and :large redacts, never
             large-elides — so NO path/size/digest marker can leak for it"
-    (rf/reg-frame :pub/both {})
+    (rf/make-frame {:id :pub/both})
     (frame/swap-runtime-db! :pub/both
       (fn [rt] (elision/apply-classification-effects rt
                  {:sensitive [[:secret]]
@@ -147,7 +147,7 @@
                            value (assoc-in {} path sentinel)]
                         ;; Each draw reuses the frame, so clear the append-only
                         ;; classification slot before installing the new path.
-                       (rf/reg-frame fid {})
+                       (rf/make-frame {:id fid})
                        (frame/swap-runtime-db! fid
                          (fn [rt]
                            (-> (dissoc rt :rf.runtime/elision)

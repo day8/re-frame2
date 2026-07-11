@@ -48,7 +48,7 @@
   ;; `:rf/default` + pin it as the body's ambient scope (the carried-
   ;; invariant equivalent of `(with-frame :rf/default …)`); explicit
   ;; `{:frame …}` opts in the test bodies still win.
-  (rf/reg-frame :rf/default {})
+  (rf/make-frame {:id :rf/default})
   (try (rf/with-frame :rf/default (test-fn))
        (finally
          ;; Restore defaults so we do not leak tweaks into other suites —

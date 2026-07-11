@@ -47,7 +47,7 @@
   ;; `:rf/default` + pin it as the body's ambient scope (the carried-
   ;; invariant equivalent of `(with-frame :rf/default …)`); explicit
   ;; `{:frame …}` opts in the test bodies still win.
-  (rf/reg-frame :rf/default {})
+  (rf/make-frame {:id :rf/default})
   (rf/with-frame :rf/default
     (test-fn)))
 
@@ -121,8 +121,7 @@
     (let [log (atom [])]
       (reg-logger! log ::log-a)
       (reg-logger! log ::log-b)
-      (rf/reg-frame :test/silent
-        {:interceptor-overrides {::log-a nil}})
+      (rf/make-frame {:id :test/silent :interceptor-overrides {::log-a nil}})
       (rf/reg-event :test/run
         {:interceptors [::log-a ::log-b]}
         (fn [{:keys [db]} _] {:db db}))
@@ -144,8 +143,7 @@
         {:before (fn [ctx] (swap! log conj :frame-stub) ctx)})
       (rf/reg-interceptor ::call-stub
         {:before (fn [ctx] (swap! log conj :call-stub) ctx)})
-      (rf/reg-frame :test/scoped
-        {:interceptor-overrides {::log ::frame-stub}})
+      (rf/make-frame {:id :test/scoped :interceptor-overrides {::log ::frame-stub}})
       (rf/reg-event :test/run
         {:interceptors [::log]}
         (fn [{:keys [db]} _] {:db db}))
@@ -192,10 +190,9 @@
             (value-valued overrides retired — same as the per-call arm)"
     (let [log (atom [])]
       (reg-logger! log ::log-pf)
-      (rf/reg-frame :test/bad-frame-override
-        {:interceptor-overrides
-         {::log-pf (interceptor/->interceptor*
-                     :id ::pf-inline :before identity)}})
+      (rf/make-frame {:id :test/bad-frame-override :interceptor-overrides
+                      {::log-pf (interceptor/->interceptor*
+                                  :id ::pf-inline :before identity)}})
       (rf/reg-event :test/run
         {:interceptors [::log-pf]}
         (fn [{:keys [db]} _] {:db db}))

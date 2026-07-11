@@ -313,7 +313,7 @@
   (testing "a caller-supplied :frame is replayed into and LEFT intact (the
             caller owns its lifecycle)"
     (rf/reg-event :rep/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-    (rf/reg-frame :rep/caller-frame {:doc "caller-owned replay frame"})
+    (rf/make-frame {:id :rep/caller-frame :doc "caller-owned replay frame"})
     (let [a   (artifact/make-run-artifact {:event-program [[:dispatch [:rep/inc]]]})
           res (artifact/replay-run-artifact a {:frame :rep/caller-frame})]
       (is (= :pass (:status res)))

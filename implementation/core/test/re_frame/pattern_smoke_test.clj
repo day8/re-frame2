@@ -32,7 +32,7 @@
   ;; `reg-frame …:initial-events` still drain synchronously — the lifecycle
   ;; async/sync split keys off `*handler-scope*` (a real cascade), not
   ;; this ambient scope.
-  (rf/reg-frame :rf/default {})
+  (rf/make-frame {:id :rf/default})
   (rf/with-frame :rf/default
     (test-fn)))
 

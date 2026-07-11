@@ -276,8 +276,8 @@
 (deftest subscribe-once-opts-map-binds-the-named-frame
   (testing "(subscribe-once query-v {:frame f}) reads frame f from OUTSIDE its
             scope — the opts-map call-shape parallel to subscribe (rf2-bfadc6)"
-    (rf/reg-frame :bfadc6/left  {:doc "left frame"})
-    (rf/reg-frame :bfadc6/right {:doc "right frame"})
+    (rf/make-frame {:id :bfadc6/left :doc "left frame"})
+    (rf/make-frame {:id :bfadc6/right :doc "right frame"})
     (rf/reg-event :seed (fn [{:keys [db]} [_ v]] {:db {:v v}}))
     (rf/reg-sub :v (fn [db _] (:v db)))
     (rf/dispatch-sync [:seed :left-value]  {:frame :bfadc6/left})
@@ -303,7 +303,7 @@
             on a vector is nil, so it falls to the 1-arity ambient path,
             where `(first query-v)` on the keyword throws — it fails LOUDLY
             rather than silently misrouting."
-    (rf/reg-frame :bfadc6/f {:doc "frame f"})
+    (rf/make-frame {:id :bfadc6/f :doc "frame f"})
     (rf/reg-event :seed (fn [{:keys [db]} [_ v]] {:db {:v v}}))
     (rf/reg-sub :v (fn [db _] (:v db)))
     (rf/dispatch-sync [:seed :the-value] {:frame :bfadc6/f})
@@ -336,7 +336,7 @@
             arg2 (the {:frame f} MAP) as the query-v, which keys nothing in the
             cache — so it does NOT tear down the entry a real subscribe made.
             This is the negative guard that no opts-map overload was added."
-    (rf/reg-frame :bfadc6/u {:doc "frame u"})
+    (rf/make-frame {:id :bfadc6/u :doc "frame u"})
     (rf/reg-event :seed (fn [{:keys [db]} [_ v]] {:db {:v v}}))
     (rf/reg-sub :v (fn [db _] (:v db)))
     (rf/dispatch-sync [:seed :v-value] {:frame :bfadc6/u})
@@ -869,7 +869,7 @@
 (deftest subscribe-under-with-frame-resolves-the-scope
   (testing "1-arity subscribe under with-frame routes to the scope's frame —
             the ambient form still works INSIDE a real scope (rf2-jue6sp)"
-    (rf/reg-frame :jue/scoped {:doc "explicit non-default scope"})
+    (rf/make-frame {:id :jue/scoped :doc "explicit non-default scope"})
     (rf/reg-event :seed (fn [{:keys [db]} [_ v]] {:db {:v v}}))
     (rf/reg-sub :v (fn [db _] (:v db)))
     (rf/dispatch-sync [:seed :scoped-value] {:frame :jue/scoped})
@@ -883,8 +883,8 @@
   (testing "ambient reads land on the ESTABLISHED scope's frame, never bleed
             into a sibling frame — the carried-invariant read isolation
             (rf2-jue6sp; wrong-frame prevention for READS as well as writes)"
-    (rf/reg-frame :jue/left  {:doc "left frame"})
-    (rf/reg-frame :jue/right {:doc "right frame"})
+    (rf/make-frame {:id :jue/left :doc "left frame"})
+    (rf/make-frame {:id :jue/right :doc "right frame"})
     (rf/reg-event :seed (fn [{:keys [db]} [_ v]] {:db {:v v}}))
     (rf/reg-sub :v (fn [db _] (:v db)))
     (rf/dispatch-sync [:seed :left-value]  {:frame :jue/left})

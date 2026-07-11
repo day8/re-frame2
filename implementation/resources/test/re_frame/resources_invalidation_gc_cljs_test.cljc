@@ -33,6 +33,7 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
+   [re-frame.fx :as fx]
    [re-frame.frame :as frame]
    ;; load-bearing side-effecting require: the façade registers the
    ;; :rf.resource/* events + the timer / work-ledger side-table fx + the
@@ -72,11 +73,11 @@
   [f]
   (reset! aborts [])
   (reset! scheduled-timers [])
-  (rf/reg-fx :rf.http/managed (fn [_ctx _args] nil))
-  (rf/reg-fx :rf.http/managed-abort (fn [_ctx work-id] (swap! aborts conj work-id) nil))
+  (fx/reg-fx :rf.http/managed (fn [_ctx _args] nil))
+  (fx/reg-fx :rf.http/managed-abort (fn [_ctx work-id] (swap! aborts conj work-id) nil))
   ;; capture the schedule-timers arming (the real fx arms host timers; here we
   ;; record the args so the test stays deterministic — no wall clock)
-  (rf/reg-fx :rf.resource/schedule-timers (fn [_ctx args] (swap! scheduled-timers conj args) nil))
+  (fx/reg-fx :rf.resource/schedule-timers (fn [_ctx args] (swap! scheduled-timers conj args) nil))
   (f))
 
 (use-fixtures :each
@@ -888,7 +889,7 @@
   (rf/reg-resource :fd/article (article-spec {:stale-after-ms 60000 :gc-after-ms 300000}) article-spec-request)
   (let [fa :fd/frame-a
         k  (state/scoped-resource-key {:user "u"} :fd/article {:slug "w"})]
-    (rf/reg-frame fa {:doc "frame-destroy timer frame"})
+    (rf/make-frame {:id fa :doc "frame-destroy timer frame"})
     ;; arm two long timers in frame A directly via the side-table primitive
     (timers/schedule! fa k timers/stale-kind 1000000)
     (timers/schedule! fa k timers/gc-kind 1000000)

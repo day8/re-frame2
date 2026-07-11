@@ -35,7 +35,7 @@
 (deftest reactive-panel-mounts-with-root-testid
   (testing "the panel root surfaces `rf-xray-reactive` data-testid"
     (facade/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (let [tree (view/reactive-panel)]
       (is (has-testid? tree "rf-xray-reactive")
           "the root :section data-testid is present"))))
@@ -43,7 +43,7 @@
 (deftest reactive-panel-renders-empty-state-without-cascade
   (testing "Empty-state copy renders when no cascade is focused"
     (facade/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (let [tree (view/reactive-panel)]
       (is (has-testid? tree "rf-xray-reactive-empty")
           "empty-state surfaces when no cascade exists"))))
@@ -52,7 +52,7 @@
   (testing "rf2-6xezz — the Views panel renders NO large h1 heading; the
             tab strip is the panel-name source-of-truth."
     (facade/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (let [tree (view/reactive-panel)
           icon (th/find-by-testid tree "rf-xray-reactive-panel-icon")]
       (is (nil? icon) "panel-icon span is gone (lived in the deleted h1)"))))
@@ -79,7 +79,7 @@
             REACTIVE FLOW SVG graph (app-db source node + sub nodes +
             view nodes) and NOT the prior three stacked tables."
     (facade/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (seed-reactive-data!
       {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
        :counts {}
@@ -104,7 +104,7 @@
 (deftest reactive-panel-section-label-is-reactive-flow
   (testing "rf2-ad7zx.6 — the graph section is headed `Reactive Flow`."
     (facade/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (seed-reactive-data!
       {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
        :counts {} :level-1-subs [] :level-2-subs [] :view-rows []})
@@ -118,7 +118,7 @@
             `REACTIVE FLOW` the prior shared section-label forced; the
             secondary teardown captions keep their uppercase register."
     (facade/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (seed-reactive-data!
       {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
        :counts {} :level-1-subs [] :level-2-subs [] :view-rows []
@@ -141,7 +141,7 @@
             card border (the prior `:border-default` hairline was near-
             invisible on the dark theme)."
     (facade/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (seed-reactive-data!
       {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
        :counts {}
@@ -160,7 +160,7 @@
   (testing "rf2-ad7zx.6 — a changed sub node carries data-node-changed
             true; its app-db→sub edge is a changed (propagating) edge."
     (facade/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (seed-reactive-data!
       {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
        :counts {} :level-2-subs [] :view-rows []
@@ -177,7 +177,7 @@
             data-node-changed false (renders dashed dim per the
             encoding)."
     (facade/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (seed-reactive-data!
       {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
        :counts {} :level-2-subs [] :view-rows []
@@ -191,7 +191,7 @@
   (testing "rf2-ad7zx.6 / rf2-8wrzz.1 — a view node's sub-label shows the
             per-view cause (← triggered-by) + render timing (elapsed-ms)."
     (facade/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (seed-reactive-data!
       {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
        :counts {} :level-1-subs [] :level-2-subs []
@@ -211,7 +211,7 @@
             orthogonal :rf/props channel: the sub-label reads `← props`,
             NOT a blank/missing cause and NOT a mislabelled sub."
     (facade/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (seed-reactive-data!
       {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
        :counts {} :level-1-subs [] :level-2-subs []
@@ -229,7 +229,7 @@
             (the `(mounted)` label already conveys the first render; the
             cause question is about RE-renders)."
     (facade/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (seed-reactive-data!
       {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
        :counts {} :level-1-subs [] :level-2-subs []
@@ -245,7 +245,7 @@
   (testing "rf2-ad7zx.6 — a sub read by ≥2 views is shared; the node
             carries a ×N annotation + fans out to N view nodes."
     (facade/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (seed-reactive-data!
       {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
        :counts {} :level-2-subs []
@@ -263,7 +263,7 @@
   (testing "rf2-ad7zx.6 / rf2-8l03l — the view NODE carries the hover
             handlers driving the pink DOM highlight."
     (facade/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (seed-reactive-data!
       {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
        :counts {} :level-1-subs [] :level-2-subs []
@@ -281,7 +281,7 @@
   (testing "rf2-ad7zx.6 — a focused cascade with no subs + no views
             renders the graph empty placeholder (the sparse case)."
     (facade/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (seed-reactive-data!
       {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
        :counts {} :level-1-subs [] :level-2-subs [] :view-rows []})
@@ -297,7 +297,7 @@
   (testing "rf2-ad7zx.6 — the UNMOUNTED VIEWS section lists views whose
             component unmounted this epoch."
     (facade/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (seed-reactive-data!
       {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
        :counts {} :level-1-subs [] :level-2-subs [] :view-rows []
@@ -315,7 +315,7 @@
   (testing "rf2-ad7zx.6 — no unmounts → the section shows its empty
             placeholder (always visible so the rhythm holds)."
     (facade/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (seed-reactive-data!
       {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
        :counts {} :level-1-subs [] :level-2-subs [] :view-rows []
@@ -328,7 +328,7 @@
   (testing "rf2-ad7zx.6 — the DESTROYED SUBSCRIPTIONS section lists subs
             cleaned up + carries the explanatory caption."
     (facade/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (seed-reactive-data!
       {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
        :counts {} :level-1-subs [] :level-2-subs [] :view-rows []
@@ -350,7 +350,7 @@
             changed (propagates) · no change (short-circuits) · unmounted
             / destroyed."
     (facade/install!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (seed-reactive-data!
       {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
        :counts {} :level-1-subs [] :level-2-subs [] :view-rows []})

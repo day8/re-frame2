@@ -30,7 +30,7 @@
 
 (defn- seed-buffer! [evs]
   (registry/register-xray-handlers!)
-  (frame/reg-frame :rf/xray {})
+  (rf/make-frame {:id :rf/xray})
   (doseq [ev evs]
     (trace-collector/seed-trace-for-test! ev)))
 

@@ -91,7 +91,7 @@
           calls      (atom 0)
           entered    (CountDownLatch. 1) ;; reg-flow captured its pin, is parked before the mutation
           release    (CountDownLatch. 1)] ;; let reg-flow resume into the mutation
-      (rf/reg-frame :fc/scratch {:doc "scratch frame destroyed mid-registration"})
+      (rf/make-frame {:id :fc/scratch :doc "scratch frame destroyed mid-registration"})
       ;; Park reg-flow right AFTER its outer pin (the FIRST frame-incarnation-token
       ;; read, which captures the still-live token) but BEFORE it enters the
       ;; serialized mutation — exactly the bead's "after the liveness decision,
@@ -151,7 +151,7 @@
           calls      (atom 0)
           entered    (CountDownLatch. 1)
           release    (CountDownLatch. 1)]
-      (rf/reg-frame :fc/reused {:doc "incarnation X"})
+      (rf/make-frame {:id :fc/reused :doc "incarnation X"})
       (rf/reg-event :fc/set-n (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
       ;; Park reg-flow right after its outer pin (captures incarnation X's token)
       ;; via `frame-incarnation-token` — NOT `call-serialized-with-drain!`, which
@@ -173,7 +173,7 @@
           ;; X is destroyed, then the SAME id is re-registered as a FRESH
           ;; incarnation X+1 (new :drain-lock -> new incarnation token).
           (frame/destroy-frame! :fc/reused)
-          (rf/reg-frame :fc/reused {:doc "incarnation X+1"})
+          (rf/make-frame {:id :fc/reused :doc "incarnation X+1"})
           (is (some? (frame/frame :fc/reused))
               "precondition: a NEW incarnation is live under the reused id")
           (.countDown release)
@@ -203,7 +203,7 @@
           in-thunk   (CountDownLatch. 1) ;; reg-flow is inside its serialized thunk, holding :drain-lock
           release    (CountDownLatch. 1) ;; let reg-flow finish the thunk
           calls      (atom 0)]
-      (rf/reg-frame :fc/winner {:doc "reg-flow wins the gate"})
+      (rf/make-frame {:id :fc/winner :doc "reg-flow wins the gate"})
       ;; Pause reg-flow INSIDE its serialized thunk (holding the drain-lock) at
       ;; the revalidation read. The FIRST token read is reg-flow's outer pin
       ;; (before the lock); the SECOND is the revalidation (under the lock) —
@@ -250,7 +250,7 @@
     (rf/reg-event :fc/set-n (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
     (dotimes [i 250]
       (let [fid (keyword "fc" (str "race-" i))]
-        (rf/reg-frame fid {:doc "contention frame"})
+        (rf/make-frame {:id fid :doc "contention frame"})
         (let [start   (CountDownLatch. 1)
               reg     (future
                         (.await start 5 TimeUnit/SECONDS)
@@ -286,7 +286,7 @@
 
 (deftest in-drain-reg-flow-reentrancy-preserved
   (testing "a mid-drain reg-flow still registers and materialises (no deadlock, revalidation passes)"
-    (rf/reg-frame :fc/live {:doc "in-drain reg-flow frame"})
+    (rf/make-frame {:id :fc/live :doc "in-drain reg-flow frame"})
     (rf/reg-event :fc/seed (fn [_ _] {:db {:n 5}}))
     ;; A handler that, mid-drain, registers a NEW flow reentrantly.
     (rf/reg-event :fc/install-flow
@@ -309,7 +309,7 @@
 
 (deftest clear-flow-idempotent-for-absent-frame
   (testing "clear-flow against a destroyed / never-registered frame is a silent no-op"
-    (rf/reg-frame :fc/gone {:doc "frame to destroy"})
+    (rf/make-frame {:id :fc/gone :doc "frame to destroy"})
     (frame/destroy-frame! :fc/gone)
     (is (nil? (flows/clear-flow :whatever {:frame :fc/gone}))
         "clear-flow on a DESTROYED frame returns nil (idempotent no-op)")
@@ -330,7 +330,7 @@
 
 (deftest destroy-from-within-a-cold-serialized-write-does-not-deadlock
   (testing "destroy-frame! nested inside a same-thread call-serialized-with-drain! runs reentrantly (no self-deadlock)"
-    (rf/reg-frame :fc/nested {:doc "destroyed from within a serialized write"})
+    (rf/make-frame {:id :fc/nested :doc "destroyed from within a serialized write"})
     (rf/reg-flow :held {:frame :fc/nested :inputs [[:n]] :output-path [:out]} (fn [n] (* 2 (or n 0))))
     (let [;; A cold serialized critical section (no active drain) whose body
           ;; calls destroy-frame! on the SAME frame — the Tool-Pair write shape.

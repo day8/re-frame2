@@ -89,7 +89,7 @@
             dev-gated `:dispatch-id` — is stamped UNCONDITIONALLY because
             recordable coeffects are DURABLE causal data that durable writes
             fold, not a diagnostic."
-    (rf/reg-frame :rf/default {})
+    (rf/make-frame {:id :rf/default})
     (testing ":dispatched-at is gone under BOTH gate states"
       (with-redefs [interop/debug-enabled? true]
         (is (not (contains? (build-envelope [:noop] {}) :dispatched-at))

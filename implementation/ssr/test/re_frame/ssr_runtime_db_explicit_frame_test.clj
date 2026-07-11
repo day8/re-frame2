@@ -116,10 +116,9 @@
   live definition, then seed A's runtime-db with the classified slices."
   []
   (rf/reg-event :review.ssr/seed-db (fn [_ [_ db]] {:db db}))
-  (rf/reg-frame server-frame
-    {:doc            "explicit-frame SSR-target regression frame"
-     :platform       :server
-     :initial-events [[:review.ssr/seed-db {:public "ok" :secret "app-db-secret"}]]})
+  (rf/make-frame {:id server-frame :doc            "explicit-frame SSR-target regression frame"
+                  :platform       :server
+                  :initial-events [[:review.ssr/seed-db {:public "ok" :secret "app-db-secret"}]]})
   (rf/reg-machine machine-id
     {:initial :anon
      :data    {:retries 0 :token nil :blob nil}
@@ -373,7 +372,7 @@
                                     ;; declares nothing — a wide-open policy that
                                     ;; WOULD ship A-old's secret raw if substituted.
                                     (rf/destroy-frame! server-frame)
-                                    (rf/reg-frame server-frame {:platform :server})
+                                    (rf/make-frame {:id server-frame :platform :server})
                                     v))]
                     (streaming/build-final-payload
                       server-frame "hash"

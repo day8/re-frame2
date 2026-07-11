@@ -64,7 +64,7 @@
   ;; `:rf/default` + pin it as the body's ambient scope (the carried-
   ;; invariant equivalent of `(with-frame :rf/default …)`); explicit
   ;; `{:frame …}` opts in the test bodies still win.
-  (rf/reg-frame :rf/default {})
+  (rf/make-frame {:id :rf/default})
   (rf/with-frame :rf/default
     (test-fn)))
 
@@ -116,9 +116,9 @@
       (rf/register-listener! :trace ::recorder listener)
 
       ;; ---- Frame lifecycle: :frame/created, :frame/re-registered ----------
-      (rf/reg-frame :test/main {:doc "comprehensive flow frame"})
+      (rf/make-frame {:id :test/main :doc "comprehensive flow frame"})
       ;; Re-register to fire :frame/re-registered.
-      (rf/reg-frame :test/main {:doc "comprehensive flow frame (rev 2)"})
+      (rf/make-frame {:id :test/main :doc "comprehensive flow frame (rev 2)"})
 
       ;; ---- Event handlers --------------------------------------------------
       (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0 :items [1 2 3]}}))

@@ -457,7 +457,7 @@
                                          :started-at 1000})
                                       (assoc :work/kind :mutation))))
           reconciled (ssr/reconcile-on-restore snapshot fid)]
-      (rf/reg-frame fid {:doc "restore mutation suppression frame"})
+      (rf/make-frame {:id fid :doc "restore mutation suppression frame"})
       ;; install the reconciled snapshot as the live frame-state
       (frame/replace-runtime-db! fid reconciled)
       (testing "post-reconcile the pending instance is terminal + current-work cleared"

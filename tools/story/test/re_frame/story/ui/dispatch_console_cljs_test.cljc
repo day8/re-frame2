@@ -343,7 +343,7 @@
    (deftest cljs-dispatch-event-changes-app-db
      (testing "dispatching against a frame writes app-db via dispatch-sync"
        (let [vid :story.dispatch.test/v]
-         (rf/reg-frame vid {})
+         (rf/make-frame {:id vid})
          (rf/reg-event :test/inc
                           (fn [{:keys [db]} _] {:db (update db :counter (fnil inc 0))}))
          (rf/reg-sub :test/counter
@@ -357,7 +357,7 @@
    (deftest cljs-dispatch-event-records-history
      (testing "every dispatch lands a history entry"
        (let [vid :story.history.test/v]
-         (rf/reg-frame vid {})
+         (rf/make-frame {:id vid})
          (rf/reg-event :test/noop (fn [{:keys [db]} _] {:db db}))
          (dc/dispatch-event! vid [:test/noop {:k :v}] :dispatch-sync)
          (let [h (dc/current-history vid)]
@@ -370,7 +370,7 @@
    (deftest cljs-replay-history-entry-re-fires
      (testing "click-replay re-dispatches the recorded event"
        (let [vid :story.replay.test/v]
-         (rf/reg-frame vid {})
+         (rf/make-frame {:id vid})
          (rf/reg-event :test/inc
                           (fn [{:keys [db]} _] {:db (update db :counter (fnil inc 0))}))
          (rf/reg-sub :test/counter
@@ -387,7 +387,7 @@
    (deftest cljs-dispatch-from-inputs-parse-error-keeps-app-db
      (testing "a bad payload sets :error and does not dispatch"
        (let [vid :story.parse.err/v]
-         (rf/reg-frame vid {})
+         (rf/make-frame {:id vid})
          (rf/reg-event :test/boom (fn [{:keys [db]} _] {:db (assoc db :boomed? true)}))
          (swap! dc/input-state assoc vid
                 {:event-id-input ":test/boom"
@@ -400,7 +400,7 @@
    (deftest cljs-dispatch-from-inputs-missing-id-errors
      (testing "an empty event-id input sets :error"
        (let [vid :story.empty.id/v]
-         (rf/reg-frame vid {})
+         (rf/make-frame {:id vid})
          (swap! dc/input-state assoc vid
                 {:event-id-input ""
                  :payload-input  ""})
@@ -428,7 +428,7 @@
      (testing "registered-event-meta + cofx-requires-for expose an event's
                declared :rf.cofx/requires off the live registrar"
        (let [vid :story.cofx.show/v]
-         (rf/reg-frame vid {})
+         (rf/make-frame {:id vid})
          (rf/reg-cofx :cofx.console/boundary {:recordable? true :provided? true})
          (rf/reg-event :cofx.console/needs
                           {:rf.cofx/requires [:cofx.console/boundary]}
@@ -445,7 +445,7 @@
      (testing "a provided recordable fact supplied under :rf.cofx satisfies
                the handler; the recorded fact reaches app-db + history"
        (let [vid :story.cofx.supply/v]
-         (rf/reg-frame vid {})
+         (rf/make-frame {:id vid})
          (rf/reg-cofx :cofx.console/boundary {:recordable? true :provided? true})
          (rf/reg-event :cofx.console/needs
                           {:rf.cofx/requires [:cofx.console/boundary]}
@@ -474,7 +474,7 @@
                and surfaced as the panel :error"
        (let [vid :story.cofx.omit/v
              fired? (atom false)]
-         (rf/reg-frame vid {})
+         (rf/make-frame {:id vid})
          (rf/reg-cofx :cofx.console/boundary {:recordable? true :provided? true})
          (rf/reg-event :cofx.console/needs
                           {:rf.cofx/requires [:cofx.console/boundary]}
@@ -498,7 +498,7 @@
                strict mint policy — the recorded provided fact is reused, and
                a row whose recorded token omits a required fact fails loudly"
        (let [vid :story.cofx.replay/v]
-         (rf/reg-frame vid {})
+         (rf/make-frame {:id vid})
          (rf/reg-cofx :cofx.console/boundary {:recordable? true :provided? true})
          (rf/reg-event :cofx.console/needs
                           {:rf.cofx/requires [:cofx.console/boundary]}

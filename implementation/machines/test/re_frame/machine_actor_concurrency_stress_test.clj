@@ -182,8 +182,7 @@
       ;; serialised here; the futures only READ from those structures
       ;; (per-frame state lives in independent app-db containers).
       (doseq [{:keys [frame-id worker-mid driver-mid counter]} per-thread]
-        (rf/reg-frame frame-id
-                      {:doc "per-thread frame for actor stress test"})
+        (rf/make-frame {:id frame-id :doc "per-thread frame for actor stress test"})
         (rf/reg-machine worker-mid (worker-spec global-counter counter))
         (rf/reg-machine driver-mid (driver-spec worker-mid)))
 

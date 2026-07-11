@@ -38,6 +38,7 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
+   [re-frame.fx :as fx]
    [re-frame.identity :as identity]
    ;; load-bearing side-effecting require: the façade registers the
    ;; :rf.resource/* events (incl. the internal poll-fired event + the timer /
@@ -78,10 +79,10 @@
   (reset! aborts [])
   (reset! scheduled-timers [])
   (reset! cancelled-poll [])
-  (rf/reg-fx :rf.http/managed (fn [_ctx _args] nil))
-  (rf/reg-fx :rf.http/managed-abort (fn [_ctx work-id] (swap! aborts conj work-id) nil))
-  (rf/reg-fx :rf.resource/schedule-timers (fn [_ctx args] (swap! scheduled-timers conj args) nil))
-  (rf/reg-fx :rf.resource/cancel-poll-timers (fn [_ctx args] (swap! cancelled-poll conj args) nil))
+  (fx/reg-fx :rf.http/managed (fn [_ctx _args] nil))
+  (fx/reg-fx :rf.http/managed-abort (fn [_ctx work-id] (swap! aborts conj work-id) nil))
+  (fx/reg-fx :rf.resource/schedule-timers (fn [_ctx args] (swap! scheduled-timers conj args) nil))
+  (fx/reg-fx :rf.resource/cancel-poll-timers (fn [_ctx args] (swap! cancelled-poll conj args) nil))
   (f))
 
 (use-fixtures :each

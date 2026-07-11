@@ -1086,7 +1086,7 @@
           payload     (edn/read-string payload-edn)
           ;; The client's fixed hydration target — a STABLE id, as every real
           ;; deployment carries (Spec 011 §Client-side hydration boot helper).
-          _           (rf/reg-frame :app/main {:doc "lm2yzy client" :platform :client})]
+          _           (rf/make-frame {:id :app/main :doc "lm2yzy client" :platform :client})]
       (is (= 200 (:status response)))
       (is (not (contains? payload :rf/frame-id))
           "rf2-lm2yzy: the shipped wire payload omits the per-request gensym :rf/frame-id")
@@ -1112,7 +1112,7 @@
                         (second (re-find
                                   #"<script id=\"__rf_payload\"[^>]*>(.*?)</script>"
                                   (:body response))))
-          _           (rf/reg-frame :app/stamped {:doc "lm2yzy stamped" :platform :client})]
+          _           (rf/make-frame {:id :app/stamped :doc "lm2yzy stamped" :platform :client})]
       (is (= :app/stamped (:rf/frame-id payload))
           "the configured stable :client-frame-id rides the wire as :rf/frame-id")
       (is (= payload (ssr/hydrate! {:frame :app/stamped :payload payload}))

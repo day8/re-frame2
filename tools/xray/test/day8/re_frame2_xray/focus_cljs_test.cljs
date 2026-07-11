@@ -36,7 +36,7 @@
 
 (defn- setup-xray-frame! []
   (registry/register-xray-handlers!)
-  (frame/reg-frame :rf/xray {}))
+  (rf/make-frame {:id :rf/xray}))
 
 ;; ---- cascade fixture (mirrors spine-cljs-test) --------------------------
 

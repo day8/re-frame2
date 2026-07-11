@@ -86,7 +86,7 @@
          enclosing transition map (rf2-se70xj machine-meta contract)")
     ;; Drive the real macrostep and render the HANDLER step. The body embeds
     ;; edn-inspectors that subscribe against the surrounding frame.
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (let [trace  (drive! [:go])
           rows   (proj/machine-cascade-rows trace)
           action-rows (filterv #(= :action (:kind %)) rows)

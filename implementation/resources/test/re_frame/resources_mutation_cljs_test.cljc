@@ -32,6 +32,7 @@
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [clojure.string :as str]
    [re-frame.core :as rf]
+   [re-frame.fx :as fx]
    [re-frame.elision :as elision]
    [re-frame.privacy :as privacy]
    [re-frame.reply :as reply]
@@ -74,12 +75,12 @@
   [f]
   (reset! last-managed-args nil)
   (reset! scheduled-timers [])
-  (rf/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
+  (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
   ;; capture the host-side stale / GC timer arming so the success handler's
   ;; emission is asserted deterministically WITHOUT a real wall-clock timer
   ;; firing (the timer-table primitive is tested directly in the
   ;; invalidation/GC suite).
-  (rf/reg-fx :rf.resource/schedule-timers (fn [_ctx args] (swap! scheduled-timers conj args) nil))
+  (fx/reg-fx :rf.resource/schedule-timers (fn [_ctx args] (swap! scheduled-timers conj args) nil))
   (f))
 
 (use-fixtures :each
@@ -759,11 +760,11 @@
 (deftest cross-frame-mutation-reply-rejected-without-mutating-receiving-frame
   (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (let [all-args (atom [])]
-    (rf/reg-fx :rf.http/managed (fn [_ctx args] (swap! all-args conj args) nil))
+    (fx/reg-fx :rf.http/managed (fn [_ctx args] (swap! all-args conj args) nil))
     (let [fa :xfm/frame-a
           fb :xfm/frame-b]
-      (rf/reg-frame fa {:doc "frame A"})
-      (rf/reg-frame fb {:doc "frame B"})
+      (rf/make-frame {:id fa :doc "frame A"})
+      (rf/make-frame {:id fb :doc "frame B"})
       ;; both frames execute the SAME mutation under the SAME instance id →
       ;; the SAME frame-local work-id + generation in each frame.
       (rf/dispatch-sync [:rf.mutation/execute
@@ -1342,7 +1343,7 @@
   ;; clear would gate the wrong one).
   (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (let [all-args (atom [])]
-    (rf/reg-fx :rf.http/managed (fn [_ctx args] (swap! all-args conj args) nil))
+    (fx/reg-fx :rf.http/managed (fn [_ctx args] (swap! all-args conj args) nil))
     (let [iv [:row 7]
           il '(:row 7)]
       (is (= iv il) "the two instance ids are Clojure-= (the collapse routed around)")
@@ -1381,7 +1382,7 @@
   ;; identity, so clearing `[:row 7]` does NOT also clear / gate `'(:row 7)`.
   (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (let [all-args (atom [])]
-    (rf/reg-fx :rf.http/managed (fn [_ctx args] (swap! all-args conj args) nil))
+    (fx/reg-fx :rf.http/managed (fn [_ctx args] (swap! all-args conj args) nil))
     (let [iv [:row 7]
           il '(:row 7)]
       (rf/dispatch-sync [:rf.mutation/execute
@@ -1407,11 +1408,11 @@
 (deftest cross-frame-mutation-request-id-does-not-collide
   (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (let [all-args (atom [])]
-    (rf/reg-fx :rf.http/managed (fn [_ctx args] (swap! all-args conj args) nil))
+    (fx/reg-fx :rf.http/managed (fn [_ctx args] (swap! all-args conj args) nil))
     (let [fa :xm/frame-a
           fb :xm/frame-b]
-      (rf/reg-frame fa {:doc "frame A"})
-      (rf/reg-frame fb {:doc "frame B"})
+      (rf/make-frame {:id fa :doc "frame A"})
+      (rf/make-frame {:id fb :doc "frame B"})
       ;; both frames execute the SAME mutation under the SAME caller-supplied
       ;; instance id → SAME frame-local work-id at the same generation.
       (rf/dispatch-sync [:rf.mutation/execute

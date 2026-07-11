@@ -786,7 +786,7 @@
         [:test/comments-section]]
        [:footer "End"]])
     (let [fid (keyword "rf.frame" (str (gensym "f")))]
-      (rf/reg-frame fid {:platform :server :initial-events [[:rf.test.server/init]]})
+      (rf/make-frame {:id fid :platform :server :initial-events [[:rf.test.server/init]]})
       (try
         (rf/with-frame fid
           (let [;; The server streaming handler computes the final hash over
@@ -1381,7 +1381,7 @@
       ;; That hash MUST equal the payload's :rf/render-hash, or
       ;; :rf.ssr/hydration-mismatch fires on a page the server just shipped.
       (let [cfid (keyword "rf.frame" (str (gensym "client")))]
-        (rf/reg-frame cfid {:platform :server})
+        (rf/make-frame {:id cfid :platform :server})
         (try
           (rf/with-frame cfid
             ;; Hydrate the client frame with the payload's post-drain app-db

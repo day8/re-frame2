@@ -76,7 +76,7 @@
 
 (defn- setup-xray-frame! []
   (registry/register-xray-handlers!)
-  (frame/reg-frame :rf/xray {}))
+  (rf/make-frame {:id :rf/xray}))
 
 ;; Construct a synthetic trace event living INSIDE an epoch record's
 ;; `:trace-events` slot.

@@ -142,7 +142,7 @@
     (with-hook-as-nil :flows/teardown-on-frame-destroy!
       (fn []
         (rf/init! plain-atom/adapter)
-        (rf/reg-frame :late-bind-missing/scratch {:doc "scratch frame for teardown probe"})
+        (rf/make-frame {:id :late-bind-missing/scratch :doc "scratch frame for teardown probe"})
         (is (some? (get @frame/frames :late-bind-missing/scratch))
             "frame registered")
         (is (do (frame/destroy-frame! :late-bind-missing/scratch) :ok)

@@ -159,10 +159,9 @@
       ;; it to the `{:from-db}` resource.
       (rf/reg-event :p026f5/classify
         (fn [_ _] {:sensitive [[:auth :user :username]]}))
-      (rf/reg-frame fid
-        {:platform       :server
-         :doc            "rf2-p026f5 per-request frame"
-         :initial-events [[:p026f5/classify]]})
+      (rf/make-frame {:id fid :platform       :server
+                      :doc            "rf2-p026f5 per-request frame"
+                      :initial-events [[:p026f5/classify]]})
       (try
         ;; Seed a loaded feed entry whose session scope embeds the viewer
         ;; identity ("jake"), with article data.
@@ -214,10 +213,9 @@
     (let [fid :p026f5/req-frame-sensitive]
       (rf/reg-event :p026f5/classify
         (fn [_ _] {:sensitive [[:auth :user :username]]}))
-      (rf/reg-frame fid
-        {:platform       :server
-         :doc            "rf2-p026f5 per-request frame (owner-sensitive)"
-         :initial-events [[:p026f5/classify]]})
+      (rf/make-frame {:id fid :platform       :server
+                      :doc            "rf2-p026f5 per-request frame (owner-sensitive)"
+                      :initial-events [[:p026f5/classify]]})
       (try
         (seed-feed-runtime-db! fid "jake" 1 {:articles [:a :b]})
         (let [opts     {:initial-events nil
@@ -282,9 +280,8 @@
       ;; (EP-0025 clean break) — see the first deftest's note.
       (rf/reg-event :p026f5/classify-2
         (fn [_ _] {:sensitive [[:auth :user :username]]}))
-      (rf/reg-frame fid
-        {:platform       :server
-         :initial-events [[:p026f5/classify-2]]})
+      (rf/make-frame {:id fid :platform       :server
+                      :initial-events [[:p026f5/classify-2]]})
       (try
         (let [sk    (state/scoped-resource-key [:rf.scope/locale {:locale :en}]
                                                :p026f5/prefs {})

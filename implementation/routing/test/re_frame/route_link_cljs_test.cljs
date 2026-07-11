@@ -367,7 +367,7 @@
   (testing "a link rendered under :route/owner, clicked after the render
             scope unwound and with NO ambient frame, dispatches
             :rf.route/url-requested into :route/owner — not :rf.error/no-frame-context"
-    (rf/reg-frame :route/owner {})
+    (rf/make-frame {:id :route/owner})
     (rf/reg-route :route/cart {} "/cart")
     (let [{:keys [target-frame source raised]}
           (click-after-scope-unwound! {:to :route/cart} :route/owner nil)]
@@ -382,8 +382,8 @@
   (testing "even when a DIFFERENT frame is ambient at click time, the click
             routes to the frame that RENDERED the link (the captured frame is
             authoritative, never the click-time ambient)"
-    (rf/reg-frame :route/owner {})
-    (rf/reg-frame :route/other {})
+    (rf/make-frame {:id :route/owner})
+    (rf/make-frame {:id :route/other})
     (rf/reg-route :route/cart {} "/cart")
     (let [{:keys [target-frame source raised]}
           (click-after-scope-unwound! {:to :route/cart} :route/owner :route/other)]

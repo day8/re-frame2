@@ -35,13 +35,12 @@
   container, not on :rf/default."
   [{:keys [db on-create]}]
   (let [fid (keyword "rf.frame" (str (gensym "")))]
-    (rf/reg-frame fid
-      {:doc       "streaming-test frame"
-       :platform  :server
-       :initial-events [(or on-create
-                            (if db
-                              [:rf.test/seed-db db]
-                              [:rf.test/noop]))]})
+    (rf/make-frame {:id fid :doc       "streaming-test frame"
+                    :platform  :server
+                    :initial-events [(or on-create
+                                         (if db
+                                           [:rf.test/seed-db db]
+                                           [:rf.test/noop]))]})
     fid))
 
 (deftest render-shell-emits-fallback-template

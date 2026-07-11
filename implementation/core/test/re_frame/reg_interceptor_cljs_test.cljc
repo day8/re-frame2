@@ -221,7 +221,7 @@
       (rf/reg-interceptor :evt/log
         {:before (fn [ctx] (swap! log conj [:event :before]) ctx)
          :after  (fn [ctx] (swap! log conj [:event :after]) ctx)})
-      (rf/reg-frame :test/framed {:interceptors [:frame/log]})
+      (rf/make-frame {:id :test/framed :interceptors [:frame/log]})
       (rf/reg-event :framed/run
         {:interceptors [:evt/log]}
         (fn [{:keys [db]} _] {:db db}))

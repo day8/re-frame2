@@ -94,7 +94,7 @@
           ;; report names the offending round + committed map rather
           ;; than just "topo-sort threw".
           first-bad   (atom nil)]
-      (rf/reg-frame frame-id {:doc "shared frame for the reg-flow TOCTOU repro"})
+      (rf/make-frame {:id frame-id :doc "shared frame for the reg-flow TOCTOU repro"})
       (dotimes [round rounds]
         (let [a-id    (keyword "qxwib.toctou" (str "a-" round))
               b-id    (keyword "qxwib.toctou" (str "b-" round))

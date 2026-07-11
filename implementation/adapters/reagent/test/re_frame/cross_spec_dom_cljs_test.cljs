@@ -26,6 +26,7 @@
             [reagent.dom.client :as rdc]
             ["react-dom" :as react-dom]
             [re-frame.core :as rf]
+            [re-frame.fx :as fx]
             [re-frame.frame :as frame]
             ;; rf2-k682: routing ships in day8/re-frame2-routing.
             ;; Required here so its load-time hook + reg-sub
@@ -93,7 +94,7 @@
   "#1 Frame disposal with active machine instances —
    destroy-frame! emits one :rf.machine.lifecycle/destroyed per active
    machine, carrying :reason :parent-frame-destroyed."
-  (rf/reg-frame :tenant-x {:doc "tenant frame with two machines"})
+  (rf/make-frame {:id :tenant-x :doc "tenant frame with two machines"})
   ;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state.
   (rf/reg-event :seed
     (fn [{rt :rf.db/runtime} _]
@@ -180,7 +181,7 @@
   ;; queue. This test models a TOP-LEVEL boot — clear the ambient scope so the
   ;; `:initial-events` cascade drains synchronously and its seed is observable.
   (binding [frame/*current-frame* nil]
-    (rf/reg-frame :booted {:initial-events [[:init-shape]]}))
+    (rf/make-frame {:id :booted :initial-events [[:init-shape]]}))
   (let [rt (:rf.db/runtime (rf/frame-state-value :booted))]
     (is (= :armed (get-in rt [:rf.runtime/machines :snapshots :flow/boot :state]))
         ":initial-events completed against an installed adapter — runtime-db carries the seed")))
@@ -200,7 +201,7 @@
    schedule time. See machines.cljc §`:after`-scheduling, where the
    `:server` branch emits `:rf.machine.timer/skipped-on-server` in
    place of `:rf.machine.timer/scheduled`."
-  (rf/reg-frame :req {:preset :ssr-server})
+  (rf/make-frame {:id :req :preset :ssr-server})
   (let [meta (rf/frame-meta :req)]
     (is (= :server (:platform meta))
         ":ssr-server preset sets :platform :server on the frame metadata"))
@@ -272,11 +273,11 @@
    :rf.nav/push-url and :rf.nav/replace-url are no-ops on :server; the
    route slice itself is just app-db so it hydrates trivially."
   (rf/reg-route :user/show {} "/users/:id")
-  (rf/reg-frame :req {:preset :ssr-server})
+  (rf/make-frame {:id :req :preset :ssr-server})
   ;; Re-register the framework nav fx (reset-runtime cleared the
   ;; registrar) so this test exercises the same platform-gating shape
   ;; the production fx use.
-  (rf/reg-fx :rf.nav/push-url
+  (fx/reg-fx :rf.nav/push-url
     {:platforms #{:client}}
     (fn [_ _] :should-not-run-on-server))
   (rf/reg-event :emit-nav
@@ -363,7 +364,7 @@
                            [:div.x {:data-render-count n
                                     :data-db          (pr-str db)}
                             "ok"]))]
-      (rf/reg-frame target-frame {:doc "frame destroyed mid-render"})
+      (rf/make-frame {:id target-frame :doc "frame destroyed mid-render"})
       (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7}}))
       (rf/dispatch-sync [:seed] {:frame target-frame})
       (with-trace-recorder! [traces]
@@ -437,7 +438,7 @@
   "#9 Reactive substrate without React-context —
    the resolution chain is dynamic-var → :rf/default when the substrate
    has no context concept (the dynamic var is the always-available tier)."
-  (rf/reg-frame :alt {:doc "alt frame"})
+  (rf/make-frame {:id :alt :doc "alt frame"})
   ;; Outside any with-frame: falls back to :rf/default.
   (is (= :rf/default (rf/current-frame-id))
       "no dynamic binding → resolves to :rf/default")
@@ -475,7 +476,7 @@
   (if-not (browser?)
     (is true ":node-test: no DOM — browser-test runner exercises the assertions")
     (let [target-frame :tenant-plain-fn-warn]
-      (rf/reg-frame target-frame {:doc "non-default frame for plain-fn no-frame-context test"})
+      (rf/make-frame {:id target-frame :doc "non-default frame for plain-fn no-frame-context test"})
       (rf/reg-event :seed-plain-fn (fn [{:keys [db]} _] {:db {:n 7}}))
       (rf/dispatch-sync [:seed-plain-fn] {:frame target-frame})
       (rf/reg-sub :plain-fn-test/n (fn [db _] (:n db)))
@@ -563,7 +564,7 @@
   (if-not (browser?)
     (is true ":node-test: no DOM — browser-test runner exercises the assertions")
     (let [target-frame :tenant-reg-view-no-warn]
-      (rf/reg-frame target-frame {:doc "non-default frame for reg-view negative test"})
+      (rf/make-frame {:id target-frame :doc "non-default frame for reg-view negative test"})
       (rf/reg-event :seed-reg-view (fn [{:keys [db]} _] {:db {:k 11}}))
       (rf/dispatch-sync [:seed-reg-view] {:frame target-frame})
       (rf/reg-sub :reg-view-test/k (fn [db _] (:k db)))
@@ -626,7 +627,7 @@
     (let [target-frame :tenant-rf2-d4sf]
       ;; Two distinct frames whose app-dbs hold different values so the
       ;; subscribed reaction tells us unambiguously which one served it.
-      (rf/reg-frame target-frame {:doc "non-default frame — :v 42"})
+      (rf/make-frame {:id target-frame :doc "non-default frame — :v 42"})
       (rf/reg-event :seed-target (fn [{:keys [db]} _] {:db {:v 42}}))
       (rf/reg-event :seed-default (fn [{:keys [db]} _] {:db {:v 7}}))
       (rf/dispatch-sync [:seed-target]  {:frame target-frame})
@@ -703,10 +704,8 @@
    React-context tier in the resolution chain. A `with-frame` binding
    inside a non-default frame-provider's subtree wins over the provider
    for the duration of the binding."
-  (rf/reg-frame :rf.d4sf/dynamic-tier
-                {:doc "frame referenced via with-frame, not via provider"})
-  (rf/reg-frame :rf.d4sf/provider-tier
-                {:doc "frame referenced via the React-context provider"})
+  (rf/make-frame {:id :rf.d4sf/dynamic-tier :doc "frame referenced via with-frame, not via provider"})
+  (rf/make-frame {:id :rf.d4sf/provider-tier :doc "frame referenced via the React-context provider"})
   ;; Outside of any render, `with-frame` binds the dynamic var, and the
   ;; React-context tier is never consulted (no Provider above this code
   ;; path). Pin the precedence on the JVM-shared resolution path here —
@@ -770,7 +769,7 @@
   (if-not (browser?)
     (is true ":node-test: no DOM — browser-test runner exercises the assertions")
     (let [target-frame :tenant-d4sf-dispatch]
-      (rf/reg-frame target-frame {:doc "non-default frame for dispatch routing test"})
+      (rf/make-frame {:id target-frame :doc "non-default frame for dispatch routing test"})
       (rf/reg-event :rf2-d4sf/record-here (fn [{:keys [db]} _] {:db (assoc db :stamped :here)}))
       (rf/reg-view* :rf.cross-spec-d4sf/dispatcher-probe
                     (fn dispatcher-probe-impl []
@@ -991,7 +990,7 @@
    response map, including listener-driven buffering) is covered by
    re-frame.ssr-end-to-end-test/ssr-default-error-projector-handler-
    exception."
-  (rf/reg-frame :req {:preset :ssr-server})
+  (rf/make-frame {:id :req :preset :ssr-server})
   (rf/reg-event :handler-throws
     (fn [_ _] (throw (ex-info "boom" {}))))
   (with-trace-recorder! [traces]
@@ -1030,7 +1029,7 @@
    request frame; the snapshot is unchanged. As with the non-SSR case
    the machine-scoped :rf.error/machine-action-exception fires, NOT
    the generic :rf.error/handler-exception."
-  (rf/reg-frame :req {:preset :ssr-server})
+  (rf/make-frame {:id :req :preset :ssr-server})
   (let [machine {:initial :idle
                  :data    {}
                  :states  {:idle  {:on {:bang {:target :angry :action :boom}}}
@@ -1090,7 +1089,7 @@
     (rf/reg-fx :http             (fn [_ args] (swap! seen conj [:real-http args])))
     (rf/reg-fx :rf.test/http-stub (fn [_ args] (swap! seen conj [:stub args])))
     ;; Frame with an id-valued override: :http is rerouted to :rf.test/http-stub.
-    (rf/reg-frame :story-frame {:fx-overrides {:http :rf.test/http-stub}})
+    (rf/make-frame {:id :story-frame :fx-overrides {:http :rf.test/http-stub}})
     (rf/reg-event :go (fn [_ _] {:fx [[:http {:url "/x"}]]}))
     (rf/dispatch-sync [:go] {:frame :story-frame})
     (is (= [[:stub {:url "/x"}]] @seen)

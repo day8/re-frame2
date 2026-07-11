@@ -45,7 +45,7 @@
   ;; `reg-frame …:initial-events` still drain synchronously — the lifecycle
   ;; async/sync split keys off `*handler-scope*` (a real cascade), not
   ;; this ambient scope.
-  (rf/reg-frame :rf/default {})
+  (rf/make-frame {:id :rf/default})
   (rf/with-frame :rf/default
     (test-fn)))
 
@@ -94,7 +94,7 @@
   (testing ":frame opt selects which frame's app-db is asserted against"
     (register-counter-handlers!)
     (rf/dispatch-sync [:counter/init])
-    (rf/reg-frame :test-support/assert-frame {:initial-events [[:counter/init]]})
+    (rf/make-frame {:id :test-support/assert-frame :initial-events [[:counter/init]]})
     (rf/dispatch-sync [:counter/add 3] {:frame :test-support/assert-frame})
     (let [outcomes (record-reports
                      (fn []
@@ -339,7 +339,7 @@
                                  nil)))
         ;; Register and destroy a frame. The destroy cascade walks every
         ;; cleanup hook exactly once.
-        (rf/reg-frame :rf2-j9phb/target {})
+        (rf/make-frame {:id :rf2-j9phb/target})
         (frame/destroy-frame! :rf2-j9phb/target)
 
         (doseq [k destroy-frame-hook-keys]
@@ -374,7 +374,7 @@
                                     :epoch/on-frame-destroyed id
                                     :epoch/snapshot-args [db-before db-after]
                                     :epoch/committed-at committed-at)))
-        (rf/reg-frame :rf2-j9phb/arg-target {})
+        (rf/make-frame {:id :rf2-j9phb/arg-target})
         (frame/destroy-frame! :rf2-j9phb/arg-target)
 
         (is (= :rf2-j9phb/arg-target

@@ -212,7 +212,7 @@
 (deftest violation-is-per-frame
   (testing "rf2-ee38b.6 — the violation check reads the live app-db of
             the registration's frame, not :rf/default"
-    (rf/reg-frame :tenant/a {})
+    (rf/make-frame {:id :tenant/a})
     (rf/reg-app-schema [:count] {:frame :tenant/a} :int)
     (set-app-db! :tenant/a {:count "bad"})
     (let [violations (capture :rf.schema/violation

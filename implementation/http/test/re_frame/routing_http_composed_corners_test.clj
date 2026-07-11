@@ -26,6 +26,7 @@
       precedence."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.fx :as fx]
             [re-frame.http.managed :as http-managed]
             [re-frame.http.test-support]
             [re-frame.routing]
@@ -153,7 +154,7 @@
                   {:params    [:map [:id :string]]
                    :can-leave :editor/blocked?} "/editor/:id")
     (rf/reg-route :route/home {} "/")
-    (rf/reg-fx :rf.nav/push-url
+    (fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
 
@@ -254,7 +255,7 @@
     ;; Use a sibling route that's an actual valid URL (not /home which
     ;; would be :route/root). /sibling has its own route entry.
     (rf/reg-route :route/sibling {} "/sibling")
-    (rf/reg-fx :rf.nav/push-url
+    (fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ url] nil))
 
@@ -272,7 +273,7 @@
       ;; via :rf.route/transitioned dispatched from :rf.route/url-requested.
       (let [pushed (atom [])]
         (rf/clear-fx :rf.nav/push-url)
-        (rf/reg-fx :rf.nav/push-url
+        (fx/reg-fx :rf.nav/push-url
                    {:platforms #{:server :client}}
                    (fn [_ url] (swap! pushed conj url)))
 
@@ -336,7 +337,7 @@
     (let [[recorded unreg] (record! ::stale-cycle)
           pushed           (atom [])]
       (try
-        (rf/reg-fx :rf.nav/push-url
+        (fx/reg-fx :rf.nav/push-url
                    {:platforms #{:server :client}}
                    (fn [_ url] (swap! pushed conj url)))
 

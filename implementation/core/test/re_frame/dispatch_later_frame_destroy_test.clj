@@ -49,7 +49,7 @@
   ;; table fires in the CLJS path).
   (fx/reset-dispatch-later-timers!)
   (rf/init! plain-atom/adapter)
-  (rf/reg-frame :rf/default {})
+  (rf/make-frame {:id :rf/default})
   (test-fn)
   (fx/reset-dispatch-later-timers!))
 
@@ -87,7 +87,7 @@
 (deftest dispatch-later-handle-retained-then-cancelled-on-destroy
   (testing "an armed :dispatch-later handle is retained under the frame's key
             and removed by destroy-frame! (rf2-uxz52g)"
-    (rf/reg-frame test-frame {:doc "rf2-uxz52g destroy-cancellation frame"})
+    (rf/make-frame {:id test-frame :doc "rf2-uxz52g destroy-cancellation frame"})
     (rf/reg-event :rf2-uxz52g/target (fn [{:keys [db]} _] {:db db}))
     (rf/reg-event :rf2-uxz52g/arm-later
       ;; A long delay so the timer never fires on its own during the test —
@@ -120,7 +120,7 @@
     (let [target-ran (atom 0)
           errors     (atom [])]
       (rf/register-listener! :errors ::recorder (fn [record] (swap! errors conj record)))
-      (rf/reg-frame test-frame {:doc "rf2-uxz52g behavioural frame"})
+      (rf/make-frame {:id test-frame :doc "rf2-uxz52g behavioural frame"})
       (rf/reg-event :rf2-uxz52g/target
         ;; Records into an EXTERNAL atom (not frame-db) so a would-be dead
         ;; dispatch is observable independent of the destroyed-frame recovery.
@@ -157,7 +157,7 @@
   (testing "a :dispatch-later for a frame that stays alive still dispatches its
             event, and the fired timer leaves no residue in the side table"
     (let [target-ran (atom 0)]
-      (rf/reg-frame test-frame {:doc "rf2-uxz52g live-path frame"})
+      (rf/make-frame {:id test-frame :doc "rf2-uxz52g live-path frame"})
       (rf/reg-event :rf2-uxz52g/target
         (fn [{:keys [db]} _] (swap! target-ran inc) {:db db}))
       (rf/reg-event :rf2-uxz52g/arm-short
@@ -291,7 +291,7 @@
             path is leak-free through the real host executor, no stress needed
             (rf2-3fc89f.3 acceptance 3)"
     (let [target-ran (atom 0)]
-      (rf/reg-frame test-frame {:doc "rf2-3fc89f.3 zero-delay live-path frame"})
+      (rf/make-frame {:id test-frame :doc "rf2-3fc89f.3 zero-delay live-path frame"})
       (rf/reg-event :rf2-uxz52g/target
         (fn [{:keys [db]} _] (swap! target-ran inc) {:db db}))
       (rf/reg-event :rf2-uxz52g/arm-now

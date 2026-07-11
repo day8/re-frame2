@@ -970,7 +970,7 @@
     (async done
       (rf/init! reagent-adapter/adapter)
       (frame/ensure-default-frame!)
-      (rf/reg-frame :frame/req {:doc "the frame that owns the in-flight request"})
+      (rf/make-frame {:id :frame/req :doc "the frame that owns the in-flight request"})
       (http-managed/clear-all-in-flight!)
       (let [fetch-count (atom 0)
             replies     (atom [])

@@ -41,7 +41,7 @@
   ;; `{:frame :rf/default}` opt (`:rf/default` is an ordinary, legal frame
   ;; id a small app / test may register and select — Spec 002 §`:rf/default`
   ;; is an ordinary id).
-  (rf/reg-frame :rf/default {:doc "the explicit app frame for this test ns"})
+  (rf/make-frame {:id :rf/default :doc "the explicit app frame for this test ns"})
   ;; Framework events / fx are registered at namespace-load time in
   ;; routing.cljc and ssr.cljc; clear-all! wiped them. Re-eval those
   ;; registrations so :rf/hydrate, :rf.nav/push-url etc. resurrect.
@@ -142,8 +142,8 @@
 
 (deftest sub-re-register-evicts-cache-cross-frame
   (testing "re-registering a :sub disposes its cached reaction in every frame"
-    (rf/reg-frame :left  {:doc "left frame"})
-    (rf/reg-frame :right {:doc "right frame"})
+    (rf/make-frame {:id :left :doc "left frame"})
+    (rf/make-frame {:id :right :doc "right frame"})
     (rf/reg-event :seed (fn [{:keys [db]} [_ n]] {:db {:n n}}))
     ;; Two frames each carrying their own :n.
     (rf/dispatch-sync [:seed 3] {:frame :left})
@@ -257,8 +257,8 @@
             update — live app-db (including [:rf.runtime/machines :snapshots] snapshot for
             active machine instances) is preserved"
     ;; Register a frame with an arbitrary doc.
-    (rf/reg-frame :tenant {:doc       "v1 metadata"
-                           :tenant-id :acme})
+    (rf/make-frame {:id :tenant :doc       "v1 metadata"
+                    :tenant-id :acme})
     ;; Build a tiny machine and dispatch into it so [:rf.runtime/machines :snapshots] is
     ;; populated. We use a machine handler so the snapshot lands at
     ;; [:rf.runtime/machines :snapshots :traffic-light] per Spec 005.
@@ -286,9 +286,9 @@
       (is (= 2 (get-in pre-snapshot [:data :ticks]))
           "machine data accumulated across two transitions")
       ;; SURGICAL metadata update: re-register with new metadata.
-      (rf/reg-frame :tenant {:doc       "v2 metadata"
-                             :tenant-id :acme
-                             :version   2})
+      (rf/make-frame {:id :tenant :doc       "v2 metadata"
+                      :tenant-id :acme
+                      :version   2})
       ;; The :app-db CONTAINER is the same identity (no replace happened).
       (is (identical? pre-app-db-cont (frame/app-db-container :tenant))
           "frame's app-db container is preserved (same identity)")

@@ -229,7 +229,7 @@
   [{:keys [adapter substrate-kw name]}]
   (testing (str name " — MUST (1): dispose clears sub-caches across live frames")
     (let [fid (mint-kw substrate-kw "walk-a")]
-      (rf/reg-frame fid {})
+      (rf/make-frame {:id fid})
       (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7}}))
       (rf/reg-sub :n (fn [db _] (:n db)))
       (rf/dispatch-sync [:seed] {:frame fid})
@@ -263,8 +263,8 @@
   (testing (str name " — MUST (1) best-effort: a throwing entry does not abort the walk")
     (let [fid-a (mint-kw substrate-kw "best-effort-a")
           fid-b (mint-kw substrate-kw "best-effort-b")]
-      (rf/reg-frame fid-a {})
-      (rf/reg-frame fid-b {})
+      (rf/make-frame {:id fid-a})
+      (rf/make-frame {:id fid-b})
       (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 1}}))
       (rf/reg-sub :n (fn [db _] (:n db)))
       (rf/dispatch-sync [:seed] {:frame fid-a})
@@ -851,7 +851,7 @@
       (try
         (is (nil? (substrate-adapter/replace-container! nil {:any :value}))
             "nil container is a documented no-op, not an exception")
-        (rf/reg-frame fid {:doc "write-after-destroy reproducer frame"})
+        (rf/make-frame {:id fid :doc "write-after-destroy reproducer frame"})
         (frame/destroy-frame! fid)
         (let [container (frame/app-db-container fid)]
           (is (nil? container) "app-db-container on a destroyed frame returns nil")
@@ -1344,7 +1344,7 @@
   the surrounding with-frame lexical scope has unwound."
   [{:keys [name]}]
   (testing (str name " — capture-frame survives scope unwind")
-    (rf/reg-frame :side {:doc "side frame"})
+    (rf/make-frame {:id :side :doc "side frame"})
     (rf/reg-event :seed (fn [{:keys [db]} [_ n]] {:db {:n n}}))
     (rf/dispatch-sync [:seed 99] {:frame :side})
     (let [handle (with-frame :side (rf/capture-frame))]
@@ -1356,8 +1356,8 @@
   "Two frames carry independent app-db state, share the handler registry."
   [{:keys [name]}]
   (testing (str name " — two frames carry independent app-db state")
-    (rf/reg-frame :left  {:doc "left frame"})
-    (rf/reg-frame :right {:doc "right frame"})
+    (rf/make-frame {:id :left :doc "left frame"})
+    (rf/make-frame {:id :right :doc "right frame"})
     (rf/reg-event :counter/init (fn [{:keys [db]} [_ n]] {:db {:count n}}))
     (rf/reg-event :counter/inc  (fn [{:keys [db]} _] {:db (update db :count inc)}))
     (rf/reg-sub :count (fn [db _] (:count db)))
@@ -1779,7 +1779,7 @@
           seed-id (mint-kw substrate-kw "inval-app-seed")
           rt-id   (mint-kw substrate-kw "inval-app-touch-rt")
           runs    (atom 0)]
-      (rf/reg-frame fid {})
+      (rf/make-frame {:id fid})
       (rf/reg-event seed-id (fn [{:keys [db]} _] {:db {:n 1}}))
       (rf/dispatch-sync [seed-id] {:frame fid})
       (rf/reg-sub app-id (fn [db _] (swap! runs inc) (:n db)))
@@ -1813,7 +1813,7 @@
           seed-id (mint-kw substrate-kw "inval-rt-seed")
           app-id  (mint-kw substrate-kw "inval-rt-app-write")
           runs    (atom 0)]
-      (rf/reg-frame fid {})
+      (rf/make-frame {:id fid})
       ;; Seed the runtime-db partition (framework-authority write).
       (reg-fw-runtime-handler! seed-id
         (fn [_ _] {:rf.db/runtime {:rf.runtime/routing {:current {:route-id :home}}}}))
@@ -1852,7 +1852,7 @@
           rt-write  (mint-kw substrate-kw "inval-both-rt-write")
           app-runs  (atom 0)
           rt-runs   (atom 0)]
-      (rf/reg-frame fid {})
+      (rf/make-frame {:id fid})
       (rf/reg-event seed-app (fn [{:keys [db]} _] {:db {:n 1}}))
       (rf/dispatch-sync [seed-app] {:frame fid})
       (reg-fw-runtime-handler! seed-rt
@@ -2159,7 +2159,7 @@
   "#1 Frame disposal with active machine instances."
   [{:keys [name]}]
   (testing (str name " — #1 frame disposal with active machine instances")
-    (rf/reg-frame :tenant-x {:doc "tenant frame with two machines"})
+    (rf/make-frame {:id :tenant-x :doc "tenant frame with two machines"})
     ;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state.
     (rf/reg-event :seed
       (fn [{rt :rf.db/runtime} _]
@@ -2214,7 +2214,7 @@
     ;; async-queue; only an in-flight handler cascade — `*handler-scope*` — would,
     ;; and that is now a fail-loud error). This test models a TOP-LEVEL boot, so
     ;; the setup drains synchronously and its seed is observable.
-    (rf/reg-frame :booted {:initial-events [[:init-shape]]})
+    (rf/make-frame {:id :booted :initial-events [[:init-shape]]})
     (is (= :armed (get-in (:rf.db/runtime (rf/frame-state-value :booted)) [:rf.runtime/machines :snapshots :flow/boot :state]))
         ":initial-events completed against an installed adapter — runtime-db carries the seed")))
 
@@ -2222,7 +2222,7 @@
   "#4 Machines under SSR (allowed-subset)."
   [{:keys [name]}]
   (testing (str name " — #4 machines under SSR (allowed-subset)")
-    (rf/reg-frame :req {:preset :ssr-server})
+    (rf/make-frame {:id :req :preset :ssr-server})
     (let [m (rf/frame-meta :req)]
       (is (= :server (:platform m)) ":ssr-server preset sets :platform :server"))
     (rf/reg-machine :ssr/timed
@@ -2257,7 +2257,7 @@
   "#9 Reactive substrate without React-context."
   [{:keys [name]}]
   (testing (str name " — #9 reactive substrate without React-context")
-    (rf/reg-frame :alt {:doc "alt frame"})
+    (rf/make-frame {:id :alt :doc "alt frame"})
     (is (= :rf/default (rf/current-frame-id)) "no dynamic binding → resolves to :rf/default")
     (rf/with-frame :alt
       (is (= :alt (rf/current-frame-id)) "dynamic-var tier wins over :rf/default"))
@@ -2361,7 +2361,7 @@
   "#16 Error projection on the server."
   [{:keys [name]}]
   (testing (str name " — #16 error projection on the server")
-    (rf/reg-frame :req {:preset :ssr-server})
+    (rf/make-frame {:id :req :preset :ssr-server})
     (rf/reg-event :handler-throws (fn [_ _] (throw (ex-info "boom" {}))))
     (let [traces (collect-traces ::xspec-16)]
       (rf/dispatch-sync [:handler-throws] {:frame :req})
@@ -2397,7 +2397,7 @@
     (let [seen (atom [])]
       (rf/reg-fx :http             (fn [_ args] (swap! seen conj [:real-http args])))
       (rf/reg-fx :rf.test/http-stub (fn [_ args] (swap! seen conj [:stub args])))
-      (rf/reg-frame :story-frame {:fx-overrides {:http :rf.test/http-stub}})
+      (rf/make-frame {:id :story-frame :fx-overrides {:http :rf.test/http-stub}})
       (rf/reg-event :go (fn [_ _] {:fx [[:http {:url "/x"}]]}))
       (rf/dispatch-sync [:go] {:frame :story-frame})
       (is (= [[:stub {:url "/x"}]] @seen)
@@ -2549,8 +2549,8 @@
     ;; the dfc family compare against a real (empty) frame rather than a
     ;; never-registered one.
     (frame/ensure-default-frame!)
-    (rf/reg-frame tenant-a {:doc "tenant-a frame"})
-    (rf/reg-frame tenant-b {:doc "tenant-b frame"})
+    (rf/make-frame {:id tenant-a :doc "tenant-a frame"})
+    (rf/make-frame {:id tenant-b :doc "tenant-b frame"})
     (rf/reg-event seed (fn [{:keys [db]} [_ marker]] {:db {:marker marker :received []}}))
     (rf/dispatch-sync [seed :rf/default] {:frame :rf/default})
     (rf/dispatch-sync [seed :tenant-a]  {:frame tenant-a})
@@ -3047,7 +3047,7 @@
      (fn [act-fn]
       (reset! probe-observed [])
       (reset! refcount-target us-frame)
-      (rf/reg-frame us-frame {:doc "use-subscribe probe frame"})
+      (rf/make-frame {:id us-frame :doc "use-subscribe probe frame"})
       (rf/reg-event ::us-seed (fn [{:keys [db]} _] {:db {:n 1}}))
       (rf/reg-event ::us-inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
       (rf/dispatch-sync [::us-seed] {:frame us-frame})
@@ -3107,7 +3107,7 @@
           (do
             (enable-react-act-env!)
             (reset! refcount-target fr-frame)
-            (rf/reg-frame fr-frame {:doc "flush-render! synchronous-commit probe frame"})
+            (rf/make-frame {:id fr-frame :doc "flush-render! synchronous-commit probe frame"})
             (rf/reg-event ::fr-seed (fn [{:keys [db]} _] {:db {:n 1}}))
             (rf/reg-event ::fr-inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
             (rf/dispatch-sync [::fr-seed] {:frame fr-frame})
@@ -3182,7 +3182,7 @@
       ;; the React-context tier the genuine decider. Per the bead's masking note.
       (binding [frame/*current-frame* nil]
         (reset! probe-frame-provider-observed [])
-        (rf/reg-frame frame-provider-frame {:doc "use-subscribe frame-provider probe frame"})
+        (rf/make-frame {:id frame-provider-frame :doc "use-subscribe frame-provider probe frame"})
         (rf/reg-event ::frame-provider-seed (fn [{:keys [db]} _] {:db {:k :wrapped}}))
         (rf/dispatch-sync [::frame-provider-seed] {:frame frame-provider-frame})
         (rf/reg-sub frame-provider-query (fn [db _] (:k db)))
@@ -3220,8 +3220,8 @@
      (fn [act-fn]
       (reset! probe-2arg-a-observed [])
       (reset! probe-2arg-b-observed [])
-      (rf/reg-frame tenant-a-frame {:doc "tenant-a"})
-      (rf/reg-frame tenant-b-frame {:doc "tenant-b"})
+      (rf/make-frame {:id tenant-a-frame :doc "tenant-a"})
+      (rf/make-frame {:id tenant-b-frame :doc "tenant-b"})
       (rf/reg-event ::explicit-pin-seed (fn [{:keys [db]} [_ n]] {:db {:n n}}))
       (rf/dispatch-sync [::explicit-pin-seed 10]  {:frame tenant-a-frame})
       (rf/dispatch-sync [::explicit-pin-seed 100] {:frame tenant-b-frame})
@@ -3297,7 +3297,7 @@
       ;; dynamic var (the masking the bead flags).
       (binding [frame/*current-frame* nil]
         (reset! probe-frame-provider-observed [])
-        (rf/reg-frame provider-tier-frame {:doc "rf2-4mi2zj provider-tier (ambient cleared) frame"})
+        (rf/make-frame {:id provider-tier-frame :doc "rf2-4mi2zj provider-tier (ambient cleared) frame"})
         (rf/reg-event ::provider-tier-seed (fn [{:keys [db]} _] {:db {:k :from-provider}}))
         (rf/dispatch-sync [::provider-tier-seed] {:frame provider-tier-frame})
         (rf/reg-sub frame-provider-query (fn [db _] (:k db)))
@@ -3348,8 +3348,8 @@
     (with-browser-act
      (fn [act-fn]
       (reset! probe-frame-provider-observed [])
-      (rf/reg-frame dynamic-precedence-provider-frame {:doc "rf2-4mi2zj provider (precedence loser)"})
-      (rf/reg-frame dynamic-precedence-dynamic-frame  {:doc "rf2-4mi2zj dynamic-var (precedence winner)"})
+      (rf/make-frame {:id dynamic-precedence-provider-frame :doc "rf2-4mi2zj provider (precedence loser)"})
+      (rf/make-frame {:id dynamic-precedence-dynamic-frame :doc "rf2-4mi2zj dynamic-var (precedence winner)"})
       (rf/reg-event ::precedence-seed (fn [{:keys [db]} [_ v]] {:db {:k v}}))
       (rf/dispatch-sync [::precedence-seed :from-provider] {:frame dynamic-precedence-provider-frame})
       (rf/dispatch-sync [::precedence-seed :from-dynamic]  {:frame dynamic-precedence-dynamic-frame})
@@ -3410,7 +3410,7 @@
           (reset! probe-frame-provider-observed [])
           ;; Register the sub + a frame so the ONLY reason resolution can
           ;; fail is the absent scope — not a missing sub/frame.
-          (rf/reg-frame no-scope-frame {:doc "rf2-4mi2zj no-scope frame (must never be resolved-to)"})
+          (rf/make-frame {:id no-scope-frame :doc "rf2-4mi2zj no-scope frame (must never be resolved-to)"})
           (rf/reg-sub frame-provider-query (fn [db _] (:k db)))
           (let [mount-node (make-mount-node!)
                 root       (react-dom-client/createRoot mount-node)]
@@ -3449,7 +3449,7 @@
     (with-browser-act
      (fn [act-fn]
       (reset! refcount-target rc-frame)
-      (rf/reg-frame rc-frame {:doc "refcount probe frame"})
+      (rf/make-frame {:id rc-frame :doc "refcount probe frame"})
       (rf/reg-event ::rc-seed (fn [{:keys [db]} _] {:db {:m 0}}))
       (rf/dispatch-sync [::rc-seed] {:frame rc-frame})
       (rf/reg-sub rc-query (fn [db _] (:m db)))
@@ -3516,7 +3516,7 @@
       (reset! siblings-observed-a [])
       (reset! siblings-observed-b [])
       (reset! refcount-target sib-frame)
-      (rf/reg-frame sib-frame {:doc "rf2-e4pyb sibling-collision probe frame"})
+      (rf/make-frame {:id sib-frame :doc "rf2-e4pyb sibling-collision probe frame"})
       (rf/reg-event ::sib-seed (fn [{:keys [db]} _] {:db {:n 1}}))
       (rf/reg-event ::sib-inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
       (rf/dispatch-sync [::sib-seed] {:frame sib-frame})
@@ -3582,7 +3582,7 @@
     (with-browser-act
      (fn [act-fn]
       (reset! stable-deps-set-tick nil)
-      (rf/reg-frame stable-deps-frame {:doc "rf2-mwft2 stable-deps probe frame"})
+      (rf/make-frame {:id stable-deps-frame :doc "rf2-mwft2 stable-deps probe frame"})
       (rf/reg-event ::stable-deps-seed (fn [{:keys [db]} _] {:db {:p 0}}))
       (rf/dispatch-sync [::stable-deps-seed] {:frame stable-deps-frame})
       (rf/reg-sub stable-deps-query (fn [db _] (:p db)))
@@ -3709,7 +3709,7 @@
     (with-browser-act
      (fn [act-fn]
       (reset! refcount-target rc-frame)
-      (rf/reg-frame rc-frame {:doc "rf2-nymuy StrictMode refcount probe frame"})
+      (rf/make-frame {:id rc-frame :doc "rf2-nymuy StrictMode refcount probe frame"})
       (rf/reg-event ::sm-seed (fn [{:keys [db]} _] {:db {:m 7}}))
       (rf/dispatch-sync [::sm-seed] {:frame rc-frame})
       (rf/reg-sub rc-query (fn [db _] (:m db)))
@@ -3841,7 +3841,7 @@
     (with-browser-act
      (fn [act-fn]
       (reset! refcount-target rc-frame)
-      (rf/reg-frame rc-frame {:doc "rf2-8u8tx.2 memo-recompute refcount probe frame"})
+      (rf/make-frame {:id rc-frame :doc "rf2-8u8tx.2 memo-recompute refcount probe frame"})
       (rf/reg-event ::mr-seed (fn [{:keys [db]} _] {:db {:m 0}}))
       (rf/dispatch-sync [::mr-seed] {:frame rc-frame})
       (rf/reg-sub rc-query (fn [db _] (:m db)))
@@ -3904,7 +3904,7 @@
     (with-browser-act
      (fn [act-fn]
       (reset! refcount-target rc-frame)
-      (rf/reg-frame rc-frame {:doc "rf2-879fe abandoned-render refcount probe frame"})
+      (rf/make-frame {:id rc-frame :doc "rf2-879fe abandoned-render refcount probe frame"})
       (rf/reg-event ::ar-seed (fn [{:keys [db]} _] {:db {:m 0}}))
       (rf/dispatch-sync [::ar-seed] {:frame rc-frame})
       (rf/reg-sub rc-query (fn [db _] (:m db)))
@@ -3982,7 +3982,7 @@
       (with-browser-act
        (fn [act-fn]
         (reset! refcount-target rc-frame)
-        (rf/reg-frame rc-frame {:doc "rf2-es09qq suspense-abort refcount probe frame"})
+        (rf/make-frame {:id rc-frame :doc "rf2-es09qq suspense-abort refcount probe frame"})
         (rf/reg-event ::sa-seed (fn [{:keys [db]} _] {:db {:m 0}}))
         (rf/dispatch-sync [::sa-seed] {:frame rc-frame})
         (rf/reg-sub rc-query (fn [db _] (:m db)))
@@ -4080,7 +4080,7 @@
     (with-browser-act
      (fn [act-fn]
       (reset! refcount-target rc-frame)
-      (rf/reg-frame rc-frame {:doc "rf2-sqhjtu getSnapshot-tracks-committed probe frame"})
+      (rf/make-frame {:id rc-frame :doc "rf2-sqhjtu getSnapshot-tracks-committed probe frame"})
       (rf/reg-event ::gs-seed (fn [{:keys [db]} _] {:db {:m 0}}))
       (rf/dispatch-sync [::gs-seed] {:frame rc-frame})
       (rf/reg-event ::gs-inc (fn [{:keys [db]} _] {:db {:m (inc (:m db))}}))
@@ -4243,8 +4243,8 @@
      (fn [act-fn]
       ;; Two frames; kc-query-a / kc-query-b read DISTINCT db keys so every
       ;; (frame, query) target carries a distinct value.
-      (rf/reg-frame kc-frame  {:doc "rf2-naz09e key-change probe frame A"})
-      (rf/reg-frame kc-frame2 {:doc "rf2-naz09e key-change probe frame B"})
+      (rf/make-frame {:id kc-frame :doc "rf2-naz09e key-change probe frame A"})
+      (rf/make-frame {:id kc-frame2 :doc "rf2-naz09e key-change probe frame B"})
       (rf/reg-event ::kc-seed-a (fn [_ _] {:db {:va "A"   :vb "B"}}))
       (rf/reg-event ::kc-seed-b (fn [_ _] {:db {:va "FA2" :vb "FB2"}}))
       (rf/dispatch-sync [::kc-seed-a] {:frame kc-frame})
@@ -4391,7 +4391,7 @@
     (with-browser-act
      (fn [act-fn]
       (reset! stable-deps-set-tick nil)
-      (rf/reg-frame stable-deps-frame {:doc "rf2-gizlj arity probe frame"})
+      (rf/make-frame {:id stable-deps-frame :doc "rf2-gizlj arity probe frame"})
       (rf/reg-event ::gizlj-seed (fn [{:keys [db]} _] {:db {:p 0}}))
       (rf/dispatch-sync [::gizlj-seed] {:frame stable-deps-frame})
       (rf/reg-sub stable-deps-query (fn [db _] (:p db)))

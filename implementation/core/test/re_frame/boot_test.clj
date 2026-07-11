@@ -184,7 +184,7 @@
         ":rf/default still appears exactly once after two ensure! calls"))
   (testing "ensure-default-frame! does not disturb other frames"
     ;; Register a sibling frame BEFORE the (possibly redundant) ensure!.
-    (frame/reg-frame :tenant-x {:doc "tenant"})
+    (rf/make-frame {:id :tenant-x :doc "tenant"})
     (let [tenant-before (get @frame/frames :tenant-x)]
       (frame/ensure-default-frame!)
       (is (identical? tenant-before (get @frame/frames :tenant-x))
@@ -315,8 +315,8 @@
     (rf/init! plain-atom/adapter)
     (rf/reg-event :seed (fn [{:keys [db]} [_ n]] {:db {:n n}}))
     (rf/reg-sub      :n    (fn [db _] (:n db)))
-    (rf/reg-frame :rf/default {:doc "explicit app frame"})
-    (rf/reg-frame :tenant-a {:doc "tenant-a"})
+    (rf/make-frame {:id :rf/default :doc "explicit app frame"})
+    (rf/make-frame {:id :tenant-a :doc "tenant-a"})
     (binding [frame/*current-frame* :rf/default]
       (rf/dispatch-sync [:seed 7]))
     (is (= 7 (rf/subscribe-once [:n] {:frame :rf/default}))

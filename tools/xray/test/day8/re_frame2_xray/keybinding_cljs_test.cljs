@@ -677,7 +677,7 @@
   (substrate-adapter/install-adapter! plain-atom/adapter)
   (frame/ensure-default-frame!)
   (registry/register-xray-handlers!)
-  (frame/reg-frame :rf/xray {}))
+  (rf/make-frame {:id :rf/xray}))
 
 (deftest esc-dismisses-open-editor-hint
   (testing "rf2-wpvy6f — when the editor-hint toast is OPEN, the global

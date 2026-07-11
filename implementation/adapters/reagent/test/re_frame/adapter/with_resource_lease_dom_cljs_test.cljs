@@ -19,6 +19,7 @@
             [reagent.dom.client :as rdc]
             ["react" :as React]
             [re-frame.core :as rf]
+            [re-frame.events :as events]
             [re-frame.frame :as frame]
             [re-frame.router :as router]
             [re-frame.adapter.reagent :as reagent-adapter]
@@ -56,10 +57,10 @@
 (defn- install-spies! []
   (reset! ensures [])
   (reset! releases [])
-  (rf/reg-frame lease-frame {:doc "with-resource-lease spy frame"})
-  (rf/reg-event :rf.resource/ensure
+  (rf/make-frame {:id lease-frame :doc "with-resource-lease spy frame"})
+  (events/reg-event :rf.resource/ensure
                 (fn [_cofx [_ payload]] (swap! ensures conj payload) {}))
-  (rf/reg-event :rf.resource/release-owner
+  (events/reg-event :rf.resource/release-owner
                 (fn [_cofx [_ payload]] (swap! releases conj payload) {})))
 
 ;; Wait two macrotasks so the router's next-tick drain has run.
@@ -177,7 +178,7 @@
           (is true "act() not reachable from this runner; skipping")
           (binding [frame/*current-frame* nil]
             (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
-            (rf/reg-frame lease-frame {:doc "re-lease spy frame"})
+            (rf/make-frame {:id lease-frame :doc "re-lease spy frame"})
             (let [dispatches (atom [])
                   page       (r/atom 0)
                   tick       (r/atom 0)
@@ -243,8 +244,8 @@
                 mount-node     (.createElement js/document "div")
                 root           (rdc/create-root mount-node)]
             (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
-            (rf/reg-frame provider-frame {:doc "surrounding provider"})
-            (rf/reg-frame dynamic-frame  {:doc "dynamic-var scope"})
+            (rf/make-frame {:id provider-frame :doc "surrounding provider"})
+            (rf/make-frame {:id dynamic-frame :doc "dynamic-var scope"})
             (with-redefs [router/dispatch! (capturing-dispatch! dispatches)]
               ;; Pin *current-frame* to the dynamic frame (exactly what
               ;; `with-frame` does) around a SYNCHRONOUS act() mount under a

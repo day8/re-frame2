@@ -101,7 +101,7 @@
     ;; walks through verbatim under the empty policy. `throwable->error-map`
     ;; in the assertion below must be projected against the SAME live frame
     ;; (a frameless call would itself fail closed) to match `exception-record`.
-    (rf/reg-frame :story.x/v {})
+    (rf/make-frame {:id :story.x/v})
     (try
       (let [e (ex-info "kaboom" {:k :v})
             r (story-error/exception-record :story.x/v :phase-2-events

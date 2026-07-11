@@ -36,6 +36,7 @@
   allocation is re-presented under strict replay."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.fx :as fx]
             [re-frame.cofx :as cofx]
             [re-frame.routing :as routing]
             [re-frame.routing.nav-counters :as nav-counters]
@@ -52,8 +53,8 @@
   (rf/reg-route :route/editor {:can-leave [:editor/can-leave?]} "/editor")
   (rf/reg-route :route/home   {} "/home")
   (rf/reg-sub :editor/can-leave? (fn [_ _] false))           ;; dirty → block
-  (rf/reg-fx :rf.nav/push-url    {:platforms #{:server :client}} (fn [_ _] nil))
-  (rf/reg-fx :rf.nav/replace-url {:platforms #{:server :client}} (fn [_ _] nil))
+  (fx/reg-fx :rf.nav/push-url    {:platforms #{:server :client}} (fn [_ _] nil))
+  (fx/reg-fx :rf.nav/replace-url {:platforms #{:server :client}} (fn [_ _] nil))
   (rf/dispatch-sync [:rf.route/transitioned "/editor"]))
 
 (defn- pending-id []

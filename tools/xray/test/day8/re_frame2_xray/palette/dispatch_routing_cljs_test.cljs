@@ -57,7 +57,7 @@
      :async?     true
      :post-reset (fn []
                    (registry/register-xray-handlers!)
-                   (frame/reg-frame :rf/xray {}))}))
+                   (rf/make-frame {:id :rf/xray}))}))
 
 ;; ---- hiccup walker ------------------------------------------------------
 ;; The private expand-tree / hiccup-seq copies were semantically identical to

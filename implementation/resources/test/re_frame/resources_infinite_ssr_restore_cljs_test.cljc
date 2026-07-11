@@ -303,7 +303,7 @@
           ;; reconcile + install the snapshot as the live frame's runtime-db,
           ;; exactly as epoch perform-restore! does.
           reconciled (ssr/reconcile-on-restore snapshot fid)]
-      (rf/reg-frame fid {:doc "restore infinite fetching-next? frame"})
+      (rf/make-frame {:id fid :doc "restore infinite fetching-next? frame"})
       (frame/replace-runtime-db! fid reconciled)
       (let [q {:resource :feed/timeline :scope :rf.scope/global :params {:filter :recent}}]
         (testing "the durable feed reads through the live subs intact post-restore"

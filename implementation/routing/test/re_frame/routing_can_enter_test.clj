@@ -7,6 +7,8 @@
   `:bypass-guards?` set. Adversarial + negative fixtures per the bead brief."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.events :as events]
+            [re-frame.fx :as fx]
             [re-frame.routing :as routing]
             [re-frame.routing.test-support]
             [re-frame.routing-test-support :as rts]))
@@ -23,8 +25,8 @@
   (rf/reg-route :login   {} "/login")
   (rf/reg-event :auth/set (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:auth :signed-in?] v)}))
   (rf/reg-sub :auth/signed-in? (fn [db _] (boolean (get-in db [:auth :signed-in?]))))
-  (rf/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
-  (rf/reg-fx :rf.nav/replace-url {:platforms #{:server :client}} (fn [_ _] nil)))
+  (fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
+  (fx/reg-fx :rf.nav/replace-url {:platforms #{:server :client}} (fn [_ _] nil)))
 
 (defn- current-id []
   (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current :route-id]))
@@ -77,7 +79,7 @@
     (rf/dispatch-sync [:rf.route/handle-url-change "/home"])
     (let [events (atom [])
           traces (atom [])]
-      (rf/reg-event :rf.route/entry-blocked
+      (events/reg-event :rf.route/entry-blocked
                     (fn [_ [_ pn]] (swap! events conj pn) {}))
       (rf/register-listener! :trace ::enter (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf.route/navigate :account])
@@ -141,7 +143,7 @@
     (rf/reg-route :home    {} "/home")
     (rf/reg-route :account {:can-enter [:auth/weird?]} "/account")
     (rf/reg-sub :auth/weird? (fn [_ _] "yes"))   ;; non-boolean → BLOCK
-    (rf/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
+    (fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
     (rf/dispatch-sync [:rf.route/handle-url-change "/home"])
     (let [traces (atom [])]
       (rf/register-listener! :trace ::nb (fn [ev] (swap! traces conj ev)))
@@ -168,7 +170,7 @@
                     (reset! seen target)
                     ;; allow only when the target is the /account URL we expect
                     (= "/account" (:url target))))
-      (rf/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
+      (fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
       (rf/dispatch-sync [:rf.route/handle-url-change "/home"])
       (rf/dispatch-sync [:rf.route/navigate :account])
       (is (map? @seen) "the guard received a target map argument")
@@ -204,8 +206,8 @@
     (rf/reg-sub :editor/clean? (fn [db _] (not (get-in db [:editor :dirty?]))))
     (let [enter-ran (atom false)]
       (rf/reg-sub :auth/signed-in? (fn [_ _] (reset! enter-ran true) false))
-      (rf/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
-      (rf/reg-fx :rf.nav/replace-url {:platforms #{:server :client}} (fn [_ _] nil))
+      (fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
+      (fx/reg-fx :rf.nav/replace-url {:platforms #{:server :client}} (fn [_ _] nil))
       (rf/dispatch-sync [:rf.route/handle-url-change "/editor"])
       (rf/dispatch-sync [:editor/dirty true])          ;; make :can-leave block
       (rf/dispatch-sync [:rf.route/navigate :account])

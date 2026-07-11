@@ -91,7 +91,7 @@
     (let [seen (atom [])]
       (rf/register-listener! :errors :test/recorder
                                    (fn [record] (swap! seen conj record)))
-      (rf/reg-frame :teardown/n-failures {:doc "three hooks will throw"})
+      (rf/make-frame {:id :teardown/n-failures :doc "three hooks will throw"})
       (with-hooks*
         {:ssr/on-frame-destroyed         (throwing-hook :ssr)
          :schemas/on-frame-destroyed!    (throwing-hook :schemas)
@@ -126,7 +126,7 @@
     (let [seen (atom [])]
       (rf/register-listener! :errors :test/recorder
                                    (fn [record] (swap! seen conj record)))
-      (rf/reg-frame :teardown/clean {:doc "no hooks throw"})
+      (rf/make-frame {:id :teardown/clean :doc "no hooks throw"})
       (rf/destroy-frame! :teardown/clean)
       (is (empty? (filter #(= :rf.error/frame-teardown-failed (:error %)) @seen))
           "no report when teardown completes cleanly"))))
@@ -148,7 +148,7 @@
     (let [seen (atom [])]
       (rf/register-listener! :errors :test/recorder
                                    (fn [record] (swap! seen conj record)))
-      (rf/reg-frame :teardown/abort {:doc "aborts mid-teardown"})
+      (rf/make-frame {:id :teardown/abort :doc "aborts mid-teardown"})
       (with-hooks*
         ;; These two run BEFORE emit-frame-destroyed-trace! in the recipe,
         ;; so both accumulate before the abort.
@@ -234,7 +234,7 @@
             the hook key + frame."
     (let [traces (atom [])]
       (rf/register-listener! :trace ::rec (fn [ev] (swap! traces conj ev)))
-      (rf/reg-frame :teardown/diagnostic {:doc "two hooks throw"})
+      (rf/make-frame {:id :teardown/diagnostic :doc "two hooks throw"})
       (with-hooks*
         {:ssr/on-frame-destroyed      (throwing-hook :ssr)
          :schemas/on-frame-destroyed! (throwing-hook :schemas)}
@@ -267,7 +267,7 @@
       (rf/register-listener! :errors :test/recorder
                                    (fn [record] (swap! reports conj record)))
       (rf/register-listener! :trace ::rec (fn [ev] (swap! traces conj ev)))
-      (rf/reg-frame :teardown/both {:doc "two hooks throw"})
+      (rf/make-frame {:id :teardown/both :doc "two hooks throw"})
       (with-hooks*
         {:ssr/on-frame-destroyed      (throwing-hook :ssr)
          :schemas/on-frame-destroyed! (throwing-hook :schemas)}
@@ -311,7 +311,7 @@
     (let [seen (atom [])]
       (rf/register-listener! :errors :test/recorder
                                    (fn [record] (swap! seen conj record)))
-      (rf/reg-frame :teardown/no-raw {:doc "two hooks throw"})
+      (rf/make-frame {:id :teardown/no-raw :doc "two hooks throw"})
       (with-hooks*
         {:ssr/on-frame-destroyed      (throwing-hook :ssr)
          :schemas/on-frame-destroyed! (throwing-hook :schemas)}
@@ -432,7 +432,7 @@
       (rf/register-listener! :errors :test/recorder
                                    (fn [record] (swap! seen conj record)))
       ;; B: the inner frame, destroyed nested from A's :on-destroy.
-      (rf/reg-frame :teardown/inner-B {:doc "inner frame, destroyed nested"})
+      (rf/make-frame {:id :teardown/inner-B :doc "inner frame, destroyed nested"})
       ;; A's :on-destroy event destroys B mid-teardown of A. B's full teardown
       ;; (incl. its finally-flush report) completes nested inside A's step 1,
       ;; while A's own accumulator is still empty (A's own hooks run AFTER).
@@ -440,9 +440,8 @@
                        (fn [{:keys [db]} _]
                          (rf/destroy-frame! :teardown/inner-B)
                          {:db db}))
-      (rf/reg-frame :teardown/outer-A
-                    {:doc        "outer frame"
-                     :on-destroy [:teardown/destroy-inner]})
+      (rf/make-frame {:id :teardown/outer-A :doc        "outer frame"
+                      :on-destroy [:teardown/destroy-inner]})
       ;; Three throwing hooks installed for the whole extent. Both A and B run
       ;; the full recipe, so BOTH fail all three. The binding shadow must keep
       ;; the two accumulators separate — each report carries exactly THREE, not

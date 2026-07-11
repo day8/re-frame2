@@ -28,6 +28,7 @@
       shallowest-first (per Spec 005 §Initial cascading)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.fx :as fx]
             [re-frame.machines.test-support :as mtest]
             [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]))
@@ -208,7 +209,7 @@
       ;; Per Spec 005 §spawn-fx the runtime emits this when a :spawn
       ;; slot is declared on the entering state.
       (let [orig (registrar/lookup :fx :rf.machine/spawn)]
-        (rf/reg-fx :rf.machine/spawn
+        (fx/reg-fx :rf.machine/spawn
                    {:platforms #{:client :server}}
                    (fn [_ _]
                      (reset! spawn-fired? true)))
@@ -235,7 +236,7 @@
               "the snapshot was not committed; no machine record exists"))
         ;; Restore.
         (when orig
-          (rf/reg-fx :rf.machine/spawn orig (fn [_ _] nil)))))))
+          (fx/reg-fx :rf.machine/spawn orig (fn [_ _] nil)))))))
 
 (deftest initial-entry-throw-in-compound-cascade
   (testing "with a compound :initial cascade, a throw at the inner :entry

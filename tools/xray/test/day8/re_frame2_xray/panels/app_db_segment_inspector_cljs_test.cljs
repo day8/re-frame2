@@ -50,8 +50,8 @@
   frames, then seed the host db so the value sub projects from it."
   []
   (registry/register-xray-handlers!)
-  (frame/reg-frame :rf/xray {})
-  (frame/reg-frame :rf/default {})
+  (rf/make-frame {:id :rf/xray})
+  (rf/make-frame {:id :rf/default})
   ;; A one-off host event to plant a known db on the observed frame.
   (rf/reg-event :test/seed-host-db (fn [_ [_ db]] {:db db}))
   (rf/with-frame :rf/default
@@ -197,8 +197,8 @@
   `:rf.xray/focus` spine sub → `:rf.xray/app-db-current+diff`)."
   [live-db history]
   (registry/register-xray-handlers!)
-  (frame/reg-frame :rf/xray {})
-  (frame/reg-frame :rf/default {})
+  (rf/make-frame {:id :rf/xray})
+  (rf/make-frame {:id :rf/default})
   (rf/replace-frame-state! :rf/default {:rf.db/app live-db})
   (rf/reg-event :rf.xray-test/seed-history
     (fn [{:keys [db]} [_ records]]

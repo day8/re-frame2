@@ -66,7 +66,7 @@
             :rf.egress/off-box-tool boundary adds the structural :digest a tool
             consumer needs, while the default :rf.egress/off-box-observability
             boundary omits it. Both elide the large value (no raw bytes egress)."
-    (rf/reg-frame :ep/main {})
+    (rf/make-frame {:id :ep/main})
     (install-large-path! :ep/main)
     (rf/reg-event :store
                   (fn [{:keys [db]} [_ payload]]
@@ -110,7 +110,7 @@
   (testing "rf2-ylvp4m — an unknown :rf.egress/profile through the core wrapper
             is rejected against the shared closed enum (a typo is a loud error,
             never a silent permissive walk)."
-    (rf/reg-frame :ep/main {})
+    (rf/make-frame {:id :ep/main})
     (rf/reg-event :store (fn [{:keys [db]} [_ v]] {:db (assoc db :v v)}))
     (rf/dispatch-sync [:store 1] {:frame :ep/main})
     (let [raw  (last-record :ep/main)
@@ -147,7 +147,7 @@
   (testing "rf2-ylvp4m — `rf/projected-history` threads the named
             :rf.egress/profile boundary to every record (the whole-ring
             convenience over `projected-record`)."
-    (rf/reg-frame :ep/main {})
+    (rf/make-frame {:id :ep/main})
     (install-large-path! :ep/main)
     (rf/reg-event :store
                   (fn [{:keys [db]} [_ payload]]

@@ -73,7 +73,7 @@
       (let [seen (atom [])]
         (rf/register-listener! :errors :test/recorder
                                      (fn [r] (swap! seen conj r)))
-        (rf/reg-frame :gate/teardown {})
+        (rf/make-frame {:id :gate/teardown})
         ;; Install a throwing cleanup hook for the duration of the destroy.
         (let [orig (late-bind/get-fn :ssr/on-frame-destroyed)]
           (try
@@ -119,7 +119,7 @@
         (rf/register-listener! :errors :test/recorder
                                      (fn [r] (swap! seen conj r)))
         (rf/reg-event :gate/blow-up (fn [{:keys [db]} _] {:db (throw (ex-info "boom" {}))}))
-        (rf/reg-frame :gate/ondestroy {:on-destroy [:gate/blow-up]})
+        (rf/make-frame {:id :gate/ondestroy :on-destroy [:gate/blow-up]})
         (rf/destroy-frame! :gate/ondestroy)
         (let [reports (records-of seen :rf.error/on-destroy-handler-exception)]
           (is (= 1 (count reports))
@@ -143,7 +143,7 @@
         (rf/register-listener! :trace ::trace-rec (fn [ev] (swap! traces conj ev)))
         (rf/register-listener! :errors :test/err-rec
                                      (fn [r] (swap! reports conj r)))
-        (rf/reg-frame :gate/divergence {})
+        (rf/make-frame {:id :gate/divergence})
         (let [orig (late-bind/get-fn :ssr/on-frame-destroyed)]
           (try
             (late-bind/set-fn! :ssr/on-frame-destroyed
@@ -182,10 +182,9 @@
                                      (fn [r] (swap! listener-seen conj r)))
         ;; index-free decl matches the runtime [:hook-failures 0 :exception-data
         ;; :token] (the vector index is ridden index-free by the wire-walker).
-        (rf/reg-frame :gate/raw
-          {:observability
-           {:errors [{:sink :test.sinks/sentry
-                      :rf.egress/profile :rf.egress/off-box-observability}]}})
+        (rf/make-frame {:id :gate/raw :observability
+                        {:errors [{:sink :test.sinks/sentry
+                                   :rf.egress/profile :rf.egress/off-box-observability}]}})
         ;; EP-0025: classify the sensitive app-db path via the commit-plane
         ;; effect path (`:source :effect`) — the durable frame annotation is
         ;; removed. Same registry write a reg-event returning `:sensitive` makes.
@@ -222,10 +221,9 @@
       (let [sink-seen (atom [])]
         (rf/register-observability-sink! :test.sinks/sentry
                                     (fn [r] (swap! sink-seen conj r)))
-        (rf/reg-frame :gate/evt
-          {:observability
-           {:errors [{:sink :test.sinks/sentry
-                      :rf.egress/profile :rf.egress/off-box-observability}]}})
+        (rf/make-frame {:id :gate/evt :observability
+                        {:errors [{:sink :test.sinks/sentry
+                                   :rf.egress/profile :rf.egress/off-box-observability}]}})
         ;; EP-0025: classify the sensitive app-db path via the commit-plane
         ;; effect path (`:source :effect`) — the durable frame annotation is removed.
         (frame/swap-runtime-db! :gate/evt

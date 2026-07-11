@@ -24,6 +24,7 @@
   runtime test). This mirrors `re-frame.http-trace-emit-elision-prod-test`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.fx :as fx]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]
             ;; load-bearing side-effecting require: the façade registers the
@@ -51,7 +52,7 @@
   restore the schema-fn bundle so the suite leaves no cross-test residue."
   [f]
   (reset! last-managed-args nil)
-  (rf/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
+  (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
   (let [snapshot (schemas/snapshot-schema-fns)]
     (schemas/set-schema-validator! nil)
     (try (f)

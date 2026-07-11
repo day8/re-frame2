@@ -48,6 +48,7 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
+   [re-frame.fx :as fx]
    ;; load-bearing side-effecting requires: register the :rf.resource/*
    ;; events + subs + the generation-allocation cofx / commit-generation fx.
    [re-frame.resources]
@@ -68,7 +69,7 @@
 
 (defn- capturing-transport-fixture [f]
   (reset! last-managed-args nil)
-  (rf/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
+  (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
   (f))
 
 (use-fixtures :each
@@ -134,7 +135,7 @@
         :cljs {:adapter reagent-adapter/adapter}))
    (fn []
      (reset! last-managed-args nil)
-     (rf/reg-fx :rf.http/managed
+     (fx/reg-fx :rf.http/managed
                 (fn [_ctx args] (reset! last-managed-args args) nil))
      (body))))
 

@@ -336,7 +336,7 @@
   (testing "re-registering :rf/set-db in app code via the public reg-event is a
             RESERVED-ID COLLISION that fails loud (:rf.error/reserved-event-id,
             EP-0027 §:rf/set-db) — the :rf/* single-root is framework-owned"
-    (let [thrown (try (rf/reg-event :rf/set-db (fn [_ _] {:db {:hijacked true}}))
+    (let [thrown (try (events/reg-event :rf/set-db (fn [_ _] {:db {:hijacked true}}))
                       :no-throw
                       (catch #?(:clj clojure.lang.ExceptionInfo
                                 :cljs cljs.core/ExceptionInfo) e

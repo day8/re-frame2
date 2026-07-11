@@ -64,7 +64,7 @@
   (testing "synthetic :after-elapsed for a destroyed frame is a no-op +
             :rf.error/frame-destroyed trace; timer table residue is
             cleared by the :machines/on-frame-destroyed! hook"
-    (rf/reg-frame :corner.timer/scoped {:doc "scoped"})
+    (rf/make-frame {:id :corner.timer/scoped :doc "scoped"})
     (let [m {:initial :idle
              :data    {}
              :states  {:idle    {:on {:fetch :loading}}
@@ -184,7 +184,7 @@
   (testing "child :on-child-done arriving after parent frame destroy is
             a no-op + traces :rf.error/frame-destroyed; no join slot
             mutation; no resolution event fires"
-    (rf/reg-frame :corner.ia/scoped {:doc "scoped"})
+    (rf/make-frame {:id :corner.ia/scoped :doc "scoped"})
     (let [child  {:initial :running
                   :data    {:id nil}
                   :actions {:set-id (fn [{data :data ev :event}]
@@ -315,7 +315,7 @@
 (deftest composed-timer-join-and-system-id-cleanup-on-frame-destroy
   (testing "destroy-frame! clears timer table + [:rf.runtime/machines :system-ids] + [:rf.runtime/machines :spawned]
             + [:rf.runtime/machines :snapshots] + spawn-order in one cascade (spawned actors carry no registrar entry — rf2-a2sn1)"
-    (rf/reg-frame :corner.leak/scoped {:doc "leak-audit"})
+    (rf/make-frame {:id :corner.leak/scoped :doc "leak-audit"})
 
     ;; --- (a) :after timer --------------------------------------------------
     (let [timer-m {:initial :idle

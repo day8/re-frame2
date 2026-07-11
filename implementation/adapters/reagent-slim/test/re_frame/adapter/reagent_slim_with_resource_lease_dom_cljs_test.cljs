@@ -83,7 +83,7 @@
     (if-not (browser?)
       (is true ":node-test: no DOM — :browser-test runner exercises the assertion")
       (do
-        (rf/reg-frame lease-frame {:doc "slim lease spy frame"})
+        (rf/make-frame {:id lease-frame :doc "slim lease spy frame"})
         (let [dispatches (atom [])
               mount-node (.createElement js/document "div")
               root       (rdc/create-root mount-node)]
@@ -120,7 +120,7 @@
     (if-not (browser?)
       (is true ":node-test: no DOM — :browser-test runner exercises the assertion")
       (do
-        (rf/reg-frame lease-frame {:doc "slim re-lease spy frame"})
+        (rf/make-frame {:id lease-frame :doc "slim re-lease spy frame"})
         (let [dispatches (atom [])
               mount-node (.createElement js/document "div")
               root       (rdc/create-root mount-node)
@@ -166,8 +166,8 @@
             dispatches     (atom [])
             mount-node     (.createElement js/document "div")
             root           (rdc/create-root mount-node)]
-        (rf/reg-frame provider-frame {:doc "surrounding provider"})
-        (rf/reg-frame dynamic-frame  {:doc "dynamic-var scope"})
+        (rf/make-frame {:id provider-frame :doc "surrounding provider"})
+        (rf/make-frame {:id dynamic-frame :doc "dynamic-var scope"})
         (with-redefs [router/dispatch! (capturing-dispatch! dispatches)]
           (try
             ;; Pin *current-frame* to the dynamic frame (what `with-frame`
@@ -209,8 +209,8 @@
             dispatches     (atom [])
             mount-node     (.createElement js/document "div")
             root           (rdc/create-root mount-node)]
-        (rf/reg-frame provider-frame {:doc "surrounding provider (should be bypassed)"})
-        (rf/reg-frame explicit-frame {:doc "explicitly pinned lease frame"})
+        (rf/make-frame {:id provider-frame :doc "surrounding provider (should be bypassed)"})
+        (rf/make-frame {:id explicit-frame :doc "explicitly pinned lease frame"})
         (with-redefs [router/dispatch! (capturing-dispatch! dispatches)]
           (try
             (render-sync! root

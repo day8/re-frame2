@@ -48,8 +48,8 @@
   ;; the ambient scope (the carried-invariant equivalent of wrapping every
   ;; test in `(with-frame :rf/default …)`). Explicit `{:frame …}` opts and
   ;; inner `with-frame`/`reg-frame` in the bodies still win.
-  (rf/reg-frame :rf/default {:url-bound? true
-                             :doc "Routing-suite default app frame (explicit URL owner)."})
+  (rf/make-frame {:id :rf/default :url-bound? true
+                  :doc "Routing-suite default app frame (explicit URL owner)."})
   ;; Framework events / fx (routing.cljc, ssr.cljc) are registered at
   ;; ns-load; clear-all! wiped them. Reload to resurrect.
   (require 're-frame.routing :reload)
@@ -76,8 +76,8 @@
   ;; different frame re-register `:rf/default {:url-bound? false}` in their body,
   ;; which drops this claim.
   (routing/reset-url-claims!)
-  (rf/reg-frame :rf/default {:url-bound? true
-                             :doc "Routing-suite default app frame (explicit URL owner)."})
+  (rf/make-frame {:id :rf/default :url-bound? true
+                  :doc "Routing-suite default app frame (explicit URL owner)."})
   (rf/with-frame :rf/default
     (test-fn)))
 

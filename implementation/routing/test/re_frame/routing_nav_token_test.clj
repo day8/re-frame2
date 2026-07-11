@@ -5,6 +5,7 @@
   error precedence). Split from routing_test.clj per rf2-u8qe7y finding 3."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.fx :as fx]
             [re-frame.routing :as routing]
             [re-frame.routing.test-support]
             [re-frame.routing-test-support :as rts]))
@@ -433,7 +434,7 @@
     ;; The minimal contract: a handler declaring the cofx sees the live
     ;; navigation epoch. Pre-fix this was nil (no reg-cofx :rf.route/nav-token).
     (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
-    (rf/reg-fx :rf.nav/push-url
+    (fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     (let [seen (atom :unset)]
@@ -466,7 +467,7 @@
     ;; which validates against the current slice: stale → suppressed,
     ;; fresh → applied.
     (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
-    (rf/reg-fx :rf.nav/push-url
+    (fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     ;; Terminal commit handler.
@@ -547,7 +548,7 @@
             COMPLETE [:rf.work/route route-id nav-token loader-id] tuple
             (pre-fix: route-id was nil)"
     (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
-    (rf/reg-fx :rf.nav/push-url
+    (fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     (rf/reg-event :article/loaded
@@ -778,7 +779,7 @@
                          {:db (assoc db :load/next-ran? true)}))
       (rf/reg-route :route/two-loaders
                     {:on-match [[:load/fail] [:load/next]]} "/two-loaders")
-      (rf/reg-fx :rf.nav/push-url
+      (fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ _] nil))
       (rf/dispatch-sync [:rf.route/transitioned "/two-loaders"])
@@ -812,7 +813,7 @@
       (rf/reg-route :route/double-fail
                     {:on-match [[:load/fail-1] [:load/fail-2]]
                      :on-error [:route/double-fail-on-error]} "/double-fail")
-      (rf/reg-fx :rf.nav/push-url
+      (fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ _] nil))
       (rf/dispatch-sync [:rf.route/transitioned "/double-fail"])
@@ -838,7 +839,7 @@
                      (fn [{:keys [db]} _] {:db (throw (ex-info "late-boom" {}))}))
     (rf/reg-route :route/clean {:on-match [[:load/ok]]} "/clean")
     (rf/reg-route :route/dirty {:on-match [[:load/late-fail]]} "/dirty")
-    (rf/reg-fx :rf.nav/push-url
+    (fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     ;; First navigation succeeds (slice :idle), then a second navigation to

@@ -115,8 +115,8 @@
   ;; seeding seam (`set-epoch-history-for-test`, the `*-override` events,
   ;; etc.) the reactivity helpers drive.
   (xray-test-support/install-test-overrides!)
-  (frame/reg-frame :rf/xray {})
-  (frame/reg-frame :rf/default {})
+  (rf/make-frame {:id :rf/xray})
+  (rf/make-frame {:id :rf/default})
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray/set-target-frame :rf/default])))
 

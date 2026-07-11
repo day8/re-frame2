@@ -45,7 +45,7 @@
   (require 're-frame.routing  :reload)
   (require 're-frame.ssr      :reload)
   (require 're-frame.machines :reload)
-  (rf/reg-frame :rf/default {})
+  (rf/make-frame {:id :rf/default})
   (rf/with-frame :rf/default
     (test-fn)))
 

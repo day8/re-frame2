@@ -33,6 +33,7 @@
    isolation discipline."
   (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
             [re-frame.core :as rf]
+            [re-frame.fx :as fx]
             [re-frame.registrar :as registrar]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]
@@ -93,15 +94,15 @@
    page-0 ensure + navigation are deterministic without a fetch / browser."
   []
   (reset! last-managed-args nil)
-  (rf/reg-frame :rf/default {:url-bound? true
-                             :doc "infinite-feed-example default app frame."})
+  (rf/make-frame {:id :rf/default :url-bound? true
+                  :doc "infinite-feed-example default app frame."})
   (swap! registrar/kind->id->metadata assoc :resource resource-kind-snapshot)
   (routing/reset-counters!)
   (resources-route/install-routing-integration!)
   ;; Capturing no-op: the reply is replayed explicitly by the test so the
   ;; 3-element internal reply event matches what the live transport produces.
-  (rf/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
-  (rf/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil)))
+  (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
+  (fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil)))
 
 (defn- isolate-trace-bus-fixture
   "OUTER fixture: keep this resource-registering suite from leaking trace

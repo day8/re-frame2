@@ -63,7 +63,7 @@
   ;; `:rf/default` + pin it as the body's ambient scope (the carried-
   ;; invariant equivalent of `(with-frame :rf/default …)`); explicit
   ;; `{:frame …}` opts in the test bodies still win.
-  (rf/reg-frame :rf/default {})
+  (rf/make-frame {:id :rf/default})
   (rf/with-frame :rf/default
     (test-fn)))
 
@@ -145,13 +145,17 @@
     (assert-coords (rf/handler-meta :cofx :rf2-k84s/reg-cofx-sample)
                    :cofx :rf2-k84s/reg-cofx-sample)))
 
-(deftest source-coords-on-reg-frame
-  (testing "reg-frame stamps :ns / :line / :file — read through `rf/frame-meta`
-            (rf2-h1vqa4: frames live in the frames store, not the registrar; the
-            macro-captured coords land on the stored frame config)"
-    (rf/reg-frame :rf2-k84s/reg-frame-sample {:doc "smoke"})
-    (assert-coords (rf/frame-meta :rf2-k84s/reg-frame-sample)
-                   :frame :rf2-k84s/reg-frame-sample)))
+(deftest no-source-coords-on-make-frame
+  (testing "make-frame (a FN, the ONE constructor) captures NO source coords —
+            rf2-h1vqa4 ruling: frame macro-coordinate capture is REMOVED with
+            the reg-frame spelling (frames are live runtime objects, not
+            click-to-source program members; frame-init dispatch traces keep
+            their own source, live metadata lives in frame-meta)"
+    (rf/make-frame {:id :rf2-k84s/reg-frame-sample :doc "smoke"})
+    (let [meta (rf/frame-meta :rf2-k84s/reg-frame-sample)]
+      (is (some? meta) "frame-meta present for the created frame")
+      (is (nil? (:line meta)) "no :line coord on the stored frame config")
+      (is (nil? (:file meta)) "no :file coord on the stored frame config"))))
 
 (deftest source-coords-on-reg-view
   (testing "reg-view stamps :ns / :line / :file"

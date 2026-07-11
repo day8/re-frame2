@@ -37,6 +37,7 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
+   [re-frame.fx :as fx]
    ;; load-bearing side-effecting requires: register the :rf.resource/* events +
    ;; subs + the generation cofx/fx these tests dispatch.
    [re-frame.resources]
@@ -60,10 +61,10 @@
 (defn- capturing-fixture [f]
   (reset! last-managed-args nil)
   (reset! replied [])
-  (rf/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
+  (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
   ;; capture host-side timer arming so the fresh-skip / success handlers'
   ;; emission does not fire a real wall-clock timer.
-  (rf/reg-fx :rf.resource/schedule-timers (fn [_ctx _args] nil))
+  (fx/reg-fx :rf.resource/schedule-timers (fn [_ctx _args] nil))
   ;; the continuation target — an ordinary app event recording the FULL event
   ;; vector (so static-arg preservation + the appended reply are both
   ;; observable). Every test's `:reply-to` names it (distinguished by a static

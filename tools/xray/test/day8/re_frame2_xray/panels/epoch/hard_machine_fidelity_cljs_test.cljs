@@ -341,7 +341,7 @@
       ;; the canonical pipeline render, and the up/down block testid is GONE.
       ;; The transition body embeds edn-inspectors that subscribe against the
       ;; surrounding frame — render under `:rf/xray`.
-      (frame/reg-frame :rf/xray {})
+      (rf/make-frame {:id :rf/xray})
       (let [rows   (cascade record)
             tx-row (first (rows-of-kind rows :transition))
             sp     (str "rf-xray-epoch-machine-cascade-structured-" (:step tx-row))

@@ -587,7 +587,7 @@
             :schema failure on a NAMED frame stamps that frame's id on the
             :rf.error/cofx-value-invalid trace (not :rf/default), so the epoch
             capture buffers it into the right per-frame cascade."
-    (rf/reg-frame :test/cofx-frame {})
+    (rf/make-frame {:id :test/cofx-frame})
     (rf/reg-cofx :probe/cofx
       {:recordable? true :provided? true :schema :string})
     (rf/reg-event :probe/cofx-seed
@@ -608,7 +608,7 @@
 (deftest fx-args-validation-frame-tag-attributes-named-frame
   (testing "rf2-9cm27 — an fx-args validation failure on a NAMED frame
             stamps that frame's id on the trace (not :rf/default)."
-    (rf/reg-frame :test/fx-frame {})
+    (rf/make-frame {:id :test/fx-frame})
     (rf/reg-fx :probe/fx
       {:schema [:map [:x :int]]}
       (fn [_ctx _args] nil))
@@ -626,7 +626,7 @@
 (deftest sub-return-validation-frame-tag-attributes-named-frame
   (testing "rf2-9cm27 — a sub-return validation failure on a NAMED frame
             stamps the reaction's frame id on the trace (not :rf/default)."
-    (rf/reg-frame :test/sub-frame {})
+    (rf/make-frame {:id :test/sub-frame})
     (rf/reg-event :probe/sub-break (fn [{:keys [db]} _] {:db (assoc db :items [1 2 3])})) ;; ints, not strings
     (rf/reg-sub :probe/items
       {:schema [:vector :string]}
@@ -906,7 +906,7 @@
 (deftest reg-app-schema-explicit-frame-opt-isolates-schemas
   (testing "Per Spec 010 §Per-frame schemas — :frame opt registers against
             a named frame; sibling frames don't see that schema."
-    (rf/reg-frame :test/story {})
+    (rf/make-frame {:id :test/story})
     (rf/reg-app-schema [:user] {:frame :rf/default} [:map [:id :uuid]])
     (rf/reg-app-schema [:user] {:frame :test/story} [:map [:nick :string]])
     (is (= [:map [:id :uuid]]   (schemas/app-schema-at [:user] :rf/default))
@@ -921,8 +921,8 @@
             schemas registered against THIS dispatch's frame; a malformed
             commit on frame A must not fire a schema-validation-failure for
             a schema registered against frame B."
-    (rf/reg-frame :test/main  {})
-    (rf/reg-frame :test/other {})
+    (rf/make-frame {:id :test/main})
+    (rf/make-frame {:id :test/other})
     ;; Schema only on :test/other; commit happens on :test/main.
     (rf/reg-app-schema [:n] {:frame :test/other} [:int])
     (rf/reg-event :n/break-on-main (fn [{:keys [db]} _] {:db (assoc db :n "not-an-int")}))
@@ -935,7 +935,7 @@
 (deftest schema-fires-only-on-the-frame-it-registers-against
   (testing "Per Spec 010 §Per-frame schemas — a malformed commit on the same
             frame the schema is registered against DOES fire the failure trace."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-app-schema [:n] {:frame :test/main} [:int])
     (rf/reg-event :n/break (fn [{:keys [db]} _] {:db (assoc db :n "not-an-int")}))
     (with-trace-recorder! [traces]
@@ -950,7 +950,7 @@
 (deftest app-schemas-with-keyword-and-opts-arities-agree
   (testing "(app-schemas frame-id) is documented as sugar for
             (app-schemas {:frame frame-id}); both must return the same map."
-    (rf/reg-frame :test/k {})
+    (rf/make-frame {:id :test/k})
     (rf/reg-app-schema [:k] {:frame :test/k} [:int])
     (is (= (schemas/app-schemas :test/k)
            (schemas/app-schemas {:frame :test/k}))
@@ -994,8 +994,8 @@
             schema sets produce different digests; a frame with no schemas
             has a stable empty-set digest distinct from any non-empty
             frame's digest."
-    (rf/reg-frame :test/a {})
-    (rf/reg-frame :test/b {})
+    (rf/make-frame {:id :test/a})
+    (rf/make-frame {:id :test/b})
     (rf/reg-app-schema [:user] {:frame :test/a} [:map [:id :uuid]])
     ;; :test/b has no schemas registered.
     (let [da (schemas/app-schemas-digest :test/a)
@@ -1011,7 +1011,7 @@
   (testing "(app-schemas-digest frame-id) is sugar for
             (app-schemas-digest {:frame frame-id}); both must return the
             same string."
-    (rf/reg-frame :test/d {})
+    (rf/make-frame {:id :test/d})
     (rf/reg-app-schema [:k] {:frame :test/d} [:int])
     (is (= (schemas/app-schemas-digest :test/d)
            (schemas/app-schemas-digest {:frame :test/d}))
@@ -1021,7 +1021,7 @@
   (testing "Empty schema set has a defined, stable digest (the SHA-256 of
             the empty string, prefixed). Hosts with no schemas registered
             still get a usable digest, not nil."
-    (rf/reg-frame :test/empty {})
+    (rf/make-frame {:id :test/empty})
     (let [d (schemas/app-schemas-digest :test/empty)]
       (is (string? d))
       (is (re-matches #"sha256:[0-9a-f]{16}" d))
@@ -1035,8 +1035,8 @@
   (testing "Per Spec 010 §Digest algorithm step 4 — lines are sorted
             lexicographically before final hashing, so the registration
             order of schemas must not affect the digest."
-    (rf/reg-frame :test/o1 {})
-    (rf/reg-frame :test/o2 {})
+    (rf/make-frame {:id :test/o1})
+    (rf/make-frame {:id :test/o2})
     ;; Same schemas, different registration order.
     (rf/reg-app-schema [:user]  {:frame :test/o1} [:map [:id :uuid]])
     (rf/reg-app-schema [:todos] {:frame :test/o1} [:vector :string])
@@ -1778,7 +1778,7 @@
             atom byte-for-byte and validation still works after restore"
     ;; Set up two frames and register a schema under each. Per-frame
     ;; isolation is the load-bearing contract.
-    (rf/reg-frame :test.6lka/other {:doc "second frame for round-trip test"})
+    (rf/make-frame {:id :test.6lka/other :doc "second frame for round-trip test"})
     (rf/reg-app-schema [:n] [:int])
     (rf/reg-app-schema [:label] {:frame :test.6lka/other} [:string])
 
@@ -1871,7 +1871,7 @@
 
 (deftest reg-app-schemas-honours-frame-opt
   (testing "rf/reg-app-schemas applies the :frame opt to every entry"
-    (rf/reg-frame :tenant/a {})
+    (rf/make-frame {:id :tenant/a})
     (rf/reg-app-schemas
       {[:auth] [:map [:user :string]]
        [:cart] [:map [:items :any]]}

@@ -781,7 +781,7 @@
     (let [seen (atom [])]
       (rf/register-listener! :events :evt-conf/handled-recorder
         (fn [r] (swap! seen conj r)))
-      (rf/reg-frame :evt-conf/events-main {})
+      (rf/make-frame {:id :evt-conf/events-main})
       (rf/reg-event :evt-conf/events-probe
         {:frame :evt-conf/events-main}
         (fn [{:keys [db]} _] {:db (assoc db :touched true)}))

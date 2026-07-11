@@ -29,6 +29,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.classification :as classification]
             [re-frame.core :as rf]
+            [re-frame.fx :as fx]
             [re-frame.elision :as elision]
             [re-frame.privacy :as privacy]
             [re-frame.routing :as routing]
@@ -57,7 +58,10 @@
   its production `:sensitive` marks. `prod-meta` is the production meta def;
   `handler` is the test handler."
   [fx-id prod-meta handler]
-  (rf/reg-fx fx-id (assoc prod-meta :platforms #{:server :client}) handler))
+  ;; FN form (no source-coord capture): the override REPLACES the framework's
+  ;; nil-provenance source-store slot instead of colliding as a cross-ns
+  ;; duplicate at default-image assembly (rf2-h1vqa4).
+  (fx/reg-fx fx-id (assoc prod-meta :platforms #{:server :client}) handler))
 
 ;; ===========================================================================
 ;; The pure URL-carrier scrub (rf2-n1f4rh) — fast, host-symmetric.
@@ -284,8 +288,8 @@
   (rf/reg-route :route/cart {} "/cart")
   (rf/reg-event :editor/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
   (rf/reg-sub :editor/can-leave? (fn [db _] (not (get-in db [:editor :dirty?]))))
-  (rf/reg-fx :rf.nav/push-url    {:platforms #{:server :client}} (fn [_ _] nil))
-  (rf/reg-fx :rf.nav/replace-url {:platforms #{:server :client}} (fn [_ _] nil))
+  (fx/reg-fx :rf.nav/push-url    {:platforms #{:server :client}} (fn [_ _] nil))
+  (fx/reg-fx :rf.nav/replace-url {:platforms #{:server :client}} (fn [_ _] nil))
   (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
   (rf/dispatch-sync [:editor/dirty true]))
 

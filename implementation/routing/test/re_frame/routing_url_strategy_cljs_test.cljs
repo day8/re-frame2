@@ -90,8 +90,8 @@
   (testing "a HASH-strategy URL owner pushes the `#`-prefixed href — the
             router builds path-form /active, the strategy encodes it to
             #/active at the push-url fx"
-    (rf/reg-frame :rf/default {:url-bound?   true
-                               :url-strategy strategy/hash-url-strategy})
+    (rf/make-frame {:id :rf/default :url-bound?   true
+                    :url-strategy strategy/hash-url-strategy})
     (register-routes!)
     ;; :rf.route/url-requested resolves in-app, pushes, and synthesises the transition.
     (rf/dispatch-sync [:rf.route/url-requested {:url "/active"}])
@@ -104,7 +104,7 @@
 (deftest history-frame-push-url-pushes-path-href-cljs
   (testing "a HISTORY-strategy (default) URL owner pushes the path-form href —
             no `#` — proving the default is unchanged by the seam"
-    (rf/reg-frame :rf/default {:url-bound? true})   ;; no :url-strategy → history
+    (rf/make-frame {:id :rf/default :url-bound? true})   ;; no :url-strategy → history
     (register-routes!)
     (rf/dispatch-sync [:rf.route/url-requested {:url "/active"}])
     (is (= ["/" "/active"] (:entries @*history-state*))
@@ -113,8 +113,8 @@
 (deftest hash-frame-replace-url-replaces-hash-href-cljs
   (testing "a HASH-strategy owner's :rf.nav/replace-url overwrites the current
             entry with the `#` href (no new entry)"
-    (rf/reg-frame :rf/default {:url-bound?   true
-                               :url-strategy strategy/hash-url-strategy})
+    (rf/make-frame {:id :rf/default :url-bound?   true
+                    :url-strategy strategy/hash-url-strategy})
     (register-routes!)
     (rf/dispatch-sync [:rf.route/url-requested {:url "/active"}])
     (let [before (count (:entries @*history-state*))]
@@ -133,8 +133,8 @@
             automatically wires a `hashchange` listener, decodes
             location.hash to path-form, and dispatches handle-url-change to
             the owner — the browser→app leg of the seam, zero install call"
-    (rf/reg-frame :rf/default {:url-bound?   true
-                               :url-strategy strategy/hash-url-strategy})
+    (rf/make-frame {:id :rf/default :url-bound?   true
+                    :url-strategy strategy/hash-url-strategy})
     (register-routes!)
     ;; Push two hash routes (forward nav via the owner).
     (rf/dispatch-sync [:rf.route/url-requested {:url "/active"}])
@@ -162,7 +162,7 @@
   (testing "rf2-g8pbwg: registering a :url-bound? true history (default)
             frame automatically wires a `popstate` listener — the seam
             preserves the existing history behaviour, zero install call"
-    (rf/reg-frame :rf/default {:url-bound? true})
+    (rf/make-frame {:id :rf/default :url-bound? true})
     (register-routes!)
     (rf/dispatch-sync [:rf.route/url-requested {:url "/active"}])
     (rf/dispatch-sync [:rf.route/url-requested {:url "/completed"}])
@@ -179,7 +179,7 @@
 (deftest hash-decode-round-trips-live-location-cljs
   (testing "hash-encode → set location.hash → hash-decode recovers the path
             against the live stubbed window (both round-trip legs, one browser)"
-    (rf/reg-frame :rf/default {:url-bound? true})
+    (rf/make-frame {:id :rf/default :url-bound? true})
     (register-routes!)
     (doseq [p ["/" "/active" "/completed"]]
       (.pushState js/globalThis.window.history nil "" (strategy/hash-encode p))
@@ -194,8 +194,8 @@
   (testing "a malformed %-encoded hash URL, decoded to path-form and matched,
             fails closed to a route-miss — never a crash — exactly as a
             malformed path-URL does (adversarial: a hostile / broken deep link)"
-    (rf/reg-frame :rf/default {:url-bound?   true
-                               :url-strategy strategy/hash-url-strategy})
+    (rf/make-frame {:id :rf/default :url-bound?   true
+                    :url-strategy strategy/hash-url-strategy})
     (register-routes!)
     ;; hash-decode of #/%  →  /%  ; match-url must return nil (no throw).
     (is (nil? (routing/match-url "/%"))
@@ -318,10 +318,9 @@
             :rf.nav/push-url entry, and the :rf.nav/replace-url entry ALL read
             /demos#/…-shaped (base OUTSIDE the fragment), inbound decode returns
             the app-relative path-form, and no URL is double-hashed"
-    (rf/reg-frame :rf/default
-                  {:url-bound?   true
-                   :url-strategy (strategy/with-base-path
-                                   strategy/hash-url-strategy "/demos")})
+    (rf/make-frame {:id :rf/default :url-bound?   true
+                    :url-strategy (strategy/with-base-path
+                                    strategy/hash-url-strategy "/demos")})
     (register-routes!)
     ;; (a) route-link href — the :encode egress leg.
     (let [[_ attrs] (rf/with-frame :rf/default
@@ -355,10 +354,9 @@
   (testing "rf2-irygd6 mirror: a /demos-based HISTORY app — route-link href +
             push + replace all read /demos/…-shaped, decode is app-relative
             (behaviour unchanged by the seam, pinned for parity with the hash case)"
-    (rf/reg-frame :rf/default
-                  {:url-bound?   true
-                   :url-strategy (strategy/with-base-path
-                                   strategy/history-url-strategy "/demos")})
+    (rf/make-frame {:id :rf/default :url-bound?   true
+                    :url-strategy (strategy/with-base-path
+                                    strategy/history-url-strategy "/demos")})
     (register-routes!)
     (let [[_ attrs] (rf/with-frame :rf/default
                       (routing/route-link-render {:to :s/active}))]
@@ -384,8 +382,8 @@
             #/active (no double-hash) — the raw :push! leg drives exactly the
             :encode-produced href. (History-without-base is pinned by
             `history-frame-push-url-pushes-path-href-cljs`.)"
-    (rf/reg-frame :rf/default {:url-bound?   true
-                               :url-strategy strategy/hash-url-strategy})
+    (rf/make-frame {:id :rf/default :url-bound?   true
+                    :url-strategy strategy/hash-url-strategy})
     (register-routes!)
     (rf/dispatch-sync [:rf.route/url-requested {:url "/active"}])
     (is (= ["/" "#/active"] (:entries @*history-state*))
@@ -408,10 +406,9 @@
             legs (JVM-shaped) is rejected at FIRST registration on CLJS — the
             browser legs :push! / :replace! / :install-listener! are
             host-required here; no frame record is left"
-    (let [ex (try (rf/reg-frame :ktmto9/cljs-legs
-                                {:url-bound?   true
-                                 :url-strategy {:encode identity
-                                                :decode (constantly "/")}})
+    (let [ex (try (rf/make-frame {:id :ktmto9/cljs-legs :url-bound?   true
+                                  :url-strategy {:encode identity
+                                                 :decode (constantly "/")}})
                   nil
                   (catch :default e e))]
       (is (some? ex) "the CLJS-incomplete strategy throws at registration")
@@ -429,8 +426,7 @@
   (testing "rf2-ktmto9: an EXPLICIT nil :url-strategy is a PRESENT declaration
             and fails loud at registration — presence semantics; only OMISSION
             selects the default history strategy"
-    (let [ex (try (rf/reg-frame :ktmto9/nil-strat
-                                {:url-bound? true :url-strategy nil})
+    (let [ex (try (rf/make-frame {:id :ktmto9/nil-strat :url-bound? true :url-strategy nil})
                   nil
                   (catch :default e e))]
       (is (some? ex) "an explicit nil :url-strategy throws")
@@ -446,9 +442,8 @@
             hook is restored afterwards"
     (try
       (late-bind/set-fn! :routing/preflight-frame-config! nil)
-      (let [ex (try (rf/reg-frame :ktmto9/no-artefact
-                                  {:url-bound?   true
-                                   :url-strategy strategy/history-url-strategy})
+      (let [ex (try (rf/make-frame {:id :ktmto9/no-artefact :url-bound?   true
+                                    :url-strategy strategy/history-url-strategy})
                     nil
                     (catch :default e e))]
         (is (some? ex) "declaring :url-strategy without the hook throws")

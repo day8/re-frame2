@@ -18,6 +18,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.story.play.runner :as runner]
             [re-frame.core              :as rf]
+            [re-frame.cofx :as cofx]
             [re-frame.frame             :as frame]
             [re-frame.story             :as story]
             [re-frame.story.loaders     :as loaders]
@@ -97,7 +98,7 @@
   (reset! re/step-boundaries {})
   (story/install-canonical-vocabulary!)
   (frame/ensure-default-frame!)
-  (frame/reg-frame bridge-frame {:doc "outcome-matching bridge test frame"})
+  (rf/make-frame {:id bridge-frame :doc "outcome-matching bridge test frame"})
   (rf/reg-event ::seed
     (fn [{:keys [db]} [_ rec]]
       {:db (update db :rf.story/assertions (fnil conj []) rec)}))
@@ -393,7 +394,7 @@
        ;; auto-carry it under the story test harness). Idempotent — matches the
        ;; framework default (cofx.cljc §:rf/time-ms — recordable, provided).
        (when-not (registrar/lookup :cofx :rf/time-ms)
-         (rf/reg-cofx :rf/time-ms {:recordable? true :provided? true}))
+         (cofx/reg-cofx :rf/time-ms {:recordable? true :provided? true}))
        ;; A PROVIDED recordable fact has no generator — absent on the token it
        ;; is :rf.error/missing-required-cofx in every mode, so re-presenting the
        ;; recorded value is the only way replay succeeds.

@@ -601,6 +601,12 @@
           ;; mid-sibling and drain its pending flag (the same rf2-roou7s race,
           ;; just relocated to teardown).
           (with-redefs [interop/next-tick (fn [_f] nil)]
+            ;; rf2-h1vqa4: `unregister!` now MARKS DIRTY too (the removal twin
+            ;; of the reg-* hook). Clear the live frame BEFORE draining, or the
+            ;; drain would reproject :auto/main against the just-forgotten
+            ;; descriptor — a zero-match throw in teardown (the same
+            ;; frame-first order the reentry sibling's finally documents).
+            (reset! frame/frames {})
             (registrar/unregister! :event :auto/inc)
             (lf/flush-pending-reprojection!))
           (reset! source-store/kind->id->ns->descriptor snapshot))))))
@@ -645,19 +651,26 @@
               (registrar/register! :event (keyword "burst" (str "e" n))
                 {:rf.provenance/ns "burst.feature" :handler-fn (keyword "impl" (str n))}))
             (testing "the 5-reg-* burst scheduled exactly ONE flush (coalesced) —
-                      the deferred tick was never run during the burst"
-              (is (= 1 @scheduled)
+                      the deferred tick was never run during the burst.
+                      JVM (rf2-h1vqa4): the deferred tick is CLJS-only — the
+                      burst MARKS once (same CAS gate) but schedules nothing;
+                      the read-time consult / explicit flush drains it."
+              (is (= #?(:cljs 1 :clj 0) @scheduled)
                   "compare-and-set! gates: only the false→true transition schedules"))
             (testing "running the single captured tick drains the whole burst at once,
                       and a post-drain reg-* re-arms a fresh tick (flag re-armable)"
-              (when-let [tick @captured] (tick))
+              (if-let [tick @captured] (tick) (lf/flush-pending-reprojection!))
               ;; The drain (`tick` → flush) cleared the dirty flag; a new reg-* is the
               ;; next false→true edge, so it schedules again — proving the flag is not
               ;; stuck-set after a flush. (Inside the redef, so this counts here.)
               (registrar/register! :event :burst/e0
                 {:rf.provenance/ns "burst.feature" :handler-fn ::e0-again})
-              (is (= 2 @scheduled)
-                  "a post-drain reg-* re-arms a new tick (flag cleared, re-armable)"))))
+              (is (= #?(:cljs 2 :clj 0) @scheduled)
+                  "a post-drain reg-* re-arms a new tick (flag cleared, re-armable;
+                   JVM schedules none — flag-only)")
+              #?(:clj (is (seq (lf/flush-pending-reprojection!))
+                          "JVM: the post-drain reg-* re-armed the FLAG — the
+                           sync flush finds pending work")))))
         (finally
           ;; Forget the live frame before draining (see register!-during-flush's
           ;; finally): a pending reproject of :burst/main must not re-assemble its
@@ -755,8 +768,9 @@
             ;; the flush below does GENUINE swap work (the frame moves to v2).
             (registrar/register! :event :reentry/inc
               {:rf.provenance/ns "reentry.feature" :handler-fn ::v2})
-            (testing "the live-frame reg-* armed exactly one flush"
-              (is (= 1 @scheduled)))
+            (testing "the live-frame reg-* armed exactly one flush (CLJS;
+                      JVM marks the flag only — rf2-h1vqa4)"
+              (is (= #?(:cljs 1 :clj 0) @scheduled)))
             ;; Run the flush: it re-resolves + swaps :reentry/main's generation
             ;; via set-generation! (a plain swap!). That cannot fire the
             ;; registration hook, so no successor tick is armed.
@@ -768,15 +782,18 @@
                                            :event :reentry/inc)))))
               (testing "the generation swap (set-generation!, not reg-*) scheduled
                         NO successor flush — there is no re-entrancy to guard"
-                (is (= 1 @scheduled)
+                (is (= #?(:cljs 1 :clj 0) @scheduled)
                     "a flush swaps generations only; it never fires the hook"))))
           (testing "after the flush a fresh reg-* re-arms (the flag is cleared and
                     re-armable — no stuck-set guard)"
             (with-redefs [interop/next-tick (fn [_f] (swap! scheduled inc) nil)]
               (registrar/register! :event :reentry/inc
                 {:rf.provenance/ns "reentry.feature" :handler-fn ::v3})
-              (is (= 2 @scheduled)
-                  "a reg-* with a live frame re-arms normally after the flush"))))
+              (is (= #?(:cljs 2 :clj 0) @scheduled)
+                  "a reg-* with a live frame re-arms normally after the flush
+                   (CLJS; JVM re-arms the flag only)")
+              #?(:clj (is (seq (lf/flush-pending-reprojection!))
+                          "JVM: the fresh reg-* re-armed the FLAG")))))
         (finally
           ;; Clear the live frame BEFORE draining: the body may leave a flush
           ;; pending, and a reproject of the still-live :reentry/main would
@@ -994,8 +1011,9 @@
                          (swap! diagnosed conj ev))))
             (try
               (testing "running the captured deferred tick does not throw even
-                        though the bad frame's reprojection fails"
-                (is (nil? (@tick))))
+                        though the bad frame's reprojection fails (JVM captures
+                        no tick — drive the deferred body directly)"
+                (is (nil? (if-let [f @tick] (f) (#'lf/deferred-flush!)))))
               (finally
                 (rf/unregister-listener! :trace ::rpf-rec))))
           (testing "the GOOD frame still reprojected — the sweep reached it

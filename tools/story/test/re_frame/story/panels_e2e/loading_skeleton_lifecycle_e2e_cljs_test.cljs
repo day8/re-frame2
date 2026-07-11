@@ -151,7 +151,7 @@
             canonical data-test attribute. Pins the phase-1 → skeleton
             seam."
     (let [variant-id :story.skeleton/v]
-      (rf/reg-frame variant-id {})
+      (rf/make-frame {:id variant-id})
       ;; Drive the lifecycle into :loading. Without an explicit
       ;; transition, `current-state` reports :pre-mount which also
       ;; lights up the skeleton — but pinning :loading specifically
@@ -180,7 +180,7 @@
             'pre-mount → skeleton' arm so a regression that gated only
             on :loading wouldn't pass."
     (let [variant-id :story.skeleton/v]
-      (rf/reg-frame variant-id {})
+      (rf/make-frame {:id variant-id})
       ;; No transitions — machine reports :pre-mount.
       (is (= :pre-mount (loaders/current-state variant-id))
           "fresh frame → :pre-mount")
@@ -196,7 +196,7 @@
             skeleton hides and the user-view renders. Pins the
             phase-3 transition (skeleton off, user content on)."
     (let [variant-id :story.skeleton/v]
-      (rf/reg-frame variant-id {})
+      (rf/make-frame {:id variant-id})
       ;; Drive the lifecycle all the way through :ready.
       (loaders/mount! variant-id)
       (loaders/start-loaders! variant-id)
@@ -220,7 +220,7 @@
             slips back to `:loading` for a hot-reload re-run. Reading
             as a glitch is the regression class this gate prevents."
     (let [variant-id :story.skeleton/v]
-      (rf/reg-frame variant-id {})
+      (rf/make-frame {:id variant-id})
       ;; Lifecycle in :loading, sentinel set → skeleton MUST NOT show.
       (loaders/mount! variant-id)
       (loaders/start-loaders! variant-id)
@@ -243,7 +243,7 @@
             accessibility-bearing slots on the emitted hiccup so a
             simplification refactor that dropped them would surface."
     (let [variant-id :story.skeleton/v]
-      (rf/reg-frame variant-id {})
+      (rf/make-frame {:id variant-id})
       (loaders/mount! variant-id)
       (loaders/start-loaders! variant-id)
       (let [tree  (canvas-inner-tree variant-id)

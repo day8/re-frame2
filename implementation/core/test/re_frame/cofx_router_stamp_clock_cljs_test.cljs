@@ -64,7 +64,7 @@
             js/Date.now), NOT a perf-clock (performance.now) origin-relative
             value. A regression swapping epoch-now-ms -> now-ms at the causal
             boundary is JVM-benign but lands ~12 orders of magnitude low here."
-    (rf/reg-frame :wi.clk/cofx {:doc "ctx"})
+    (rf/make-frame {:id :wi.clk/cofx :doc "ctx"})
     (let [captured (atom nil)]
       ;; A full-context interceptor :before so we read the FULL coeffect map the
       ;; handler saw — :rf.cofx is a framework coeffect alongside :db / :event.
@@ -110,7 +110,7 @@
             ALSO a wall-clock epoch ms (> 1e12), not a perf-clock value. Covers
             the router envelope-stamp path as seen by the trace stream, not
             just the handler coeffect."
-    (rf/reg-frame :wi.clk/trace {:doc "ctx"})
+    (rf/make-frame {:id :wi.clk/trace :doc "ctx"})
     (rf/reg-event :wi.clk/noop (fn [{:keys [db]} _] {:db db}))
     (let [seen (atom [])]
       (rf/register-listener! :trace ::clk-probe (fn [ev] (swap! seen conj ev)))

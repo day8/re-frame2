@@ -98,7 +98,7 @@
   value via the framework's replace-app-db!. The Phase 5 panel
   derefs the host frame via :rf.xray/target-frame-db."
   [db-value]
-  (frame/reg-frame :rf/default {})
+  (rf/make-frame {:id :rf/default})
   (rf/replace-frame-state! :rf/default {:rf.db/app db-value}))
 
 (defn- seed-host-runtime-db!
@@ -111,7 +111,7 @@
   `:rf/machine? true` marks it framework-authority so the runtime-write
   diagnostic does not fire."
   [runtime-db-value]
-  (frame/reg-frame :rf/default {})
+  (rf/make-frame {:id :rf/default})
   (rf/reg-event :rf.xray-test/seed-runtime-db
     {:rf/machine? true}
     (fn [_ _] {:rf.db/runtime runtime-db-value}))
@@ -124,7 +124,7 @@
   registry + epoch-cb) so the subs read live values."
   [host-db-value history]
   (registry/register-xray-handlers!)
-  (frame/reg-frame :rf/xray {})
+  (rf/make-frame {:id :rf/xray})
   (register-seed-events!)
   (seed-host-frame! host-db-value)
   ;; EP-0002 (rf2-bd4div) — the inspected target no longer defaults to
@@ -259,8 +259,8 @@
             The path is normalised to a vector so callers can pass
             seqs / lists / vectors interchangeably."
     (registry/register-xray-handlers!)
-    (frame/reg-frame :rf/xray {})
-    (frame/reg-frame :rf/default {})
+    (rf/make-frame {:id :rf/xray})
+    (rf/make-frame {:id :rf/default})
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/open-segment-inspector
                          (list :cart :items 0 :price)])
@@ -271,7 +271,7 @@
   (testing "rf2-e9tb0 — :rf.xray/close-segment-inspector dissocs the
             slot so the popup reg-view's `when`-gate short-circuits"
     (registry/register-xray-handlers!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/open-segment-inspector [:cart]])
       (is (some? (:segment-inspector (frame/frame-app-db-value :rf/xray))))
@@ -282,7 +282,7 @@
   (testing "rf2-e9tb0 — :rf.xray/segment-inspector-open? is true iff
             the :segment-inspector slot is non-nil"
     (registry/register-xray-handlers!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (rf/with-frame :rf/xray
       (is (false? @(rf/subscribe [:rf.xray/segment-inspector-open?])))
       (rf/dispatch-sync [:rf.xray/open-segment-inspector [:cart :items]])
@@ -323,7 +323,7 @@
   (testing ":rf.xray/focus-slice-path lands the path on :rf/xray's
             :focused-slice-path"
     (registry/register-xray-handlers!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/focus-slice-path [:cart :items]]))
     (is (= [:cart :items]
@@ -331,7 +331,7 @@
 
 (deftest clear-slice-focus-event-drops-focus
   (registry/register-xray-handlers!)
-  (frame/reg-frame :rf/xray {})
+  (rf/make-frame {:id :rf/xray})
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray/focus-slice-path [:any]])
     (rf/dispatch-sync [:rf.xray/clear-slice-focus]))
@@ -364,7 +364,7 @@
 
 (deftest show-me-when-this-changed-result-empty-when-no-focus
   (registry/register-xray-handlers!)
-  (frame/reg-frame :rf/xray {})
+  (rf/make-frame {:id :rf/xray})
   (rf/with-frame :rf/xray
     (is (= [] @(rf/subscribe [:rf.xray/show-me-when-this-changed-result])))))
 
@@ -375,7 +375,7 @@
             clipboard route through :rf.xray.fx/copy-to-clipboard; the
             fx is best-effort (no-op on non-browser targets)"
     (registry/register-xray-handlers!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (let [captured (atom [])]
       (rf/reg-fx :rf.xray.fx/copy-to-clipboard
         (fn [_ctx args] (swap! captured conj args)))
@@ -422,8 +422,8 @@
             sensitive slot is REDACTED before it reaches the clipboard fx;
             the raw secret never crosses the off-box boundary"
     (registry/register-xray-handlers!)
-    (frame/reg-frame :rf/default {})
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/default})
+    (rf/make-frame {:id :rf/xray})
     ;; Declare the sensitive path on the OBSERVED frame (:rf/default) so the
     ;; egress, pinned to the observed frame, matches the declaration.
     (rf/with-frame :rf/default (seed-sensitive-schema!))
@@ -449,8 +449,8 @@
   (testing "rf2-uo0rc.2 — a copied value carrying a frame-declared
             :large slot is size-elided before it reaches the clipboard fx"
     (registry/register-xray-handlers!)
-    (frame/reg-frame :rf/default {})
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/default})
+    (rf/make-frame {:id :rf/xray})
     (rf/with-frame :rf/default (seed-large-schema!))
     (let [captured (capture-copy!)]
       (rf/with-frame :rf/xray
@@ -472,8 +472,8 @@
             sensitive/large declarations: the copy still round-trips the
             full value (fail-closed only bites declared slots)"
     (registry/register-xray-handlers!)
-    (frame/reg-frame :rf/default {})
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/default})
+    (rf/make-frame {:id :rf/xray})
     (let [captured (capture-copy!)]
       (rf/with-frame :rf/xray
         (rf/dispatch-sync [:rf.xray/set-target-frame :rf/default])
@@ -486,8 +486,8 @@
             vector (key names, no values); it is not a value-egress site
             and must NOT redact path segments"
     (registry/register-xray-handlers!)
-    (frame/reg-frame :rf/default {})
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/default})
+    (rf/make-frame {:id :rf/xray})
     (rf/with-frame :rf/default (seed-sensitive-schema!))
     (let [captured (capture-copy!)]
       (rf/with-frame :rf/xray
@@ -511,7 +511,7 @@
             the TOP user-domain section over the observed frame's db"
     (seed-host-frame! {:counter 5 :user {:name "ada"}})
     (registry/register-xray-handlers!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (rf/with-frame :rf/xray
       (let [tree (app-db-diff/Panel)]
         (is (some? (find-by-testid tree "rf-xray-app-db-diff"))
@@ -537,7 +537,7 @@
                             :rf.runtime/machines {:snapshots {:auth       {:state :idle}
                                                               :title/flow {:state :playing}}}})
     (registry/register-xray-handlers!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     ;; EP-0002 (rf2-bd4div) — select the host `:rf/default` frame as the
     ;; observed target explicitly (it no longer defaults).
     (rf/with-frame :rf/xray
@@ -562,7 +562,7 @@
             slot, never as a persistent 'No X' placeholder."
     (seed-host-frame! {:counter 1})
     (registry/register-xray-handlers!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     ;; EP-0002 (rf2-bd4div) — select the host frame as observed target so
     ;; the panel actually projects against it (the no-placeholder check is
     ;; meaningful only when a target is selected).
@@ -600,9 +600,9 @@
             slot (which `:rf.xray/set-frame` does NOT touch) and stayed
             stuck on the default regardless of picker selection."
     (registry/register-xray-handlers!)
-    (frame/reg-frame :rf/xray {})
-    (frame/reg-frame :rf/default {})
-    (frame/reg-frame :checkout-frame {})
+    (rf/make-frame {:id :rf/xray})
+    (rf/make-frame {:id :rf/default})
+    (rf/make-frame {:id :checkout-frame})
     (rf/with-frame :rf/xray
       ;; EP-0002 (rf2-bd4div) — cold-start: observed frame is UNSELECTED
       ;; (nil) before any picker selection lands, NOT a synthesised
@@ -620,9 +620,9 @@
             surfaces THAT frame's value in the TOP section, not the
             `:rf/default` frame's."
     (registry/register-xray-handlers!)
-    (frame/reg-frame :rf/xray {})
-    (frame/reg-frame :rf/default {})
-    (frame/reg-frame :checkout-frame {})
+    (rf/make-frame {:id :rf/xray})
+    (rf/make-frame {:id :rf/default})
+    (rf/make-frame {:id :checkout-frame})
     ;; Give the two frames distinguishable values.
     (rf/replace-frame-state! :rf/default {:rf.db/app {:counter 0}})
     (rf/replace-frame-state! :checkout-frame {:rf.db/app {:checkout {:step :payment}}})
@@ -665,9 +665,9 @@
             target frame and the App-DB diff panel rendered empty-
             state with a focused cascade present."
     (registry/register-xray-handlers!)
-    (frame/reg-frame :rf/xray {})
-    (frame/reg-frame :rf/default {})
-    (frame/reg-frame :cart-frame {})
+    (rf/make-frame {:id :rf/xray})
+    (rf/make-frame {:id :rf/default})
+    (rf/make-frame {:id :cart-frame})
     (rf/with-frame :rf/xray
       ;; Seed the slot with stale `:rf/default` history; user picks
       ;; `:cart-frame`; the slot MUST reset so the wrong-frame epochs
@@ -694,9 +694,9 @@
             `:rf.xray/app-db-diff` composite onto the panel's live
             primary sub `:rf.xray/app-db-current+diff`."
     (registry/register-xray-handlers!)
-    (frame/reg-frame :rf/xray {})
-    (frame/reg-frame :rf/default {})
-    (frame/reg-frame :cart-frame {})
+    (rf/make-frame {:id :rf/xray})
+    (rf/make-frame {:id :rf/default})
+    (rf/make-frame {:id :cart-frame})
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/set-frame :cart-frame])
       ;; Framework's `:rf.xray/epoch-recorded` cb re-pumps the

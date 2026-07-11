@@ -37,6 +37,7 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
+   [re-frame.fx :as fx]
    ;; load-bearing side-effecting requires: the resources façade registers the
    ;; :rf.resource/* events; machines wires the machine grammar + the
    ;; :rf.machine/start / :rf.machine/destroy fxs (and the release-on-destroy
@@ -64,10 +65,10 @@
 (defn- capturing-fixture
   [f]
   (reset! cancelled-poll [])
-  (rf/reg-fx :rf.http/managed (fn [_ctx _args] nil))
-  (rf/reg-fx :rf.http/managed-abort (fn [_ctx _wid] nil))
-  (rf/reg-fx :rf.resource/schedule-timers (fn [_ctx _args] nil))
-  (rf/reg-fx :rf.resource/cancel-poll-timers
+  (fx/reg-fx :rf.http/managed (fn [_ctx _args] nil))
+  (fx/reg-fx :rf.http/managed-abort (fn [_ctx _wid] nil))
+  (fx/reg-fx :rf.resource/schedule-timers (fn [_ctx _args] nil))
+  (fx/reg-fx :rf.resource/cancel-poll-timers
              (fn [_ctx args] (swap! cancelled-poll conj args) nil))
   ;; A poll-enabled, actively-owned resource. The machine actor ensures it on
   ;; entry under its `[:machine actor-id]` owner; on actor destroy the lease

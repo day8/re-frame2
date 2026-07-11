@@ -37,9 +37,8 @@
   ;; EP-0025 B1b purge). Value-independent — classified at init, read at egress.
   (rf/reg-event :rf.bt9kct/classify
     (fn [_ _] {:sensitive [[:session :token]]}))
-  (rf/reg-frame server-frame
-    {:platform       :server
-     :initial-events [[:rf.bt9kct/classify]]}))
+  (rf/make-frame {:id server-frame :platform       :server
+                  :initial-events [[:rf.bt9kct/classify]]}))
 
 (def ^:private app-db
   "An app-db whose allowlisted :session key carries a frame-sensitive child
@@ -104,7 +103,7 @@
   (testing "a registered frame with NO :sensitive classification ships its
             allowlisted slice verbatim (the projection is a precise
             classification walk, not a blanket scrub)"
-    (rf/reg-frame :rf.bt9kct/plain {:platform :server})
+    (rf/make-frame {:id :rf.bt9kct/plain :platform :server})
     (let [out (payload/build-payload :rf.bt9kct/plain app-db "h1"
                                      {:payload [:session]})
           db  (:rf/app-db out)]

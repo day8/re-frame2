@@ -69,7 +69,7 @@
   (rf/reg-sub :counter/value (fn [db _] (:counter db))))
 
 (defn- mount-xray-with-target! [target]
-  (frame/reg-frame :rf/xray {})
+  (rf/make-frame {:id :rf/xray})
   (let [buffer (trace-collector/buffer-for-test)]
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/sync-trace-buffer buffer])
@@ -99,7 +99,7 @@
   the head epoch's `:dispatch-id` slot matches the head cascade. Views +
   Trace see the focused record (rf2-rly4a)."
     (install-xray!)
-    (frame/reg-frame frame-below {})
+    (rf/make-frame {:id frame-below})
     (install-counter!)
     (mount-xray-with-target! frame-below)
     (dispatch-host-frame [:counter/inc] frame-below)
@@ -140,7 +140,7 @@
   `:depth`); shrink to 3 here so the 10 cascades below produce
   trace-elided records that exercise the rly4a fix."
     (install-xray!)
-    (frame/reg-frame frame-below {})
+    (rf/make-frame {:id frame-below})
     (install-counter!)
     (mount-xray-with-target! frame-below)
     (rf/configure! {:epoch-history {:trace-events-keep 3}})
@@ -183,7 +183,7 @@
   `:depth`); shrink to 3 here so 8 cascades produce a mix of
   trace-retained and trace-elided records."
     (install-xray!)
-    (frame/reg-frame frame-below {})
+    (rf/make-frame {:id frame-below})
     (install-counter!)
     (mount-xray-with-target! frame-below)
     (rf/configure! {:epoch-history {:trace-events-keep 3}})

@@ -51,7 +51,7 @@
   ;; scope — the carried-invariant equivalent of wrapping every test in
   ;; `(with-frame :rf/default …)`. Bare dispatches in the test bodies then
   ;; resolve to `:rf/default`; explicit `{:frame …}` opts still win.
-  (rf/reg-frame :rf/default {})
+  (rf/make-frame {:id :rf/default})
   ;; Framework registrations live at namespace-load time; clear-all!
   ;; wiped them. Reload so :rf/route, :rf.route/* subs and the framework
   ;; fx (e.g. :rf.fx/reg-flow) survive between tests.
@@ -245,7 +245,7 @@
                  (fn [_ _] (swap! fired conj :stub)))
       (rf/reg-event :fx-test/comp-send
         (fn [_ _] {:fx [[:fx-test/comp-email]]}))
-      (rf/reg-frame :wo/A {:doc "frame A"})
+      (rf/make-frame {:id :wo/A :doc "frame A"})
 
       (reset! fired [])
       (rf/with-frame :wo/A

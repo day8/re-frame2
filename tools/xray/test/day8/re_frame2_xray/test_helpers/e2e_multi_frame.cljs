@@ -112,7 +112,7 @@
   ;; `-for-test` ids; opt the e2e surface into the per-panel override +
   ;; seeding seam the harness's tests drive.
   (xray-test-support/install-test-overrides!)
-  (frame/reg-frame :rf/xray {})
+  (rf/make-frame {:id :rf/xray})
   ;; Seed app-db slots so subs that depend on `:epoch-history` /
   ;; `:target-frame` / `:trace-buffer` resolve to the canonical
   ;; shapes. `mount.cljs/ensure-xray-frame!` does the same.
@@ -140,7 +140,7 @@
   ;; Register the host frame BEFORE Xray installs — Xray's seed
   ;; reads the host frame's epoch ring + cascade list, so the host
   ;; must exist (even if empty) at install time.
-  (frame/reg-frame host-frame {})
+  (rf/make-frame {:id host-frame})
   (when install-host (install-host))
   (install-xray)
   (try

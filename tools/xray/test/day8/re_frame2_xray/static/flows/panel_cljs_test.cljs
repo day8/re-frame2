@@ -50,7 +50,7 @@
 (defn- setup-xray! []
   (registry/register-xray-handlers!)
   (xray-test-support/install-test-overrides!)
-  (frame/reg-frame :rf/xray {}))
+  (rf/make-frame {:id :rf/xray}))
 
 ;; ---- fixture data -------------------------------------------------------
 
@@ -314,9 +314,9 @@
   two host frames the live-source flows register against."
   []
   (registry/register-xray-handlers!)
-  (frame/reg-frame :rf/xray {})
-  (frame/reg-frame :flows-test/frame-a {:doc "host frame A"})
-  (frame/reg-frame :flows-test/frame-b {:doc "host frame B"}))
+  (rf/make-frame {:id :rf/xray})
+  (rf/make-frame {:id :flows-test/frame-a :doc "host frame A"})
+  (rf/make-frame {:id :flows-test/frame-b :doc "host frame B"}))
 
 (deftest live-source-reads-flows-snapshot-not-empty-registrar-slot
   (testing "rf2-20359j — the PRODUCTION Static Flows data source reads

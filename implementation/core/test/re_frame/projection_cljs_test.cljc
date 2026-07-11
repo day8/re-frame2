@@ -44,7 +44,7 @@
   (apply str (repeat 40000 \x)))
 
 (defn- mk-frame! [frame-id]
-  (rf/reg-frame frame-id {})
+  (rf/make-frame {:id frame-id})
   ;; EP-0025: durable app-db classification rides the commit-plane effect
   ;; path (`:source :effect`) — the durable frame annotation is removed.
   (frame/swap-runtime-db! frame-id
@@ -180,7 +180,7 @@
 
 (deftest sensitive-wins-over-large
   (testing "a path declared BOTH sensitive and large redacts, never large-elides"
-    (rf/reg-frame :proj/both {})
+    (rf/make-frame {:id :proj/both})
     (frame/swap-runtime-db! :proj/both
       (fn [rt] (elision/apply-classification-effects rt
                  {:sensitive [[:secret]]
@@ -369,7 +369,7 @@
     ;; nothing. The record names :proj/empty but the caller deliberately
     ;; reclassifies under :proj/decl via an explicit opt — the opt must win.
     (mk-frame! :proj/decl)
-    (rf/reg-frame :proj/empty {})
+    (rf/make-frame {:id :proj/empty})
     (let [record {:kind  :rf.observe/error
                   :frame :proj/empty
                   :error :rf.error/handler-exception

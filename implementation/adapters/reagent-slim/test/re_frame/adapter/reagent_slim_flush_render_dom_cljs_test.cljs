@@ -83,7 +83,7 @@
             flush!   (:flush-render! reagent-slim-adapter/adapter)]
         (is (fn? flush!)
             "the reagent-slim adapter map exposes :flush-render! (rf2-0bz5ah contract slot)")
-        (rf/reg-frame frame-kw {:doc "flush-render! synchronous-commit probe frame"})
+        (rf/make-frame {:id frame-kw :doc "flush-render! synchronous-commit probe frame"})
         (rf/reg-event ::seed (fn [{:keys [db]} _] {:db {:n 1}}))
         (rf/reg-event ::inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
         (rf/dispatch-sync [::seed] {:frame frame-kw})

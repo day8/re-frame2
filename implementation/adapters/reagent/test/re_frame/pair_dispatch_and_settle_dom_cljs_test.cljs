@@ -90,7 +90,7 @@
         ;; (the default depth is 50; pin it explicitly so the test does
         ;; not depend on ambient config).
         (rf/configure! {:epoch-history {:depth 50}})
-        (rf/reg-frame frame-kw {:doc "dispatch-and-settle! probe frame"})
+        (rf/make-frame {:id frame-kw :doc "dispatch-and-settle! probe frame"})
         (rf/reg-event ::seed (fn [{:keys [db]} _] {:db {:show? false}}))
         (rf/reg-event ::show (fn [{:keys [db]} _] {:db (assoc db :show? true)}))
         (rf/reg-event ::hide (fn [{:keys [db]} _] {:db (assoc db :show? false)}))
@@ -210,7 +210,7 @@
     (let [frame-kw :rf.pair-settle/no-record-frame]
       (try
         (rf/configure! {:epoch-history {:depth 0}}) ;; recording OFF (process-global)
-        (rf/reg-frame frame-kw {:doc "no-epoch probe frame"})
+        (rf/make-frame {:id frame-kw :doc "no-epoch probe frame"})
         (rf/reg-event ::noop (fn [{:keys [db]} _] {:db db}))
         (let [settled (pair/dispatch-and-settle! [::noop] {:frame frame-kw})]
           (is (false? (:ok? settled))

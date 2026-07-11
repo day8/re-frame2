@@ -188,8 +188,7 @@
       ;; event handler reused across every frame — re-registration
       ;; doesn't race because it lands BEFORE the latch releases.
       (doseq [{:keys [frame-id]} per-thread]
-        (rf/reg-frame frame-id
-                      {:doc "per-thread frame for epoch settle stress"}))
+        (rf/make-frame {:id frame-id :doc "per-thread frame for epoch settle stress"}))
       (rf/reg-event :bump (fn [{:keys [db]} [_ i]]
                                {:db (assoc db :last i)}))
 
@@ -279,7 +278,7 @@
     ;; final history; the cap behaviour is covered by the deterministic
     ;; `ring-depth-evicts-oldest` pin.
     (rf/configure! {:epoch-history {:depth (* 2 stress-iters)}})
-    (rf/reg-frame :rd7a7.fanout/main {:doc "fanout-stress frame"})
+    (rf/make-frame {:id :rd7a7.fanout/main :doc "fanout-stress frame"})
     (rf/reg-event :bump (fn [{:keys [db]} [_ i]]
                              {:db (assoc db :last i)}))
 
@@ -415,7 +414,7 @@
     ;; A separate test under the existing depth-evicts pin (rf2-shjf)
     ;; covers the cap behaviour.
     (rf/configure! {:epoch-history {:depth (* 2 stress-iters)}})
-    (rf/reg-frame :rd7a7.race/main {:doc "ring-buffer race frame"})
+    (rf/make-frame {:id :rd7a7.race/main :doc "ring-buffer race frame"})
     (rf/reg-event :bump (fn [{:keys [db]} [_ i]]
                              {:db (assoc db :last i)}))
 
@@ -573,7 +572,7 @@
       ;; Seed each frame with one settled epoch (the back-fill target).
       (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
       (doseq [frame-id frames]
-        (rf/reg-frame frame-id {})
+        (rf/make-frame {:id frame-id})
         (rf/dispatch-sync [:seed] {:frame frame-id}))
 
       (let [latch   (CountDownLatch. 1)
@@ -658,7 +657,7 @@
     ;; Small cap so the recorder's settles continuously evict + shift indices.
     (let [cap 8]
       (rf/configure! {:epoch-history {:depth cap :trace-events-keep 50}})
-      (rf/reg-frame :qh13yf.race/main {:doc "back-fill vs eviction race frame"})
+      (rf/make-frame {:id :qh13yf.race/main :doc "back-fill vs eviction race frame"})
       (rf/reg-event :bump (fn [{:keys [db]} [_ i]] {:db (assoc db :n i)}))
       ;; Seed the ring to cap so back-fillers have live targets from the start.
       (dotimes [i cap] (rf/dispatch-sync [:bump i] {:frame :qh13yf.race/main}))
@@ -784,7 +783,7 @@
           cur-hread      (atom nil) ;; per-iter promise: handler published db
           cur-hrelease   (atom nil) ;; per-iter latch: release the blocked handler
           orig-check     tool-pair/check-restore-preconditions!]
-      (rf/reg-frame frame-id {:doc "restore linearizability stress frame"})
+      (rf/make-frame {:id frame-id :doc "restore linearizability stress frame"})
       (rf/reg-event :set (fn [{:keys [db]} [_ v]] {:db {:n v}}))
       ;; The racing event: read db, publish it, block mid-transition holding
       ;; :drain-lock until released, then commit n+1.
@@ -891,7 +890,7 @@
                 " settle/destroy cycles — no torn double-silence, the live "
                 "generation's observation survives and silences exactly once "
                 "(rf2-j538f7.5)")
-    (rf/reg-frame :j538.gen/main {:doc "same-id replacement stress frame"})
+    (rf/make-frame {:id :j538.gen/main :doc "same-id replacement stress frame"})
     (rf/reg-event :bump (fn [{:keys [db]} [_ i]] {:db (assoc db :last i)}))
     (let [cb-id       ::churned
           silence-cnt (atom 0)
@@ -932,7 +931,7 @@
                         (swap! errors conj
                                (ex-info "torn double-silence for one destroy"
                                         {:delta delta :cycle i})))))
-                  (rf/reg-frame :j538.gen/main {}))
+                  (rf/make-frame {:id :j538.gen/main}))
                 (catch Throwable t (swap! errors conj t))
                 (finally (reset! churn-stop true))))]
         (.countDown latch)

@@ -24,6 +24,7 @@
       of truth."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.fx :as fx]
             [re-frame.frame :as frame]
             [re-frame.routing.nav-counters :as nav-counters]
             [re-frame.ssr.payload-policy :as payload-policy]
@@ -161,8 +162,8 @@
     ;; :can-leave returns false → BLOCK (the editor is dirty; the closed
     ;; contract reads literal false as "block").
     (rf/reg-sub :editor/can-leave? (fn [_ _] false))
-    (rf/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
-    (rf/reg-fx :rf.nav/replace-url {:platforms #{:server :client}} (fn [_ _] nil))
+    (fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
+    (fx/reg-fx :rf.nav/replace-url {:platforms #{:server :client}} (fn [_ _] nil))
 
     ;; Land on the editor (active route with a blocking :can-leave).
     (rf/dispatch-sync [:rf.route/transitioned "/editor"])
@@ -221,7 +222,7 @@
             entry (the :routing/on-frame-destroyed! teardown, shared with the
             scroll cache) so a long-running per-request-frame process does
             not leak one counter entry per destroyed frame"
-    (rf/reg-frame :rf.test/scratch {:url-bound? true})
+    (rf/make-frame {:id :rf.test/scratch :url-bound? true})
     (rf/reg-route :route/s {} "/s")
     (rf/with-frame :rf.test/scratch
       (rf/dispatch-sync [:rf.route/transitioned "/s"]))

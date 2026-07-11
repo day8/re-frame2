@@ -46,6 +46,7 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.fx :as fx]
             [re-frame.schemas :as schemas]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.test-fixture :as tf]))
@@ -94,19 +95,21 @@
                            (str/starts-with? (or id "") "a"))} "/articles/:id")
   ;; Server-platform push-url so the navigate fx assembly resolves on a
   ;; `:platform :server` frame (no-op sink — the reject path never pushes).
-  (rf/reg-fx :rf.nav/push-url
+  (fx/reg-fx :rf.nav/push-url
              {:platforms #{:server :client}}
              (fn [_ _url] nil)))
 
 (defn- make-server-frame [frame-id]
-  ;; `reg-frame` (not `make-frame`) so the two frames carry STABLE,
-  ;; named ids — `make-frame` gensyms an anonymous id. Both are
+  ;; An EXPLICIT `:id` so the two frames carry STABLE, named ids (an
+  ;; id-less `make-frame` gensyms an anonymous one). Returns the ID —
+  ;; these tests compare trace `[:tags :frame]` stamps and read the
+  ;; per-frame response accumulator by id. Both are
   ;; `:platform :server` so `error-projector/server-frame?` recognises
   ;; them as the live server frames the (removed) fallback enumerated.
-  (rf/reg-frame frame-id
-    {:platform :server
-     :ssr      {:public-error-id   :rf.ssr/default-error-projector
-                :dev-error-detail? false}}))
+  (rf/make-frame {:id frame-id :platform :server
+                  :ssr      {:public-error-id   :rf.ssr/default-error-projector
+                             :dev-error-detail? false}})
+  frame-id)
 
 ;; ===========================================================================
 ;; (1) Two live server frames — a navigate-reject in ONE stamps 400 on THAT

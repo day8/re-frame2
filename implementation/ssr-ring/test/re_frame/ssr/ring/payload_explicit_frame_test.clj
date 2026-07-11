@@ -55,15 +55,13 @@
               :pending-navigation {:id "pn-1"}})))
 
 (defn- setup-frames! []
-  (rf/reg-frame server-frame
-    {:doc      "rf2-f02diw non-streaming ring explicit-frame regression frame A"
-     :platform :server})
+  (rf/make-frame {:id server-frame :doc      "rf2-f02diw non-streaming ring explicit-frame regression frame A"
+                  :platform :server})
   ;; Frame B exists as a real (registered) ambient frame with NO classifications
   ;; — the strongest "wrong frame" case: projecting the route slice under B
   ;; consults B's empty registry and the token would ride verbatim.
-  (rf/reg-frame ambient-frame
-    {:doc      "rf2-f02diw mismatched ambient frame B (no classifications)"
-     :platform :server})
+  (rf/make-frame {:id ambient-frame :doc      "rf2-f02diw mismatched ambient frame B (no classifications)"
+                  :platform :server})
   (frame/swap-runtime-db! server-frame (constantly (frame-a-runtime-db))))
 
 (defn- build-a

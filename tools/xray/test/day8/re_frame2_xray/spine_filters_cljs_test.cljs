@@ -33,7 +33,7 @@
 
 (defn- xray-setup! []
   (registry/register-xray-handlers!)
-  (frame/reg-frame :rf/xray {})
+  (rf/make-frame {:id :rf/xray})
   ;; mirrors mount.cljs/ensure-xray-frame! — re-runs hydrate after the
   ;; frame is registered (preload-time install no-op'd).
   (spine-filters/hydrate!))

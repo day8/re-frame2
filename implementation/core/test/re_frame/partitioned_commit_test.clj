@@ -73,7 +73,7 @@
   ;; `:rf/default` + pin it as the body's ambient scope (the carried-
   ;; invariant equivalent of `(with-frame :rf/default …)`); explicit
   ;; `{:frame …}` opts in the test bodies still win.
-  (rf/reg-frame :rf/default {})
+  (rf/make-frame {:id :rf/default})
   (rf/with-frame :rf/default
     (test-fn)))
 
@@ -101,7 +101,7 @@
 
 (deftest one-physical-container-two-projections
   (testing "a frame holds one frame-state container; app-db / runtime-db are projections over it"
-    (rf/reg-frame :pc/shape {:doc "shape"})
+    (rf/make-frame {:id :pc/shape :doc "shape"})
     (let [fs   (frame/frame-state-container :pc/shape)
           app  (frame/app-db-container :pc/shape)
           rt   (frame/runtime-db-container :pc/shape)]
@@ -118,7 +118,7 @@
 
 (deftest projections-are-read-only
   (testing "writing the app-db / runtime-db projection throws derived-container-replaced"
-    (rf/reg-frame :pc/ro {:doc "ro"})
+    (rf/make-frame {:id :pc/ro :doc "ro"})
     (doseq [container [(frame/app-db-container :pc/ro)
                        (frame/runtime-db-container :pc/ro)]]
       (let [e (try (adapter/replace-container! container {:x 1}) nil
@@ -133,7 +133,7 @@
 
 (deftest ordinary-db-effect-scoped-to-app-db
   (testing "an ordinary :db effect replaces ONLY app-db; runtime-db is untouched"
-    (rf/reg-frame :pc/scope {:doc "scope"})
+    (rf/make-frame {:id :pc/scope :doc "scope"})
     ;; Seed a runtime-db partition (framework-authority write).
     (reg-fw-runtime-handler! :pc/seed-rt
       (fn [_ _] {:rf.db/runtime {:rf.runtime/machines {:door {:state :open}}}}))
@@ -156,7 +156,7 @@
 
 (deftest runtime-db-effect-whole-value-commit
   (testing "a framework :rf.db/runtime effect commits the runtime-db partition (whole-value)"
-    (rf/reg-frame :pc/rtfx {:doc "rtfx"})
+    (rf/make-frame {:id :pc/rtfx :doc "rtfx"})
     (rf/reg-event :pc/seed-app (fn [{:keys [db]} _] {:db {:app :data}}))
     (rf/dispatch-sync [:pc/seed-app] {:frame :pc/rtfx})
     (reg-fw-runtime-handler! :pc/write-rt
@@ -170,7 +170,7 @@
 
 (deftest runtime-db-operation-style-write
   (testing "operation-style runtime writes (via the mutator) coexist with whole-value (decision #5)"
-    (rf/reg-frame :pc/rtop {:doc "rtop"})
+    (rf/make-frame {:id :pc/rtop :doc "rtop"})
     ;; whole-value seed
     (rf/replace-frame-state! :pc/rtop {:rf.db/runtime {:rf.runtime/machines {:a 1}}})
     (is (= {:rf.runtime/machines {:a 1}} (:rf.db/runtime (rf/frame-state-value :pc/rtop))))
@@ -188,7 +188,7 @@
 
 (deftest atomic-cross-partition-commit
   (testing "an app+runtime cascade installs both partitions as ONE coherent transition"
-    (rf/reg-frame :pc/both {:doc "both"})
+    (rf/make-frame {:id :pc/both :doc "both"})
     (reg-fw-runtime-handler! :pc/app-and-rt
       (fn [{:keys [db]} _]
         {:db (assoc db :page :account)
@@ -234,7 +234,7 @@
 
 (deftest app-only-commit-does-not-invalidate-runtime-projection
   (testing "an app-only commit leaves runtime-db `=` (the runtime-db projection does not change)"
-    (rf/reg-frame :pc/inval-rt {:doc "inval-rt"})
+    (rf/make-frame {:id :pc/inval-rt :doc "inval-rt"})
     (reg-fw-runtime-handler! :pc/seed-rt2
       (fn [_ _] {:rf.db/runtime {:rf.runtime/routing {:current {:route-id :home}}}}))
     (rf/dispatch-sync [:pc/seed-rt2] {:frame :pc/inval-rt})
@@ -252,7 +252,7 @@
 
 (deftest app-only-commit-trace-shape
   (testing "an app-only commit emits db-changed AND frame-state-changed #{:app-db}"
-    (rf/reg-frame :pc/tr-app {:doc "tr-app"})
+    (rf/make-frame {:id :pc/tr-app :doc "tr-app"})
     (let [recorded (record-traces! ::tr-app)]
       (rf/reg-event :pc/app-only (fn [{:keys [db]} _] {:db (assoc db :k 1)}))
       (rf/dispatch-sync [:pc/app-only] {:frame :pc/tr-app})
@@ -265,7 +265,7 @@
 
 (deftest runtime-only-commit-trace-shape
   (testing "a runtime-only commit emits frame-state-changed #{:runtime-db} and NO db-changed"
-    (rf/reg-frame :pc/tr-rt {:doc "tr-rt"})
+    (rf/make-frame {:id :pc/tr-rt :doc "tr-rt"})
     (let [recorded (record-traces! ::tr-rt)]
       (reg-fw-runtime-handler! :pc/rt-only
         (fn [_ _] {:rf.db/runtime {:rf.runtime/machines {:m 1}}}))
@@ -280,7 +280,7 @@
 
 (deftest both-partition-commit-trace-shape
   (testing "a both-partition commit emits db-changed + frame-state-changed #{:app-db :runtime-db}"
-    (rf/reg-frame :pc/tr-both {:doc "tr-both"})
+    (rf/make-frame {:id :pc/tr-both :doc "tr-both"})
     (let [recorded (record-traces! ::tr-both)]
       (reg-fw-runtime-handler! :pc/both-tr
         (fn [{:keys [db]} _]
@@ -296,7 +296,7 @@
 
 (deftest no-op-partition-commit-emits-no-change-trace
   (testing "a :db effect equal to the current app-db emits neither change trace"
-    (rf/reg-frame :pc/tr-noop {:doc "tr-noop"})
+    (rf/make-frame {:id :pc/tr-noop :doc "tr-noop"})
     (rf/reg-event :pc/seed (fn [{:keys [db]} _] {:db {:k 1}}))
     (rf/dispatch-sync [:pc/seed] {:frame :pc/tr-noop})
     (let [recorded (record-traces! ::tr-noop)]
@@ -314,7 +314,7 @@
 
 (deftest replace-app-db-leaves-runtime-untouched
   (testing "replace-app-db! writes only app-db; runtime-db survives"
-    (rf/reg-frame :pc/m-app {:doc "m-app"})
+    (rf/make-frame {:id :pc/m-app :doc "m-app"})
     (rf/replace-frame-state! :pc/m-app {:rf.db/runtime {:rf.runtime/machines {:m 1}}})
     ;; The frame-level helper exercises the internal partition write directly
     ;; (the public `rf/replace-frame-state!` epoch-delegate's full contract —
@@ -328,7 +328,7 @@
 
 (deftest replace-frame-state-is-atomic-both-partitions
   (testing "replace-frame-state! installs both partitions in one write"
-    (rf/reg-frame :pc/m-fs {:doc "m-fs"})
+    (rf/make-frame {:id :pc/m-fs :doc "m-fs"})
     (rf/replace-frame-state! :pc/m-fs {:rf.db/app {:a 1}
                                        :rf.db/runtime {:rf.runtime/routing {:r 1}}})
     (is (= {:rf.db/app {:a 1} :rf.db/runtime {:rf.runtime/routing {:r 1}}}
@@ -339,7 +339,7 @@
   (testing "replace-frame-state! wholesale-replaces BOTH partitions of an
             existing frame-state (the full-frame install surface, Mike
             ruling #10 — NOT an app-db-only reset)"
-    (rf/reg-frame :pc/m-full {:doc "m-full"})
+    (rf/make-frame {:id :pc/m-full :doc "m-full"})
     ;; seed a coherent pre-existing frame-state in both partitions
     (rf/replace-frame-state! :pc/m-full {:rf.db/app {:a :old}
                                          :rf.db/runtime {:rf.runtime/machines {:m :old}}})
@@ -360,7 +360,7 @@
 
 (deftest mutators-return-changed-partition-set
   (testing "the frame-level commit helpers report which partition(s) changed"
-    (rf/reg-frame :pc/m-ret {:doc "m-ret"})
+    (rf/make-frame {:id :pc/m-ret :doc "m-ret"})
     (is (= #{:rf.db/app} (frame/replace-app-db! :pc/m-ret {:k 1}))
         "an app-db write reports #{:rf.db/app}")
     (is (= #{} (frame/replace-app-db! :pc/m-ret {:k 1}))
@@ -379,7 +379,7 @@
             install — BOTH partitions keep the pre-handler state (rf2-uhk9ko)"
     ;; Only run when the schemas artefact is on the classpath (optional).
     (when (late-bind/get-fn :schemas/validate-app-schema!)
-      (rf/reg-frame :pc/rb {:doc "rb"})
+      (rf/make-frame {:id :pc/rb :doc "rb"})
       ;; seed a coherent pre-handler frame-state
       (rf/replace-frame-state! :pc/rb {:rf.db/app {:n 0}
                                        :rf.db/runtime {:rf.runtime/machines {:m :pre}}})
@@ -426,7 +426,7 @@
             rejected event) stands untouched (rf2-3pglag)"
     (when (and (late-bind/get-fn :schemas/validate-app-schema!)
                (late-bind/get-fn :flows/run-flows-on-db))
-      (rf/reg-frame :pc/rb-srcaware {:doc "rb-srcaware"})
+      (rf/make-frame {:id :pc/rb-srcaware :doc "rb-srcaware"})
       ;; Seed a coherent pre-handler app-db that PASSES the schema below, so the
       ;; rollback target is `{:n 0}` (the rejected `{:n -5}` unwinds to it).
       (rf/replace-frame-state! :pc/rb-srcaware {:rf.db/app {:n 0}
@@ -477,7 +477,7 @@
             post-EP-0025 model) stands after the rejection — it wrote the
             LIVE registry directly, not the discarded candidate (rf2-yzsims)"
     (when (late-bind/get-fn :schemas/validate-app-schema!)
-      (rf/reg-frame :pc/rb-subsys {:doc "rb-subsys"})
+      (rf/make-frame {:id :pc/rb-subsys :doc "rb-subsys"})
       (rf/replace-frame-state! :pc/rb-subsys {:rf.db/app {:n 0}
                                               :rf.db/runtime {}})
       (is (= {} (elision/sensitive-declarations :pc/rb-subsys))
@@ -522,7 +522,7 @@
             old-path VALUE on the next clean commit, per rf2-1b8yxb)"
     (when (and (late-bind/get-fn :schemas/validate-app-schema!)
                (late-bind/get-fn :flows/run-flows-on-db))
-      (rf/reg-frame :pc/rb-move {:doc "rb-move"})
+      (rf/make-frame {:id :pc/rb-move :doc "rb-move"})
       ;; Seed a coherent pre-handler app-db that PASSES the schema below.
       (rf/replace-frame-state! :pc/rb-move {:rf.db/app {:n 0}
                                             :rf.db/runtime {}})
@@ -585,7 +585,7 @@
             focused path survives (rf2-wfy2kq pin; structural under
             rf2-uhk9ko's validate-before-install)"
     (when (late-bind/get-fn :schemas/validate-app-schema!)
-      (rf/reg-frame :pc/rb-path {:doc "rb-path"})
+      (rf/make-frame {:id :pc/rb-path :doc "rb-path"})
       ;; Seed a coherent pre-handler app-db with state BOTH inside AND OUTSIDE
       ;; the path the handler will focus. `:keep` is the canary — it lives
       ;; outside `[:slice]`, so a slice-as-whole-db rollback would destroy it.

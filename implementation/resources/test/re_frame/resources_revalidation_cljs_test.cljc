@@ -28,6 +28,7 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
+   [re-frame.fx :as fx]
    [re-frame.frame :as frame]
    [re-frame.late-bind :as late-bind]
    ;; load-bearing side-effecting require: the façade registers the
@@ -67,9 +68,9 @@
   [f]
   (reset! aborts [])
   (reset! scheduled-timers [])
-  (rf/reg-fx :rf.http/managed (fn [_ctx _args] nil))
-  (rf/reg-fx :rf.http/managed-abort (fn [_ctx work-id] (swap! aborts conj work-id) nil))
-  (rf/reg-fx :rf.resource/schedule-timers (fn [_ctx args] (swap! scheduled-timers conj args) nil))
+  (fx/reg-fx :rf.http/managed (fn [_ctx _args] nil))
+  (fx/reg-fx :rf.http/managed-abort (fn [_ctx work-id] (swap! aborts conj work-id) nil))
+  (fx/reg-fx :rf.resource/schedule-timers (fn [_ctx args] (swap! scheduled-timers conj args) nil))
   (f))
 
 (use-fixtures :each
@@ -346,7 +347,7 @@
 
 (deftest frame-destroy-cancels-revalidation-listeners
   (let [fa :rv/frame-a]
-    (rf/reg-frame fa {:doc "frame-destroy revalidation-listener frame"})
+    (rf/make-frame {:id fa :doc "frame-destroy revalidation-listener frame"})
     ;; install the per-frame listener side-table slot directly (the host
     ;; addEventListener arm is CLJS/DOM-only; the side-table bookkeeping is the
     ;; platform-neutral part frame-destroy must clear)
@@ -480,7 +481,7 @@
          (binding [*dom-state* state]
            (try
              (let [fa :rv/dom-destroy]
-               (rf/reg-frame fa {:doc "DOM-stub frame-destroy detach frame"})
+               (rf/make-frame {:id fa :doc "DOM-stub frame-destroy detach frame"})
                (revalidate-listeners/install-revalidation-listeners! fa)
                (is (seq (get-in @state [:document :listeners "visibilitychange"]))
                    "document visibilitychange attached for the frame")

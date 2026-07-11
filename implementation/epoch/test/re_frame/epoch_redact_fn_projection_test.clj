@@ -89,7 +89,7 @@
             frame/profile stage before the override runs over it. The
             override is the escape for a NON-declared slot the projection
             could not prove."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (install-sensitive-schema! :test/main)
     (let [observed (atom :unset)]
       (rf/configure! {:epoch-history {:redact-fn (fn [r]
@@ -131,7 +131,7 @@
             survives a second projection pass (the frame/profile walk passes
             a scalar sentinel through unchanged, and the override re-applies
             the same collapse) — structural equality across passes."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (install-sensitive-schema! :test/main)
     (rf/configure! {:epoch-history {:redact-fn (fn [r] (assoc r :db-after :rf/redacted))}})
     (rf/reg-event :login
@@ -159,7 +159,7 @@
             path against the same projected map. No double-walk corruption:
             the declared leaf stays :rf/redacted, the override's leaf
             becomes :rf/redacted, the benign sibling is unchanged."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (install-sensitive-schema! :test/main)            ;; only :password declared
     (rf/configure! {:epoch-history {:redact-fn (fn [r]
                                 ;; The override scrubs a NON-declared slot.
@@ -198,7 +198,7 @@
             from RAW signals. After the frame/profile projection redacts
             the schema path and the override scrubs further, the rollup
             MUST still read true — both stages preserve the bookkeeping."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (install-sensitive-schema! :test/main)
     (rf/configure! {:epoch-history {:redact-fn (fn [r] (assoc r :db-after :rf/redacted))}})
     (rf/reg-event :login
@@ -242,7 +242,7 @@
 (deftest G1-no-sensitive-paths-yields-zero-count
   (testing "with no frame-declared sensitive paths registered, the
             counter is 0 (the empty-paths short-circuit)."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
@@ -255,7 +255,7 @@
 (deftest G2-sensitive-path-unchanged-yields-zero-count
   (testing "a sensitive path is declared but its value did NOT change
             across the cascade — the counter is 0."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (install-sensitive-schema! :test/main)
     (rf/reg-event :seed (fn [{:keys [db]} _]
                              {:db {:auth   {:password "topsecret"}
@@ -272,7 +272,7 @@
 (deftest G3-sensitive-path-modified-yields-positive-count
   (testing "a sensitive path's value changed across the cascade — the
             counter is 1. The :rf.epoch/sensitive? rollup also reads true."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (install-sensitive-schema! :test/main)
     (rf/reg-event :login
                      (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
@@ -287,7 +287,7 @@
 (deftest G4-multiple-sensitive-paths-partial-modification
   (testing "two sensitive paths declared; one changes, the other does
             not — the counter is 1."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (install-two-sensitive-paths-schema! :test/main)
     (rf/reg-event :seed
                      (fn [{:keys [db]} _]
@@ -302,7 +302,7 @@
           ":token changed (count += 1); :password unchanged (filtered)")))
 
   (testing "both declared paths change in the same cascade — counter is 2"
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (install-two-sensitive-paths-schema! :test/main)
     (rf/reg-event :login-both
                      (fn [{:keys [db]} [_ pw tk]]
@@ -320,7 +320,7 @@
   (testing "projected-record passes :rf.epoch/redacted-modified-paths-count
             through unchanged — the integer is structurally non-sensitive
             bookkeeping, parallel to :rf.epoch/sensitive?."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (install-sensitive-schema! :test/main)
     (rf/reg-event :login
                      (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
@@ -339,7 +339,7 @@
 (deftest G7-counter-handles-nil-db-edge
   (testing "halted-destroy records may carry nil :db-before or :db-after
             (rf2-v0jwt). The counter handles the nil edge."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (install-sensitive-schema! :test/main)
     (require '[re-frame.epoch.assembly :as assembly])
     (let [count-fn (resolve 're-frame.epoch.assembly/redacted-modified-paths-count)]
@@ -397,7 +397,7 @@
     ;; FAILS CLOSED and redacts the whole slot. The frame is registered with
     ;; an empty (no-declaration) policy here exactly as every sibling test
     ;; in this file does, so the public `{:n 0}` slot walks through verbatim.
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (let [synthetic
           {:epoch-id      1
            :frame         :test/main
@@ -432,7 +432,7 @@
             applies projected-record (frame/profile + override) to each
             entry. The ring carries RAW records throughout; the projection
             redacts at egress. Ordering and shape are preserved."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (install-sensitive-schema! :test/main)
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :login
@@ -494,7 +494,7 @@
             :rf/redacted (frame/profile) and the override's leaf on
             :rf/redacted; the second projection finds the same sentinels and
             produces no further change."
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (install-sensitive-schema! :test/main)          ;; :password declared
     (rf/configure! {:epoch-history {:redact-fn (fn [r]
                                 ;; The override scrubs a non-declared slot.

@@ -417,7 +417,7 @@
     (let [frame-id :story.predfn/fn
           variant-body {:loaders-complete-when (fn [db]
                                                  (boolean (:done? db)))}]
-      (rf/reg-frame frame-id {})
+      (rf/make-frame {:id frame-id})
       (try
         (is (false? (loaders/evaluate-complete-when frame-id variant-body)))
         (rf/dispatch-sync [::set-done] {:frame frame-id})

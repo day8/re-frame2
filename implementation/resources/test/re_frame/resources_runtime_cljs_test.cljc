@@ -32,6 +32,7 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
+   [re-frame.fx :as fx]
    [re-frame.frame :as frame]
    [re-frame.identity :as identity]
    [re-frame.late-bind :as late-bind]
@@ -74,7 +75,7 @@
   ;; test body, so no per-suite generation-cache reset is needed here.
   ;; fx handlers are BINARY `(fn [ctx args] …)` (Spec 002 §binary
   ;; fx-handler signature) — capture the args (second arg).
-  (rf/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
+  (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
   (f))
 
 (use-fixtures :each
@@ -653,8 +654,8 @@
   (let [fa :iso/frame-a
         fb :iso/frame-b
         scoped-key (state/scoped-resource-key :rf.scope/global :iso/article {:slug "w"})]
-    (rf/reg-frame fa {:doc "isolation frame A"})
-    (rf/reg-frame fb {:doc "isolation frame B"})
+    (rf/make-frame {:id fa :doc "isolation frame A"})
+    (rf/make-frame {:id fb :doc "isolation frame B"})
     (testing "Spec 016 — resources are per-frame isolated; a resource
               loaded in frame A is invisible in frame B"
       (rf/dispatch-sync [:rf.resource/ensure

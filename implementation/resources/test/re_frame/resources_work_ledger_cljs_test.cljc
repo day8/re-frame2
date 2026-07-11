@@ -27,6 +27,7 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
+   [re-frame.fx :as fx]
    [re-frame.frame :as frame]
    [re-frame.reply :as reply]
    ;; load-bearing side-effecting require: the façade registers the
@@ -61,14 +62,14 @@
   [f]
   (reset! last-managed-args nil)
   (reset! aborts [])
-  (rf/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
+  (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
   ;; rf2-sxyrzk — managed-abort args is the frame-QUALIFIED transport
   ;; request-id (`[:rf.req <frame-id> <work-id>]`, `managed-request-id`), NOT
   ;; the bare work-id. The managed-HTTP in-flight registry keys by request-id
   ;; PROCESS-GLOBALLY (Spec 014), so the abort must carry the same qualified
   ;; token the lower registered or it would miss the request (or, across
   ;; frames, resolve a sibling frame's colliding request).
-  (rf/reg-fx :rf.http/managed-abort (fn [_ctx request-id] (swap! aborts conj request-id) nil))
+  (fx/reg-fx :rf.http/managed-abort (fn [_ctx request-id] (swap! aborts conj request-id) nil))
   (f))
 
 (use-fixtures :each
@@ -369,8 +370,8 @@
   (let [fa :cfa/frame-a
         fb :cfa/frame-b
         scoped-key (state/scoped-resource-key :rf.scope/global :cfa/article {:slug "w"})]
-    (rf/reg-frame fa {:doc "frame A"})
-    (rf/reg-frame fb {:doc "frame B"})
+    (rf/make-frame {:id fa :doc "frame A"})
+    (rf/make-frame {:id fb :doc "frame B"})
     (rf/dispatch-sync [:rf.resource/ensure {:resource :cfa/article :scope :rf.scope/global
                                             :params {:slug "w"} :owner [:lease :b 1]}]
                       {:frame fb})
@@ -546,7 +547,7 @@
   (rf/reg-resource :fd/article (article-spec) article-spec-request)
   (let [fa :fd/frame-a
         scoped-key (state/scoped-resource-key :rf.scope/global :fd/article {:slug "w"})]
-    (rf/reg-frame fa {:doc "teardown frame"})
+    (rf/make-frame {:id fa :doc "teardown frame"})
     (rf/dispatch-sync [:rf.resource/ensure {:resource :fd/article :scope :rf.scope/global
                                             :params {:slug "w"} :owner [:lease :fd 1]}]
                       {:frame fa})
@@ -649,12 +650,12 @@
   ;; capture every lowered managed-HTTP args map (not just the last) so we can
   ;; inspect BOTH frames' request-ids.
   (let [all-args (atom [])]
-    (rf/reg-fx :rf.http/managed (fn [_ctx args] (swap! all-args conj args) nil))
+    (fx/reg-fx :rf.http/managed (fn [_ctx args] (swap! all-args conj args) nil))
     (let [fa :xf/frame-a
           fb :xf/frame-b
           scoped-key (state/scoped-resource-key :rf.scope/global :xf/article {:slug "w"})]
-      (rf/reg-frame fa {:doc "frame A"})
-      (rf/reg-frame fb {:doc "frame B"})
+      (rf/make-frame {:id fa :doc "frame A"})
+      (rf/make-frame {:id fb :doc "frame B"})
       ;; both frames ensure the SAME global-scope resource — same scoped key.
       (rf/dispatch-sync [:rf.resource/ensure {:resource :xf/article :scope :rf.scope/global
                                               :params {:slug "w"} :owner [:lease :a 1]}]

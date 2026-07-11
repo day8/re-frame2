@@ -84,6 +84,7 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
+   [re-frame.fx :as fx]
    [re-frame.interop :as interop]
    ;; load-bearing side-effecting requires: register the :rf.resource/*
    ;; events + subs + the generation cofx/fx the ensure/invalidate drive.
@@ -111,7 +112,7 @@
 
 (defn- capturing-transport-fixture [f]
   (reset! last-managed-args nil)
-  (rf/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
+  (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
   (f))
 
 (use-fixtures :each
@@ -278,7 +279,7 @@
             :cljs {:adapter reagent-adapter/adapter}))
        (fn []
          (reset! last-managed-args nil)
-         (rf/reg-fx :rf.http/managed
+         (fx/reg-fx :rf.http/managed
                     (fn [_ctx args] (reset! last-managed-args args) nil))
          ;; RUN B — a WILDLY different ambient clock + RNG sentinel.
          (let [run-b (with-redefs [interop/now-ms       (constantly 9999999999999)

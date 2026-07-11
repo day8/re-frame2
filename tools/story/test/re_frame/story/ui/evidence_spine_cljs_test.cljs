@@ -284,7 +284,7 @@
     (xray-registry/reset-for-test!)
     (xray-trace-collector/reset-for-test!)
     (xray-registry/register-xray-handlers!)
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
     (let [beat   {:epoch-id 100 :dispatch-id 100 :beat-idx 3 :span-idx 1}
           result (spine/focus-beat! :story.evidence/basic beat :app-db)]
       (is (map? result))

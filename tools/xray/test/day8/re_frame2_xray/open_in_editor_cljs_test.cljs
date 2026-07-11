@@ -352,7 +352,7 @@
   []
   (reset! captured-editor-fx [])
   (registry/register-xray-handlers!)
-  (frame/reg-frame :rf/xray {})
+  (rf/make-frame {:id :rf/xray})
   (rf/reg-fx :rf.editor/open
     (fn [_ctx args]
       ;; Record the raw fx args AND the URI the coord resolves to, so

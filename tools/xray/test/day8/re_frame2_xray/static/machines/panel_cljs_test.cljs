@@ -65,7 +65,7 @@
 (defn- xray-setup! []
   (registry/register-xray-handlers!)
   (xray-test-support/install-test-overrides!)
-  (frame/reg-frame :rf/xray {}))
+  (rf/make-frame {:id :rf/xray}))
 
 (defn- frame-sub [q]
   (rf/with-frame :rf/xray

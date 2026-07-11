@@ -29,6 +29,7 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
+   [re-frame.fx :as fx]
    ;; load-bearing side-effecting require: the façade registers the
    ;; :rf.resource/* events + subs + the generation cofx/fx these tests
    ;; dispatch.
@@ -53,7 +54,7 @@
   :loading entry write + lower-fx are deterministic and no real fetch fires."
   [f]
   (reset! last-managed-args nil)
-  (rf/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
+  (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
   (f))
 
 (use-fixtures :each

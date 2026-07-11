@@ -114,7 +114,7 @@
     (let [seen (atom [])]
       (rf/register-listener! :errors :prod/recorder
                                    (fn [record] (swap! seen conj record)))
-      (rf/reg-frame :prod.teardown/n-failures {:doc "three hooks will throw"})
+      (rf/make-frame {:id :prod.teardown/n-failures :doc "three hooks will throw"})
       (with-hooks*
         {:ssr/on-frame-destroyed           (throwing-hook :ssr)
          :schemas/on-frame-destroyed!      (throwing-hook :schemas)
@@ -146,7 +146,7 @@
     (let [seen (atom [])]
       (rf/register-listener! :errors :prod/recorder
                                    (fn [record] (swap! seen conj record)))
-      (rf/reg-frame :prod.teardown/clean {:doc "no hooks throw"})
+      (rf/make-frame {:id :prod.teardown/clean :doc "no hooks throw"})
       (rf/destroy-frame! :prod.teardown/clean)
       (is (empty? (filter #(= :rf.error/frame-teardown-failed (:error %)) @seen))
           "no report when teardown completes cleanly under prod"))))
@@ -162,7 +162,7 @@
     (let [seen (atom [])]
       (rf/register-listener! :errors :prod/recorder
                                    (fn [record] (swap! seen conj record)))
-      (rf/reg-frame :prod.teardown/abort {:doc "aborts mid-teardown"})
+      (rf/make-frame {:id :prod.teardown/abort :doc "aborts mid-teardown"})
       (with-hooks*
         {:ssr/on-frame-destroyed      (throwing-hook :ssr)
          :schemas/on-frame-destroyed! (throwing-hook :schemas)}
@@ -243,9 +243,8 @@
       (rf/reg-event :prod.ondestroy/blow-up
                        (fn [{:keys [db]} _] {:db (throw (ex-info "intentional :on-destroy throw"
                                                  {:purpose :test-fixture}))}))
-      (rf/reg-frame :prod.ondestroy/worker
-                    {:doc        "throwing :on-destroy"
-                     :on-destroy [:prod.ondestroy/blow-up]})
+      (rf/make-frame {:id :prod.ondestroy/worker :doc        "throwing :on-destroy"
+                      :on-destroy [:prod.ondestroy/blow-up]})
       (is (nil? (rf/destroy-frame! :prod.ondestroy/worker))
           "destroy-frame! returns nil even though :on-destroy threw under prod")
       (let [reports (filter #(= :rf.error/on-destroy-handler-exception (:error %)) @seen)]
@@ -293,8 +292,7 @@
           original (late-bind/get-fn :router/dispatch-sync!)]
       (rf/register-listener! :errors :prod/recorder
                                    (fn [record] (swap! seen conj record)))
-      (rf/reg-frame :prod.ondestroy/infra-fault
-                    {:on-destroy [:prod.ondestroy/never-reached]})
+      (rf/make-frame {:id :prod.ondestroy/infra-fault :on-destroy [:prod.ondestroy/never-reached]})
       (late-bind/set-fn! :router/dispatch-sync!
                          (fn [& _] (throw (ex-info "dispatch infra fault" {}))))
       (try

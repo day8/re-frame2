@@ -38,7 +38,7 @@
 (deftest reg-frame-surgical-update-preserves-runtime-state
   (testing "re-registering a live frame replaces metadata but preserves app-db, sub-cache, and queue"
     ;; Set up a frame with live state.
-    (rf/reg-frame :tenant {:doc "v1 metadata" :preset :default})
+    (rf/make-frame {:id :tenant :doc "v1 metadata" :preset :default})
     (rf/reg-event :seed (fn [{:keys [db]} [_ n]] {:db {:n n :payload "live"}}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     ;; Populate app-db.
@@ -54,8 +54,8 @@
       (is (contains? @orig-sub-cache [:n]) "sub-cache holds the pinned entry")
 
       ;; Surgical update: re-register with new metadata.
-      (rf/reg-frame :tenant {:doc          "v2 metadata"
-                             :fx-overrides {:http :stub.v2}})
+      (rf/make-frame {:id :tenant :doc          "v2 metadata"
+                      :fx-overrides {:http :stub.v2}})
 
       (let [new-record (frame/frame :tenant)]
         ;; Replaceable slot — config — is the new value.
@@ -85,7 +85,7 @@
 
 (deftest destroy-frame-discards-pending-events
   (testing "events queued via async dispatch are not processed once the frame is destroyed"
-    (rf/reg-frame :worker {:doc "worker frame"})
+    (rf/make-frame {:id :worker :doc "worker frame"})
     (let [side-effects (atom 0)
           traces       (atom [])
           ;; rf2-iosc: async dispatch schedules a drain via interop/next-tick
@@ -138,7 +138,7 @@
 
 (deftest destroy-frame-cascade-emits-per-active-machine
   (testing "destroy emits one :rf.machine.lifecycle/destroyed per active machine snapshot, carrying :reason :parent-frame-destroyed"
-    (rf/reg-frame :ten {:doc "tenant"})
+    (rf/make-frame {:id :ten :doc "tenant"})
     ;; Seed three machine snapshots directly into app-db so we don't
     ;; depend on a full machine-runtime invocation.
     ;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state.
@@ -184,7 +184,7 @@
 
 (deftest destroy-frame-runs-exit-cascades-in-reverse-creation-order
   (testing "destroy-frame! runs spawned actors' :exit actions newest-spawn-first"
-    (rf/reg-frame :rf2-vsigt/auth {:doc "rf2-vsigt cross-slice test frame"})
+    (rf/make-frame {:id :rf2-vsigt/auth :doc "rf2-vsigt cross-slice test frame"})
     (let [exit-log (atom [])
           child    {:initial :running
                     :data    {}
@@ -239,7 +239,7 @@
 
 (deftest destroy-frame-with-live-subscribers
   (testing "destroy clears the sub-cache, fires on-dispose, and post-destroy subs return nil"
-    (rf/reg-frame :live {:doc "live"})
+    (rf/make-frame {:id :live :doc "live"})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:answer 7}}))
     (rf/reg-sub :answer (fn [db _] (:answer db)))
     (rf/dispatch-sync [:seed] {:frame :live})
@@ -368,9 +368,8 @@
       ;; is emitted (the frame becomes observable to listeners).
       (let [traces (atom [])]
         (rf/register-listener! :trace ::oc (fn [ev] (swap! traces conj ev)))
-        (rf/reg-frame :booted
-                      {:doc            "frame with initial-events"
-                       :initial-events [[:boot {:hello "world"}]]})
+        (rf/make-frame {:id :booted :doc            "frame with initial-events"
+                        :initial-events [[:boot {:hello "world"}]]})
         (rf/unregister-listener! :trace ::oc)
 
         ;; The moment reg-frame returned, app-db must already reflect
@@ -419,7 +418,7 @@
             :rf.frame/drain-interrupted carrying the dropped count.
             The just-completed event runs to completion (run-to-
             completion); only later queued events are dropped"
-    (rf/reg-frame :drain-int/worker {:doc "rf2-68kok drain-interrupt frame"})
+    (rf/make-frame {:id :drain-int/worker :doc "rf2-68kok drain-interrupt frame"})
     (let [ran           (atom [])
           traces        (atom [])
           captured-tick (atom [])]
@@ -498,7 +497,7 @@
   (testing "the in-flight event finishes (run-to-completion) — destroy
             interrupts AFTER the current handler returns, not in
             the middle of it"
-    (rf/reg-frame :rtc/worker {})
+    (rf/make-frame {:id :rtc/worker})
     (let [completed (atom false)]
       ;; This handler:
       ;;   (a) destroys the frame partway through
@@ -520,7 +519,7 @@
   (testing "if another thread (or the same thread between passes)
             destroys the frame, the next pass's destroyed-check fires
             and interrupts the drain just the same"
-    (rf/reg-frame :cross-thread/worker {})
+    (rf/make-frame {:id :cross-thread/worker})
     (let [traces (atom [])
           captured-tick (atom [])]
       (rf/reg-event :cross-thread/tick (fn [{:keys [db]} _] {:db db}))
@@ -575,7 +574,7 @@
     ;; EP-0002 (rf2-9o48ih): the parent frame is the carried scope for the bare
     ;; parent dispatch below — register `:rf/default` explicitly (the fixture no
     ;; longer synthesises it) and target it.
-    (rf/reg-frame :rf/default {})
+    (rf/make-frame {:id :rf/default})
     (let [caught (atom nil)]
       (rf/reg-event :child/boot
         (fn [{:keys [db]} _] {:db (assoc db :child-booted? true)}))
@@ -584,7 +583,7 @@
           ;; Capture the construction throw inside the handler so we can assert
           ;; its id without depending on how dispatch-sync surfaces it.
           (reset! caught
-                  (try (rf/reg-frame :child {:initial-events [[:child/boot]]})
+                  (try (rf/make-frame {:id :child :initial-events [[:child/boot]]})
                        nil
                        (catch clojure.lang.ExceptionInfo e
                          (:rf.error/id (ex-data e)))))
@@ -609,7 +608,7 @@
       ;; carries :rf.trace/frame-no-emit? true, whose set-frame-no-emit! write
       ;; is the trace residue we assert never lands.
       (adapter/reset-lifecycle-state-for-tests!)
-      (let [thrown-id (try (rf/reg-frame fid {:rf.trace/frame-no-emit? true})
+      (let [thrown-id (try (rf/make-frame {:id fid :rf.trace/frame-no-emit? true})
                            nil
                            (catch clojure.lang.ExceptionInfo e
                              (:rf.error/id (ex-data e))))]
@@ -645,8 +644,8 @@
             frame-meta"
     (let [gen-before (source-store/store-generation)]
       ;; First seat + hot reseat (surgical update) + a make-frame reseat.
-      (rf/reg-frame :h1vqa4/owned {:doc "v1"})
-      (rf/reg-frame :h1vqa4/owned {:doc "v2 (reseat refreshes config)"})
+      (rf/make-frame {:id :h1vqa4/owned :doc "v1"})
+      (rf/make-frame {:id :h1vqa4/owned :doc "v2 (reseat refreshes config)"})
       (is (= "v2 (reseat refreshes config)" (:doc (rf/frame-meta :h1vqa4/owned)))
           "the reseat refreshed the stored config (upsert semantics) via frame-meta")
       (is (nil? (registrar/lookup :frame :h1vqa4/owned))
@@ -674,7 +673,7 @@
           {:db {:initialised? true}}))
       ;; No in-flight handler; *current-frame* is nil. The setup must run
       ;; synchronously, before reg-frame returns.
-      (rf/reg-frame :top {:initial-events [[:top/init]]})
+      (rf/make-frame {:id :top :initial-events [[:top/init]]})
       (is (= [:top/init-ran] @order)
           ":top/init ran inside reg-frame (synchronous top-level path)")
       (is (true? (:initialised? (rf/app-db-value :top)))
@@ -683,7 +682,7 @@
 (deftest make-frame-record-in-handler-fails-loud
   (testing "make-frame / make-anon-frame-record! from inside a handler also fails
             loud — it shares the reg-frame construction guard (EP-0027)"
-    (rf/reg-frame :rf/default {})
+    (rf/make-frame {:id :rf/default})
     (let [caught   (atom nil)
           child-id (atom nil)]
       (rf/reg-event :sub-actor/boot
@@ -714,7 +713,7 @@
 
 (deftest preset-expansion-default
   (testing ":default expands to {} (identical to omitting :preset)"
-    (rf/reg-frame :p/default {:preset :default})
+    (rf/make-frame {:id :p/default :preset :default})
     (let [cfg (:config (frame/frame :p/default))]
       (is (= :default (:preset cfg))
           ":preset is preserved on the config for inspection")
@@ -725,7 +724,7 @@
 
 (deftest preset-expansion-test
   (testing ":test expansion: HTTP redirect + drain-depth 100 + strict mint policy"
-    (rf/reg-frame :p/test {:preset :test})
+    (rf/make-frame {:id :p/test :preset :test})
     (let [cfg (:config (frame/frame :p/test))]
       (is (= :test (:preset cfg)))
       (is (= {:rf.http/managed :rf.http/managed-canned-success}
@@ -742,7 +741,7 @@
 
 (deftest preset-expansion-story
   (testing ":story expansion: HTTP redirect + tighter drain-depth 16"
-    (rf/reg-frame :p/story {:preset :story})
+    (rf/make-frame {:id :p/story :preset :story})
     (let [cfg (:config (frame/frame :p/story))]
       (is (= :story (:preset cfg)))
       (is (= {:rf.http/managed :rf.http/managed-canned-success}
@@ -757,7 +756,7 @@
 
 (deftest preset-expansion-ssr-server
   (testing ":ssr-server expansion: :platform :server"
-    (rf/reg-frame :p/ssr {:preset :ssr-server})
+    (rf/make-frame {:id :p/ssr :preset :ssr-server})
     (let [cfg (:config (frame/frame :p/ssr))]
       (is (= :ssr-server (:preset cfg)))
       (is (= :server (:platform cfg))
@@ -766,8 +765,8 @@
 (deftest preset-user-keys-win-on-conflict
   (testing "user-supplied keys override individual expansion entries"
     ;; :test sets :drain-depth 100 by default; user overrides to 1000.
-    (rf/reg-frame :p/override {:preset      :test
-                               :drain-depth 1000})
+    (rf/make-frame {:id :p/override :preset      :test
+                    :drain-depth 1000})
     (let [cfg (:config (frame/frame :p/override))]
       (is (= :test (:preset cfg)))
       (is (= 1000 (:drain-depth cfg))
@@ -779,7 +778,7 @@
 (deftest preset-unknown-throws
   (testing "unknown preset values throw :rf.error/unknown-preset"
     (is (thrown? Exception
-          (rf/reg-frame :p/bad {:preset :devcards}))
+          (rf/make-frame {:id :p/bad :preset :devcards}))
         "passing a preset outside the closed v1 set is a registration-time error")))
 
 ;; ---- rf2-ft2b: drain-after-destroy null guard ----------------------------
@@ -828,7 +827,7 @@
     (let [captured-tick (atom nil)
           recorded      (atom [])]
       (rf/register-listener! :trace ::rec (fn [ev] (swap! recorded conj ev)))
-      (rf/reg-frame :race/frame {:doc "rf2-ft2b reproducer frame"})
+      (rf/make-frame {:id :race/frame :doc "rf2-ft2b reproducer frame"})
       ;; A simple :db-writing event handler. The drain that processes
       ;; this event is what we want to land AFTER destroy.
       (rf/reg-event :write
@@ -867,7 +866,7 @@
 (deftest destroy-frame-pending-drain-pins-no-op-contract
   (testing "queued events that drain AFTER destroy do not mutate state,
             do not throw, and trace :rf.error/frame-destroyed per event"
-    (rf/reg-frame :rf2-dpny/worker {:doc "rf2-dpny race-pin frame"})
+    (rf/make-frame {:id :rf2-dpny/worker :doc "rf2-dpny race-pin frame"})
     (let [side-effects (atom 0)
           traces       (atom [])
           captured     (atom [])]
@@ -946,7 +945,7 @@
   (testing "frame/app-db-container on a destroyed frame is nil; replace-container! handles it"
     (let [recorded (atom [])]
       (rf/register-listener! :trace ::rec (fn [ev] (swap! recorded conj ev)))
-      (rf/reg-frame :race/destroyed-mid-write {})
+      (rf/make-frame {:id :race/destroyed-mid-write})
       (frame/destroy-frame! :race/destroyed-mid-write)
       (let [container (frame/app-db-container :race/destroyed-mid-write)]
         (is (nil? container)
@@ -978,9 +977,9 @@
     ;; a default). It appears here only because this test registers it
     ;; explicitly, alongside the user frames — proving the round-trip
     ;; without leaning on a runtime-synthesised floor.
-    (rf/reg-frame :rf/default     {:doc "explicitly-registered ordinary default frame"})
-    (rf/reg-frame :tenants/acme    {:doc "acme tenant"  :preset :default})
-    (rf/reg-frame :tenants/widgets {:doc "widgets co"   :preset :default})
+    (rf/make-frame {:id :rf/default :doc "explicitly-registered ordinary default frame"})
+    (rf/make-frame {:id :tenants/acme :doc "acme tenant"  :preset :default})
+    (rf/make-frame {:id :tenants/widgets :doc "widgets co"   :preset :default})
     (let [ids (rf/frame-ids)]
       (is (set? ids) "frame-ids returns a set")
       (is (contains? ids :rf/default)
@@ -995,7 +994,7 @@
     ;; creating :rf/default). Register only user frames.
     (reset! frame/frames {})
     (rf/init! plain-atom/adapter)
-    (rf/reg-frame :tenants/solo {:doc "sole user frame"})
+    (rf/make-frame {:id :tenants/solo :doc "sole user frame"})
     (let [ids (rf/frame-ids)]
       (is (not (contains? ids :rf/default))
           "EP-0002: :rf/default is not present unless explicitly registered")
@@ -1005,10 +1004,10 @@
   (testing "(rf/frame-meta id) returns the canonical flat :rf/frame-meta shape
             per Spec-Schemas §:rf/frame-meta — user-supplied metadata,
             preset-expansion keys, and lifecycle fields all at the top level"
-    (rf/reg-frame :tenants/acme {:doc          "acme tenant"
-                                 :preset       :default
-                                 :fx-overrides {:rf.http/managed
-                                                :rf.http/managed-canned-success}})
+    (rf/make-frame {:id :tenants/acme :doc          "acme tenant"
+                    :preset       :default
+                    :fx-overrides {:rf.http/managed
+                                   :rf.http/managed-canned-success}})
     (let [m (rf/frame-meta :tenants/acme)]
       (is (map? m) "frame-meta returns a map")
       (is (= :tenants/acme (:id m))
@@ -1036,7 +1035,7 @@
               {:preset       :test
                :fx-overrides {:rf.http/managed :rf.http/managed-canned-success}
                :drain-depth  100}"
-    (rf/reg-frame :test/auth-flow {:preset :test})
+    (rf/make-frame {:id :test/auth-flow :preset :test})
     (let [m (rf/frame-meta :test/auth-flow)]
       (is (= :test (:preset m))
           ":preset key preserved verbatim")
@@ -1056,7 +1055,7 @@
          on the registry)")
     ;; A destroyed frame is also indistinguishable from never-registered
     ;; per the documented surface — `frame` returns nil for destroyed.
-    (rf/reg-frame :short-lived {:doc "will be destroyed"})
+    (rf/make-frame {:id :short-lived :doc "will be destroyed"})
     (rf/destroy-frame! :short-lived)
     (is (nil? (rf/frame-meta :short-lived))
         "frame-meta on a destroyed frame returns nil (no resurrection)")))
@@ -1087,7 +1086,7 @@
       (let [config {:doc            "frame with initial-events"
                     :initial-events [[:seed {:hello "world"}]]
                     :fx-overrides {:custom :value}}]
-        (rf/reg-frame :app/main config)
+        (rf/make-frame (assoc config :id :app/main))
         ;; First setup dispatch increments the counter.
         (is (= 1 @boot-count) ":initial-events ran once at reg-frame time")
         (is (= {:booted? true :payload {:hello "world"} :extra :seeded}
@@ -1108,7 +1107,7 @@
 
           ;; Reset — destroy + re-reg-frame with the SAME config.
           (rf/destroy-frame! :app/main)
-          (rf/reg-frame :app/main config)
+          (rf/make-frame (assoc config :id :app/main))
 
           ;; After reset: the frame is queryable.
           (let [new-record (frame/frame :app/main)]
@@ -1155,9 +1154,8 @@
   (testing "a throwing :on-destroy event still results in a fully destroyed
             frame — machine cascade, sub-cache, :rf.frame/destroyed,
             registry dissoc all run regardless"
-    (rf/reg-frame :throwy/worker
-                  {:doc       "rf2-r1ciy throwy on-destroy frame"
-                   :on-destroy [:throwy/blow-up]})
+    (rf/make-frame {:id :throwy/worker :doc       "rf2-r1ciy throwy on-destroy frame"
+                    :on-destroy [:throwy/blow-up]})
     ;; Handler that always throws.
     (rf/reg-event :throwy/blow-up
       (fn [{:keys [db]} _]
@@ -1217,14 +1215,14 @@
 (deftest on-destroy-throw-then-fresh-reg-frame-clean
   (testing "after a throwy destroy, the same frame id can be re-registered
             cleanly — the in-flight guard is cleared even on the exception path"
-    (rf/reg-frame :throwy/resurrected {:on-destroy [:throwy/blow-up-2]})
+    (rf/make-frame {:id :throwy/resurrected :on-destroy [:throwy/blow-up-2]})
     (rf/reg-event :throwy/blow-up-2
       (fn [{:keys [db]} _] {:db (throw (ex-info ":throwy/second-blow" {}))}))
     (rf/destroy-frame! :throwy/resurrected)
     (is (nil? (frame/frame :throwy/resurrected))
         "original frame destroyed (despite the throw)")
     ;; A fresh registration after the throwy destroy must work.
-    (rf/reg-frame :throwy/resurrected {:doc "post-resurrection"})
+    (rf/make-frame {:id :throwy/resurrected :doc "post-resurrection"})
     (is (some? (frame/frame :throwy/resurrected))
         "re-registration succeeds — the in-flight guard cleared in finally")
     ;; And a fresh destroy (no throw this time) works normally.
@@ -1245,9 +1243,8 @@
             :on-destroy fires exactly once, teardown completes once"
     (let [on-destroy-count (atom 0)
           traces           (atom [])]
-      (rf/reg-frame :reent/worker
-                    {:doc        "rf2-r1ciy re-entrancy frame"
-                     :on-destroy [:reent/cleanup]})
+      (rf/make-frame {:id :reent/worker :doc        "rf2-r1ciy re-entrancy frame"
+                      :on-destroy [:reent/cleanup]})
       ;; The :on-destroy handler itself calls destroy-frame! on its own
       ;; frame. Without the re-entrancy guard this would recurse
       ;; indefinitely (or until a stack overflow).
@@ -1283,8 +1280,8 @@
 (deftest re-entrant-destroy-from-different-id-still-runs
   (testing "destroy-frame! for frame B from within frame A's :on-destroy
             still runs B's teardown — the in-flight guard is per-id, not global"
-    (rf/reg-frame :reent.a/worker {:on-destroy [:reent.a/cleanup]})
-    (rf/reg-frame :reent.b/worker {})
+    (rf/make-frame {:id :reent.a/worker :on-destroy [:reent.a/cleanup]})
+    (rf/make-frame {:id :reent.b/worker})
     (let [b-still-alive-during-a (atom nil)]
       (rf/reg-event :reent.a/cleanup
         (fn [_ _]

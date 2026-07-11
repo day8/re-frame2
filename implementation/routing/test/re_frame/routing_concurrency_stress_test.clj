@@ -144,8 +144,8 @@
       ;; writes are serialised here; the futures only DISPATCH against
       ;; them.
       (doseq [{:keys [frame-id tick-event counter]} per-thread]
-        (rf/reg-frame frame-id {:doc        "per-thread frame"
-                                :url-bound? false})
+        (rf/make-frame {:id frame-id :doc        "per-thread frame"
+                        :url-bound? false})
         (rf/reg-event tick-event
                          {:frame frame-id}
                          (fn [{:keys [db]} _]
@@ -265,8 +265,8 @@
                :counter    (nth per-thread-counters i)
                :tick-event (keyword "ksbur.pop" (str "tick-f" i))}))]
       (doseq [{:keys [frame-id tick-event counter]} per-thread]
-        (rf/reg-frame frame-id {:doc        "per-thread frame"
-                                :url-bound? false})
+        (rf/make-frame {:id frame-id :doc        "per-thread frame"
+                        :url-bound? false})
         (rf/reg-event tick-event
                          {:frame frame-id}
                          (fn [{:keys [db]} _]
@@ -384,8 +384,8 @@
           ;; Errors from match-url / dispatch surface here.
           errors    (atom [])]
       (doseq [{:keys [frame-id tick-event counter]} per-thread]
-        (rf/reg-frame frame-id {:doc        "per-thread frame"
-                                :url-bound? false})
+        (rf/make-frame {:id frame-id :doc        "per-thread frame"
+                        :url-bound? false})
         (rf/reg-event tick-event
                          {:frame frame-id}
                          (fn [{:keys [db]} _]

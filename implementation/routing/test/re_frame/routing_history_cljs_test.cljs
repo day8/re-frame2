@@ -107,7 +107,7 @@
   ;; never fire and the history stack stays at one entry. Tests that drive a
   ;; non-default owner re-register `:rf/default {:url-bound? false}` AFTER
   ;; this call, so their override wins.
-  (rf/reg-frame :rf/default {:url-bound? true})
+  (rf/make-frame {:id :rf/default :url-bound? true})
   (rf/reg-route :hist/home     {} "/")
   (rf/reg-route :hist/cart     {} "/cart")
   (rf/reg-route :hist/checkout {} "/checkout")
@@ -327,7 +327,7 @@
     ;; which the prior alphabetical resolver let STEAL the URL. A push from the
     ;; non-owner duplicate is suppressed.
     (register-routes!)
-    (rf/reg-frame :zz/duplicate-owner {:url-bound? true})
+    (rf/make-frame {:id :zz/duplicate-owner :url-bound? true})
     (rf/dispatch-sync [:rf.route/navigate :hist/cart]
                       {:frame :zz/duplicate-owner})
     (is (= ["/"] (:entries @*history-state*))
@@ -343,7 +343,7 @@
             push no-ops. This is the case the prior `(sort-by (str id))`
             resolver got wrong (it would have made :aaa-early the owner)."
     (register-routes!)               ;; :rf/default claims the URL first
-    (rf/reg-frame :aaa-early {:url-bound? true})   ;; sorts before :rf/default
+    (rf/make-frame {:id :aaa-early :url-bound? true})   ;; sorts before :rf/default
     ;; The earlier-sorting duplicate navigates — under the bug it owned the URL
     ;; and would push. It must NOT touch browser history now.
     (rf/dispatch-sync [:rf.route/navigate :hist/cart] {:frame :aaa-early})
@@ -457,8 +457,8 @@
     ;; OUT, a non-default frame opts IN, so `url-owner-frame-id` resolves
     ;; to the non-default owner — and `:sd/owner`'s reg-frame automatically
     ;; installs the listener for it (rf2-g8pbwg).
-    (rf/reg-frame :rf/default {:url-bound? false})
-    (rf/reg-frame :sd/owner   {:url-bound? true})
+    (rf/make-frame {:id :rf/default :url-bound? false})
+    (rf/make-frame {:id :sd/owner :url-bound? true})
     (is (= :sd/owner (routing/url-owner-frame-id))
         "the non-default :url-bound? true frame owns the URL after default opts out")
     ;; :rf/default briefly resolved as the URL owner during register-routes!
@@ -504,7 +504,7 @@
             The popstate listener resolves url-owner-frame-id at pop time, so a
             stolen-ownership resolution would have driven the WRONG frame."
     (register-routes!)               ;; :rf/default claims the URL first + auto-installs
-    (rf/reg-frame :aaa-early {:url-bound? true})   ;; sorts before :rf/default — a losing duplicate, never installs (rf2-g8pbwg)
+    (rf/make-frame {:id :aaa-early :url-bound? true})   ;; sorts before :rf/default — a losing duplicate, never installs (rf2-g8pbwg)
     (is (= :rf/default (routing/url-owner-frame-id))
         "incumbent :rf/default is still the owner despite the earlier-sorting duplicate")
     ;; Incumbent forward-navigates (it owns push), building a history stack.
@@ -582,7 +582,7 @@
     (let [installed-before (first (get-in @*history-state* [:listeners "popstate"]))]
       (is (some? installed-before)
           "the incumbent's popstate listener installed automatically on create")
-      (rf/reg-frame :zz/dup-owner {:url-bound? true})   ;; losing duplicate
+      (rf/make-frame {:id :zz/dup-owner :url-bound? true})   ;; losing duplicate
       (is (identical? installed-before
                        (first (get-in @*history-state* [:listeners "popstate"])))
           "the duplicate's registration did not tear down + reinstall the incumbent's listener"))))
@@ -614,8 +614,8 @@
     ;; A first-claims the URL (history strategy) → owns + installs popstate. B is
     ;; a later live :url-bound? true claimant (a losing duplicate the registry
     ;; retains and orders AFTER A).
-    (rf/reg-frame :owner/a {:url-bound? true})
-    (rf/reg-frame :owner/b {:url-bound? true})
+    (rf/make-frame {:id :owner/a :url-bound? true})
+    (rf/make-frame {:id :owner/b :url-bound? true})
     (is (= :owner/a (routing/url-owner-frame-id))
         "A is the first-claimed URL owner")
     (is (= 1 (count (get-in @*history-state* [:listeners "popstate"])))
@@ -648,8 +648,8 @@
     (rf/reg-route :hist/home   {} "/")
     (rf/reg-route :hist/active {} "/active")
     ;; A = history owner (popstate); B = hash claimant (hashchange).
-    (rf/reg-frame :owner/a {:url-bound? true})
-    (rf/reg-frame :owner/b {:url-bound? true :url-strategy routing/hash-url-strategy})
+    (rf/make-frame {:id :owner/a :url-bound? true})
+    (rf/make-frame {:id :owner/b :url-bound? true :url-strategy routing/hash-url-strategy})
     (is (= :owner/a (routing/url-owner-frame-id)))
     (is (= 1 (count (get-in @*history-state* [:listeners "popstate"])))
         "A installed a popstate listener")
@@ -680,14 +680,14 @@
             popstate"
     (rf/reg-route :hist/home   {} "/")
     (rf/reg-route :hist/active {} "/active")
-    (rf/reg-frame :owner/a {:url-bound? true})   ;; history owner, popstate
-    (rf/reg-frame :owner/b {:url-bound? true :url-strategy routing/hash-url-strategy})
+    (rf/make-frame {:id :owner/a :url-bound? true})   ;; history owner, popstate
+    (rf/make-frame {:id :owner/b :url-bound? true :url-strategy routing/hash-url-strategy})
     (is (= :owner/a (routing/url-owner-frame-id)))
     (is (= 1 (count (get-in @*history-state* [:listeners "popstate"]))))
     (is (empty? (get-in @*history-state* [:listeners "hashchange"])))
 
     ;; A opts out; B (hash) becomes owner without re-registering.
-    (rf/reg-frame :owner/a {:url-bound? false})
+    (rf/make-frame {:id :owner/a :url-bound? false})
     (is (= :owner/b (routing/url-owner-frame-id))
         "ownership fell through to the still-bound hash claimant B")
     (is (empty? (get-in @*history-state* [:listeners "popstate"]))
@@ -707,10 +707,10 @@
             torn down, exactly one hashchange installed, no double listener"
     (rf/reg-route :hist/home   {} "/")
     (rf/reg-route :hist/active {} "/active")
-    (rf/reg-frame :owner/a {:url-bound? true})   ;; history → popstate
+    (rf/make-frame {:id :owner/a :url-bound? true})   ;; history → popstate
     (is (= 1 (count (get-in @*history-state* [:listeners "popstate"]))))
     ;; Same owner re-registers with the hash strategy (hot-reload strategy swap).
-    (rf/reg-frame :owner/a {:url-bound? true :url-strategy routing/hash-url-strategy})
+    (rf/make-frame {:id :owner/a :url-bound? true :url-strategy routing/hash-url-strategy})
     (is (= :owner/a (routing/url-owner-frame-id))
         "A is still the owner across the strategy change")
     (is (empty? (get-in @*history-state* [:listeners "popstate"]))
@@ -728,8 +728,8 @@
             destroy leaves the incumbent owner's listener instance untouched —
             owner unchanged → no tear-down + reinstall, no stacking"
     (rf/reg-route :hist/home {} "/")
-    (rf/reg-frame :owner/a {:url-bound? true})       ;; owner, popstate
-    (rf/reg-frame :owner/b {:url-bound? true})       ;; losing duplicate (claimed after A)
+    (rf/make-frame {:id :owner/a :url-bound? true})       ;; owner, popstate
+    (rf/make-frame {:id :owner/b :url-bound? true})       ;; losing duplicate (claimed after A)
     (let [incumbent (first (get-in @*history-state* [:listeners "popstate"]))]
       (is (some? incumbent) "A's popstate listener is installed")
       ;; Destroy the NON-owner duplicate B — A keeps the URL.
@@ -754,7 +754,7 @@
             failure-atomic.)"
     (rf/reg-route :hist/home {} "/")
     (rf/reg-route :hist/cart {} "/cart")
-    (rf/reg-frame :owner/a {:url-bound? true})       ;; history owner → popstate
+    (rf/make-frame {:id :owner/a :url-bound? true})       ;; history owner → popstate
     (let [incumbent       (first (get-in @*history-state* [:listeners "popstate"]))
           ;; SNAPSHOT the committed state before the malformed attempt.
           record-before   (get @frame/frames :owner/a)
@@ -771,9 +771,9 @@
         ;; (:push! / :replace! / :install-listener!). The registration-time
         ;; preflight validates and throws before ANY candidate-derived write.
         (let [ex (try
-                   (rf/reg-frame :owner/a {:url-bound?   true
-                                           :url-strategy {:encode identity
-                                                          :decode (constantly "/")}})
+                   (rf/make-frame {:id :owner/a :url-bound?   true
+                                   :url-strategy {:encode identity
+                                                  :decode (constantly "/")}})
                    nil
                    (catch :default e e))]
           (is (some? ex) "the malformed re-registration throws")
@@ -867,11 +867,10 @@
                     (fn [{:keys [db]} _] (swap! probe inc) {:db db}))
       (assert-zero-residue-first-registration!
         :ktmto9/bad-first
-        #(rf/reg-frame :ktmto9/bad-first
-                       {:url-bound?              true
-                        :url-strategy            {:decode (constantly "/")}
-                        :rf.trace/frame-no-emit? true
-                        :initial-events          [[:ktmto9/probe!]]})
+        #(rf/make-frame {:id :ktmto9/bad-first :url-bound?              true
+                         :url-strategy            {:decode (constantly "/")}
+                         :rf.trace/frame-no-emit? true
+                         :initial-events          [[:ktmto9/probe!]]})
         probe))))
 
 (deftest first-registration-preflight-zero-residue-make-frame-cljs-rf2-ktmto9
@@ -909,7 +908,7 @@
             instance + record survive rather than being orphaned"
     (rf/reg-route :hist/home {} "/")
     (rf/reg-route :hist/cart {} "/cart")
-    (rf/reg-frame :owner/a {:url-bound? true})       ;; history owner → popstate
+    (rf/make-frame {:id :owner/a :url-bound? true})       ;; history owner → popstate
     (let [incumbent (first (get-in @*history-state* [:listeners "popstate"]))
           ;; Every leg callable (so the preflight passes) and behaviourally the
           ;; history strategy — EXCEPT the installer, which throws.
@@ -919,8 +918,8 @@
       (is (some? incumbent) "A's popstate listener is installed")
       ;; The re-registration COMMITS (the strategy is shape-valid) and the
       ;; post-registration reconcile's install throws — loudly, not swallowed.
-      (let [ex (try (rf/reg-frame :owner/a {:url-bound?   true
-                                            :url-strategy throwing})
+      (let [ex (try (rf/make-frame {:id :owner/a :url-bound?   true
+                                    :url-strategy throwing})
                     nil
                     (catch :default e e))]
         (is (some? ex) "the throwing installer propagates loudly"))
@@ -969,7 +968,7 @@
     ;; Bind the URL owner (the fixture pre-created :rf/default WITHOUT the slot;
     ;; opting it in is a re-registration whose lifecycle hook runs the initial
     ;; sync synchronously during reg-frame).
-    (rf/reg-frame :rf/default {:url-bound? true})
+    (rf/make-frame {:id :rf/default :url-bound? true})
     (let [slice (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                         [:rf.runtime/routing :current])]
       (is (some? slice)
@@ -996,7 +995,7 @@
             restores the browser URL to the slice's route; the slice stays put"
     ;; EP-0002 (rf2-9o48ih): URL ownership is explicit — opt `:rf/default` in
     ;; as the URL owner so the restore `:rf.nav/replace-url` fx fires.
-    (rf/reg-frame :rf/default {:url-bound? true})
+    (rf/make-frame {:id :rf/default :url-bound? true})
     (rf/reg-route :hist/cart   {} "/cart")
     (rf/reg-route :hist/editor {:params    [:map [:id :string]]
                                 :can-leave :hist/can-leave?} "/editor/articles/:id")
@@ -1062,7 +1061,7 @@
     ;; EP-0002 (rf2-9o48ih): URL ownership is explicit — opt `:rf/default` in
     ;; as the URL owner (the assertion that NO replace-url fires is only
     ;; meaningful when the frame COULD own the URL).
-    (rf/reg-frame :rf/default {:url-bound? true})
+    (rf/make-frame {:id :rf/default :url-bound? true})
     (rf/reg-route :hist/cart   {} "/cart")
     (rf/reg-route :hist/editor {:params    [:map [:id :string]]
                                 :can-leave :hist/can-leave?} "/editor/articles/:id")
@@ -1106,7 +1105,7 @@
             history entry"
     ;; EP-0002 (rf2-9o48ih): URL ownership is explicit — opt `:rf/default` in
     ;; as the URL owner so the continue `:rf.nav/replace-url` fx fires.
-    (rf/reg-frame :rf/default {:url-bound? true})
+    (rf/make-frame {:id :rf/default :url-bound? true})
     (rf/reg-route :hist/cart   {} "/cart")
     (rf/reg-route :hist/editor {:params    [:map [:id :string]]
                                 :can-leave :hist/can-leave?} "/editor/articles/:id")
@@ -1642,7 +1641,7 @@
     (let [loads (atom 0)]
       (rf/reg-event :docs/load (fn [{:keys [db]} _] (swap! loads inc) {:db db}))
       (rf/reg-route :hist/docs {:on-match [[:docs/load]]} "/docs/:page")
-      (rf/reg-frame :rf/default {:url-bound? true})
+      (rf/make-frame {:id :rf/default :url-bound? true})
 
       ;; --- Full nav: loader fires once, pushes /docs/guide#a. ---
       (rf/dispatch-sync [:rf.route/navigate :hist/docs {:page "guide"} {:fragment "a"}])

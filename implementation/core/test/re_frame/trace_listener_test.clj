@@ -57,7 +57,7 @@
   ;; `:rf/default` + pin it as the body's ambient scope (the carried-
   ;; invariant equivalent of `(with-frame :rf/default …)`); explicit
   ;; `{:frame …}` opts in the test bodies still win.
-  (rf/reg-frame :rf/default {})
+  (rf/make-frame {:id :rf/default})
   (rf/with-frame :rf/default
     (test-fn)))
 
@@ -212,7 +212,7 @@
 (deftest trace-events-carry-frame-tag
   (testing "a trace event for a specific frame carries :frame frame-id under :tags"
     (let [seen (atom [])]
-      (rf/reg-frame :frame/scoped {:doc "scoped"})
+      (rf/make-frame {:id :frame/scoped :doc "scoped"})
       (rf/register-listener! :trace ::framed (fn [ev] (swap! seen conj ev)))
       (rf/reg-event :framed/ping (fn [{:keys [db]} _] {:db (assoc db :ping? true)}))
       (rf/dispatch-sync [:framed/ping] {:frame :frame/scoped})
@@ -227,8 +227,8 @@
 
 (deftest different-frames-carry-distinct-frame-tags
   (testing "events emitted on behalf of different frames carry their respective :frame ids"
-    (rf/reg-frame :frame/a {})
-    (rf/reg-frame :frame/b {})
+    (rf/make-frame {:id :frame/a})
+    (rf/make-frame {:id :frame/b})
     (let [seen (atom [])]
       (rf/register-listener! :trace ::multi (fn [ev] (swap! seen conj ev)))
       (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))

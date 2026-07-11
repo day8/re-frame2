@@ -193,7 +193,7 @@
     (rf/reg-event :boot/init (fn [{:keys [db]} _] {:db (assoc db :booted-by :global)}))
     (is (some? (registrar/lookup :event :boot/init))
         "the global handler is on the default registrar (the armed sentinel)")
-    (rf/reg-frame :plain/main {:doc "no image-loaded object"})
+    (rf/make-frame {:id :plain/main :doc "no image-loaded object"})
     (rf/dispatch-sync [:boot/init] {:frame :plain/main})
     (is (= :global (:booted-by (rf/app-db-value :plain/main)))
         "an image-less frame DOES run the global handler — the sentinel fires when reached")))
@@ -264,7 +264,7 @@
 
 (deftest absence-is-default-no-image-frame-uses-the-global-registrar
   (testing "an image-less frame uses the default registrar without a generation"
-    (rf/reg-frame :plain/main {:doc "no image-loaded object for this frame"})
+    (rf/make-frame {:id :plain/main :doc "no image-loaded object for this frame"})
     (rf/reg-event :plain/set (fn [{:keys [db]} _] {:db (assoc db :written-by :global)}))
     (rf/reg-sub  :plain/value (fn [db _] (:written-by db)))
     (rf/dispatch-sync [:plain/set] {:frame :plain/main})

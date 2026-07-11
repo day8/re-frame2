@@ -74,7 +74,7 @@
 
 (deftest frame-destroy-runs-exit-cascade-in-reverse-creation-order
   (testing "destroy-frame! walks live machines newest-spawn-first, running each :exit before clearing"
-    (rf/reg-frame :fc/auth {:doc "scratch frame"})
+    (rf/make-frame {:id :fc/auth :doc "scratch frame"})
     (let [exit-log (atom [])
           child    {:initial :running
                     :data    {}
@@ -134,7 +134,7 @@
 
 (deftest frame-destroy-releases-system-id-reverse-index
   (testing "destroy-frame! clears [:rf.runtime/machines :system-ids <sid>] for every system-id-bound spawned actor"
-    (rf/reg-frame :si/auth {:doc "system-id reverse-index test frame"})
+    (rf/make-frame {:id :si/auth :doc "system-id reverse-index test frame"})
     (let [child   {:initial :running :data {} :states {:running {}}}
           parent  {:initial :idle
                    :data    {}
@@ -163,7 +163,7 @@
 
 (deftest frame-destroy-emits-lifecycle-trace-per-active-machine
   (testing "destroy-frame! emits :rf.machine.lifecycle/destroyed per active actor with :reason :parent-frame-destroyed"
-    (rf/reg-frame :lt/auth {:doc "lifecycle-trace frame"})
+    (rf/make-frame {:id :lt/auth :doc "lifecycle-trace frame"})
     (let [child  {:initial :running :data {} :states {:running {}}}
           boot   {:initial :idle
                   :data    {}
@@ -199,7 +199,7 @@
 
 (deftest frame-destroy-fires-http-abort-per-active-actor
   (testing "destroy-frame! invokes the :http/abort-on-actor-destroy hook against every active actor"
-    (rf/reg-frame :ha/auth {:doc "http-abort hook test frame"})
+    (rf/make-frame {:id :ha/auth :doc "http-abort hook test frame"})
     (let [aborted (atom [])
           ;; Install the hook explicitly. `re-frame.http.managed`
           ;; isn't loaded in this leaf-artefact's classpath, so we
@@ -229,8 +229,8 @@
 
 (deftest destroy-of-one-frame-does-not-disturb-anothers-machines
   (testing "destroy-frame! walks only the destroyed frame's spawn-order channel"
-    (rf/reg-frame :iso/frame-a {:doc "frame A"})
-    (rf/reg-frame :iso/frame-b {:doc "frame B"})
+    (rf/make-frame {:id :iso/frame-a :doc "frame A"})
+    (rf/make-frame {:id :iso/frame-b :doc "frame B"})
     (let [exit-log (atom [])
           ;; Two distinct machine specs (and id-prefixes) so the
           ;; spawned actor handlers don't collide on the global
@@ -320,7 +320,7 @@
 
 (deftest restored-spawned-snapshots-get-full-teardown-newest-first
   (testing "destroy-frame! treats restored spawned snapshots (absent from spawn-order) as spawned actors: full teardown, newest-first by durable actor-id"
-    (rf/reg-frame :rs/auth {:doc "restore-teardown frame"})
+    (rf/make-frame {:id :rs/auth :doc "restore-teardown frame"})
     (let [exit-log (atom [])
           child    {:initial :running
                     :data    {}
@@ -373,7 +373,7 @@
 
 (deftest restored-spawned-snapshot-releases-system-id-index
   (testing "destroy-frame! releases the system-id reverse index for a restored, spawn-order-less spawned actor"
-    (rf/reg-frame :rsi/auth {:doc "restore system-id frame"})
+    (rf/make-frame {:id :rsi/auth :doc "restore system-id frame"})
     (let [child  {:initial :running :data {} :states {:running {}}}
           boot   {:initial :idle
                   :data    {}
@@ -403,7 +403,7 @@
 
 (deftest restored-singleton-snapshot-keeps-singleton-straggler-path
   (testing "a restored SINGLETON snapshot (no :rf/machine-type) keeps the exit-only straggler path — handler survives, snapshot left for app-db release"
-    (rf/reg-frame :rsg/auth {:doc "restore singleton frame"})
+    (rf/make-frame {:id :rsg/auth :doc "restore singleton frame"})
     (let [exit-log (atom [])
           ;; A singleton machine — registered, then driven into a state so
           ;; its snapshot lands in runtime-db. Its snapshot carries NO

@@ -345,7 +345,7 @@
     ;; A second app frame alongside :rf/default. Routes are shared (the
     ;; registry is process-global), but the lowered classification is
     ;; per-frame runtime-db state.
-    (rf/reg-frame :frame/b {:doc "second app frame for cross-frame isolation"})
+    (rf/make-frame {:id :frame/b :doc "second app frame for cross-frame isolation"})
     (rf/reg-route :route/a {:sensitive [[:query :a-secret]]} "/a")
     (rf/reg-route :route/b {:sensitive [[:query :b-secret]]} "/b")
     ;; Frame A (:rf/default) → route A; frame B → route B.

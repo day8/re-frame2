@@ -63,9 +63,9 @@
   cell's `ensure-xray-frame!` registers its own app-db frame."
   []
   (registry/register-xray-handlers!)
-  (frame/reg-frame cell-a {})
-  (frame/reg-frame cell-b {})
-  (frame/reg-frame :rf/default {}))
+  (rf/make-frame {:id cell-a})
+  (rf/make-frame {:id cell-b})
+  (rf/make-frame {:id :rf/default}))
 
 (defn- read-sub [frame-id sub-id]
   (rf/with-frame frame-id

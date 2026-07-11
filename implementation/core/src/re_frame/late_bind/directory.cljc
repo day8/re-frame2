@@ -1070,6 +1070,10 @@
     :producer-ns 're-frame.trace.tooling
     :design-bead "rf2-g1b2m"
     :description "Apply a per-frame `:rf.trace/events-retained` override. The frame engine (`re-frame.frame/upsert-frame!`) invokes this when the config carries the key; raises / lowers the ring's slot cap (one slot per event / pipeline run), trimming evictions in-place when lowering."}
+   {:key         :live-frame/mark-projection-dirty!
+    :producer-ns 're-frame.live-frame
+    :design-bead "rf2-h1vqa4"
+    :description "Mark the live-frame default-image projection DIRTY on a registrar REMOVAL (`unregister!` / `clear-kind!` / `clear-all!`) — the removal twin of the registration hook `re-frame.live-frame` installs for `reg-*`. A cleared handler must disappear from image-loaded frames at their next resolution (read-time coalesced flush / CLJS deferred tick), not linger in a sealed generation the source store no longer backs. Dev-only: published under `interop/debug-enabled?` alongside the auto-reprojection hook; production builds never consult it (the registrar stops mutating after boot)."}
    {:key         :frame/current-frame-id
     :producer-ns 're-frame.frame
     :design-bead "rf2-g1b2m"

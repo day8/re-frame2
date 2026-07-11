@@ -70,7 +70,7 @@
             listener install is a no-op). A losing duplicate url-binding (the
             suite fixture already binds :rf/default) is REPORTED via a diagnostic
             but must never throw."
-    (is (= :ok (outcome #(rf/reg-frame :zz/jvm-url-owner {:url-bound? true})))
+    (is (= :ok (outcome #(rf/make-frame {:id :zz/jvm-url-owner :url-bound? true})))
         "reg-frame of a url-bound frame returns normally on the JVM — the
          listener-install leg is CLJS-only and skipped server-side")
     (is (= "/" (routing/current-url))

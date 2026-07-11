@@ -43,7 +43,7 @@
   ;; `:rf/default` + pin it as the body's ambient scope (the carried-
   ;; invariant equivalent of `(with-frame :rf/default …)`); explicit
   ;; `{:frame …}` opts in the test bodies still win.
-  (rf/reg-frame :rf/default {})
+  (rf/make-frame {:id :rf/default})
   (rf/with-frame :rf/default
     (test-fn)))
 
@@ -134,7 +134,7 @@
 (deftest frame-isolation-cascade-bursts-dont-cross-rings
   (testing "a burst of cascades in one frame cannot evict cascades in another"
     (rf/configure! {:trace-buffer {:events-retained 3}})
-    (rf/reg-frame :app/main {:doc "ordinary application frame"})
+    (rf/make-frame {:id :app/main :doc "ordinary application frame"})
     (rf/reg-event :work (fn [{:keys [db]} _] {:db db}))
     (rf/dispatch-sync [:work] {:frame :app/main})
     (let [pre (rf/trace-buffer :app/main)]
@@ -162,7 +162,7 @@
     ;; should appear in NO frame's ring.
     (is (empty? (rf/trace-buffer :rf/default))
         ":rf/default's ring did NOT pick up the frameless emit")
-    (rf/reg-frame :probe/scope {:doc "scope"})
+    (rf/make-frame {:id :probe/scope :doc "scope"})
     (is (empty? (rf/trace-buffer :probe/scope))
         ":probe/scope's ring did NOT pick up the frameless emit either")))
 
@@ -179,9 +179,9 @@
 (deftest per-frame-events-retained-override
   (testing ":rf.trace/events-retained on reg-frame applies per-frame"
     (rf/configure! {:trace-buffer {:events-retained 5}})
-    (rf/reg-frame :tb/deep {:rf.trace/events-retained 200
-                            :doc "deep diagnostics"})
-    (rf/reg-frame :tb/shallow {:doc "shallow — default applies"})
+    (rf/make-frame {:id :tb/deep :rf.trace/events-retained 200
+                    :doc "deep diagnostics"})
+    (rf/make-frame {:id :tb/shallow :doc "shallow — default applies"})
     (rf/reg-event :tb/spam (fn [{:keys [db]} _] {:db db}))
     (dotimes [_ 100] (rf/dispatch-sync [:tb/spam] {:frame :tb/deep}))
     (dotimes [_ 100] (rf/dispatch-sync [:tb/spam] {:frame :tb/shallow}))
@@ -231,9 +231,9 @@
   (testing "a re-configured default retunes inherited frames; explicit overrides survive"
     (rf/configure! {:trace-buffer {:events-retained 50}})
     ;; :tb/inherit takes the process default; :tb/pinned pins its own cap.
-    (rf/reg-frame :tb/inherit {:doc "inherits the default"})
-    (rf/reg-frame :tb/pinned  {:rf.trace/events-retained 8
-                               :doc "explicit per-frame override"})
+    (rf/make-frame {:id :tb/inherit :doc "inherits the default"})
+    (rf/make-frame {:id :tb/pinned :rf.trace/events-retained 8
+                    :doc "explicit per-frame override"})
     (rf/reg-event :spam (fn [{:keys [db]} _] {:db db}))
     (dotimes [_ 10] (rf/dispatch-sync [:spam] {:frame :tb/inherit}))
     (dotimes [_ 10] (rf/dispatch-sync [:spam] {:frame :tb/pinned}))
@@ -249,8 +249,8 @@
 
 (deftest configure-zero-disables-inherited-ring-only
   (testing "configure! 0 disables inherited rings but leaves overrides alone"
-    (rf/reg-frame :tb/inherit {:doc "inherits"})
-    (rf/reg-frame :tb/pinned  {:rf.trace/events-retained 4 :doc "override"})
+    (rf/make-frame {:id :tb/inherit :doc "inherits"})
+    (rf/make-frame {:id :tb/pinned :rf.trace/events-retained 4 :doc "override"})
     (rf/reg-event :spam (fn [{:keys [db]} _] {:db db}))
     (dotimes [_ 6] (rf/dispatch-sync [:spam] {:frame :tb/inherit}))
     (dotimes [_ 6] (rf/dispatch-sync [:spam] {:frame :tb/pinned}))
@@ -269,8 +269,8 @@
     ;; {:events-retained N} map (no :run-order). push-to-ring!
     ;; started :run-order from nil → conj built a PersistentList →
     ;; subvec threw ClassCastException once the cap was exceeded.
-    (rf/reg-frame :tb/early {:rf.trace/events-retained 3
-                             :doc "cap registered before first emit"})
+    (rf/make-frame {:id :tb/early :rf.trace/events-retained 3
+                    :doc "cap registered before first emit"})
     (rf/reg-event :tb/ev (fn [{:keys [db]} _] {:db db}))
     ;; Four dispatches: the fourth pushes past the cap of 3.
     (is (nil? (dotimes [_ 4] (rf/dispatch-sync [:tb/ev] {:frame :tb/early})))
@@ -287,7 +287,7 @@
 
 (deftest per-frame-override-zero-before-first-emit-disables-cleanly
   (testing "a 0 per-frame override before first emit disables the ring without crashing"
-    (rf/reg-frame :tb/silent {:rf.trace/events-retained 0 :doc "disabled"})
+    (rf/make-frame {:id :tb/silent :rf.trace/events-retained 0 :doc "disabled"})
     (rf/reg-event :tb/ev (fn [{:keys [db]} _] {:db db}))
     (is (nil? (dotimes [_ 5] (rf/dispatch-sync [:tb/ev] {:frame :tb/silent})))
         "dispatches against a 0-cap override frame do not throw")
@@ -298,8 +298,8 @@
 
 (deftest clear-trace-buffer-clears-only-the-named-frame
   (testing "clear-trace-buffer! is per-frame"
-    (rf/reg-frame :app/a {:doc "a"})
-    (rf/reg-frame :app/b {:doc "b"})
+    (rf/make-frame {:id :app/a :doc "a"})
+    (rf/make-frame {:id :app/b :doc "b"})
     (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
     (rf/dispatch-sync [:ping] {:frame :app/a})
     (rf/dispatch-sync [:ping] {:frame :app/b})
@@ -311,7 +311,7 @@
 
 (deftest frame-destroy-clears-the-rings
   (testing "destroy-frame! releases the destroyed frame's ring"
-    (rf/reg-frame :app/transient {:doc "short-lived"})
+    (rf/make-frame {:id :app/transient :doc "short-lived"})
     (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
     (rf/dispatch-sync [:ping] {:frame :app/transient})
     (is (seq (rf/trace-buffer :app/transient))
@@ -596,7 +596,7 @@
 
 (deftest tool-frame-emits-no-trace
   (testing "a frame registered :rf.trace/frame-no-emit? true grows the ring by 0"
-    (rf/reg-frame :tool/inspector {:rf.trace/frame-no-emit? true})
+    (rf/make-frame {:id :tool/inspector :rf.trace/frame-no-emit? true})
     (rf/reg-event :tool/work (fn [{:keys [db]} _] {:db (assoc db :ran? true)}))
     (rf/clear-trace-buffer! :tool/inspector)
     (rf/dispatch-sync [:tool/work] {:frame :tool/inspector})
@@ -605,8 +605,8 @@
 
 (deftest app-frame-emits-trace-while-tool-frame-silent
   (testing "an app frame's cascade DOES grow its ring; the tool frame's does NOT"
-    (rf/reg-frame :tool/inspector {:rf.trace/frame-no-emit? true})
-    (rf/reg-frame :app/main {:doc "ordinary application frame"})
+    (rf/make-frame {:id :tool/inspector :rf.trace/frame-no-emit? true})
+    (rf/make-frame {:id :app/main :doc "ordinary application frame"})
     (rf/reg-event :work (fn [{:keys [db]} _] {:db (assoc db :ran? true)}))
     (rf/clear-trace-buffer! :app/main)
     (rf/clear-trace-buffer! :tool/inspector)
@@ -625,15 +625,15 @@
   ;; lingers permanently in `trace/trace-disabled-frames` — a process-global
   ;; id leak (one keyword per destroyed-and-never-re-registered tool frame).
   (testing "a destroyed trace-disabled frame leaves no entry in the trace-disabled set"
-    (rf/reg-frame :tool/inspector {:rf.trace/frame-no-emit? true})
+    (rf/make-frame {:id :tool/inspector :rf.trace/frame-no-emit? true})
     (is (trace/frame-trace-disabled? :tool/inspector)
         "reg-frame marked the tool frame trace-disabled")
     (frame/destroy-frame! :tool/inspector)
     (is (not (trace/frame-trace-disabled? :tool/inspector))
         "destroy-frame! removed the frame id from trace-disabled-frames (no process-global leak)"))
   (testing "destroying one tool frame does not disturb another's trace-disabled flag"
-    (rf/reg-frame :tool/a {:rf.trace/frame-no-emit? true})
-    (rf/reg-frame :tool/b {:rf.trace/frame-no-emit? true})
+    (rf/make-frame {:id :tool/a :rf.trace/frame-no-emit? true})
+    (rf/make-frame {:id :tool/b :rf.trace/frame-no-emit? true})
     (frame/destroy-frame! :tool/a)
     (is (not (trace/frame-trace-disabled? :tool/a))
         "destroyed frame's flag is cleared")
@@ -655,7 +655,7 @@
   (testing "an un-tagged emit (no :frame key in tags), resolved via the
             ambient *current-frame* scope, is suppressed when that frame
             is trace-disabled — not just a tagged emit"
-    (rf/reg-frame :tool/inspector {:rf.trace/frame-no-emit? true})
+    (rf/make-frame {:id :tool/inspector :rf.trace/frame-no-emit? true})
     (let [seen (atom [])]
       (rf/register-listener! :trace ::untagged (fn [ev] (swap! seen conj ev)))
       (rf/with-frame :tool/inspector
@@ -668,7 +668,7 @@
   (testing "control: the SAME un-tagged emit under a non-disabled app
             frame's ambient scope IS delivered — proves the suppression
             above is frame-specific, not some other global gate"
-    (rf/reg-frame :app/plain {:doc "ordinary application frame"})
+    (rf/make-frame {:id :app/plain :doc "ordinary application frame"})
     (let [seen (atom [])]
       (rf/register-listener! :trace ::untagged-control (fn [ev] (swap! seen conj ev)))
       (rf/with-frame :app/plain

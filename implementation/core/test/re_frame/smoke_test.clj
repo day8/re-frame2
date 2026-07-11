@@ -48,7 +48,7 @@
   ;; `:rf/default` + pin it as the body's ambient scope (the carried-
   ;; invariant equivalent of `(with-frame :rf/default …)`); explicit
   ;; `{:frame …}` opts in the test bodies still win.
-  (rf/reg-frame :rf/default {})
+  (rf/make-frame {:id :rf/default})
   (rf/with-frame :rf/default
     (test-fn)))
 
@@ -176,8 +176,8 @@
 
 (deftest subscriber-captures-frame
   (testing "subscriber closes over the current frame so closures don't need to thread it"
-    (rf/reg-frame :left  {:doc "left frame"})
-    (rf/reg-frame :right {:doc "right frame"})
+    (rf/make-frame {:id :left :doc "left frame"})
+    (rf/make-frame {:id :right :doc "right frame"})
     (rf/reg-event :seed (fn [{:keys [db]} [_ n]] {:db {:n n}}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     ;; Seed each frame synchronously so the assertions are deterministic.
@@ -221,8 +221,8 @@
   ;; :dispatch-later, dispatcher). This JVM test pins the
   ;; sync-from-handler contract on the substrate-agnostic foundation.
   (testing "(rf/dispatch ...) called synchronously from inside a handler routes to that handler's frame"
-    (rf/reg-frame :rf-l5q3.jvm/tenant-a {:doc "tenant-a frame"})
-    (rf/reg-frame :rf-l5q3.jvm/tenant-b {:doc "tenant-b frame"})
+    (rf/make-frame {:id :rf-l5q3.jvm/tenant-a :doc "tenant-a frame"})
+    (rf/make-frame {:id :rf-l5q3.jvm/tenant-b :doc "tenant-b frame"})
     (rf/reg-event :rf-l5q3.jvm/seed
                      (fn [{:keys [db]} _] {:db {:received []}}))
     (rf/dispatch-sync [:rf-l5q3.jvm/seed] {:frame :rf-l5q3.jvm/tenant-a})
@@ -255,7 +255,7 @@
   ;; directly (avoids the async drain-thread timing the captured-fn
   ;; invocation would introduce).
   (testing "(rf/current-frame-id) inside a handler reports the handler's frame"
-    (rf/reg-frame :rf-l5q3.jvm.cf/tenant-a {:doc "tenant-a frame"})
+    (rf/make-frame {:id :rf-l5q3.jvm.cf/tenant-a :doc "tenant-a frame"})
     (let [observed-current-frame (atom nil)]
       (rf/reg-event :rf-l5q3.jvm.cf/observe
                        (fn [_ _]
@@ -297,8 +297,8 @@
     (is (nil? (get-in (rf/app-db-value :rf/default) [:does-not-exist]))
         "missing paths return nil"))
   (testing "reads against an explicit frame-id"
-    (rf/reg-frame :left  {:doc "left"})
-    (rf/reg-frame :right {:doc "right"})
+    (rf/make-frame {:id :left :doc "left"})
+    (rf/make-frame {:id :right :doc "right"})
     (rf/reg-event :seed-n (fn [{:keys [db]} [_ n]] {:db {:n n}}))
     (rf/dispatch-sync [:seed-n 11] {:frame :left})
     (rf/dispatch-sync [:seed-n 99] {:frame :right})
@@ -595,7 +595,7 @@
 
 (deftest destroy-frame-signals-active-machines
   (testing "destroy-frame! emits one :rf.machine.lifecycle/destroyed per active machine, carrying :reason :parent-frame-destroyed"
-    (rf/reg-frame :tenant-a {:doc "tenant"})
+    (rf/make-frame {:id :tenant-a :doc "tenant"})
     ;; Seed a machine snapshot directly into the RUNTIME-DB partition
     ;; (EP-0001 rf2-vzld77 — machine snapshots are durable runtime-db state)
     ;; so we don't need to run a full machine through this test.
@@ -647,8 +647,8 @@
       ;; `:worker` child so each spawn is accepted and fires its
       ;; `:rf.machine.spawn/spawned` trace.
       (rf/reg-machine :worker {:initial :running :data {} :states {:running {}}})
-      (rf/reg-frame :left  {:doc "left"})
-      (rf/reg-frame :right {:doc "right"})
+      (rf/make-frame {:id :left :doc "left"})
+      (rf/make-frame {:id :right :doc "right"})
       (rf/reg-event :flow handler)
       ;; Each frame's first invoke should get :worker#1.
       (let [traces (atom [])]

@@ -54,8 +54,8 @@
   app-db so a test assertion can identify which frame served a
   dispatch."
   []
-  (rf/reg-frame :rf-l5q3/tenant-a {:doc "tenant-a frame"})
-  (rf/reg-frame :rf-l5q3/tenant-b {:doc "tenant-b frame"})
+  (rf/make-frame {:id :rf-l5q3/tenant-a :doc "tenant-a frame"})
+  (rf/make-frame {:id :rf-l5q3/tenant-b :doc "tenant-b frame"})
   (rf/reg-event :rf-l5q3/seed
                    (fn [{:keys [db]} [_ marker]] {:db {:marker marker :received []}}))
   (rf/dispatch-sync [:rf-l5q3/seed :rf/default] {:frame :rf/default})

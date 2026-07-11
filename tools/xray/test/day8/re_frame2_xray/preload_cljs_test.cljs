@@ -112,7 +112,7 @@
 
     ;; Allocate the Xray frame (the preload doesn't create it; it's
     ;; allocated lazily on first use).
-    (frame/reg-frame :rf/xray {})
+    (rf/make-frame {:id :rf/xray})
 
     ;; Host dispatch — lands in :rf/default.
     (rf/dispatch-sync [:test/host-write])

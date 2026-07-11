@@ -67,7 +67,7 @@
   (testing "explicit `{:frame <id>}` on dispatch flows through to the tag —
    verifies the tag tracks the live dispatching frame, not a hard-coded
    default"
-    (rf/reg-frame :rf2-hwuki/frame-A {:doc "explicit dispatch frame"})
+    (rf/make-frame {:id :rf2-hwuki/frame-A :doc "explicit dispatch frame"})
     (rf/reg-machine :rf2-hwuki/tl traffic-light)
     (let [[seen unreg] (record-traces!)]
       (try

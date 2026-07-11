@@ -149,7 +149,7 @@
             registry reader / SSR registry-projection defence-in-depth uses)
             redacts the resource's declared :data :ssn path — proving the
             classification is IN the registry, not only at the family projector"
-    (rf/reg-frame :reg/frame {})
+    (rf/make-frame {:id :reg/frame})
     (let [k     (state/scoped-resource-key :rf.scope/global :acct/profile {:slug "x"})
           k-id  (state/key-id k)
           rdb   (runtime-db-with {k {:data {:ssn "123-45-6789" :name "Alice"}}})

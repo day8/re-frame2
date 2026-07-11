@@ -24,6 +24,7 @@
    [clojure.string :as str]
    [re-frame.classification :as core-classification]
    [re-frame.core :as rf]
+   [re-frame.fx :as fx]
    [re-frame.elision :as elision]
    [re-frame.late-bind :as late-bind]
    [re-frame.privacy :as privacy]
@@ -46,8 +47,8 @@
 
 (defn- capturing-transport-fixture [f]
   (reset! last-managed-args nil)
-  (rf/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
-  (rf/reg-fx :rf.resource/schedule-timers (fn [_ _] nil))
+  (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
+  (fx/reg-fx :rf.resource/schedule-timers (fn [_ _] nil))
   (f))
 
 (use-fixtures :each

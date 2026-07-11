@@ -36,7 +36,7 @@
 
 (defn- xray-setup! []
   (registry/register-xray-handlers!)
-  (frame/reg-frame :rf/xray {})
+  (rf/make-frame {:id :rf/xray})
   (spine-filters/hydrate!))
 
 (defn- frame-sub [q]

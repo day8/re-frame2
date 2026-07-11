@@ -248,7 +248,7 @@
     (let [variant-id :story.counter-matrix/lifecycle-walk
           ;; Fresh frame for the walk — the machine + mirror writer were
           ;; installed by install-canonical-vocabulary! in the fixture.
-          _ (rf/reg-frame variant-id {})]
+          _ (rf/make-frame {:id variant-id})]
       ;; Before any transition.
       (is (= :pre-mount (loaders/current-state variant-id))
           "fresh frame → :pre-mount")

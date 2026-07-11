@@ -32,6 +32,7 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
+   [re-frame.fx :as fx]
    [re-frame.error :as error]
    ;; load-bearing side-effecting requires: register the routing + resources
    ;; events / subs and resources' late-bound :routing/* integration hooks.
@@ -64,12 +65,12 @@
   routing counter reset + late-bound integration re-publication stay (they
   are routing-suite setup, not resource cache hygiene)."
   []
-  (rf/reg-frame :rf/default {:url-bound? true
-                             :doc "Route-resource suite default app frame."})
+  (rf/make-frame {:id :rf/default :url-bound? true
+                  :doc "Route-resource suite default app frame."})
   (routing/reset-counters!)
   (route/install-routing-integration!)
-  (rf/reg-fx :rf.http/managed (fn [_ctx _args] nil))
-  (rf/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil)))
+  (fx/reg-fx :rf.http/managed (fn [_ctx _args] nil))
+  (fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil)))
 
 (use-fixtures :each
   (core-test-support/make-reset-runtime-fixture

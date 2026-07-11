@@ -166,7 +166,7 @@
           traces  (atom [])]
       (try
         (trace/register-listener! ::j538f7 (fn [ev] (swap! traces conj ev)))
-        (rf/reg-frame :frame/req {:doc "the frame that owns the in-flight request"})
+        (rf/make-frame {:id :frame/req :doc "the frame that owns the in-flight request"})
         (rf/reg-event :reply/recorder
           (fn [_ [_ payload]] (swap! replies conj payload) {}))
         ;; an ordinary event handler (no spawned actor) issues a plain managed

@@ -55,7 +55,7 @@
   (testing "(with-frame :keyword body) binds *current-frame* across body;
             outside the macro current-frame-id raises :rf.error/no-frame-context
             (EP-0002 — no :rf/default floor, rf2-jue6sp)"
-    (rf/reg-frame :wf/alpha {:doc "alpha"})
+    (rf/make-frame {:id :wf/alpha :doc "alpha"})
     ;; Outside the macro: the carried-invariant absence error.
     (is (= :rf.error/no-frame-context
            (:rf.error/id (ex-data
@@ -75,7 +75,7 @@
 (deftest with-frame-multi-form-body
   (testing "(with-frame :keyword expr1 expr2 ...) evaluates all body forms,
             returns the last"
-    (rf/reg-frame :wf/beta {:doc "beta"})
+    (rf/make-frame {:id :wf/beta :doc "beta"})
     (let [side (atom [])
           result (rf/with-frame :wf/beta
                    (swap! side conj :first)
@@ -88,8 +88,8 @@
 
 (deftest with-frame-subscriber-captures-frame
   (testing "subscriber called inside (with-frame :k ...) captures :k"
-    (rf/reg-frame :wf/left  {:doc "left"})
-    (rf/reg-frame :wf/right {:doc "right"})
+    (rf/make-frame {:id :wf/left :doc "left"})
+    (rf/make-frame {:id :wf/right :doc "right"})
     (rf/reg-event :wf/seed (fn [{:keys [db]} [_ n]] {:db {:n n}}))
     (rf/reg-sub :wf/n (fn [db _] (:n db)))
     (rf/dispatch-sync [:wf/seed 7]  {:frame :wf/left})
@@ -287,8 +287,8 @@
 
 (deftest frame-ids-0-arity-returns-full-set
   (testing "(frame-ids) returns the full set of registered ids"
-    (rf/reg-frame :fi/alpha {})
-    (rf/reg-frame :fi/beta  {})
+    (rf/make-frame {:id :fi/alpha})
+    (rf/make-frame {:id :fi/beta})
     (let [all (rf/frame-ids)]
       (is (contains? all :fi/alpha))
       (is (contains? all :fi/beta))
@@ -301,9 +301,9 @@
 (deftest frame-ids-1-arity-filters-by-prefix
   (testing "(frame-ids ns-prefix) returns ids whose keyword namespace
             starts with the prefix string"
-    (rf/reg-frame :fi.story/login  {})
-    (rf/reg-frame :fi.story/signup {})
-    (rf/reg-frame :fi.test/login   {})
+    (rf/make-frame {:id :fi.story/login})
+    (rf/make-frame {:id :fi.story/signup})
+    (rf/make-frame {:id :fi.test/login})
     (let [story-ids (rf/frame-ids "fi.story")]
       (is (= #{:fi.story/login :fi.story/signup} story-ids)
           "only :fi.story/* survives the prefix filter")
@@ -312,14 +312,14 @@
 
 (deftest frame-ids-1-arity-empty-result
   (testing "a prefix that matches no registered frame returns #{}"
-    (rf/reg-frame :fi/alpha {})
+    (rf/make-frame {:id :fi/alpha})
     (is (= #{} (rf/frame-ids "no-such-ns"))
         "no namespaces start with this prefix → empty set")))
 
 (deftest frame-ids-1-arity-excludes-destroyed
   (testing "destroyed frames do not appear in (frame-ids ns-prefix)"
-    (rf/reg-frame :fi.zone/one {})
-    (rf/reg-frame :fi.zone/two {})
+    (rf/make-frame {:id :fi.zone/one})
+    (rf/make-frame {:id :fi.zone/two})
     (rf/destroy-frame! :fi.zone/one)
     (let [zone-ids (rf/frame-ids "fi.zone")]
       (is (= #{:fi.zone/two} zone-ids)
@@ -327,9 +327,9 @@
 
 (deftest frame-ids-1-arity-broader-prefix
   (testing "a shorter prefix matches any longer matching namespace"
-    (rf/reg-frame :wide.a/one {})
-    (rf/reg-frame :wide.b/two {})
-    (rf/reg-frame :elsewhere/one {})
+    (rf/make-frame {:id :wide.a/one})
+    (rf/make-frame {:id :wide.b/two})
+    (rf/make-frame {:id :elsewhere/one})
     (let [wide-ids (rf/frame-ids "wide")]
       (is (contains? wide-ids :wide.a/one))
       (is (contains? wide-ids :wide.b/two))
@@ -350,7 +350,7 @@
 (deftest app-db-value-and-replace-frame-state-app-only-round-trip
   (testing "replace-frame-state! with an app-only map then app-db-value
             round-trips the app-db partition"
-    (rf/reg-frame :pp/round-trip {:doc "round-trip"})
+    (rf/make-frame {:id :pp/round-trip :doc "round-trip"})
     (rf/reg-event :pp/seed (fn [{:keys [db]} [_ db]] {:db db}))
     (rf/dispatch-sync [:pp/seed {:k 1}] {:frame :pp/round-trip})
     (is (= {:k 1} (rf/app-db-value :pp/round-trip))
@@ -366,7 +366,7 @@
             :rf.db/runtime key is PRESERVED, not nilled (EP-0001 rf2-tfepxu,
             Mike ruling #10, generalised by rf2-t3lftq — the former
             reset-app-db!, now a one-key partial map)"
-    (rf/reg-frame :pp/reset-app {:doc "reset-app"})
+    (rf/make-frame {:id :pp/reset-app :doc "reset-app"})
     (rf/reg-event :pp/seed (fn [{:keys [db]} [_ db]] {:db db}))
     (rf/dispatch-sync [:pp/seed {:k 1 :cart {:items [9]}}] {:frame :pp/reset-app})
     (rf/replace-frame-state! :pp/reset-app {:rf.db/runtime {:rf.runtime/machines {:m 1}}})
@@ -386,7 +386,7 @@
 
 (deftest frame-state-value-projection-shape
   (testing "frame-state-value yields {:rf.db/app … :rf.db/runtime …} with the real runtime-db"
-    (rf/reg-frame :pp/fs {:doc "frame-state"})
+    (rf/make-frame {:id :pp/fs :doc "frame-state"})
     (rf/reg-event :pp/seed-fs (fn [{:keys [db]} [_ db]] {:db db}))
     (rf/dispatch-sync [:pp/seed-fs {:a 1}] {:frame :pp/fs})
     (is (= {:rf.db/app {:a 1} :rf.db/runtime {}}
@@ -406,7 +406,7 @@
             runtime-db partition — the absent :rf.db/app key is PRESERVED
             (rf2-t3lftq; the former replace-runtime-db!, now a one-key
             partial map)"
-    (rf/reg-frame :pp/rdb {:doc "runtime-mutate"})
+    (rf/make-frame {:id :pp/rdb :doc "runtime-mutate"})
     (rf/reg-event :pp/seed-app (fn [{:keys [db]} [_ db]] {:db db}))
     (rf/dispatch-sync [:pp/seed-app {:app :data}] {:frame :pp/rdb})
     (rf/replace-frame-state! :pp/rdb {:rf.db/runtime {:rf.runtime/machines {}}})
@@ -418,7 +418,7 @@
 (deftest replace-frame-state-writes-both-partitions
   (testing "replace-frame-state! with a both-partition map installs both
             atomically (rf2-adwcv6)"
-    (rf/reg-frame :pp/fsm {:doc "frame-state-mutate"})
+    (rf/make-frame {:id :pp/fsm :doc "frame-state-mutate"})
     (rf/replace-frame-state! :pp/fsm {:rf.db/app {:a 7} :rf.db/runtime {:rf.runtime/routing {:r 1}}})
     (is (= {:a 7} (rf/app-db-value :pp/fsm))
         "app-db partition installed")
@@ -433,7 +433,7 @@
             partition key — an empty map, or a map of only unrelated keys
             — with :rf.error/replace-frame-state-bad-keys rather than
             silently no-opping while returning true (rf2-t3lftq)"
-    (rf/reg-frame :pp/bad-keys-empty {:doc "bad-keys-empty"})
+    (rf/make-frame {:id :pp/bad-keys-empty :doc "bad-keys-empty"})
     (is (false? (rf/replace-frame-state! :pp/bad-keys-empty {}))
         "an empty map carries no recognized partition key — rejected")
     (is (false? (rf/replace-frame-state! :pp/bad-keys-empty {:unrelated 1}))
@@ -443,7 +443,7 @@
   (testing "replace-frame-state! rejects a map carrying an unrecognized key
             alongside a recognized one — a typo'd partition key (e.g.
             :rf.db/apps) is never silently ignored (rf2-t3lftq)"
-    (rf/reg-frame :pp/bad-keys-typo {:doc "bad-keys-typo"})
+    (rf/make-frame {:id :pp/bad-keys-typo :doc "bad-keys-typo"})
     (is (false? (rf/replace-frame-state! :pp/bad-keys-typo {:rf.db/app {:k 1} :rf.db/apps {:k 2}}))
         "an unrecognized key alongside a recognized one is rejected")
     (is (= {} (rf/app-db-value :pp/bad-keys-typo))
@@ -549,7 +549,7 @@
   (testing "(rf/restore-epoch! frame-id epoch-id) rewinds a frame to a recorded
             epoch — the renamed time-travel surface resolves a live hook and
             mutates state (rf2-xhdwms)"
-    (rf/reg-frame :rn/epoch {:doc "rename-epoch"})
+    (rf/make-frame {:id :rn/epoch :doc "rename-epoch"})
     (rf/reg-event :rn/seed (fn [{:keys [db]} [_ db]] {:db db}))
     (rf/dispatch-sync [:rn/seed {:step 1}] {:frame :rn/epoch})
     (let [target (last (rf/epoch-history :rn/epoch))]

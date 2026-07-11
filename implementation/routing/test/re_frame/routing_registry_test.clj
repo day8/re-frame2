@@ -7,6 +7,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as string]
             [re-frame.core :as rf]
+            [re-frame.fx :as fx]
             [re-frame.identity :as identity]
             [re-frame.routing :as routing]
             [re-frame.routing.test-support]
@@ -862,7 +863,7 @@
                       {:query (fn [m] (or (not (contains? m :sort))
                                           (string? (:sort m))))} "/search")
         (let [pushed (atom nil)]
-          (rf/reg-fx :rf.nav/push-url
+          (fx/reg-fx :rf.nav/push-url
                      {:platforms #{:server :client}}
                      (fn [_ url] (reset! pushed url)))
           ;; Programmatic navigate with a nil optional query value: the

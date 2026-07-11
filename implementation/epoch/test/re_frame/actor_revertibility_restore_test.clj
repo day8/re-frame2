@@ -78,7 +78,7 @@
   (testing "rf2-a2sn1 — restore-epoch! to BEFORE a spawn reverts the
             actor's liveness; no orphaned handler survives (the
             {:handler-survived-restore? true} leak is closed)"
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-machine :rev/child  (counter-child))
     (rf/reg-machine :rev/parent (parent))
     ;; Seed an epoch that PRE-DATES the spawn (a no-op self-event on a
@@ -115,7 +115,7 @@
             ALIVE re-materialises its liveness: a dispatch to it RESOLVES
             via the lazy resolver and drives a transition (NOT
             :rf.error/no-such-handler)"
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-machine :rev/child  (counter-child))
     (rf/reg-machine :rev/parent (parent))
     ;; Spawn → the actor is alive. Capture the alive epoch.
@@ -154,7 +154,7 @@
             unregistered is NOT restorable: restore-epoch! fires
             :rf.epoch/restore-missing-handler (the singleton-style
             missing-reference contract still holds)"
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-machine :rev/child  (counter-child))
     (rf/reg-machine :rev/parent (parent))
     (rf/dispatch-sync [:rev/parent [:go]] {:frame :test/main})
@@ -209,7 +209,7 @@
 (deftest restore-spawned-actor-version-match-succeeds
   (testing "rf2-rlt3sv — a registered-TYPE spawned actor whose TYPE version is
             UNCHANGED restores cleanly (no false version-mismatch)"
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-machine :rev/child  (versioned-child 1))
     (rf/reg-machine :rev/parent (spawning-parent :rev/child))
     (rf/dispatch-sync [:rev/parent [:go]] {:frame :test/main})
@@ -226,7 +226,7 @@
             hot-reloaded forward fires :rf.epoch/restore-version-mismatch,
             returns false, leaves frame-state unchanged, and surfaces BOTH the
             instance id and the TYPE in the trace"
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-machine :rev/child  (versioned-child 1))
     (rf/reg-machine :rev/parent (spawning-parent :rev/child))
     (rf/dispatch-sync [:rev/parent [:go]] {:frame :test/main})
@@ -254,7 +254,7 @@
             carries the spec map verbatim restores cleanly when its recorded
             version equals the carried definition's version (the snapshot IS
             the source of truth — no drift possible against itself)"
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     ;; No reg-machine for the child — the parent spawns an INLINE definition.
     (rf/reg-machine :rev/parent (spawning-parent (versioned-child 1)))
     (rf/dispatch-sync [:rev/parent [:go]] {:frame :test/main})
@@ -273,7 +273,7 @@
             definition declares a higher version than the recorded snapshot's
             fires :rf.epoch/restore-version-mismatch (the inline map IS the
             current definition resolved via :rf/machine-type)"
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-machine :rev/parent (spawning-parent (versioned-child 1)))
     (rf/dispatch-sync [:rev/parent [:go]] {:frame :test/main})
     (let [alive-epoch (last-epoch-id)]
@@ -313,7 +313,7 @@
             MISSING reference (caught upstream by missing-references), NOT a
             version mismatch — the version probe never resolves a definition,
             so it does not fire :rf.epoch/restore-version-mismatch"
-    (rf/reg-frame :test/main {})
+    (rf/make-frame {:id :test/main})
     (rf/reg-machine :rev/child  (versioned-child 1))
     (rf/reg-machine :rev/parent (spawning-parent :rev/child))
     (rf/dispatch-sync [:rev/parent [:go]] {:frame :test/main})

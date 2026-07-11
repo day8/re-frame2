@@ -100,7 +100,7 @@
 
 (deftest no-warning-for-known-opts
   (testing "a known opts key (:frame) → no warning"
-    (rf/reg-frame :game {:doc "non-default frame target"})
+    (rf/make-frame {:id :game :doc "non-default frame target"})
     (rf/reg-event :game/tick {:frame :game} (fn [{:keys [db]} _] {:db db}))
     (let [recorded (record-traces! ::known)]
       (rf/dispatch-sync [:game/tick] {:frame :game})
@@ -148,7 +148,7 @@
       ;; in `known-dispatch-opts` and must NOT trip the unknown-dispatch-opt
       ;; warning. Before the fix, each of the two setup steps emitted one false
       ;; `:silently ignored` warning.
-      (rf/reg-frame :seeded/frame {:initial-events [[:seed/set 1] [:seed/set 2]]})
+      (rf/make-frame {:id :seeded/frame :initial-events [[:seed/set 1] [:seed/set 2]]})
       (is (empty? (unknown-opt-warnings recorded))
           ":step-index is an honoured build-envelope opt, not an unknown key"))))
 

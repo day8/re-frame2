@@ -34,7 +34,7 @@
   (trace/clear-listeners!)
   (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
-  (rf/reg-frame :rf/default {})
+  (rf/make-frame {:id :rf/default})
   (rf/with-frame :rf/default
     (test-fn)))
 
@@ -113,7 +113,7 @@
    NOT captured — the run-start tag omits it, matching the ruling's pinned
    per-call + lexical scope"
     (rf/reg-event :ovc/run (fn [{:keys [db]} _] {:db db}))
-    (rf/reg-frame :ovc/framed {:fx-overrides {:ovc/real :ovc/stub}})
+    (rf/make-frame {:id :ovc/framed :fx-overrides {:ovc/real :ovc/stub}})
     (let [acc (collect-traces! ::cap)]
       (try
         (rf/dispatch-sync [:ovc/run] {:frame :ovc/framed})

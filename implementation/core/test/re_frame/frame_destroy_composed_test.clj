@@ -87,7 +87,7 @@
   (testing "trace listener that throws on every emit during destroy: cascade
             completes, frame is fully destroyed, surviving listener sees the
             full event sequence"
-    (rf/reg-frame :composed/scoped {:doc "scoped"})
+    (rf/make-frame {:id :composed/scoped :doc "scoped"})
     ;; Seed two machine snapshots so destroy emits multiple
     ;; :rf.machine.lifecycle/destroyed events in addition to
     ;; :rf.frame/destroyed.
@@ -158,7 +158,7 @@
 (deftest destroy-with-throwing-late-bound-hook-still-completes
   (testing "throwing :schemas/on-frame-destroyed! does NOT prevent the rest
             of the cleanup hooks or the dissoc step from running"
-    (rf/reg-frame :composed/hook-throw {:doc "hook-throw"})
+    (rf/make-frame {:id :composed/hook-throw :doc "hook-throw"})
 
     (let [other-hooks-called (atom #{})
           original-flows-h   (late-bind/get-fn :flows/teardown-on-frame-destroy!)
@@ -223,7 +223,7 @@
 (deftest destroy-with-throwing-reaction-dispose-still-completes
   (testing "a reaction whose dispose! throws does NOT prevent other reactions
             from being disposed; the sub-cache is cleared either way"
-    (rf/reg-frame :composed/sub-throw {:doc "sub-throw"})
+    (rf/make-frame {:id :composed/sub-throw :doc "sub-throw"})
     (rf/reg-event :composed/seed (fn [{:keys [db]} _] {:db {:a 1 :b 2}}))
     (rf/reg-sub :composed/a (fn [db _] (:a db)))
     (rf/reg-sub :composed/b (fn [db _] (:b db)))
@@ -276,7 +276,7 @@
   (testing ":rf.sub/dispose fires once per cached slot when destroy-frame!
             tears the frame down — reason :frame-destroy, correct :frame
             + :rf.sub/query-v (rf2-x3m8c finding 2)"
-    (rf/reg-frame :composed/dispose-emit {:doc "dispose-emit"})
+    (rf/make-frame {:id :composed/dispose-emit :doc "dispose-emit"})
     (rf/reg-event :composed/seed2 (fn [{:keys [db]} _] {:db {:a 1 :b 2}}))
     (rf/reg-sub :composed/da (fn [db _] (:a db)))
     (rf/reg-sub :composed/db (fn [db _] (:b db)))
@@ -330,7 +330,7 @@
             :rf.sub/dispose, reasoned :frame-destroy — no double-emit from
             the on-dispose ref-count cascade racing the frame-destroy walk
             (rf2-awhtpc)"
-    (rf/reg-frame :composed/layered-destroy {:doc "layered destroy"})
+    (rf/make-frame {:id :composed/layered-destroy :doc "layered destroy"})
     (rf/reg-event :composed/seed-layered (fn [{:keys [db]} _] {:db {:a 2 :b 3}}))
     (rf/reg-sub :composed/layered-a (fn [db _] (:a db)))
     (rf/reg-sub :composed/layered-b (fn [db _] (:b db)))
@@ -388,7 +388,7 @@
             :rf.warning/teardown-hook-exception (carrying :hook, :frame,
             :exception) while teardown continues best-effort (rf2-x3m8c
             finding 3)"
-    (rf/reg-frame :composed/hook-diag {:doc "hook-diag"})
+    (rf/make-frame {:id :composed/hook-diag :doc "hook-diag"})
     (let [downstream-ran (atom #{})
           original-schemas-h (late-bind/get-fn :schemas/on-frame-destroyed!)
           original-flows-h   (late-bind/get-fn :flows/teardown-on-frame-destroy!)
@@ -441,7 +441,7 @@
 (deftest cross-frame-dispatch-from-on-destroy-warns-and-commits
   (testing ":on-destroy that dispatch-syncs across frames: sibling commits,
             warn fires, original frame still tears down cleanly"
-    (rf/reg-frame :composed/parent {:doc "parent"})
+    (rf/make-frame {:id :composed/parent :doc "parent"})
     (rf/reg-event :composed/notify-parent
                      (fn [{:keys [db]} [_ payload]]
                        {:db (assoc db :last-notification payload)}))
@@ -452,9 +452,8 @@
                        (rf/dispatch-sync [:composed/notify-parent :child-gone]
                                          {:frame :composed/parent})
                        {}))
-    (rf/reg-frame :composed/child
-                  {:doc        "child with cross-frame :on-destroy"
-                   :on-destroy [:composed/teardown]})
+    (rf/make-frame {:id :composed/child :doc        "child with cross-frame :on-destroy"
+                    :on-destroy [:composed/teardown]})
 
     (let [recorded (atom [])]
       (rf/register-listener! :trace ::xfx (fn [ev] (swap! recorded conj ev)))
@@ -503,7 +502,7 @@
 (deftest composed-destroy-leak-audit
   (testing "after destroy: sub-cache empty, epoch buffer cleared, flow rows
             cleared, schema rows cleared, frame absent from the frames store"
-    (rf/reg-frame :composed/leak-audit {:doc "leak-audit"})
+    (rf/make-frame {:id :composed/leak-audit :doc "leak-audit"})
 
     ;; --- schemas: register a schema rooted at the frame -------------------
     (rf/reg-app-schema [:n] {:frame :composed/leak-audit} [:int])
