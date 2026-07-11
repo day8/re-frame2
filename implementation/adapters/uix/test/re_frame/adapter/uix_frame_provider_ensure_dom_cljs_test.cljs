@@ -1,33 +1,30 @@
 (ns re-frame.adapter.uix-frame-provider-ensure-dom-cljs-test
-  "UIx DOM/browser regression coverage for the NATIVE `frame-provider`
-  `defui`'s ENSURE (`{:id …}`) arm through UIx's `$` → `glue-args`
-  marshalling seam (rf2-0bhnwm). Exact twin of the Helix `extract-cljs-props`
+  "UIx DOM/browser regression coverage for the NATIVE `frame-root` `defui`'s
+  ENSURE (`{:id …}`) config through UIx's `$` → `glue-args` marshalling seam
+  (rf2-0bhnwm; rf2-nyea0r split). Exact twin of the Helix `extract-cljs-props`
   seam (helix_frame_provider_ensure_dom_cljs_test, rf2-ipqu8p).
 
-  WHY THIS EXISTS. `re-frame.adapter.uix/frame-provider` is a native UIx
-  `defui` with TWO arms dispatched on the prop map (see the component
-  docstring): the SCOPE-ONLY `{:frame …}` arm and the ENSURE `{:id …}` arm.
-  The SCOPE-ONLY arm is already pinned end-to-end through `$` by
+  WHY THIS EXISTS. `re-frame.adapter.uix/frame-root` is a native UIx `defui`
+  (the ENSURE component; rf2-nyea0r split `frame-provider` into SCOPE-only
+  `frame-provider` + ENSURE `frame-root`). The SCOPE-only `frame-provider` is
+  already pinned end-to-end through `$` by
   `frame-provider-trailing-children-propagate-frame`
   (uix_use_subscribe_dom_cljs_test) — the moved-up-seam regression
-  (rf2-z7hfp / rf2-7kii2). The ENSURE arm mounted NOTHING through the native
-  component anywhere in the UIx test tree: ENSURE BEHAVIOUR is covered at the
-  SHARED / core level (`ensure-frame-fc` built with raw `createElement`; the
-  reagent scenario-6 HOT-RELOAD GATE), but NONE of those touch UIx's `$` →
-  `glue-args` reconstruction of the ENSURE config. So whether `glue-args`
-  faithfully rebuilds the ENSURE config — the `:id` KEYWORD, the nested
-  `:initial-events` / `:images` vectors, the `:url-bound?` boolean — into the
-  clean CLJS props map before the `defui` else arm hands props to
-  `owned-frame/ensure-frame-react-element` was UNTESTED. This is exactly the
-  prop-mangling class the SCOPE-ONLY regression exists to pin, but only for
-  the `:frame` arm.
+  (rf2-z7hfp / rf2-7kii2). The ENSURE `frame-root` config through `$` — the
+  `:id` KEYWORD, the nested `:initial-events` / `:images` vectors, the
+  `:url-bound?` boolean — reconstructed by `glue-args` into the clean CLJS props
+  map before the `defui` hands props to `frame-boundary/frame-root-react-element`
+  needs its own pin. ENSURE BEHAVIOUR is covered at the SHARED / core level
+  (`frame-root-fc` built with raw `createElement`; the reagent scenario-6
+  HOT-RELOAD GATE), but those do not touch UIx's `$` → `glue-args`
+  reconstruction of the ENSURE config.
 
   These tests mount the public ENSURE call shape
-  (`($ frame-provider {:id … :initial-events [[…]] …} ($ child))`) through
-  the real `$` under `act`, and assert the frame is CREATED live with the
-  config-seeded durable state AND a descendant `use-subscribe` reads it —
-  the structural proof that the ENSURE config survived `$` marshalling
-  intact.
+  (`($ frame-root {:id … :initial-events [[…]] …} ($ child))`) through the real
+  `$` under `act`, and assert the frame is CREATED live (at COMMIT, via the
+  two-pass `useLayoutEffect`) with the config-seeded durable state AND a
+  descendant `use-subscribe` reads it — the structural proof that the ENSURE
+  config survived `$` marshalling intact.
 
   ns ends in `-dom-cljs-test` so shadow-cljs's `:browser-test` (ns-regexp
   `-dom-cljs-test$`) discovers it for the real DOM assertions; `:node-test`'s
@@ -84,7 +81,7 @@
 ;; ---- ENSURE `:id` + `:initial-events` + `:url-bound?` through `$` ----------
 
 (deftest ensure-id-arm-marshals-config-through-dollar
-  (testing "UIx — ($ frame-provider {:id .. :initial-events [[..]] :url-bound? ..}) ENSURE arm marshals config through $/glue-args (rf2-0bhnwm)"
+  (testing "UIx — ($ frame-root {:id .. :initial-events [[..]] :url-bound? ..}) ENSURE arm marshals config through $/glue-args (rf2-0bhnwm)"
     (if-not (browser?)
       (is true ":node-test: no DOM — :browser-test runner exercises the assertion")
       (let [act-fn (get-act)]
@@ -111,17 +108,17 @@
                     ;; `:id` KEYWORD, a nested `:initial-events` vector-of-
                     ;; vectors carrying the NAMESPACED `:rf/set-db` keyword +
                     ;; a nested seed map, and a `:url-bound?` boolean — all
-                    ;; must survive `glue-args` before the `defui` else arm
-                    ;; hands them to `ensure-frame-react-element`.
+                    ;; must survive `glue-args` before the `defui` hands them
+                    ;; to `frame-root-react-element`.
                     (.render root
-                      ($ uix-adapter/frame-provider
+                      ($ uix-adapter/frame-root
                          {:id             frame-kw
                           :initial-events [[:rf/set-db {:k :ensured}]]
                           :url-bound?     false}
                          ($ ProbeEnsure)))))
                 ;; :id survived $ as a KEYWORD — a stringified id would have
-                ;; thrown :rf.error/ensure-frame-provider-missing-id, and the
-                ;; frame would not be registered under the keyword.
+                ;; thrown :rf.error/frame-root-missing-id, and the frame would
+                ;; not be registered under the keyword.
                 (is (some? (frame/frame frame-kw))
                     "ENSURE created a live frame under the keyword :id (proves :id survived $ as a keyword)")
                 ;; The nested [[:rf/set-db {:k :ensured}]] vector + namespaced
@@ -140,7 +137,7 @@
 ;; ---- ENSURE `:images` through `$` -----------------------------------------
 
 (deftest ensure-images-arm-marshals-image-vector-through-dollar
-  (testing "UIx — ($ frame-provider {:id .. :images [img] :initial-events [[..]]}) ENSURE :images vector marshals through $/glue-args (rf2-0bhnwm)"
+  (testing "UIx — ($ frame-root {:id .. :images [img] :initial-events [[..]]}) ENSURE :images vector marshals through $/glue-args (rf2-0bhnwm)"
     (if-not (browser?)
       (is true ":node-test: no DOM — :browser-test runner exercises the assertion")
       (let [act-fn (get-act)]
@@ -161,7 +158,7 @@
                     ;; validate-images! would throw here; if the inline event
                     ;; id were lost, the seed would not apply below.
                     (.render root
-                      ($ uix-adapter/frame-provider
+                      ($ uix-adapter/frame-root
                          {:id             frame-kw
                           :images         [ensure-image]
                           :initial-events [[:rf.uix-ensure/seed :img-ensured]]}

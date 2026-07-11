@@ -2,15 +2,15 @@
   "Helix 0.2.x adapter for the substrate contract in Spec 006.
 
   Helix and UIx share the React machinery in `re-frame.substrate.spine`.
-  This namespace supplies Helix's hooks and a native `defnc` frame-provider;
-  keeping that component native preserves Helix's CLJS prop and trailing-child
-  marshalling."
+  This namespace supplies Helix's hooks and native `defnc` `frame-provider`
+  (SCOPE) + `frame-root` (ENSURE) components; keeping them native preserves
+  Helix's CLJS prop and trailing-child marshalling."
   (:require [helix.core          :refer-macros [defnc]]
             [helix.hooks         :as helix-hooks]
             [re-frame.frame             :as frame]
             [re-frame.substrate.spine   :as spine]
             [re-frame.adapter.resource-lease :as resource-lease]
-            [re-frame.views.owned-frame :as owned-frame]))
+            [re-frame.views.frame-boundary :as boundary]))
 
 ;; ---- shared spine wiring --------------------------------------------------
 
@@ -45,43 +45,64 @@
   (:use-current-frame spine-fns))
 
 (defnc frame-provider
-  "Provide a frame to descendant Helix components. The prop map has two shapes:
+  "SCOPE an existing frame for descendant Helix components (rf2-nyea0r split).
 
-    - `{:frame existing-id}` scopes an existing frame and fails when it is absent.
-    - `{:id id ...}` creates the frame if absent and otherwise reuses it without
-      replaying `:initial-events`.
-
-  Use Helix's normal trailing-children form:
+  `{:frame existing-id}` scopes an ALREADY-CREATED frame and FAILS LOUD when it
+  is absent. Creates / refreshes / destroys nothing.
 
       ($ frame-provider {:frame :session}
          ($ header))
 
-      ($ frame-provider {:id :session :images [session-image]}
+  Given an `:id` (the ENSURE key), FAILS LOUD naming `frame-root`
+  (`:rf.error/frame-provider-given-id`) — providers scope; roots ensure. To
+  CREATE the frame if absent, use `frame-root`.
+
+  This must remain a native `defnc`. Helix converts JS props back to a CLJS map,
+  preserving keyword values, and folds trailing children into `:children` before
+  this body delegates to the shared scope core."
+  [props]
+  (when (contains? props :id)
+    (boundary/reject-frame-provider-id!
+      (:id props) 're-frame.adapter.helix/frame-provider))
+  ;; Validate before consulting the registry so malformed ids get the
+  ;; configuration error rather than the absent-frame error.
+  (let [frame-kw (frame/require-keyword-frame-provider-arg!
+                   (:frame props) 're-frame.adapter.helix/frame-provider)]
+    (boundary/require-live-frame-for-scope!
+      frame-kw 're-frame.adapter.helix/frame-provider)
+    (spine/build-frame-provider-element frame-kw (:children props))))
+
+(defnc frame-root
+  "ENSURE a named frame for descendant Helix components (rf2-nyea0r split) — a
+  COMMIT-OWNED TWO-PASS boundary.
+
+  `{:id id ...}` creates the frame if absent and otherwise reuses it without
+  replaying `:initial-events`. Accepts the frame-record options `rf/make-frame`
+  takes (`:images` / `:initial-events` / `:url-bound?` …); `:id` is required and
+  must be a keyword.
+
+      ($ frame-root {:id :session :images [session-image]}
          ($ header)
          ($ main))
 
-  The ensure shape accepts the frame-record options used by `rf/make-frame`;
-  `:id` is required and must be a keyword. Repeated mounts are intentionally
-  idempotent, including React StrictMode development mounts: they neither
-  destroy durable state nor replay initial events. The provider scopes or
-  ensures; explicit `rf/make-frame` and `rf/destroy-frame!` calls own teardown.
+  The ENSURE runs in a client `useLayoutEffect` (NOT during render): the first
+  render emits no descendant subtree, the frame is created AFTER commit, and only
+  then do the children render — so a Suspense-aborted render creates + seeds
+  nothing. Repeated mounts are intentionally idempotent, including React
+  StrictMode development mounts: they neither destroy durable state nor replay
+  initial events. A mounted `:id` / opts change FAILS LOUD
+  (`:rf.error/frame-root-reconfigured`). Given a `:frame` (the SCOPE key), FAILS
+  LOUD naming `frame-provider`. Explicit `rf/make-frame` and `rf/destroy-frame!`
+  calls own teardown.
 
-  This must remain a native `defnc`. Helix then converts JS props back to a
-  CLJS map, preserving keyword values, and folds trailing children into
-  `:children` before this body delegates to the shared provider core."
+  This must remain a native `defnc`. Helix converts JS props back to a CLJS map,
+  preserving keyword values, and folds trailing children into `:children` before
+  this body delegates to the shared two-pass core."
   [props]
-  (if (contains? props :frame)
-    ;; Validate before consulting the registry so malformed ids get the
-    ;; configuration error rather than the absent-frame error.
-    (let [frame-kw (frame/require-keyword-frame-provider-arg!
-                     (:frame props) 're-frame.adapter.helix/frame-provider)]
-      (owned-frame/require-live-frame-for-scope!
-        frame-kw 're-frame.adapter.helix/frame-provider)
-      (spine/build-frame-provider-element frame-kw (:children props)))
-    (owned-frame/ensure-frame-react-element
-      props
-      (:children props)
-      're-frame.adapter.helix/frame-provider)))
+  (boundary/frame-root-react-element
+    props
+    (:children props)
+    're-frame.adapter.helix/frame-root))
 
 
 (def use-subscribe
