@@ -30,6 +30,7 @@
             [re-frame.core :as rf]
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
+            [re-frame.flows.registry :as registry]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]))
 
@@ -155,3 +156,164 @@
         "the flow output committed durably")
     (is (= [3] (get-in (flows/last-inputs-snapshot) [:double :rf/default]))
         "last-inputs advanced normally on a durable commit (no over-restore)")))
+
+;; ===========================================================================
+;; rf2-1b8yxb — a CHAIN error (`:error` outcome) rolls back the flow dirty-
+;; check + in-drain vacation state exactly like the post-commit rollback
+;; above. `execute-chain` runs the FULL `:after` pass for teardown even after
+;; a `:before` / handler / cofx / user-`:after` throw, so the framework-
+;; outermost flows `:after` would (pre-fix) run the flow transform against a
+;; DOOMED pending db — advancing `last-inputs` + draining vacations that
+;; `commit-and-flow!`'s `:error` short-circuit then discards WITHOUT restoring.
+;; Fix (1) guards the flows `:after` on `:rf/interceptor-error`; fix (2)
+;; restores the ctx-stashed snapshots on the in-band legacy-root / class-defect
+;; aborts (which run the `:after` CLEANLY, then abort at the final-effects
+;; boundary). Manifestations a–d + the fix-(2) abort arm are covered below.
+;; ===========================================================================
+
+;; ---- (a) output-loss: a fresh flow first-firing during a handler-throw ----
+
+(deftest chain-error-handler-throw-does-not-poison-fresh-flow-first-firing
+  (testing "a handler-throw event runs the flows :after; pre-fix it advances the fresh flow's last-inputs against the doomed db and discards the output, so a later same-input drain skips forever. The guard leaves the row unadvanced so the next clean drain materialises the output."
+    (rf/reg-event :seed (fn [_ _] {:db {:n 1}}))
+    (rf/dispatch-sync [:seed])
+    (rf/reg-flow :derived {:inputs [[:n]] :output-path [:out]} (fn [n] (* n 10)))
+    (rf/reg-event :boom (fn [_ _] (throw (ex-info "handler boom" {:src :test}))))
+
+    ;; The aborting event. Its flows :after must NOT advance :derived's row.
+    (rf/dispatch-sync [:boom])
+    (is (not (contains? (flows/last-inputs-snapshot) :derived))
+        (str "the errored event did NOT advance :derived's dirty-check row "
+             "(pre-fix it stayed advanced to [1], suppressing the flow). Got "
+             (pr-str (flows/last-inputs-snapshot))))
+    (is (nil? (:out (rf/app-db-value :rf/default)))
+        ":out was not committed by the aborted event")
+
+    ;; A later CLEAN drain with the SAME :n must recompute — pre-fix the stale
+    ;; row skipped the flow on =-equal inputs and :out stayed nil forever.
+    (rf/dispatch-sync [:seed])
+    (is (= 10 (:out (rf/app-db-value :rf/default)))
+        (str "the fresh flow finally materialised :out = 10 × :n on the next "
+             "clean drain WITHOUT an input change. Got "
+             (pr-str (rf/app-db-value :rf/default))))))
+
+;; ---- (b) user-:after throw: handler returned :db, an :after interceptor ----
+;;         throws. Same `:rf/interceptor-error` guard covers it.
+
+(deftest chain-error-user-after-throw-does-not-poison-flow
+  (testing "handler returns :db but a user :after interceptor throws → the flows :after must not advance last-inputs against the doomed pending db; a later clean drain materialises the output"
+    (rf/reg-event :seed (fn [_ _] {:db {:n 2}}))
+    (rf/dispatch-sync [:seed])
+    (rf/reg-flow :derived {:inputs [[:n]] :output-path [:out]} (fn [n] (* n 10)))
+    ;; Interceptor chains are reference-only (EP-0022): register + reference.
+    (rf/reg-interceptor :test/after-boom
+                        {:after (fn [_ctx]
+                                  (throw (ex-info "after boom" {:src :test})))})
+    (rf/reg-event :with-bad-after
+                  {:interceptors [:test/after-boom]}
+                  (fn [{:keys [db]} _] {:db (assoc db :touched true)}))
+    (rf/dispatch-sync [:with-bad-after])
+
+    (is (not (contains? (flows/last-inputs-snapshot) :derived))
+        ":derived's dirty-check row was NOT advanced by the user-:after-throw abort")
+    (is (nil? (:out (rf/app-db-value :rf/default)))
+        ":out not committed (the whole event aborted)")
+    (is (not (:touched (rf/app-db-value :rf/default)))
+        "the doomed handler write did not land either (no partial commit)")
+
+    (rf/dispatch-sync [:seed])
+    (is (= 20 (:out (rf/app-db-value :rf/default)))
+        "the flow materialised on the next clean drain (row was not poisoned)")))
+
+;; ---- (c) in-drain vacation LOST: a vacation queued by an :fx in event N ----
+;;         is drained-and-cleared by errored event N+1 and lost forever.
+
+(deftest chain-error-preserves-in-drain-queued-vacation
+  (testing "an in-drain output-path vacation queued for the next drain is NOT consumed by an errored event; it re-attempts on the following clean drain (a drained-but-discarded vacation would be lost forever)"
+    ;; Seed a stale derived value at [:stale] and a live sibling flow so the
+    ;; frame carries a flow-map. Queue [:stale] for vacation exactly as
+    ;; `clear-flow`'s in-drain branch does (`record-abandoned-output-path!`) —
+    ;; a vacation queued by a prior drain, pending for the NEXT one.
+    (rf/reg-event :seed (fn [_ _] {:db {:n 5 :stale 99}}))
+    (rf/reg-flow :keep {:inputs [[:n]] :output-path [:out-keep]} (fn [n] (* 7 (or n 0))))
+    (rf/dispatch-sync [:seed])
+    (is (= 99 (:stale    (rf/app-db-value :rf/default))) "precondition: :stale present")
+    (is (= 35 (:out-keep (rf/app-db-value :rf/default))) "precondition: :out-keep = 35")
+
+    (registry/record-abandoned-output-path! :rf/default [:stale])
+    (is (= #{[:stale]} (registry/abandoned-output-paths-snapshot :rf/default))
+        "[:stale] is queued for vacation on the next drain")
+
+    ;; An errored event. Pre-fix its flows :after drains-and-clears the queued
+    ;; [:stale], applies it to the pending db, then the event aborts and the
+    ;; pending db is discarded — the vacation is LOST (queue emptied, :stale
+    ;; stranded). The guard leaves the queue intact for the next drain.
+    (rf/reg-event :boom (fn [_ _] (throw (ex-info "boom" {:src :test}))))
+    (rf/dispatch-sync [:boom])
+    (is (= #{[:stale]} (registry/abandoned-output-paths-snapshot :rf/default))
+        (str "the queued [:stale] vacation was NOT consumed by the aborted "
+             "event (pre-fix it was drained-and-lost). Got "
+             (pr-str (registry/abandoned-output-paths-snapshot :rf/default))))
+    (is (= 99 (:stale (rf/app-db-value :rf/default)))
+        ":stale not yet vacated (the aborted event committed nothing)")
+
+    ;; A clean drain: run-flows-on-db drains the still-queued vacation.
+    (rf/reg-event :touch (fn [{:keys [db]} _] {:db (assoc db :touched true)}))
+    (rf/dispatch-sync [:touch])
+    (is (not (contains? (rf/app-db-value :rf/default) :stale))
+        ":stale finally vacated on the next clean drain (the move re-attempted)")
+    (is (empty? (registry/abandoned-output-paths-snapshot :rf/default))
+        "the queue is drained after the successful vacation")
+    (is (= 35 (:out-keep (rf/app-db-value :rf/default)))
+        ":out-keep (the live sibling flow) is untouched")))
+
+;; ---- (d) no spurious flow traces on a handler-throw abort -----------------
+
+(deftest chain-error-emits-no-spurious-flow-traces
+  (testing "a handler-throw abort emits NO :rf.flow/computed and NO t2 (:rf.event/db-pending-post-flow) — the flow transform never ran"
+    (let [events (atom [])]
+      (rf/register-listener! :trace ::spurious (fn [ev] (swap! events conj ev)))
+      (try
+        (rf/reg-event :seed (fn [_ _] {:db {:n 1}}))
+        (rf/dispatch-sync [:seed])
+        (rf/reg-flow :derived {:inputs [[:n]] :output-path [:out]} (fn [n] (* n 10)))
+        (reset! events [])
+        (rf/reg-event :boom (fn [_ _] (throw (ex-info "boom" {:src :test}))))
+        (rf/dispatch-sync [:boom])
+        (is (empty? (filterv #(= :rf.flow/computed (:operation %)) @events))
+            "no :rf.flow/computed on the aborted event (flow transform skipped)")
+        (is (empty? (filterv #(= :rf.event/db-pending-post-flow (:operation %)) @events))
+            "no t2 (:rf.event/db-pending-post-flow) on the aborted event")
+        (finally
+          (rf/unregister-listener! :trace ::spurious))))))
+
+;; ---- fix (2): the in-band legacy-runtime-root abort (clean chain) ----------
+;;      restores the dirty-check the flows :after advanced before the abort.
+
+(deftest legacy-root-abort-restores-flow-dirty-check
+  (testing "a FINAL-effects legacy-runtime-root abort (no interceptor error, so the flows :after ran cleanly and advanced the row) rolls the flow dirty-check back, so the next clean drain re-materialises the output"
+    (rf/reg-event :seed (fn [_ _] {:db {:n 4}}))
+    (rf/dispatch-sync [:seed])
+    (rf/reg-flow :derived {:inputs [[:n]] :output-path [:out]} (fn [n] (* n 10)))
+    ;; A user :after that inserts the retired `:rf/runtime` app-db root into the
+    ;; pending :db AFTER the in-chain guard ran — the flows :after (outermost)
+    ;; then runs cleanly over it and advances :derived's row; commit-and-flow!
+    ;; detects the legacy root at the final-effects boundary and aborts :error.
+    (rf/reg-interceptor :test/insert-legacy-root
+                        {:after (fn [ctx]
+                                  (update-in ctx [:effects :db] assoc :rf/runtime {}))})
+    (rf/reg-event :legacy
+                  {:interceptors [:test/insert-legacy-root]}
+                  (fn [{:keys [db]} _] {:db db}))
+    (rf/dispatch-sync [:legacy])
+
+    (is (not (contains? (flows/last-inputs-snapshot) :derived))
+        (str "the in-band legacy-root abort restored :derived's dirty-check "
+             "row (pre-fix#2 it stayed advanced to [4]). Got "
+             (pr-str (flows/last-inputs-snapshot))))
+    (is (nil? (:out (rf/app-db-value :rf/default)))
+        ":out not committed (the whole event aborted, no partial commit)")
+
+    (rf/dispatch-sync [:seed])
+    (is (= 40 (:out (rf/app-db-value :rf/default)))
+        "the flow re-materialised :out = 40 on the next clean drain (row was restored)")))
