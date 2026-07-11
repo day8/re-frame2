@@ -316,12 +316,27 @@ Stage 5 ships the `story/assertions-passing?` predicate as the canonical
 ```
 
 `assertions-passing?` accepts either the `run-variant` result map or its
-`:assertions` vector and returns true iff every record has `:passed?
-true` (an empty vector is vacuously passing — the
-[spec/007 §Story-as-test duality](../../../implementation/...) contract:
-a variant with no `:play-script` still "passes"). The result map's
-`:assertions` slot now carries EVERY assertion outcome — both the
-`:rf.assert/*` dispatch-step records AND the rich-DSL `:assert-db` /
+`:assertions` vector, but the two shapes have two DIFFERENT authorities:
+
+- **Result map → the run VERDICT (`:status`).** For a result map,
+  `assertions-passing?` is `true` iff `(= :pass (:status result))` — the
+  SAME authority as `result-passed?`, NOT a fold over `:assertions`. This
+  consults the agreement floor and the run-level `:cannot-run` slot, so a
+  floor-escalated `:fail` (an unconsumed schema violation / failing epoch
+  outcome) or a run-level `:cannot-run` returns FALSE even when every
+  `:assertions` record is `:passed? true`. A verdict and the assertions
+  slot can never disagree (the `result.cljc` core invariant); folding
+  `:assertions` on a result map would be a floor-blind SECOND verdict path
+  — the false-GREEN class (rf2-x76af2.16). A zero-assertion `:pass` run
+  stays green (its `:status` is `:pass`).
+- **Bare `:assertions` vector → the vacuous-green fold.** For a bare
+  vector, it returns true iff every record has `:passed? true` (an empty
+  vector is vacuously passing — the
+  [spec/007 §Story-as-test duality](../../../implementation/...) contract:
+  a variant with no `:play-script` still "passes").
+
+The result map's `:assertions` slot carries EVERY assertion outcome — both
+the `:rf.assert/*` dispatch-step records AND the rich-DSL `:assert-db` /
 `:assert-dom` step records (rf2-ee38b.3 closed the false-green gap where
 rich-DSL assert failures landed only in the runner's `run-state` atom).
 
@@ -369,8 +384,10 @@ reports); the pure CLJS projection by
 
 `story/assertions-passing?` remains the one-line boolean predicate for the
 `(is (story/assertions-passing? result))` pattern above; `story/is` is the
-richer per-assertion surface. Both consume the same unified `:assertions`
-vector.
+richer per-assertion surface. On a result map both agree with the run
+verdict (`:status`) — `assertions-passing?` reads it directly, `story/is`
+projects a run-level report when the verdict exceeds any single assertion —
+so neither can report a floor-blind false GREEN.
 
 ## Cross-references
 

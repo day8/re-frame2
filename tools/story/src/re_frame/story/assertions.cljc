@@ -258,20 +258,41 @@
   (or (:rf.story/assertions (rf/app-db-value frame-id)) []))
 
 (defn passing?
-  "Per `004-Assertions.md` §Canonical assertion vocabulary + Phase-2 §5.1 #9:
-  true iff every entry in
-  `assertions` has `:passed? true`. An assertions vector with zero
-  entries is vacuously passing — this is the /spec/007-Stories.md §Story-as-test
-  duality contract: a variant with no `:play-script` (and therefore no
-  assertions) still 'passes', and shows up as green in test reports.
+  "True iff `assertions-or-result` is passing. Two input shapes, two
+  authorities:
 
-  Accepts either an assertions vector or a `run-variant` result map."
+  - A `run-variant` RESULT MAP — the authority is the run VERDICT
+    (`:status`), NOT the assertion fold. `passing?` is `true` iff
+    `(= :pass (:status result))`, mirroring `re-frame.story.result/passed?`
+    (the verdict authority). Reading `:status` consults the agreement
+    floor AND the run-level `:cannot-run` slot, so a floor-escalated
+    `:fail` (an unconsumed schema violation / failing epoch outcome / error
+    effect that `result/run-result` escalated `:status` to `:fail`) or a
+    run-level `:cannot-run` returns FALSE even when every `:assertions`
+    entry is `:passed? true`. `result.cljc`'s core invariant is that a
+    verdict and the assertions slot can never disagree — folding
+    `:assertions` here (the old behaviour) was a floor-blind SECOND verdict
+    path, the false-GREEN class (rf2-x76af2.16). A zero-assertion `:pass`
+    run is still green (its `:status` is `:pass`), so the
+    /spec/007-Stories.md §Story-as-test duality still holds.
+
+  - A bare ASSERTIONS VECTOR (render-only / live-introspection path, e.g.
+    `read-assertions`) — true iff every entry has `:passed? true`. A vector
+    with zero entries is vacuously passing (the same §Story-as-test
+    duality: a variant with no `:play-script` shows green).
+
+  `re-frame.story.result` cannot be `:require`d here (it already requires
+  this ns — cycle), so the one-line verdict check is inlined rather than
+  delegated to `result/passed?`."
   [assertions-or-result]
-  (let [items (cond
-                (map? assertions-or-result)    (:assertions assertions-or-result)
-                (sequential? assertions-or-result) assertions-or-result
-                :else                          [])]
-    (every? :passed? items)))
+  (if (map? assertions-or-result)
+    ;; Run-result map → the run VERDICT is authoritative (mirror
+    ;; `result/passed?`), NOT the floor-blind `:assertions` fold.
+    (= :pass (:status assertions-or-result))
+    ;; Bare assertions vector → the vacuous-green fold (render-only duality).
+    (every? :passed? (if (sequential? assertions-or-result)
+                       assertions-or-result
+                       []))))
 
 ;; ---------------------------------------------------------------------------
 ;; Assertion-evaluation helpers
