@@ -728,6 +728,39 @@
      :tags       #{:dev :test :internal}
      :substrates #{:reagent}})
 
+  ;; Causal / cascade assertion fixture (rf2-x76af2.17).
+  ;;
+  ;; The honest over-render guard, end-to-end — the ONE authored causal
+  ;; assertion in the Story testbeds, so the production
+  ;; plan → script → epoch → result causal path has representative usage.
+  ;; `:counter/inc` DOES recompute the `:count` sub (a genuine caused
+  ;; effect), while `:counter/save` is OBSERVED (dispatched) yet only sets
+  ;; `:saving?` — it does NOT recompute `:count` — so the no-cascade guard
+  ;; holds on a cause that genuinely fired. The guard is meaningful
+  ;; precisely because its premise is met: were `:counter/save` renamed or
+  ;; absent, the assertion would now resolve `:cannot-run` rather than pass
+  ;; vacuously under the `[0,0]` default (the fix this fixture demonstrates).
+  ;; Runs under the reactive browser runner (the `:cljs-reactive` runner the
+  ;; Story shell mounts); a non-reactive runner fails it closed to
+  ;; `:cannot-run`, never a silent pass.
+  (story/reg-variant :story.counter-play-script/causal-honest-guard
+    {:doc        "Causal-assertion CI fixture — :counter/inc CAUSED a
+                 :count recompute, and :counter/save (observed) did NOT
+                 cascade-rerender :count. Exercises the causal
+                 plan → script → epoch → result path with a MET premise
+                 (rf2-x76af2.17)."
+     :args       {:label "Causal honest guard"}
+     :setup     [[:counter/initialise 0]]
+     :script
+     {:name      "inc-causes-count-recompute-save-does-not"
+      :auto-run? true
+      :script    [[:dispatch-sync [:counter/inc]]
+                  [:assert [:rf.assert/caused {:event :counter/inc :sub :count}]]
+                  [:dispatch-sync [:counter/save]]
+                  [:assert [:rf.assert/no-cascade-rerender {:event :counter/save :sub :count}]]]}
+     :tags       #{:dev :test :internal}
+     :substrates #{:reagent}})
+
   ;; DOM-step fixtures — live-browser coverage of the rich-DSL
   ;; `:click` / `:type` / `:assert-dom` steps. The pure-step + JVM
   ;; coverage in tools/story/test/re_frame/story/play/ exercises the

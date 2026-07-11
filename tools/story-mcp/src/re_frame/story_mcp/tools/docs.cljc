@@ -254,13 +254,24 @@
 
 (def canonical-assertion-docs
   "The seven dispatched canonical
-  assertions' arities, PLUS the tape-evaluated `:rf.assert/schema-error`
-  (spec/017 §Schema rule). `:rf.assert/schema-error` is the
-  one canonical assertion that is NOT dispatched into the frame — it
-  declares an EXPECTED schema violation the runner exact-consumes against
-  the projected epoch-tape evidence (a run FAILS on any schema violation
-  unless it is exactly expected+consumed; there is no `:no-schema-errors`
-  knob)."
+  assertions' arities, PLUS the three tape-evaluated declarations:
+  `:rf.assert/schema-error` (spec/017 §Schema rule) and the causal pair
+  `:rf.assert/caused` / `:rf.assert/no-cascade-rerender` (§Causal and
+  cascade assertions) — ten entries in all. The three tape-evaluated ids are
+  NOT dispatched into the frame; they are exact-/count-matched against the
+  projected epoch-tape evidence in the result boundary.
+
+  `:rf.assert/schema-error` declares an EXPECTED schema violation the runner
+  exact-consumes (a run FAILS on any schema violation unless it is exactly
+  expected+consumed; there is no `:no-schema-errors` knob).
+
+  The causal pair count reactive effects a cause event produced. Both add
+  the additive `:observed-cause-count` diagnostic (how many run-owned epoch
+  records named the cause). `:rf.assert/no-cascade-rerender` REQUIRES its
+  cause to be observed by default: an unobserved cause resolves `:cannot-run`
+  (not a vacuous pass under the `[0,0]` bound), with `{:require-cause? false}`
+  the one explicit opt-out (`:require-cause?` is rejected on
+  `:rf.assert/caused`)."
   [{:id :rf.assert/path-equals
     :payload "[path expected]"
     :semantics "(= (get-in @app-db path) expected)"}
@@ -286,16 +297,35 @@
     :payload "[{:where surface …}]"
     :semantics (str "Declares an EXPECTED schema violation on a surface "
                     "(tape-evaluated, not dispatched). The run fails on any "
-                    "schema violation unless exactly expected+consumed.")}])
+                    "schema violation unless exactly expected+consumed.")}
+   {:id :rf.assert/caused
+    :payload "[{:event cause :sub|:view surface? :min|:max|:exactly bound?}]"
+    :semantics (str "The cause event produced the reactive effect (default "
+                    "{:min 1}; tape-evaluated against :reactive-counts, not "
+                    "dispatched). Carries :observed-cause-count. n=0 with "
+                    "reactive evidence FAILS (positive claim); no reactive "
+                    "evidence → :cannot-run. :require-cause? is rejected here.")}
+   {:id :rf.assert/no-cascade-rerender
+    :payload "[{:event cause :sub|:view surface? :max|:min|:exactly bound? :require-cause? bool?}]"
+    :semantics (str "The cause event did NOT over-render (default {:min 0 "
+                    ":max 0}; tape-evaluated). Carries :observed-cause-count. "
+                    "An UNOBSERVED required cause → :cannot-run (not a vacuous "
+                    "pass — guards against a renamed cause rotting green); "
+                    "{:require-cause? false} is the one opt-out that allows "
+                    "the vacuous [0,0] pass. No reactive evidence → "
+                    ":cannot-run.")}])
 
 (defn tool-list-assertions
   "Docs: the `:rf.assert/*` canonical vocabulary + arity docs.
 
   The bifurcated `{:canonical :registered}` shape:
-  `:canonical` is the full 8-assertion doc vector — the seven
-  dispatched canonical assertions plus the tape-evaluated
-  `:rf.assert/schema-error` (bounded and constant, so the pagination MUST
-  does not apply).
+  `:canonical` is the full 10-assertion doc vector — the seven
+  dispatched canonical assertions plus the three tape-evaluated
+  declarations (`:rf.assert/schema-error` and the causal pair
+  `:rf.assert/caused` / `:rf.assert/no-cascade-rerender`, which expose
+  their payload + premise/opt-out semantics rather than appearing only as
+  registered keywords; bounded and constant, so the pagination MUST does
+  not apply).
 
   `:registered` is the FULL vocabulary the Story plan compiler
   accepts — `story/known-assertion-ids` (spec/017 §Assertions),
@@ -576,12 +606,12 @@
 
    {:name           "list-assertions"
     :category       :docs
-    :description    (str "The eight canonical `:rf.assert/*` events with payload arity + semantics (the seven dispatched assertions plus the tape-evaluated `:rf.assert/schema-error`), PLUS `:registered` — the FULL assertion vocabulary the Story plan compiler accepts (`known-assertion-ids`): the eight canonical ids, the DOM family (`:rf.assert/dom-visible|dom-hidden|dom-text`), the visual / a11y oracles (`:rf.assert/visual-snapshot`, `:rf.assert/a11y`, `:rf.assert/a11y-structural`), and the reactive-count assertions (`:rf.assert/caused`, `:rf.assert/no-cascade-rerender`). The browser-tier ids (DOM / visual / a11y) require a richer runner — a headless run refuses them with `:cannot-run`, never a silent pass. Paginated per rf2-76sf6 — `:canonical` (the 8-entry doc vector) stays full; `:registered` slices per `:limit` / `:cursor`. "
+    :description    (str "The ten canonical `:rf.assert/*` declarations with payload arity + semantics (the seven dispatched assertions plus the three tape-evaluated ones: `:rf.assert/schema-error` and the causal pair `:rf.assert/caused` / `:rf.assert/no-cascade-rerender`). The causal pair count reactive effects a cause produced and carry `:observed-cause-count`; `:rf.assert/no-cascade-rerender` requires its cause be observed by default (an unobserved cause → `:cannot-run`, never a vacuous `[0,0]` pass), with `{:require-cause? false}` the one opt-out (`:require-cause?` is rejected on `:rf.assert/caused`). PLUS `:registered` — the FULL assertion vocabulary the Story plan compiler accepts (`known-assertion-ids`): the ten canonical ids, the DOM family (`:rf.assert/dom-visible|dom-hidden|dom-text`), and the visual / a11y oracles (`:rf.assert/visual-snapshot`, `:rf.assert/a11y`, `:rf.assert/a11y-structural`). The browser-tier ids (DOM / visual / a11y) require a richer runner — a headless run refuses them with `:cannot-run`, never a silent pass. Paginated per rf2-76sf6 — `:canonical` (the 10-entry doc vector) stays full; `:registered` slices per `:limit` / `:cursor`. "
                          "Examples: "
                          "1. Default: {} -> {:canonical [{:id :rf.assert/path-equals :payload \"[path expected]\" :semantics \"(= (get-in @app-db path) expected)\"} ...] :registered [:rf.assert/a11y :rf.assert/a11y-structural :rf.assert/caused :rf.assert/dispatched? :rf.assert/dom-hidden ...]}. "
                          "2. With budget knob: {:max-tokens 1000} -> same shape, tighter cap. "
                          "3. Pair with run-variant: discover the assertion vocab here, then write :script sequences referencing those event ids. "
-                         "4. Paginated: {:limit 5} -> {:canonical [...8...] :registered [...5...] :total 16 :limit 5 :has-more? true :next-cursor \"<base64>\"}.")
+                         "4. Paginated: {:limit 5} -> {:canonical [...10...] :registered [...5...] :total 16 :limit 5 :has-more? true :next-cursor \"<base64>\"}.")
     :typicalTokens  500
     :inputSchema    {:type "object"
                      :properties (s/with-max-tokens (s/with-pagination {}))

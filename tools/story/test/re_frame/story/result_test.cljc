@@ -548,7 +548,13 @@
   `:cause-event-id` slot rides each row only because the projection threads
   it — so these epochs exercise the genuine production shape."
   [cause sub-id n-subs view-id n-renders]
-  (epoch {:trigger-event [cause]
+  (epoch {;; Real `:rf/epoch-record`s carry BOTH `:event-id` (the canonical
+          ;; cause keyword — a required slot, present even for a
+          ;; privacy-sensitive epoch) and the `:trigger-event` vector. The
+          ;; no-cascade premise (rf2-x76af2.17) matches `:event-id`, so the
+          ;; fixture stamps it to mirror production.
+          :event-id      cause
+          :trigger-event [cause]
           :sub-runs (mapv (fn [_] (capture/sub-run-row (sub-run-trace-event sub-id cause)))
                           (range n-subs))
           :renders  (mapv (fn [_] (capture/render-row (rendered-trace-event view-id cause)))
@@ -604,15 +610,28 @@
       (is (re-find #"names no :event" (:reason rec))))))
 
 (deftest causal-no-cascade-rerender-bounds
-  (testing ":rf.assert/no-cascade-rerender passes when the event caused NO effect"
+  ;; rf2-x76af2.17: the OLD first block here asserted that a
+  ;; `:no-cascade-rerender` naming an UNOBSERVED cause (:unrelated/event
+  ;; against a :counter/inc-only tape) PASSED vacuously under [0,0]. That was
+  ;; the silent-rot false-green (rename the cause → the guard matches nothing
+  ;; → stays green forever). It is now a `:cannot-run` — see
+  ;; `no-cascade-unobserved-cause-is-cannot-run` below.
+  (testing ":rf.assert/no-cascade-rerender passes when the OBSERVED cause
+            produced NO matching effect (c ≥ 1, n = 0 within [0 0])"
+    ;; :counter/inc IS observed (c = 1) but produces zero renders of the
+    ;; unrelated :sidebar view → n = 0 within [0,0] → the premise held and
+    ;; the guard was honoured.
     (let [tape [(reactive-epoch :counter/inc :total 1 :counter 1)]
           r    (result/run-result
                  {:epoch-tape tape
                   :causal-expectations
-                  [[:rf.assert/no-cascade-rerender {:event :unrelated/event}]]})
+                  [[:rf.assert/no-cascade-rerender {:event :counter/inc :view :sidebar}]]})
           rec  (first (filter #(= :rf.assert/no-cascade-rerender (:assertion %))
                               (:assertions r)))]
-      (is (= :pass (:status rec)) "unrelated event caused 0 effects, within [0 0]")))
+      (is (= :pass (:status rec)) "observed cause, 0 matching renders → :pass")
+      (is (= 0 (get-in rec [:actual :count])))
+      (is (= 1 (get-in rec [:actual :observed-cause-count]))
+          "the cause WAS observed once")))
 
   (testing ":rf.assert/no-cascade-rerender FAILS when the event over-rendered"
     (let [tape [(reactive-epoch :counter/inc :total 1 :counter 3)]
@@ -721,6 +740,220 @@
     (let [tape [(reactive-epoch :counter/inc :total 5 :counter 9)]
           r    (result/run-result {:epoch-tape tape})]
       (is (= :pass (:status r)) "renders alone are not a tape failure"))))
+
+;; ===========================================================================
+;; NO-CASCADE-RERENDER REJECTS VACUOUS TRUTH (rf2-x76af2.17)
+;; ===========================================================================
+;;
+;; The `[0,0]` no-cascade default used to PASS when its named cause was never
+;; observed (n = 0 ∈ [0,0]) — an asymmetry with `:rf.assert/caused`'s
+;; fail-closed `{:min 1}` that let a renamed cause rot silently green. The fix:
+;; an UNOBSERVED required cause → `:cannot-run` (`:observed-cause-count 0`),
+;; with `{:require-cause? false}` the one explicit opt-out. The premise source
+;; is the run-sliced `:epoch-tape` matched by canonical `:event-id` equality.
+
+(defn- cause-epoch
+  "A committed epoch NAMING `cause` via its canonical `:event-id`, carrying
+  NO reactive rows — the shape a dispatch that produced zero recomputes /
+  renders leaves on the tape."
+  [cause]
+  (epoch {:event-id cause :trigger-event [cause]}))
+
+(defn- no-cascade-rec
+  "The lone `:rf.assert/no-cascade-rerender` record in a run result."
+  [r]
+  (first (filter #(= :rf.assert/no-cascade-rerender (:assertion %)) (:assertions r))))
+
+(deftest no-cascade-unobserved-cause-is-cannot-run
+  (testing "an UNOBSERVED required cause resolves :cannot-run (NOT a vacuous
+            :pass) — the full record, run status, summary buckets, frozen
+            RunResult validity, and result->reports host failure"
+    ;; Reactive evidence exists (from :other/event) so the matcher evaluates
+    ;; rather than refusing on the reactive-slot check — but :search/run is
+    ;; NOT in the tape, so its premise is unmet.
+    (let [tape [(reactive-epoch :other/event :total 1 :counter 1)]
+          r    (result/run-result
+                 {:variant/id :story.search/box
+                  :epoch-tape tape
+                  :causal-expectations
+                  [[:rf.assert/no-cascade-rerender {:event :search/run :view :results}]]})
+          rec  (no-cascade-rec r)]
+      ;; --- the full assertion record ---
+      (is (= :cannot-run (:status rec)))
+      (is (true?  (:cannot-run? rec)))
+      (is (false? (:passed? rec)))
+      (is (= 0 (get-in rec [:actual :observed-cause-count])) "the cause was NOT observed")
+      (is (= 0 (get-in rec [:actual :count])) ":count stays the effect count")
+      (is (re-find #"not observed in the retained run tape" (:reason rec)))
+      (is (nil? (re-find #"never fired" (:reason rec)))
+          "honest wording — a bounded ring cannot prove 'never fired'")
+      ;; --- the run status + summary buckets ---
+      (is (= :cannot-run (:status r)) "the run aggregates to :cannot-run")
+      (is (= {:cannot-run 1} (frequencies (map :status (:assertions r))))
+          "summary buckets: total 1, cannot-run 1, passed 0, failed 0")
+      ;; --- the frozen RunResult contract still validates ---
+      (is (result/valid-run-result? r))
+      ;; --- result->reports emits a host :fail (the cannot-run bridge) ---
+      (is (some #(= :fail (:type %)) (result/result->reports r))
+          "a :cannot-run assertion reports a host :fail, never a silent pass"))))
+
+(deftest no-cascade-observed-cause-zero-renders-passes
+  (testing "the distinguishing positive case: the cause WAS observed once
+            (c = 1) and produced zero matching renders (n = 0) → :pass"
+    ;; :search/run is observed (a plain cause epoch); a DIFFERENT event
+    ;; (:other/event) supplies the reactive evidence the run needs.
+    (let [tape [(cause-epoch :search/run)
+                (reactive-epoch :other/event :total 1 :counter 1)]
+          r    (result/run-result
+                 {:epoch-tape tape
+                  :causal-expectations
+                  [[:rf.assert/no-cascade-rerender {:event :search/run :view :results}]]})
+          rec  (no-cascade-rec r)]
+      (is (= :pass (:status rec)) "observed cause + 0 matching renders → honoured guard")
+      (is (= 1 (get-in rec [:actual :observed-cause-count])))
+      (is (= 0 (get-in rec [:actual :count]))))))
+
+(deftest observed-cause-count-matches-event-id-exactly
+  (testing "the premise matches :event-id by EXACT keyword equality — a
+            similarly-named event does not count"
+    (let [tape [(cause-epoch :search/run-all)      ; NOT :search/run
+                (reactive-epoch :other/event :total 1 :counter 1)]
+          r    (result/run-result
+                 {:epoch-tape tape
+                  :causal-expectations
+                  [[:rf.assert/no-cascade-rerender {:event :search/run :view :results}]]})
+          rec  (no-cascade-rec r)]
+      (is (= 0 (get-in rec [:actual :observed-cause-count]))
+          "no partial / prefix / substring match on the event-id keyword")
+      (is (= :cannot-run (:status rec))))))
+
+(deftest observed-cause-count-aggregates-repeated-causes
+  (testing "a cause dispatched N times reports :observed-cause-count N and
+            aggregates its effects across the N epochs"
+    ;; :counter/inc fires 3 times, each rendering :counter once → 3 renders.
+    (let [tape [(reactive-epoch :counter/inc :total 1 :counter 1)
+                (reactive-epoch :counter/inc :total 1 :counter 1)
+                (reactive-epoch :counter/inc :total 1 :counter 1)]
+          r    (result/run-result
+                 {:epoch-tape tape
+                  :causal-expectations
+                  [[:rf.assert/no-cascade-rerender {:event :counter/inc :view :counter}]]})
+          rec  (no-cascade-rec r)]
+      (is (= 3 (get-in rec [:actual :observed-cause-count])) "3 epochs named the cause")
+      (is (= 3 (get-in rec [:actual :count])) "renders aggregate across the 3 causes")
+      (is (= :fail (:status rec)) "3 renders > [0,0] — a real over-render, still caught"))))
+
+(deftest no-cascade-sensitive-trigger-id-matches-no-leak
+  (testing "id-matching works for a privacy-sensitive trigger (whose
+            :event-id survives while its payload is redacted) and no payload
+            reaches the assertion record"
+    (let [tape [(epoch {:event-id             :login/submit
+                        :trigger-event        [:login/submit "hunter2"]
+                        :rf.epoch/sensitive?  true})
+                (reactive-epoch :other/event :total 1 :counter 1)]
+          r    (result/run-result
+                 {:epoch-tape tape
+                  :causal-expectations
+                  [[:rf.assert/no-cascade-rerender {:event :login/submit :view :dashboard}]]})
+          rec  (no-cascade-rec r)]
+      (is (= 1 (get-in rec [:actual :observed-cause-count]))
+          "id match on :event-id works even for a sensitive trigger")
+      (is (= :pass (:status rec)) "observed cause + 0 :dashboard renders → :pass")
+      (is (nil? (re-find #"hunter2" (pr-str rec)))
+          "the sensitive payload never reaches the assertion record"))))
+
+(deftest no-cascade-current-run-isolation
+  (testing "the premise reads ONLY the run-sliced :epoch-tape — a matching
+            event in a PRIOR run's retained window does not satisfy it"
+    (let [decl    [:rf.assert/no-cascade-rerender {:event :search/run :view :results}]
+          ;; The current run's slice: reactive evidence, NO :search/run.
+          current [(reactive-epoch :other/event :total 1 :counter 1)]
+          ;; A PRIOR run's epoch naming :search/run — NOT part of this slice
+          ;; (record-result-map keeps only records newer than the baseline).
+          prior   [(cause-epoch :search/run)]
+          rec-current  (no-cascade-rec
+                         (result/run-result {:epoch-tape current
+                                             :causal-expectations [decl]}))
+          ;; Had the prior record been (wrongly) included, the premise WOULD
+          ;; be met — proving the isolation boundary IS the slice, not the
+          ;; matcher silently reaching back.
+          rec-combined (no-cascade-rec
+                         (result/run-result {:epoch-tape (into prior current)
+                                             :causal-expectations [decl]}))]
+      (is (= 0 (get-in rec-current [:actual :observed-cause-count])))
+      (is (= :cannot-run (:status rec-current))
+          "a prior run's :search/run epoch is excluded → premise unmet")
+      (is (= 1 (get-in rec-combined [:actual :observed-cause-count]))
+          "the SAME record IN the slice satisfies — isolation is the slice boundary"))))
+
+(deftest no-cascade-require-cause-false-opt-out
+  (testing "{:require-cause? false} lets an unobserved cause pass vacuously
+            under [0,0], with a reason stating the vacuity was explicit"
+    (let [tape [(reactive-epoch :other/event :total 1 :counter 1)]  ; reactive, no :maybe/fires
+          r    (result/run-result
+                 {:epoch-tape tape
+                  :causal-expectations
+                  [[:rf.assert/no-cascade-rerender
+                    {:event :maybe/fires :view :panel :require-cause? false}]]})
+          rec  (no-cascade-rec r)]
+      (is (= :pass (:status rec)) "opt-out → the [0,0] default may pass vacuously")
+      (is (= 0 (get-in rec [:actual :observed-cause-count])))
+      (is (re-find #"explicitly enabled vacuous evaluation" (:reason rec)))))
+
+  (testing ":min 0 does NOT double as an implicit opt-out (still :cannot-run)"
+    (let [tape [(reactive-epoch :other/event :total 1 :counter 1)]
+          r    (result/run-result
+                 {:epoch-tape tape
+                  :causal-expectations
+                  [[:rf.assert/no-cascade-rerender {:event :maybe/fires :min 0}]]})
+          rec  (no-cascade-rec r)]
+      (is (= :cannot-run (:status rec))
+          ":min 0 is a bound on effects, never a premise opt-out"))))
+
+(deftest no-cascade-eviction-regression-is-cannot-run
+  (testing "an early cause EVICTED from the bounded epoch-history ring leaves
+            c = 0 in the retained slice → :cannot-run, NOT a false :pass"
+    ;; Model eviction: the :search/run epoch aged out of the ring; only
+    ;; later, unrelated reactive epochs survive in the retained tape. The
+    ;; conservative outcome is :cannot-run — 'not observed in the retained
+    ;; tape', never a claim the cause never fired NOR a silent green.
+    (let [retained [(reactive-epoch :other/event :total 1 :counter 1)
+                    (reactive-epoch :nav/go      :total 1 :counter 1)]
+          r        (result/run-result
+                     {:epoch-tape retained
+                      :causal-expectations
+                      [[:rf.assert/no-cascade-rerender {:event :search/run :view :results}]]})
+          rec      (no-cascade-rec r)]
+      (is (= :cannot-run (:status rec)) "evicted cause → conservative :cannot-run, not :pass")
+      (is (= 0 (get-in rec [:actual :observed-cause-count])))
+      (is (re-find #"not observed in the retained run tape" (:reason rec))))))
+
+(deftest caused-carries-observed-cause-count-diagnostic
+  (testing ":rf.assert/caused gains the :observed-cause-count diagnostic but
+            its positive-claim verdict is UNCHANGED (n=0 with reactive
+            evidence still :fail, never :cannot-run)"
+    (let [tape [(reactive-epoch :counter/inc :total 1 :counter 1)]
+          r    (result/run-result
+                 {:epoch-tape tape
+                  :causal-expectations
+                  [[:rf.assert/caused {:event :counter/inc :view :sidebar}]]})
+          rec  (first (filter #(= :rf.assert/caused (:assertion %)) (:assertions r)))]
+      ;; :counter/inc IS observed (c=1) but caused 0 :sidebar renders → n=0.
+      ;; :caused's {:min 1} default still FAILS closed (NOT :cannot-run).
+      (is (= :fail (:status rec)) ":caused is a positive claim — n=0 fails, unchanged")
+      (is (= 0 (get-in rec [:actual :count])))
+      (is (= 1 (get-in rec [:actual :observed-cause-count]))
+          "the additive diagnostic rides :caused too")))
+
+  (testing ":caused never gates on an unobserved cause — a cause absent from a
+            reactive tape is :fail (n=0 < min 1), never :cannot-run"
+    (let [tape [(reactive-epoch :other/event :total 1 :counter 1)]
+          r    (result/run-result
+                 {:epoch-tape tape
+                  :causal-expectations [[:rf.assert/caused {:event :counter/inc}]]})
+          rec  (first (filter #(= :rf.assert/caused (:assertion %)) (:assertions r)))]
+      (is (= :fail (:status rec)))
+      (is (= 0 (get-in rec [:actual :observed-cause-count]))))))
 
 ;; ---- projections AGREE with the tape (§B5) -------------------------------
 

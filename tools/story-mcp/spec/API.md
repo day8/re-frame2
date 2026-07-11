@@ -237,15 +237,17 @@ as a stale cursor (different fingerprint).
 **Input.** `{:limit integer (optional) :cursor string (optional)}`.
 
 **Output.** `{:canonical [{:id :payload :semantics}] :registered [keyword ...]}`.
-The `:canonical` doc vector (the 8-assertion documentation: the seven
-dispatched canonical assertions plus the tape-evaluated
-`:rf.assert/schema-error`) is bounded and always returned in full.
+The `:canonical` doc vector (the 10-assertion documentation: the seven
+dispatched canonical assertions plus the three tape-evaluated —
+`:rf.assert/schema-error` and the causal pair `:rf.assert/caused` /
+`:rf.assert/no-cascade-rerender`, which document their
+`:observed-cause-count` diagnostic and the no-cascade premise requirement
++ `{:require-cause? false}` opt-out) is bounded and always returned in full.
 `:registered` is the FULL vocabulary the Story plan compiler accepts
-(`re-frame.story.assertions/known-assertion-ids`, rf2-4sgak) — the eight
-canonical ids plus the DOM (`:rf.assert/dom-*`), visual/a11y
+(`re-frame.story.assertions/known-assertion-ids`, rf2-4sgak) — the ten
+canonical ids plus the DOM (`:rf.assert/dom-*`) and visual/a11y
 (`:rf.assert/visual-snapshot` / `:rf.assert/a11y` /
-`:rf.assert/a11y-structural`), and reactive-count
-(`:rf.assert/caused` / `:rf.assert/no-cascade-rerender`) families — and
+`:rf.assert/a11y-structural`) families — and
 is paginated per the contract above.
 
 ### `get-docs-markdown` (rf2-i0kyy)

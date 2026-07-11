@@ -932,6 +932,109 @@
       (is (contains? (set (:offending-assertions (ex-data ex)))
                      [:rf.assert/whoops])))))
 
+;; ---- :require-cause? opt validation (rf2-x76af2.17) -----------------------
+;;
+;; `:require-cause? false` is the ONE opt-out that lets
+;; `:rf.assert/no-cascade-rerender` evaluate its `[0,0]` default vacuously
+;; when its named cause was not observed. The plan compiler (the front half
+;; of `run-variant`) rejects the key on `:rf.assert/caused` and a non-boolean
+;; value on either id, BEFORE any run.
+
+(deftest require-cause-on-caused-fails-plan-construction
+  (testing ":require-cause? on :rf.assert/caused FAILS plan construction —
+           the key is a no-cascade opt-out ONLY, never a second meaning"
+    (let [m {:story.x/rc-caused
+             {:assertions [[:rf.assert/caused {:event :e :require-cause? false}]]}}]
+      (is (thrown-with-msg?
+            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
+            #"story-bad-assertion-opt"
+            (plan-of :story.x/rc-caused m))))))
+
+(deftest non-boolean-require-cause-fails-plan-construction
+  (testing "a non-boolean :require-cause? on :no-cascade-rerender FAILS —
+           the opt is a strict boolean, never silently coerced"
+    (let [m {:story.x/rc-bad
+             {:assertions [[:rf.assert/no-cascade-rerender
+                            {:event :e :require-cause? :nope}]]}}]
+      (is (thrown-with-msg?
+            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
+            #"story-bad-assertion-opt"
+            (plan-of :story.x/rc-bad m)))))
+
+  (testing "the same rejection applies to an in-script [:assert …] checkpoint"
+    (let [m {:story.x/rc-bad-script
+             {:script [[:assert [:rf.assert/no-cascade-rerender
+                                 {:event :e :require-cause? 1}]]]}}]
+      (is (thrown-with-msg?
+            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
+            #"story-bad-assertion-opt"
+            (plan-of :story.x/rc-bad-script m))))))
+
+(deftest bad-assertion-opt-error-carries-structured-data
+  (testing "the :rf.error/story-bad-assertion-opt ex-data names the bad atom"
+    (let [m  {:story.x/rc-data
+              {:assertions [[:rf.assert/caused {:event :e :require-cause? false}]]}}
+          ex (try (plan-of :story.x/rc-data m) nil
+                  (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))]
+      (is (some? ex))
+      (is (= :rf.error/story-bad-assertion-opt (:rf.error/id (ex-data ex))))
+      (is (contains? (set (:offending-assertions (ex-data ex)))
+                     [:rf.assert/caused {:event :e :require-cause? false}])))))
+
+(deftest legal-require-cause-false-compiles
+  (testing "{:require-cause? false} on :no-cascade-rerender is the sole legal
+           use and compiles cleanly (terminal AND in-script)"
+    (let [atom-v [:rf.assert/no-cascade-rerender {:event :e :require-cause? false}]]
+      (is (= [atom-v]
+             (get-in (plan-of :story.x/ok-rc {:story.x/ok-rc {:assertions [atom-v]}})
+                     [:expect :assertions]))
+          "terminal position compiles")
+      (is (= [[:assert atom-v]]
+             (:script (plan-of :story.x/ok-rc2
+                               {:story.x/ok-rc2 {:script [[:assert atom-v]]}})))
+          "in-script checkpoint compiles")))
+
+  (testing "a plain :require-cause? true also compiles (the explicit default)"
+    (let [atom-v [:rf.assert/no-cascade-rerender {:event :e :require-cause? true}]]
+      (is (= [atom-v]
+             (get-in (plan-of :story.x/ok-rc3 {:story.x/ok-rc3 {:assertions [atom-v]}})
+                     [:expect :assertions]))))))
+
+(deftest causal-assertion-checkpoints-compile
+  ;; Validates the honest-guard testbed scene's authored shape
+  ;; (testbeds/counter_with_stories/stories.cljs, rf2-x76af2.17) through the
+  ;; JVM plan compiler — the front half of `run-variant`.
+  (testing "in-script causal [:assert …] checkpoints compile cleanly and
+           survive folding in script order"
+    (let [m {:story.x/causal
+             {:setup  [[:counter/initialise 0]]
+              :script [[:dispatch-sync [:counter/inc]]
+                       [:assert [:rf.assert/caused {:event :counter/inc :sub :count}]]
+                       [:dispatch-sync [:counter/save]]
+                       [:assert [:rf.assert/no-cascade-rerender {:event :counter/save :sub :count}]]]}}
+          p (plan-of :story.x/causal m)]
+      (is (= [[:assert [:rf.assert/caused {:event :counter/inc :sub :count}]]
+              [:assert [:rf.assert/no-cascade-rerender {:event :counter/save :sub :count}]]]
+             (filterv (fn [s]
+                        (and (vector? s) (= :assert (first s))
+                             (contains? #{:rf.assert/caused :rf.assert/no-cascade-rerender}
+                                        (first (second s)))))
+                      (:script p)))
+          "both causal checkpoints survive compilation")))
+
+  (testing "the named-play map-form :script (the scene's authored shape)
+           compiles without throwing"
+    (let [m {:story.x/causal-play
+             {:setup  [[:counter/initialise 0]]
+              :script {:name      "inc-causes-count-recompute-save-does-not"
+                       :auto-run? true
+                       :script    [[:dispatch-sync [:counter/inc]]
+                                   [:assert [:rf.assert/caused {:event :counter/inc :sub :count}]]
+                                   [:dispatch-sync [:counter/save]]
+                                   [:assert [:rf.assert/no-cascade-rerender {:event :counter/save :sub :count}]]]}}}]
+      (is (some? (plan-of :story.x/causal-play m))
+          "the map-form causal scene body compiles to a plan"))))
+
 (deftest every-shipping-and-folded-id-is-known
   (testing "the seven shipping ids + the folded DOM family pass id validation
            (a variant authoring each compiles cleanly)"
