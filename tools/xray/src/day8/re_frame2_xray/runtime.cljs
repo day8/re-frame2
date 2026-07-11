@@ -435,22 +435,11 @@
 ;; entry's `key-id` (its literal `:entries` map key, per rf2-9e0tyq) into the
 ;; path, re-rooting each slot exactly where the lowering wrote it.
 
-(defn- resource-payload-path-suffix
-  "The lowered-declaration path SUFFIX, relative to an entry's `key-id`, a
-  payload `slot-key` re-roots under (rf2-aw9cfs) — mirrors
-  `re-frame.resources.classification/instance-declaration-paths`'s re-rooting:
-  a `:data`-rooted declaration lands directly under the entry (`[key-id
-  :data]`); a `:scope`- / `:params`-rooted one lands under the scoped-key
-  `:resource/key` carrier at index 0 / 2 (the scoped key is `[scope
-  resource-id params]`). `:error` / `:refresh-error` are not currently
-  lowered by the resources registry but live at the entry's own key, so they
-  re-root there too — a harmless no-match today that is correct the day the
-  registry starts classifying them."
-  [slot-key]
-  (case slot-key
-    :scope  [:resource/key 0]
-    :params [:resource/key 2]
-    [slot-key]))
+;; The lowered-declaration path SUFFIX a payload slot re-roots under
+;; (rf2-aw9cfs) is the pure `resources-helpers/resource-payload-path-suffix`
+;; — the SAME re-rooting the on-box Resources-panel egress uses (rf2-9zix0u),
+;; so the off-box and on-box paths can never drift on where a slot's
+;; declaration lives.
 
 (defn- resource-egress-fn
   "Return the `(fn [value slot-key key-id] -> egressed)` payload-egress
@@ -469,7 +458,7 @@
       value
       (assoc egress-opts
              :path (into (conj (vec resources-helpers/entries-rel-path) key-id)
-                         (resource-payload-path-suffix slot-key))))))
+                         (resources-helpers/resource-payload-path-suffix slot-key))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Event-level default-suppress gate (rf2-to36uj)

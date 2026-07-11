@@ -19,7 +19,9 @@
     7. **Decoupled** — the panel reads the registry + the runtime-db
        slice via override hooks; no `re-frame.resources` require."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            [clojure.string :as str]
             [re-frame.core :as rf]
+            [re-frame.elision :as elision]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
             [day8.re-frame2-xray.registry :as registry]
@@ -523,6 +525,98 @@
         (is (some? scope))
         (is (re-find #"\[redacted\]" (node-text scope))
             "a redacted scope (PII) renders [redacted] — same elision as data")))))
+
+;; ---- (4b) PRIVACY: on-box render redacts a RAW :sensitive value (rf2-9zix0u)
+;;
+;; The `privacy-redacted-data-never-raw` test above proves the panel renders an
+;; ALREADY-`:rf/redacted` sentinel (the runtime elided it BEFORE Xray saw it).
+;; It does NOT prove the on-box render path redacts a RAW frame-`:sensitive`
+;; resource value — which is the actual rf2-9zix0u leak: the production sub
+;; called `project-instances` with NO egress-fn, so a LIVE `:sensitive?` entry
+;; (holding the real fetched value) `pr-str`-previewed raw to the DOM. This
+;; test drives the PRODUCTION sub `:rf.xray/resources-tab-data` end-to-end
+;; against an OBSERVED frame that declares its resource payload paths
+;; `:sensitive`, and asserts the rendered rows redact. FAILS before the fix
+;; (raw token previews), PASSES after.
+
+(def ^:private zix-secret "secret-session-jwt-zzz-9zix0u")
+(def ^:private zix-observed-frame :app/secure-observed)
+;; The `:entries` map key is the opaque byte key-id STRING (rf2-9e0tyq); the
+;; kind-preserving scoped-key rides on the entry as `:resource/key`.
+(def ^:private zix-key-id "kid-9zix0u-secret-1")
+(def ^:private zix-scoped-key
+  [[:rf.scope/session {:secret zix-secret :tenant "t-1"}]
+   :article/by-slug
+   {:secret zix-secret :slug "welcome"}])
+(def ^:private zix-entries
+  {zix-key-id
+   {:resource/id   :article/by-slug
+    :resource/key  zix-scoped-key
+    :status        :loaded
+    :data          {:secret zix-secret :title "Welcome"}
+    :generation    7
+    :active-owners #{[:route :route/article "nav-1"]}
+    :tags          #{[:article "welcome"]}
+    :request-id    [:w 7]}})
+
+(defn- install-zix-observed-frame! []
+  ;; Declare the three payload SLOTS `:sensitive` at the ABSOLUTE runtime-db
+  ;; paths the resources registry lowers per-instance declarations to
+  ;; (rf2-aw9cfs) — data at `[…entries <key-id> :data]`, scope at
+  ;; `[…entries <key-id> :resource/key 0]`, params at `[… :resource/key 2]`.
+  ;; The on-box egress re-roots each slot to exactly these coordinates.
+  (frame/reg-frame zix-observed-frame {})
+  (frame/swap-runtime-db! zix-observed-frame
+    (fn [rt]
+      (elision/apply-classification-effects rt
+        {:sensitive [[:rf.runtime/resources :entries zix-key-id :data]
+                     [:rf.runtime/resources :entries zix-key-id :resource/key 0]
+                     [:rf.runtime/resources :entries zix-key-id :resource/key 2]]}))))
+
+(defn- zix-instance-row []
+  (let [data (:instances @(rf/subscribe [:rf.xray/resources-tab-data]))]
+    (first data)))
+
+(deftest on-box-render-redacts-raw-sensitive-payload
+  (testing "rf2-9zix0u — the production :rf.xray/resources-tab-data sub redacts
+            a RAW frame-`:sensitive` resource payload on the ON-BOX render path
+            (screen-share safe), not just an already-`:rf/redacted` sentinel"
+    (setup-xray-frame!)
+    (install-zix-observed-frame!)
+    (rf/with-frame :rf/xray
+      ;; Point Xray's observed frame at the classified frame + seed the raw
+      ;; sensitive entries the on-box render projects.
+      (rf/dispatch-sync [:rf.xray/set-target-frame zix-observed-frame]
+                        {:frame :rf/xray})
+      (rf/dispatch-sync [:rf.xray/set-registered-resources-override-for-test resource-regs]
+                        {:frame :rf/xray})
+      (rf/dispatch-sync [:rf.xray/set-resource-entries-override-for-test zix-entries]
+                        {:frame :rf/xray})
+      (is (= zix-observed-frame @(rf/subscribe [:rf.xray/observed-frame]))
+          "sanity: Xray is observing the classified frame")
+      (let [row (zix-instance-row)]
+        (is (some? row) "the sub projected the seeded live instance")
+        (testing "each :sensitive payload slot renders [redacted], never the raw token"
+          (doseq [slot [:data :scope :params]]
+            (is (= "[redacted]" (:preview (get row slot)))
+                (str slot " redacts to [redacted] on the on-box render path"))
+            (is (true? (:redacted? (get row slot)))
+                (str slot " carries the :redacted? sentinel flag"))))
+        (testing "no raw secret leaks into ANY string display field of any slot"
+          (doseq [slot [:data :scope :params]]
+            (is (not-any? #(and (string? %) (str/includes? % zix-secret))
+                          (vals (get row slot)))
+                (str "the raw session token never appears in the " slot " summary"))))
+        (testing "metadata + derived facts survive the redaction (project from the
+                  RAW entry, never through egress)"
+          (is (= :loaded (:status row)))
+          (is (= 7 (:generation row)))
+          (is (= :article/by-slug (:resource-id row)))
+          (is (true? (:has-data? row))
+              "redacting the payload must not flip the derived :has-data? fact")
+          (is (= 1 (:owner-count row)))
+          (is (= zix-scoped-key (:scoped-key row))
+              "the RAW scoped-key survives as the identity/react key"))))))
 
 ;; ---- (6) silent state ---------------------------------------------------
 

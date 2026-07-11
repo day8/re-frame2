@@ -56,6 +56,7 @@
             [day8.re-frame2-xray.host-registry :as host-registry]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.panels.resources-helpers :as h]
+            [day8.re-frame2-xray.panels.local-render :as local-render]
             [day8.re-frame2-xray.panels.reply-envelope :as reply]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack sans-stack]]))
@@ -1114,6 +1115,47 @@
   (when (map? target-runtime-db)
     (get target-runtime-db h/routing-key)))
 
+;; ---- on-box payload egress (rf2-9zix0u) ----------------------------------
+;;
+;; PRIVACY: the on-box Resources render must redact frame-`:sensitive` resource
+;; payloads exactly as the App-DB tab's `local-render` seam does, and exactly
+;; as the OFF-BOX MCP accessors (`runtime/list-resource-instances` /
+;; `get-resource-state`) already do via `runtime/resource-egress-fn`. Before
+;; rf2-9zix0u the on-box `:rf.xray/resources-tab-data` sub called
+;; `project-instances` with NO egress-fn, so `instance-row` defaulted to
+;; identity and `summarize` `pr-str`-previewed the RAW scope / params / data /
+;; error to the DOM — catching only literal `:rf/redacted` sentinels the
+;; runtime had already elided. A LIVE `:sensitive?`-declared entry holds the
+;; real fetched value, so up to 120 chars of it rendered on-box
+;; (screen-share / recorded-session exposure). The on-box render path was the
+;; LONE `project-instances` caller omitting the egress-fn.
+
+(defn- on-box-resource-egress-fn
+  "The ON-BOX Resources payload-egress fn (rf2-9zix0u) — the resources-panel
+  analog of the App-DB tab's `local-render`. Redacts each frame-declared
+  `:sensitive` payload slot (scope / params / data / error / refresh-error)
+  under the OBSERVED frame's classification BEFORE `summarize`, so a sensitive
+  resource renders `[redacted]` on the on-box render path instead of a raw
+  `pr-str` preview — while the local operator still sees large values +
+  non-sensitive runtime-db payloads (the EP-0015 `:rf.egress/local-redacted`
+  on-box posture, via `local-render`'s `include-large?` overlay).
+
+  Structurally MIRRORS the off-box `runtime/resource-egress-fn`: each slot
+  egresses at its ABSOLUTE runtime-db path (`[:rf.runtime/resources :entries
+  <key-id> …]`, re-rooted by `h/resource-payload-path-suffix`) so the
+  resources registry's per-instance lowered `:sensitive?` declarations match
+  (rf2-aw9cfs). The ONLY difference from the off-box path is the on-box
+  redacted-but-locally-visible posture vs the off-box partition-default
+  posture. `key-id` is the entry's `:entries` map key (`instance-row` passes it
+  as the 3rd arg); `instance-row`'s own `some?` guard means this fn never sees
+  a nil slot value."
+  [observed-frame]
+  (fn [value slot-key key-id]
+    (local-render/local-render-value-at
+      value observed-frame
+      (into (conj (vec h/entries-rel-path) key-id)
+            (h/resource-payload-path-suffix slot-key)))))
+
 ;; ---- registration entry --------------------------------------------------
 
 (defn install!
@@ -1207,12 +1249,24 @@
     :<- [:rf.xray/resource-sub-reads]
     :<- [:rf.xray/resource-routing-slice]
     :<- [:rf.xray/registered-scope-resolvers]
+    ;; rf2-9zix0u — the OBSERVED frame whose `:sensitive` / `:large`
+    ;; classification governs the on-box payload egress below (the frame Xray
+    ;; is inspecting). Already an upstream dep transitively (via
+    ;; `:rf.xray/resource-entries` → `:rf.xray/target-frame-runtime-db`); named
+    ;; directly here so the egress projects the entries under THEIR frame.
+    :<- [:rf.xray/observed-frame]
     (fn [[registrations entries ledger trace-buffer sub-reads routing-slice
-          scope-resolvers] _]
+          scope-resolvers observed-frame] _]
       (let [now-ms        (.now js/Date)
             routes-map    (host-registry/registrations :route)
             registry-rows (h/project-registry registrations routes-map)
-            instance-rows (h/project-instances entries now-ms)
+            ;; rf2-9zix0u — thread the on-box egress-fn so a frame-`:sensitive`
+            ;; resource payload redacts to `[redacted]` on the on-box render
+            ;; path (screen-share safe), structurally matching the off-box MCP
+            ;; accessors. The prior no-egress call leaked raw values.
+            instance-rows (h/project-instances
+                            entries now-ms
+                            (on-box-resource-egress-fn observed-frame))
             work-rows     (h/project-work-ledger ledger)
             resolver-rows (h/project-scope-resolvers scope-resolvers)]
         {:silent?       (and (empty? registry-rows) (empty? instance-rows)

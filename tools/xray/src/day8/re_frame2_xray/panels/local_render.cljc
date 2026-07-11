@@ -202,3 +202,26 @@
   ([v frame-id] (local-render-value v frame-id false))
   ([v frame-id raw?]
    (rf/project-egress v (local-render-opts frame-id raw?))))
+
+(defn local-render-value-at
+  "Like `local-render-value`, but for a value that sits at absolute app-db /
+  runtime-db `path` (a SLICE egress'd in isolation, not the whole walked
+  root). Threading `:path` lets `rf/project-egress` match the path-keyed
+  `:sensitive` / `:large` declarations a bare-value walk (path `[]`) would
+  miss — e.g. the per-instance resource declarations the resources registry
+  LOWERS onto absolute runtime-db slot paths rooted at the entry's byte
+  key-id (`[:rf.runtime/resources :entries <key-id> :data …]`, rf2-aw9cfs).
+  This is the Resources tab's on-box per-slot egress seam (rf2-9zix0u), the
+  path-aware sibling of `local-render-value` the App-DB tab uses.
+
+  Same fail-closed + per-frame guarantees as `local-render-value` — they
+  share `local-render-opts`, so an unreachable `frame-id` (nil / destroyed /
+  never registered) stamps the dead-frame sentinel and redacts the whole
+  slice rather than borrow the ambient frame's policy, and the projection
+  applies the OBSERVED frame's own `:sensitive` / `:large` classification. The
+  explicit `:path` composes with (never overrides) the profile floor + the
+  `include-large?` overlay `local-render-opts` sets."
+  ([v frame-id path] (local-render-value-at v frame-id path false))
+  ([v frame-id path raw?]
+   (rf/project-egress v (assoc (local-render-opts frame-id raw?)
+                               :path (vec path)))))
