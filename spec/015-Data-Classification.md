@@ -92,7 +92,7 @@ The classification lands in the per-frame **elision registry** in runtime-db at 
 A **transient payload** (event args, fx args, cofx values, sub output) is owned by the registration that introduces its shape. Its author declares the sensitive / large paths there — the same vocabulary, relative to the payload's shape:
 
 ```clojure
-(rf/reg-event :auth/login {:sensitive [[1 :password]]}
+(rf/reg-event :auth/login {:sensitive [[:password]]}
   (fn [{:keys [db]} [_ {:keys [user password]}]] …))
 
 (rf/reg-fx :rf.http/managed
@@ -109,7 +109,7 @@ A **transient payload** (event args, fx args, cofx values, sub output) is owned 
   (fn [db _] (get-in db [:tenant :partner-api-key])))
 ```
 
-Paths index into that registration's primary data shape: the event vector (`[1 :password]` reaches the arg-map's `:password`), the fx-input map, the cofx-injected value, the sub output. Empty path `[[]]` marks the whole shape. A mark at a missing slot is a silent no-op (tolerate shape evolution); a malformed path *vector* fails at registration (see [§Failure posture](#failure-posture)).
+Paths index into that registration's primary data shape: the **event payload** (the second element of the event vector, canonically the arg-map per [Conventions §Canonical event-vector shape](Conventions.md#canonical-event-vector-shape-best-practice) — `[:password]` reaches its `:password`), the fx-input map, the cofx-injected value, the sub output. Event paths never index the **outer** event vector: index 0 (the event-id) is not addressable, and outer positions 2+ pass through raw — the documented positional fail-open (a secret in a positional arg is not path-addressable; prefer the map payload form and classify the path). Empty path `[[]]` marks the whole shape. A mark at a missing slot is a silent no-op (tolerate shape evolution); a malformed path *vector* fails at registration (see [§Failure posture](#failure-posture)).
 
 **`:rf.http/managed` is not special, and neither is a websocket effect** — every effect / coeffect / event / sub author declares its own sensitive arg-paths once, at registration. The framework ships sensible defaults for its own effects (e.g. the standard sensitive-header denylist for HTTP — see [§HTTP carriers](#http-carriers)); library authors do it for theirs. There is **no propagation**: a sub's `:sensitive` declaration classifies *that sub's own output paths*, not anything derived from it (see [§No propagation, no taint](#no-propagation-no-taint)).
 
