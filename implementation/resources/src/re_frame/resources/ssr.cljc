@@ -116,27 +116,35 @@
 
 ;; ---- per-entry sensitivity / size classification (Spec 016 clause 4) ------
 ;;
-;; EP-0015 §6 reconciliation (rf2-5pld34). Params, scopes, and data carry
-;; `:sensitive?` / `:large?` classification OWNED by the resource definition
-;; (Spec 015 §Resource and mutation durable classification). The owner
-;; surface, per EP-0015 issue 11 (ruled):
+;; EP-0015 §6 / EP-0025 reconciliation (rf2-5pld34, rf2-71dr8t). Params,
+;; scopes, and data carry `:sensitive` / `:large` classification OWNED by the
+;; resource definition (Spec 015 §Resource and mutation durable
+;; classification). The owner surface splits in two:
 ;;
 ;;   - the coarse whole-entry `:sensitive?` / `:large?` claims on the
 ;;     resource spec are the degenerate ROOT-PROP case (the whole resource is
 ;;     the classification unit) — they gate the metadata-only redact / omit
 ;;     shape (`whole-entry-disposition`);
-;;   - per-slot `:sensitive?` / `:large?` props on the `:data-schema` /
-;;     `:params-schema` are the canonical FINE-GRAINED surface (the same
-;;     EP-0005 mechanism the machine `:data-schema` uses) — there is NO new
-;;     resource path-map vocabulary.
+;;   - the canonical FINE-GRAINED surface is the projection-relative
+;;     `:sensitive` / `:large` PATH declarations on the resource spec (EP-0025).
+;;     They are LOWERED per instance into the per-frame elision registry
+;;     (`classification/reconcile-registry`, `:source :resource`) at the entry's
+;;     absolute runtime-db path, and the SSR egress READS that registry back
+;;     (`project-entry-data` / `project-entry-params`). The per-slot
+;;     `:sensitive?` / `:large?` props on a co-present `:data-schema` /
+;;     `:params-schema` do NOT drive durable egress classification — the schema
+;;     VALIDATES, it does not classify (rf2-fuqcob); a schema mark serves only
+;;     validation-failure-trace redaction (EP-0025).
 ;;
 ;; A `:sensitive?` (or `:large?`) resource must NOT ship its data verbatim
 ;; onto the wire — every visitor of every SSR page would otherwise receive
 ;; it. The whole-entry coarse claim drives redact / omit; a `:serialize`
-;; entry's data slice still rides through the merged frame-owned
-;; `re-frame.projection/project-egress` (over the SHARED `rf/elide-wire-value`
-;; walker) under the SSR boundary profile, so any per-slot `:data-schema`
-;; mark the frame classification carries composes as defense-in-depth. The
+;; entry's data slice still rides through the registry-driven
+;; `classification/project-entry-data` (over the SHARED `rf/elide-wire-value`
+;; walker) under the SSR boundary profile, so the resource's OWN lowered
+;; projection-relative `:sensitive` / `:large` path declarations redact / elide
+;; their slots, and any path the FRAME ALSO classifies composes as
+;; defense-in-depth (the same registry, all sources unioned at lookup). The
 ;; classification + projection live in `re-frame.resources.classification`
 ;; (the owner-classification seam); this slice consults it — never a
 ;; family-private elider.
