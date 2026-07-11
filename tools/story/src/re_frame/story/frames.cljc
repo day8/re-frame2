@@ -126,6 +126,22 @@
   (swap! stub-call-log dissoc frame-id)
   nil)
 
+;; Per-frame ALLOCATE-TIME decorator stack. `allocate!` resolves the
+;; decorator stack upstream and runs each `:frame-setup` decorator's `:init`
+;; against it; we stash the SAME stack here so `run-teardown-walks!` runs the
+;; matching `:teardown` set — even when a hot-reload changed the variant's
+;; `:decorators` between allocate! and teardown. Re-resolving at teardown (the
+;; prior behaviour) ran a DIFFERENT set than `:init` did, leaking a resource
+;; the old `:init` opened and tearing down one the new set never opened
+;; (rf2-x76af2.19). Mirrors `destroy-inline!`, which already uses its
+;; caller-supplied captured stack. Evicted by `run-teardown-walks!`.
+(defonce
+  ^{:doc "frame-id → the `decorators/resolve-decorators` result CAPTURED at
+         `allocate!` time. Read (and evicted) by `run-teardown-walks!` so
+         teardown mirrors the allocate-time `:frame-setup` set."}
+  allocated-decorator-stacks
+  (atom {}))
+
 (defn- ensure-stub-event!
   "Register a `reg-fx` handler under `stub-id` that handles a
   redirected fx call. Idempotent — re-registration replaces the slot
@@ -820,6 +836,12 @@
        ;; decorators (that's part of the events-only? predicate), so this
        ;; is a no-op on the fast-path branch.
        (apply-frame-setup! variant-id (:frame-setup decorator-stack))
+       ;; Stash the ALLOCATE-TIME stack so teardown runs the SAME
+       ;; :frame-setup set whose :init just ran, even if a hot-reload changes
+       ;; the variant's :decorators before teardown (rf2-x76af2.19). In the
+       ;; re-run path (run-phase-0!) reset-state!'s teardown reads the PRIOR
+       ;; stash BEFORE this line overwrites it with the current stack.
+       (swap! allocated-decorator-stacks assoc variant-id decorator-stack)
        variant-id))))
 
 ;; ---- inline-plan allocation ----------------------------------------------
@@ -991,11 +1013,20 @@
       (when (seq evs)
         (apply-loaders-teardown! variant-id evs)))
     (catch #?(:clj Throwable :cljs :default) _ nil))
-  ;; Step 4 — :frame-setup decorator :teardown events. Resolve the
-  ;; decorator stack here (rather than carrying it through the caller
-  ;; signature) so the caller surface stays unchanged.
+  ;; Step 4 — :frame-setup decorator :teardown events. Use the decorator
+  ;; stack CAPTURED at allocate! time (stashed in `allocated-decorator-stacks`)
+  ;; rather than re-resolving here, so a hot-reload that changed the variant's
+  ;; :decorators between allocate! and teardown still tears down the SAME
+  ;; :frame-setup set whose :init ran — mirroring `destroy-inline!`, which
+  ;; uses its caller-supplied captured stack (rf2-x76af2.19). Falls back to a
+  ;; fresh resolve when nothing was stashed (a frame torn down without going
+  ;; through allocate!'s stash path). Evicted so the side-table never outlives
+  ;; the frame; in the re-run path (run-phase-0!) this read happens BEFORE the
+  ;; following allocate! re-stashes the new stack.
   (try
-    (let [stack (decorators/resolve-decorators variant-id)]
+    (let [stack (or (get @allocated-decorator-stacks variant-id)
+                    (decorators/resolve-decorators variant-id))]
+      (swap! allocated-decorator-stacks dissoc variant-id)
       (apply-frame-teardown! variant-id (:frame-setup stack)))
     (catch #?(:clj Throwable :cljs :default) _ nil))
   nil)

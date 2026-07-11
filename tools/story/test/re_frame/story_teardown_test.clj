@@ -59,6 +59,7 @@
   (loaders/clear-watchers!)
   (config/set-global-args! {})
   (reset! frames/stub-call-log {})
+  (reset! frames/allocated-decorator-stacks {})
   (runner-events/clear-all-runs!)
   (story/install-canonical-vocabulary!)
   (frame/ensure-default-frame!)
@@ -203,6 +204,54 @@
       (story/destroy-variant! :story.teardown.same-level/v)
       (is (= [:b :a] @fired)
           "later-declared :dec-b tears down before earlier-declared :dec-a"))))
+
+;; ===========================================================================
+;; HOT-RELOAD ASYMMETRY — teardown uses the ALLOCATE-TIME decorator stack
+;; (rf2-x76af2.19)
+;;
+;; `allocate!` runs each :frame-setup decorator's :init against the stack it
+;; resolved at ALLOCATE time. The registered teardown path previously
+;; RE-RESOLVED the stack at TEARDOWN time — so if a hot-reload changed the
+;; variant's :decorators between allocate! and destroy!, teardown ran a
+;; DIFFERENT :frame-setup set than :init did: a resource opened by the old
+;; :init was never closed, and the new set's :teardown ran against a resource
+;; it never opened. The inline twin `destroy-inline!` already used its
+;; captured stack; the fix carries the allocate-time stack to the registered
+;; teardown walk the same way.
+;; ===========================================================================
+
+(deftest teardown-uses-allocate-time-decorator-stack-after-hot-reload
+  (testing "when a hot-reload changes a variant's :decorators between
+            allocate! and destroy!, teardown runs the :frame-setup :teardown
+            of the stack CAPTURED at allocate! time — NOT the re-resolved
+            current stack (rf2-x76af2.19)"
+    (let [fired (atom [])]
+      (rf/reg-event :d1/init    (fn [{:keys [db]} _] {:db db}))
+      (rf/reg-event :d2/init    (fn [{:keys [db]} _] {:db db}))
+      (rf/reg-event :d1/cleanup (fn [{:keys [db]} _] (swap! fired conj :d1) {:db db}))
+      (rf/reg-event :d2/cleanup (fn [{:keys [db]} _] (swap! fired conj :d2) {:db db}))
+      (story/reg-decorator :hot/d1
+        {:kind :frame-setup :init [[:d1/init]] :teardown [[:d1/cleanup]]})
+      (story/reg-decorator :hot/d2
+        {:kind :frame-setup :init [[:d2/init]] :teardown [[:d2/cleanup]]})
+      ;; Allocate with D1 — its :init ran; the allocate-time stack is captured.
+      (story/reg-variant :story.hotdec/v
+        {:decorators [[:hot/d1]] :events []})
+      (async/deref-blocking (story/run-variant :story.hotdec/v) 5000)
+      ;; HOT-RELOAD: the variant body now declares D2 instead of D1. The live
+      ;; frame still carries D1's :init; only the registered body changed.
+      (story/reg-variant :story.hotdec/v
+        {:decorators [[:hot/d2]] :events []})
+      ;; Sanity: the CURRENT resolution IS D2 — exactly what the buggy
+      ;; re-resolve-at-teardown would read (so this test is not vacuous).
+      (is (= [:hot/d2]
+             (mapv :id (:frame-setup (story/resolve-decorators :story.hotdec/v))))
+          "post-hot-reload resolve-decorators returns D2")
+      ;; Destroy — teardown MUST use the allocate-time stack (D1), not D2.
+      (story/destroy-variant! :story.hotdec/v)
+      (is (= [:d1] @fired)
+          "teardown ran D1's :cleanup (the allocate-time :frame-setup set
+           whose :init actually ran), NOT the re-resolved D2's"))))
 
 ;; ===========================================================================
 ;; EXCEPTION HANDLING — throwing teardown caught; record projected
