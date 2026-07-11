@@ -108,6 +108,26 @@ function run() {
         if (!line) continue;
         try {
           const f = JSON.parse(line);
+          // Answer the server's optimistic workspace-roots probe. As
+          // step 3 of its nREPL port-discovery cascade the server sends a
+          // `roots/list` request (see src/re_frame2_pair_mcp/server.cljs
+          // + roots_discovery.cljs); a real MCP client (Claude Code)
+          // answers it, but a minimal client that stays silent leaves the
+          // server blocked on the SDK's 60s roots/list timeout — which
+          // hung this harness (rf2-6ss40u). We reply as a capable client
+          // with no open workspace roots: the empty list yields no shadow
+          // candidates, so discovery falls through to the HTTP-probe / cwd
+          // steps and reaches the degraded :nrepl-port-not-found envelope
+          // the assertions below expect.
+          if (f.method === 'roots/list' && f.id != null) {
+            child.stdin.write(
+              JSON.stringify({ jsonrpc: '2.0', id: f.id, result: { roots: [] } }) + '\n',
+            );
+            continue;
+          }
+          // Ignore any other server-initiated request/notification — none
+          // are issued on this no-nREPL degraded path.
+          if (f.method) continue;
           if (f.id && pending.has(f.id)) {
             pending.get(f.id)(f);
             pending.delete(f.id);
@@ -137,9 +157,12 @@ function run() {
       await waitForStderr(/\bready\b/);
 
       // 1. initialize
+      // Advertise `roots` — this client answers the server's `roots/list`
+      // discovery probe (handled on stdout above), so declaring the
+      // capability keeps the handshake protocol-honest.
       const init = await call('initialize', {
         protocolVersion: '2025-06-18',
-        capabilities: {},
+        capabilities: { roots: {} },
         clientInfo: { name: 'roundtrip', version: '0' },
       });
       if (!init.result?.protocolVersion) throw new Error('initialize failed: ' + JSON.stringify(init));
