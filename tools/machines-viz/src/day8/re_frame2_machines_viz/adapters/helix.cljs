@@ -23,10 +23,9 @@
                                 :current-state :idle})
 
   Props are the closed map the Reagent `MachineChart` accepts (see
-  `spec/API.md` §Props). The `:props` Helix-feature is enabled so the
-  component receives the raw props as a single map argument (Helix
-  otherwise spreads named props); the shell forwards them to the
-  bridge unchanged.
+  `spec/API.md` §Props). Helix `defnc` marshals the props object to a
+  single CLJS map by default, so the component receives the whole map
+  as its `props` argument and forwards it to the bridge unchanged.
 
   ## Bundle isolation
 
@@ -38,10 +37,11 @@
 
 (defnc MachineChart
   "Helix component wrapping the xyflow `MachineChart` via the shared
-  React bridge. With the `:props` feature the whole props object
-  arrives as `props`; the shell forwards it to
-  `react-chart/chart-element` which builds the reactified-Reagent
-  React element. Renders the identical chart a Reagent host renders.
+  React bridge. Helix `defnc` marshals the whole props object to a
+  single CLJS map by default, so it arrives as `props`; the shell
+  forwards it to `react-chart/chart-element` which builds the
+  reactified-Reagent React element. Renders the identical chart a
+  Reagent host renders.
 
   `:children` is dropped — the chart manages its own subtree."
   [props]
