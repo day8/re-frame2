@@ -600,16 +600,18 @@ Resource events take a **map payload**, not a positional argument vector. The re
 #### `[:rf.resource/invalidate-tags {…}]`
 
 - **Kind**: event
-- **Payload**: `{:scope :tags :cause :cross-scope?}`
+- **Payload**: a closed union — scoped `{:scope :tags :cause?}` OR cross-scope `{:cross-scope? true :tags :cause}` (no `:scope`).
 - **Description**: Mark every entry whose tags intersect `:tags` as stale. Entries with active owners are refetched. Inactive entries stay stale or become GC-eligible.
   - **Scoped by default** — a scoped invalidation with no `:scope` raises `:rf.error/resource-invalidate-scope-required` (never a silent nil-scope match).
-  - A cross-scope invalidation opts in explicitly with `:cross-scope? true`. It ignores the scope filter, is visible in Xray, and MUST carry `:cause` — omitting one raises `:rf.error/resource-cross-scope-cause-required`.
+  - **`:scope` is a ScopeInput** — a concrete scope OR a `{:from-db <id>}` named-resolver reference, resolved at use time against the handler's app-db coeffect, **symmetric with `ensure` / `clear-scope`**. A reference that resolves nil is fail-closed with `:rf.error/resource-scope-unresolved-reference` (invalidate is scope-requiring like ensure). No in-handler resolve needed — pass the reference directly.
+  - A cross-scope invalidation opts in explicitly with `:cross-scope? true` and carries **no `:scope`** (it is scope-agnostic). It ignores the scope filter, is visible in Xray, and MUST carry `:cause` — omitting one raises `:rf.error/resource-cross-scope-cause-required`; supplying a `:scope` alongside `:cross-scope? true` raises `:rf.error/resource-cross-scope-scope-conflict`.
   - On a successful load an entry's tags are *replaced* with the new data's tags.
 
 ```clojure
-;; after a write settles, stale the reads carrying these tags
+;; after a write settles, stale the ACTING viewer's reads carrying these tags —
+;; the {:from-db …} reference resolves against the handler's db, like ensure
 [:rf.resource/invalidate-tags
- {:scope :rf.scope/global
+ {:scope {:from-db :realworld/viewer}
   :tags  #{[:article "welcome"]}
   :cause [:follow-author-detail-sync "welcome"]}]
 ```

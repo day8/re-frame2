@@ -186,14 +186,33 @@
     (succeed! kb {:title "B"})
     (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :a 1]}])
     (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :b 1]}])
-    ;; cross-scope is the AUDITED escape — it MUST carry :cause (rf2-7r8kgd)
+    ;; cross-scope is the AUDITED escape — it MUST carry :cause (rf2-7r8kgd) and
+    ;; is scope-AGNOSTIC, so it carries NO :scope (rf2-oo8cv7 closed union — a
+    ;; :scope alongside :cross-scope? true is rejected, see the conflict test).
     (rf/dispatch-sync [:rf.resource/invalidate-tags
-                       {:scope sa :tags #{[:article "w"]} :cross-scope? true
+                       {:tags #{[:article "w"]} :cross-scope? true
                         :cause [:admin/cache-poisoning-response]}])
     (testing "Spec 016 §Invalidation — :cross-scope? true matches the tag in
               EVERY scope (the explicit, Xray-visible opt-in)"
       (is (some? (:invalidated-at (entry ka))) "scope A entry marked stale")
       (is (some? (:invalidated-at (entry kb))) "scope B entry ALSO marked stale"))))
+
+(deftest invalidate-tags-cross-scope-rejects-a-supplied-scope
+  ;; rf2-oo8cv7 CLOSED UNION: the payload is EITHER scoped ({:scope …}) OR a
+  ;; cross-scope sweep ({:cross-scope? true, :scope ABSENT}). A :cross-scope?
+  ;; true that ALSO carries :scope is a contradiction (which scope would win on
+  ;; a scope-agnostic sweep?) — rejected loudly, never resolve-then-ignore.
+  (rf/reg-resource :ivc/article (article-spec) article-spec-request)
+  (testing "Spec 016 §The cross-scope lattice — a :scope alongside
+            :cross-scope? true throws :rf.error/resource-cross-scope-scope-conflict
+            (fail-closed, before any invalidation)"
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"resource-cross-scope-scope-conflict"
+          (events/invalidate-tags-handler
+            {:rf.db/runtime {} :rf.frame/id :rf/default}
+            [:rf.resource/invalidate-tags
+             {:scope {:user "a"} :tags #{[:article "w"]} :cross-scope? true
+              :cause [:admin/x]}])))))
 
 (deftest invalidate-tags-invalidated-at-is-the-event-time-ms
   ;; rf2-258p1z / EP-0010 §Resources, Mutations, And Work-Ledger Timestamps:
@@ -296,13 +315,14 @@
             [:rf.resource/invalidate-tags
              {:tags #{[:article "w"]} :cross-scope? true}]))))
   (testing "an explicitly nil :cause (not merely absent) is ALSO rejected —
-            fail-closed is about the absence of :cause evidence"
+            fail-closed is about the absence of :cause evidence (cross-scope
+            carries NO :scope, rf2-oo8cv7 closed union)"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-cross-scope-cause-required"
           (events/invalidate-tags-handler
             (invalidate-cofx {})
             [:rf.resource/invalidate-tags
-             {:scope {:user "a"} :tags #{[:article "w"]}
+             {:tags #{[:article "w"]}
               :cross-scope? true :cause nil}]))))
   (testing "cross-scope WITH a :cause is accepted (the audited escape clears
             the gate) — no throw"

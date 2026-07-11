@@ -33,6 +33,7 @@
    ;; load-bearing side-effecting requires: register the resources + routing
    ;; events / subs and resources' late-bound :routing/* integration hooks.
    [re-frame.resources]
+   [re-frame.resources.events :as events]
    [re-frame.resources.registry :as registry]
    [re-frame.resources.route :as route]
    [re-frame.resources.state :as state]
@@ -516,3 +517,137 @@
        :rf.egress/output-sensitivity :rf.egress/public}
       (fn [{:keys [locale]} _] (when locale [:rf.scope/locale {:locale locale}])))
     (is (true? (scope-registry/scope-resolver-egress-sensitive? :t/public2)))))
+
+;; ===========================================================================
+;; rf2-oo8cv7 — the DIRECT :rf.resource/invalidate-tags event resolves a
+;; `{:from-db <id>}` :scope SYMMETRICALLY with ensure / clear-scope (Spec 016
+;; §Resolver references — the single use-time rule, uniform across every site).
+;; Previously invalidate-tags canonicalized a {:from-db …} scope LITERALLY (a
+;; silent zero-match); it now resolves the reference against the handler's
+;; app-db coeffect exactly like ensure, and fails closed on a nil resolution.
+;; ===========================================================================
+
+(deftest invalidate-tags-from-db-resolves-identically-to-ensure
+  ;; The core symmetry proof: ensure resolves {:from-db :t/session} to jake's
+  ;; session key; invalidate-tags resolves the SAME reference to the SAME key
+  ;; and marks exactly that entry stale.
+  (rf/dispatch-sync [:t/login "jake"])
+  (rf/dispatch-sync [:rf.resource/ensure {:resource :t/feed :params {:page 1}
+                                          :owner [:lease :j 1]}])
+  (settle-loaded! (session-key "jake" 1) {:for "jake"})
+  ;; release the owner so the invalidation MARKS STALE (a live owner would
+  ;; refetch + satisfy the invalidation, masking the durable stale fact)
+  (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :j 1]}])
+  (testing "invalidate-tags {:from-db :t/session} marks stale the SAME scoped
+            key ensure resolved {:from-db :t/session} to — symmetric use-time
+            resolution against the app-db coeffect (rf2-oo8cv7)"
+    (rf/dispatch-sync [:rf.resource/invalidate-tags
+                       {:scope {:from-db :t/session} :tags #{[:feed]}}])
+    (is (some? (:invalidated-at (entry (session-key "jake" 1))))
+        "the db-derived session entry ensure created was invalidated via the
+         SAME {:from-db} resolution — never a literal-map zero-match")))
+
+(deftest invalidate-tags-from-db-marks-only-the-matching-principal
+  ;; two principals with the SAME tag in DIFFERENT session scopes; a
+  ;; {:from-db} invalidate resolves the CURRENT principal's scope and marks
+  ;; ONLY that entry stale — the other principal's equal-tag entry is untouched
+  ;; (the scope isolation the literal-canonicalize path could not provide).
+  (rf/dispatch-sync [:t/login "jake"])
+  (rf/dispatch-sync [:rf.resource/ensure {:resource :t/feed :params {:page 1}
+                                          :owner [:lease :j 1]}])
+  (settle-loaded! (session-key "jake" 1) {:for "jake"})
+  (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :j 1]}])
+  (rf/dispatch-sync [:t/login "abel"])
+  (rf/dispatch-sync [:rf.resource/ensure {:resource :t/feed :params {:page 1}
+                                          :owner [:lease :a 1]}])
+  (settle-loaded! (session-key "abel" 1) {:for "abel"})
+  (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :a 1]}])
+  ;; back to jake — the resolver now derives jake's session
+  (rf/dispatch-sync [:t/login "jake"])
+  (testing "the {:from-db} invalidate marks ONLY the resolved (jake's) scope
+            stale; abel's equal-tag entry in the other session is untouched"
+    (rf/dispatch-sync [:rf.resource/invalidate-tags
+                       {:scope {:from-db :t/session} :tags #{[:feed]}}])
+    (is (some? (:invalidated-at (entry (session-key "jake" 1))))
+        "jake's (resolved-scope) entry marked stale")
+    (is (nil? (:invalidated-at (entry (session-key "abel" 1))))
+        "abel's equal-tag entry in the OTHER scope is untouched (no leak)")))
+
+(deftest invalidate-tags-from-db-active-owner-refetch-carries-concrete-scope
+  ;; an active-owner match refetches; the refetch dispatch must carry the
+  ;; RESOLVED CONCRETE scope, never the {:from-db …} reference map (the matcher
+  ;; + cache only ever see the resolved canonical scope). Asserted at the
+  ;; handler boundary so the returned :fx is inspectable.
+  (rf/dispatch-sync [:t/login "jake"])
+  (rf/dispatch-sync [:rf.resource/ensure {:resource :t/feed :params {:page 1}
+                                          :owner [:lease :j 1]}])
+  (settle-loaded! (session-key "jake" 1) {:for "jake"})
+  ;; keep the owner ACTIVE (no release) so the match arms a refetch
+  (testing "the active-owner refetch carries the resolved concrete scope"
+    (let [{:keys [fx]} (events/invalidate-tags-handler
+                         {:rf.db/runtime (runtime-db) :rf.frame/id :rf/default
+                          :db {:auth {:user {:username "jake"}}} :rf/time-ms 1}
+                         [:rf.resource/invalidate-tags
+                          {:scope {:from-db :t/session} :tags #{[:feed]}}])
+          refetch (->> fx
+                       (keep (fn [[fx-id ev]] (when (= :dispatch fx-id) ev)))
+                       (some (fn [[ev-id p]]
+                               (when (= :rf.resource/refetch ev-id) p))))]
+      (is (some? refetch) "a refetch was armed for the active-owner match")
+      (is (= [:rf.scope/session {:username "jake"}] (:scope refetch))
+          "the refetch dispatch carries the RESOLVED concrete scope")
+      (is (not= {:from-db :t/session} (:scope refetch))
+          "never the {:from-db} reference map"))))
+
+(deftest invalidate-tags-from-db-nil-fails-closed-like-ensure
+  ;; a {:from-db} invalidate :scope resolving nil is FAIL-CLOSED with a THROW
+  ;; (:rf.error/resource-scope-unresolved-reference) — invalidate is
+  ;; scope-requiring like ensure, NOT clear-scope's warn/no-op. The
+  ;; :rf.resource/scope-resolved (:resolved-nil? true) causal row fires FIRST.
+  (testing "the resolution throws the canonical unresolved-reference error
+            (asserted at the fn boundary — the event loop otherwise surfaces a
+            handler throw as :rf.error/handler-exception)"
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"resource-scope-unresolved-reference"
+          (events/invalidate-tags-handler
+            {:rf.db/runtime {} :rf.frame/id :rf/default :db {} :rf/time-ms 1}
+            [:rf.resource/invalidate-tags
+             {:scope {:from-db :t/session} :tags #{[:feed]}}]))))
+  (testing "exactly one :rf.resource/scope-resolved (:resolved-nil? true) row
+            is emitted before the throw"
+    (let [rows (record-scope-resolved!
+                 (fn []
+                   (try
+                     (events/invalidate-tags-handler
+                       {:rf.db/runtime {} :rf.frame/id :rf/default :db {} :rf/time-ms 1}
+                       [:rf.resource/invalidate-tags
+                        {:scope {:from-db :t/session} :tags #{[:feed]}}])
+                     (catch #?(:clj Throwable :cljs :default) _ nil))))
+          row  (some (fn [ev] (when (= :t/session (:resource-id (:tags ev))) (:tags ev))) rows)]
+      (is (some? row) "a scope-resolved row fired for the :t/session resolver")
+      (is (true? (:resolved-nil? row)) "the row records the nil resolution")
+      (is (nil? (:scope row)) "with a nil resolved scope")))
+  (testing "dispatched through the event the failure is caught by the runtime
+            error path — the entry is NOT marked stale (fail-closed)"
+    (rf/dispatch-sync [:t/login "jake"])
+    (rf/dispatch-sync [:rf.resource/ensure {:resource :t/feed :params {:page 1}
+                                            :owner [:lease :j 1]}])
+    (settle-loaded! (session-key "jake" 1) {:for "jake"})
+    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :j 1]}])
+    (rf/dispatch-sync [:t/logout])
+    (rf/dispatch-sync [:rf.resource/invalidate-tags
+                       {:scope {:from-db :t/session} :tags #{[:feed]}}])
+    (is (nil? (:invalidated-at (entry (session-key "jake" 1))))
+        "no entry was invalidated under any scope (fail-closed, not silent)")))
+
+(deftest invalidate-tags-from-db-unregistered-resolver-throws
+  (rf/dispatch-sync [:t/login "jake"])
+  (testing "a {:from-db} invalidate naming an UNREGISTERED resolver throws
+            :rf.error/resource-scope-not-registered before any mutation"
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"resource-scope-not-registered"
+          (events/invalidate-tags-handler
+            {:rf.db/runtime {} :rf.frame/id :rf/default
+             :db {:auth {:user {:username "jake"}}} :rf/time-ms 1}
+            [:rf.resource/invalidate-tags
+             {:scope {:from-db :t/nope} :tags #{[:feed]}}])))))

@@ -168,17 +168,19 @@
          static call-site arg, with the reply map appended after it.
 
          The article read is viewer-scoped, so the invalidation must reach the
-         ACTING viewer's `[:article slug]` entry. Unlike a mutation descriptor (the
-         engine resolves those `{:from-db …}` references itself), the direct
-         `:rf.resource/invalidate-tags` event takes a CONCRETE scope — so we
-         resolve it here from the handler's db with `rf/resolve-resource-scope`,
-         the same idiom logout's `clear-scope` uses. Follow is auth-gated, so the
+         ACTING viewer's `[:article slug]` entry. The direct
+         `:rf.resource/invalidate-tags` event's `:scope` is a ScopeInput
+         (rf2-oo8cv7) — a concrete scope OR a `{:from-db …}` reference resolved
+         at use time against the handler's db coeffect, SYMMETRIC with a mutation
+         descriptor / ensure — so we pass the `{:from-db :realworld/viewer}`
+         reference directly (no in-handler resolve). Follow is auth-gated, so the
          viewer resolves to the signed-in reader; a nil (unresolved) viewer
-         fail-closes to no-op."}
-  (fn [{:keys [db]} [_ slug {:keys [status]}]]
-    (if-let [viewer (and (= :ok status) (rf/resolve-resource-scope db :realworld/viewer))]
+         fail-closes with a loud throw — correct, an authed continuation whose
+         viewer vanished is a bug, never a silent no-op."}
+  (fn [_ [_ slug {:keys [status]}]]
+    (if (= :ok status)
       {:fx [[:dispatch [:rf.resource/invalidate-tags
-                        {:scope viewer
+                        {:scope {:from-db :realworld/viewer}
                          :tags  #{[:article slug]}
                          :cause [:follow-author-detail-sync slug]}]]]}
       {})))

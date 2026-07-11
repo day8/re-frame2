@@ -1563,7 +1563,23 @@
 
 (defn invalidate-tags-handler
   "`:rf.resource/invalidate-tags` — exact tag invalidation (Spec 016
-  §Invalidation). Payload: `{:scope :tags :cause :cross-scope?}`.
+  §Invalidation). Payload is a CLOSED union: a SCOPED invalidation
+  `{:scope <ScopeInput> :tags :cause?}` OR a CROSS-SCOPE sweep
+  `{:cross-scope? true :tags :cause}` (`:scope` ABSENT). A `:cross-scope? true`
+  payload that also carries `:scope` is rejected loudly
+  (`:rf.error/resource-cross-scope-scope-conflict`) — never resolve-then-ignore.
+
+  **`:scope` is a public ScopeInput** (rf2-oo8cv7, Spec 016 §Resolver
+  references): a CONCRETE scope value OR a `{:from-db <resolver-id>}`
+  named-resolver reference, resolved against this handler's app-db coeffect at
+  event-execution time — SYMMETRIC with `ensure` / `clear-scope`
+  (`scope-registry/resolve-scope-input`). A reference that resolves NIL is
+  FAIL-CLOSED with `:rf.error/resource-scope-unresolved-reference` (invalidate
+  is scope-requiring like ensure — NOT clear-scope's warn/no-op); an
+  unregistered resolver id throws `:rf.error/resource-scope-not-registered`
+  before any mutation. The matcher + cache only ever see the RESOLVED canonical
+  concrete scope (a refetch dispatch carries the concrete scope, never the
+  `{:from-db …}` reference map).
 
   Algorithm (Spec 016 §Invalidation):
     1. find entries whose produced `:tags` intersect the invalidated `:tags`;
@@ -1620,9 +1636,31 @@
   stale-mark / refetch decision, so it keeps its fresh populated value and arms
   no refetch. The summary carries `:exempt` (the exempt keys that actually
   matched the tags, so Xray can show what the populate spared)."
-  [{rt :rf.db/runtime, frame-id :rf.frame/id, time-ms :rf/time-ms}
+  [{rt :rf.db/runtime, frame-id :rf.frame/id, app-db :db, time-ms :rf/time-ms}
    [_event-id {:keys [scope tags cause cross-scope? exempt-keys]}]]
   (let [runtime-db (or rt {})
+        ;; CLOSED PAYLOAD UNION (rf2-oo8cv7): the payload is EITHER a scoped
+        ;; invalidation (`{:scope <ScopeInput> …}`) OR a cross-scope sweep
+        ;; (`{:cross-scope? true, :scope ABSENT}`). A `:cross-scope? true`
+        ;; payload that ALSO carries `:scope` is a contradiction — scope is
+        ;; meaningless on a scope-AGNOSTIC sweep — so REJECT it loudly rather
+        ;; than resolve-then-ignore (silently canonicalizing / resolving a
+        ;; {:from-db …} scope only to discard it). Per Spec 016 §The cross-scope
+        ;; lattice.
+        _          (when (and cross-scope? (some? scope))
+                     (error/throw-error!
+                       :rf.error/resource-cross-scope-scope-conflict
+                       'rf.resource/invalidate-tags
+                       (str "a :cross-scope? true :rf.resource/invalidate-tags "
+                            "MUST NOT carry a :scope — cross-scope is "
+                            "scope-AGNOSTIC (it matches the tags in EVERY "
+                            "scope), so a :scope alongside it is a "
+                            "contradiction (which scope would win?). Drop the "
+                            ":scope for a cross-scope sweep, or drop "
+                            ":cross-scope? true to invalidate one resolved "
+                            "scope. Per Spec 016 §The cross-scope lattice.")
+                       {:recovery :fix-scope
+                        :extra    {:tags tags :scope scope}}))
         ;; FAIL CLOSED (rf2-pvdae1): a scoped (default) invalidation MUST
         ;; carry an explicit :scope — a missing scope would otherwise match
         ;; `(= nil (first k))` and silently invalidate nothing (or the wrong
@@ -1665,15 +1703,48 @@
                             "Spec 016 §The cross-scope lattice.")
                        {:recovery :fix-cause
                         :extra    {:tags tags}}))
-        ;; route the concrete scope through the SHARED validation path
-        ;; (rf2-hosnba, rf2-lzv9xc): rejects reserved-namespace typos +
-        ;; host / non-EDN scope values, rejects the wrapped [:rf.scope/global]
-        ;; singleton (rf2-bwwk6l — supply bare), canonicalizes — the SAME
-        ;; single path event/sub resolution, route planning, and clear-scope
-        ;; use. No resource-id (a tag invalidation spans resources); nil when
-        ;; scope-agnostic cross-scope.
+        ;; SYMMETRIC {:from-db} RESOLUTION (rf2-oo8cv7): a scoped invalidation's
+        ;; :scope is a public ScopeInput — a CONCRETE scope OR a `{:from-db
+        ;; <id>}` named-resolver reference, resolved against this handler's
+        ;; app-db coeffect at event-execution time, EXACTLY like ensure /
+        ;; clear-scope (Spec 016 §Resolver references — the single use-time
+        ;; rule). `resolve-scope-input` routes a concrete scope through the
+        ;; SHARED `state/canonicalize-scope` validation path ONCE (rejects
+        ;; reserved-namespace typos + host / non-EDN values + the wrapped
+        ;; [:rf.scope/global] singleton — rf2-hosnba, rf2-lzv9xc, rf2-bwwk6l)
+        ;; and resolves a reference (result already canonical; it also emits the
+        ;; causal :rf.resource/scope-resolved evidence). An UNREGISTERED resolver
+        ;; id throws :rf.error/resource-scope-not-registered here, before any
+        ;; mutation. No resource-id (a tag invalidation spans resources); nil
+        ;; when scope-agnostic cross-scope OR a reference resolved nil.
+        from-db?   (scope-registry/from-db-reference? scope)
         cscope     (when (some? scope)
-                     (state/canonicalize-scope scope 'rf.resource/invalidate-tags nil))
+                     (scope-registry/resolve-scope-input
+                       scope app-db 'rf.resource/invalidate-tags nil))
+        ;; nil-resolution at a scope-REQUIRING site is FAIL-CLOSED like ensure
+        ;; (NOT clear-scope's warn/no-op — invalidate is scope-requiring, so it
+        ;; throws). The causal :rf.resource/scope-resolved (:resolved-nil? true)
+        ;; row has ALREADY emitted; throw the canonical unresolved-reference
+        ;; error naming the resolver id. An absent db input (e.g. no logged-in
+        ;; user) is the unresolved condition — never permission to invalidate
+        ;; global / fall through / silently no-op. Per Spec 016 §Resolver
+        ;; references.
+        _          (when (and from-db? (nil? cscope))
+                     (error/throw-error!
+                       :rf.error/resource-scope-unresolved-reference
+                       'rf.resource/invalidate-tags
+                       (str "a :rf.resource/invalidate-tags {:from-db …} :scope "
+                            "referenced named scope resolver "
+                            (pr-str (:from-db scope)) ", but it resolved NIL "
+                            "against the current db — FAIL-CLOSED. A derived "
+                            "scope that cannot resolve is the unresolved "
+                            "condition, never permission to invalidate global "
+                            "or fall through to another tier. The resolver's "
+                            "declared :inputs are not present in db (e.g. no "
+                            "logged-in user). Per Spec 016 §Resolver "
+                            "references.")
+                       {:recovery :fix-scope
+                        :extra    {:from-db (:from-db scope) :tags tags}}))
         ;; rf2-ru73k6 F1 — the SAME shared tag-input normalizer the mutation
         ;; `:invalidates` bare shorthand uses: a LONE vector tag written
         ;; directly (`:tags [:article slug]`) is the ONE tag `#{[:article
@@ -1863,20 +1934,20 @@
 ;; ---- clear-scope — the causal logout / tenant-switch boundary --------------
 
 (defn- clear-scope-handler*
-  "The clear-scope body once `scope` is a resolved concrete value (a literal
-  scope, or a `{:from-db …}` reference already resolved against app-db). Routes
-  the concrete scope through the shared `state/canonicalize-scope` validation
-  path, then removes the in-scope entries, settles their in-flight work rows
-  `:cancelled`, recomputes indexes, and emits the explaining trace + fx.
+  "The clear-scope body once `cscope` is the resolved CANONICAL concrete scope
+  (a literal scope canonicalized, or a `{:from-db …}` reference resolved against
+  app-db — both flow through `scope-registry/resolve-scope-input` at the caller,
+  rf2-oo8cv7, so the concrete-scope validation happens ONCE). Removes the
+  in-scope entries, settles their in-flight work rows `:cancelled`, recomputes
+  indexes, and emits the explaining trace + fx.
 
   rf2-x76af2.14 — a cancellation is a COMPLETION: each terminal `:cancelled`
   work row carries the event's causal `:completed-at` (`time-ms`, the declared-
   flat `:rf/time-ms`), symmetric with every reply-driven cancellation
   (rf2-rl27r2), so epoch / tooling correlation of a logout / tenant-switch
   cancellation is intact."
-  [runtime-db frame-id scope cause time-ms]
-  (let [cscope     (state/canonicalize-scope scope 'rf.resource/clear-scope nil)
-        entries    (get-in runtime-db (state/entries-path))
+  [runtime-db frame-id cscope cause time-ms]
+  (let [entries    (get-in runtime-db (state/entries-path))
         ;; rf2-9e0tyq — `entries` is keyed on the byte `key-id`; the scope to
         ;; match against lives in each entry's `:resource/key` vector
         ;; (`(first (:resource/key entry))`), not the map key. `in-scope` is
@@ -1965,17 +2036,19 @@
   [{rt :rf.db/runtime, frame-id :rf.frame/id, app-db :db, time-ms :rf/time-ms}
    [_event-id {:keys [scope cause]}]]
   (let [runtime-db (or rt {})
-        ;; EP-0016 D3 / rf2-mfnc5i: resolve a `{:from-db …}` reference at use
-        ;; time against the handler's app-db coeffect. A reference that resolves
-        ;; NIL is FAIL-CLOSED with a loud diagnostic (see the early return
-        ;; below) — never canonicalized as a literal scope map (which would
-        ;; match no entry → the silent no-op Spec 016 prohibits).
+        ;; EP-0016 D3 / rf2-mfnc5i / rf2-oo8cv7: resolve the public ScopeInput
+        ;; ONCE through the shared symmetric arm — a concrete scope canonicalizes
+        ;; through `state/canonicalize-scope`, a `{:from-db …}` reference resolves
+        ;; against the handler's app-db coeffect at use time (result already
+        ;; canonical). nil ONLY when a reference resolved nil — the clear-scope
+        ;; warn/no-op fail-closed below (the DELIBERATE destructive-teardown
+        ;; exception; NOT the ensure/invalidate throw). Never canonicalized as a
+        ;; literal reference map (which keys nothing → the silent no-op Spec 016
+        ;; prohibits).
         from-db?   (scope-registry/from-db-reference? scope)
-        resolved   (if from-db?
-                     (scope-registry/resolve-from-db-reference
-                       scope app-db 'rf.resource/clear-scope)
-                     scope)]
-    (if (and from-db? (nil? resolved))
+        cscope     (scope-registry/resolve-scope-input
+                     scope app-db 'rf.resource/clear-scope nil)]
+    (if (and from-db? (nil? cscope))
       ;; FAIL-CLOSED: a {:from-db …} reference resolved nil at a clear-scope
       ;; site — emit the loud dev diagnostic and clear NOTHING. The resolver's
       ;; declared :inputs are not present in db (e.g. no logged-in user); a
@@ -2001,7 +2074,7 @@
                                         "logged-in user at logout). Per Spec 016 "
                                         "§clear-scope is causal.")})
         {})
-      (clear-scope-handler* runtime-db frame-id resolved cause time-ms))))
+      (clear-scope-handler* runtime-db frame-id cscope cause time-ms))))
 
 ;; ---- remove — single-instance cache removal --------------------------------
 
