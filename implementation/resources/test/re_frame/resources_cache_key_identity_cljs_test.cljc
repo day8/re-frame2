@@ -189,6 +189,63 @@
 ;; byte-identity round-trip through the four serialization carriers.
 
 ;; ===========================================================================
+;; rf2-eynsfe — instant params vs same-looking STRING params are DISTINCT
+;; resource identities end-to-end (the canonical tagged-instant form)
+;; ===========================================================================
+;;
+;; Before the tagged-instant fix, `canonical` collapsed an instant to a BARE
+;; string, so `{:at #inst "…"}` and `{:at "…"}` aliased to ONE scoped key and
+;; ONE `s:`-keyed byte key-id — an instant resource param silently shared a
+;; cache entry / work-id with a look-alike string param, contradicting Spec 016
+;; §Resource identity. The canonical form of an instant is now the reserved
+;; tagged tuple `[:rf.identity/instant <text>]`, which `canonical-bytes` encodes
+;; to `t:<text>` (a string stays `s:`), so the two params are DISTINCT through
+;; the scoped key, the byte key-id, and the work-id. Two SPELLINGS of one
+;; instant still dedupe to one identity.
+
+(def ^:private instant-text "2026-06-10T00:00:00.000Z")
+(def ^:private ki (state/scoped-resource-key
+                    :rf.scope/global :r/x {:at #inst "2026-06-10T00:00:00.000-00:00"}))
+(def ^:private ks (state/scoped-resource-key
+                    :rf.scope/global :r/x {:at instant-text}))
+
+(deftest instant-vs-string-params-distinct-identity
+  (testing "an instant param canonicalizes to the reserved tagged tuple, NOT a bare string"
+    (is (= {:at [:rf.identity/instant instant-text]} (nth ki 2))
+        "the instant param carries the kind-preserving tagged tuple")
+    (is (= {:at instant-text} (nth ks 2))
+        "the string param stays a plain string"))
+  (testing "instant- and string-params keys are DISTINCT scoped keys AND byte key-ids"
+    (is (not= ki ks) "the scoped-key vectors differ (tagged tuple vs string param)")
+    (is (not= (state/key-id ki) (state/key-id ks))
+        "the byte key-ids differ (t:<text> vs s:\"<text>\")")
+    (is (not (identity/identical-identity? ki ks))
+        "the two keys are byte-distinct CEDN-1 identities"))
+  (testing "the two params key an :entries map DISTINCTLY end-to-end (no alias)"
+    (let [es (byte-keyed-entries [[ki (loaded-entry ki {:from :instant} #{:t})]
+                                   [ks (loaded-entry ks {:from :string} #{:t})]])]
+      (is (= 2 (count es))
+          "two distinct entries — the instant param no longer aliases the string param")
+      (is (= {:from :instant} (:data (get es (state/key-id ki)))))
+      (is (= {:from :string}  (:data (get es (state/key-id ks)))))))
+  (testing "the work-ledger work-id is likewise distinct for instant vs string params"
+    (let [wi (work-ledger/resource-work-id ki 1)
+          ws (work-ledger/resource-work-id ks 1)]
+      (is (not= (work-ledger/work-id-id wi) (work-ledger/work-id-id ws))
+          "distinct byte work-id-ids end-to-end")))
+  (testing "two SPELLINGS of ONE instant dedupe to the SAME scoped key + byte key-id"
+    ;; a host Date and its #inst EDN literal for one moment (both read as the
+    ;; host instant on each host) canonicalize to the SAME tagged tuple.
+    (let [ka (state/scoped-resource-key
+               :rf.scope/global :r/x {:at #?(:clj  (java.util.Date. 1781049600000)
+                                             :cljs (js/Date. 1781049600000))})
+          kb (state/scoped-resource-key
+               :rf.scope/global :r/x {:at #inst "2026-06-10T00:00:00.000-00:00"})]
+      (is (= ka kb) "the two instant spellings collapse to one scoped key")
+      (is (= (state/key-id ka) (state/key-id kb))
+          "one instant → one byte key-id (dedupe holds)"))))
+
+;; ===========================================================================
 ;; rf2-j1rm93 — scoped resource KEY vs registered resource ID are ONE name per
 ;; fact and must never be confused (the spelling-unification adversarial gate)
 ;; ===========================================================================

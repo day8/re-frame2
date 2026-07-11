@@ -22,6 +22,7 @@
 ;;
 ;; Call ops (see the conformance runner's run-call):
 ;;   :canonical-bytes      {:value V :expect "<token-string>"}
+;;   :canonical-value      {:value V :expect NORMALIZED}  ;; the `canonical` value
 ;;   :canonical-identical  {:a A :b B}            ;; A and B share ONE identity
 ;;   :canonical-distinct   {:a A :b B}            ;; A and B are DISTINCT facts
 ;;   :path-instantiate     {:path P :bindings M :expect CONCRETE}
@@ -54,6 +55,34 @@
   {:call :canonical-bytes
    :value #inst "2026-06-12T00:00:00.000-00:00"
    :expect "t:2026-06-12T00:00:00.000Z"}
+
+  ;; --- rf2-eynsfe: the reserved tagged-instant canonical form -----------
+  ;; `canonical` normalizes an instant to the reserved tagged tuple
+  ;; [:rf.identity/instant "<UTC millisecond text>"]; `canonical-bytes` emits
+  ;; the SAME t:<text> token for a host instant AND for that tuple (a plain
+  ;; string stays s:), so the FROZEN #inst canonical-bytes token above is
+  ;; UNCHANGED while an instant stays DISTINCT from a look-alike string on both
+  ;; surfaces. (This is NOT CEDN-2 — no pre-existing token changed.)
+  {:call :canonical-value
+   :value #inst "2026-06-12T00:00:00.000-00:00"
+   :expect [:rf.identity/instant "2026-06-12T00:00:00.000Z"]}
+  ;; idempotence: canonical of the already-tagged tuple returns it unchanged.
+  {:call :canonical-value
+   :value [:rf.identity/instant "2026-06-12T00:00:00.000Z"]
+   :expect [:rf.identity/instant "2026-06-12T00:00:00.000Z"]}
+  ;; the tagged tuple encodes to the SAME t: token as the host instant.
+  {:call :canonical-bytes
+   :value [:rf.identity/instant "2026-06-12T00:00:00.000Z"]
+   :expect "t:2026-06-12T00:00:00.000Z"}
+  ;; an instant and a LOOK-ALIKE string are DISTINCT identities on both surfaces.
+  {:call :canonical-distinct
+   :a #inst "2026-06-12T00:00:00.000-00:00"
+   :b "2026-06-12T00:00:00.000Z"}
+  ;; a heterogeneous instant+string-keyed map is a LEGAL two-entry map; the
+  ;; keys order by their CEDN-1 bytes (s:"…" sorts before t:…).
+  {:call :canonical-bytes
+   :value {#inst "2026-06-12T00:00:00.000-00:00" :i "2026-06-12T00:00:00.000Z" :s}
+   :expect "m{s:\"2026-06-12T00:00:00.000Z\" k::s t:2026-06-12T00:00:00.000Z k::i}"}
 
   ;; --- vector vs list: DISTINCT EDN facts, never collapsed --------------
   {:call :canonical-bytes :value [1 2 3]     :expect "v[i:1 i:2 i:3]"}
