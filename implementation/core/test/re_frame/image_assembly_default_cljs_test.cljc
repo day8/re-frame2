@@ -35,6 +35,7 @@
   `clojure -M:test`."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+            [re-frame.image          :as image]
             [re-frame.image-assembly :as asm]
             [re-frame.source-store   :as ss]))
 
@@ -282,3 +283,65 @@
     (is (true? (:rf.image/default? asm/default-image)))
     (is (not (asm/default-image? {:rf.image/include-ns ["a.b"]})))
     (is (not (asm/default-image? {})))))
+
+;; ===========================================================================
+;; 7. A PROVENANCED app descriptor colliding with a framework STANDARD FAILS
+;;    LOUD on the DEFAULT path too — symmetric with the explicit path
+;;    (rf2-x76af2.29). The default-image standard-shadow filter drops ONLY the
+;;    framework's OWN no-provenance registrar shadow; a provenanced app
+;;    descriptor must survive selection so it reaches check-standard-collision!.
+;; ===========================================================================
+
+(deftest default-projection-provenanced-app-colliding-with-standard-fails-loud
+  (testing "a PROVENANCED app descriptor in the default pool whose (kind, id)
+            collides with a registered framework standard FAILS LOUD on the
+            DEFAULT path with :rf.error/image-standard-replacement-forbidden —
+            the standard is protected and the app registration is NOT silently
+            dropped (rf2-x76af2.29)"
+    (asm/register-standard! :fx :rf.nav/push-url {:handler-fn ::std-nav})
+    (let [pool [(reg-desc "shop.nav"  :fx    :rf.nav/push-url ::app-nav)
+                (reg-desc "shop.cart" :event :cart/add        ::cart-add)]]
+      (is (= :rf.error/image-standard-replacement-forbidden
+             (assembly-error-id #(asm/assemble-default pool)))
+          "the default path throws the SAME error the explicit path throws")
+      (is (= :rf.error/image-standard-replacement-forbidden
+             (assembly-error-id #(asm/assemble [] pool)))
+          "the empty-:images default route throws it too"))))
+
+(deftest default-and-explicit-paths-fail-loud-symmetrically-on-standard-collision
+  (testing "the SAME misconfiguration — a provenanced app descriptor colliding
+            with a standard — yields the SAME
+            :rf.error/image-standard-replacement-forbidden on BOTH the default
+            and the explicit path. Before rf2-x76af2.29 the default path
+            silently dropped the app descriptor and resolved to the standard
+            (the documented fail-loud asymmetry)"
+    (asm/register-standard! :fx :rf.nav/push-url {:handler-fn ::std-nav})
+    (let [pool     [(reg-desc "shop.nav" :fx :rf.nav/push-url ::app-nav)]
+          explicit (image/image {:id :shop/nav :select-ns {:include ["shop.nav"]}})]
+      (is (= :rf.error/image-standard-replacement-forbidden
+             (assembly-error-id #(asm/assemble-default pool))))
+      (is (= :rf.error/image-standard-replacement-forbidden
+             (assembly-error-id #(asm/assemble [explicit] pool))))
+      (is (= (assembly-error-id #(asm/assemble-default pool))
+             (assembly-error-id #(asm/assemble [explicit] pool)))
+          "same error id on both paths — the default path is no longer the odd one out"))))
+
+(deftest default-projection-drops-framework-own-no-provenance-standard-shadow
+  (testing "the framework's OWN no-provenance registrar shadow of a standard
+            (nil :rf.provenance/ns) is STILL filtered out of the default
+            selection — it is the standard's own copy, unioned in separately, so
+            it must NOT reach check-standard-collision! and must NOT throw. The
+            standard still resolves and ordinary app descriptors still project
+            (rf2-x76af2.29 NARROWED the filter, it did not remove it)"
+    (asm/register-standard! :fx :rf.nav/push-url {:handler-fn ::std-nav})
+    (let [own-shadow {:rf.provenance/ns nil :kind :fx :id :rf.nav/push-url
+                      :handler-fn ::std-nav}
+          pool       [own-shadow
+                      (reg-desc "shop.cart" :event :cart/add ::cart-add)]
+          gen        (asm/assemble-default pool)]
+      (is (contains? (:rf.gen/resolver gen) [:fx :rf.nav/push-url])
+          "the standard is still present (unioned in)")
+      (is (= ::std-nav (:handler-fn (asm/resolve-descriptor gen :fx :rf.nav/push-url)))
+          "resolves to the standard's own copy; the no-provenance shadow was dropped")
+      (is (contains? (:rf.gen/resolver gen) [:event :cart/add])
+          "ordinary app descriptors still project into the default generation"))))
