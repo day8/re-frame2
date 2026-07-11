@@ -11,7 +11,7 @@
   `buffering-stderr-writer`'s append-plus-front-trim transaction and tear
   the StringBuilder's internal count/array, throwing
   `ArrayIndexOutOfBoundsException` from an otherwise-valid test (a reporter
-  bug reddening a passing suite). `install-summary-replay-hook!` also read
+  bug reddening a passing suite). `make-summary-replay-method` also read
   the ring (`.length`/`.toString`) with no coordination, so a red replay
   could snapshot a half-applied mutation.
 
@@ -22,7 +22,7 @@
   channel throws, the ring stays at or below `stderr-buffer-cap`, each
   channel's newest tail write survives, and a `locking`-coordinated
   snapshot taken CONCURRENTLY with the writers (the shape
-  `install-summary-replay-hook!` uses) never observes a torn ring. The
+  `make-summary-replay-method` uses) never observes a torn ring. The
   real `:summary` hook is covered end-to-end by the subprocess red fixture
   in `re-frame.test-quiet-runner-contract-test`.
 
@@ -127,7 +127,7 @@
           f-sys (future @gate
                         (try (dotimes [_ writes-each] (.println sys-channel big-line))
                              (catch Throwable e (swap! writer-errs conj (.getMessage e)))))
-          ;; The snapshotter mirrors EXACTLY what `install-summary-replay-hook!`
+          ;; The snapshotter mirrors EXACTLY what `make-summary-replay-method`
           ;; does: read the ring under `sb`'s monitor. It must never observe a
           ;; half-applied append+trim, so every snapshot is a valid String
           ;; bounded by the cap.
