@@ -534,7 +534,7 @@ rf2-ttnst — Mike 2026-05-19 §0ter.4 walkthrough). Shape mirrors the
              :panel-width-px         480         ; number; clamped [320, 0.9 × viewport-width-px]
              :auto-open-on-error?    false
              :density                :cosy       ; #{:cosy :compact} — no :comfy in v1
-             :show-tool-frames?      false       ; reveal :rf/xray + :rf/pair2 in L1 picker
+             :show-tool-frames?      false       ; reveal :rf/xray + :rf/re-frame2-pair in L1 picker
              :long-keyword-threshold 24}         ; chars; long-keyword elision threshold
  :theme     :dark                                ; :dark | :light
  :diff      {:highlight-fn-ref-changes? false}   ; opt-in fn-ref classification
@@ -549,7 +549,7 @@ The `:general` slot carries three knobs introduced by rf2-ttnst:
   in v1; persisted `:comfy` values from prior schemas are treated as
   `:cosy` by the `:rf.xray/density` convenience sub.
 - `:show-tool-frames?` — boolean. When `true` the L1 frame-picker
-  dropdown reveals `:rf/xray` + `:rf/pair2`. Default `false` per
+  dropdown reveals `:rf/xray` + `:rf/re-frame2-pair`. Default `false` per
   spec/007-UX-IA.md §Frame-observation isolation invariants §I1.
 - `:long-keyword-threshold` — integer (chars). Fully-qualified
   keywords longer than the threshold elide in compact list cells.
