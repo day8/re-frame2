@@ -2492,7 +2492,9 @@
       ;; new-keep = 3 → the index bound would be lo = (- 8 3) = 5, skipping
       ;; idx 2 even though it still carries :trace-events.
       (reset! @#'state/config {:depth 50 :trace-events-keep 3 :redact-fn nil})
-      (is (= :e2 (@#'state/value-changed-epoch-for frame-id render-key))
+      ;; Anchor at the ring-newest epoch (:e7) so the scan runs the full
+      ;; newest-first walk — the anchor bound (rf2-arzb9o) is a no-op here.
+      (is (= :e2 (@#'state/value-changed-epoch-for frame-id render-key :e7))
           "the scan reaches the still-trace-bearing value-change at idx 2,
            below (- n new-keep) = 5 — the post-reduction transient gap"))))
 
@@ -2514,7 +2516,8 @@
           ]
       (reset! @#'state/histories {frame-id history})
       (reset! @#'state/config {:depth 50 :trace-events-keep 5 :redact-fn nil})
-      (is (nil? (@#'state/value-changed-epoch-for frame-id render-key))
+      ;; Anchor at the ring-newest epoch (:e4) — full newest-first scan.
+      (is (nil? (@#'state/value-changed-epoch-for frame-id render-key :e4))
           "the elided record carries no evidence the attribution scan can match"))))
 
 ;; ---- restore-epoch! reactive surfaces -------------------------------------

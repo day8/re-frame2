@@ -1782,6 +1782,127 @@
             "post-failure render attributes to the unchanged last-settled
              epoch — the re-anchor is success-only")))))
 
+;; ---------------------------------------------------------------------------
+;; rf2-arzb9o — a post-restore repaint whose STALE (newer) pre-restore epoch
+;;               carries value-changed sub-run evidence must still attribute to
+;;               the RESTORED-TARGET epoch, not the stale newer one.
+;; ---------------------------------------------------------------------------
+;;
+;; The RENDER-PATH sibling of inv-9. inv-9's re-anchor (`perform-restore!` sets
+;; last-settled to the restored target) is correct, but the render path routes
+;; through `resolve-render-epoch` → `value-changed-epoch-for`, which scans the
+;; ring newest-first for an epoch that shows a value-change for the repainted
+;; view. `perform-restore!` re-anchors WITHOUT truncating the ring, so the NEWER
+;; pre-restore epochs survive — and in a real substrate they carry the
+;; value-changed sub-run evidence for the very view now being repainted. An
+;; UNBOUNDED scan returns that stale newer epoch, OVERRIDING the re-anchor:
+;;   (b) stale has no prior `:renders` row for the view → the render is
+;;       back-filled INTO the stale epoch (the corruption inv-9 claims fixed);
+;;   (a) stale already has a `:renders` row for the view → the de-dup arm SKIPS
+;;       the back-fill → the repaint is silently absorbed (target gets nothing).
+;;
+;; The inv-9 tests above MISS this: their headless cascades seed NO value-change
+;; evidence in the stale epoch, so the scan misses everywhere and falls through
+;; to the re-anchored default — the anchor "works" only because the scan never
+;; fires. These two tests seed the stale evidence a real substrate produces and
+;; pin the anchor bound (`value-changed-epoch-for` starts at the last-settled
+;; anchor index, so records newer than the restored target are excluded). Both
+;; FAIL on the pre-fix unbounded scan; both PASS after the anchor bound.
+
+(deftest inv-9-post-restore-render-not-backfilled-into-stale-value-change-epoch
+  (testing "rf2-arzb9o (case b) — a post-restore repaint whose STALE newer epoch
+            carries value-changed sub-run evidence for the view (but no prior
+            render row) must NOT be back-filled into that stale epoch; it
+            attributes to the restored-target epoch."
+    (rf/reg-frame :test/main {})
+    (rf/reg-event :seed        (fn [{:keys [db]} _] {:db {:counter 0}}))
+    (rf/reg-event :counter-inc (fn [{:keys [db]} _] {:db (update db :counter inc)}))
+
+    (let [render-key [:counter-view 0]]
+      (rf/dispatch-sync [:seed]        {:frame :test/main})   ;; counter 0
+      (rf/dispatch-sync [:counter-inc] {:frame :test/main})   ;; counter 1 — restore target
+      (let [target-epoch (last-epoch :test/main)]
+        ;; Seed value-changed sub-run evidence into the TARGET and LEARN the
+        ;; view's read-set ({:counter}) via the reader-render-key stamp.
+        (emit-mount-sub-run! :test/main :counter render-key 0 1)
+
+        (rf/dispatch-sync [:counter-inc] {:frame :test/main}) ;; counter 2 — stale
+        (let [stale-epoch (last-epoch :test/main)]
+          ;; Seed value-changed sub-run evidence into the STALE (newer) epoch —
+          ;; the evidence a real substrate's post-settle reactive recompute
+          ;; leaves; this is exactly what the inv-9 headless cascades omit.
+          (emit-sub-run! :test/main :counter 1 2)
+
+          ;; PREMISE — the trap is armed: stale is last-settled, the read-set is
+          ;; learned, and the stale epoch genuinely carries value-change evidence
+          ;; for the view (so an unbounded scan WOULD return it).
+          (is (= (:epoch-id stale-epoch) (state/last-settled-epoch-id :test/main)))
+          (is (contains? (state/render-deps-for :test/main render-key) :counter)
+              "the view's read-set is learned — the deps-match arm can fire")
+          (is (contains? (sub-run-ids (epoch-by-id :test/main stale-epoch)) :counter)
+              "the STALE newer epoch carries the value-change evidence the scan
+               would match (the premise inv-9's tests lack)")
+
+          ;; Rewind to the OLDER target epoch.
+          (is (true? (rf/restore-epoch! :test/main (:epoch-id target-epoch))))
+
+          ;; The restore-induced repaint fires post-settle.
+          (emit-render! :test/main render-key)
+
+          (let [stale  (epoch-by-id :test/main stale-epoch)
+                target (epoch-by-id :test/main target-epoch)]
+            (is (not (contains? (rendered-view-ids stale) :counter-view))
+                "rf2-arzb9o — the repaint did NOT back-fill into the stale newer
+                 epoch, even though that epoch carries value-change evidence")
+            (is (contains? (rendered-view-ids target) :counter-view)
+                "the repaint attributes to the restored-target epoch — the
+                 anchor-bounded scan hits the target, not the stale newer
+                 epoch")))))))
+
+(deftest inv-9-post-restore-render-not-absorbed-by-stale-dedup
+  (testing "rf2-arzb9o (case a) — when the STALE newer epoch ALSO already holds a
+            render row for the view, the pre-fix scan resolves the post-restore
+            repaint to the stale epoch and the de-dup arm SILENTLY ABSORBS it
+            (target gets nothing). The anchor bound must resolve to the target
+            so the repaint is recorded there."
+    (rf/reg-frame :test/main {})
+    (rf/reg-event :seed        (fn [{:keys [db]} _] {:db {:counter 0}}))
+    (rf/reg-event :counter-inc (fn [{:keys [db]} _] {:db (update db :counter inc)}))
+
+    (let [render-key [:counter-view 0]]
+      (rf/dispatch-sync [:seed]        {:frame :test/main})
+      (rf/dispatch-sync [:counter-inc] {:frame :test/main})   ;; counter 1 — target
+      (let [target-epoch (last-epoch :test/main)]
+        ;; value-change evidence + learned read-set into the TARGET, so the
+        ;; anchor-bounded scan hits the target directly (never falling through to
+        ;; the mount-epoch, which the pre-restore render below pins to stale).
+        (emit-mount-sub-run! :test/main :counter render-key 0 1)
+
+        (rf/dispatch-sync [:counter-inc] {:frame :test/main}) ;; counter 2 — stale
+        (let [stale-epoch (last-epoch :test/main)]
+          (emit-sub-run! :test/main :counter 1 2)             ;; value-change into stale
+          ;; A pre-restore repaint lands in the stale (then-newest) epoch, seeding
+          ;; a :renders row there — so the POST-restore repaint hits the de-dup
+          ;; arm (`render-key-already-in-epoch?` on the stale epoch).
+          (emit-render! :test/main render-key)
+
+          (is (contains? (rendered-view-ids (epoch-by-id :test/main stale-epoch))
+                         :counter-view)
+              "premise — the stale epoch already carries a render row for the
+               view (arms the de-dup absorb path)")
+
+          (is (true? (rf/restore-epoch! :test/main (:epoch-id target-epoch))))
+
+          ;; The restore-induced repaint fires post-settle.
+          (emit-render! :test/main render-key)
+
+          (let [target (epoch-by-id :test/main target-epoch)]
+            (is (contains? (rendered-view-ids target) :counter-view)
+                "rf2-arzb9o — the repaint attributes to the restored-target
+                 epoch; pre-fix the scan resolved to the stale newer epoch and
+                 the de-dup arm silently absorbed the repaint (target got
+                 nothing)")))))))
+
 ;; ===========================================================================
 ;; rf2-qh13yf — back-fill splice is SNAPSHOT-CONSISTENT under interleaved
 ;;               eviction at ring cap
