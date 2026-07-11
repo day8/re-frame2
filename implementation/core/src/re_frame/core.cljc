@@ -971,9 +971,20 @@
 ;; a keyword target both route correctly.
 
 (def ^{:doc "One-shot read of a sub's current value — subscribes, derefs,
-  then unsubscribes. Does NOT retain a cache reference. Use in handler
-  bodies, machine actions, REPL — anywhere you need a value without a
-  reactive subscription. Per spec/API.md §Dispatch and subscribe.
+  then unsubscribes. Does NOT retain a cache reference. The **advanced**
+  live one-shot read for non-reactive consumers — REPL sessions, SSR
+  builders, tools, and integration tests that want what the running frame
+  sees right now; for reactive consumers (Reagent views, tools holding
+  the reaction) use `subscribe`. NOT the default write-side idiom:
+  ordinary event/effect design derives from the handler's declared
+  coeffects (`:rf.cofx/requires`, EP-0017) and pure helpers, so the read
+  rides the causal record rather than an ambient side-effect. And **never
+  from inside a machine callback** (`:guard` / `:action` / `:entry` /
+  `:exit`): an in-callback ambient read is unrecorded, so replay could
+  select a different transition — a machine takes external facts by
+  payload threading or a declared recordable coeffect (machines-only
+  `{:rf/sub query-v :as fact-id}`). Per Spec 006 §subscribe-once and
+  Cross-Spec-Interactions §2.
 
   Call shapes, mirroring `subscribe`:
 

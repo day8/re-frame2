@@ -1548,12 +1548,18 @@
   unsubscribes — does NOT retain a reference on the cache entry and
   does NOT register the caller for reactive re-render.
 
-  Use in tests, REPL sessions, machine-action bodies, SSR builders,
-  or any non-reactive consumer that wants the value right now. For
-  reactive consumers (Reagent views, tools holding the reaction) use
-  `subscribe`. For event handlers prefer declaring a sub-reading cofx via
-  `:rf.cofx/requires` (EP-0017) so the read is part of the cofx contract
-  rather than a side-effect inside the handler body.
+  The **advanced** live one-shot read: use in tests, REPL sessions, SSR
+  builders, tools, or any non-reactive consumer that wants the value
+  right now. For reactive consumers (Reagent views, tools holding the
+  reaction) use `subscribe`. For event handlers prefer declaring a
+  sub-reading cofx via `:rf.cofx/requires` (EP-0017) so the read is part
+  of the cofx contract rather than a side-effect inside the handler body.
+  **Never from inside a machine callback** (`:guard` / `:action` /
+  `:entry` / `:exit`): an in-callback ambient read is unrecorded and
+  breaks 005's token-grain replay contract — a machine takes external
+  facts by payload threading or a declared recordable coeffect
+  (machines-only `{:rf/sub query-v :as fact-id}`). Per
+  Cross-Spec-Interactions §2 / Spec 006 §subscribe-once.
 
   Per Spec 006 §Reference counting and disposal: the
   teardown `unsubscribe` runs synchronously on the 1 → 0 transition,

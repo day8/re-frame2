@@ -2112,7 +2112,12 @@
         (is (some #(= :rf.frame/destroyed (:operation %)) @traces) ":rf.frame/destroyed fires after the per-machine traces")))))
 
 (defn assert-xspec-machine-microstep-subscribe
-  "#2 Sub-cache hit inside a machine microstep."
+  "#2 Sub-cache hit inside a machine microstep — the SUPPORTED shape.
+  The action reads the sub value off its recorded `:rf.cofx` (a declared
+  `{:rf/sub … :as …}` recordable source, evaluated once against the
+  committed pre-cascade frame-state), NOT via an in-callback
+  `subscribe-once` — an in-callback ambient read is unrecorded and breaks
+  005's replay contract (Cross-Spec-Interactions §2, rf2-h6ggnt)."
   [{:keys [name]}]
   (testing (str name " — #2 sub-cache hit inside a machine microstep")
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:user/role :admin}}))
@@ -2123,11 +2128,14 @@
                    :states  {:idle   {:on {:go {:target :acting :action :record-role}}}
                              :acting {}}
                    :actions {:record-role
-                             (fn [_] (reset! observed-by-action (rf/subscribe-once [:user-role])) nil)}}]
+                             {:rf.cofx/requires [{:rf/sub [:user-role] :as :auth/role}]
+                              :fn (fn [{cofx :rf.cofx}]
+                                    (reset! observed-by-action (:auth/role cofx))
+                                    nil)}}}]
       (rf/reg-machine :auth/check machine)
       (rf/dispatch-sync [:auth/check [:go]])
       (is (= :admin @observed-by-action)
-          "the sub returns the committed app-db value visible to the action body"))))
+          "the action read the recorded (pre-cascade) sub value off its :rf.cofx"))))
 
 (defn assert-xspec-boot-order-adapter-ready
   "#3 Machine spawn at boot before substrate adapter ready."

@@ -125,13 +125,14 @@
 
 (reg-view hydration-summary []
   ;; Cross-frame readout — proves each frame's :rf/hydration metadata
-  ;; was written independently. We use the frame-explicit
-  ;; subscribe-once opts form (`[query-v {:frame f}]`) so each call
-  ;; resolves against the named frame's app-db, not the surrounding
-  ;; `frame-provider`'s default.
-  (let [hyd-a (rf/subscribe-once [:hydration] {:frame frame-a})
-        hyd-b (rf/subscribe-once [:hydration] {:frame frame-b})
-        hyd-l (rf/subscribe-once [:hydration] {:frame frame-log})]
+  ;; was written independently. Reactive `subscribe` with the frame-explicit
+  ;; opts form (`[query-v {:frame f}]`) so each reaction resolves against the
+  ;; named frame's app-db (this view renders OUTSIDE any `frame-provider`),
+  ;; and the summary re-renders when a frame's hydration metadata changes.
+  ;; (Render-time reads are reactive `subscribe`, never `subscribe-once`.)
+  (let [hyd-a @(rf/subscribe [:hydration] {:frame frame-a})
+        hyd-b @(rf/subscribe [:hydration] {:frame frame-b})
+        hyd-l @(rf/subscribe [:hydration] {:frame frame-log})]
     [:div {:data-testid "hydration-summary"
            :style {:border  "1px solid #aaa"
                    :padding "0.5em"
