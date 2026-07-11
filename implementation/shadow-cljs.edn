@@ -130,6 +130,16 @@
                 ;; required, and core never :requires re-frame.resources.
                 "resources/src"
                 "resources/test"
+                ;; rf2-vxgfnd.1 — the re-frame.ui compiled-view substrate
+                ;; (epic rf2-vxgfnd), S1a skeleton. src carries the
+                ;; empty-but-loadable compiler (.cljc) + client-kernel
+                ;; (.cljs) stubs; test carries the classpath probe
+                ;; (re-frame.ui.skeleton-cljs-test), which rides the
+                ;; always-on :node-test gate (`cljs-test$` matches) AND
+                ;; the focused :node-test-ui build below. Bundle-isolation
+                ;; holds: no production build :requires re-frame.ui.*.
+                "ui/src"
+                "ui/test"
                 ;; rf2-3cfvt — adversarial-property SECURITY tier. A small
                 ;; cross-artefact test tree probing the three security
                 ;; boundaries the pin-and-assert regime missed: SSR escaping
@@ -662,6 +672,27 @@
   {:target    :node-test
    :output-to "out/node-test-testbed-support.js"
    :ns-regexp "^re-frame\\.testbed\\..+-cljs-test$"
+   :main      re-frame.test-quiet.shadow-node/main
+   :compiler-options {:warnings      {:redef false}
+                      :infer-externs false}}
+
+  ;; rf2-vxgfnd.1 — FOCUSED node-test build for the re-frame.ui artefact
+  ;; (the compiled-view substrate, epic rf2-vxgfnd).
+  ;;
+  ;; Mirrors :node-test-testbed-support above: the ns-regexp selects only
+  ;; this artefact's own suites (every `re-frame.ui.*` test namespace —
+  ;; nothing else in the repo lives under that prefix), giving the
+  ;; re-frame.ui program a named, cheap gate (`npm run test:ui`) so the
+  ;; long-lived S1b+ compiler-slice workers don't compile + run the full
+  ;; ~3500-test node suite on every iteration. The same namespaces also
+  ;; match the always-on `:node-test` build's broader `cljs-test$` regex,
+  ;; so the artefact is covered on every PR whether or not this focused
+  ;; build is invoked — this is the *named* surface, not an additional
+  ;; required gate.
+  :node-test-ui
+  {:target    :node-test
+   :output-to "out/node-test-ui.js"
+   :ns-regexp "^re-frame\\.ui\\..+-cljs-test$"
    :main      re-frame.test-quiet.shadow-node/main
    :compiler-options {:warnings      {:redef false}
                       :infer-externs false}}
