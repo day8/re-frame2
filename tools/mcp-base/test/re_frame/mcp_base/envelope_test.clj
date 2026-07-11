@@ -4,6 +4,7 @@
   marker detection."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.mcp-base.envelope :as envelope]
+            [re-frame.mcp-base.overflow :as overflow]
             [re-frame.mcp-base.vocab :as vocab]))
 
 ;; ---------------------------------------------------------------------------
@@ -188,3 +189,35 @@
     (is (true? (envelope/marker-text? (pr-str {vocab/cache-hit-key {:tool "x" :hash "abc"}}))))
     ;; Even under a tiny additive body — additive fields inside the body are fine.
     (is (true? (envelope/marker-text? "{:rf.mcp/overflow {:limit :reached :extra :ok}}")))))
+
+(deftest marker-text?-bounds-body-size-not-just-closure
+  ;; rf2-vd1uyn. Closure alone does NOT bound the marker BODY size. A
+  ;; COMPLETE, CLOSED, single-key {:rf.mcp/overflow {…huge…}} passes the
+  ;; leading-token + closed-wrapper gates yet its rendered text is
+  ;; arbitrarily large — over-budget by construction. The pre-fix recogniser
+  ;; returned true and let the fast-path skip egress it un-capped (100 KB ≈
+  ;; 25k tokens ≫ the 5k default cap). The size gate makes "a marker is
+  ;; sub-cap BY CONSTRUCTION" TRUE for the recogniser: an over-default-cap
+  ;; single-key marker is NOT skip-eligible and continues through cap
+  ;; enforcement. This is the BODY-SIZE dimension of the same threat the
+  ;; sibling-key test (rf2-j538f7.20) covers for the extra-sibling dimension.
+  (let [over-budget (apply str (repeat (* 8 overflow/default-max-tokens) "x"))] ;; ~2× the default cap
+    (testing "the injected body really is over the default cap (non-vacuous)"
+      (is (> (overflow/token-estimate over-budget) overflow/default-max-tokens)))
+    (testing "RED-then-GREEN: an over-budget-BODY single-key overflow marker is NOT a marker"
+      (is (false? (envelope/marker-text?
+                    (pr-str (array-map vocab/overflow-key {:limit :reached :blob over-budget}))))
+          "an over-default-cap overflow BODY must be capped, not skipped")
+      (is (false? (envelope/marker-text?
+                    (pr-str (array-map vocab/cache-hit-key {:tool "x" :blob over-budget}))))
+          "the same hole for cache-hit"))
+    (testing "both print forms of the over-budget marker are rejected (host-agnostic)"
+      (is (false? (envelope/marker-text?
+                    (binding [*print-namespace-maps* false]
+                      (pr-str (array-map vocab/overflow-key {:blob over-budget}))))))
+      (is (false? (envelope/marker-text?
+                    (binding [*print-namespace-maps* true]
+                      (pr-str (array-map vocab/overflow-key {:blob over-budget}))))))))
+  (testing "genuine tiny markers stay under the bound and STILL take the fast path"
+    (is (true? (envelope/marker-text? (pr-str (overflow-fixture)))))
+    (is (true? (envelope/marker-text? (pr-str {vocab/cache-hit-key {:tool "x" :hash "abc"}}))))))

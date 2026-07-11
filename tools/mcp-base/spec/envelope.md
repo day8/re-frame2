@@ -44,10 +44,13 @@ Is `text` (the rendered EDN text of a response's first content slot) a wire-boun
 
 Returns true for `:rf.mcp/cache-hit` / `:rf.mcp/overflow` markers — the two envelopes the cache + cap steps emit themselves. The consumer reads its own platform's content text (`:text` from a Clojure map, `j/get :text` from a JS object) and passes the string here; this fn owns the shared recognition logic across hosts.
 
-Two gates, **both required**:
+Three gates, **all required**:
 
 1. A cheap **leading-token pre-filter** — the EXACT marker key must be the first top-level key, not merely a prefix of it (see §Exact-key match below): a lookalike leading key such as `:rf.mcp/overflowed` or `:rf.mcp/cache-hit-extra` is NOT a marker.
-2. A **structural confirmation** — the whole `text` must parse to a closed single-key map whose sole key is a marker key and whose body is a map (see §Closed-wrapper confirmation below).
+2. A **size bound** — the rendered text must estimate within the documented default cap `overflow/default-max-tokens` (see §Size bound below). Closure alone does not bound the marker's SIZE, so a single-key wrapper with an over-budget body is NOT a marker.
+3. A **structural confirmation** — the whole `text` must parse to a closed single-key map whose sole key is a marker key and whose body is a map (see §Closed-wrapper confirmation below).
+
+Together the three gates make the fast-path invariant TRUE: anything `marker-text?` accepts is a closed single-key `:rf.mcp/*` map guaranteed under the default cap.
 
 Nil-safe: a nil / non-string `text` is not a marker.
 
@@ -87,6 +90,18 @@ So after the leading-token pre-filter matches, `marker-text?` **parses the whole
 - a **map** body (additive body fields are permitted where the conformance schema allows them — only the OUTER wrapper must be closed).
 
 The read reuses `cursor.md`'s host-agnostic *one form, EOF-exhausted, tagged-literals-rejected* technique (wrap as `[<text> <eof-sentinel>]`, require the read to yield exactly `[<one-form> <eof-sentinel>]`). This rejects — identically on `clojure.edn` (JVM) and `cljs.reader` (CLJS) — an extra top-level sibling, a trailing EDN form, an injected `]` truncation, any tagged literal (built-in `#inst`/`#uuid` or custom `#js`/`#foo`), and a non-map root/body. Anything that fails the confirmation is ordinary/malformed payload and continues through cap enforcement. The cheap path for genuinely generated markers is preserved: their pre-filter matches and the parse confirms a closed single-key map, with no overflow-of-overflow recursion.
+
+## Size bound
+
+Closure proves the wrapper is closed but NOT small. A **complete, closed, single-key** wrapper whose body is arbitrarily large —
+
+```clojure
+{:rf.mcp/overflow {:limit :reached :blob "<100 KB of x's>"}}
+```
+
+— passes the leading-token and closed-wrapper gates yet renders to ~25 000 tokens, far over the ~5 000-token default cap. Treating it as sub-cap-by-construction would let the fast-path skip egress an over-budget payload un-capped — the BODY dimension of the same reserved-`:rf.mcp/*`-namespace threat the closed-wrapper gate closes for the extra-sibling dimension.
+
+So `marker-text?` also requires the rendered text to estimate within the documented default cap: `(<= (overflow/token-estimate text) overflow/default-max-tokens)`. This expresses "sub-cap by construction" **directly** against the convention cap. The two real markers are tiny fixed-shape maps (a few hundred chars ≈ ~100 tokens), so they pass with vast headroom; only an over-budget reserved-key-shaped payload is caught. Consequently anything `marker-text?` accepts is guaranteed under the default cap, so skipping the cap step on it can never leak an over-default-cap body. The O(1) length check also short-circuits an adversarial 100 KB input before the O(n) closed-wrapper read.
 
 ## Indicator-field parity
 
