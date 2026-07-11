@@ -411,10 +411,16 @@
   [schema value]
   (or (some-> (m/explain schema value) me/humanize) {}))
 
-;; Lay down the slice in its standard form-recipe shape — empty draft, `:idle`
-;; status, all the bookkeeping fields blank. Dispatched once at boot (from each
-;; substrate mount's `:initial-events`) so the very first render reads a real
-;; draft.
+;; Lay down the slice in its shape for this MACHINE-DRIVEN variant: the draft
+;; plus the validation bookkeeping the form recipe needs (`:submit-attempted?`,
+;; `:errors`, `:touched`). Notice what is ABSENT — no `:status` / `:submitted` /
+;; `:submit-error` mirror. The generic form recipe carries those to track the
+;; submit/auth lifecycle (docs/core/how-to/build-a-form.md), but here the
+;; `:auth.login/flow` machine and its state tags ARE that lifecycle, so a
+;; parallel slice mirror would be a second source of truth no view reads —
+;; write-only state that could only drift out of step with the machine.
+;; Dispatched once at boot (from each substrate mount's `:initial-events`) so the
+;; very first render reads a real draft.
 ;;
 ;; This is also OWNER 1 of the password's three egress boundaries (see the
 ;; `Credentials` note above). Alongside the `:db` write we return a `:sensitive`
@@ -427,18 +433,17 @@
 ;; (docs/core/how-to/keep-secrets-out-of-traces.md, "Classify a durable secret
 ;; in app-db").
 (rf/reg-event :auth.login/initialise-form
-  {:doc "Seed the login-form slice at [:auth :login-form] to its standard
-         form-recipe shape (empty draft, :idle status), and classify the
-         draft-password path :sensitive so it is redacted at every egress."}
+  {:doc "Seed the login-form slice at [:auth :login-form] for this machine-driven
+         variant (empty draft + validation bookkeeping; the machine owns the
+         submit/auth lifecycle, so the slice carries no :status mirror), and
+         classify the draft-password path :sensitive so it is redacted at every
+         egress."}
   (fn handler-login-form-initialise [{:keys [db]} _]
     {:db (assoc-in db [:auth :login-form]
                    {:draft             login-form-defaults
-                    :submitted         nil
                     :submit-attempted? false
-                    :status            :idle
                     :errors            {}
-                    :touched           #{}
-                    :submit-error      nil})
+                    :touched           #{}})
      :sensitive [[:auth :login-form :draft :password]]}))
 
 ;; A keystroke landed on a NON-SECRET field (the email). Write the new value into
@@ -490,11 +495,11 @@
 ;; the user first presses submit, every invalid field is allowed to speak
 ;; (docs/core/how-to/build-a-form.md, step 3).
 ;;
-;; If the draft is clean, this is the handoff point. It flips the slice `:status`
-;; to `:submitting`, clears any stale field errors, issues the login request
-;; itself, and nudges the machine with a credential-free `:submit` signal. From
-;; here on the *machine* owns the in-flight / authed / error / locked story; the
-;; slice `:status` is just a mirror.
+;; If the draft is clean, this is the handoff point. It clears any stale field
+;; errors, issues the login request itself, and nudges the machine with a
+;; credential-free `:submit` signal. From here on the *machine* owns the whole
+;; in-flight / authed / error / locked story — read through its state tags — so
+;; the slice keeps no parallel `:status` of its own to fall out of step.
 ;;
 ;; If the draft is *invalid*, we stop right here: the field errors land in
 ;; `:errors` (rendered under each input) and nothing is dispatched. Handing a bad
@@ -509,8 +514,8 @@
 ;; lives in app-db — but a password is transient, so once the request is in
 ;; flight we also blank `[:draft :password]` to keep its *live* lifetime short.
 ;; Classification covers the observable shadow; blanking retires the live value.
-;; The password never touches `:submitted` or the machine — only the HTTP body
-;; carries it off-box, scrubbed by `:sensitive? true`. See
+;; The password never touches the machine — only the HTTP body carries it
+;; off-box, scrubbed by `:sensitive? true`. See
 ;; docs/core/how-to/keep-secrets-out-of-traces.md.
 (rf/reg-event :auth.login/submit-form
   {:doc "Submit the login form: validate the draft against Credentials. If
@@ -524,7 +529,6 @@
           db'    (assoc-in db [:auth :login-form :submit-attempted?] true)]
       (if (empty? errors)
         {:db (-> db'
-                 (assoc-in [:auth :login-form :status] :submitting)
                  (assoc-in [:auth :login-form :errors] {})
                  (assoc-in [:auth :login-form :draft :password] ""))
          :fx [;; Advance the machine — a credential-free signal. The machine
@@ -612,18 +616,15 @@
           ;; The machine gets a bare success fact — no credential.
           [:dispatch [:auth.login/flow [:auth.login/success]]]]}))
 
-;; Wipe the slate — slice back to empty, status back to `:idle`.
+;; Wipe the slate — slice back to empty defaults.
 (rf/reg-event :auth.login/reset-form
-  {:doc "Clear the login-form slice back to empty defaults / :idle."}
+  {:doc "Clear the login-form slice back to empty defaults."}
   (fn handler-login-form-reset [{:keys [db]} _]
     {:db (assoc-in db [:auth :login-form]
                    {:draft             login-form-defaults
-                    :submitted         nil
                     :submit-attempted? false
-                    :status            :idle
                     :errors            {}
-                    :touched           #{}
-                    :submit-error      nil})}))
+                    :touched           #{}})}))
 
 ;; ============================================================================
 ;; SUBSCRIPTIONS

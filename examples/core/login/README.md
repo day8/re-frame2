@@ -46,7 +46,7 @@ One detail worth noticing, about the password. A password is a secret, and re-fr
 2. **The edit event** — the password's keystrokes ride `:auth.login/edit-password`, a *map-payload* event whose registration declares `:sensitive [[:value]]`, so the dispatched-event trace redacts it. (A positional arg can't be classified — redaction is path-based — which is why the secret field gets its own map-shaped event while the non-secret email keeps the plain positional `:auth.login/edit-field`.)
 3. **The HTTP request** — `:submit-form` issues the managed-HTTP call with `:sensitive? true`, scrubbing the request body from every `:rf.http/*` trace event.
 
-The password **never enters the machine** — `:submit-form` sends the request and hands the machine a credential-free signal — and it never touches `:submitted`. It is also blanked from the draft on submit, to keep its *live* lifetime short: classification covers the observable shadow, blanking retires the live value.
+The password **never enters the machine** — `:submit-form` sends the request and hands the machine a credential-free signal. It is also blanked from the draft on submit, to keep its *live* lifetime short: classification covers the observable shadow, blanking retires the live value.
 
 ## Why this shape
 
