@@ -648,13 +648,89 @@
     (when (config/get-setting :general :auto-open-on-error?)
       (settings-effects/install-auto-open-watcher!))))
 
+;; ---- surface transition (rf2-j538f7.23) ---------------------------------
+;;
+;; `open!` and `open-overlay!` name two DISTINCT PHYSICAL surfaces
+;; (spec/API.md §open! / open-overlay!, spec/011-Launch-Modes.md):
+;; inline mounts true-inline into the app's `[data-rf-xray-host]`
+;; layout host (normal flow, `position: relative`); overlay mounts a
+;; fixed modal under `document.body` (`position: fixed`). `shell-view`
+;; derives that positioning from its render-time `:mode` prop, and the
+;; mount node's OWNER (host vs body) is fixed at create-time. So a mode
+;; change is NOT a CSS toggle — the pre-rf2-j538f7.23 update-only
+;; branches merely flipped visibility + `data-rf-xray-mode` +
+;; `mount-state :mode`, leaving the actual React tree, parent, and
+;; layout on the PREVIOUS surface: the stored mode/attrs reported the
+;; requested surface while nothing physically moved (a Settings control
+;; that reported success without realizing it).
+;;
+;; `switch-surface!` realizes the requested surface both directions:
+;; it recreates the React root on the (rare) mode flip rather than
+;; introducing a second parallel mount. The shell's user/runtime state
+;; lives OUTSIDE the React tree (the `:rf/xray` frame's app-db,
+;; localStorage), so recreating the root preserves the focused epoch,
+;; selected tab, theme, and filters — only transient component-local
+;; React state (a drag in flight) is discarded, which is acceptable on
+;; a deliberate surface change. `ensure-xray-frame!` (invoked by
+;; `mount-shell-into!`) is idempotent via its `seeded-frame-ids` guard,
+;; so the re-render does NOT re-seed app-db.
+(defn- switch-surface!
+  "Re-parent + re-render the singleton shell so its realized physical
+  surface matches `mode` (`:inline` or `:overlay`). Precondition: a
+  mount already exists whose realized `:mode` differs from `mode`.
+
+  Unmounts the current React root (frame/app-db survive — they live
+  outside the component tree), creates a fresh mount node in the target
+  owner (the inline layout host for `:inline`; `document.body` for
+  `:overlay`), and renders `shell-view` with the new mode.
+  `mount-shell-into!` publishes `mount-state :mode` + the
+  `data-rf-xray-mode` attributes only AFTER the DOM surface is realized.
+
+  `:inline` requires the app-provided `[data-rf-xray-host]`. When it is
+  absent the existing surface is LEFT INTACT and the missing-host
+  diagnostic is returned — a failed inline switch must not strand the
+  user with no shell."
+  [mode]
+  (let [{:keys [unmount]} @mount-state]
+    (case mode
+      :inline
+      (if (layout-host)
+        (do
+          ;; Unmount the old React root FIRST (its container `<div>`
+          ;; stays attached, emptied by React); `create-inline-mount-
+          ;; node!` then evicts that stale `#rf-xray-root` via
+          ;; `remove-stale-root!` before allocating the fresh node in
+          ;; the host.
+          (when unmount (try (unmount) (catch :default _ nil)))
+          (mount-shell-into! (create-inline-mount-node!) :inline))
+        ;; No layout host — keep the existing overlay; surface the
+        ;; actionable diagnostic rather than tearing the shell down.
+        (report-diagnostic! (missing-host-diagnostic)))
+
+      :overlay
+      (do
+        (when unmount (try (unmount) (catch :default _ nil)))
+        ;; The shell is leaving the inline host — restore the host's
+        ;; pre-Xray `display` so a `collapse-host!` that ran while
+        ;; inline cannot strand it at `display:none` after we re-parent
+        ;; to `document.body`, then drop the now-stale snapshot (the
+        ;; next inline switch re-snapshots the host).
+        (restore-host-display!)
+        (reset! host-display-snapshot nil)
+        (mount-shell-into! (create-overlay-mount-node!) :overlay)))))
+
 (defn open!
   "Mount + show the default Xray shell in the app-provided true-inline
   layout host. On first call: register the `:rf/xray` frame, find the
   configured host (`[data-rf-xray-host]` by default), create
   `#rf-xray-root` inside it, render the shell via the installed
-  substrate adapter, mark visible. On subsequent calls (when already
-  mounted): make the container visible.
+  substrate adapter, mark visible. On subsequent calls when already
+  mounted inline: make the container visible (a CSS-only show — the
+  <80ms toggle target). When already mounted as the OVERLAY surface:
+  realize the requested inline surface — re-parent the shell into the
+  layout host and re-render inline (rf2-j538f7.23) so the public
+  `open!` verb honours its distinct-surface contract instead of
+  silently leaving the overlay in place.
 
   Per rf2-in6l2 the `:rf/xray` registration is lazy here (post-
   `rf/init!`) rather than at preload time; see `ensure-xray-frame!`
@@ -665,23 +741,34 @@
   diagnostic map and logs `console.error` without blocking startup."
   []
   (if-let [state @mount-state]
-    (do (set-visible! (:node state) true)
-        (swap! mount-state assoc :visible? true)
-        @mount-state)
+    (if (= :inline (:mode state))
+      (do (set-visible! (:node state) true)
+          (swap! mount-state assoc :visible? true)
+          @mount-state)
+      (switch-surface! :inline))
     (when (substrate-adapter/current-adapter)
       (if-let [node (create-inline-mount-node!)]
         (mount-shell-into! node :inline)
         @diagnostic-state))))
 
 (defn open-overlay!
-  "Debug/fallback launch path: mount Xray as the old fixed overlay
-  under `document.body`. Not the default developer experience."
+  "Debug/fallback launch path: mount Xray as the fixed overlay under
+  `document.body`. Not the default developer experience.
+
+  On first call: create the overlay `#rf-xray-root` under
+  `document.body` and render the shell fixed. When already mounted as
+  the overlay surface: make it visible (a CSS-only show). When already
+  mounted as the INLINE surface: realize the requested overlay surface
+  — re-parent the shell to `document.body` and re-render fixed
+  (rf2-j538f7.23) so the public `open-overlay!` verb honours its
+  distinct-surface contract instead of only flipping attributes."
   []
   (if-let [state @mount-state]
-    (do (set-visible! (:node state) true)
-        (set-mode-attrs! (:node state) :overlay)
-        (swap! mount-state assoc :visible? true :mode :overlay)
-        @mount-state)
+    (if (= :overlay (:mode state))
+      (do (set-visible! (:node state) true)
+          (swap! mount-state assoc :visible? true)
+          @mount-state)
+      (switch-surface! :overlay))
     (when (substrate-adapter/current-adapter)
       (mount-shell-into! (create-overlay-mount-node!) :overlay))))
 
