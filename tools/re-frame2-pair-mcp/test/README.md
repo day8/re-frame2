@@ -14,6 +14,7 @@ integration scripts.
 | Does the compiled `out/server.js` complete an MCP handshake and surface the documented tool descriptors? | **JS** — `stdio-roundtrip.js` |
 | Does the persistent nREPL socket survive multiple ops on one server process without leaking / hanging? | **JS** — `live-nrepl.js` |
 | Do connect / dispatch / trace / hot-reload work end-to-end against a live browser-hosted fixture, through the real MCP boundary? | **JS** — `live-e2e-fixture.cjs` |
+| Does closing stdin (EOF) retire the session — close the persistent nREPL socket and exit 0 — with no out-of-band kill? | **JS** — `stdin-eof-shutdown.cjs` |
 
 If a regression would only be visible **after** the CLJS compiles to
 JS, write a JS test. If it would be visible in the CLJS source, write a
@@ -143,6 +144,34 @@ Run with: `npm run test:live-e2e-fixture` (after `npm run build` and booting
 the fixture; `RE_FRAME2_PAIR_FIXTURE_URL` / `SHADOW_CLJS_NREPL_PORT`
 override discovery).
 
+#### `stdin-eof-shutdown.cjs` — EOF lifecycle contract (rf2-j538f7.32)
+
+The self-contained lifecycle grader. Spawns `out/server.js` and drives it
+over real stdio against a **fake bencode nREPL** the script itself boots —
+no live shadow-cljs, so it runs anywhere (Ubuntu + Windows CI). It pins the
+documented `stdin EOF -> nREPL close -> process exit` contract
+(`spec/001-Wire-Protocol.md`, `server.cljs` lifecycle step 6): the MCP host
+owns process lifecycle, so closing stdin must retire the session. Three
+cases:
+
+- **with nREPL** — a completed `eval-cljs` call opens an idle nREPL socket;
+  `child.stdin.end()` must close that socket (the fake peer observes its
+  connection close) AND exit the process `0` within a short bound. The
+  success path never calls `child.kill()` — force-kill lives only in the
+  cleanup `finally`, so a leaked/hung process surfaces as a red instead of
+  being masked. Before the fix the child stayed alive indefinitely.
+- **no nREPL** — a closed-world session (discovery never resolves a port)
+  still exits `0` promptly on EOF.
+- **early EOF** — EOF before the first tool call (no socket ever opened) is
+  harmless, and a duplicate terminal event does not change the exit status
+  (idempotency).
+
+Every case also asserts stdout purity — teardown emits nothing but MCP
+frames on stdout. The `shutdown!` teardown logic has hermetic CLJS unit
+counterparts in `re_frame2_pair_mcp/shutdown_test.cljs`.
+
+Run with: `npm run test:stdin-eof-shutdown` (after `npm run build`).
+
 #### `post-merge-hook-test.cjs` — stale-binary post-merge hook (rf2-6jj3r)
 
 Unit + smoke tests for the repo's `post-merge` git hook (source lives
@@ -178,6 +207,7 @@ Is the regression visible in CLJS source?
   │
   └── no → JS integration test
             ├── concerns the stdio handshake / tool catalogue?   → stdio-roundtrip.js
+            ├── concerns the stdin-EOF shutdown lifecycle?        → stdin-eof-shutdown.cjs
             ├── concerns the live nREPL socket?                   → live-nrepl.js
             └── concerns an end-to-end flow against a live app?   → live-e2e-fixture.cjs
 ```
