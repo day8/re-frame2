@@ -369,6 +369,15 @@
 (late-bind/set-fn! :routing/route-sub-fn       route-sub-fn)
 (late-bind/set-fn! :routing/current-url        current-url)
 
+;; Registration-time frame-config preflight (rf2-ktmto9): routing owns the
+;; MEANING of `:url-strategy` (presence semantics + host-required legs), core
+;; owns the TIMING — `re-frame.frame/reg-frame` invokes this hook with the
+;; final expanded config BEFORE any candidate-derived write, so a malformed
+;; declaration fails with zero residue (first registration) / preserves the
+;; previous frame untouched (re-registration). Published on BOTH hosts — the
+;; JVM validates its two host-agnostic legs the same way.
+(late-bind/set-fn! :routing/preflight-frame-config! strategy/preflight-frame-config!)
+
 ;; Route classifications are stored at runtime-db-absolute paths, while route
 ;; subscriptions return projections below those paths. These hooks let core's
 ;; shared egress walker seed a route-sub value at its storage coordinate so

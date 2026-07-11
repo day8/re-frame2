@@ -512,6 +512,10 @@
    {:key         :routing/current-url
     :producer-ns 're-frame.routing
     :description "Read the current browser URL as pathname+search+hash (CLJS) / \"/\" (JVM)."}
+   {:key         :routing/preflight-frame-config!
+    :producer-ns 're-frame.routing
+    :design-bead "rf2-ktmto9"
+    :description "Registration-time frame-config PREFLIGHT `(fn [frame-id config])` — PURE validation of routing-owned frame-config keys, invoked by frame/reg-frame (the one frame-config commit chokepoint) with the FINAL expanded config (after preset expansion + source-coordinate merging) BEFORE any candidate-derived write: the frame-record build, the registrar row, the trace-policy flags, the frames swap, the :initial-events setup dispatch, and any trace emit. Validates an explicitly-declared :url-strategy for host-required shape/callability (validate-url-strategy!, fail-loud :rf.error/invalid-url-strategy with {:frame frame-id} ex-data); PRESENCE semantics — a config with NO :url-strategy key is a no-op (omission alone selects the default history strategy), while a PRESENT key INCLUDING explicit nil is an explicit declaration and fails loud when malformed. Published on BOTH hosts. When the hook is UNPUBLISHED (routing not loaded) and a config declares :url-strategy, core fails loud with :rf.error/routing-artefact-missing rather than storing a strategy nobody can validate or execute; the :url-bound?-only late-load case is unchanged. Routing owns the meaning; core owns the timing — the fail-loud + failure-atomicity completion of PR #5633's consult-seam validation. Per Spec 012 §URL strategies / Spec 002 §reg-frame construction failure-atomicity."}
    {:key         :routing/on-frame-registered!
     :producer-ns 're-frame.routing
     :design-bead "rf2-g8pbwg"

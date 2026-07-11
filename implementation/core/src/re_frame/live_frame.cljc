@@ -557,8 +557,10 @@
            :doc "frame id -> the descriptor pool its CURRENT generation was
   resolved against: nil for the live source store, a real descriptors value
   for an explicit pool (`make-frame`'s 2-arity). Recorded by `make-frame` on
-  EVERY call (creation + hot-reload re-construction) so reprojection re-
-  resolves against the SAME provenance (rf2-rf3zgt) instead of silently
+  every SUCCESSFUL call (creation + hot-reload re-construction), AFTER the
+  `reg-frame` engine commit returns (rf2-ktmto9 — a failed creation records
+  nothing; a failed re-construction preserves the old row), so reprojection
+  re-resolves against the SAME provenance (rf2-rf3zgt) instead of silently
   defaulting to the live store for a frame that was never resolved against
   it. See the §Generation PROVENANCE section above for the full rationale."}
   frame-generation-pool
@@ -728,13 +730,6 @@
          record-config (cond-> (apply dissoc opts image-selection-opt-keys)
                          true            (assoc :rf.frame/generation generation)
                          (some? adapter) (assoc :rf.frame/adapter adapter))]
-     ;; Record which pool this generation was resolved against BEFORE
-     ;; registering — see §Generation PROVENANCE above (rf2-rf3zgt): a later
-     ;; reprojection reads this back so it re-resolves against the SAME pool
-     ;; (explicit or live) rather than always falling through to the live
-     ;; store. Recorded on EVERY call (creation + hot-reload re-construction),
-     ;; so a re-`make-frame` that changes arity keeps the record current.
-     (record-frame-generation-pool! runnable-id descriptors)
      ;; Create (or idempotently update) the ONE `frames`-registry record under
      ;; the id. `reg-frame` is idempotent on an existing id (surgical update
      ;; preserving runtime state — EP-0024 §Duplicate id policy), installs the
@@ -743,6 +738,17 @@
      ;; (the collapse supersedes the public realm dimension), so the record is
      ;; keyed by the bare id.
      (frame/reg-frame runnable-id record-config)
+     ;; Record which pool this generation was resolved against AFTER the engine
+     ;; commit returns successfully — see §Generation PROVENANCE above
+     ;; (rf2-rf3zgt): a later reprojection reads this back so it re-resolves
+     ;; against the SAME pool (explicit or live) rather than always falling
+     ;; through to the live store. Recorded on every SUCCESSFUL call (creation +
+     ;; hot-reload re-construction), so a re-`make-frame` that changes arity
+     ;; keeps the record current — and ordered after `reg-frame` (rf2-ktmto9,
+     ;; the failure-atomicity completion) so a FAILED creation records nothing
+     ;; and a FAILED re-construction preserves the OLD provenance row, matching
+     ;; the engine's own no-residue-on-failure contract.
+     (record-frame-generation-pool! runnable-id descriptors)
      ;; Return the frame VALUE — the lifecycle token (generation not embedded;
      ;; read from the record by id).
      (frame/make-frame-value {:id          id
