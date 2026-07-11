@@ -1040,11 +1040,15 @@
 
   (testing "several co-matchable equal-rank ties name the route that
             actually wins at match time — the earliest-registered"
+    ;; A fresh /m/* URL family: the /a/* routes from the first testing
+    ;; block are still registered (the reset fixture is per-deftest) and
+    ;; tie these on rank, but a distinct literal prefix keeps the families
+    ;; disjoint, so only the intra-family conflicts warn.
     (let [warns (shadow-warnings
                   (fn []
-                    (rf/reg-route :route/first  {} "/a/:x")
-                    (rf/reg-route :route/second {} "/a/:y")
-                    (rf/reg-route :route/third  {} "/a/:z")))]
+                    (rf/reg-route :route/first  {} "/m/:x")
+                    (rf/reg-route :route/second {} "/m/:y")
+                    (rf/reg-route :route/third  {} "/m/:z")))]
       ;; :route/second warns against :route/first; :route/third ties with
       ;; BOTH but the warning names :route/first — the match-time winner.
       (is (= 2 (count warns)))
