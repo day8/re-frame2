@@ -21,7 +21,11 @@
             [reagent2.impl.template :as template]
             [reagent2.impl.component :as component]
             [goog.object :as gobj]
-            ["react" :as react]))
+            ["react" :as react]
+            ;; rf2-bf4uw2: render an [:f> f] through the server renderer to
+            ;; prove f's React hooks run in a valid function-component
+            ;; context (a class-lowered f would throw 'Invalid hook call').
+            ["react-dom/server" :as rds]))
 
 ;; ---------------------------------------------------------------------------
 ;; Tag parsing — :div.cls#id shorthand
@@ -485,14 +489,50 @@
       (is (= Comp (.-type el)))
       (is (= "shaped" (-> el .-props .-already))))))
 
-(deftest as-element-function-component
-  (testing "[:f> some-fn arg] → wrapped as React class for reactivity"
+(deftest as-element-function-component-is-real-fn-component-rf2-bf4uw2
+  (testing "rf2-bf4uw2: [:f> f] renders f as a REAL React FUNCTION
+            component — NOT a class. The prior fn-to-class lowering
+            produced a React class, defeating the head's defining
+            purpose (hosting React hooks)."
     (let [some-fn (fn [_n] [:div])
           ^js el (template/as-element [:f> some-fn 42])]
-      ;; f> dispatches through fn-to-class so the head is a class.
-      (is (some? (.-type el)))
-      (is (component/reagent-class? (.-type el))
-          "fn-to-class produced a reagent-slim class for the f>'d fn"))))
+      (is (fn? (.-type el)) ":f> head is a function component")
+      (is (not (component/reagent-class? (.-type el)))
+          ":f> is NOT lowered to a reagent-slim class (the rf2-bf4uw2 bug)")
+      (is (not (component/react-class? (.-type el)))
+          ":f> head is not a React class either — a plain function component")
+      ;; Stable identity: the same fn re-wraps to the SAME component type
+      ;; so React reconciles across renders rather than remounting (which
+      ;; would drop hook + DOM state).
+      (let [^js el2 (template/as-element [:f> some-fn 7])]
+        (is (identical? (.-type el) (.-type el2))
+            "wrapper cached per fn for stable reconciliation")))))
+
+(deftest as-element-function-component-passes-args-rf2-bf4uw2
+  (testing "rf2-bf4uw2: [:f> f a b] calls f with the user args (a b),
+            converting its hiccup return to a React element"
+    (let [greet  (fn [who] [:div.greet "hi " who])
+          ^js el (rds/renderToStaticMarkup
+                   (template/as-element [:f> greet "there"]))]
+      (is (= "<div class=\"greet\">hi there</div>" el)
+          "f received its positional arg and its hiccup was rendered"))))
+
+(deftest as-element-function-component-hooks-render-rf2-bf4uw2
+  (testing "rf2-bf4uw2: an [:f> f] whose f calls a React hook renders
+            WITHOUT throwing 'Invalid hook call'. Rendered through
+            react-dom/server, which installs the hooks dispatcher for
+            function components (and an error dispatcher for classes) — the
+            pre-fix class lowering would THROW here; the real function
+            component renders the hook-seeded value."
+    (let [hooked (fn hooked-view [start]
+                   (let [state (react/useState start)
+                         n     (aget state 0)]
+                     [:span "hooked:" n]))
+          markup (rds/renderToStaticMarkup
+                   (template/as-element [:f> hooked 41]))]
+      (is (= "<span>hooked:41</span>" markup)
+          "useState ran in a valid function-component context; state seeded
+           from the arg — no 'Invalid hook call' throw"))))
 
 (deftest as-element-user-fn
   (testing "[my-view 1] — user-fn head wraps via fn-to-class"

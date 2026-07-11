@@ -784,20 +784,64 @@
       (set! (.-key js-props) key))
     (make-element argv component js-props 3)))
 
+(defn- as-fn-component
+  "Wrap a plain CLJS render fn `f` as a REAL React FUNCTION component so
+  React hooks called inside `f` (`useState`, `useEffect`, `useRef`, …)
+  run in a valid hooks context — the DEFINING purpose of the `:f>` head,
+  and the whole reason it exists distinct from the class-wrapping user-fn
+  path.
+
+  The reagent argv travels through React props as `__rfArgv`; the wrapper
+  calls `f` with the user args (the argv tail) and converts the returned
+  hiccup (or an already-built React element, which passes through) via
+  `as-element`. The wrapper is a plain JS function, so React treats it as
+  a function component and the hooks dispatcher is installed for `f`'s
+  body.
+
+  Cached on `f` as `.-cljsFnComponent` so repeated renders reuse ONE
+  component type — a fresh wrapper per render would give React a new type
+  identity every time and force a remount (losing hook + DOM state).
+
+  Reactivity boundary (deliberate, per IMPL-SPEC §4.7 + §7.1): unlike the
+  class path (Form-1/2/3, which runs render inside a Reaction that captures
+  bare RAtom derefs), a function component does NOT get bare-deref capture.
+  Function components source reactive state through `useSyncExternalStore`-
+  shaped subscription hooks — `:f>` is the escape hatch TO React hooks, so
+  use a subscription hook for reactivity inside it. This mirrors how the
+  UIx / Helix substrates consume subscriptions."
+  [f]
+  (or (.-cljsFnComponent ^js f)
+      (let [wrapper (fn [^js props]
+                      (as-element (apply f (rest (.-__rfArgv props)))))]
+        (set! (.-displayName wrapper)
+              (or (some-> ^js f .-displayName)
+                  (some-> ^js f .-name)
+                  "reagent-fn-component"))
+        (set! (.-cljsFnComponent ^js f) wrapper)
+        wrapper)))
+
 (defn- function-element
   "Emit `:f>` — function-component dispatch.
-  `[:f> some-fn args...]` wraps `some-fn` via `fn-to-class` so that
-  Reagent-shaped reactivity (deref-capture) wires through. We treat
-  this identically to `react-component-element` because all our user
-  fns reach the renderer via fn-to-class."
+  `[:f> some-fn args...]` renders `some-fn` as a REAL React FUNCTION
+  component (via `as-fn-component`), NOT a class — so React hooks work
+  inside it (rf2-bf4uw2). The prior `fn-to-class` lowering produced a
+  React class, and calling a hook during class render throws
+  'Invalid hook call', silently defeating the head's defining purpose.
+
+  The user args (`[:f> f a b]` → `[a b]`) travel through React props as
+  `__rfArgv` (head-included, matching the class path's convention). The
+  original vector's `:key` meta / props-map `:key` is honoured via
+  `get-react-key` so React keys flow."
   [argv]
-  (let [component (nth argv 1 nil)
-        ;; Reconstruct the argv as if the fn were the head:
-        ;; [head & user-args] becomes [some-fn & user-args].
-        ;; Preserve the original argv's :key meta so React keys flow.
-        synth-argv (with-meta (into [component] (subvec argv 2))
-                              (meta argv))]
-    (react-component-element component synth-argv)))
+  (let [f          (nth argv 1 nil)
+        component  (as-fn-component f)
+        ;; [head & user-args] as [f & user-args] — as-fn-component's
+        ;; wrapper drops the head with (rest __rfArgv) before applying f.
+        synth-argv (with-meta (into [f] (subvec argv 2)) (meta argv))
+        js-props   #js {:__rfArgv synth-argv}]
+    (when-some [key (get-react-key argv)]
+      (set! (.-key js-props) key))
+    (react/createElement component js-props)))
 
 (defn- fragment-element
   "Emit `:<>` — React.Fragment.
