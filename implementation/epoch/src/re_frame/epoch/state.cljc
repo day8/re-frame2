@@ -439,11 +439,27 @@
                (:sub-runs record)))))
 
 (defn- value-changed-epoch-for
-  "Scan `frame-id`'s ring (most-recent first) for the newest epoch in
-  which the view named by `render-key` had a value-changed `:sub/run` —
-  i.e. the cascade that genuinely re-rendered the view. Returns that
-  epoch-id, or nil when no retained epoch shows a value-change for the
+  "Scan `frame-id`'s ring (from the last-settled anchor, newest-first) for
+  the newest epoch AT OR BEFORE the anchor in which the view named by
+  `render-key` had a value-changed `:sub/run` — i.e. the cascade that
+  genuinely re-rendered the view. Returns that epoch-id, or nil when no
+  retained epoch at or before the anchor shows a value-change for the
   view (a mount / mount-burst tail).
+
+  The scan starts at `anchor-epoch-id` (the most-recently-settled epoch —
+  `resolve-render-epoch`'s `default`), so records NEWER than the anchor are
+  NEVER considered. In normal operation the anchor IS the ring-newest record,
+  so the start index is `(dec n)` and the bound is a no-op. After a time-travel
+  restore `perform-restore!` re-anchors last-settled to an OLDER epoch WITHOUT
+  truncating the ring (rf2-arzb9o), so the newer pre-restore epochs remain —
+  and they still carry value-changed sub-run evidence for a repainted view. An
+  UNBOUNDED newest-first scan would return one of those STALE newer epochs,
+  attributing a POST-restore repaint to a PRE-restore cascade and silently
+  defeating the restore re-anchor (the render-path sibling of the rf2-w4q9gt
+  back-fill re-anchor). Bounding the scan at the anchor index confines
+  attribution to the restored timeline. When the anchor is nil or evicted the
+  bound degrades to the ring-newest index (`(dec n)`) — there is no bound to
+  apply.
 
   A view's subs are matched (see `epoch-value-changed-for-view?`): by the
   `:reader-render-key` stamp (synchronous in-render deref, raw-trace only) and
@@ -477,13 +493,16 @@
   `:sub-runs` fallback. Under keep-0 the scan is O(depth) to a
   miss; that is the necessary cost of attribution when no trace window exists,
   and it still short-circuits on the first (newest) value-change for the common
-  genuine-re-render case. One pass newest-first; short-circuits at the first
-  matching epoch."
-  [frame-id render-key]
+  genuine-re-render case. One pass newest-first from the anchor;
+  short-circuits at the first matching epoch."
+  [frame-id render-key anchor-epoch-id]
   (let [history (history-for frame-id)
         deps    (render-deps-for frame-id render-key)
-        n       (count history)]
-    (loop [i (dec n)]
+        n       (count history)
+        ;; Records newer than the anchor exist only after a restore rewind;
+        ;; start the newest-first scan at the anchor so they are excluded.
+        start   (or (epoch-index history anchor-epoch-id) (dec n))]
+    (loop [i start]
       (when (>= i 0)
         (let [record (nth history i)]
           (if (epoch-value-changed-for-view? record render-key deps)
@@ -496,9 +515,12 @@
   recently settled epoch, when no better anchor is found.
 
   Resolution order:
-    1. The newest epoch in which the view's OWN inputs changed
-       (`value-changed-epoch-for`) — a genuine reactive re-render rides
-       its causing cascade.
+    1. The newest epoch AT OR BEFORE the anchor in which the view's OWN
+       inputs changed (`value-changed-epoch-for`, bounded at
+       `default-epoch-id`) — a genuine reactive re-render rides its causing
+       cascade. The anchor bound keeps a post-restore repaint on the restored
+       timeline rather than attributing it to a stale newer pre-restore epoch
+       (rf2-arzb9o).
     2. Otherwise the view's MOUNT epoch (`mount-epoch-for`) — a mount
        render, or a mount-burst tail that re-deref'd unchanged subs, is
        anchored to where the instance first rendered rather than leaking
@@ -508,7 +530,7 @@
        value-change scan hit): treat the settling cascade as its mount,
        which `record-mount-epoch!` then anchors."
   [frame-id render-key default-epoch-id]
-  (or (when render-key (value-changed-epoch-for frame-id render-key))
+  (or (when render-key (value-changed-epoch-for frame-id render-key default-epoch-id))
       (when render-key (mount-epoch-for frame-id render-key))
       default-epoch-id))
 
