@@ -62,6 +62,7 @@
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.reply :as reply]
+            [re-frame.resources.classification :as rclass]
             [re-frame.resources.events :as events]
             [re-frame.resources.mutation-registry :as mreg]
             [re-frame.resources.mutation-runtime :as mstate]
@@ -1805,13 +1806,23 @@
             ;; `:rf.mutation/succeeded` (rf2-ru73k6 F2).
             cont-fx     (continuation-fx
                           reply-to
-                          (continuation-reply
-                            reply {:mutation-id mutation-id :params params
-                                   :instance-id instance-id :scope scope
-                                   ;; rf2-fi6tda.2 + .3: the full affected set
-                                   ;; (populated + patched + removed + stale),
-                                   ;; not just patch/populate.
-                                   :affected-keys affected}))
+                          ;; rf2-825mzj — redact the owner-declared sensitive
+                          ;; param / scope subpaths on the continuation echo
+                          ;; (derived from the mutation spec's projection-relative
+                          ;; declaration), so a `:sensitive`-declared param does
+                          ;; not repeat RAW on the reply that rides the trace bus
+                          ;; and dispatches into app workflow. The durable
+                          ;; instance keeps the raw value (the success-path
+                          ;; `:invalidates` / `:patches` above already read it).
+                          (rclass/redact-continuation-reply
+                            (continuation-reply
+                              reply {:mutation-id mutation-id :params params
+                                     :instance-id instance-id :scope scope
+                                     ;; rf2-fi6tda.2 + .3: the full affected set
+                                     ;; (populated + patched + removed + stale),
+                                     ;; not just patch/populate.
+                                     :affected-keys affected})
+                            spec))
             ;; best-effort abort of each REMOVED entry's in-flight attempt +
             ;; cancel its advisory timers (its durable facts are gone) —
             ;; mirroring `:rf.resource/remove`. Stale suppression by work-id +
@@ -2051,10 +2062,16 @@
             ;; `:rf.mutation/failed` (rf2-ru73k6 F2).
             cont-fx  (continuation-fx
                        reply-to
-                       (continuation-reply
-                         reply {:mutation-id mutation-id :params params
-                                :instance-id instance-id :scope scope
-                                :affected-keys affected}))]
+                       ;; rf2-825mzj — redact the owner-declared sensitive param /
+                       ;; scope subpaths on the failure continuation echo too
+                       ;; (an accepted `:error` / `:cancelled` reply dispatches
+                       ;; `:reply-to`). Derived from the mutation spec.
+                       (rclass/redact-continuation-reply
+                         (continuation-reply
+                           reply {:mutation-id mutation-id :params params
+                                  :instance-id instance-id :scope scope
+                                  :affected-keys affected})
+                         spec))]
         (work-ledger/clear-handle! frame-id work-id)
         ;; EP-0019 — the optimistic rollback trace (phase 4, error/cancel).
         ;; Carries the snapshot id, per-key restored-vs-conflict disposition (the

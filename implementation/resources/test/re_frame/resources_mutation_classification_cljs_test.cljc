@@ -1,0 +1,253 @@
+(ns re-frame.resources-mutation-classification-cljs-test
+  "rf2-825mzj (agb5jk item 3) — a mutation OWNER's projection-relative
+  `:sensitive` / `:large` declaration governs the mutation ENVELOPE's egress, so
+  a `:sensitive [[:params :password]]` param does NOT ship raw in the durable
+  instance's egress projection nor on the completion CONTINUATION echo, while the
+  causal write (the `:request` handler) and the success-path `:invalidates` /
+  `:patches` still read the RAW value.
+
+  The gap this closes (verified by probe on the pre-fix tree): the mutation
+  registry SUPPORTED the owner declaration, but the mutation projections IGNORED
+  it — the durable instance `:params`, the continuation reply `:params`, and the
+  `elide-wire-value` egress walk over `:rf.runtime/mutations` all rode the raw
+  value. The fix lowers each live instance's declaration into the per-frame
+  elision registry under `:source :mutation` (the resource-entry lowering peer)
+  and redacts the resources-constructed continuation reply from the same owner
+  declaration.
+
+  CLJC so the JVM run (`clojure -M:test`, the load-bearing gate) exercises it
+  and the CLJS node run does too; the schemas artefact is a test-only dep so the
+  shared walker hooks are bound."
+  (:require
+   #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
+      :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+   [clojure.string :as str]
+   [re-frame.core :as rf]
+   [re-frame.elision :as elision]
+   [re-frame.privacy :as privacy]
+   [re-frame.resources.classification :as classification]
+   [re-frame.resources.mutation-registry :as mreg]
+   [re-frame.resources.mutation-runtime :as mstate]
+   ;; load-bearing side-effecting requires: register the :rf.mutation/* events +
+   ;; subs + the generation cofx/fx + bind the shared walker hooks.
+   [re-frame.resources]
+   [re-frame.http.managed]
+   [re-frame.schemas]
+   [re-frame.test-support :as core-test-support]
+   [re-frame.trace.tooling :as trace-tooling]
+   #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
+
+;; ---- capturing transport (records the lowered request args) ----------------
+
+(def ^:private last-managed-args (atom nil))
+
+(defn- capturing-transport-fixture [f]
+  (reset! last-managed-args nil)
+  (rf/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
+  (rf/reg-fx :rf.resource/schedule-timers (fn [_ _] nil))
+  (f))
+
+(use-fixtures :each
+  (core-test-support/make-reset-runtime-fixture
+    #?(:clj  {:adapter plain-atom/adapter}
+       :cljs {:adapter reagent-adapter/adapter}))
+  capturing-transport-fixture)
+
+;; A UNIQUE sentinel so a leak anywhere in the projected surface is unambiguous.
+(def ^:private PW "PW-SENTINEL-7f3a91")
+
+(defn- runtime-db [] (:rf.db/runtime (rf/frame-state-value :rf/default)))
+
+(defn- reg-secret-mutation!
+  "Register `:m/secret` — a mutation classifying its `:password` param
+  :sensitive projection-relative to the instance."
+  ([] (reg-secret-mutation! {}))
+  ([overrides]
+   (rf/clear-mutation :m/secret)
+   (rf/reg-mutation :m/secret
+     (merge {:params-schema [:map [:slug :string] [:password {:optional true} [:maybe :string]]]
+             :sensitive     [[:params :password]]}
+            overrides)
+     (fn [{:keys [slug password]} _]
+       {:request {:method :put :url (str "/x/" slug) :body {:slug slug :password password}}}))))
+
+;; A runtime-db carrying ONE mutation instance under its byte key-id, mirroring
+;; the durable `:rf.runtime/mutations` shape the runtime mints.
+(defn- runtime-db-with-instance [instance-id inst]
+  {mstate/mutations-key {(mstate/instance-key-id instance-id) inst}})
+
+;; ===========================================================================
+;; 1. reconcile-mutation-registry — lowers a live instance's owner declaration
+;;    into the per-frame elision registry at the ABSOLUTE instance path.
+;; ===========================================================================
+
+(deftest reconcile-lowers-instance-params-declaration
+  (reg-secret-mutation!)
+  (testing "a live mutation instance's owner :params-rooted :sensitive
+            declaration is LOWERED into the elision registry under
+            :source :mutation, rooted at the instance's absolute runtime-db path"
+    (let [k-id (mstate/instance-key-id :i1)
+          rdb  (runtime-db-with-instance
+                 :i1 (mstate/empty-instance :m/secret :i1 {:params {:slug "w" :password PW}}))
+          out  (classification/reconcile-mutation-registry rdb mreg/mutation-meta)
+          sens (get-in out [:rf.runtime/elision :sensitive-declarations])]
+      (is (= #{{:source :mutation}}
+             (get sens [:rf.runtime/mutations k-id :params :password]))
+          "the :params :password decl is lowered at the absolute instance path"))))
+
+(deftest reconcile-mutation-is-idempotent
+  (reg-secret-mutation!)
+  (testing "re-running the mutation reconcile over its own output is a no-op"
+    (let [rdb   (runtime-db-with-instance
+                  :i1 (mstate/empty-instance :m/secret :i1 {:params {:slug "w" :password PW}}))
+          once  (classification/reconcile-mutation-registry rdb mreg/mutation-meta)
+          twice (classification/reconcile-mutation-registry once mreg/mutation-meta)]
+      (is (= once twice) "mutation reconciliation is idempotent"))))
+
+(deftest reconcile-mutation-self-drops-cleared-instance
+  (reg-secret-mutation!)
+  (testing "a cleared instance's :source :mutation declaration vanishes on the
+            next reconcile (the per-instance teardown — no separate drop hook)"
+    (let [rdb   (runtime-db-with-instance
+                  :i1 (mstate/empty-instance :m/secret :i1 {:params {:slug "w" :password PW}}))
+          live  (classification/reconcile-mutation-registry rdb mreg/mutation-meta)
+          ;; drop the instance, keep the carried registry, reconcile again.
+          cleared (-> live
+                      (assoc mstate/mutations-key {})
+                      (classification/reconcile-mutation-registry mreg/mutation-meta))]
+      (is (seq (get-in live [:rf.runtime/elision :sensitive-declarations]))
+          "the live instance lowered a declaration")
+      (is (empty? (get-in cleared [:rf.runtime/elision :sensitive-declarations]))
+          "the cleared instance's declaration is dropped"))))
+
+(deftest reconcile-mutation-preserves-foreign-owner
+  (reg-secret-mutation!)
+  (testing "a non-mutation-sourced registry entry (:source :resource / :effect)
+            rides untouched through the mutation reconcile (multi-owner union)"
+    (let [rdb (-> (runtime-db-with-instance
+                    :i1 (mstate/empty-instance :m/secret :i1 {:params {:slug "w" :password PW}}))
+                  (assoc-in [:rf.runtime/elision :sensitive-declarations [:app :token]]
+                            #{{:source :effect}}))
+          out (classification/reconcile-mutation-registry rdb mreg/mutation-meta)]
+      (is (= #{{:source :effect}}
+             (get-in out [:rf.runtime/elision :sensitive-declarations [:app :token]]))
+          "the :source :effect entry survives the mutation reconcile"))))
+
+(deftest reconcile-mutation-no-classification-no-registry
+  (rf/clear-mutation :m/plain)
+  (rf/reg-mutation :m/plain {:params-schema [:map [:slug :string]]}
+    (fn [_ _] {:request {:method :get :url "/x"}}))
+  (testing "a mutation that declares no classification lowers nothing"
+    (let [rdb (runtime-db-with-instance
+                :i1 (mstate/empty-instance :m/plain :i1 {:params {:slug "w"}}))
+          out (classification/reconcile-mutation-registry rdb mreg/mutation-meta)]
+      (is (not (contains? out :rf.runtime/elision))
+          "no :rf.runtime/elision key when nothing classifies"))))
+
+;; ===========================================================================
+;; 2. redact-continuation-reply — derives the reply redaction from the owner.
+;; ===========================================================================
+
+(deftest redact-continuation-reply-redacts-owner-param
+  (reg-secret-mutation!)
+  (testing "the owner-declared :params :password is redacted on the continuation
+            reply map; the non-sensitive sibling rides verbatim"
+    (let [reply {:status :ok :value {:ok true}
+                 :params {:slug "w" :password PW} :scope :rf.scope/global}
+          out   (classification/redact-continuation-reply reply (mreg/mutation-meta :m/secret))]
+      (is (= privacy/redacted-sentinel (get-in out [:params :password]))
+          "the sensitive param is redacted on the reply")
+      (is (= "w" (get-in out [:params :slug])) "the non-sensitive param rides verbatim")
+      (is (= {:ok true} (:value out)) "the result value rides verbatim")
+      (is (not (str/includes? (pr-str out) PW)) "no raw sentinel rides on the reply"))))
+
+(deftest redact-continuation-reply-unclassified-rides-verbatim
+  (rf/clear-mutation :m/plain)
+  (rf/reg-mutation :m/plain {:params-schema [:map [:slug :string]]}
+    (fn [_ _] {:request {:method :get :url "/x"}}))
+  (testing "a mutation that declares no classification rides the reply UNCHANGED"
+    (let [reply {:status :ok :params {:slug "w" :password PW}}]
+      (is (= reply (classification/redact-continuation-reply reply (mreg/mutation-meta :m/plain)))
+          "no declaration → the reply is unchanged"))))
+
+;; ===========================================================================
+;; 3. END-TO-END — drive a real classified mutation through execute + reply.
+;; ===========================================================================
+
+(deftest execute-lowers-instance-and-redacts-egress-and-continuation
+  (reg-secret-mutation!)
+  (let [replied (atom nil)
+        traces  (atom [])]
+    (rf/reg-event :m/replied (fn [_ [_ reply]] (reset! replied reply) {}))
+    (trace-tooling/register-listener! ::rec (fn [ev] (swap! traces conj ev)))
+    (rf/dispatch-sync [:rf.mutation/execute
+                       {:mutation :m/secret
+                        :params   {:slug "w" :password PW}
+                        :instance :i1
+                        :reply-to [:m/replied]}])
+    ;; the causal write handler runs on the RAW params BEFORE the instance mints.
+    (testing "the :request handler received the RAW password (causal write intact)"
+      (is (= PW (get-in @last-managed-args [:request :body :password]))))
+    ;; reply success to settle the instance + fire the continuation.
+    (rf/dispatch-sync (conj (:on-success @last-managed-args) {:status :ok :value {:ok true}}))
+    (trace-tooling/unregister-listener! ::rec)
+
+    (let [rdb  (runtime-db)
+          k-id (mstate/instance-key-id :i1)
+          inst (get-in rdb (mstate/instance-path :i1))]
+      (testing "the durable instance keeps the RAW params (success-path fns read them)"
+        (is (= PW (get-in inst [:params :password]))
+            "the durable instance :password is NOT destroyed"))
+      (testing "the owner declaration is LOWERED into the frame elision registry"
+        (is (= #{{:source :mutation}}
+               (get (elision/sensitive-declarations :rf/default)
+                    [:rf.runtime/mutations k-id :params :password]))
+            "the instance :params :password decl is in the per-frame registry"))
+      (testing "the off-box egress walk over the instance REDACTS :password"
+        (let [proj (rf/elide-wire-value inst {:frame :rf/default
+                                              :path [:rf.runtime/mutations k-id]
+                                              :rf.egress/profile :rf.egress/off-box-tool})]
+          (is (= privacy/redacted-sentinel (get-in proj [:params :password]))
+              "the instance :password is redacted at egress")
+          (is (= "w" (get-in proj [:params :slug])) "the non-sensitive :slug rides verbatim")
+          (is (not (str/includes? (pr-str proj) PW))
+              "no raw sentinel rides anywhere on the projected instance"))))
+
+    (testing "the continuation reply redacts :password but keeps the result + slug"
+      (is (= privacy/redacted-sentinel (get-in @replied [:params :password]))
+          "the continuation reply :password is redacted")
+      (is (= "w" (get-in @replied [:params :slug])) "the reply :slug rides verbatim")
+      (is (= {:ok true} (:value @replied)) "the reply :value (result) rides verbatim")
+      (is (not (str/includes? (pr-str @replied) PW)) "no raw sentinel rides on the reply"))
+
+    (testing "no :rf.mutation/* trace row carries the raw sentinel (params never
+              ride the mutation trace family)"
+      (doseq [ev @traces]
+        (when (and (keyword? (:operation ev))
+                   (= "rf.mutation" (namespace (:operation ev))))
+          (is (not (str/includes? (pr-str (:tags ev)) PW))
+              (str (:operation ev) " must not carry the raw sentinel")))))
+
+    (testing "the FAILURE continuation echo redacts :password too (an accepted
+              :error reply also dispatches :reply-to)"
+      (reset! last-managed-args nil)
+      (reset! replied nil)
+      (rf/dispatch-sync [:rf.mutation/execute
+                         {:mutation :m/secret
+                          :params   {:slug "w" :password PW}
+                          :instance :i2
+                          :reply-to [:m/replied]}])
+      (rf/dispatch-sync (conj (:on-failure @last-managed-args)
+                              {:status :error :error {:status 422 :body "nope"}}))
+      (is (= privacy/redacted-sentinel (get-in @replied [:params :password]))
+          "the failure continuation reply :password is redacted")
+      (is (= "w" (get-in @replied [:params :slug])) "the failure reply :slug rides verbatim")
+      (is (not (str/includes? (pr-str @replied) PW))
+          "no raw sentinel rides on the failure reply"))
+
+    (testing "clear DROPS the lowered instance declaration (self-dropping)"
+      (rf/dispatch-sync [:rf.mutation/clear {:instance :i1}])
+      (is (empty? (get (elision/sensitive-declarations :rf/default)
+                       [:rf.runtime/mutations (mstate/instance-key-id :i1) :params :password]))
+          "the cleared instance's declaration is gone from the registry"))))
