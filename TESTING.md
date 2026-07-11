@@ -101,6 +101,7 @@ The classifier is the **source of truth for "which jobs run when"** on a PR: the
 | `mcp_conformance` | any MCP server, mcp-base, or mcp-conformance changes | the MCP conformance jobs |
 | `mcp_live` | re-frame2-pair-mcp / mcp-base / mcp-conformance change | the live + hermetic MCP job |
 | `story_xray_browser` | runtime-extension files under `tools/{story,xray}/{src,testbeds}` change — specs, JVM tests, deps.edn, READMEs do **not** fire it (they can't affect chrome); core doesn't either | the PR-smoke browser job |
+| `tenant_switcher_smoke` | `testbeds/tenant_switcher/**` or `implementation/scripts/serve-and-run-tenant-switcher-testbed.cjs` change | the `tenant-switcher-testbed-smoke` browser job |
 | `skills_structural` | `skills/re-frame2-pair/*`, `skills/re-frame2-setup/*`, or `skills/shared/*` change | `skills-structural` |
 | `playground` | the playground tool, a committed playground bundle, or `implementation/machines/*` changes (the SCI bundle bakes the machines artefact in) | `tools-playground` |
 
