@@ -77,8 +77,13 @@
 
 (defn- assert-frame-a-redacts [payload where]
   (let [current (get-in payload [:rf/runtime-db :rf.runtime/routing :current])]
-    (is (= server-frame (:rf/frame-id payload))
-        (str where ": the payload names frame A as its target"))
+    ;; rf2-lm2yzy — the WIRE `:rf/frame-id` is decoupled from the projection
+    ;; frame. `build-a` passes no `:client-frame-id`, so the anonymous
+    ;; per-request frame is NOT stamped on the wire (it is omitted). The
+    ;; projection still runs under the EXPLICIT frame A — proved by the
+    ;; redaction assertions below (only frame A declares the classifications).
+    (is (not (contains? payload :rf/frame-id))
+        (str where ": anonymous per-request frame omits the wire :rf/frame-id"))
     (is (= :rf/redacted (get-in current [:query :token]))
         (str where ": route-declared sensitive :query :token redacted under frame A"))
     (is (contains? (get-in current [:params :payload]) :rf.size/large-elided)
@@ -134,8 +139,11 @@
       (let [payload (payload/build-payload
                       server-frame app-db runtime-db "hash"
                       {:payload :rf.ssr.payload/whole-app-db})]
-        (is (= server-frame (:rf/frame-id payload))
-            "the payload still names frame A as its target")
+        ;; rf2-lm2yzy — wire :rf/frame-id decoupled from the (dead) projection
+        ;; frame; no `:client-frame-id` opt ⇒ omitted. The fail-closed redaction
+        ;; below still proves the projection targeted the destroyed frame A.
+        (is (not (contains? payload :rf/frame-id))
+            "anonymous per-request frame omits the wire :rf/frame-id")
         (is (= :rf/redacted (:rf/app-db payload))
             "app-db fails closed (project-app-db-egress redacts whole under the dead frame)")
         (is (= :rf/redacted (get-in payload [:rf/runtime-db :rf.runtime/routing]))

@@ -555,7 +555,17 @@
     (let [payload (try (ssr/streaming-build-final-payload
                          :rf/default
                          (:render-hash (:input call))
-                         (dissoc (:input call) :render-hash))
+                         ;; rf2-lm2yzy — the WIRE :rf/frame-id is decoupled from
+                         ;; the projection frame. This fixture's synthetic server
+                         ;; frame is the STABLE `:rf/default`, so name it as the
+                         ;; `:client-frame-id` wire id — the payload then carries
+                         ;; `:rf/frame-id`, matching the fixture's pinned canonical
+                         ;; keys. (A production per-request gensym frame is
+                         ;; anonymous and OMITS `:rf/frame-id`; covered by the
+                         ;; ssr_streaming_test omit case + the ssr-ring shipped-
+                         ;; handler regression.)
+                         (assoc (dissoc (:input call) :render-hash)
+                                :client-frame-id :rf/default))
                        (catch Throwable e {:error (.getMessage e)}))
           want    (:expect call)
           keys-want   (:payload-keys want)

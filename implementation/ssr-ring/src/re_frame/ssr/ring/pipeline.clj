@@ -272,7 +272,7 @@
   required for registered lookups and frame-sensitive egress classification."
   [frame-id resp
    {:keys [root-view emit-hash? version schema-digest payload
-           html-shell content-type]
+           html-shell content-type client-frame-id]
     :as   opts}]
   ;; Blocking route resources settle before rendering; absent resource hooks
   ;; make this a no-op.
@@ -309,10 +309,13 @@
                 app-db     (rf/app-db-value frame-id)
                 runtime-db (:rf.db/runtime (rf/frame-state-value frame-id))
                 rf-payload (payload/build-payload frame-id app-db runtime-db hash-str
-                                                  {:version       version
-                                                   :schema-digest schema-digest
-                                                   :payload       payload
-                                                   :head-hash     head-hash})]
+                                                  {:version         version
+                                                   :schema-digest   schema-digest
+                                                   :payload         payload
+                                                   :head-hash       head-hash
+                                                   ;; rf2-lm2yzy — stable WIRE
+                                                   ;; :rf/frame-id (nil ⇒ omit).
+                                                   :client-frame-id client-frame-id})]
             (assoc head-bag
                    :body-html  body-html
                    :head-hash  head-hash

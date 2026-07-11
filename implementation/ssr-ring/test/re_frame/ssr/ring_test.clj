@@ -1017,13 +1017,13 @@
           payload-edn (second (re-find
                                 #"<script id=\"__rf_payload\"[^>]*>(.*?)</script>"
                                 body))
-          ;; The server stamps its OWN per-request gensym'd frame-id into the
-          ;; payload's `:rf/frame-id`; dispatching that into a fresh client
-          ;; frame would trip the ORTHOGONAL frame-id-isolation guard
-          ;; (rf2-nv3mua). Strip it — an absent `:rf/frame-id` is the
-          ;; documented no-conflict shape — so this test isolates the HASH
-          ;; path (the rf2-1oxjxk concern), exactly as the sibling
-          ;; hydration tests do.
+          ;; rf2-lm2yzy — the shipped handler now OMITS the per-request
+          ;; gensym from the wire payload (it is projection-only), so an
+          ;; absent `:rf/frame-id` is already the documented no-conflict
+          ;; shape here; the `dissoc` is defensive (a no-op on the fixed
+          ;; wire) and keeps this test isolating the HASH path (the
+          ;; rf2-1oxjxk concern) even if a stable `:client-frame-id` were
+          ;; later configured on the handler.
           payload     (dissoc (edn/read-string payload-edn) :rf/frame-id)
           client-frame (frame/make-anon-frame-record!
                          {:doc      "rf2-1oxjxk regression client frame"
@@ -1052,6 +1052,71 @@
                             :render-tree-fn #((rf/view :app/root))}))
           "rf2-1oxjxk: hydrate! completes without a spurious mismatch throw
            and returns the applied payload"))))
+
+;; ===========================================================================
+;; rf2-lm2yzy — the shipped ssr-handler → documented ssr/hydrate! round-trip
+;; completes WITHOUT :rf.error/hydration-frame-id-mismatch, driving the REAL
+;; wire payload (no strip, no re-stamp).
+;;
+;; Pre-fix, `build-payload` stamped the per-request server gensym as the
+;; payload's `:rf/frame-id`; the client boot hydrates a STABLE id (`:app/main`),
+;; so `validate-payload-frame-id!` threw on EVERY page. The framework's own
+;; tests stripped/re-stamped the id and the example omitted it while
+;; documenting "never a per-request gensym" — the shipped handler emitted
+;; exactly what the example forbade. This regression pins the fix on the REAL
+;; wire payload.
+;; ===========================================================================
+
+(deftest shipped-handler-hydrates-without-frame-id-mismatch
+  (testing "rf2-lm2yzy: the REAL payload the shipped ssr-handler emits feeds
+            into the documented ssr/hydrate! {:frame :app/main} with NO
+            :rf.error/hydration-frame-id-mismatch (the anonymous per-request
+            frame is omitted from the wire) and seeds the client app-db"
+    (rf/reg-event :rf.lm2yzy/init (fn [{:keys [db]} _] {:db (assoc db :count 42)}))
+    (rf/reg-view* :app/root (fn [] [:div.app [:h1 "lm2yzy"] [:p "stable"]]))
+    (let [handler     (ssr-ring/ssr-handler
+                        {:initial-events [[:rf.lm2yzy/init]]
+                         :root-view      (fn [] ((rf/view :app/root)))
+                         :payload        :rf.ssr.payload/whole-app-db})
+          response    (handler {:uri "/lm2yzy" :request-method :get})
+          payload-edn (second (re-find
+                                #"<script id=\"__rf_payload\"[^>]*>(.*?)</script>"
+                                (:body response)))
+          ;; THE REAL wire payload — NOT stripped, NOT re-stamped.
+          payload     (edn/read-string payload-edn)
+          ;; The client's fixed hydration target — a STABLE id, as every real
+          ;; deployment carries (Spec 011 §Client-side hydration boot helper).
+          _           (rf/reg-frame :app/main {:doc "lm2yzy client" :platform :client})]
+      (is (= 200 (:status response)))
+      (is (not (contains? payload :rf/frame-id))
+          "rf2-lm2yzy: the shipped wire payload omits the per-request gensym :rf/frame-id")
+      ;; THE REGRESSION — must NOT throw. Pre-fix this threw
+      ;; :rf.error/hydration-frame-id-mismatch on the gensym vs :app/main.
+      (is (= payload (ssr/hydrate! {:frame :app/main :payload payload}))
+          "rf2-lm2yzy: documented hydrate! completes without a frame-id mismatch")
+      (is (= 42 (:count (rf/app-db-value :app/main)))
+          "the client app-db carries the server's seeded slice after hydration")))
+
+  (testing "rf2-lm2yzy: a deployment MAY name a stable wire id via
+            :client-frame-id — the payload then stamps it, and hydrate! into
+            the SAME frame succeeds"
+    (rf/reg-event :rf.lm2yzy/init2 (fn [{:keys [db]} _] {:db (assoc db :count 7)}))
+    (rf/reg-view* :app/root (fn [] [:div.app "stamped"]))
+    (let [handler     (ssr-ring/ssr-handler
+                        {:initial-events  [[:rf.lm2yzy/init2]]
+                         :root-view       (fn [] ((rf/view :app/root)))
+                         :payload         :rf.ssr.payload/whole-app-db
+                         :client-frame-id :app/stamped})
+          response    (handler {:uri "/lm2yzy2" :request-method :get})
+          payload     (edn/read-string
+                        (second (re-find
+                                  #"<script id=\"__rf_payload\"[^>]*>(.*?)</script>"
+                                  (:body response))))
+          _           (rf/reg-frame :app/stamped {:doc "lm2yzy stamped" :platform :client})]
+      (is (= :app/stamped (:rf/frame-id payload))
+          "the configured stable :client-frame-id rides the wire as :rf/frame-id")
+      (is (= payload (ssr/hydrate! {:frame :app/stamped :payload payload}))
+          "hydrate! into the matching stable frame succeeds (no mismatch)"))))
 
 ;; ===========================================================================
 ;; ssr-handler — Ring → :rf.server/request cofx (rf2-afxhv)
@@ -2843,29 +2908,26 @@
            silent"))))
 
 ;; ===========================================================================
-;; rf2-joibj — per-request frame-id keyword is EDN-spec-compliant
+;; rf2-joibj / rf2-lm2yzy — the wire payload round-trips AND omits the
+;; per-request gensym frame-id
 ;;
-;; `setup-request-frame!` builds the frame-id via
+;; `setup-request-frame!` still builds the per-request PROJECTION frame-id via
 ;;     (keyword "rf.frame" (str (gensym "f")))
-;; The `"f"` prefix is load-bearing: per the EDN spec
-;; (https://github.com/edn-format/edn) identifier names cannot begin
-;; with a digit, and spec-strict readers (`clojure.edn/read-string`,
-;; `cljs.tools.reader.edn/read-string`) reject `:rf.frame/<digits>`.
-;; The frame-id ships into the wire payload (Spec 011 §Hydration boot)
-;; where the browser's strict EDN reader pulls it back during
-;; hydration — without the prefix, the very first call to
-;; `cljs.reader/read-string` on the embedded payload would crash.
-;; `clojure.core/keyword` does not validate, so a regression here is
-;; only observable through a round-trip — which is exactly what this
-;; test asserts.
+;; The `"f"` prefix remains load-bearing for the INTERNAL keyword's EDN
+;; validity (spec-strict readers reject `:rf.frame/<digits>`), but per
+;; rf2-lm2yzy the throwaway gensym NO LONGER ships on the wire: stamping it as
+;; the payload's `:rf/frame-id` guaranteed `:rf.error/hydration-frame-id-
+;; mismatch` on every page (the client hydrates a stable id, never the
+;; gensym). The wire payload now OMITS `:rf/frame-id` for the anonymous
+;; per-request frame (the documented no-conflict shape) — so the original
+;; rf2-joibj wire-EDN-grammar concern for the gensym is moot, while the
+;; whole-payload round-trip pin is preserved below.
 ;; ===========================================================================
 
-(deftest hydration-payload-frame-id-keyword-is-edn-readable
-  (testing "rf2-joibj: the per-request `:rf.frame/<gensym>` keyword
-            embedded in the wire payload survives a round-trip through
-            the strict EDN reader. Pre-fix the gensym produced a
-            digit-only local-part (`:rf.frame/5401`) which the spec-
-            strict reader correctly rejects."
+(deftest hydration-payload-round-trips-and-omits-per-request-frame-id
+  (testing "rf2-joibj / rf2-lm2yzy: the full wire payload round-trips through
+            the strict EDN reader AND omits the per-request gensym frame-id
+            (never stamped as `:rf/frame-id`, so no hydration-frame-id-mismatch)"
     (register-articles-app! [{:id "a" :title "Article A"}])
 
     (let [handler     (ssr-ring/ssr-handler
@@ -2883,24 +2945,14 @@
       (is (some? payload-edn)
           "hydration payload script tag is present — observation
            surface is the wire payload, not a pre-serialisation map")
-      ;; THE PIN: the full payload reads cleanly. Without the `"f"`
-      ;; prefix on the gensym, the EDN reader would throw
-      ;; `Invalid token: :rf.frame/<digits>` here.
+      ;; THE PIN: the full payload reads cleanly through the strict reader.
       (let [recovered (clojure.edn/read-string payload-edn)]
         (is (map? recovered)
-            "rf2-joibj: payload-EDN round-trips through
-             clojure.edn/read-string — the per-request frame-id
-             keyword complies with the EDN identifier grammar")
-        ;; And the recovered frame-id is the right shape — namespaced,
-        ;; local-part starts with a letter.
-        (let [fid (:rf/frame-id recovered)]
-          (is (keyword? fid)
-              "the recovered :rf/frame-id is a keyword")
-          (is (= "rf.frame" (namespace fid))
-              "the per-request frame-id keeps its `rf.frame` namespace")
-          (is (re-matches #"[^\d].*" (name fid))
-              (str "the frame-id local-part starts with a non-numeric "
-                   "character (saw " (pr-str fid) ")")))))))
+            "payload-EDN round-trips through clojure.edn/read-string")
+        ;; rf2-lm2yzy — the per-request gensym is projection-only; it must NOT
+        ;; ride the wire as `:rf/frame-id`.
+        (is (not (contains? recovered :rf/frame-id))
+            "the anonymous per-request frame is omitted from the wire payload")))))
 
 ;; ===========================================================================
 ;; rf2-zev2h — default-on-error direct positive assertion

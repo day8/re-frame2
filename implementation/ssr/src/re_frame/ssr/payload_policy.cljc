@@ -710,9 +710,24 @@
 
 (defn build-payload
   "Assemble the canonical `:rf/hydration-payload` map per Spec 011 §The
-  hydration payload — the four canonical keys (`:rf/version`,
-  `:rf/frame-id`, `:rf/app-db`, `:rf/render-hash`) plus the optional
+  hydration payload — the three always-present keys (`:rf/version`,
+  `:rf/app-db`, `:rf/render-hash`) plus the optional `:rf/frame-id`,
   `:rf/runtime-db`, `:rf/schema-digest`, and `:rf/head-hash`.
+
+  **The first arg `wire-frame-id` is the WIRE `:rf/frame-id`, decoupled
+  from the projection frame (rf2-lm2yzy).** It is stamped only when
+  non-nil, and MUST be a STABLE frame id both server and client agree on
+  ahead of time — NEVER a per-request server gensym. Callers project the
+  app-db / runtime-db slices under the REAL (per-request) frame BEFORE
+  handing them here, then pass the stable wire id (or nil) separately.
+  A nil / absent `wire-frame-id` OMITS `:rf/frame-id` — the documented
+  no-conflict shape for an anonymous per-request server frame (Spec 011
+  §The hydration payload — \"An absent `:rf/frame-id` is no conflict\";
+  boot `hydrate!` / the `:rf/hydrate` handler both treat absent as no
+  conflict, so the client's explicit `:frame` target stands). Stamping a
+  per-request gensym here would guarantee `:rf.error/hydration-frame-id-
+  mismatch` on every real page (the client hydrates a stable id, never
+  the gensym) — the defect rf2-lm2yzy closed.
 
   The `:rf/app-db` slice is the already-projected `db-slice` — callers
   run `apply-policy` (the fail-closed allowlist / whole-app-db contract,
@@ -741,11 +756,14 @@
   `re-frame.ssr.ring.payload/build-payload` and the streaming
   `re-frame.ssr.streaming/build-final-payload`, which differ only in how
   they source `app-db` + runtime-db before projecting them."
-  [frame-id db-slice render-hash {:keys [version schema-digest runtime-db head-hash]}]
+  [wire-frame-id db-slice render-hash {:keys [version schema-digest runtime-db head-hash]}]
   (cond-> {:rf/version     (resolve-version version)
-           :rf/frame-id    frame-id
            :rf/app-db      db-slice
            :rf/render-hash render-hash}
-    (some? runtime-db) (assoc :rf/runtime-db runtime-db)
-    schema-digest      (assoc :rf/schema-digest schema-digest)
-    head-hash          (assoc :rf/head-hash head-hash)))
+    ;; rf2-lm2yzy — stamp `:rf/frame-id` ONLY for a stable, ahead-of-time
+    ;; agreed wire id; a nil wire id omits it (anonymous per-request server
+    ;; frame → the documented no-conflict shape). Never a per-request gensym.
+    (some? wire-frame-id) (assoc :rf/frame-id wire-frame-id)
+    (some? runtime-db)    (assoc :rf/runtime-db runtime-db)
+    schema-digest         (assoc :rf/schema-digest schema-digest)
+    head-hash             (assoc :rf/head-hash head-hash)))

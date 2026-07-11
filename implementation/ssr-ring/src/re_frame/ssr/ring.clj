@@ -123,6 +123,17 @@
                       `{:dev-error-detail? true
                         :public-error-id   :myapp/projector}`).
     :emit-hash?     — emit hydration hash markers (default true).
+    :client-frame-id — stable frame id stamped as the payload's WIRE
+                      `:rf/frame-id`, when the deployment fixes one both
+                      server and client agree on ahead of time. Default
+                      nil — the per-request server frame is anonymous, so
+                      the payload OMITS `:rf/frame-id` (the documented
+                      no-conflict shape: the client's explicit `:frame`
+                      target to `hydrate!` stands, Spec 011 §The hydration
+                      payload). NEVER pass a per-request gensym here — the
+                      client's hydrate guard rejects a present-and-
+                      different id as `:rf.error/hydration-frame-id-
+                      mismatch`.
     :version        — hydration payload's `:rf/version` (default 1).
     :schema-digest  — hydration payload's `:rf/schema-digest`, when
                       the app participates in the digest check.

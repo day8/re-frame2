@@ -53,17 +53,31 @@
   `:rf/hydrate` handler installs a coherent frame-state. nil / empty runtime-db
   omits the optional key.
 
+  The `frame-id` arg is the REAL per-request PROJECTION frame — it drives
+  `project-app-db-egress` / `project-runtime-db` (frame-scoped, fail-closed
+  egress classification). The WIRE `:rf/frame-id` is a SEPARATE concern
+  (rf2-lm2yzy): it is sourced from the optional `:client-frame-id`
+  policy-opt (a STABLE id both sides agreed on ahead of time) and defaults
+  to nil — an anonymous per-request server frame OMITS `:rf/frame-id`
+  rather than stamping its throwaway gensym, which the client's hydrate
+  guard would reject as `:rf.error/hydration-frame-id-mismatch` on every
+  page. A deployment that wants a wire id passes `:client-frame-id`.
+
   The non-streaming wrapper over the shared
   `re-frame.ssr.payload-policy/build-payload`: it is handed `app-db` +
   `runtime-db` directly (the streaming path reads them from the live frame
-  instead), projects them, then assembles the canonical payload."
+  instead), projects them under the explicit `frame-id`, then assembles
+  the canonical payload."
   ([frame-id app-db render-hash policy-opts]
    (build-payload frame-id app-db nil render-hash policy-opts))
   ([frame-id app-db runtime-db render-hash {:as policy-opts}]
    (payload-policy/build-payload
-    frame-id
+    ;; WIRE :rf/frame-id — the stable, ahead-of-time client id, or nil to omit
+    ;; (never the per-request projection gensym). Decoupled per rf2-lm2yzy.
+    (:client-frame-id policy-opts)
     ;; Apply the allowlist before the frame-scoped hydration-egress projection,
-    ;; so classified values inside the surviving slice are still elided.
+    ;; so classified values inside the surviving slice are still elided. The
+    ;; projection target is the REAL per-request frame-id.
     (payload-policy/project-app-db-egress
      (payload-policy/apply-policy app-db policy-opts)
      frame-id)

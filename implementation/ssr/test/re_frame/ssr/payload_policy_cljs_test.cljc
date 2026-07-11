@@ -428,6 +428,24 @@
       (is (not (contains? without :rf/runtime-db))
           "a nil runtime-db omits the optional key"))))
 
+(deftest build-payload-wire-frame-id-decoupled
+  (testing "rf2-lm2yzy — the first arg is the WIRE :rf/frame-id, decoupled from
+            the projection frame. A non-nil stable id is stamped; a nil id
+            OMITS :rf/frame-id (the documented no-conflict shape for an
+            anonymous per-request server frame — never a per-request gensym)"
+    (let [stamped (payload-policy/build-payload
+                    :app/main {:public/page :dashboard} "h1" {:version 1})
+          omitted (payload-policy/build-payload
+                    nil {:public/page :dashboard} "h1" {:version 1})]
+      (is (= :app/main (:rf/frame-id stamped))
+          "a stable wire id is stamped as :rf/frame-id")
+      (is (not (contains? omitted :rf/frame-id))
+          "a nil wire id omits :rf/frame-id (anonymous per-request frame)")
+      ;; The rest of the canonical payload is unaffected by the wire-id choice.
+      (is (= {:public/page :dashboard} (:rf/app-db omitted)))
+      (is (= "h1" (:rf/render-hash omitted)))
+      (is (= 1 (:rf/version omitted))))))
+
 ;; ---- :rf/version is canonically an INTEGER (rf2-g00l2t) -------------------
 ;;
 ;; Per Spec-Schemas §:rf/hydration-payload `:rf/version` is `:int` (a
@@ -480,7 +498,10 @@
 (def HydrationPayload
   [:map
    [:rf/version         :int]
-   [:rf/frame-id        :keyword]
+   ;; rf2-lm2yzy — `:rf/frame-id` is OPTIONAL: an anonymous per-request server
+   ;; frame omits it (the documented no-conflict shape), and it is stamped only
+   ;; when the deployment names a stable wire id.
+   [:rf/frame-id        {:optional true} :keyword]
    [:rf/app-db          :any]
    [:rf/runtime-db      {:optional true} [:maybe :map]]
    [:rf/ssr-rendered-at {:optional true} :int]
