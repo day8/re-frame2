@@ -135,6 +135,31 @@
        lookup, no ratom/cursor/reaction — Spec 004 §Removed forms"))
 
 ;; ---------------------------------------------------------------------------
+;; CLJS emission wiring (order-free pin: the emitter is .cljc, so the
+;; exact CLJS expansion is data on this host)
+;; ---------------------------------------------------------------------------
+
+(deftest cljs-emission-wires-memo-registration-and-debug-gate
+  (let [forms (compiler/defview* '(defview probe [] [:div "x"])
+                                 {:ns {:name 'app.probe}} ; cljs env marker
+                                 'probe
+                                 '([] [:div "x"]))
+        text  (pr-str forms)]
+    (is (str/includes? text "re-frame.ui.runtime/memo-view")
+        "every internal view is memoized — no opt-out")
+    (is (str/includes? text "re-frame.ui.runtime/register-view!")
+        "defview emits the registrar :view registration")
+    (is (str/includes? text "js/goog.DEBUG")
+        "the registration/manifest emission is dev-gated (I-12)")
+    (let [def-sym (some #(when (and (seq? %) (= 'def (first %))
+                                    (= 'probe (second %)))
+                           (second %))
+                        forms)]
+      (is (true? (:rf.ui/view (meta def-sym)))
+          "the public var carries the Q5 discrimination meta")
+      (is (= :app.probe/probe (:rf.ui/view-id (meta def-sym)))))))
+
+;; ---------------------------------------------------------------------------
 ;; Build digest
 ;; ---------------------------------------------------------------------------
 
