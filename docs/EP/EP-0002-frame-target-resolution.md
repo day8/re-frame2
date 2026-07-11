@@ -1425,7 +1425,7 @@ Tooling surfaces to enumerate:
 - `eval-cljs {:frame ...}` Promise/async documentation;
 - pair-MCP conformance snapshots that bake in `:rf/default`;
 - `discover-app` hint that says `init!` registers `:rf/default`;
-- pair CLI shim hints in `skills/re-frame2-pair/scripts/ops.clj`;
+- ~~pair CLI shim hints in `skills/re-frame2-pair/scripts/ops.clj`~~ (historical — the bash/babashka Pair transport was removed in full by rf2-dduetj/PR #5595; the live Pair transport is `tools/re-frame2-pair-mcp/`);
 - pair-MCP precheck cache keyed on omitted frame.
 
 ### 10. Docs And Skills
@@ -1485,7 +1485,7 @@ reauthored.
 - Local source: `tools/xray/src/day8/re_frame2_xray/core.cljs`
 - Local source: `tools/xray/src/day8/re_frame2_xray/defaults.cljs`
 - Local source: `skills/re-frame2-pair/preload/re_frame2_pair/runtime.cljs`
-- Local source: `skills/re-frame2-pair/scripts/ops.clj`
+- Local source (historical, since deleted): `skills/re-frame2-pair/scripts/ops.clj` — the bash/babashka Pair transport, removed in full by rf2-dduetj/PR #5595; the live Pair transport is `tools/re-frame2-pair-mcp/`
 - Local source: `tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/eval_cljs.cljs`
 - Local docs: `docs/core/api/01-core.md`
 - Local docs: `docs/core/api/07-http.md`
