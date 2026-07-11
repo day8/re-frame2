@@ -5,6 +5,7 @@
   Split from routing_test.clj per rf2-u8qe7y finding 3."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.late-bind :as late-bind]
             [re-frame.routing :as routing]
             [re-frame.routing.test-support]
             [re-frame.routing-test-support :as rts]
@@ -132,39 +133,39 @@
           ":rf/default opted out of URL ownership, so its push is suppressed"))))
 
 ;; ============================================================================
-;; rf2-25i7r7 — finding 1: reload idempotence of the url-bound registration hook
+;; rf2-25i7r7 — finding 1: reload idempotence of the url-bound lifecycle hook
 ;; ============================================================================
 ;;
-;; The registrar's `add-registration-hook!` appends to a process-`defonce`
-;; vector with no dedupe, and `clear-all!` does NOT clear it. Before the
-;; fix the facade called `add-registration-hook!` unconditionally at the
-;; top level, so every `(require 're-frame.routing :reload)` — the
-;; long-established `clear-all!` test-fixture recovery pattern, run on
-;; EVERY test by `reset-runtime` above, and any REPL hot-reload — stacked
-;; one more identical copy of `check-url-bound-exclusivity!`. N copies
-;; meant a single duplicate URL binding emitted N
-;; `:rf.error/duplicate-url-binding` diagnostics. The fix wraps the
-;; install in a `defonce` guard so it fires exactly once per process and
-;; survives reload (the registrar hooks vector is itself `defonce` and
-;; survives `clear-all!`).
+;; Historically the exclusivity check was a REGISTRAR registration hook
+;; (`add-registration-hook!` appends to a process-`defonce` vector with no
+;; dedupe), so an unguarded facade reload stacked one more identical copy per
+;; `(require 're-frame.routing :reload)` — a single duplicate URL binding then
+;; emitted N `:rf.error/duplicate-url-binding` diagnostics. Per rf2-h1vqa4 the
+;; check moved to the frame (re-)registration lifecycle hook
+;; (`:routing/on-frame-registered!`, fired by the frame engine — frames no
+;; longer flow through `registrar/register!`), published via
+;; `late-bind/set-fn!`, which is KEY-IDEMPOTENT: a reload re-publishes the one
+;; hook fn rather than stacking. The one-conflict → one-diagnostic invariant
+;; below is the behavioral pin; this test pins the ownership move itself.
 
-(deftest url-bound-hook-installed-exactly-once-across-reloads
-  (testing "rf2-25i7r7 finding 1: re-requiring re-frame.routing with
-            :reload does NOT stack additional copies of
-            check-url-bound-exclusivity! in the registrar's
-            registration-hooks vector — the defonce guard keeps it at one"
+(deftest url-bound-hook-is-not-a-registrar-hook
+  (testing "rf2-h1vqa4: the url-bound exclusivity check no longer rides the
+            registrar's registration-hooks vector (frames don't flow through
+            registrar/register!), and repeated facade reloads leave no copies
+            there — the lifecycle hook is the late-bind
+            :routing/on-frame-registered! publication, which is key-idempotent"
     ;; reset-runtime already did clear-all! + one :reload before this test.
     ;; Reload twice more to simulate repeated REPL/test recovery cycles.
     (require 're-frame.routing :reload)
     (require 're-frame.routing :reload)
-    (let [hooks @(deref #'registrar/registration-hooks)
-          ;; The url-bound hook is `check-url-bound-exclusivity!`; identify
-          ;; copies by fn identity (defonce keeps a single var binding, so
-          ;; idempotent installs share identity).
+    (let [hooks  @(deref #'registrar/registration-hooks)
           target url-bound/check-url-bound-exclusivity!
           copies (count (filter #(identical? target %) hooks))]
-      (is (= 1 copies)
-          "exactly one copy of the url-bound exclusivity hook after repeated reloads"))))
+      (is (zero? copies)
+          "the url-bound exclusivity check is absent from the registrar's
+           registration-hooks vector — it rides the frame lifecycle hook"))
+    (is (some? (late-bind/get-fn :routing/on-frame-registered!))
+        "the :routing/on-frame-registered! lifecycle hook is published")))
 
 (deftest one-conflict-emits-one-duplicate-binding-after-repeated-reloads
   (testing "rf2-25i7r7 finding 1: after reinstalling the routing facade
@@ -195,8 +196,8 @@
 ;; ============================================================================
 ;;
 ;; Spec 009's recovery text formerly said "the second binding is rejected;
-;; the existing URL-owning frame is unchanged." The registrar hook runs
-;; AFTER the slot is written, so the implementation cannot reject — it
+;; the existing URL-owning frame is unchanged." The lifecycle hook runs
+;; AFTER the frame config is seated, so the implementation cannot reject — it
 ;; stores both bindings and `url-owner-frame-id` resolves a single owner.
 ;; These tests pin the corrected (option-b) semantics: both bindings are
 ;; visible in frame metadata, the existing owner is unchanged, and only
@@ -339,9 +340,10 @@
 ;;              later, earlier-sorting duplicate STEAL the URL by id sort
 ;; ============================================================================
 ;;
-;; `registrar/add-registration-hook!` is an append-only FUTURE observer — it
-;; does NOT replay existing registrations. So a frame that claimed `:url-bound?
-;; true` BEFORE `(require 're-frame.routing)` never recorded a claim in
+;; The frame lifecycle hook (`:routing/on-frame-registered!`) is a FUTURE
+;; observer — it does NOT replay existing registrations. So a frame that
+;; claimed `:url-bound? true` BEFORE `(require 're-frame.routing)` never
+;; recorded a claim in
 ;; `url-claim-order`. The resolver's OLD claim-free fallback then sorted all
 ;; bound frames by `(str id)` and took the first — letting a later duplicate
 ;; whose id sorts BEFORE the true first-claimant WIN the alphabetical tiebreak

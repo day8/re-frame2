@@ -10,12 +10,12 @@
   `dispose!` throws mid-sub-cache-walk, what happens when a frame's
   `:on-destroy` event dispatch-syncs across to a sibling. These are the
   rare cases most likely to leave sub-cache, epoch buffers, flow
-  registries, or registrar slots alive after destroy.
+  registries, or frames-store records alive after destroy.
 
   Acceptance per rf2-gh1mj:
     - At least four composed lifecycle interleavings (this file: five).
     - Assertions prove no leaked sub-cache, epoch buffer, flow
-      registration, or registrar slot for the destroyed frame.
+      registration, or frames-store record for the destroyed frame.
     - Listener-throw and late-bound-hook-throw paths pinned.
     - JVM coverage suffices — every assertion is pure runtime semantics
       with no host-specific divergence (the destroy step list is host-
@@ -131,15 +131,15 @@
                               @survivor)))
           "survivor saw both per-machine destroyed events (one per snapshot)")
 
-      ;; The frame is fully gone from BOTH the frames atom AND the
-      ;; registrar — proves no destroy step was skipped by the
-      ;; listener throw.
+      ;; The frame is fully gone from the frames store (the ONE store a
+      ;; seated frame lives in, rf2-h1vqa4) — proves no destroy step was
+      ;; skipped by the listener throw.
       (is (nil? (frame/frame :composed/scoped))
           "frame is dissoc'd from the frames atom")
       (is (nil? (get @frame/frames :composed/scoped))
           "frame entry is gone from the underlying atom (no soft-destroy)")
-      (is (nil? (registrar/lookup :frame :composed/scoped))
-          "frame is unregistered from the registrar")
+      (is (nil? (frame/frame-meta :composed/scoped))
+          "frame is invisible to the frame-meta introspection surface")
 
       (rf/unregister-listener! :trace ::thrower)
       (rf/unregister-listener! :trace ::survivor))))
@@ -199,8 +199,8 @@
         ;; The frame is fully gone.
         (is (nil? (frame/frame :composed/hook-throw))
             "frame is dissoc'd from the frames atom despite the hook throw")
-        (is (nil? (registrar/lookup :frame :composed/hook-throw))
-            "frame is unregistered from the registrar despite the hook throw")
+        (is (nil? (frame/frame-meta :composed/hook-throw))
+            "frame is invisible to frame-meta despite the hook throw")
 
         (finally
           ;; Restore the original hook fns so subsequent tests are not
@@ -259,8 +259,8 @@
       ;; Frame is fully gone.
       (is (nil? (frame/frame :composed/sub-throw))
           "frame is dissoc'd")
-      (is (nil? (registrar/lookup :frame :composed/sub-throw))
-          "frame is unregistered"))))
+      (is (nil? (frame/frame-meta :composed/sub-throw))
+          "frame is invisible to frame-meta"))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3b. Frame-destroy sub-cache eviction emits :rf.sub/dispose (rf2-x3m8c f2)
@@ -480,8 +480,8 @@
       ;; the dissoc.
       (is (nil? (frame/frame :composed/child))
           "child frame is dissoc'd after the cross-frame :on-destroy")
-      (is (nil? (registrar/lookup :frame :composed/child))
-          "child frame is unregistered after the cross-frame :on-destroy")
+      (is (nil? (frame/frame-meta :composed/child))
+          "child frame is invisible to frame-meta after the cross-frame :on-destroy")
 
       ;; The parent is untouched.
       (is (some? (frame/frame :composed/parent))
@@ -494,7 +494,7 @@
 ;; teardown hook: schemas (per-frame schema registry), flows (per-frame
 ;; flows registry + last-inputs cache), epoch (per-frame ring buffer
 ;; + observed-frames-by-cb entry), sub-cache (pinned reactions),
-;; registrar. Destroy. Pin that ALL of them are cleared in a single
+;; the frames store. Destroy. Pin that ALL of them are cleared in a single
 ;; composed assertion — guards against a future regression that fixes
 ;; each leak in isolation while breaking the destroy step list's
 ;; ordering.
@@ -502,7 +502,7 @@
 
 (deftest composed-destroy-leak-audit
   (testing "after destroy: sub-cache empty, epoch buffer cleared, flow rows
-            cleared, schema rows cleared, frame absent, registrar dropped"
+            cleared, schema rows cleared, frame absent from the frames store"
     (rf/reg-frame :composed/leak-audit {:doc "leak-audit"})
 
     ;; --- schemas: register a schema rooted at the frame -------------------
@@ -545,9 +545,12 @@
       (is (pos? (count @cache))
           "precondition: sub-cache pinned at least one entry"))
 
-    ;; --- registrar: precondition --------------------------------------
-    (is (some? (registrar/lookup :frame :composed/leak-audit))
-        "precondition: frame is registered in the registrar")
+    ;; --- frames store: precondition -----------------------------------
+    (is (some? (frame/frame-meta :composed/leak-audit))
+        "precondition: frame is seated in the frames store (frame-meta reads it)")
+    ;; rf2-h1vqa4 substrate ownership: seating writes NO registrar row.
+    (is (nil? (registrar/lookup :frame :composed/leak-audit))
+        "precondition: no :frame registrar row exists for a seated frame")
 
     ;; --- destroy ---------------------------------------------------------
     (frame/destroy-frame! :composed/leak-audit)
@@ -557,8 +560,8 @@
         "post: frame is dissoc'd from frames atom")
     (is (nil? (get @frame/frames :composed/leak-audit))
         "post: frame entry is gone from the underlying atom")
-    (is (nil? (registrar/lookup :frame :composed/leak-audit))
-        "post: frame is unregistered from the registrar")
+    (is (nil? (frame/frame-meta :composed/leak-audit))
+        "post: frame is invisible to frame-meta")
     (is (not (contains? (schemas/snapshot-schemas-by-frame) :composed/leak-audit))
         "post: schema row dropped (per rf2-wkxng / rf2-6m0se)")
     (is (not (contains? (flows/flows-snapshot) :composed/leak-audit))

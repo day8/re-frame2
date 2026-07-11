@@ -14,11 +14,12 @@
   `url-strategy-from-config` / `url-strategy-for-frame-id`. Per Spec 012
   §URL strategies."
   (:require [clojure.test :refer [deftest is testing]]
+            [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.late-bind :as late-bind]
-            [re-frame.registrar :as registrar]
             [re-frame.routing :as routing]
-            [re-frame.routing.strategy :as strategy]))
+            [re-frame.routing.strategy :as strategy]
+            [re-frame.substrate.plain-atom :as plain-atom]))
 
 ;; ---- shipped-strategy shape ----------------------------------------------
 
@@ -367,24 +368,24 @@
                                          :decode (constantly "/")}})))))
 
 (deftest reg-frame-engine-rejects-malformed-strategy-before-any-write
-  (testing "rf2-ktmto9: the core engine (frame/reg-frame) preflights the
+  (testing "rf2-ktmto9: the core engine (frame/upsert-frame!) preflights the
             declared :url-strategy BEFORE any write — a malformed first
             registration throws :rf.error/invalid-url-strategy and leaves NO
-            registrar row and NO frame record (the fail-loud + no-residue
+            frame record (the fail-loud + no-residue
             invariant; pre-fix the throw came from the post-create hook, after
             the container + :initial-events already ran)"
-    (let [ex (try (frame/reg-frame :ktmto9/bad-jvm
-                                   {:url-bound?   true
-                                    :url-strategy {:decode (constantly "/")}})
+    (let [ex (try (frame/upsert-frame! :ktmto9/bad-jvm
+                                       {:url-bound?   true
+                                        :url-strategy {:decode (constantly "/")}})
                   nil
                   (catch clojure.lang.ExceptionInfo e e))]
       (is (some? ex) "the malformed first registration throws")
       (is (= :rf.error/invalid-url-strategy (:rf.error/id (ex-data ex))))
       (is (= :ktmto9/bad-jvm (:frame (ex-data ex))))
-      (is (not (contains? (registrar/registrations :frame) :ktmto9/bad-jvm))
-          "no registrar row was written")
       (is (not (contains? (set (frame/frame-ids)) :ktmto9/bad-jvm))
-          "no frame record was created"))))
+          "no frame record was created")
+      (is (nil? (frame/frame-meta :ktmto9/bad-jvm))
+          "the failed frame is invisible to frame-meta"))))
 
 (deftest reg-frame-missing-routing-artefact-fails-loud
   (testing "rf2-ktmto9: a config declaring :url-strategy while the
@@ -394,28 +395,32 @@
             validate or execute is worse than a dependency error"
     (try
       (late-bind/set-fn! :routing/preflight-frame-config! nil)
-      (let [ex (try (frame/reg-frame :ktmto9/no-artefact
-                                     {:url-bound?   true
-                                      :url-strategy strategy/history-url-strategy})
+      (let [ex (try (frame/upsert-frame! :ktmto9/no-artefact
+                                         {:url-bound?   true
+                                          :url-strategy strategy/history-url-strategy})
                     nil
                     (catch clojure.lang.ExceptionInfo e e))]
         (is (some? ex) "declaring :url-strategy without the routing artefact throws")
         (is (= :rf.error/routing-artefact-missing (:rf.error/id (ex-data ex))))
         (is (= :ktmto9/no-artefact (:frame (ex-data ex))))
-        (is (not (contains? (registrar/registrations :frame) :ktmto9/no-artefact))
-            "no registrar row was written"))
+        (is (nil? (frame/frame-meta :ktmto9/no-artefact))
+            "no frame record was seated"))
       (finally
         (late-bind/set-fn! :routing/preflight-frame-config!
                            strategy/preflight-frame-config!)))))
 
-(deftest url-strategy-for-frame-id-reads-registry
-  (testing "url-strategy-for-frame-id reads the frame's stored config, defaulting
-            to history for an unregistered / nil frame"
+(deftest url-strategy-for-frame-id-reads-frames-store
+  (testing "url-strategy-for-frame-id reads the frame's stored config off the
+            frames store (rf2-h1vqa4 — frames have no registrar rows),
+            defaulting to history for an unregistered / nil frame"
+    ;; Real seated frames — the resolver reads `frame/frame-meta`, so the test
+    ;; must go through the engine (container creation needs an adapter).
+    (rf/init! plain-atom/adapter)
     (try
       ;; A hash-bound frame resolves to the hash strategy.
-      (registrar/register! :frame :test/hash-owner
+      (frame/upsert-frame! :test/hash-owner
                            {:url-bound? true :url-strategy strategy/hash-url-strategy})
-      (registrar/register! :frame :test/plain {:url-bound? true})
+      (frame/upsert-frame! :test/plain {:url-bound? true})
       (is (identical? strategy/hash-url-strategy
                       (strategy/url-strategy-for-frame-id :test/hash-owner)))
       (is (identical? strategy/history-url-strategy
@@ -428,5 +433,5 @@
                       (strategy/url-strategy-for-frame-id nil))
           "a nil frame-id resolves to the history default")
       (finally
-        (registrar/unregister! :frame :test/hash-owner)
-        (registrar/unregister! :frame :test/plain)))))
+        (frame/destroy-frame! :test/hash-owner)
+        (frame/destroy-frame! :test/plain)))))

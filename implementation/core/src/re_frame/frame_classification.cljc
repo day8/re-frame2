@@ -311,10 +311,10 @@
     (validate-observability! frame-id (:observability config)))
   nil)
 
-;; Published so the frame-registration path (`re-frame.frame/reg-frame`)
+;; Published so the frame-registration path (`re-frame.frame/upsert-frame!`)
 ;; can reach validation without a static require (frame.cljc sits below this
 ;; ns in the load order). `re-frame.core` requires this ns at boot, so the
-;; hook is always published before any runtime `reg-frame` call.
+;; hook is always published before any runtime frame registration.
 ;;
 ;; EP-0025: there is no `install!` / `install-from-config!` / `validate+extract`
 ;; hook anymore — durable app-db classification moved off the frame annotation

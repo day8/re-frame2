@@ -146,9 +146,11 @@
                    :cofx :rf2-k84s/reg-cofx-sample)))
 
 (deftest source-coords-on-reg-frame
-  (testing "reg-frame stamps :ns / :line / :file"
+  (testing "reg-frame stamps :ns / :line / :file — read through `rf/frame-meta`
+            (rf2-h1vqa4: frames live in the frames store, not the registrar; the
+            macro-captured coords land on the stored frame config)"
     (rf/reg-frame :rf2-k84s/reg-frame-sample {:doc "smoke"})
-    (assert-coords (rf/handler-meta :frame :rf2-k84s/reg-frame-sample)
+    (assert-coords (rf/frame-meta :rf2-k84s/reg-frame-sample)
                    :frame :rf2-k84s/reg-frame-sample)))
 
 (deftest source-coords-on-reg-view

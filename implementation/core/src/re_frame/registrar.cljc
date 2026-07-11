@@ -40,6 +40,17 @@
   `handlers :flow` / `handler-meta :flow` — matching the `:app-schema`
   precedent (rf2-0frdi).
 
+  Per rf2-h1vqa4 the `:frame` kind is likewise RESERVED with an intentionally
+  **empty** registrar slot — the frame engine (`re-frame.frame/upsert-frame!`)
+  writes only to the frames registry (`re-frame.frame/frames`), the single
+  source of truth for seated frames. A frame is a LIVE runtime object, not an
+  image-resolved program member: routing a `:frame` row through `register!`
+  leaked it into the provenance source store, bumping the source-store
+  generation (invalidating the resolved-image-generation cache, EP-0023) and
+  firing the live-frame reprojection hook on every seat/reseat. Frame
+  introspection goes through `rf/frame-meta` / `rf/frame-ids` (Spec 002 §The
+  public registrar query API), never `registrations :frame`.
+
   ## Production elision
 
   The :rf.registry/* trace emit sites in this namespace are gated on
@@ -86,6 +97,11 @@
 
 (def kinds
   "The closed set of registry kinds for v1. Adding a new kind is a Spec change.
+
+  `:frame` is RESERVED with an intentionally EMPTY slot (rf2-h1vqa4) — seated
+  frames live in the frames registry (`re-frame.frame/frames`), introspected
+  via `rf/frame-meta` / `rf/frame-ids`; nothing writes `:frame` rows here
+  (the `:flow` precedent below).
 
   Machine guards/actions are NOT registrar kinds — the runtime resolves
   them through the machine spec's `:guards` / `:actions` maps, and their
@@ -594,7 +610,7 @@
                (catch #?(:clj Throwable :cljs :default) _ nil)))
         ;; Per Spec 001 §Hot-reload trace surface: emit
         ;; `:rf.registry/handler-replaced` on EVERY re-registration —
-        ;; not only when the handler-fn changes. Kinds like `:frame`
+        ;; not only when the handler-fn changes. Kinds like `:route`
         ;; replace the slot without rotating `:handler-fn`, so gating the
         ;; emit on `different?` would drop legitimate re-registration
         ;; events on the floor. The `:different-fn?` tag is preserved
@@ -621,7 +637,7 @@
           ;; shape, and carries its OWN per-(kind, id) suppression
           ;; (`collision-warned`). It must run independently of the
           ;; `dedup-allow?` (handler-replaced) gate: a kind with no rotating
-          ;; `:handler-fn` — `:frame`, `:route`, `:head` — can be deduped-away
+          ;; `:handler-fn` — `:route`, `:head` — can be deduped-away
           ;; by shape, so nesting the collision check inside that gate would
           ;; let a GENUINE cross-source clash for those kinds go unwarned.
           ;; Called here independently (still under `interop/debug-enabled?`

@@ -747,7 +747,7 @@
             fails LOUD with :rf.error/invalid-url-strategy at the
             registration-time PREFLIGHT — BEFORE any write — so EVERY previously
             committed value survives: the frames-registry record (config +
-            generation, the same object), the registrar row, the URL claim, and
+            generation, the same object), the URL claim, and
             the incumbent working listener instance; and no
             :rf.frame/re-registered trace fires. (#5633 proved only listener
             survival; the preflight makes the whole re-registration
@@ -758,7 +758,7 @@
     (let [incumbent       (first (get-in @*history-state* [:listeners "popstate"]))
           ;; SNAPSHOT the committed state before the malformed attempt.
           record-before   (get @frame/frames :owner/a)
-          registrar-before (get (rf/registrations :frame) :owner/a)
+          meta-before     (rf/frame-meta :owner/a)
           captured        (atom [])
           cb-key          (keyword (gensym "ktmto9-rereg-trace-"))]
       (is (some? incumbent) "A's popstate listener is installed")
@@ -785,8 +785,8 @@
         (is (identical? record-before (get @frame/frames :owner/a))
             "the frames-registry record (config + generation + containers) is
              the SAME object — the frames swap never ran")
-        (is (= registrar-before (get (rf/registrations :frame) :owner/a))
-            "the registrar row is unchanged — registrar/register! never ran")
+        (is (= meta-before (rf/frame-meta :owner/a))
+            "the frame-meta introspection surface is unchanged — no config commit")
         (is (= :owner/a (routing/url-owner-frame-id))
             "A still owns the URL — the claim order is unchanged")
         (is (empty? (filter #(= :rf.frame/re-registered (:operation %)) @captured))
@@ -812,11 +812,11 @@
 ;;
 ;; Pre-fix, a URL owner's FIRST registration with a malformed custom
 ;; :url-strategy threw only in the POST-create hook: the frame container was
-;; already built, the registrar row + trace-policy flags written, and the
+;; already built, the trace-policy flags written, and the
 ;; :initial-events setup had already RUN before validation fired. The
 ;; registration-time preflight (through :routing/preflight-frame-config!)
 ;; validates the FINAL expanded config BEFORE any candidate-derived write, so
-;; a failed first registration leaves NO frame record, NO registrar row, NO
+;; a failed first registration leaves NO frame record, NO
 ;; URL claim or listener, NO trace-policy residue, NO trace event, and NO
 ;; :initial-events effect — via BOTH constructor spellings.
 
@@ -840,8 +840,8 @@
           "the :initial-events setup step never ran — no probe increment")
       (is (not (contains? (set (rf/frame-ids)) frame-id))
           "no frame record was created")
-      (is (not (contains? (rf/registrations :frame) frame-id))
-          "no registrar row was written")
+      (is (nil? (rf/frame-meta frame-id))
+          "no frame config was seated (rf2-h1vqa4 — frames have no registrar rows)")
       (is (nil? (routing/url-owner-frame-id))
           "no URL claim was recorded")
       (is (empty? (get-in @*history-state* [:listeners "popstate"]))

@@ -41,22 +41,23 @@
 
   Reconciliation runs from TWO lifecycle points:
 
-    - `on-frame-registered!` — `re-frame.frame/reg-frame`'s POST-CREATE hook
-      (`:routing/on-frame-registered!`, fired AFTER the frame container exists
-      and, on first registration, after `:initial-events` ran — the registrar's
-      OWN `:frame` registration hook,
-      `re-frame.routing.url-bound/check-url-bound-exclusivity!`, fires too
-      early: `registrar/register!` runs BEFORE the frame container is created,
-      so an install from there would dispatch the initial sync into a
-      not-yet-live frame). It reconciles after every (re-)registration, so a
+    - `re-frame.routing`'s `:routing/on-frame-registered!` hook body — the
+      frame engine (`re-frame.frame/upsert-frame!`) POST-CREATE hook, fired
+      AFTER the frame container exists (and, on first registration, after
+      `:initial-events` ran), so the listener's synchronous initial URL sync
+      always targets a live frame. The facade body runs the url-bound
+      exclusivity/claim maintenance FIRST (`re-frame.routing.url-bound`), then
+      calls `reconcile-url-listener!` — claims are current when the owner is
+      resolved. It reconciles after every (re-)registration, so a
       post-registration claim change (an owner opting out with `:url-bound?
       false` while a successor is live) rebinds to the successor's strategy.
     - `re-frame.routing/release-routing-host-caches!` —
       `frame/destroy-frame!`'s teardown hook. It drops the destroyed frame's
       URL claim and then reconciles, passing the destroyed id as the EXCLUDED
-      owner (the frame is still in the registrar here — `unregister-frame!`
-      runs after this hook — so its lingering `:url-bound? true` entry must not
-      resolve as the owner). A destroyed owner with a live successor rebinds to
+      owner (defence in depth: the destroyed frame is already invisible to
+      `frame-meta` reads by hook time — `:destroyed?` flipped earlier in the
+      teardown — but the exclusion keeps the contract explicit rather than
+      timing-derived). A destroyed owner with a live successor rebinds to
       it; a destroyed owner with no successor leaves no listener.
 
   A losing duplicate `:url-bound? true` registration (`id` is NOT the resolved
@@ -176,12 +177,12 @@
                                                           listener + initial
                                                           sync.
 
-     `excluded-id` (destroy path) is a frame whose registry entry still lingers
-     mid-teardown (`re-frame.frame/destroy-frame!` runs this hook BEFORE
-     `unregister-frame!`): its stale `:url-bound? true` entry could otherwise be
-     resolved as the sole owner by the claim-free fallback even though its claim
-     was just dropped, so a resolved owner equal to `excluded-id` is treated as
-     no owner.
+     `excluded-id` (destroy path) is the frame being torn down. By the time
+     `:routing/on-frame-destroyed!` fires, the destroyed frame's `:destroyed?`
+     flag is already flipped, so `frame-meta` reads it as absent and the
+     claim-free fallback cannot resolve it — the exclusion is defence in
+     depth (an explicit contract rather than a timing-derived one): a
+     resolved owner equal to `excluded-id` is treated as no owner.
 
      Ownership-driven, so ONE op serves both lifecycle points: it installs the
      successor when the incumbent relinquishes/is destroyed while a live
@@ -227,25 +228,16 @@
      []
      (teardown-current!)))
 
-#?(:cljs
-   (defn on-frame-registered!
-     "Post-(re-)registration frame-lifecycle hook: reconcile the browser URL
-     listener (`reconcile-url-listener!`). Ownership-driven, so it does the
-     right thing on every registration path — first URL owner installs; a frame
-     newly opting into `:url-bound? true` installs; an owner re-registering with
-     a changed `:url-strategy` rewires once; an owner opting OUT with
-     `:url-bound? false` while a successor is live rebinds to the successor's
-     strategy; and a losing-duplicate `:url-bound? true` registration (the
-     resolved owner is unchanged — `re-frame.routing.url-bound` already emitted
-     `:rf.error/duplicate-url-binding`) or an ordinary non-url-bound frame is a
-     no-op, leaving the incumbent listener instance untouched.
-
-     Published as the `:routing/on-frame-registered!` late-bind hook, invoked by
-     `re-frame.frame/reg-frame` AFTER the frame container exists (and, on first
-     registration, after `:initial-events` ran) — the registrar's OWN `:frame`
-     registration hook (`re-frame.routing.url-bound/check-url-bound-
-     exclusivity!`) fires too early for an install: `registrar/register!` runs
-     BEFORE the frame container is created, so a listener installed from there
-     would dispatch its initial sync into a not-yet-live frame."
-     [_id]
-     (reconcile-url-listener!)))
+;; The post-(re-)registration listener reconcile is composed into the facade's
+;; `:routing/on-frame-registered!` hook body (`re-frame.routing`), ORDERED
+;; AFTER the url-bound exclusivity/claim maintenance so `url-owner-frame-id`
+;; resolves against current claims. The facade calls
+;; `reconcile-url-listener!` directly — ownership-driven, so it does the right
+;; thing on every registration path: first URL owner installs; a frame newly
+;; opting into `:url-bound? true` installs; an owner re-registering with a
+;; changed `:url-strategy` rewires once; an owner opting OUT with
+;; `:url-bound? false` while a successor is live rebinds to the successor's
+;; strategy; and a losing-duplicate `:url-bound? true` registration (the
+;; resolved owner is unchanged — `re-frame.routing.url-bound` already emitted
+;; `:rf.error/duplicate-url-binding`) or an ordinary non-url-bound frame is a
+;; no-op, leaving the incumbent listener instance untouched.

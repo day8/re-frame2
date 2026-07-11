@@ -67,8 +67,8 @@
   (routing/reset-nav-counters!)
   ;; rf2-3l7xxz: the URL-ownership claim-order vector is process-global state
   ;; (re-frame.routing.nav-fx/url-claim-order) that `clear-all!` / the `frames`
-  ;; reset above does NOT touch (the registrar's registration-hooks vector is
-  ;; `defonce` and survives `clear-all!`, so the `:rf/default` reg at the top
+  ;; reset above does NOT touch (the late-bind `:routing/on-frame-registered!`
+  ;; publication survives `clear-all!`, so the `:rf/default` reg at the top
   ;; DID record a claim through the still-live hook — but a PRIOR test's claims
   ;; also accumulated). Reset the vector here so the incumbent is deterministic
   ;; per test, then re-seat `:rf/default`'s claim so it is the first-claimed
