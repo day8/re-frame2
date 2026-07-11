@@ -978,27 +978,105 @@
     (is (= "/cart" (routing/route-url :route/cart {})))))
 
 ;; ---- T1: :rf.warning/route-shadowed-by-equal-score warning ---------------
+;; rf2-6gzobp — the warning fires iff the rules-1-5 structural rank ties
+;; AND the two patterns are co-matchable (some URL matches both — Spec 012
+;; §Route ranking algorithm rule 6's "same URL family"). Equal rank alone
+;; is NOT a conflict: rank tuples ignore literal text, so every same-shape
+;; pair ties regardless of literals; a warning on the bare tie floods every
+;; ordinary multi-page app.
+
+(defn- shadow-warnings
+  "Run `f` under a trace listener; return the captured
+  `:rf.warning/route-shadowed-by-equal-score` events."
+  [f]
+  (let [traces (atom [])]
+    (rf/register-listener! :trace ::shadow (fn [ev] (swap! traces conj ev)))
+    (try (f)
+         (finally (rf/unregister-listener! :trace ::shadow)))
+    (filterv #(= :rf.warning/route-shadowed-by-equal-score (:operation %))
+             @traces)))
 
 (deftest route-shadowed-by-equal-score-warning
-  (testing "registering two routes with structurally-equal rank emits
-            :rf.warning/route-shadowed-by-equal-score (Spec 012 §Route
-            ranking algorithm rule 6)"
-    ;; Two routes with the same shape — same number of static / named /
-    ;; splat / optional segments — score equal under rules 1-5. Rule 6
-    ;; (reg-index tiebreak) keeps matching deterministic, but the
-    ;; warning surfaces the conflict for tooling.
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::shadow (fn [ev] (swap! traces conj ev)))
-      (rf/reg-route :route/a {} "/x/:id")
-      (rf/reg-route :route/b {} "/y/:slug")
-      (rf/unregister-listener! :trace ::shadow)
-      (is (some (fn [ev]
-                  (and (= :rf.warning/route-shadowed-by-equal-score
-                          (:operation ev))
-                       (= :route/b (-> ev :tags :route-id))
-                       (= :route/a (-> ev :tags :shadowed))))
-                @traces)
-          "second equal-rank registration emits the warning naming both routes"))))
+  (testing "a TRUE rule-6 conflict — identical literals, different param
+            names (/a/:x vs /a/:y) — warns with the reconciled payload:
+            earlier registration wins the match-time tiebreak, so the NEW
+            route is the shadowed one (:route-id), :shadowed-by names the
+            existing winner, :rank carries the tied structural tuple"
+    (let [warns (shadow-warnings
+                  (fn []
+                    (rf/reg-route :route/a {} "/a/:x")
+                    (rf/reg-route :route/b {} "/a/:y")))]
+      (is (= 1 (count warns))
+          "exactly one warning for the conflicting pair")
+      (let [t (:tags (first warns))]
+        (is (= :route/b (:route-id t))
+            ":route-id names the NEW route — the shadowed one")
+        (is (= :route/a (:shadowed-by t))
+            ":shadowed-by names the existing winner (earlier registration
+            wins the rule-6 tiebreak)")
+        (is (= [1 1 2 1 1] (:rank t))
+            ":rank carries the tied rules-1-5 structural tuple"))))
+
+  (testing "equal rank alone does NOT warn — distinct single-segment static
+            routes (the every-app case) register with ZERO shadow warnings"
+    ;; /home, /about, /contact all rank [1 1 1 1 1] but never co-match.
+    (let [warns (shadow-warnings
+                  (fn []
+                    (rf/reg-route :route/home    {} "/home")
+                    (rf/reg-route :route/about   {} "/about")
+                    (rf/reg-route :route/contact {} "/contact")))]
+      (is (= [] warns)
+          "N distinct static routes emit zero spurious shadow warnings")))
+
+  (testing "equal rank alone does NOT warn — distinct-literal param-prefix
+            pair (/x/:id vs /y/:slug, the pair the old over-broad scan
+            false-flagged) registers with ZERO shadow warnings"
+    (let [warns (shadow-warnings
+                  (fn []
+                    (rf/reg-route :route/x {} "/x/:id")
+                    (rf/reg-route :route/y {} "/y/:slug")))]
+      (is (= [] warns)
+          "same-shape routes on disjoint URL families never warn")))
+
+  (testing "several co-matchable equal-rank ties name the route that
+            actually wins at match time — the earliest-registered"
+    (let [warns (shadow-warnings
+                  (fn []
+                    (rf/reg-route :route/first  {} "/a/:x")
+                    (rf/reg-route :route/second {} "/a/:y")
+                    (rf/reg-route :route/third  {} "/a/:z")))]
+      ;; :route/second warns against :route/first; :route/third ties with
+      ;; BOTH but the warning names :route/first — the match-time winner.
+      (is (= 2 (count warns)))
+      (is (= {:route-id :route/third :shadowed-by :route/first}
+             (select-keys (:tags (peek warns)) [:route-id :shadowed-by]))
+          "the named winner is the earliest-registered intersecting tie"))))
+
+(deftest route-shadow-scan-registration-benchmark
+  (testing "registering a large table of same-rank distinct-literal static
+            routes — the worst case for the rank prefilter (every pair
+            ties, so the co-matchability check runs O(N²/2) times) — stays
+            cheap and emits ZERO warnings (rf2-6gzobp)"
+    (let [n     300
+          start (System/nanoTime)
+          warns (shadow-warnings
+                  (fn []
+                    (dotimes [i n]
+                      (rf/reg-route (keyword "bench" (str "static-" i)) {}
+                                    (str "/bench-" i)))
+                    ;; A second same-rank family with a param segment —
+                    ;; the automata walk two segments per tie here.
+                    (dotimes [i 50]
+                      (rf/reg-route (keyword "bench" (str "param-" i)) {}
+                                    (str "/p" i "/:id")))))
+          elapsed-ms (/ (- (System/nanoTime) start) 1e6)]
+      (is (= [] warns)
+          "distinct-literal same-rank tables emit zero shadow warnings")
+      ;; Generous CI bound — locally this is tens of milliseconds; the
+      ;; assertion guards against an accidental exponential blow-up in the
+      ;; product-automaton walk, not micro-performance.
+      (is (< elapsed-ms 10000)
+          (str "registration scan stayed bounded (took " elapsed-ms " ms)")))))
 
 ;; ---- T2: :int / :keyword / :boolean query coercion ----------------------
 
