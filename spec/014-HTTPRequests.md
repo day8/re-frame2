@@ -12,7 +12,7 @@
 
 `:rf.http/managed` is the canonical HTTP fx for re-frame2 implementations that ship one. Take an args map, get a request issued; the fx handles transport, decoding, retry-with-backoff, and dispatching the reply back into the runtime. The recommended shape is **two explicit handlers** — `:on-success [:article/loaded]` / `:on-failure [:article/load-error]` — one event each for the request, the success, and the failure. Each handler stays small and single-purpose, and the failure path is named rather than folded into a branch. When the request and reply genuinely belong together, the fx also supports a **unified one-handler** form: `:reply-to [:article/load]` addresses both replies to one event, which branches on the canonical envelope's `:status` to serve both the initial dispatch and the async result.
 
-The fx specialises [Pattern-AsyncEffect](Pattern-AsyncEffect.md)'s generic six-step shape (register → return `:fx` → post work → reply → dispatch → commit), pins the lifecycle slice from [Pattern-RemoteData](Pattern-RemoteData.md), and inherits the epoch carry from [Pattern-StaleDetection](Pattern-StaleDetection.md). It complements but does not replace the lower-level `:http` fx — apps that need wire-level control (custom transport, raw bytes, idiosyncratic protocols) keep using `:http`; apps that want the common case ergonomic use `:rf.http/managed`.
+The fx specialises [Pattern-AsyncEffect](Pattern-AsyncEffect.md)'s generic six-step shape (register → return `:fx` → post work → reply → dispatch → commit) and pins the lifecycle slice from [Pattern-RemoteData](Pattern-RemoteData.md). Stale replies are suppressed through the in-flight registry — a same-`:request-id` supersede, an actor-destroy, an epoch-restore, or a frame-destroy (see [§Stale-suppression — the four triggers](#stale-suppression--the-four-triggers)) — **not** the carried-epoch compare of [Pattern-StaleDetection](Pattern-StaleDetection.md) that `:after` timers and route nav-tokens use. It complements but does not replace the lower-level `:http` fx — apps that need wire-level control (custom transport, raw bytes, idiosyncratic protocols) keep using `:http`; apps that want the common case ergonomic use `:rf.http/managed`.
 
 Streaming and bidirectional communication are out of scope here — Spec 014 covers the single-request / single-reply shape. WebSocket / SSE / chunked-streaming are handled by sibling specs (Pattern-WebSocket; future `:rf.http/streaming`).
 
@@ -424,7 +424,7 @@ Both parts catch the misuse at the dispatch site rather than silently letting a 
 
 Implementations MUST NOT accept the old open `:rf.http/*` set. The rejection is hard, not advisory.
 
-Each retry advances the carried epoch (per Pattern-StaleDetection); a stale request (e.g. one whose target route changed mid-retry) is suppressed without dispatching the reply.
+Retry does **not** carry or advance an epoch: a retry-eligible failure schedules a backoff and re-issues the **same** request. Staleness is orthogonal to retry — a request superseded by a same-`:request-id` reissue, or unwound by actor-destroy / epoch-restore / frame-destroy, is suppressed through the in-flight registry (see [§Stale-suppression — the four triggers](#stale-suppression--the-four-triggers)), including mid-backoff (per [§Abort precedence (abort always wins)](#abort-precedence-abort-always-wins)). Route / navigation staleness for a plain request is owned by resources / nav-tokens ([Spec 012](012-Routing.md) / [Spec 016](016-Resources.md)), not by `:rf.http/managed`.
 
 ### Boundary — transport vs semantic retry
 
@@ -1532,15 +1532,22 @@ Per [§Privacy](#privacy) the `:rf.http/*` trace events honour the [Spec 009 §`
 
 Per [§2. Query-param denylist (always-on)](#2-query-param-denylist-always-on) the framework redacts denylisted query-string parameter values in `:url` slots **regardless** of the effective `:sensitive?` flag. Param-name and position are preserved; the value is replaced inline with the `:rf/redacted` text token. Always-on was chosen over flag-gated because query-string-auth patterns (older REST APIs, webhooks) leak through `:rf.http/retry-attempt` and similar URL-carrying traces even when the dispatching event isn't `:sensitive?` — the redaction must run unconditionally for the URL slot to be safe.
 
-### Stale-suppression piggy-backs on the epoch carry
+### Stale-suppression — the four triggers
 
-Per [Pattern-StaleDetection](Pattern-StaleDetection.md) and [§Reply addressing](#reply-addressing) managed requests inherit the dispatching event's epoch carry; replies that arrive after a newer navigation / actor restart are suppressed at the dispatch site. The same epoch idiom is used by `:after` timers (per [Spec 005 §Epoch-based stale detection](005-StateMachines.md#epoch-based-stale-detection)) and route nav-tokens (per [Spec 012 §Navigation tokens](012-Routing.md#navigation-tokens--stale-result-suppression)); the recurring pattern is documented in [Pattern-StaleDetection](Pattern-StaleDetection.md).
+A plain `:rf.http/managed` request does **not** carry a dispatching-event epoch and compare it on reply (the [Pattern-StaleDetection](Pattern-StaleDetection.md) idiom `:after` timers and route nav-tokens use). Its stale-suppression is **registry-driven**: the in-flight handle is aborted when the timeline it belonged to is superseded or torn down. There are exactly four triggers:
+
+1. **Same-`:request-id` supersede** — a fresh request with the same `:request-id` replaces this one. The prior attempt's reply is suppressed (no app target runs) and a `:rf.http/stale-suppressed` trace records the superseded attempt's `:work/id` (`:rf.reply/stale-reason :rf.http/request-id-superseded`). Per [§`:request-id` (internal)](#request-id-internal).
+2. **Actor-destroy** — a request issued from inside a spawned state-machine actor is aborted when the actor is destroyed; it dispatches a `:rf.http/aborted` reply with `:reason :actor-destroyed` (and, when the reply target is the destroyed actor itself, a `:rf.http/stale-suppressed` obsolete-target row). Per [§Abort on actor destroy](#abort-on-actor-destroy).
+3. **Epoch-restore** — an epoch restore unwinds the frame's timeline; per [Managed-Effects](Managed-Effects.md) ("epoch restore MUST NOT revive host work") a pre-restore completion is reply-suppressed (`:reason :epoch-restored`, `:recovery :suppressed-on-epoch-restore`). Per [§Abort on frame destroy](#abort-on-frame-destroy).
+4. **Frame-destroy** — the request's owning frame is destroyed; the late completion is reply-suppressed (`:reason :frame-destroyed`, `:recovery :suppressed-on-frame-destroy`). Per [§Abort on frame destroy](#abort-on-frame-destroy).
+
+Route / navigation staleness for a **plain** request is not one of these — it is owned by resources / nav-tokens ([Spec 012 §Navigation tokens](012-Routing.md#navigation-tokens--stale-result-suppression) / [Spec 016](016-Resources.md)). The carried-epoch idiom itself — used by `:after` timers (per [Spec 005 §Epoch-based stale detection](005-StateMachines.md#epoch-based-stale-detection)) and route nav-tokens — is documented in [Pattern-StaleDetection](Pattern-StaleDetection.md).
 
 ## Cross-references
 
 - [Pattern-AsyncEffect](Pattern-AsyncEffect.md) — generic six-step async shape; Spec 014 specialises it.
 - [Pattern-RemoteData](Pattern-RemoteData.md) — the 5-key request-lifecycle slice; `:rf.http/managed` writes through this slice.
-- [Pattern-StaleDetection](Pattern-StaleDetection.md) — epoch carry; managed requests inherit it.
+- [Pattern-StaleDetection](Pattern-StaleDetection.md) — the carried-epoch idiom `:after` timers and route nav-tokens use; plain managed HTTP does **not** inherit it — its stale-suppression is registry-driven (see [§Stale-suppression — the four triggers](#stale-suppression--the-four-triggers)).
 - [Spec 002 §Routing](002-Frames.md#routing-the-dispatch-envelope) — frame-aware fx contract; reply dispatches inherit `:frame`.
 - [Spec 005 §Delayed `:after` transitions](005-StateMachines.md#delayed-after-transitions) — the substrate semantic retry rides on; the machine fires a transition on the failure reply, optionally delays via `:after`, and re-issues the request from the next state's `:spawn`.
 - [Spec 005 §Spawn-and-join via `:spawn-all`](005-StateMachines.md#spawn-and-join-via-spawn-all) — multi-request semantic retry (refresh-then-retry, fan-out-with-conditional-retry) lives here.
