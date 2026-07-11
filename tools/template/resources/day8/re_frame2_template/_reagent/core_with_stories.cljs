@@ -47,8 +47,14 @@
 (defn- mount-app! []
   (story/unmount-shell!)
   (ensure-app-root!)
-  ;; Use the same frame that init seeds.
-  (rdc/render @app-root [rf/frame-provider {:frame :rf/default} [views/counter-app]]))
+  ;; `frame-root` ENSURES the app frame: it creates `:rf/default` on the
+  ;; first app-branch mount (running the `:initial-events` seed), and REUSES
+  ;; the live frame WITHOUT re-seeding on every later mount — counter state
+  ;; survives a #/stories round-trip and hot reloads.
+  (rdc/render @app-root
+              [rf/frame-root {:id             :rf/default
+                              :initial-events [[:counter/initialise]]}
+               [views/counter-app]]))
 
 (defn- mount-stories! []
   (tear-down-app-root!)
@@ -77,13 +83,14 @@
    shadow's hot-reload pipeline re-invokes it on each rebuild."
   []
   (rf/init! reagent-adapter/adapter)
-  ;; init! installs the adapter but does not create the app frame.
-  (rf/reg-frame :rf/default {})
-  ;; stories.cljs installs the canonical Story vocabulary on its first
-  ;; registration. Seed app-db before mounting the live-app branch.
-  (rf/with-frame :rf/default
-    (schema/register-schema!)
-    (rf/dispatch-sync [:counter/initialise]))
+  ;; init! installs the adapter but does not create the app frame — the
+  ;; live-app branch's `rf/frame-root` (see `mount-app!`) ensures it at
+  ;; mount. stories.cljs installs the canonical Story vocabulary on its
+  ;; first registration.
+  ;;
+  ;; Schema attachment is frame-local; it names the app frame explicitly so
+  ;; the frame-root `:initial-events` seed is validated from the first write.
+  (schema/register-schema!)
   ;; Install the reload-safe route listener before applying the current hash.
   (install-hash-listener!)
   (on-hash-change!))

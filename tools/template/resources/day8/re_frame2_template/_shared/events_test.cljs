@@ -43,7 +43,7 @@
     {:adapter plain-atom/adapter
      :init-fn (fn []
                 ;; The init hook overrides the fixture's default frame config.
-                (rf/reg-frame :rf/default {:preset :test}))}))
+                (rf/make-frame {:id :rf/default :preset :test}))}))
 
 ;; --- Tests -----------------------------------------------------------------
 

@@ -244,7 +244,7 @@ re-frame2 makes runtime state highly observable (Xray, the trace stream, off-box
 monitors) — a productivity feature **and** a privacy surface. **App-db schemas
 validate shape; they do NOT classify egress.** Egress classification for durable
 app-db paths is recorded per frame, but authored by the event that writes the
-data rather than on `reg-frame` or a schema. As soon as you add auth/API data
+data rather than on the frame declaration or a schema. As soon as you add auth/API data
 to app-db, return the `:sensitive` / `:large` commit-plane effects alongside
 `:db`. On SSR the `:payload` allowlist on
 `ssr-handler` is a second privacy gate: ship only the slices the client needs in

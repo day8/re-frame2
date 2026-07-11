@@ -17,8 +17,11 @@
   "Called by shadow-cljs. Idempotent — re-invoked on each hot reload."
   []
   (rf/init! uix-adapter/adapter)
-  ;; `init!` installs the adapter but does not create a frame. Register the
-  ;; app frame before frame-local boot work and provide it to the view tree.
+  ;; `init!` installs the adapter but does not create a frame. The
+  ;; `frame-root` element below ENSURES the app frame at mount: it creates
+  ;; `:rf/default` the first time (running the `:initial-events` seed
+  ;; synchronously, so the initial render sees the seeded app-db), and REUSES
+  ;; the live frame WITHOUT re-seeding on every hot-reload re-render.
   ;;
   ;; Schemas validate shape; they do not classify durable app-db egress.
   ;; Classify a path from the event that writes it by returning `:sensitive`
@@ -29,10 +32,12 @@
   ;;        :sensitive [[:auth :token]]
   ;;        :large     [[:documents :upload]]}))
   ;; See the README's privacy section for HTTP carriers and response bodies.
-  (rf/reg-frame :rf/default {})
-  (rf/with-frame :rf/default
-    (schema/register-schema!)
-    (rf/dispatch-sync [:counter/initialise]))
+  ;;
+  ;; Schema attachment is frame-local; it names the app frame explicitly so
+  ;; the `:initial-events` seed below is validated from the very first write.
+  (schema/register-schema!)
   (uix-dom/render-root
-    ($ uix-adapter/frame-provider {:frame :rf/default} ($ views/counter-app))
+    ($ uix-adapter/frame-root {:id             :rf/default
+                               :initial-events [[:counter/initialise]]}
+       ($ views/counter-app))
     root))

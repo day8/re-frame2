@@ -174,9 +174,12 @@
               "schema.cljs must NOT emit the retired schema-in-metadata
                (rf/reg-app-schema [] {:schema CounterDb}) call — the canonical
                grammar is positional (rf/reg-app-schema [] CounterDb)")
-          (is (.contains schema-text "(rf/reg-app-schema [] CounterDb)")
-              "schema.cljs emits the canonical positional grammar
-               (rf/reg-app-schema [] CounterDb)")
+          (is (.contains schema-text "(rf/reg-app-schema [] {:frame :rf/default} CounterDb)")
+              "schema.cljs emits the canonical positional grammar with the
+               explicit frame target
+               (rf/reg-app-schema [] {:frame :rf/default} CounterDb) —
+               rf2-h1vqa4: boot attaches the schema before the frame-root
+               mount creates the frame")
 
           ;; -- EP-0011 / rf2-ibksxg / rf2-et4c1s: HTTP exemplar teaches the
           ;;    ONE canonical uniform reply envelope + the CURRENT reply-
@@ -237,15 +240,15 @@
               "events.cljs decode note states an unschematized HTTP body is
                whole-sensitive / fail-closed (EP-0015 — rf2-7i66d0)")
 
-          ;; -- EP-0015: frame-owned classification pointer at the reg-frame
-          ;;    site + schema-is-shape-not-egress note --
-          ;; core.cljs must point the user at frame-owned egress
-          ;; classification where it registers :rf/default, and schema.cljs
+          ;; -- EP-0015/EP-0025: classification pointer at the boot site +
+          ;;    schema-is-shape-not-egress note --
+          ;; core.cljs must point the user at commit-plane egress
+          ;; classification where it boots the app frame, and schema.cljs
           ;; must state that schemas validate shape, NOT durable app-db
           ;; egress (the one-owner-one-route rule).
           (is (.contains core-text ":sensitive")
-              "core.cljs points at frame-owned :sensitive egress
-               classification at the reg-frame site (EP-0015 — rf2-7i66d0)")
+              "core.cljs points at :sensitive egress classification at the
+               frame boot site (EP-0015/EP-0025 — rf2-7i66d0)")
           (is (.contains schema-text "does NOT classify durable app-db")
               "schema.cljs states a schema validates shape and does NOT
                classify durable app-db egress (frame owns that — EP-0015;
@@ -361,10 +364,10 @@
             (is (.contains priv-sec "do NOT classify egress")
                 "README privacy section states app-db schemas validate shape
                  and do NOT classify egress (EP-0015 — rf2-7i66d0)")
-            (is (.contains priv-sec "reg-frame")
-                "README privacy section shows classification declared on
-                 reg-frame (frame-owned durable classification — EP-0015;
-                 rf2-7i66d0)")
+            (is (.contains priv-sec "commit-plane")
+                "README privacy section shows durable classification authored
+                 by the writing event's commit-plane effects (EP-0025;
+                 rf2-7i66d0 / rf2-h1vqa4)")
             (is (and (.contains priv-sec ":sensitive")
                      (.contains priv-sec ":large"))
                 "README privacy section names :sensitive and :large
@@ -424,15 +427,16 @@
           ;; init! is idempotent — it installs the adapter ONLY when none
           ;; is seated and does NOT create the :rf/default frame (EP-0002:
           ;; the runtime never synthesises a frame from absence; core.cljc
-          ;; init! docstring). The scaffold's core/init registers the frame
-          ;; explicitly via (rf/reg-frame :rf/default {}) after init!. A
+          ;; init! docstring). The scaffold's frame is created by the VIEW:
+          ;; the rf/frame-root ENSURE element in core.cljs (rf2-h1vqa4 —
+          ;; the reg-frame boot ceremony is retired). A
           ;; second init! call does NOT re-install the adapter, snapshot the
           ;; registrar, or reset app-db. The README must NOT overstate this
           ;; ("each call to init! snapshots the registrar, re-installs the
           ;; adapter, and resets the frame's app-db") NOR claim init!
           ;; "ensures the :rf/default frame exists" — both teach a false
-          ;; mental model. The reset boundary is the starter's explicit
-          ;; dispatch-sync [:counter/initialise] in core.cljs, not init!.
+          ;; mental model. The seed boundary is frame-root's
+          ;; :initial-events [[:counter/initialise]] declaration, not init!.
           (let [readme-text (slurp (io/file root "README.md"))
                 ;; Scope the false-claim greps to the Hot reload section
                 ;; (from its heading to the next ## heading) so an honest
@@ -445,10 +449,10 @@
             (is (not (neg? hot-reload-start))
                 "README has a Hot reload section")
             ;; The actual contract is stated.
-            (is (.contains readme-text "dispatch-sync [:counter/initialise]")
-                "README names the explicit dispatch-sync [:counter/initialise]
-                 as what re-seeds the demo state on reload (the reset
-                 boundary — rf2-8n4s71 #2)")
+            (is (.contains readme-text ":initial-events [[:counter/initialise]]")
+                "README names frame-root's :initial-events
+                 [[:counter/initialise]] declaration as the seed boundary
+                 (rf2-8n4s71 #2 / rf2-h1vqa4)")
             ;; The false claims must be gone — init! by itself does none
             ;; of these (boot_test.clj pins the second-call no-op).
             (is (not (.contains hot-reload-sec "snapshots the registrar"))
@@ -461,27 +465,30 @@
                  seated (core.cljc init!; rf2-8n4s71 #2)")
             (is (not (.contains hot-reload-sec "resets the frame's app-db"))
                 "README Hot reload section must NOT claim rf/init! resets
-                 app-db by itself — the explicit dispatch-sync
-                 [:counter/initialise] is the reset boundary (rf2-8n4s71 #2)")
+                 app-db by itself — frame-root's :initial-events seed at
+                 frame creation is the seed boundary (rf2-8n4s71 #2)")
             ;; -- README init!/:rf/default contract --
             ;; init! does NOT create :rf/default (EP-0002); the scaffold's
-            ;; core/init registers it explicitly via reg-frame. core.cljc
-            ;; init! docstring + the emitted core.cljs pin this.
-            (is (not (.contains hot-reload-sec "ensures the `:rf/default` frame"))
-                "README Hot reload section must NOT claim rf/init! 'ensures the
-                 :rf/default frame exists' — init! does NOT create the default
+            ;; frame is created by the view's rf/frame-root ENSURE element
+            ;; (rf2-h1vqa4). core.cljc init! docstring + the emitted
+            ;; core.cljs pin this.
+            (is (not (.contains hot-reload-sec "init! ensures"))
+                "README Hot reload section must NOT claim rf/init! ensures the
+                 :rf/default frame exists — init! does NOT create the default
                  frame (EP-0002; core.cljc init!; rf2-frex1l)")
             (is (and (.contains hot-reload-sec "does **not** create the `:rf/default`")
-                     (.contains hot-reload-sec "reg-frame"))
+                     (.contains hot-reload-sec "frame-root"))
                 "README Hot reload section must state init! does NOT create the
-                 :rf/default frame and that reg-frame registers it explicitly
-                 (EP-0002; rf2-frex1l)"))
+                 :rf/default frame and that the view's frame-root ensures it
+                 at mount (EP-0002; rf2-frex1l / rf2-h1vqa4)"))
 
           ;; -- README schema registration is frame-scoped --
           ;; reg-app-schema is frame-local (EP-0002); a frameless ns-load
           ;; call raises :rf.error/no-frame-context (schemas/storage.cljc
-          ;; reg-app-schema). The emitted schema.cljs wraps it in
-          ;; register-schema! called under (with-frame :rf/default …). The
+          ;; reg-app-schema). The emitted schema.cljs wraps it in a
+          ;; register-schema! fn that names the app frame explicitly via
+          ;; {:frame :rf/default} (rf2-h1vqa4 — boot attaches it before the
+          ;; frame-root mount creates the frame). The
           ;; README MUST NOT teach a frameless top-level reg-app-schema and
           ;; MUST name the frame-scoped contract.
           (let [readme-text (slurp (io/file root "README.md"))
@@ -499,10 +506,11 @@
                 "README schema section must name :rf.error/no-frame-context as
                  the failure mode of a frameless registration (rf2-frex1l)")
             (is (and (.contains schema-sec "register-schema!")
-                     (.contains schema-sec "with-frame :rf/default"))
+                     (.contains schema-sec "{:frame :rf/default}"))
                 "README schema section must teach the frame-scoped contract —
-                 a register-schema! fn called under (with-frame :rf/default …)
-                 (mirrors the emitted schema.cljs / core.cljs; rf2-frex1l)"))
+                 a register-schema! fn that names the app frame explicitly via
+                 {:frame :rf/default} (mirrors the emitted schema.cljs /
+                 core.cljs; rf2-frex1l / rf2-h1vqa4)"))
 
           ;; -- README Xray host wording — right-side, not left --
           ;; The emitted index.html orders <main id="app"> BEFORE

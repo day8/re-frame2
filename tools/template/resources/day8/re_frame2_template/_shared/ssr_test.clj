@@ -46,16 +46,16 @@
     (let [fid      (keyword "rf.frame" (str (gensym "")))
           ;; Initial events read the request coeffect from this slot.
           _        (ssr/set-request! fid {:uri "/"})
-          ;; Attach the schema before reg-frame drains initial events.
+          ;; Attach the schema before make-frame drains initial events.
           _        (app/register-schema! fid)
-          f        (rf/reg-frame fid
-                     {:doc            "{{name}} SSR test frame"
-                      :platform       :server
-                      :initial-events app/server-init-events})
-          final-db (rf/app-db-value f)]
+          _        (rf/make-frame {:id             fid
+                                   :doc            "{{name}} SSR test frame"
+                                   :platform       :server
+                                   :initial-events app/server-init-events})
+          final-db (rf/app-db-value fid)]
       ;; Realise and hash the view inside the request frame so subscriptions
       ;; read the state seeded above.
-      (rf/with-frame f
+      (rf/with-frame fid
         (let [hiccup      ((rf/view :app/root))
               html        (rf/render-to-string hiccup {:emit-hash? true})
               render-hash (rf/render-tree-hash hiccup)]

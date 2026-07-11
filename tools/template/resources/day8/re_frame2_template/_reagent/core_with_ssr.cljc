@@ -117,8 +117,11 @@
      []
      (rf/init! reagent-adapter/adapter)
      ;; Create the frame before attaching its schema or hydrating state.
-     (rf/reg-frame app-frame {:doc      "{{name}} SSR client app-frame"
-                              :platform :client})
+     ;; Programmatic `rf/make-frame` (not the view-owned `rf/frame-root`):
+     ;; `ssr/hydrate!` must run against the live frame BEFORE React mounts.
+     (rf/make-frame {:id       app-frame
+                     :doc      "{{name}} SSR client app-frame"
+                     :platform :client})
      (register-schema! app-frame)
      ;; Hash the realised view value, matching the server render input.
      (let [payload (ssr/hydrate! {:frame          app-frame
