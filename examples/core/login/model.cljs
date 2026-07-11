@@ -587,15 +587,16 @@
 ;; kept credential-free end to end. See
 ;; docs/core/how-to/keep-secrets-out-of-traces.md.
 ;;
-;; KNOWN GAP (not this example's to fix): the `:rf.event/fx` slot on the
+;; FRAMEWORK COVERAGE (rf2-6h3c02): the `:rf.event/fx` slot on the
 ;; `:rf.fx/do-fx` trace stamps this handler's WHOLE returned effect vector, and
-;; the central classification projector does not yet walk it through each fx's
-;; registration (it walks the sibling `:rf.event/db` slot, but not `:rf.event/fx`
-;; — Spec 009 §Canonical per-event trace sequence). Until the projector covers
-;; it, `:auth.session/store`'s `:sensitive [[:token]]` redacts the per-effect
-;; `:rf.fx/handled` copy but not the `:rf.event/fx` aggregate. That is a
-;; framework projector gap, tracked separately; no app-side classification can
-;; reach the `:rf.event/fx` stamp.
+;; the central classification projector now walks each `[fx-id args]` entry
+;; through that fx's own registration — so `:auth.session/store`'s `:sensitive
+;; [[:token]]` redacts the `:rf.event/fx` aggregate too, mirroring the sibling
+;; `:rf.event/db` walk (Spec 009 §Canonical per-event trace sequence). The same
+;; registration-owned redaction now also covers the always-on fx error traces
+;; (`:rf.error/fx-handler-exception` + siblings), keyed off the slot SHAPE rather
+;; than op `:rf.fx/handled`. No app-side classification is needed for these
+;; framework slots — the `:auth.session/store` reg-fx above is their single owner.
 (rf/reg-event :auth.login/succeeded
   {:doc       "Managed-HTTP login succeeded: the reply carries the session
                token. Persist it (via the classified :auth.session/store fx) and
