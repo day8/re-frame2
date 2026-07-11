@@ -99,11 +99,21 @@
 ;; global claim is the explicit, checkable statement that this handoff is safe.
 ;; See docs/resources/glossary.md#scope.
 
+;; This list declares NO time-based staleness policy (`:stale-after-ms` is
+;; deliberately absent), so an entry never ages out on a wall-clock timer — its
+;; `:stale-at` is nil and it stays fresh until something explicitly invalidates
+;; its `[:article-list]` tag. That is the right freshness shape for THIS demo:
+;; the point is the SSR cache handoff, not TTL behaviour, and it lets the
+;; offline `index.html` bake a `:stale-at nil` entry that stays deterministically
+;; fresh forever — no rotting absolute deadline a static file would have to
+;; rebase. A resource that genuinely ages would add `:stale-after-ms <ms>`;
+;; explicit invalidation is the freshness authority either way. See
+;; docs/resources/glossary.md#invalidate.
+
 (rf/reg-resource :articles/list
-  {:doc            "Recent articles (public, SSR-preloaded)."
+  {:doc            "Recent articles (public, SSR-preloaded, invalidation-only freshness)."
    :params-schema  [:map]
    :scope          :rf.scope/global
-   :stale-after-ms 60000
    :tags           (fn [_params _data] #{[:article-list]})}
   (fn [_params _ctx]
     {:request {:method :get :url "/api/articles"}
