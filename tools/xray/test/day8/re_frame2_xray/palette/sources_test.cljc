@@ -86,6 +86,47 @@
     (is (not (contains? ids :rf/xray))
         "switching focus to :rf/xray is not a meaningful palette op")))
 
+;; rf2-anbabs — the palette frame source must honour the SAME exclusion
+;; the ribbon picker applies: the FULL internal-frames set (not just
+;; :rf/xray) and the `show-tool-frames?` toggle (spec/018 §8 I1).
+
+(def internal-frames-set #{:rf/xray :rf/re-frame2-pair})
+
+(deftest frame-items-excludes-full-internal-set-by-default
+  (let [frames [:rf/default :rf/xray :app/main :rf/re-frame2-pair]
+        items  (sources/frame-items frames internal-frames-set false)
+        ids    (set (map :id items))]
+    (is (= #{:rf/default :app/main} ids)
+        "both :rf/xray AND :rf/re-frame2-pair are excluded (matches distinct-frames)")))
+
+(deftest frame-items-show-tool-frames-reincludes
+  (let [frames [:rf/default :rf/xray :app/main :rf/re-frame2-pair]
+        items  (sources/frame-items frames internal-frames-set true)
+        ids    (set (map :id items))]
+    (is (= #{:rf/default :rf/xray :app/main :rf/re-frame2-pair} ids)
+        "show-tool-frames? true re-includes the tool frames (ribbon power-user parity)")))
+
+(deftest build-index-frame-source-honours-internal-frames
+  ;; End-to-end through build-index: a registered tool frame is hidden
+  ;; from the palette's frame source with the toggle OFF (the I1 leak
+  ;; this bead fixes) and surfaced with it ON.
+  (let [frames    [:rf/default :app/main :rf/re-frame2-pair]
+        frame-ids (fn [index] (->> index
+                                   (filter #(= :frame (:source %)))
+                                   (map :id) set))
+        off (frame-ids (sources/build-index {:frame-ids         frames
+                                             :internal-frames   internal-frames-set
+                                             :show-tool-frames? false}))
+        on  (frame-ids (sources/build-index {:frame-ids         frames
+                                             :internal-frames   internal-frames-set
+                                             :show-tool-frames? true}))]
+    (is (not (contains? off :rf/re-frame2-pair))
+        "tool frame hidden from the palette frame source with the toggle OFF")
+    (is (contains? off :rf/default)
+        "real user frames still surface")
+    (is (contains? on :rf/re-frame2-pair)
+        "tool frame re-included with the toggle ON")))
+
 (deftest handler-items-include-meta
   (let [items (sources/handler-items sample-handlers)
         login (first (filter #(= :user/login (second (:id %))) items))]

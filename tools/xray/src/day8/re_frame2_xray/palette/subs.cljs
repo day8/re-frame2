@@ -32,6 +32,7 @@
   call in the panel's `install!`; the palette's source aggregator
   picks it up via `palette-panels` / `palette-static-tabs`."
   (:require [re-frame.core :as rf]
+            [day8.re-frame2-xray.frame-switcher :as frame-switcher]
             [day8.re-frame2-xray.host-registry :as host-registry]
             [day8.re-frame2-xray.palette.sources :as sources]
             [day8.re-frame2-xray.panel-registry :as panel-registry]))
@@ -126,15 +127,25 @@
     :<- [:rf.xray/trace-buffer]
     :<- [:rf.xray/mode]
     :<- [:rf.xray/palette-recents]
-    (fn [[buffer mode recents] _query]
+    :<- [:rf.xray/show-tool-frames?]
+    (fn [[buffer mode recents show-tool-frames?] _query]
       ;; The sub fn does not receive `db`; we reach into the registrar
       ;; (a process-global atom) + the framework's frame registry
       ;; via the public rf wrappers.
+      ;;
+      ;; rf2-anbabs — inject the canonical `frame-switcher/internal-frames`
+      ;; exclusion set + the `:rf.xray/show-tool-frames?` toggle so the
+      ;; palette's "Switch focus to frame …" source filters the SAME tool
+      ;; frames the ribbon picker hides (spec/018 §8 I1). This is the
+      ;; `.cljs` seam that reaches the cljs-only frame-switcher contract;
+      ;; the pure `.cljc` aggregator takes the set as data.
       (sources/build-index
         {:panels             (palette-panels)
          :static-tabs        (palette-static-tabs)
          :trace-buffer       buffer
          :frame-ids          (rf/frame-ids)
+         :internal-frames    frame-switcher/internal-frames
+         :show-tool-frames?  show-tool-frames?
          :handlers           (handler-entries)
          :mode               mode
          :recents            recents})))

@@ -145,22 +145,39 @@
          taken)))))
 
 (defn frame-items
-  "Indexed from `frame-ids` (a seq of registered frame ids). The
-  Xray frame itself is excluded — switching focus to `:rf/xray`
-  via the palette is not a meaningful user operation."
-  [frame-ids]
-  (->> frame-ids
-       (remove #(= :rf/xray %))
-       (mapv (fn [fid]
-               {:source :frame
-                :id     fid
-                :label  (str "Switch focus to frame " (pr-str fid))
-                :hint   (str "frame/" (name fid))
-                :icon   (icon-table :frame)
-                :boost  (boost-table :frame)
-                :action [:palette/select-frame fid]
-                :modes  #{:dynamic}
-                :popout? false}))))
+  "Indexed from `frame-ids` (a seq of registered frame ids). Tool
+  frames in `internal-frames` are excluded unless `show-tool-frames?`
+  — the SAME exclusion the ribbon picker applies via
+  `frame-switcher/distinct-frames` (spec/018 §8 I1), rather than a
+  hand-rolled `:rf/xray`-only removal (rf2-anbabs).
+
+  `internal-frames` (the canonical `frame-switcher/internal-frames`
+  set — `#{:rf/xray :rf/re-frame2-pair}`) and `show-tool-frames?` are
+  injected by the `:rf.xray/palette-index` sub (a `.cljs` seam that can
+  reach the frame-switcher contract + the settings toggle), so the
+  palette and the ribbon share ONE exclusion source of truth. Kept
+  pure — the aggregator takes the set as data, never requiring the
+  cljs-only frame-switcher ns.
+
+  The 1-arity is a test / partial-drive convenience defaulting to the
+  historical minimal `#{:rf/xray}` exclusion; production always injects
+  the full set through `build-index`."
+  ([frame-ids] (frame-items frame-ids #{:rf/xray} false))
+  ([frame-ids internal-frames show-tool-frames?]
+   (->> frame-ids
+        (remove (fn [fid]
+                  (and (not show-tool-frames?)
+                       (contains? internal-frames fid))))
+        (mapv (fn [fid]
+                {:source :frame
+                 :id     fid
+                 :label  (str "Switch focus to frame " (pr-str fid))
+                 :hint   (str "frame/" (name fid))
+                 :icon   (icon-table :frame)
+                 :boost  (boost-table :frame)
+                 :action [:palette/select-frame fid]
+                 :modes  #{:dynamic}
+                 :popout? false})))))
 
 (defn handler-items
   "Indexed from a `[{:id k :kind k :doc s :file s :line n} ...]`
@@ -419,14 +436,22 @@
 
   Inputs map shape:
 
-    {:panels        [{:id kw :label str} ...]    ; Dynamic L3 tabs
-     :static-tabs   [{:id kw :label str} ...]    ; Static L3 tabs
-     :trace-buffer  [trace ...]
-     :frame-ids     (keyword?)
-     :handlers      [{:id :kind :doc :file :line} ...]
-     :mode          :dynamic | :static | nil     ; mode filter
-     :recents       [command-id ...]             ; recents boost
+    {:panels           [{:id kw :label str} ...] ; Dynamic L3 tabs
+     :static-tabs      [{:id kw :label str} ...] ; Static L3 tabs
+     :trace-buffer     [trace ...]
+     :frame-ids        (keyword?)
+     :internal-frames  #{kw ...}                 ; tool-frame exclusion set (I1)
+     :show-tool-frames? boolean                  ; re-include tool frames?
+     :handlers         [{:id :kind :doc :file :line} ...]
+     :mode             :dynamic | :static | nil  ; mode filter
+     :recents          [command-id ...]          ; recents boost
     }
+
+  `:internal-frames` + `:show-tool-frames?` (rf2-anbabs) gate the frame
+  source through the SAME exclusion the ribbon picker uses (spec/018 §8
+  I1); the `:rf.xray/palette-index` sub injects the canonical
+  `frame-switcher/internal-frames` set + the settings toggle. Missing →
+  the historical minimal `#{:rf/xray}` / off default.
 
   Missing keys default to empty inputs of that kind — partial drives
   (e.g. recency-rank dragons without a populated buffer) are
@@ -451,11 +476,14 @@
   from the item itself, so the recents bump rides the standard
   scoring pipeline."
   [inputs]
-  (let [{:keys [panels static-tabs trace-buffer frame-ids handlers mode recents]
+  (let [{:keys [panels static-tabs trace-buffer frame-ids internal-frames
+                show-tool-frames? handlers mode recents]
          :or   {panels             []
                 static-tabs        []
                 trace-buffer       []
                 frame-ids          []
+                internal-frames    #{:rf/xray}
+                show-tool-frames?  false
                 handlers           []
                 recents            []
                 mode               nil}} inputs
@@ -474,7 +502,7 @@
                       (static-tab-items static-tabs)
                       (setting-items)
                       (recent-event-items trace-buffer)
-                      (frame-items frame-ids)
+                      (frame-items frame-ids internal-frames show-tool-frames?)
                       (handler-items handlers))
         filtered    (filter (partial in-mode? mode) all)]
     (loop [seen   (transient #{})
