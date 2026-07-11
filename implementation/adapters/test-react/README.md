@@ -90,12 +90,35 @@ A render tree may be plain opaque data (`[:div "hi"]` — most tests) *or* decla
 | `:did-mount` | Immediately after the first `:render`. |
 | `:did-update` | Immediately after each subsequent `:render`. |
 | `:will-unmount` | The unmount thunk fires. |
-| `:forced-teardown` | `dispose-adapter!` drained a still-mounted root. |
+| `:forced-teardown` | A mount was torn down bypassing the render-depth unmount guard. Three paths log it: `dispose-adapter!` draining a still-mounted root, a failed **initial** mount rolling back its speculatively-mounted children, or a failed **update** tearing down the whole live root (see *Transactional render failures* below). |
 
 The simulator throws `:rf.error/sync-unmount-during-render` if `unmount!` is
 called while a render is in flight **anywhere in the tree**. A global counter,
 rather than a per-mount flag, is what catches a parent render unmounting a
 separately tracked sibling root.
+
+### Transactional render failures
+
+A render body that throws is **not** swallowed — the simulator mirrors React
+18+'s uncaught-render semantics, and both failure directions are transactional
+(no half-committed lifecycle state):
+
+- **Failed initial mount (`mount!`).** If the first render throws, any children
+  the render speculatively mounted via `mount-child!` are rolled back —
+  force-torn-down grandchildren-first (each logs a `:forced-teardown`) — and the
+  never-registered parent is discarded. A failed mount registers nothing and
+  leaks nothing; the original exception is rethrown.
+- **Failed update (`trigger-update!`).** If an update render throws, the **whole
+  live root** is unmounted: the mount and its entire child subtree (pre-existing
+  children *and* any this attempt speculatively mounted) are force-evicted
+  grandchildren-first with their render trees cleared (root and each descendant
+  log a `:forced-teardown`), **no** `:did-update` is logged, and the original
+  exception is rethrown. The test double does **not** silently preserve the
+  prior tree, because real React 18+ would tear the root down.
+
+The B.5 layer of `test/re_frame/adapter/test_react_cljs_test.cljc` asserts both
+behaviours; the source docstrings on `trigger-update!` / `run-render!` carry the
+normative contract.
 
 ## What this adapter does NOT cover
 
