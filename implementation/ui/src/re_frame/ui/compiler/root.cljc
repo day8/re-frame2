@@ -439,12 +439,30 @@
           {:where where}))
   (env/make-env {:host :cljs :cljs-env menv :ns-sym (-> menv :ns :name)}))
 
-(defn- source-coords [form]
+(defn- source-coords [form cljs?]
   (let [m (meta form)]
-    (cond-> {:file (try @(requiring-resolve 'cljs.analyzer/*cljs-file*)
-                        (catch Exception _ *file*))}
+    (cond-> {:file (if cljs?
+                     (try @(requiring-resolve 'cljs.analyzer/*cljs-file*)
+                          (catch Exception _ *file*))
+                     *file*)}
       (:line m)   (assoc :line (:line m))
       (:column m) (assoc :column (:column m)))))
+
+(defn- anchored
+  "Run `thunk`; a compile error escaping it gains the call form's source
+  coordinates (:file/:line/:column) in its ex-data — the S1e file:line
+  anchoring, mirroring the `re-frame.ui.compiler` expansion wrapper.
+  Existing ex-data wins on collisions; id, message and cause are
+  preserved."
+  [coords thunk]
+  (try
+    (thunk)
+    (catch clojure.lang.ExceptionInfo ex
+      (let [data (ex-data ex)]
+        (throw
+         (if (and (:rf.ui.compile/error data) (nil? (:file data)))
+           (ex-info (ex-message ex) (merge coords data) ex)
+           ex))))))
 
 (defn- print-warnings! [e where]
   (doseq [w @(:warnings e)]
@@ -476,30 +494,34 @@
   "`(ui/mount root-form dom-node opts)` — the one-shot client mount:
   create-root + frame preflight + render!, idempotent per root."
   [form menv root-form dom-node opts]
-  (let [e      (expand-env! 'ui/mount menv)
-        opts   (parse-root-opts! 'ui/mount opts mount-opt-keys)
-        {:keys [ast views plans]} (analyze-root e 'ui/mount root-form)
-        _      (print-warnings! e 'ui/mount)
-        {:keys [root-id provenance]} (resolve-root-identity 'ui/mount opts views)
-        prefix (or (:identifier-prefix opts) (default-identifier-prefix root-id))
-        coords (source-coords form)
-        _      (register-root-site! 'ui/mount root-id provenance coords)
-        _      (doseq [p plans] (register-plan-site! 'ui/mount p coords))
-        desc   (root-descriptor {:root-id root-id :provenance provenance
-                                 :views views :plans plans :ast ast
-                                 :build-digest (compiler/current-build-digest)})
-        _      (swap! build-descriptors assoc root-id desc)
-        body   (emit-cljs/emit-inline ast 'rf-ui-root)]
-    `(re-frame.ui.client/mount*
-      {:root-id ~root-id
-       :provenance ~provenance
-       :identifier-prefix ~prefix
-       :site ~(dbg-quoted coords)
-       :descriptor ~(dbg-quoted desc)}
-      ~dom-node
-      (fn [] ~body)
-      ~(react-opts-form prefix opts)
-      ~(plans-thunk-form plans))))
+  (let [coords (source-coords form (some? (:ns menv)))]
+    (anchored coords
+      (fn []
+        (let [e      (expand-env! 'ui/mount menv)
+              opts   (parse-root-opts! 'ui/mount opts mount-opt-keys)
+              {:keys [ast views plans]} (analyze-root e 'ui/mount root-form)
+              _      (print-warnings! e 'ui/mount)
+              {:keys [root-id provenance]} (resolve-root-identity
+                                            'ui/mount opts views)
+              prefix (or (:identifier-prefix opts)
+                         (default-identifier-prefix root-id))
+              _      (register-root-site! 'ui/mount root-id provenance coords)
+              _      (doseq [p plans] (register-plan-site! 'ui/mount p coords))
+              desc   (root-descriptor {:root-id root-id :provenance provenance
+                                       :views views :plans plans :ast ast
+                                       :build-digest (compiler/current-build-digest)})
+              _      (swap! build-descriptors assoc root-id desc)
+              body   (emit-cljs/emit-inline ast 'rf-ui-root)]
+          `(re-frame.ui.client/mount*
+            {:root-id ~root-id
+             :provenance ~provenance
+             :identifier-prefix ~prefix
+             :site ~(dbg-quoted coords)
+             :descriptor ~(dbg-quoted desc)}
+            ~dom-node
+            (fn [] ~body)
+            ~(react-opts-form prefix opts)
+            ~(plans-thunk-form plans)))))))
 
 (defn create-root-form
   "`(ui/create-root dom-node opts)` — identity is fixed HERE for the
@@ -507,32 +529,35 @@
   authored `:root-id` is REQUIRED (the derivation default belongs to the
   root-form-bearing entry points; `ui/mount` is the one-liner path)."
   [form menv dom-node opts]
-  (expand-env! 'ui/create-root menv)
-  (when (and (map? opts) (contains? opts :disambiguator))
-    (fail :rf.ui.compile/bad-root-opts
-          (str "ui/create-root: :disambiguator modifies DERIVATION and "
-               "create-root has no root form to derive from — author "
-               ":root-id")
-          {:disambiguator (:disambiguator opts)}))
-  (let [opts    (parse-root-opts! 'ui/create-root opts create-root-opt-keys)
-        root-id (:root-id opts)]
-    (when (nil? root-id)
-      (fail :rf.ui.compile/missing-root-id
-            (str "ui/create-root fixes root identity WITHOUT a root form — "
-                 "there is no mounted view to derive from; author :root-id "
-                 "(or use ui/mount, the derivation-default path)")
-            nil))
-    (let [prefix (or (:identifier-prefix opts)
-                     (default-identifier-prefix root-id))
-          coords (source-coords form)]
-      (register-root-site! 'ui/create-root root-id :authored coords)
-      `(re-frame.ui.client/create-root*
-        {:root-id ~root-id
-         :provenance :authored
-         :identifier-prefix ~prefix
-         :site ~(dbg-quoted coords)}
-        ~dom-node
-        ~(react-opts-form prefix opts)))))
+  (let [coords (source-coords form (some? (:ns menv)))]
+    (anchored coords
+      (fn []
+        (expand-env! 'ui/create-root menv)
+        (when (and (map? opts) (contains? opts :disambiguator))
+          (fail :rf.ui.compile/bad-root-opts
+                (str "ui/create-root: :disambiguator modifies DERIVATION and "
+                     "create-root has no root form to derive from — author "
+                     ":root-id")
+                {:disambiguator (:disambiguator opts)}))
+        (let [opts    (parse-root-opts! 'ui/create-root opts create-root-opt-keys)
+              root-id (:root-id opts)]
+          (when (nil? root-id)
+            (fail :rf.ui.compile/missing-root-id
+                  (str "ui/create-root fixes root identity WITHOUT a root "
+                       "form — there is no mounted view to derive from; "
+                       "author :root-id (or use ui/mount, the "
+                       "derivation-default path)")
+                  nil))
+          (let [prefix (or (:identifier-prefix opts)
+                           (default-identifier-prefix root-id))]
+            (register-root-site! 'ui/create-root root-id :authored coords)
+            `(re-frame.ui.client/create-root*
+              {:root-id ~root-id
+               :provenance :authored
+               :identifier-prefix ~prefix
+               :site ~(dbg-quoted coords)}
+              ~dom-node
+              ~(react-opts-form prefix opts))))))))
 
 (defn render-form
   "`(ui/render! root root-form)` — render/re-render the literal root form
@@ -540,19 +565,22 @@
   identity resolution happens here; the descriptor-base is completed with
   the Root's identity at runtime (dev)."
   [form menv root root-form]
-  (let [e      (expand-env! 'ui/render! menv)
-        {:keys [ast views plans]} (analyze-root e 'ui/render! root-form)
-        _      (print-warnings! e 'ui/render!)
-        coords (source-coords form)
-        _      (doseq [p plans] (register-plan-site! 'ui/render! p coords))
-        desc   (root-descriptor {:views views :plans plans :ast ast
-                                 :build-digest (compiler/current-build-digest)})
-        body   (emit-cljs/emit-inline ast 'rf-ui-root)]
-    `(re-frame.ui.client/render!*
-      ~root
-      (fn [] ~body)
-      ~(plans-thunk-form plans)
-      ~(dbg-quoted desc))))
+  (let [coords (source-coords form (some? (:ns menv)))]
+    (anchored coords
+      (fn []
+        (let [e      (expand-env! 'ui/render! menv)
+              {:keys [ast views plans]} (analyze-root e 'ui/render! root-form)
+              _      (print-warnings! e 'ui/render!)
+              _      (doseq [p plans]
+                       (register-plan-site! 'ui/render! p coords))
+              desc   (root-descriptor {:views views :plans plans :ast ast
+                                       :build-digest (compiler/current-build-digest)})
+              body   (emit-cljs/emit-inline ast 'rf-ui-root)]
+          `(re-frame.ui.client/render!*
+            ~root
+            (fn [] ~body)
+            ~(plans-thunk-form plans)
+            ~(dbg-quoted desc)))))))
 
 (defn hydrate-root-form
   "`(ui/hydrate-root dom-node root-form opts)` — hydrating mounts take
@@ -562,33 +590,36 @@
   the same id in the aligned case); the S1 runtime fails loud — manifests
   land S5."
   [form menv dom-node root-form opts]
-  (let [e (expand-env! 'ui/hydrate-root menv)]
-    (when-let [bad (seq (filter identity-opt-keys (keys opts)))]
-      (fail :rf.ui.compile/identity-opts-at-hydrate
-            (str "ui/hydrate-root: identity opt"
-                 (when (next bad) "s") " " (str/join ", " (map pr-str bad))
-                 " supplied client-side — hydrating mounts read root-id "
-                 "and identifier-prefix FROM the server-emitted manifest "
-                 "(the client must use the server's prefix or use-id "
-                 "hydration breaks). Host-behaviour opts only")
-            {:conflicting-keys (vec bad)}))
-    (let [opts   (parse-root-opts! 'ui/hydrate-root opts hydrate-opt-keys)
-          {:keys [ast views plans]} (analyze-root e 'ui/hydrate-root root-form)
-          _      (print-warnings! e 'ui/hydrate-root)
-          coords (source-coords form)]
-      (when (= 1 (count views))
-        (let [derived (:view-id (first views))]
-          (register-root-site! 'ui/hydrate-root derived :derived coords)
-          (swap! build-descriptors assoc derived
-                 (root-descriptor {:root-id derived :provenance :derived
-                                   :views views :plans plans :ast ast
-                                   :build-digest (compiler/current-build-digest)}))))
-      (doseq [p plans] (register-plan-site! 'ui/hydrate-root p coords))
-      (let [body (emit-cljs/emit-inline ast 'rf-ui-root)]
-        `(re-frame.ui.client/hydrate-root*
-          ~dom-node
-          (fn [] ~body)
-          ~(plans-thunk-form plans)
-          ~(react-opts-form nil opts))))))
+  (let [coords (source-coords form (some? (:ns menv)))]
+    (anchored coords
+      (fn []
+        (let [e (expand-env! 'ui/hydrate-root menv)]
+          (when-let [bad (seq (filter identity-opt-keys (keys opts)))]
+            (fail :rf.ui.compile/identity-opts-at-hydrate
+                  (str "ui/hydrate-root: identity opt"
+                       (when (next bad) "s") " " (str/join ", " (map pr-str bad))
+                       " supplied client-side — hydrating mounts read root-id "
+                       "and identifier-prefix FROM the server-emitted manifest "
+                       "(the client must use the server's prefix or use-id "
+                       "hydration breaks). Host-behaviour opts only")
+                  {:conflicting-keys (vec bad)}))
+          (let [opts (parse-root-opts! 'ui/hydrate-root opts hydrate-opt-keys)
+                {:keys [ast views plans]} (analyze-root
+                                           e 'ui/hydrate-root root-form)
+                _    (print-warnings! e 'ui/hydrate-root)]
+            (when (= 1 (count views))
+              (let [derived (:view-id (first views))]
+                (register-root-site! 'ui/hydrate-root derived :derived coords)
+                (swap! build-descriptors assoc derived
+                       (root-descriptor {:root-id derived :provenance :derived
+                                         :views views :plans plans :ast ast
+                                         :build-digest (compiler/current-build-digest)}))))
+            (doseq [p plans] (register-plan-site! 'ui/hydrate-root p coords))
+            (let [body (emit-cljs/emit-inline ast 'rf-ui-root)]
+              `(re-frame.ui.client/hydrate-root*
+                ~dom-node
+                (fn [] ~body)
+                ~(plans-thunk-form plans)
+                ~(react-opts-form nil opts)))))))))
 
 ))
