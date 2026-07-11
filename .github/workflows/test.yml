@@ -433,8 +433,9 @@ jobs:
       # :rf.error/ids no Spec 009 row covered). Two minimal checks (SCOPE-TRIM,
       # no gold-plating): (A) every :rf.error/:rf.warning id LITERAL emitted by
       # implementation source has a Spec 009 catalogue row (this is the check
-      # that would have caught rf2-720yoj + rf2-xrk4w1) or is an explicitly
-      # KNOWN_UNCATALOGUED id; (B) every emitted :rf.* namespace is reserved in
+      # that would have caught rf2-720yoj + rf2-xrk4w1; per rf2-cs0kd1 it now
+      # defends TOTALITY — every emitted id is catalogued, no known-debt
+      # ledger); (B) every emitted :rf.* namespace is reserved in
       # spec/Conventions.md (the class rf2-0lb6xc closed). Comment + string
       # masked, so only real code keyword forms fire. Pure Python stdlib.
       # Self-test first (proves BOTH checks fire on an injected violation +
