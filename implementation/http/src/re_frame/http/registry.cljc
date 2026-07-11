@@ -103,7 +103,20 @@
   `maybe-retry!`) call this directly; the abort sites
   (`managed-abort-handler`, `abort-on-actor-destroy`) rely on the
   abort-fn → `finalise-failure!` cascade to reach here. Idempotent
-  against already-gone state — the swap!s no-op on absent slots."
+  against already-gone state — the swap!s no-op on absent slots.
+
+  rf2-ous9e5 — the 2-arg request-id dissoc is IDENTITY-CONDITIONAL,
+  mirroring `remove-from-actor-index!`: it drops the request-id slot
+  ONLY while that slot still holds THIS `handle`. A completing OLD
+  attempt whose slot has already been taken over by a same-id SUCCESSOR
+  (a fresh request superseded it, or a retry re-registered a backoff
+  handle under the id) therefore no-ops on the request-id index and
+  leaves the live successor's handle in place. The earlier unconditional
+  `(dissoc request-id)` evicted the successor, making two effectively-
+  live requests share one id — the out-of-order-reply pattern
+  supersession exists to prevent. Single-request cleanup is unchanged:
+  when the slot still holds `handle`, the identity check passes and the
+  dissoc runs exactly as before."
   ([request-id]
    (when request-id
      (let [handle (get @in-flight request-id)]
@@ -113,7 +126,18 @@
    nil)
   ([request-id handle]
    (when request-id
-     (swap! in-flight dissoc request-id))
+     (swap! in-flight
+            (fn [m]
+              ;; rf2-ous9e5 — drop the slot ONLY while it still holds THIS
+              ;; handle, so a same-id successor is never evicted. A nil `handle`
+              ;; (an abort that fired before the handle was published to
+              ;; `@handle-cell` / `@handle-holder`) falls back to the
+              ;; unconditional dissoc — that pre-publication window precedes any
+              ;; successor, so there is nothing to protect and the slot must
+              ;; still be cleared.
+              (if (or (nil? handle) (identical? (get m request-id) handle))
+                (dissoc m request-id)
+                m))))
    (when handle
      (remove-from-actor-index! (:actor-id handle) handle))
    nil))
