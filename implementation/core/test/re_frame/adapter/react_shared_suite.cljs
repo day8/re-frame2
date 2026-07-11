@@ -1888,6 +1888,72 @@
         (rf/unsubscribe fid [rt-sub])))))
 
 ;; ===========================================================================
+;; schema-rejected candidate — zero sub notifications (rf2-uhk9ko Option B)
+;; ===========================================================================
+
+(defn assert-schema-rejection-zero-sub-notifications
+  "rf2-uhk9ko (Mike-ruled Option B): the router validates the COMPLETE
+  candidate frame transition BEFORE installing it, so a schema-rejected
+  dispatch NEVER touches the container — the substrate epoch never
+  opens, no sub recomputes, no watcher notifies, and a synchronous
+  deref during the rejection (the spine derived value is PULL-based —
+  it recomputes from the CURRENT container) reads the OLD value.
+
+  Under the retired commit-then-rollback pair the spine drained a
+  substrate epoch around EACH `replace-container!`, so the forward
+  write recomputed subs and notified `useSyncExternalStore`
+  subscribers with the INVALID candidate before validation ran. This
+  assertion is the cross-adapter tooth that keeps that window closed."
+  [{:keys [substrate-kw name]}]
+  (testing (str name " — a schema-rejected dispatch notifies NO subs and never exposes the candidate")
+    (let [fid      (mint-kw substrate-kw "schema-reject")
+          sub-id   (mint-kw substrate-kw "schema-reject-sub")
+          seed-id  (mint-kw substrate-kw "schema-reject-seed")
+          break-id (mint-kw substrate-kw "schema-reject-break")
+          ok-id    (mint-kw substrate-kw "schema-reject-ok")
+          runs     (atom 0)]
+      (rf/reg-frame fid {})
+      (rf/reg-app-schema [:n] {:frame fid} [:int])
+      (rf/reg-event seed-id  (fn [_ _] {:db {:n 0}}))
+      (rf/reg-event break-id (fn [{:keys [db]} _] {:db (assoc db :n "boom")}))
+      (rf/reg-event ok-id    (fn [{:keys [db]} _] {:db (assoc db :n 1)}))
+      (rf/reg-sub sub-id (fn [db _] (swap! runs inc) (:n db)))
+      (rf/dispatch-sync [seed-id] {:frame fid})
+      (let [r             (rf/subscribe [sub-id] {:frame fid})
+            notifications (atom [])
+            during-reject (atom ::never-fired)]
+        (is (= 0 @r) "precondition: the sub primes to the seeded value")
+        (add-watch r ::reject-probe
+                   (fn [_ _ old new] (swap! notifications conj [old new])))
+        (let [after-prime @runs]
+          ;; Listener-triggered sync read DURING the rejection: the spine
+          ;; derived value recomputes from the live container on deref, so
+          ;; if the invalid candidate were installed (the retired forward
+          ;; commit) this deref would expose it.
+          (rf/register-listener! :trace ::reject-probe
+            (fn [ev]
+              (when (= :rf.error/schema-validation-failure (:operation ev))
+                (reset! during-reject @r))))
+          (rf/dispatch-sync [break-id] {:frame fid})
+          (rf/unregister-listener! :trace ::reject-probe)
+          (is (= 0 @during-reject)
+              "a synchronous deref during the rejection reads the OLD
+               value — the candidate was never installed")
+          (is (= [] @notifications)
+              "ZERO sub notifications for the rejected dispatch")
+          (is (= after-prime @runs)
+              "the sub body did not re-run — no substrate epoch opened")
+          (is (= 0 @r) "the sub still reads the pre-handler value")
+          (is (= {:n 0} (rf/app-db-value fid))
+              "the container holds the pre-handler value")
+          ;; Sanity: the watch + sub are live — a VALID commit notifies once.
+          (rf/dispatch-sync [ok-id] {:frame fid})
+          (is (= [[0 1]] @notifications)
+              "exactly one notification for the following valid commit"))
+        (remove-watch r ::reject-probe)
+        (rf/unsubscribe fid [sub-id])))))
+
+;; ===========================================================================
 ;; derived-value duplicate-source disposal regression (rf2-he7se finding 2)
 ;; ===========================================================================
 
