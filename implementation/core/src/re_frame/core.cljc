@@ -75,7 +75,7 @@
             [re-frame.classification]
             ;; EP-0015 §3 (rf2-ueg1tn): required for its ns-load side-effect
             ;; only — it publishes the `:frame-classification/*` late-bind
-            ;; hooks `re-frame.frame/reg-frame` consults to validate + install
+            ;; hooks `re-frame.frame/upsert-frame!` consults to validate + install
             ;; frame-owned durable classification. No symbols are referenced
             ;; here; the require exists so the hooks are bound at boot before
             ;; any runtime `reg-frame` call.
@@ -248,9 +248,11 @@
   differing only in source-coord capture). Atomically create + register a
   frame under `id` with the given metadata — an unregistered id creates; an
   already-registered id is IDEMPOTENT REPLACEMENT (EP-0024 §Duplicate id
-  policy), not a sibling constructor with its own duplicate-id story. See
-  `re-frame.frame/reg-frame` and spec/API.md §Registration."}
-       reg-frame       frame/reg-frame)
+  policy), not a sibling constructor with its own duplicate-id story.
+  TEMPORARY delegation to the private engine `re-frame.frame/upsert-frame!`
+  (rf2-h1vqa4 scaffolding — the reg-frame spelling is being removed; prefer
+  `make-frame`). See spec/API.md §Registration."}
+       reg-frame       frame/upsert-frame!)
      (def ^{:doc "Fn-alias of the `reg-route` macro for HoF / programmatic
   registration (no source-coord capture). Register a route: `(reg-route id
   metadata path)` — `metadata` is the MIDDLE registration-metadata map
@@ -444,14 +446,15 @@
        for the full signature."
        {:arglists '([id descriptor] [id metadata descriptor])})
 
-     (rm/defreg-macro reg-frame frame/reg-frame
+     (rm/defreg-macro reg-frame frame/upsert-frame!
        "Register a frame — the macro spelling of `make-frame` (rf2-lxwpob,
        Option B: documented sugar, ONE semantics — `(reg-frame id metadata)`
        ≡ `(make-frame (assoc metadata :id id))`, differing only in
        source-coord capture; NOT a sibling constructor with its own
        duplicate-id story). Captures source-coords (Spec 001) at this
-       call site. See `re-frame.frame/reg-frame` for the full
-       signature."
+       call site. TEMPORARY delegation to the private engine
+       `re-frame.frame/upsert-frame!` (rf2-h1vqa4 scaffolding — the
+       reg-frame spelling is being removed; prefer `make-frame`)."
        {:arglists '([id metadata])})
 
      (rm/defreg-macro reg-flow rf-flows/reg-flow

@@ -14,7 +14,7 @@
 
     * `make-frame` — the ONE public constructor (EP-0024 §One constructor).
       Resolves `:images` into a sealed generation, threads it + `:initial-events`
-      through `frame/reg-frame` (the seed steps run AT construction, in order,
+      through the frame engine `frame/upsert-frame!` (the seed steps run AT construction, in order,
       draining before the call returns), and returns the frame VALUE. A duplicate `:id` is IDEMPOTENT REPLACEMENT (config +
       generation refresh, durable state preserved — EP-0024 §Duplicate id policy);
       it does NOT fail loud. Record-config keys are honoured in the same call
@@ -37,7 +37,7 @@
       REPLACING reload (rf2-lxwpob folded the dedicated `reload-images!` verb
       into this — one grammar, not two). Calling `make-frame` again with the
       SAME `:id` and a NEW `:images` vector re-assembles the new composition
-      into a fresh sealed generation and installs it via `reg-frame`'s
+      into a fresh sealed generation and installs it via `upsert-frame!`'s
       surgical-update path WHILE PRESERVING FRAME MEMORY — app-db, runtime-db,
       caches, lifecycle, and every other frame-owned slot continue unchanged;
       only `:rf.frame/generation` moves (EP-0023 §Hot Reload — \"Hot reload
@@ -437,10 +437,10 @@
 ;; EP-0024 (rf2-tu2vr7) replaced the old fail-loud-on-every-live-id refusal with
 ;; hot-reload-friendly IDEMPOTENT REPLACEMENT: re-`make-frame`-ing the same id
 ;; updates the frame's record-config + resolved generation WITHOUT destroying
-;; durable state. That is exactly `frame/reg-frame`'s existing surgical-update
+;; durable state. That is exactly `frame/upsert-frame!`'s surgical-update
 ;; contract (app-db / sub-cache / queue preserved, config replaced), so the
 ;; unified constructor inherits it — no separate fail-loud registry. The
-;; irreconcilable-conflict fail-loud path is the `reg-frame` install-time
+;; irreconcilable-conflict fail-loud path is the engine's install-time
 ;; validators (classification / schema), which still throw; a benign same-shape
 ;; re-mount just refreshes.
 
@@ -453,24 +453,24 @@
 ;; fail-loud redirect). The image-selection opts the constructor consumes
 ;; directly (`:images` → generation; `:id` / `:adapter` → the frame
 ;; value); EVERY OTHER opt is record-config
-;; passed verbatim to `frame/reg-frame` (`:initial-events` / `:fx-overrides` /
+;; passed verbatim to `frame/upsert-frame!` (`:initial-events` / `:fx-overrides` /
 ;; `:platform` / `:ssr` / `:doc` / `:preset` / `:tags` / classification keys /
 ;; …). So `(rf/make-frame {:id … :images [...] :fx-overrides {...}})` works in
 ;; one call — no record-only-key fail-loud redirect.
 
 (def ^:private image-selection-opt-keys
   "The `make-frame` opts the unified constructor consumes directly (EP-0024) —
-  resolved into the generation + the frame value, NOT passed to `reg-frame` as
+  resolved into the generation + the frame value, NOT passed to the engine as
   record config. Everything else in the opts map is record-config.
 
   EP-0027 retired `:initial-db`: it is NO LONGER an image-selection key. A
-  supplied `:initial-db` now flows through to `reg-frame` as record-config and is
+  supplied `:initial-db` now flows through to the engine as record-config and is
   rejected fail-loud there (`:rf.error/initial-db-retired`) — seeding app-db is
   itself an event (`{:initial-events [[:rf/set-db {…}]]}`).
 
   EP-0026 (rf2-dlvmpc) retired `:capabilities`: image-declared host capabilities
   are removed end-to-end, so `make-frame :capabilities` is no longer a recognized
-  key. A supplied `:capabilities` now flows through to `reg-frame` as
+  key. A supplied `:capabilities` now flows through to the engine as
   record-config (an ordinary config key)."
   #{:images :id :adapter})
 
@@ -558,7 +558,7 @@
   resolved against: nil for the live source store, a real descriptors value
   for an explicit pool (`make-frame`'s 2-arity). Recorded by `make-frame` on
   every SUCCESSFUL call (creation + hot-reload re-construction), AFTER the
-  `reg-frame` engine commit returns (rf2-ktmto9 — a failed creation records
+  `upsert-frame!` engine commit returns (rf2-ktmto9 — a failed creation records
   nothing; a failed re-construction preserves the old row), so reprojection
   re-resolves against the SAME provenance (rf2-rf3zgt) instead of silently
   defaulting to the live store for a frame that was never resolved against
@@ -622,7 +622,8 @@
   image-declared host capabilities are removed end-to-end. A `:capabilities` key
   is no longer special-cased — it flows through as ordinary record-config.
 
-  EVERY OTHER key is RECORD-CONFIG passed verbatim to `re-frame.frame/reg-frame`
+  EVERY OTHER key is RECORD-CONFIG passed verbatim to the frame engine
+  (`re-frame.frame/upsert-frame!`)
   — `:initial-events` (a vector of event vectors dispatch-sync'd into the new
   frame at construction, in order, draining before the call returns — seed a
   literal app-db with `[[:rf/set-db {…}]]`; EP-0027), `:fx-overrides`,
@@ -649,8 +650,8 @@
   The frame's runnable interior — app-db / runtime-db container, projection
   reactions, router queue, drain-lock, sub-cache, lifecycle, AND the resolved
   generation — is ONE `frames`-registry record (EP-0024 §One live frame
-  registry): created/updated here via `frame/reg-frame` (idempotent), with the
-  generation written onto it via `frame/set-generation!`.
+  registry): created/updated here via `frame/upsert-frame!` (idempotent), with
+  the generation written onto it via `frame/set-generation!`.
 
   Two arities:
     (make-frame opts)            — resolve `:images` against the LIVE source store.
@@ -699,14 +700,15 @@
                          (asm/assemble-default)
                          (asm/assemble-default descriptors)))
          ;; Everything outside the image-selection/value keys is record-config
-         ;; passed verbatim to `reg-frame` — `:initial-events` / `:fx-overrides` /
+         ;; passed verbatim to the engine (`upsert-frame!`) — `:initial-events` /
+         ;; `:fx-overrides` /
          ;; `:platform` / `:ssr` / `:doc` / `:preset` / `:tags` / classification.
          ;; EP-0024 option-(a): the unified constructor honours these, no
          ;; fail-loud record-only-key redirect. EP-0027: `:initial-events` is one
-         ;; of these record-config keys — it flows verbatim to `reg-frame`, which
+         ;; of these record-config keys — it flows verbatim to the engine, which
          ;; PREFLIGHT-validates it and runs the setup steps synchronously at
          ;; construction (and a retired `:initial-db` / `:on-create` likewise flows
-         ;; through to reg-frame's fail-loud guard). We thread two reserved
+         ;; through to the engine's fail-loud guard). We thread two reserved
          ;; construction inputs through the config:
          ;;   :rf.frame/generation   — the resolved generation. ALWAYS present now
          ;;                            (EP-0026 §Default Image): a PRESENT `:images`
@@ -716,7 +718,7 @@
          ;;                            every frame carries a generation and resolves
          ;;                            through it — the absence-is-default
          ;;                            registrar-atom fall-through no longer fires
-         ;;                            on the make-frame path. reg-frame seats it
+         ;;                            on the make-frame path. The engine seats it
          ;;                            into the `:generation` slot and strips it
          ;;                            from the stored config. Installed BEFORE the
          ;;                            `:initial-events` setup runs, so a setup
@@ -731,20 +733,20 @@
                          true            (assoc :rf.frame/generation generation)
                          (some? adapter) (assoc :rf.frame/adapter adapter))]
      ;; Create (or idempotently update) the ONE `frames`-registry record under
-     ;; the id. `reg-frame` is idempotent on an existing id (surgical update
+     ;; the id. `upsert-frame!` is idempotent on an existing id (surgical update
      ;; preserving runtime state — EP-0024 §Duplicate id policy), installs the
      ;; generation BEFORE running the `:initial-events` setup steps, and applies
      ;; the record-config (presets, classification, fx-overrides, …). Default-realm
      ;; (the collapse supersedes the public realm dimension), so the record is
      ;; keyed by the bare id.
-     (frame/reg-frame runnable-id record-config)
+     (frame/upsert-frame! runnable-id record-config)
      ;; Record which pool this generation was resolved against AFTER the engine
      ;; commit returns successfully — see §Generation PROVENANCE above
      ;; (rf2-rf3zgt): a later reprojection reads this back so it re-resolves
      ;; against the SAME pool (explicit or live) rather than always falling
      ;; through to the live store. Recorded on every SUCCESSFUL call (creation +
      ;; hot-reload re-construction), so a re-`make-frame` that changes arity
-     ;; keeps the record current — and ordered after `reg-frame` (rf2-ktmto9,
+     ;; keeps the record current — and ordered after `upsert-frame!` (rf2-ktmto9,
      ;; the failure-atomicity completion) so a FAILED creation records nothing
      ;; and a FAILED re-construction preserves the OLD provenance row, matching
      ;; the engine's own no-residue-on-failure contract.
@@ -776,7 +778,7 @@
 ;; rf2-lxwpob (API-shrink #5, frame-lifecycle collapse): the dedicated
 ;; `reload-images!` verb is RETIRED — `make-frame` re-called against an
 ;; EXISTING `:id` with a new `:images` vector already resolves a fresh
-;; generation and installs it via `reg-frame`'s surgical-update / idempotent-
+;; generation and installs it via `upsert-frame!`'s surgical-update / idempotent-
 ;; replacement path (EP-0024 §Duplicate id policy), PRESERVING frame memory
 ;; exactly as reload did. That IS image hot-reload via re-construction, one
 ;; grammar instead of two. The AUTOMATIC `reg-*` re-eval reprojection path
@@ -824,7 +826,7 @@
 ;; public reload verb (`reload-images!`) that used to call this too was
 ;; RETIRED in rf2-lxwpob — folded into `make-frame` re-construction (an
 ;; `:id`-bearing `make-frame` call already installs a fresh generation via
-;; `reg-frame`'s surgical-update path, preserving frame memory identically).
+;; `upsert-frame!`'s surgical-update path, preserving frame memory identically).
 
 (defn- swap-frame-generation!
   "Swap `new-generation` onto frame `id`'s record IN PLACE via
@@ -1163,8 +1165,9 @@
   (`reproject-live-frames!` enumerates `live-frame-ids` = the `frames` records
   carrying a `:generation`). With none the flush would be a guaranteed no-op, so
   there is nothing to mark dirty or schedule. This is the dominant case: every
-  `reg-event` / `reg-sub` / `reg-fx` — and the `reg-frame` of EVERY frame's
-  record — funnels through `register!` and so fires this hook, but the
+  `reg-event` / `reg-sub` / `reg-fx` funnels through `register!` and so fires
+  this hook (frame seating does NOT — rf2-h1vqa4: `frame/upsert-frame!` writes
+  no registrar row, so seating a frame is not a registration-pool change), but the
   overwhelming majority run while NO image-loaded frame exists (app boot, every
   handler-only test). Marking + scheduling on each would flood
   `interop/next-tick` with one no-op flush per registration; skipping when

@@ -683,7 +683,8 @@
     ;; DETERMINISM (rf2-ssokdr): the auto-reprojection wiring
     ;; (`live-frame/reproject-on-registration-change!`, installed once as a
     ;; process-`defonce` `registrar/add-registration-hook!`) fires on EVERY
-    ;; `register!` — including the `reg-frame` inside each `make-frame` below.
+    ;; `register!` — the `reg-event` re-evals below (frame seating no longer
+    ;; routes through `register!`, rf2-h1vqa4).
     ;; Once a live image-loaded frame exists, that hook MARKS the shared
     ;; process-wide `pending-reprojection?` flag dirty and schedules a REAL
     ;; deferred `interop/next-tick` flush (on the JVM: an async single-thread

@@ -60,7 +60,7 @@
   Internal namespace; the public facade is `re-frame.routing`, which
   re-exports the two shipped strategies."
   (:require [re-frame.error :as error]
-            [re-frame.registrar :as registrar]))
+            [re-frame.frame :as frame]))
 
 ;; ---- history strategy (default) ------------------------------------------
 ;; Path-form. `:encode` / `:decode` are identity over the app-relative URL —
@@ -413,9 +413,10 @@
   the offending frame.
 
   Published as the `:routing/preflight-frame-config!` late-bind hook on
-  BOTH hosts; `re-frame.frame/reg-frame` (the one frame-config commit
+  BOTH hosts; the frame engine `re-frame.frame/upsert-frame!` (the one
+  frame-config commit
   chokepoint) invokes it with the final expanded config BEFORE any
-  candidate-derived write — the frame-record build, the registrar row, the
+  candidate-derived write — the frame-record build, the
   trace-policy flags, the frames swap, the `:initial-events` setup
   dispatch, and any trace emit — so a malformed declaration leaves NO
   residue on a first registration and preserves every previously committed
@@ -445,11 +446,13 @@
     history-url-strategy))
 
 (defn url-strategy-for-frame-id
-  "Resolve the `:url-strategy` for `frame-id` by reading its stored
-  `reg-frame` config, defaulting to `history-url-strategy`. `nil` frame-id
-  (or an unregistered frame) resolves to the history default. Used by the
+  "Resolve the `:url-strategy` for `frame-id` by reading its stored frame
+  config off the frames store (`frame/frame-meta` — rf2-h1vqa4: frames have
+  no registrar rows), defaulting to `history-url-strategy`. `nil` frame-id
+  (or an unregistered / destroyed frame — `frame-meta` returns nil) resolves
+  to the history default. Used by the
   `route-link` href render, which captures the render-time frame id."
   [frame-id]
   (if (nil? frame-id)
     history-url-strategy
-    (url-strategy-from-config (get (registrar/registrations :frame) frame-id))))
+    (url-strategy-from-config (frame/frame-meta frame-id))))

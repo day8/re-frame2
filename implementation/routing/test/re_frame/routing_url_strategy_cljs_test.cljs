@@ -407,7 +407,7 @@
   (testing "rf2-ktmto9: a custom strategy carrying only the two host-agnostic
             legs (JVM-shaped) is rejected at FIRST registration on CLJS — the
             browser legs :push! / :replace! / :install-listener! are
-            host-required here; no registrar row / frame record is left"
+            host-required here; no frame record is left"
     (let [ex (try (rf/reg-frame :ktmto9/cljs-legs
                                 {:url-bound?   true
                                  :url-strategy {:encode identity
@@ -420,8 +420,8 @@
           "the ex-data names the offending frame")
       (is (contains? (set (:missing (ex-data ex))) :install-listener!)
           "the missing browser leg is named")
-      (is (not (contains? (rf/registrations :frame) :ktmto9/cljs-legs))
-          "no registrar row was written")
+      (is (nil? (rf/frame-meta :ktmto9/cljs-legs))
+          "no frame config was seated (rf2-h1vqa4 — frames have no registrar rows)")
       (is (not (contains? (set (rf/frame-ids)) :ktmto9/cljs-legs))
           "no frame record was created"))))
 
@@ -436,7 +436,8 @@
       (is (some? ex) "an explicit nil :url-strategy throws")
       (is (= :rf.error/invalid-url-strategy (:rf.error/id (ex-data ex))))
       (is (= :ktmto9/nil-strat (:frame (ex-data ex))))
-      (is (not (contains? (rf/registrations :frame) :ktmto9/nil-strat))))))
+      (is (nil? (rf/frame-meta :ktmto9/nil-strat))
+          "no frame config was seated"))))
 
 (deftest reg-frame-missing-routing-artefact-fails-loud-ktmto9-cljs
   (testing "rf2-ktmto9: declaring :url-strategy while the
@@ -453,8 +454,8 @@
         (is (some? ex) "declaring :url-strategy without the hook throws")
         (is (= :rf.error/routing-artefact-missing (:rf.error/id (ex-data ex))))
         (is (= :ktmto9/no-artefact (:frame (ex-data ex))))
-        (is (not (contains? (rf/registrations :frame) :ktmto9/no-artefact))
-            "no registrar row was written"))
+        (is (nil? (rf/frame-meta :ktmto9/no-artefact))
+            "no frame config was seated"))
       (finally
         (late-bind/set-fn! :routing/preflight-frame-config!
                            strategy/preflight-frame-config!)))))

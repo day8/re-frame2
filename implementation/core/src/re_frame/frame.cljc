@@ -19,7 +19,6 @@
     :rf.frame/<gensym>       — anonymous instances from make-anon-frame-record!"
   (:require [clojure.string]
             [re-frame.error :as error]
-            [re-frame.registrar :as registrar]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
@@ -1800,20 +1799,20 @@
   hook (rf2-g8pbwg), by key. No-op when `re-frame.routing` is not loaded (the
   artefact is optional).
 
-  Called at the END of BOTH `reg-frame` branches below — first registration
-  (after `:initial-events` ran and `:rf.frame/created` emitted) and
-  re-registration (after the surgical config update and
+  Called at the END of BOTH `upsert-frame!` branches below — first
+  registration (after `:initial-events` ran and `:rf.frame/created` emitted)
+  and re-registration (after the surgical config update and
   `:rf.frame/re-registered` emitted) — so the frame container is always
-  guaranteed live by the time the hook fires. This is deliberately NOT the
-  registrar's `:frame` registration hook (`registrar/add-registration-hook!`,
-  which `re-frame.routing.url-bound` also consults): that hook fires INSIDE
-  `registrar/register!` above, BEFORE the frame container exists on first
-  registration, so an install from there would target a not-yet-live frame.
+  guaranteed live by the time the hook fires. This is THE frame
+  (re-)registration lifecycle extension point: frames do not flow through
+  `registrar/register!` (rf2-h1vqa4 — the frames registry is the one store),
+  so there is no registrar registration hook for frames.
 
-  Currently consumed by routing's `:url-bound?` listener wiring
-  (`:routing/on-frame-registered!` — installs/rewires the URL-change listener
-  when the (re-)registered frame is the resolved URL owner; a losing
-  duplicate `:url-bound? true` registration is a no-op). Not wrapped in
+  Currently consumed by routing (`:routing/on-frame-registered!` — maintains
+  the `:url-bound?` exclusivity check + URL-ownership claim order on BOTH
+  hosts, then installs/rewires the CLJS URL-change listener when the
+  (re-)registered frame is the resolved URL owner; a losing duplicate
+  `:url-bound? true` registration is a no-op). Not wrapped in
   `safe-call-hook!` (the teardown-specific accumulator/diagnostic pairing) —
   an extension hook here runs OUTSIDE any teardown, so a genuine failure
   propagates loudly rather than being swallowed."
@@ -1821,27 +1820,39 @@
   (when-let [on-registered! (late-bind/get-fn :routing/on-frame-registered!)]
     (on-registered! id)))
 
-(defn reg-frame
-  "Atomic create-and-register — the ENGINE `re-frame.live-frame/make-frame`
-  (the public `rf/make-frame`) delegates to, and the macro spelling `rf/reg-frame`
-  documents itself as sugar for (rf2-lxwpob, Option B: `(reg-frame id metadata)`
-  ≡ `(make-frame (assoc metadata :id id))`, differing only in source-coord
-  capture — ONE semantics, not a sibling constructor with its own duplicate-id
-  story). Per Spec 002 §Frame lifecycle:
+(defn ^:no-doc upsert-frame!
+  "PRIVATE frame ENGINE — atomic create-or-REFRESH (upsert) of the frame
+  record for `id` (rf2-h1vqa4). Called by `re-frame.live-frame/make-frame`
+  (the public constructor `rf/make-frame`) and tightly-scoped engine tests
+  ONLY; the public `rf/reg-frame` facade TEMPORARILY delegates here as
+  scaffolding while the reg-frame spelling is removed (rf2-h1vqa4 slices
+  2–3 — not a stable entry point).
+
+  The name pins the REFRESH semantics — this engine upserts SEATED ids too.
+  Per Spec 002 §Frame lifecycle:
   - If the id is unregistered, create the frame container, run the
     :initial-events setup steps synchronously (EP-0027), return the keyword.
-  - If the id is already registered, perform a SURGICAL UPDATE / IDEMPOTENT
+  - If the id is already SEATED, perform a SURGICAL UPDATE / IDEMPOTENT
     REPLACEMENT (EP-0024 §Duplicate id policy): existing runtime state
     (app-db, sub-cache, queue) is preserved; only the metadata/config is
-    replaced (the recorded :initial-events is REPLACED, not replayed —
-    idempotent re-registration). Hot-reload Just Works. This IS re-construction
-    — the Clojure re-def model: re-declaring the same id refreshes config
-    (+ generation, when the caller threads `:rf.frame/generation`) while
-    durable state survives."
+    replaced (+ the `:generation` slot, when the caller threads
+    `:rf.frame/generation`), and the recorded :initial-events is RE-RECORDED,
+    never REPLAYED. Hot-reload Just Works. This IS re-construction — the
+    Clojure re-def model: re-declaring the same id refreshes config while
+    durable state survives. `:initial-events` replay is ONLY the opt-in
+    full-replace composition (`destroy-frame!` then re-seat, rf2-lxwpob).
+
+  SUBSTRATE OWNERSHIP (rf2-h1vqa4): the `frames` registry is the ONE store a
+  seated frame lives in. Seating a frame writes NO registrar row and NO
+  source-store descriptor — a frame is a LIVE runtime object, not a program
+  member, so seating/reseating must never bump the registration source-store
+  generation (which would invalidate the resolved-image-generation cache,
+  EP-0023) nor surface in image assembly. Frame introspection is
+  `frame-meta` / `frame-ids`, not the registrar query API."
   [id metadata]
   (let [;; The registry is keyed by the bare frame-id.
         config (source-coords/merge-coords (expand-preset metadata))
-        ;; EP-0027 PREFLIGHT (BEFORE the registrar write / any container): reject
+        ;; EP-0027 PREFLIGHT (BEFORE any container / process-global write): reject
         ;; the retired `:on-create` / `:initial-db` keys fail-loud, and normalize
         ;; + validate `:initial-events` into a vector of setup steps. Both run
         ;; here so a bad construction declaration throws BEFORE any frame is
@@ -1853,8 +1864,8 @@
         ;; EP-0015 §9: validate the surviving frame-owned policy key
         ;; (`:observability` sink policy) EARLY — pure, container-independent,
         ;; fail-loud. A retired `:sensitive` / `:large` frame key, an unknown
-        ;; observability key, or a malformed sink entry throws here, BEFORE the
-        ;; registrar write and BEFORE any container exists, so a bad
+        ;; observability key, or a malformed sink entry throws here, BEFORE
+        ;; any container exists or process-global write runs, so a bad
         ;; declaration leaves no half-registered frame and never reaches
         ;; `:initial-events`. Reached via late-bind: `re-frame.frame-classification`
         ;; requires this ns, so a static require would cycle; `re-frame.core`
@@ -1879,7 +1890,7 @@
         ;; COMMIT chokepoint. The routing artefact validates an explicitly-
         ;; declared `:url-strategy` (shape + host-required callable legs) against
         ;; the FINAL expanded config — here, alongside the other pure preflights,
-        ;; BEFORE the record build, `registrar/register!`, the trace-policy
+        ;; BEFORE the record build, the trace-policy
         ;; writes, the `frames` swap, the `:initial-events` setup dispatch, and
         ;; any trace emit. So a malformed declaration fails with ZERO residue on
         ;; a first registration, and a failed RE-registration preserves every
@@ -1910,20 +1921,29 @@
                              {:extra {:frame id}})))
         existing       (get @frames id)
         ;; rf2-hhlzky: construct the frame record BEFORE any process-global
-        ;; write (the registrar row + the trace-suppression flags below).
+        ;; write (the trace-suppression flags below).
         ;; `new-frame-record` calls `adapter/make-state-container`, which THROWS
         ;; (`:rf.error/no-adapter-installed` / `:rf.error/adapter-disposed`) when
         ;; no adapter is installed — a `reg-frame` issued before `rf/init!` or
         ;; after `destroy-adapter!`. Building the record here means such a
-        ;; construction failure escapes this `let` BEFORE `registrar/register!`
-        ;; and `trace/set-frame-no-emit!` run, so a frame that never came into
-        ;; existence leaves NO registrar row and NO trace-disabled residue (which
+        ;; construction failure escapes this `let` BEFORE
+        ;; `trace/set-frame-no-emit!` runs, so a frame that never came into
+        ;; existence leaves NO trace-disabled residue (which
         ;; would otherwise persist with no destroy path to clear it). This is the
         ;; DEFER form of the rollback the bead calls for — there is nothing to
         ;; unwind because nothing was written. Re-registration is a surgical
         ;; update (no container is built), so `new-record` is nil there.
         new-record     (when (nil? existing) (new-frame-record id config))]
-    (registrar/register! :frame id config)
+    ;; SUBSTRATE OWNERSHIP (rf2-h1vqa4): deliberately NO `registrar/register!`
+    ;; here. A seated frame lives in the `frames` registry alone. The former
+    ;; `:frame` registrar row leaked into the registration SOURCE STORE
+    ;; (`registrar/register!` → `source-store/record-descriptor!`), bumping the
+    ;; source-store generation on every seat/reseat — invalidating the
+    ;; resolved-image-generation cache (EP-0023) and marking the live-frame
+    ;; reprojection dirty for a change that is NOT a registration-pool change.
+    ;; Routing (the one former consumer) reads frame config via
+    ;; `frame-meta` / `frame-ids`; the registrar `:frame` kind is reserved with
+    ;; an intentionally EMPTY slot (the `:flow` precedent, rf2-en00bk).
     ;; Frame-level trace-emission gate: a frame registered
     ;; with `:rf.trace/frame-no-emit? true` is a tool / inspector frame
     ;; (e.g. Xray's `:rf/xray`) whose own reactive substrate must NOT
@@ -2063,6 +2083,15 @@
           (fire-frame-registered-hook! id)
           id))))
 
+(def ^{:no-doc true
+       :doc "TEMPORARY SCAFFOLDING (rf2-h1vqa4 slice 1): the engine's former
+  name, kept ONLY so un-migrated in-tree `frame/reg-frame` call sites compile
+  while consumers converge on the public `rf/make-frame` (slice 2). New code
+  must not call this — the engine is `upsert-frame!`; this alias and the
+  public `rf/reg-frame` facade are deleted in slice 3."}
+  reg-frame
+  upsert-frame!)
+
 (defn make-anon-frame-record!
   "INTERNAL anonymous-instance creation (EP-0024): generate a
   gensym'd id under `:rf.frame/`, register a configured record under it, and
@@ -2078,7 +2107,7 @@
   `re-frame.live-frame/make-frame` (the frame-VALUE constructor) at a call site."
   [config]
   (let [id (keyword "rf.frame" (str (gensym "")))]
-    (reg-frame id config)
+    (upsert-frame! id config)
     id))
 
 (defn make-frame-value
@@ -2464,12 +2493,6 @@
   [id]
   (swap! frames dissoc id))
 
-(defn- unregister-frame!
-  ;; The `:frame` registrar slot lives in the process-global registrar, so the
-  ;; unregister is a plain registrar call.
-  [id]
-  (registrar/unregister! :frame id))
-
 (defn- notify-epoch-listeners!
   "Fire the epoch destroy hook, threading the two frame-state snapshots the
   `:halted-destroy` epoch record carries per Spec-Schemas §`:rf/epoch-record`
@@ -2559,9 +2582,11 @@
                                               suppressed.
     5. emit-frame-destroyed-trace!  — emit :frame/destroyed AFTER the
                                       machine cascade.
-    6. dissoc-frame!                — remove from the `frames` atom.
-    7. unregister-frame!            — drop from the registrar.
-    8. notify-epoch-listeners!      — fire the epoch hook so tools see
+    6. dissoc-frame!                — remove from the `frames` atom. This IS
+                                      the whole forget: the `frames` registry
+                                      is the ONE store a seated frame lives in
+                                      (rf2-h1vqa4 — no registrar row exists).
+    7. notify-epoch-listeners!      — fire the epoch hook so tools see
                                       :rf.epoch.cb/silenced-on-frame-destroy,
                                       threading the pre-run
                                       (`*run-frame-state-before*`) and
@@ -2603,8 +2628,8 @@
   ;; Silent no-op (idempotent destroy is a no-op pattern; no new trace event
   ;; needed).
   ;; The registry is keyed by the bare frame-id, so every keyed teardown step
-  ;; (the in-flight guard, `mark-frame-destroyed!`, `dissoc-frame!`, the
-  ;; registrar unregister) targets the frame-id-keyed record directly.
+  ;; (the in-flight guard, `mark-frame-destroyed!`, `dissoc-frame!`)
+  ;; targets the frame-id-keyed record directly.
   (when-let [f (frame id)]
       (when-not (contains? @destroying-frames id)
       (swap! destroying-frames conj id)
@@ -2616,7 +2641,7 @@
       ;; requested — the `:frame-state-after` slot the `:halted-destroy`
       ;; epoch record carries. The pre-run `:frame-state-before` rides the
       ;; router-bound `*run-frame-state-before*` dynamic var (nil outside a
-      ;; drain). Both are passed to `notify-epoch-listeners!` (step 8): the
+      ;; drain). Both are passed to `notify-epoch-listeners!` (step 7): the
       ;; whole frame-state, both partitions.
       (let [run-fs-before *run-frame-state-before*
             ;; The destroying event's causal `:time-ms`, bound by
@@ -2770,7 +2795,6 @@
         ;; `:generation` slot, so dropping the record drops it too — no separate
         ;; forget hook is needed.
         (dissoc-frame! id)
-        (unregister-frame! id)
         (notify-epoch-listeners! id run-fs-before fs-at-destroy run-time-ms)
         nil
         (finally
@@ -2872,4 +2896,4 @@
   app frame registers it explicitly via `(rf/reg-frame :rf/default {…})`."
   []
   (when-not (get @frames :rf/default)
-    (reg-frame :rf/default {:doc "Test-fixture default frame (ordinary id; not a runtime floor)."})))
+    (upsert-frame! :rf/default {:doc "Test-fixture default frame (ordinary id; not a runtime floor)."})))

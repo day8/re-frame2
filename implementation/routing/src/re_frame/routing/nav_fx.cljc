@@ -16,7 +16,7 @@
   Internal namespace; the public facade is `re-frame.routing`. The
   facade owns the two `fx/reg-fx` calls so a `:reload` re-wires them on
   a fresh registrar."
-  (:require [re-frame.registrar :as registrar]
+  (:require [re-frame.frame :as frame]
             [re-frame.routing.strategy :as strategy]
             [re-frame.trace :as trace]))
 
@@ -36,13 +36,15 @@
 ;; must resolve to the frame that claimed `:url-bound? true` FIRST — the
 ;; incumbent — never to whichever id happens to sort earlier.
 ;;
-;; The registrar's `kind->id->metadata` is unordered, so registration order is
+;; The frames store (`re-frame.frame/frames`) is an unordered map, so
+;; registration order is
 ;; not recoverable from it. A separate claim-order vector is required; sorting
 ;; frame ids would allow a later duplicate to displace the incumbent.
 ;;
 ;; The fix records claim ORDER in this process-global vector. The url-bound
-;; exclusivity registration hook (`re-frame.routing.url-bound`, which already
-;; runs on every `:frame` registration) calls `record-url-claim!` / `drop-
+;; exclusivity check (`re-frame.routing.url-bound`, run from the
+;; `:routing/on-frame-registered!` lifecycle hook on every frame
+;; (re-)registration) calls `record-url-claim!` / `drop-
 ;; url-claim!` so the vector tracks, in claim order, which frames currently
 ;; carry `:url-bound? true`. Process-global like routing's other
 ;; intentionally-cross-frame slots (the route `reg-counter`, the
@@ -51,8 +53,8 @@
 ;; resolved across all frames, not per-frame.
 ;;
 ;; `url-owner-frame-id` returns the FIRST still-valid claimant — validated
-;; against the LIVE registry so the resolver self-heals if the incumbent later
-;; drops its binding (re-registers `:url-bound? false`) or is unregistered:
+;; against the LIVE frames store so the resolver self-heals if the incumbent
+;; later drops its binding (re-registers `:url-bound? false`) or is destroyed:
 ;; ownership then falls to the next-claimed frame that still carries
 ;; `:url-bound? true`, in claim order. Fail-closed: a frame never owns the URL
 ;; unless it is the first-claimed live `:url-bound? true` frame.
@@ -127,8 +129,8 @@
   `url-claim-order` (recorded by the
   url-bound exclusivity hook); this resolver walks it in claim order and
   returns the first id that STILL carries a live `:url-bound? true` binding in
-  the registry — so the incumbent always wins, and ownership self-heals to the
-  next claimant if the incumbent later drops its binding or is unregistered.
+  the frames store — so the incumbent always wins, and ownership self-heals to
+  the next claimant if the incumbent later drops its binding or is destroyed.
 
   When no claim is recorded yet (frames registered before the
   hook installed AND before the façade's `reconcile-existing-url-bindings!`
@@ -136,26 +138,29 @@
   (order is trivially known), but TWO OR MORE bound frames with unknowable
   claim order fails closed to nil rather than id-sorting.
 
+  Frame config is read from the frames store (`frame/frame-meta` — nil for a
+  destroyed / absent frame, so a dead claim reads as not-bound; rf2-h1vqa4:
+  frames have no registrar rows).
+
   Public (rather than `defn-`) so the ownership-resolution contract is
   directly assertable — the single declared-owner case the step-deck
   testbed relies on. A reimplemented gate cannot catch a
   regression in THIS resolution; the test must reach the real fn."
   []
-  (let [frames (registrar/registrations :frame)
-        bound? (fn [frame-id]
-                 (true? (url-bound?-from-config (get frames frame-id))))]
+  (let [bound? (fn [frame-id]
+                 (true? (url-bound?-from-config (frame/frame-meta frame-id))))]
     ;; Walk the claim order; the first frame whose binding is still live owns
     ;; the URL. A claimed-but-since-relinquished/destroyed frame is skipped
     ;; (self-healing).
     ;;
     ;; When no claim is recorded yet but `:url-bound? true` frame(s) exist in
-    ;; the registry (frames registered before the hook was
+    ;; the frames store (frames registered before the hook was
     ;; installed and before the façade's `reconcile-existing-url-bindings!`
     ;; seeded them, or a raw programmatic path), fall back to claim-free
     ;; resolution that NEVER steals:
     ;;   - exactly ONE bound frame → it owns (order is trivially known);
     ;;   - TWO OR MORE bound frames → claim order is genuinely unknowable
-    ;;     (the registrar map is unordered), so FAIL CLOSED to nil rather than
+    ;;     (the frames store is unordered), so FAIL CLOSED to nil rather than
     ;;     picking by id sort. nil here means 'no deterministic owner
     ;;     for this ambiguous load-order' — outbound pushes no-op and popstate
     ;;     skips until one binding is re-registered/removed through the live
@@ -165,10 +170,7 @@
     ;; in `url-claim-order`, so the first `some` branch resolves the incumbent.
     (or (some (fn [frame-id] (when (bound? frame-id) frame-id))
               @url-claim-order)
-        (let [bound (->> frames
-                         (filter (fn [[_id meta]]
-                                   (true? (url-bound?-from-config meta))))
-                         (map first))]
+        (let [bound (filterv bound? (frame/frame-ids))]
           (when (= 1 (count bound))
             (first bound))))))
 

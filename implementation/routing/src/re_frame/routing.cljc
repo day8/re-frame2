@@ -10,7 +10,7 @@
   artefact: apps load it with `(:require [re-frame.routing])`. Doing so
   transitively loads every runtime concern under `re-frame.routing.*` (each owns
   one cohesive concern, see below) and runs the registrations
-  (`reg-event` / `reg-fx` / `reg-sub` / `add-registration-hook!` /
+  (`reg-event` / `reg-fx` / `reg-sub` / the late-bind lifecycle hooks /
   `register-error-listener!` / `reg-view*`) at the bottom of this file.
 
   Registrations live here rather than in the concern namespaces so a
@@ -33,7 +33,7 @@
   - `re-frame.routing.navigate`       — :rf.route/navigate event
   - `re-frame.routing.url-change`     — :rf.route/transitioned + :rf.route/handle-url-change
   - `re-frame.routing.nav-fx`         — :rf.nav/push-url + :rf.nav/replace-url + url-owner-frame-id
-  - `re-frame.routing.url-bound`      — :url-bound? exclusivity registration hook
+  - `re-frame.routing.url-bound`      — :url-bound? exclusivity + claim-order maintenance
   - `re-frame.routing.history`        — strategy listener lifecycle + current-url
   - `re-frame.routing.subs`           — framework-shipped subs over the slice
   - `re-frame.routing.link`           — :route/link registered view"
@@ -293,13 +293,25 @@
 (fx/reg-fx :rf.nav/capture-scroll scroll/capture-scroll-meta scroll/capture-scroll-handler)
 (fx/reg-fx :rf.nav/scroll         scroll/scroll-fx-meta      scroll/scroll-fx-handler)
 
-;; The registration-hook collection survives reload, so install this hook
-;; once. Registration hooks observe only future registrations; reconcile the
-;; current frame registry on every facade load to seed an unambiguous existing
+;; Frame (re-)registration lifecycle hook (rf2-h1vqa4: frames do not flow
+;; through `registrar/register!`, so the former registrar registration hook is
+;; gone — the frame engine's `:routing/on-frame-registered!` late-bind hook is
+;; THE lifecycle point, fired AFTER the frame container exists and, on first
+;; registration, after `:initial-events` ran). The body is ORDERED: url-bound
+;; exclusivity + claim maintenance FIRST (both hosts — JVM routing tests
+;; resolve URL ownership too), THEN the CLJS browser-listener reconcile, so
+;; the owner resolution the reconcile performs sees current claims. Published
+;; via `late-bind/set-fn!` (key-idempotent — a facade `:reload` re-publishes,
+;; never stacks). The hook observes only future registrations; reconcile the
+;; current frames store on every facade load to seed an unambiguous existing
 ;; owner. Reconciliation is idempotent and fails closed when multiple
 ;; pre-existing bindings have no recoverable claim order.
-(defonce ^:private _url-bound-exclusivity-hook
-  (registrar/add-registration-hook! url-bound/check-url-bound-exclusivity!))
+(defn- on-frame-registered!
+  [frame-id]
+  (url-bound/check-url-bound-exclusivity! frame-id)
+  #?(:cljs (history/reconcile-url-listener!))
+  nil)
+(late-bind/set-fn! :routing/on-frame-registered! on-frame-registered!)
 (url-bound/reconcile-existing-url-bindings!)
 
 ;; Framework-shipped subs over routing runtime-db state. The derived
@@ -371,7 +383,8 @@
 
 ;; Registration-time frame-config preflight (rf2-ktmto9): routing owns the
 ;; MEANING of `:url-strategy` (presence semantics + host-required legs), core
-;; owns the TIMING — `re-frame.frame/reg-frame` invokes this hook with the
+;; owns the TIMING — the frame engine (`re-frame.frame/upsert-frame!`) invokes
+;; this hook with the
 ;; final expanded config BEFORE any candidate-derived write, so a malformed
 ;; declaration fails with zero residue (first registration) / preserves the
 ;; previous frame untouched (re-registration). Published on BOTH hosts — the
@@ -400,9 +413,10 @@
   ;; strategy when a live claimant remains (the ownership-transfer fix), tears
   ;; the listener down when no successor remains, and leaves the incumbent
   ;; instance untouched when a non-owner frame is destroyed. `frame-id` is passed
-  ;; as the EXCLUDED owner: this hook runs BEFORE core's `unregister-frame!`, so
-  ;; the destroyed frame's `:url-bound? true` registry entry still lingers and
-  ;; must not resolve as the owner via the claim-free fallback.
+  ;; as the EXCLUDED owner as defence in depth: by hook time the destroyed
+  ;; frame's `:destroyed?` flag is already flipped so `frame-meta` reads it as
+  ;; absent, but the exclusion keeps the must-not-resolve-as-owner contract
+  ;; explicit rather than timing-derived.
   (nav-fx/drop-url-claim! frame-id)
   #?(:cljs (history/reconcile-url-listener! frame-id))
   nil)
@@ -411,15 +425,15 @@
 
 ;; Browser URL-change wiring is strategy-aware and follows the URL-owning
 ;; frame's lifecycle. It is CLJS-only; SSR feeds request URLs through
-;; `:rf.route/handle-url-change`.
-;;
-;; Registration runs after the frame container exists, so the listener's
-;; synchronous initial URL dispatch has a valid target. Only the resolved URL
-;; owner installs; a losing duplicate does not replace the incumbent listener.
+;; `:rf.route/handle-url-change`. The listener reconcile rides the composed
+;; `:routing/on-frame-registered!` hook published above (after the url-bound
+;; claim maintenance) — it runs after the frame container exists, so the
+;; listener's synchronous initial URL dispatch has a valid target; only the
+;; resolved URL owner installs, and a losing duplicate does not replace the
+;; incumbent listener.
 ;;
 ;; The reset hook covers test fixtures that reset frame containers without
 ;; executing `destroy-frame!`.
-#?(:cljs (late-bind/set-fn! :routing/on-frame-registered! history/on-frame-registered!))
 #?(:cljs (late-bind/set-fn! :routing/reset-url-listener!  history/remove-url-listener!))
 
 ;; route-link is exposed on both platforms so .cljc render trees

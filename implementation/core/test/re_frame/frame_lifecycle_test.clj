@@ -11,6 +11,7 @@
             [re-frame.interop :as interop]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
+            [re-frame.source-store :as source-store]
             [re-frame.flows :as flows]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -596,9 +597,9 @@
 
 (deftest reg-frame-construction-failure-leaves-no-registrar-or-trace-residue
   (testing "rf2-hhlzky — a reg-frame whose frame CONSTRUCTION fails (no adapter
-            installed: reg-frame before rf/init!) leaves NO registrar row and NO
-            trace-disabled residue. `new-frame-record` (which calls
-            make-state-container) is built BEFORE the registrar / trace-
+            installed: reg-frame before rf/init!) leaves NO frames-store record
+            and NO trace-disabled residue. `new-frame-record` (which calls
+            make-state-container) is built BEFORE the trace-
             suppression writes, so a construction throw escapes before any
             process-global metadata is written — nothing to roll back."
     (let [fid :test/no-adapter-frame]
@@ -615,14 +616,53 @@
         (is (= :rf.error/no-adapter-installed thrown-id)
             "construction fails loud with the no-adapter throw (frame never built)"))
       ;; No half-registered process-global state survives the failed build:
-      (is (nil? (registrar/lookup :frame fid))
-          "no :frame registrar row was written for the frame that failed to build")
       (is (nil? (frame/frame fid))
           "no frame record landed in the frames atom")
+      (is (nil? (frame/frame-meta fid))
+          "the failed frame is invisible to the frame-meta introspection surface")
       (is (false? (trace/frame-trace-disabled? fid))
           "no trace-disabled residue — set-frame-no-emit! never ran for the failed frame")
       ;; Restore a working adapter so the fixture teardown / next test are clean.
       (rf/init! plain-atom/adapter))))
+
+;; ---- rf2-h1vqa4 — substrate ownership: frames never touch the registrar /
+;;      source store ---------------------------------------------------------
+;;
+;; A frame is a LIVE runtime object, not an image-resolved program member.
+;; Before the fix, the engine routed every seat/reseat through
+;; `registrar/register! :frame`, which ALSO recorded a `:frame` descriptor in
+;; the provenance source store and bumped the source-store GENERATION — the
+;; key leg of the resolved-image-generation cache (EP-0023). So merely seating
+;; or hot-reseating a frame invalidated the default-generation cache and fired
+;; the live-frame reprojection hook, for a change that is NOT a
+;; registration-pool change. This test pins the ownership fix end-to-end.
+
+(deftest frame-seating-writes-no-registrar-row-and-no-source-store-descriptor
+  (testing "rf2-h1vqa4 — seating + reseating a frame writes NO :frame registrar
+            row, records NO :frame source-store descriptor, and does NOT bump
+            the source-store generation (no resolved-image-generation cache
+            invalidation, no image-descriptor churn); frame introspection rides
+            frame-meta"
+    (let [gen-before (source-store/store-generation)]
+      ;; First seat + hot reseat (surgical update) + a make-frame reseat.
+      (rf/reg-frame :h1vqa4/owned {:doc "v1"})
+      (rf/reg-frame :h1vqa4/owned {:doc "v2 (reseat refreshes config)"})
+      (is (= "v2 (reseat refreshes config)" (:doc (rf/frame-meta :h1vqa4/owned)))
+          "the reseat refreshed the stored config (upsert semantics) via frame-meta")
+      (is (nil? (registrar/lookup :frame :h1vqa4/owned))
+          "no :frame registrar row exists for the seated frame")
+      (is (not (contains? (registrar/registrations :frame) :h1vqa4/owned))
+          "the (reserved, intentionally empty) :frame registrar slot stays empty")
+      (is (empty? (source-store/descriptors-for :frame :h1vqa4/owned))
+          "no :frame descriptor was recorded in the provenance source store")
+      (is (= gen-before (source-store/store-generation))
+          "the source-store generation did NOT move — seating/reseating a frame
+           cannot invalidate the resolved-image-generation cache")
+      ;; Destroy leaves the world exactly as before (frames store only).
+      (rf/destroy-frame! :h1vqa4/owned)
+      (is (nil? (rf/frame-meta :h1vqa4/owned)) "destroyed frame is gone")
+      (is (= gen-before (source-store/store-generation))
+          "destroy does not move the source-store generation either"))))
 
 (deftest top-level-reg-frame-initial-events-runs-synchronously
   (testing "Top-level reg-frame (NOT inside a handler) runs :initial-events

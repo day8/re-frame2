@@ -7,11 +7,12 @@
   `install-url-listener!` / `remove-url-listener!` facade wrappers were FOLDED
   into the `:url-bound?` frame lifecycle (rf2-g8pbwg) — a `:url-bound? true`
   frame installs its strategy listener on CREATE (CLJS) and removes it on
-  DESTROY, and the cross-feature hooks the core frame lifecycle consults
-  (`:routing/on-frame-registered!`, `:routing/reset-url-listener!`) are
-  published CLJS-only, so on the JVM `re-frame.frame`'s `fire-frame-registered-
-  hook!` finds no hook and skips (a graceful `when-let` no-op — never
-  `:rf.error/routing-artefact-missing`). The one remaining query-shaped export,
+  DESTROY. Per rf2-h1vqa4 `:routing/on-frame-registered!` is published on BOTH
+  hosts (its url-bound exclusivity / claim-order leg is host-agnostic); the
+  BROWSER-LISTENER leg inside its body is CLJS-only, so on the JVM the hook
+  runs the claim maintenance and skips the listener work (a graceful no-op —
+  never `:rf.error/routing-artefact-missing`). `:routing/reset-url-listener!`
+  stays CLJS-only. The one remaining query-shaped export,
   `current-url`, is published on BOTH hosts and returns `\"/\"` server-side.
 
   These tests pin, with routing PRESENT (required + reloaded by the suite
@@ -62,15 +63,16 @@
 
 (deftest url-bound-frame-lifecycle-is-a-noop-on-jvm-rf2-j1p1fv
   (testing "registering AND destroying a :url-bound? true frame on the JVM does
-            not throw — the browser listener install/teardown is CLJS-only, so
-            the :routing/on-frame-registered! / :routing/on-frame-destroyed!
-            frame-lifecycle hooks are a graceful no-op server-side (Spec 012 SSR
+            not throw — the browser listener install/teardown legs inside the
+            :routing/on-frame-registered! / :routing/on-frame-destroyed!
+            frame-lifecycle hooks are CLJS-only and skipped server-side, while
+            the host-agnostic claim maintenance still runs (Spec 012 SSR
             listener install is a no-op). A losing duplicate url-binding (the
             suite fixture already binds :rf/default) is REPORTED via a diagnostic
             but must never throw."
     (is (= :ok (outcome #(rf/reg-frame :zz/jvm-url-owner {:url-bound? true})))
         "reg-frame of a url-bound frame returns normally on the JVM — the
-         listener-install lifecycle hook is unpublished server-side and skipped")
+         listener-install leg is CLJS-only and skipped server-side")
     (is (= "/" (routing/current-url))
         "current-url still reads the SSR root while a url-bound frame is live")
     (is (= :ok (outcome #(frame/destroy-frame! :zz/jvm-url-owner)))

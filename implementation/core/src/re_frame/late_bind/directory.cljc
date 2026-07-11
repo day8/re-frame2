@@ -228,7 +228,7 @@
     :description "ALWAYS-ON (NOT a DCE seam, rf2-eq7m0x — the registration classification is populated in production too; only the emit-time TRACE projection is dev-gated): apply an event handler's REGISTRATION-OWNED :sensitive / :large classification to a [event-id arg-map] vector (EP-0015 — event args are registration-owned transient payloads). Consumed by re-frame.projection for the :rf.observe/error / handled-event :event slot."}
 
    ;; ---- re-frame.frame-classification (EP-0015 §9 observability) ----
-   ;; `re-frame.frame/reg-frame` consults this to validate the surviving
+   ;; The frame engine (`re-frame.frame/upsert-frame!`) consults this to validate the surviving
    ;; frame-owned :observability sink policy. Reached via late-bind because
    ;; frame-classification requires frame, so a static require would cycle.
    ;;
@@ -515,11 +515,11 @@
    {:key         :routing/preflight-frame-config!
     :producer-ns 're-frame.routing
     :design-bead "rf2-ktmto9"
-    :description "Registration-time frame-config PREFLIGHT `(fn [frame-id config])` — PURE validation of routing-owned frame-config keys, invoked by frame/reg-frame (the one frame-config commit chokepoint) with the FINAL expanded config (after preset expansion + source-coordinate merging) BEFORE any candidate-derived write: the frame-record build, the registrar row, the trace-policy flags, the frames swap, the :initial-events setup dispatch, and any trace emit. Validates an explicitly-declared :url-strategy for host-required shape/callability (validate-url-strategy!, fail-loud :rf.error/invalid-url-strategy with {:frame frame-id} ex-data); PRESENCE semantics — a config with NO :url-strategy key is a no-op (omission alone selects the default history strategy), while a PRESENT key INCLUDING explicit nil is an explicit declaration and fails loud when malformed. Published on BOTH hosts. When the hook is UNPUBLISHED (routing not loaded) and a config declares :url-strategy, core fails loud with :rf.error/routing-artefact-missing rather than storing a strategy nobody can validate or execute; the :url-bound?-only late-load case is unchanged. Routing owns the meaning; core owns the timing — the fail-loud + failure-atomicity completion of PR #5633's consult-seam validation. Per Spec 012 §URL strategies / Spec 002 §reg-frame construction failure-atomicity."}
+    :description "Registration-time frame-config PREFLIGHT `(fn [frame-id config])` — PURE validation of routing-owned frame-config keys, invoked by the frame engine (frame/upsert-frame!, the one frame-config commit chokepoint) with the FINAL expanded config (after preset expansion + source-coordinate merging) BEFORE any candidate-derived write: the frame-record build, the trace-policy flags, the frames swap, the :initial-events setup dispatch, and any trace emit. Validates an explicitly-declared :url-strategy for host-required shape/callability (validate-url-strategy!, fail-loud :rf.error/invalid-url-strategy with {:frame frame-id} ex-data); PRESENCE semantics — a config with NO :url-strategy key is a no-op (omission alone selects the default history strategy), while a PRESENT key INCLUDING explicit nil is an explicit declaration and fails loud when malformed. Published on BOTH hosts. When the hook is UNPUBLISHED (routing not loaded) and a config declares :url-strategy, core fails loud with :rf.error/routing-artefact-missing rather than storing a strategy nobody can validate or execute; the :url-bound?-only late-load case is unchanged. Routing owns the meaning; core owns the timing — the fail-loud + failure-atomicity completion of PR #5633's consult-seam validation. Per Spec 012 §URL strategies / Spec 002 §reg-frame construction failure-atomicity."}
    {:key         :routing/on-frame-registered!
     :producer-ns 're-frame.routing
     :design-bead "rf2-g8pbwg"
-    :description "Fired by frame/reg-frame AFTER the frame container exists (first registration: after :initial-events ran; re-registration: after the surgical config update) — the registrar's OWN :frame registration hook fires too early (before the container exists) for an install. When the just-(re)registered frame is the resolved URL owner, (re)installs its :url-strategy browser listener (popstate or hashchange); a losing duplicate :url-bound? true registration is a no-op (never installs). Folds the retired install-url-listener! / install-history-listener! imperative exports into the :url-bound? frame lifecycle. CLJS-only."}
+    :description "Fired by the frame engine (frame/upsert-frame!) AFTER the frame container exists (first registration: after :initial-events ran; re-registration: after the surgical config update) — THE frame (re-)registration lifecycle extension point (rf2-h1vqa4: frames do not flow through registrar/register!, so there is no registrar registration hook for frames). Published on BOTH hosts; the facade body is ORDERED: (1) url-bound exclusivity + URL-ownership claim maintenance (re-frame.routing.url-bound, reading config via frame/frame-meta — both hosts), then (2) CLJS-only strategy-aware browser-listener reconcile: when the just-(re)registered frame is the resolved URL owner, (re)installs its :url-strategy browser listener (popstate or hashchange); a losing duplicate :url-bound? true registration is a no-op (never installs). Folds the retired install-url-listener! / install-history-listener! imperative exports into the :url-bound? frame lifecycle."}
    {:key         :routing/reset-url-listener!
     :producer-ns 're-frame.routing
     :design-bead "rf2-g8pbwg"
@@ -1045,7 +1045,7 @@
    ;;
    ;; The four hooks below carry the per-frame ring + B4 dedup machinery.
    ;; They're consulted from
-   ;; `re-frame.frame/reg-frame` + `destroy-frame!` (lifecycle) and
+   ;; `re-frame.frame/upsert-frame!` + `destroy-frame!` (lifecycle) and
    ;; `re-frame.registrar/register!` / `unregister!` / `clear-kind!`
    ;; (B4 dedup). All routed via late-bind so production CLJS bundles
    ;; that never load `re-frame.trace.tooling` short-circuit cleanly
@@ -1065,7 +1065,7 @@
    {:key         :trace.tooling/set-frame-events-retained!
     :producer-ns 're-frame.trace.tooling
     :design-bead "rf2-g1b2m"
-    :description "Apply a per-frame `:rf.trace/events-retained` override. `re-frame.frame/reg-frame` invokes this when the config carries the key; raises / lowers the ring's slot cap (one slot per event / pipeline run), trimming evictions in-place when lowering."}
+    :description "Apply a per-frame `:rf.trace/events-retained` override. The frame engine (`re-frame.frame/upsert-frame!`) invokes this when the config carries the key; raises / lowers the ring's slot cap (one slot per event / pipeline run), trimming evictions in-place when lowering."}
    {:key         :frame/current-frame-id
     :producer-ns 're-frame.frame
     :design-bead "rf2-g1b2m"
