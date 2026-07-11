@@ -751,6 +751,81 @@
       (is (not (contains? (:edge-points out) (str (:id back-e) "__in"))))
       (is (not (contains? (:edge-points out) (str (:id back-e) "__out")))))))
 
+(def compound-same-parent-back-edge-machine
+  "rf2-qb452y — a compound `:grouped` holding `:a → :b` (forward) and
+  `:b → :a` (a SAME-PARENT back-edge — both leaves parented to `:grouped`).
+  `:grouped` nests under the synthetic root-container, so the shared parent's
+  origin is non-(0,0): the reroute must write the detour in ROOT-ABSOLUTE
+  coords (endpoint centre + container origin), NOT the raw parent-relative
+  values `node-center` reads."
+  {:initial :outer
+   :states  {:outer   {:on {:go :grouped}}
+             :grouped {:initial :a
+                       :states  {:a {:on {:next :b}}
+                                 :b {:on {:back :a}}}}}})
+
+(deftest reroute-back-edges-nested-same-parent-writes-absolute-edge-points
+  ;; rf2-qb452y — a same-parent back-edge whose endpoints are NESTED inside a
+  ;; compound (`:grouped`) whose origin ≠ (0,0). `back-edge-detour` computes in
+  ;; the shared-parent (`:grouped`) frame; `:edge-points` is ROOT-ABSOLUTE, so
+  ;; `reroute-back-edges` must REBASE the written __in/__out by the container
+  ;; origin. Before the fix the parent-relative points were written straight
+  ;; through, floating the detour ~(:grouped origin) away from its endpoints.
+  (let [parsed      (layout/project-definition compound-same-parent-back-edge-machine)
+        node-parent (#'post-elk/node-parent-map (:nodes parsed))
+        grouped-id  (layout/node-id [:grouped])
+        a-id        (layout/node-id [:grouped :a])
+        b-id        (layout/node-id [:grouped :b])
+        back-e      (first (filter (fn [e]
+                                     (and (= (:source e) b-id)
+                                          (= (:target e) a-id)))
+                                   (:edges parsed)))
+        ev-id       (projection/event-node-id back-e)
+        ;; hand-built positions in the REAL frames `elk-result->positions`
+        ;; records: containers + leaves parent-relative to their OWN parent,
+        ;; no re-basing. The root-container sits at a small non-(0,0) origin +
+        ;; `:grouped` is offset FROM it, so the origin exercises the ancestor-
+        ;; chain SUM (grouped + root-container), not just the direct parent.
+        positions   {layout/root-container-id {:x 10  :y 15  :width 800 :height 700}
+                     grouped-id               {:x 600 :y 500 :width 220 :height 320}
+                     a-id                     {:x 40  :y 20  :width 120 :height 50}
+                     b-id                     {:x 40  :y 120 :width 120 :height 50}
+                     ev-id                    {:x 40  :y 260 :width 96  :height 34}}
+        stub        {:positions positions :edge-points {} :edge-labels {}}
+        out         (post-elk/reroute-back-edges stub parsed :tb)
+        origin      (#'post-elk/container-origin positions node-parent grouped-id)
+        ;; parent-relative detour — the pure geometry, unchanged by the fix.
+        {:keys [in-points out-points]} (post-elk/back-edge-detour back-e positions :tb)
+        written-in  (get (:edge-points out) (str (:id back-e) "__in"))
+        written-out (get (:edge-points out) (str (:id back-e) "__out"))]
+
+    (testing "sanity: the fixture is a NESTED same-parent back-edge that sinks"
+      (is (some? back-e) "the b→a back-edge parses")
+      (is (= grouped-id (get node-parent b-id) (get node-parent a-id))
+          "both endpoints share the :grouped parent")
+      (is (true? (#'post-elk/same-parent? node-parent back-e)))
+      (is (true? (post-elk/back-edge? back-e positions :tb))
+          "the event-node sank below both endpoints"))
+
+    (testing "sanity: the shared container origin is non-(0,0) — grouped + root-container"
+      (is (= {:x 610 :y 515} origin)))
+
+    (testing "the written __in / __out are ROOT-ABSOLUTE (parent-relative + origin)"
+      (is (= (#'post-elk/rebase-points in-points origin)  written-in))
+      (is (= (#'post-elk/rebase-points out-points origin) written-out)))
+
+    (testing "the written detour is SHIFTED off the raw parent-relative points
+              (the pre-fix bug wrote the un-rebased values)"
+      (is (not= in-points  written-in))
+      (is (not= out-points written-out)))
+
+    (testing "concretely: the __in arm STARTS at the source's ABSOLUTE centre"
+      (let [b-centre-rel (#'post-elk/node-center positions b-id)]
+        (is (= {:x (+ (:x b-centre-rel) (:x origin))
+                :y (+ (:y b-centre-rel) (:y origin))}
+               (first written-in))
+            "the detour lands on the source box, not offset by the container origin")))))
+
 ;; ====================================================================
 ;; Composing pass
 ;; ====================================================================
