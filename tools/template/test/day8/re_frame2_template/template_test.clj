@@ -1345,27 +1345,41 @@
           (is (file-exists? root "test/acme/my_app/ssr_test.clj")
               "ssr_test.clj is emitted for the SSR+Tailwind cell")
 
-          ;; The Tailwind overlay swapped in the Tailwind CSS entry.
+          ;; The Tailwind overlay swapped in the app.css — which under the
+          ;; compiler-input fix (rf2-j538f7.22) is ordinary native CSS, NOT a
+          ;; Tailwind entry: the compiler-visible source lives inline in the
+          ;; live shell's <style type="text/tailwindcss"> block (asserted on
+          ;; server.clj below), never in the externally-linked app.css.
           (let [css-text (slurp (io/file root "resources/public/css/app.css"))]
-            (is (.contains css-text "@import \"tailwindcss\"")
-                "the emitted app.css is the Tailwind v4 entry (:css :tailwind overlay)"))
+            (is (not (.contains css-text "@import \"tailwindcss\""))
+                "the emitted app.css is ordinary native CSS — NO bare
+                 @import \"tailwindcss\" in the externally-linked stylesheet")
+            (is (.contains css-text "rf2-xray-host")
+                "the emitted app.css still carries the plain Xray-host layout"))
 
-          ;; server.clj — the LIVE shell loads the Tailwind dev compiler AND
-          ;; links the CSS, so the actual SSR / response (NOT the unused
-          ;; index.html) carries both. This is the combination the API says
-          ;; composes (spec/API.md:113).
+          ;; server.clj — the LIVE shell loads the Play CDN compiler AND the
+          ;; inline <style type="text/tailwindcss"> source block it compiles,
+          ;; AND links the (plain) CSS, so the actual SSR response (NOT the
+          ;; unused index.html) carries a compiler input that actually
+          ;; compiles. This is the combination the API says composes
+          ;; (spec/API.md).
           (let [server-text (slurp (io/file root "src/acme/my_app/server.clj"))]
             (is (.contains server-text "@tailwindcss/browser")
                 "the SSR+Tailwind server.clj loads the @tailwindcss/browser dev
                  compiler in the live shell (the documented combination works,
                  not silently fails)")
+            (is (.contains server-text "text/tailwindcss")
+                "the SSR+Tailwind live shell injects the inline
+                 <style type=\"text/tailwindcss\"> source block — the Play CDN
+                 compiler's only input — so @theme/@import actually compile on
+                 the SSR response (not silently dropped)")
             ;; The tailwind? guard resolves to TRUE here (contrast the plain
             ;; cell's `(= "" "tailwind")`), so the compiler is actually emitted.
             (is (.contains server-text "(= \"tailwind\" \"tailwind\")")
                 "the SSR+Tailwind server's tailwind? guard resolves to true —
                  the dev compiler is live on the SSR response")
             (is (.contains server-text "/css/app.css")
-                "the SSR+Tailwind live shell links the Tailwind CSS entry")
+                "the SSR+Tailwind live shell links the (plain) CSS entry")
             (is (.contains server-text ":html-shell")
                 "the SSR+Tailwind server installs the custom CSS-loading shell")
             (is (.contains server-text "text/css")
@@ -1439,20 +1453,38 @@
       "the gate fired before any scaffold was emitted (tmp dir is empty)"))
 
 (deftest css-tailwind-emits-tailwind-scaffold-test
-  (testing ":css :tailwind (rf2-gthro closed; wiring rf2-nxqcov) swaps the
-            plain-CSS scaffold for the Tailwind v4 variant — the app.css
-            imports Tailwind, index.html loads the dev CDN compiler, and
-            both keep the Xray-host layout contract"
+  (testing ":css :tailwind (rf2-gthro closed; wiring rf2-nxqcov; compiler-input
+            fix rf2-j538f7.22) swaps the plain-CSS scaffold for the Tailwind v4
+            variant — index.html loads the Play CDN compiler AND carries the
+            CSS-first source inline in a <style type=\"text/tailwindcss\">
+            block (the compiler's only input), app.css stays ordinary native
+            CSS, and both keep the Xray-host layout contract"
     (let [tmp (tmp-dir "rf2-template-css-tailwind-")]
       (try
         (let [proj    (run-template-opts! tmp "acme/my-app"
                                           {:css :tailwind})
               app-css (slurp (io/file proj "resources/public/css/app.css"))
               index   (slurp (io/file proj "resources/public/index.html"))]
-          ;; -- app.css is the Tailwind v4 entry (CSS-first: @import, no
-          ;;    tailwind.config.js) --
-          (is (re-find #"@import\s+\"tailwindcss\"" app-css)
-              "tailwind app.css imports tailwindcss (v4 CSS-first entry)")
+          ;; -- COHERENT SHAPE (rf2-j538f7.22): the Play CDN compiler reads
+          ;;    ONLY inline `<style type="text/tailwindcss">` nodes, never an
+          ;;    external <link> stylesheet. So the Tailwind v4 CSS-first source
+          ;;    (`@import "tailwindcss"` + the `@theme` design tokens) MUST live
+          ;;    inline in index.html, and app.css MUST NOT carry a bare Tailwind
+          ;;    `@import` (which would resolve to a bogus /css/tailwindcss
+          ;;    request while @theme is silently dropped). --
+          (is (re-find
+                #"(?s)<style type=\"text/tailwindcss\">.*?@import\s+\"tailwindcss\";.*?@theme\b.*?--color-brand.*?</style>"
+                index)
+              "tailwind index.html routes the CSS-first source (@import +
+               @theme design token) through an inline
+               <style type=\"text/tailwindcss\"> block — the Play CDN
+               compiler's only input")
+          (is (not (re-find #"@import\s+\"tailwindcss\"" app-css))
+              "tailwind app.css is ordinary native CSS — NO bare
+               @import \"tailwindcss\" in the externally-linked stylesheet the
+               Play CDN compiler never reads (a bare import there resolves to a
+               bogus /css/tailwindcss request; @theme would be silently
+               dropped)")
           (is (not (re-find #"no Tailwind" app-css))
               "the plain-CSS preamble (\"no Tailwind\") is gone — the
                Tailwind variant overwrote the default app.css")

@@ -97,17 +97,33 @@ variants follow once those adapters' Story coverage matches Reagent's.
 
 ### `:css :tailwind`
 
-`:css :tailwind` swaps the default plain-CSS scaffold for Tailwind v4:
-`resources/public/css/app.css` becomes a CSS-first
-`@import "tailwindcss";` entry (Tailwind v4 has no
-`tailwind.config.js` — design tokens go in `@theme { … }`), and
-`index.html` loads the `@tailwindcss/browser@4` dev CDN compiler so
-utilities work with zero build step. Omit `:css` (or pass nothing) for
-the plain-CSS default. The flag is substrate-invariant. A bogus value
+`:css :tailwind` swaps the default plain-CSS scaffold for Tailwind v4
+(zero build step in dev). `index.html` loads the
+`@tailwindcss/browser@4` Play CDN compiler and carries the Tailwind v4
+CSS-first source **inline** in a `<style type="text/tailwindcss">`
+block — `@import "tailwindcss";` plus design tokens in `@theme { … }`
+(Tailwind v4 has no `tailwind.config.js`). That inline block is the
+compiler's input: the Play CDN compiler reads **only** inline
+`<style type="text/tailwindcss">` nodes — it never sees an external
+`<link>` stylesheet — so authoring Tailwind there is what makes it
+compile. `resources/public/css/app.css` stays **ordinary native CSS**
+for the app shell + Xray-host layout (a bare `@import "tailwindcss"`
+there would just resolve to a bogus `/css/tailwindcss` request and
+`@theme` would be silently dropped). Omit `:css` (or pass nothing) for
+the plain-CSS default. The flag is substrate-invariant — and composes
+with `:include-ssr?`, whose live shell injects the same
+`<style type="text/tailwindcss">` source block. A bogus value
 (e.g. `:css :tailwnd`) **fails closed** with
-`:rf.error/template-bad-css-flag`. Before shipping, swap the dev CDN
-for the compiled `@tailwindcss/cli` build (see the generated README's
-"Production hardening").
+`:rf.error/template-bad-css-flag`.
+
+Before shipping, move to the compiled `@tailwindcss/cli` build: lift the
+`<style type="text/tailwindcss">` block's contents into a `.css` entry
+file, compile it to a static stylesheet, link that, and drop the CDN
+`<script>` + the inline block. The exact dev→prod transition (and the
+matching CSP tightening — dropping the jsdelivr origin and
+`'unsafe-inline'`) is documented in the generated `index.html`'s
+comments; serve the tightened policy as a response header per the
+generated README's "Production hardening".
 
 ```bash
 # Reagent, with Tailwind v4

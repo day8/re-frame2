@@ -1,17 +1,21 @@
-/* {{name}} — Tailwind v4 stylesheet (:css :tailwind).
+/* {{name}} — app stylesheet (:css :tailwind).
  *
- * Tailwind v4 is CSS-first: there is NO `tailwind.config.js`. The single
- * `@import "tailwindcss";` below pulls in Tailwind's preflight + utilities,
- * and design tokens are declared inline via `@theme { … }`. In dev, the
- * `@tailwindcss/browser` CDN script in index.html compiles the utilities
- * at runtime — zero build step. For production, swap the CDN for the
- * `@tailwindcss/cli` build (see README "Production hardening") and emit a
- * compiled stylesheet.
+ * This file is ORDINARY, NATIVE CSS — the browser parses it directly. It
+ * is NOT the Tailwind source. The Play CDN compiler
+ * (`@tailwindcss/browser@4`, loaded in index.html) reads ONLY inline
+ * `<style type="text/tailwindcss">` nodes; it never sees an external
+ * `<link>` stylesheet like this one. So the Tailwind CSS-first source
+ * (Tailwind's `@import` directive + the `@theme { … }` design tokens)
+ * lives in index.html's inline `<style type="text/tailwindcss">` block —
+ * a bare Tailwind `@import` here would just resolve to a bogus
+ * `/css/tailwindcss` request and `@theme` would be silently ignored.
  *
- * The layout / Xray-host rules below are plain CSS on purpose: they size
- * the app shell + the devtools column and must survive whether or not
- * Tailwind's utilities are in play. */
-@import "tailwindcss";
+ * Keep this file for plain CSS the app shell needs regardless of Tailwind:
+ * the layout / Xray-host rules below size the app shell + the devtools
+ * column and must survive whether or not Tailwind's utilities are in play.
+ * For production, compile the inline Tailwind source with
+ * `@tailwindcss/cli` into a static stylesheet and link that too (see the
+ * README "Production hardening"). */
 
 body { font: 16px/1.4 system-ui, sans-serif; margin: 0; }
 .rf2-app-shell { display: flex; min-height: 100vh; }

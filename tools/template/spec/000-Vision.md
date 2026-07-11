@@ -103,9 +103,13 @@ and recognises the shape. That continuity is deliberate.
     `counter_with_stories`-shaped story scaffold alongside the
     live app. Currently Reagent-only.
   - `:css :tailwind` — Tailwind v4 in place of the default plain-CSS
-    `app.css`: a CSS-first `@import "tailwindcss";` stylesheet (no
-    `tailwind.config.js`) plus an `index.html` that loads the
-    `@tailwindcss/browser@4` dev CDN compiler. Substrate-invariant.
+    scaffold: an `index.html` that loads the `@tailwindcss/browser@4`
+    Play CDN compiler and carries the CSS-first source
+    (`@import "tailwindcss";` + `@theme` tokens; no
+    `tailwind.config.js`) **inline** in a
+    `<style type="text/tailwindcss">` block — the only input the Play CDN
+    compiler reads — while `app.css` stays ordinary native CSS for the
+    app shell + Xray-host layout. Substrate-invariant.
   - `:include-ssr?` — SSR scaffolding per
     Spec 011: a shared `core.cljc` (JVM render + CLJS hydration),
     a `server.clj` Ring host, and a headless `ssr_test.clj`.

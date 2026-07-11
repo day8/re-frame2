@@ -10,14 +10,15 @@
 
          - `style-src 'self' 'unsafe-inline'` — the generated views use
            inline `:style` props, the default-on Xray devtools surface
-           injects `<style>` blocks and inline styles, AND the
-           @tailwindcss/browser CDN compiler injects a runtime `<style>`
-           block of utilities. Without `'unsafe-inline'` the first page
-           would emit CSP violations and both Xray's styling and Tailwind's
-           utilities would be blocked. (To run with a strict
-           `style-src 'self'`, move to the `@tailwindcss/cli` compiled
-           build + external CSS / a nonce and drop Xray — see README
-           "Production hardening".)
+           injects `<style>` blocks and inline styles, the inline
+           `<style type="text/tailwindcss">` Tailwind SOURCE block below is
+           an inline stylesheet, AND the @tailwindcss/browser CDN compiler
+           injects a runtime `<style>` block of compiled utilities. Without
+           `'unsafe-inline'` the first page would emit CSP violations and
+           both Xray's styling and Tailwind's utilities would be blocked.
+           (To run with a strict `style-src 'self'`, move to the
+           `@tailwindcss/cli` compiled build + external CSS / a nonce and
+           drop Xray — see README "Production hardening".)
          - `script-src 'self' https://cdn.jsdelivr.net` — the dev Tailwind
            compiler loads from the jsdelivr CDN. Production drops the CDN
            for a compiled stylesheet, so `script-src 'self'` alone
@@ -43,12 +44,40 @@
     <meta http-equiv="Content-Security-Policy"
           content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:; object-src 'none'; base-uri 'none'">
     <title>{{name}} — re-frame2</title>
-    <!-- Tailwind v4, dev-only CDN compiler (@tailwindcss/browser@4). It
-         compiles the utilities used on the page at
-         runtime — zero build step. Swap for a compiled stylesheet from
-         `@tailwindcss/cli` before shipping (README "Production
-         hardening"). -->
+    <!-- Tailwind v4, dev-only Play CDN compiler (@tailwindcss/browser@4).
+         It compiles the CSS-first source in the
+         `<style type="text/tailwindcss">` block below at runtime — zero
+         build step.
+
+         IMPORTANT: the Play CDN compiler reads ONLY inline
+         `<style type="text/tailwindcss">` nodes. An external `<link>`
+         stylesheet is parsed natively by the browser and NEVER reaches the
+         compiler — so Tailwind directives (`@import "tailwindcss"`,
+         `@theme`, `@utility`, …) MUST live in the inline block below, not
+         in the linked /css/app.css (that file is ordinary native CSS).
+
+         Before shipping, swap this block + the CDN for a stylesheet
+         compiled from `@tailwindcss/cli`: move the block's contents into a
+         `.css` entry file, compile it to a static stylesheet, link that,
+         and drop the CDN `<script>` (README "Production hardening"). -->
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <style type="text/tailwindcss">
+      /* Tailwind v4 CSS-first SOURCE — the Play CDN compiler's input.
+         v4 has NO `tailwind.config.js`: `@import "tailwindcss"` pulls in
+         Tailwind's preflight + utilities, and design tokens are declared
+         in `@theme { … }`. Author your Tailwind here. */
+      @import "tailwindcss";
+
+      @theme {
+        /* Example design token — proves `@theme` is compiled: it makes the
+           `bg-brand` / `text-brand` / `border-brand` utilities available.
+           Replace with your own tokens, or delete the `@theme` block. */
+        --color-brand: #6d28d9;
+      }
+    </style>
+    <!-- Ordinary, native CSS: the app shell + Xray-host layout. Parsed by
+         the browser directly (NOT by Tailwind) — keep only plain CSS
+         here. -->
     <link rel="stylesheet" href="/css/app.css">
   </head>
   <body>

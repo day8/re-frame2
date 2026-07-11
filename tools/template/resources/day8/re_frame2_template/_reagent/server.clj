@@ -35,7 +35,8 @@
    via the structured `:head` / `:body-end` content-hooks, so the emitted
    static `resources/public/index.html` is a reference only — the SSR
    server never serves it. `:head` gains the stylesheet `<link>` (Tailwind
-   mode also the dev compiler); `:body-end` gains the Xray devtools host.
+   mode also the Play CDN compiler + its inline `text/tailwindcss` source
+   block); `:body-end` gains the Xray devtools host.
    Everything else — the `#app` root, the `__rf_payload` hydration
    `<script>`, the render/head hash markers, the `/main.js` bootstrap, and
    the route-resolved `<head>` title + meta — is single-sourced by
@@ -68,21 +69,37 @@
 
 (def ^:private tailwind?
   "True when this project was scaffolded with `:css :tailwind`. The live
-   shell then ALSO loads the `@tailwindcss/browser` dev compiler, which
-   compiles the utilities used on the page at runtime — mirroring the SPA
-   scaffold's index.html. `{{css-name}}` is `\"tailwind\"` or `\"\"`
-   (deps-new substitution)."
+   shell then ALSO loads the `@tailwindcss/browser` Play CDN compiler and
+   the inline `type=\"text/tailwindcss\"` source block it compiles —
+   mirroring the SPA scaffold's index.html. `{{css-name}}` is `\"tailwind\"`
+   or `\"\"` (deps-new substitution)."
   (= "{{css-name}}" "tailwind"))
+
+(def ^:private tailwind-source-block
+  "The Tailwind v4 CSS-first SOURCE, inline in a `type=\"text/tailwindcss\"`
+   node so the Play CDN compiler actually reads it. The Play CDN compiler
+   collects ONLY inline `<style type=\"text/tailwindcss\">` nodes — an
+   external `<link>` stylesheet is parsed natively by the browser and never
+   reaches the compiler — so the `@import \"tailwindcss\"` + `@theme` design
+   tokens MUST live here, not in the linked /css/app.css (which is ordinary
+   native CSS). Mirrors the SPA scaffold's index.html source block."
+  (str "<style type=\"text/tailwindcss\">"
+       "@import \"tailwindcss\";"
+       "@theme { --color-brand: #6d28d9; }"
+       "</style>"))
 
 (def ^:private head-assets
   "Raw `<head>` HTML the live shell injects on every SSR response so the
-   selected CSS scaffold actually loads: the stylesheet `<link>`, plus — in
-   Tailwind mode — the `@tailwindcss/browser@4` dev compiler. Appended to the
-   route-resolved head model through the `:head` content-hook, so the title +
-   meta the route declares are preserved, not replaced."
+   selected CSS scaffold actually loads: the `<link>` to the ordinary native
+   /css/app.css, plus — in Tailwind mode — the `@tailwindcss/browser@4` Play
+   CDN compiler AND the inline `type=\"text/tailwindcss\"` source block it
+   compiles. Appended to the route-resolved head model through the `:head`
+   content-hook, so the title + meta the route declares are preserved, not
+   replaced."
   (str
     (when tailwind?
-      "<script src=\"https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4\"></script>")
+      (str "<script src=\"https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4\"></script>"
+           tailwind-source-block))
     "<link rel=\"stylesheet\" href=\"/css/app.css\">"))
 
 (def ^:private xray-host-aside
@@ -100,7 +117,8 @@
    meta), the `__rf_payload` hydration `<script>`, the render/head hash
    markers, the `/main.js` bootstrap, and all attribute escaping — and
    augments ONLY the two structured content-hooks: `:head` gains the
-   stylesheet link (+ Tailwind compiler), `:body-end` gains the Xray host.
+   stylesheet link (+ the Tailwind Play CDN compiler and its inline
+   `text/tailwindcss` source block), `:body-end` gains the Xray host.
    Both are APPENDED to whatever the route resolved, never replaced."
   [body-html payload-edn opts]
   (ssr-ring/default-html-shell
