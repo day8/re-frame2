@@ -61,6 +61,25 @@
                                              :handler-fn handler-fn)
                                       extra-slots)))
 
+(defn- emit-fx-registration-invalid!
+  "Emit `:rf.error/fx-registration-invalid` (registration-time, diagnostic)
+  and throw. The malformed-registration case — a `reg-fx` supplied NO handler
+  fn (e.g. `(reg-fx :my/fx {:doc \"…\"})`, a metadata-only call whose
+  `(fn [ctx args] …)` was omitted). Without this the handler-less registration
+  SUCCEEDS with a nil `:handler-fn` and fails LATE at fire-time as a misleading
+  `:rf.error/fx-handler-exception` — an NPE blaming the ABSENT handler for
+  THROWING (rf2-x76af2.26). Mirrors reg-cofx's registration-time
+  `emit-cofx-registration-invalid!` so the fail-loud is symmetric across the
+  effect / coeffect register sites. Per Spec 001 §Registration + Spec 009
+  §Error catalogue."
+  [id reason]
+  (trace/emit-error! :rf.error/fx-registration-invalid
+                     {:rf.fx/id id
+                      :reason   reason
+                      :recovery :no-recovery})
+  (error/throw-error! :rf.error/fx-registration-invalid 'rf/reg-fx reason
+                      {:extra {:rf.fx/id id}}))
+
 (defn reg-fx
   "Register an effect handler under `id`. The handler runs when a
   `reg-event` handler returns an effect-map carrying `[id args]` inside its
@@ -120,6 +139,22 @@
         (if (map? metadata-or-handler)
           [metadata-or-handler (first maybe-handler)]
           [{} metadata-or-handler])]
+    ;; rf2-x76af2.26: a `reg-fx` MUST supply a callable handler. The
+    ;; metadata-only form `(reg-fx :id {…})` (a plausible typo) parses to
+    ;; `handler-fn` nil and would otherwise register a nil `:handler-fn`,
+    ;; deferring the failure to a misleading fire-time
+    ;; `:rf.error/fx-handler-exception`. Reject at REGISTRATION time, naming
+    ;; the missing handler — mirroring reg-cofx's registration-time
+    ;; missing-supplier rejection (`emit-cofx-registration-invalid!`).
+    (when-not (ifn? handler-fn)
+      (emit-fx-registration-invalid!
+        id
+        (str "`reg-fx` id `" id "` was registered with no handler fn. A "
+             "`reg-fx` needs a `(fn [ctx args] …)` handler as its final "
+             "argument — the metadata-only form `(reg-fx " id " {…})` supplies "
+             "metadata but omits the handler, so nothing would run when the "
+             "effect fires (it would fail LATE at fire-time as a misleading "
+             "`:rf.error/fx-handler-exception`). Supply the handler fn.")))
     (register-with-classification! :fx id meta handler-fn nil)
     id))
 
