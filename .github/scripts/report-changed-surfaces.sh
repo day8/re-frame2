@@ -30,6 +30,7 @@ fi
 
 implementation_jvm=false
 cljs_node_test=false
+ui_gates=false
 adapter_diagnostic=false
 cljs_browser=false
 cljs_prod=false
@@ -48,6 +49,7 @@ playground=false
 mark_all() {
   implementation_jvm=true
   cljs_node_test=true
+  ui_gates=true
   adapter_diagnostic=true
   cljs_browser=true
   cljs_prod=true
@@ -380,6 +382,39 @@ else
           implementation/machines/*) playground=true ;;
         esac
         ;;
+      implementation/ui/*)
+        # rf2-vxgfnd.6 — the re-frame.ui compiled-view substrate (epic
+        # rf2-vxgfnd). Before this case a ui-only PR left every output
+        # false: the jvm-ui suite, the consolidated :node-test ui
+        # surface (incl. the S1f parity corpus) AND the G-1/G-14 gates
+        # all skipped — a false-green hole for the whole artefact.
+        # implementation_jvm fires jvm-ui (canonical trees + N
+        # invariants + G-14 compile budget); cljs_node_test fires the
+        # consolidated node suite (the live cross-emitter parity
+        # corpus rides it); ui_gates fires the cljs-ui-g1 bench gate
+        # (test.yml). No production build :requires re-frame.ui.* yet,
+        # so no cljs_browser / cljs_prod / bundle_isolation fan-out —
+        # widen when the S2+ slices give it a production surface.
+        implementation_jvm=true
+        cljs_node_test=true
+        ui_gates=true
+        ;;
+      implementation/scripts/run-ui-bench.cjs)
+        # rf2-vxgfnd.6 — false-green fix, mirroring the launcher cases
+        # above: run-ui-bench.cjs IS the executable orchestration for
+        # `npm run test:ui-g1` (the cljs-ui-g1 PR job). A break in the
+        # launcher (shadow runner resolution, the emitted-JS golden
+        # regexes, env wiring) can break the very gate it drives, so
+        # editing it must run that gate. The generic
+        # implementation/scripts/* surfaces stay armed too — this case
+        # widens coverage, it does not narrow it.
+        cljs_node_test=true
+        cljs_browser=true
+        cljs_prod=true
+        bundle_isolation=true
+        reagent_slim_bundle=true
+        ui_gates=true
+        ;;
       implementation/reply-conformance/*|implementation/derivation-conformance/*|implementation/event-conformance/*)
         # rf2-dxndhc — the three EP cross-conformance tiers
         # (reply-conformance / derivation-conformance / event-conformance)
@@ -556,6 +591,18 @@ else
         case "$file" in
           implementation/package.json|implementation/package-lock.json)
             template_expensive=true ;;
+        esac
+        # rf2-vxgfnd.6 — the G-1 bench gate compiles the :ui-bench
+        # release build straight off shadow-cljs.edn and resolves
+        # shadow-cljs + react from the npm pins, so build-config /
+        # npm-pin changes must re-run it (a broken :ui-bench build or
+        # a React bump shifting the measured ratio otherwise merges
+        # green and fails on main). Scoped to the three build-config
+        # files; implementation/scripts/* stays off ui_gates (the one
+        # script that drives the gate has its own case above).
+        case "$file" in
+          implementation/shadow-cljs.edn|implementation/package.json|implementation/package-lock.json)
+            ui_gates=true ;;
         esac
         ;;
       examples/*)
@@ -808,6 +855,7 @@ emit() {
 
 emit implementation_jvm "$implementation_jvm"
 emit cljs_node_test "$cljs_node_test"
+emit ui_gates "$ui_gates"
 emit adapter_diagnostic "$adapter_diagnostic"
 emit cljs_browser "$cljs_browser"
 emit cljs_prod "$cljs_prod"

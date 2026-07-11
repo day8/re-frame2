@@ -64,6 +64,7 @@ jobs:
     outputs:
       implementation_jvm: ${{ steps.detect.outputs.implementation_jvm }}
       cljs_node_test: ${{ steps.detect.outputs.cljs_node_test }}
+      ui_gates: ${{ steps.detect.outputs.ui_gates }}
       adapter_diagnostic: ${{ steps.detect.outputs.adapter_diagnostic }}
       cljs_browser: ${{ steps.detect.outputs.cljs_browser }}
       cljs_prod: ${{ steps.detect.outputs.cljs_prod }}
@@ -550,6 +551,110 @@ jobs:
 
       - name: Run JVM tests (core artefact)
         run: clojure -M:test
+
+  jvm-ui:
+    name: JVM ui (clojure -M:test)
+    # rf2-vxgfnd.6 — the re-frame.ui compiled-view substrate's JVM
+    # suite: the compiler slice's .cljc arms genuinely run on the JVM
+    # (analyzer/emitters/tree/ui.test), the S1f parity corpus's
+    # canonical-form + normalization-N invariants, and the G-14
+    # compile-budget gate (defview expansion p95 + the 02 §8 REPL
+    # re-registration story). Job-level gated like jvm-core: the
+    # classifier fires implementation_jvm for implementation/ui/**.
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: implementation/ui
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
+        with:
+          cli: latest
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-clj-ui-${{ hashFiles('implementation/ui/deps.edn', 'implementation/core/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-clj-ui-
+            ${{ runner.os }}-clj-
+
+      - name: Run JVM tests (ui artefact)
+        run: clojure -M:test
+
+  cljs-ui-g1:
+    name: CLJS ui G-1 direct-render parity gate (:advanced bench)
+    # rf2-vxgfnd.6 — the 07 §5 G-1 gate: compiled views vs hand-written
+    # jsx-runtime baselines under the revised noise-robust estimator
+    # (alternating interleaved rounds, median-of-rounds; p50+p95 within
+    # 10% per component), the byte-equality precheck, and the
+    # emitted-JS golden (direct jsx calls present, the IFn-dispatch
+    # landmine absent) over the :ui-bench :advanced bundle. The ratio
+    # is RELATIVE and the rounds are interleaved in one process, so
+    # the gate is robust to absolute runner speed. Fired by the
+    # ui_gates surface (implementation/ui/**, the build-config trio,
+    # or the launcher script).
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.ui_gates == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: implementation
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: implementation/package-lock.json
+
+      - name: Cache Maven / gitlibs (shadow-cljs deps)
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+          key: ${{ runner.os }}-cljs-${{ hashFiles('implementation/shadow-cljs.edn', 'implementation/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-cljs-
+
+      - name: npm install
+        run: npm ci
+
+      - name: G-1 direct-render parity gate (+ emitted-JS golden)
+        run: npm run test:ui-g1
+
+      - name: Upload bench data
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: ui-bench-json
+          path: implementation/out/ui-bench.json
+          if-no-files-found: ignore
 
   jvm-reagent:
     name: Diagnostic skip-ok JVM reagent-adapter classpath probe
@@ -3447,6 +3552,8 @@ jobs:
       - verify-skill-mcp-drift
       - verify-readme-links
       - jvm-core
+      - jvm-ui
+      - cljs-ui-g1
       - jvm-reagent
       - jvm-reagent-slim
       - jvm-uix
