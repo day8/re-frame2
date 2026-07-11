@@ -1448,3 +1448,74 @@
             "the trace carries the attempted :url")
         (is (= "boom-push" (:error tags))
             "the trace carries the browser error message")))))
+
+;; =========================================================================
+;; rf2-k4exp1: programmatic fragment-only navigate drives real history
+;; =========================================================================
+;;
+;; Spec 012 §Fragments / §Programmatic navigation with fragments. A
+;; `:rf.route/navigate` differing from the current slice ONLY in its
+;; `#fragment` takes the short-circuit — no :on-match re-fire, no new
+;; :nav-token — while still driving the browser history: PUSH by default
+;; (adds an entry), REPLACE with {:replace? true} (mutates the active entry
+;; in place), and clearing the fragment pushes the fragment-less URL. This is
+;; the CLJS counterpart of the JVM `navigate-fragment-only-*` tests, exercised
+;; against the real pushState/replaceState history stub.
+
+(defn- k4exp1-slice []
+  (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
+          [:rf.runtime/routing :current]))
+
+(deftest programmatic-fragment-only-navigate-drives-history-cljs-rf2-k4exp1
+  (testing "rf2-k4exp1: programmatic fragment-only navigate pushes / replaces /
+            clears the browser history without re-firing :on-match or allocating
+            a new nav-token"
+    ;; Register the routes BEFORE binding the URL owner, so the `:url-bound?`
+    ;; frame's create-time initial-URL sync (rf2-9vgyp7) matches a real route
+    ;; rather than falling to not-found. (That sync also allocates a token, so
+    ;; the teeth below capture the token AFTER the first explicit nav and assert
+    ;; it is UNCHANGED — never a hardcoded "nav-1" — which is the real invariant:
+    ;; a fragment-only nav allocates NO new token.)
+    (rf/reg-route :hist/home {} "/")
+    (let [loads (atom 0)]
+      (rf/reg-event :docs/load (fn [{:keys [db]} _] (swap! loads inc) {:db db}))
+      (rf/reg-route :hist/docs {:on-match [[:docs/load]]} "/docs/:page")
+      (rf/reg-frame :rf/default {:url-bound? true})
+
+      ;; --- Full nav: loader fires once, pushes /docs/guide#a. ---
+      (rf/dispatch-sync [:rf.route/navigate :hist/docs {:page "guide"} {:fragment "a"}])
+      (is (= "/docs/guide#a" (current-url *history-state*))
+          "full nav pushed /docs/guide#a onto the history stack")
+      (is (= 1 @loads) ":on-match fired once on the full nav")
+      (let [token (:nav-token (k4exp1-slice))
+            entries-after-full (:entries @*history-state*)]
+        (is (some? token) "the full nav allocated a nav-token")
+
+        ;; --- Fragment-only PUSH: #a → #b adds a new entry, no re-fire, same token. ---
+        (rf/dispatch-sync [:rf.route/navigate :hist/docs {:page "guide"} {:fragment "b"}])
+        (is (= (conj entries-after-full "/docs/guide#b") (:entries @*history-state*))
+            "fragment-only push added a NEW history entry for #b")
+        (is (= 1 @loads) "fragment-only push did NOT re-fire :on-match")
+        (is (= token (:nav-token (k4exp1-slice)))
+            "fragment-only push did NOT allocate a new nav-token")
+        (is (= "b" (:fragment (k4exp1-slice))) "the slice fragment updated to #b")
+
+        ;; --- Fragment-only REPLACE: #b → #c mutates the ACTIVE entry in place. ---
+        (let [entry-count-before (count (:entries @*history-state*))]
+          (rf/dispatch-sync [:rf.route/navigate :hist/docs {:page "guide"}
+                             {:fragment "c" :replace? true}])
+          (is (= "/docs/guide#c" (current-url *history-state*))
+              "{:replace? true} moved the active entry to #c")
+          (is (= entry-count-before (count (:entries @*history-state*)))
+              "replace did NOT grow the history stack (no new entry)")
+          (is (= 1 @loads) "fragment-only replace did NOT re-fire :on-match")
+          (is (= token (:nav-token (k4exp1-slice))) "replace did NOT allocate a new token"))
+
+        ;; --- Clear the fragment: pushes the fragment-less URL, still no re-fire. ---
+        (rf/dispatch-sync [:rf.route/navigate :hist/docs {:page "guide"}])
+        (is (= "/docs/guide" (current-url *history-state*))
+            "clearing the fragment pushed the fragment-less URL")
+        (is (nil? (:fragment (k4exp1-slice))) "the slice fragment cleared to nil")
+        (is (= 1 @loads) "clearing the fragment did NOT re-fire :on-match")
+        (is (= token (:nav-token (k4exp1-slice)))
+            "clearing the fragment is still a fragment-only short-circuit — no new token")))))

@@ -7,6 +7,7 @@
   from routing_test.clj per rf2-u8qe7y finding 3."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.late-bind :as late-bind]
             [re-frame.routing.test-support]
             [re-frame.routing-test-support :as rts]))
 
@@ -1552,3 +1553,220 @@
             "a self-nav to the identical query pushes no URL (rule-3 no-op)")
         (is (= token-before (:nav-token (nav-slice)))
             "the nav-token is unchanged (no fresh epoch)")))))
+
+;; ============================================================================
+;; rf2-k4exp1 — programmatic fragment-only navigate short-circuit
+;; ============================================================================
+;;
+;; Spec 012 §Fragments rules 3-4 / §Programmatic navigation with fragments.
+;; A `:rf.route/navigate` whose resolved target differs from the current slice
+;; ONLY in its `#fragment` (same route-id/params/query) must take the SAME
+;; short-circuit the URL-driven doors take: update `:fragment`, emit ONE
+;; `:rf.route/fragment-changed`, drive history+scroll via effects, and do NOT
+;; call `commit-navigation` — no fresh nav-token, no `:on-match` re-fire, no
+;; resource re-plan. Before the fix the programmatic door took the full commit
+;; path (fresh token, every loader re-fired, stale-suppressing in-flight work
+;; for the route you were already on).
+
+(defn- reg-nav-fxs-capturing!
+  "Register the four routing history/scroll fxs (`:platforms #{:server
+  :client}` so they route on the JVM) with capturing handlers. Returns a map
+  of atoms: `:push` / `:replace` (URL vectors), `:scroll` (args vectors), and
+  `:order` (an ordered `[fx-id args]` log across all four)."
+  []
+  (let [pushed   (atom [])
+        replaced (atom [])
+        scrolled (atom [])
+        order    (atom [])]
+    (rf/reg-fx :rf.nav/push-url {:platforms #{:server :client}}
+               (fn [_ url]  (swap! pushed conj url)   (swap! order conj [:rf.nav/push-url url])))
+    (rf/reg-fx :rf.nav/replace-url {:platforms #{:server :client}}
+               (fn [_ url]  (swap! replaced conj url) (swap! order conj [:rf.nav/replace-url url])))
+    (rf/reg-fx :rf.nav/scroll {:platforms #{:server :client}}
+               (fn [_ args] (swap! scrolled conj args) (swap! order conj [:rf.nav/scroll args])))
+    (rf/reg-fx :rf.nav/capture-scroll {:platforms #{:server :client}}
+               (fn [_ args] (swap! order conj [:rf.nav/capture-scroll args])))
+    {:push pushed :replace replaced :scroll scrolled :order order}))
+
+(deftest navigate-fragment-only-short-circuits-no-refire-no-token-rf2-k4exp1
+  (testing "rf2-k4exp1: a programmatic `:rf.route/navigate` changing ONLY the
+            fragment updates `:fragment`, emits one `:rf.route/fragment-changed`,
+            preserves the slice byte-for-byte except `:fragment`, does NOT
+            re-fire `:on-match`, and does NOT allocate a new `:nav-token`"
+    (let [on-match-calls (atom 0)]
+      (rf/reg-event :docs/load (fn [{:keys [db]} _] (swap! on-match-calls inc) {:db db}))
+      (rf/reg-route :route/docs {:on-match [[:docs/load]]} "/docs/:page")
+      (let [fxs (reg-nav-fxs-capturing!)]
+        ;; Full nav → loader fires once, nav-1, pushes /docs/routing#a.
+        (rf/dispatch-sync [:rf.route/navigate :route/docs {:page "routing"} {:fragment "a"}])
+        (is (= 1 @on-match-calls) ":on-match fired once on the full nav")
+        (let [slice-before (nav-slice)]
+          (is (= "nav-1"  (:nav-token slice-before)) "first nav allocated nav-1")
+          (is (= "a"      (:fragment slice-before)) "fragment is #a after the full nav")
+          (is (= ["/docs/routing#a"] @(:push fxs)) "full nav pushed /docs/routing#a")
+
+          (let [traces (atom [])]
+            (rf/register-listener! :trace ::k4exp1-frag (fn [ev] (swap! traces conj ev)))
+            ;; Fragment-only nav: same route/params/query, #a → #b.
+            (rf/dispatch-sync [:rf.route/navigate :route/docs {:page "routing"} {:fragment "b"}])
+            (rf/unregister-listener! :trace ::k4exp1-frag)
+
+            (let [slice-after (nav-slice)]
+              ;; TEETH 1 — no re-fire.
+              (is (= 1 @on-match-calls)
+                  "rule 4: :on-match did NOT re-fire on the fragment-only nav")
+              ;; TEETH 2 — token unchanged (no new allocation).
+              (is (= "nav-1" (:nav-token slice-after))
+                  "rule 3: no NEW nav-token on the fragment-only nav (still nav-1)")
+              ;; TEETH 3 — only :fragment changed; everything else byte-for-byte.
+              (is (= "b" (:fragment slice-after)) ":fragment updated to #b")
+              (is (= (assoc slice-before :fragment "b") slice-after)
+                  "the slice is byte-for-byte identical except :fragment — :transition
+                   / :error / :nav-token / :route-id / :params / :query preserved")
+              ;; TEETH 4 — one fragment-changed, no allocation trace.
+              (let [frag (filter #(= :rf.route/fragment-changed (:operation %)) @traces)
+                    tags (-> frag first :tags)]
+                (is (= 1 (count frag))
+                    "exactly one :rf.route/fragment-changed emitted")
+                (is (= :route/docs (:route-id tags))      "fragment-changed carries :route-id")
+                (is (= "a" (:prev-fragment tags))         "fragment-changed carries :prev-fragment")
+                (is (= "b" (:next-fragment tags))         "fragment-changed carries :next-fragment")
+                (is (= :rf/default (:frame tags))         "fragment-changed carries :frame (rf2-n0851k parity)"))
+              (is (not-any? #(= :rf.route.nav-token/allocated (:operation %)) @traces)
+                  "NO :rf.route.nav-token/allocated on the fragment-only nav")
+              (is (not-any? #(= :rf.route/activated (:operation %)) @traces)
+                  "NO :rf.route/activated on the fragment-only nav (route stays active)")
+              ;; History: a push for the new fragment URL.
+              (is (= ["/docs/routing#a" "/docs/routing#b"] @(:push fxs))
+                  "the fragment-only nav pushed /docs/routing#b via :rf.nav/push-url")
+              (is (empty? @(:replace fxs))
+                  "no :rf.nav/replace-url on the default (push) door"))))))))
+
+(deftest navigate-fragment-only-effect-ordering-rf2-k4exp1
+  (testing "rf2-k4exp1: the fragment-only nav's effects are ordered
+            capture-scroll → push-url → scroll (state-first: the :fragment
+            write commits before the ordered history/scroll effects)"
+    (rf/reg-route :route/docs {} "/docs/:page")
+    (let [fxs (reg-nav-fxs-capturing!)]
+      (rf/dispatch-sync [:rf.route/navigate :route/docs {:page "routing"} {:fragment "a"}])
+      (reset! (:order fxs) [])
+      (rf/dispatch-sync [:rf.route/navigate :route/docs {:page "routing"} {:fragment "b"}])
+      (let [ids (mapv first @(:order fxs))]
+        (is (= [:rf.nav/capture-scroll :rf.nav/push-url :rf.nav/scroll] ids)
+            "ordered: capture the leaving scroll, push the new URL, then scroll")
+        ;; The scroll fx targets the NEW fragment with the default :top strategy.
+        (let [scroll-args (-> @(:scroll fxs) last)]
+          (is (= :top (:strategy scroll-args)) "default forward strategy is :top")
+          (is (= "b"  (:fragment scroll-args)) "scroll targets the new #b fragment"))
+        ;; capture-scroll keyed on the LEAVING url (/docs/routing#a).
+        (is (= {:url "/docs/routing#a"}
+               (-> (filter #(= :rf.nav/capture-scroll (first %)) @(:order fxs)) first second))
+            "capture-scroll saves the position of the route being left (#a)")))))
+
+(deftest navigate-fragment-only-replace-uses-replace-url-rf2-k4exp1
+  (testing "rf2-k4exp1: `{:replace? true}` routes the fragment-only nav through
+            :rf.nav/replace-url (NOT push) — still no re-fire, still nav-1"
+    (let [on-match-calls (atom 0)]
+      (rf/reg-event :docs/load (fn [{:keys [db]} _] (swap! on-match-calls inc) {:db db}))
+      (rf/reg-route :route/docs {:on-match [[:docs/load]]} "/docs/:page")
+      (let [fxs (reg-nav-fxs-capturing!)]
+        (rf/dispatch-sync [:rf.route/navigate :route/docs {:page "routing"} {:fragment "a"}])
+        (reset! (:push fxs) [])
+        (rf/dispatch-sync [:rf.route/navigate :route/docs {:page "routing"}
+                           {:fragment "b" :replace? true}])
+        (is (= "b"    (:fragment (nav-slice))) "fragment updated to #b")
+        (is (= "nav-1" (:nav-token (nav-slice))) "no new nav-token")
+        (is (= 1 @on-match-calls) ":on-match did NOT re-fire")
+        (is (= ["/docs/routing#b"] @(:replace fxs))
+            "{:replace? true} routed :rf.nav/replace-url with the new fragment URL")
+        (is (empty? @(:push fxs))
+            "no :rf.nav/push-url on the replace door")))))
+
+(deftest navigate-fragment-only-scroll-false-suppresses-scroll-rf2-k4exp1
+  (testing "rf2-k4exp1: `{:scroll false}` on a fragment-only nav suppresses the
+            :rf.nav/scroll effect but still updates :fragment and pushes the URL"
+    (rf/reg-route :route/docs {} "/docs/:page")
+    (let [fxs (reg-nav-fxs-capturing!)]
+      (rf/dispatch-sync [:rf.route/navigate :route/docs {:page "routing"} {:fragment "a"}])
+      (reset! (:scroll fxs) [])
+      (reset! (:push fxs) [])
+      (rf/dispatch-sync [:rf.route/navigate :route/docs {:page "routing"}
+                         {:fragment "b" :scroll false}])
+      (is (= "b" (:fragment (nav-slice))) ":fragment still updates with :scroll false")
+      (is (= ["/docs/routing#b"] @(:push fxs)) "the URL is still pushed")
+      (is (empty? @(:scroll fxs))
+          ":scroll false suppressed the :rf.nav/scroll effect"))))
+
+(deftest navigate-fragment-only-clearing-fragment-rf2-k4exp1
+  (testing "rf2-k4exp1: navigating with NO fragment from a fragment'd route
+            CLEARS the fragment (writes nil, pushes the fragment-less URL) and
+            is still a fragment-only short-circuit (no re-fire, no new token)"
+    (let [on-match-calls (atom 0)]
+      (rf/reg-event :docs/load (fn [{:keys [db]} _] (swap! on-match-calls inc) {:db db}))
+      (rf/reg-route :route/docs {:on-match [[:docs/load]]} "/docs/:page")
+      (let [fxs (reg-nav-fxs-capturing!)]
+        (rf/dispatch-sync [:rf.route/navigate :route/docs {:page "routing"} {:fragment "a"}])
+        (reset! (:push fxs) [])
+        ;; No :fragment opt → normalises to nil; #a → nil differs → fragment-only.
+        (rf/dispatch-sync [:rf.route/navigate :route/docs {:page "routing"}])
+        (is (nil? (:fragment (nav-slice))) "fragment cleared to nil")
+        (is (= "nav-1" (:nav-token (nav-slice))) "clearing a fragment is fragment-only — no new token")
+        (is (= 1 @on-match-calls) "clearing a fragment does NOT re-fire :on-match")
+        (is (= ["/docs/routing"] @(:push fxs))
+            "the fragment-less URL is pushed")))))
+
+(deftest navigate-identical-target-with-replace-stays-noop-rf2-k4exp1
+  (testing "rf2-k4exp1: an EXACTLY identical target (same fragment too) stays the
+            complete no-op even with {:replace? true} — no history rewrite, no
+            fragment-changed, no token change (identical wins over fragment-only)"
+    (rf/reg-route :route/docs {} "/docs/:page")
+    (let [fxs (reg-nav-fxs-capturing!)]
+      (rf/dispatch-sync [:rf.route/navigate :route/docs {:page "routing"} {:fragment "a"}])
+      (let [token-before (:nav-token (nav-slice))
+            traces       (atom [])]
+        (reset! (:push fxs) [])
+        (reset! (:replace fxs) [])
+        (rf/register-listener! :trace ::k4exp1-identical (fn [ev] (swap! traces conj ev)))
+        ;; Same route/params/query AND same fragment #a, with :replace? true.
+        (rf/dispatch-sync [:rf.route/navigate :route/docs {:page "routing"}
+                           {:fragment "a" :replace? true}])
+        (rf/unregister-listener! :trace ::k4exp1-identical)
+        (is (= token-before (:nav-token (nav-slice))) "identical target: token unchanged")
+        (is (empty? @(:push fxs))    "identical target: no push")
+        (is (empty? @(:replace fxs)) "identical target: no replace even with :replace? true")
+        (is (not-any? #(= :rf.route/fragment-changed (:operation %)) @traces)
+            "identical target emits NO :rf.route/fragment-changed (it is a complete no-op)")))))
+
+(deftest navigate-fragment-only-does-not-replan-resources-rf2-k4exp1
+  (testing "rf2-k4exp1: a fragment-only nav does NOT invoke the route-entry
+            resource plan (no ensure / release / re-plan) and leaves the owner
+            nav-token unchanged — proven via the shared `:routing/on-route-entry`
+            late-bind hook `commit-navigation` calls (the fragment-only branch
+            never enters `commit-navigation`)"
+    (rf/reg-route :route/docs {:on-match [[:docs/load]]} "/docs/:page")
+    (rf/reg-event :docs/load (fn [{:keys [db]} _] {:db db}))
+    (let [fxs        (reg-nav-fxs-capturing!)
+          plan-calls (atom [])
+          prior      (late-bind/get-fn :routing/on-route-entry)]
+      ;; Spy the route-entry hook the Resources artefact publishes; return an
+      ;; empty plan (no blocking, no fx, no error) so commit-navigation proceeds.
+      (late-bind/set-fn! :routing/on-route-entry
+                         (fn [ctx] (swap! plan-calls conj ctx) {}))
+      (try
+        ;; Full nav → the route-entry plan runs once.
+        (rf/dispatch-sync [:rf.route/navigate :route/docs {:page "routing"} {:fragment "a"}])
+        (is (= 1 (count @plan-calls))
+            "the route-entry resource plan ran once on the full nav")
+        (let [token-after-full (:nav-token (nav-slice))]
+          ;; Fragment-only nav → the plan is NOT invoked again; owner token stays.
+          (rf/dispatch-sync [:rf.route/navigate :route/docs {:page "routing"} {:fragment "b"}])
+          (is (= 1 (count @plan-calls))
+              "the fragment-only nav did NOT re-run the route-entry plan — no
+               ensure/release/re-plan")
+          (is (= token-after-full (:nav-token (nav-slice)))
+              "the owner nav-token is unchanged, so an in-flight resource lease
+               keyed on it stays valid"))
+        (finally
+          ;; Restore the prior hook binding (nil in the resources-free routing
+          ;; suite) so this spy never leaks into a sibling test.
+          (late-bind/set-fn! :routing/on-route-entry prior))))))

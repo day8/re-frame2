@@ -112,6 +112,83 @@
     (assoc tags :error privacy/redacted-sentinel :sensitive? true)
     tags))
 
+(defn- fragment-only-nav-fx
+  "Spec 012 §Fragments rules 3-4 / §Programmatic navigation with fragments
+  (rf2-k4exp1): a resolved `:rf.route/navigate` whose target differs from the
+  CURRENT slice ONLY in its `#fragment` (same `:route-id`/`:params`/`:query`)
+  is an in-page anchor change, not a route (re)activation. Mirrors the
+  URL-driven `url_change.cljc` fragment-only short-circuit so the SAME logical
+  operation behaves identically whichever door — programmatic
+  `:rf.route/navigate`, forward-nav `:rf.route/transitioned`, or popstate
+  `:rf.route/handle-url-change` — it enters.
+
+  Classified only AFTER target resolution / fragment-normalisation / query
+  shaping / URL build / validation AND after the `:can-leave`/`:can-enter`
+  gate passes (both upstream in `navigate-handler`). On this branch the
+  handler:
+
+    1. assocs ONLY `[:rf.runtime/routing :current :fragment]` — `:route-id`,
+       `:params`, `:query`, `:transition`, `:error`, `:nav-token`, and every
+       routing sibling (pending-nav, resource-blocking bookkeeping) are
+       preserved BYTE-FOR-BYTE. It does NOT call `commit-navigation`: no
+       `:on-match` re-fire, no settle event, no resource ensure/release plan,
+       and no nav-token counter bump — the standing token stays current, so an
+       already-running loader for the unchanged route remains eligible to
+       complete.
+    2. emits exactly one `:rf.route/fragment-changed` op carrying
+       `{:route-id :prev-fragment :next-fragment :frame}` — and NO
+       `:rf.route.nav-token/allocated`, NO route activated/deactivated pair,
+       NO resource route-plan trace.
+    3. drives programmatic history + scroll via REGISTERED effects, in order:
+       capture the LEAVING url's scroll position, then push (default) /
+       replace (`{:replace? true}`) the new URL via `:rf.nav/push-url` /
+       `:rf.nav/replace-url` (never `window.location.hash`), then the resolved
+       `:rf.nav/scroll` unless `:scroll false` suppresses it (via
+       `plan/scroll-plan`). Default `:top` scrolls to the new fragment (or top
+       when the fragment is cleared/missing); `:restore`/`:preserve`/map-form
+       retain today's meanings. `pushState`/`replaceState` do NOT scroll to a
+       fragment natively, so `:rf.nav/scroll` IS required — this makes NO focus
+       / `:target` pseudo-class parity claim (a separate a11y decision).
+
+  State-first: the runtime-db `:fragment` write commits before the ordered
+  history/scroll effects, exactly like every other route effect; a rejected
+  history projection surfaces the existing `:rf.fx/push-url-failed` /
+  `:rf.fx/replace-url-failed` diagnostic and leaves the slice + trace
+  committed. NB this must NOT copy `url_change.cljc`'s `fragment-only-fx`
+  verbatim — that helper carries scroll CAPTURE only; the programmatic path
+  also drives the URL and the resolved scroll."
+  [{:keys [rdb current fragment url opts route-meta route-id params query frame]}]
+  (trace/emit! :rf.event :rf.route/fragment-changed
+               {:route-id      (:route-id current)
+                :prev-fragment (:fragment current)
+                :next-fragment fragment
+                :frame         frame})
+  (let [push-fx (if (:replace? opts)
+                  [:rf.nav/replace-url url]
+                  [:rf.nav/push-url    url])
+        {:keys [capture-fx scroll-fx]}
+        (plan/scroll-plan {:rdb              rdb
+                           ;; rf2-1hncp2: saved scroll positions are a
+                           ;; host-side transient cache — thread the active
+                           ;; frame's cache in explicitly so the planner stays
+                           ;; pure (same shape the full commit branch passes).
+                           :scroll-cache     (scroll/frame-scroll-cache frame)
+                           :route-meta       route-meta
+                           :opts             opts
+                           :default-strategy :top
+                           :route-id         route-id
+                           :params           params
+                           :query            query
+                           :fragment         fragment
+                           :url              url})]
+    ;; EP-0001 (rf2-vzld77): the route slice is durable framework runtime-db
+    ;; state — write ONLY the `:fragment` field of `:current`; every other
+    ;; slice field and routing sibling is preserved.
+    {:rf.db/runtime (assoc-in rdb [:rf.runtime/routing :current :fragment] fragment)
+     :fx (vec (concat (when capture-fx [capture-fx])
+                      [push-fx]
+                      (when scroll-fx [scroll-fx])))}))
+
 (defn navigate-handler
   "`:rf.route/navigate` event handler. Registered by the façade so a
   `:reload` re-wires it on a fresh registrar.
@@ -429,7 +506,24 @@
           ;; unchanged data.
           identical-nav? (plan/identical-route-target?
                            (get-in rdb [:rf.runtime/routing :current])
-                           route-id path-params query-params fragment)]
+                           route-id path-params query-params fragment)
+          ;; Spec 012 §Fragments rules 3-4 / §Programmatic navigation with
+          ;; fragments (rf2-k4exp1): the SIBLING short-circuit to
+          ;; `identical-nav?` — same `:route-id`/`:params`/`:query` as the
+          ;; current slice but a DIFFERENT `:fragment` (a same-page anchor
+          ;; change). Classified through the SAME shared `plan/fragment-only?`
+          ;; predicate the URL-driven doors use, so the one logical operation
+          ;; behaves identically whichever entry point it arrives on. Guarded
+          ;; by `(not unmatched-url)` so a `{:url ...}` route-MISS fallback
+          ;; keeps its full not-found path (mirrors `url_change.cljc`'s
+          ;; `(and match …)`); the `::reject` and `external-url-target?`
+          ;; targets short-circuit in earlier cond arms and never reach here.
+          ;; Mutually exclusive with `identical-nav?` (which requires the
+          ;; fragment to be equal too).
+          fragment-only? (and (not unmatched-url)
+                              (plan/fragment-only?
+                                (get-in rdb [:rf.runtime/routing :current])
+                                route-id path-params query-params fragment))]
       (cond
         ;; rf2-1os1c: params/opts positional swap. An opts-only key
         ;; (`:replace?` / `:scroll` / `:fragment` / `:bypass-guards?`)
@@ -491,11 +585,36 @@
                            (:bypass-guards? opts)
                            pending-nav-allocation)]
           blocked
-          (if identical-nav?
+          (cond
             ;; Spec 012 §Per-route data loading rule 3: nothing relevant
             ;; changed — leave the slice and the standing nav-token as-is;
-            ;; emit no allocation, fire no loaders, push no URL.
+            ;; emit no allocation, fire no loaders, push no URL. An exactly
+            ;; identical target is the complete no-op even when `:replace?`
+            ;; was supplied (wins over the fragment-only branch below, which
+            ;; requires the fragment to DIFFER).
+            identical-nav?
             {}
+
+            ;; Spec 012 §Fragments rules 3-4 / §Programmatic navigation with
+            ;; fragments (rf2-k4exp1): same route-id/params/query, only the
+            ;; `#fragment` differs — update `:fragment`, emit
+            ;; `:rf.route/fragment-changed`, and drive history + scroll via
+            ;; effects. NO `commit-navigation`: no nav-token bump, no
+            ;; `:on-match` re-fire, no resource re-plan. The SAME short-circuit
+            ;; `url_change.cljc` applies on the URL-driven doors.
+            fragment-only?
+            (fragment-only-nav-fx {:rdb        rdb
+                                   :current    current
+                                   :fragment   fragment
+                                   :url        url
+                                   :opts       opts
+                                   :route-meta route-meta
+                                   :route-id   route-id
+                                   :params     path-params
+                                   :query      query-params
+                                   :frame      frame})
+
+            :else
             (let [push-fx    (if (:replace? opts)
                                [:rf.nav/replace-url url]
                                [:rf.nav/push-url    url])
