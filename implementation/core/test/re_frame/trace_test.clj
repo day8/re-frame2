@@ -126,6 +126,20 @@
       ;; Re-register :inc with a different fn body to fire
       ;; :rf.registry/handler-replaced.
       (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+      ;; Re-register the SAME fx fn with changed metadata — fires
+      ;; :rf.registry/handler-replaced with :different-fn? false (a
+      ;; metadata-only replacement; no handler-fn rotation, but the changed
+      ;; :doc changes the B4 dedup shape so the emit is not suppressed).
+      ;; Frames no longer ride the registrar (rf2-h1vqa4), so an fx supplies
+      ;; the idempotent-fn replacement case here.
+      (let [same-fx (fn [_ _] :same)]
+        (rf/reg-fx :test/same-fx same-fx)
+        (rf/reg-fx :test/same-fx {:doc "same fn, new doc (rev 2)"} same-fx))
+      ;; Explicitly unregister an event so :rf.registry/handler-cleared has an
+      ;; emit source in the flow — destroying a frame no longer clears a
+      ;; registrar row (rf2-h1vqa4: frames have no registrar rows).
+      (rf/reg-event :short-lived (fn [_ _] {}))
+      (registrar/unregister! :event :short-lived)
 
       ;; Subs (used to demonstrate the absence of :sub/run / :sub/create
       ;; emit — see rf2-hyxg).
@@ -366,14 +380,14 @@
         (testing ":rf.registry :rf.registry/handler-replaced fires on EVERY re-registration (rf2-6w7zn)"
           ;; Per Spec 001 §Hot-reload trace surface the emit is
           ;; unconditional on re-registration — the prior `different-fn?`
-          ;; gate dropped events for kinds like `:frame` whose slot
+          ;; gate dropped events for kinds like `:route` whose slot
           ;; replacement need not rotate `:handler-fn`. Tools branch on
           ;; the `:different-fn?` tag (preserved below) to suppress
           ;; idempotent reload noise on their side.
           (is (has-op? events :rf.registry :rf.registry/handler-replaced)
               "expected :rf.registry :rf.registry/handler-replaced")
-          ;; The flow re-registers BOTH `:test/main` (a frame, same
-          ;; handler-fn) and `:inc` (an event, different fn body) so
+          ;; The flow re-registers BOTH `:test/same-fx` (same handler-fn,
+          ;; changed :doc) and `:inc` (an event, different fn body) so
           ;; both events fire. Find the `:inc` event explicitly so the
           ;; `:different-fn?` assertion targets the real fn-change case.
           (let [different-events (filterv (fn [ev]
@@ -391,7 +405,7 @@
             (is (seq different-events)
                 "expected at least one handler-replaced with :different-fn? true")
             (is (seq idempotent-events)
-                "expected at least one handler-replaced with :different-fn? false (frame re-reg)")
+                "expected at least one handler-replaced with :different-fn? false (same-fn fx re-reg)")
             (let [t (:tags (first different-events))]
               (is (keyword? (:kind t)))
               (is (some?    (:id t)))
