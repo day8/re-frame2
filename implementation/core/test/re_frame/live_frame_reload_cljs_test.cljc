@@ -1015,3 +1015,25 @@
             (lf/flush-pending-reprojection!))
           (registrar/unregister! :event :rpf-good/inc)
           (reset! source-store/kind->id->ns->descriptor snapshot))))))
+
+;; ---------------------------------------------------------------------------
+;; Read-time coalesced flush (rf2-h1vqa4) — a `reg-*` issued AFTER `make-frame`
+;; must be visible to the very next SAME-TICK dispatch: the resolution seam
+;; (`call-with-frame-resolution`) flushes the dirty projection synchronously
+;; instead of racing the deferred `next-tick` sweep. This is the behavioral
+;; bridge that lets every former `reg-frame` caller (nil-generation → LIVE
+;; registrar fallback) converge on `make-frame` (sealed default generation)
+;; without losing same-tick registration visibility.
+;; ---------------------------------------------------------------------------
+
+(deftest read-time-flush-makes-late-registration-visible-same-tick
+  (testing "make-frame → reg-event → dispatch-sync in ONE tick resolves the
+            late registration through the freshly reprojected generation —
+            with the deferred tick DISABLED, so only the read-time flush in
+            the resolution seam can have reprojected"
+    (with-redefs [interop/next-tick (fn [_f] nil)]
+      (rf/make-frame {:id :rtf/main})
+      (rf/reg-event :rtf/hit (fn [{:keys [db]} _] {:db (assoc db :hit? true)}))
+      (rf/dispatch-sync [:rtf/hit] {:frame :rtf/main})
+      (is (true? (:hit? (rf/app-db-value :rtf/main)))
+          "the same-tick dispatch saw the post-construction registration"))))

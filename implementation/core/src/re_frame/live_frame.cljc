@@ -332,6 +332,8 @@
   [frame-target]
   (frame-generation frame-target))
 
+(declare flush-projection-if-dirty!)
+
 (defn call-with-frame-resolution
   "Invoke `thunk` with `registrar/*generation*` bound to `frame-target`'s
   resolved image generation WHEN the target names an image-loaded frame;
@@ -341,6 +343,22 @@
   `(kind, id)` lookup inside `thunk` resolves through the targeted frame's OWN
   image generation coherently (ALL-OR-NOTHING — `registrar/lookup` is the single
   chokepoint they all funnel through).
+
+  READ-TIME COALESCED FLUSH (rf2-h1vqa4): when a `reg-*` source-store change
+  has marked the live-frame projection dirty (`pending-reprojection?`), flush it
+  HERE, synchronously, BEFORE reading the target's generation — so a
+  registration issued after `make-frame` is deterministically visible to the
+  very next dispatch / subscribe in the SAME tick, not only after the deferred
+  `next-tick` flush happens to run. This strengthens the EP-0023 §Default Image
+  Semantics dev guarantee from \"reprojected at the next macrotask boundary\" to
+  \"reprojected before the next resolution\" — with `make-frame` as the ONE
+  constructor (reg-frame removed), every frame is image-loaded, and the
+  register-then-dispatch-sync sequence (tests, REPL, setup code) must not race
+  the deferred tick. Coalescing is UNCHANGED: a synchronous `reg-*` burst still
+  sets one flag and is flushed ONCE, by whichever comes first — this read or
+  the scheduled tick. Gated on `interop/debug-enabled?` (the flag can only be
+  set by the dev-only registration hook, and the gate lets `:advanced` +
+  `goog.DEBUG=false` builds DCE the read entirely — zero production cost).
 
   EP-0024 (rf2-tu2vr7): `frame-target` may be a frame VALUE (`make-frame`'s
   return token) or a frame id — the generation is read from the record by id, so
@@ -353,6 +371,8 @@
   normalize + one record read and then runs `thunk` with ZERO dynamic-binding
   cost."
   [frame-target thunk]
+  (when interop/debug-enabled?
+    (flush-projection-if-dirty!))
   (if-let [gen (frame-resolution-generation frame-target)]
     (binding [registrar/*generation* gen]
       (thunk))
@@ -1102,6 +1122,48 @@
         (reproject-live-frames!))
     {}))
 
+#?(:clj
+   (defonce ^{:private true
+              :doc "JVM monitor serializing the dirty-flag reprojection flush
+  (rf2-h1vqa4). The read-time consult in `call-with-frame-resolution` (caller
+  thread) and the deferred `next-tick` body (the interop executor thread) both
+  funnel through `flush-projection-if-dirty!`; without mutual exclusion the
+  consult can observe the flag ALREADY CLAIMED by an executor sweep still
+  MID-FLIGHT and proceed against a stale frame record — exactly the race the
+  read-time consult exists to close. `locking` makes the consult WAIT for an
+  in-flight sweep (then observe the freshly-swapped records), and the
+  uncontended acquire is the only cost on the clean path. CLJS is
+  single-threaded — the consult and the scheduled microtask can never
+  interleave — so no lock exists there."}
+     projection-flush-lock
+     (Object.)))
+
+(defn- flush-projection-if-dirty!
+  "The RESILIENT dirty-flag flush shared by the two coalesced-flush consumers —
+  the deferred `next-tick` body (`deferred-flush!`) and the read-time consult
+  in `call-with-frame-resolution` (rf2-h1vqa4). If a `reg-*` source-store
+  change has marked the projection dirty, clear the flag and run the RESILIENT
+  sweep (`reproject-live-frames-resiliently!` — a per-frame assembly failure is
+  DIAGNOSED via `:rf.warning/reprojection-failed`, never thrown, so a broken
+  unrelated frame cannot take down the dispatch / subscribe that happened to
+  trigger the flush). A no-op when nothing is pending. The dirty-flag clear is
+  read-then-reset so a re-entrant `reg-*` during reprojection re-arms a fresh
+  flush rather than being lost. On the JVM the claim + sweep runs under
+  `projection-flush-lock` so a read-time consult BLOCKS on (rather than races)
+  an in-flight deferred sweep and then reads fresh records. The SYNCHRONOUS
+  test-facing `flush-pending-reprojection!` above keeps its all-or-nothing
+  throw-through contract + `{frame-id reload-diff}` return — this is the
+  internal best-effort twin. Returns nil."
+  []
+  #?(:clj (locking projection-flush-lock
+            (when @pending-reprojection?
+              (reset! pending-reprojection? false)
+              (reproject-live-frames-resiliently!)))
+     :cljs (when @pending-reprojection?
+             (reset! pending-reprojection? false)
+             (reproject-live-frames-resiliently!)))
+  nil)
+
 (defn- deferred-flush!
   "The fire-and-forget tick body the coalescing scheduler arms on
   `interop/next-tick`. A deferred background dev-hot-reload reprojection has
@@ -1137,9 +1199,7 @@
   THIS deferred path is resilient + defensive. Returns nil."
   []
   (try
-    (when @pending-reprojection?
-      (reset! pending-reprojection? false)
-      (reproject-live-frames-resiliently!))
+    (flush-projection-if-dirty!)
     (catch #?(:clj Throwable :cljs :default) ex
       (trace/emit-error! :rf.warning/reprojection-flush-failed
                          {:category  :rf.warning/reprojection-flush-failed
