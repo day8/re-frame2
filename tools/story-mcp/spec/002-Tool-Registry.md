@@ -323,16 +323,21 @@ narrows to one kind.
 
 ### `list-assertions`
 
-The canonical eight `:rf.assert/*` events (the seven dispatched plus
-the tape-evaluated `:rf.assert/schema-error`) with arity + semantics
-docs, returned in the `:canonical` slot. The `:registered` slot carries
+The canonical ten `:rf.assert/*` declarations (the seven dispatched plus
+the three tape-evaluated: `:rf.assert/schema-error` and the causal pair
+`:rf.assert/caused` / `:rf.assert/no-cascade-rerender`) with arity +
+semantics docs, returned in the `:canonical` slot. The causal pair expose
+their `:observed-cause-count` diagnostic and premise semantics —
+`:rf.assert/no-cascade-rerender` requires its cause be observed by default
+(an unobserved cause → `:cannot-run`, never a vacuous `[0,0]` pass), with
+`{:require-cause? false}` the one opt-out (`:require-cause?` is rejected on
+`:rf.assert/caused`). The `:registered` slot carries
 the FULL vocabulary the Story plan compiler accepts
-(`re-frame.story.assertions/known-assertion-ids`, rf2-4sgak) — the eight
+(`re-frame.story.assertions/known-assertion-ids`, rf2-4sgak) — the ten
 canonical ids PLUS the browser-tier families the canonical doc-vec does
-not cover: the DOM family (`:rf.assert/dom-visible|dom-hidden|dom-text`),
-the visual / a11y oracles (`:rf.assert/visual-snapshot`,
-`:rf.assert/a11y`, `:rf.assert/a11y-structural`), and the reactive-count
-assertions (`:rf.assert/caused`, `:rf.assert/no-cascade-rerender`). This
+not cover: the DOM family (`:rf.assert/dom-visible|dom-hidden|dom-text`)
+and the visual / a11y oracles (`:rf.assert/visual-snapshot`,
+`:rf.assert/a11y`, `:rf.assert/a11y-structural`). This
 is the SAME set `plan.cljc` validates authored assertion atoms against,
 so an agent that discovers ids here can rely on the plan compiler
 accepting them (the richer-runner ids refuse with `:cannot-run` under a

@@ -423,6 +423,52 @@
               :offending-assertions (vec offenders)
               :known-ids assertions/known-assertion-ids}))))
 
+(defn- reject-malformed-causal-opts!
+  "FAIL plan construction when a causal assertion atom carries a malformed
+  `:require-cause?` opt (rf2-x76af2.17). `{:require-cause? false}` is the ONE
+  opt-out that lets `:rf.assert/no-cascade-rerender` evaluate its `[0,0]`
+  default vacuously when its named cause was not observed in the run tape;
+  it is a no-cascade opt ONLY. Two rejections, both surfaced before any run
+  (the same way the other `:rf.error/story-*` plan errors do):
+
+  - `:require-cause?` on `:rf.assert/caused` — the key has no meaning there
+    (`:caused`'s `{:min 1}` default already fails closed on an unobserved
+    cause), so it must not acquire a second meaning;
+  - a NON-boolean `:require-cause?` on EITHER causal id — the opt is a strict
+    boolean, never silently coerced or ignored.
+
+  A present, boolean `:require-cause?` on `:rf.assert/no-cascade-rerender`
+  is the sole legal use and passes. `script-assertions` are the atoms pulled
+  from `[:assert …]` checkpoints (post-fold); `terminal-assertions` are the
+  child's own `:assertions` atoms — the SAME two sources
+  `reject-unknown-assertions!` walks."
+  [id script-assertions terminal-assertions]
+  (let [offenders
+        (into []
+              (comp
+                (remove nil?)
+                (filter assertions/causal?)
+                (keep (fn [a]
+                        (let [spec (assertions/causal-spec a)]
+                          (when (contains? spec :require-cause?)
+                            (let [aid (assertions/assertion-atom-id a)
+                                  v   (:require-cause? spec)]
+                              (cond
+                                (= aid assertions/id-caused) a
+                                (not (boolean? v))           a)))))))
+              (concat terminal-assertions script-assertions))]
+    (when (seq offenders)
+      (fail! :rf.error/story-bad-assertion-opt
+             (str "re-frame2-story: variant " id
+                  " — malformed :require-cause? on causal assertion(s) "
+                  (pr-str (vec offenders))
+                  ". :require-cause? is a :rf.assert/no-cascade-rerender "
+                  "opt-out ONLY (it MUST NOT appear on :rf.assert/caused) and "
+                  "its value MUST be a boolean (never silently coerced). "
+                  "Remove it from :caused, or give no-cascade-rerender a "
+                  "true/false value.")
+             {:variant/id id :offending-assertions (vec offenders)}))))
+
 ;; ============================================================================
 ;; Arg placeholder substitution
 ;; ============================================================================
@@ -1345,6 +1391,12 @@
         ;; script is already folded (`normalize-scripts`), so one walk over
         ;; the `[:assert …]` checkpoints covers every in-script position.
         _            (reject-unknown-assertions!
+                       id (script-assertion-atoms script*) assertions)
+        ;; A causal assertion's `:require-cause?` opt is a strict
+        ;; `:rf.assert/no-cascade-rerender` boolean (rf2-x76af2.17): reject
+        ;; the key on `:rf.assert/caused` and reject a non-boolean value on
+        ;; either id, at compile time, before any run.
+        _            (reject-malformed-causal-opts!
                        id (script-assertion-atoms script*) assertions)
         ;; ---- view-state subscription overrides ----
         ;; `:sub-overrides` composes like `:network`: composed-fragment

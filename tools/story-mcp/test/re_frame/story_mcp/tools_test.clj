@@ -849,16 +849,25 @@
       (is (every? #(= :frame-setup (:kind %)) ds))
       (is (some #(= :dec.test/seed-cart (:id %)) ds)))))
 
-(deftest list-assertions-returns-canonical-seven
+(deftest list-assertions-returns-canonical-ten
   (let [r (invoke "list-assertions" {})
         s (:structuredContent r)]
     (is (success? r))
-    ;; The seven dispatched assertions PLUS the tape-evaluated
-    ;; :rf.assert/schema-error (the EXPECTED-schema-violation declaration).
-    (is (= 8 (count (:canonical s))))
+    ;; The seven dispatched assertions PLUS the THREE tape-evaluated
+    ;; declarations: :rf.assert/schema-error and the causal pair
+    ;; :rf.assert/caused / :rf.assert/no-cascade-rerender (rf2-x76af2.17).
+    (is (= 10 (count (:canonical s))))
     (is (some #(= :rf.assert/path-equals (:id %)) (:canonical s)))
     (is (some #(= :rf.assert/no-warnings (:id %)) (:canonical s)))
-    (is (some #(= :rf.assert/schema-error (:id %)) (:canonical s)))))
+    (is (some #(= :rf.assert/schema-error (:id %)) (:canonical s)))
+    ;; the causal pair now exposes payload + semantics, not just registered
+    (let [no-cascade (first (filter #(= :rf.assert/no-cascade-rerender (:id %))
+                                    (:canonical s)))]
+      (is (some? no-cascade) ":no-cascade-rerender is a canonical doc entry")
+      (is (re-find #"observed-cause-count|:cannot-run|require-cause"
+                   (:semantics no-cascade))
+          "its semantics document the premise requirement / opt-out / diagnostic"))
+    (is (some #(= :rf.assert/caused (:id %)) (:canonical s)))))
 
 (deftest list-assertions-registered-covers-plan-compiler-vocabulary
   ;; :registered MUST advertise the FULL vocabulary the Story
@@ -1110,13 +1119,13 @@
             "the OFF-PAGE custom tags still appear in :all — the field named :all really is all")))))
 
 (deftest list-assertions-canonical-doc-stays-full
-  (testing "the canonical assertion-doc vector is bounded (8) so it never paginates"
+  (testing "the canonical assertion-doc vector is bounded (10) so it never paginates"
     (let [r (invoke "list-assertions" {:limit 3})
           s (:structuredContent r)]
       (is (success? r))
-      ;; Eight: the seven dispatched + the tape-evaluated
-      ;; :rf.assert/schema-error.
-      (is (= 8 (count (:canonical s)))
+      ;; Ten: the seven dispatched + the three tape-evaluated
+      ;; (:rf.assert/schema-error + the causal pair).
+      (is (= 10 (count (:canonical s)))
           "the canonical-doc vec is the bounded reference; not subject to pagination")
       (is (<= (count (:registered s)) 3) ":registered honours :limit"))))
 

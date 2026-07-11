@@ -1060,21 +1060,28 @@
   projected `:reactive-counts`. Pure data → data.
 
   Returns `{:atom atom :id id :spec spec :event cause-event-id
-            :surface [:sub|:view|:any …] :min n :max n-or-nil}`. `:event` is
-  the cause the expectation names (nil for a degenerate bare atom — the
-  matcher fails it); `:surface` is the effect surface measured; `:min` /
-  `:max` are the effective count bounds (`causal-bounds`)."
+            :surface [:sub|:view|:any …] :min n :max n-or-nil
+            :require-cause? bool-or-nil}`. `:event` is the cause the
+  expectation names (nil for a degenerate bare atom — the matcher fails
+  it); `:surface` is the effect surface measured; `:min` / `:max` are the
+  effective count bounds (`causal-bounds`); `:require-cause?` is the raw
+  opt-out value declared in the spec (nil when absent — the default
+  premise-required behaviour). It is a `:rf.assert/no-cascade-rerender`
+  opt-out ONLY: the plan compiler rejects the key on `:rf.assert/caused`
+  and rejects a non-boolean value on either id, so a value that reaches
+  here is always `nil` / `true` / `false`."
   [assertion-atom]
   (let [id    (assertion-atom-id assertion-atom)
         spec  (causal-spec assertion-atom)
         {:keys [min max]} (causal-bounds id spec)]
-    {:atom    assertion-atom
-     :id      id
-     :spec    spec
-     :event   (:event spec)
-     :surface (causal-effect-surface spec)
-     :min     min
-     :max     max}))
+    {:atom           assertion-atom
+     :id             id
+     :spec           spec
+     :event          (:event spec)
+     :surface        (causal-effect-surface spec)
+     :min            min
+     :max            max
+     :require-cause? (:require-cause? spec)}))
 
 ;; ---------------------------------------------------------------------------
 ;; Boot — register the seven canonical handlers

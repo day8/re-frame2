@@ -534,6 +534,35 @@
                              (:renders evidence))))
       0)))
 
+(defn- observed-cause-count
+  "The number of run-owned epoch records in `epoch-tape` whose canonical
+  `:event-id` equals the expectation's declared cause `event` — the
+  `:observed-cause-count` diagnostic + the no-cascade premise signal
+  (rf2-x76af2.17). Pure data → data.
+
+  Matches by EXACT keyword equality on each record's `:event-id` — the
+  plain-keyword vocabulary Spec 009 stamps as `:rf.sub/cause-event-id` /
+  `:rf.view/cause-event-id` — NOT the `:trigger-event` vector. `:event-id`
+  is present on every epoch record (Spec-Schemas §EpochRecord — a required
+  slot) INCLUDING privacy-sensitive epochs whose `:trigger-event` payload
+  is redacted/dropped, so id-matching works for a sensitive trigger and
+  leaks no payload (the counted quantity is a bare integer). The
+  `:by-cause` reactive projection is deliberately NOT used: a cause that
+  genuinely fired but produced zero reactive effects legitimately has no
+  `:by-cause` entry, so it could not witness the premise.
+
+  `epoch-tape` is the RUN-SLICED tape `project-evidence` carries on
+  `:epoch-tape` — records newer than the run baseline
+  (`runtime/record-result-map`) — so a matching event in a prior run's
+  retained frame-history window does not satisfy the current run's
+  premise. Returns 0 when `event` is nil (a degenerate atom) or no
+  surviving record names it (note: `epoch-history` is a bounded ring, so 0
+  means 'not observed in the retained run tape', NOT 'never fired')."
+  [event epoch-tape]
+  (if (nil? event)
+    0
+    (count (filter #(= event (:event-id %)) epoch-tape))))
+
 (defn- causal-in-bounds?
   "True iff `n` satisfies the expectation's `[:min :max]` count bounds (an
   absent `:max` is unbounded above). Pure data → data."
@@ -546,9 +575,11 @@
   §Causal and cascade assertions, §Run result — Assertion record). Pure
   data → data.
 
-  `n` is the measured effect count (`causal-count`). `reactive?` is whether
-  the run carried ANY reactive evidence (a `:reactive-counts` slot). The
-  verdict, in precedence:
+  `n` is the measured effect count (`causal-count`); `c` is the
+  `:observed-cause-count` — how many run-owned epoch records named the
+  cause (`observed-cause-count`); `reactive?` is whether the run carried
+  ANY reactive evidence (a `:reactive-counts` slot). The verdict, in
+  precedence:
 
   - a degenerate atom that names no `:event` → `:fail` (it asserts nothing
     measurable);
@@ -556,26 +587,58 @@
     reactive substrate, so the cause→effect relationship could not be
     measured (fail closed; NEVER a silent pass against an empty projection,
     §Causal and cascade assertions);
+  - for `:rf.assert/no-cascade-rerender` ONLY, an UNOBSERVED required cause
+    (`c = 0` while `:require-cause?` is not explicitly `false`) →
+    `:cannot-run` (rf2-x76af2.17) — the guard's `[0,0]` default would
+    otherwise pass vacuously the day the cause event is renamed away, an
+    asymmetry with `:rf.assert/caused`'s fail-closed `{:min 1}`. The reason
+    says the cause was 'not observed in the retained run tape' (NOT 'never
+    fired' — the `epoch-history` ring may have evicted an early record, so
+    overclaiming would be dishonest). `{:require-cause? false}` is the one
+    explicit opt-out: it lets `c = 0` proceed to the normal bounds, so a
+    legitimately-optional interaction's `[0,0]` may pass with a reason that
+    states the vacuity was explicitly enabled;
   - else the expectation passes iff `n` is within the `[:min :max]` bounds.
 
-  The record carries the declared spec as `:expected` and the measured count
-  + bounds as `:actual` so a failing / refused expectation reads
-  diagnostically."
-  [{:keys [atom id spec event surface min max] :as expectation} n reactive?]
-  (let [degenerate? (nil? event)
-        in-bounds?  (causal-in-bounds? expectation n)
-        status      (cond
-                      degenerate?            :fail
-                      (not reactive?)        :cannot-run
-                      in-bounds?             :pass
-                      :else                  :fail)]
+  A cause observed ONCE with zero matching renders (`c = 1`, `n = 0`) stays
+  `:pass` — the premise held and the guard was honoured. `:rf.assert/caused`
+  is unchanged: `c` rides its `:actual` as a diagnostic only; its
+  positive-claim `{:min 1}` still fails closed on `n = 0`.
+
+  The record carries the declared spec as `:expected` and the measured
+  count + observed-cause-count + bounds as `:actual` so a failing / refused
+  expectation reads diagnostically. `:count` stays the EFFECT count `n`;
+  `:observed-cause-count` is the additive premise diagnostic `c`."
+  [{:keys [atom id event surface min max require-cause?] :as expectation}
+   n c reactive?]
+  (let [degenerate?    (nil? event)
+        ;; The no-cascade premise gate: active unless the author explicitly
+        ;; opted out with `{:require-cause? false}`. `:rf.assert/caused`
+        ;; never gates here (its `{:min 1}` default already fails closed on
+        ;; an unobserved cause), and the plan compiler rejects the key on
+        ;; `:caused`, so `require-cause?` only ever carries a value for
+        ;; no-cascade.
+        cause-gate?    (and (= id assertions/id-no-cascade-rerender)
+                            (not (false? require-cause?)))
+        unobserved?    (and cause-gate? (zero? c))
+        vacuity-opt?   (and (= id assertions/id-no-cascade-rerender)
+                            (false? require-cause?)
+                            (zero? c))
+        in-bounds?     (causal-in-bounds? expectation n)
+        status         (cond
+                         degenerate?     :fail
+                         (not reactive?) :cannot-run
+                         unobserved?     :cannot-run
+                         in-bounds?      :pass
+                         :else           :fail)]
     {:assertion   id
      :payload     (vec (rest atom))
      :passed?     (= :pass status)
      :status      status
      :cannot-run? (= :cannot-run status)
-     :expected    spec
-     :actual      {:event event :surface surface :count n :min min :max max}
+     :expected    (:spec expectation)
+     :actual      {:event event :surface surface :count n
+                   :observed-cause-count c :min min :max max}
      :reason      (cond
                     degenerate?
                     (str (name id) " names no :event — a causal assertion MUST "
@@ -584,6 +647,17 @@
                     (str (name id) " requires reactive evidence, but the run "
                          "carried no :rf.sub/run / :rf.view/rendered rows — "
                          ":cannot-run (run under the :cljs-reactive runner)")
+                    unobserved?
+                    (str "event " (pr-str event) " was not observed in the "
+                         "retained run tape; " (name id) " cannot establish "
+                         "its required cause premise (pass :require-cause? "
+                         "false to allow vacuous evaluation)")
+                    vacuity-opt?
+                    (str "event " (pr-str event) " was not observed in the "
+                         "retained run tape, but :require-cause? false "
+                         "explicitly enabled vacuous evaluation; " n " "
+                         (pr-str surface) " effect(s), within bounds "
+                         "[" min " " (or max "∞") "]")
                     in-bounds?
                     (str "event " (pr-str event) " caused " n " "
                          (pr-str surface) " effect(s), within bounds "
@@ -614,12 +688,24 @@
   a silent pass against an empty projection (this is the matcher's own
   fail-closed guard; it mirrors the post-run `:reactive-counts` evidence-slot
   check (`requirements/validate-evidence`) so the verdict is correct even
-  where that check is not separately invoked)."
+  where that check is not separately invoked).
+
+  Each record also carries `:observed-cause-count` (rf2-x76af2.17) — the
+  count of run-owned epoch records naming the cause, read off the run-sliced
+  `:epoch-tape` `evidence` already carries. For
+  `:rf.assert/no-cascade-rerender` that count is the required-premise signal:
+  an unobserved cause (0) resolves `:cannot-run` rather than passing the
+  `[0,0]` default vacuously (unless the author opted out with
+  `{:require-cause? false}`)."
   [causal-atoms evidence]
-  (let [reactive? (contains? evidence :reactive-counts)]
+  (let [reactive? (contains? evidence :reactive-counts)
+        tape      (:epoch-tape evidence)]
     {:records (mapv (fn [a]
                       (let [exp (assertions/causal-expectation a)]
-                        (causal-record exp (causal-count exp evidence) reactive?)))
+                        (causal-record exp
+                                       (causal-count exp evidence)
+                                       (observed-cause-count (:event exp) tape)
+                                       reactive?)))
                     (or causal-atoms []))}))
 
 ;; ===========================================================================

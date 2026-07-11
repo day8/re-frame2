@@ -1462,7 +1462,7 @@ names the cause event and (optionally) the effect surface + a count bound:
 ```clojure
 [:rf.assert/caused              {:event :counter/inc :sub :total}]      ; e recomputed :total ≥ 1
 [:rf.assert/caused              {:event :counter/inc :view :badge :exactly 1}]
-[:rf.assert/no-cascade-rerender {:event :unrelated/event}]              ; e caused 0 effects
+[:rf.assert/no-cascade-rerender {:event :search/run :view :results}]   ; :search/run rendered :results 0×
 [:rf.assert/no-cascade-rerender {:event :counter/inc :view :counter :max 2}]
 ```
 
@@ -1472,10 +1472,47 @@ names the cause event and (optionally) the effect surface + a count bound:
 - `:sub` / `:view` (optional) select the **effect surface** measured: the
   recompute count of the named sub, or the render count of the named view.
   Absent, the surface is the cause's total recompute + render count.
-- `:min` / `:max` / `:exactly` bound the effect count. The per-id DEFAULT is
-  `:rf.assert/caused` → `{:min 1}` (the cause produced the effect at least
-  once) and `:rf.assert/no-cascade-rerender` → `{:min 0 :max 0}` (the cause
-  did NOT over-render); an author MAY override either bound.
+- `:min` / `:max` / `:exactly` bound the **effect** count (never the premise
+  occurrence). The per-id DEFAULT is `:rf.assert/caused` → `{:min 1}` (the
+  cause produced the effect at least once) and `:rf.assert/no-cascade-rerender`
+  → `{:min 0 :max 0}` (the cause did NOT over-render); an author MAY override
+  either bound.
+
+##### The required-cause premise (rf2-x76af2.17)
+
+Both causal assertions carry an additive `:observed-cause-count` diagnostic
+under `:actual` — the count of run-owned epoch records whose canonical
+`:event-id` equals the declared `:event`, read off the run-sliced
+`:epoch-tape` by exact keyword equality (NOT the `:by-cause` reactive
+projection — a cause that fired but produced zero reactive effects
+legitimately has no `:by-cause` entry; NOT the frame-global
+dispatched-events window — a prior run or a privacy-redaction could satisfy
+the current run's premise). `:event-id` is present on every epoch record
+including a privacy-sensitive one whose payload is redacted, so id-matching
+works for a sensitive trigger and leaks no payload.
+
+`:rf.assert/no-cascade-rerender` **requires its cause to be observed**. Its
+`[0,0]` default would otherwise pass VACUOUSLY the day the cause event is
+renamed away (the guard matches nothing → stays green forever — the
+silent-rot regression), an asymmetry with `:rf.assert/caused`'s fail-closed
+`{:min 1}`. So an unobserved required cause resolves **`:cannot-run`**, not
+`:pass` — with the reason *"not observed in the retained run tape"* (NOT
+"never fired": `epoch-history` is a bounded ring, so an early record may have
+been evicted; `:cannot-run` is the conservative outcome that avoids both a
+false pass and a false claim the behaviour failed). A cause observed **once**
+with zero matching renders (`c = 1`, `n = 0`) is a genuine `:pass`.
+
+`{:require-cause? false}` is the ONE explicit opt-out for a legitimately
+optional interaction: it lets `c = 0` proceed to the normal bounds, so the
+`[0,0]` default may pass (the reason states the vacuity was explicitly
+enabled). `:min 0` does NOT double as an implicit opt-out. A non-boolean
+`:require-cause?` FAILS plan construction (`:rf.error/story-bad-assertion-opt`);
+the key is a no-cascade opt-out ONLY and is rejected on `:rf.assert/caused`
+(whose positive-claim semantics are unchanged — `:observed-cause-count` rides
+its record as a diagnostic only). The verdict precedence for a causal record
+is: no `:event` → `:fail`; no `:reactive-counts` evidence → `:cannot-run`;
+(no-cascade only) `c = 0` without the opt-out → `:cannot-run`; else the
+existing `min ≤ n ≤ max` bounds.
 
 These are PURE expectations, **not** agreement-floor signals — an over-render
 is a `:fail` of a declared `:rf.assert/no-cascade-rerender`, not a tape-floor
