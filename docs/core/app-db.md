@@ -49,7 +49,7 @@ This page makes the initial value **explicit** through an `:initialise` event, t
    [:button {:on-click #(dispatch [:step-size/set {:step-size 1}])} "1"]
    [:button {:on-click #(dispatch [:step-size/set {:step-size 10}])} "10"]])
 
-[rf/frame-provider {:id :app
+[rf/frame-root {:id :app
                     :initial-events [[:initialise]]}
  [stepping-counter]]
 ```
@@ -125,7 +125,7 @@ The counter already did this with `:initialise`. A larger app is the same idea: 
     {:db {:session nil
           :ui {:route :home}}}))
 
-[rf/frame-provider {:id :app
+[rf/frame-root {:id :app
                     :initial-events [[:initialise]
                                      [:session/restore]]}
  [root-view]]

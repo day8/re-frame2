@@ -24,7 +24,7 @@ Type: standards-track
 >   nothing. **Fail loud when the frame is absent**
 >   (`:rf.error/frame-provider-frame-absent`) — today's scope-only guardrail
 >   Story + Xray rely on.
-> - **`rf/frame-provider {:id the-id :initial-events […] :url-bound? …}`** —
+> - **`rf/frame-root {:id the-id :initial-events […] :url-bound? …}`** —
 >   ENSURE. Create the frame if absent, **reuse it without re-seeding** if
 >   present (idempotent `make-frame` replacement + `reg-frame`
 >   re-record-but-don't-replay `:initial-events`), provide its id to
@@ -287,7 +287,7 @@ The public API has three different jobs, and each job gets one spelling.
 > amendment banner at the top of this EP. The amended grammar is: **Scope** an
 > existing frame into a React subtree → `frame-provider {:frame …}` (fails loud
 > if absent); **Ensure** a named frame for a mounted subtree →
-> `frame-provider {:id …}` (create-if-absent, reuse-no-reseed, no
+> `frame-root {:id …}` (create-if-absent, reuse-no-reseed, no
 > destroy-on-unmount); **Own** a frame lifetime (explicit teardown) →
 > `make-frame` + `destroy-frame!` (e.g. in a `create-class`). The normative
 > tables live in `spec/002-Frames.md`.
@@ -296,7 +296,7 @@ The public API has three different jobs, and each job gets one spelling.
 |---|---|---|
 | **Scope** descendants to an existing frame (lexical / non-React) | `with-frame` | Does not create or destroy the frame. Establishes context only. |
 | **Scope** an existing frame into a React subtree | `frame-provider {:frame …}` | Provides an already-created frame id through React context. `:frame` only. Fails loud when the frame is absent. Creates / refreshes / destroys nothing. |
-| **Ensure** a named frame for a React subtree's mounted lifetime | `frame-provider {:id …}` | Creates the frame if absent, reuses it without re-seeding if present, provides its id to descendants. No destroy-on-unmount. Same constructor opts as `make-frame`. |
+| **Ensure** a named frame for a React subtree's mounted lifetime | `frame-root {:id …}` | Creates the frame if absent, reuses it without re-seeding if present, provides its id to descendants. No destroy-on-unmount. Same constructor opts as `make-frame`. |
 | **Carry** a frame across async callback boundaries | `capture-frame` | Captures operations targeted at the current or explicit frame. |
 | **Own** a frame lifetime (explicit teardown) | `make-frame` + `destroy-frame!`, `with-new-frame`, or `make-frame`/`destroy-frame!` inside a `create-class` | Creation and teardown are explicit ownership operations. |
 
@@ -318,7 +318,7 @@ Illustrative shapes:
  [todo-root]]
 
 ;; ENSURE a named frame for the subtree's mounted lifetime (no destroy-on-unmount)
-[rf/frame-provider {:id :todo/left
+[rf/frame-root {:id :todo/left
                     :images [todo-image]
                     :initial-events [[:rf/set-db {}]]}
  [todo-root]]

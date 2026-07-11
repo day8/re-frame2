@@ -305,7 +305,7 @@
 (defonce react-root (atom nil))
 
 ;; The frame's whole life story happens in one place: the
-;; `frame-provider {:id app-frame …}` down in `mount!`. On the first mount it
+;; `frame-root {:id app-frame …}` down in `mount!`. On the first mount it
 ;; creates the frame, applies its config, and fires `:initial-events` once to
 ;; seed app-db. From then on, every `dispatch` and `subscribe` in the tree below
 ;; finds its way to that frame. Hot-reload is the nice part — the provider spots
@@ -328,7 +328,7 @@
     (when-not @react-root
       (reset! react-root (rdc/create-root el)))
     (rdc/render @react-root
-                [rf/frame-provider {:id app-frame
+                [rf/frame-root {:id app-frame
                                     :initial-events [[:drawer/initialise]]}
                  [drawer-view]])))
 

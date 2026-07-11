@@ -361,7 +361,7 @@
     ;; chain in one step, so your running clock and accumulated logs survive
     ;; a reload that doesn't remount `monitor`.
     (.render @react-root
-             ($ helix-adapter/frame-provider {:id app-frame}
+             ($ helix-adapter/frame-root {:id app-frame}
                 ($ monitor)))))
 
 (defn run []

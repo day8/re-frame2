@@ -595,7 +595,7 @@
 ;;
 ;; We build the React root lazily inside `run`, not at ns-load, so the example
 ;; only mounts in a browser. The app frame is created, configured, and provided
-;; all in one place: the render root's `frame-provider {:id app-frame …}`. On
+;; all in one place: the render root's `frame-root {:id app-frame …}`. On
 ;; first mount it creates the frame under `app-frame` and applies the config —
 ;; `:url-bound? true` so the frame owns the browser URL, and a `:rf.http/managed`
 ;; override pointing at our canned stub so the whole thing runs standalone. On
@@ -622,7 +622,7 @@
     ;; Frame created and configured right here. First mount builds it under
     ;; `app-frame` and applies the config; hot reload reuses it.
     (rdc/render @react-root
-                [rf/frame-provider {:id           app-frame
+                [rf/frame-root {:id           app-frame
                                     :doc          "Linearlite optimistic-board demo frame."
                                     :url-bound?   true
                                     :fx-overrides {:rf.http/managed :linearlite.demo/http-stub}}

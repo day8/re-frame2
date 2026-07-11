@@ -223,7 +223,7 @@
     (when-not @react-root
       (reset! react-root (rdc/create-root el)))
     (rdc/render @react-root
-                [rf/frame-provider {:id app-frame
+                [rf/frame-root {:id app-frame
                                     :initial-events [[:timer/initialise]]}
                  [timer-view]])))
 

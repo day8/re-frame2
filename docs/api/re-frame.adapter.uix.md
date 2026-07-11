@@ -3,7 +3,7 @@
 The UIx adapter connects re-frame2's substrate-agnostic core to UIx, a hooks-first React substrate. It exposes:
 
 - the hooks `use-subscribe`, `use-resource-lease`, and `use-current-frame`;
-- the `frame-provider` component;
+- the `frame-provider` (SCOPE) + `frame-root` (ENSURE) components;
 - the `adapter` spec map you pass to `init!`;
 - adapter seams for tests, SSR, and code-gen.
 
@@ -121,27 +121,41 @@ For narrative coverage and the substrate decision set, see [Use UIx, Helix, or r
 
 ### `frame-provider`
 
-- **Kind**: UIx component (function — one component, two config shapes)
-- **Signatures**:
+- **Kind**: UIx component (function — SCOPE-only)
+- **Signature**:
   ```clojure
-  ($ uix-adapter/frame-provider {:frame :session} child…)                        ;; SCOPE an existing frame
-  ($ uix-adapter/frame-provider {:id :session :images [session-image]} child…)   ;; ENSURE create-if-absent / reuse
+  ($ uix-adapter/frame-provider {:frame :session} child…)   ;; SCOPE an existing frame
   ```
-- **Description**: The UIx-shaped merged frame provider, dispatched on the prop map.
-
-  `{:frame …}` — SCOPE an already-created frame. Raises:
+- **Description**: The UIx-shaped SCOPE-only frame provider (rf2-nyea0r split — **roots ensure; providers scope**; for create-if-absent, use [`frame-root`](#frame-root)). Scopes an already-created frame; creates nothing. Raises:
   - `:rf.error/frame-provider-frame-absent` when the frame does not exist
   - `:rf.error/no-frame-context` on a nil `:frame`
   - `:rf.error/bad-frame-provider-arg` on a non-keyword `:frame`
-
-  `{:id …}` — ENSURE a named frame: create it if absent, or reuse it without re-seeding. This shape accepts `make-frame` opts, including `:images` / `:initial-events`, and never destroys the frame on unmount. `:id` must be a keyword; a missing, nil, or non-keyword `:id` raises `:rf.error/ensure-frame-provider-missing-id`. Re-mounting the ENSURE shape under the same `:id` neither destroys durable state nor re-runs `:initial-events`.
+  - `:rf.error/frame-provider-given-id` when given an `:id` (the ENSURE key — use `frame-root`)
 
   Children ride the idiomatic `$` trailing-args channel. Pass them after the prop map, as for any other UIx component (there is no `:children` prop-map key).
 - **Example**:
   ```clojure
-  ;; ENSURE shape at the render root: create the frame on first mount, seed it
-  ;; once via :initial-events, reuse (no re-seed) on hot-reload re-mount.
-  ($ uix-adapter/frame-provider {:id :app :initial-events [[:counter/initialise]]}
+  ($ uix-adapter/frame-provider {:frame :session}
+     ($ dashboard))
+  ```
+
+### `frame-root`
+
+- **Kind**: UIx component (function — ENSURE, a commit-owned two-pass boundary)
+- **Signature**:
+  ```clojure
+  ($ uix-adapter/frame-root {:id :session :images [session-image]} child…)   ;; ENSURE create-if-absent / reuse
+  ```
+- **Description**: The UIx-shaped ENSURE component (rf2-nyea0r split). Creates the named frame if absent, or reuses it without re-seeding if present; **never destroys the frame on unmount**. Accepts `make-frame` opts, including `:images` / `:initial-events`. `:id` must be a keyword; a missing/nil/non-keyword `:id` raises `:rf.error/frame-root-missing-id`.
+  - **Commit-owned two-pass**: the create/seed runs in a client `useLayoutEffect` (at commit), not during render — the first render emits no descendant subtree, and children render only after the frame is live. A render React discards before commit creates + seeds nothing (no ghost frame).
+  - Re-mounting under the same `:id` (hot reload, React StrictMode dev double-invoke) neither destroys durable state nor re-runs `:initial-events`. A mounted `:id`/opts change raises `:rf.error/frame-root-reconfigured`; a stray `:frame` raises `:rf.error/frame-root-given-frame`.
+
+  Children ride the idiomatic `$` trailing-args channel.
+- **Example**:
+  ```clojure
+  ;; create the frame on first mount, seed it once via :initial-events,
+  ;; reuse (no re-seed) on hot-reload re-mount.
+  ($ uix-adapter/frame-root {:id :app :initial-events [[:counter/initialise]]}
      ($ counter-app))
   ```
 

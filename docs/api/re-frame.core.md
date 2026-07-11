@@ -364,9 +364,10 @@ The framework ships a small, fixed set of standard `:rf/*` events you dispatch l
 - **Validation**: takes **exactly one map argument**. A missing / `nil` / non-map argument, or any extra trailing arg (`[:rf/set-db {} :junk]`), throws `:rf.error/set-db-bad-value`. Empty `app-db` is `[:rf/set-db {}]`.
 - **Example**:
   ```clojure
-  ;; seed app-db at frame creation
-  [rf/frame-provider {:images         [counter-image]
-                      :initial-events [[:rf/set-db {:count 0}]]}
+  ;; seed app-db at frame creation (frame-root ENSURE — :id is required)
+  [rf/frame-root {:id             :counter
+                  :images         [counter-image]
+                  :initial-events [[:rf/set-db {:count 0}]]}
    [counter-view]]
 
   ;; or dispatch it directly to reset app-db to a known shape
@@ -443,26 +444,40 @@ The view layer is **substrate-agnostic**. The shared dataflow — frames, subscr
 
 ### `frame-provider`
 
-- **Kind**: Reagent component (one component, two config shapes)
-- **Signatures**:
+- **Kind**: Reagent component (SCOPE-only)
+- **Signature**:
   ```clojure
-  [rf/frame-provider {:frame :todo} & children]                     ;; SCOPE: scope an existing frame
-  [rf/frame-provider {:id :todo :images [todo-image]} & children]   ;; ENSURE: create-if-absent / reuse
+  [rf/frame-provider {:frame :todo} & children]   ;; SCOPE: scope an existing frame
   ```
-- **Description**: One component, two config shapes chosen by the prop map. See the [frame-provider glossary entry](../core/glossary.md#frame-provider).
-  - **`{:frame existing-id}` — SCOPE.** Scopes a React subtree to a frame that **already exists**; creates / refreshes / destroys nothing. **Fails loud** (`:rf.error/frame-provider-frame-absent`) when the named frame is absent. `:frame` must be a keyword. The scope-into-React counterpart to `with-frame`.
-  - **`{:id the-id …}` — ENSURE.** Creates the frame if absent, reuses it if present, and provides its id to descendants. Creation goes via `make-frame`, taking the same constructor opts: `:id` / `:images` / record-config incl. `:initial-events`. Reuse **does not re-seed**: an idempotent re-mount preserves durable state and does not replay `:initial-events`. There is **no destroy-on-unmount**. `:id` is required and must be a keyword. True ownership stays explicit: `make-frame` + `destroy-frame!` inside a `create-class`.
+- **Description**: Scopes a React subtree to a frame that **already exists**; creates / refreshes / destroys nothing. **Roots ensure; providers scope** — for create-if-absent, use [`frame-root`](#frame-root). See the [frame-provider glossary entry](../core/glossary.md#frame-provider).
+  - **Fails loud** (`:rf.error/frame-provider-frame-absent`) when the named frame is absent. `:frame` must be a keyword (a `nil` `:frame` → `:rf.error/no-frame-context`; a non-keyword → `:rf.error/bad-frame-provider-arg`). The scope-into-React counterpart to `with-frame`.
+  - Given an `:id` (the ENSURE key), **fails loud** naming `frame-root` (`:rf.error/frame-provider-given-id`).
 - **Example**:
   ```clojure
   ;; SCOPE — :todo already exists; this subtree just renders against it.
   (rf/reg-view todo-page []
     [rf/frame-provider {:frame :todo}
      [todo-list]])
+  ```
 
+### `frame-root`
+
+- **Kind**: Reagent component (ENSURE — a commit-owned two-pass boundary)
+- **Signature**:
+  ```clojure
+  [rf/frame-root {:id :todo :images [todo-image]} & children]   ;; ENSURE: create-if-absent / reuse
+  ```
+- **Description**: Creates the frame if absent, reuses it if present, and provides its id to descendants. Creation goes via `make-frame`, taking the same constructor opts: `:id` / `:images` / record-config incl. `:initial-events`. `:id` is **required** and must be a keyword (a missing/non-keyword `:id` → `:rf.error/frame-root-missing-id`).
+  - **Commit-owned two-pass**: the create/seed runs in a client `useLayoutEffect` (at commit), **not** during render — the first render emits no descendant subtree, the frame is created after commit, and only then do the children render against the now-live frame. A render React discards before commit (a Suspense abort, a concurrent tear-off) therefore creates and seeds **nothing** — no ghost frame.
+  - **Reuse does not re-seed**: an idempotent re-mount (hot reload, StrictMode dev double-invoke, Story re-eval) preserves durable state and does not replay `:initial-events`; `:initial-events` fire **once** on first successful creation per committed frame-id lifetime. A keyed remount preserves durable state.
+  - There is **no destroy-on-unmount** — a genuine unmount leaves the frame live. True ownership stays explicit: `make-frame` + `destroy-frame!` inside a `create-class`.
+  - A **mounted `:id` / opts change fails loud** (`:rf.error/frame-root-reconfigured`) — give the frame-root a React `key` that changes to scope a different frame. Given a `:frame` (the SCOPE key), fails loud naming `frame-provider` (`:rf.error/frame-root-given-frame`).
+- **Example**:
+  ```clojure
   ;; ENSURE — bring the :todo frame into being for as long as this subtree is
   ;; mounted: created on first mount, reused without re-seeding on remount.
   (rf/reg-view todo-widget []
-    [rf/frame-provider {:id :todo :images [todo-image]}
+    [rf/frame-root {:id :todo :images [todo-image]}
      [todo-list]])
   ```
 

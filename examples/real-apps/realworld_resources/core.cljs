@@ -237,7 +237,7 @@
 ;; ownership the honest way: by declaring `:url-bound? true` on the frame below.
 ;;
 ;; The frame is created, configured, and seeded in exactly one place: the
-;; `frame-provider {:id …}` ensure form at the render root. On first mount it
+;; `frame-root {:id …}` ensure form at the render root. On first mount it
 ;; creates the frame under `app-frame` and applies the config — `:url-bound? true`
 ;; so it owns the URL, the auth-guard interceptor referenced by id, and the demo
 ;; `:rf.http/managed` routed through the in-process backend stub so reads and
@@ -309,7 +309,7 @@
     ;; already in app-db by then, so the bearer-auth interceptor decorates
     ;; those reads on the way out.
     (rdc/render @react-root
-                [rf/frame-provider {:id              app-frame
+                [rf/frame-root {:id              app-frame
                                     :doc             "RealWorld-on-resources demo frame."
                                     :url-bound?      true
                                     :url-strategy    routing/url-strategy

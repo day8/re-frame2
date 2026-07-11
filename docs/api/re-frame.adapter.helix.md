@@ -3,7 +3,7 @@
 `re-frame.adapter.helix` binds re-frame2 to the Helix React substrate. It ships as its own artefact (`day8/re-frame2-helix`) and depends on `re-frame.core`, never the reverse. A Helix app requires this namespace and passes its `adapter` Var into `(rf/init! ...)`. It exposes:
 
 - the Helix-shaped hooks `use-subscribe`, `use-resource-lease`, and `use-current-frame`;
-- the merged `frame-provider` component;
+- the `frame-provider` (SCOPE) + `frame-root` (ENSURE) components;
 - the `wrap-view` view-wrapping seam;
 - the `adapter` spec.
 
@@ -81,20 +81,34 @@ The substrate-agnostic carry and scoping primitives (`capture-frame`, `with-fram
 
 ### `frame-provider`
 
-- **Kind**: Helix component (function — one component, two config shapes)
-- **Signatures**:
+- **Kind**: Helix component (function — SCOPE-only)
+- **Signature**:
   ```clojure
-  ($ helix-adapter/frame-provider {:frame :session} child…)                        ;; SCOPE an existing frame
-  ($ helix-adapter/frame-provider {:id :session :images [session-image]} child…)   ;; ENSURE create-if-absent / reuse
+  ($ helix-adapter/frame-provider {:frame :session} child…)   ;; SCOPE an existing frame
   ```
-- **Description**: The Helix-shaped merged frame provider, dispatched on the prop map. Children ride the `$` trailing-args channel. Pass them after the prop map, as for any Helix component (there is no `:children` prop-map key).
-  - `{:frame …}` scopes an already-created frame; it fails loud if the frame is absent (`:rf.error/frame-provider-frame-absent`). A nil `:frame` raises `:rf.error/no-frame-context`; a non-keyword raises `:rf.error/bad-frame-provider-arg`.
-  - `{:id …}` ensures a named frame: create it if absent, or reuse it without re-seeding. This shape accepts `make-frame` opts and never destroys the frame on unmount. A missing, nil, or non-keyword `:id` raises `:rf.error/ensure-frame-provider-missing-id`.
+- **Description**: The Helix-shaped SCOPE-only frame provider (rf2-nyea0r split — **roots ensure; providers scope**; for create-if-absent, use [`frame-root`](#frame-root)). Scopes an already-created frame; creates nothing. Children ride the `$` trailing-args channel (there is no `:children` prop-map key).
+  - Fails loud if the frame is absent (`:rf.error/frame-provider-frame-absent`). A nil `:frame` raises `:rf.error/no-frame-context`; a non-keyword raises `:rf.error/bad-frame-provider-arg`; an `:id` (the ENSURE key) raises `:rf.error/frame-provider-given-id`.
 - **Example**:
   ```clojure
-  ;; ENSURE shape at the render root: create the frame on first mount, seed it
-  ;; once via :initial-events, reuse (no re-seed) on hot-reload re-mount.
-  ($ helix-adapter/frame-provider {:id :app :initial-events [[:counter/initialise]]}
+  ($ helix-adapter/frame-provider {:frame :session}
+     ($ dashboard))
+  ```
+
+### `frame-root`
+
+- **Kind**: Helix component (function — ENSURE, a commit-owned two-pass boundary)
+- **Signature**:
+  ```clojure
+  ($ helix-adapter/frame-root {:id :session :images [session-image]} child…)   ;; ENSURE create-if-absent / reuse
+  ```
+- **Description**: The Helix-shaped ENSURE component (rf2-nyea0r split). Creates the named frame if absent, or reuses it without re-seeding if present; **never destroys the frame on unmount**. Accepts `make-frame` opts. A missing/nil/non-keyword `:id` raises `:rf.error/frame-root-missing-id`. Children ride the `$` trailing-args channel.
+  - **Commit-owned two-pass**: the create/seed runs in a client `useLayoutEffect` (at commit), not during render — children render only after the frame is live, and a render React discards before commit creates + seeds nothing (no ghost frame).
+  - Re-mounting under the same `:id` (hot reload, React StrictMode dev double-invoke) neither destroys durable state nor re-runs `:initial-events`. A mounted `:id`/opts change raises `:rf.error/frame-root-reconfigured`; a stray `:frame` raises `:rf.error/frame-root-given-frame`.
+- **Example**:
+  ```clojure
+  ;; create the frame on first mount, seed it once via :initial-events,
+  ;; reuse (no re-seed) on hot-reload re-mount.
+  ($ helix-adapter/frame-root {:id :app :initial-events [[:counter/initialise]]}
      ($ counter-app))
   ```
 

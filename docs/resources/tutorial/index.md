@@ -228,17 +228,17 @@ By the time `reg-frame` returns, that pipeline run has settled and `app-db` hold
 
     Because "events are the unit of state change" stays a single, consistent rule: the initial state is built by the same [event pipeline](../../core/glossary.md#event-pipeline) that handles every later change — no special-case construction path, no second way for state to come into being. The most primitive seed is `[:rf/set-db {…}]`, a built-in event that simply installs a starting map; `:app/initialise` here is just a friendlier wrapper that returns the same `{:db …}` [effect map](../../core/glossary.md#effect-map). The frame's whole history, from its very first value, is one uniform stream of events — which is exactly what makes [time-travel](../../core/glossary.md#time-travel) and replay possible.
 
-### Two config shapes: scope vs ensure
+### frame-provider (scope) vs frame-root (ensure)
 
-`frame-provider` is one component with two config shapes, chosen by the prop map you hand it. The `{:frame …}` *scope* shape (the one on this page) just scopes the tree to a frame you already registered. The `{:id …}` *ensure* shape instead brings a frame into being — keyed by `:id`, it creates the frame on first mount and reuses it without re-seeding on remount (no destroy-on-unmount) — the one you reach for when a view should bring its own frame into being (a Story canvas, an embedded widget, a modal). [Frames: isolated worlds](../../core/frames.md) is the full picture; the slip to watch for here is crossing their keys:
+There are two frame-boundary components, one verb each — **roots ensure; providers scope**. `frame-provider {:frame …}` (the one on this page) just scopes the tree to a frame you already registered. Its sibling `frame-root {:id …}` instead brings a frame into being — keyed by `:id`, it creates the frame on first mount and reuses it without re-seeding on remount (no destroy-on-unmount) — the one you reach for when a view should bring its own frame into being (a Story canvas, an embedded widget, a modal). [Frames: isolated worlds](../../core/frames.md) is the full picture; the slip to watch for here is reaching for the wrong one:
 
-!!! warning "Gotcha — the `{:frame …}` shape scopes an *existing* frame"
+!!! warning "Gotcha — `frame-provider {:frame …}` scopes an *existing* frame"
 
-    Hand it a `:frame` that was never registered (or has been destroyed) and it fails loud (`:rf.error/frame-provider-frame-absent`) rather than silently scoping descendants to a phantom frame. Register the frame first (`reg-frame` / `make-frame`), or use the `{:id …}` ensure shape to create it.
+    Hand it a `:frame` that was never registered (or has been destroyed) and it fails loud (`:rf.error/frame-provider-frame-absent`) rather than silently scoping descendants to a phantom frame. Register the frame first (`reg-frame` / `make-frame`), or use `frame-root {:id …}` to create it.
 
-!!! warning "Gotcha"
+!!! warning "Gotcha — pick the component, not a prop-map key"
 
-    The shape is chosen by the prop map: a `:frame` key selects scope; *anything else* selects ensure, which **requires** a keyword `:id`. So an empty `{}` (or a prop map with neither `:frame` nor `:id`) is read as an ensure provider with no id and fails loud with `:rf.error/ensure-frame-provider-missing-id`. The fix is in the message: pass `:frame` if you meant to *scope* an existing frame, or `:id` if you meant to *ensure* one.
+    `frame-root` ensures and takes `:id`; `frame-provider` scopes and takes `:frame`. Cross them and each fails loud naming its sibling: a `frame-provider` given `:id` raises `:rf.error/frame-provider-given-id`, a `frame-root` given `:frame` raises `:rf.error/frame-root-given-frame`, and a `frame-root` with no keyword `:id` raises `:rf.error/frame-root-missing-id`. The fix is in the message: `frame-provider {:frame …}` to *scope* an existing frame, or `frame-root {:id …}` to *ensure* one.
 
 ### When the boot goes wrong
 

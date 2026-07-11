@@ -47,8 +47,8 @@ In fact, to double the excitement, let's create two `frames` and have two instan
             [first-app.counter :refer [counter]]))
 
 [:div
-  [rf/frame-provider {:id :app1}  [counter "LightBlue"]]
-  [rf/frame-provider {:id :app2}  [counter "LavenderBlush"]]]
+  [rf/frame-root {:id :app1}  [counter "LightBlue"]]
+  [rf/frame-root {:id :app2}  [counter "LavenderBlush"]]]
 ```
 
 This code block ends with some `hiccup` (a data structure representing DOM). In this in-browser dev environment, trailing hiccup gets rendered. That hiccup is:

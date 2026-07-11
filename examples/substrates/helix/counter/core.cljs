@@ -111,7 +111,7 @@
     ;; live frame and skips the seeding, so the count you were staring at
     ;; survives the reload. See `docs/core/frames.md`.
     (.render @react-root
-             ($ helix-adapter/frame-provider {:id app-frame
+             ($ helix-adapter/frame-root {:id app-frame
                                               :initial-events [[:counter/initialise]]}
                 ($ counter-app)))))
 

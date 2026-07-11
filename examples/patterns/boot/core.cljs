@@ -151,7 +151,7 @@
     ;;   kick the boot off. A hot reload reuses the frame and leaves the boot
     ;;   alone, so you don't re-run it on every save.
     (rdc/render @react-root
-                [rf/frame-provider {:id             app-frame
+                [rf/frame-root {:id             app-frame
                                     :doc            "Boot example demo frame."
                                     :fx-overrides   {:rf.http/managed :boot.demo/http-stub}
                                     :initial-events [[:boot/initialise]]}

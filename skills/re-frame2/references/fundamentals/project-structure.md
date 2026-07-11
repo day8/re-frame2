@@ -88,7 +88,7 @@ The entry ns is named `core`. It:
    and fans out to per-feature initialisers (`realworld/core.cljs:69-83`).
 4. Defines the root view and the React root.
 5. Exports a `run` fn that calls `rf/init!` with the substrate
-   adapter, then renders a `frame-provider {:id …}` whose `:initial-events` seed the frame (including `:app/initialise`).
+   adapter, then renders a `frame-root {:id …}` whose `:initial-events` seed the frame (including `:app/initialise`).
 
 If the app server-renders, `core.cljc` (not `.cljs`) and the `run`
 body sits inside `#?(:cljs ...)`; the JVM-side `handle-request` lives
@@ -100,7 +100,7 @@ Route registrations belong in a single `routing.cljs` — the `reg-route` table,
 
 ## Per-frame organisation (multi-frame apps)
 
-Most apps run a single frame — an **explicitly registered, descriptively-named** one (e.g. `:app/main`); there is no ambient default (EP-0002 — `:rf/default` is an ordinary id with no privilege, worth picking only for a tiny app or v1 migration). Apps with several frames (server-render per request, stories shell, embedded widget) name and configure each in `core`. Per-frame config — `:fx-overrides`, `:initial-events`, request interceptors — goes through the render-root `frame-provider {:id …}` config props (or `reg-frame` for a frame created outside React) (`realworld/core.cljs:575-586`). Feature files do not configure frames; they register events/subs against no particular frame and talk to a frame only through `dispatch` / `subscribe`.
+Most apps run a single frame — an **explicitly registered, descriptively-named** one (e.g. `:app/main`); there is no ambient default (EP-0002 — `:rf/default` is an ordinary id with no privilege, worth picking only for a tiny app or v1 migration). Apps with several frames (server-render per request, stories shell, embedded widget) name and configure each in `core`. Per-frame config — `:fx-overrides`, `:initial-events`, request interceptors — goes through the render-root `frame-root {:id …}` config props (or `reg-frame` for a frame created outside React) (`realworld/core.cljs:575-586`). Feature files do not configure frames; they register events/subs against no particular frame and talk to a frame only through `dispatch` / `subscribe`.
 
 A per-frame concern large enough for its own file (a "per-request server frame" helper) goes next to `core` — `server.cljc` / `client.cljs` — and `core` orchestrates the wiring.
 

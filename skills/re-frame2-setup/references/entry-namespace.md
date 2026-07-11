@@ -27,7 +27,7 @@ The entry namespace is the top of `core.cljs` — the `ns` form, a `defonce` Rea
 
 `counter-app` is the top-level registered view. `:rf/default` is the generator template's frame id — under EP-0002 (the carried-frame invariant) it is **not** auto-registered; you register it with `reg-frame` and scope it at the root with `frame-provider`'s `{:frame …}` SCOPE-only shape (§Order of operations). Any id works — keep it consistent across `reg-frame`, `with-frame`, and the provider.
 
-The entry symbol is `init`, matching the generator template's `:init-fn {{namespace}}.core/init`. (The repo's `examples/core/counter/core.cljs` names its entry fn `run` and uses a different boot shape — the lazy-root + `frame-provider {:id … :initial-events …}` ENSURE form; see [`boot-and-mount-an-app.md`](../../../docs/core/how-to/boot-and-mount-an-app.md). Pick any entry-symbol name and keep `:init-fn` pointing at it; this skill uses `init`.)
+The entry symbol is `init`, matching the generator template's `:init-fn {{namespace}}.core/init`. (The repo's `examples/core/counter/core.cljs` names its entry fn `run` and uses a different boot shape — the lazy-root + `frame-root {:id … :initial-events …}` ENSURE form; see [`boot-and-mount-an-app.md`](../../../docs/core/how-to/boot-and-mount-an-app.md). Pick any entry-symbol name and keep `:init-fn` pointing at it; this skill uses `init`.)
 
 ## Order of operations
 

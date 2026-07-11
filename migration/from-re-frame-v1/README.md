@@ -462,7 +462,7 @@ The footgun bites a plain fn that depends on the surrounding frame. A plain fn i
 **What to look for** in the codebase:
 
 1. Every Reagent fn referenced by a Var (or anonymous lambda) that is **not** registered via `rf/reg-view` and calls `rf/subscribe` / `rf/dispatch` (the ambient 1-arity forms), where it renders under a `frame-provider`.
-2. The hiccup subtree under each `(rf/frame-provider {:frame <id>} ...)` (or owned `(rf/frame-provider {:id <id>} ...)`).
+2. The hiccup subtree under each `(rf/frame-provider {:frame <id>} ...)` (or owned `(rf/frame-root {:id <id>} ...)`).
 
 The agent doesn't need to render the tree — a static walk over the hiccup forms inside the provider is enough. Cross-reference the registered set via `(rf/registrations :view)` to determine which Vars are `reg-view`-backed.
 

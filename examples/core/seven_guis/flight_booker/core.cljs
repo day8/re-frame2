@@ -45,7 +45,7 @@
    [:return-text :string]])
 
 ;; A schema is frame-local, so it binds inside a frame. The render root runs
-;; this app in `:rf/default` (see the `frame-provider {:id …}` below), so we
+;; this app in `:rf/default` (see the `frame-root {:id …}` below), so we
 ;; name that frame here. Binding is by id, which is why this works even though
 ;; it runs at ns-load — before the provider has actually created the frame.
 ;; From here on, every commit to the `[:flight]` slice is validated.
@@ -239,7 +239,7 @@
 ;; `#app`. See examples/TESTING.md, the Example mount-isolation convention.
 (defonce react-root (atom nil))
 
-;; The whole frame lifecycle lives in one place: the `frame-provider {:id
+;; The whole frame lifecycle lives in one place: the `frame-root {:id
 ;; app-frame …}` at the render root below. On first mount it creates the app
 ;; frame, applies its config, and runs `:initial-events` once to seed app-db.
 ;; On hot reload it reuses the same frame and skips re-seeding, so your
@@ -259,7 +259,7 @@
     (when-not @react-root
       (reset! react-root (rdc/create-root el)))
     (rdc/render @react-root
-                [rf/frame-provider {:id app-frame
+                [rf/frame-root {:id app-frame
                                     :initial-events [[:flight/initialise]]}
                  [flight-booker]])))
 

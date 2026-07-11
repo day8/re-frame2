@@ -360,7 +360,7 @@
     ;; `:initial-events` once to seed app-db. Save and hot-reload, and it
     ;; reuses the same frame untouched — no re-seeding, so your state sticks.
     (uix-dom/render-root
-      ($ uix-adapter/frame-provider {:id app-frame
+      ($ uix-adapter/frame-root {:id app-frame
                                      :initial-events [[:dashboard/initialise]]}
          ($ dashboard))
       @react-root)))

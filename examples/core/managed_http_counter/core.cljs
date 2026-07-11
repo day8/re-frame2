@@ -341,7 +341,7 @@
 (defonce react-root (atom nil))
 
 ;; The app stands its frame up in exactly one place: the render root's
-;; `frame-provider {:id app-frame}`. On the first mount that provider creates
+;; `frame-root {:id app-frame}`. On the first mount that provider creates
 ;; the frame, applies its config, and runs `:initial-events` once (our
 ;; `[:http-counter/initialise]` seed). On a hot reload it finds the frame already
 ;; there, reuses it, and skips the seed. From then on every `dispatch` and
@@ -363,7 +363,7 @@
     (when-not @react-root
       (reset! react-root (rdc/create-root el)))
     (rdc/render @react-root
-                [rf/frame-provider {:id app-frame
+                [rf/frame-root {:id app-frame
                                     :initial-events [[:http-counter/initialise]]}
                  [counter-app]])))
 

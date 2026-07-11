@@ -81,7 +81,7 @@
 
 (defonce react-root (atom nil))
 
-;; The frame's whole life story fits in one place: the `frame-provider {:id
+;; The frame's whole life story fits in one place: the `frame-root {:id
 ;; app-frame …}` in `mount!` below. First mount creates the frame and runs its
 ;; `:initial-events` once to seed app-db. After that, every
 ;; `dispatch`/`subscribe` in the tree finds its way home to that frame.
@@ -109,7 +109,7 @@
     (when-not @react-root
       (reset! react-root (rdc/create-root el)))
     (rdc/render @react-root
-                [rf/frame-provider {:id             app-frame
+                [rf/frame-root {:id             app-frame
                                     :initial-events [[:counter/initialise]]}
                  [counter-app]])))
 

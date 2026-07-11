@@ -138,7 +138,7 @@
 
 ;; `reg-app-schema` is frame-local — it needs a frame in scope or it raises
 ;; `:rf.error/no-frame-context`. This example lives in `:rf/default` (the
-;; same id `run`'s `frame-provider {:id …}` sets up), so we name it here.
+;; same id `run`'s `frame-root {:id …}` sets up), so we name it here.
 ;; Frame identity is carried, not magically found; see the frames glossary:
 ;; ../../../docs/core/glossary.md#frame-identity-is-carried-not-found
 (rf/with-frame :rf/default
@@ -824,7 +824,7 @@
 ;; DOM setup lives in `mount!`, tagged `^:dev/after-load` so shadow-cljs re-runs
 ;; it after each hot reload — edited views re-render into the same root and frame.
 (defn ^:dev/after-load mount! []
-  ;; The `frame-provider {:id …}` below is what actually owns the frame. On
+  ;; The `frame-root {:id …}` below is what actually owns the frame. On
   ;; the first mount it creates `:rf/default`, applies the config, and fires
   ;; `:initial-events` once; on a hot reload it finds the frame already
   ;; standing and skips the re-seed. Two config keys do the work:
@@ -842,7 +842,7 @@
     (when-not @react-root
       (reset! react-root (rdc/create-root el)))
     (rdc/render @react-root
-                [rf/frame-provider {:id             :rf/default
+                [rf/frame-root {:id             :rf/default
                                     :doc            "Nine-states demo frame."
                                     :fx-overrides   {:rf.http/managed :nine-states.http/managed-demo}
                                     :initial-events [[:nine-states.app/initialise]]}
