@@ -260,7 +260,7 @@ When your app talks to a backend, add `day8/re-frame2-http` and use
 Every managed-async completion delivers the framework's
 [uniform reply envelope](https://github.com/day8/re-frame2/blob/main/spec/Managed-Effects.md#the-uniform-reply-envelope)
 — one canonical reply map with a single **closed** `:status` (`:ok` / `:error` /
-`:cancelled` / `:stale`), `:value` / `:error`, `:work/id`, and `:completed-at`.
+`:cancelled` / `:stale`), `:value` / `:error`, `:rf.reply/work-id`, and `:completed-at`.
 `:on-success` / `:on-failure` are pure ROUTING sugar over the one direct reply
 target; both receive the identical canonical map. Only the *retryable* subset of
 the `:rf.http/*` failure categories is admissible under `:retry :on`; branch on
