@@ -22,8 +22,10 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [clojure.string :as str]
+   [re-frame.classification :as core-classification]
    [re-frame.core :as rf]
    [re-frame.elision :as elision]
+   [re-frame.late-bind :as late-bind]
    [re-frame.privacy :as privacy]
    [re-frame.resources.classification :as classification]
    [re-frame.resources.mutation-registry :as mreg]
@@ -229,6 +231,22 @@
           (is (not (str/includes? (pr-str (:tags ev)) PW))
               (str (:operation ev) " must not carry the raw sentinel")))))
 
+    (testing "rf2-3ej3xu — the execute event's OWN :rf.event/v trace slot
+              redacts the owner-declared param (the gap: the dispatched-event
+              trace is projected by the CORE event chokepoint, which knew only
+              the event REGISTRATION's static classification — nothing, for
+              :rf.mutation/execute — so the trusted-local :include-event-args?
+              opt-in path rode the raw payload)"
+      (let [vs (->> @traces
+                    (keep #(get-in % [:tags :rf.event/v]))
+                    (filter #(and (vector? %) (= :rf.mutation/execute (first %)))))]
+        (is (seq vs) "the execute dispatched-event trace surfaced")
+        (doseq [v vs]
+          (is (= privacy/redacted-sentinel (get-in v [1 :params :password]))
+              "the owner-declared :params :password redacts at :rf.event/v")
+          (is (= "w" (get-in v [1 :params :slug]))
+              "the non-sensitive :slug rides verbatim at :rf.event/v"))))
+
     (testing "the FAILURE continuation echo redacts :password too (an accepted
               :error reply also dispatches :reply-to)"
       (reset! last-managed-args nil)
@@ -251,3 +269,126 @@
       (is (empty? (get (elision/sensitive-declarations :rf/default)
                        [:rf.runtime/mutations (mstate/instance-key-id :i1) :params :password]))
           "the cleared instance's declaration is gone from the registry"))))
+
+;; ===========================================================================
+;; 4. rf2-3ej3xu — the [:rf.mutation/execute …] event-payload projection.
+;;    The execute payload names its owner INSIDE the args (:mutation), so the
+;;    core event-vector chokepoint defers to the resources-published
+;;    :resources/project-execute-event-args hook — the event peer of
+;;    :http/project-managed-fx-args. Deterministic teeth on the projector +
+;;    the core chokepoint; the live acceptance rides the section-3 drive.
+;; ===========================================================================
+
+(deftest project-execute-event-args-redacts-owner-param
+  (reg-secret-mutation!)
+  (testing "the owner-declared :params :password redacts on the execute args;
+            the non-sensitive sibling and the structural :mutation id ride"
+    (let [args {:mutation :m/secret :params {:slug "w" :password PW} :instance :i9}
+          out  (classification/project-execute-event-args args mreg/mutation-meta)]
+      (is (= privacy/redacted-sentinel (get-in out [:params :password]))
+          "the sensitive param is redacted on the execute payload")
+      (is (= "w" (get-in out [:params :slug])) "the non-sensitive param rides verbatim")
+      (is (= :m/secret (:mutation out)) "the owner id survives (attribution)")
+      (is (not (str/includes? (pr-str out) PW)) "no raw sentinel rides the payload"))))
+
+(deftest project-execute-event-args-scope-rooted-decl
+  (rf/clear-mutation :m/scoped)
+  (rf/reg-mutation :m/scoped
+    {:params-schema [:map [:slug :string]]
+     :sensitive     [[:scope :tenant]]}
+    (fn [_ _] {:request {:method :get :url "/x"}}))
+  (testing "a :scope-rooted decl redacts the execute payload's sibling :scope
+            slot (Spec 016 clause 4 — params, scopes, and data carry the same
+            classification)"
+    (let [out (classification/project-execute-event-args
+                {:mutation :m/scoped :params {:slug "w"}
+                 :scope    {:tenant PW :region "r"}}
+                mreg/mutation-meta)]
+      (is (= privacy/redacted-sentinel (get-in out [:scope :tenant]))
+          "the :scope-rooted decl bites the payload's :scope")
+      (is (= "r" (get-in out [:scope :region])) "the non-sensitive scope field rides"))))
+
+(deftest project-execute-event-args-data-rooted-skipped
+  (rf/clear-mutation :m/data-classified)
+  (rf/reg-mutation :m/data-classified
+    {:params-schema [:map [:slug :string]]
+     :sensitive     [[:data :token]]}
+    (fn [_ _] {:request {:method :get :url "/x"}}))
+  (testing "a :data-rooted decl names the not-yet-existing RESULT projection —
+            the execute payload rides UNCHANGED (reference-preserved, no
+            phantom slot)"
+    (let [args {:mutation :m/data-classified :params {:slug "w"}}]
+      (is (identical? args (classification/project-execute-event-args
+                             args mreg/mutation-meta))))))
+
+(deftest project-execute-event-args-fail-open
+  (testing "an unregistered :mutation id / a non-map payload rides UNCHANGED
+            (the EP-0025 fail-open — no registration to read a declaration off)"
+    (rf/clear-mutation :m/ghost)
+    (let [args {:mutation :m/ghost :params {:password PW}}]
+      (is (identical? args (classification/project-execute-event-args
+                             args mreg/mutation-meta))))
+    (is (= :not-a-map (classification/project-execute-event-args
+                        :not-a-map mreg/mutation-meta)))))
+
+(deftest project-execute-event-args-reply-to-rides-target-classification
+  (reg-secret-mutation!)
+  (rf/reg-event :m/reply-target
+    {:sensitive [[:cb-secret]]}
+    (fn [{:keys [db]} _] {:db db}))
+  (testing "a payload-carrying :reply-to address rides the TARGET event
+            registration's own classification — the same composition the
+            managed-HTTP :on-success / :on-failure addresses get"
+    (let [out (classification/project-execute-event-args
+                {:mutation :m/secret
+                 :params   {:slug "w" :password PW}
+                 :reply-to [:m/reply-target {:cb-secret PW :tag "t"}]}
+                mreg/mutation-meta)]
+      (is (= privacy/redacted-sentinel (get-in out [:reply-to 1 :cb-secret]))
+          "the reply-to target's declared path redacts")
+      (is (= "t" (get-in out [:reply-to 1 :tag])) "the non-secret tag rides")
+      (is (not (str/includes? (pr-str out) PW)) "no raw sentinel anywhere"))))
+
+(deftest execute-event-args-hook-is-published
+  (testing "re-frame.resources publishes the hook the core event-vector
+            chokepoint consults (load-time anchor)"
+    (is (fn? (late-bind/get-fn :resources/project-execute-event-args)))))
+
+(deftest core-event-chokepoint-projects-execute-payload
+  (reg-secret-mutation!)
+  (testing "re-frame.classification/redact-event-by-registration (the single
+            event-vector chokepoint — also the ALWAYS-ON :rf.observe/* egress
+            redactor) consults the resources hook for [:rf.mutation/execute …]"
+    (let [v (core-classification/redact-event-by-registration
+              [:rf.mutation/execute {:mutation :m/secret
+                                     :params   {:slug "w" :password PW}}])]
+      (is (= privacy/redacted-sentinel (get-in v [1 :params :password]))
+          "the owner-declared param redacts through the core chokepoint")
+      (is (= "w" (get-in v [1 :params :slug])) "the non-sensitive param rides")
+      (is (= :rf.mutation/execute (first v)) "the event id survives"))))
+
+(deftest core-trace-slots-project-execute-payload
+  (reg-secret-mutation!)
+  (testing "the :rf.event/v dispatched-event slot AND a nested
+            [:dispatch [:rf.mutation/execute …]] fx entry both redact through
+            the same chokepoint (deterministic projector teeth on hand-built
+            trace shapes, mirroring fx_aggregate_classification)"
+    (let [payload {:mutation :m/secret :params {:slug "w" :password PW}}
+          disp    (core-classification/project-trace-event
+                    {:operation :rf.event/dispatched
+                     :tags {:frame       :rf/default
+                            :rf.event/v [:rf.mutation/execute payload]}})
+          agg     (core-classification/project-trace-event
+                    {:operation :rf.fx/do-fx
+                     :tags {:frame        :rf/default
+                            :rf.event/fx [[:dispatch [:rf.mutation/execute payload]]]}})]
+      (is (= privacy/redacted-sentinel
+             (get-in disp [:tags :rf.event/v 1 :params :password]))
+          ":rf.event/v redacts the owner-declared param")
+      (is (= "w" (get-in disp [:tags :rf.event/v 1 :params :slug]))
+          ":rf.event/v keeps the non-sensitive sibling")
+      (is (= privacy/redacted-sentinel
+             (get-in agg [:tags :rf.event/fx 0 1 1 :params :password]))
+          "the nested :dispatch fx entry inherits the same projection")
+      (is (not (str/includes? (pr-str [disp agg]) PW))
+          "no raw sentinel rides either projected shape"))))

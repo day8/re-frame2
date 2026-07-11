@@ -613,6 +613,21 @@
 ;; Passive mutation subs. Per Spec 016 §Mutations.
 (mutation-subs/register-subs!)
 
+;; rf2-3ej3xu — the dispatched-event trace projection for
+;; `[:rf.mutation/execute …]`. The execute payload's classification lives on
+;; the MUTATION spec named INSIDE the args (per-owner, the SAME rf2-825mzj
+;; declaration surface the durable instance + continuation reply read), not on
+;; the `:rf.mutation/execute` event registration, so the core event-vector
+;; projection chokepoint (`re-frame.classification/redact-event-by-registration`)
+;; defers to this resources-owned hook — the event peer of
+;; `:http/project-managed-fx-args`. Published from the facade (not the
+;; classification ns) because the resolver is `mutation-registry/mutation-meta`
+;; and the registry requires the classification ns (a back-require would cycle).
+(late-bind/set-fn! :resources/project-execute-event-args
+                   (fn project-execute-event-args-hook [args]
+                     (classification/project-execute-event-args
+                       args mutation-registry/mutation-meta)))
+
 ;; LATE-BOUND cross-feature integrations (Spec 016 §Route integration /
 ;; §SSR and hydration). Wired here so they re-install on a `:reload`. Each
 ;; publishes a late-bind hook the host artefact (routing / ssr) CONSULTS;
