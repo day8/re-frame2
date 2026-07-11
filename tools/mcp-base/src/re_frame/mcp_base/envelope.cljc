@@ -28,7 +28,9 @@
   passes the string here, so the shape-specific accessor stays
   consumer-side while the prefix-detection logic is shared."
   (:require [clojure.string :as str]
-            [re-frame.mcp-base.vocab :as vocab]))
+            #?(:clj [clojure.edn :as edn])
+            [re-frame.mcp-base.vocab :as vocab])
+  #?(:cljs (:require [cljs.reader])))
 
 ;; ---------------------------------------------------------------------------
 ;; Indicator-field splice — the MUST-level 'omit when zero' rule.
@@ -148,26 +150,133 @@
          (key-terminator? (when (> (count text) plen)
                             (subs text plen (inc plen)))))))
 
+;; ---------------------------------------------------------------------------
+;; Structural confirmation — the CLOSED single-key wrapper, not just the
+;; leading token.
+;;
+;; The leading-token pre-filter above proves only the FIRST key. That is
+;; NOT the invariant the fast-path skip actually relies on: "a marker is
+;; sub-cap by construction" holds only for a COMPLETE, CLOSED, single-key
+;; marker envelope. A mixed wrapper such as
+;;   `{:rf.mcp/overflow {:limit :reached} :unexpected "<8K body>"}`
+;; leads with a real marker key yet carries an arbitrary top-level sibling.
+;; Classifying it as an already-bounded marker lets a reserved-key-shaped
+;; or malformed handler result BYPASS cap enforcement (and skip cache
+;; bookkeeping) rather than being measured/replaced — rf2-j538f7.20. So
+;; after the cheap pre-filter matches, we PARSE the whole rendered text and
+;; require a closed single-key marker map.
+;;
+;; The read reuses cursor.cljc's proven, host-agnostic "one form, EOF-
+;; exhausted, tagged-literals-rejected" technique: wrap as
+;; `[<text> <eof-sentinel>]` and require the read to yield EXACTLY
+;; `[<one-form> <eof-sentinel>]`. A trailing EDN form pushes the count past
+;; 2; an injected `]` truncates the read before the sentinel; any tagged
+;; literal (built-in `#inst`/`#uuid` or custom `#js`/`#foo`) throws. All
+;; three fall through to "not a marker". Runs identically on `clojure.edn`
+;; (JVM) and `cljs.reader` (CLJS).
+;; ---------------------------------------------------------------------------
+
+(def ^:private marker-keys
+  "The exact set of top-level keys a wire-bounded marker envelope may
+  carry — the two the cache + cap boundary steps emit. A closed
+  single-key map whose sole key is one of these (with a map body) is a
+  marker; anything else is ordinary / malformed payload."
+  #{vocab/cache-hit-key vocab/overflow-key})
+
+(defn- reject-marker-tag!
+  "Throw on any tagged literal encountered while reading marker text. A
+  genuine marker envelope is pure data (keywords, maps, strings, numbers);
+  a tagged literal is a smuggled host object / malformed payload, never a
+  marker. Caught by `read-one-closed-form` → `::invalid`."
+  []
+  (throw (ex-info "marker text carried a tagged literal — not a marker" {})))
+
+(def ^:private marker-no-tag-readers
+  "Reject the BUILT-IN `#inst` / `#uuid` tags, which have registered
+  readers on both hosts and would otherwise bypass `:default`. Mirrors
+  cursor.cljc's `no-tag-readers`."
+  {'inst (fn [_] (reject-marker-tag!))
+   'uuid (fn [_] (reject-marker-tag!))})
+
+(def ^:private marker-eof-sentinel
+  "Appended after the rendered text to assert the reader consumed the
+  WHOLE wrapped string (the string-host analog of an `:eof` read
+  sentinel). Qualified + unguessable so attacker text reproducing this
+  literal still cannot pass the exhaustion check."
+  ::marker-eof-sentinel)
+
+(defn- read-one-closed-form
+  "Read `text` as EXACTLY ONE EDN form — tagged literals rejected, EOF
+  exhausted (a trailing form ⇒ reject), `]`-injection defeated — via
+  cursor.cljc's wrap-and-sentinel technique. Returns the sole form, or
+  `::invalid` on any read failure / trailing content / tagged literal.
+  Never throws."
+  [text]
+  (try
+    (let [opts    {:readers marker-no-tag-readers
+                   :default (fn [_ _] (reject-marker-tag!))}
+          wrapped (str "[" text " " (pr-str marker-eof-sentinel) "]")
+          forms   #?(:clj  (edn/read-string opts wrapped)
+                     :cljs (cljs.reader/read-string opts wrapped))]
+      (if (and (vector? forms)
+               (= 2 (count forms))
+               (= marker-eof-sentinel (nth forms 1)))
+        (nth forms 0)
+        ::invalid))
+    (catch #?(:clj Throwable :cljs :default) _ ::invalid)))
+
+(defn- closed-marker-envelope?
+  "Structural confirmation that `text` renders a COMPLETE, CLOSED,
+  single-key `:rf.mcp/*` marker envelope: exactly one top-level key drawn
+  from `marker-keys`, with a map body. This proves the invariant the
+  fast-path skip relies on — the leading-token pre-filter proves only the
+  FIRST key, whereas this proves the WHOLE wrapper is closed (no extra
+  top-level sibling, no trailing form, no tagged literal, no non-map
+  root/body). A reserved-key-shaped or malformed payload therefore cannot
+  inherit the marker exemption and bypass cap enforcement (rf2-j538f7.20).
+  Additive body fields remain allowed — only the OUTER wrapper must be
+  closed."
+  [text]
+  (let [form (read-one-closed-form text)]
+    (and (map? form)
+         (= 1 (count form))
+         (let [[k body] (first form)]
+           (and (contains? marker-keys k)
+                (map? body))))))
+
 (defn marker-text?
   "Is `text` (the rendered EDN text of a response's first content slot)
-  a wire-bounded `:rf.mcp/*` marker envelope?
+  a wire-bounded `:rf.mcp/*` marker envelope — a COMPLETE, CLOSED,
+  single-key marker map?
 
   Returns true for `:rf.mcp/cache-hit` / `:rf.mcp/overflow` markers —
   the two envelopes the cache + cap steps emit themselves. The
   consumer reads its own platform's content text (`:text` from a
   Clojure map, `j/get :text` from a JS object) and passes the string
-  here; this fn owns only the leading-token match logic, shared across
-  hosts.
+  here; this fn owns the shared recognition logic across hosts.
 
-  Matches the EXACT marker key, not merely a prefix of it:
-  a lookalike leading key such as `:rf.mcp/overflowed` or
-  `:rf.mcp/cache-hit-extra` is NOT a marker. The match requires the
-  marker key to be terminated by an EDN token terminator (the space
-  `pr-str` writes before the marker's value), so an over-budget payload
-  whose first key merely starts with a marker key still gets capped.
+  Two gates, both required:
+
+    1. A cheap leading-token PRE-FILTER — the EXACT marker key must be
+       the first top-level key (not merely a prefix of it): a lookalike
+       leading key such as `:rf.mcp/overflowed` or
+       `:rf.mcp/cache-hit-extra` is NOT a marker (see §Exact-key match
+       in envelope.md).
+    2. A structural CONFIRMATION — the whole `text` must parse to a
+       closed single-key map whose sole key is a marker key and whose
+       body is a map. The pre-filter proves only the FIRST key; this
+       proves the invariant the fast-path skip relies on: that the
+       marker is sub-cap BY CONSTRUCTION. A mixed wrapper with an
+       unexpected top-level sibling
+       (`{:rf.mcp/overflow {...} :unexpected \"<big>\"}`), a trailing
+       EDN form, a tagged literal, or a non-map root/body is NOT a
+       marker and continues through cap enforcement (rf2-j538f7.20).
+       Additive fields inside the body remain allowed — only the OUTER
+       wrapper must be closed.
 
   Nil-safe: a nil / non-string `text` is not a marker."
   [text]
   (boolean
     (and (string? text)
-         (some #(exact-marker-prefix? text %) marker-prefixes))))
+         (some #(exact-marker-prefix? text %) marker-prefixes)
+         (closed-marker-envelope? text))))

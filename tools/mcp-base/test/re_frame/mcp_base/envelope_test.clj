@@ -138,3 +138,53 @@
     (is (true? (envelope/marker-text?
                  (binding [*print-namespace-maps* true]
                    (pr-str {vocab/cache-hit-key {:tool "x"}})))))))
+
+(deftest marker-text?-requires-closed-single-key-wrapper-not-just-first-key
+  ;; rf2-j538f7.20. The leading-token match proves only the FIRST key. The
+  ;; invariant the fast-path skip relies on — "a marker is sub-cap BY
+  ;; CONSTRUCTION" — holds only for a COMPLETE, CLOSED, single-key marker
+  ;; map. A mixed wrapper whose FIRST key is a real marker key but which
+  ;; carries an unexpected top-level SIBLING (or a trailing form / tagged
+  ;; literal / non-map body) is NOT a marker: it must fall through to cap
+  ;; measurement, never inherit the exemption. The pre-fix prefix-only
+  ;; recogniser returned true for every case below (the cap-bypass hole).
+  (testing "RED-then-GREEN: over-budget mixed wrapper with a top-level sibling ⇒ NOT a marker"
+    (let [big (apply str (repeat 8000 "x"))]
+      ;; The exact reproduction from the bead: reserved key FIRST, huge sibling.
+      (is (false? (envelope/marker-text?
+                    (pr-str (array-map vocab/overflow-key {:limit :reached}
+                                       :unexpected big))))
+          "an 8K sibling under an overflow-keyed wrapper must be capped, not skipped")
+      (is (false? (envelope/marker-text?
+                    (pr-str (array-map vocab/cache-hit-key {:tool "x"}
+                                       :unexpected big))))
+          "the same hole for cache-hit")))
+  (testing "extra top-level sibling ⇒ NOT a marker (both print forms)"
+    (is (false? (envelope/marker-text? "{:rf.mcp/overflow {:limit :reached} :unexpected 1}")))
+    (is (false? (envelope/marker-text? "#:rf.mcp{:overflow {:limit :reached}, :other/k 2}")))
+    (is (false? (envelope/marker-text? "{:rf.mcp/cache-hit {:tool \"x\"} :extra \"y\"}"))))
+  (testing "trailing EDN form after the closed marker ⇒ NOT a marker"
+    (is (false? (envelope/marker-text? "{:rf.mcp/overflow {:limit :reached}} 42")))
+    (is (false? (envelope/marker-text? "{:rf.mcp/overflow {:limit :reached}} {:junk 1}")))
+    (is (false? (envelope/marker-text? "{:rf.mcp/cache-hit {:tool \"x\"}} :trailing")))
+    ;; `]`-injection cannot truncate the read early past the EOF sentinel.
+    (is (false? (envelope/marker-text? "{:rf.mcp/overflow {:limit :reached}}] {:junk 1}"))))
+  (testing "tagged literal in the body ⇒ NOT a marker (built-in and custom)"
+    (is (false? (envelope/marker-text? "{:rf.mcp/overflow {:at #inst \"2024-01-01T00:00:00.000-00:00\"}}")))
+    (is (false? (envelope/marker-text? "{:rf.mcp/overflow #js {:limit :reached}}")))
+    (is (false? (envelope/marker-text? "{:rf.mcp/overflow {:id #uuid \"00000000-0000-0000-0000-000000000000\"}}"))))
+  (testing "missing / non-map body ⇒ NOT a marker"
+    (is (false? (envelope/marker-text? "{:rf.mcp/overflow \"a string body\"}")))
+    (is (false? (envelope/marker-text? "{:rf.mcp/overflow 42}")))
+    (is (false? (envelope/marker-text? "{:rf.mcp/overflow nil}")))
+    (is (false? (envelope/marker-text? "{:rf.mcp/cache-hit [:not :a :map]}")))
+    ;; Truncated text (no closing brace) ⇒ read fails ⇒ NOT a marker.
+    (is (false? (envelope/marker-text? "{:rf.mcp/overflow {:limit :reached}"))))
+  (testing "non-map root that merely starts with a marker-key token ⇒ NOT a marker"
+    ;; A vector/list literal whose printed head could look marker-ish.
+    (is (false? (envelope/marker-text? "[:rf.mcp/overflow {:limit :reached}]"))))
+  (testing "the canonical closed markers the real builders emit STILL match"
+    (is (true? (envelope/marker-text? (pr-str (overflow-fixture)))))
+    (is (true? (envelope/marker-text? (pr-str {vocab/cache-hit-key {:tool "x" :hash "abc"}}))))
+    ;; Even under a tiny additive body — additive fields inside the body are fine.
+    (is (true? (envelope/marker-text? "{:rf.mcp/overflow {:limit :reached :extra :ok}}")))))

@@ -11,7 +11,7 @@ This doc is one of thirteen per-namespace contracts indexed from [`README.md`](R
 
 - `with-indicators` — splice the `:dropped-sensitive` / `:elided-large` slots onto an envelope, enforcing the "omit when zero" MUST.
 - `marker-prefixes` — the rendered-text prefixes of the wire-bounded `:rf.mcp/cache-hit` / `:rf.mcp/overflow` envelopes (both flat and namespaced-map print forms).
-- `marker-text?` — wire-bounded marker detection on a rendered text string.
+- `marker-text?` — wire-bounded marker detection on a rendered text string; requires a complete, closed, single-key marker wrapper (leading-token pre-filter + structural confirmation).
 
 `envelope` does NOT own:
 
@@ -36,15 +36,18 @@ A zero / nil / absent count omits its slot entirely (the "omit when zero" MUST).
 
 ### `marker-prefixes` — vector of prefix strings
 
-Rendered-text prefixes of the wire-bounded `:rf.mcp/*` replacement envelopes (`:rf.mcp/cache-hit`, `:rf.mcp/overflow`). Includes BOTH the flat and the namespaced-map print forms (see §Print-form parity below) so the detector works regardless of host or `*print-namespace-maps*`. The leading token must MATCH a marker key exactly — not merely begin with one (see `marker-text?` and §Exact-key match below).
+Rendered-text prefixes of the wire-bounded `:rf.mcp/*` replacement envelopes (`:rf.mcp/cache-hit`, `:rf.mcp/overflow`). Includes BOTH the flat and the namespaced-map print forms (see §Print-form parity below) so the detector works regardless of host or `*print-namespace-maps*`. The leading token must MATCH a marker key exactly — not merely begin with one (see `marker-text?` and §Exact-key match below). This is the cheap **pre-filter** for `marker-text?`; a match still has to pass the §Closed-wrapper confirmation before it counts as a marker.
 
 ### `marker-text? text` — predicate
 
-Is `text` (the rendered EDN text of a response's first content slot) a wire-bounded `:rf.mcp/*` marker envelope?
+Is `text` (the rendered EDN text of a response's first content slot) a wire-bounded `:rf.mcp/*` marker envelope — a **complete, closed, single-key marker map**?
 
-Returns true for `:rf.mcp/cache-hit` / `:rf.mcp/overflow` markers — the two envelopes the cache + cap steps emit themselves. The consumer reads its own platform's content text (`:text` from a Clojure map, `j/get :text` from a JS object) and passes the string here; this fn owns only the leading-token match logic, shared across hosts.
+Returns true for `:rf.mcp/cache-hit` / `:rf.mcp/overflow` markers — the two envelopes the cache + cap steps emit themselves. The consumer reads its own platform's content text (`:text` from a Clojure map, `j/get :text` from a JS object) and passes the string here; this fn owns the shared recognition logic across hosts.
 
-Matches the EXACT marker key, not merely a prefix of it (see §Exact-key match below): a lookalike leading key such as `:rf.mcp/overflowed` or `:rf.mcp/cache-hit-extra` is NOT a marker.
+Two gates, **both required**:
+
+1. A cheap **leading-token pre-filter** — the EXACT marker key must be the first top-level key, not merely a prefix of it (see §Exact-key match below): a lookalike leading key such as `:rf.mcp/overflowed` or `:rf.mcp/cache-hit-extra` is NOT a marker.
+2. A **structural confirmation** — the whole `text` must parse to a closed single-key map whose sole key is a marker key and whose body is a map (see §Closed-wrapper confirmation below).
 
 Nil-safe: a nil / non-string `text` is not a marker.
 
@@ -66,6 +69,24 @@ Matching both keeps the detector host- and print-setting-agnostic.
 The detector matches the marker key EXACTLY — not merely as a prefix. After the leading marker-key text matches, the very next character must be an EDN token TERMINATOR (whitespace, `,`, or a map/vector/list/string delimiter) — proving the marker key ended exactly there and was not merely a prefix of a longer key. EDN keyword/symbol constituents (alphanumerics plus `* + ! - _ ' ? < > = . / : # & %`) immediately after the prefix mean the leading key is a LOOKALIKE, not the marker.
 
 A bare prefix match would also accept lookalike keys such as `:rf.mcp/overflowed`, allowing an ordinary payload to bypass cap enforcement. Requiring a token terminator preserves the real markers' short-circuit while rejecting lookalikes.
+
+## Closed-wrapper confirmation
+
+The leading-token match proves only the **first** key. That is not the invariant the fast-path skip relies on: "a marker is sub-cap **by construction**" holds only for a **complete, closed, single-key** marker map. A mixed wrapper whose first key is a real marker key but which carries an unexpected top-level sibling —
+
+```clojure
+{:rf.mcp/overflow {:limit :reached} :unexpected "<8K body>"}
+```
+
+— leads with a marker key yet is an arbitrary over-budget payload. Classifying it as an already-bounded marker would let a reserved-key-shaped or malformed handler result **bypass cap enforcement** (and skip cache bookkeeping) instead of being measured/replaced.
+
+So after the leading-token pre-filter matches, `marker-text?` **parses the whole rendered text** and requires:
+
+- exactly **one** top-level key,
+- that key is `vocab/cache-hit-key` or `vocab/overflow-key`, and
+- a **map** body (additive body fields are permitted where the conformance schema allows them — only the OUTER wrapper must be closed).
+
+The read reuses `cursor.md`'s host-agnostic *one form, EOF-exhausted, tagged-literals-rejected* technique (wrap as `[<text> <eof-sentinel>]`, require the read to yield exactly `[<one-form> <eof-sentinel>]`). This rejects — identically on `clojure.edn` (JVM) and `cljs.reader` (CLJS) — an extra top-level sibling, a trailing EDN form, an injected `]` truncation, any tagged literal (built-in `#inst`/`#uuid` or custom `#js`/`#foo`), and a non-map root/body. Anything that fails the confirmation is ordinary/malformed payload and continues through cap enforcement. The cheap path for genuinely generated markers is preserved: their pre-filter matches and the parse confirms a closed single-key map, with no overflow-of-overflow recursion.
 
 ## Indicator-field parity
 

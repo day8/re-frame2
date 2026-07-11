@@ -502,6 +502,52 @@
          (envelope/with-indicators {:trace [1]} {:dropped 3 :elided 2}))))
 
 ;; ---------------------------------------------------------------------------
+;; 7b. marker-text? requires a CLOSED single-key wrapper on CLJS too
+;;     (rf2-j538f7.20). pair-mcp is a CLJS Node script and delegates
+;;     `wire/marker?` → `envelope/marker-text?`, then SKIPS both cache and cap
+;;     work for a marker-like result. A prefix-only recogniser let a
+;;     reserved-key-shaped payload with an unexpected top-level sibling bypass
+;;     the cap. The structural read (cursor's wrap-and-sentinel technique)
+;;     runs identically on `cljs.reader`, so the closed-wrapper gate must bite
+;;     on the CLJS runtime the pair server actually runs. CLJS `pr-str` emits
+;;     the FLAT form (default `*print-namespace-maps*` false), so these feed
+;;     the flat form the pair path really produces.
+;; ---------------------------------------------------------------------------
+
+(deftest marker-text?-requires-closed-single-key-wrapper-cljs
+  (testing "canonical closed markers the real builders emit STILL take the fast path"
+    (is (true? (envelope/marker-text?
+                 (pr-str {vocab/overflow-key {:limit :reached :token-count 9000
+                                              :cap-tokens 5000 :tool "snapshot"}}))))
+    (is (true? (envelope/marker-text?
+                 (pr-str {vocab/cache-hit-key {:hash "abc" :tool "snapshot"}}))))
+    (is (true? (envelope/marker-text? "{:rf.mcp/overflow {:limit :reached :extra :ok}}"))
+        "additive body fields are allowed — only the OUTER wrapper must be closed"))
+  (testing "RED-then-GREEN: an over-budget mixed wrapper with a top-level sibling is NOT a marker"
+    (let [big (apply str (repeat 8000 "x"))]
+      (is (false? (envelope/marker-text?
+                    (pr-str (array-map vocab/overflow-key {:limit :reached}
+                                       :unexpected big))))
+          "an 8K sibling under an overflow-keyed wrapper must be capped on CLJS, not skipped")
+      (is (false? (envelope/marker-text?
+                    (pr-str (array-map vocab/cache-hit-key {:tool "x"}
+                                       :unexpected big)))))))
+  (testing "trailing form / injected ] / tagged literal / non-map body ⇒ NOT a marker"
+    (is (false? (envelope/marker-text? "{:rf.mcp/overflow {:limit :reached}} 42")))
+    (is (false? (envelope/marker-text? "{:rf.mcp/overflow {:limit :reached}}] {:junk 1}")))
+    ;; cljs.reader resolves built-in #inst/#uuid from its tag-table and would
+    ;; bypass :default without the :readers override — the marker read rejects
+    ;; every tag identically to the cursor path.
+    (is (false? (envelope/marker-text? "{:rf.mcp/overflow {:at #inst \"2024-01-01T00:00:00.000-00:00\"}}")))
+    (is (false? (envelope/marker-text? "{:rf.mcp/overflow #js {:limit :reached}}")))
+    (is (false? (envelope/marker-text? "{:rf.mcp/overflow \"not a map body\"}")))
+    (is (false? (envelope/marker-text? "{:rf.mcp/overflow {:limit :reached}")) "truncated text"))
+  (testing "lookalike first key and ordinary payloads remain non-markers"
+    (is (false? (envelope/marker-text? "{:rf.mcp/overflowed {:limit :reached}}")))
+    (is (false? (envelope/marker-text? (pr-str {:trace [1 2 3]}))))
+    (is (false? (envelope/marker-text? nil)))))
+
+;; ---------------------------------------------------------------------------
 ;; 8. `sensitive.cljc` CLJS reader-conditional arms.
 ;;
 ;;    `re-frame.mcp-base.sensitive` is the spec/009 §Privacy default-suppress
