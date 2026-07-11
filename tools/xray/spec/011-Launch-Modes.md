@@ -305,11 +305,23 @@ Xray-as-Story-RHS) is enumerated in
 
 ### Closed state
 
-When Xray is hidden, the inline mount node remains in the layout host
-with `display: none`. The app does not receive body padding, viewport
+When Xray is hidden, the mount node remains in place (the inline node
+in the layout host, or the overlay node under `document.body`) with
+`display: none`. The app does not receive body padding, viewport
 overlays, or fixed-position chrome as part of the default developer
 experience. `Ctrl+Shift+C` shows the existing shell again; no React
 remount is required.
+
+The global show/hide route — the `Ctrl+Shift+C` toggle and the command
+palette's "show the shell first" step — is surface-**preserving**: it
+reopens whatever physical surface the shell was last realized on. A
+hidden overlay reopens as the overlay (a CSS-only show under
+`document.body`); a hidden inline shell reopens inline; the first-ever
+toggle, with nothing yet mounted, defaults to the canonical inline
+surface. Only the explicit `open!` / `open-overlay!` verbs CHANGE the
+physical surface. So the generic reopen never silently re-parents an
+overlay back inline, and — with no layout host — never fails an inline
+lookup that would strand the overlay hidden.
 
 Hosts MAY add their own launcher affordance if they want a visible
 button, but that affordance is host chrome, not Xray's default launch

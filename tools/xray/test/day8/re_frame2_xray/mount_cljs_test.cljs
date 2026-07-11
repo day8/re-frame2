@@ -52,6 +52,7 @@
             [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.substrate.plain-atom :as plain-atom]
             [day8.re-frame2-xray.config :as config]
+            [day8.re-frame2-xray.keybinding :as keybinding]
             [day8.re-frame2-xray.mount :as mount]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.settings.effects :as settings-effects]
@@ -2067,3 +2068,275 @@
                   "inline node still owned by the layout host")
               (is (= 1 (deep-count-by-id body "rf-xray-root")))
               (is (= :inline (:mode (mount/status)))))))))))
+
+;; -------------------------------------------------------------------------
+;; (11) Global reopen preserves the realized surface (rf2-j538f7.41)
+;; -------------------------------------------------------------------------
+;;
+;; `open!` / `open-overlay!` are the explicit surface-CHANGE verbs (each
+;; realizes its distinct physical surface, per §(10) above). `toggle!`
+;; (the `Ctrl+Shift+C` keybinding) and the command palette's hidden-shell
+;; show (`Cmd/Ctrl+K`) are the GLOBAL show/hide route — they must reopen
+;; whatever surface the shell was last realized on, NOT force inline.
+;;
+;; Pre-rf2-j538f7.41 both routes hard-coded `open!` on the hidden branch,
+;; so a hidden OVERLAY mount reopened via either route was treated as an
+;; explicit inline-surface request: with a layout host it silently
+;; re-parented the overlay back inline (discarding the fullscreen choice
+;; + component state, breaking the CSS-only reopen contract); with NO
+;; host `switch-surface! :inline` returned the missing-host diagnostic
+;; and left the overlay stranded hidden — repeated toggles could never
+;; recover it. §(10)'s regressions matched `close!` with the SAME
+;; explicit verb (`open-overlay!` after overlay-close, `open!` after
+;; inline-close); they never exercised the generic `toggle!` / palette
+;; route, so they false-green this composed transition.
+;;
+;; The fix: hidden `toggle!` routes by the retained `mount-state :mode`
+;; (`:overlay` → `open-overlay!`, else → `open!`); the palette handler
+;; calls the corrected `toggle!` on its already-proven-hidden branch.
+;; These tests drive both the direct `toggle!` and the ACTUAL keybinding
+;; handlers (`keybinding/handle-keydown`) so the consumed shortcut, not a
+;; mock, realizes the surface.
+
+(defn- mk-keydown-event
+  "Synthetic KeyboardEvent for driving `keybinding/handle-keydown`
+  directly — carries the modifier flags + `key`/`code` the key
+  predicates read, plus no-op `preventDefault`/`stopPropagation` the
+  handler invokes on a consumed key. Mirrors the keybinding-test
+  `mk-event` helper, extended with the two event methods."
+  [opts]
+  (let [{:keys [key code ctrl? shift? meta? alt?]
+         :or   {ctrl? false shift? false meta? false alt? false}} opts]
+    (js-obj "key"             key
+            "code"            code
+            "ctrlKey"         ctrl?
+            "shiftKey"        shift?
+            "metaKey"         meta?
+            "altKey"          alt?
+            "preventDefault"  (fn [] nil)
+            "stopPropagation" (fn [] nil))))
+
+;; ---- (1) AC1 — no layout host: overlay survives hide/show via toggle! ----
+
+(deftest global-toggle-reopens-hidden-overlay-as-overlay-no-host-rf2-j538f7-41
+  (testing "rf2-j538f7.41 AC1 — with NO `[data-rf-xray-host]` (the
+            overlay's primary fallback use case): open-overlay! →
+            toggle!(hide) → toggle!(show) keeps the shell on the OVERLAY
+            surface. The reopen reuses the SAME body-owned root, flips
+            display:none back to block (CSS-only), attempts NO inline-host
+            lookup (no missing-host diagnostic), and adds NO render.
+            Pre-fix toggle! → open! → switch-surface! :inline stranded
+            the overlay hidden; repeated toggles could never recover it."
+    (with-stub-document
+      (fn [doc]
+        ;; No app-provided layout host — querySelector returns nil so an
+        ;; accidental inline switch would take the missing-host path.
+        (set! (.-querySelector doc) (fn [_selector] nil))
+        (let [{:keys [render-fn calls]} (mk-render-stub)
+              prior-console (when (exists? js/console) js/console)]
+          (set! js/console (js-obj "error" (fn [& _args] nil)))
+          (with-redefs [substrate-adapter/render render-fn]
+            (try
+              (mount/open-overlay!)
+              (is (= 1 (count @calls)) "overlay mount rendered once")
+              (let [overlay-node (:node @@#'mount/mount-state)]
+                (is (= :overlay (:mode (mount/status))))
+                (is (true? (mount/visible?)))
+                (is (identical? (.-body doc) (.-parentNode overlay-node))
+                    "overlay root owned by document.body (needs no host)")
+                (mount/toggle!)                     ; hide via the global route
+                (is (false? (mount/visible?)) "toggle! hides the overlay")
+                (is (= :overlay (:mode (mount/status)))
+                    "hidden overlay retains its realized :overlay mode")
+                (is (= "none" (.-display (.-style overlay-node))))
+                (mount/toggle!)                     ; show via the global route
+                (is (true? (mount/visible?)) "toggle! re-shows the shell")
+                (is (= :overlay (:mode (mount/status)))
+                    "the reopened surface is the OVERLAY — NOT reverted to
+                     inline (the rf2-j538f7.41 fix)")
+                (is (identical? overlay-node (:node @@#'mount/mount-state))
+                    "the SAME body-owned overlay root is reused")
+                (is (= "block" (.-display (.-style overlay-node)))
+                    "display flipped back to block — a CSS-only re-show")
+                (is (= 1 (count @calls))
+                    "no re-render — the reopen is a CSS-only show, not a
+                     surface switch")
+                (is (not= :missing-layout-host
+                          (get-in (mount/status) [:diagnostic :reason]))
+                    "no inline-host lookup was attempted — the pre-fix
+                     open! → switch-surface! :inline diagnostic never fires"))
+              (finally
+                (set! js/console prior-console)))))))))
+
+;; ---- (2) AC2 — host present: overlay survives close/toggle reopen --------
+
+(deftest global-toggle-reopens-hidden-overlay-as-overlay-host-present-rf2-j538f7-41
+  (testing "rf2-j538f7.41 AC2 — host present: open! (inline) →
+            open-overlay! (realize overlay) → close! → toggle!(show)
+            reopens the OVERLAY, not the inline surface. Status, DOM
+            owner, and data-rf-xray-mode stay coherent; the reopen is a
+            CSS-only show of the retained body-owned root (no re-render).
+            Pre-fix toggle! → open! silently re-parented the shell back
+            into the right rail."
+    (with-two-owner-document
+      (fn [{:keys [body host]}]
+        (let [{:keys [render-fn calls]} (mk-render-stub)]
+          (with-redefs [substrate-adapter/render render-fn]
+            (mount/open!)                           ; render #1 — inline
+            (mount/open-overlay!)                   ; render #2 — realize overlay
+            (is (= 2 (count @calls)))
+            (let [overlay-node (:node @@#'mount/mount-state)]
+              (is (= :overlay (:mode (mount/status))))
+              (is (identical? body (.-parentNode overlay-node))
+                  "precondition: overlay root owned by document.body")
+              (mount/close!)
+              (is (false? (mount/visible?)))
+              (is (= :overlay (:mode (mount/status)))
+                  "close! retains the realized overlay mode")
+              (mount/toggle!)                       ; reopen via the global route
+              (is (true? (mount/visible?)) "toggle! re-shows the shell")
+              (is (= :overlay (:mode (mount/status)))
+                  "the reopened surface is the OVERLAY — pre-fix the global
+                   toggle hard-coded open!, re-parenting back to inline")
+              (is (= 2 (count @calls))
+                  "reopen is a CSS-only show of the retained overlay — no
+                   third render")
+              (is (identical? overlay-node (:node @@#'mount/mount-state))
+                  "same body-owned overlay root reused")
+              (is (identical? body (.-parentNode overlay-node))
+                  "overlay root still owned by document.body — not
+                   re-parented to the layout host")
+              (is (not (identical? host (.-parentNode overlay-node))))
+              (is (= "overlay"
+                     (.getAttribute overlay-node "data-rf-xray-mode"))
+                  "data-rf-xray-mode agrees with the realized surface")
+              (is (= 1 (deep-count-by-id body "rf-xray-root"))
+                  "exactly one #rf-xray-root — no duplicate/parallel mount"))))))))
+
+;; ---- (3) AC3 — the ACTUAL Ctrl+Shift+C handler re-shows a hidden overlay -
+
+(deftest ctrl-shift-c-handler-reshows-hidden-overlay-rf2-j538f7-41
+  (testing "rf2-j538f7.41 AC3 — driving the ACTUAL Ctrl+Shift+C handler
+            (`keybinding/handle-keydown`) against a hidden overlay (no
+            layout host) makes THAT SAME overlay visible again. Pre-fix
+            the consumed shortcut routed toggle! → open! → inline switch,
+            which with no host stranded the overlay hidden (repeated
+            presses could not recover it)."
+    (with-stub-document
+      (fn [doc]
+        (set! (.-querySelector doc) (fn [_selector] nil))   ; no host
+        (let [{:keys [render-fn calls]} (mk-render-stub)
+              prior-console (when (exists? js/console) js/console)]
+          (set! js/console (js-obj "error" (fn [& _args] nil)))
+          (with-redefs [substrate-adapter/render render-fn]
+            (try
+              (mount/open-overlay!)
+              (let [overlay-node (:node @@#'mount/mount-state)
+                    evt (mk-keydown-event {:key "C" :code "KeyC"
+                                           :ctrl? true :shift? true})]
+                (#'keybinding/handle-keydown evt)           ; hide
+                (is (false? (mount/visible?)) "first Ctrl+Shift+C hides")
+                (is (= :overlay (:mode (mount/status))))
+                (#'keybinding/handle-keydown evt)           ; show
+                (is (true? (mount/visible?))
+                    "second Ctrl+Shift+C re-shows the shell — the consumed
+                     shortcut recovers the overlay")
+                (is (= :overlay (:mode (mount/status)))
+                    "the re-shown surface is the OVERLAY, not inline")
+                (is (identical? overlay-node (:node @@#'mount/mount-state))
+                    "same body-owned overlay root reused")
+                (is (= 1 (count @calls)) "CSS-only re-show — no re-render")
+                (is (not= :missing-layout-host
+                          (get-in (mount/status) [:diagnostic :reason]))
+                    "no inline-host lookup failure via the real handler"))
+              (finally
+                (set! js/console prior-console)))))))))
+
+;; ---- (4) AC4 — the ACTUAL Cmd/Ctrl+K handler shows overlay first --------
+
+(deftest cmd-k-handler-shows-hidden-overlay-before-palette-rf2-j538f7-41
+  (testing "rf2-j538f7.41 AC4 — driving the ACTUAL Cmd/Ctrl+K handler
+            against a hidden overlay (no layout host) shows THAT overlay
+            BEFORE the palette opens. The handler's `(when-not visible?
+            (toggle!))` runs synchronously and returns with the shell
+            already visible; only THEN does it enqueue
+            `:rf.xray/palette-toggle`. So the shell is provably visible
+            before the palette can open — no invisible palette state.
+            Pre-fix the handler called open! → inline switch → the shell
+            stayed hidden while palette state flipped (an invisible
+            palette). `rf/dispatch` is a MACRO, so the enqueued
+            palette-toggle is left to the router; we assert the
+            load-bearing synchronous fact — the overlay is visible when
+            `handle-keydown` returns."
+    (with-stub-document
+      (fn [doc]
+        (set! (.-querySelector doc) (fn [_selector] nil))   ; no host
+        (let [{:keys [render-fn calls]} (mk-render-stub)
+              prior-console (when (exists? js/console) js/console)]
+          (set! js/console (js-obj "error" (fn [& _args] nil)))
+          (with-redefs [substrate-adapter/render render-fn]
+            (try
+              (mount/open-overlay!)
+              (mount/close!)                                ; hidden overlay
+              (is (false? (mount/visible?)) "precondition: shell hidden")
+              (let [overlay-node (:node @@#'mount/mount-state)
+                    evt (mk-keydown-event {:key "k" :code "KeyK" :ctrl? true})]
+                (#'keybinding/handle-keydown evt)
+                (is (true? (mount/visible?))
+                    "Cmd/Ctrl+K made the hidden overlay visible — the show
+                     is synchronous, before the palette dispatch enqueues")
+                (is (= :overlay (:mode (mount/status)))
+                    "the shown surface is the OVERLAY, not reverted inline")
+                (is (identical? overlay-node (:node @@#'mount/mount-state))
+                    "same body-owned overlay root reused")
+                (is (= 1 (count @calls)) "CSS-only show — no re-render")
+                (is (not= :missing-layout-host
+                          (get-in (mount/status) [:diagnostic :reason]))
+                    "the palette route no longer attempts an inline switch
+                     on a hidden overlay"))
+              (finally
+                (set! js/console prior-console)))))))))
+
+;; ---- (5) AC5 — canonical defaults preserved -----------------------------
+
+(deftest first-ever-toggle-defaults-to-inline-rf2-j538f7-41
+  (testing "rf2-j538f7.41 AC5 — the first-ever toggle! (nothing mounted,
+            @mount-state nil ⇒ :mode nil) mounts the canonical INLINE
+            surface, NOT the overlay. The retained-mode reopen rule must
+            leave the cold-start default untouched."
+    (with-two-owner-document
+      (fn [{:keys [host]}]
+        (let [{:keys [render-fn calls]} (mk-render-stub)]
+          (with-redefs [substrate-adapter/render render-fn]
+            (is (nil? @@#'mount/mount-state) "cold start")
+            (mount/toggle!)
+            (is (= 1 (count @calls)))
+            (is (= :inline (:mode (mount/status)))
+                "first-ever toggle defaults inline")
+            (is (identical? host (.-parentNode (:node @@#'mount/mount-state)))
+                "inline root owned by the layout host")))))))
+
+(deftest global-toggle-reopens-hidden-inline-as-inline-rf2-j538f7-41
+  (testing "rf2-j538f7.41 AC5 (symmetric inline case) — a hidden INLINE
+            mount reopened via toggle! stays inline: same host-owned node,
+            CSS-only show, no re-render. The surface-preserving rule must
+            not disturb the canonical inline hide/show."
+    (with-two-owner-document
+      (fn [{:keys [host body]}]
+        (let [{:keys [render-fn calls]} (mk-render-stub)]
+          (with-redefs [substrate-adapter/render render-fn]
+            (mount/open!)                           ; inline
+            (let [inline-node (:node @@#'mount/mount-state)]
+              (is (= :inline (:mode (mount/status))))
+              (mount/toggle!)                       ; hide
+              (is (false? (mount/visible?)))
+              (mount/toggle!)                       ; show
+              (is (true? (mount/visible?)))
+              (is (= :inline (:mode (mount/status)))
+                  "hidden inline reopens inline")
+              (is (identical? inline-node (:node @@#'mount/mount-state))
+                  "same host-owned node reused")
+              (is (identical? host (.-parentNode inline-node))
+                  "still owned by the layout host")
+              (is (= 1 (count @calls)) "CSS-only show — no re-render")
+              (is (= 1 (deep-count-by-id body "rf-xray-root"))))))))))

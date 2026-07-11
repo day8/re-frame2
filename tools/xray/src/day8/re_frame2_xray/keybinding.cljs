@@ -325,12 +325,19 @@
     (do (.preventDefault event)
         (.stopPropagation event)
         ;; Per spec/007-UX-IA.md §Command palette — Cmd/Ctrl+K
-        ;; toggles the command palette modal. Open the shell first
-        ;; if it's not visible so the palette has somewhere to mount;
-        ;; the toggle dispatch is routed through Xray's frame so the
-        ;; palette open-state lives on :rf/xray.
+        ;; toggles the command palette modal. Show the shell first if
+        ;; it's hidden so the palette has somewhere to mount. This
+        ;; `when-not visible?` branch already proves the shell is
+        ;; hidden, so route through `mount/toggle!` (its reopen path)
+        ;; rather than duplicating a hard-coded inline `open!` choice:
+        ;; per rf2-j538f7.41 that preserves the realized surface, so a
+        ;; hidden OVERLAY shell reopens as the overlay instead of being
+        ;; silently reverted to inline (or, with no layout host, left
+        ;; stranded hidden while the palette state flips invisibly).
+        ;; The palette-toggle dispatch is routed through Xray's frame so
+        ;; the palette open-state lives on :rf/xray.
         (when-not (mount/visible?)
-          (mount/open!))
+          (mount/toggle!))
         (rf/with-frame :rf/xray
           (rf/dispatch [:rf.xray/palette-toggle])))
 
