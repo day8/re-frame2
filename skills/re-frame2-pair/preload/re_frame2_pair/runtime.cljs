@@ -2678,8 +2678,16 @@
             :reason :restore-rejected}))))))
 
 (defn undo-to-epoch
-  "Restore a specific epoch by id. Returns the same shape as
-   `restore-epoch`'s success envelope, carrying a cascade-summary slot."
+  "Restore a specific epoch by id. Returns
+   `{:ok? true :epoch-id <id> :restored? true :frame <id> :cascade-summary
+   {...} :unreplayable-effects [...]}` on success (the same shape as
+   `restore-epoch`'s success envelope, carrying a cascade-summary slot)
+   or `{:ok? false :epoch-id <id> :restored? false :frame <id> :reason
+   :restore-rejected}` when `rf/restore-epoch!` rejects the restore (any
+   of the seven Tool-Pair time-travel failure modes: aged-out id,
+   schema/version mismatch, restore-during-drain, halted-cascade target,
+   unknown frame). Mirrors `undo-step-back`'s failure envelope — a
+   rejected restore left the frame UNCHANGED and must not read as success."
   ([epoch-id] (undo-to-epoch epoch-id (current-frame)))
   ([epoch-id frame-id]
    (let [pre-db (rf/app-db-value frame-id)
@@ -2687,7 +2695,7 @@
      (if ok?
        (merge {:ok? true :epoch-id epoch-id :restored? true :frame frame-id}
               (restore-cascade-summary pre-db frame-id epoch-id))
-       {:ok?       true
+       {:ok?       false
         :epoch-id  epoch-id
         :restored? false
         :frame     frame-id
