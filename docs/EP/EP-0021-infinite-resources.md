@@ -21,6 +21,18 @@ Type: standards-track
 > sections below are the design record; where they and the spec differ, the
 > spec governs. `final` asserts the **decisions are settled** and the normative
 > home governs.
+>
+> **Amendment (rf2-x76af2.12, superseded by [EP-0025](EP-0025-data-classification.md)):**
+> Resolved Decision **R5** originally named a single `:page-data-schema` key as
+> *both* the per-page decode target *and* the per-page egress/classification
+> contract. [EP-0025](EP-0025-data-classification.md) (schemas **validate**;
+> projection-relative `:sensitive` / `:large` declarations **classify**) makes
+> that dual role a contradiction, so `:page-data-schema` is **retired** — it drove
+> neither validation nor egress and is now a hard `reg-resource` error. Per-page
+> **validation** rides the `:request`'s **`:decode`**; durable per-page
+> **classification** rides the projection-relative **`:sensitive` / `:large`**
+> declarations (the index-free walk classifies every page). The R5 teaching below
+> is left as the historical design record; the spec governs.
 
 ## Abstract
 
@@ -178,9 +190,11 @@ single-page reads; the infinite case is the conspicuous remaining hole.
 - **[EP-0015](EP-0015-frame-owned-egress-policy.md) (final).** Accumulated page
   data, page params (which may be cursors carrying ids), and the merged list all
   pass through the frame-owned egress projection; a feed's classification is
-  owned by its **`:page-data-schema`, applied per page** on egress/SSR/tool
-  projection (Resolved Decision R5) — the accumulated `:data` is a framework
-  vector of pages and must not bypass per-page classification.
+  owned by its projection-relative **`:sensitive` / `:large`** declarations,
+  applied per page by the standard index-free walk (Resolved Decision R5, as
+  amended — see the banner note; [EP-0025](EP-0025-data-classification.md)) — the
+  accumulated `:data` is a framework vector of pages and must not bypass per-page
+  classification.
 
 ## Specification
 
@@ -213,7 +227,7 @@ introduced** — the page context rides the already-reserved context slot (see
    ;; cache instances. The per-page cursor is NOT here (it is :page-param).
    :params-schema   [:map [:filter :keyword]]
    :scope           {:from-db :app/session}      ;; EP-0016 D3 named resolver
-   :page-data-schema :app/timeline-page          ;; validates ONE page
+   :sensitive       [[:data :author-email]]      ;; durable per-page classification (EP-0025 index-free walk)
 
    ;; :request keeps its (params ctx) shape; the RESERVED ctx now carries the
    ;; resolved page context for THIS page (nil/empty for non-infinite resources).
@@ -223,7 +237,7 @@ introduced** — the page context rides the already-reserved context slot (see
                 :url    "/api/timeline"
                 :params (cond-> {:filter filter :limit 20}
                           page-param (assoc :cursor page-param))}
-      :decode  :app/timeline-page})
+      :decode  :app/timeline-page})           ;; per-page VALIDATION (validates ONE page)
 
    ;; Derive the NEXT page param from the last loaded page + all pages so far.
    ;; Returns nil to signal "no more pages" (the terminal). Aligns with
@@ -255,10 +269,14 @@ Rules (proposed, MUST):
 - `:next-page-param` is **pure** `(last-page all-pages) -> next-param-or-nil`.
   Returning `nil` is the canonical **terminal** signal (no more pages); the
   derived `:has-next-page?` is `(some? (:next-page-param …))`.
-- `:page-data-schema` validates **one page's** decoded value (the per-page
-  envelope) **and is the per-page egress/classification contract** applied per
-  page on SSR/tool projection (Resolved Decision R5). `:data-schema` is **not**
-  used for the accumulated vector.
+- Per-page **validation** rides the `:request`'s **`:decode`** — a Malli schema
+  validates **one page's** decoded value (the per-page envelope) before its reply
+  exists, on page 0 / load-more / every refetch leg. Durable per-page
+  **classification** rides the projection-relative **`:sensitive` / `:large`**
+  declarations, applied per page by the standard index-free walk (Resolved
+  Decision R5, as amended — [EP-0025](EP-0025-data-classification.md); the retired
+  `:page-data-schema` that once claimed both roles is a hard `reg-resource`
+  error). `:data-schema` is **not** used for the accumulated vector.
 - `:tags` on an infinite resource tag the **feed identity** and SHOULD also be
   derivable per item so item-level invalidation can reach into the feed (Open
   Question 4).
@@ -702,6 +720,10 @@ guide-impact assessment.
    `:data-schema` is **not** used for the accumulated vector (the vector is a
    framework-owned structure, not app-decoded data). Open: confirm there is no
    `:data-schema`-on-the-accumulation use, or define what it would validate.
+   *(Historical: this recommendation became R5, later **superseded by
+   [EP-0025](EP-0025-data-classification.md)** — see the banner note. `:page-data-schema`
+   is retired; per-page validation rides `:decode`, classification rides
+   `:sensitive` / `:large`.)*
 
 6. **`refetch` default: discard-tail vs refetch-all-pages.** Recommendation:
    default **discard tail, re-fetch page 0**, with opt-in `:refetch-all-pages?`
@@ -729,7 +751,7 @@ reconciled to them.
 | **R2** | Page-level sub-status, or only the existing `:fetching`? (Open Issue 2) | **No 6th FSM state.** A load-more reuses the existing `:fetching` (refresh-class) transition; a derived **`:fetching-next?`** subscription distinguishes a load-more in flight from a whole-feed `:fetching?` refresh. The five-state FSM is untouched. |
 | **R3** | Merged-list contract: headline read + default flatten? (Open Issue 3) | Framework-owned, memoised subscriptions: **`:rf.resource/items`** (the merged flat list — the headline read), **`:rf.resource/pages`** (raw boundaries), **`:rf.resource/infinite-state`** (combined view-model), plus the page-metadata subs. **`:page->items` is REQUIRED** for any feed whose page is non-vector/enveloped — loud over guessing `:items`/`:data`. A page that is already a vector flattens by identity. |
 | **R4** | What does an item-inside-the-feed mutation do? (Open Issue 4) | A mutation touching an item inside a feed **invalidates the whole feed** (coarse, correct, v1). In-place patching of one item inside the page vector is a **distinct deferred axis** (not the single-entry [EP-0019](EP-0019-optimistic-mutation-rollback.md) optimistic surface, which keeps the resource entry as its unit); its live home + fires-when trigger is [spec/016 §Refetch and invalidation of an infinite feed](../../spec/016-Resources.md#refetch-and-invalidation-of-an-infinite-feed). |
-| **R5** | `:data-schema` vs `:page-data-schema`? (Open Issue 5) | **`:page-data-schema` validates one page** (the decode target) **and is the per-page egress/classification contract**: SSR and tool projection apply it **per page** so sensitive page fields are classified (the accumulated `:data` is a framework-owned vector and must not bypass classification). **`:data-schema` is not used** for the accumulated vector. |
+| **R5** ⚠️ *superseded by [EP-0025](EP-0025-data-classification.md) (rf2-x76af2.12)* | `:data-schema` vs `:page-data-schema`? (Open Issue 5) | ~~**`:page-data-schema` validates one page and is the per-page egress/classification contract.**~~ **SUPERSEDED:** EP-0025 separates the two roles (schemas validate; projection-relative declarations classify), so `:page-data-schema` is **retired** (a hard `reg-resource` error — it drove neither). Per-page **validation** rides the `:request`'s **`:decode`**; durable per-page **classification** rides the projection-relative **`:sensitive` / `:large`** declarations (the index-free walk classifies every page). **`:data-schema` is not used** for the accumulated vector. |
 | **R6** | `refetch` default: discard-tail vs refetch-all-pages? (Open Issue 6) | **Conservative default: preserve the visible window** until the replacement succeeds (so focus/reconnect/invalidation refetch never collapses a loaded feed to page 0). `:refetch` is an explicit per-resource policy; **`:refetch-all-pages?` and `:refetch-window` ship as opt-ins from day one.** *(This supersedes the EP's earlier discard-tail default — adopting the Codex-flagged safer behaviour; the body's Part / Issue 6 text is reconciled to it.)* |
 | **R7** | Bidirectional (`:prev-page-param` / prepend) in v1 or deferred? (Open Issue 7) | **Next-direction `load-more` only for v1.** Define the `:next-page-param` / `:prev-page-param` derivation **mirror now** (free — same machinery), but **DEFER** the `:rf.resource/load-prev` prepend event until a consumer needs it. |
 | **R8** | `:request` signature — new 3-arity, or the reserved context? | Use the **reserved `:request` context as the page extension point**: `(request feed-params {:rf.resource/page-param p :rf.resource/page-index i})`. Non-infinite requests still receive a nil/empty ctx unchanged. **Do NOT add a new 3-arity.** |

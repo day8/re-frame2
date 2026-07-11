@@ -221,7 +221,8 @@
 ;; ---------------------------------------------------------------------------
 ;; Schemas validate; they do NOT classify durably.
 ;;
-;; A resource's `:data-schema` / `:params-schema` / per-page `:page-data-schema`
+;; A resource's `:data-schema` / `:params-schema` (and, for an infinite feed,
+;; the per-page validation supplied on the request's `:decode`)
 ;; VALIDATES the value; it does NOT drive DURABLE egress classification. The
 ;; per-slot `:sensitive?` / `:large?` schema props survive ONLY for
 ;; VALIDATION-FAILURE-TRACE redaction (the validator's own transient egress
