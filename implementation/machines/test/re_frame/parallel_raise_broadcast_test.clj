@@ -15,6 +15,11 @@
   internal-event queue and re-broadcasts each surfaced raise across every
   region.
 
+  A raised event DECLINED by every region consults the parallel root's own
+  `:on` as the ancestor fallback — identically to an external event (XState v6
+  / SCXML: a raised event selects against the FULL configuration incl. the
+  parallel ancestor; rf2-x76af2.8).
+
   Pure-engine tests — call `machine-transition` directly and read the merged
   post-macrostep snapshot. Order is recorded in `:data :log` (shared `:data`
   threads sequentially through regions in declaration order, so the log is
@@ -246,3 +251,76 @@
       (is (= :done (get-in snap [:state :flow]))
           "re-broadcast raise drove a→b, [:advance]→c, then region :always c→done")
       (is (= [:arm :step :auto] (:log (:data snap)))))))
+
+;; ---- 7. a raised event declined by EVERY region consults the root :on ------
+;;
+;; rf2-x76af2.8: a re-broadcast raise that no region handles must consult the
+;; parallel ROOT's own `:on` ancestor fallback — exactly as an EXTERNAL event
+;; does (`root-fallback-seed`). Pre-fix, `drain-parent-queue` re-broadcast to
+;; the regions only and silently DROPPED the raise when all declined, diverging
+;; from the flat-machine drain and XState v6 / SCXML (a raised event selects
+;; against the full configuration incl. the parallel ancestor).
+
+(deftest raised-event-declined-by-regions-consults-root-on
+  (let [spec
+        {:type    :parallel
+         :data    {}
+         :actions {;; :left's :trigger raises [:reset]; NO region handles [:reset].
+                   :raise-reset (fn [{:keys [data]}]
+                                  {:data (log! data :raise-reset)
+                                   :fx   [[:raise [:reset]]]})
+                   :root-reset  (fn [{:keys [data]}]
+                                  {:data (-> data (assoc :root-fired true)
+                                             (log! :root-reset))})}
+         ;; root :on — the ancestor fallback for [:reset].
+         :on      {:reset {:target [:left :done] :action :root-reset}}
+         :regions {:left {:initial :idle
+                         :states  {:idle {:on {:trigger {:target :fired
+                                                          :action :raise-reset}}}
+                                   :fired {}
+                                   :done  {}}}}}
+        initial {:state {:left :idle} :data {}}]
+    (testing "control: an EXTERNAL [:reset] fires the root :on"
+      (let [{snap ::result/snap} (machines/machine-transition spec initial [:reset])]
+        (is (= :done (get-in snap [:state :left])) "root :on moved :left to :done")
+        (is (true? (get-in snap [:data :root-fired])) "root :root-reset action ran")))
+    (testing "a RAISED [:reset] declined by every region ALSO fires the root :on"
+      (let [{snap ::result/snap} (machines/machine-transition spec initial [:trigger])]
+        (is (= :done (get-in snap [:state :left]))
+            "the raised [:reset] consulted the root :on (pre-fix: stuck at :fired)")
+        (is (true? (get-in snap [:data :root-fired]))
+            "the root :root-reset action fired for the RAISED event too")
+        (is (= [:raise-reset :root-reset] (:log (:data snap)))
+            "the region trigger ran, then the root fallback fired for the raise")))))
+
+;; ---- 8. a region handling the raise SUPPRESSES the root (atomic fallback) --
+;;
+;; The ancestor fallback is atomic: if ANY region handles the raised event, the
+;; root `:on` is suppressed ENTIRELY (same as the external-event semantic).
+
+(deftest region-handling-raise-suppresses-root
+  (let [spec
+        {:type    :parallel
+         :data    {}
+         :actions {:raise-reset (fn [{:keys [data]}]
+                                  {:data (log! data :raise-reset)
+                                   :fx   [[:raise [:reset]]]})
+                   :region-reset (fn [{:keys [data]}] {:data (log! data :region-reset)})
+                   :root-reset   (fn [{:keys [data]}]
+                                   {:data (-> data (assoc :root-fired true)
+                                              (log! :root-reset))})}
+         :on      {:reset {:target [:left :root-done] :action :root-reset}}
+         :regions {:left {:initial :idle
+                         ;; :left handles [:reset] LOCALLY — so the root is suppressed.
+                         :states  {:idle {:on {:trigger {:target :fired :action :raise-reset}}}
+                                   :fired {:on {:reset {:target :region-done
+                                                        :action :region-reset}}}
+                                   :region-done {}
+                                   :root-done   {}}}}}
+        initial {:state {:left :idle} :data {}}
+        {snap ::result/snap} (machines/machine-transition spec initial [:trigger])]
+    (is (= :region-done (get-in snap [:state :left]))
+        "the region handled the raised [:reset] locally — root suppressed")
+    (is (nil? (get-in snap [:data :root-fired]))
+        "the root :on was NOT consulted (atomic ancestor suppression)")
+    (is (= [:raise-reset :region-reset] (:log (:data snap))))))

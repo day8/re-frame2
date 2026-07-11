@@ -792,6 +792,10 @@
     (bootstrap-step machine initial-snapshot)))
 
 (declare machine-transition)
+;; `drain-parent-queue` consults the parallel root `:on` ancestor fallback for a
+;; re-broadcast raise declined by every region (rf2-x76af2.8); `root-fallback-
+;; seed` is defined below it (alongside the external-seed path it mirrors).
+(declare root-fallback-seed)
 
 ;; ---- parallel macrostep internal-event queue ------------------------------
 ;;
@@ -1115,8 +1119,28 @@
                     ;; augmented `:rf/cofx` overlays onto each region spec via
                     ;; `region-spec-overlaid`, and threads forward so a later
                     ;; re-broadcast re-presents the generated value.
-                    m'   (transition/ensure-raised-cofx m cur-snap ev)
-                    step (broadcast-once m' cur-snap ev)]
+                    m'    (transition/ensure-raised-cofx m cur-snap ev)
+                    bstep (broadcast-once m' cur-snap ev)
+                    ;; A raised internal event declined by EVERY region consults
+                    ;; the parallel root's own `:on` as the ancestor fallback —
+                    ;; mirroring the EXTERNAL-seed path (`root-fallback-seed` in
+                    ;; `parallel-machine-transition`), the flat/compound drain
+                    ;; (each dequeued raise selects against the machine-root `:on`
+                    ;; fallback), and XState v6 / SCXML (a raised event selects
+                    ;; against the FULL configuration incl. the parallel
+                    ;; ancestor). Selection is against `cur-snap` — the config as
+                    ;; of this microstep's start — the frozen view a raise sees.
+                    ;; `root-fallback-seed` returns `bstep` UNCHANGED when a
+                    ;; region handled it (atomic ancestor suppression), when the
+                    ;; root declares no matching `:on`, or for reserved `:rf/*`
+                    ;; framework traffic; when the root fires it applies the
+                    ;; transition, settles the moved region(s)' `:always`, and
+                    ;; defers any surfaced raises back through `split-raises`
+                    ;; below — so they drain FIFO through this same queue
+                    ;; (rf2-x76af2.8). A `result/fail` short-circuits.
+                    step  (if (result/fail? bstep)
+                            bstep
+                            (root-fallback-seed m' cur-snap ev bstep))]
                 (if (result/fail? step)
                   step
                   (result/with-ok [snap2 fx2] step
