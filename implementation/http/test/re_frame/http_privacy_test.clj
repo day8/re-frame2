@@ -24,6 +24,7 @@
             [re-frame.http.privacy :as privacy]
             [re-frame.http.privacy-headers :as headers]
             [re-frame.http.url :as url]
+            [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
             [re-frame.test-support :as test-support]))
 
@@ -335,6 +336,62 @@
     (is (= :rf/redacted (:body r)))
     (is (= :rf/redacted (get-in r [:headers "Set-Cookie"])))
     (is (true? (:sensitive? r)))))
+
+;; ---- 7b. project-managed-fx-args (rf2-32ffq1) ------------------------------
+;;
+;; The fx-args projection core consults through the
+;; `:http/project-managed-fx-args` late-bind hook — the DYNAMIC per-call
+;; `:sensitive?` redaction for the generic fx-arg-bearing trace slots (the
+;; `:rf.event/fx` aggregate + `:rf.fx/handled`-shaped slots). End-to-end
+;; trace coverage lives in core's fx_aggregate_classification_cljs_test.
+
+(deftest project-managed-fx-args-redacts-sensitive-request
+  (testing "a :sensitive? true args map redacts its request :body (and always
+            the denylisted headers), preserving the non-secret shape"
+    (let [args {:request    {:method  :post
+                             :url     "https://api.example.test/login"
+                             :headers {"Authorization" "Bearer t"
+                                       "Accept"        "application/json"}
+                             :body    {:password "hunter2" :email "a@b.c"}}
+                :sensitive? true
+                :decode     :json}
+          r    (privacy/project-managed-fx-args args)]
+      (is (= :rf/redacted (get-in r [:request :body]))
+          "the whole body redacts on a sensitive request")
+      (is (= :rf/redacted (get-in r [:request :headers "Authorization"]))
+          "denylisted headers redact")
+      (is (= "application/json" (get-in r [:request :headers "Accept"]))
+          "non-denylisted headers survive")
+      (is (= "https://api.example.test/login" (get-in r [:request :url]))
+          "the (query-free) url survives")
+      (is (= :json (:decode r))
+          "non-request slots ride through"))))
+
+(deftest project-managed-fx-args-respects-in-request-flag
+  (testing "the per-request `[:request :sensitive?]` sugar redacts too"
+    (let [r (privacy/project-managed-fx-args
+              {:request {:url "/login" :body {:pw "raw"} :sensitive? true}})]
+      (is (= :rf/redacted (get-in r [:request :body]))))))
+
+(deftest project-managed-fx-args-not-sensitive-is-fail-open
+  (testing "an unflagged request's body rides raw (per-call :sensitive? is the
+            signal) while the denylisted header still redacts"
+    (let [r (privacy/project-managed-fx-args
+              {:request {:url     "/user"
+                         :headers {"Cookie" "id=42"}
+                         :body    {:note "plain"}}})]
+      (is (= {:note "plain"} (get-in r [:request :body])))
+      (is (= :rf/redacted (get-in r [:request :headers "Cookie"]))))))
+
+(deftest project-managed-fx-args-tolerates-non-map
+  (testing "a non-map args value passes through untouched"
+    (is (= :not-a-map (privacy/project-managed-fx-args :not-a-map)))
+    (is (nil? (privacy/project-managed-fx-args nil)))))
+
+(deftest project-managed-fx-args-hook-is-published
+  (testing "re-frame.http.managed publishes the hook core's fx-args walk
+            consults (load-time anchor)"
+    (is (fn? (late-bind/get-fn :http/project-managed-fx-args)))))
 
 ;; ---- 8. query-param denylist (rf2-2p8wr) ----------------------------------
 

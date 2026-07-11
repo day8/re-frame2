@@ -691,6 +691,10 @@
     :producer-ns 're-frame.http.managed
     :design-bead "rf2-ijm7"
     :description "Register the machine-shape wrapper for managed HTTP requests."}
+   {:key         :http/project-managed-fx-args
+    :producer-ns 're-frame.http.managed
+    :design-bead "rf2-32ffq1"
+    :description "Redact a :rf.http/managed fx args map for the generic fx-arg-bearing trace slots (the :rf.event/fx aggregate on :rf.fx/do-fx + every [:rf.fx/id :rf.fx/args]-shaped slot). Honours the DYNAMIC per-call :sensitive? flag + the carrier denylists the dedicated :rf.http/* trace composers apply — a static registration :sensitive path cannot express them. Consumed by re-frame.classification/project-fx-args; unbound (http artefact absent) the entry passes through, matching the unregistered-fx fail-open."}
 
    ;; ---- re-frame.ssr ---------------------------------------------------------
    {:key         :ssr/render-tree-hash

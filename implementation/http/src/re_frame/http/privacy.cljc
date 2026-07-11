@@ -78,6 +78,7 @@
             [re-frame.error :as error]
             [re-frame.http.privacy-headers :as headers]
             [re-frame.http.url :as url]
+            [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]))
 
 ;; The URL leaf owns the public HTTP alias so privacy composers can share the
@@ -410,6 +411,42 @@
   [args-map _origin-event]
   (or (true? (:sensitive? args-map))
       (true? (get-in args-map [:request :sensitive?]))))
+
+;; ---- fx-args trace projection (rf2-32ffq1) ---------------------------------
+
+(defn project-managed-fx-args
+  "Redact a `:rf.http/managed` fx ARGS MAP for the generic fx-arg-bearing
+  trace slots the CORE classification projector walks — the `:rf.event/fx`
+  aggregate on `:rf.fx/do-fx` and every `[:rf.fx/id :rf.fx/args]`-shaped slot
+  (`:rf.fx/handled`, the always-on fx error traces). The managed fx's privacy
+  model is DYNAMIC — the per-call `:sensitive?` flag inside the args map
+  (`request-sensitive?`, Spec 014 §Privacy) plus the carrier denylists —
+  which a static registration `:sensitive` path cannot express, so core
+  consults this fn through the `:http/project-managed-fx-args` late-bind hook
+  (published by `re-frame.http.managed`; core stays decoupled).
+
+  Mirrors the dedicated `:rf.http/*` trace composers (`prepare-emit-tags`):
+  the `:request` map rides `redact-request-tags` — denylisted headers +
+  denylisted URL query values ALWAYS; `:body` / `:params` / all query values
+  when the request is sensitive — with the registration's `:carriers`
+  extensions applied. The `:on-success` / `:on-failure` reply-address event
+  vectors additionally ride the TARGET event registration's own
+  classification (through the `:classification/redact-event-by-registration`
+  hook — bound by core at boot), so a payload-carrying reply address redacts
+  exactly as the dispatched reply event itself will. Total: a non-map `args`
+  passes through untouched."
+  [args]
+  (if-not (map? args)
+    args
+    (let [sensitive?   (request-sensitive? args nil)
+          carriers     (managed-carriers)
+          redact-event (or (late-bind/get-fn :classification/redact-event-by-registration)
+                           identity)
+          redact-addr  (fn [v] (if (vector? v) (redact-event v) v))]
+      (cond-> args
+        (map? (:request args))       (update :request #(redact-request-tags % sensitive? carriers))
+        (contains? args :on-success) (update :on-success redact-addr)
+        (contains? args :on-failure) (update :on-failure redact-addr)))))
 
 ;; ---- trace-event composers ------------------------------------------------
 

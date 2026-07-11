@@ -44,6 +44,7 @@
    running. Egress redaction is asserted via `rf/project-egress` (app-db) and a
    trace listener (the edit event), the same surfaces a tool / shipper reads."
   (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
+            [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.elision :as elision]
             [re-frame.privacy :as privacy]
@@ -222,6 +223,81 @@
           (is (some #{"alice@example.com"} email-vals)
               "the non-secret email rides VISIBLY in the edit-field trace — only
                the password is redacted, proving selective classification"))))))
+
+;; ---------------------------------------------------------------------------
+;; (owners 3 + 4, trace side) the submit TRACE STREAM never leaks the password
+;; ---------------------------------------------------------------------------
+;;
+;; The capture-based clean-submit test above observes what `submit-form` EMITS
+;; via function-value `:fx-overrides` — which bypasses the trace/classification
+;; pipeline for those assertions. This sibling drives the SAME submit with the
+;; trace pipeline live (only the real transport is neutralised) and sweeps the
+;; emitted stream: rf2-32ffq1 closed the two slots that used to carry the raw
+;; password here — the `:rf.event/fx` aggregate on `:rf.fx/do-fx` and the
+;; managed fx's `[:rf.fx/id :rf.fx/args]` slot — by honouring
+;; `:rf.http/managed`'s per-call `:sensitive?` flag at the generic fx-arg
+;; walk (the `:http/project-managed-fx-args` hook).
+
+(def ^:private submit-pw-sentinel "PW-LOGIN-SENTINEL-32ffq1-c4d9")
+
+(defn- leaks-submit-pw? [x] (str/includes? (pr-str x) submit-pw-sentinel))
+
+(deftest clean-submit-trace-stream-never-leaks-password
+  (testing "rf2-32ffq1 — a clean submit's WHOLE emitted trace stream ships no
+            raw password: the :rf.event/fx aggregate and the :rf.http/managed
+            :rf.fx/handled slot redact the request body (per-call :sensitive?),
+            while the fx itself still receives the REAL credential"
+    (with-new-frame [f (frame/make-anon-frame-record! {})]
+      (seed-draft! f "alice@example.com" submit-pw-sentinel)
+      (let [http   (atom [])
+            traces (record-traces! ::submit-sweep)]
+        ;; Neutralise ONLY the transport (fn-value override keeps the original
+        ;; :rf.http/managed id on the aggregate + handled slots, so the trace
+        ;; pipeline under test runs unchanged); the machine :dispatch runs.
+        (rf/dispatch-sync [:auth.login/submit-form]
+                          {:frame        f
+                           :fx-overrides {:rf.http/managed
+                                          (fn [_ req] (swap! http conj req))}})
+        (rf/unregister-listener! :trace ::submit-sweep)
+
+        ;; positive control — the fx received the REAL password for the wire.
+        (is (= submit-pw-sentinel
+               (get-in (first @http) [:request :body :password]))
+            "the managed fx received the REAL password (egress-only redaction)")
+
+        ;; the :rf.event/fx aggregate redacts the sensitive request body.
+        (let [entries (for [ev    @traces
+                            :let  [fx-vec (get-in ev [:tags :rf.event/fx])]
+                            :when (vector? fx-vec)
+                            [id args] fx-vec
+                            :when (= :rf.http/managed id)]
+                        args)]
+          (is (seq entries) "the do-fx aggregate carried the managed entry")
+          (doseq [args entries]
+            (is (= privacy/redacted-sentinel (get-in args [:request :body]))
+                "the sensitive request's whole :body reads :rf/redacted in
+                 :rf.event/fx")))
+
+        ;; the managed [:rf.fx/id :rf.fx/args] slot redacts too.
+        (let [handled (->> @traces
+                           (filter #(= :rf.http/managed
+                                       (get-in % [:tags :rf.fx/id]))))]
+          (is (seq handled) "the managed fx emitted a :rf.fx/handled trace")
+          (doseq [ev handled]
+            (is (= privacy/redacted-sentinel
+                   (get-in ev [:tags :rf.fx/args :request :body]))
+                "the managed :rf.fx/args request body reads :rf/redacted")))
+
+        ;; the whole-stream sweep — the password appears in NO trace tag.
+        (let [checked (atom 0)]
+          (doseq [ev @traces
+                  [k v] (:tags ev)]
+            (swap! checked inc)
+            (is (not (leaks-submit-pw? v))
+                (str "the password must not appear raw in " (:operation ev)
+                     " / " k)))
+          (is (pos? @checked)
+              "the sweep actually inspected trace tags (guard against a no-op)"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; invalid submit — errors surface, NOTHING is issued, the password is retained
