@@ -182,3 +182,30 @@
           "every emit in the second cascade shares one :rf.trace/dispatch-id")
       (is (empty? (clojure.set/intersection ids1 ids2))
           "the two cascades' :dispatch-ids are disjoint"))))
+
+;; ---- frame-lifecycle emits stay uncorrelated ------------------------------
+
+(deftest frame-lifecycle-emits-stay-uncorrelated-under-a-cascade-scope
+  (testing "rf2-7eel71 — a frame-lifecycle emit (op-type :rf.frame) fired while a
+            cascade's *handler-scope* is bound (e.g. reg-frame re-registering a
+            SIBLING frame from inside a handler / fx) must NOT inherit the
+            cascade's :rf.trace/dispatch-id. Stamping a foreign id there makes the
+            epoch capture seam strand the marker in the sibling frame's buffer for
+            the frame's whole lifetime. An ordinary in-cascade emit under the same
+            scope DOES still carry the id (control)."
+    (let [evs   (record-traces
+                  (fn []
+                    (trace/with-dispatch-id+call-site 4242 nil
+                      ;; Frame-lifecycle markers tagged with a DIFFERENT (sibling) frame.
+                      (trace/emit! :rf.frame :rf.frame/re-registered {:frame :test/sibling})
+                      (trace/emit! :rf.frame :rf.frame/created        {:frame :test/other})
+                      ;; Control: an ordinary cascade emit inherits the dispatch-id.
+                      (trace/emit! :rf.sub   :rf.sub/run              {:frame :test/sibling
+                                                                       :rf.sub/id :x}))))
+          by-op (fn [op] (some #(when (= op (:operation %)) %) evs))]
+      (is (nil? (dispatch-id (by-op :rf.frame/re-registered)))
+          ":rf.frame/re-registered stays uncorrelated — no cascade dispatch-id")
+      (is (nil? (dispatch-id (by-op :rf.frame/created)))
+          ":rf.frame/created stays uncorrelated — no cascade dispatch-id")
+      (is (= 4242 (dispatch-id (by-op :rf.sub/run)))
+          "control: an ordinary cascade emit still rides the cascade's dispatch-id"))))

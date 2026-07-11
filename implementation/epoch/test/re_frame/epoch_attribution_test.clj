@@ -1097,6 +1097,75 @@
             "C's claimed marker still names parent A (parent-child causality kept)"))
       (state/drop-frame-buffer! frame))))
 
+;; ---------------------------------------------------------------------------
+;; inv-6d — a frame-LIFECYCLE emit for a SIBLING frame, fired while frame A's
+;;          cascade scope is bound (dynamic frame management from inside a
+;;          handler / fx), must NOT strand a foreign-dispatch-id marker in the
+;;          sibling frame's capture buffer (rf2-7eel71).
+;; ---------------------------------------------------------------------------
+;;
+;; The live vector is RE-REGISTRATION: EP-0027 forbids handler-time frame
+;; CREATION (reg-frame throws when `*handler-scope*` is bound), but a handler /
+;; fx re-registering an ALREADY-EXISTING sibling frame B is unguarded and DOES
+;; emit `:rf.frame/re-registered {:frame B}` while A's `:rf.trace/dispatch-id`
+;; is in scope. Pre-fix, `build-event` stamped A's id onto that marker; at the
+;; capture seam frame-id resolved to B, the marker's dispatch-id was NON-nil so
+;; the orphan-drop arm was bypassed, and it buffered into B forever — B never
+;; runs an event carrying A's id, so every `harvest-buffer-for-event!` on B
+;; retained it as 'theirs', and a later depth-halt swept the phantom into B's
+;; halt record. The fix keeps frame-lifecycle emits UNCORRELATED (op-type
+;; `:rf.frame` never inherits the cascade dispatch-id), so the marker arrives
+;; with nil id and the existing orphan-drop arm keeps it out of B's buffer.
+
+(deftest inv-6d-nested-re-registration-does-not-strand-marker-in-sibling
+  (testing "rf2-7eel71 — re-registering a SIBLING frame from inside another
+            frame's fx must not strand a `:rf.frame/re-registered` marker in the
+            sibling frame's capture buffer."
+    (rf/reg-frame :test/main {})
+    ;; B exists (top-level creation — uncorrelated, drops cleanly).
+    (rf/reg-frame :test/modal {})
+    ;; An fx that re-registers the (existing) sibling frame B, run from inside
+    ;; frame A's cascade — so A's dispatch-id is in scope at the emit.
+    (rf/reg-fx :test/re-reg-modal (fn [_ frame-id] (rf/reg-frame frame-id {:extra :v})))
+    (rf/reg-event :app/reopen (fn [_ _] {:fx [[:test/re-reg-modal :test/modal]]}))
+
+    (rf/dispatch-sync [:app/reopen] {:frame :test/main})
+
+    (is (not-any? #(= :rf.frame (:op-type %)) (state/buffer-for :test/modal))
+        "no frame-lifecycle marker is stranded in the sibling frame's buffer")
+    (is (not-any? #(= :rf.frame/re-registered (:operation %))
+                  (state/buffer-for :test/modal))
+        "specifically, the cross-frame :rf.frame/re-registered marker is absent")))
+
+(deftest inv-6d-nested-re-registration-strand-not-swept-into-later-halt-record
+  (testing "rf2-7eel71 — a later depth-halt of the sibling frame B produces no
+            phantom `:rf.frame/re-registered` in its :halted-depth record. Pre-fix
+            the stranded marker (foreign dispatch-id) survived every :loop settle
+            as 'theirs' and `commit-halt-record!`'s full harvest swept it into the
+            halt record's :trace-events."
+    (rf/reg-frame :test/main {})
+    (rf/reg-frame :test/modal {:drain-depth 5})
+    (rf/reg-fx :test/re-reg-modal (fn [_ frame-id] (rf/reg-frame frame-id {:drain-depth 5})))
+    (rf/reg-event :app/reopen (fn [_ _] {:fx [[:test/re-reg-modal :test/modal]]}))
+    (rf/reg-event :loop
+      (fn [{:keys [db]} _]
+        {:db (update (or db {}) :n (fnil inc 0))
+         :fx [[:dispatch [:loop]]]}))
+
+    ;; Re-register B mid-cascade (strands the marker in B's buffer, pre-fix).
+    (rf/dispatch-sync [:app/reopen] {:frame :test/main})
+    ;; Drive B to a depth-halt; the trailing :halted-depth record full-harvests
+    ;; B's buffer.
+    (rf/dispatch-sync [:loop] {:frame :test/modal})
+
+    (let [halt (last (rf/epoch-history :test/modal))]
+      (is (= :halted-depth (:outcome halt))
+          "sanity: B's drain tripped the depth limit and committed a halt record")
+      (is (not-any? #(= :rf.frame (:op-type %)) (:trace-events halt))
+          "the depth-halt record carries no foreign frame-lifecycle marker")
+      (is (not-any? #(= :rf.frame/re-registered (:operation %)) (:trace-events halt))
+          "specifically, no phantom :rf.frame/re-registered in the halt record"))))
+
 ;; ===========================================================================
 ;; INVARIANT 7 — a tool / inspector frame's OWN render never pollutes the
 ;;                INSPECTED app frame's epoch :renders (rf2-tqlmq — the

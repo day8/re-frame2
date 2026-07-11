@@ -387,6 +387,28 @@
     (assoc base-tags :rf.trace/dispatch-id dispatch-id)
     base-tags))
 
+(def ^:private uncorrelated-op-types
+  "Op-type classes whose emits are STRUCTURAL — not part of any cascade's
+  causal event chain — so they must never inherit the in-scope cascade's
+  `:rf.trace/dispatch-id`, even when they fire while a cascade is on the
+  stack. Per Spec 009 §Dispatch correlation, frame-lifecycle emits (op-type
+  `:rf.frame`: `:rf.frame/created` / `:rf.frame/re-registered` /
+  `:rf.frame/destroyed` / `:rf.frame/drain-interrupted`) stay UNCORRELATED.
+
+  The load-bearing case (rf2-7eel71): when `reg-frame` runs inside frame A's
+  handler / fx scope — e.g. an fx that dynamically creates a modal / panel
+  frame B — its `:rf.frame/created` emit is tagged `{:frame B}` but the
+  scope carries A's cascade dispatch-id. Stamping A's id onto B's marker
+  makes the epoch capture seam bypass its orphan-drop arm (the marker's id
+  is non-nil) and buffer it into B; B never runs an event carrying A's id,
+  so the marker strands in B's buffer for the frame's whole lifetime and is
+  swept into any later halt record. Leaving frame-lifecycle emits
+  uncorrelated (nil dispatch-id) is precisely what lets that orphan-drop arm
+  keep the cross-frame marker out of the sibling frame's harvested record.
+  `:rf.frame/destroyed` / `:rf.frame/drain-interrupted` already self-heal,
+  but the rule is single-sourced here for the whole op-type class."
+  #{:rf.frame})
+
 (defn- build-event
   "Assemble the trace envelope (pure construction; reads
   `*handler-scope*`). `op-type` discriminates the success vs error
@@ -422,7 +444,14 @@
         base-tags   (cond-> (dissoc tags :recovery :sensitive?)
                       (not error?) (dissoc :source)
                       error?       (->> (merge {:category operation})))
-        tags+       (stamp-dispatch-id base-tags dispatch-id)]
+        ;; Structural (frame-lifecycle) emits stay UNCORRELATED — they never
+        ;; inherit the in-scope cascade's dispatch-id, so the epoch capture
+        ;; seam's orphan-drop arm keeps a cross-frame `:rf.frame/created` /
+        ;; `:rf.frame/re-registered` marker out of a SIBLING frame's harvested
+        ;; record (rf2-7eel71). See `uncorrelated-op-types`.
+        tags+       (if (contains? uncorrelated-op-types op-type)
+                      base-tags
+                      (stamp-dispatch-id base-tags dispatch-id))]
     (cond-> {:operation operation
              :op-type   op-type
              :id        (next-event-id)
