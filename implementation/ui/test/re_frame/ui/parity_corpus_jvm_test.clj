@@ -8,6 +8,9 @@
   node suite — react-dom/server needs a JS host)."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
+            [re-frame.ui.compiler.emit-jvm :as emit-jvm]
+            [re-frame.ui.compiler.env :as env]
+            [re-frame.ui.compiler.root :as root]
             [re-frame.ui.parity-fixtures :as fx]
             [re-frame.ui.semantic :as semantic]
             [re-frame.ui.tree :as tree]))
@@ -237,3 +240,43 @@
                             :props {:markup "<b>bold & raw</b><i>i</i>"}})]
     (is (= [{:html "<b>bold & raw</b><i>i</i>"}]
            (:children (find-sem sem (by-class "content")))))))
+
+;; ---------------------------------------------------------------------------
+;; frame-root top region (S1c fold — rf2-vxgfnd.3/#5701 left the JVM
+;; emitter's side to this sweep): frame-root is TRANSPARENT at S1 —
+;; the JVM structural/semantic output of a plan-bearing root form must
+;; equal the same form without the wrapper, while the plan itself is
+;; extracted at compile time. The CLJS-emission half is pinned by
+;; root_analysis_cljs_test.
+;; ---------------------------------------------------------------------------
+
+(defn- analyze-mount-form [form]
+  (root/analyze-root
+   (env/make-env {:host :clj :ns-sym 're-frame.ui.parity-corpus-jvm-test})
+   'ui/mount form))
+
+(defn- jvm-root-semantic [form]
+  (let [{:keys [ast]} (analyze-mount-form form)
+        tree ((eval `(fn [] ~(emit-jvm/emit-node ast))))]
+    (semantic/normalize tree)))
+
+(deftest frame-root-is-transparent-in-the-jvm-tree
+  (let [wrapped '[re-frame.ui/frame-root {:id :chat/frame}
+                  [re-frame.ui.parity-fixtures/with-defaults {:a "x"}]]
+        nested  '[:div.host
+                  [re-frame.ui/frame-root {:id :chat/frame :history 10}
+                   [re-frame.ui.parity-fixtures/with-defaults {:a "x"}]
+                   [:p "after"]]]
+        bare    '[re-frame.ui.parity-fixtures/with-defaults {:a "x"}]]
+    (testing "wrapper leaves no trace in semantic space"
+      (is (= (jvm-root-semantic bare) (jvm-root-semantic wrapped))))
+    (testing "nested top-region wrapper: children + order preserved"
+      (is (= (jvm-root-semantic
+              '[:div.host
+                [re-frame.ui.parity-fixtures/with-defaults {:a "x"}]
+                [:p "after"]])
+             (jvm-root-semantic nested))))
+    (testing "the plan is still extracted (transparency is render-side only)"
+      (is (= [:chat/frame] (mapv :frame-id (:plans (analyze-mount-form wrapped)))))
+      (is (= {:history 10}
+             (:config (first (:plans (analyze-mount-form nested)))))))))

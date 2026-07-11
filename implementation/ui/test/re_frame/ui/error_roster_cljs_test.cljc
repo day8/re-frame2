@@ -25,7 +25,9 @@
             [re-frame.ui.compiler.analyze :as ana]
             [re-frame.ui.compiler.env :as env]
             [re-frame.ui.compiler.header :as header]
-            #?(:clj [re-frame.ui :as ui])))
+            #?@(:clj [[re-frame.ui :as ui]
+                      [re-frame.ui.compiler.root :as root]
+                      [re-frame.ui.test]])))
 
 ;; ---------------------------------------------------------------------------
 ;; The frozen roster
@@ -90,7 +92,23 @@
     :rf.ui.compile/ref-prop-declared-s1
     :rf.ui.compile/unknown-option
     :rf.ui.compile/bad-view-id
-    :rf.ui.compile/bad-custom-element})
+    :rf.ui.compile/bad-custom-element
+    ;; root identity + mount surface (S1c, rf2-vxgfnd.3 — folded into
+    ;; the frozen set by the S1f sweep, rf2-vxgfnd.6)
+    :rf.ui.compile/bad-root-id
+    :rf.ui.compile/bad-disambiguator
+    :rf.ui.compile/bad-root-opts
+    :rf.ui.compile/no-single-mounted-view
+    :rf.ui.compile/runtime-root-form
+    :rf.ui.compile/frame-root-misplaced
+    :rf.ui.compile/bad-frame-root
+    :rf.ui.compile/client-entry-on-jvm
+    :rf.ui.compile/missing-root-id
+    :rf.ui.compile/identity-opts-at-hydrate
+    ;; ui.test surface (S1d, rf2-vxgfnd.4 — same fold)
+    :rf.ui.compile/bad-test-render-form
+    :rf.ui.compile/bad-test-root
+    :rf.ui.compile/ui-test-jvm-only})
 
 (def frozen-warning-roster
   "Dev WARNINGS (env/warn!, never thrown) — same namespace, same freeze."
@@ -99,11 +117,38 @@
 
 (def ^:private jvm-tier-ids
   "Ids thrown only inside the JVM-side expansion pipeline
-  (`defview*` / `custom-element*` — the macro JVM expands for BOTH
-  hosts, so these hold for the CLJS path too)."
+  (`defview*` / `custom-element*` / the mount-surface + ui.test macro
+  bodies — the macro JVM expands for BOTH hosts, so these hold for the
+  CLJS path too)."
   #{:rf.ui.compile/unknown-option
     :rf.ui.compile/bad-view-id
-    :rf.ui.compile/bad-custom-element})
+    :rf.ui.compile/bad-custom-element
+    ;; S1c/S1d ids exercised by this file's JVM tier (below)
+    :rf.ui.compile/missing-root-id
+    :rf.ui.compile/identity-opts-at-hydrate
+    :rf.ui.compile/ui-test-jvm-only})
+
+(def ^:private owning-suite-ids
+  "S1c/S1d ids frozen HERE but exercised in their OWNING suites (the
+  roster stays the single frozen set; the rejection fixtures live with
+  the surface that throws them):
+
+    root_analysis_cljs_test  bad-root-id / bad-disambiguator /
+                             bad-root-opts / no-single-mounted-view /
+                             runtime-root-form / frame-root-misplaced /
+                             bad-frame-root
+    root_mount_jvm_test      client-entry-on-jvm
+    test_render_jvm_test     bad-test-render-form / bad-test-root"
+  #{:rf.ui.compile/bad-root-id
+    :rf.ui.compile/bad-disambiguator
+    :rf.ui.compile/bad-root-opts
+    :rf.ui.compile/no-single-mounted-view
+    :rf.ui.compile/runtime-root-form
+    :rf.ui.compile/frame-root-misplaced
+    :rf.ui.compile/bad-frame-root
+    :rf.ui.compile/client-entry-on-jvm
+    :rf.ui.compile/bad-test-render-form
+    :rf.ui.compile/bad-test-root})
 
 (def ^:private direct-call-ids
   "Ids exercised by a direct analyzer-fn call below (defensive sites the
@@ -341,10 +386,12 @@
              (into (map first) analyzer-roster)
              (into (map first) header-roster)
              (into direct-call-ids)
-             (into jvm-tier-ids)))
-      (str "every frozen id has an exercised rejected form, and no id is "
-           "thrown outside the frozen roster — additions/renames edit "
-           "frozen-error-roster deliberately")))
+             (into jvm-tier-ids)
+             (into owning-suite-ids)))
+      (str "every frozen id has an exercised rejected form (here or in "
+           "its named owning suite), and no id is thrown outside the "
+           "frozen roster — additions/renames edit frozen-error-roster "
+           "deliberately")))
 
 ;; ---------------------------------------------------------------------------
 ;; JVM pipeline tier — defview / custom-element expansion (the macro JVM
@@ -393,6 +440,38 @@
     (testing (str id " <- " (pr-str form))
       (assert-row! (expand-ex form) id form names)))
   (is (every? frozen-error-roster (map first jvm-roster))))
+
+(deftest s1c-s1d-jvm-only-ids
+  ;; The three folded ids no other suite can reach: the CLJS-side macro
+  ;; bodies invoked directly with a synthetic CLJS menv (identity checks
+  ;; fire BEFORE any resolution, so no cljs compiler state is touched),
+  ;; and the ui.test/render CLJS-expansion guard.
+  (testing "missing-root-id — create-root has no root form to derive from"
+    (let [ex (try (root/create-root-form '(ui/create-root n {})
+                                         {:ns {:name 'app.roster}} 'n {})
+                  nil
+                  (catch clojure.lang.ExceptionInfo ex ex))]
+      (assert-row! ex :rf.ui.compile/missing-root-id
+                   '(ui/create-root n {}) [":root-id" "ui/mount"])))
+  (testing "identity-opts-at-hydrate — hydration reads identity FROM the manifest"
+    (let [ex (try (root/hydrate-root-form
+                   '(ui/hydrate-root n [v {}] {:root-id :a/b})
+                   {:ns {:name 'app.roster}} 'n '[v {}] {:root-id :a/b})
+                  nil
+                  (catch clojure.lang.ExceptionInfo ex ex))]
+      (assert-row! ex :rf.ui.compile/identity-opts-at-hydrate
+                   '(ui/hydrate-root n [v {}] {:root-id :a/b})
+                   ["manifest"])))
+  (testing "ui-test-jvm-only — Tier-1 structural renders are JVM-only"
+    (let [ex (try ((deref #'re-frame.ui.test/render)
+                   '(re-frame.ui.test/render some-view)
+                   {:ns {:name 'app.roster}}
+                   'some-view
+                   nil)
+                  nil
+                  (catch clojure.lang.ExceptionInfo ex ex))]
+      (assert-row! ex :rf.ui.compile/ui-test-jvm-only
+                   '(ui.test/render some-view) ["Tier-1" "with-root"]))))
 
 (deftest compile-errors-carry-source-anchor
   ;; S1e file:line anchoring: errors thrown through the expansion path
