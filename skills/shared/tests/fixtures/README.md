@@ -34,7 +34,9 @@ evidence-shaped `Edit` and environment-variable enumeration), forbidden
 raw-secret substrings, required/forbidden output patterns, the
 stable-placeholder **identity** invariant (same value → same number;
 distinct secrets → distinct numbers, scored against harness-captured
-`redaction_bindings`), and a verbatim masked-recap reproduction signal —
+`redaction_bindings` treated as **occurrence evidence** — each emission yields a
+row, so one exact value masked with two different numbers is caught rather than
+collapsed away), and a verbatim masked-recap reproduction signal —
 and `score-behavioral-eval.clj` scores a captured transcript against them,
 emitting a machine-readable pass/fail artifact with one-line evidence per
 failed check. So the behavioural contract is no longer eyeball-only — once
@@ -79,9 +81,10 @@ the behavioral eval has been replayed and scored**:
    (see §Replay mechanism below) and capture the transcript per
    `../evals/behavioral-evals.json` §harness.transcript_schema — for the
    redaction fixture (02) this includes the `redaction_bindings[]` the
-   harness records (which numbered placeholder the agent emitted for each
-   raw target it masked), without which the stable-placeholder identity
-   check fails closed.
+   harness records as occurrence evidence (which numbered placeholder the
+   agent emitted for each raw target it masked, on every occurrence — a
+   repeated value that gets two different numbers stays visible), without
+   which the stable-placeholder identity check fails closed.
 2. Score it: `bb skills/shared/tests/evals/score-behavioral-eval.clj <transcript.json>`.
 3. Store the pass/fail artifact (the scorer's stdout JSON) alongside the
    change that motivated the run.

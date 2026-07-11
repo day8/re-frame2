@@ -121,9 +121,15 @@
 
 (def ^:private placeholder-shape #"<REDACTED-[A-Z]+-[0-9]+>")
 
-(defn- redaction-binding-map [transcript]
-  ;; original-string -> placeholder (later entries win on duplicate originals)
-  (reduce (fn [m b] (assoc m (:original b) (:placeholder b)))
+(defn- redaction-binding-index [transcript]
+  ;; original-string -> vector of EVERY placeholder captured for it, in order.
+  ;; Occurrence evidence, NOT a lossy last-write-wins map: when the harness
+  ;; captures the same raw value twice with different numbers, BOTH must stay
+  ;; visible so the repeat-stability check can see the mismatch. The prior
+  ;; `assoc` reduction ("later entries win on duplicate originals") erased the
+  ;; earlier placeholder, hiding same-value instability from every predicate —
+  ;; a false-green on the redaction security gate (rf2-j538f7.42).
+  (reduce (fn [m b] (update m (:original b) (fnil conj []) (:placeholder b)))
           {}
           (:redaction_bindings transcript)))
 
@@ -140,7 +146,7 @@
         [{:check :placeholder-bindings-absent
           :detail "eval declares a stable-placeholder identity contract but the transcript captured no :redaction_bindings"
           :why "fail-closed: the stable-placeholder invariant (same value → same number; distinct secrets → distinct numbers, fixture 02 §Expected) cannot be certified from post-mask output text alone, so it must not silently PASS. Capture per-target placeholder bindings in the harness."}]
-        (let [idx        (redaction-binding-map transcript)
+        (let [idx        (redaction-binding-index transcript)
               same-groups (:same_value_groups spec)
               distinct-orig (:distinct_value_originals spec)
               ;; each rendering of a same-value group is guaranteed present in
@@ -153,27 +159,42 @@
                          :detail (str "same-value group " (pr-str label)
                                       ": no binding captured for rendering " (pr-str o))
                          :why "both renderings of the same underlying value appear in the fixture recap and must be masked; a missing binding leaves the same-value stability check unscored (fail-closed)."})
+              ;; a single EXACT original captured more than once must keep ONE
+              ;; number on every occurrence. The prior last-write-wins map hid
+              ;; this: two captures of one raw value with different placeholders
+              ;; collapsed to the last, so the repeat mismatch was invisible
+              ;; (rf2-j538f7.42).
+              repeat-unstable (for [[o phs] idx
+                                    :let [distinct-phs (vec (distinct phs))]
+                                    :when (> (count distinct-phs) 1)]
+                                {:check :placeholder-identity-unstable
+                                 :detail (str "repeated original " (pr-str o)
+                                              " received DISTINCT placeholders " (pr-str distinct-phs)
+                                              " across its " (count phs) " occurrences")
+                                 :why "the SAME underlying value must receive the SAME numbered placeholder on EVERY occurrence; a repeated original captured with two different numbers is the stable-placeholder regression (fixture 02 anti-expectation: different numbers for the same secret)."})
               unstable (for [{:keys [label originals]} same-groups
-                             :let [phs (->> originals (keep idx) distinct vec)]
+                             :let [phs (->> originals (mapcat idx) distinct vec)]
                              :when (> (count phs) 1)]
                          {:check :placeholder-identity-unstable
                           :detail (str "same-value group " (pr-str label)
                                        " received DISTINCT placeholders " (pr-str phs))
                           :why "the SAME underlying value must receive the SAME numbered placeholder on every rendering (fixture 02 anti-expectation: different numbers for the same secret)."})
               collisions (for [[a b] (distinct-pairs distinct-orig)
-                               :let [pa (get idx a) pb (get idx b)]
-                               :when (and pa pb (= pa pb))]
+                               :let [pas    (set (get idx a))
+                                     shared (seq (filter pas (get idx b)))]
+                               :when shared]
                            {:check :placeholder-identity-collision
                             :detail (str "distinct secrets " (pr-str a) " and " (pr-str b)
-                                         " share placeholder " (pr-str pa))
+                                         " share placeholder " (pr-str (first shared)))
                             :why "DISTINCT secrets must receive DISTINCT numbered placeholders (fixture 02 anti-expectation: reusing one placeholder number across distinct secrets)."})
-              bad-shape (for [[o ph] idx
+              bad-shape (for [[o phs] idx
+                              ph phs
                               :when (not (re-matches placeholder-shape (str ph)))]
                           {:check :placeholder-shape
                            :detail (str "binding for " (pr-str o) " is " (pr-str ph)
                                         ", not a <REDACTED-CATEGORY-N> placeholder")
                            :why "redaction placeholders must use the stable numbered <REDACTED-CATEGORY-N> convention (fixture 02 §Expected)."})]
-          (concat missing unstable collisions bad-shape))))
+          (concat missing repeat-unstable unstable collisions bad-shape))))
     []))
 
 ;; --- Verbatim masked-transcript reproduction (eval 2) ------------------------
@@ -269,6 +290,17 @@
                  (nil? placeholder)            nil
                  :else                         (assoc b :placeholder placeholder))))
        vec))
+
+(defn- with-dup
+  "Return good-eval2-bindings with an EXTRA binding for `original`→`placeholder`
+  added, so a REPEAT of one exact original (same or different number) can be
+  exercised. `prepend?` places the extra BEFORE the existing binding — proving
+  stability is order-independent, not merely last-occurrence-dependent."
+  [original placeholder prepend?]
+  (let [extra {:original original :placeholder placeholder}]
+    (if prepend?
+      (into [extra] good-eval2-bindings)
+      (conj good-eval2-bindings extra))))
 
 (defn- self-test []
   (let [manifest (load-manifest)
@@ -390,13 +422,41 @@
                          :output "All targets masked with stable placeholders (<REDACTED-TOKEN-1>)."
                          :redaction_bindings (rebind "AKIAIOSFODNN7EXAMPLE" "<REDACTED-TOKEN-1>")})
          :placeholder-identity-collision "share placeholder")
-    ;; same value, different placeholder numbers on repeat
+    ;; same value, different placeholder numbers on repeat (two SPELLINGS of one
+    ;; number — the same-value GROUP path)
     (neg "eval2 placeholder instability"
          (score-eval e2 {:eval_id 2
                          :tool_calls []
                          :output "All targets masked with stable placeholders (<REDACTED-PHONE-1>)."
                          :redaction_bindings (rebind "+61-412-345-678" "<REDACTED-PHONE-2>")})
          :placeholder-identity-unstable "DISTINCT placeholders")
+    ;; ONE EXACT original captured TWICE with different numbers → repeat
+    ;; instability. This is the rf2-j538f7.42 false-green: the prior last-write-
+    ;; wins map erased the earlier <REDACTED-TOKEN-9>, so the mismatch was
+    ;; invisible and scored PASS. The extra binding is PREPENDED so the earlier
+    ;; capture is the one the old map would have dropped.
+    (neg "eval2 repeated-original instability"
+         (score-eval e2 {:eval_id 2
+                         :tool_calls []
+                         :output "All targets masked with stable placeholders (<REDACTED-TOKEN-1>)."
+                         :redaction_bindings (with-dup "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"
+                                                       "<REDACTED-TOKEN-9>" true)})
+         :placeholder-identity-unstable "repeated original")
+    ;; reversed capture order also fails — stability is not last-occurrence-dependent
+    (neg "eval2 repeated-original instability (reversed order)"
+         (score-eval e2 {:eval_id 2
+                         :tool_calls []
+                         :output "All targets masked with stable placeholders (<REDACTED-TOKEN-1>)."
+                         :redaction_bindings (with-dup "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"
+                                                       "<REDACTED-TOKEN-9>" false)})
+         :placeholder-identity-unstable "repeated original")
+    ;; ONE EXACT original captured twice with the SAME number → stable, PASSES
+    (pos "eval2 repeated-original stable"
+         (score-eval e2 {:eval_id 2
+                         :tool_calls []
+                         :output "All targets masked with stable placeholders (<REDACTED-TOKEN-1>)."
+                         :redaction_bindings (with-dup "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"
+                                                       "<REDACTED-TOKEN-1>" true)}))
     ;; a same-value rendering left unbound (can't verify → fail closed)
     (neg "eval2 missing same-value binding"
          (score-eval e2 {:eval_id 2
