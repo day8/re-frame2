@@ -928,6 +928,31 @@
     {:isError? true
      :edn-submap {:ok? false :reason :no-new-epoch}}}
 
+   ;; rf2-glg4uo (P2 SAFETY): the simulation LANDED but restore-epoch
+   ;; returned false, so the would-be db IS the live app-db and a spurious
+   ;; epoch is left at the ring head. The runtime reports the documented
+   ;; {:ok? false :reason :rollback-failed :rolled-back? false} shape (NOT
+   ;; the old :ok? true + :rollback-hint that read GREEN over a mutated
+   ;; db). A dry-run that silently mutated the live app must ride as
+   ;; isError — the tool routes it red on :ok? false AND on the
+   ;; belt-and-braces :rolled-back? false boundary guard.
+   {:fixture/id    :dispatch-dry-run/rollback-failed
+    :fixture/doc   "dispatch-dry-run surfaces the runtime's {:ok? false :reason :rollback-failed :rolled-back? false} as an isError envelope (rf2-glg4uo — a failed rollback left the live db MUTATED; it must never read as a silent green success)."
+    :fixture/tool  "dispatch-dry-run"
+    :fixture/args  {:event "[:cart/checkout]"}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"  true]
+     ["configure-raw-state!"      nil]
+     ["dispatch-dry-run"          {:value {:ok? false :reason :rollback-failed
+                                           :rolled-back? false
+                                           :event [:cart/checkout] :frame :rf/default
+                                           :before-epoch-id nil}
+                                   :elided-count 0}]
+     [:default                    nil]]
+    :fixture/expect
+    {:isError? true
+     :edn-submap {:ok? false :reason :rollback-failed :rolled-back? false}}}
+
    ;; ---------- restore-epoch (gated write) -------------------------------
    ;; The --allow-writes gate ships DEFAULT-OFF. The disabled fixture pins
    ;; the gate-closed envelope (no nREPL round-trip); the happy fixture

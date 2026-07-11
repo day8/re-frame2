@@ -1576,18 +1576,49 @@ redacted unless the operator opted in. The `:elision` slot echoes the
 effective walker state; `:elided-large` reports the marker count when
 non-zero.
 
-**Returns** (failure — all `isError: true`, the dry-run did NOT land,
-rf2-wdxyx3 finding 2):
+**Returns** (failure — all `isError: true`, rf2-wdxyx3 finding 2):
 
 - `:reason :no-epoch-recorded` — epoch-history empty / frame
-  unregistered / `interop/debug-enabled?` false. No rollback needed.
+  unregistered / `interop/debug-enabled?` false. The dry-run did NOT
+  land; no rollback needed.
 - `:reason :no-new-epoch` — `dispatch-sync` returned but the head did
   not advance (the reducer rejected the event or an interceptor
-  early-returned). No rollback needed.
+  early-returned). The dry-run did NOT land; no rollback needed.
+- `:reason :rollback-failed` (rf2-glg4uo) — the simulation LANDED and a
+  would-be epoch assembled, but `restore-epoch` returned `false`, so the
+  rollback did NOT complete: the would-be db IS now the live app-db and
+  a spurious epoch remains at the ring head. This is the one failure
+  where the dry-run left the live app **mutated**, so it is the most
+  important to surface — a dry-run that silently mutated the live app
+  and reported green would defeat the tool's entire "no observable
+  effect" contract. The envelope carries `:rolled-back? false`,
+  `:before-epoch-id`, and a `:hint` for manual re-restore
+  (`(rf/restore-epoch! <frame> <before-epoch-id>)`). Rare but reachable:
+  a nil `before-id` on a frame's first epoch-recording event, or a tiny
+  `:epoch-history` ring (e.g. `:depth 1`) that evicts the rollback
+  target. The MCP tool routes it to `isError: true` on BOTH `:ok?
+  false` AND a belt-and-braces `(false? (:rolled-back? result))`
+  boundary check — defence-in-depth so that even a degraded/older
+  runtime that mis-reported `:ok? true` cannot ride green over a
+  `:rolled-back? false` envelope.
 
 The arg-parse failure modes (`:missing-event`, `:invalid-event-edn`,
 `:not-an-event-vector`) mirror `dispatch` exactly — the EDN-data
 posture (rf2-vflrg) is the same security gate.
+
+**Annotation honesty (rf2-glg4uo)**: the descriptor keeps
+`readOnlyHint` + `idempotentHint`. Those hints describe the tool's
+CONTRACT — a read-only simulation — and a host uses them to auto-approve
+the call. The `:rollback-failed` edge is the one path where the tool
+does mutate, but it is now surfaced LOUDLY as `isError: true` rather
+than as a silent green envelope, so the host is not misled: it
+auto-approves the probe (correct for the ~always read-only case) and, on
+the should-not-occur rollback failure, receives a RED result that names
+the mutation and how to undo it. Flipping the hints to `destructiveHint`
+would gate every genuinely-read-only dry-run behind the same approval
+ceremony as `dispatch` — a real usability regression to signal an edge
+that is already loud — so the honest, proportionate posture is: advisory
+hints unchanged, failure loud.
 
 ## restore-epoch
 

@@ -2472,12 +2472,21 @@
                                           the rejected event).
      - `:reason :rollback-failed`       — the would-be epoch assembled
                                           but restore-epoch returned
-                                          false. The recorded would-be
-                                          db IS the live db; the caller
-                                          needs to re-restore manually.
-                                          Should not occur in practice
-                                          (the id we just produced is
-                                          at the head of the ring).
+                                          false, so the recorded would-be
+                                          db IS the live db and a spurious
+                                          epoch is left at the ring head.
+                                          A SAFETY failure — a dry-run
+                                          that mutated the live app must
+                                          NOT read as success — so it
+                                          rides back `:ok? false`
+                                          (isError at the MCP boundary),
+                                          carrying `:before-epoch-id` so
+                                          the caller can re-restore
+                                          manually. Rare but reachable: a
+                                          nil `before-id` on a frame's
+                                          first epoch-recording event, or
+                                          a tiny epoch-history ring
+                                          evicting the rollback target.
 
    This primitive is the framework-side surface; the MCP
    tool `dispatch-dry-run` wraps it. Production builds elide the entire
@@ -2552,27 +2561,39 @@
                    ;; to the target (the assembled would-be epoch is
                    ;; removed from history).
                    rolled-back? (boolean (rf/restore-epoch! frame-id before-id))
-                   base {:ok?                       true
-                         :dry-run?                  true
-                         :rolled-back?              rolled-back?
-                         :event                     event-v
-                         :frame                     frame-id
-                         :before-epoch-id           before-id
-                         ;; Project the would-be epoch into the same
-                         ;; cascade-summary shape dispatch /
-                         ;; replace-app-db / restore-epoch use.
-                         ;; Operators read one vocabulary across all four.
-                         :cascade-summary           (cascade-summary target-epoch)
-                         :would-fire-effects        recorded
-                         :db-state-after-simulation (:db-after target-epoch)}]
+                   ;; The informational payload is shared across both arms —
+                   ;; a caller wanting to re-restore after a FAILED rollback
+                   ;; still needs :before-epoch-id + the would-be state.
+                   shared {:dry-run?                  true
+                           :rolled-back?              rolled-back?
+                           :event                     event-v
+                           :frame                     frame-id
+                           :before-epoch-id           before-id
+                           ;; Project the would-be epoch into the same
+                           ;; cascade-summary shape dispatch /
+                           ;; replace-app-db / restore-epoch use.
+                           ;; Operators read one vocabulary across all four.
+                           :cascade-summary           (cascade-summary target-epoch)
+                           :would-fire-effects        recorded
+                           :db-state-after-simulation (:db-after target-epoch)}]
                (if rolled-back?
-                 base
-                 (assoc base :rollback-hint
-                        (str "restore-epoch returned false; the would-be db "
-                             "IS the live db. Re-restore manually via "
-                             "(rf/restore-epoch! <frame> <before-epoch-id>)."
-                             " Should not occur — the id we just produced "
-                             "is at the head of the ring.")))))))))))
+                 (assoc shared :ok? true)
+                 ;; SAFETY (rf2-glg4uo): the rollback FAILED, so the would-be
+                 ;; epoch's db IS now the live app-db and a spurious epoch is
+                 ;; left at the ring head. A dry-run that mutated the live app
+                 ;; MUST NOT read as success — return the documented
+                 ;; `:ok? false :reason :rollback-failed` shape (see the
+                 ;; "Failure paths" docstring) so the MCP tool's
+                 ;; `(false? (:ok? result))` routing surfaces isError:true
+                 ;; instead of a green envelope over a mutated db.
+                 (assoc shared
+                        :ok?    false
+                        :reason :rollback-failed
+                        :hint   (str "restore-epoch returned false; the would-be db "
+                                     "IS the live db and a spurious epoch remains at "
+                                     "the ring head. Re-restore manually via "
+                                     "(rf/restore-epoch! <frame> <before-epoch-id>) "
+                                     "using :before-epoch-id from this envelope.")))))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Time-travel — first-class via re-frame2
