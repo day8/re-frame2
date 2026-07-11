@@ -250,3 +250,134 @@
         (is (= "secret-oauth-token" (get-in current [:query :token]))
             "one-arity under ambient B applies B's (absent) policy — the
              documented fallback; explicit target is required for correctness")))))
+
+;; ===========================================================================
+;; rf2-j538f7.15 — fail closed when the payload projection loses its frame
+;; during teardown.
+;;
+;; The explicit-frame projectors above assume the carried frame stays LIVE
+;; through payload assembly. An async host (disconnect / timeout / writer-error
+;; / cancellation cleanup) can destroy — or destroy AND re-register under the
+;; same id — the request frame between the caller's state CAPTURE and the
+;; PROJECTION. The prior `project-routing-egress` (and the machines / resource
+;; hooks) rode the captured, still-classified state VERBATIM whenever the frame
+;; was no longer live: the payload was stamped for A yet its policy came from no
+;; live frame, so the classified route :query / machine :data rode RAW. These
+;; regressions prove the projection now fails CLOSED on a lost / substituted
+;; frame while a LIVE frame with no declarations still ships verbatim.
+;; ===========================================================================
+
+(deftest project-routing-egress-fails-closed-on-destroyed-frame
+  (testing "rf2-j538f7.15 — the route :current slice captured while frame A was
+            LIVE fails closed once A is destroyed, and is distinguished from the
+            live-frame precise projection and the frameless-nil passthrough"
+    (setup-frame-a!)
+    (let [slice (select-keys (:rf.runtime/routing (frame/frame-runtime-db-value server-frame))
+                             [:current])]
+      ;; Acceptance #6, first clause: a LIVE frame with declarations projects
+      ;; PRECISELY — the sensitive token redacts, the unclassified sibling rides.
+      (let [live (payload-policy/project-routing-egress slice server-frame)]
+        (is (= :rf/redacted (get-in live [:current :query :token]))
+            "LIVE frame A: declared sensitive :query :token redacts precisely")
+        (is (= "/dashboard" (get-in live [:current :query :return-to]))
+            "LIVE frame A: unclassified sibling rides verbatim"))
+      ;; Acceptance #6, frameless clause: a NIL frame-id is the frameless
+      ;; convenience — no frame policy to lose, so the slice rides verbatim.
+      (is (= slice (payload-policy/project-routing-egress slice nil))
+          "NIL frame: frameless passthrough (NOT fail-closed)")
+      ;; The teardown race: destroy A, then re-project the ALREADY-captured slice
+      ;; under the same EXPLICIT id. Acceptance #1 — fail closed.
+      (rf/destroy-frame! server-frame)
+      (let [dead (payload-policy/project-routing-egress slice server-frame)]
+        (is (= :rf/redacted dead)
+            "DESTROYED explicit frame: the whole :current slice fails closed")
+        (is (not (.contains (pr-str dead) "secret-oauth-token"))
+            "no raw route token survives the fail-closed projection")))))
+
+(deftest project-runtime-db-fails-closed-on-destroyed-frame
+  (testing "rf2-j538f7.15 (acceptance #4) — project-runtime-db on a frame
+            destroyed after runtime-db capture fails closed for BOTH the machine
+            snapshot :data and the routing :current slice; no raw classified
+            value survives, while a LIVE frame still projects them precisely"
+    (setup-frame-a!)
+    (let [rt (frame/frame-runtime-db-value server-frame)]
+      ;; sanity — LIVE A projects machine :data + route precisely
+      (let [live (payload-policy/project-runtime-db rt server-frame)]
+        (is (= :rf/redacted (get-in live [:rf.runtime/machines :snapshots machine-id :data :token]))
+            "LIVE frame A: machine snapshot :data :token redacts")
+        (is (= :rf/redacted (get-in live [:rf.runtime/routing :current :query :token]))
+            "LIVE frame A: route :current :query :token redacts"))
+      ;; teardown race
+      (rf/destroy-frame! server-frame)
+      (let [dead (payload-policy/project-runtime-db rt server-frame)]
+        (is (= :rf/redacted (:rf.runtime/machines dead))
+            "DESTROYED frame: the machines slice fails closed whole (the hook is
+             not invoked with a dead frame)")
+        (is (= :rf/redacted (:rf.runtime/routing dead))
+            "DESTROYED frame: the routing slice fails closed via project-routing-egress")
+        (doseq [secret ["secret-oauth-token" "huge-callback-blob-value"
+                        "secret-jwt-snapshot" "huge-blob-value"]]
+          (is (not (.contains (pr-str dead) secret))
+              (str "no raw classified value (" secret ") survives")))))))
+
+(deftest build-final-payload-fails-closed-on-teardown-race
+  (testing "rf2-j538f7.15 (acceptance #2) — the REAL streaming builder: frame A
+            is destroyed AFTER its runtime-db is captured but BEFORE projection
+            (an async-host teardown race, DR#4). build-final-payload fails closed
+            — app-db redacts whole, runtime-db omitted — even though the payload
+            is still stamped for A; no classified route / machine / app-db value
+            survives."
+    (setup-frame-a!)
+    (let [orig    frame/frame-runtime-db-value
+          payload (with-redefs [frame/frame-runtime-db-value
+                                (fn [fid]
+                                  ;; DR#4 interposition: capture the live
+                                  ;; runtime-db, THEN tear the frame down before
+                                  ;; the projection proceeds.
+                                  (let [v (orig fid)]
+                                    (rf/destroy-frame! server-frame)
+                                    v))]
+                    (streaming/build-final-payload
+                      server-frame "hash"
+                      {:payload :rf.ssr.payload/whole-app-db}))]
+      (is (= server-frame (:rf/frame-id payload))
+          "the payload still names frame A as its target")
+      (is (= :rf/redacted (:rf/app-db payload))
+          "app-db fails closed to :rf/redacted (the frame vanished before projection)")
+      (is (not (contains? payload :rf/runtime-db))
+          "the runtime-db slice is omitted — no durable frame-state under a dead frame")
+      (doseq [secret ["secret-oauth-token" "huge-callback-blob-value"
+                      "secret-jwt-snapshot" "huge-blob-value" "app-db-secret"]]
+        (is (not (.contains (pr-str payload) secret))
+            (str "no raw classified value (" secret ") survives the fail-closed payload"))))))
+
+(deftest build-final-payload-fails-closed-on-frame-reregistration
+  (testing "rf2-j538f7.15 (acceptance #5) — frame A destroyed AND re-registered
+            under the SAME id (a NEW incarnation with an absent policy) between
+            capture and projection must NOT substitute the new frame's policy for
+            the old frame's captured, classified data. The incarnation-token
+            check fails closed rather than shipping A-old's token under A-new's
+            wide-open registry."
+    (setup-frame-a!)
+    (let [orig    frame/frame-runtime-db-value
+          payload (with-redefs [frame/frame-runtime-db-value
+                                (fn [fid]
+                                  (let [v (orig fid)]
+                                    ;; destroy A, then re-register a FRESH A that
+                                    ;; declares nothing — a wide-open policy that
+                                    ;; WOULD ship A-old's secret raw if substituted.
+                                    (rf/destroy-frame! server-frame)
+                                    (rf/reg-frame server-frame {:platform :server})
+                                    v))]
+                    (streaming/build-final-payload
+                      server-frame "hash"
+                      {:payload :rf.ssr.payload/whole-app-db}))]
+      (is (= server-frame (:rf/frame-id payload))
+          "the payload still names frame A as its target")
+      (is (= :rf/redacted (:rf/app-db payload))
+          "app-db fails closed — the re-registered frame's absent policy is not substituted")
+      (is (not (contains? payload :rf/runtime-db))
+          "the runtime-db slice is omitted under the substituted incarnation")
+      (doseq [secret ["secret-oauth-token" "secret-jwt-snapshot" "app-db-secret"]]
+        (is (not (.contains (pr-str payload) secret))
+            (str "no raw classified value (" secret ") rides under the new-frame policy"))))))

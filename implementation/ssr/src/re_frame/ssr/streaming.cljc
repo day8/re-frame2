@@ -638,31 +638,58 @@
   validates at handler-construction time so misconfigured deployments
   fail at boot rather than at first request."
   [frame-id render-hash {:as policy-opts}]
-  (let [app-db     (frame/frame-app-db-value frame-id)
+  (let [;; rf2-j538f7.15 — pin the frame's per-incarnation identity BEFORE
+        ;; reading its state. The app-db / runtime-db below are captured off the
+        ;; LIVE request frame and classified against THAT frame's per-frame
+        ;; elision registry by the projections that follow. An async host
+        ;; (disconnect / timeout / writer-error / cancellation cleanup) can
+        ;; destroy — or destroy AND re-register under the same id — the request
+        ;; frame between this capture and the projection; re-checking the
+        ;; incarnation token below detects both, so classified state is never
+        ;; serialized under an absent or SUBSTITUTED policy.
+        token      (frame/frame-incarnation-token frame-id)
+        app-db     (frame/frame-app-db-value frame-id)
         ;; EP-0001 (rf2-30kzz2): project the live runtime-db value to the
         ;; serializable `:rf/runtime-db` slice (machine snapshots, route slice,
         ;; elision declarations, SSR metadata) so the streamed final payload
         ;; hydrates a coherent frame-state, symmetric with the non-streaming
         ;; path. Transient side channels are excluded by `project-runtime-db`.
-        runtime-db (frame/frame-runtime-db-value frame-id)]
-    (payload-policy/build-payload
-     frame-id
-     ;; rf2-bt9kct — allowlist FIRST (`apply-policy`), THEN run the surviving
-     ;; slice through the centralized `:rf.egress/ssr-hydration` projection
-     ;; seeded at the request frame (defense-in-depth, EP-0015 §14) — symmetric
-     ;; with the non-streaming `re-frame.ssr.ring.payload/build-payload` so a
-     ;; frame-sensitive child inside an allowlisted key never rides the final
-     ;; `__rf_payload` raw.
-     (payload-policy/project-app-db-egress
-      (payload-policy/apply-policy app-db policy-opts)
-      frame-id)
-     render-hash
-     ;; rf2-3fc89f.15 — project the runtime-db under the EXPLICIT carried
-     ;; `frame-id` (the same target the app-db projection above uses), NOT an
-     ;; ambient one. A streaming build called outside `with-frame`, or under a
-     ;; different ambient frame, otherwise serialized classified route / machine
-     ;; / resource runtime state under nil / the wrong frame's policy.
-     (assoc policy-opts :runtime-db (payload-policy/project-runtime-db runtime-db frame-id)))))
+        runtime-db (frame/frame-runtime-db-value frame-id)
+        ;; The captured state is coherent ONLY if the frame is STILL the same
+        ;; live incarnation it was at capture. A nil pin (frame already gone) or
+        ;; a changed token (destroyed / re-registered mid-assembly) fails closed.
+        coherent?  (and (some? token)
+                        (identical? token (frame/frame-incarnation-token frame-id)))]
+    (if coherent?
+      (payload-policy/build-payload
+       frame-id
+       ;; rf2-bt9kct — allowlist FIRST (`apply-policy`), THEN run the surviving
+       ;; slice through the centralized `:rf.egress/ssr-hydration` projection
+       ;; seeded at the request frame (defense-in-depth, EP-0015 §14) — symmetric
+       ;; with the non-streaming `re-frame.ssr.ring.payload/build-payload` so a
+       ;; frame-sensitive child inside an allowlisted key never rides the final
+       ;; `__rf_payload` raw.
+       (payload-policy/project-app-db-egress
+        (payload-policy/apply-policy app-db policy-opts)
+        frame-id)
+       render-hash
+       ;; rf2-3fc89f.15 — project the runtime-db under the EXPLICIT carried
+       ;; `frame-id` (the same target the app-db projection above uses), NOT an
+       ;; ambient one. A streaming build called outside `with-frame`, or under a
+       ;; different ambient frame, otherwise serialized classified route / machine
+       ;; / resource runtime state under nil / the wrong frame's policy.
+       (assoc policy-opts :runtime-db (payload-policy/project-runtime-db runtime-db frame-id)))
+      ;; rf2-j538f7.15 — the request frame was destroyed / re-registered between
+      ;; state capture and projection: its classification authority is gone, so
+      ;; the captured app-db / runtime-db must NOT ship under absent / substituted
+      ;; policy. Fail closed — redact the whole app-db slice and omit the
+      ;; runtime-db — while still stamping the requested target so the client sees
+      ;; a well-formed, safe payload rather than a leak.
+      (payload-policy/build-payload
+       frame-id
+       :rf/redacted
+       render-hash
+       (assoc policy-opts :runtime-db nil)))))
 
 ;; ---- late-bind hook registration -----------------------------------------
 ;;
