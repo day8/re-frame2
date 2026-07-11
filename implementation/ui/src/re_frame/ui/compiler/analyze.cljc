@@ -16,9 +16,12 @@
             [re-frame.ui.rules :as rules]))
 
 (def node-ops
-  "The CLOSED op set — the AST-shape gate's vocabulary."
+  "The CLOSED op set — the AST-shape gate's vocabulary. `:frame-root` (S1c,
+  rf2-vxgfnd.3) appears only inside the static top region of a ROOT form
+  (`ui/mount` / `ui/render!` / `ui/hydrate-root`) — the analyzer rejects it
+  everywhere else, so defview-template ASTs never carry it."
   #{:text :nothing :expr :element :fragment :view :foreign
-    :if :let :letfn :case :for :raw :html})
+    :if :let :letfn :case :for :raw :html :frame-root})
 
 (defn literal-scalar? [x]
   (or (string? x) (number? x) (keyword? x) (boolean? x) (nil? x)))
@@ -29,6 +32,8 @@
 (def ^:private ui-spread-fqns #{'re-frame.ui/spread})
 (def ^:private sub-fqns       #{'re-frame.ui/sub})
 (def ^:private lease-fqns     #{'re-frame.ui/lease})
+(def ^:private frame-root-fqns #{'re-frame.ui/frame-root})
+
 (def markup-map-fqns
   "The map family — heads whose (f render-fn coll) idiom generates markup
   rows lazily. Rejected in child position (:rf.ui.compile/markup-returning-map)
@@ -630,7 +635,9 @@
         has-props (map? second*)
         props     (analyze-component-props e info (when has-props second*))
         child-fs  (vec (if has-props (drop 2 form) (drop 1 form)))
-        children  (analyze-children e child-fs)]
+        ;; a view/foreign boundary ENDS the static top region (S1c):
+        ;; frame-root below it is a compile error
+        children  (analyze-children (dissoc e :top-region?) child-fs)]
     (when (and (= :view (:kind info)) (seq children))
       (let [meta*      (:meta (env/resolve-sym e head))
             self?      (and (:self e) (= head (:self e)))
@@ -670,6 +677,66 @@
      :children children
      :static? false
      :path (:path e)}))
+
+;; ---------------------------------------------------------------------------
+;; frame-root (S1c, rf2-vxgfnd.3) — the static ENSURE-plan position
+;; ---------------------------------------------------------------------------
+;;
+;; The STATIC TOP REGION of a root form (root-identity contract §6) is every
+;; node reachable from the root without crossing a control form, a dynamic
+;; expression, an internal-view boundary, or a foreign component. The walk
+;; carries `:top-region? true` (set only by the root-form entry points —
+;; `ui/mount` / `ui/render!` / `ui/hydrate-root`); DOM elements, fragments
+;; and frame-root itself PRESERVE the flag for their children, and every
+;; other position clears it. `frame-root` is legal exactly while the flag
+;; holds — plans are static identity, extracted at compile time.
+
+(defn- frame-root-head? [e head]
+  (and (symbol? head)
+       (not (contains? (:locals e) head))
+       (env/resolves-to? e head frame-root-fqns)))
+
+(defn- analyze-frame-root [e form]
+  (when-not (:top-region? e)
+    (env/fail! e :rf.ui.compile/frame-root-misplaced
+               (str "frame-root sits outside the static top region of a root "
+                    "form — ENSURE plans are static identity, extracted at "
+                    "compile time. Legal positions: the root form handed to "
+                    "ui/mount / ui/render! / ui/hydrate-root, nested only "
+                    "under unconditional wrappers (DOM elements, fragments, "
+                    "frame-root) — never under a control form, inside a "
+                    "view, or in a defview template (frames are ambient "
+                    "inside views)")
+               {:form form}))
+  (let [props (nth form 1 nil)]
+    (when-not (map? props)
+      (env/fail! e :rf.ui.compile/bad-frame-root
+                 (str "frame-root takes a literal props map: "
+                      "[frame-root {:id :frame-id ...} children...]")
+                 {:form form}))
+    (when (contains? props :frame)
+      (env/fail! e :rf.ui.compile/bad-frame-root
+                 (str "frame-root ENSURES a frame by :id — :frame is "
+                      "frame-provider's scope key (providers scope, roots "
+                      "ensure; the rf2-nyea0r split)")
+                 {:form form}))
+    (let [id (:id props)]
+      (when-not (keyword? id)
+        (env/fail! e :rf.ui.compile/bad-frame-root
+                   (str "frame-root :id must be a compile-time literal "
+                        "keyword — plans are static identity; got "
+                        (pr-str id))
+                   {:form form :id id}))
+      (let [config (not-empty (dissoc props :id))]
+        ;; config values are opaque runtime expressions (evaluated at
+        ;; preflight) — walk them for sub/lease site indexing only
+        (doseq [[_k v] config] (walk-expr e v))
+        {:op :frame-root
+         :frame-id id
+         :config config
+         :children (analyze-children e (vec (drop 2 form)))
+         :static? false
+         :path (:path e)}))))
 
 (defn- analyze-fragment [e form]
   (let [second*   (nth form 1 nil)
@@ -946,6 +1013,7 @@
       (cond
         (= :<> head)     (analyze-fragment e form)
         (keyword? head)  (analyze-element e form)
+        (frame-root-head? e head) (analyze-frame-root e form)
         (symbol? head)   (analyze-component e form)
         :else
         (env/fail! e :rf.ui.compile/dynamic-head
@@ -954,7 +1022,8 @@
                         "components are ui/view / ui/element [WAVE-2]; ui/raw "
                         "covers a runtime React element meanwhile")
                    {:form form})))
-    (seq? form)     (analyze-list e form)
+    ;; a control form / opaque expression ends the static top region (S1c)
+    (seq? form)     (analyze-list (dissoc e :top-region?) form)
     (symbol? form)  (do (walk-expr e form)
                         {:op :expr :form form :static? false :path (:path e)})
     :else
