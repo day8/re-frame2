@@ -252,9 +252,9 @@
 
   `:delivered?` is the EP-0011 delivery-vs-non-delivery fact (Managed-
   Effects §Tracing): a `:stale` reply is NOT delivered to the app target
-  (`:delivered? false`) unless a framework test/tool target opted into
-  `:dispatch-stale?` (which the runtime would record on the trace row as
-  `:rf.reply/delivered? true`); every non-stale terminal reply is delivered.
+  (`:delivered? false`) unless the trace row carries an explicit
+  `:rf.reply/delivered? true` wire fact, which this projection honors;
+  every non-stale terminal reply is delivered.
 
   PRIVACY: `:value` / `:error` / `:correlation` / `:meta` are summarized
   via `resources-helpers/summarize` (the runtime already elided sensitive /

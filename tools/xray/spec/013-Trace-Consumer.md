@@ -376,8 +376,8 @@ machines / timers:
   summary) into ONE render-safe row keyed on `:work/id`, reading
   issuance/completion **status**, **stale-suppression** (carried+current
   correlation), **cancellation**, and **delivery-or-non-delivery**
-  (`:delivered?` is `false` for a suppressed `:stale` reply unless a
-  framework test/tool target opted into `:dispatch-stale?`). The
+  (`:delivered?` is `false` for a suppressed `:stale` reply unless the
+  trace row carries an explicit `:rf.reply/delivered?` wire fact). The
   wire-bearing slots (`:value` / `:error` / `:correlation` / `:meta`)
   are summarized — the runtime already elided sensitive/large slots on
   the wire (Managed-Effects §Tracing).

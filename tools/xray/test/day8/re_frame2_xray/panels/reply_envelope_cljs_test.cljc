@@ -135,8 +135,8 @@
       (is (= :rf.reply/correlation-mismatch (:stale-reason row)))
       (is (false? (:delivered? row)))         ;; the correctness boundary
       (is (nil? (:value row)))))
-  (testing "an explicit :rf.reply/delivered? on a stale reply (a test/tool
-            target opted into :dispatch-stale?) overrides the derived default"
+  (testing "an explicit :rf.reply/delivered? wire fact on a stale reply
+            overrides the derived default"
     (is (true? (:delivered? (re/reply-row {:status :stale :stale? true
                                            :stale/reason :x
                                            :rf.reply/delivered? true})))))

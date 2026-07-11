@@ -609,7 +609,7 @@
                (:event target)))
         (is (= :append (:delivery target))))
       (testing "the reconstructed durable continuation is DATA-ONLY (no
-                ephemeral ::post / ::stale-authority, no host handle) and EDN-
+                ephemeral ::post, no host handle) and EDN-
                 serializable — it can ride the durable row / SSR / epoch wire"
         (is (true? (reply/data-only-target? target)))
         (is (work-ledger/serializable-record? target)))
