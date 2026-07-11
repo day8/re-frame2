@@ -119,7 +119,7 @@ This is the canonical async-flow shape from the lib's own README, adapted for a 
              :entry  (fn [_ctx] {:fx [[:dispatch [:app/boot-failed]]]})}}})
 
 ;; Kick the machine off from the app's entry point:
-(rf/dispatch [:app/boot [:start]])
+(rf/dispatch [:app/boot [:rf.machine/start]])
 ```
 
 What changed:
@@ -146,7 +146,7 @@ Treat any awaited event you cannot trace to its producers as a **blocker** — a
 
 ### `:first-dispatch`
 
-- **Default path.** Move the dispatched event into the initial state's `:entry` action: `{:entry (fn [_ctx] {:fx [[:dispatch <event-vec>]]})}`. The machine bootstraps on its first received event; the parent dispatches that event (often the kickoff itself, e.g. `(rf/dispatch [:app/boot [:start]])`).
+- **Default path.** Move the dispatched event into the initial state's `:entry` action: `{:entry (fn [_ctx] {:fx [[:dispatch <event-vec>]]})}`. The machine bootstraps on the first event addressed to it — either a domain kickoff event it handles via `:on`, or (when its initial state has no such clause, as in the worked example above) the synthetic `[:rf.machine/start]` init-kick per Spec 005 (a pure init-kick that runs the initial `:entry` cascade then stops), e.g. `(rf/dispatch [:app/boot [:rf.machine/start]])`.
 - **If the flow's `:first-dispatch` is conditional on cofx or app-db at boot time** (uncommon but possible — e.g. "if user is authenticated, dispatch X; otherwise Y"): hoist the condition into the parent event that calls `rf/dispatch` to spawn / start the machine. The machine's `:entry` should be deterministic given the spec.
 - **If `:first-dispatch` is omitted** in the v1 flow (the flow starts when an external event arrives that matches one of its rules): the machine's initial state's `:entry` is a no-op (`{:entry nil}` or omitted); the first transition fires when the awaited event arrives.
 
