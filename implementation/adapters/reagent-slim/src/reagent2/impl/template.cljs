@@ -299,12 +299,21 @@
   "Reduce-kv step: convert one [k v] pair into the JS props object `o`.
 
   Used for NESTED maps (style objects, custom-component prop sub-maps)
-  reached via `convert-prop-value`'s `map?` branch — there is no
-  native-DOM-tag context at this depth, so per-key conversion uses the
-  2-arg `convert-prop-value` (interop) rule. The TOP-LEVEL prop map is
+  reached via `convert-prop-value`'s `map?` branch. At this depth there
+  is no outer prop-name context — a `:style` sub-map's `:cursor` is the
+  CSS property name, not an HTML attribute — so the per-key VALUE
+  conversion uses the 1-arg `convert-prop-value`, which stringifies
+  EVERY named value (`{:cursor :pointer}` → `cursor \"pointer\"`). This
+  matches stock Reagent AND the pure server serializer
+  (`dom/server.cljs`, whose `named->str` stringifies every style value),
+  so the slim LIVE and SSR style paths agree — no live-vs-SSR hydration
+  mismatch (rf2-fdm4rm). Routing nested values through the 2-arg
+  (interop) form instead left keyword style values (`:cursor :pointer`)
+  reaching React as RAW keywords, silently dropped by the CSSOM. The KEY
+  is still camelCased via `cached-prop-name`. The TOP-LEVEL prop map is
   converted by `convert-props` with the native-aware `top-prop-conv`
-  step instead, which is the seam that makes native-DOM keyword
-  attributes stringify (per rf2-ygknv finding 1).
+  step instead, the seam that makes native-DOM keyword ATTRIBUTES
+  stringify (per rf2-ygknv finding 1).
 
   Per rf2-dwds9 MEDIUM: reserved JS keys (`__proto__`, `prototype`,
   `constructor`) are dropped silently. `aset o \"__proto__\" v` would
@@ -316,7 +325,9 @@
   (let [k' (cached-prop-name k)]
     (if (and (string? k') (reserved-prop-key? k'))
       o
-      (let [v' (convert-prop-value k v)]
+      ;; 1-arg form: nested-map values carry no outer prop-name context,
+      ;; so stringify every named value (rf2-fdm4rm). See the docstring.
+      (let [v' (convert-prop-value v)]
         (aset o k' v')
         o))))
 

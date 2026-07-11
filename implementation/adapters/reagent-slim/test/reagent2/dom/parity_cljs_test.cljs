@@ -356,6 +356,24 @@
     (is (= "<div style=\"--gap:8\"></div>"
            (via-rewrite [:div {:style {:--gap 8}}])))))
 
+(deftest parity-style-keyword-value-rf2-fdm4rm
+  (testing "rf2-fdm4rm: keyword-valued style properties stringify on the
+            LIVE React path so react-dom/server and the pure serializer
+            AGREE — {:cursor :pointer} → cursor:pointer on both. This pin
+            FAILS if the live template path passes a raw keyword into React
+            (the pre-fix bug: React string-coerces the CLJS keyword :pointer
+            to \":pointer\", emitting invalid `cursor::pointer`)."
+    (let [[a b] (=parity [:div {:style {:cursor :pointer}}])]
+      (is (= a b)
+          "live React path and pure serializer agree on :cursor :pointer"))
+    (is (= "<div style=\"cursor:pointer\"></div>"
+           (via-rewrite [:div {:style {:cursor :pointer}}])))
+    ;; Mixed keyword values across several properties, one style map.
+    (let [[a b] (=parity [:div {:style {:display :flex :text-align :center}}])]
+      (is (= a b)))
+    (is (= "<div style=\"display:flex;text-align:center\"></div>"
+           (via-rewrite [:div {:style {:display :flex :text-align :center}}])))))
+
 ;; ---------------------------------------------------------------------------
 ;; SVG attribute-name casing parity (rf2-ygknv finding 3)
 ;;
