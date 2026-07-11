@@ -18,6 +18,7 @@
   (:require [clojure.test :refer [deftest is testing]]
             [malli.core               :as m]
             [re-frame.epoch.capture   :as capture]
+            [re-frame.story.assertions :as assertions]
             [re-frame.story.result   :as result]
             [re-frame.story.play.evidence :as evidence]
             [re-frame.story.requirements  :as requirements]))
@@ -256,6 +257,59 @@
            top-level :status escalated past it — the two are separate
            result slots")
       (is (= 1 (count (:schema-violations r))) "the violation is still projected"))))
+
+;; ---- rf2-x76af2.16: assertions-passing? consults the VERDICT, not the ----
+;; ---- floor-blind assertion fold (no false GREEN) -------------------------
+
+(deftest assertions-passing?-consults-the-run-verdict
+  (testing "the public cljs.test-adapter predicate `assertions/passing?`
+            (also `story/assertions-passing?`) reads the run VERDICT
+            (`:status`) for a RESULT MAP — NOT a fold over `:assertions` —
+            so a floor-escalated `:fail` or a run-level `:cannot-run` with
+            an all-green assertion set returns FALSE, agreeing with
+            `result/passed?`. Before rf2-x76af2.16 it folded only
+            `(every? :passed? (:assertions result))` and reported a false
+            GREEN on both shapes."
+    (testing "floor-escalated :fail (red tape + a single passing assertion)"
+      (let [tape [(epoch {:trace-events
+                          [{:operation :rf.error/schema-validation-failure
+                            :tags {:where :event :failing-id :checkout/submit}}]})]
+            r    (result/run-result
+                   {:epoch-tape tape
+                    :assertions [{:assertion :rf.assert/path-equals :passed? true}]})]
+        (is (= :fail (:status r)) "sanity: the agreement floor escalated to :fail")
+        (is (every? :passed? (:assertions r))
+            "sanity: the assertion fold alone is all-green (the false-GREEN trap)")
+        (is (false? (result/passed? r)) "the verdict authority says NOT passing")
+        (is (false? (assertions/passing? r))
+            "assertions/passing? MUST agree with the verdict — no false GREEN")))
+    (testing "run-level :cannot-run (unmet requirement) + a passing assertion"
+      (let [refusal (requirements/requirement-refusal
+                      #{:pixels} #{:app-db} [:rf.assert/visual-snapshot]
+                      :runner-lacks-capability :headless)
+            r       (result/run-result
+                      {:epoch-tape [(epoch {})]
+                       :assertions [{:assertion :rf.assert/path-equals :passed? true}]
+                       :unmet      [refusal]})]
+        (is (= :cannot-run (:status r)) "sanity: run refused → :cannot-run")
+        (is (false? (assertions/passing? r))
+            "a :cannot-run run proved nothing — assertions/passing? is FALSE")))
+    (testing "the vacuous-green duality still holds — a zero-assertion :pass"
+      (let [r (result/run-result {:assertions []})]
+        (is (= :pass (:status r)))
+        (is (true? (assertions/passing? r))
+            "a zero-assertion :pass run is still green (Story-as-test duality)")))
+    (testing "a genuinely-passing run with passing assertions is still green"
+      (let [r (result/run-result
+                {:epoch-tape [(epoch {})]
+                 :assertions [{:assertion :rf.assert/path-equals :passed? true}]})]
+        (is (= :pass (:status r)))
+        (is (true? (assertions/passing? r)))))
+    (testing "the bare-assertions-VECTOR arity is unchanged (the fold path)"
+      (is (true?  (assertions/passing? []))            "empty vector vacuously passes")
+      (is (true?  (assertions/passing? [{:passed? true}])))
+      (is (false? (assertions/passing? [{:passed? true} {:passed? false}]))
+          "any :passed? false in the vector fails the fold"))))
 
 ;; ===========================================================================
 ;; SCHEMA-ERROR EXACT CONSUMPTION  (spec/017 §Schema rule, rf2-5x1wt.21)

@@ -1378,16 +1378,23 @@
 
 (defn assertions-passing?
   "Per `004-Assertions.md` §Test-runner integration + /spec/007-Stories.md
-  §Story-as-test duality — true iff
-  every entry in the assertions list has `:passed? true`. Accepts
-  either an assertions vector or a `run-variant` result map.
-
-  This is the canonical predicate for the cljs.test / clojure.test
-  adapter pattern from /spec/007-Stories.md §Portable into tests:
+  §Story-as-test duality — the canonical predicate for the cljs.test /
+  clojure.test adapter pattern:
 
       (deftest counter-empty-state
         (let [result @(story/run-variant :story.counter/empty {})]
-          (is (story/assertions-passing? result))))"
+          (is (story/assertions-passing? result))))
+
+  Given a `run-variant` RESULT MAP, this reflects the run VERDICT
+  (`:status`) — the SAME authority as `result-passed?` — so a
+  floor-escalated `:fail` (an unconsumed schema violation / failing epoch
+  outcome) or a run-level `:cannot-run` returns FALSE even when every
+  assertion is `:passed? true` (no floor-blind false GREEN, rf2-x76af2.16).
+  A zero-assertion `:pass` run stays green (the §Story-as-test duality).
+
+  Given a bare ASSERTIONS VECTOR (e.g. `read-assertions`), it is the
+  vacuous-green fold: true iff every record has `:passed? true` (an empty
+  vector passes). See `re-frame.story.assertions/passing?`."
   [assertions-or-result]
   (assertions/passing? assertions-or-result))
 
