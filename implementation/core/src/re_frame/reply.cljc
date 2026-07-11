@@ -73,12 +73,10 @@
 ;; and the internal descriptor form (Managed-Effects §The reply target).
 ;;
 ;; A normalized target is a map:
-;;   {:event             [:event-id arg ...] ;; the prefix to complete
-;;    :delivery          :append             ;; the only public delivery mode
-;;    :suppress          {...}               ;; optional data-only gates
-;;    :dispatch-stale?   false               ;; framework test/tool opt-in only
-;;    ::post             (fn [event] event)  ;; the composed event-transform
-;;    ::stale-authority  <capability object>};; framework/tool capability (opaque)
+;;   {:event     [:event-id arg ...]     ;; the prefix to complete
+;;    :delivery  :append                 ;; the only public delivery mode
+;;    :suppress  {...}                    ;; optional data-only gates
+;;    ::post     (fn [event] event)}      ;; the composed event-transform
 ;;
 ;; `::post` is the functor's accumulator: a pure event→event transform that
 ;; `complete` applies AFTER appending the reply map. It is namespaced-private
@@ -87,62 +85,31 @@
 ;; continuation, exactly the role Elm's `Cmd.map` plays. Identity target
 ;; carries no `::post` (treated as identity); composition composes them.
 ;;
-;; `::stale-authority` carries the framework/tool stale-delivery CAPABILITY
-;; (Managed-Effects §The reply target: `:dispatch-stale?` is "restricted to
-;; framework test and tool targets"). Authority is PROVENANCE, not a truthy
-;; field: the slot's VALUE must be the one opaque, non-serializable
-;; `stale-delivery-capability` object, compared by IDENTITY (`identical?`). The
-;; namespaced KEY is NOT the access-control boundary — a keyword can always be
-;; re-spelled — the unforgeable CAPABILITY VALUE is. An app/EDN/wire-authored
-;; target built from `:rf/reply-to` data can spell the key and set it to `true`
-;; (or any datum), but it cannot obtain, spell, serialize, or reconstruct the
-;; capability object, so `suppress` never treats it as authorised — it FAILS
-;; LOUD instead. Like `::post`, the capability is EPHEMERAL: it rides a
-;; normalized target while a family/tool assembles a continuation and MUST NOT
-;; be serialized into an effect map or a durable reply target.
+;; STALE OUTCOMES NEVER APP-DELIVER (rf2-j538f7.14). A superseded async
+;; completion's app reply target is NEVER dispatched — `suppress` is
+;; UNIVERSALLY non-delivering (`:deliver? false`), full stop. There is no
+;; per-target "stale delivery authority", no per-target opt-in flag, and no
+;; capability object riding the target: an app/data reply target could carry a
+;; capability, so a stale outcome can never carry delivery authority through
+;; one. A framework/tool test that WANTS to observe a stale reply reads
+;; `(:reply outcome)` and dispatches it on its OWN authority, in its own code
+;; (see `suppress`).
 ;;
-;; EPHEMERAL vs DURABLE. `::post` and `::stale-authority` are the two
-;; ephemeral, host-/capability-bearing slots a normalized target may carry
-;; while in-flight. A target that could become DURABLE (persisted to a ledger
-;; row, a stored continuation, a replay log) MUST be data-only: see
-;; `durable-target` (strips ephemerals + asserts data-only) and
-;; `data-only-target?` (the predicate conformance pins).
+;; EPHEMERAL vs DURABLE. `::post` is the one ephemeral, host-bearing slot a
+;; normalized target may carry while in-flight. A target that could become
+;; DURABLE (persisted to a ledger row, a stored continuation, a replay log)
+;; MUST be data-only: see `durable-target` (strips ephemerals + asserts
+;; data-only) and `data-only-target?` (the predicate conformance pins).
 ;; ---------------------------------------------------------------------------
 
 (def ^:private post-key ::post)
 
-(def ^:private stale-authority-key ::stale-authority)
-
-;; The opaque, provenance-bearing stale-delivery CAPABILITY. A `deftype`
-;; instance is a plain host object with NO EDN reader tag: it is `=` to nothing
-;; but itself, does not round-trip through `pr-str` → `read-string`, cannot be
-;; sent over the wire, and cannot be spelled in `:rf/reply-to` data. So the ONLY
-;; way a target carries it is for framework/tool code to attach the SAME
-;; process-held instance via `with-stale-authority`; authority is decided by
-;; `identical?` against that instance, never by truthiness of a serializable
-;; field. This closes the forgery an app/EDN/wire target attempts by writing
-;; `{:re-frame.reply/stale-authority true}` — `true` is not the capability.
-(deftype StaleDeliveryCapability [])
-
-(def ^:private stale-delivery-capability
-  "The single process instance authorising stale delivery (see
-  `StaleDeliveryCapability`). Provenance-bearing, opaque, non-serializable,
-  compared by IDENTITY. Held `^:private`, never a `re-frame.core` façade export,
-  and stripped by `durable-target` before a target could become durable, so it
-  can neither be persisted nor reconstructed from durable/EDN/wire data. The
-  framework/tool seam `with-stale-authority` is the sole way it reaches a
-  target; the public app-target surface (`:rf/reply-to` data) cannot obtain it."
-  (->StaleDeliveryCapability))
-
 (def ^:private ephemeral-target-keys
-  "The namespaced-private slots a normalized target may carry while in-flight
+  "The namespaced-private slot a normalized target may carry while in-flight
   that MUST NOT survive into a durable target: the functor accumulator
-  (`::post`, a fn) and the stale-delivery capability (`::stale-authority`, the
-  opaque `stale-delivery-capability` object). `durable-target` strips these;
-  their presence makes a target non-data-only. Stripping the capability is a
-  belt-and-braces guarantee — it is also non-serializable, so a durable/EDN
-  round-trip could not reconstruct it even if it were left in place."
-  #{post-key stale-authority-key})
+  (`::post`, a fn). `durable-target` strips it; its presence makes a target
+  non-data-only."
+  #{post-key})
 
 (defn descriptor?
   "True when `target` is the descriptor (map) form rather than the
@@ -179,11 +146,11 @@
 
 (def ^:private reply-category->error-id
   "The CLOSED literal `:rf.reply/<category>` → `:rf.error/reply-<category>`
-  table — the five mintable reply error-ids, each spelled as a GREPPABLE
+  table — the four mintable reply error-ids, each spelled as a GREPPABLE
   literal adjacent to the construction site so `rg :rf.error/reply-` hits the
   SOURCE (not only the Spec 009 catalogue), and the member set is pinned
   CLOSED. Every reply throw's canonical `:rf.error/id` is a value here; the
-  five keys are exactly the five `:rf.error/reply-*` rows in
+  four keys are exactly the four `:rf.error/reply-*` rows in
   `spec/009-Instrumentation.md` §Error event catalogue — the Conventions
   co-edit invariant (a mintable id with no catalogue row, or a throw whose
   category is absent from this table, is a contract bug, not a deferred
@@ -200,12 +167,11 @@
 
   NOTE `:rf.reply/correlation-mismatch` is NOT a member — it is a
   `:rf.reply/stale-reason` VALUE on a (non-throwing) stale reply, never an
-  `:rf.error/id`; only the five throw categories are catalogued here."
-  {:rf.reply/invalid-target              :rf.error/reply-invalid-target
-   :rf.reply/non-data-target             :rf.error/reply-non-data-target
-   :rf.reply/non-map-reply               :rf.error/reply-non-map-reply
-   :rf.reply/unauthorized-stale-delivery :rf.error/reply-unauthorized-stale-delivery
-   :rf.reply/unknown-delivery            :rf.error/reply-unknown-delivery})
+  `:rf.error/id`; only the four throw categories are catalogued here."
+  {:rf.reply/invalid-target   :rf.error/reply-invalid-target
+   :rf.reply/non-data-target  :rf.error/reply-non-data-target
+   :rf.reply/non-map-reply    :rf.error/reply-non-map-reply
+   :rf.reply/unknown-delivery :rf.error/reply-unknown-delivery})
 
 (defn- reply-error
   "Build the canonical reply thrown-error `ex-info`. `category`
@@ -236,8 +202,7 @@
 
   Accepts either:
     - the public short form: an event-vector prefix `[:event-id arg ...]`;
-    - the descriptor form: `{:event [...] :delivery :append :suppress {...}
-      :dispatch-stale? bool}`.
+    - the descriptor form: `{:event [...] :delivery :append :suppress {...}}`.
 
   Returns `{:event <vector> :delivery <kw> ...}` with `:delivery` defaulted
   to `:append`. Idempotent: normalizing an already-normalized target is the
@@ -285,21 +250,16 @@
 
 (defn target->short-form
   "Project a normalized target back to its public short form when it has no
-  non-default descriptor fields (no `:suppress`, no `:dispatch-stale?`, no
-  accumulated `::post`, no `::stale-authority` capability, `:delivery :append`).
-  Otherwise returns the descriptor unchanged. Lets a family expose the bare
-  vector publicly while using the descriptor internally (Managed-Effects: \"A
-  family MAY expose only the short vector form publicly while using the
-  descriptor form internally\"). The ephemeral capability slot
-  (`::stale-authority`) keeps the descriptor too — projecting must never
-  silently drop a framework/tool capability."
+  non-default descriptor fields (no `:suppress`, no accumulated `::post`,
+  `:delivery :append`). Otherwise returns the descriptor unchanged. Lets a
+  family expose the bare vector publicly while using the descriptor internally
+  (Managed-Effects: \"A family MAY expose only the short vector form publicly
+  while using the descriptor form internally\")."
   [target]
-  (let [{:keys [event delivery suppress dispatch-stale?] :as d} (normalize-target target)]
+  (let [{:keys [event delivery suppress] :as d} (normalize-target target)]
     (if (and (= delivery :append)
              (nil? suppress)
-             (not dispatch-stale?)
-             (nil? (get d post-key))
-             (nil? (get d stale-authority-key)))
+             (nil? (get d post-key)))
       event
       d)))
 
@@ -382,55 +342,6 @@
     (let [existing (get d post-key)
           composed (if existing (comp f existing) f)]
       (assoc d post-key composed))))
-
-;; ---------------------------------------------------------------------------
-;; Stale-delivery authority — the framework/tool capability (Managed-Effects
-;; §The reply target). `:dispatch-stale?` is "restricted to framework test and
-;; tool targets"; the substrate is pure and has no caller-identity context, so
-;; the restriction is enforced by an unforgeable, provenance-bearing CAPABILITY:
-;; the opaque `stale-delivery-capability` object, compared by IDENTITY. Only
-;; framework/tool code can attach it (via `with-stale-authority`, holding the
-;; process instance). An app target built from `:rf/reply-to` data — or any
-;; EDN/wire datum — cannot obtain, spell, serialize, or reconstruct that object,
-;; so it cannot grant itself stale delivery; `suppress` fails LOUD if it tries.
-;; This is NOT a keyword-namespacing access-control claim (a keyword can be
-;; re-spelled): the boundary is the identity of the capability VALUE.
-;; ---------------------------------------------------------------------------
-
-(defn with-stale-authority
-  "Attach the FRAMEWORK/TOOL stale-delivery CAPABILITY to a reply `target`,
-  authorising it to opt into stale delivery via `:dispatch-stale? true`
-  (Managed-Effects §The reply target). Returns the normalized descriptor
-  carrying the opaque `stale-delivery-capability` object under
-  `::stale-authority`.
-
-  This is the ONLY way `:dispatch-stale? true` is honoured: `suppress` grants
-  delivery only when the target carries THIS exact capability object
-  (`identical?`), and throws on a target that sets `:dispatch-stale? true`
-  WITHOUT it. The capability is provenance-bearing — opaque, non-serializable,
-  identity-compared — so it cannot be forged from data: an app/EDN/wire target
-  can write `{:re-frame.reply/stale-authority true}` but `true` is not the
-  capability. Framework test/tool callers wrap their target with this helper;
-  app code — which builds a target from public `:rf/reply-to` data — cannot,
-  and so an app reply is never delivered stale.
-
-  FRAMEWORK/TOOL-INTERNAL. `re-frame.reply` is not a `re-frame.core` façade
-  export, so this seam is unreachable from the public app API; the public
-  app-target constructor (`:rf/reply-to` data) has no path to the capability.
-
-  Like `::post`, the capability is EPHEMERAL: it rides an in-flight normalized
-  target and MUST NOT be serialized into an effect map or a durable target
-  (`durable-target` strips it; it is non-serializable regardless)."
-  [target]
-  (assoc (normalize-target target) stale-authority-key stale-delivery-capability))
-
-(defn stale-authority?
-  "True when `target` carries the framework/tool stale-delivery capability —
-  i.e. its `::stale-authority` slot is IDENTICAL to `stale-delivery-capability`
-  (set via `with-stale-authority`). A forged truthy datum under the same key is
-  NOT the capability, so this returns false for it."
-  [target]
-  (identical? stale-delivery-capability (get (normalize-target target) stale-authority-key)))
 
 ;; ---------------------------------------------------------------------------
 ;; Host-handle detection — the shared data-only walker (Managed-Effects §The
@@ -522,33 +433,28 @@
 ;; ---------------------------------------------------------------------------
 ;; Data-only / durable target invariant (Managed-Effects §The reply target —
 ;; the reply-target-as-data contract). A normalized target may carry the
-;; ephemeral, non-data slots `::post` (a fn) and `::stale-authority` (the opaque
-;; stale-delivery capability) WHILE IN-FLIGHT, but a target that can become
-;; DURABLE (a stored continuation, a ledger row, a replay log) MUST be
-;; data-only. These helpers make that boundary explicit and fail LOUD rather
-;; than letting a non-serializable function or the capability object leak into
-;; durable reply data.
+;; ephemeral, non-data slot `::post` (a fn) WHILE IN-FLIGHT, but a target that
+;; can become DURABLE (a stored continuation, a ledger row, a replay log) MUST
+;; be data-only. These helpers make that boundary explicit and fail LOUD rather
+;; than letting a non-serializable function leak into durable reply data.
 ;; ---------------------------------------------------------------------------
 
 (defn data-only-target?
   "True when `target` is DATA-ONLY — safe to persist into a durable reply
-  target. False when the `::post` (an arbitrary fn) or `::stale-authority` slot
-  is present: the check is KEY PRESENCE, so it rejects both the genuine opaque
-  `stale-delivery-capability` object AND a forged truthy `::stale-authority`
-  datum an app/EDN target might spell — either way that slot is stripped by
-  `durable-target` and never rides durable data (and the forged datum grants no
-  authority regardless — `suppress` compares by identity). The public data
-  fields `:event` / `:delivery` / `:suppress` / `:dispatch-stale?` are all data
-  and pass. A nil target is data-only (nothing to persist)."
+  target. False when the `::post` slot (an arbitrary fn) is present: the check
+  is KEY PRESENCE, and that slot is stripped by `durable-target` so it never
+  rides durable data. The public data fields `:event` / `:delivery` /
+  `:suppress` are all data and pass. A nil target is data-only (nothing to
+  persist)."
   [target]
   (let [d (normalize-target target)]
     (not (some #(contains? d %) ephemeral-target-keys))))
 
 (defn durable-target
   "Project `target` to a DURABLE, data-only normalized descriptor — stripping
-  the ephemeral non-data slots (`::post`, `::stale-authority`) — and assert
-  the result carries no host handle anywhere. Use before a target could be
-  persisted (a stored continuation, a ledger row, a replay log).
+  the ephemeral non-data slot (`::post`) — and assert the result carries no
+  host handle anywhere. Use before a target could be persisted (a stored
+  continuation, a ledger row, a replay log).
 
   Fails LOUD (throws `ex-info` `:rf.reply/non-data-target`) if, after
   stripping the framework-private slots, the descriptor STILL contains a host
@@ -788,28 +694,30 @@
   "Produce the stale-suppression outcome for a superseded completion WITHOUT
   dispatching the app target. This is the correctness boundary made
   concrete: the returned `:reply` is `:status :stale` (no `:value`, no app
-  mutation), and `:deliver?` is `false` (unless the target is a FRAMEWORK/TOOL
-  target that explicitly opted into stale delivery via `:dispatch-stale? true`
-  — see the authority rule below).
+  mutation), and `:deliver?` is ALWAYS `false`.
 
-  AUTHORITY (Managed-Effects §The reply target — `:dispatch-stale?` is
-  \"restricted to framework test and tool targets\"). `:dispatch-stale? true`
-  is honoured ONLY when the target also carries the framework/tool stale-delivery
-  CAPABILITY — its `::stale-authority` slot IDENTICAL to the opaque, non-
-  serializable `stale-delivery-capability` object (attached via
-  `with-stale-authority`). Authority is PROVENANCE, not a truthy field: the
-  check is `identical?`, so a forged `{:re-frame.reply/stale-authority true}`
-  (or any datum an app/EDN/wire target can spell) is NOT authority. An APP
-  target — built from public `:rf/reply-to` data, which cannot obtain or
-  reconstruct the capability object — cannot grant itself stale delivery: if it
-  sets `:dispatch-stale? true` WITHOUT the capability this FAILS LOUD (throws
-  `ex-info` `:rf.reply/unauthorized-stale-delivery`) rather than silently
-  delivering a stale envelope to app state. The default (no `:dispatch-stale?`)
-  is non-delivery for every target, app or framework.
+  A STALE OUTCOME NEVER APP-DELIVERS (rf2-j538f7.14). A superseded async
+  result must not mutate app state for a newer navigation / request /
+  generation, so the app reply target is never dispatched — there is no
+  per-target \"stale delivery authority\" and no per-target opt-in flag. A
+  reply target is app/data that could carry a capability, so a stale outcome
+  can never carry delivery authority through one; the boundary is therefore
+  UNIVERSAL and structural, not a check a caller can pass.
+
+  Framework/tool OBSERVATION (the only legitimate stale-delivery use). A test
+  or tool that WANTS to observe a stale reply reads `(:reply outcome)` and
+  dispatches it on its OWN authority, explicitly, in its own code:
+
+      (dispatch (reply/complete target (:reply outcome)))
+
+  That is a structurally separate trusted path — the observer's own dispatch —
+  with nothing capability-bearing smuggled through the target.
 
   Arguments:
-    `target`  — the (optionally normalized) reply target; consulted only for
-                its `:dispatch-stale?` opt-in and `::stale-authority`.
+    `target`  — the reply target. Accepted for call-site uniformity (every
+                managed-async family threads its target through this boundary),
+                but NOT consulted for a delivery decision: a stale outcome is
+                universally non-delivering.
     `carried` — the data-only correlation captured at issuance.
     `current` — the data-only correlation read from live frame-state now.
     `extra`   — optional reply fields to carry verbatim (`:rf.reply/work-id`,
@@ -823,41 +731,21 @@
                 as `extra` cannot produce a non-stale outcome.
 
   Returns:
-    {:deliver? <bool>           ;; false ⇒ DO NOT dispatch the app target
+    {:deliver? false           ;; ALWAYS false ⇒ never dispatch the app target
      :reply    <stale reply>    ;; :status :stale, data-only, app-state-safe
      :rf.reply/work-status :suppressed   ;; the ledger terminal for a stale completion
      :trace    <data-only trace facts carrying CARRIED + CURRENT>}
 
-  The caller's contract: when `:deliver?` is false it MUST NOT run the app
-  reply target, MUST mark any ledger row `:suppressed`, and SHOULD emit the
-  `:trace` facts onto the trace bus (routing wire slots through
-  `trace-summary` / `elide-wire-value`). The stale reply MUST NOT produce
-  any user-visible app-db / runtime-db mutation beyond framework-owned
-  ledger / trace bookkeeping."
+  The caller's contract: it MUST NOT run the app reply target, MUST mark any
+  ledger row `:suppressed`, and SHOULD emit the `:trace` facts onto the trace
+  bus (routing wire slots through `trace-summary` / `elide-wire-value`). The
+  stale reply MUST NOT produce any user-visible app-db / runtime-db mutation
+  beyond framework-owned ledger / trace bookkeeping."
   ([target carried current] (suppress target carried current nil))
   ([target carried current extra]
+   ;; `target` is accepted for call-site uniformity but not consulted — a stale
+   ;; outcome is universally non-delivering.
    (let [reason   (or (:rf.reply/stale-reason extra) :rf.reply/correlation-mismatch)
-         d        (when target (normalize-target target))
-         wants?   (true? (:dispatch-stale? d))
-         ;; Authority is PROVENANCE, not truthiness: the slot must hold the ONE
-         ;; opaque, non-serializable capability object, compared by identity. A
-         ;; forged `{:re-frame.reply/stale-authority true}` — the datum an
-         ;; app/EDN/wire target can spell — is NOT `identical?` to it, so it
-         ;; grants nothing. Only `with-stale-authority` (framework/tool only)
-         ;; attaches the real capability.
-         authorised? (identical? stale-delivery-capability (get d stale-authority-key))
-         ;; FAIL LOUD: a target asking for stale delivery without the
-         ;; framework/tool capability is an app target overreaching. The
-         ;; substrate is pure (no caller identity), so the unforgeable
-         ;; capability IS the authority — its absence means "not framework/tool".
-         _        (when (and wants? (not authorised?))
-                    (throw (reply-error
-                             :rf.reply/unauthorized-stale-delivery
-                             "Stale delivery (:dispatch-stale? true) is restricted to framework test/tool targets — this target lacks the stale-delivery authority. App reply targets MUST NOT receive stale envelopes. Drop :dispatch-stale? from the target, or use a framework/tool target that carries the stale-delivery capability."
-                             {:target         d
-                              :rf.reply/stale-reason   reason
-                              :rf.reply/stale-authorised? authorised?})))
-         opt-in?  (and wants? authorised?)
          ;; `suppress` is THE correctness boundary, so "stale
          ;; wins over the natural completion status" (Managed-Effects
          ;; §Status taxonomy) MUST be structurally impossible for a caller
@@ -878,7 +766,7 @@
                                 :stale?       true
                                 :rf.reply/stale-reason reason
                                 :rf.reply/work-status  :suppressed})]
-     {:deliver?    opt-in?
+     {:deliver?    false
       :reply       reply
       :rf.reply/work-status :suppressed
       :trace       {:rf.reply/suppressed?  true
