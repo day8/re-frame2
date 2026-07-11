@@ -97,8 +97,14 @@
 (deftest every-tree-walking-tool-routes-through-the-helper
   (doseq [[tool rel] tree-walking-tool-sources]
     (testing (str "tool " tool " — wire/with-indicators call-site in " rel)
-      (let [src (fx/read-source rel)]
-        (is (str/includes? src "wire/with-indicators")
+      ;; Match against `fx/strip-comments-and-strings`-neutered source so a
+      ;; docstring / comment MENTION of `wire/with-indicators` can't satisfy
+      ;; the routing pin — only a real CODE reference counts (rf2-qyfy1m).
+      ;; subscribe.cljs names the helper in two docstrings; without the
+      ;; strip, deleting its real splices would leave the pin green.
+      (let [src      (fx/read-source rel)
+            stripped (fx/strip-comments-and-strings src)]
+        (is (str/includes? stripped "wire/with-indicators")
             (str "Tool " tool " at " rel
                  " does not route its envelope through `wire/with-indicators`. "
                  "The centralised emit-path is the structural contract — a "
@@ -113,9 +119,17 @@
   ;; splice would silently ship per-tick payloads without indicator
   ;; counts on the streaming path while still showing them on the
   ;; final summary — invisible to single-payload conformance.
-  (let [rel "tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/subscribe.cljs"
-        src (fx/read-source rel)
-        n   (count (re-seq #"wire/with-indicators" src))]
+  ;; Count over `fx/strip-comments-and-strings`-neutered source (rf2-qyfy1m):
+  ;; subscribe.cljs mentions `wire/with-indicators` in TWO docstrings
+  ;; (terminal-summary + streaming) on top of the two REAL splices. A raw
+  ;; `re-seq` counts all four, so deleting BOTH real splices — the exact
+  ;; regression this pin names — still counts the two docstrings and stays
+  ;; `>= 2` green. Stripping drops the prose to spaces, so the count reflects
+  ;; only the two genuine call-sites and falls to 0 when they are removed.
+  (let [rel      "tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/subscribe.cljs"
+        src      (fx/read-source rel)
+        stripped (fx/strip-comments-and-strings src)
+        n        (count (re-seq #"wire/with-indicators" stripped))]
     (is (>= n 2)
         (str "Expected `subscribe-emit` to call `wire/with-indicators` "
              "at least twice (once on the per-tick progress payload, "
