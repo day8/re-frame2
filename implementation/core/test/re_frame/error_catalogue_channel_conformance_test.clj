@@ -433,17 +433,18 @@
   rides the diagnostic channel for catalogue purposes). The allow-list below
   holds ONLY the residue that must NOT become a catalogue row.
 
-  GENUINELY-INTERNAL-INVARIANT (NOT caller-fixable, NOT a public contract — no
-  catalogue row by design):
+  TOTALITY — the allow-list is now EMPTY (rf2-cs0kd1):
     - `:rf.error/flow-cycle-extract-invariant` — `re-frame.flows.topo`'s
-      cycle-path-extraction dead-end guard. It fires ONLY when the topo state is
-      internally inconsistent (a Kahn-stuck node found no stuck dependency to
-      follow) — an impossible-by-construction state that signals a framework bug,
-      not a user error. The source explicitly contrasts it with the sibling
-      `:rf.error/flow-cycle` (a caller-fixable `:fix-registration` registration
-      rejection, which IS catalogued): \"that one is a genuine internal-invariant
-      violation, not caller-fixable\" (topo.cljc). An internal invariant is not a
-      consumer-facing error category, so it stays out of the catalogue.
+      cycle-path-extraction dead-end guard (fires ONLY on an impossible-by-
+      construction internal-invariant violation, a framework bug) was the LAST
+      allow-list entry. Mike ruled Option A (2026-07-10): ONE catalogue holds
+      everything — no out-of-catalogue exemption registry, no renames. It is now
+      CATALOGUED in Spec 009 §Error event catalogue (diagnostic channel,
+      `:no-recovery`) and DROPPED from this list, which is therefore EMPTY. The
+      seam is KEPT (a future deliberate non-catalogue emit could land here with a
+      rationale), but the terminal-state posture is TOTALITY — every emitted
+      category is catalogued, so `allow-list-stays-honest` now guards an empty
+      set.
 
   rf2-ho20xj CATALOGUE FIX (verified from #5229 impl-review):
     - `:rf.error/unknown-registry-kind` — `re-frame.registrar/register!`'s
@@ -455,8 +456,8 @@
       IS now CATALOGUED in Spec 009 §Error event catalogue (diagnostic
       channel, `:fix-registration` recovery) and therefore DROPPED from this
       allow-list, as `allow-list-stays-honest` requires the moment the row
-      lands. The sibling `:rf.error/flow-cycle-extract-invariant` above is
-      NOT part of this fix — its stays-uncatalogued rationale is unchanged.
+      lands. (The sibling `:rf.error/flow-cycle-extract-invariant` was likewise
+      catalogued later under rf2-cs0kd1 — see the TOTALITY note above.)
 
   EP-0025 PURGE TRANSITION (rf2-j3jlgu / rf2-5fqlz1):
     - `:rf.error/bad-classification` is now CATALOGUED in Spec 009 §Error event
@@ -494,7 +495,7 @@
   `allow-list-stays-honest` fails if any entry becomes catalogued or stops being
   emitted, forcing the co-edit so the list cannot rot into a silent blanket
   suppression."
-  #{:rf.error/flow-cycle-extract-invariant})
+  #{})
 
 ;; ---------------------------------------------------------------------------
 ;; Tests
