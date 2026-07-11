@@ -15,7 +15,7 @@
   TEMPLATE's own pin, never the impl tree's, so a drift between them would
   otherwise be invisible to every gate:
 
-    - reagent/reagent          ↔ `implementation/core/deps.edn` :deps
+    - reagent/reagent          ↔ `implementation/adapters/reagent/deps.edn` :deps
     - com.pitch/uix.core       ↔ `implementation/adapters/uix/deps.edn` :deps
     - com.pitch/uix.dom        ↔ `implementation/adapters/uix/deps.edn`
                                   :test alias :extra-deps (the shipped
@@ -254,16 +254,20 @@
 
 (deftest substrate-lib-lockstep
   (testing "Template's substrate-lib pins match the implementation adapter tree"
-    ;; reagent/reagent — impl source of truth is core/deps.edn :deps
-    ;; (re-frame.views is Reagent-coupled, so reagent rides core).
-    (let [impl-reagent (read-impl-deps-pin "implementation/core/deps.edn"
+    ;; reagent/reagent — impl source of truth is
+    ;; adapters/reagent/deps.edn :deps. Stock Reagent is a dep of the
+    ;; Reagent adapter artefact only (the sole artefact that requires
+    ;; reagent.core/ratom/dom.client); core stays Reagent-free because
+    ;; re-frame.views late-binds via the `:adapter/current-component`
+    ;; hook. So the pin rides the adapter, alongside uix/helix below.
+    (let [impl-reagent (read-impl-deps-pin "implementation/adapters/reagent/deps.edn"
                                            'reagent/reagent)
           tmp          (tmp-dir "rf2-template-lockstep-reagent-")]
       (try
         (let [tpl-reagent (emit-deps-pin tmp :reagent 'reagent/reagent)]
           (is (= impl-reagent tpl-reagent)
               (str "Template reagent/reagent pin (" tpl-reagent ") must match "
-                   "implementation/core/deps.edn (" impl-reagent ") — P5 "
+                   "implementation/adapters/reagent/deps.edn (" impl-reagent ") — P5 "
                    "lockstep. Bump reagent in the _reagent/deps.edn "
                    "template resource.")))
         (finally (delete-recursively tmp))))
