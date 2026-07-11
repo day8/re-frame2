@@ -826,6 +826,61 @@
                                          (lf/frame-generation (lf/live-frame :rpf-pool/main))
                                          :event :rpf-pool/inc))))))))
 
+(deftest failed-re-construction-preserves-generation-provenance-rf2-ktmto9
+  (testing "rf2-ktmto9 (failure-atomicity completion): a FAILED re-`make-frame`
+            records NO new provenance — `record-frame-generation-pool!` now runs
+            AFTER the reg-frame engine commit returns, so the pool row written
+            by the successful creation survives and a later reprojection still
+            resolves against the ORIGINAL pool. Pre-fix the record ran BEFORE
+            the engine, so the failed re-make below (threading a DIFFERENT
+            pool) CLOBBERED the provenance — and the reprojection would
+            :rf.error/image-zero-match fail-loud (the frame's namespace exists
+            ONLY in its original pool)."
+    (let [pool       [(reg-desc "ktmto9-pool.provenance.ns" :event :ktmto9-pool/inc ::pool-v1)]
+          ;; A DIFFERENT pool that does NOT carry the frame's namespace — the
+          ;; failed re-make below threads it, so a pre-fix provenance clobber
+          ;; (pool → other-pool) is observable: reprojection against other-pool
+          ;; would zero-match the frame's :include-ns composition.
+          other-pool [(reg-desc "ktmto9-other.provenance.ns" :event :ktmto9-other/inc ::other)]
+          img        (image/image {:id        :ktmto9-pool/img
+                                   :select-ns {:include ["ktmto9-pool.provenance.ns"]}})
+          frame-val  (lf/make-frame {:id :ktmto9-pool/main :images [img]} pool)
+          gen-before (lf/frame-generation frame-val)]
+      (testing "control: the creation resolved against the explicit pool"
+        (is (= ::pool-v1 (:handler-fn (asm/resolve-descriptor gen-before :event :ktmto9-pool/inc)))))
+      (testing "a re-`make-frame` that FAILS in the engine (retired :on-create
+                config key) leaves the record untouched"
+        (is (= :rf.error/on-create-retired
+               (err-id #(lf/make-frame {:id :ktmto9-pool/main :on-create [:boom]}
+                                       other-pool)))
+            "the re-construction failed loud in the engine (control)")
+        (is (identical? gen-before (lf/frame-generation (lf/live-frame :ktmto9-pool/main)))
+            "the frame's generation is untouched by the failed re-construction"))
+      (testing "reprojection still resolves against the ORIGINAL pool — the
+                provenance row was NOT clobbered by the failed re-construction
+                (pre-fix this threw :rf.error/image-zero-match)"
+        (is (nil? (lf/reproject-live-frame! :ktmto9-pool/main))
+            "reprojection reports the explicit-pool frame UNCHANGED, no throw")
+        (is (= ::pool-v1 (:handler-fn (asm/resolve-descriptor
+                                        (lf/frame-generation (lf/live-frame :ktmto9-pool/main))
+                                        :event :ktmto9-pool/inc)))
+            "the frame still resolves through the explicit pool")))))
+
+#?(:clj
+   (deftest failed-first-construction-records-no-provenance-rf2-ktmto9
+     (testing "rf2-ktmto9: a FAILED FIRST `make-frame` (the engine rejects the
+               config before any write) records NO generation-provenance row —
+               nothing to unwind because nothing was written (JVM-only direct
+               read of the private provenance table)"
+       (let [pool [(reg-desc "ktmto9-first.provenance.ns" :event :ktmto9-first/inc ::pool-v1)]]
+         (is (= :rf.error/on-create-retired
+               (err-id #(lf/make-frame {:id :ktmto9-first/never :on-create [:boom]} pool)))
+             "the first construction failed loud in the engine (control)")
+         (is (not (contains? (set (frame/frame-ids)) :ktmto9-first/never))
+             "no frame record was created")
+         (is (not (contains? (deref @#'lf/frame-generation-pool) :ktmto9-first/never))
+             "no provenance row was recorded for the never-created frame")))))
+
 (deftest reproject-live-frames-mixes-explicit-pool-and-live-store-frames-safely
   (testing "reproject-live-frames! sweeps an explicit-pool frame ALONGSIDE a
             live-store frame in the SAME pass: each reprojects against its OWN

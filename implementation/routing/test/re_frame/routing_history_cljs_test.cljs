@@ -36,6 +36,11 @@
   restoration."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            ;; rf2-ktmto9: the first-registration/re-registration atomicity
+            ;; tests read the frames registry record + the trace-policy
+            ;; predicate directly to prove zero residue.
+            [re-frame.frame :as frame]
+            [re-frame.trace :as trace]
             ;; rf2-qwm0a: listener / buffer surface lives in re-frame.trace.tooling.
             [re-frame.trace.tooling :as trace-tooling]
             [re-frame.routing :as routing]
@@ -737,45 +742,194 @@
           "still exactly one popstate listener — no stacking"))))
 
 (deftest invalid-strategy-reregistration-rejects-and-preserves-listener-cljs-rf2-j538f7-11
-  (testing "rf2-j538f7.11: re-registering the active URL owner with a MALFORMED
-            custom :url-strategy (missing the CLJS browser legs) fails LOUD with
-            :rf.error/invalid-url-strategy and does NOT tear down the incumbent
-            working listener — validation throws at strategy resolution, BEFORE
-            any teardown, so the owner is never orphaned (the pre-fix path tore
-            the good listener down and only then hit a raw nil-function error)"
+  (testing "rf2-j538f7.11 + rf2-ktmto9: re-registering the active URL owner with
+            a MALFORMED custom :url-strategy (missing the CLJS browser legs)
+            fails LOUD with :rf.error/invalid-url-strategy at the
+            registration-time PREFLIGHT — BEFORE any write — so EVERY previously
+            committed value survives: the frames-registry record (config +
+            generation, the same object), the registrar row, the URL claim, and
+            the incumbent working listener instance; and no
+            :rf.frame/re-registered trace fires. (#5633 proved only listener
+            survival; the preflight makes the whole re-registration
+            failure-atomic.)"
     (rf/reg-route :hist/home {} "/")
     (rf/reg-route :hist/cart {} "/cart")
     (rf/reg-frame :owner/a {:url-bound? true})       ;; history owner → popstate
-    (let [incumbent (first (get-in @*history-state* [:listeners "popstate"]))]
+    (let [incumbent       (first (get-in @*history-state* [:listeners "popstate"]))
+          ;; SNAPSHOT the committed state before the malformed attempt.
+          record-before   (get @frame/frames :owner/a)
+          registrar-before (get (rf/registrations :frame) :owner/a)
+          captured        (atom [])
+          cb-key          (keyword (gensym "ktmto9-rereg-trace-"))]
       (is (some? incumbent) "A's popstate listener is installed")
       (is (= 1 (count (get-in @*history-state* [:listeners "popstate"]))))
-      ;; Re-register A with an invalid strategy: shape-valid on the JVM
-      ;; (encode+decode) but MISSING the required CLJS browser legs
-      ;; (:push! / :replace! / :install-listener!). Resolution validates and
-      ;; throws before the reconcile touches the incumbent listener.
-      (let [ex (try
-                 (rf/reg-frame :owner/a {:url-bound?   true
-                                         :url-strategy {:encode identity
-                                                        :decode (constantly "/")}})
-                 nil
-                 (catch :default e e))]
-        (is (some? ex) "the malformed re-registration throws")
+      (is (some? record-before) "A's frames-registry record exists")
+      (trace-tooling/register-listener! cb-key (fn [ev] (swap! captured conj ev)))
+      (try
+        ;; Re-register A with an invalid strategy: shape-valid on the JVM
+        ;; (encode+decode) but MISSING the required CLJS browser legs
+        ;; (:push! / :replace! / :install-listener!). The registration-time
+        ;; preflight validates and throws before ANY candidate-derived write.
+        (let [ex (try
+                   (rf/reg-frame :owner/a {:url-bound?   true
+                                           :url-strategy {:encode identity
+                                                          :decode (constantly "/")}})
+                   nil
+                   (catch :default e e))]
+          (is (some? ex) "the malformed re-registration throws")
+          (is (= :rf.error/invalid-url-strategy (:rf.error/id (ex-data ex)))
+              "the canonical structured error id is stamped")
+          (is (= :owner/a (:frame (ex-data ex)))
+              "the ex-data names the offending frame"))
+        ;; EVERY previously committed value is unchanged.
+        (is (identical? record-before (get @frame/frames :owner/a))
+            "the frames-registry record (config + generation + containers) is
+             the SAME object — the frames swap never ran")
+        (is (= registrar-before (get (rf/registrations :frame) :owner/a))
+            "the registrar row is unchanged — registrar/register! never ran")
+        (is (= :owner/a (routing/url-owner-frame-id))
+            "A still owns the URL — the claim order is unchanged")
+        (is (empty? (filter #(= :rf.frame/re-registered (:operation %)) @captured))
+            "no :rf.frame/re-registered trace fired for the failed attempt")
+        ;; The incumbent listener SURVIVED — same instance, still exactly one.
+        (is (identical? incumbent (first (get-in @*history-state* [:listeners "popstate"])))
+            "the working popstate listener instance was NOT torn down")
+        (is (= 1 (count (get-in @*history-state* [:listeners "popstate"])))
+            "still exactly one popstate listener — no orphaning, no stacking")
+        ;; And it still drives A: forward-nav then Back through the surviving
+        ;; listener updates A's slice.
+        (rf/dispatch-sync [:rf.route/navigate :hist/cart] {:frame :owner/a})
+        (.back (.-history js/globalThis.window))
+        (.dispatchEvent js/globalThis.window #js {:type "popstate"})
+        (is (= :hist/home
+               (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :owner/a))
+                                  [:rf.runtime/routing :current])))
+            "Back drove A's slice back to / via the surviving popstate listener")
+        (finally
+          (trace-tooling/unregister-listener! cb-key))))))
+
+;; ---- rf2-ktmto9: FIRST-registration preflight — zero residue on failure ----
+;;
+;; Pre-fix, a URL owner's FIRST registration with a malformed custom
+;; :url-strategy threw only in the POST-create hook: the frame container was
+;; already built, the registrar row + trace-policy flags written, and the
+;; :initial-events setup had already RUN before validation fired. The
+;; registration-time preflight (through :routing/preflight-frame-config!)
+;; validates the FINAL expanded config BEFORE any candidate-derived write, so
+;; a failed first registration leaves NO frame record, NO registrar row, NO
+;; URL claim or listener, NO trace-policy residue, NO trace event, and NO
+;; :initial-events effect — via BOTH constructor spellings.
+
+(defn- assert-zero-residue-first-registration!
+  "Shared assertion body for the two constructor spellings: run
+  `attempt!` (which must attempt to construct `frame-id` with a malformed
+  :url-strategy + a probe :initial-events step) and assert the failure left
+  zero residue. `probe` is the external counter the setup step increments."
+  [frame-id attempt! probe]
+  (let [captured (atom [])
+        cb-key   (keyword (gensym "ktmto9-first-trace-"))]
+    (trace-tooling/register-listener! cb-key (fn [ev] (swap! captured conj ev)))
+    (try
+      (let [ex (try (attempt!) nil (catch :default e e))]
+        (is (some? ex) "the malformed first registration throws")
         (is (= :rf.error/invalid-url-strategy (:rf.error/id (ex-data ex)))
-            "the canonical structured error id is stamped"))
-      ;; The incumbent listener SURVIVED — same instance, still exactly one.
+            "the canonical structured error id is stamped")
+        (is (= frame-id (:frame (ex-data ex)))
+            "the ex-data names the offending frame"))
+      (is (zero? @probe)
+          "the :initial-events setup step never ran — no probe increment")
+      (is (not (contains? (set (rf/frame-ids)) frame-id))
+          "no frame record was created")
+      (is (not (contains? (rf/registrations :frame) frame-id))
+          "no registrar row was written")
+      (is (nil? (routing/url-owner-frame-id))
+          "no URL claim was recorded")
+      (is (empty? (get-in @*history-state* [:listeners "popstate"]))
+          "no popstate listener was installed")
+      (is (empty? (get-in @*history-state* [:listeners "hashchange"]))
+          "no hashchange listener was installed")
+      (is (not (trace/frame-trace-disabled? frame-id))
+          "no trace-policy residue — the :rf.trace/frame-no-emit? flag was
+           never written for the failed frame")
+      (is (empty? (filter #(= frame-id (get-in % [:tags :frame])) @captured))
+          "no trace event (incl. :rf.frame/created) mentions the failed frame")
+      (finally
+        (trace-tooling/unregister-listener! cb-key)))))
+
+(deftest first-registration-preflight-zero-residue-reg-frame-cljs-rf2-ktmto9
+  (testing "rf2-ktmto9: a URL owner's FIRST rf/reg-frame with a malformed
+            custom :url-strategy fails at the registration-time preflight with
+            ZERO residue — no container, no :initial-events run, no registrar
+            row, no URL claim/listener, no trace-policy write, no trace event"
+    (rf/reg-route :hist/home {} "/")
+    (let [probe (atom 0)]
+      (rf/reg-event :ktmto9/probe!
+                    (fn [{:keys [db]} _] (swap! probe inc) {:db db}))
+      (assert-zero-residue-first-registration!
+        :ktmto9/bad-first
+        #(rf/reg-frame :ktmto9/bad-first
+                       {:url-bound?              true
+                        :url-strategy            {:decode (constantly "/")}
+                        :rf.trace/frame-no-emit? true
+                        :initial-events          [[:ktmto9/probe!]]})
+        probe))))
+
+(deftest first-registration-preflight-zero-residue-make-frame-cljs-rf2-ktmto9
+  (testing "rf2-ktmto9: the same zero-residue invariant through the OTHER
+            constructor spelling — rf/make-frame (the one public constructor
+            rf/reg-frame is sugar for) with a malformed custom :url-strategy"
+    (rf/reg-route :hist/home {} "/")
+    (let [probe (atom 0)]
+      (rf/reg-event :ktmto9/probe2!
+                    (fn [{:keys [db]} _] (swap! probe inc) {:db db}))
+      (assert-zero-residue-first-registration!
+        :ktmto9/bad-first-mf
+        #(rf/make-frame {:id                      :ktmto9/bad-first-mf
+                         :url-bound?              true
+                         :url-strategy            {:decode (constantly "/")}
+                         :rf.trace/frame-no-emit? true
+                         :initial-events          [[:ktmto9/probe2!]]})
+        probe))))
+
+(deftest throwing-installer-preserves-incumbent-listener-cljs-rf2-ktmto9
+  (testing "rf2-ktmto9 (keeps #5633's install-new-before-teardown handoff): a
+            SHAPE-VALID custom strategy whose :install-listener! THROWS at
+            install time PASSES the static preflight (shape/callability is the
+            enforceable static contract — legs are never executed during
+            preflight, which would itself cause browser effects) and fails
+            later, in the post-registration reconcile; the incumbent listener
+            instance + record survive rather than being orphaned"
+    (rf/reg-route :hist/home {} "/")
+    (rf/reg-route :hist/cart {} "/cart")
+    (rf/reg-frame :owner/a {:url-bound? true})       ;; history owner → popstate
+    (let [incumbent (first (get-in @*history-state* [:listeners "popstate"]))
+          ;; Every leg callable (so the preflight passes) and behaviourally the
+          ;; history strategy — EXCEPT the installer, which throws.
+          throwing  (merge routing/history-url-strategy
+                           {:install-listener! (fn [_on-change]
+                                                 (throw (ex-info "installer boom" {})))})]
+      (is (some? incumbent) "A's popstate listener is installed")
+      ;; The re-registration COMMITS (the strategy is shape-valid) and the
+      ;; post-registration reconcile's install throws — loudly, not swallowed.
+      (let [ex (try (rf/reg-frame :owner/a {:url-bound?   true
+                                            :url-strategy throwing})
+                    nil
+                    (catch :default e e))]
+        (is (some? ex) "the throwing installer propagates loudly"))
+      ;; The #5633 handoff: the replacement is installed BEFORE the incumbent
+      ;; is torn down, so a throwing installer leaves the incumbent in place.
       (is (identical? incumbent (first (get-in @*history-state* [:listeners "popstate"])))
-          "the working popstate listener instance was NOT torn down")
+          "the incumbent popstate listener instance survived the failed handoff")
       (is (= 1 (count (get-in @*history-state* [:listeners "popstate"])))
-          "still exactly one popstate listener — no orphaning, no stacking")
-      ;; And it still drives A: forward-nav then Back through the surviving
-      ;; listener updates A's slice.
+          "exactly one popstate listener — no orphaning, no stacking")
+      ;; And it still drives A.
       (rf/dispatch-sync [:rf.route/navigate :hist/cart] {:frame :owner/a})
       (.back (.-history js/globalThis.window))
       (.dispatchEvent js/globalThis.window #js {:type "popstate"})
       (is (= :hist/home
              (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :owner/a))
                                 [:rf.runtime/routing :current])))
-          "Back drove A's slice back to / via the surviving popstate listener"))))
+          "Back drove A's slice via the surviving popstate listener"))))
 
 ;; ---- rf2-9vgyp7: first-load / deep-link route hydration at frame create ----
 ;;
