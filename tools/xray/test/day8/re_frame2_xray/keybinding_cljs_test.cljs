@@ -40,6 +40,7 @@
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.keybinding :as keybinding]
+            [day8.re-frame2-xray.mount :as mount]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.trace-collector :as trace-collector]))
@@ -828,3 +829,104 @@
       (handle-keydown event)
       (is (false? @prevented) "repeat Escape is ignored — not consumed")
       (is (false? @stopped)))))
+
+;; ---- (9) rf2-d716o9 — Space not hijacked from focused button/summary -----
+;;
+;; `target-editable?` only exempted INPUT/TEXTAREA/SELECT/contenteditable,
+;; so a focused shell `<button>` / `<summary>` / `[role=button]` fell into
+;; the spine branch: Space dispatched `:rf.xray/toggle-live-pause` and
+;; `.preventDefault`d, blocking the control's native Space activation. The
+;; new `target-activatable?` predicate yields the spine to those controls.
+
+(defn- mk-target-event
+  "Synthetic keydown whose `.target` is a fake element with the given
+  `tag` (tagName) and optional `role` attribute — enough to drive the
+  target-* predicates without a real DOM."
+  [{:keys [tag role]}]
+  (js-obj "target"
+          (js-obj "tagName"      tag
+                  "getAttribute" (fn [attr] (when (= attr "role") role)))))
+
+(defn- mk-shell-space-event
+  "Synthetic bare Space keydown whose `.target` is a fake element INSIDE
+  the Xray shell: `.closest` resolves the shell testid (so
+  `target-inside-xray?` is true) but carries no modal marker. `tag` /
+  `role` drive the activatable check; preventDefault / stopPropagation
+  are spied so a test can see whether the spine consumed Space."
+  [{:keys [tag role]}]
+  (let [prevented  (atom false)
+        stopped    (atom false)
+        shell-node (js-obj "id" "fake-shell")
+        target     (js-obj "tagName"      tag
+                           "getAttribute" (fn [attr] (when (= attr "role") role))
+                           "closest"      (fn [sel]
+                                            (when (re-find #"rf-xray-shell" sel)
+                                              shell-node)))
+        event      (js-obj "key"             " "
+                           "code"            "Space"
+                           "target"          target
+                           "ctrlKey"  false  "metaKey" false
+                           "altKey"   false  "shiftKey" false
+                           "repeat"          false
+                           "preventDefault"  (fn [] (reset! prevented true))
+                           "stopPropagation" (fn [] (reset! stopped true)))]
+    {:event event :prevented prevented :stopped stopped}))
+
+(deftest target-activatable-matches-buttons-summary-role
+  (testing "rf2-d716o9 — a focused <button> / <summary> / [role=button]
+            natively consumes Space; target-activatable? flags them so the
+            spine yields"
+    (is (true? (boolean (#'keybinding/target-activatable?
+                          (mk-target-event {:tag "BUTTON"})))))
+    (is (true? (boolean (#'keybinding/target-activatable?
+                          (mk-target-event {:tag "SUMMARY"})))))
+    (is (true? (boolean (#'keybinding/target-activatable?
+                          (mk-target-event {:tag "DIV" :role "button"}))))
+        "[role=button] is an ARIA button — also activatable")
+    (is (true? (boolean (#'keybinding/target-activatable?
+                          (mk-target-event {:tag "button"}))))
+        "tagName compared case-insensitively (lower-case host quirk)")))
+
+(deftest target-activatable-rejects-non-activatable
+  (testing "rf2-d716o9 — ordinary shell nodes are NOT activatable, so the
+            spine keys still fire on them"
+    (is (false? (boolean (#'keybinding/target-activatable?
+                           (mk-target-event {:tag "DIV"})))))
+    (is (false? (boolean (#'keybinding/target-activatable?
+                           (mk-target-event {:tag "SPAN"})))))
+    (is (false? (boolean (#'keybinding/target-activatable?
+                           (mk-target-event {:tag "A"}))))
+        "<a href> activates on Enter (not a spine key) — not activatable")
+    (is (false? (boolean (#'keybinding/target-activatable?
+                           (mk-target-event {:tag "DIV" :role "listbox"}))))
+        "a non-button role is not activatable")
+    (is (nil? (#'keybinding/target-activatable? (js-obj)))
+        "an event with no target must not throw")))
+
+(deftest space-on-focused-button-is-not-hijacked
+  (testing "rf2-d716o9 — a focused shell <button> / <summary> / [role=
+            button] keeps Space for its native activation: the spine
+            branch yields (no preventDefault, no live-pause dispatch)."
+    (setup-xray-runtime!)
+    (with-redefs [mount/visible? (constantly true)]
+      (doseq [spec [{:tag "BUTTON"}
+                    {:tag "SUMMARY"}
+                    {:tag "DIV" :role "button"}]]
+        (let [{:keys [event prevented stopped]} (mk-shell-space-event spec)]
+          (handle-keydown event)
+          (is (false? @prevented)
+              (str "Space on a focused " spec " must NOT be hijacked"))
+          (is (false? @stopped)
+              (str "Space on a focused " spec " must not stopPropagation")))))))
+
+(deftest space-on-non-activatable-shell-target-still-pauses
+  (testing "rf2-d716o9 — the guard is surgical: Space on a NON-activatable
+            focused shell node still fires the LIVE-pause binding
+            (preventDefault called), so the spine keeps working normally
+            when focus is not on an activatable control."
+    (setup-xray-runtime!)
+    (with-redefs [mount/visible? (constantly true)]
+      (let [{:keys [event prevented]} (mk-shell-space-event {:tag "DIV"})]
+        (handle-keydown event)
+        (is (true? @prevented)
+            "Space consumed — the spine live-pause binding fired on a plain node")))))

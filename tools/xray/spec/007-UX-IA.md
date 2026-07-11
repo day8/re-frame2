@@ -1195,10 +1195,13 @@ contract for this section — trim any spec drift back to it):
 - **Shell spine keys** are bare unmodified keys that fire **only** when
   the Xray shell is visible AND the keydown target is inside the shell
   DOM tree AND the target is not an editable element (`<input>` /
-  `<textarea>` / `<select>` / contenteditable) AND not inside a modal
-  (Settings / palette). Those guards keep the bare letters from
-  stealing keystrokes from the host app, from text fields, and from a
-  modal's own inner mnemonics (per spec/018 §3 + §6 and rf2-ttnst).
+  `<textarea>` / `<select>` / contenteditable) AND not an activatable
+  control (`<button>` / `<summary>` / `[role=button]`, which own
+  `Space` / `Enter` for their own activation — rf2-d716o9) AND not
+  inside a modal (Settings / palette). Those guards keep the bare
+  letters from stealing keystrokes from the host app, from text fields,
+  from a focused control's native activation, and from a modal's own
+  inner mnemonics (per spec/018 §3 + §6, rf2-ttnst, rf2-d716o9).
 
 Every binding fires **once per physical key press**: OS key-repeat
 (`event.repeat`) is ignored for the toggle chords and the toggle-style
@@ -1218,8 +1221,8 @@ deliberately walks the event feed (rf2-llecpa).
 ### Shell spine keys
 
 Bare, unmodified keys — only inside the visible shell, never on an
-editable or modal target (see the scope guards above). Per spec/018 §3
-+ §6.
+editable, activatable, or modal target (see the scope guards above).
+Per spec/018 §3 + §6.
 
 | Key | Action | Event dispatched |
 |---|---|---|
