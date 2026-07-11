@@ -108,31 +108,43 @@
 ;; The JWT is not the only credential in this app, and it is a mistake to think
 ;; the login / register / settings PASSWORD is safe just because it is
 ;; "throwaway form state". A password is a credential the moment it is typed,
-;; and it egresses raw unless classified: the draft lives in app-db
-;; ([:auth :login-form :draft :password] / [:auth :register-form :draft
-;; :password], both classified :sensitive at slice-init in auth.cljs); it rides
-;; the outbound HTTP body ({:user {:password …}}, classified on the managed-HTTP
-;; request below); and the settings password lives in the :settings/form
-;; machine's :data (classified :sensitive on the machine, settings.cljs). Each
-;; surface is classified on its own — classification is fail-open and does not
-;; propagate. See the keep-secrets how-to:
+;; and it egresses raw unless classified — every surface it crosses gets its
+;; own classification, mirroring the same discipline this event applies to the
+;; JWT:
+;;
+;;   - The DRAFT, while the user types, lives in app-db
+;;     ([:auth :login-form :draft :password] / [:auth :register-form :draft
+;;     :password], both classified :sensitive at slice-init in auth.cljs) or
+;;     the settings machine's :data ([:data :draft :password], classified on
+;;     the machine SPEC in settings.cljs).
+;;   - The per-keystroke EDIT rides its own map-payload event
+;;     (:auth.login-form/edit-password, :auth.register-form/edit-password,
+;;     :settings/edit-password — each classified :sensitive [[:value]]) rather
+;;     than the generic positional :edit-field event the non-secret fields
+;;     use; a positional arg isn't path-addressable, so the password gets a
+;;     dedicated event whose arg-map is. The settings machine ALSO classifies
+;;     the routed :edit-password / :submit-valid sub-events it echoes into its
+;;     own trace slots (the reg-machine OPTS `:sensitive`, rf2-ghgbqi).
+;;   - The SUBMIT is the credential-owning handoff: the form/settings submit
+;;     handler reads the draft, fires the managed-HTTP request itself
+;;     ({:user {:password …}}, classified :sensitive? true on the request
+;;     below / in settings.cljs), and blanks the live draft's password
+;;     afterwards (secret-field hygiene).
+;;   - The auth MACHINE never sees the password at all — login/register nudge
+;;     it with a bare, credential-free signal (:auth/login, :auth/register),
+;;     exactly the examples/core/login split. A password riding a machine
+;;     dispatch as a positional sub-event isn't path-addressable, so keeping
+;;     it out of the machine altogether — rather than trying to classify a
+;;     position after the fact — is the fix, not a documented limitation.
+;;
+;; Each surface is classified on its own — classification is fail-open and
+;; does not propagate. See the keep-secrets how-to:
 ;; ../../../docs/core/how-to/keep-secrets-out-of-traces.md
 ;;
 ;; The one carrier we deliberately do NOT classify by hand is the outbound
 ;; `Authorization` Bearer header: it is already on the framework's built-in HTTP
 ;; carrier denylist, so it is redacted off-box with zero config — over-declaring
 ;; a built-in would only teach a redundant ritual.
-;;
-;; One structural corner is worth calling out honestly, because it is the exact
-;; gotcha the keep-secrets how-to warns about: the credential also travels
-;; through the auth machine as a POSITIONAL sub-event
-;; ([:auth/flow [:auth/login {… :password …}]]). A positional arg is not
-;; path-addressable — only a map payload is — so a secret riding one still ships
-;; raw in the dispatched-event and :rf.machine/* trace slots, and no :sensitive
-;; mark can reach it. The examples/core/login model sidesteps this by keeping
-;; its machine credential-free (the form issues the request and the machine only
-;; sees a bare :submit signal); this app instead routes login/register through
-;; the machine, so it wears that limitation openly.
 (rf/reg-event :auth/classify-token
   {:doc "Mark the durable JWT path [:auth :token] sensitive, at frame
          creation."}
