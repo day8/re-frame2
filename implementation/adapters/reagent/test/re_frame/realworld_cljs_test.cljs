@@ -159,9 +159,13 @@
                       {:frame f :rf.cofx {:auth.session/token nil}})
     (is (= :idle (rf/compute-sub [:auth/state] (rf/frame-state-value f))))
 
-    (rf/dispatch-sync [:auth/flow [:auth/login {:email "alice@example.com"
-                                                :password "correct-horse"}]]
-                      {:frame f})
+    ;; rf2-agb5jk (item 1): the machine is credential-free — login goes through
+    ;; the credential-owning form-submit event, exactly the way the real app's
+    ;; view dispatches it, not a direct password-bearing machine dispatch.
+    (rf/dispatch-sync [:auth.login-form/initialise] {:frame f})
+    (rf/dispatch-sync [:auth.login-form/edit-field :email "alice@example.com"] {:frame f})
+    (rf/dispatch-sync [:auth.login-form/edit-password {:value "correct-horse"}] {:frame f})
+    (rf/dispatch-sync [:auth.login-form/submit] {:frame f})
     (is (= :authed (rf/compute-sub [:auth/state] (rf/frame-state-value f))))
     (is (= "alice" (:username (rf/compute-sub [:auth/user] (rf/frame-state-value f)))))
 
@@ -199,8 +203,12 @@
     ;; on the boot dispatch token (nil node-side), mirroring `realworld.core/run`.
     (rf/dispatch-sync [:auth/initialise]
                       {:frame f :rf.cofx {:auth.session/token nil}})
-    (rf/dispatch-sync [:auth/flow [:auth/login {:email "x@y.z" :password "wrong"}]]
-                      {:frame f})
+    ;; rf2-agb5jk (item 1): drive login through the credential-owning form-submit
+    ;; event — the machine itself is credential-free.
+    (rf/dispatch-sync [:auth.login-form/initialise] {:frame f})
+    (rf/dispatch-sync [:auth.login-form/edit-field :email "x@y.z"] {:frame f})
+    (rf/dispatch-sync [:auth.login-form/edit-password {:value "wrong"}] {:frame f})
+    (rf/dispatch-sync [:auth.login-form/submit] {:frame f})
     (is (= :error (rf/compute-sub [:auth/state] (rf/frame-state-value f))))
     (is (some? (rf/compute-sub [:auth/error] (rf/frame-state-value f))))
 
@@ -1121,11 +1129,15 @@
                       {:frame f :rf.cofx {:auth.session/token nil}})
     (is (= :idle (rf/compute-sub [:auth/state] (rf/frame-state-value f)))
         "no token → the :idle no-op branch (the only path the old tests hit)")
-    (rf/dispatch-sync [:auth/flow [:auth/login {:email "alice@example.com" :password "x"}]]
-                      {:frame f})
+    ;; rf2-agb5jk (item 1): drive login through the credential-owning
+    ;; form-submit event — the machine itself is credential-free.
+    (rf/dispatch-sync [:auth.login-form/initialise] {:frame f})
+    (rf/dispatch-sync [:auth.login-form/edit-field :email "alice@example.com"] {:frame f})
+    (rf/dispatch-sync [:auth.login-form/edit-password {:value "x"}] {:frame f})
+    (rf/dispatch-sync [:auth.login-form/submit] {:frame f})
     (is (= :authed (rf/compute-sub [:auth/state] (rf/frame-state-value f))))
     (is (= :realworld/home (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
-        "interactive login bounces home via :store-session → :auth/post-login-redirect")))
+        "interactive login bounces home via :auth/session-established → :auth/post-login-redirect")))
 
 ;; ============================================================================
 ;; core — top-level smoke: boots the app, checks per-feature initialisers

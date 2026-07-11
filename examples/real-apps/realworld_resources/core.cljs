@@ -258,14 +258,24 @@
 ;;     request.
 ;;
 ;; The token is not the only credential, though: the login / register / settings
-;; PASSWORD is one too, the moment it is typed. Its app-db drafts are classified
-;; :sensitive at slice-init (auth.cljs / settings.cljs) and its outbound HTTP
-;; body is classified on the demo stub (http.cljs) — same discipline as the
-;; token, applied where the password actually rests and travels. (One corner it
-;; can't reach: login/register ride the auth machine as a POSITIONAL sub-event
-;; and settings rides `:rf.mutation/execute`'s :params — a positional / framework
-;; payload a path-based :sensitive cannot address, so those trace slots still
-;; ship raw; keeping a credential out of such payloads is the only real fix.)
+;; PASSWORD is one too, the moment it is typed. Every surface it crosses is
+;; classified on its own, fail-open, mirroring the token's discipline:
+;;   - the app-db draft, at slice-init (auth.cljs / settings.cljs);
+;;   - the per-keystroke EDIT, its own map-payload event
+;;     (`:sensitive [[:value]]`, e.g. `:auth.login-form/edit-password`,
+;;     `:settings/edit-password`) rather than the positional event the
+;;     non-secret fields use;
+;;   - the outbound HTTP body, classified on the demo stub (http.cljs) or
+;;     `:sensitive? true` on the real-backend request;
+;;   - the settings MUTATION's own `:params`, via the `:realworld/update-settings`
+;;     OWNER declaration (`:sensitive [[:params :password]]`, mutations.cljs),
+;;     which the mutation runtime derives its execute/trace/instance/
+;;     continuation projections from (rf2-825mzj).
+;; The one place a password never rides at all is the auth MACHINE: login and
+;; register nudge it with a bare, credential-free signal rather than a
+;; password-bearing dispatch — a positional machine sub-event arg isn't
+;; path-addressable, so keeping the credential out of the machine altogether
+;; is the fix, not a documented limitation.
 ;;
 ;; Two things we deliberately DON'T classify, since under-redacting and
 ;; over-redacting are both mistakes. The outbound `Authorization` Bearer header

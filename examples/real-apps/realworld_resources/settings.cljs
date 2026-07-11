@@ -33,7 +33,11 @@
    ../../../docs/resources/glossary.md#reply-map."
   (:require [re-frame.core :as rf]
             [re-frame.resources]
-            [realworld-resources.http :as rh])
+            [realworld-resources.http :as rh]
+            ;; `store-session-db` — the shared, nested-dispatch-avoiding
+            ;; session write both auth.cljs's classified reply events and
+            ;; :settings/replied (below) call directly. See its doc.
+            [realworld-resources.auth :as auth])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 (def settings-instance
@@ -73,20 +77,49 @@
      :sensitive [[:settings-form :draft :password]]}))
 
 (rf/reg-event :settings/edit-field
-  {:schema [:cat [:= :settings/edit-field] :keyword :string]}
+  {:doc    "Controlled-input edit for a NON-SECRET field (image / username /
+            bio / email). The password uses :settings/edit-password instead;
+            never route a secret through this event."
+   :schema [:cat [:= :settings/edit-field] :keyword :string]}
   (fn [{:keys [db]} [_ field value]]
     {:db (-> db
         (assoc-in [:settings-form :draft field] value)
         (update-in [:settings-form :touched] (fnil conj #{}) field))}))
 
+;; The password's keystrokes get their OWN event and a MAP payload — the
+;; whole point being that a map is path-addressable and a positional arg
+;; isn't. `:sensitive [[:value]]` classifies that `:value` key, so the
+;; dispatched-event trace redacts it while the handler still writes the real
+;; keystroke into the draft. The mutation `:realworld/update-settings` itself
+;; already classifies `[[:params :password]]` on its OWNER declaration
+;; (mutations.cljs, rf2-825mzj), which covers the SUBMIT-time execute/trace/
+;; instance/continuation projections; this event covers the per-keystroke
+;; EDIT's own dispatched-event trace, which that mutation-owner declaration
+;; can't reach.
+(rf/reg-event :settings/edit-password
+  {:doc       "Controlled-input edit for the PASSWORD field: write the value
+               into the settings-form draft and mark it touched. The value
+               rides a map payload classified :sensitive so the edit trace
+               redacts it."
+   :sensitive [[:value]]
+   :schema    [:cat [:= :settings/edit-password] [:map [:value :string]]]}
+  (fn [{:keys [db]} [_ {:keys [value]}]]
+    {:db (-> db
+        (assoc-in [:settings-form :draft :password] value)
+        (update-in [:settings-form :touched] (fnil conj #{}) :password))}))
+
 (rf/reg-event :settings/submit
-  {:doc "Fire the update-settings mutation with the current draft. The form
-         watches the `:settings/save` instance for pending / error, and the
-         success continuation is the call-site `:reply-to [:settings/replied]`
-         target, dispatched once when the reply is accepted."}
+  {:doc "Fire the update-settings mutation with the current draft, then blank
+         the draft's live password (secret-field hygiene — the mutation's own
+         `:sensitive [[:params :password]]` declaration already covers the
+         :params it carries off to the server). The form watches the
+         `:settings/save` instance for pending / error, and the success
+         continuation is the call-site `:reply-to [:settings/replied]` target,
+         dispatched once when the reply is accepted."}
   (fn [{:keys [db]} _]
     (let [draft (get-in db [:settings-form :draft])]
-      {:fx [[:dispatch [:rf.mutation/execute
+      {:db (assoc-in db [:settings-form :draft :password] "")
+       :fx [[:dispatch [:rf.mutation/execute
                         {:mutation :realworld/update-settings
                          :params   (select-keys draft [:username :email :bio :image :password])
                          :instance settings-instance
@@ -101,12 +134,20 @@
          slice, clear the instance, and navigate to the user's profile. On
          `:error` there's nothing to do here — the form already shows it off the
          instance state. Clearing the instance also keeps the dispatch
-         idempotent."}
-  (fn [_ [_ {:keys [status value]}]]
+         idempotent. The reply rides a map payload classified :sensitive — the
+         RealWorld PUT /user reply carries a fresh User (and therefore a fresh
+         token, just like login/register)."
+   :sensitive [[:value :user :token]]}
+  (fn [{:keys [db]} [_ {:keys [status value]}]]
     (if (= :ok status)
       (let [user (:user value)]
-        {:fx [[:dispatch [:auth/store-session user]]
-              [:dispatch [:rf.mutation/clear {:instance settings-instance}]]
+        ;; `store-session-db` is called DIRECTLY (not via a nested
+        ;; `[:dispatch [:auth/store-session user]]`) — see that fn's doc
+        ;; (auth.cljs) for why a nested dispatch would leak the raw token at
+        ;; THIS handler's own trace regardless of :auth/store-session's own
+        ;; classification.
+        {:db (auth/store-session-db db user)
+         :fx [[:dispatch [:rf.mutation/clear {:instance settings-instance}]]
               [:dispatch [:rf.route/navigate :realworld.profile/show {:username (:username user)}]]]})
       {})))
 
@@ -159,7 +200,7 @@
           [:fieldset.form-group
            [:input.form-control.form-control-lg {:type "password" :name "password" :placeholder "New Password"
                                                  :value (:password draft) :disabled pending?
-                                                 :on-change #(dispatch [:settings/edit-field :password (.. % -target -value)])}]]
+                                                 :on-change #(dispatch [:settings/edit-password {:value (.. % -target -value)}])}]]
           [:button.btn.btn-lg.btn-primary.pull-xs-right {:type "submit" :data-testid "settings-submit" :disabled pending?}
            (if pending? "Updating…" "Update Settings")]]]
         [:hr]

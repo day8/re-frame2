@@ -574,9 +574,13 @@
       (rf/dispatch-sync [:auth/initialise]
                         {:frame f :rf.cofx {:realworld-resources.session/token nil}})
       (is (= :idle (rf/compute-sub [:auth/state] (state-value f))))
-      ;; submit a login → :submitting (the machine issues a managed POST)
-      (rf/dispatch-sync [:auth/flow [:auth/login {:email "alice@example.com" :password "x"}]]
-                        {:frame f})
+      ;; submit a login → :submitting. rf2-agb5jk (item 1): the machine is
+      ;; credential-free — the credential-owning form-submit event issues the
+      ;; managed POST itself, exactly as the real app's view dispatches it.
+      (rf/dispatch-sync [:auth.login-form/initialise] {:frame f})
+      (rf/dispatch-sync [:auth.login-form/edit-field :email "alice@example.com"] {:frame f})
+      (rf/dispatch-sync [:auth.login-form/edit-password {:value "x"}] {:frame f})
+      (rf/dispatch-sync [:auth.login-form/submit] {:frame f})
       (is (= :submitting (rf/compute-sub [:auth/state] (state-value f))))
       ;; reply success with a Conduit User envelope → :authed + session stored
       (reply-success! @last-managed-args
@@ -827,13 +831,18 @@
                         {:frame f :rf.cofx {:realworld-resources.session/token nil}})
       (is (= :idle (rf/compute-sub [:auth/state] (state-value f)))
           "no token → the :idle no-op branch")
-      (rf/dispatch-sync [:auth/flow [:auth/login {:email "alice@example.com" :password "x"}]] {:frame f})
+      ;; rf2-agb5jk (item 1): drive login through the credential-owning
+      ;; form-submit event — the machine itself is credential-free.
+      (rf/dispatch-sync [:auth.login-form/initialise] {:frame f})
+      (rf/dispatch-sync [:auth.login-form/edit-field :email "alice@example.com"] {:frame f})
+      (rf/dispatch-sync [:auth.login-form/edit-password {:value "x"}] {:frame f})
+      (rf/dispatch-sync [:auth.login-form/submit] {:frame f})
       (reply-success! @last-managed-args
                       {:user {:username "alice" :email "alice@example.com" :token "jwt"}}
                       f)
       (is (= :authed (rf/compute-sub [:auth/state] (state-value f))))
       (is (= :realworld/home (route-id f))
-          "interactive login bounces home via :store-session → :auth/post-login-redirect"))))
+          "interactive login bounces home via :auth/session-established → :auth/post-login-redirect"))))
 
 (deftest session-restore-failure-stays-put-and-re-ensures-under-anonymous
   (testing "examples/real-apps/realworld_resources — a restore that FAILS (the saved

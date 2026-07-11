@@ -38,7 +38,11 @@
             ;; own snapshot `:data` schema (SettingsFormData) is app-local.
             [realworld-shared.schema :as schema]
             [realworld-http.schema :as app-schema]
-            [realworld-http.http :as rh])
+            [realworld-http.http :as rh]
+            ;; `store-session-db` — the shared, nested-dispatch-avoiding
+            ;; session write both auth.cljs's classified reply events and
+            ;; :settings/submit-success (below) call directly. See its doc.
+            [realworld-http.auth :as auth])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 (defn draft-from-user [user]
@@ -117,15 +121,29 @@
                  (assoc :loaded-at now))})
 
     :edit-field
-    ;; :edit carries {field value}. It writes the value, marks the field
-    ;; touched, clears any leftover submit-error (so an old banner doesn't
-    ;; linger while you're fixing things), and drops THIS field's inline error
-    ;; — the red text fades as you type, which is how forms should feel.
+    ;; :edit carries {field value} for a NON-SECRET field. It writes the
+    ;; value, marks the field touched, clears any leftover submit-error (so an
+    ;; old banner doesn't linger while you're fixing things), and drops THIS
+    ;; field's inline error — the red text fades as you type, which is how
+    ;; forms should feel.
     (fn action-edit-field [{data :data [_ {:keys [field value]}] :event}]
       {:data (-> data
                  (assoc-in [:draft field] value)
                  (update :touched (fnil conj #{}) field)
                  (update :errors  dissoc field)
+                 (assoc :submit-error nil))})
+
+    :edit-password
+    ;; :edit-password carries {:password value} — its OWN sub-event, keyed by
+    ;; :password rather than the generic {:field :value} shape :edit-field
+    ;; uses, so the reg-machine call below can classify it precisely
+    ;; ([[1 :password]]) without also catching :edit-field's non-secret
+    ;; :value key. Same bookkeeping as :edit-field otherwise.
+    (fn action-edit-password [{data :data [_ {:keys [password]}] :event}]
+      {:data (-> data
+                 (assoc-in [:draft :password] password)
+                 (update :touched (fnil conj #{}) :password)
+                 (update :errors  dissoc :password)
                  (assoc :submit-error nil))})
 
     :set-errors
@@ -139,12 +157,18 @@
                  (assoc :submit-error nil))})
 
     :begin-submit
-    ;; :submit-valid carries the draft snapshot we just sent to the server.
-    ;; Wipe :errors and :submit-error so nothing lingers from a previous failed
-    ;; attempt while this one's in flight.
+    ;; :submit-valid carries the draft snapshot we just sent to the server —
+    ;; :submitted keeps it (durably classified via [:data :submitted
+    ;; :password] above) so a later refresh of the page can see what was last
+    ;; sent, but the LIVE draft's password is blanked right here — secret-field
+    ;; hygiene once the request is in flight, mirroring
+    ;; examples/core/login's submit-form. Wipe :errors and :submit-error so
+    ;; nothing lingers from a previous failed attempt while this one's in
+    ;; flight.
     (fn action-begin-submit [{data :data [_ {:keys [submitted]}] :event}]
       {:data (-> data
                  (assoc :submitted submitted)
+                 (assoc-in [:draft :password] "")
                  (assoc :errors {})
                  (assoc :submit-error nil))})
 
@@ -177,6 +201,7 @@
     {:tags #{:settings/neutral}
      :on   {:load           {:target :neutral    :action :seed-from-user}
             :edit           {:target :neutral    :action :edit-field}
+            :edit-password  {:target :neutral    :action :edit-password}
             :submit-invalid {:target :incorrect  :action :set-errors}
             :submit-valid   {:target :submitting :action :begin-submit}
             :reset          {:target :neutral    :action :reset-data}}}
@@ -188,6 +213,7 @@
     ;; complaints go away.
     {:tags #{:settings/incorrect :form/invalid}
      :on   {:edit           {:target :neutral    :action :edit-field}
+            :edit-password  {:target :neutral    :action :edit-password}
             :submit-invalid {:target :incorrect  :action :set-errors}
             :submit-valid   {:target :submitting :action :begin-submit}
             :reset          {:target :neutral    :action :reset-data}}}
@@ -209,10 +235,25 @@
     ;; usually navigates away on success; this one does too, see
     ;; :settings/submit-success below.
     {:tags #{:settings/correct :form/success :form/transient}
-     :on   {:edit  {:target :neutral :action :edit-field}
-            :reset {:target :neutral :action :reset-data}}}}})
+     :on   {:edit          {:target :neutral :action :edit-field}
+            :edit-password {:target :neutral :action :edit-password}
+            :reset         {:target :neutral :action :reset-data}}}}})
 
-(rf/reg-machine :settings/form settings-form-machine)
+;; The OPTS map (the SECOND arg here, distinct from the SPEC's own :sensitive
+;; above) is the machine's EVENT-rooted classification (rf2-ghgbqi, agb5jk
+;; item 2) — it redacts the ROUTED sub-event echoed into the machine trace's
+;; :event / [:input :event] slots, which the SPEC's :data-rooted :sensitive
+;; above does NOT reach (that one only protects the durable snapshot). Rooted
+;; at the routed sub-event vector itself: `[1 :password]` catches
+;; `[:edit-password {:password …}]`, `[1 :submitted :password]` catches
+;; `[:submit-valid {:submitted {…:password …}}]`. Both are keyed by
+;; :password specifically (not the generic :edit event's :value), so neither
+;; path ever touches a non-secret field edit — the two path roots (event-index
+;; vs :data-prefixed) are disjoint from the SPEC's paths too, so this union is
+;; safe alongside it.
+(rf/reg-machine :settings/form
+  {:sensitive [[1 :password] [1 :submitted :password]]}
+  settings-form-machine)
 
 ;; ============================================================================
 ;; PUBLIC EVENT API
@@ -242,13 +283,32 @@
                                 :now  time-ms}]]]]})))
 
 (rf/reg-event :settings/edit-field
-  {:doc  "The user changed a field. Broadcasts :edit into the machine, which
-          brings the region back from :correct / :incorrect to :neutral and
-          updates the draft + :touched. Typing settles the form down."
+  {:doc  "The user changed a NON-SECRET field (image / username / bio /
+          email). Broadcasts :edit into the machine, which brings the region
+          back from :correct / :incorrect to :neutral and updates the draft +
+          :touched. Typing settles the form down. The password field uses
+          :settings/edit-password instead — never route a secret through
+          this event."
    :schema [:cat [:= :settings/edit-field] :keyword :string]}
   (fn handler-settings-edit-field [_ [_ field value]]
     {:fx [[:dispatch [:settings/form
                       [:edit {:field field :value value}]]]]}))
+
+;; The password's keystrokes get their OWN event and a MAP payload, exactly
+;; the split :auth.login-form/edit-password uses (auth.cljs) — a positional
+;; arg isn't path-addressable, so `:sensitive [[:value]]` on THIS event
+;; classifies the dispatched-event trace, while the machine-side echo is
+;; separately covered by the reg-machine OPTS `:sensitive` above.
+(rf/reg-event :settings/edit-password
+  {:doc       "The user changed the password field. Broadcasts :edit-password
+               into the machine. The value rides a map payload classified
+               :sensitive so this event's own dispatched-event trace redacts
+               it."
+   :sensitive [[:value]]
+   :schema    [:cat [:= :settings/edit-password] [:map [:value :string]]]}
+  (fn handler-settings-edit-password [_ [_ {:keys [value]}]]
+    {:fx [[:dispatch [:settings/form
+                      [:edit-password {:password value}]]]]}))
 
 (rf/reg-event :settings/submit
   {:doc "Save the settings draft. No retry — one submission per click.
@@ -275,14 +335,26 @@
 
 (rf/reg-event :settings/submit-success
   {:doc "Server said yes. Three things follow: fold the returned user into the
-         machine's :data via :store-user (region lands in :correct), push that
-         same user through :auth/store-session so the rest of the app sees the
-         update, and navigate off to the user's profile page."}
-  (fn handler-settings-submit-success [_ [_ {:keys [value]}]]
+         machine's :data via :store-user (region lands in :correct), store the
+         session (durable [:auth :token] + [:auth :user]) so the rest of the
+         app sees the update, and navigate off to the user's profile page.
+         The reply rides a map payload classified :sensitive — RealWorld's
+         PUT /user reply carries a fresh User (and therefore a fresh token,
+         just like login/register)."
+   :sensitive [[:value :user :token]]}
+  (fn handler-settings-submit-success [{:keys [db]} [_ {:keys [value]}]]
     (let [user (:user value)]
-      {:fx [[:dispatch [:settings/form
-                        [:submit-succeeded {:user user}]]]
-            [:dispatch [:auth/store-session user]]
+      ;; `store-session-db` is called DIRECTLY (not via a nested
+      ;; `[:dispatch [:auth/store-session user]]`) for the same reason
+      ;; auth.cljs's own reply events do — see that fn's doc. The
+      ;; machine-routed :submit-succeeded sub-event never needs the token at
+      ;; all (:store-user's `draft-from-user` never reads it), so it is
+      ;; `dissoc`'d before crossing into the machine — the token is never
+      ;; even offered to that nested dispatch, not merely classified after
+      ;; the fact.
+      {:db (auth/store-session-db db user)
+       :fx [[:dispatch [:settings/form
+                        [:submit-succeeded {:user (dissoc user :token)}]]]
             [:dispatch [:rf.route/navigate :realworld.profile/show {:username (:username user)}]]]})))
 
 (rf/reg-event :settings/submit-error
@@ -383,7 +455,7 @@
              :placeholder "New Password"
              :value (:password draft)
              :disabled submitting?
-             :on-change #(dispatch [:settings/edit-field :password (.. % -target -value)])}]]
+             :on-change #(dispatch [:settings/edit-password {:value (.. % -target -value)}])}]]
           [:button.btn.btn-lg.btn-primary.pull-xs-right
            {:type "submit" :disabled submitting?}
            (if submitting? "Updating…" "Update Settings")]]]

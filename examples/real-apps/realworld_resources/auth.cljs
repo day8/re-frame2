@@ -4,12 +4,15 @@
    First, a modelling decision worth dwelling on: auth is a command plus a state
    machine, not a cached read. It's tempting to bend login into a read-resource
    so everything's uniform, but resist — login is a one-shot action with a
-   lifecycle, not a value you cache and re-read. The POST/GET for login,
-   register, and session-restore go through `:rf.http/managed` from the machine's
-   actions, and the machine owns the `:idle → :submitting → :authed | :error`
-   lifecycle. See the machines guide: ../../../docs/machines/concepts.md. (The one
-   auth-adjacent write that IS a mutation is the settings update — it invalidates
-   the profile read — and it lives over in realworld-resources.mutations.)
+   lifecycle, not a value you cache and re-read. The machine owns the
+   `:idle → :submitting → :authed | :error` lifecycle, but stays
+   CREDENTIAL-FREE: the login/register POST goes through `:rf.http/managed`
+   fired by the credential-owning form `:submit` events, and the session-restore
+   GET goes through the machine's own `:begin-restore` action (it carries no
+   typed credential). See the AUTH STATE MACHINE section below for why, and the
+   machines guide: ../../../docs/machines/concepts.md. (The one auth-adjacent
+   write that IS a mutation is the settings update — it invalidates the profile
+   read — and it lives over in realworld-resources.mutations.)
 
    On logout the machine does two things: clears the session, and clears the
    principal-scoped resource caches. The departing user's personalised feed is
@@ -31,12 +34,14 @@
    present but the user had not restored yet), so its `{:from-db …}` reads fail
    closed and are never planned. A `{:from-db …}` subscription re-keys reactively
    once the principal resolves, but re-keying is PASSIVE — it doesn't fetch. So on
-   BOTH restore outcomes — success (now signed in) and failure (now confirmed
-   anonymous) — the machine re-ensures the CURRENT route's reads under the freshly
-   resolved viewer with `:auth/ensure-viewer-route`, WITHOUT navigating, so a deep
-   link stays put and simply loads its reads under the right identity. The
-   interactive login / logout paths re-enter a route, so they re-plan for free and
-   don't need this — see `:auth/ensure-viewer-route` below for the full story."
+   BOTH restore outcomes — success (now signed in, via the classified
+   `:auth/session-restored` event) and failure (now confirmed anonymous, via the
+   machine's `:abandon-restore` action) — something re-ensures the CURRENT
+   route's reads under the freshly resolved viewer with
+   `:auth/ensure-viewer-route`, WITHOUT navigating, so a deep link stays put and
+   simply loads its reads under the right identity. The interactive login /
+   logout paths re-enter a route, so they re-plan for free and don't need this —
+   see `:auth/ensure-viewer-route` below for the full story."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             ;; The state-machine ns. Loading it registers the hooks, so
@@ -74,6 +79,13 @@
   {:doc       "Persist (or clear) the JWT in localStorage under the official
                contract key `jwtToken`. `{:token t}` writes a truthy token; a
                nil token removes the key."
+   ;; fx args are a transient payload with their OWN egress owner, separate
+   ;; from the event that produced them — so this registration classifies its
+   ;; own `:token` arg `:sensitive`. The per-effect `:rf.fx/handled` trace
+   ;; redacts `[:token]` while the handler body still receives the real token
+   ;; to write. Mirrors examples/core/login's `:auth.session/store` fx. See
+   ;; ../../../docs/core/how-to/keep-secrets-out-of-traces.md
+   :sensitive [[:token]]
    :platforms #{:client}}
   (fn [_m {:keys [token]}]
     (when-let [ls (.-localStorage js/globalThis)]
@@ -119,8 +131,28 @@
 ;; SESSION SUPPORT EVENTS
 ;; ============================================================================
 
+;; The shared `:db` write both `:auth/store-session` (below) and the
+;; classified reply events (`:auth/session-established` /
+;; `:auth/session-restored` further down, plus settings.cljs's
+;; `:settings/replied`) need. Public (not `defn-`) so settings.cljs can call
+;; it directly. A PLAIN FUNCTION, not a second event, and that is
+;; load-bearing: `:dispatch`'s own fx registration carries no `:sensitive`,
+;; so a `[:dispatch [:auth/store-session user]]` nested inside ANOTHER
+;; classified handler's `:fx` would leak the raw token at THAT handler's own
+;; `:rf.fx/handled` / `:rf.event/fx` trace — the target event's OWN
+;; classification does not reach the DISPATCHING handler's trace (a
+;; framework-projector gap, tracked separately). So every credential-classified
+;; caller computes this `:db` write DIRECTLY and INLINE instead.
+(defn store-session-db
+  [db user]
+  (-> db
+      (assoc-in [:auth :user] (dissoc user :token))
+      (assoc-in [:auth :token] (:token user))))
+
 (rf/reg-event :auth/store-session
-  {:doc "Store the authenticated session. The JWT gets exactly one durable home:
+  {:doc "Store the authenticated session — the standalone, directly-dispatchable
+         form of `store-session-db` (test fixtures and any external caller
+         dispatch this by name). The JWT gets exactly one durable home:
          the classified `[:auth :token]` path (declared by `:auth/classify-token`
          in core.cljs). The User payload lands at `[:auth :user]` with its `:token`
          field stripped off (`dissoc`), so the JWT is not quietly duplicated into
@@ -129,11 +161,15 @@
          classification doesn't propagate — each path declares its own. Views and
          subs read `:auth/user` for identity (username, bio, image) and none of
          them want the token anyway; the bearer-auth interceptor reads it from the
-         classified `[:auth :token]` path."}
+         classified `[:auth :token]` path. The incoming `user` arg is itself the
+         positional second element of THIS event's own dispatched-event trace, and
+         it still carries the token the durable write is about to strip — so
+         `:sensitive [[1 :token]]` redacts that positional slot too. This event
+         is for DIRECT/top-level dispatch only — a classified caller inlines
+         `store-session-db` instead (see that fn's doc)."
+   :sensitive [[1 :token]]}
   (fn [{:keys [db]} [_ user]]
-    {:db (-> db
-        (assoc-in [:auth :user] (dissoc user :token))
-        (assoc-in [:auth :token] (:token user)))}))
+    {:db (store-session-db db user)}))
 
 ;; ----------------------------------------------------------------------------
 ;; PRINCIPAL-SWITCH RE-ENSURE  (a subtle footgun, defused)
@@ -238,11 +274,10 @@
 (rf/reg-event :auth/post-login-redirect
   {:doc "Bounce a user who just interactively logged in or registered to wherever
          the auth guard intercepted them (`[:auth :return-to]`), or home if there's
-         nothing stashed. Dispatched only by the `:store-session` action (the
-         interactive `:submitting → :authed` transition) — never by
-         `:restore-session`, since cold-boot restore keeps you where you are and
-         must not force a navigation. Machine actions can't navigate or read `:db`
-         directly, so this is an ordinary event. It reads and clears the slot in
+         nothing stashed. Dispatched only by `:auth/session-established`
+         (interactive login/register success) — never by
+         `:auth/session-restored`, since cold-boot restore keeps you where you
+         are and must not force a navigation. It reads and clears the slot in
          one move, so a later login can't accidentally bounce you again."}
   (fn [{:keys [db]} _]
     (let [return-to (get-in db [:auth :return-to])]
@@ -255,93 +290,58 @@
 ;; AUTH STATE MACHINE — :auth/flow
 ;; ============================================================================
 
+;; The machine is deliberately CREDENTIAL-FREE, the same split
+;; `examples/core/login` teaches: a password is not path-addressable once it
+;; rides a machine dispatch as a POSITIONAL sub-event ([:auth/flow
+;; [:auth/login {:password ...}]] — no `:sensitive` mark can reach it there),
+;; so rather than lean on that, the credential-bearing forms (below) fire
+;; `:rf.http/managed` THEMSELVES and only ever nudge this machine with a bare,
+;; credential-free signal (`:auth/login`, `:auth/register` with no args). The
+;; token-bearing success reply is the mirror image on the way back: it's
+;; routed through the classified ordinary events `:auth/session-established` /
+;; `:auth/session-restored` (below) — never straight into the machine — so the
+;; reply lands in a path-addressable arg-map their own `:sensitive` can
+;; redact, and only a bare `:success` signal reaches the machine. See the
+;; keep-secrets how-to: ../../../docs/core/how-to/keep-secrets-out-of-traces.md
 (rf/reg-machine :auth/flow
   {:doc "The auth flow: idle → submitting/restoring → authed | error. HTTP goes
-         through :rf.http/managed. Login, register, and restore don't retry —
+         through :rf.http/managed, fired by the credential-owning form/restore
+         events, never by this machine — it only ever sees bare,
+         credential-free signals. Login, register, and restore don't retry —
          one submission per click, by design."
    :rf.http/decode-schemas [schema/UserResponse]}
   {:initial :idle
    :data    {:error nil}
    :schemas {:data app-schema/AuthFlowData}
    :guards
-   {:has-token? (fn [{[_ token] :event}] (not (str/blank? token)))}
+   ;; `:auth/initialise` below now passes a plain boolean, not the JWT itself
+   ;; — the guard only ever needed the presence/absence question, and routing
+   ;; the raw token through as a positional sub-event arg would ship it raw in
+   ;; the dispatched-event + machine trace slots for no reason: the
+   ;; `:begin-restore` action doesn't read the token either (the bearer-auth
+   ;; interceptor already stamps it from the classified `[:auth :token]` path).
+   {:has-token? (fn [{[_ has-token?] :event}] (boolean has-token?))}
    :actions
    {:clear-error (fn [_] {:data {:error nil}})
 
-    :begin-login
-    (fn [{[_ {:keys [email password]}] :event}]
-      {:data {:error nil}
-       :fx [[:rf.http/managed
-             {:request {:method :post :url (rh/full-url "/users/login")
-                        :body {:user {:email email :password password}}
-                        ;; Scrub the whole body from `:rf.http/*` traces in the
-                        ;; real-backend run mode. The default demo run mode
-                        ;; overrides `:rf.http/managed` with the stub (which
-                        ;; bypasses this scrub); that path is covered by the
-                        ;; stub's own `:sensitive` (http.cljs).
-                        :sensitive? true}
-              :decode schema/UserResponse
-              :on-success [:auth/flow [:auth/success]]
-              :on-failure [:auth/flow [:auth/failure]]}]]})
-
-    :begin-register
-    (fn [{[_ {:keys [username email password]}] :event}]
-      {:data {:error nil}
-       :fx [[:rf.http/managed
-             {:request {:method :post :url (rh/full-url "/users")
-                        :body {:user {:username username :email email :password password}}
-                        :sensitive? true}
-              :decode schema/UserResponse
-              :on-success [:auth/flow [:auth/success]]
-              :on-failure [:auth/flow [:auth/failure]]}]]})
+    ;; No :begin-login / :begin-register actions here — see the namespace
+    ;; note above. `:auth.login-form/submit` and `:auth.register-form/submit`
+    ;; (below) issue the request themselves and nudge :idle → :submitting with
+    ;; a bare signal; :clear-error is all the transition needs to do.
 
     :begin-restore
+    ;; Cold-boot restore carries no typed credential (GET /user, Bearer header
+    ;; only) — it's fine for this one action to keep firing its own request.
+    ;; Its success reply DOES carry the token, though, so it's routed through
+    ;; the classified `:auth/session-restored` event rather than straight back
+    ;; into the machine.
     (fn [_]
       {:data {:error nil}
        :fx [[:rf.http/managed
              {:request {:method :get :url (rh/full-url "/user")}
               :decode schema/UserResponse
-              :on-success [:auth/flow [:auth/success]]
+              :on-success [:auth/session-restored]
               :on-failure [:auth/flow [:auth/restore-failed]]}]]})
-
-    :store-session
-    (fn [{[_ {:keys [value]}] :event}]
-      ;; Interactive login / register success: store the session, persist the JWT,
-      ;; and bounce to the guard-stashed `:return-to` (or home). The bounce is the
-      ;; right move only for an interactive submit — the user just clicked Sign-in
-      ;; and is expecting to land somewhere. Machine actions neither see nor emit
-      ;; `:db`, so the session store and the bounce-back both run as ordinary
-      ;; events.
-      (let [user (:user value)]
-        {:data {:error nil}
-         :fx [[:dispatch [:auth/store-session user]]
-              [:realworld-resources.session/persist {:token (:token user)}]
-              [:dispatch [:auth/post-login-redirect]]]}))
-
-    :restore-session
-    (fn [{[_ {:keys [value]}] :event}]
-      ;; Session-restore success (cold boot with a saved JWT): store the session,
-      ;; but do NOT navigate. Someone cold-booting on a deep link (`/article/x`)
-      ;; needs to stay put — restore re-hydrates the session and nothing more; it
-      ;; must never yank them home. Only an interactive login/register bounces
-      ;; (`:store-session`). The token is already in app-db and localStorage from
-      ;; `:auth/initialise`; we re-persist it defensively, just in case the server
-      ;; rotated it on `GET /user`.
-      ;;
-      ;; This is the one principal switch with no route change. The route was
-      ;; entered while the viewer was UNRESOLVED (token present, user pending), so
-      ;; every `{:from-db …}` read failed closed and wasn't planned. Storing the
-      ;; principal now RESOLVES the viewer and re-keys those subs — but, being
-      ;; passive, they won't fetch. So `:auth/ensure-viewer-route` re-plans the
-      ;; current route's reads under the freshly-signed-in viewer, which is what
-      ;; makes the page (and 'Your Feed') actually load. Harmless cache-hits when a
-      ;; route already ensured a read. The interactive login / logout paths re-enter
-      ;; the route, so they need no explicit ensure.
-      (let [user (:user value)]
-        {:data {:error nil}
-         :fx [[:dispatch [:auth/store-session user]]
-              [:realworld-resources.session/persist {:token (:token user)}]
-              [:dispatch [:auth/ensure-viewer-route]]]}))
 
     :abandon-restore
     (fn [_]
@@ -352,7 +352,7 @@
       ;; job on an interactive logout, not on a failed restore. Clearing the token
       ;; RESOLVES the viewer to `[:rf.scope/viewer :anonymous]`, so `:auth/ensure-
       ;; viewer-route` re-plans the current route's reads under the anonymous
-      ;; viewer — the mirror of `:restore-session`, minus the sign-in.
+      ;; viewer — the mirror of `:auth/session-restored`, minus the sign-in.
       {:data {:error nil}
        :fx [[:dispatch [:auth/clear-session]]
             [:realworld-resources.session/persist {:token nil}]
@@ -376,23 +376,89 @@
             [:dispatch [:rf.route/navigate :realworld/home]]]})}
    :states
    {:idle
-    {:on {:auth/login    {:target :submitting :action :begin-login}
-          :auth/register {:target :submitting :action :begin-register}
+    {:on {:auth/login    {:target :submitting :action :clear-error}
+          :auth/register {:target :submitting :action :clear-error}
           :auth/restore  [{:target :restoring :guard :has-token? :action :begin-restore}
                           {:target :idle}]}}
     :submitting
-    {:on {:auth/success {:target :authed :action :store-session}
+    ;; No action on :auth/success — the credential-owning form event
+    ;; (`:auth/session-established`) already stored the session and
+    ;; redirected BEFORE nudging the machine here; this transition is purely
+    ;; the state flip.
+    {:on {:auth/success {:target :authed}
           :auth/failure {:target :error  :action :record-error}}}
     :restoring
-    {:on {:auth/success        {:target :authed :action :restore-session}
+    {:on {:auth/success        {:target :authed}
           :auth/restore-failed {:target :idle   :action :abandon-restore}}}
     :authed
     {:on {:auth/logout {:target :idle :action :clear-session}
-          :auth/login  {:target :submitting :action :begin-login}}}
+          :auth/login  {:target :submitting :action :clear-error}}}
     :error
-    {:on {:auth/login    {:target :submitting :action :begin-login}
-          :auth/register {:target :submitting :action :begin-register}
+    {:on {:auth/login    {:target :submitting :action :clear-error}
+          :auth/register {:target :submitting :action :clear-error}
           :auth/dismiss  {:target :idle       :action :clear-error}}}}})
+
+;; ============================================================================
+;; SESSION-ESTABLISHING REPLY EVENTS  (the token's two egress boundaries)
+;; ============================================================================
+;;
+;; These exist FOR the session token's egress hygiene. Managed HTTP appends
+;; its canonical reply as the SECOND positional arg of a one-element
+;; `:on-success` target — landing in the arg-map, which IS path-addressable —
+;; so `:sensitive [[:value :user :token]]` redacts the token in the
+;; dispatched-event trace (and any error record carrying this event) while the
+;; handler still reads the real token. Had the reply instead targeted the
+;; machine directly (`[:auth/flow [:auth/success]]`), it would land as an
+;; unaddressable THIRD positional element of that vector — exactly the trap
+;; the keep-secrets how-to warns about. That's the whole reason these events
+;; exist rather than routing success straight to the machine.
+;;
+;; Two variants because interactive login/register and cold-boot restore
+;; disagree about what happens after: an interactive submit bounces to
+;; `:return-to` (or home); restore must never yank a deep-linked visitor away
+;; from the page they cold-booted on, and instead re-plans the current
+;; route's reads under the freshly-resolved viewer
+;; (`:auth/ensure-viewer-route` — see its own doc above for why that's
+;; needed). Both persist the session via the classified
+;; `:realworld-resources.session/persist` fx (`:sensitive [[:token]]`, see
+;; above) and then nudge the machine with a bare, credential-free `:success`
+;; signal — the machine flips state and never sees the token. See
+;; ../../../docs/core/how-to/keep-secrets-out-of-traces.md
+
+;; Both call `store-session-db` DIRECTLY (returning `:db` themselves) rather
+;; than dispatching `:auth/store-session` — see that helper's doc for why a
+;; nested `[:dispatch [:auth/store-session user]]` would leak the raw token
+;; at THIS handler's own `:rf.fx/handled` / `:rf.event/fx` trace regardless
+;; of `:auth/store-session`'s own classification.
+
+(rf/reg-event :auth/session-established
+  {:doc       "Interactive login/register succeeded: store the session,
+               persist the JWT, and bounce to `:return-to` (or home). The
+               reply rides a map payload classified :sensitive so the token
+               is redacted at event egress."
+   :sensitive [[:value :user :token]]}
+  (fn [{:keys [db]} [_ {:keys [value]}]]
+    (let [user (:user value)]
+      {:db (store-session-db db user)
+       :fx [[:realworld-resources.session/persist {:token (:token user)}]
+            [:dispatch [:auth/post-login-redirect]]
+            [:dispatch [:auth/flow [:auth/success]]]]})))
+
+(rf/reg-event :auth/session-restored
+  {:doc       "Cold-boot session restore succeeded (a saved JWT was present
+               and accepted): store the session, re-persist the JWT
+               defensively (in case the server rotated it), and re-plan the
+               current route's reads under the freshly-resolved viewer — but
+               do NOT navigate, a deep link must stay put. The reply rides a
+               map payload classified :sensitive so the token is redacted at
+               event egress."
+   :sensitive [[:value :user :token]]}
+  (fn [{:keys [db]} [_ {:keys [value]}]]
+    (let [user (:user value)]
+      {:db (store-session-db db user)
+       :fx [[:realworld-resources.session/persist {:token (:token user)}]
+            [:dispatch [:auth/ensure-viewer-route]]
+            [:dispatch [:auth/flow [:auth/success]]]]})))
 
 ;; ============================================================================
 ;; INITIALISATION + SESSION RESTORE
@@ -401,11 +467,18 @@
 (rf/reg-event :auth/initialise
   {:rf.cofx/requires [:realworld-resources.session/token]}
   (fn [{:keys [db realworld-resources.session/token]} _]
-    ;; Fire `:auth/restore` unconditionally — even with a nil token — so the
+    ;; Fire `:auth/restore` unconditionally — even with no token — so the
     ;; machine snapshot spawns at `:idle` from a cold boot. The `:has-token?`
-    ;; guard then quietly routes a blank token to the no-op branch.
+    ;; guard then quietly routes a false flag to the no-op branch. The
+    ;; dispatch carries a plain BOOLEAN, not the raw token — the guard only
+    ;; ever needed presence/absence, and the token itself already has a
+    ;; durable home at the classified `[:auth :token]` path this same `:db`
+    ;; write creates. Passing the token positionally here instead would ship
+    ;; the JWT raw on this event's own dispatched-event trace for no reason:
+    ;; `:begin-restore` reads the token back off `[:auth :token]` via the
+    ;; bearer-auth interceptor, never off this event's args.
     {:db (assoc db :auth {:user nil :token token})
-     :fx [[:dispatch [:auth/flow [:auth/restore token]]]]}))
+     :fx [[:dispatch [:auth/flow [:auth/restore (not (str/blank? token))]]]]}))
 
 ;; ============================================================================
 ;; LOGIN / REGISTER FORM DRAFTS  (app-db; submission is the machine)
@@ -426,15 +499,59 @@
      :sensitive [[:auth :login-form :draft :password]]}))
 
 (rf/reg-event :auth.login-form/edit-field
-  {:schema [:cat [:= :auth.login-form/edit-field] :keyword :string]}
+  {:doc    "Controlled-input edit for a NON-SECRET login field (email). The
+            password uses :auth.login-form/edit-password instead; never
+            route a secret through this event
+            (docs/core/how-to/keep-secrets-out-of-traces.md, \"a positional
+            secret ships raw\")."
+   :schema [:cat [:= :auth.login-form/edit-field] :keyword :string]}
   (fn [{:keys [db]} [_ field value]]
     {:db (-> db
         (assoc-in [:auth :login-form :draft field] value)
         (update-in [:auth :login-form :touched] (fnil conj #{}) field))}))
 
+;; The password's keystrokes get their OWN event and a MAP payload — the
+;; whole point being that a map is path-addressable and a positional arg
+;; isn't. `:sensitive [[:value]]` classifies that `:value` key, so the
+;; dispatched-event trace redacts it while the handler still writes the real
+;; keystroke into the draft. Mirrors examples/core/login's
+;; `:auth.login/edit-password`.
+(rf/reg-event :auth.login-form/edit-password
+  {:doc       "Controlled-input edit for the PASSWORD field: write the value
+               into the login-form draft and mark it touched. The value rides
+               a map payload classified :sensitive so the edit trace redacts
+               it."
+   :sensitive [[:value]]
+   :schema    [:cat [:= :auth.login-form/edit-password] [:map [:value :string]]]}
+  (fn [{:keys [db]} [_ {:keys [value]}]]
+    {:db (-> db
+        (assoc-in [:auth :login-form :draft :password] value)
+        (update-in [:auth :login-form :touched] (fnil conj #{}) :password))}))
+
 (rf/reg-event :auth.login-form/submit
+  {:doc "Submit the login form. This is the credential-owning handoff point:
+         it reads the draft, issues the (sensitive) managed-HTTP login request
+         itself, blanks the password (secret-field hygiene), and nudges the
+         :auth/flow machine with a bare, credential-free :auth/login signal.
+         The success reply routes to the classified :auth/session-established
+         event, never straight to the machine — see the machine's namespace
+         note above."}
   (fn [{:keys [db]} _]
-    {:fx [[:dispatch [:auth/flow [:auth/login (get-in db [:auth :login-form :draft])]]]]}))
+    (let [draft (get-in db [:auth :login-form :draft])]
+      {:db (assoc-in db [:auth :login-form :draft :password] "")
+       :fx [[:dispatch [:auth/flow [:auth/login]]]
+            [:rf.http/managed
+             {:request {:method :post :url (rh/full-url "/users/login")
+                        :body {:user draft}
+                        ;; Scrub the whole body from `:rf.http/*` traces in the
+                        ;; real-backend run mode. The default demo run mode
+                        ;; overrides `:rf.http/managed` with the stub (which
+                        ;; bypasses this scrub); that path is covered by the
+                        ;; stub's own `:sensitive` (http.cljs).
+                        :sensitive? true}
+              :decode schema/UserResponse
+              :on-success [:auth/session-established]
+              :on-failure [:auth/flow [:auth/failure]]}]]})))
 
 (rf/reg-event :auth.register-form/initialise
   {:doc "Seed the register-form draft AND classify its password path :sensitive —
@@ -444,14 +561,45 @@
      :sensitive [[:auth :register-form :draft :password]]}))
 
 (rf/reg-event :auth.register-form/edit-field
+  {:doc "Controlled-input edit for a NON-SECRET register field (username,
+         email). The password uses :auth.register-form/edit-password
+         instead; never route a secret through this event."}
   (fn [{:keys [db]} [_ field value]]
     {:db (-> db
         (assoc-in [:auth :register-form :draft field] value)
         (update-in [:auth :register-form :touched] (fnil conj #{}) field))}))
 
+;; Same map-payload / :sensitive [[:value]] split as the login form's
+;; password event above.
+(rf/reg-event :auth.register-form/edit-password
+  {:doc       "Controlled-input edit for the PASSWORD field: write the value
+               into the register-form draft and mark it touched. The value
+               rides a map payload classified :sensitive so the edit trace
+               redacts it."
+   :sensitive [[:value]]
+   :schema    [:cat [:= :auth.register-form/edit-password] [:map [:value :string]]]}
+  (fn [{:keys [db]} [_ {:keys [value]}]]
+    {:db (-> db
+        (assoc-in [:auth :register-form :draft :password] value)
+        (update-in [:auth :register-form :touched] (fnil conj #{}) :password))}))
+
 (rf/reg-event :auth.register-form/submit
+  {:doc "Submit the register form. Same credential-owning handoff as the login
+         form above: fires the (sensitive) managed-HTTP register request
+         itself, blanks the password, and nudges the machine with a bare
+         :auth/register signal. Shares :auth/session-established with login —
+         both successes store the session and bounce the same way."}
   (fn [{:keys [db]} _]
-    {:fx [[:dispatch [:auth/flow [:auth/register (get-in db [:auth :register-form :draft])]]]]}))
+    (let [draft (get-in db [:auth :register-form :draft])]
+      {:db (assoc-in db [:auth :register-form :draft :password] "")
+       :fx [[:dispatch [:auth/flow [:auth/register]]]
+            [:rf.http/managed
+             {:request {:method :post :url (rh/full-url "/users")
+                        :body {:user draft}
+                        :sensitive? true}
+              :decode schema/UserResponse
+              :on-success [:auth/session-established]
+              :on-failure [:auth/flow [:auth/failure]]}]]})))
 
 ;; ============================================================================
 ;; SUBSCRIPTIONS
@@ -486,8 +634,9 @@
          scope resolver is fail-closed (nil), so a viewer-scoped read subscription
          would raise `scope unresolved`. The app shell (core.cljs) reads this to
          defer the route page and show a brief 'restoring session' state instead,
-         until `:restore-session` / `:abandon-restore` resolve the viewer and
-         re-ensure the route's reads. Mirrors exactly the resolver's nil branch."}
+         until `:auth/session-restored` / `:abandon-restore` resolve the viewer
+         and re-ensure the route's reads. Mirrors exactly the resolver's nil
+         branch."}
   (fn [db _]
     (and (nil? (get-in db [:auth :user]))
          (not (str/blank? (get-in db [:auth :token]))))))
@@ -518,7 +667,7 @@
        [:fieldset.form-group
         [:input {:type "password" :name "password" :data-testid "login-password" :placeholder "Password"
                  :value (:password draft) :disabled submitting?
-                 :on-change #(dispatch [:auth.login-form/edit-field :password (.. % -target -value)])}]]
+                 :on-change #(dispatch [:auth.login-form/edit-password {:value (.. % -target -value)}])}]]
        [:button {:type "submit" :data-testid "login-submit" :disabled submitting?}
         (if submitting? "Signing in…" "Sign in")]]]]))
 
@@ -541,6 +690,6 @@
                  :on-change #(dispatch [:auth.register-form/edit-field :email (.. % -target -value)])}]]
        [:fieldset.form-group
         [:input {:type "password" :name "password" :placeholder "Password" :value (:password draft) :disabled submitting?
-                 :on-change #(dispatch [:auth.register-form/edit-field :password (.. % -target -value)])}]]
+                 :on-change #(dispatch [:auth.register-form/edit-password {:value (.. % -target -value)}])}]]
        [:button {:type "submit" :disabled submitting?}
         (if submitting? "Signing up…" "Sign up")]]]]))
