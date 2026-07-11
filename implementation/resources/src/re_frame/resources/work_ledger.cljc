@@ -70,7 +70,7 @@
   copy that could drift from the verification identity. `durable-reply-to`
   reconstructs it and runs it through `re-frame.reply/durable-target` so the
   reified continuation is asserted DATA-ONLY (no host handle, no ephemeral
-  `::post` / `::stale-authority` slot) before it could ride a durable row —
+  `::post` slot) before it could ride a durable row —
   the same crispness the spec illustrates.
 
   An app-supplied CALL-SITE continuation (the mutation `:reply-to`, EP-0016
