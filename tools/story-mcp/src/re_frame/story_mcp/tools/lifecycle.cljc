@@ -7,8 +7,12 @@
   boundary guarantees settled and error outcomes carry the same evidence
   slots. Each tool still owns its projection, egress scrubbing,
   annotations, indicators, and wire envelope."
-  (:require [re-frame.story       :as story]
-            [re-frame.story.async :as async]))
+  (:require [re-frame.story :as story]
+            ;; JVM-only: `async/deref-blocking` is `#?(:clj …)` and is used
+            ;; solely by the JVM bounded-lifecycle blocker below. story-mcp
+            ;; is a JVM stdio server (deps.edn), so the require is clj-only —
+            ;; the CLJS branch of this ns never blocks.
+            #?(:clj [re-frame.story.async :as async])))
 
 (defn error-outcome
   "Assemble the ONE canonical error run-result for a synchronous throw /
@@ -53,24 +57,24 @@
                   "the single-threaded stdio server loop.")
              {:variant vk :timeout-ms timeout-ms})))
 
-(defn- unwrap-async-cause
-  "Peel the JVM async-plumbing wrappers (`ExecutionException` from the
-  worker future, `CompletionException` from a rejected Story future) off
-  `e` so the canonical error reason is the underlying Story throwable,
-  not the executor's wrapper. Stops at the first non-wrapper cause.
+#?(:clj
+   (defn- unwrap-async-cause
+     "Peel the JVM async-plumbing wrappers (`ExecutionException` from the
+     worker future, `CompletionException` from a rejected Story future) off
+     `e` so the canonical error reason is the underlying Story throwable,
+     not the executor's wrapper. Stops at the first non-wrapper cause.
 
-  JVM-only, like the rest of this blocking-lifecycle owner: `story-mcp`
-  is a JVM-side stdio server (see `deps.edn`) and `async/deref-blocking`
-  is itself `#?(:clj …)`, so this namespace is never compiled for CLJS."
-  [^Throwable e]
-  (loop [t e]
-    (let [c (.getCause t)]
-      (if (and (or (instance? java.util.concurrent.ExecutionException t)
-                   (instance? java.util.concurrent.CompletionException t))
-               (some? c)
-               (not (identical? c t)))
-        (recur c)
-        t))))
+     JVM-only, like the rest of this blocking-lifecycle owner: `story-mcp`
+     is a JVM-side stdio server (see `deps.edn`)."
+     [^Throwable e]
+     (loop [t e]
+       (let [c (.getCause t)]
+         (if (and (or (instance? java.util.concurrent.ExecutionException t)
+                      (instance? java.util.concurrent.CompletionException t))
+                  (some? c)
+                  (not (identical? c t)))
+           (recur c)
+           t)))))
 
 (defn run-variant-blocking
   "Invoke `story/run-variant` for `vk` with `opts` and BLOCK for its
@@ -98,24 +102,34 @@
   `:pass`.
 
   Returns the outcome map (a settled run-result, or the canonical error
-  outcome). The caller projects / scrubs / wire-shapes it."
+  outcome). The caller projects / scrubs / wire-shapes it.
+
+  JVM-only body: `future` + the bounded timed `deref` (`clojure.core/
+  deref`'s 3-arg arity) have no CLJS counterpart — `story-mcp` is a
+  JVM-side stdio server (see `deps.edn`), so the reader conditional keeps
+  the timed-deref off the CLJS surface (`cljs.core/deref` is 1-arg only,
+  which clj-kondo would otherwise flag on the `.cljc`'s cljs branch)."
   [vk opts timeout-ms]
-  (let [worker (future (async/deref-blocking (story/run-variant vk opts)))]
-    (try
-      (let [settled (deref worker timeout-ms ::timeout)]
-        (if (identical? settled ::timeout)
-          (do
-            ;; Abandon the over-budget run: `future-cancel` interrupts the
-            ;; worker so a JVM `[:wait]` (`Thread/sleep`) unblocks and the
-            ;; scheduled post-wait continuation never fires, freeing the
-            ;; single-threaded stdio loop at the ceiling.
-            (future-cancel worker)
-            (deadline-outcome vk timeout-ms))
-          settled))
-      (catch Throwable e
-        ;; A synchronous throw from `story/run-variant`, or a rejected
-        ;; Story future, surfaces here wrapped in the worker future's
-        ;; `ExecutionException`. Unwrap to the underlying Story throwable
-        ;; so the canonical error reason is honest.
-        (future-cancel worker)
-        (error-outcome vk (unwrap-async-cause e))))))
+  #?(:clj
+     (let [worker (future (async/deref-blocking (story/run-variant vk opts)))]
+       (try
+         (let [settled (deref worker timeout-ms ::timeout)]
+           (if (identical? settled ::timeout)
+             (do
+               ;; Abandon the over-budget run: `future-cancel` interrupts the
+               ;; worker so a JVM `[:wait]` (`Thread/sleep`) unblocks and the
+               ;; scheduled post-wait continuation never fires, freeing the
+               ;; single-threaded stdio loop at the ceiling.
+               (future-cancel worker)
+               (deadline-outcome vk timeout-ms))
+             settled))
+         (catch Throwable e
+           ;; A synchronous throw from `story/run-variant`, or a rejected
+           ;; Story future, surfaces here wrapped in the worker future's
+           ;; `ExecutionException`. Unwrap to the underlying Story throwable
+           ;; so the canonical error reason is honest.
+           (future-cancel worker)
+           (error-outcome vk (unwrap-async-cause e)))))
+     :cljs
+     (throw (ex-info "run-variant-blocking is JVM-only (story-mcp is a JVM stdio server)"
+                     {:vk vk :opts opts :timeout-ms timeout-ms}))))
