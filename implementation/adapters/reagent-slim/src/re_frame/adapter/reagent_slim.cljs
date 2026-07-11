@@ -60,7 +60,10 @@
   "Flush pending slim renders synchronously. Wraps React's act() —
   intended for test code only. Calls (act (fn [] (batching/flush!)));
   with `f`, runs `f` then the synchronous render drain inside act.
-  Returns nil. No-op when act() is unreachable in the current React build.
+  Returns nil. When act() is unreachable in the current React build it
+  degrades to a plain synchronous flush (still runs `f` and drains the
+  render queue), so a `:node-test` runner with no real React render path
+  still flushes.
   The promise-returning `reagent2.dom.client/flush-views!` remains available
   when callers need deterministic Suspense ordering."
   (:flush-views! spine-fns))

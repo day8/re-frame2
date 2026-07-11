@@ -28,6 +28,7 @@
   (:require [cljs.test :refer-macros [deftest is testing]]
             [reagent2.impl.component :as component]
             [reagent2.impl.template :as template]
+            [reagent2.impl.batching :as batching]
             ["react" :as react]))
 
 ;; ---------------------------------------------------------------------------
@@ -336,6 +337,28 @@
           inst  (new klass #js {:__rfArgv []})]
       (.call (.. klass -prototype -componentWillUnmount) inst)
       (is (identical? inst @fired)))))
+
+(deftest lifecycle-unmount-clears-dirty-flag-rf2-mdgt8t
+  (testing "rf2-mdgt8t (a): componentWillUnmount clears the dirty flag, so a
+            component queued for re-render THEN unmounted is NOT forceUpdate'd
+            on the next flush-render drain (stock-parity: stock clears the
+            flag on unmount)."
+    (let [^js klass (component/create-class* {:reagent-render (fn [_] [:div])})
+          inst     (new klass #js {:__rfArgv [(fn [_] nil)]})
+          fu-calls (atom 0)]
+      (set! (.-forceUpdate inst) (fn [] (swap! fu-calls inc)))
+      ;; Enqueue for a microtask-turn re-render — sets cljsIsDirty true.
+      (batching/queue-render! inst)
+      (is (true? (.-cljsIsDirty inst)) "queued → dirty")
+      ;; Unmount BEFORE the drain runs — must clear the dirty flag.
+      (.call (.. klass -prototype -componentWillUnmount) inst)
+      (is (false? (.-cljsIsDirty inst))
+          "unmount cleared the dirty flag (the rf2-mdgt8t (a) fix)")
+      ;; Drain: flush-render skips non-dirty components → no forceUpdate on
+      ;; the now-unmounted instance.
+      (batching/flush!)
+      (is (zero? @fu-calls)
+          "unmounted component was NOT forceUpdate'd on the drain"))))
 
 (deftest lifecycle-component-did-update-receives-prev-argv-and-snapshot
   (testing "componentDidUpdate forwards (this, prev-argv, snapshot)"
