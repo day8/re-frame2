@@ -638,9 +638,10 @@
   ;;
   ;; tools/testbed-support is a tiny but cross-platform-load-bearing helper
   ;; library (the open-in-editor project-root resolver + the live-app ↔
-  ;; Story-shell hash host). It has no `deps.edn` (it is consumed purely as
-  ;; an extra source path), so its only executable home was the full
-  ;; consolidated `npm run test:cljs` build — which compiles + runs the whole
+  ;; Story-shell hash host). Its `deps.edn` exists only for the JVM endpoint
+  ;; tests (not a packaging surface — the library is consumed as an extra
+  ;; source path), so the node-runnable CLJS suites' only executable home was
+  ;; the full consolidated `npm run test:cljs` build — which compiles + runs the whole
   ;; ~3500-test node suite and, in a fresh worker worktree, may not even start
   ;; without a local shadow-cljs binary. That made this small slice expensive
   ;; to verify in worktrees and in targeted CI (the bead's finding #3).
