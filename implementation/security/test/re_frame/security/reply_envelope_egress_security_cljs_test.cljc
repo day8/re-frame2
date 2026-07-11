@@ -128,8 +128,6 @@
         (is (= sentinel (get-in out [:value :token]))
             "explicit include-sensitive? true is the deliberate frameless opt-out")))))
 
-(def ^:private gen-status (gen/gen-elem (vec reply/statuses)))
-
 (def ^:private gen-reply
   "A status-correct reply map carrying the sentinel in its wire slots. The
   status drives which value/error slots are present (so the corpus stays
