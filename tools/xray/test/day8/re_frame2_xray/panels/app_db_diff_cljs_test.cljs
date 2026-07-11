@@ -375,10 +375,13 @@
             clipboard route through :rf.xray.fx/copy-to-clipboard; the
             fx is best-effort (no-op on non-browser targets)"
     (registry/register-xray-handlers!)
-    (rf/make-frame {:id :rf/xray})
     (let [captured (atom [])]
-      (rf/reg-fx :rf.xray.fx/copy-to-clipboard
-        (fn [_ctx args] (swap! captured conj args)))
+      ;; rf2-h1vqa4: capture via the frame's :fx-overrides seam (fn-value
+      ;; form) instead of re-registering the xray-owned fx id — a cross-ns
+      ;; re-registration fails the frame's default-image assembly loud.
+      (rf/make-frame {:id :rf/xray
+                      :fx-overrides {:rf.xray.fx/copy-to-clipboard
+                                     (fn [_ctx args] (swap! captured conj args))}})
       (rf/with-frame :rf/xray
         (rf/dispatch-sync [:rf.xray/copy-value-to-clipboard {:a 1}])
         (rf/dispatch-sync [:rf.xray/copy-path-to-clipboard [:cart :items]]))
@@ -411,10 +414,15 @@
   (frame/swap-runtime-db! :rf/default
     (fn [rt] (elision/apply-classification-effects rt {:large [[:blob :payload]]}))))
 
-(defn- capture-copy! []
+(defn- capture-copy!
+  "rf2-h1vqa4: the capture rides the `:rf/xray` frame's `:fx-overrides`
+  (fn-value form) — call AFTER the frame exists; re-`make-frame` is a
+  surgical config update on the live frame."
+  []
   (let [captured (atom [])]
-    (rf/reg-fx :rf.xray.fx/copy-to-clipboard
-      (fn [_ctx args] (swap! captured conj args)))
+    (rf/make-frame {:id :rf/xray
+                    :fx-overrides {:rf.xray.fx/copy-to-clipboard
+                                   (fn [_ctx args] (swap! captured conj args))}})
     captured))
 
 (deftest copy-value-redacts-sensitive-slot

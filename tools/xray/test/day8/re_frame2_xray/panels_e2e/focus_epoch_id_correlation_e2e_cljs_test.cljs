@@ -43,6 +43,7 @@
   `parallel_frames_e2e_cljs_test` does."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.source-store :as source-store]
             [re-frame.frame :as frame]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
@@ -65,6 +66,12 @@
   nil)
 
 (defn- install-counter! []
+  ;; rf2-h1vqa4 bundle co-load hygiene: the story testbed registers the
+  ;; same canonical counter ids at its ns load; CLAIM them (drop sibling
+  ;; provenance rows) before registering ours, or the host frame's
+  ;; default-image assembly fails loud on the cross-ns duplicate.
+  (doseq [[kind id] [[:event :counter/inc] [:sub :counter/value]]]
+    (source-store/forget-id! kind id))
   (rf/reg-event :counter/inc (fn [{:keys [db]} _] {:db (update db :counter (fnil inc 0))}))
   (rf/reg-sub :counter/value (fn [db _] (:counter db))))
 

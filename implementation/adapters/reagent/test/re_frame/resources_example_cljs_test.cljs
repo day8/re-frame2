@@ -92,6 +92,18 @@
 (swap! registrar/kind->id->metadata update :resource
        (fn [m] (apply dissoc m (keys resource-kind-snapshot))))
 
+
+;; rf2-h1vqa4 BUNDLE CO-LOAD HYGIENE: this app registers the reserved
+;; per-app `:rf.route/not-found` route at ns load. Co-loaded example apps
+;; each do the same, and two provenance rows for the id fail default-image
+;; assembly loud for every suite whose fixture baseline is captured after
+;; the second app loads. Sequester OUR app's row at ns load; `init!`
+;; reinstates it (registrar + source store in lockstep) for this suite's
+;; own tests.
+(def ^:private not-found-route-row
+  (test-support/sequester-app-registration!
+    :route :rf.route/not-found "resources.core"))
+
 (defn- init!
   "Per-test setup (after adapter install, registrar live). The resources
    example owns the URL through `:rf/default` (`:url-bound? true`), so re-register
@@ -100,11 +112,19 @@
    integration, and stub the managed-HTTP + url-push fx so route entry's ensure
    + navigation are deterministic without a fetch / browser."
   []
+  (test-support/reinstate-app-registration! not-found-route-row)
   (reset! last-managed-args nil)
   (rf/make-frame {:id :rf/default :url-bound? true
                   :doc "resources-example default app frame."})
   ;; Re-install the example's ns-load resource registrations (wiped post-dispose).
-  (swap! registrar/kind->id->metadata assoc :resource resource-kind-snapshot)
+  ;; rf2-h1vqa4: reinstate through `registrar/register!` — NOT a raw
+  ;; registrar-atom swap. Image-loaded frames resolve through the SOURCE
+  ;; STORE (the default image is assembled from it), and the reset hook's
+  ;; clear-kind! forgot the store rows too; register! writes registrar +
+  ;; store in lockstep and marks the live-frame projection dirty, so the
+  ;; frame's next resolution sees the reinstated registrations.
+  (doseq [[id meta] resource-kind-snapshot]
+    (registrar/register! :resource id meta))
   (routing/reset-counters!)
   (resources-route/install-routing-integration!)
   ;; Capturing no-op: the reply is replayed explicitly by the test so the

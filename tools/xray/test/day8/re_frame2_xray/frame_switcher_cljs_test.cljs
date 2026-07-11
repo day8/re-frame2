@@ -206,9 +206,13 @@
     (let [persisted (atom nil)]
       ;; Swap the fx with a counting stub so we don't touch
       ;; localStorage in the test runtime (Node has no jsdom).
-      (rf/reg-fx :rf.xray.frame-switcher/persist
-        (fn [_ctx frame-id]
-          (reset! persisted frame-id)))
+      ;; rf2-h1vqa4: route through the frame's :fx-overrides seam (fn-value
+      ;; form) instead of re-registering the xray-owned fx id — a cross-ns
+      ;; re-registration fails the frame's default-image assembly loud.
+      (rf/make-frame {:id :rf/xray
+                      :fx-overrides {:rf.xray.frame-switcher/persist
+                                     (fn [_ctx frame-id]
+                                       (reset! persisted frame-id))}})
       (rf/with-frame :rf/xray
         (rf/dispatch-sync [:rf.xray/select-frame :rf/cart-frame]))
       (is (= :rf/cart-frame @persisted)
@@ -234,9 +238,13 @@
     (setup!)
     (rf/make-frame {:id :rf/cart-frame})
     (let [persisted (atom nil)]
-      (rf/reg-fx :rf.xray.frame-switcher/persist
-        (fn [_ctx frame-id]
-          (reset! persisted frame-id)))
+      ;; rf2-h1vqa4: route through the frame's :fx-overrides seam (fn-value
+      ;; form) instead of re-registering the xray-owned fx id — a cross-ns
+      ;; re-registration fails the frame's default-image assembly loud.
+      (rf/make-frame {:id :rf/xray
+                      :fx-overrides {:rf.xray.frame-switcher/persist
+                                     (fn [_ctx frame-id]
+                                       (reset! persisted frame-id))}})
       (rf/with-frame :rf/xray
         (rf/dispatch-sync [:rf.xray/palette-open])
         (rf/dispatch-sync

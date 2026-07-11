@@ -52,6 +52,23 @@
 
 ;; ---- fixtures -----------------------------------------------------------
 
+;; ---- evicted-focus helper ----------------------------------------------
+
+;; rf2-h1vqa4: registered ABOVE the fixture form — the reset fixture's
+;; source-store baseline is captured when `use-fixtures` evaluates, and a
+;; top-level registration AFTER it would be erased from the store by every
+;; per-test restore (invisible to the frame's sealed generation even though
+;; the registrar-merge leg preserved it).
+;; A test-only event that pins :focus to an :epoch-id that's not in
+;; history — exercises the :epoch-evicted classifier path.
+(rf/reg-event
+  :day8.re-frame2-xray.panels.trace-view-cljs-test/seed-evicted-focus
+  (fn [{:keys [db]} _event]
+    {:db (assoc db :focus {:dispatch-id 999
+                      :epoch-id    999
+                      :mode        :retro
+                      :frame       nil})}))
+
 (use-fixtures :each
   ;; `make-xray-runtime-fixture` (rf2-vj80u8) folds the inline
   ;; `make-reset-runtime-fixture` + `reset-all!` init into one owner:
@@ -893,14 +910,3 @@
         (is (= "t:33" k33))
         (is (= 3 (count (distinct [k11 k22 k33]))))))))
 
-;; ---- evicted-focus helper ----------------------------------------------
-
-;; A test-only event that pins :focus to an :epoch-id that's not in
-;; history — exercises the :epoch-evicted classifier path.
-(rf/reg-event
-  :day8.re-frame2-xray.panels.trace-view-cljs-test/seed-evicted-focus
-  (fn [{:keys [db]} _event]
-    {:db (assoc db :focus {:dispatch-id 999
-                      :epoch-id    999
-                      :mode        :retro
-                      :frame       nil})}))

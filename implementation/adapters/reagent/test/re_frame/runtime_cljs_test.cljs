@@ -5,6 +5,7 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent.core :as r]
             [re-frame.core :as rf]
+            [re-frame.source-store :as source-store]
             ;; rf2-qwm0a: listener / buffer surface lives in re-frame.trace.tooling.
             [re-frame.trace.tooling :as trace-tooling]
             ;; rf2-bmzq0: sub-cache-snapshot lives in re-frame.subs.tooling.
@@ -196,6 +197,16 @@
 
 (deftest multi-frame-state-isolation
   (testing "two frames carry independent app-db state, share handler registry"
+    ;; rf2-h1vqa4 bundle co-load hygiene: CLAIM this test's id vocabulary
+    ;; before creating the frames — the story testbed registers the same
+    ;; canonical :counter/inc at its ns load, and sibling suites' in-test
+    ;; registrations of :counter/init / :count can leak through fixtures
+    ;; that don't restore the store; a second provenance row for any of
+    ;; them fails default-image assembly loud.
+    (doseq [[kind id] [[:event :counter/init]
+                       [:event :counter/inc]
+                       [:sub   :count]]]
+      (source-store/forget-id! kind id))
     (rf/make-frame {:id :left :doc "left frame"})
     (rf/make-frame {:id :right :doc "right frame"})
     (rf/reg-event :counter/init (fn [{:keys [db]} [_ n]] {:db {:count n}}))
