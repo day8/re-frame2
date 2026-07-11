@@ -1092,7 +1092,7 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:value           {:optional true} :any]
    [:explain         {:optional true} :any]            ;; Malli explanation shape
    [:rf.sub/query-v  {:optional true} :any]            ;; (:where :sub-return only) caller-supplied query vector; redacted to :rf/redacted when sub is :sensitive? — see Spec/010
-   [:rollback?       {:optional true} :boolean]        ;; (:where :app-db / :machine-data / :machine-output) true when :db was rolled back to pre-handler value; false for :where :machine-data :phase :spawn / :update-snapshot (nothing committed) and ALWAYS false for :where :machine-output :phase :completion (the machine already finished)
+   [:rollback?       {:optional true} :boolean]        ;; (:where :app-db / :machine-data / :machine-output) true = the event's candidate frame transition was REJECTED before install (rf2-uhk9ko — the stable public transaction-rejected vocabulary; app-db keeps its pre-handler value because the candidate was NEVER written, not because a write-pair restored it); false for :where :machine-data :phase :spawn / :update-snapshot (a local skipped write, nothing committed) and ALWAYS false for :where :machine-output :phase :completion (the machine already finished)
    [:registered-path {:optional true} [:vector :any]]  ;; (:where :app-db only) registration root; :path is the failing leaf — see Spec/010
    [:machine-id      {:optional true} :keyword]        ;; (:where :machine-data / :machine-output only) the failing machine's id; mirrors :failing-id for domain clarity.
    [:phase           {:optional true} [:enum :macrostep :bootstrap :spawn :update-snapshot :completion]] ;; (:where :machine-data / :machine-output only) lifecycle position of the violation: :macrostep (post-transition commit), :bootstrap (initial :data install on the first dispatch), :spawn (pre-install spawn rejection), :update-snapshot (pre-write rejection of an :rf.machine/update-snapshot escape-hatch :data patch), :completion (the :where :machine-output finalize-time completion-output check).
@@ -1105,11 +1105,14 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
   ;; the registered validator THROWS at validate-time rather than returning
   ;; true/false. `validate-app-schema!` isolates the throw per-entry, emits
   ;; this DISTINCT category (so it can never masquerade as a clean
-  ;; validate), fails CLOSED (`:rollback? true` →
-  ;; rollback), and keeps validating the frame's sibling schemas. The
-  ;; router's defensive catch emits the SAME category (with `:rollback?
-  ;; false`) when a wholesale validator-machinery throw still reaches it,
-  ;; so a swallowed throw is never invisible. The app-db value is NOT
+  ;; validate), fails CLOSED (`:rollback? true` → the candidate frame
+  ;; transition is REJECTED before install, rf2-uhk9ko), and keeps
+  ;; validating the frame's sibling schemas. The router's defensive catch
+  ;; emits the SAME category — also fail-closed, `:rollback? true`,
+  ;; trace-then-REJECT (the retired treat-as-pass arm was a fail-OPEN
+  ;; bypass) — when a wholesale validator-machinery throw still reaches it,
+  ;; so a throwing validator can neither install unvalidated state nor go
+  ;; invisible. The app-db value is NOT
   ;; carried — the validator never proved the slot's sensitivity, so
   ;; omitting the value is fail-closed (no path-targeted redaction is
   ;; possible). `:schema` carries the offending registration form the

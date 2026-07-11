@@ -15,7 +15,7 @@ Your app subtly mis-renders. The console shows nothing dramatic; the
 trace firehose shows three `:rf.error/schema-validation-failure`
 events scattered across the last 100 traces. You can't tell which
 schema, which path, or whether the framework recovered (replaced with
-default) or rolled back app-db.
+default) or rejected the app-db candidate outright.
 
 ## Insight Xray provides
 
@@ -143,7 +143,7 @@ Per [Spec 010 §Per-step recovery](../../../spec/010-Schemas.md#per-step-recover
 |---|---|---|
 | `:skip-handler` | Handler did not run. | Red dot. Detail explains the handler was skipped; suggests checking the event payload shape. |
 | `:skip-fx` | Specific fx invocation skipped. | Red dot. Detail names the fx-id that was skipped. |
-| `:rollback-db` | `app-db` reverted to pre-handler value. | Red dot. Detail diff shows what *would* have been written. |
+| `:rollback-db` | The candidate `app-db` was REJECTED before install (rf2-uhk9ko — app-db keeps its pre-handler value; nothing was written or reverted). | Red dot. Detail diff shows what *would* have been written. |
 | `:replaced-with-default` | The schema's `:default` substituted for the bad value. | Yellow dot (the framework recovered cleanly). Detail names the default that was used. |
 | `:re-raised` | The validation error was rethrown. | Red dot with a thicker stroke. Detail says "consumed by an error boundary; check the surrounding `:on-error`." |
 

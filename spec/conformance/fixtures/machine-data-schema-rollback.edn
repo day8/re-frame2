@@ -7,23 +7,27 @@
 ;; `:data` slot.
 ;;
 ;; This fixture pins the `:where :machine-data` `:phase :macrostep` boundary —
-;; the FULL-CASCADE-ROLLBACK side that complements the best-effort
+;; the FULL-CASCADE-REJECTION side that complements the best-effort
 ;; `:where :machine-output` boundary (machine-output-schema-validates.edn,
-;; `:rollback? false`). After a macrostep commits a new snapshot whose `:data`
-;; violates `[:schemas :data]`, the runtime emits
+;; `:rollback? false`). When a macrostep produces a CANDIDATE snapshot whose
+;; `:data` violates `[:schemas :data]`, the runtime emits
 ;; `:rf.error/schema-validation-failure` with `:where :machine-data`,
-;; `:phase :macrostep`, the offending `:data` value, and `:rollback? true` —
-;; and the router ROLLS BACK the whole transition (the same mechanism as the
-;; `:where :app-db` rollback; per [010 §Per-step recovery row 7]
-;; (../../010-Schemas.md#per-step-recovery)). Machine snapshots are durable runtime-db
-;; state, so the post-commit walker (`validate-machine-data!`) validates the
-;; freshly-committed snapshot against the registered validator and the router
-;; restores the pre-handler db on a `false` return.
+;; `:phase :macrostep`, the offending `:data` value, and `:rollback? true`
+;; (the stable public transaction-REJECTED vocabulary) — and the router
+;; REJECTS the whole candidate transition BEFORE it installs (rf2-uhk9ko;
+;; the same validate-before-install mechanism as the `:where :app-db`
+;; rejection, per [010 §Per-step recovery row 7]
+;; (../../010-Schemas.md#per-step-recovery)). Machine snapshots are durable
+;; runtime-db state, so the candidate walker (`validate-machine-data!`)
+;; validates the CANDIDATE runtime-db against the registered validator and
+;; the router skips the install on a `false` return — nothing commits, and
+;; runtime-db keeps its pre-handler value by construction.
 ;;
-;; Best-effort vs full-rollback asymmetry: `:machine-output` validates a value
-;; the finishing machine has ALREADY produced (post-completion, nothing to roll
-;; back, `:rollback? false`); `:machine-data` validates a snapshot the macrostep
-;; just committed (pre-observation, the commit is rolled back, `:rollback? true`).
+;; Best-effort vs full-rejection asymmetry: `:machine-output` validates a
+;; value the finishing machine has ALREADY produced (post-completion,
+;; nothing to reject, `:rollback? false`); `:machine-data` validates the
+;; candidate snapshot a macrostep computed (pre-install, the candidate is
+;; rejected, `:rollback? true`).
 ;;
 ;; Validation routes entirely through the optional late-bound
 ;; `:schemas/validate-with-registered-fn` adapter (machine core requires no
@@ -40,7 +44,7 @@
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:fsm/flat :core/event-handler :core/error
                          :core/trace :schemas/runtime}
- :fixture/doc          "A singleton machine declaring [:schemas :data] [:map [:n pos-int?]] starts at {:n 1} (valid). A transition action writes 0 into :n (violates pos-int?). At the macrostep boundary the runtime emits :rf.error/schema-validation-failure with :where :machine-data, :phase :macrostep, the offending {:n 0} value, and :rollback? true — and the WHOLE cascade rolls back, so the snapshot never commits (final app-db carries no committed snapshot). The complement of the best-effort :machine-output boundary (:rollback? false)."
+ :fixture/doc          "A singleton machine declaring [:schemas :data] [:map [:n pos-int?]] starts at {:n 1} (valid). A transition action writes 0 into :n (violates pos-int?). At the macrostep boundary the runtime emits :rf.error/schema-validation-failure with :where :machine-data, :phase :macrostep, the offending {:n 0} value, and :rollback? true — and the WHOLE candidate transition is REJECTED before install (rf2-uhk9ko), so the snapshot never commits (final app-db carries no committed snapshot). The complement of the best-effort :machine-output boundary (:rollback? false)."
  :fixture/dynamic-host-only? true
 
  :fixture/registry
@@ -71,9 +75,9 @@
  ;; Step 1 (inner-event [:rf.machine/noop]) boots the singleton with the
  ;; conforming initial :data {:n 1} — bootstrap settles cleanly. Step 2
  ;; (inner-event [:go]) fires the :idle → :ran transition whose action writes
- ;; the violating 0. The macrostep commits {:n 0}, the post-commit walker
- ;; validates it against [:map [:n pos-int?]], it FAILS, and the router rolls
- ;; the whole transition back.
+ ;; the violating 0. The macrostep produces a CANDIDATE with {:n 0}, the
+ ;; candidate walker validates it against [:map [:n pos-int?]], it FAILS,
+ ;; and the router REJECTS the whole transition before install (rf2-uhk9ko).
  [[:data/m [:rf.machine/noop]]
   [:data/m [:go]]]
 

@@ -34,11 +34,12 @@
  [[:counter/set-bad]]
 
  :fixture/expect
- ;; Per Spec 010 §Per-step recovery row 4 (rf2-wkxng / rf2-6m0se):
- ;; recovery is :no-recovery AND the :db effect is rolled back to the
- ;; pre-handler value. The trace tag carries :rollback? true so
- ;; consumers see both signals (the trace fires; the bad commit does
- ;; not stand).
+ ;; Per Spec 010 §Per-step recovery row 4 (rf2-uhk9ko — validate before
+ ;; install): recovery is :no-recovery AND the candidate :db is REJECTED
+ ;; before it installs (app-db keeps its pre-handler value; no
+ ;; :rf.event/db-changed fires). The trace tag carries :rollback? true —
+ ;; the stable public transaction-REJECTED vocabulary — so consumers see
+ ;; both signals (the trace fires; the bad candidate never stands).
  {:trace-emissions
   [{:operation :rf.event/run-start :tags {:rf.trace/event-id :counter/init}}
    {:operation :rf.event/run-start :tags {:rf.trace/event-id :counter/set-bad}}
