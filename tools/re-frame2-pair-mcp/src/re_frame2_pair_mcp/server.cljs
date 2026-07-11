@@ -35,7 +35,13 @@
      and cwd-only discovery have no stable file to re-read and keep the
      active endpoint until connection state is explicitly invalidated.
 
-  6. stdin EOF: shut down cleanly.
+  6. stdin EOF: the MCP host owns process lifecycle — when it closes
+     stdin, Node reaches EOF and `shutdown!` retires the session: it
+     closes the persistent nREPL socket (via `nrepl/close!`), closes the
+     SDK server + stdio transport, and exits 0. The SDK 1.29
+     `StdioServerTransport` registers only `data`/`error` on stdin — it
+     does NOT convert EOF into a transport close — so `connect-transport!`
+     owns the stdin `end` signal directly.
 
   ## Why low-level Server, not McpServer
 
@@ -176,6 +182,13 @@
 ;; so the discovery flow can reach `listRoots()` and `elicitInput()`
 ;; without threading the server through every handler signature.
 (def ^:private server-instance (atom nil))
+
+(defn set-server-instance-for-tests!
+  "Set (or clear, with nil) the captured Server instance. Exposed so the
+  `shutdown!` teardown contract can be exercised against a stub server —
+  or a nil server (pre-first-tool EOF) — without a live SDK transport."
+  [server]
+  (reset! server-instance server))
 
 (defn- list-roots-fn
   "Closure over the captured Server instance that calls SDK
@@ -606,10 +619,86 @@
     (reset! server-instance server)
     server))
 
+(def ^:private shutdown-fallback-ms
+  "Upper bound on how long `shutdown!` waits for the SDK `server.close()`
+  to settle before forcing exit. The nREPL socket + transport close
+  synchronously (or resolve on the next microtask); this only guards
+  against a stalled SDK close so process teardown never hangs on it."
+  250)
+
+(defonce ^:private shutdown-claimed?
+  ;; `defonce` (not `def`) so a dev hot-reload can't reset the latch
+  ;; mid-teardown and admit a second shutdown.
+  (atom false))
+
+(defn reset-shutdown-latch-for-tests!
+  "Clear the one-shot shutdown latch so the idempotency contract can be
+  re-exercised from a known slate."
+  []
+  (reset! shutdown-claimed? false))
+
+(defn shutdown!
+  "Retire the Pair session on stdio EOF (the client closed stdin — the
+  documented shutdown signal; see the ns `Lifecycle` docstring step 6).
+
+  Idempotent: the FIRST terminal event claims shutdown; any duplicate (a
+  stdin `end` followed by `close`, a double `stdin.end()`) is a no-op and
+  cannot double-close the socket, republish a conn, throw an unhandled
+  rejection, or change the exit status.
+
+  Teardown, in order: close the persistent nREPL socket via the existing
+  idempotent `nrepl/close!` (which bumps the conn generation so a late /
+  in-flight connect candidate can't publish behind us), drop the session
+  conn reference, then close the SDK server + its stdio transport so no
+  further frames are accepted. Exit 0 once those settle. A bounded,
+  `unref`-ed fallback timer forces exit if the SDK close stalls — it is a
+  fail-safe, never the process-liveness policy.
+
+  Diagnostics stay on stderr; teardown emits nothing on stdout (reserved
+  for MCP frames).
+
+  `exit-fn` (default `js/process.exit`) is injected so the teardown /
+  idempotency contract can be graded without exiting the test runner.
+  Returns a Promise that resolves once teardown has settled."
+  ([reason] (shutdown! reason (fn [code] (js/process.exit code))))
+  ([reason exit-fn]
+   (if-not (compare-and-set! shutdown-claimed? false true)
+     (js/Promise.resolve :already-shutting-down)
+     (do
+       (log! "stdin EOF —" reason "— closing nREPL socket and exiting")
+       (when-let [conn (:conn @session-state)]
+         (try (nrepl/close! conn) (catch :default _ nil)))
+       (swap! session-state assoc :conn nil)
+       (let [close-p (if-let [^js server @server-instance]
+                       (-> (js/Promise.resolve (try (j/call server :close)
+                                                    (catch :default _ nil)))
+                           (.catch (fn [_] nil)))
+                       (js/Promise.resolve nil))
+             timer   (js/setTimeout (fn [] (exit-fn 0)) shutdown-fallback-ms)]
+         ;; `.unref` keeps the fallback timer from being the sole event-loop
+         ;; handle holding the process open (Node exposes it; guard for
+         ;; runtimes/fakes that don't).
+         (when (fn? (some-> timer .-unref))
+           (.unref timer))
+         (-> close-p
+             (.then (fn [_]
+                      (js/clearTimeout timer)
+                      (exit-fn 0)))))))))
+
 (defn- connect-transport!
   "Connect `server` to a fresh stdio transport. Logs `ready-msg` on
-  success; logs and exits on transport-connect failure."
+  success; logs and exits on transport-connect failure.
+
+  Installs the stdin EOF handlers here — the stdio boundary is the one
+  owner of the Pair session's resources, so loss of stdio deterministically
+  retires its nREPL connection (`shutdown!`). The SDK 1.29
+  `StdioServerTransport` never converts EOF into a transport close, so we
+  observe `process.stdin`'s `end` directly; `close` is a belt-and-braces
+  backstop for a host that drops the pipe without a clean FIN. `shutdown!`
+  is idempotent, so a double fire is harmless."
   [server ready-msg]
+  (.on js/process.stdin "end" (fn [] (shutdown! "client closed stdin")))
+  (.on js/process.stdin "close" (fn [] (shutdown! "stdin closed")))
   (let [StdioTransport (j/get mcp-stdio :StdioServerTransport)]
     (-> (j/call server :connect (StdioTransport.))
         (.then (fn [_] (log! ready-msg)))

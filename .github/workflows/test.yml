@@ -2726,6 +2726,22 @@ jobs:
       - name: Assert tool-descriptors.edn matches the registry
         run: npm run check:descriptors
 
+      # stdin-EOF lifecycle regression (rf2-j538f7.32). Compiles the SHIPPED
+      # `:server` bundle and drives it over real stdio against a self-contained
+      # fake bencode nREPL: a completed app-facing tool opens an idle nREPL
+      # socket, then closing stdin must close that socket AND exit the process
+      # 0 — with NO out-of-band kill. This is the canonical CI grader for the
+      # documented `stdin EOF -> nREPL close -> process exit` contract
+      # (spec/001-Wire-Protocol.md, server.cljs lifecycle step 6); the pre-fix
+      # server left an orphan process + a live nREPL socket here. The harness
+      # is hermetic (no live shadow-cljs), so it runs on both Ubuntu and
+      # Windows runners without extra infra.
+      - name: Compile re-frame2-pair-mcp server bundle (shadow-cljs :server)
+        run: npm run build
+
+      - name: Run stdin-EOF shutdown regression (tools/re-frame2-pair-mcp artefact)
+        run: npm run test:stdin-eof-shutdown
+
   node-test-tools-story-mcp:
     name: Node tools/story-mcp (stdio roundtrip, rf2-h8z5l)
     needs: detect_changed_surfaces
