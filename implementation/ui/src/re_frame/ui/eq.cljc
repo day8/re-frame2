@@ -23,9 +23,11 @@
   Teach as: \"React.memo, except CLJS data compares by value\".
 
   On the JVM (where trees are plain Clojure data and no memoization
-  exists) the same law holds with `identical?` standing in for
-  `Object.is`; `=` gives the value branch."
-  (:refer-clojure :exclude [rf=]))
+  exists) the same truth table holds: `identical?` stands in for
+  `Object.is`, `=` gives the value branch, and a numeric branch supplies
+  what JS number semantics give the client for free — NaN self-equality
+  and `(rf= 1 1.0)`/`(rf= -0.0 0.0)` being true (JS has one number
+  type). One predicate, one truth table, both hosts.")
 
 (defn rf=
   "The ruled per-slot equality: `Object.is(a,b) OR (= a b)`."
@@ -33,4 +35,7 @@
   #?(:cljs (or ^boolean (js/Object.is a b)
                (= a b))
      :clj  (or (identical? a b)
-               (= a b))))
+               (= a b)
+               (and (number? a) (number? b)
+                    (or (and (Double/isNaN (double a)) (Double/isNaN (double b)))
+                        (== (double a) (double b)))))))

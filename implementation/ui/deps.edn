@@ -1,10 +1,11 @@
 ;; day8/re-frame2-ui — the compiled-view substrate artefact (epic
 ;; rf2-vxgfnd; the ratified re-frame.ui program, 08 §5 R-1..R-6).
 ;;
-;; S1a skeleton (rf2-vxgfnd.1): artefact shape + classpath wiring only.
-;; The compiler slice (template AST + analyzer + CLJS emitter + JVM
-;; emitter) lands from S1b (rf2-vxgfnd.2); root identity + mount surface
-;; from S1c; `re-frame.ui.test` (in-artefact, dev/test scope) from S1d.
+;; S1a (rf2-vxgfnd.1): artefact shape + classpath wiring.
+;; S1b (rf2-vxgfnd.2): the compiler slice — template analyzer + CLJS
+;; emitter (direct jsx) + JVM emitter (node-schema-v1 trees) + the
+;; conversion rule table + fingerprints. Root identity + mount surface
+;; land S1c; `re-frame.ui.test` (in-artefact, dev/test scope) S1d.
 ;;
 ;; Per the program plan the compiler namespaces are `.cljc` — they run
 ;; on the JVM during CLJS compilation (and for JVM-tree emission, later
