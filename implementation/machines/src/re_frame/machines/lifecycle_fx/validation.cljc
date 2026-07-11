@@ -464,29 +464,69 @@
 ;; `timeout/desugar-timeouts`), so a root `:timeout` — which lowers onto
 ;; `:after` — is caught via its lowered form in the SAME check as a
 ;; directly-authored root `:after`.
+;;
+;; A parallel machine's REGION-ROOT `:after` (rf2-x76af2.10) has the SAME
+;; unscheduled shape: it sits on the region body itself (decl-path `[]` WITHIN
+;; the region), not on an entered leaf. `bootstrap-step` schedules only the
+;; region's entered initial LEAVES; `schedule-root-after-fx` schedules only the
+;; MACHINE root's own `:after` — neither reaches the region container's own
+;; `:after`, so it too registers-but-never-fires. A region body is structurally
+;; a flat/compound mini-machine, so its root `:after` is the exact analog of a
+;; flat machine-root `:after` and is rejected with the SAME category — keeping
+;; the runtime honest (no accept-but-inert path) and consistent with the
+;; machine-root rejection. (The machine's OWN parallel-root `:after` remains
+;; the one supported, scheduled root-`:after` form.) Reject-vs-schedule is a
+;; genuine design call; REJECT was chosen for consistency with the existing
+;; machine-root rejection + fail-loud (a per-region root scheduler would be a
+;; feature expansion), so a region-root deadline moves onto the region's
+;; `:initial` state's own `:after` / `:timeout` instead.
 
 (defn- validate-non-parallel-root-after!
-  "Reject a non-parallel (flat / compound) machine root's `:after` map —
-  whether hand-authored or lowered from a root `:timeout` / `:on-timeout`
-  — with `:rf.error/machine-non-parallel-root-after-not-supported`. A
-  `:type :parallel` root's `:after` is unaffected (that IS the supported,
-  scheduled, resolved feature per Spec 005). Absent / empty root `:after`
-  is fine on either machine shape."
+  "Reject an UNSCHEDULED root-level `:after` — whether hand-authored or lowered
+  from a `:timeout` / `:on-timeout` — with
+  `:rf.error/machine-non-parallel-root-after-not-supported`. Two shapes are
+  rejected:
+
+    - a non-parallel (flat / compound) MACHINE root's `:after`; and
+    - a parallel machine's REGION-ROOT `:after` (on a region body itself).
+
+  A `:type :parallel` machine's OWN root `:after` is unaffected — that IS the
+  supported, scheduled, resolved feature per Spec 005. Absent / empty `:after`
+  is fine everywhere."
   [machine]
-  (when (and (not (parallel/parallel? machine))
-             (seq (:after machine)))
-    (throw (validation-error
-             :rf.error/machine-non-parallel-root-after-not-supported
-             (str "a non-parallel (flat/compound) machine root declares "
-                  ":after " (pr-str (:after machine)) " — either "
-                  "hand-authored or lowered from a root :timeout / "
-                  ":on-timeout. Root-level :after scheduling + resolution "
-                  "is supported ONLY for a :type :parallel machine root "
-                  "(Per Spec 005 §Root-level :after). On a flat/compound "
-                  "root the timer would register but NEVER schedule or "
-                  "fire. Move the deadline onto the machine's :initial "
-                  "state's own :after / :timeout instead.")
-             {:after (:after machine)}))))
+  (if (parallel/parallel? machine)
+    ;; The machine's own parallel-root `:after` is supported; only a
+    ;; REGION-ROOT `:after` is the unscheduled shape.
+    (doseq [[rn region-body] (:regions machine)]
+      (when (seq (:after region-body))
+        (throw (validation-error
+                 :rf.error/machine-non-parallel-root-after-not-supported
+                 (str "region " (pr-str rn) " of a :type :parallel machine "
+                      "declares a REGION-ROOT :after " (pr-str (:after region-body))
+                      " on the region body itself — either hand-authored or "
+                      "lowered from a region-root :timeout / :on-timeout. "
+                      "Root-level :after scheduling + resolution is supported "
+                      "ONLY for the :type :parallel MACHINE root (Per Spec 005 "
+                      "§Root-level :after); a region body is structurally a "
+                      "flat/compound mini-machine, so its OWN root :after would "
+                      "register but NEVER schedule or fire (bootstrap-step "
+                      "schedules only the region's entered leaves). Move the "
+                      "deadline onto the region's :initial state's own :after / "
+                      ":timeout instead.")
+                 {:region rn :after (:after region-body)}))))
+    (when (seq (:after machine))
+      (throw (validation-error
+               :rf.error/machine-non-parallel-root-after-not-supported
+               (str "a non-parallel (flat/compound) machine root declares "
+                    ":after " (pr-str (:after machine)) " — either "
+                    "hand-authored or lowered from a root :timeout / "
+                    ":on-timeout. Root-level :after scheduling + resolution "
+                    "is supported ONLY for a :type :parallel machine root "
+                    "(Per Spec 005 §Root-level :after). On a flat/compound "
+                    "root the timer would register but NEVER schedule or "
+                    "fire. Move the deadline onto the machine's :initial "
+                    "state's own :after / :timeout instead.")
+               {:after (:after machine)})))))
 
 (defn- walk-state-nodes
   "Yield `[state-key state-node]` pairs for every node under `:states`,
