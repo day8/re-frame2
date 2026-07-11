@@ -81,8 +81,20 @@
 
 (defn- class-form [c]
   (let [{:keys [base-str flags dyn]} c]
-    (if (and (empty? flags) (nil? dyn))
+    (cond
+      (and (empty? flags) (nil? dyn))
       (when (seq base-str) base-str)
+
+      ;; literal flag maps over a non-empty static base (the `.sugar
+      ;; {:class {:flag cond}}` idiom) compile STRAIGHT-LINE: the flag
+      ;; order is compile-time-known (analyzer pre-sorts), the base
+      ;; guarantees a non-empty string, and the generic classes-str
+      ;; vector/join machinery costs ~0.5us per element — G-1 measured
+      ;; it as a 20-row-list regression (rf2-vxgfnd.6)
+      (and (seq base-str) (nil? dyn))
+      `(str ~base-str ~@(map (fn [[n f]] `(when ~f ~(str " " n))) flags))
+
+      :else
       `(re-frame.ui.rules/classes-str
         [~@(when (seq base-str) [base-str])
          ~@(map (fn [[n f]] `(when ~f ~n)) flags)
