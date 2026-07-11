@@ -48,6 +48,10 @@
             [malli.core :as m]
             ;; White-box tests cover the internal path sanitizer.
             [re-frame.schemas.walker :as walker]
+            ;; Shared cross-host sanitizer corpus (rf2-j538f7.13) — the CLJS
+            ;; half (re-frame.schemas-sensitive-path-cljs-test) asserts the
+            ;; SAME cases so privacy behaviour cannot diverge by host.
+            [re-frame.schemas.walker-sanitize-path-fixtures :as sanitize-fx]
             [re-frame.schemas.test-fixture :as tf]
             [re-frame.test-support :refer [with-trace-recorder!]]))
 
@@ -2178,3 +2182,111 @@
         (is (not (-> v :tags :large?)) "no :large? stamp")
         (is (= [:api/x {:n "nope"}] (-> v :tags :value))
             ":value rides verbatim")))))
+
+;; ---- sensitive closed-map EXTRA KEY leak (rf2-j538f7.13) --------------------
+;; Malli reports a `[:map {:closed true} …]` extra-key failure with the
+;; CALLER-SUPPLIED EXTRA KEY VALUE itself as the `:in` segment — arbitrary user
+;; data (decoded JSON keys, typos, dynamic form names, headers, hostile input)
+;; that may itself be a credential. `sanitize-sensitive-path`'s key-not-found
+;; branch previously `(conj out seg)`-ed the unknown segment before fail-closing
+;; only the tail, so the secret key shipped VERBATIM through `:path` and
+;; `:reason` (and every serialized trace tag) even though `:value` / `:explain`
+;; / `:explain-humanized` were correctly redacted and the top-level `:sensitive?`
+;; stamp was present — a record that LOOKED redacted still carried the raw
+;; secret twice. The fix routes the unknown segment into the same fail-closed
+;; scrub as set element values, sensitive `:map-of` keys, and unresolved wrapper
+;; tails: only schema-DECLARED `:map` keys are proven structural locators. An
+;; open map never emits an extra-key error, so declared keys keep their precise
+;; branch and only undeclared / shape-drift segments fail closed. These fail
+;; before the fix (the secret rides in `:path` / `:reason`) and pass after.
+
+;; -- pure sanitizer: shared cross-host corpus (parity anchor; the CLJS half
+;;    is re-frame.schemas-sensitive-path-cljs-test) --
+
+(deftest sanitize-closed-map-extra-key-shared-corpus
+  (testing "rf2-j538f7.13 — the shared sanitize-sensitive-path corpus holds on
+            the JVM (closed-map extra keys scrub; declared locators survive;
+            prior set / :map-of / ambiguous-tail behaviour unchanged)"
+    (doseq [{:keys [desc schema in expected]} sanitize-fx/cases]
+      (is (= expected (walker/sanitize-sensitive-path schema in))
+          desc))))
+
+;; -- end-to-end via validate-app-schema! (:path / :reason / whole-trace egress) --
+
+(deftest app-db-validation-sensitive-closed-map-extra-key-scrubbed
+  (testing "rf2-j538f7.13 — a sensitive closed map's undeclared EXTRA key is
+            scrubbed from :path AND :reason; the secret key appears NOWHERE in
+            the emitted trace (deep whole-trace scan)"
+    (let [v (app-db-failure-trace
+              [:profile]
+              [:map {:closed true :sensitive? true} [:known :int]]
+              {:profile {:known 1 "SECRET-KEY-7f93" 2}}
+              :profile/bad)]
+      (is (some? v) "a trace fired")
+      (is (true? (:sensitive? v)) "top-level :sensitive? stamp present")
+      (is (= :rf/redacted (-> v :tags :value)) ":value redacted")
+      (is (= :rf/redacted (-> v :tags :explain)) ":explain redacted")
+      (is (= [:profile :rf/redacted] (-> v :tags :path))
+          ":path carries the :rf/redacted sentinel where the extra key was")
+      (is (not (str/includes? (pr-str (-> v :tags :reason)) "SECRET-KEY-7f93"))
+          "the secret key does NOT appear in the generated :reason text")
+      (is (not (str/includes? (pr-str (:tags v)) "SECRET-KEY-7f93"))
+          "the secret key does NOT appear ANYWHERE in the emitted tags")
+      (is (not (str/includes? (pr-str v) "SECRET-KEY-7f93"))
+          "the secret key does NOT appear ANYWHERE in the whole trace event"))))
+
+(deftest app-db-validation-nested-sensitive-closed-map-extra-key-scrubbed
+  (testing "rf2-j538f7.13 — a NESTED sensitive closed map receives the same
+            protection: the declared outer key stays navigable; the inner
+            undeclared extra key is scrubbed everywhere"
+    (let [v (app-db-failure-trace
+              [:account]
+              [:map {:closed true}
+               [:profile [:map {:closed true :sensitive? true} [:known :int]]]]
+              {:account {:profile {:known 1 "NESTED-SECRET-4242" 2}}}
+              :account/bad)]
+      (is (some? v) "a trace fired")
+      (is (true? (:sensitive? v)) "top-level :sensitive? stamp present")
+      (is (= :rf/redacted (-> v :tags :value)) ":value redacted")
+      (is (= :rf/redacted (-> v :tags :explain)) ":explain redacted")
+      (is (= [:account :profile :rf/redacted] (-> v :tags :path))
+          "declared keys survive; the undeclared segment is the sentinel")
+      (is (not (str/includes? (pr-str (:tags v)) "NESTED-SECRET-4242"))
+          "the secret key does NOT appear anywhere in the emitted tags")
+      (is (not (str/includes? (pr-str v) "NESTED-SECRET-4242"))
+          "the secret key does NOT appear anywhere in the whole trace event"))))
+
+(deftest app-db-validation-hostile-extra-key-and-value-never-leak
+  (testing "rf2-j538f7.13 adversarial — a HOSTILE extra key (a credential-shaped
+            string) and its VALUE both stay out of the whole emitted trace; the
+            declared sibling's data does not leak either"
+    (let [hostile-key "Bearer eyJhbGciOiJIUzI1NiJ9.HOSTILE-TOKEN-9d41"
+          v           (app-db-failure-trace
+                        [:profile]
+                        [:map {:closed true :sensitive? true} [:known :int]]
+                        {:profile {:known 7 hostile-key "HOSTILE-VALUE-31337"}}
+                        :profile/hostile)]
+      (is (some? v) "a trace fired")
+      (is (true? (:sensitive? v)) "top-level :sensitive? stamp present")
+      (is (= [:profile :rf/redacted] (-> v :tags :path))
+          "the hostile key is the :rf/redacted sentinel in :path")
+      (is (not (str/includes? (pr-str v) "HOSTILE-TOKEN-9d41"))
+          "the hostile key does NOT appear anywhere in the whole trace event")
+      (is (not (str/includes? (pr-str v) "HOSTILE-VALUE-31337"))
+          "the hostile key's VALUE does NOT appear anywhere in the whole trace event"))))
+
+(deftest app-db-validation-non-sensitive-closed-map-extra-key-stays-precise
+  (testing "rf2-j538f7.13 regression — a NON-sensitive closed map's extra-key
+            failure is not stamped :sensitive? and its precise path rides
+            verbatim (the sanitizer only runs on sensitive failures — no
+            over-redaction of plain closed maps)"
+    (let [v (app-db-failure-trace
+              [:plain]
+              [:map {:closed true} [:known :int]]
+              {:plain {:known 1 "extra-key" 2}}
+              :plain/bad)]
+      (is (some? v) "a trace fired")
+      (is (not (contains? v :sensitive?))
+          "no :sensitive? stamp — nothing in the schema is sensitive")
+      (is (= [:plain "extra-key"] (-> v :tags :path))
+          "the extra key rides verbatim in :path — precise diagnostics kept"))))
