@@ -132,8 +132,25 @@
                     :from      (scroll/route-descriptor
                                  (get-in rdb [:rf.runtime/routing :current]))
                     :to        (scroll/route-descriptor* route-id params query)
+                    ;; rf2-g1i5m6: CANONICALISE the restore lookup key,
+                    ;; symmetric with capture. Capture keys the leaving
+                    ;; position under `scroll/route-slice-url` (the canonical
+                    ;; `route-url` reconstruction); the raw incoming popstate
+                    ;; `url` may be spelled non-canonically (trailing slash,
+                    ;; reordered query), so look up under the SAME canonical
+                    ;; reconstruction of the resolved target first, falling back
+                    ;; to the raw `url` on a miss (a not-found popstate, where
+                    ;; `route-slice-url` yields nil / a non-matching key, still
+                    ;; attempts the raw lookup).
                     :saved-pos (when (= :restore strategy)
-                                 (scroll/lookup-scroll-position scroll-cache url))
+                                 (let [canonical (scroll/route-slice-url
+                                                   {:route-id route-id
+                                                    :params   params
+                                                    :query    query
+                                                    :fragment fragment})]
+                                   (or (when canonical
+                                         (scroll/lookup-scroll-position scroll-cache canonical))
+                                       (scroll/lookup-scroll-position scroll-cache url))))
                     :fragment  fragment})}))
 
 ;; ---- pre-commit telemetry intents ----------------------------------------

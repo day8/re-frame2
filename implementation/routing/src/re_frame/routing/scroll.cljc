@@ -175,10 +175,20 @@
        saved-pos (assoc :saved-pos saved-pos)
        fragment  (assoc :fragment  fragment))]))
 
-(defn- current-route-url
-  "Best-effort URL reconstruction for the active route slice. Used only
-  to key scroll-position capture; route deletion or invalid historical
-  slices skip capture rather than failing navigation."
+(defn route-slice-url
+  "Best-effort CANONICAL URL reconstruction for a route-slice-shaped map
+  `{:route-id :params :query :fragment}` via `registry/route-url`. Returns
+  nil (rather than throwing) for a slice with no `:route-id` or one
+  `route-url` can't build (an unregistered/invalid route), so callers skip
+  rather than failing navigation.
+
+  This is the SINGLE scroll-cache keying function, used SYMMETRICALLY on both
+  sides (rf2-g1i5m6): CAPTURE keys the leaving slice's position under this
+  reconstruction, and RESTORE looks up under the SAME reconstruction of the
+  incoming popstate URL's resolved route. Because both sides run through
+  `route-url`, the key is canonical on both (canonical query-key order, no
+  trailing slash, canonical percent-encoding), so a non-canonically-spelled
+  history entry (`/cart/`, reordered query) still finds its saved position."
   [route-slice]
   (when-let [id (:route-id route-slice)]
     (try
@@ -197,7 +207,7 @@
   capture miss. Emitted by both nav entry points before the transition
   commits so a later `:restore` to this URL finds the saved position."
   [db]
-  (when-let [url (current-route-url (get-in db [:rf.runtime/routing :current]))]
+  (when-let [url (route-slice-url (get-in db [:rf.runtime/routing :current]))]
     [:rf.nav/capture-scroll {:url url}]))
 
 (def capture-scroll-meta

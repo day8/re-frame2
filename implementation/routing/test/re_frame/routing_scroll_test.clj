@@ -8,6 +8,7 @@
             [re-frame.frame :as frame]
             [re-frame.routing :as routing]
             [re-frame.routing.nav-fx :as nav-fx]
+            [re-frame.routing.plan :as plan]
             [re-frame.routing.scroll :as scroll]
             [re-frame.routing.test-support]
             [re-frame.routing-test-support :as rts]))
@@ -314,6 +315,54 @@
             "the article route resolves to :restore")
         (is (= [0 640] (:saved-pos a))
             ":saved-pos is read from the host cache and threaded into the fx")))))
+
+;; ---- rf2-g1i5m6: symmetric scroll-cache keys (canonicalise on restore) ----
+;;
+;; Capture keys the leaving position under the CANONICAL `route-url`
+;; reconstruction of the slice (canonical query order, no trailing slash), but
+;; restore used to look up under the RAW incoming popstate URL. A history entry
+;; the browser holds in a non-canonical spelling (a `/cart/` deep link, a
+;; `?b=2&a=1` reordered query) therefore never found its saved position. The
+;; restore lookup now canonicalises the resolved target the same way capture
+;; does, with a raw-URL fallback for a not-found popstate.
+
+(deftest scroll-restore-canonicalises-non-canonical-popstate-url-rf2-g1i5m6
+  (rf/reg-route :route/cart   {} "/cart")
+  (rf/reg-route :route/search {:query [:map [:a {:optional true} :string]
+                                       [:b {:optional true} :string]]} "/search")
+  (rf/reg-route :route/other  {} "/other")
+  (let [;; Cache keys built via route-url — exactly the CANONICAL keys capture
+        ;; would write for the leaving slice.
+        cart-key   (routing/route-url :route/cart {} {})            ;; "/cart"
+        search-key (routing/route-url :route/search {} {:a "1" :b "2"}) ;; canonical order
+        cache      (-> nil
+                       (scroll/save-scroll-position cart-key   [0 640])
+                       (scroll/save-scroll-position search-key [0 810]))
+        rdb        {:rf.runtime/routing {:current {:route-id :route/home}}}
+        ;; Drive the restore leg exactly as a popstate would: resolve the target
+        ;; from the RAW incoming url via match-url, then plan the scroll.
+        restore    (fn [raw-url]
+                     (let [m (routing/match-url raw-url)
+                           {:keys [scroll-fx]}
+                           (plan/scroll-plan {:rdb rdb :scroll-cache cache
+                                              :route-meta nil :opts {:scroll :restore}
+                                              :default-strategy :restore
+                                              :route-id (:route-id m) :params (:params m)
+                                              :query (:query m) :fragment (:fragment m)
+                                              :url raw-url})]
+                       (:saved-pos (second scroll-fx))))]
+    (testing "a trailing-slash spelling of the same route restores its position"
+      (is (= [0 640] (restore "/cart/"))
+          "/cart/ (non-canonical) canonicalises to /cart and finds [0 640]"))
+    (testing "a reordered-query spelling restores its position"
+      (is (= [0 810] (restore "/search?b=2&a=1"))
+          "?b=2&a=1 canonicalises to the canonical query order and finds [0 810]"))
+    (testing "the canonical spelling still restores (no regression)"
+      (is (= [0 640] (restore "/cart")))
+      (is (= [0 810] (restore "/search?a=1&b=2"))))
+    (testing "a route with no saved position misses on both canonical and raw keys"
+      (is (nil? (restore "/other"))
+          "/other has no saved position → nil saved-pos"))))
 
 ;; ---- scroll-strategy resolution precedence (resolve-scroll-strategy) -----
 ;;
