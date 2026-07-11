@@ -337,6 +337,20 @@
   (let [selected-frame  @(rf/subscribe [:rf.xray/current-frame])
         frames          @(rf/subscribe [:rf.xray/available-frames])
         active          (or selected-frame (first frames))
+        ;; rf2-v8bule — the controlled `<select>`'s value is `(str active)`,
+        ;; so it MUST have a matching `<option>` or React warns "value not
+        ;; in options" and renders blank. `active` can be a frame that is
+        ;; NOT in `available-frames`: a view scope pinned to a frame with no
+        ;; events yet, or a picked frame that left the stream (buffer
+        ;; cleared / frame destroyed / stopped emitting). rf2-4vp5j keeps
+        ;; that empty scope intact (the L2 list scopes to it, 0 rows) rather
+        ;; than silently retargeting, so we surface the pinned frame as its
+        ;; own option — the control stays consistent AND the pin is re-
+        ;; selectable. In the normal case (`active` already available) the
+        ;; option set is unchanged.
+        option-frames   (if (and active (not (some #{active} frames)))
+                          (conj (vec frames) active)
+                          (vec frames))
         ;; rf2-ad7zx.14 — interactive whenever there is >=1 frame. A native
         ;; <select> with one option opens + shows it (not inert), which is
         ;; what Mike expects in the step-deck (a single :step-deck frame).
@@ -405,7 +419,10 @@
       ;; Flat option list — the frame is the EP-0023 public addressing unit.
       ;; The former realm `<optgroup>` grouping was removed (rf2-70owfr): with
       ;; a single default realm there was never more than one group.
-      (for [f frames]
+      ;; `option-frames` always includes `active` so the controlled select's
+      ;; value has a matching option even when the pinned frame has no
+      ;; events (rf2-v8bule).
+      (for [f option-frames]
         ^{:key (str f)}
         [:option {:value (str f)}
          (str (if (= f active) "✓ " "  ") f)])]]))
@@ -480,6 +497,13 @@
   ;;      frame produced the most recent event.
   ;; Composes off `:rf.xray/event-bundles` so the head default re-resolves
   ;; as the stream grows; once the user explicitly picks, slot #1 wins.
+  ;;
+  ;; The scope INTENTIONALLY survives a frame that has no events (rf2-4vp5j
+  ;; "empty scope" — the L2 list shows 0 rows, not "hidden by filters").
+  ;; So a pinned frame is NOT reconciled away when it leaves the stream;
+  ;; the controlled `<select>` mismatch that a now-event-less pin causes is
+  ;; fixed at the VIEW layer instead (rf2-v8bule — see `frame-switcher-view`
+  ;; where the pinned frame is surfaced as its own `<option>`).
   (rf/reg-sub :rf.xray/view-scope-frame
     :<- [:rf.xray/view-scope-frame-slot]
     :<- [:rf.xray/target-frame-slot]
