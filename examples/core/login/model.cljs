@@ -185,6 +185,15 @@
   {:doc       "Stash the session token in localStorage so the login
                 survives a refresh. Client-only — localStorage is a
                 browser thing, so `:platforms` keeps it off the server."
+   ;; The token is a credential, and fx args are a transient payload with their
+   ;; OWN egress owner — separate from the event that produced them. So this
+   ;; registration classifies its `:token` arg `:sensitive`: the per-effect
+   ;; `:rf.fx/handled` trace redacts `[:token]` to `:rf/redacted` while the
+   ;; handler body still receives the real token to write. (Classification is
+   ;; egress-only; the value stays live for the side effect.) See owner 2 of
+   ;; the success-token note above `:auth.login/succeeded`, and
+   ;; docs/core/how-to/keep-secrets-out-of-traces.md.
+   :sensitive [[:token]]
    :platforms #{:client}}
   (fn fx-auth-session-store [_m {:keys [token]}]
     (when-let [ls (.-localStorage js/globalThis)]
@@ -207,9 +216,10 @@
                stays on the tape and survives time-travel. Those 50 ms are
                a courtesy to the reader: just long enough to actually see
                the `:submitting` state before it resolves. The reply then
-               travels home to the `:auth.login/success` /
-               `:auth.login/failure` sub-events via `:on-success` /
-               `:on-failure`."
+               travels home via `:on-success` / `:on-failure` — success to the
+               classified `:auth.login/succeeded` event (which owns the session
+               token), failure to the machine's `:auth.login/failure`
+               sub-event."
    :platforms #{:server :client}}
   (fn fx-managed-login-demo [frame-ctx args-map]
     (let [{:keys [url body]} (:request args-map)
@@ -293,12 +303,15 @@
       {:fx [[:rf.http/managed
              {:request    {:method :post :url "/api/auth/lock"}
               :on-success nil
-              :on-failure nil}]]})
-
-    :store-session
-    ;; Login worked — squirrel away the token the server handed back.
-    (fn [{[_ {:keys [value]}] :event}]
-      {:fx [[:auth.session/store {:token (:token value)}]]})}
+              :on-failure nil}]]})}
+   ;; No `:store-session` action here — and that absence is the point. The
+   ;; success reply carries the session TOKEN (a credential), and the machine
+   ;; must never see a credential (same rule the password follows on the way
+   ;; IN). So the token-bearing reply lands on `:auth.login/succeeded` — the
+   ;; classified owner of the response credential — which persists the token and
+   ;; then nudges the machine with a bare, credential-free `:success` signal. The
+   ;; machine's `:success` transition below therefore takes NO action: it only
+   ;; flips the flow to `:authed`. See `:auth.login/succeeded` below.
 
    :states
    {:idle
@@ -320,8 +333,7 @@
      ;; retry limit? Show the error and let them try again. Out of tries (the
      ;; second entry has no guard, so it's the fallthrough)? Lock the account.
      ;; The entire retry-then-lockout policy lives in these four lines.
-     :on    {:auth.login/success {:target :authed
-                                  :action :store-session}
+     :on    {:auth.login/success {:target :authed}
              :auth.login/failure [{:target :error-shown
                                    :guard  :under-retry-limit
                                    :action :record-error}
@@ -522,8 +534,19 @@
               ;; classified owner that sends the credential. The request body
               ;; carries the real password; `:sensitive? true` scrubs it (and
               ;; every param) from every `:rf.http/*` trace event, so the wire
-              ;; never sees it. The reply comes home to the machine's
-              ;; :success / :failure sub-events.
+              ;; never sees it.
+              ;;
+              ;; The reply comes home NOT to the machine, but to
+              ;; `:auth.login/succeeded` — a classified, map-payload event that
+              ;; owns the response credential (the session token). Why not
+              ;; straight to the machine? Because a managed-HTTP reply is
+              ;; appended as the LAST positional arg of `:on-success`, and a
+              ;; positional arg ships raw (redaction is path-based, only a map
+              ;; payload is addressable). Routing the reply to the machine would
+              ;; make the token an unclassifiable positional arg on the machine
+              ;; event; routing it to a one-element event makes the reply the
+              ;; addressable arg-map instead. The failure reply still rides the
+              ;; machine (it carries an error message, not a credential).
               [:rf.http/managed
                {:request    {:method :post
                              :url    "/api/login"
@@ -531,9 +554,62 @@
                              :request-content-type :json
                              :sensitive? true}
                 :decode     :json
-                :on-success [:auth.login/flow [:auth.login/success]]
+                :on-success [:auth.login/succeeded]
                 :on-failure [:auth.login/flow [:auth.login/failure]]}]]}
         {:db (assoc-in db' [:auth :login-form :errors] errors)}))))
+
+;; The success reply comes home here — and this event exists FOR the session
+;; token's egress hygiene, exactly the way `:auth.login/edit-password` exists for
+;; the password's. On the way IN, the password crosses three boundaries and each
+;; gets its own classified owner; on the way BACK, the token the server hands us
+;; is a credential too, and it crosses two transient boundaries — so it gets two
+;; owners here.
+;;
+;;   OWNER 1 — THE REPLY EVENT (this registration). Managed HTTP appends its
+;;   canonical reply as the LAST positional arg of the `:on-success` event. Point
+;;   it at a one-element `[:auth.login/succeeded]` and the reply lands in the
+;;   SECOND slot — the arg-map — which IS path-addressable, so
+;;   `:sensitive [[:value :token]]` redacts the token to `:rf/redacted` in the
+;;   dispatched-event trace (and any error record carrying this event) while the
+;;   handler still reads the real token. (Had we appended it to the two-element
+;;   machine event `[:auth.login/flow [:auth.login/success]]`, the reply would be
+;;   a THIRD positional arg — unaddressable, shipping raw. That's the whole
+;;   reason this event exists rather than routing success straight to the
+;;   machine.)
+;;
+;;   OWNER 2 — THE STORAGE FX. `:auth.session/store` declares `:sensitive
+;;   [[:token]]` on its own registration, because fx args are a separate
+;;   transient owner from the event that produced them (see its reg-fx above).
+;;
+;; The handler then nudges the machine with a bare, credential-free
+;; `[:auth.login/flow [:auth.login/success]]` — the machine flips to `:authed`
+;; and never sees the token. One credential, two egress owners, and a machine
+;; kept credential-free end to end. See
+;; docs/core/how-to/keep-secrets-out-of-traces.md.
+;;
+;; KNOWN GAP (not this example's to fix): the `:rf.event/fx` slot on the
+;; `:rf.fx/do-fx` trace stamps this handler's WHOLE returned effect vector, and
+;; the central classification projector does not yet walk it through each fx's
+;; registration (it walks the sibling `:rf.event/db` slot, but not `:rf.event/fx`
+;; — Spec 009 §Canonical per-event trace sequence). Until the projector covers
+;; it, `:auth.session/store`'s `:sensitive [[:token]]` redacts the per-effect
+;; `:rf.fx/handled` copy but not the `:rf.event/fx` aggregate. That is a
+;; framework projector gap, tracked separately; no app-side classification can
+;; reach the `:rf.event/fx` stamp.
+(rf/reg-event :auth.login/succeeded
+  {:doc       "Managed-HTTP login succeeded: the reply carries the session
+               token. Persist it (via the classified :auth.session/store fx) and
+               nudge the :auth.login/flow machine with a credential-free :success
+               signal. The reply rides a map payload classified :sensitive so the
+               token is redacted at event egress."
+   :sensitive [[:value :token]]
+   :schema    [:cat [:= :auth.login/succeeded] [:map [:value [:map [:token :string]]]]]}
+  (fn handler-login-succeeded [_ [_ {:keys [value]}]]
+    {:fx [;; Owner 2 persists the real token; its reg-fx classification redacts
+          ;; the per-effect trace.
+          [:auth.session/store {:token (:token value)}]
+          ;; The machine gets a bare success fact — no credential.
+          [:dispatch [:auth.login/flow [:auth.login/success]]]]}))
 
 ;; Wipe the slate — slice back to empty, status back to `:idle`.
 (rf/reg-event :auth.login/reset-form
