@@ -17,7 +17,7 @@ Where the three application-side skills are about **using** re-frame2, this skil
 A two-phase workflow:
 
 1. **Phase 1 — Lock the decisions.** Target host language; substrate / view layer; scope (which EPs ship); identity primitive, persistent data structures, reactive substrate, concurrency model, hot-reload, schema mechanism; conformance capability tag set. The engineer produces a single locked-decision record before any code is written.
-2. **Phase 2 — Walk the spec corpus.** Implement in dependency order: EP 001 Registration → 002 Frames (events + effects + subs) → 006 Reactive substrate → 004 Views → 009 Instrumentation → 015 Data Classification (v1-required; rides the 009 emission boundary) → optional EPs per Phase 1 scope. The `:core/*` conformance corpus at `spec/conformance/` is the acceptance test.
+2. **Phase 2 — Walk the spec corpus.** Implement in dependency order: EP 001 Registration → 002 Frames (events + effects + subs) → 006 Reactive substrate → 004 Views → 009 Instrumentation → 015 Data Classification (v1-required; rides the 009 emission boundary) → optional EPs per Phase 1 scope. The required-foundation conformance corpus at `spec/conformance/` — every fixture applicable to the three v1-required families (`:core/*` + `:identity/*` + `:data-classification/*`) — is the acceptance test.
 
 ## What it deliberately does NOT cover
 

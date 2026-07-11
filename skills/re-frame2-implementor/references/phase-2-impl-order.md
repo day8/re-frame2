@@ -18,7 +18,7 @@ The EP-by-EP implementation walk for Phase 2. Each section names: what to read f
 4. EP 004 — Views
 5. EP 009 — Instrumentation
 6. EP 015 — Data Classification (v1-required; overlays the 009 emission boundary)
-7. **Acceptance gate 1**: run `:core/*` conformance fixtures
+7. **Acceptance gate 1** (the required-foundation gate): run every fixture applicable to the three v1-required families — `:core/*` + `:identity/*` + `:data-classification/*`
 8. Optional EPs per Phase 1's D3 scope (suggested order below)
 9. **Acceptance gate 2**: run the full claimed-capability fixture set
 
@@ -255,14 +255,14 @@ The contract the port must expose:
 
 ---
 
-## Acceptance gate 1 — `:core/*` conformance
+## Acceptance gate 1 — required-foundation conformance (`:core/*` + `:identity/*` + `:data-classification/*`)
 
-At this point a port with `{Q1=no, Q2=no, Q3=no, Q4=via-host-types-or-no, Q5=no, Q6=no, Q7=no, Q8=no, Q9=no}` is feature-complete against its claim. The harness runs the `:core/*` fixtures, which should all pass.
+At this point a port with `{Q1=no, Q2=no, Q3=no, Q4=via-host-types-or-no, Q5=no, Q6=no, Q7=no, Q8=no, Q9=no, Q10=no}` is feature-complete against its claim — the three v1-required families every port claims. The harness runs every fixture applicable to `:core/*` + `:identity/*` + `:data-classification/*` (expanded to the pinned-corpus tags per [`conformance.md` §Capability tagging](conformance.md#capability-tagging)), which should all pass. Core-only is not the gate: a port that runs `:core/*` alone silently skips the separately-tagged path/identity (EP-0012) and data-classification (Spec 015) fixtures it just called mandatory, so it could ship with broken CEDN-1 identity or leaking classified values and still show a green gate.
 
 **Who runs it** (the skill's verification posture — canonical statement in [`output-format.md` §Discipline](output-format.md#discipline)). Two tiers:
 
-- **Per-EP slice gate (agent-run when it can).** When the agent wrote an EP's code and has local tool access, before calling that EP landed it runs the **smallest relevant slice it can determine from the port's own scripts** — the port's unit-test command for the EP's module, or a targeted `:core/*`-subset conformance run for the EP's capability tags. NOT the full suite, NOT an invented build mechanic. If it can't determine or run a slice (no local tooling, no port script yet), it reports that explicitly with the reason. This keeps a tight feedback loop on the runtime code the agent just wrote.
-- **The full gate stays engineer-owned.** The complete `:core/*` gate-1 pass (and the gate-2 full-claim pass) is the engineer's to run; the agent runs the full harness only **when the engineer asks**, then reports/diagnoses the score. The agent does not drive the engineer's full toolchain or any release-sized suite unbidden.
+- **Per-EP slice gate (agent-run when it can).** When the agent wrote an EP's code and has local tool access, before calling that EP landed it runs the **smallest relevant slice it can determine from the port's own scripts** — the port's unit-test command for the EP's module, or a targeted conformance-subset run for the EP's own capability tags. NOT the full suite, NOT an invented build mechanic. If it can't determine or run a slice (no local tooling, no port script yet), it reports that explicitly with the reason. This keeps a tight feedback loop on the runtime code the agent just wrote.
+- **The full gate stays engineer-owned.** The complete required-foundation gate-1 pass — `:core/*` + `:identity/*` + `:data-classification/*` — (and the gate-2 full-claim pass) is the engineer's to run; the agent runs the full harness only **when the engineer asks**, then reports/diagnoses the score. The agent does not drive the engineer's full toolchain or any release-sized suite unbidden.
 
 Either way the agent's job at the gate is to surface the score and diagnose failures — and to record exact commands/results (or a clear not-run reason), not a bare prose claim.
 
