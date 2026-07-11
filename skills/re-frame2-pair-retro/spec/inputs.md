@@ -23,7 +23,7 @@ The sibling skill the user just exercised. This skill reads the parent skill's:
 - **`references/ops.md` + `references/recipes.md`** — the catalogue the user navigated. Missing ops or missing recipes are first-class findings.
 - **`references/errors.md`** — the error-recovery catalogue. Misleading recovery suggestions are findings.
 - **`references/ops.md` §Hot-reload coordination** — the strict source-edit protocol (folded into the op catalogue, not a standalone leaf). Friction here is high-leverage (every source edit triggers it).
-- **`scripts/`** + **MCP server** — the transport surface. Brittleness here breaks every session.
+- **`preload/`** (runtime preload) + **MCP server** (`references/mcp-transport.md`) — the transport surface. Brittleness here breaks every session.
 - **`spec/design.md`** (this skill's neighbour) — the locked decisions. This skill respects locks; doesn't propose changes that contradict them.
 
 ## 3. Tertiary input — `references/analysis-lenses.md`
@@ -82,7 +82,7 @@ These shape the skill's voice and structure but aren't quoted directly.
 When the pair tool changes:
 
 1. **A new structured op ships in `re-frame2-pair`** → check whether known-frictions has a "missing op" pattern that this resolves; update `known-frictions.md` if so.
-2. **A bash shim is retired / migrated to MCP** → `known-frictions.md` may have entries about shim brittleness; update to reflect.
+2. **The MCP transport changes** (the bash-shim → MCP migration is already complete — MCP is the one transport) → `known-frictions.md` may retain entries about the old shim's brittleness; update them to reflect the MCP transport.
 3. **A cardinal rule changes in `re-frame2-pair` SKILL.md** → re-read the parent's `spec/design.md`; verify this skill's lens-routing still respects the new lock.
 4. **A new common friction pattern emerges** (3+ retros surface it) → add a row to `known-frictions.md` with the pattern shape and the typical resolution.
 5. **A new analysis lens is named** → add to `analysis-lenses.md` with the canonical question and improvement shape.
