@@ -12,7 +12,7 @@
   - `chart-as-mermaid` delegates to the Mermaid emitter using the
     seam's definition.
   - An element with no seam throws `:no-chart-state`."
-  (:require [cljs.test :refer-macros [deftest is testing]]
+  (:require [cljs.test :refer-macros [deftest is testing async]]
             [clojure.string :as str]
             [day8.re-frame2-machines-viz.export :as export]
             [day8.re-frame2-machines-viz.share :as share]))
@@ -173,3 +173,89 @@
           "nil :machine-id defaults to :machine")
       (is (str/includes? quoted "&quot;") "\" escaped to &quot;")
       (is (str/includes? quoted "&apos;") "' escaped to &apos;"))))
+
+;; ---- rf2-848byi — clipboard guard tolerates an ABSENT ClipboardItem -----
+;;
+;; `copy-svg-to-clipboard!` / `copy-png-to-clipboard!` guard clipboard
+;; availability with `(exists? js/ClipboardItem)`. On a browser that has
+;; `navigator.clipboard` but NO `ClipboardItem` global (older Firefox that
+;; shipped `clipboard.writeText` before `ClipboardItem`; some non-secure
+;; contexts), the guard must fall through to the typed `:no-clipboard`
+;; REJECTION — not throw a bare-global ReferenceError (the pre-fix bare
+;; `js/ClipboardItem` reference did, SYNCHRONOUSLY for copy-svg).
+;;
+;; The SVG/PNG producers are browser-DOM-only, so we `with-redefs` them to
+;; isolate the GUARD (the unit under test) and drive it under node with a
+;; STUBBED `navigator.clipboard` present + `ClipboardItem` deleted.
+
+(defn- install-clipboard-env!
+  "Install `globalThis.navigator` = a stub carrying a `.clipboard.write`, and
+  DELETE `globalThis.ClipboardItem`. Returns a 0-arg `restore!` thunk, or nil
+  when the runtime pins `navigator` non-configurably (the caller then skips —
+  the browser gate exercises the guard)."
+  []
+  (let [g        js/globalThis
+        nav-desc (js/Object.getOwnPropertyDescriptor g "navigator")
+        ci-desc  (js/Object.getOwnPropertyDescriptor g "ClipboardItem")]
+    (when (or (nil? nav-desc) (.-configurable nav-desc))
+      (js/Object.defineProperty
+        g "navigator"
+        #js {:value #js {:clipboard #js {:write (fn [_] (js/Promise.resolve "ok"))}}
+             :configurable true :writable true})
+      (js/Reflect.deleteProperty g "ClipboardItem")
+      (fn restore! []
+        (if nav-desc
+          (js/Object.defineProperty g "navigator" nav-desc)
+          (js/Reflect.deleteProperty g "navigator"))
+        (when ci-desc
+          (js/Object.defineProperty g "ClipboardItem" ci-desc))))))
+
+(deftest clipboard-guard-tolerates-absent-clipboarditem
+  (testing "rf2-848byi — with navigator.clipboard present but ClipboardItem
+            ABSENT, copy-svg/png-to-clipboard! REJECT with :no-clipboard —
+            never a bare-global ReferenceError, and copy-svg does not throw
+            synchronously (the `.catch` contract holds)."
+    (async done
+      (if-let [restore! (install-clipboard-env!)]
+        (with-redefs [export/chart-as-svg  (fn [_] "<svg/>")
+                      export/chart-as-png! (fn [_] (js/Promise.resolve #js {}))]
+          (let [;; a valid-seam element so copy-png's synchronous
+                ;; chart-state-of / alt-text preamble does not throw — the
+                ;; GUARD (isolated by the with-redefs above) is what's tested.
+                el       (stub-element seam)
+                no-clip? (fn [e]
+                           (= :rf.machines-viz.export/no-clipboard
+                              (:rf.error/id (ex-data e))))
+                ;; Drive one copy fn and assert it REJECTS with :no-clipboard.
+                ;; A two-arg `.then` attaches BOTH the fulfil + reject handlers
+                ;; in ONE call, synchronously on the copy result — so no
+                ;; rejected promise is ever momentarily handler-less (the
+                ;; node-test runner treats a stray unhandled rejection as
+                ;; fatal). The `try` guards the copy-svg SYNCHRONOUS-throw bug:
+                ;; pre-fix the bare `js/ClipboardItem` reference threw right
+                ;; here (before any Promise), which this turns into a
+                ;; :test/sync-throw rejection → a visible assertion failure.
+                run      (fn [thunk label]
+                           (let [p (try (thunk)
+                                        (catch :default e
+                                          (js/Promise.reject
+                                            (ex-info "threw synchronously"
+                                                     {:rf.error/id :test/sync-throw
+                                                      :threw e}))))]
+                             (.then p
+                                    (fn [_]
+                                      (is false (str label " unexpectedly RESOLVED; "
+                                                     "expected a :no-clipboard rejection")))
+                                    (fn [e]
+                                      (is (no-clip? e)
+                                          (str label " rejects with :no-clipboard; got "
+                                               (pr-str (ex-data e))))))))]
+            (-> (js/Promise.all
+                  #js [(run #(export/copy-svg-to-clipboard! el) "copy-svg-to-clipboard!")
+                       (run #(export/copy-png-to-clipboard! el) "copy-png-to-clipboard!")])
+                (.then (fn [_] (restore!) (done))
+                       (fn [_] (restore!) (done))))))
+        (do
+          (is true (str ":node-test: navigator is non-configurable in this runtime "
+                        "— the browser gate exercises the ClipboardItem guard"))
+          (done))))))

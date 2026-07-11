@@ -445,7 +445,7 @@
   when the clipboard API is unavailable)."
   [chart-element]
   (let [svg-str (chart-as-svg chart-element)]
-    (if (and js/navigator (.-clipboard js/navigator) js/ClipboardItem)
+    (if (and js/navigator (.-clipboard js/navigator) (exists? js/ClipboardItem))
       (let [blob (js/Blob. #js [svg-str] #js {:type "image/svg+xml"})
             item (js/ClipboardItem. #js {"image/svg+xml" blob})]
         (.write (.-clipboard js/navigator) #js [item]))
@@ -533,7 +533,7 @@
     (-> (chart-as-png! chart-element)
         (.then
           (fn [png-blob]
-            (if (and js/navigator (.-clipboard js/navigator) js/ClipboardItem)
+            (if (and js/navigator (.-clipboard js/navigator) (exists? js/ClipboardItem))
               (let [alt-blob (js/Blob. #js [alt] #js {:type "text/plain"})
                     item (js/ClipboardItem. #js {"image/png"  png-blob
                                                  "text/plain" alt-blob})]
