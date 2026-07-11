@@ -109,8 +109,9 @@ exports:
    encoding version. Roundtrips: `(encode-share-url chart-state)`
    and `(decode-share-url url)`.
 4. **PNG and SVG exporters.** Client-side rasterisers that emit a
-   chart image at 2x DPR (PNG) or as `image/svg+xml` (SVG) with
-   embedded fonts. Both include `<title>` / `<desc>` (SVG) or alt-
+   chart image at 2x DPR (PNG) or as `image/svg+xml` (SVG); fonts are
+   referenced by name (system-monospace fallback), not embedded as glyph
+   data. Both include `<title>` / `<desc>` (SVG) or alt-
    text sidecar (PNG) summarising the machine id, current state,
    and node / transition counts.
 5. **Mermaid `stateDiagram-v2` exporter.** A pure-data emitter
