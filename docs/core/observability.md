@@ -228,7 +228,7 @@ These two always-on substrates are the `:events` and `:errors` streams of the sa
  :exception #object[Error]  :elapsed-ms 7}
 ```
 
-The `:outcome` on an event record reports across *every* run-failure path, so a dispatch that aborted is never mis-reported as a clean `:ok`: `:ok` (committed, flows ran, `:fx` walked), `:error` (the handler or an interceptor threw), `:rolled-back` (post-commit schema validation rejected the new db and it was restored), or `:flow-error` (a flow's output threw and halted the run). The `:event` vector in both records is run through the framework's wire-elider once before fan-out — a large value becomes `:rf.size/large-elided`, a sensitive one `:rf/redacted` — so the payload is safe to ship as-is. (The `:exception` object on an error record rides raw, deliberately, because off-box shippers need the host throwable and its stack.)
+The `:outcome` on an event record reports across *every* run-failure path, so a dispatch that aborted is never mis-reported as a clean `:ok`: `:ok` (committed, flows ran, `:fx` walked), `:error` (the handler or an interceptor threw), `:rolled-back` (schema validation rejected the candidate db before it installed — app-db kept its prior value), or `:flow-error` (a flow's output threw and halted the run). The `:event` vector in both records is run through the framework's wire-elider once before fan-out — a large value becomes `:rf.size/large-elided`, a sensitive one `:rf/redacted` — so the payload is safe to ship as-is. (The `:exception` object on an error record rides raw, deliberately, because off-box shippers need the host throwable and its stack.)
 
 ### Consuming production telemetry: declare a sink
 

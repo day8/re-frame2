@@ -3559,8 +3559,9 @@ only when an `:fx` fired), the SIDE EFFECTS step appears whenever ANY
 side effect occurred (a `:db` commit — including a bare reg-event —
 and/or a runtime-db (`:rf.db/runtime`) commit — including a runtime-ONLY
 commit — and/or `:fx` and/or other). The `:db`-commit signal is the
-framework's `:rf.event/db-changed` trace (a second one with
-`:rf.trace/phase :rollback` flags a schema-fail rollback). The
+framework's `:rf.event/db-changed` trace (a schema-REJECTED candidate
+emits NONE — rf2-uhk9ko validate-before-install; the rejection's signal
+is the `:where :app-db` violation trace with `:rollback? true`). The
 runtime-db-commit signal is the partition-tagged
 `:rf.event/frame-state-changed` trace whose `:rf.event/partitions`
 includes `:runtime-db` (EP-0001 rf2-ff9b0d — `:rf.event/db-changed` is
