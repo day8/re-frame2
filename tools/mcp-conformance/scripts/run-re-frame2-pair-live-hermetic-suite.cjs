@@ -172,6 +172,48 @@ function waitForChildExit(child, hasExited) {
   });
 }
 
+// Race a `browser.close()` thunk against `ms`, PRESERVING the outcome —
+// unlike `settledWithin`, which collapses resolve / reject / timeout into a
+// single "did it finish in time" boolean (all `makeCleanup` needs for the
+// shadow-exit wait, and all the signal/watchdog paths need to bound
+// `cleanup()`). Browser GRADING is different: a close that RESOLVED is proof
+// of shutdown, but a close that REJECTED or TIMED OUT is tolerable only if
+// disconnection can be independently proven (rf2-j538f7.19) — so the caller
+// must know WHICH of the three happened. Returns:
+//   { kind: 'closed'  }          — close() settled successfully within the cap
+//   { kind: 'rejected', error }  — close() rejected within the cap
+//   { kind: 'timeout' }          — the cap elapsed before close() settled
+// Never throws (a sync throw from the thunk is normalised to 'rejected'); the
+// timer is unref'd so it can't keep the loop alive past a clean exit.
+function closeOutcomeWithin(closeThunk, ms) {
+  return new Promise((resolve) => {
+    let done = false;
+    const t = setTimeout(() => {
+      if (done) return;
+      done = true;
+      resolve({ kind: 'timeout' });
+    }, ms);
+    t.unref();
+    Promise.resolve().then(closeThunk).then(
+      () => { if (!done) { done = true; clearTimeout(t); resolve({ kind: 'closed' }); } },
+      (error) => { if (!done) { done = true; clearTimeout(t); resolve({ kind: 'rejected', error }); } },
+    );
+  });
+}
+
+// A browser is *provably* disconnected only if it exposes `isConnected()`
+// AND that returns false. Playwright's `Browser` has this method. A close
+// that rejected or exceeded its cap is acceptable ONLY when we can
+// independently observe the browser is gone; a missing method, a thrown
+// call, or a `true` result all mean "not proven" — the browser is graded
+// dirty so the run is not falsely certified hermetic (rf2-j538f7.19).
+function isBrowserProvablyDisconnected(browser) {
+  if (browser && typeof browser.isConnected === 'function') {
+    try { return browser.isConnected() === false; } catch { return false; }
+  }
+  return false;
+}
+
 // Spawn one INNER_TESTS child and resolve once its stdio is fully drained
 // AND it has terminated. Lives at module scope, taking `spawnFn` as a
 // dependency, so the regression harness (`inner-test-close-grading.test.cjs`)
@@ -249,10 +291,29 @@ function spawnAndGradeInnerTest({
 //                        the harness shrinks them so the test runs fast)
 //
 // Returns a `cleanup()` function whose promise:
-//   1. awaits `browser.close()`, bounded by `browserCloseMs`,
+//   1. awaits `browser.close()`, bounded by `browserCloseMs`, and GRADES it,
 //   2. SIGTERMs shadow then awaits its `exit` (or `shadowTermGraceMs`),
-//   3. SIGKILLs if still alive then awaits the final exit (or `shadowKillGraceMs`).
-// Idempotent: repeat/concurrent calls return the SAME in-flight promise.
+//   3. SIGKILLs if still alive then awaits the final exit (or `shadowKillGraceMs`),
+//      and GRADES the shadow on its OBSERVED exit — a successful `kill()` call
+//      is NOT proof of exit.
+// EVERY step is attempted regardless of an earlier step's failure; the result
+// is a structured, gradeable report — never a throw — so the normal path can
+// refuse to certify a run whose teardown could not prove the children were
+// reaped (rf2-j538f7.19), while the signal/watchdog paths that race
+// `cleanup()` against a hard cap never see an unhandled rejection.
+//
+// Resolves to `{ clean, browser, shadow, issues }`:
+//   clean   — true ⇔ the browser is proven closed/disconnected (or absent)
+//             AND shadow is proven exited (or absent/already-exited).
+//   browser — `{ attempted, state, clean, ... }` where state is one of
+//             'none' | 'closed' | 'disconnected' | 'dirty'.
+//   shadow  — `{ attempted, state, clean, signals }` where state is one of
+//             'none' | 'exited' | 'alive'.
+//   issues  — human-readable strings naming each dirty resource, the signals
+//             attempted, the timeouts, and the final observed state.
+// Idempotent: repeat/concurrent calls return the SAME in-flight promise and
+// therefore the SAME final report — no caller can observe success while
+// another observes failure.
 function makeCleanup(deps) {
   const {
     getBrowser,
@@ -269,27 +330,59 @@ function makeCleanup(deps) {
     if (cleanupPromise) return cleanupPromise;
     cleanupPromise = (async () => {
       logFn('cleanup requested');
-      // (1) Await the promise-returning browser close, bounded.
+      const issues = [];
+
+      // (1) Browser: await the promise-returning close, bounded, then GRADE
+      //     the outcome. A close that RESOLVES is proof of shutdown. A close
+      //     that rejects OR exceeds its cap is tolerated ONLY if the browser
+      //     independently reports `isConnected() === false`; otherwise the
+      //     browser is left DIRTY and the run must not certify hermetic.
       const browser = getBrowser();
-      if (browser) {
-        const closed = await settledWithin(
-          (async () => {
-            try { await browser.close(); }
-            catch (e) { logFn(`browser.close() rejected during cleanup: ${e && e.message}`); }
-          })(),
-          browserCloseMs,
-        );
-        if (!closed) {
-          logErrFn(
-            `browser.close() did not settle within ${browserCloseMs}ms — ` +
-              'continuing teardown',
-          );
+      let browserReport;
+      if (!browser) {
+        browserReport = { attempted: false, state: 'none', clean: true };
+      } else {
+        const outcome = await closeOutcomeWithin(() => browser.close(), browserCloseMs);
+        if (outcome.kind === 'closed') {
+          browserReport = { attempted: true, state: 'closed', clean: true };
+        } else {
+          const detail =
+            outcome.kind === 'rejected'
+              ? `browser.close() rejected (${outcome.error && outcome.error.message})`
+              : `browser.close() did not settle within ${browserCloseMs}ms`;
+          if (isBrowserProvablyDisconnected(browser)) {
+            // Close failed but the browser is provably gone — clean, said why.
+            logFn(`${detail}, but browser.isConnected() === false — treating as closed`);
+            browserReport = { attempted: true, state: 'disconnected', clean: true, note: detail };
+          } else {
+            const msg =
+              `${detail} and disconnection could NOT be proven ` +
+              '(no isConnected() === false) — browser left DIRTY';
+            logErrFn(msg);
+            issues.push(`browser: ${msg}`);
+            browserReport = { attempted: true, state: 'dirty', clean: false, error: detail };
+          }
         }
       }
-      // (2)+(3) SIGTERM shadow, await exit / grace, then SIGKILL + await.
+
+      // (2)+(3) Shadow: SIGTERM → await exit / grace → SIGKILL → await, then
+      //     GRADE on the OBSERVED exit only. A successful kill() call is NOT
+      //     proof of exit; the child is clean only if it actually emitted
+      //     `exit` (or had already exited). We do NOT claim "the OS will reap
+      //     it" — parent exit does not portably terminate a live child,
+      //     especially on Windows.
       const shadow = getShadow();
-      if (shadow && !hasShadowExited()) {
-        try { shadow.kill('SIGTERM'); } catch {}
+      let shadowReport;
+      if (!shadow || hasShadowExited()) {
+        shadowReport = {
+          attempted: false,
+          state: hasShadowExited() ? 'exited' : 'none',
+          clean: true,
+          signals: [],
+        };
+      } else {
+        const signals = [];
+        try { shadow.kill('SIGTERM'); signals.push('SIGTERM'); } catch {}
         const exitedOnTerm = await settledWithin(
           waitForChildExit(shadow, hasShadowExited),
           shadowTermGraceMs,
@@ -299,24 +392,74 @@ function makeCleanup(deps) {
             `shadow-cljs did not exit ${shadowTermGraceMs}ms after SIGTERM ` +
               '— escalating to SIGKILL',
           );
-          try { shadow.kill('SIGKILL'); } catch {}
-          const exitedOnKill = await settledWithin(
+          try { shadow.kill('SIGKILL'); signals.push('SIGKILL'); } catch {}
+          await settledWithin(
             waitForChildExit(shadow, hasShadowExited),
             shadowKillGraceMs,
           );
-          if (!exitedOnKill && !hasShadowExited()) {
-            logErrFn(
-              'shadow-cljs still has not reported exit after SIGKILL + ' +
-                `${shadowKillGraceMs}ms — abandoning (the OS will reap it; ` +
-                'we have done all we can within the cap)',
-            );
-          }
+        }
+        if (hasShadowExited()) {
+          shadowReport = { attempted: true, state: 'exited', clean: true, signals };
+        } else {
+          const msg =
+            `shadow-cljs still has NOT reported exit after ${signals.join('+')} ` +
+            `+ ${shadowKillGraceMs}ms grace — child left ALIVE (no observed exit)`;
+          logErrFn(msg);
+          issues.push(`shadow: ${msg}`);
+          shadowReport = { attempted: true, state: 'alive', clean: false, signals };
         }
       }
-      logFn('cleanup complete');
+
+      const clean = browserReport.clean && shadowReport.clean;
+      logFn(clean ? 'cleanup complete (clean)' : 'cleanup complete (DIRTY)');
+      return { clean, browser: browserReport, shadow: shadowReport, issues };
     })();
     return cleanupPromise;
   };
+}
+
+// Turn a settled cleanup report into the normal-path process outcome. The run
+// is certified GREEN (pass sentinel emitted, exit 0) ONLY when the teardown
+// proved every resource clean. A dirty/unknown teardown — a browser that
+// could not be confirmed closed/disconnected, or a shadow-cljs child with no
+// observed exit — is an ORCHESTRATION failure (exit 2) that emits NO pass
+// sentinel: the inner contract passed, but the harness could not guarantee
+// the hermetic isolation it exists to provide, so it must not falsely certify
+// a possibly-contaminating run (rf2-j538f7.19). Parameterised on its IO so the
+// grading test can assert the sentinel/exit-code mapping without booting
+// shadow-cljs + Chromium.
+function finalizeConformance(report, {
+  emitPass = (line) => console.log(line),
+  log: logFn = log,
+  logErr: logErrFn = logErr,
+  flush = flushDiagnostics,
+  count = INNER_TESTS.length,
+} = {}) {
+  if (report && report.clean === true) {
+    logFn(`RE-FRAME2-PAIR-MCP LIVE HERMETIC CONFORMANCE GREEN (${count} inner tests)`);
+    emitPass(`RE-FRAME2-PAIR-MCP live hermetic conformance passed (${count} inner tests).`);
+    return 0;
+  }
+  logErrFn(
+    'FAIL: all inner conformance tests passed but the hermetic TEARDOWN could ' +
+      'NOT be proven clean — refusing to certify a possibly non-hermetic run ' +
+      `(rf2-j538f7.19): ${describeDirty(report)}`,
+  );
+  flush();
+  return 2;
+}
+
+// One-line summary of a dirty/missing cleanup report for the failure log.
+function describeDirty(report) {
+  if (!report) return 'no cleanup report was produced';
+  const parts = [
+    `browser=${report.browser ? report.browser.state : 'unknown'}`,
+    `shadow=${report.shadow ? report.shadow.state : 'unknown'}`,
+  ];
+  if (report.issues && report.issues.length) {
+    parts.push('issues: ' + report.issues.join(' | '));
+  }
+  return parts.join(', ');
 }
 
 // Discriminate a containment-escape refusal (a candidate whose realpath
@@ -928,6 +1071,10 @@ async function main() {
     });
   }
 
+  // The graded teardown report the `finally` produces; `main()` returns it so
+  // the entrypoint can refuse to certify GREEN on a dirty/unknown teardown
+  // (rf2-j538f7.19).
+  let cleanupReport = null;
   try {
     // ---- Wait for nREPL port file ---------------------------------------
     log(
@@ -1129,15 +1276,20 @@ async function main() {
       }
       log(`${testFile} ran to completion (sentinel observed)`);
     }
-    log('RE-FRAME2-PAIR-MCP LIVE HERMETIC CONFORMANCE GREEN (' +
-      INNER_TESTS.length + ' inner tests)');
+    // NB: no GREEN sentinel is emitted here. The run is only certified GREEN
+    // once cleanup has PROVEN hermetic teardown — grading happens in
+    // `finalizeConformance` against the report the `finally` returns below
+    // (rf2-j538f7.19). Emitting GREEN before teardown could falsely certify a
+    // run that then leaks a browser / shadow-cljs child.
   } finally {
     // Await the async teardown before `main()` resolves/rejects: the
     // normal-exit path must not report success and `process.exit(0)` while
     // the browser-close promise is still settling or shadow-cljs has not
-    // yet exited.
-    await cleanup();
+    // yet exited. Capture the graded report so the entrypoint can refuse to
+    // certify a dirty/unknown teardown.
+    cleanupReport = await cleanup();
   }
+  return cleanupReport;
 }
 
 // Hard watchdog: if the orchestrator hangs past this, kill the process
@@ -1189,12 +1341,12 @@ watchdog.unref();
 // the watchdog timer from arming on `require` too.
 if (require.main === module) {
   main()
-    .then(() => {
+    .then((report) => {
       clearTimeout(watchdog);
-      console.log(
-        `RE-FRAME2-PAIR-MCP live hermetic conformance passed (${INNER_TESTS.length} inner tests).`,
-      );
-      process.exit(0);
+      // GREEN + exit 0 ONLY if the teardown proved hermetic; a dirty/unknown
+      // cleanup report is an orchestration failure (exit 2) with NO pass
+      // sentinel (rf2-j538f7.19).
+      process.exit(finalizeConformance(report));
     })
     .catch((err) => {
       clearTimeout(watchdog);
@@ -1247,6 +1399,13 @@ if (require.main === module) {
 // still reports the file present, proving the runner now fails LOUD
 // instead of logging-and-continuing into a poll loop that would have
 // trusted the surviving stale file.
+// `finalizeConformance` + `describeDirty` are exported for the teardown-
+// grading regression harness (`hermetic-grading.test.cjs`, rf2-j538f7.19): it
+// drives the REAL grading decision against clean vs dirty cleanup reports,
+// proving a dirty teardown emits NO pass sentinel and returns orchestration
+// exit 2 while a clean teardown emits the sentinel exactly once and returns 0.
+// `closeOutcomeWithin` + `isBrowserProvablyDisconnected` back the browser
+// grading `runner-cleanup.test.cjs` exercises through `makeCleanup`.
 module.exports = {
   runTrusted,
   SETUP_COMMAND_TIMEOUT_MS,
@@ -1254,6 +1413,10 @@ module.exports = {
   isContainmentEscape,
   makeCleanup,
   settledWithin,
+  closeOutcomeWithin,
+  isBrowserProvablyDisconnected,
+  finalizeConformance,
+  describeDirty,
   waitForChildExit,
   spawnAndGradeInnerTest,
   wipeStalePortFileCandidate,

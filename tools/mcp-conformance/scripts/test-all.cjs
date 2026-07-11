@@ -29,8 +29,12 @@ const TESTS = [
     argv: ['--test', 'test/runner-watchdog.test.cjs'],
   },
   {
-    name: 'hermetic async cleanup awaited teardown',
+    name: 'hermetic async cleanup awaited + graded teardown',
     argv: ['--test', 'test/runner-cleanup.test.cjs'],
+  },
+  {
+    name: 'hermetic teardown grading refuses green on a dirty cleanup',
+    argv: ['--test', 'test/hermetic-grading.test.cjs'],
   },
   {
     name: 'hermetic setup-command timeout',
