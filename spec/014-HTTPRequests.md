@@ -737,6 +737,21 @@ When the request's reply target was **obsolete** (it addressed the destroyed act
 - [`:request-id` (internal)](#request-id-internal) — the orthogonal app-level abort surface.
 - Boot-as-state-machine §M2 — the original gap analysis motivating this contract.
 
+### Abort on frame destroy
+
+The actor-destroy contract above binds a request's lifetime to a **spawned actor**. A **plain** managed request — one dispatched from an ordinary `reg-event` handler with no owning actor (per [§Direct dispatches from event handlers — NOT covered](#direct-dispatches-from-event-handlers--not-covered)) — has no actor peg, but it still has an owning **frame**. When that frame is destroyed (`destroy-frame!`), any plain managed request it left in flight is aborted at the frame-teardown boundary (rf2-j538f7.8).
+
+`re-frame.frame/destroy-frame!` fires the `:http/on-frame-destroyed!` late-bind hook (`re-frame.http.registry/abort-in-flight-on-frame-destroyed!`) **after** machine + resource teardown — so actor-owned work has already taken the more specific `:actor-destroyed` path and resource-owned work has had its ledger/lease cleanup — and this sweep then catches the remaining plain requests the frame issued. It is the frame-teardown counterpart of the epoch-restore sweep (`abort-in-flight-for-frame!`): the same frame-filtered, identity-deduped walk over both in-flight indexes, differing only in the abort `:reason` and the trace `:recovery`.
+
+Frame destroy is **reply-suppressing** — the owning frame is already marked destroyed, so dispatching a live cancellation reply into it is invalid:
+
+1. each matching request's `:abort-fn` fires with **`:reason :frame-destroyed`** (a member of `re-frame.http.transport`'s `reply-suppressing-abort-reasons` set), cancelling the live fetch/future or sleeping backoff timer, detaching any external `:abort-signal`, and clearing both registry indexes;
+2. **nothing** is delivered to the original `:rf/reply-to` target — no `:on-success` / `:on-failure`, no `:rf.error/frame-destroyed` dispatch into the dead frame;
+3. the suppressed attempt is recorded the uniform reply-envelope way — a `:rf.http/stale-suppressed` trace carrying `:rf.reply/status :stale` / `:rf.reply/work-status :suppressed` and **`:recovery :suppressed-on-frame-destroy`** (distinct from epoch restore's `:suppressed-on-epoch-restore`, so tooling never mislabels a destroy as a restore — see [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue));
+4. the `:rf.http/aborted` trace fires alongside (the abort is observable) with `:reason :frame-destroyed`.
+
+The sweep is idempotent and a no-op for a frame with no in-flight managed HTTP — an app that issues none pays nothing.
+
 ## Frame awareness
 
 The reply dispatch lands in the **same frame** the request was issued from. The fx reads the issuing frame's stamp from the dispatch **envelope's** `:frame` key — one of the **sanctioned** sites the bare `:frame` spelling survives at (the binary fx-handler ctx and the dispatch envelope; there is no bare `:frame` *coeffect* — the event-context spelling is `:rf.frame/id`, per [002 §One carrier, one name — the frame stamp](002-Frames.md#one-carrier-one-name--the-frame-stamp)) — and threads it through to the reply dispatch's `{:frame ...}` opt. Multi-frame apps work without extra ceremony.
