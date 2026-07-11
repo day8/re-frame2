@@ -522,15 +522,15 @@ uses.** Every managed-HTTP completion delivers the framework's
 verbatim (Managed-Effects property 9; the rationale record is
 [EP-0011](https://github.com/day8/re-frame2/blob/main/docs/EP/EP-0011-uniform-async-reply-envelope.md)):
 one canonical reply map with a single **closed** `:status`, `:value` /
-`:error`, `:work/id`, and `:completed-at`. There is no separate
+`:error`, `:rf.reply/work-id`, and `:completed-at`. There is no separate
 `{:kind :success/:failure}` HTTP dialect (rf2-ibksxg — retired). The
 reply `:status` vocabulary:
 
 | Reply `:status` | Meaning | Carries |
 |---|---|---|
-| `:ok` | success | `:value` (decoded body), `:work/id`, `:completed-at` |
-| `:error` | any `:rf.http/*` failure | `:error` map with `:kind`, `:work/status` (`:failed` / `:timed-out`) |
-| `:cancelled` | abort | `:cancelled? true`, `:cancel/reason`, `:rf.http/aborted` under `:error` |
+| `:ok` | success | `:value` (decoded body), `:rf.reply/work-id`, `:completed-at` |
+| `:error` | any `:rf.http/*` failure | `:error` map with `:kind`; top-level `:rf.reply/work-status` (`:failed` / `:timed-out`) |
+| `:cancelled` | abort | `:cancelled? true`, `:rf.reply/cancel-reason`, `:rf.http/aborted` under `:error` |
 | `:stale` | superseded / late | **never delivered to your app target** — stale replies are suppressed before dispatch |
 
 Every `:rf.http/managed` request MUST address its reply. `:reply-to` is
