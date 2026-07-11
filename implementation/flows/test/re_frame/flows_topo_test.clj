@@ -154,16 +154,16 @@
           "A writes [:foo] which is a prefix of B's input [:foo :bar :baz]"))))
 
 (deftest depends-on?-self-edge-via-overlapping-path
-  (testing "rf2-m05md — depends-on? returns true for a self-edge if a
-            flow's own :inputs share a prefix with its own :output-path. The
-            consumer (topo-sort) explicitly filters self-edges out via
-            `(not= id %)` so this only matters at the helper boundary
-            — pinning the truth of the helper's prefix rule
-            independent of its caller's self-edge guard."
+  (testing "rf2-m05md / rf2-j538f7.6 — depends-on? returns true for a self-edge
+            when a flow's own :inputs share a prefix with its own :output-path.
+            The consumer (topo-sort) RETAINS this `id -> id` self-edge and
+            rejects the flow as a single-node cycle (a flow is a pure
+            derivation of independently-owned facts, not a recurrence over its
+            own prior output — Spec 013 §Dependency rule)."
     (let [a {:id :a :output-path [:foo] :inputs [[:foo]]}]
       (is (true? (topo/depends-on? a a))
           "A's own :inputs include A's own :output-path → depends-on? returns
-           true; topo-sort filters this self-edge separately"))))
+           true; topo-sort retains this self-edge to reject the self-cycle"))))
 
 (deftest depends-on?-false-when-no-overlap
   (testing "rf2-m05md — depends-on? returns false when no input shares

@@ -57,6 +57,96 @@
     (is (false? (topo/output-paths-overlap? [:a] [:b]))       "unrelated are disjoint")))
 
 ;; ===========================================================================
+;; 1b. topo-sort self-cycle rejection (pure data, host-portable) — rf2-j538f7.6
+;;
+;; A flow whose own :inputs overlap its own :output-path depends on itself:
+;; that is a single-node dependency cycle and MUST be rejected at registration
+;; (a flow is a pure derivation of independently-owned facts, not a recurrence
+;; over its own prior output — Spec 013 §Dependency rule). `topo-sort` retains
+;; the `id -> id` self-edge and rejects it exactly like a multi-node cycle,
+;; producing a closing-repeat `[id id]`. Driven directly (pure, no runtime) so
+;; JVM and CLJS agree on the topology/error behaviour.
+;; ===========================================================================
+
+(defn- topo-throws
+  "Run `topo/topo-sort` and return the thrown ExceptionInfo (or nil)."
+  [flow-map]
+  (try
+    (topo/topo-sort flow-map)
+    nil
+    (catch #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) e e)))
+
+(deftest topo-sort-rejects-self-cycle-on-this-host
+  (testing "a singleton flow whose bare input EQUALS its own :output-path is a
+            self-cycle → :rf.error/flow-cycle with closing-repeat [:a :a]"
+    (let [ex (topo-throws {:a {:id :a :inputs [[:x]] :derive identity :output-path [:x]}})]
+      (is (some? ex) "the self-cyclic singleton is rejected, not fast-pathed to [:a]")
+      (is (= :rf.error/flow-cycle (error-id ex)) "structured :rf.error/flow-cycle")
+      (is (= [:a :a] (:cycle (ex-data ex)))
+          ":cycle is the closing-repeat single-node path [:a :a]")))
+
+  (testing "prefix self-overlap in BOTH directions is a self-cycle (Spec 013
+            'prefix in either direction')"
+    ;; input PARENT / output CHILD: input [:x] overlaps output [:x :y].
+    (let [ex (topo-throws {:a {:id :a :inputs [[:x]] :derive identity :output-path [:x :y]}})]
+      (is (= :rf.error/flow-cycle (error-id ex))
+          "input [:x] is a prefix of output [:x :y] → self-cycle")
+      (is (= [:a :a] (:cycle (ex-data ex)))))
+    ;; input CHILD / output PARENT: input [:x :y] overlaps output [:x].
+    (let [ex (topo-throws {:a {:id :a :inputs [[:x :y]] :derive identity :output-path [:x]}})]
+      (is (= :rf.error/flow-cycle (error-id ex))
+          "output [:x] is a prefix of input [:x :y] → self-cycle")
+      (is (= [:a :a] (:cycle (ex-data ex))))))
+
+  (testing "a self-edge is NOT discarded from a multi-node graph — a self-cyclic
+            flow alongside other acyclic flows is still rejected"
+    (let [ex (topo-throws {:a {:id :a :inputs [[:x]]         :derive identity :output-path [:x]}
+                           :b {:id :b :inputs [[:unrelated]] :derive identity :output-path [:b]}})]
+      (is (= :rf.error/flow-cycle (error-id ex))
+          "the :a self-cycle is detected even with acyclic sibling :b present")
+      (is (= [:a :a] (:cycle (ex-data ex)))
+          ":cycle names the offending self-cyclic id"))))
+
+(deftest topo-sort-accepts-acyclic-diamond-on-this-host
+  (testing "a valid acyclic diamond (D reads B and C; B and C read A) topo-sorts
+            with A first and D last — no false-positive self/cycle rejection"
+    ;; A: source, writes [:a]. B,C: read [:a], write [:b]/[:c]. D: reads [:b]
+    ;; and [:c], writes [:d]. No self-overlap anywhere.
+    (let [order (topo/topo-sort
+                  {:a {:id :a :inputs [[:src]]      :derive identity :output-path [:a]}
+                   :b {:id :b :inputs [[:a]]        :derive identity :output-path [:b]}
+                   :c {:id :c :inputs [[:a]]        :derive identity :output-path [:c]}
+                   :d {:id :d :inputs [[:b] [:c]]   :derive identity :output-path [:d]}})
+          pos   (into {} (map-indexed (fn [i id] [id i]) order))]
+      (is (= #{:a :b :c :d} (set order)) "every diamond node appears exactly once")
+      (is (< (pos :a) (pos :b)) "A precedes B")
+      (is (< (pos :a) (pos :c)) "A precedes C")
+      (is (< (pos :b) (pos :d)) "B precedes D")
+      (is (< (pos :c) (pos :d)) "C precedes D"))))
+
+;; ===========================================================================
+;; 1c. integrated reg-flow self-cycle rejection + runtime-input non-overlap
+;; ===========================================================================
+
+(deftest reg-flow-rejects-self-cycle-on-this-host
+  (testing "reg-flow rejects a self-referential flow at registration with
+            :rf.error/flow-cycle and installs nothing (rf2-j538f7.6)"
+    (let [ex (reg-flow-throws {:id :probe/self :inputs [[:x]] :derive inc :output-path [:x]})]
+      (is (some? ex) "the self-cyclic registration throws")
+      (is (= :rf.error/flow-cycle (error-id ex)) "structured :rf.error/flow-cycle")
+      (is (not (contains? (get (flows/flows-snapshot) :rf/default) :probe/self))
+          "the rejected self-cyclic flow is absent from the registry"))))
+
+(deftest reg-flow-runtime-input-overlapping-app-db-output-is-not-a-self-cycle-on-this-host
+  (testing "a runtime-qualified input [:rf.db/runtime :x] whose partition-relative
+            suffix matches the app-db :output-path [:x] is a DIFFERENT partition,
+            not a self-cycle — it registers cleanly (rf2-j538f7.6, Spec 013)"
+    (is (some? (rf/reg-flow :probe/runtime {:inputs [[:rf.db/runtime :x]] :output-path [:x]} identity))
+        "the runtime-input flow registers (its input reads runtime-db, its output writes app-db)")
+    (is (contains? (get (flows/flows-snapshot) :rf/default) :probe/runtime)
+        "the flow row is present after clean registration")))
+
+;; ===========================================================================
 ;; 2. reg-flow accepts the SHARED concrete-segment domain (CLJS host)
 ;; ===========================================================================
 

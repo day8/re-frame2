@@ -801,10 +801,11 @@
   ;; that the prior registration survives.
   (testing "a cyclic reg-flow REPLACEMENT must not silently delete the prior registration"
     ;; Set up a non-cyclic two-flow graph where REPLACING :b is what
-    ;; closes the cycle. Cannot use a self-cycle on :b (topo-sort skips
-    ;; the `id = other` self-edge via `(not= id other)`), so we set
-    ;; :a's :inputs to point at :b's :output-path. After replacement of :b's
-    ;; inputs to point at :a's :output-path, the cycle :a → :b → :a closes.
+    ;; closes the cycle. This specifically exercises the REPLACEMENT-introduced
+    ;; MULTI-node cycle path (single-node self-cycles are covered separately in
+    ;; the self-cycle tests, rf2-j538f7.6), so we set :a's :inputs to point at
+    ;; :b's :output-path. After replacement of :b's inputs to point at :a's
+    ;; :output-path, the cycle :a → :b → :a closes.
     ;;
     ;; 1. :a reads [:b], writes [:a]. Currently no cycle because :b is
     ;;    not yet registered.
@@ -849,6 +850,130 @@
       ;; must still resolve the prior :b for this frame.
       (is (some? (flows/flow-meta-at :b {:frame :rf/default}))
           "the per-frame flow store for :b is still populated"))))
+
+;; ---------------------------------------------------------------------------
+;; 1c. Self-referential (single-node) dependency cycles — rf2-j538f7.6
+;;
+;; A flow whose own :inputs overlap its own :output-path depends on itself.
+;; A flow is a pure derivation of independently-owned facts, NOT a recurrence
+;; over its own prior output (Spec 013 §Dependency rule), so a self-overlap is
+;; a single-node cycle and must be rejected at registration — with the same
+;; canonical `:rf.error/flow-cycle` used for multi-node cycles, closing-repeat
+;; `[id id]`. Without this, the flow silently becomes a stateful oscillator/
+;; reducer that every UNRELATED event advances (1 → 2 → 3 …).
+;; ---------------------------------------------------------------------------
+
+(defn- flow-cycle? [^Throwable t]
+  (= :rf.error/flow-cycle (:rf.error/id (ex-data t))))
+
+(deftest reg-flow-rejects-self-referential-cycle-at-registration
+  (testing "a singleton flow whose bare input EQUALS its own :output-path is a
+            self-cycle → :rf.error/flow-cycle, closing-repeat [id id], nothing
+            registered"
+    (let [before (flows/flows-snapshot)
+          ex     (reg-flow-throwing {:id :probe/self :inputs [[:x]] :derive inc :output-path [:x]})]
+      (is (some? ex) "the self-cyclic registration throws")
+      (is (flow-cycle? ex) "structured :rf.error/flow-cycle")
+      (is (= [:probe/self :probe/self] (:cycle (ex-data ex)))
+          ":cycle is the closing-repeat single-node path [id id]")
+      (is (= :fix-registration (:recovery (ex-data ex)))
+          ":recovery :fix-registration — the cycle is caller-fixable")
+      (is (not (contains? (get (flows/flows-snapshot) :rf/default) :probe/self))
+          "the rejected flow is absent from the registry")
+      (is (= before (flows/flows-snapshot))
+          "registration mutated no flow state (rejected before commit)")))
+
+  (testing "prefix self-overlap in BOTH directions is also a self-cycle"
+    ;; input PARENT / output CHILD.
+    (is (flow-cycle? (reg-flow-throwing {:id :self/parent-child :inputs [[:x]] :derive identity :output-path [:x :y]}))
+        "input [:x] is a prefix of output [:x :y] → self-cycle")
+    ;; input CHILD / output PARENT.
+    (is (flow-cycle? (reg-flow-throwing {:id :self/child-parent :inputs [[:x :y]] :derive identity :output-path [:x]}))
+        "output [:x] is a prefix of input [:x :y] → self-cycle")))
+
+(deftest reg-flow-rejects-self-cycle-even-with-other-flows-registered
+  (testing "a self-edge is not discarded from a multi-node graph — registering
+            a self-cyclic flow while unrelated acyclic flows already exist is
+            still rejected, and the prior flows survive"
+    (rf/reg-flow :keep/a {:inputs [[:src-a]] :output-path [:a]} identity)
+    (rf/reg-flow :keep/b {:inputs [[:src-b]] :output-path [:b]} identity)
+    (let [ex (reg-flow-throwing {:id :probe/self :inputs [[:c]] :derive inc :output-path [:c]})]
+      (is (flow-cycle? ex) "the self-cycle is detected alongside acyclic siblings")
+      (is (= [:probe/self :probe/self] (:cycle (ex-data ex)))
+          ":cycle names only the offending self-cyclic id"))
+    (is (contains? (get (flows/flows-snapshot) :rf/default) :keep/a)
+        "the prior acyclic :keep/a survives the rejected registration")
+    (is (contains? (get (flows/flows-snapshot) :rf/default) :keep/b)
+        "the prior acyclic :keep/b survives the rejected registration")
+    (is (not (contains? (get (flows/flows-snapshot) :rf/default) :probe/self))
+        "the rejected self-cyclic flow is absent")))
+
+(deftest reg-flow-self-cycle-replacement-preserves-prior-registration-and-output
+  (testing "a hot-reload REPLACEMENT that introduces self-dependency is rejected
+            and preserves the prior working flow, its dirty-check row, and its
+            materialized output (rf2-j538f7.6 AC-4)"
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 5}}))
+    (rf/reg-event :tick (fn [{:keys [db]} _] {:db (update db :tick (fnil inc 0))}))
+    (let [original-derive (fn [n] (* 2 n))]
+      ;; A valid flow: reads [:n], writes [:derived :doubled]. Drain it so it
+      ;; materializes an output AND seeds a dirty-check row.
+      (rf/reg-flow :double {:inputs [[:n]] :output-path [:derived :doubled]} original-derive)
+      (rf/dispatch-sync [:init])
+      (is (= 10 (get-in (rf/app-db-value :rf/default) [:derived :doubled]))
+          "the valid flow materialized its output")
+      (is (some? (registry/get-frame-flow-last-inputs :rf/default :double))
+          "the valid flow seeded a dirty-check row")
+      ;; Re-register :double so its INPUT now overlaps its OWN output — a
+      ;; self-cycle. The replacement must be rejected.
+      (let [ex (reg-flow-throwing {:id     :double
+                                   :inputs [[:derived :doubled]]
+                                   :derive (fn [d] (inc d))
+                                   :output-path [:derived :doubled]})]
+        (is (flow-cycle? ex) "the self-cyclic replacement is rejected"))
+      ;; The prior working definition, its dirty-check row, and its output
+      ;; must all survive — the rejection happened before any mutation.
+      (let [after (get-in (flows/flows-snapshot) [:rf/default :double])]
+        (is (= [[:n]] (:inputs after))
+            "prior :double's :inputs are intact ([[:n]], not the rejected self-input)")
+        (is (identical? original-derive (:derive after))
+            "prior :double's :derive fn has the SAME identity"))
+      (is (some? (registry/get-frame-flow-last-inputs :rf/default :double))
+          "the prior dirty-check row is preserved")
+      (is (= 10 (get-in (rf/app-db-value :rf/default) [:derived :doubled]))
+          "the prior materialized output is untouched"))))
+
+(deftest reg-flow-self-cycle-blocks-recurrence-before-first-dispatch
+  (testing "because registration fails BEFORE the first dispatch, unrelated
+            events can no longer drive the 1 → 2 → 3 recurrence the accepted
+            self-cycle produced (rf2-j538f7.6 AC-6)"
+    (rf/reg-event :seed (fn [{:keys [db]} [_ v]] {:db (assoc db :x v)}))
+    (rf/reg-event :tick (fn [{:keys [db]} _] {:db (update db :other (fnil inc 0))}))
+    ;; The reproduction flow: reads [:x], writes [:x], (inc). Registration must
+    ;; throw before it can ever run.
+    (is (thrown? Throwable
+                 (rf/reg-flow :probe/self {:inputs [[:x]] :output-path [:x]} inc))
+        "the oscillator flow is rejected at registration")
+    (rf/dispatch-sync [:seed 0])
+    (rf/dispatch-sync [:tick])
+    (rf/dispatch-sync [:tick])
+    (is (= 0 (:x (rf/app-db-value :rf/default)))
+        ":x is exactly the independently-owned seeded fact (0); unrelated ticks
+         did NOT advance it — no self-feedback loop was ever installed")))
+
+(deftest flow-acyclic-diamond-registers-and-drains-correctly
+  (testing "a valid acyclic diamond (B,C read A; D reads B and C) registers and
+            settles in one drain — the self-cycle fix introduces no
+            false-positive rejection of legitimate multi-node graphs"
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:a 2}}))
+    ;; B reads [:a] → [:b]; C reads [:a] → [:c]; D reads [:b] and [:c] → [:d].
+    (rf/reg-flow :flow/b {:inputs [[:a]]      :output-path [:b]} (fn [a] (+ a 1)))
+    (rf/reg-flow :flow/c {:inputs [[:a]]      :output-path [:c]} (fn [a] (* a 10)))
+    (rf/reg-flow :flow/d {:inputs [[:b] [:c]] :output-path [:d]} (fn [b c] (+ b c)))
+    (rf/dispatch-sync [:init])
+    (let [db (rf/app-db-value :rf/default)]
+      (is (= 3  (:b db)) "B = a + 1 = 3")
+      (is (= 20 (:c db)) "C = a * 10 = 20")
+      (is (= 23 (:d db)) "D = B + C = 23, settled in one drain after B and C"))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2. Dirty-check / re-evaluation
