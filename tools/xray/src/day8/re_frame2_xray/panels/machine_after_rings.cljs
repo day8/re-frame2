@@ -203,25 +203,39 @@
 ;;
 ;;   - all timers are cancelled / fired
 ;;   - the scrubber leaves `:present`
-;;   - the panel un-mounts (no callers means the next dispatched
-;;     `:rings/now-ms` isn't read; the next render's `kick-tick!`
-;;     call won't fire because the panel isn't on screen)
+;;   - the `AfterRingsOverlay` UNMOUNTS (rf2-e64drj) — the loop is
+;;     MOUNT-gated, not only DATA-gated. Pre-fix the only stop conditions
+;;     were `needs-ticking?` false or an exception, so an ALREADY-RUNNING
+;;     loop was self-sustaining on app-db data: switching away from the
+;;     Machine Inspector while an `:after` timer stayed armed + the scrubber
+;;     sat at `:present` left the loop dispatching `:rf.xray/timer-tick`
+;;     ~60×/s in the background, outliving its panel (unbounded CPU / battery
+;;     drain). The overlay now owns a `:mounted?` liveness flag (set true on
+;;     render via `kick-tick!`, cleared on unmount via the `overlay-ref!`
+;;     React ref callback); `tick-loop!` requires it before dispatching /
+;;     re-scheduling, so unmount stops the loop within one frame. Remount
+;;     re-arms via `kick-tick!`.
 ;;
 ;; Per the bead's divergence allowances the throttle knob lives in
 ;; `*tick-min-delta-ms*`. v1 sets it to 0 (no skip-frame); a follow-on
 ;; can tune up if many-timer scenarios show jank.
 
 (defonce ^:private tick-state
-  ;; `{:running? bool :last-now-ms long :frame <frame-id>}`
+  ;; `{:running? bool :last-now-ms long :frame <frame-id> :mounted? bool}`
   ;;   :running? — true while a rAF is queued and undrained.
   ;;   :last-now-ms — last bumped value; the next tick can skip-frame
   ;;     if (- now last) < *tick-min-delta-ms*.
   ;;   :frame — rf2-nesy9: the surrounding instance frame captured by
   ;;     the overlay reg-view at `kick-tick!` time, so the off-render
   ;;     rAF tick dispatch lands on it (defaults to default-frame-id).
+  ;;   :mounted? — rf2-e64drj: the overlay's liveness. `kick-tick!` sets it
+  ;;     true (called only from the mounted overlay's render); the
+  ;;     `overlay-ref!` React ref callback clears it on unmount. `tick-loop!`
+  ;;     requires it, so the loop can never outlive the panel.
   (atom {:running?    false
          :last-now-ms 0
-         :frame       defaults/default-frame-id}))
+         :frame       defaults/default-frame-id
+         :mounted?    false}))
 
 (def ^:dynamic *tick-min-delta-ms*
   "Minimum gap (ms) between consecutive `:rf.xray/timer-tick`
@@ -245,7 +259,16 @@
 (defn- tick-loop!
   "One iteration of the rAF tick loop. Reads the active-timers sub +
   scrubber sub; bumps `now-ms` when ticking is warranted; re-schedules
-  itself iff still needed.
+  itself iff still needed AND the overlay is still mounted.
+
+  rf2-e64drj — MOUNT gate. The loop is gated on the overlay's
+  `:mounted?` liveness, not only on app-db data (`needs-ticking?`). An
+  UNMOUNTED overlay stops the loop IMMEDIATELY — no dispatch, no reschedule
+  — even if an `:after` timer stays armed + the scrubber sits at `:present`.
+  Pre-fix the data-gated loop was self-sustaining on app-db state and kept
+  dispatching `:rf.xray/timer-tick` ~60×/s in the background after the panel
+  unmounted (switch to another L3 tab). The overlay owns `:mounted?` via
+  `kick-tick!` (sets true on render) + `overlay-ref!` (clears on unmount).
 
   rf2-nms77h — the loop runs as a rAF/next-tick callback, OFF-render:
   there is no established frame scope (no `with-frame`, no enclosing
@@ -260,26 +283,33 @@
   dispatch below already correctly targets."
   []
   (try
-    (let [frame    (:frame @tick-state)
-          timers   @(rf/subscribe [:rf.xray/active-timers-for-focused-machine]
-                                  {:frame frame})
-          scrub    @(rf/subscribe [:rf.xray/machine-scrubber-position]
-                                  {:frame frame})
-          now      (now-ms)
-          last-now (:last-now-ms @tick-state)
-          due?     (or (zero? *tick-min-delta-ms*)
-                       (>= (- now last-now) *tick-min-delta-ms*))]
-      (when due?
-        ;; rf2-nesy9 — the rAF tick loop runs outside the render scope;
-        ;; dispatch into the frame captured at `kick-tick!` (the
-        ;; surrounding instance frame at the time the overlay armed the
-        ;; clock), not a `{:frame :rf/xray}` literal.
-        (rf/dispatch [:rf.xray/timer-tick now]
-                     {:frame frame})
-        (swap! tick-state assoc :last-now-ms now))
-      (if (rings-h/needs-ticking? timers scrub)
-        (raf! tick-loop!)
-        (swap! tick-state assoc :running? false)))
+    (if-not (:mounted? @tick-state)
+      ;; rf2-e64drj — the overlay unmounted (e.g. the user switched L3 tab).
+      ;; Stop the loop with NO dispatch + NO reschedule even while an :after
+      ;; timer stays armed + the scrubber sits at :present, so the loop can
+      ;; never outlive its panel. A remount re-arms via `kick-tick!`.
+      (swap! tick-state assoc :running? false)
+      (let [frame    (:frame @tick-state)
+            timers   @(rf/subscribe [:rf.xray/active-timers-for-focused-machine]
+                                    {:frame frame})
+            scrub    @(rf/subscribe [:rf.xray/machine-scrubber-position]
+                                    {:frame frame})
+            now      (now-ms)
+            last-now (:last-now-ms @tick-state)
+            due?     (or (zero? *tick-min-delta-ms*)
+                         (>= (- now last-now) *tick-min-delta-ms*))]
+        (when due?
+          ;; rf2-nesy9 — the rAF tick loop runs outside the render scope;
+          ;; dispatch into the frame captured at `kick-tick!` (the
+          ;; surrounding instance frame at the time the overlay armed the
+          ;; clock), not a `{:frame :rf/xray}` literal.
+          (rf/dispatch [:rf.xray/timer-tick now]
+                       {:frame frame})
+          (swap! tick-state assoc :last-now-ms now))
+        ;; Re-schedule only while STILL mounted AND still data-warranted.
+        (if (and (:mounted? @tick-state) (rings-h/needs-ticking? timers scrub))
+          (raf! tick-loop!)
+          (swap! tick-state assoc :running? false))))
     (catch :default _e
       ;; Defensive: a frame error must not strand the loop in
       ;; `:running? true` (would block future kicks).
@@ -290,24 +320,43 @@
   callers (the rings overlay component, mounted per render) call this
   on every render; the `:running?` sentinel prevents duplicate loops.
 
+  rf2-e64drj — `kick-tick!` is only ever called from the MOUNTED overlay's
+  active render, so it stamps `:mounted? true` (the overlay is live). This
+  also closes the boot race: on the first render the `overlay-ref!` callback
+  fires only after React commits, so `:mounted? true` is set here BEFORE the
+  first off-render `tick-loop!` iteration runs. The `overlay-ref!` callback
+  clears `:mounted?` on unmount.
+
   `frame` (rf2-nesy9) is the surrounding instance frame the overlay
   reg-view captured at render; stashed so the off-render tick dispatch
   lands on it. Defaults to `defaults/default-frame-id` for the test
   seam / direct callers."
   ([] (kick-tick! defaults/default-frame-id))
   ([frame]
-   ;; Record the captured frame before arming so `tick-loop!` reads it.
-   (swap! tick-state assoc :frame frame)
+   ;; Record the captured frame + live liveness before arming so `tick-loop!`
+   ;; reads them (rf2-e64drj: a render IS a mount signal).
+   (swap! tick-state assoc :frame frame :mounted? true)
    (when (compare-and-set!
            tick-state
            (assoc @tick-state :running? false)
            (assoc @tick-state :running? true))
      (raf! tick-loop!))))
 
+(defn- overlay-ref!
+  "React ref callback owning the overlay's `:mounted?` liveness in
+  `tick-state` (rf2-e64drj). React invokes it with the DOM node on MOUNT and
+  `nil` on UNMOUNT. A stable top-level fn identity means React calls it ONLY on
+  mount / unmount (never on a re-render), so it is a clean lifecycle signal.
+  Clearing `:mounted?` on unmount is what lets `tick-loop!` stop the rAF loop
+  within one frame even while an `:after` timer stays armed — the loop can
+  never outlive the panel."
+  [el]
+  (swap! tick-state assoc :mounted? (some? el)))
+
 (defn stop-tick!
   "Force-stop the rAF tick loop. Tests use this to reset between
   fixtures; production code never calls this directly (the loop
-  self-gates on `needs-ticking?`)."
+  self-gates on `needs-ticking?` + the overlay's `:mounted?` liveness)."
   []
   (swap! tick-state assoc :running? false))
 
@@ -417,6 +466,12 @@
                  timers chart-layout/highlight-id now)]
     (when (seq specs)
       [:div {:data-rf-xray-after-rings-host ""
+             ;; rf2-e64drj — the React ref that clears `:mounted?` on unmount
+             ;; so the off-render rAF tick loop stops when this overlay leaves
+             ;; the screen (switch away from the Machine Inspector) even while
+             ;; an `:after` timer stays armed. Stable fn identity ⇒ React fires
+             ;; it only on mount (node) / unmount (nil), never per re-render.
+             :ref overlay-ref!
              :style {:display "contents"}}
        [mv-after-rings/AfterRingsOverlay
         {:ring-specs specs

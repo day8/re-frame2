@@ -95,6 +95,9 @@
             :delay-source :literal
             :epoch epoch}}))
 
+(defn- pin-now-ms! [ms]
+  (rf/dispatch-sync [:rf.xray/set-now-ms-override-for-test ms]))
+
 ;; ---- rf2-nms77h — off-render tick-loop! dispatches with no ambient frame --
 
 (deftest tick-loop-runs-off-render-without-ambient-frame-context
@@ -129,3 +132,53 @@
                       (str "tick-loop! never dispatched :rf.xray/timer-tick "
                            "onto :rf/xray — " (.-message e)))
                   (done))))))
+
+;; ---- rf2-e64drj — the rAF loop is MOUNT-gated, not only DATA-gated --------
+;;
+;; Pre-fix `tick-loop!` re-scheduled itself whenever `needs-ticking?` was true
+;; (an armed `:after` timer + a `:present` scrubber), regardless of whether the
+;; `AfterRingsOverlay` was still mounted — so switching to another L3 tab left
+;; the loop dispatching `:rf.xray/timer-tick` ~60×/s in the background,
+;; outliving its panel. The overlay now owns a `:mounted?` liveness flag
+;; (`kick-tick!` sets it, the `overlay-ref!` React ref callback clears it on
+;; unmount); `tick-loop!` requires it before dispatching / re-scheduling.
+
+(deftest tick-loop-mount-gate-stops-loop-after-unmount
+  ;; Stub `js/requestAnimationFrame` to a no-op capture so a reschedule is a
+  ;; deterministic drop (no async next-tick racing the synchronous
+  ;; assertions); we assert on `tick-state`, not the real rAF queue.
+  (let [had? (exists? js/requestAnimationFrame)
+        orig (when had? js/requestAnimationFrame)
+        ts   @#'day8.re-frame2-xray.panels.machine-after-rings/tick-state]
+    (set! js/requestAnimationFrame (fn [_f] 0))
+    (try
+      (rf/with-frame :rf/xray
+        (override-machines!    [:auth/login])
+        (override-definitions! {:auth/login fixture-definition})
+        (pin-now-ms! 2000)                          ; now (2000) < fires-at (6000) ⇒ armed
+        (push-scheduled! 1000 :auth/login :idle 5000 0)
+        (rf/dispatch-sync [:rf.xray/set-scrubber-position :present])
+        ;; the mounted overlay's render arms the loop.
+        (after-rings/kick-tick! :rf/xray))
+      (is (true? (:running? @ts)) "sanity: kick-tick! armed the loop")
+      (is (true? (:mounted? @ts)) "sanity: kick-tick! stamped the overlay live")
+      ;; `needs-ticking?` is TRUE here (armed timer + :present scrubber), so
+      ;; PRE-FIX `tick-loop!` would re-arm regardless of mount. Simulate the
+      ;; overlay UNMOUNTING — React fires the ref with nil.
+      (#'day8.re-frame2-xray.panels.machine-after-rings/overlay-ref! nil)
+      (is (false? (:mounted? @ts)) "the ref-callback recorded the unmount")
+      (#'day8.re-frame2-xray.panels.machine-after-rings/tick-loop!)
+      (is (false? (:running? @ts))
+          "rf2-e64drj: unmounting AfterRingsOverlay stops the rAF loop within
+           one frame even though the :after timer is still armed + the scrubber
+           sits at :present (pre-fix the data-gated loop kept re-arming)")
+      (is (nil? (:rings/now-ms (frame/frame-app-db-value :rf/xray)))
+          "the unmounted iteration dispatched NO :rf.xray/timer-tick")
+      ;; A remount (the overlay's next render) re-arms the loop.
+      (rf/with-frame :rf/xray (after-rings/kick-tick! :rf/xray))
+      (is (true? (:mounted? @ts)) "remount re-stamps the overlay live")
+      (is (true? (:running? @ts)) "remount re-arms the loop via kick-tick!")
+      (finally
+        (set! js/requestAnimationFrame (if had? orig js/undefined))
+        (after-rings/stop-tick!)
+        (swap! ts assoc :mounted? false)))))
