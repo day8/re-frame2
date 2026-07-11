@@ -230,11 +230,34 @@
       (is (= 1 (aget out "a")) "key a flows through")
       (is (= 2 (aget out "b")) "key b flows through"))))
 
-(deftest convert-prop-value-1-arg-form-stringifies-named
-  (testing "1-arg form (nested map values) stringifies named values"
-    ;; Used recursively for map values where there's no outer prop-
-    ;; name context (CSS values etc.). Per the impl docstring.
-    (is (= "pointer" (template/convert-prop-value :pointer)))))
+(deftest nested-style-keyword-value-stringifies-on-live-path-rf2-fdm4rm
+  (testing "rf2-fdm4rm: a nested style-map keyword value reaches React as
+            a STRING on the LIVE path (props.style.cursor === \"pointer\"),
+            matching stock Reagent + the SSR serializer — not a raw CLJS
+            keyword. This exercises the real nested-map path through
+            as-element, the path production renders actually take. (The
+            old 1-arg-direct test was VACUOUS: no nested-map render reaches
+            the 1-arg form directly — kv-conv did, but routed values through
+            the 2-arg interop form, leaving the keyword un-stringified.)"
+    (let [^js el (template/as-element [:div {:style {:cursor :pointer}}])
+          style  (-> el .-props .-style)]
+      (is (= "div" (.-type el)))
+      (is (string? (.-cursor style))
+          "nested keyword style value is a JS string, not a raw CLJS keyword")
+      (is (= "pointer" (.-cursor style))
+          "keyword style value stringified to \"pointer\""))
+    ;; A multi-property style map: keyword + keyword + string values all
+    ;; convert, and the camelCase key transform is preserved for each key.
+    (let [^js el (template/as-element
+                   [:div {:style {:display          :flex
+                                  :text-align       :center
+                                  :background-color "red"}}])
+          style  (-> el .-props .-style)]
+      (is (= "flex" (.-display style)) "keyword value :flex → \"flex\"")
+      (is (= "center" (.-textAlign style))
+          "camelCased key :text-align → textAlign, keyword value stringified")
+      (is (= "red" (.-backgroundColor style))
+          "string value passes through under the camelCased key"))))
 
 ;; ---------------------------------------------------------------------------
 ;; warn-once-keyword-prop! — one-shot DEBUG warning contract
