@@ -91,7 +91,8 @@
           "well-typed value triggers no validation-failure trace"))))
 
 (deftest dispatch-fires-app-db-validation
-  (testing "live dispatch through the runtime triggers app-db validation post-:db commit"
+  (testing "live dispatch through the runtime validates the candidate :db
+            before install (rf2-uhk9ko)"
     (rf/reg-app-schema [:n] [:int])
     (rf/reg-event :n/init (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :n/break (fn [{:keys [db]} _] {:db (assoc db :n "boom")}))
@@ -102,19 +103,23 @@
                                    (:operation %))
                                @traces)]
         (is (= 1 (count violations))
-            "the malformed :n/break commit fires exactly one schema trace")
+            "the malformed :n/break candidate fires exactly one schema trace")
         (is (= :n/break (-> violations first :tags :failing-id))
-            ":failing-id names the handler whose commit prompted the failure")
+            ":failing-id names the handler whose candidate prompted the failure")
         (is (true? (-> violations first :tags :rollback?))
-            "Per rf2-wkxng / rf2-6m0se the trace carries :rollback? true")))))
+            "the trace carries :rollback? true — the public
+             transaction-REJECTED vocabulary (rf2-uhk9ko)")))))
 
-;; ---- rf2-wkxng / rf2-6m0se — app-db rollback on schema-validation failure --
+;; ---- rf2-uhk9ko — candidate rejection on schema-validation failure --------
+;; (formerly rf2-wkxng / rf2-6m0se install-then-rollback; the observable
+;; post-condition — app-db keeps its pre-event value, :fx skipped — is
+;; unchanged, but the container is now never written at all)
 
-(deftest app-db-rollback-restores-pre-handler-value-on-failure
-  (testing "Per Spec 010 §Per-step recovery row 4 (rf2-wkxng / rf2-6m0se):
-            a post-handler app-db schema-validation failure rolls back
-            :db to the pre-handler value. The dispatch is treated as
-            failed; the bad commit does NOT stand."
+(deftest app-db-rejection-keeps-pre-handler-value-on-failure
+  (testing "Per Spec 010 §Per-step recovery row 4 (rf2-uhk9ko): an app-db
+            schema-validation failure REJECTS the candidate before install
+            — app-db keeps its pre-handler value. The dispatch is treated
+            as failed; the bad candidate never stands."
     (rf/reg-app-schema [:n] [:int])
     (rf/reg-event :n/init  (fn [{:keys [db]} _]  {:db {:n 0}}))
     (rf/reg-event :n/ok    (fn [{:keys [db]} _] {:db (assoc db :n 42)}))
@@ -127,35 +132,35 @@
         "well-typed commit is durable")
     (rf/dispatch-sync [:n/break])
     (is (= {:n 42} (rf/app-db-value (rf/current-frame-id)))
-        "malformed commit was ROLLED BACK to the pre-handler value
-         (was {:n 42} before :n/break; would be {:n \"boom\"} without
-         rollback)")))
+        "malformed candidate was REJECTED pre-install — app-db keeps the
+         pre-handler value (was {:n 42} before :n/break; would be
+         {:n \"boom\"} without the candidate validation)")))
 
-(deftest app-db-rollback-skips-fx-on-failure
-  (testing "Per rf2-wkxng / rf2-6m0se: on rollback the dispatch is
-            'treated as failed' — :fx does NOT walk. Sibling fx that
-            would have fired do not run."
+(deftest app-db-rejection-skips-fx-on-failure
+  (testing "Per rf2-uhk9ko: on rejection the dispatch is 'treated as
+            failed' — :fx does NOT walk. Sibling fx that would have
+            fired do not run."
     (let [fx-calls (atom [])]
       (rf/reg-fx :test/note (fn [v] (swap! fx-calls conj v)))
       (rf/reg-app-schema [:n] [:int])
       (rf/reg-event :n/init
         (fn [_ _] {:db {:n 0}}))
       (rf/reg-event :n/break-with-fx
-        (fn [_ _] {:db {:n "boom"}    ;; bad commit
+        (fn [_ _] {:db {:n "boom"}    ;; bad candidate
                    :fx [[:test/note :should-not-fire]]}))
       (rf/dispatch-sync [:n/init])
       (rf/dispatch-sync [:n/break-with-fx])
       (is (= {:n 0} (rf/app-db-value (rf/current-frame-id)))
-          "db rolled back")
+          "the rejected candidate never installed")
       (is (empty? @fx-calls)
           "sibling fx did not walk — dispatch treated as failed"))))
 
-(deftest app-db-rollback-emits-second-db-changed-with-phase-rollback
-  (testing "Per rf2-wkxng / rf2-6m0se: rollback emits a second
-            :rf.event/db-changed trace stamped :phase :rollback so
-            listeners observe the restored state without ambiguity.
-            Trace ordering: forward db-changed → schema-failure error
-            → rollback db-changed."
+(deftest app-db-rejection-emits-no-db-changed
+  (testing "Per rf2-uhk9ko (Option B — validate before install): a rejected
+            candidate emits NO :rf.event/db-changed at all — the trace
+            signature is EXACTLY one :rf.error/schema-validation-failure.
+            (Supersedes the retired commit-then-rollback pair: forward
+            db-changed → failure → :phase :rollback db-changed.)"
     (rf/reg-app-schema [:n] [:int])
     (rf/reg-event :n/init  (fn [{:keys [db]} _]  {:db {:n 0}}))
     (rf/reg-event :n/break (fn [{:keys [db]} _] {:db (assoc db :n "boom")}))
@@ -175,19 +180,17 @@
       (reset! events [])
       (rf/dispatch-sync [:n/break])
       (rf/unregister-listener! :trace ::ord)
-      ;; Three emissions in this exact order: forward commit (no phase),
-      ;; schema-failure error (no phase slot), rollback commit (phase
-      ;; :rollback).
-      (is (= [[:rf.event/db-changed                     nil]
-              [:rf.error/schema-validation-failure   nil]
-              [:rf.event/db-changed                     :rollback]]
+      ;; ONE emission: the schema-failure diagnostic. No forward commit
+      ;; trace (the candidate never installed), no rollback re-emit.
+      (is (= [[:rf.error/schema-validation-failure nil]]
              @events)
-          "trace ordering: forward commit → schema-failure → rollback commit"))))
+          "rejection signature: exactly one schema-failure trace, zero
+           db-changed emissions"))))
 
 (deftest validate-app-schema-returns-boolean
-  (testing "Per rf2-wkxng / rf2-6m0se: validate-app-schema! returns true on
-            conform (or no schemas / no validator), false on any
-            failure. The router consumes this to decide rollback."
+  (testing "validate-app-schema! returns true on conform (or no schemas /
+            no validator), false on any failure. The router consumes this
+            to decide candidate rejection (rf2-uhk9ko)."
     (rf/reg-app-schema [:n] [:int])
     (with-redefs [interop/debug-enabled? true]
       (is (true?  (schemas/validate-app-schema! {:n 42}))

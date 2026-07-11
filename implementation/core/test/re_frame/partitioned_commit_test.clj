@@ -25,25 +25,27 @@
        `replace-frame-state!` family into this ONE partial-map surface) is
        a real partition write (the bead-3 :not-yet-implemented throws are
        gone).
-    8. Atomicity: an app-db schema rollback unwinds the WHOLE transition
-       (both partitions) — preserving the pre-commit-transactional /
-       post-commit-best-effort fx asymmetry (Mike-ruled, unchanged)."
+    8. Atomicity (rf2-uhk9ko): an app-db schema rejection discards the
+       WHOLE candidate transition (both partitions) BEFORE install —
+       preserving the pre-commit-transactional / post-commit-best-effort
+       fx asymmetry (Mike-ruled, unchanged)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as elision]
-            ;; Load the flows artefact so the rollback-survivor tests below can
-            ;; register REAL `reg-flow` outputs (which install `:source :flow`
-            ;; elision marks at registration time) and exercise the
-            ;; source-aware rollback restore (rf2-5lo1fk / rf2-o6rsi2 /
-            ;; rf2-yzsims). Requiring it publishes the `:flows/*` late-bind
-            ;; hooks the drain + rollback paths consult.
+            ;; Load the flows artefact so the rejection-survivor tests below
+            ;; can register REAL `reg-flow` outputs (which install
+            ;; `:source :flow` elision marks at registration time) and
+            ;; exercise the classification × schema-rejection contract
+            ;; (rf2-uhk9ko; formerly the source-aware rollback restore).
+            ;; Requiring it publishes the `:flows/*` late-bind hooks the
+            ;; drain consults.
             [re-frame.flows]
             [re-frame.frame :as frame]
             [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
             ;; Load the schemas artefact so the
             ;; `:schemas/validate-app-schema!` late-bind hook is published —
-            ;; the post-commit schema-rollback tests below guard on it and are
+            ;; the schema-rejection tests below guard on it and are
             ;; otherwise skipped when this ns runs in isolation (`-n`).
             [re-frame.schemas]
             [re-frame.substrate.adapter :as adapter]
@@ -369,11 +371,12 @@
         "an unknown frame returns nil")))
 
 ;; ===========================================================================
-;; 8 — atomicity: app-db schema rollback unwinds the whole transition
+;; 8 — atomicity: app-db schema rejection discards the whole candidate
 ;; ===========================================================================
 
-(deftest schema-rollback-unwinds-both-partitions
-  (testing "an app-db schema rejection rolls back BOTH partitions to the pre-handler state"
+(deftest schema-rejection-discards-both-partitions
+  (testing "an app-db schema rejection discards the WHOLE candidate before
+            install — BOTH partitions keep the pre-handler state (rf2-uhk9ko)"
     ;; Only run when the schemas artefact is on the classpath (optional).
     (when (late-bind/get-fn :schemas/validate-app-schema!)
       (rf/reg-frame :pc/rb {:doc "rb"})
@@ -390,40 +393,37 @@
            :rf.db/runtime {:rf.runtime/machines {:m :post}}}))
       (rf/dispatch-sync [:pc/bad] {:frame :pc/rb})
       (is (= {:n 0} (rf/app-db-value :pc/rb))
-          "app-db rolled back to the pre-handler value")
+          "app-db keeps the pre-handler value — the candidate never installed")
       (is (= {:rf.runtime/machines {:m :pre}} (:rf.db/runtime (rf/frame-state-value :pc/rb)))
-          "runtime-db ALSO rolled back — the whole transition unwinds coherently"))))
+          "runtime-db keeps the pre-handler value too — the whole candidate
+           (both partitions) was discarded coherently"))))
 
-;; EP-0025 SOURCE-AWARE rollback restore — rf2-5lo1fk / rf2-fwejwc /
-;; rf2-o6rsi2 / rf2-3pglag / rf2-yzsims.
+;; EP-0025 classification × schema rejection — rf2-uhk9ko (supersedes the
+;; rf2-5lo1fk / rf2-fwejwc / rf2-o6rsi2 / rf2-3pglag / rf2-yzsims
+;; SOURCE-AWARE rollback-restore overlay, deleted with the rollback arm).
 ;;
-;; The post-commit schema-rollback arm restores the per-frame elision registry
-;; SOURCE-AWARE, not by carrying the whole LIVE registry forward. Per Spec 015
-;; §84 a classification `walks back atomically with the frame on a revert`, but
-;; only the IN-BAND classification the rejected event produced:
+;; Under validate-before-install the transactional story is structural:
 ;;
 ;;   - an in-band `:source :effect` mark (a `:sensitive` / `:large`
-;;     commit-plane classification effect the rejected handler returned) MUST
-;;     UNWIND with the rejected `:db` (rf2-5lo1fk);
+;;     commit-plane classification effect the rejected handler returned)
+;;     rides the CANDIDATE runtime-db — a rejected candidate never installs,
+;;     so the mark simply never lands (the rf2-5lo1fk unwind, for free);
 ;;   - an out-of-band `:source :flow` / `:source :machine` / `:source :route`
-;;     mark — written at `reg-flow` registration time, or lowered by a subsystem
-;;     during the event — MAY legitimately SURVIVE the rollback;
-;;   - a `:source :flow` mark a mid-drain reentrant `reg-flow` output-path MOVE
-;;     dropped from the LIVE registry is RESTORED to its pre-cascade old path
-;;     (rf2-o6rsi2) — a privacy fail-open the old carry-live behaviour caused.
-;;
-;; The base is the PRE-CASCADE registry (the `[:rf.runtime/elision]` sub-tree of
-;; the chain-start `runtime-before`), overlaid with the LIVE out-of-band
-;; entries. (rf2-3pglag note: the old version of the next test FAKED a flow with
-;; a `:source :effect` write and asserted it SURVIVED — which pinned the
-;; rf2-5lo1fk bug. It is rewritten below: a real `:source :effect`
-;; classification UNWINDS; a real `:source :flow` mark SURVIVES.)
+;;     mark — written at `reg-flow` registration time, or lowered by a
+;;     subsystem directly into the LIVE registry during the event — is NOT
+;;     part of the candidate and stands untouched (the rf2-3pglag /
+;;     rf2-yzsims survivors, also for free);
+;;   - a reentrant `reg-flow` output-path MOVE during a rejected event is a
+;;     durable re-registration: its registry reconcile (old-path claim
+;;     dropped, new-path claim added) STANDS — see the move test below for
+;;     the stale-old-path-value story.
 
-(deftest schema-rollback-unwinds-in-band-effect-keeps-flow-mark
-  (testing "a post-commit schema rollback UNWINDS the rejected event's in-band
-            :source :effect classification (rf2-5lo1fk) while a real
+(deftest schema-rejection-never-installs-in-band-effect-keeps-flow-mark
+  (testing "a schema rejection discards the rejected event's in-band
+            :source :effect classification with the candidate (it never
+            installs — the rf2-5lo1fk unwind, now structural) while a real
             :source :flow mark (installed at reg-flow time, pre-existing the
-            rejected event) SURVIVES (rf2-3pglag)"
+            rejected event) stands untouched (rf2-3pglag)"
     (when (and (late-bind/get-fn :schemas/validate-app-schema!)
                (late-bind/get-fn :flows/run-flows-on-db))
       (rf/reg-frame :pc/rb-srcaware {:doc "rb-srcaware"})
@@ -445,36 +445,37 @@
         (rf/reg-app-schema [] [:map [:n [:int {:min 0}]]]))
       ;; The rejected handler returns BOTH an invalid :db AND an in-band
       ;; commit-plane :sensitive classification effect (`:source :effect`). The
-      ;; schema rejects :db → the whole transition rolls back; the in-band
-      ;; classification MUST unwind with it.
+      ;; schema rejects the candidate → NOTHING installs; the in-band
+      ;; classification never lands.
       (rf/reg-event :pc/bad-with-effect
         {:doc "schema-violating handler returning an in-band classification effect"}
         (fn [_ _]
-          {:db        {:n -5}                            ;; violates the schema → rollback
+          {:db        {:n -5}                            ;; violates the schema → reject
            :sensitive [[:another-secret]]}))             ;; in-band :source :effect mark
       (rf/dispatch-sync [:pc/bad-with-effect] {:frame :pc/rb-srcaware})
       (is (= {:n 0} (rf/app-db-value :pc/rb-srcaware))
-          "app-db rolled back to the pre-handler value (the schema rejection held)")
-      ;; rf2-5lo1fk: the in-band :source :effect classification UNWINDS with the
-      ;; rejected db (before the fix the source-blind carry-live PRESERVED it).
+          "app-db keeps the pre-handler value (the schema rejection held)")
+      ;; rf2-5lo1fk (now structural): the in-band :source :effect
+      ;; classification rode the rejected candidate and never installed.
       (is (not (contains? (elision/sensitive-declarations :pc/rb-srcaware)
                           [:another-secret]))
-          "the rejected event's in-band :source :effect classification UNWINDS on rollback (rf2-5lo1fk)")
-      ;; rf2-3pglag: the pre-existing :source :flow mark SURVIVES the rollback.
+          "the rejected event's in-band :source :effect classification never
+           installed (rf2-5lo1fk, structural under rf2-uhk9ko)")
+      ;; rf2-3pglag: the pre-existing :source :flow mark stands untouched.
       (is (= #{{:source :flow :flow-id :creds}}
              (get (elision/sensitive-declarations :pc/rb-srcaware)
                   [:derived :creds :secret]))
-          "the pre-existing :source :flow owner SURVIVES the rollback (rf2-3pglag)"))))
+          "the pre-existing :source :flow owner stands after the rejection (rf2-3pglag)"))))
 
-;; rf2-yzsims — positive rollback-survivor coverage for genuine out-of-band
-;; sources LOWERED DURING the rejected event, plus the rf2-o6rsi2 reentrant
-;; reg-flow output-path MOVE case (old-path mark restored).
+;; rf2-yzsims — positive survivor coverage for genuine out-of-band sources
+;; LOWERED DURING the rejected event, plus the reentrant reg-flow
+;; output-path MOVE case (durable re-registration).
 
-(deftest schema-rollback-keeps-subsystem-mark-lowered-during-event
+(deftest schema-rejection-keeps-subsystem-mark-lowered-during-event
   (testing "a :source :machine declaration lowered DURING the rejected event
             (the only legitimate during-event out-of-band write under the
-            post-EP-0025 model) SURVIVES the rollback while the rejected :db
-            unwinds (rf2-yzsims)"
+            post-EP-0025 model) stands after the rejection — it wrote the
+            LIVE registry directly, not the discarded candidate (rf2-yzsims)"
     (when (late-bind/get-fn :schemas/validate-app-schema!)
       (rf/reg-frame :pc/rb-subsys {:doc "rb-subsys"})
       (rf/replace-frame-state! :pc/rb-subsys {:rf.db/app {:n 0}
@@ -485,9 +486,8 @@
         (rf/reg-app-schema [] [:map [:n [:int {:min 0}]]]))
       ;; An :after interceptor models a subsystem (machine actor spawn / route
       ;; activation) lowering a declaration into the LIVE registry DURING the
-      ;; event — out-of-band (`:source :machine`), after `runtime-before` was
-      ;; captured. This is the load-bearing positive case the source-aware
-      ;; restore preserves.
+      ;; event — out-of-band (`:source :machine`). The live registry is not
+      ;; part of the discarded candidate, so the mark stands structurally.
       (rf/reg-interceptor :pc/subsystem-mark-writer
         {:after (fn [ctx]
                   (elision/swap-elision-slot! :pc/rb-subsys
@@ -500,19 +500,26 @@
         {:doc "schema-violating handler; the interceptor lowers a subsystem mark"
          :interceptors [:pc/subsystem-mark-writer]}
         (fn [_ _]
-          {:db {:n -5}}))                                ;; violates the schema → rollback
+          {:db {:n -5}}))                                ;; violates the schema → reject
       (rf/dispatch-sync [:pc/bad-subsys] {:frame :pc/rb-subsys})
       (is (= {:n 0} (rf/app-db-value :pc/rb-subsys))
-          "app-db rolled back to the pre-handler value")
+          "app-db keeps the pre-handler value")
       (is (= #{{:source :machine :machine-id :door}}
              (get (elision/sensitive-declarations :pc/rb-subsys) [:actor :token]))
-          "the during-event out-of-band :source :machine owner SURVIVES the rollback (rf2-yzsims)"))))
+          "the during-event out-of-band :source :machine owner stands after
+           the rejection (rf2-yzsims)"))))
 
-(deftest schema-rollback-restores-moved-flow-old-path-mark
+(deftest schema-rejection-keeps-flow-move-reconcile
   (testing "a reentrant reg-flow output-path MOVE inside a schema-rejected
-            event drops the OLD-path :source :flow mark from the LIVE registry;
-            the source-aware rollback RESTORES it from the pre-cascade snapshot
-            (rf2-o6rsi2) — a privacy fail-open the old carry-live caused"
+            event is a DURABLE re-registration: its live-registry reconcile
+            (old-path claim dropped, new-path claim added) stands — the move
+            is out-of-band, not part of the discarded candidate (rf2-uhk9ko;
+            supersedes the rf2-o6rsi2 old-path-mark restore, which existed
+            only because the retired rollback arm re-installed the
+            pre-handler db while the live registry had moved on; with no
+            install there is no restored-value/moved-mark divergence to
+            patch — the re-recorded abandoned-path vacation clears any stale
+            old-path VALUE on the next clean commit, per rf2-1b8yxb)"
     (when (and (late-bind/get-fn :schemas/validate-app-schema!)
                (late-bind/get-fn :flows/run-flows-on-db))
       (rf/reg-frame :pc/rb-move {:doc "rb-move"})
@@ -530,7 +537,7 @@
         (rf/reg-app-schema [] [:map [:n [:int {:min 0}]]]))
       ;; An :after interceptor MOVES the flow's output-path mid-cascade (a
       ;; reentrant reg-flow), so the LIVE registry drops the OLD-path mark and
-      ;; installs a NEW-path one — BEFORE the post-commit schema rejection.
+      ;; installs a NEW-path one — then the candidate validation rejects.
       (rf/reg-interceptor :pc/flow-mover
         {:after (fn [ctx]
                   (rf/reg-flow :mover {:frame :pc/rb-move :inputs [[:n]] :output-path [:new :creds] :sensitive [[:secret]]} (fn [n] {:secret n}))
@@ -539,51 +546,44 @@
         {:doc "schema-violating handler; the interceptor moves the flow output-path"
          :interceptors [:pc/flow-mover]}
         (fn [_ _]
-          {:db {:n -5}}))                                ;; violates the schema → rollback
+          {:db {:n -5}}))                                ;; violates the schema → reject
       (rf/dispatch-sync [:pc/bad-move] {:frame :pc/rb-move})
       (is (= {:n 0} (rf/app-db-value :pc/rb-move))
-          "app-db rolled back to the pre-handler value")
-      ;; rf2-o6rsi2: the OLD-path mark is restored from the pre-cascade snapshot
-      ;; (the live registry had dropped it; the rolled-back db still holds the
-      ;; old output value, so dropping the mark would leak it RAW).
-      (is (= #{{:source :flow :flow-id :mover}}
-             (get (elision/sensitive-declarations :pc/rb-move)
-                  [:old :creds :secret]))
-          "the dropped OLD-path :source :flow owner is RESTORED on rollback (rf2-o6rsi2)")
-      ;; The NEW-path mark — lowered out-of-band during the event — legitimately
-      ;; survives too (the flow now declares it; harmless over the rolled-back db).
+          "app-db keeps the pre-handler value")
+      ;; The move's registry reconcile is DURABLE (a re-registration is not
+      ;; part of the rejected candidate): the OLD-path claim stays dropped —
+      ;; the same posture as a reg-flow move outside any dispatch, whose
+      ;; queued abandoned-path vacation clears the old-path value next drain.
+      (is (not (contains? (elision/sensitive-declarations :pc/rb-move)
+                          [:old :creds :secret]))
+          "the OLD-path :source :flow claim stays dropped — the reentrant
+           move's reconcile is durable (out-of-band re-registration)")
+      ;; The NEW-path mark — lowered out-of-band during the event — stands
+      ;; (the flow now declares it; harmless over the retained db).
       (is (= #{{:source :flow :flow-id :mover}}
              (get (elision/sensitive-declarations :pc/rb-move)
                   [:new :creds :secret]))
-          "the NEW-path out-of-band :source :flow owner survives (during-event subsystem write)"))))
+          "the NEW-path out-of-band :source :flow owner stands (during-event
+           subsystem write)"))))
 
-;; rf2-wfy2kq (P1 DATA-CORRUPTION) — the post-commit schema rollback must
-;; restore the FULL prior app-db, not a path-focused SLICE.
+;; rf2-wfy2kq (P1 DATA-CORRUPTION, regression pin) — a schema rejection under
+;; a `[:rf.interceptor/path p]` handler must leave the FULL app-db intact.
 ;;
-;; The mechanism the corruption rode on: a `[:rf.interceptor/path p]` handler's
-;; `:before` overwrites `[:coeffects :db]` with the FOCUSED slice (the handler
-;; sees only the slice), and its `:after` rewrites only `[:effects :db]` — it
-;; NEVER restores `[:coeffects :db]`. The old rollback read `db-before` from
-;; `(get-in final-ctx [:coeffects :db])`, so under an idiomatic path handler
-;; `db-before` was the SLICE. On a post-commit schema rejection the rollback
-;; then installed that slice as the WHOLE app-db, DESTROYING every key outside
-;; `p`. The existing rollback tests above don't catch it because they use no
-;; path interceptor, so `[:coeffects :db]` coincidentally equals the full db.
-;;
-;; This test exercises the REAL corruption path: a handler focused on `[:slice]`
-;; with sibling state (`:keep`) living OUTSIDE the path, a root-path app schema
-;; that rejects the spliced-back full db, and an assertion that the rollback
-;; restored the WHOLE prior app-db — `:keep` MUST survive.
-;;
-;; Before the fix (`db-before` from `[:coeffects :db]`):
-;;   rollback installs `{:n 0}` (the slice) as the whole app-db → `:keep` gone.
-;; After the fix (`db-before` from `frame/*run-frame-state-before*`'s app
-;; partition):
-;;   rollback installs `{:keep :must-survive :slice {:n 0}}` (the full db).
-(deftest schema-rollback-restores-full-app-db-not-path-slice
-  (testing "a post-commit schema rollback under a [:rf.interceptor/path …]
-            handler restores the FULL prior app-db, NOT the path slice — every
-            key outside the focused path survives (rf2-wfy2kq)"
+;; History: the retired install-then-rollback arm read its restore target
+;; `db-before` from `[:coeffects :db]`, which a path interceptor's `:before`
+;; overwrites with the FOCUSED slice — so a rejection under a path handler
+;; restored the SLICE as the whole app-db, destroying every key outside `p`.
+;; rf2-wfy2kq fixed the restore source; rf2-uhk9ko then made the whole
+;; corruption class STRUCTURAL: a rejected candidate never installs, so
+;; there is no restore write to get wrong — the container simply keeps the
+;; full pre-handler value. This test keeps the corruption path exercised
+;; (path-focused handler + sibling canary + root-schema rejection) so a
+;; future regression that reintroduces ANY rejection-path write is caught.
+(deftest schema-rejection-preserves-full-app-db-under-path-interceptor
+  (testing "a schema rejection under a [:rf.interceptor/path …] handler
+            leaves the FULL prior app-db intact — every key outside the
+            focused path survives (rf2-wfy2kq pin; structural under
+            rf2-uhk9ko's validate-before-install)"
     (when (late-bind/get-fn :schemas/validate-app-schema!)
       (rf/reg-frame :pc/rb-path {:doc "rb-path"})
       ;; Seed a coherent pre-handler app-db with state BOTH inside AND OUTSIDE
@@ -596,7 +596,7 @@
       ;; Root-path app schema: demands :keep stay present AND :slice.n a
       ;; non-negative int. The path handler's bad write makes :slice.n -5; the
       ;; path :after splices that back into the FULL db, so the schema (which
-      ;; validates the full committed app-db) rejects it → post-commit rollback.
+      ;; validates the full CANDIDATE app-db) rejects it → candidate discarded.
       (rf/with-frame :pc/rb-path
         (rf/reg-app-schema [] [:map
                                [:keep  :keyword]
@@ -605,7 +605,7 @@
       ;; returns `{:n -5}`. This is the idiomatic interceptor that triggers the
       ;; corruption — its `:before` overwrites [:coeffects :db] with the slice.
       (rf/reg-event :pc/path-bad
-        {:doc          "path-focused schema-violating handler → rollback"
+        {:doc          "path-focused schema-violating handler → rejection"
          :interceptors [[:rf.interceptor/path [:slice]]]}
         (fn [{:keys [db]} _]
           ;; precondition (inside the chain): the handler sees the SLICE only.
@@ -613,14 +613,14 @@
               "the path handler is focused on the [:slice] sub-db")
           {:db {:n -5}}))                                ;; violates the schema
       (rf/dispatch-sync [:pc/path-bad] {:frame :pc/rb-path})
-      ;; THE REGRESSION ASSERTION: the rollback restored the FULL prior app-db,
-      ;; not the path slice. Before the fix this was `{:n 0}` (the slice clobbered
-      ;; the whole partition) and `:keep` was destroyed.
+      ;; THE REGRESSION ASSERTION: the FULL prior app-db is intact — no
+      ;; rejection-path write occurred, so the path slice can no longer
+      ;; clobber the whole partition (the historical rf2-wfy2kq corruption).
       (is (= {:keep :must-survive :slice {:n 0}}
              (rf/app-db-value :pc/rb-path))
-          "the FULL prior app-db is restored on rollback — sibling state outside
-           the focused path SURVIVES (NOT corrupted to the path slice)")
+          "the FULL prior app-db is intact after the rejection — sibling
+           state outside the focused path SURVIVES")
       (is (= :must-survive (:keep (rf/app-db-value :pc/rb-path)))
-          "the out-of-path canary key SURVIVED the schema-rollback")
+          "the out-of-path canary key SURVIVED the schema rejection")
       (is (= {:rf.runtime/machines {:m :pre}} (:rf.db/runtime (rf/frame-state-value :pc/rb-path)))
-          "runtime-db ALSO rolled back coherently — the whole transition unwinds"))))
+          "runtime-db is intact too — the whole candidate was discarded"))))

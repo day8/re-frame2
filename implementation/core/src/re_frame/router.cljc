@@ -430,7 +430,7 @@
   a machines-free build the cached miss falls straight through.
 
   Sticky-resolver try/catch (mirrors `validate-event!` /
-  `run-post-commit-validation!`): a throw from the resolver must not abort
+  `run-candidate-validation!`'s hook isolation): a throw from the resolver must not abort
   the drain — it degrades to nil (the genuine no-such-handler), never
   propagates."
   [event frame]
@@ -1001,84 +1001,91 @@
     (error-emit/emit-error-both!
       operation emit-event event-id frame exception elapsed-ms end-ms tags)))
 
-(defn- run-post-commit-validation!
-  "Per Spec 010 §Per-step recovery row 4: validate
-  app-db against registered schemas after each commit. Returns the
-  validator's boolean conjunction — true when every registered schema
-  for the frame conformed (or the schemas artefact isn't loaded / no
-  validator is installed); false when at least one schema failed.
+(defn- run-candidate-validation!
+  "Per Spec 010 §Per-step recovery row 4 (rf2-uhk9ko, Mike-ruled Option
+  B): validate the COMPLETE CANDIDATE frame transition BEFORE it is
+  installed. `db-after` / `runtime-db-after` are the candidate partition
+  values `commit-frame-effects!` computed — the container has NOT been
+  written when this runs. Returns the validators' boolean conjunction —
+  true when every registered schema for the frame conformed (or the
+  schemas artefact isn't loaded / no validator is installed); false when
+  at least one entry failed, in which case the caller REJECTS the
+  candidate (never calls `commit-frame-transition!`).
 
   Failures emit :rf.error/schema-validation-failure (one per failing
-  entry) with `:rollback? true` and `:recovery :no-recovery` stamped
-  in the tag — the caller restores the pre-handler app-db on a false
-  return.
+  entry) with `:rollback? true` and `:recovery :no-recovery` stamped in
+  the tag. `:rollback? true` is the public transaction-REJECTED
+  vocabulary (the deterministic post-condition — app-db keeps its
+  pre-event value); it does not imply a physical write-pair.
 
   Per Spec 010 §Per-frame schemas the validation walks the schemas
   registered against THIS dispatch's frame only — sibling frames'
-  schemas don't fire here.
+  schemas don't fire here. One registry snapshot per candidate:
+  `validate-app-schema!` derefs the per-frame schema registry exactly
+  once, under the frame's drain (the single-drainer invariant), so a
+  concurrent re-registration can never produce a mixed-generation
+  validation (pinned by the JVM registry-generation race test).
 
-  Per Spec 010 §Per-step recovery row 7: AND-conjoins the
-  app-db validator with `:machines/validate-machine-data!` (the
-  `:where :machine-data` boundary). The machine walker iterates
-  `[:rf.runtime/machines :snapshots]` in the new RUNTIME-DB value (EP-0001
-  — machine snapshots are durable runtime-db state) and validates
-  each snapshot's `:data` against the registered machine's `:data-schema`.
+  Per Spec 010 §Per-step recovery row 7: AND-conjoins the app-db
+  validator with `:machines/validate-machine-data!` (the `:where
+  :machine-data` boundary). The machine walker iterates
+  `[:rf.runtime/machines :snapshots]` in the CANDIDATE runtime-db value
+  (EP-0001 — machine snapshots are durable runtime-db state) and
+  validates each snapshot's `:data` against the registered machine's
+  `[:schemas :data]` schema.
 
-  EP-0001: each validator runs against its OWN partition's new
-  value — app-db schema validation on `db-after`, machine-data validation on
-  `runtime-db-after` — and only when that partition was actually written this
-  commit (`app-effect?` / `rt-effect?`). The conjunction means a `false` from
-  either rolls back the WHOLE transition; a runtime-only machine commit still
-  gets its `:data-schema` boundary, and an app-only commit no longer pays for
-  a machine-data walk over a runtime-db that did not change.
+  EP-0001: each validator runs against its OWN partition's candidate
+  value — app-db schema validation on `db-after`, machine-data
+  validation on `runtime-db-after` — and only when that partition is
+  actually written by this transition (`app-effect?` / `rt-effect?`).
+  ALL touched partitions validate CONJOINED with no first-failure
+  short-circuit (both `let` arms always run): every violation surfaces
+  its own trace, and a `false` from either rejects the WHOLE candidate.
+  A runtime-only machine commit still gets its `[:schemas :data]`
+  boundary, and an app-only commit never pays for a machine-data walk
+  over a runtime-db it does not touch.
 
-  Defensive truth-coercion: a host-thrown validator (e.g. a buggy
-  user-supplied :schemas/set-schema-validator! fn) is caught and
-  treated as `true` (no rollback) — the validator is failing on
-  itself, not on a user schema, and a hard abort here would mask the
-  actual app-db state from the rest of the cascade. Real schema
-  failures route through the in-band false return.
-
-  The swallowed throw is never silent: the catch
-  emits a `:rf.error/malformed-schema` trace before coercing to `true`,
-  so a thrown validator is always observable (coercing to `true` without a
-  trace would install an unvalidated commit — a fail-OPEN bypass). A
-  MALFORMED REGISTERED SCHEMA (childless `[:vector]`, unknown op) does not
-  reach this catch at all — `validate-app-schema!` isolates that throw
-  per-entry, surfaces its own `:rf.error/malformed-schema`
-  trace, fails CLOSED (in-band `false` → rollback), and keeps validating
-  the frame's sibling schemas. So a throw THAT REACHES THIS CATCH
-  is the validator/late-bind machinery itself failing wholesale — the
-  trace makes that visible without masking app-db from the rest of the
-  cascade."
+  Fail CLOSED on a validator-machinery throw (rf2-uhk9ko — the retired
+  treat-as-pass arm was a fail-OPEN bypass): a host-thrown validator
+  (e.g. a buggy user-supplied :schemas/set-schema-validator! fn, or the
+  late-bind machinery failing wholesale) is caught, surfaced as a
+  `:rf.error/malformed-schema` trace with `:rollback? true`, and the
+  candidate is REJECTED — a throwing validator cannot prove the
+  candidate conforms, and the pre-handler frame-state is still the live
+  container value so rejecting costs nothing. A MALFORMED REGISTERED
+  SCHEMA (childless `[:vector]`, unknown op) does not reach this catch
+  at all — `validate-app-schema!` isolates that throw per-entry,
+  surfaces its own `:rf.error/malformed-schema` trace, fails CLOSED
+  (in-band `false` → reject), and keeps validating the frame's sibling
+  schemas."
   [db-after runtime-db-after app-effect? rt-effect? event-id frame]
-  (let [emit-swallow!
-        ;; Surface a swallowed validator throw so it is never invisible.
+  (let [emit-throw-reject!
+        ;; Surface a validator-machinery throw AND reject (fail closed).
         ;; DCE-gated inside `trace/emit-error!`.
         (fn [where ex]
           (trace/emit-error!
             :rf.error/malformed-schema
             (cond-> {:where     where
                      :frame     frame
-                     :reason    (str "Post-commit validator threw and was "
-                                     "swallowed (treated as pass, no rollback): "
+                     :reason    (str "Candidate-transition validator threw; "
+                                     "the transition is REJECTED (fail "
+                                     "closed, nothing installed): "
                                      #?(:clj  (.getMessage ^Throwable ex)
                                         :cljs (ex-message ex)))
-                     :rollback? false
+                     :rollback? true
                      :recovery  :no-recovery}
               event-id (assoc :failing-id event-id))))
         run-partition-validator!
         ;; The per-partition validator arm template. Runs the
-        ;; late-bound `hook-key` validator against the partition's new value
-        ;; ONLY when `effect?` (that partition was written this commit) AND the
-        ;; hook is installed; otherwise → true (an absent validator / unwritten
-        ;; partition is a pass). Resolves the hook ONCE.
-        ;; nil-coerce: a nil return is success (don't roll back) so a host
-        ;; returning nil on a clean validate keeps working. A host-thrown
-        ;; validator is caught, surfaced via `emit-swallow!`, and treated as
-        ;; `true` (the validator is failing on itself, not on a user schema; a
-        ;; hard abort here would mask the partition's state from the rest of the
-        ;; cascade — real schema failures route through the in-band false).
+        ;; late-bound `hook-key` validator against the partition's CANDIDATE
+        ;; value ONLY when `effect?` (that partition is written by this
+        ;; transition) AND the hook is installed; otherwise → true (an absent
+        ;; validator / untouched partition is a pass). Resolves the hook ONCE.
+        ;; nil-coerce: a nil return is success so a host returning nil on a
+        ;; clean validate keeps working. A host-thrown validator is caught,
+        ;; surfaced via `emit-throw-reject!`, and the candidate is REJECTED
+        ;; (fail closed — real schema failures route through the in-band
+        ;; false; a machinery throw cannot prove conformance either).
         (fn [effect? hook-key partition-value where]
           (if effect?
             (if-let [validate (late-bind/get-fn-cached hook-key)]
@@ -1086,28 +1093,30 @@
                 (let [result (validate partition-value event-id frame)]
                   (if (nil? result) true result))
                 (catch #?(:clj Throwable :cljs :default) ex
-                  (emit-swallow! where ex)
-                  true))
+                  (emit-throw-reject! where ex)
+                  false))
               true)
             true))
         ;; App-db schema validation runs only when a `:db` effect produced a
-        ;; new app-db (app schemas validate app-db only — Mike ruling #11).
-        ;; Sticky hook — fires per-dispatch.
+        ;; candidate app-db (app schemas validate app-db only — Mike ruling
+        ;; #11). Sticky hook — fires per-dispatch.
         app-ok?
         (run-partition-validator! app-effect? :schemas/validate-app-schema!
                                   db-after :app-db)
         ;; The machine-data boundary (Spec 005 §Schema
         ;; validation). EP-0001: machine snapshots are durable
-        ;; runtime-db state, so this validates the new RUNTIME-DB value and
-        ;; runs only when a `:rf.db/runtime` effect landed this commit. The
-        ;; hook is absent when the machines artefact isn't on the classpath;
-        ;; absent → true (no machines means no machine-data to validate).
+        ;; runtime-db state, so this validates the CANDIDATE runtime-db value
+        ;; and runs only when a `:rf.db/runtime` effect rides this transition.
+        ;; The hook is absent when the machines artefact isn't on the
+        ;; classpath; absent → true (no machines means no machine-data to
+        ;; validate).
         machines-ok?
         (run-partition-validator! rt-effect? :machines/validate-machine-data!
                                   runtime-db-after :machine-data)]
-    ;; Both must conform for the cascade to keep its commit; the per-
-    ;; failure traces have already been emitted independently so the
-    ;; operator sees every violation, not just the first.
+    ;; Both must conform for the candidate to install; the per-failure
+    ;; traces have already been emitted independently so the operator sees
+    ;; every violation, not just the first (no first-failure short-circuit
+    ;; — both arms above always evaluate).
     (and app-ok? machines-ok?)))
 
 (defn- emit-frame-state-changed!
@@ -1119,38 +1128,34 @@
   `:rf.event/partitions` mapped to the tooling-facing tag set
   `#{:app-db :runtime-db}`. Fires only when at least one partition
   changed. Dev-only — `trace/emit!` is internally gated on
-  `interop/debug-enabled?`, and the `phase` keyword is carried through for
-  the rollback re-emit."
-  ([event-id emit-event frame changed]
-   (emit-frame-state-changed! event-id emit-event frame changed nil))
-  ([event-id emit-event frame changed phase]
-   (when (seq changed)
-     (let [tags (cond-> #{}
-                  (contains? changed frame/app-partition-key)     (conj :app-db)
-                  (contains? changed frame/runtime-partition-key) (conj :runtime-db))]
-       (trace/emit! :rf.event :rf.event/frame-state-changed
-                    (cond-> {:rf.trace/event-id     event-id
-                             :rf.event/v            emit-event
-                             :frame                 frame
-                             :rf.event/partitions   tags}
-                      phase (assoc :rf.trace/phase phase)))))))
+  `interop/debug-enabled?`. Phase-less: this fires only for the single
+  forward commit (rf2-uhk9ko removed the `:phase :rollback` re-emit —
+  a rejected candidate never commits, so there is nothing to re-emit)."
+  [event-id emit-event frame changed]
+  (when (seq changed)
+    (let [tags (cond-> #{}
+                 (contains? changed frame/app-partition-key)     (conj :app-db)
+                 (contains? changed frame/runtime-partition-key) (conj :runtime-db))]
+      (trace/emit! :rf.event :rf.event/frame-state-changed
+                   {:rf.trace/event-id     event-id
+                    :rf.event/v            emit-event
+                    :frame                 frame
+                    :rf.event/partitions   tags}))))
 
 (defn- emit-db-event!
   "Emit an APP-DB-partition `:rf.event` change trace (`:rf.event/db-changed`
   or `:rf.event/db-noop`) carrying the standard per-event attribution tag set
-  (`:rf.trace/event-id` / `:rf.event/v` / `:frame`). The optional `phase`
-  (`:rollback` on the post-rollback re-emit) is stamped when present. Sibling
-  of `emit-frame-state-changed!` for the app-db-scoped change traces, holding
-  the shared tag map in one place (the three commit-time call sites all emitted
-  the identical base map). Dev-only — `trace/emit!` is internally gated on
-  `interop/debug-enabled?`."
-  ([op event-id emit-event frame] (emit-db-event! op event-id emit-event frame nil))
-  ([op event-id emit-event frame phase]
-   (trace/emit! :rf.event op
-                (cond-> {:rf.trace/event-id event-id
-                         :rf.event/v        emit-event
-                         :frame             frame}
-                  phase (assoc :rf.trace/phase phase)))))
+  (`:rf.trace/event-id` / `:rf.event/v` / `:frame`). Sibling of
+  `emit-frame-state-changed!` for the app-db-scoped change traces, holding
+  the shared tag map in one place. Phase-less: these fire only for the
+  single forward commit (rf2-uhk9ko removed the `:phase :rollback`
+  re-emit — a rejected candidate never commits). Dev-only —
+  `trace/emit!` is internally gated on `interop/debug-enabled?`."
+  [op event-id emit-event frame]
+  (trace/emit! :rf.event op
+               {:rf.trace/event-id event-id
+                :rf.event/v        emit-event
+                :frame             frame}))
 
 (defn- restore-flow-snapshots!
   "Roll the flow dirty-check (`last-inputs`) rows and the in-drain
@@ -1163,8 +1168,10 @@
   discarded `:db` — else a fresh flow's output never re-materialises
   (`last-inputs` stuck advanced past a write that never landed, Spec 013
   §Failure semantics rule 2) and a queued vacation is lost (§clear-flow
-  cleanup). Shared by BOTH the post-commit schema rollback (below) AND the
-  in-band pre-commit aborts in `commit-and-flow!` (legacy-runtime-root /
+  cleanup). Shared by every in-band non-commit arm in `commit-and-flow!` —
+  the schema-validation candidate REJECTION (rf2-uhk9ko: the only state the
+  rejection restores is this transient flow bookkeeping; the container was
+  never written) and the pre-commit aborts (legacy-runtime-root /
   classification-effect-shape) — the boundaries `run-flows-on-db`'s own
   throw arm cannot reach. Frame-scoped and idempotent: a no-op when no flow
   ran (the snapshot keys are absent) or the flows artefact never loaded (the
@@ -1196,16 +1203,36 @@
   single physical frame-state container — there is never a window where one
   partition is committed and the other is not (Spec 006 §Commit boundary).
 
-  Returns true when the commit is durable (no partition effect, or app-db
-  schema conformed); false when post-commit app-db schema validation
-  rejected the new state and the frame-state has been **rolled back** to the
-  pre-handler value (per Spec 010 §Per-step recovery row 4). App-db schema
-  validation is APP-DB-ONLY (app schemas validate
-  the app partition, Mike ruling #11); a rejection unwinds the WHOLE
-  transition (both partitions) so the frame is left coherently at its
-  pre-handler state.
+  PREPARE → VALIDATE → INSTALL (rf2-uhk9ko, Mike-ruled Option B). The fn
+  first BUILDS the complete candidate transition — the nil-coerced
+  flow-augmented app-db, the reconciled `:rf.db/runtime` value with any
+  commit-plane classification effects applied — WITHOUT mutating the
+  container; then runs `run-candidate-validation!` over the candidate
+  partition values; and only on a full pass performs the single
+  `commit-frame-transition!` install. Validators are pure fns over
+  already-computed values, so pre-validation costs nothing on the success
+  path and the failure path performs ZERO container writes.
 
-  Change traces (per Spec 009 §Canonical per-event trace sequence):
+  Returns true when the transition installed (or there was no partition
+  effect to install); false when candidate validation REJECTED the
+  transition (per Spec 010 §Per-step recovery row 4): the candidate is
+  discarded, `commit-frame-transition!` is NEVER called, the frame-state
+  keeps its pre-handler value by construction (nothing to restore), and NO
+  change trace fires — no `:rf.event/db-changed`, no `:rf.event/db-noop`,
+  no `:rf.event/frame-state-changed`, no `:rf.trace/phase :rollback`
+  re-emit. The only rejection-path emissions are the validation
+  diagnostics themselves (`:rf.error/schema-validation-failure` /
+  `:rf.error/malformed-schema`, stamped `:rollback? true` = transaction
+  REJECTED). Synchronous observers — trace listeners, container watches,
+  substrate epoch drains, `useSyncExternalStore` subscribers — can never
+  observe the invalid candidate: it never reaches the container. App-db
+  schema validation is APP-DB-ONLY (app schemas validate the app
+  partition, Mike ruling #11); a rejection discards the WHOLE candidate
+  (both partitions, including any classification-effect registry write) so
+  the frame stays coherently at its pre-handler state.
+
+  Change traces on the SUCCESS path (per Spec 009 §Canonical per-event
+  trace sequence):
     - `:rf.event/db-changed` — APP-DB-ONLY (Mike ruling #6): fires only when
       the app-db partition changed; NEVER for a runtime-only commit;
     - `:rf.event/db-noop` — APP-DB-ONLY: fires when a `:db`
@@ -1219,39 +1246,33 @@
   A runtime-only commit emits ONLY frame-state-changed (`#{:runtime-db}`);
   an app-only commit emits both (db-changed + frame-state-changed
   `#{:app-db}`); an unchanged-db `:db` commit emits db-noop (and no
-  frame-state-changed for the app-db partition).
+  frame-state-changed for the app-db partition). Success is exactly ONE
+  commit and at most one forward `db-changed`; there is no post-commit
+  validation pass.
 
   nil-coercion: a `:db nil` effect is coerced to `{}` HERE —
-  at the `:db` effect → `:rf.db/app` partition mapping, before the commit —
-  so the partition layer never sees a nil app-db (app-db is always a map).
-  The coercion emits a dev-mode `:rf.warning/db-nil-coerced` diagnostic for
-  accidental-wipe visibility; a deliberate clear (`{:db {}}`) does not.
+  at the `:db` effect → `:rf.db/app` partition mapping, as the candidate is
+  built — so the partition layer never sees a nil app-db (app-db is always
+  a map). The coercion emits a dev-mode `:rf.warning/db-nil-coerced`
+  diagnostic for accidental-wipe visibility; a deliberate clear
+  (`{:db {}}`) does not.
 
   Per Spec 013 §Drain integration: `(:db effects)` here is the
   FLOW-AUGMENTED app-db value — the OUTERMOST flows-after-interceptor has
   already rewritten the pending `:db` effect by the time the chain returns.
-  So `:rf.event/db-changed` reflects the flow-derived db and fires AFTER
-  `:rf.flow/computed` (per Spec 009 §Canonical per-event trace sequence).
-
-  On rollback, a second `:rf.event/db-changed` (+ `frame-state-changed`) trace
-  is emitted for the restored state with `:phase :rollback` so listeners
-  (subs, 10x, pair-tools) observe the post-rollback frame-state without
-  ambiguity — the trace stream's load-bearing ordering is `:db-changed
-  (post-handler) → :rf.error/schema-validation-failure → :db-changed
-  (post-rollback)`, mirroring the depth-exceeded pattern (the error trace
-  fires AFTER the container is back at its pre-handler value).
+  So the candidate validates (and `:rf.event/db-changed` reflects) the
+  flow-derived db, and the change trace fires AFTER `:rf.flow/computed`
+  (per Spec 009 §Canonical per-event trace sequence).
 
   Schema-derived redaction is reflected in the change traces' `:tags :event`
   slot via `privacy/redacted-event-from-ctx`.
 
-  On rollback the flow dirty-check (`last-inputs`)
-  bookkeeping is rolled back in lock-step (the flow transform advanced each
-  computed flow's row inside the chain; restoring app-db without restoring
-  those rows would leave the dirty-check believing the flows are
-  up-to-date). `ctx` carries the pre-drain snapshot under
-  `:rf/flow-last-inputs-before`; the rollback arm restores it through the
-  frame-scoped `:flows/restore-last-inputs!` hook."
-  [effects event-id event frame ctx db-before runtime-before]
+  On rejection the caller (`commit-and-flow!`) restores ONLY the transient
+  flow bookkeeping (`restore-flow-snapshots!` — the flow transform advanced
+  each computed flow's dirty-check row inside the chain for a write that
+  will now never land) and reports the `:rolled-back` outcome; the durable
+  frame-state needs no restore because it was never touched."
+  [effects event-id event frame ctx]
   (let [app-effect?  (contains? effects :db)
         rt-effect?   (contains? effects :rf.db/runtime)
         ;; EP-0025: the four commit-plane classification effects
@@ -1328,12 +1349,12 @@
             ;; out-of-band marks as the reconcile / classification base. (The
             ;; whole-frame-install / deliberate-clear path is unaffected — an
             ;; effect that carries `:rf.runtime/elision` is still honoured
-            ;; verbatim.) `runtime-before` remains the rollback target below, but
-            ;; the rollback restore is SOURCE-AWARE
-            ;; (`elision/restore-elision-slot`), not a verbatim carry-live — see
-            ;; the rollback arm. Read the LIVE runtime-db whenever a runtime-db
+            ;; verbatim.) Read the LIVE runtime-db whenever a runtime-db
             ;; OR a classification effect commits — both need the freshest
-            ;; out-of-band registry as their base.
+            ;; out-of-band registry as their base. (rf2-uhk9ko: there is no
+            ;; rollback restore any more — a rejected candidate is simply
+            ;; discarded before any write, so no pre-cascade elision
+            ;; overlay is needed.)
             live-runtime-db (when (or rt-effect? class-effect?)
                               (frame/frame-runtime-db-value frame))
             ;; The reconciled runtime-db partition value (only when a
@@ -1376,119 +1397,56 @@
             ;; `new-db` is the nil-coerced value.
             partitions (cond-> {}
                          app-effect?   (assoc frame/app-partition-key     new-db)
-                         rt-partition? (assoc frame/runtime-partition-key new-runtime-db))
-            ;; ONE atomic frame-state install. Returns the set of partition
-            ;; keys that actually changed by `=`.
-            changed    (frame/commit-frame-transition! frame partitions)
-            app-changed? (contains? changed frame/app-partition-key)]
-        ;; APP-DB-ONLY db-changed (Mike ruling #6) — only when the app-db
-        ;; partition actually changed. A runtime-only commit never fires it.
-        (when app-changed?
-          (emit-db-event! :rf.event/db-changed event-id emit-event frame))
-        ;; db-noop: a `:db` effect that left app-db UNCHANGED — the
-        ;; handler returned an unchanged db (the `identical?`-noop fast-path in
-        ;; `commit-frame-transition!` skipped the write, OR a distinct-but-`=`
-        ;; value collapsed to no change). The forward commit is a genuine
-        ;; no-op for the app-db partition, so make it VISIBLE rather than
-        ;; silent: Xray can show "event returned an unchanged db; nothing
-        ;; committed." Fires only when a `:db` effect was present AND app-db did
-        ;; not change; suppressed when app-db changed (the `db-changed` signal
-        ;; covers that) and when no `:db` effect was returned at all.
-        (when (and app-effect? (not app-changed?))
-          (emit-db-event! :rf.event/db-noop event-id emit-event frame))
-        ;; Partition-tagged frame-state-changed — when EITHER partition changed.
-        (emit-frame-state-changed! event-id emit-event frame changed)
-        ;; Post-commit validation runs per-partition (EP-0001):
-        ;; app-db schema validation on the new app-db (only when a `:db` effect
-        ;; landed — app schemas validate app-db only, Mike ruling #11) AND the
-        ;; machine-data `:where :machine-data` boundary on the new runtime-db
-        ;; (only when a `:rf.db/runtime` effect landed — machine snapshots are
-        ;; durable runtime-db state). A `false` from either rolls back the
-        ;; WHOLE transition.
-        (if (run-post-commit-validation! new-db new-runtime-db
-                                         app-effect? rt-effect? event-id frame)
+                         rt-partition? (assoc frame/runtime-partition-key new-runtime-db))]
+        ;; VALIDATE the complete candidate BEFORE install (rf2-uhk9ko,
+        ;; Spec 010 §Per-step recovery row 4). Per-partition (EP-0001):
+        ;; app-db schema validation on the candidate app-db (only when a
+        ;; `:db` effect rides — app schemas validate app-db only, Mike
+        ;; ruling #11) AND the machine-data `:where :machine-data` boundary
+        ;; on the candidate runtime-db (only when a `:rf.db/runtime` effect
+        ;; rides — machine snapshots are durable runtime-db state). A
+        ;; `false` from either REJECTS the whole candidate: nothing is
+        ;; installed, no change trace fires, and the container keeps its
+        ;; pre-handler value by construction.
+        (if (run-candidate-validation! new-db new-runtime-db
+                                       app-effect? rt-effect? event-id frame)
+          ;; ONE atomic frame-state install — the single commit. Returns
+          ;; the set of partition keys that actually changed by `=`.
+          ;;
           ;; EP-0001: framework runtime subsystems live in the runtime-db
           ;; partition, not in app-db under `:rf/runtime` — so a fresh
           ;; `{:db fresh-map}` cannot drop co-located runtime state
-          ;; (Conventions §The clobber footgun is eliminated structurally). The
-          ;; `:rf/runtime` app-db key is a hard error elsewhere; no per-commit
-          ;; detector is needed here.
-          true
-          (do
-            ;; Roll back the WHOLE transition (both partitions) to the
-            ;; pre-handler frame-state so the frame stays coherent — app-db
-            ;; schema rejection unwinds any runtime-db write in the same
-            ;; cascade too. Then emit the rollback change traces so subs /
-            ;; listeners see the restored state. The schema-failure error
-            ;; trace already fired between the forward and rollback commits.
-            ;;
-            ;; EP-0025 SOURCE-AWARE elision restore (rf2-5lo1fk / rf2-fwejwc /
-            ;; rf2-o6rsi2). The `[:rf.runtime/elision]` registry is durable
-            ;; framework state that several sources write at DIFFERENT planes:
-            ;;
-            ;;   - IN-BAND, by THIS event: the four commit-plane classification
-            ;;     effects (`:sensitive` / `:large` / `:clear-sensitive` /
-            ;;     `:clear-large`) the rejected handler returned, applied just
-            ;;     above as `{:source :effect}` marks. Per Spec 015 §84 a
-            ;;     classification `walks back atomically with the frame on a
-            ;;     revert`, so these MUST unwind with the rejected `:db`.
-            ;;   - OUT-OF-BAND, by long-lived subsystems: `reg-flow` outputs
-            ;;     (`:source :flow`), machine actor spawns (`:source :machine`),
-            ;;     route activation (`:source :route`). These are NOT the
-            ;;     transactional handler effect the schema rejected. Under the
-            ;;     post-EP-0025 model flows install their output declarations at
-            ;;     `reg-flow` REGISTRATION time, never during the `:after` drain
-            ;;     (`flows.cljc` `write-flow-output-marks!` /
-            ;;     `flows/registry.cljc` `fold-flow-declarations`) — there is no
-            ;;     drain-time propagation engine to protect (the removed
-            ;;     `refresh-flow-output-declarations!` mechanism the old
-            ;;     rationale here cited). A pre-existing `:source :flow` mark is
-            ;;     already in the chain-start snapshot and survives a verbatim
-            ;;     restore; a mark a subsystem LOWERED DURING this event (an
-            ;;     actor spawn / route activation inside the rejected event, or
-            ;;     a reentrant `reg-flow` output-path move's NEW path) is the
-            ;;     ONLY legitimate during-event out-of-band write and may
-            ;;     survive.
-            ;;
-            ;; Carrying the WHOLE live registry forward (the old source-blind
-            ;; behaviour) is wrong in BOTH directions: it over-preserves an
-            ;; in-band `:source :effect` mark (rf2-5lo1fk) AND under-restores a
-            ;; `:source :flow` mark a mid-drain reentrant `reg-flow`
-            ;; output-path move DROPPED — the live registry already lost the old
-            ;; path, so preserving-live still leaks it (rf2-o6rsi2). The correct
-            ;; target is the PRE-CASCADE registry — the `[:rf.runtime/elision]`
-            ;; sub-tree of the chain-start `runtime-before` (captured by
-            ;; reference BEFORE the cascade ran), the symmetric mirror of the
-            ;; `last-inputs` / `abandoned-paths` pre-cascade snapshots restored
-            ;; below — overlaid with the LIVE out-of-band entries so the
-            ;; during-event subsystem-lowered survivors are kept while the
-            ;; in-band `:source :effect` marks unwind
-            ;; (`elision/restore-elision-slot`). Privacy posture stays fail-safe
-            ;; toward redaction: a kept mark over a value the rolled-back db no
-            ;; longer holds redacts nothing (harmless); a dropped one risks raw
-            ;; egress.
-            (let [pre-elision  (get runtime-before :rf.runtime/elision)
-                  live-elision (get (frame/frame-runtime-db-value frame)
-                                    :rf.runtime/elision)
-                  restored-elision (elision/restore-elision-slot
-                                     pre-elision live-elision)
-                  runtime-restore (elision/write-elision-slot runtime-before
-                                                              restored-elision)
-                  rb-changed (frame/replace-frame-state!
-                               frame
-                               {frame/app-partition-key     db-before
-                                frame/runtime-partition-key runtime-restore})]
-              ;; Roll back the flow dirty-check (`last-inputs`) rows AND re-
-              ;; record the in-drain abandoned output-path vacations the flow
-              ;; transform advanced/drained, in lock-step with the app-db
-              ;; rollback (frame-scoped) — the shared non-commit restore
-              ;; (rf2-1b8yxb) at the post-commit boundary `run-flows-on-db`
-              ;; can't see.
-              (restore-flow-snapshots! ctx frame)
-              (when (contains? rb-changed frame/app-partition-key)
-                (emit-db-event! :rf.event/db-changed event-id emit-event frame :rollback))
-              (emit-frame-state-changed! event-id emit-event frame rb-changed :rollback))
-            false)))
+          ;; (Conventions §The clobber footgun is eliminated structurally).
+          ;; The `:rf/runtime` app-db key is a hard error elsewhere; no
+          ;; per-commit detector is needed here.
+          (let [changed      (frame/commit-frame-transition! frame partitions)
+                app-changed? (contains? changed frame/app-partition-key)]
+            ;; APP-DB-ONLY db-changed (Mike ruling #6) — only when the app-db
+            ;; partition actually changed. A runtime-only commit never fires it.
+            (when app-changed?
+              (emit-db-event! :rf.event/db-changed event-id emit-event frame))
+            ;; db-noop: a `:db` effect that left app-db UNCHANGED — the
+            ;; handler returned an unchanged db (the `identical?`-noop fast-path
+            ;; in `commit-frame-transition!` skipped the write, OR a
+            ;; distinct-but-`=` value collapsed to no change). The commit is a
+            ;; genuine no-op for the app-db partition, so make it VISIBLE rather
+            ;; than silent: Xray can show "event returned an unchanged db;
+            ;; nothing committed." Fires only when a `:db` effect was present
+            ;; AND app-db did not change; suppressed when app-db changed (the
+            ;; `db-changed` signal covers that) and when no `:db` effect was
+            ;; returned at all.
+            (when (and app-effect? (not app-changed?))
+              (emit-db-event! :rf.event/db-noop event-id emit-event frame))
+            ;; Partition-tagged frame-state-changed — when EITHER partition
+            ;; changed.
+            (emit-frame-state-changed! event-id emit-event frame changed)
+            true)
+          ;; REJECTED: the candidate is discarded — the container was never
+          ;; written, so there is nothing to restore and nothing to emit
+          ;; here (the validation diagnostics already fired, stamped
+          ;; `:rollback? true` = transaction rejected). The caller restores
+          ;; the transient flow bookkeeping and reports `:rolled-back`.
+          false))
       true)))
 
 (def ^:private flows-after-interceptor
@@ -1659,18 +1617,18 @@
                   ;; advances them. The transform eagerly advances a flow's row
                   ;; the moment it recomputes, folding the output into the
                   ;; pending `:db`. But whether that pending `:db` becomes
-                  ;; DURABLE is decided AFTER the chain, in `commit-db-effect!`:
-                  ;; a POST-commit schema / machine-data validation failure
-                  ;; rolls app-db back to `db-before`. `run-flows-on-db`'s own
+                  ;; DURABLE is decided AFTER the chain: candidate schema /
+                  ;; machine-data validation (rf2-uhk9ko) can REJECT the
+                  ;; transition pre-install. `run-flows-on-db`'s own
                   ;; throw-path snapshot/restore cannot cover that — the
-                  ;; rollback lands outside it. Without restoring here, the
-                  ;; advanced rows survive a rollback, so the next clean drain
+                  ;; rejection lands outside it. Without restoring here, the
+                  ;; advanced rows survive a rejection, so the next clean drain
                   ;; sees `=`-equal inputs, SKIPS the flow, and the output
                   ;; never re-materialises (a deterministic dev/test failure
                   ;; can permanently suppress a flow). We stash the pre-drain
-                  ;; snapshot on the ctx; `commit-db-effect!` restores it iff it
-                  ;; rolls back — the exact mirror of the throw-path rollback,
-                  ;; at the post-commit boundary. Frame-scoped: the
+                  ;; snapshot on the ctx; `commit-and-flow!` restores it iff the
+                  ;; candidate is rejected — the exact mirror of the throw-path
+                  ;; restore, at the commit boundary. Frame-scoped: the
                   ;; snapshot is `frame`'s own container, structurally unable to
                   ;; touch a sibling frame draining on another thread. The
                   ;; snapshot is a persistent map (pointer-sized to stash); the
@@ -1680,8 +1638,8 @@
                   li-before   (when snapshot-li (snapshot-li frame))
                   ;; Snapshot the frame's pending abandoned-output-
                   ;; paths BEFORE the transform (it DRAINS/clears them and
-                  ;; dissocs them from the pending `:db`). On a POST-commit
-                  ;; rollback `commit-frame-effects!` re-records this snapshot —
+                  ;; dissocs them from the pending `:db`). On a candidate
+                  ;; rejection `commit-and-flow!` re-records this snapshot —
                   ;; the exact mirror of the `last-inputs` snapshot above, for
                   ;; the boundary `run-flows-on-db`'s own throw arm cannot see.
                   snapshot-ap (late-bind/get-fn-cached :flows/snapshot-abandoned-paths)
@@ -1717,17 +1675,17 @@
               ;; effect (which would force an app-db install + db-changed
               ;; trace on an event that wrote nothing). When we DO publish a
               ;; `:db`, stash the pre-drain dirty-check snapshot + the
-              ;; restorer fn so `commit-db-effect!` can
-              ;; roll `last-inputs` back in lock-step with an app-db rollback.
+              ;; restorer fn so `commit-and-flow!` can
+              ;; roll `last-inputs` back in lock-step with a rejected `:db`.
               ;; A no-flow / no-write event publishes no `:db`, hits no
-              ;; commit/rollback boundary, and needs no snapshot.
+              ;; commit boundary, and needs no snapshot.
               (if (or has-db? (not (identical? new-db pending-db)))
                 (cond-> (interceptor/assoc-effect ctx :db new-db)
                   snapshot-li (assoc :rf/flow-last-inputs-before li-before)
                   ;; Stash the pre-drain abandoned-paths snapshot so
-                  ;; a post-commit rollback can re-record the drained-but-not-
+                  ;; a candidate rejection can re-record the drained-but-not-
                   ;; durably-vacated path moves. Only when a `:db` is published
-                  ;; (a no-`:db` event hits no commit/rollback boundary).
+                  ;; (a no-`:db` event hits no commit boundary).
                   snapshot-ap (assoc :rf/flow-abandoned-paths-before ap-before))
                 ctx))
             (catch #?(:clj Throwable :cljs :default) e
@@ -2133,16 +2091,13 @@
   the pending `:db` effect is the flow-augmented value; the install here
   is the single deferred commit, and `:fx` walks after it.
 
-  Per Spec 010 §Per-step recovery row 4 (rf2-wkxng / rf2-6m0se): a
-  post-commit `:db` schema-validation failure rolls the container
-  back to the pre-handler value AND treats the dispatch as failed —
-  flows do NOT evaluate and `:fx` does NOT walk. The pre-handler db is
-  read from the run's pre-handler frame-state snapshot
-  (`frame/*run-frame-state-before*`'s app-db partition) — NOT from
-  `[:coeffects :db]`, which an `:rf.interceptor/path` handler focuses to
-  a slice (rf2-wfy2kq); see the `db-before` binding below. Downstream
-  queued events still drain per run-to-completion (handled by
-  `drain-loop!`'s outer pass).
+  Per Spec 010 §Per-step recovery row 4 (rf2-uhk9ko, Mike-ruled Option
+  B): a `:db` / machine-data schema-validation failure REJECTS the
+  candidate transition BEFORE install — the container is never written
+  (nothing to restore), no change trace fires, and the dispatch is
+  treated as failed: `:fx` does NOT walk. Downstream queued events
+  still drain per run-to-completion (handled by `drain-loop!`'s outer
+  pass).
 
   Per Spec 002 §Cascade propagation: `envelope` is threaded into
   `run-fx-effects!` so reserved-fx defmethods can propagate
@@ -2178,18 +2133,22 @@
                    (`:rf.error/handler-exception` / `interceptor-exception`
                    / `coeffect-exception` per rf2-mszrz). No install,
                    app-db unchanged, :fx skipped.
-    :rolled-back — post-commit `:db` schema validation rejected the
-                   new state and the container was restored to its
-                   pre-handler value (Spec 010 row 4); :fx was skipped.
+    :rolled-back — candidate schema validation REJECTED the transition
+                   BEFORE install (Spec 010 row 4, rf2-uhk9ko): the
+                   container was never written and keeps its
+                   pre-handler value; no db-changed fired; :fx was
+                   skipped. `:rolled-back` is the stable public
+                   vocabulary for `transaction rejected` — it does not
+                   imply a physical write-pair.
     :flow-error  — a flow's `:derive` threw (Spec 013 §Failure
                    semantics); the event aborted — no install, app-db
                    unchanged, no db-changed, :fx skipped.
 
   All three non-`:ok` values surface to off-box observability shippers
-  (Datadog / Sentry / Honeycomb) so a dispatch that rolled back its
-  whole `:db` write or aborted on a flow throw is NOT mis-reported as
+  (Datadog / Sentry / Honeycomb) so a dispatch whose `:db` write was
+  rejected or that aborted on a flow throw is NOT mis-reported as
   a clean `:ok`. A chain exception is reported as `:error` regardless
-  of any downstream rollback — it is the proximate, most-actionable
+  of any downstream rejection — it is the proximate, most-actionable
   signal."
   [final-ctx event-id event frame frame-record fx-overrides envelope start-ms]
   (let [error          (:rf/interceptor-error final-ctx)
@@ -2209,33 +2168,11 @@
         ;; `:rf.error/effect-map-shape` (`:logged-and-skipped`) for each.
         ;; Runs BEFORE any commit, preserving the no-partial-commit promise.
         effects        (events/police-final-effects! (:effects final-ctx) event)
-        ;; Pre-handler app-db partition for the post-commit schema-rollback
-        ;; target (rf2-wfy2kq). MUST NOT be read from `[:coeffects :db]`: the
-        ;; `:rf.interceptor/path` std-interceptor's `:before` overwrites
-        ;; `[:coeffects :db]` with the FOCUSED slice and its `:after` only
-        ;; restores `[:effects :db]`, never the coeffect (std_interceptors
-        ;; §standard-path-interceptor). So under an idiomatic
-        ;; `[:rf.interceptor/path p]` handler, `(get-in final-ctx [:coeffects
-        ;; :db])` is the path SLICE, not the full app-db — and rolling back to
-        ;; it would install the slice as the WHOLE app-db, destroying every key
-        ;; outside `p` (data corruption on the recovery path). Source instead
-        ;; from the run's pre-handler frame-state snapshot
-        ;; (`frame/*run-frame-state-before*`, bound by `run-one-pass!`
-        ;; around the WHOLE event run) — the canonical full pre-handler frame-
-        ;; state, whose app-db projection is `=` the un-focused coeffect by
-        ;; construction (both read the live container before the handler runs in
-        ;; `assemble-initial-ctx`) yet is immune to mid-chain path focusing.
-        ;; Fall back to the coeffect only when the var is unbound (no real
-        ;; run in flight — REPL / direct call; the rollback path cannot fire
-        ;; there since nothing commits out-of-run).
-        db-before      (if-let [fs-before frame/*run-frame-state-before*]
-                         (get fs-before frame/app-partition-key)
-                         (get-in final-ctx [:coeffects :db]))
-        ;; Pre-handler runtime-db partition (EP-0001 rf2-adwcv6): the
-        ;; `:rf.db/runtime` coeffect `assemble-initial-ctx` injected by
-        ;; reference. Needed by `commit-frame-effects!` so an app-db schema
-        ;; rollback unwinds the WHOLE transition (both partitions) coherently.
-        runtime-before (get-in final-ctx [:coeffects :rf.db/runtime])
+        ;; rf2-uhk9ko: no pre-handler db/runtime-db snapshot plumbing here
+        ;; any more — the candidate transition validates BEFORE install, so
+        ;; a schema rejection has nothing to restore (the container was
+        ;; never written) and `commit-frame-effects!` needs no rollback
+        ;; target.
         ;; EP-0025: the FINAL-effects boundary check for a malformed commit-plane
         ;; classification effect (`:sensitive` / `:large` / `:clear-sensitive` /
         ;; `:clear-large`). Returns the first defect map (or nil) — a non-vector
@@ -2310,13 +2247,19 @@
         ;; `:db`, so roll the dirty-check + vacations back (rf2-1b8yxb).
         (restore-flow-snapshots! final-ctx frame)
         :error)
-      ;; Per Spec 010 §Per-step recovery row 4: `commit-frame-effects!`
-      ;; returns false when post-commit app-db schema validation rejected
-      ;; the new state and rolled the WHOLE frame-state transition back to
-      ;; its pre-handler value. `:fx` is skipped; the dispatch failed.
-      (not (commit-frame-effects! effects event-id event frame final-ctx
-                                  db-before runtime-before))
-      :rolled-back
+      ;; Per Spec 010 §Per-step recovery row 4 (rf2-uhk9ko):
+      ;; `commit-frame-effects!` returns false when candidate validation
+      ;; REJECTED the transition BEFORE install — nothing was written, no
+      ;; change trace fired, and `:fx` is skipped; the dispatch failed.
+      ;; The chain ran CLEANLY (no `:rf/interceptor-error`), so the flows
+      ;; `:after` DID advance the dirty-check + drain vacations and stash
+      ;; the snapshots for a `:db` that will now never land — restore that
+      ;; transient flow bookkeeping (rf2-1b8yxb), the ONLY state a
+      ;; rejection touches.
+      (not (commit-frame-effects! effects event-id event frame final-ctx))
+      (do
+        (restore-flow-snapshots! final-ctx frame)
+        :rolled-back)
       :else
       (do
         (run-fx-effects! effects frame frame-record fx-overrides envelope)
@@ -2570,7 +2513,7 @@
                                  (- (interop/now-ms) start-ms))
             ;; `commit-and-flow!` returns the dispatch outcome keyword
             ;; (:ok / :error / :rolled-back / :flow-error) so the always-on
-            ;; event-emit record reflects schema-rollback and flow-throw
+            ;; event-emit record reflects schema-rejection and flow-throw
             ;; failures, not just the chain exception.
             outcome   (commit-and-flow! final-ctx event-id event frame
                                         frame-record fx-overrides envelope start-ms)]

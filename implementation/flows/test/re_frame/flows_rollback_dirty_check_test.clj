@@ -1,31 +1,32 @@
 (ns re-frame.flows-rollback-dirty-check-test
-  "A POST-commit app-db schema rollback rolls the flow dirty-check
-  (`last-inputs`) bookkeeping back in lock-step with app-db.
+  "An app-db schema REJECTION (rf2-uhk9ko — the candidate transition is
+  validated BEFORE install) rolls the flow dirty-check (`last-inputs`)
+  bookkeeping back in lock-step with the discarded candidate.
 
   The flow transform runs as the router's OUTERMOST `:after` interceptor: the
   moment a flow recomputes it advances THIS frame's `last-inputs` row and
   folds the output into the chain's PENDING `:db` effect. Whether that pending
-  `:db` becomes DURABLE, however, is decided AFTER the chain returns, in
-  `commit-db-effect!`: a post-commit schema / machine-data validation failure
-  rolls app-db back to the pre-handler value. `run-flows-on-db`'s OWN
-  throw-path snapshot/restore does not cover that — the rollback lands OUTSIDE
-  it. If the advanced `last-inputs` row survived such a rollback, the
-  dirty-check would believe the flow up-to-date even though app-db was restored
-  (the flow output gone): the next clean drain would see `=`-equal inputs, SKIP
+  `:db` becomes DURABLE, however, is decided AFTER the chain returns: a
+  candidate schema / machine-data validation failure REJECTS the transition —
+  nothing installs, app-db keeps its pre-handler value. `run-flows-on-db`'s
+  OWN throw-path snapshot/restore does not cover that — the rejection lands
+  OUTSIDE it. If the advanced `last-inputs` row survived such a rejection, the
+  dirty-check would believe the flow up-to-date even though its output never
+  reached app-db: the next clean drain would see `=`-equal inputs, SKIP
   the flow, and the output would never re-materialise.
 
   So `flows-after-interceptor` snapshots the draining frame's `last-inputs`
   rows BEFORE the flow transform advances them (via the
   `:flows/snapshot-last-inputs` hook) and stashes the snapshot on the ctx.
-  `commit-db-effect!`'s rollback arm restores it (via
-  `:flows/restore-last-inputs!`) the instant it rolls app-db back — the exact
-  mirror of the throw-path rollback, at the post-commit boundary the flows
-  artefact cannot reach. Frame-scoped: a sibling frame's container is a
-  different atom and is untouched.
+  `commit-and-flow!`'s rejection arm restores it (via
+  `:flows/restore-last-inputs!`) — the ONLY state a rejection restores (the
+  container was never written), the exact mirror of the throw-path restore.
+  Frame-scoped: a sibling frame's container is a different atom and is
+  untouched.
 
   The validator seam is the pluggable predicate seam the rest of Spec 010
   uses (`set-schema-fns!`) so the test exercises the exact production
-  rollback path without pulling Malli onto the classpath."
+  rejection path without pulling Malli onto the classpath."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.schemas :as schemas]
@@ -69,11 +70,11 @@
 ;; clean drain re-materialises the flow output WITHOUT an input change.
 ;; ---------------------------------------------------------------------------
 
-(deftest app-db-rollback-restores-flow-last-inputs-and-recomputes-on-next-clean-drain
-  (testing "a post-commit app-db schema rollback rolls back the flow dirty-check, so the next clean drain re-materialises the output without an input change"
+(deftest app-db-rejection-restores-flow-last-inputs-and-recomputes-on-next-clean-drain
+  (testing "an app-db schema rejection rolls back the flow dirty-check, so the next clean drain re-materialises the output without an input change"
     (install-predicate-validator!)
     ;; `:reject-out?` flips the validator's verdict on the flow's output
-    ;; slice. First flow-augmented commit is rejected (rollback); after we
+    ;; slice. First flow-augmented candidate is rejected; after we
     ;; flip it, the slice passes.
     (let [reject-out? (atom false)]
       ;; The flow doubles :n into :out.
@@ -101,23 +102,24 @@
 
       ;; A drain whose handler does NOT touch :n. The flow transform computes
       ;; :out = 2 into the pending db and advances :double's last-inputs to
-      ;; [1], but the post-commit validator rejects the :out slice → the
-      ;; whole commit rolls back to the pre-handler db {:n 1}. (No :out, no
-      ;; :other land.)
+      ;; [1], but the candidate validator rejects the :out slice → the
+      ;; whole candidate is discarded pre-install; app-db keeps {:n 1}.
+      ;; (No :out, no :other land.)
       (rf/dispatch-sync [:touch-other])
 
-      ;; --- Post-rollback state (the bug's trigger) ----------------------
+      ;; --- Post-rejection state (the bug's trigger) ---------------------
       (is (= {:n 1} (rf/app-db-value :rf/default))
-          "app-db rolled back to {:n 1} — the rejected :out write was discarded")
+          "app-db keeps {:n 1} — the rejected :out write was discarded")
       (is (not (contains? (rf/app-db-value :rf/default) :out))
-          ":out absent after the rollback")
+          ":out absent after the rejection")
       ;; THE LOAD-BEARING ASSERT: the flow's dirty-check row was rolled back
       ;; in lock-step. A surviving advanced row would leave the flow looking
       ;; up-to-date despite its output never reaching app-db.
       (is (not (contains? (flows/last-inputs-snapshot) :double))
-          (str "flow :double's last-inputs row was rolled back with app-db "
-               "(pre-fix it stayed advanced to {:double {:rf/default [1]}}, "
-               "permanently suppressing the flow). Got "
+          (str "flow :double's last-inputs row was rolled back with the "
+               "rejected candidate (pre-fix it stayed advanced to "
+               "{:double {:rf/default [1]}}, permanently suppressing the "
+               "flow). Got "
                (pr-str (flows/last-inputs-snapshot))))
 
       ;; Flip the validator to accept, then drive a CLEAN drain whose event
@@ -139,13 +141,13 @@
           "after the successful recompute the dirty-check row is advanced to [1]"))))
 
 ;; ---------------------------------------------------------------------------
-;; Companion — a DURABLE commit (no rollback) leaves the dirty-check advanced
+;; Companion — a DURABLE commit (no rejection) leaves the dirty-check advanced
 ;; as normal. Pins that the fix only rolls back the bookkeeping on an actual
-;; rollback (no over-restore on the happy path).
+;; rejection (no over-restore on the happy path).
 ;; ---------------------------------------------------------------------------
 
 (deftest durable-commit-leaves-dirty-check-advanced
-  (testing "a flow whose output passes post-commit validation commits durably and advances last-inputs"
+  (testing "a flow whose output passes candidate validation commits durably and advances last-inputs"
     (install-predicate-validator!)
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 3}}))
     (rf/reg-flow :double {:inputs [[:n]] :output-path [:out]} (fn [n] (* 2 (or n 0))))

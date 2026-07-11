@@ -25,14 +25,16 @@
       post-handler db (so a multi-microstep machine macrostep settles
       first, then the flow sees the final machine-driven db — no double /
       missed eval).
-    - A flow OUTPUT that fails app-db schema validation is install-then-
-      rolled-back: forward `:rf.event/db-changed` → `:rf.error/schema-
-      validation-failure` → second `db-changed` `:rf.trace/phase :rollback`
-      → the WHOLE db (including the flow's write) is wound back.
+    - A flow OUTPUT that fails app-db schema validation REJECTS the whole
+      candidate BEFORE install (rf2-uhk9ko, Option B): NO `db-changed` at
+      all — the trace signature is the lone `:rf.error/schema-validation-
+      failure` (`:rollback? true` = transaction rejected), and app-db
+      (including the flow's write) never changes.
     - A flow THROW is a PRE-install throw: the event aborts, the pending
       `:db` is discarded, NO `db-changed`, no partial commit. The two
-      recovery paths (schema-rollback vs flow-throw-abort) produce DISTINCT
-      trace signatures.
+      recovery paths (schema-rejection vs flow-throw-abort) produce DISTINCT
+      trace signatures: a schema-validation-failure error vs a
+      flow-eval-exception error (neither commits).
     - Under SSR's synchronous drain a sub over a flow's `:output-path` renders
       the flow-augmented value (the flow ran before install; render reads
       the installed flow-augmented db).
@@ -211,33 +213,34 @@
            dispatch — no double / missed eval"))))
 
 ;; ===========================================================================
-;; 2. flow-write × schema-rollback — the subtlest interaction. Two
-;;    similar-looking recovery paths, pinned distinctly:
+;; 2. flow-write × schema-rejection — the subtlest interaction. Two
+;;    similar-looking recovery paths, pinned distinctly (rf2-uhk9ko):
 ;;
-;;    (a) a flow OUTPUT that fails APP-DB schema validation → install-then-
-;;        rollback. The flow's write rides the same deferred install as the
-;;        handler's :db; post-commit app-db validation rejects it, so the
-;;        WHOLE db is wound back. Trace signature:
-;;            forward db-changed → schema-validation-failure → db-changed
-;;            (:rf.trace/phase :rollback)
+;;    (a) a flow OUTPUT that fails APP-DB schema validation → the candidate
+;;        transition is REJECTED before install. The flow's write rides the
+;;        same candidate as the handler's :db; candidate validation rejects
+;;        it, so NOTHING installs. Trace signature: ONE schema-validation-
+;;        failure (:rollback? true = transaction rejected), ZERO db-changed.
 ;;
 ;;    (b) a flow THROW → the event aborts PRE-install. The pending :db is
 ;;        discarded; NO db-changed at all; no partial commit. Trace
 ;;        signature: a flow-eval-exception, ZERO db-changed.
 ;;
-;;    These two MUST produce distinct trace signatures — (a) commits then
-;;    unwinds (two db-changed bracketing a schema error); (b) never commits
-;;    (no db-changed). Distinguishing them is the whole point: a regression
-;;    that turned a flow throw into a silent partial commit, or that skipped
-;;    the rollback's second db-changed, would collapse these signatures.
+;;    Both paths never commit; what distinguishes them is the ERROR op —
+;;    (a) surfaces :rf.error/schema-validation-failure (the flow computed
+;;    cleanly, the VALUE failed its shape) while (b) surfaces
+;;    :rf.error/flow-eval-exception (the flow itself threw). A regression
+;;    that turned a flow throw into a silent partial commit, or that let a
+;;    schema-rejected candidate install (or emit a phantom db-changed),
+;;    would collapse these signatures.
 ;; ===========================================================================
 
-(deftest flow-output-schema-failure-installs-then-rolls-back-whole-db
-  (testing "(a) a flow output that violates the app-db schema is install-
-            then-rolled-back: forward db-changed → schema-validation-failure
-            → rollback db-changed (:rf.trace/phase :rollback); the WHOLE db
-            (handler write AND flow write) is wound back to the pre-handler
-            value"
+(deftest flow-output-schema-failure-rejects-candidate-before-install
+  (testing "(a) a flow output that violates the app-db schema REJECTS the
+            whole candidate before install (rf2-uhk9ko): ONE schema-
+            validation-failure, ZERO db-changed, and the WHOLE db (handler
+            write AND flow write) keeps the pre-handler value — the
+            container is never touched"
     ;; Malli app-db schema: [:derived :doubled] must be a NON-NEGATIVE int.
     (rf/reg-app-schema [:derived] [:map [:doubled [:int {:min 0}]]])
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 1 :derived {:doubled 0}}}))
@@ -250,48 +253,42 @@
     (is (= 2 (get-in (rf/app-db-value :rf/default) [:derived :doubled]))
         "baseline: flow wrote a conforming value")
     (let [baseline-db (rf/app-db-value :rf/default)]
-      ;; Now drive :n negative → flow writes -6 → app-db schema rejects it.
+      ;; Now drive :n negative → flow computes -6 → app-db schema rejects
+      ;; the candidate.
       (reset! *captured* [])
       (rf/dispatch-sync [:set-n -3])
 
-      ;; The WHOLE db is wound back — neither the handler's :n write NOR the
-      ;; flow's bad output stand.
+      ;; The candidate never installed — neither the handler's :n write NOR
+      ;; the flow's bad output ever reached the container.
       (is (= baseline-db (rf/app-db-value :rf/default))
-          "the whole db was wound back to the pre-handler value — the flow
-           write rode the same deferred install and was rolled back with it")
+          "the whole db keeps the pre-handler value — the flow write rode
+           the same rejected candidate as the handler's :db")
       (is (= 1 (get (rf/app-db-value :rf/default) :n))
           ":n stayed at the pre-handler value (1) — the handler's own write
-           was rolled back too (atomic install boundary)")
+           was rejected too (atomic candidate boundary)")
 
-      ;; Trace signature (a): forward commit → schema failure → rollback
-      ;; commit, in that exact order.
+      ;; Trace signature (a): exactly one schema failure, ZERO db-changed —
+      ;; and no :rf.trace/phase :rollback anywhere (the phase has no
+      ;; producer under validate-before-install).
       (let [sig (filterv #{:rf.event/db-changed
                            :rf.error/schema-validation-failure}
-                         (ops))
-            phases (mapv (fn [ev]
-                           [(:operation ev) (-> ev :tags :rf.trace/phase)])
-                         (filterv #(#{:rf.event/db-changed
-                                      :rf.error/schema-validation-failure}
-                                    (:operation %))
-                                  @*captured*))]
-        (is (= [:rf.event/db-changed
-                :rf.error/schema-validation-failure
-                :rf.event/db-changed]
+                         (ops))]
+        (is (= [:rf.error/schema-validation-failure]
                sig)
-            "rollback signature: forward db-changed → schema-validation-
-             failure → rollback db-changed")
-        (is (= [[:rf.event/db-changed                  nil]
-                [:rf.error/schema-validation-failure   nil]
-                [:rf.event/db-changed                  :rollback]]
-               phases)
-            "the SECOND db-changed carries :rf.trace/phase :rollback; the
-             first (forward) commit carries no phase")
+            "rejection signature: one schema-validation-failure, zero
+             db-changed (the candidate never installed)")
+        (is (not-any? #(= :rollback (-> % :tags :rf.trace/phase)) @*captured*)
+            "no trace carries :rf.trace/phase :rollback")
+        (is (true? (-> (by-op :rf.error/schema-validation-failure)
+                       first :tags :rollback?))
+            "the failure trace carries :rollback? true — the public
+             transaction-REJECTED vocabulary")
         ;; The flow DID compute (its bad output is what tripped the
-        ;; validator) — the rollback is a post-commit unwind, not a
-        ;; pre-install skip.
+        ;; validator) — the rejection is a candidate-validation reject of a
+        ;; computed value, not a flow-eval skip/throw.
         (is (= 1 (count (by-op :rf.flow/computed)))
-            "the flow computed its (bad) output before the install — the
-             failure is a post-commit rollback, not a flow-eval skip")
+            "the flow computed its (bad) output — the failure is a
+             candidate rejection, not a flow-eval skip")
         (is (= -6 (-> (by-op :rf.flow/computed) first :tags :result))
             "the flow's computed result (-6) is what the app-db schema
              rejected")))))
@@ -322,13 +319,14 @@
     ;; Trace signature (b): ZERO db-changed, a flow-eval-exception present.
     (is (not-any? #(= :rf.event/db-changed %) (ops))
         "NO :rf.event/db-changed in the throw stream — the event aborted
-         before install (contrast: the schema-rollback path emits TWO
-         db-changed bracketing the schema error)")
+         before install (the schema-rejection path (a) also emits zero
+         db-changed; the discriminator is the ERROR op)")
     (is (seq (by-op :rf.flow/failed))
         ":rf.flow/failed fired — the flow eval threw")
     (is (not-any? #(= :rf.error/schema-validation-failure %) (ops))
-        "no schema-validation-failure — the abort short-circuits BEFORE the
-         post-commit validation that the rollback path reaches")))
+        "no schema-validation-failure — the abort discards the pending :db
+         BEFORE candidate validation would run (contrast (a), whose flow
+         computed cleanly and whose VALUE failed validation)")))
 
 ;; ===========================================================================
 ;; 3. flow × SSR sync-drain — under SSR's synchronous drain, a sub over a

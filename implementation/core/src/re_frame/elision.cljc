@@ -148,9 +148,10 @@
 
 (def ^:no-doc effect-owner
   "The owner identity the EP-0025 commit-plane classification effects claim
-  under. A distinguished value: it is the ONLY in-band owner (written WITH the
-  `:db` commit), so `restore-elision-slot` unwinds it on a schema rollback
-  while carrying the out-of-band subsystem owners forward."
+  under. A distinguished value: it is the ONLY in-band owner — written WITH
+  the `:db` commit as part of the candidate frame transition, so it installs
+  only when the whole transition passes candidate validation (rf2-uhk9ko: a
+  rejected candidate never installs, so no rollback overlay exists)."
   {:source :effect})
 
 (defn ^:no-doc add-claims
@@ -242,81 +243,12 @@
         (first (sort sources))
         :effect)))
 
-(defn ^:no-doc restore-elision-slot
-  "EP-0025 SOURCE-AWARE rollback restore for the per-frame elision registry.
-
-  Used by the router's post-commit schema-rollback arm. A rejected `:db`
-  unwinds with the WHOLE frame-state transition (both partitions back to the
-  pre-handler value). Per Spec 015 §84 a classification `walks back atomically
-  with the frame on a revert` — but only the IN-BAND classification this event
-  produced: the four commit-plane classification effects claim under the
-  `effect-owner` (`apply-classification-effects`), and those MUST unwind. Every
-  OTHER owner is written OUT-OF-BAND by a long-lived subsystem — `reg-flow`
-  outputs (`{:source :flow …}`), machine actor spawns (`{:source :machine …}`),
-  route activation (`{:source :route}`), resource instances
-  (`{:source :resource}`) — and a claim one of those LOWERED during the
-  rejected event may LEGITIMATELY survive the rollback (the actor / route
-  registration is not the schema-rejected `:db` effect).
-
-  Since the registry retains ALL owners per path (rf2-wdm1vg), the restore is
-  per-OWNER, not per-path: for each path in an axis the restored owner-set is
-
-      pre-owners[path]  ∪  (live-owners[path] MINUS effect-owner)
-
-  — the pre-cascade owners (which includes whatever the effect owner held at
-  chain-start, so its during-event add / clear both unwind to the pre value)
-  UNIONED with every NON-effect owner LIVE currently holds (so a during-event
-  subsystem lowering survives). `pre-reg` is the `[:rf.runtime/elision]`
-  sub-tree at chain-start (captured by reference in the router's
-  `assemble-initial-ctx`, a true PRE-CASCADE snapshot at no copy cost).
-
-  This subsumes the historical single-owner cases:
-    - UNWINDS an in-band effect claim the rejected event ADDED (rf2-5lo1fk) —
-      absent from `pre`, and the effect owner is stripped from `live`, so it is
-      gone;
-    - RESTORES an out-of-band `:source :flow` claim a mid-drain reentrant
-      `reg-flow` output-path MOVE dropped (rf2-o6rsi2) — the OLD path's flow
-      owner is still in `pre`, so the union re-adds it (carrying live forward
-      alone would leak — a privacy fail-open on revert); and
-    - KEEPS the NEW-path `:source :flow` / `:source :machine` / `:source :route`
-      claim lowered DURING the event — present in `live` and non-effect, so the
-      union carries it forward.
-  Privacy posture stays fail-safe-toward-redaction: a kept claim over a value
-  the rolled-back db no longer holds redacts nothing (harmless); a dropped one
-  risks raw egress.
-
-  `pre-reg` / `live-reg` are the `[:rf.runtime/elision]` registry maps (each
-  may be nil). Returns the restored registry map (or nil when both axes empty)
-  — the caller folds it onto `runtime-before` via `write-elision-slot`.
-  Pure."
-  [pre-reg live-reg]
-  (let [;; Per axis slot (`:sensitive-declarations` / `:declarations`): the
-        ;; restored owner-set for a path is the pre-cascade owners UNIONED with
-        ;; the LIVE non-effect owners. The pre base unwinds the in-band effect
-        ;; owner (add + clear) and restores a dropped out-of-band owner; the
-        ;; live union re-adds during-event subsystem-lowered survivors.
-        restore-axis
-        (fn [slot]
-          (let [pre    (get pre-reg slot)
-                live   (get live-reg slot)
-                paths  (into (set (keys pre)) (keys live))
-                merged (reduce
-                         (fn [m p]
-                           (let [pre-owners  (get pre p #{})
-                                 live-owners (get live p #{})
-                                 owners      (into pre-owners
-                                                   (disj live-owners effect-owner))]
-                             (if (seq owners)
-                               (assoc m p owners)
-                               m)))
-                         {}
-                         paths)]
-            (not-empty merged)))
-        s (restore-axis :sensitive-declarations)
-        l (restore-axis :declarations)]
-    (cond-> nil
-      s (assoc :sensitive-declarations s)
-      l (assoc :declarations l))))
+;; rf2-uhk9ko: the former `restore-elision-slot` (the EP-0025 SOURCE-AWARE
+;; rollback overlay, rf2-5lo1fk / rf2-fwejwc / rf2-o6rsi2) is DELETED. Its
+;; only producer was the router's post-commit schema-rollback arm; under
+;; validate-before-install a rejected candidate transition is discarded
+;; before any container write, so there is no rollback and nothing to
+;; overlay — the in-band `effect-owner` claims simply never install.
 
 (defn ^:no-doc reconcile-runtime-db-effect
   "Reconcile the durable elision registry across a whole-value

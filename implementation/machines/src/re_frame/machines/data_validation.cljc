@@ -19,14 +19,16 @@
   has already finished, so there is nothing to roll back — the post-commit
   asymmetry, parity with the post-completion observation posture).
 
-  Per Spec 010 §Per-step recovery row 7: validation failures emit
-  `:rf.error/schema-validation-failure` with `:where :machine-data`
-  and trigger full-cascade rollback (the router AND-conjoins this
-  validator's result with `validate-app-schema!`'s — a `false` from
-  either rolls back the `:db` commit).
+  Per Spec 010 §Per-step recovery row 7 (rf2-uhk9ko): validation failures
+  emit `:rf.error/schema-validation-failure` with `:where :machine-data`
+  and REJECT the whole candidate frame transition (the router AND-conjoins
+  this validator's result with `validate-app-schema!`'s — a `false` from
+  either rejects the candidate BEFORE it installs; the `:rollback? true`
+  tag is the public transaction-REJECTED vocabulary).
 
-  The post-commit validator (`validate-machine-data!`) walks the
-  freshly-committed `[:rf.runtime/machines :snapshots]` map, looks up each machine's spec
+  The candidate validator (`validate-machine-data!`) walks the CANDIDATE
+  runtime-db's `[:rf.runtime/machines :snapshots]` map (the value the
+  router computed but has NOT installed), looks up each machine's spec
   via `re-frame.machines/machine-meta`, and validates `(:data
   snapshot)` against `(get-in spec [:schemas :data])` through the schemas
   artefact's registered validator-fn. Snapshots whose machine declares no
@@ -65,16 +67,17 @@
 
 #?(:clj (set! *warn-on-reflection* true))
 
-;; Phases that validate BEFORE a runtime-db commit lands — a `false`
-;; return makes the caller SKIP the install, so there is nothing to roll
-;; back (`:rollback? false`). `:spawn` is the spawn-install pre-check;
-;; `:update-snapshot` is the snapshot-level escape-hatch pre-write check
-;; — the fx merges the patch onto the live snapshot, so the validator runs
-;; against the would-be-merged snapshot and the fx skips the
+;; Phases whose rejection is LOCAL (a single skipped write, not a rejected
+;; event transaction) — `:rollback? false`. `:spawn` is the spawn-install
+;; pre-check; `:update-snapshot` is the snapshot-level escape-hatch
+;; pre-write check — the fx merges the patch onto the live snapshot, so the
+;; validator runs against the would-be-merged snapshot and the fx skips the
 ;; `swap-runtime-db!` write on failure. `:macrostep` / `:bootstrap`
-;; validate the ALREADY-committed snapshot, so a `false` rolls the
-;; cascade back (`:rollback? true`).
-(def ^:private pre-commit-phases #{:spawn :update-snapshot})
+;; validate the CANDIDATE frame transition at the router's commit boundary
+;; (rf2-uhk9ko — before install), so a `false` rejects the WHOLE event
+;; transaction (`:rollback? true` — the public transaction-REJECTED
+;; vocabulary).
+(def ^:private local-skip-phases #{:spawn :update-snapshot})
 
 (defn- emit-failure!
   "Emit `:rf.error/schema-validation-failure` at a machine schema boundary
@@ -95,9 +98,10 @@
     :received        the failing value (parallels validate-app-schema!)
     :schema          the registered schema (verbatim)
     :explain         the registered explainer's output (or nil)
-    :rollback?       true (macrostep / bootstrap) /
-                     false (spawn / update-snapshot — no commit;
-                     completion — the machine already finished)
+    :rollback?       true (macrostep / bootstrap — the whole candidate
+                     transaction is REJECTED pre-install, rf2-uhk9ko) /
+                     false (spawn / update-snapshot — a local skipped
+                     write; completion — the machine already finished)
     :recovery        :no-recovery
     :reason          one-sentence diagnostic
 
@@ -143,12 +147,13 @@
   failure. Emits the boundary trace on failure with `phase` named.
 
   Pure-ish — the emit is the side effect; the return value carries the
-  conform decision for the caller's rollback / skip-install plumbing.
+  conform decision for the caller's rejection / skip-install plumbing.
 
   Recovery depends on the write boundary:
     - `:phase :macrostep` and `:phase :bootstrap` → rollback? true
-      (the snapshot is already in runtime-db at validation time; the
-      router will restore the pre-handler db on a false return).
+      (the snapshot rides the CANDIDATE frame transition; the router
+      REJECTS the whole candidate pre-install on a false return —
+      rf2-uhk9ko).
     - `:phase :spawn` → rollback? false (the snapshot has not yet
       installed; the spawn-fx caller skips the install on false).
     - `:phase :update-snapshot` → rollback? false (the escape-hatch fx
@@ -161,7 +166,7 @@
       (if (validate-fn schema data)
         true
         (do (emit-failure! machine-id :machine-data phase data schema nil
-                           (not (contains? pre-commit-phases phase))
+                           (not (contains? local-skip-phases phase))
                            (str "Machine " machine-id
                                 " :data failed schema at boundary :where "
                                 ":machine-data (phase " phase ")."))
@@ -203,15 +208,15 @@
   `:rf/machine-type` (`:machines/spec-from-snapshot`) for a SPAWNED actor.
   A spawned actor has no per-instance registration, so the snapshot fallback
   is what validates its `:data` at the macrostep boundary — without it a
-  schema-violating action on a spawned actor would commit without rollback
+  schema-violating action on a spawned actor would install unvalidated
   (the spawn-time `validate-spawn-data!` only catches the INITIAL data).
 
   Machine snapshots are durable runtime-db state, so this validator runs
-  against the new RUNTIME-DB value (the `:rf.db/runtime` effect a machine
-  macrostep commit produces) — NOT app-db. The router calls
-  it after the partitioned commit whenever a runtime-db effect landed; on
-  `false` the router rolls back the WHOLE transition (same mechanism as the
-  `:where :app-db` rollback).
+  against the CANDIDATE runtime-db value (the `:rf.db/runtime` effect a
+  machine macrostep produces) — NOT app-db. The router calls it BEFORE the
+  partitioned commit whenever a runtime-db effect rides the candidate
+  (rf2-uhk9ko); on `false` the router REJECTS the whole candidate
+  pre-install (same mechanism as the `:where :app-db` rejection).
 
   Per Spec 009 §Production builds the body lives inside a
   `(when interop/debug-enabled? ...)` gate so production builds
@@ -225,7 +230,7 @@
     ;; Per the validate-app-schema! pattern: validate EVERY snapshot (no
     ;; short-circuit) so each failing machine surfaces its
     ;; own trace (consumers see the full set), AND-conjoining the per-
-    ;; snapshot conform decision so the router decides rollback
+    ;; snapshot conform decision so the router decides candidate rejection
     ;; deterministically. A snapshot whose machine declares no `[:schemas
     ;; :data]` (or whose spec resolves to nil for both a singleton AND a
     ;; spawned actor) conforms vacuously.
