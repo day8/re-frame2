@@ -35,6 +35,7 @@
   strategies."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.late-bind :as late-bind]
             [re-frame.routing :as routing]
             [re-frame.routing.strategy :as strategy]
             [re-frame.adapter.reagent :as reagent-adapter]
@@ -391,3 +392,69 @@
         "hash pushes a single-# href")
     (is (not (double-hash? (current-url *history-state*)))
         "the hash URL is not double-hashed")))
+
+;; ==========================================================================
+;; 7. Registration-time frame-config preflight (rf2-ktmto9) — CLJS host units
+;; ==========================================================================
+;;
+;; The core engine preflights a declared :url-strategy through the
+;; :routing/preflight-frame-config! late-bind hook BEFORE any write. On CLJS
+;; the host-required legs include the three browser legs, so a JVM-shaped
+;; custom map (encode/decode only) is malformed HERE even though it passes
+;; JVM validation — the host-specific half of the contract.
+
+(deftest reg-frame-rejects-cljs-incomplete-strategy-at-registration-ktmto9-cljs
+  (testing "rf2-ktmto9: a custom strategy carrying only the two host-agnostic
+            legs (JVM-shaped) is rejected at FIRST registration on CLJS — the
+            browser legs :push! / :replace! / :install-listener! are
+            host-required here; no registrar row / frame record is left"
+    (let [ex (try (rf/reg-frame :ktmto9/cljs-legs
+                                {:url-bound?   true
+                                 :url-strategy {:encode identity
+                                                :decode (constantly "/")}})
+                  nil
+                  (catch :default e e))]
+      (is (some? ex) "the CLJS-incomplete strategy throws at registration")
+      (is (= :rf.error/invalid-url-strategy (:rf.error/id (ex-data ex))))
+      (is (= :ktmto9/cljs-legs (:frame (ex-data ex)))
+          "the ex-data names the offending frame")
+      (is (contains? (set (:missing (ex-data ex))) :install-listener!)
+          "the missing browser leg is named")
+      (is (not (contains? (rf/registrations :frame) :ktmto9/cljs-legs))
+          "no registrar row was written")
+      (is (not (contains? (set (rf/frame-ids)) :ktmto9/cljs-legs))
+          "no frame record was created"))))
+
+(deftest reg-frame-rejects-explicit-nil-strategy-ktmto9-cljs
+  (testing "rf2-ktmto9: an EXPLICIT nil :url-strategy is a PRESENT declaration
+            and fails loud at registration — presence semantics; only OMISSION
+            selects the default history strategy"
+    (let [ex (try (rf/reg-frame :ktmto9/nil-strat
+                                {:url-bound? true :url-strategy nil})
+                  nil
+                  (catch :default e e))]
+      (is (some? ex) "an explicit nil :url-strategy throws")
+      (is (= :rf.error/invalid-url-strategy (:rf.error/id (ex-data ex))))
+      (is (= :ktmto9/nil-strat (:frame (ex-data ex))))
+      (is (not (contains? (rf/registrations :frame) :ktmto9/nil-strat))))))
+
+(deftest reg-frame-missing-routing-artefact-fails-loud-ktmto9-cljs
+  (testing "rf2-ktmto9: declaring :url-strategy while the
+            :routing/preflight-frame-config! hook is unpublished fails loud
+            with :rf.error/routing-artefact-missing (no config commit); the
+            hook is restored afterwards"
+    (try
+      (late-bind/set-fn! :routing/preflight-frame-config! nil)
+      (let [ex (try (rf/reg-frame :ktmto9/no-artefact
+                                  {:url-bound?   true
+                                   :url-strategy strategy/history-url-strategy})
+                    nil
+                    (catch :default e e))]
+        (is (some? ex) "declaring :url-strategy without the hook throws")
+        (is (= :rf.error/routing-artefact-missing (:rf.error/id (ex-data ex))))
+        (is (= :ktmto9/no-artefact (:frame (ex-data ex))))
+        (is (not (contains? (rf/registrations :frame) :ktmto9/no-artefact))
+            "no registrar row was written"))
+      (finally
+        (late-bind/set-fn! :routing/preflight-frame-config!
+                           strategy/preflight-frame-config!)))))

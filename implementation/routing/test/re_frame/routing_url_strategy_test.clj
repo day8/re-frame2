@@ -14,6 +14,8 @@
   `url-strategy-from-config` / `url-strategy-for-frame-id`. Per Spec 012
   §URL strategies."
   (:require [clojure.test :refer [deftest is testing]]
+            [re-frame.frame :as frame]
+            [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
             [re-frame.routing :as routing]
             [re-frame.routing.strategy :as strategy]))
@@ -305,6 +307,106 @@
   (testing "the routing façade re-exports with-base-path (public surface)"
     (is (= ((:encode (strategy/with-base-path strategy/history-url-strategy "/x")) "/a")
            ((:encode (routing/with-base-path strategy/history-url-strategy "/x")) "/a")))))
+
+;; ---- registration-time frame-config preflight (rf2-ktmto9) ----------------
+;;
+;; `preflight-frame-config!` is the PURE registration-time preflight the core
+;; engine (`re-frame.frame/reg-frame`) invokes through the
+;; `:routing/preflight-frame-config!` late-bind hook with the FINAL expanded
+;; config, BEFORE any candidate-derived write. PRESENCE semantics: an ABSENT
+;; `:url-strategy` key is a no-op (omission alone selects the default); a
+;; PRESENT key — including an explicit nil — is an explicit declaration and
+;; must be a valid strategy map. On the JVM the host-required legs are
+;; `:encode` / `:decode` only (Spec 012 §URL strategies — SSR never executes
+;; the browser legs).
+
+(deftest preflight-absent-url-strategy-is-a-no-op
+  (testing "rf2-ktmto9: a config with NO :url-strategy key preflights clean —
+            omission alone selects the default history strategy, so an
+            ordinary frame (url-bound or not) pays no validation"
+    (is (nil? (strategy/preflight-frame-config! :t/plain {})))
+    (is (nil? (strategy/preflight-frame-config! :t/owner {:url-bound? true})))))
+
+(deftest preflight-explicit-nil-url-strategy-is-malformed
+  (testing "rf2-ktmto9: an EXPLICIT nil :url-strategy is a PRESENT declaration
+            and fails loud — presence semantics, not truthiness; only omission
+            selects the default"
+    (let [ex (try (strategy/preflight-frame-config!
+                    :t/owner {:url-bound? true :url-strategy nil})
+                  nil
+                  (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? ex) "an explicit nil :url-strategy throws")
+      (is (= :rf.error/invalid-url-strategy (:rf.error/id (ex-data ex))))
+      (is (= :t/owner (:frame (ex-data ex)))
+          "the ex-data names the offending frame"))))
+
+(deftest preflight-carries-frame-id-in-ex-data
+  (testing "rf2-ktmto9: a malformed declaration's :rf.error/invalid-url-strategy
+            ex-data carries the frame id, so the diagnostic names WHICH frame
+            declared the bad strategy"
+    (let [ex (try (strategy/preflight-frame-config!
+                    :t/owner {:url-strategy {:decode (constantly "/")}})
+                  nil
+                  (catch clojure.lang.ExceptionInfo e e))]
+      (is (= :rf.error/invalid-url-strategy (:rf.error/id (ex-data ex))))
+      (is (= :t/owner (:frame (ex-data ex))))
+      (is (contains? (set (:missing (ex-data ex))) :encode)))))
+
+(deftest preflight-valid-shipped-and-custom-strategies-pass
+  (testing "rf2-ktmto9: the shipped strategies, a with-base-path wrapper, and a
+            JVM-shape-complete custom map all preflight clean"
+    (is (nil? (strategy/preflight-frame-config!
+                :t/owner {:url-strategy strategy/history-url-strategy})))
+    (is (nil? (strategy/preflight-frame-config!
+                :t/owner {:url-strategy strategy/hash-url-strategy})))
+    (is (nil? (strategy/preflight-frame-config!
+                :t/owner {:url-strategy (strategy/with-base-path
+                                          strategy/history-url-strategy "/demos")})))
+    (is (nil? (strategy/preflight-frame-config!
+                :t/owner {:url-strategy {:encode identity
+                                         :decode (constantly "/")}})))))
+
+(deftest reg-frame-engine-rejects-malformed-strategy-before-any-write
+  (testing "rf2-ktmto9: the core engine (frame/reg-frame) preflights the
+            declared :url-strategy BEFORE any write — a malformed first
+            registration throws :rf.error/invalid-url-strategy and leaves NO
+            registrar row and NO frame record (the fail-loud + no-residue
+            invariant; pre-fix the throw came from the post-create hook, after
+            the container + :initial-events already ran)"
+    (let [ex (try (frame/reg-frame :ktmto9/bad-jvm
+                                   {:url-bound?   true
+                                    :url-strategy {:decode (constantly "/")}})
+                  nil
+                  (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? ex) "the malformed first registration throws")
+      (is (= :rf.error/invalid-url-strategy (:rf.error/id (ex-data ex))))
+      (is (= :ktmto9/bad-jvm (:frame (ex-data ex))))
+      (is (not (contains? (registrar/registrations :frame) :ktmto9/bad-jvm))
+          "no registrar row was written")
+      (is (not (contains? (set (frame/frame-ids)) :ktmto9/bad-jvm))
+          "no frame record was created"))))
+
+(deftest reg-frame-missing-routing-artefact-fails-loud
+  (testing "rf2-ktmto9: a config declaring :url-strategy while the
+            :routing/preflight-frame-config! hook is UNPUBLISHED (routing not
+            loaded before construction) fails loud with
+            :rf.error/routing-artefact-missing — storing a strategy nobody can
+            validate or execute is worse than a dependency error"
+    (try
+      (late-bind/set-fn! :routing/preflight-frame-config! nil)
+      (let [ex (try (frame/reg-frame :ktmto9/no-artefact
+                                     {:url-bound?   true
+                                      :url-strategy strategy/history-url-strategy})
+                    nil
+                    (catch clojure.lang.ExceptionInfo e e))]
+        (is (some? ex) "declaring :url-strategy without the routing artefact throws")
+        (is (= :rf.error/routing-artefact-missing (:rf.error/id (ex-data ex))))
+        (is (= :ktmto9/no-artefact (:frame (ex-data ex))))
+        (is (not (contains? (registrar/registrations :frame) :ktmto9/no-artefact))
+            "no registrar row was written"))
+      (finally
+        (late-bind/set-fn! :routing/preflight-frame-config!
+                           strategy/preflight-frame-config!)))))
 
 (deftest url-strategy-for-frame-id-reads-registry
   (testing "url-strategy-for-frame-id reads the frame's stored config, defaulting
