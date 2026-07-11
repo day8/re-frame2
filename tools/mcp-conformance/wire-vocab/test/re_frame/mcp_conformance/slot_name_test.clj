@@ -169,19 +169,26 @@
   "tools/mcp-base/src/re_frame/mcp_base/vocab.cljc")
 
 (def ^:private mcp-base-vocab-literals
-  "The canonical slot keywords that MUST appear verbatim in the vocab
-  ns. The vocab ns is the cross-MCP single source of truth; a rename
-  here breaks every server in lockstep — which is the right
-  invariant. The slot keys in this set are the NAMESPACED framework
-  forms (`:rf.size/include-large?` /
-  `:rf.size/include-sensitive?` — the walker opts; these are internal
-  framework keys, NOT wire keys, so they retain the predicate `?`)
-  PLUS the unqualified MCP-surface form (`:include-sensitive` — no
-  `?` because the wire-key MUST omit `?` per Anthropic's tool input
-  schema regex `^[a-zA-Z0-9_.-]{1,64}$`)."
+  "The canonical slot keywords that MUST appear verbatim — as CODE
+  constants — in the vocab ns. The vocab ns is the cross-MCP single
+  source of truth; a rename here breaks every server in lockstep —
+  which is the right invariant. These are the NAMESPACED framework
+  walker-opt forms (`:rf.size/include-large?` /
+  `:rf.size/include-sensitive?`) — internal framework keys, NOT wire
+  keys, so they retain the predicate `?` and are DEF'd here
+  (`include-large-opt` / `include-sensitive-opt`).
+
+  The unqualified MCP-surface wire-key `:include-sensitive` (no `?`
+  per Anthropic's tool-input-schema regex `^[a-zA-Z0-9_.-]{1,64}$`) is
+  DELIBERATELY NOT in this set (rf2-njudn8): it is a per-server wire
+  surface key, not an mcp-base constant — its only appearance in
+  vocab.cljc is a docstring MENTION, so pinning it here asserted a
+  source-of-truth constant that does not exist and could only ever be
+  satisfied by prose. Its cross-server wire parity is enforced with
+  teeth by Gate 1 (`canonical-slot-literal-appears-in-every-contracted-server`,
+  token-boundary matched)."
   #{":rf.size/include-large?"
-    ":rf.size/include-sensitive?"
-    ":include-sensitive"})
+    ":rf.size/include-sensitive?"})
 
 ;; ---------------------------------------------------------------------------
 ;; Argument-role schema gate. Each role pins a Malli shape — a
@@ -390,16 +397,24 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest mcp-base-vocab-pins-the-canonical-slot-keywords
-  (let [src (fx/read-source mcp-base-vocab-source)]
+  ;; Match against `fx/strip-comments-and-strings`-neutered source
+  ;; (rf2-njudn8): each namespaced walker-opt keyword is named in a
+  ;; docstring AS WELL AS being DEF'd, so a raw `str/includes?` stays
+  ;; green when the real `(def ...)` constant is removed but its prose
+  ;; mention survives — no teeth against a constant removal. Stripping
+  ;; drops docstrings/comments to spaces, so only the genuine CODE
+  ;; constant satisfies the pin.
+  (let [src      (fx/read-source mcp-base-vocab-source)
+        stripped (fx/strip-comments-and-strings src)]
     (doseq [literal mcp-base-vocab-literals]
-      (testing (str "mcp-base/vocab.cljc pins literal " literal)
-        (is (str/includes? src literal)
-            (str "Literal " literal " missing from " mcp-base-vocab-source
-                 ".\nThe vocab ns is the cross-MCP single source of "
-                 "truth for slot keywords (Conventions §Reserved "
-                 "namespaces). A rename here breaks every consumer "
-                 "in lockstep — which is the right invariant; restore "
-                 "the literal or update this test."))))))
+      (testing (str "mcp-base/vocab.cljc pins literal " literal " as a code constant")
+        (is (str/includes? stripped literal)
+            (str "Literal " literal " missing from the CODE of " mcp-base-vocab-source
+                 " (present only in a docstring does not count).\nThe vocab ns "
+                 "is the cross-MCP single source of truth for slot keywords "
+                 "(Conventions §Reserved namespaces). A rename here breaks "
+                 "every consumer in lockstep — which is the right invariant; "
+                 "restore the constant or update this test."))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Gate 6 — server-coverage sanity. Every server referenced in
