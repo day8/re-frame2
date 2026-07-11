@@ -30,19 +30,41 @@ Type: standards-track
 >   re-record-but-don't-replay `:initial-events`), provide its id to
 >   descendants. **No destroy-on-unmount.**
 >
-> The merged form **keeps the name `rf/frame-provider`**. Owned
+> The two non-owning jobs are the SCOPE and ENSURE shapes above. Owned
 > destroy-on-unmount is retired because it had **zero product consumers** (only
 > its own lifecycle tests). **True ownership** (modals, multi-instance widgets)
 > stays expressible as `make-frame` + `destroy-frame!` inside a `create-class`
 > (what Story already does), where the component explicitly declares it owns
 > the lifetime. The legacy `frame-provider-existing` name (and its
-> namespace-safe twin) is retired in favour of the merged `{:frame …}` shape;
-> the rename of its call sites across examples, Story, Xray, tests, and docs is
-> complete. Normative home for the amended provider:
-> `spec/002-Frames.md` §the merged config-shaped `frame-provider`, with the
-> substrate contract in `spec/006-ReactiveSubstrate.md`. The sections below
-> that describe the OWNED create-on-mount/destroy-on-unmount boundary are
-> superseded by this amendment.
+> namespace-safe twin) is retired in favour of the `{:frame …}` scope shape.
+> Normative home: `spec/002-Frames.md`, with the substrate contract in
+> `spec/006-ReactiveSubstrate.md`. The sections below that describe the OWNED
+> create-on-mount/destroy-on-unmount boundary are superseded by this amendment.
+
+> **Amendment — the provider/root split (rf2-nyea0r, ruled 2026-07-11).** The
+> "provider collapse" above merged two verbs behind ONE `rf/frame-provider`
+> dispatched on the prop map. rf2-nyea0r **splits them into two components,
+> one verb each** — *roots ensure; providers scope*:
+>
+> - **`rf/frame-provider {:frame existing-id}`** keeps its name and becomes
+>   **SCOPE-only** (pure React context over an already-live frame). Given an
+>   `:id` it fails loud naming `frame-root` (`:rf.error/frame-provider-given-id`).
+> - **`rf/frame-root {:id the-id …}`** is the new **ENSURE** component — and a
+>   **COMMIT-OWNED TWO-PASS boundary**: the create/seed runs in a client
+>   `useLayoutEffect` (first render emits no descendant subtree; the frame is
+>   created after commit; only then do children render). This fixes the
+>   render-phase registry-mutation / Suspense-aborted **ghost-frame** defect the
+>   pre-split render-phase `make-frame` had — a discarded render now creates +
+>   seeds nothing. `:initial-events` fire once per committed frame-id lifetime;
+>   StrictMode-safe; a mounted `:id`/opts change fails loud
+>   (`:rf.error/frame-root-reconfigured`); given a `:frame` it fails loud naming
+>   `frame-provider` (`:rf.error/frame-root-given-frame`). `:rf.error/ensure-frame-provider-missing-id`
+>   is renamed `:rf.error/frame-root-missing-id`.
+>
+> Where the collapse banner and the sections below say "the merged
+> `frame-provider`" / "one config-shaped component dispatched on the prop map",
+> read: **`frame-provider` (SCOPE) + `frame-root` (ENSURE)**. Normative homes:
+> `spec/002-Frames.md` §`frame-provider` / §`frame-root`.
 
 ## Abstract
 

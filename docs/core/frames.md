@@ -195,36 +195,38 @@ Click `+` on the left and only the left number moves. Open [Xray](glossary.md#xr
 
 Borderline case? This is where people hesitate, so here's the one question that settles it: *would these two things ever sensibly share a piece of state?* If yes, they are two views over slices of *one* frame's app-db — views on a page compose by sharing app-db, and that's the point of [having one place](app-db.md). If no — if they're genuinely two separate runs of the app — they're two frames. The two panes never want to share a counter. That "no" is the signal.
 
-### Two config shapes: scope an existing frame, or ensure a named one?
+### frame-provider and frame-root
 
-`frame-provider` is one component with two config shapes, chosen by the prop map you hand it. The split pane used the **scope** shape, `{:frame …}`. It **scopes** an *already-registered* frame into a React subtree — creates nothing, destroys nothing. You registered `:pane/left` with `reg-frame` at boot; the provider just establishes its scope for descendants. Pass it a `:frame` keyword. Scoping a frame that was never created (or has been destroyed) fails loud with `:rf.error/frame-provider-frame-absent`, because a silent mis-scope is a debugging nightmare.
+There are two frame-boundary components, one verb each — **roots ensure; providers scope**. The split pane used **`frame-provider {:frame …}`**. It **scopes** an *already-registered* frame into a React subtree — creates nothing, destroys nothing. You registered `:pane/left` with `reg-frame` at boot; the provider just establishes its scope for descendants. Pass it a `:frame` keyword. Scoping a frame that was never created (or has been destroyed) fails loud with `:rf.error/frame-provider-frame-absent`, because a silent mis-scope is a debugging nightmare.
 
-Its other shape, `{:id …}`, **ensures** a named frame. It creates the frame the first time the view mounts (running `:initial-events`), and on every later mount/remount under the same id it *reuses* the live frame without re-seeding — there is **no destroy-on-unmount**. You give it the frame's recipe inline rather than a pre-registered id:
+Its sibling, **`frame-root {:id …}`**, **ensures** a named frame. It creates the frame the first time the view mounts (running `:initial-events`), and on every later mount/remount under the same id it *reuses* the live frame without re-seeding — there is **no destroy-on-unmount**. You give it the frame's recipe inline rather than a pre-registered id:
 
 ```clojure
 ;; A view that ensures its frame. The first mount creates the frame
 ;; (and runs :initial-events); a remount under the same :id reuses it
-;; without re-seeding. No boot-time reg-frame needed — the provider ensures it.
+;; without re-seeding. No boot-time reg-frame needed — frame-root ensures it.
 (rf/reg-view counter-widget [label]
   [rf/frame-root {:id             :counter/widget
-                      :initial-events [[:rf/set-db {:n 0}]]}
+                  :initial-events [[:rf/set-db {:n 0}]]}
    [counter-panel label]])
 ```
 
-So the choice is "do I already have this frame, or do I want the provider to ensure it?"
+So the choice is "do I already have this frame, or do I want the boundary to ensure it?" — pick the **component**, not a prop-map key:
 
-- **`{:frame …}` (scope)** — the frame exists already (you `reg-frame` it at boot, or an enclosing provider ensured it). The provider only scopes. This is the split-pane shape above and the normal root-of-app shape.
-- **`{:id …}` (ensure)** — the provider creates the frame if absent and reuses it if present, keyed by `:id`. Reach for it when a view should bring its own frame into being — a Story canvas, an embedded widget, a comparison pane.
+- **`frame-provider {:frame …}` (scope)** — the frame exists already (you `reg-frame` it at boot, or an enclosing boundary ensured it). It only scopes. This is the split-pane shape above and the normal root-of-app shape. Given an `:id` it fails loud naming `frame-root`.
+- **`frame-root {:id …}` (ensure)** — creates the frame if absent and reuses it if present, keyed by `:id`. Reach for it when a view should bring its own frame into being — a Story canvas, an embedded widget, a comparison pane. Given a `:frame` it fails loud naming `frame-provider`.
+
+`frame-root` is a **commit-owned boundary**: it creates the frame in a client `useLayoutEffect` (at commit), not during render — its first render emits no descendant subtree, and children render only once the frame is live. A render React discards before commit (a Suspense abort, a concurrent tear-off) therefore creates and seeds **nothing**. No ghost frame.
 
 ??? info "For JavaScript developers"
 
-    The `{:frame …}` shape is the React pattern you already know: *providing* a store someone else created — a context `Provider` wrapping a store made at the app root. The `{:id …}` shape is closer to a `useState`/`useRef` that lazily initialises a resource on first render and keeps it stable across re-renders — except the resource (the frame) deliberately *survives* unmount; tearing it down is an explicit `destroy-frame!`, not a cleanup effect.
+    `frame-provider {:frame …}` is the React pattern you already know: *providing* a store someone else created — a context `Provider` wrapping a store made at the app root. `frame-root {:id …}` is closer to a `useState`/`useRef` that lazily initialises a resource and keeps it stable across re-renders — except it initialises the resource in a commit-phase effect (not during render), and the resource (the frame) deliberately *survives* unmount; tearing it down is an explicit `destroy-frame!`, not a cleanup effect.
 
 ??? note "True ownership is explicit"
 
-    Neither shape destroys the frame on unmount. When a component should own a frame's whole lifetime (a modal that wants a throwaway world torn down on close), make that explicit: `rf/make-frame` + `rf/destroy-frame!` (both [below](#ending-and-resetting-a-frame)), tied to the component's mount/unmount lifecycle — e.g. inside a `create-class`, where the component declares it owns the birth *and* the death.
+    Neither component destroys the frame on unmount. When a component should own a frame's whole lifetime (a modal that wants a throwaway world torn down on close), make that explicit: `rf/make-frame` + `rf/destroy-frame!` (both [below](#ending-and-resetting-a-frame)), tied to the component's mount/unmount lifecycle — e.g. inside a `create-class`, where the component declares it owns the birth *and* the death.
 
-One behaviour to internalise before it surprises you: re-mounting the `{:id …}` shape is idempotent. If the view re-mounts — a hot reload, a Story re-evaluation, a key change — the existing frame's durable state is *preserved*, not blown away. Re-mount updates the frame's config without resetting `app-db` or replaying `:initial-events`; that's what makes hot reload not blink. If you genuinely want a fresh start, that's the destroy + re-register composition [below](#ending-and-resetting-a-frame), not a re-mount.
+One behaviour to internalise before it surprises you: re-mounting `frame-root` is idempotent. If the view re-mounts — a hot reload, a Story re-evaluation, a key change — the existing frame's durable state is *preserved*, not blown away. Re-mount updates the frame's config without resetting `app-db` or replaying `:initial-events`; that's what makes hot reload not blink. (Changing a mounted `frame-root`'s `:id` or opts is a different thing — that fails loud with `:rf.error/frame-root-reconfigured`; give it a React `key` that changes to scope a different frame.) If you genuinely want a fresh start, that's the destroy + re-register composition [below](#ending-and-resetting-a-frame), not a re-mount.
 
 ## The one rule: frame identity is carried, not found
 
