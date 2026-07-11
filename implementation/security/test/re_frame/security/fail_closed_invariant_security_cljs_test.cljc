@@ -201,7 +201,7 @@
   (let [out (atom nil)
         traces (capture
                  #(reset! out (hydrate/hydrate-event-handler
-                                {:db existing-db :frame :rf/default}
+                                {:db existing-db :rf.frame/id :rf/default}
                                 [:rf/hydrate payload])))]
     {:result @out :traces traces}))
 
@@ -253,7 +253,15 @@
                  " must fire no compatibility-check fxs"))
         (is (pos? (count (ops traces :rf.error/malformed-hydration-payload)))
             (str "payload " (pr-str payload)
-                 " must emit :rf.error/malformed-hydration-payload"))))))
+                 " must emit :rf.error/malformed-hydration-payload"))
+        ;; Fidelity: the rejection diagnostic carries the DISPATCH frame
+        ;; (:rf/default), proving this test drove the FRAMED handler path
+        ;; via the :rf.frame/id coeffect the handler destructures — not the
+        ;; frameless frame=nil path a mis-keyed coeffect silently produced.
+        (is (every? #(= :rf/default (:frame (:tags %)))
+                    (ops traces :rf.error/malformed-hydration-payload))
+            (str "payload " (pr-str payload)
+                 " — rejection diagnostic must carry :frame :rf/default"))))))
 
 (deftest wellformed-hydration-payload-still-installs
   (testing "the guard is precise: a well-formed payload (a map
