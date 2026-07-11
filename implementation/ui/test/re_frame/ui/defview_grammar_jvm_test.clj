@@ -129,7 +129,9 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest export-surface-is-exactly-the-blessed-set
-  (is (= '#{defview custom-element sub lease raw html raw-fn spread}
+  (is (= '#{defview custom-element sub lease raw html raw-fn spread
+            ;; S1c (rf2-vxgfnd.3) — root identity + the mount surface
+            mount create-root render! hydrate-root unmount! frame-root}
          (set (keys (ns-publics 're-frame.ui))))
       "no reg-view family, no Form-1/2/3 helpers, no h macro, no view
        lookup, no ratom/cursor/reaction — Spec 004 §Removed forms"))
