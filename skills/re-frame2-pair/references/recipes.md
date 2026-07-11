@@ -248,7 +248,7 @@ Returns the same `:cascade-summary` shape as `dispatch` (so you read one vocabul
 
 **Privacy.** Dry-run commits nothing, but it IS an AI-facing read surface — `:db-state-after-simulation` and each `:would-fire-effects[*].args` slot are elided server-side under the same `--allow-sensitive-reads` posture as `snapshot` / `get-path` (gate OFF by default — see [`vocabulary.md` §Privacy posture](vocabulary.md#privacy-posture--sensitive-and-the-raw-eval-carve-out)). That makes dry-run the **safer** path than a raw `eval-cljs` "what would happen?" loop for sensitive events.
 
-Compose with `:fx-overrides` to simulate realistic conditions (a canned http response) without losing the rollback guarantee — user overrides win on conflict. Use this in place of the *baseline → restore → modify → re-dispatch* experiment loop when you only need to **read** the consequence once, not iterate on a handler.
+Dry-run does **not** accept `:fx-overrides` (it rejects them with `:reason :fx-overrides-unsupported`): the effect sink records + skips every fx *before* override resolution, so an override could only "compose realistic conditions" by executing a body — the exact thing dry-run must not do. To simulate a canned http response you must `dispatch` (not dry-run) with `:fx-overrides` and roll back yourself. Use dry-run in place of the *baseline → restore → modify → re-dispatch* experiment loop when you only need to **read** the consequence once, not iterate on a handler.
 
 ## Stub an effect for an experiment
 
