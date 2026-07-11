@@ -48,11 +48,12 @@
 (defn register-view!
   "Registrar `:view` entry for a compiled view (dev builds; the emitted
   call is goog.DEBUG-gated so production carries no manifests — I-12)."
-  [id component metadata]
-  (registrar/register! :view id (assoc metadata
-                                       :rf/id id
-                                       :handler-fn component
-                                       :rf.ui/compiled? true))
+  [id component manifest]
+  (registrar/register! :view id (cond-> {:rf/id id
+                                         :handler-fn component
+                                         :rf.ui/compiled? true
+                                         :rf.ui/manifest manifest}
+                                  (:doc manifest) (assoc :doc (:doc manifest))))
   component)
 
 ;; ---------------------------------------------------------------------------

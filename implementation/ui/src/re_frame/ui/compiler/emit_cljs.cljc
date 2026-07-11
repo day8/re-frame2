@@ -217,10 +217,13 @@
                      ~@(mapcat (fn [{:keys [slot value]}] [slot value]) entries)
                      ~@(when (and ref-a (= :foreign (:op node)))
                          ["ref" (:form ref-a)])
-                     ~@(when (some? children-form) ["children" children-form]))]
+                     ~@(when (some? children-form) ["children" children-form]))
+        multi?   (> nch 1)]
     (if (:present? key-info)
-      `(re-frame.ui.runtime/jsx3 ~(:sym node) ~props-form ~(:expr key-info))
-      `(re-frame.ui.runtime/jsx2 ~(:sym node) ~props-form))))
+      (list (if multi? `re-frame.ui.runtime/jsxs3 `re-frame.ui.runtime/jsx3)
+            (:sym node) props-form (:expr key-info))
+      (list (if multi? `re-frame.ui.runtime/jsxs2 `re-frame.ui.runtime/jsx2)
+            (:sym node) props-form))))
 
 (defn- row-key-expr [body]
   (or (get-in body [:props :key :expr]) (get-in body [:key :expr])))
@@ -297,12 +300,15 @@
           slot-strs (vec (distinct slot-strs))]
       (if (empty? slot-strs)
         `(fn [_# _#] true)
-        `(fn [prev# next#]
-           (and ~@(map (fn [s]
-                         `(re-frame.ui.eq/rf=
-                           (cljs.core/unchecked-get prev# ~s)
-                           (cljs.core/unchecked-get next# ~s)))
-                       slot-strs)))))))
+        ;; explicit gensyms — auto-gensyms don't span the nested
+        ;; syntax-quote in the map fn
+        (let [prev (gensym "prev") nxt (gensym "next")]
+          `(fn [~prev ~nxt]
+             (and ~@(map (fn [s]
+                           `(re-frame.ui.eq/rf=
+                             (cljs.core/unchecked-get ~prev ~s)
+                             (cljs.core/unchecked-get ~nxt ~s)))
+                         slot-strs))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; defview
