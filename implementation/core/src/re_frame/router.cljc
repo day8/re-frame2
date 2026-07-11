@@ -1766,17 +1766,30 @@
   and DCEs under `:advanced` + `goog.DEBUG=false` — so the always-on
   listener path is what survives prod elision and reaches off-box
   monitors. Mirrors the pipeline-exception path
-  (`emit-pipeline-exception!`)."
+  (`emit-pipeline-exception!`).
+
+  Per Spec 009 §Error event catalogue + Spec 013 §Trace stream ordering the
+  always-on record MUST carry `:where :flow-eval` and the failing `:flow-id` —
+  the prod-surviving attribution. Both ride the `record-attrs` (axis-1) map so
+  they survive an egress profile that drops `:exception` (rf2-z1332c);
+  previously the failing flow id lived ONLY inside the thrown ex-data
+  (`:rf.flow/failed-id`), unreachable once `:exception` is stripped. The id is
+  read back off that ex-data (nil-safe: absent for a non-per-flow throw, in
+  which case only `:where` is stamped)."
   [e event event-id frame start-ms]
   (let [end-ms     (interop/now-ms)
-        elapsed-ms (elapsed-ms-from start-ms end-ms)]
+        elapsed-ms (elapsed-ms-from start-ms end-ms)
+        failed-id  (:rf.flow/failed-id (ex-data e))]
     ;; Fan out along BOTH channels (shared helper). Axis 1 — the
     ;; always-on corpus-wide listener fires in CLJS production where
     ;; the trace surface (axis 2) is compile-time elided.
     (error-emit/emit-error-both!
       :rf.error/flow-eval-exception
       event event-id frame e elapsed-ms end-ms
-      {:frame frame :event event :exception e})))
+      {:frame frame :event event :exception e}
+      ;; axis-1 attribution that survives an `:exception`-dropping egress
+      (cond-> {:where :flow-eval}
+        (some? failed-id) (assoc :flow-id failed-id)))))
 
 (defn- emit-legacy-runtime-root!
   "Surface `:rf.error/legacy-runtime-root` through BOTH the always-on

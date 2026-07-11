@@ -529,12 +529,29 @@
              leak from CLJS performance.now())")
         (is (not (neg? (:elapsed-ms r)))
             ":elapsed-ms is non-negative")
+        ;; rf2-z1332c: the always-on record carries the spec-catalogued flow
+        ;; attribution (`:where :flow-eval` + the failing `:flow-id`) as
+        ;; TOP-LEVEL slots, not buried in the thrown ex-data.
+        (is (= :flow-eval (:where r))
+            ":where :flow-eval discriminates the flow-eval path (Spec 009:2027)")
+        (is (= :boom (:flow-id r))
+            ":flow-id is the failing flow's id — the prod-surviving attribution
+             (Spec 013:234), lifted out of the thrown ex-data")
         (is (= #{:error :event :event-id :frame :time :exception :elapsed-ms
-                 :source-coord}
+                 :source-coord :where :flow-id}
                (set (keys r)))
             "record carries the tight rf2-bacs4 keys plus rf2-3un2g
-             :source-coord (always-on parallel error-coord registry —
-             the failing handler was macro-registered above)")))))
+             :source-coord plus the rf2-z1332c flow attribution
+             (:where / :flow-id)")
+        ;; The attribution must survive an egress profile that strips
+        ;; :exception (015 public-error): the failing flow is still
+        ;; identifiable WITHOUT reaching into (ex-data (:exception r)).
+        (let [public (dissoc r :exception)]
+          (is (= :flow-eval (:where public))
+              ":where survives an :exception-dropping egress profile")
+          (is (= :boom (:flow-id public))
+              ":flow-id survives an :exception-dropping egress profile
+               (defeating the prior ex-data-only attribution)"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 5b'. The flow-eval boundary re-throw carries the CANONICAL thrown-error
