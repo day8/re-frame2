@@ -159,34 +159,113 @@
           (finally (restore)))))))
 
 ;; ---- state-watcher install/teardown -------------------------------------
+;;
+;; `install-state-watcher!` registers a single keyed `add-watch` under a
+;; fixed watch-key, so a re-install REPLACES rather than stacks — the
+;; "no doubled fires" invariant the old `(is true)` body only *named*. We
+;; give it teeth by counting the ratom's registered watches directly
+;; (`.-watches`, the same introspection reagent's own ratom suite uses):
+;; a re-install must NOT grow the watch count, and a stacking regression
+;; (a fresh key per install) would. Runs headlessly — `add-watch` needs
+;; no window.
 
-(deftest state-watcher-install-and-teardown-noerr
-  (testing "rf2-o4u18 — install + teardown completes without error and is
-            idempotent (re-install replaces under same key, teardown
-            removes the watch)"
-    (us/install-state-watcher! state/shell-state-atom)
-    ;; Re-install replaces under the same watch-key (no doubled fires
-    ;; because add-watch is keyed).
-    (us/install-state-watcher! state/shell-state-atom)
-    (us/remove-state-watcher! state/shell-state-atom)
-    (is true "install + reinstall + teardown without errors")))
+(deftest state-watcher-reinstall-replaces-under-same-key
+  (testing "rf2-o4u18 / rf2-x76af2.21 — re-installing the state-watcher
+            replaces under the same watch-key: the ratom carries exactly
+            ONE url-state watch after a double-install (no doubled fires),
+            and teardown removes it. A watcher that stacked (fresh key per
+            install) would leave the count one higher and fail here."
+    (let [a  state/shell-state-atom
+          n0 (count (.-watches a))]
+      (us/install-state-watcher! a)
+      (let [n1 (count (.-watches a))]
+        (us/install-state-watcher! a)          ; re-install under same key
+        (let [n2 (count (.-watches a))]
+          (try
+            (is (= (inc n0) n1)
+                "first install registers exactly one keyed watch")
+            (is (= n1 n2)
+                "re-install does NOT grow the watch count — replaces under
+                 the same key (no stacked / doubled-fire watchers)")
+            (finally (us/remove-state-watcher! a)))
+          (is (= n0 (count (.-watches a)))
+              "teardown removes the watch (back to baseline)"))))))
 
 ;; ---- popstate listener install/teardown ---------------------------------
+;;
+;; The node runner has no `window`, so the old test wrapped its whole body
+;; in `(when (browser?) ...)` and executed ZERO assertions under
+;; `npm run test:cljs` — a vacuous pass. Here we install a minimal `window`
+;; stub on `js/globalThis` (the same pattern the routing suites use) whose
+;; add/removeEventListener maintain a countable per-type listener registry.
+;; That makes the "re-install replaces rather than stacks" invariant
+;; node-runnable AND gives it teeth: after a double-install exactly ONE
+;; popstate listener is registered and a single popstate event fires the
+;; handler exactly once. A stacking regression leaves 2 listeners and
+;; double-fires — so this fails under the default node gate rather than
+;; passing vacuously.
 
-(deftest popstate-listener-install-is-idempotent
-  (testing "rf2-o4u18 — re-installing the popstate listener replaces the
-            previous handler rather than stacking"
-    (when (browser?)
-      (us/install-popstate-listener! state/shell-state-atom
-                                     (fn [s _parsed] s))
-      ;; Second install: still one handler effective; the engine
-      ;; tracks the previous handler and removeEventListener's it.
-      (us/install-popstate-listener! state/shell-state-atom
-                                     (fn [s _parsed] s))
-      ;; Best we can assert without driving popstate: no exceptions
-      ;; raised, and tear-down clears the slot.
-      (us/remove-popstate-listener!)
-      (is true "install + reinstall + remove without errors"))))
+(defn- install-window-stub!
+  "Install a minimal `window` on `js/globalThis` with a countable
+  event-listener registry and an empty-search location. Returns the
+  registry atom `{event-type → [listener ...]}`."
+  []
+  (let [registry (atom {})
+        location #js {:pathname "/" :search "" :hash ""}
+        window   #js {:location location
+                      :history  #js {:pushState    (fn [& _] nil)
+                                     :replaceState (fn [& _] nil)}
+                      :addEventListener
+                      (fn [type listener]
+                        (swap! registry update type (fnil conj []) listener))
+                      :removeEventListener
+                      (fn [type listener]
+                        (swap! registry update type
+                               (fnil (fn [xs] (vec (remove #(= % listener) xs)))
+                                     [])))
+                      :dispatchEvent
+                      (fn [event]
+                        (doseq [l (get @registry (.-type event) [])]
+                          (l event)))}]
+    (set! (.-window js/globalThis) window)
+    registry))
+
+(defn- uninstall-window-stub! []
+  (js-delete js/globalThis "window"))
+
+(defn- popstate-listener-count [registry]
+  (count (get @registry "popstate" [])))
+
+(deftest popstate-listener-reinstall-replaces-rather-than-stacks
+  (testing "rf2-o4u18 / rf2-x76af2.21 — re-installing the popstate listener
+            replaces the previous handler rather than stacking: after a
+            double-install exactly ONE popstate listener is registered, and
+            a single popstate event fires the apply-fn exactly once. Runs
+            under the default node gate via a window stub (no browser? gate),
+            so a stacking regression fails here — not a vacuous pass."
+    (let [registry (install-window-stub!)
+          fires    (atom 0)
+          apply-fn (fn [s _parsed] (swap! fires inc) s)]
+      (try
+        ;; Clear any process-wide handler left by a prior test/run so the
+        ;; registry count reflects only this test's installs.
+        (us/remove-popstate-listener!)
+        (reset! fires 0)
+        (us/install-popstate-listener! state/shell-state-atom apply-fn)
+        (us/install-popstate-listener! state/shell-state-atom apply-fn) ; re-install
+        (is (= 1 (popstate-listener-count registry))
+            "exactly one popstate listener registered after double-install
+             (replaced, not stacked)")
+        ;; Drive a single popstate: the handler must fire exactly once.
+        (.dispatchEvent js/window #js {:type "popstate"})
+        (is (= 1 @fires)
+            "single popstate fires the handler exactly once (no doubled fires)")
+        (us/remove-popstate-listener!)
+        (is (= 0 (popstate-listener-count registry))
+            "remove-popstate-listener! removes the listener")
+        (finally
+          (us/remove-popstate-listener!)
+          (uninstall-window-stub!))))))
 
 ;; ---- apply-fn integration through swap! ---------------------------------
 
