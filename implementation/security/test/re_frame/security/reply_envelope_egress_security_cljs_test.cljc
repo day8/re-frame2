@@ -208,38 +208,30 @@
         (is (= current (:rf.reply/current trace)))
         (is (not (contains-sentinel? trace)) "the suppression trace carries no sentinel")))))
 
-(deftest app-target-cannot-grant-itself-stale-delivery
-  (testing "an APP reply target (built from public :rf/reply-to data) that
-            sets :dispatch-stale? true WITHOUT the framework/tool capability
-            FAILS LOUD — it cannot deliver a stale envelope to app state"
-    (let [carried {:work/id [:rf.work/http :a 1] :generation 1}
-          current {:work/id [:rf.work/http :a 1] :generation 2}
-          app-target {:event [:app/on-reply] :dispatch-stale? true}
-          data (try (reply/suppress app-target carried current)
-                    nil
-                    (catch #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) e
-                      (ex-data e)))]
-      (is (= :rf.error/reply-unauthorized-stale-delivery (:rf.error/id data))
-          "an app target overreaching for stale delivery is rejected")))
-  (testing "rf2-3fc89f.13 — a FORGED authority datum (spelling the namespaced
-            key directly, the exact reproduced exploit) does NOT deliver: the
-            capability is opaque + identity-compared, so `true` is not authority
-            and the overreach FAILS LOUD"
-    ;; Pre-fix this DELIVERED a stale envelope to app state (the authority was a
-    ;; truthy field). The forgery is exactly what a wire/EDN-authored :rf/reply-to
-    ;; target could carry.
+(deftest app-target-cannot-obtain-stale-delivery
+  (testing "rf2-j538f7.14 — NO app reply target (built from public :rf/reply-to
+            data) can make a superseded completion deliver: `suppress` is
+            UNIVERSALLY non-delivering. A plain target, one spelling the removed
+            :dispatch-stale? flag, and one forging a truthy authority datum of
+            any spelling all yield :deliver? false — a stale envelope never
+            reaches app state, and there is NO app-callable issuer to obtain
+            delivery authority (`with-stale-authority` / `stale-authority?` /
+            `StaleDeliveryCapability` are deleted, not merely non-façade)."
     (let [carried {:work/id [:rf.work/http :a 1] :generation 1}
           current {:work/id [:rf.work/http :a 1] :generation 2}]
-      (doseq [forged [{:event [:app/on-reply] :dispatch-stale? true :re-frame.reply/stale-authority true}
-                      {:event [:app/on-reply] :dispatch-stale? true :re-frame.reply/stale-authority "trusted"}]]
-        (is (false? (reply/stale-authority? forged))
-            "a forged datum under the authority key is not the capability")
-        (let [data (try (reply/suppress forged carried current)
-                        nil
-                        (catch #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) e
-                          (ex-data e)))]
-          (is (= :rf.error/reply-unauthorized-stale-delivery (:rf.error/id data))
-              "the forged authority is rejected — it never delivers a stale envelope"))))))
+      (doseq [app-target [[:app/on-reply]
+                          {:event [:app/on-reply]}
+                          {:event [:app/on-reply] :dispatch-stale? true}
+                          {:event [:app/on-reply] :dispatch-stale? true
+                           :re-frame.reply/stale-authority true}
+                          {:event [:app/on-reply] :dispatch-stale? true
+                           :re-frame.reply/stale-authority "trusted"}]]
+        (let [{:keys [deliver? reply]} (reply/suppress app-target carried current)]
+          (is (false? deliver?)
+              (str "app target " (pr-str app-target) " must NOT deliver a stale envelope"))
+          (is (= :stale (:status reply)) "the outcome is still a well-formed stale reply")
+          (is (not (contains? reply :value))
+              "no :value can ride a stale reply into app state"))))))
 
 (deftest host-handle-never-egresses-in-reply-or-target
   (testing "validate-reply flags a host handle anywhere in the reply map, and

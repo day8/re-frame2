@@ -193,8 +193,7 @@
                                 {:event [:x] :suppress {:generation 1}})))))
   (testing "normalization is idempotent and preserves gate fields"
     (let [d (reply/normalize-target {:event [:x] :delivery :append
-                                     :suppress {:route/nav-token "nav-7"}
-                                     :dispatch-stale? true})]
+                                     :suppress {:route/nav-token "nav-7"}})]
       (is (= d (reply/normalize-target d)))))
   (testing "short-form projection round-trips a plain target"
     (is (= [:x 1] (reply/target->short-form [:x 1])))
@@ -267,17 +266,17 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Group 1b' — the reply-target-as-data contract (rf2-r16hfc item 1). A
-;; normalized target may carry the EPHEMERAL non-data slots (`::post`, the
-;; functor accumulator fn; `::stale-authority`, the opaque stale-delivery
-;; capability) while in-flight, but a target that could become DURABLE must be
-;; data-only. `durable-target` strips the ephemerals and asserts no host handle
-;; leaks into a persisted target; `data-only-target?` is the predicate.
+;; normalized target may carry the EPHEMERAL non-data slot `::post` (the
+;; functor accumulator fn) while in-flight, but a target that could become
+;; DURABLE must be data-only. `durable-target` strips the ephemeral and asserts
+;; no host handle leaks into a persisted target; `data-only-target?` is the
+;; predicate.
 ;; ---------------------------------------------------------------------------
 
 (deftest durable-target-is-data-only
   (testing "a plain data target is data-only and survives durable projection unchanged"
     (is (true? (reply/data-only-target? [:x 1])))
-    (is (true? (reply/data-only-target? {:event [:x] :suppress {:g 1} :dispatch-stale? false})))
+    (is (true? (reply/data-only-target? {:event [:x] :suppress {:g 1}})))
     (is (= {:event [:x] :delivery :append :suppress {:g 1}}
            (reply/durable-target {:event [:x] :suppress {:g 1}})))
     (is (nil? (reply/durable-target nil)) "nil target ⇒ nil (nothing to persist)"))
@@ -287,15 +286,7 @@
           "the functor accumulator is a fn — a mapped target is not safe to persist")
       (let [durable (reply/durable-target mapped)]
         (is (true? (reply/data-only-target? durable)) "stripping ::post restores data-only")
-        (is (not (reply/stale-authority? durable))))))
-  (testing "an AUTHORISED target carries the capability marker — NOT data-only — and is stripped"
-    (let [authd (reply/with-stale-authority {:event [:x] :dispatch-stale? true})]
-      (is (false? (reply/data-only-target? authd))
-          "the ::stale-authority capability must not persist into a durable target")
-      (is (false? (reply/stale-authority? (reply/durable-target authd)))
-          "durable projection strips the capability — a persisted target re-acquires no authority")
-      (is (= {:event [:x] :delivery :append :dispatch-stale? true}
-             (reply/durable-target authd)))))
+        (is (= {:event [:x 1] :delivery :append} durable)))))
   (testing "durable-target FAILS LOUD when a host handle hides in a PUBLIC field (an app/family bug)"
     ;; A function smuggled into :suppress (or any public slot) would leak a
     ;; non-serializable value into a durable reply target — reject it loudly.
@@ -477,105 +468,75 @@
       ;; the result validates as a conformant stale reply
       (is (reply/valid-reply? reply) (str (reply/validate-reply reply))))))
 
-(deftest suppress-dispatch-stale-opt-in
-  (testing "the default — every target, app or framework — is NON-delivery of a stale reply"
-    (is (false? (:deliver? (reply/suppress {:event [:x]} {:g 1} {:g 2})))
-        "no :dispatch-stale? ⇒ not delivered")
-    (is (false? (:deliver? (reply/suppress (reply/with-stale-authority {:event [:x]}) {:g 1} {:g 2})))
-        "authority WITHOUT :dispatch-stale? ⇒ still not delivered (the capability alone does not opt in)"))
-  (testing "a FRAMEWORK/TOOL target — :dispatch-stale? true stamped with stale-authority — IS delivered"
-    (is (true? (:deliver? (reply/suppress (reply/with-stale-authority {:event [:x] :dispatch-stale? true})
-                                          {:g 1} {:g 2})))
-        "the framework/tool capability + the explicit opt-in lets a test/tool target receive the stale envelope")
-    (is (false? (:deliver? (reply/suppress (reply/with-stale-authority {:event [:x] :dispatch-stale? false})
-                                           {:g 1} {:g 2})))
-        ":dispatch-stale? false on an authorised target ⇒ not delivered")))
-
-;; ---------------------------------------------------------------------------
-;; Group 3b — :dispatch-stale? AUTHORITY: framework/tool-only (rf2-636pkr,
-;; rf2-3fc89f.13). The substrate is pure (no caller identity), so stale-delivery
-;; authority is an unforgeable, PROVENANCE-bearing CAPABILITY — the opaque,
-;; non-serializable `stale-delivery-capability` object, compared by IDENTITY —
-;; that only framework/tool code can attach via `with-stale-authority`. The
-;; namespaced KEY is NOT the boundary (a keyword can be re-spelled); the
-;; capability VALUE is. An APP target — built from public `:rf/reply-to` data —
-;; cannot obtain, spell, serialize, or reconstruct the capability, so it cannot
-;; grant itself stale delivery; trying to (`:dispatch-stale? true` with a forged
-;; or absent authority) FAILS LOUD.
-;; ---------------------------------------------------------------------------
-
-(deftest dispatch-stale-app-target-cannot-opt-in
-  (testing "an APP target (:dispatch-stale? true, NO authority) cannot enable stale delivery — fails loud"
-    ;; This is the security boundary: an app's :rf/reply-to descriptor can set
-    ;; :dispatch-stale? true (it is plain data), but it CANNOT carry the
-    ;; framework capability, so suppress must refuse it loudly rather than
-    ;; silently deliver a stale envelope into app state.
-    (let [app-target {:event [:app/replied] :dispatch-stale? true}]
-      (is (thrown-with-msg?
-            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
-            #"restricted to framework"
-            (reply/suppress app-target {:g 1} {:g 2}))
-          "an app target that sets :dispatch-stale? true is rejected — it has no stale-delivery authority")
-      (try
-        (reply/suppress app-target {:g 1} {:g 2})
-        (is false "expected suppress to throw")
-        (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
-          (is (= :rf.reply/unauthorized-stale-delivery (:rf.error/kind (ex-data e)))
-              "the failure carries the closed error kind")))))
-  (testing "rf2-3fc89f.13 — a FORGED authority datum cannot grant stale delivery"
-    ;; THE reproduced defect: an app/EDN/wire target that spells the namespaced
-    ;; key directly and sets it truthy. Under the pre-fix truthy-field check this
-    ;; DELIVERED a stale envelope to app state; the capability is now compared by
-    ;; identity, so `true` is not authority and the overreach FAILS LOUD.
-    (doseq [forged [{:event [:app/replied] :dispatch-stale? true :re-frame.reply/stale-authority true}
+(deftest suppress-is-universally-non-delivering
+  (testing "rf2-j538f7.14 — a stale outcome NEVER app-delivers: `suppress`
+            returns :deliver? false for EVERY target — no app/data target can
+            make a superseded completion deliver, and there is no per-target
+            opt-in or authority to pass"
+    ;; A plain short form, a descriptor, a descriptor spelling the removed
+    ;; :dispatch-stale? flag (now inert data), and a descriptor forging a truthy
+    ;; authority datum of any spelling — ALL are non-delivering. There is NO
+    ;; app-callable issuer to obtain delivery authority; the boundary is
+    ;; structural, not a check a caller can pass.
+    (doseq [target [[:x]
+                    {:event [:x]}
+                    {:event [:app/replied] :dispatch-stale? true}
+                    {:event [:app/replied] :dispatch-stale? true :re-frame.reply/stale-authority true}
                     {:event [:app/replied] :dispatch-stale? true :re-frame.reply/stale-authority :yes}
-                    {:event [:app/replied] :dispatch-stale? true ::reply/stale-authority true}]]
-      (is (false? (reply/stale-authority? forged))
-          "a forged truthy datum under the authority key is NOT the capability")
-      (try
-        (reply/suppress forged {:g 1} {:g 2})
-        (is false "expected suppress to throw on the forged target")
-        (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
-          (is (= :rf.reply/unauthorized-stale-delivery (:rf.error/kind (ex-data e)))
-              "a forged authority datum still fails loud — it never delivers")))))
-  (testing "the SAME descriptor, once stamped with framework/tool authority, IS allowed"
-    (is (true? (:deliver?
-                 (reply/suppress (reply/with-stale-authority {:event [:app/replied] :dispatch-stale? true})
-                                 {:g 1} {:g 2})))
-        "wrapping with with-stale-authority is the ONLY way to legitimately opt in"))
-  (testing "stale-authority? reports the capability; a plain OR forged descriptor never carries it"
-    (is (false? (reply/stale-authority? {:event [:x] :dispatch-stale? true}))
-        "a plain (app) descriptor has no authority")
-    (is (false? (reply/stale-authority? {:event [:x] :re-frame.reply/stale-authority true}))
-        "a forged truthy authority datum is not the capability")
-    (is (true? (reply/stale-authority? (reply/with-stale-authority {:event [:x]})))
-        "with-stale-authority stamps the capability")))
+                    nil]]
+      (let [{:keys [deliver? reply]} (reply/suppress target {:g 1} {:g 2})]
+        (is (false? deliver?)
+            (str "target " (pr-str target) " must NOT deliver a stale reply to the app target"))
+        (is (= :stale (:status reply)) "the outcome is still a well-formed stale reply")
+        (is (not (contains? reply :value)) "a stale reply carries NO value — no app-state mutation")))))
 
-(deftest stale-authority-capability-does-not-survive-serialization
-  (testing "rf2-3fc89f.13 — the capability is opaque + non-serializable: an
-            EDN round-trip cannot reconstruct authority, and durable-target
-            strips it"
-    (let [authd (reply/with-stale-authority {:event [:x] :dispatch-stale? true})]
-      ;; An EDN round-trip of the authorised target cannot yield authority: a
-      ;; deftype instance has no reader tag, so pr-str→read-string either fails
-      ;; or produces a value that is NOT identical? to the capability. (CLJ owns
-      ;; the reader round-trip; both runtimes assert the durable-strip below.)
-      #?(:clj
-         (let [reconstructed (try (read-string (pr-str authd))
-                                  (catch Exception _ ::unreadable))]
-           (is (or (= ::unreadable reconstructed)
-                   (false? (reply/stale-authority? reconstructed)))
-               "a serialized authorised target does not round-trip into authority")))
-      ;; durable-target strips the capability outright — on BOTH runtimes.
-      (is (false? (reply/stale-authority? (reply/durable-target authd)))
-          "durable projection drops the capability — a persisted target grants no authority")
-      (is (not (contains? (reply/durable-target authd) :re-frame.reply/stale-authority))
-          "the authority slot is absent from the durable projection")
-      ;; A wire/EDN datum under the authority key (the only thing serialization
-      ;; could carry) is never the capability.
-      (is (false? (reply/stale-authority?
-                    {:event [:x] :re-frame.reply/stale-authority true}))
-          "a truthy datum an EDN/wire target could carry is not authority"))))
+;; ---------------------------------------------------------------------------
+;; Group 3b — NO public stale-delivery issuer (rf2-j538f7.14). The former
+;; `with-stale-authority` / `stale-authority?` / `StaleDeliveryCapability`
+;; capability dance is DELETED: `re-frame.reply` exposes no operation that
+;; creates, returns, copies, or attaches stale-delivery authority. App code that
+;; directly requires the namespace cannot mint delivery for a superseded
+;; completion, and a framework/tool test that wants to OBSERVE a stale reply
+;; self-dispatches it on its OWN authority (nothing capability-bearing rides the
+;; target).
+;; ---------------------------------------------------------------------------
+
+#?(:clj
+   (deftest no-public-stale-delivery-issuer
+     (testing "rf2-j538f7.14 AC1 — the reply namespace exposes NO public
+               operation that mints/attaches stale-delivery authority"
+       (let [publics (set (keys (ns-publics 're-frame.reply)))]
+         (doseq [sym '[with-stale-authority stale-authority?
+                       ->StaleDeliveryCapability StaleDeliveryCapability
+                       stale-delivery-capability]]
+           (is (not (contains? publics sym))
+               (str sym " must not be a public var — no app-callable "
+                    "stale-delivery issuer remains")))))))
+
+(deftest observer-self-dispatches-a-stale-reply-on-its-own-authority
+  (testing "rf2-j538f7.14 AC3 — a framework/tool OBSERVER reads (:reply outcome)
+            and dispatches it on its OWN authority; nothing capability-bearing
+            rides the target, and the suppress outcome itself never delivers"
+    (let [carried {:g 1}
+          current {:g 2}
+          ;; A PLAIN app-shaped target — nothing capability-bearing on it.
+          target  [:app/replied]
+          {:keys [deliver? reply]} (reply/suppress target carried current)]
+      ;; Tooth 1 — app NON-delivery: the suppress boundary is universally
+      ;; non-delivering, so the ONLY way the stale reply reaches a handler is a
+      ;; deliberate observer self-dispatch below.
+      (is (false? deliver?) "the suppress boundary never delivers a stale reply to the app target")
+      (is (= :stale (:status reply)))
+      (is (reply/valid-reply? reply) (str (reply/validate-reply reply)))
+      ;; Tooth 2 — authorised observation: the observer builds the completed
+      ;; event from the stale :reply and dispatches it itself (its own trusted
+      ;; path — an explicit `dispatch`, structurally separate from any target
+      ;; field).
+      (let [observed (atom nil)
+            dispatch! (fn [ev] (reset! observed ev))]
+        (dispatch! (reply/complete [:tool/observed] reply))
+        (is (= [:tool/observed reply] @observed)
+            "the observer dispatched the stale reply on its own authority")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Group 4 — data-only trace summaries route through the shared elision walker.

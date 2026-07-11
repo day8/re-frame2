@@ -315,8 +315,10 @@
                     `:rf.frame/id` and the CARRIED generation).
     `current-gen` — the LIVE generation read at completion.
     `times`       — `{:completed-at <causal ms>}` ridden onto the stale reply.
-    `target`      — the (optional) reply target, consulted only for its
-                    `:dispatch-stale?` opt-in (framework test/tool only)."
+    `target`      — the (optional) reply target, threaded to `re-frame.reply/
+                    suppress` for call-site uniformity but not consulted for a
+                    delivery decision (a stale outcome is universally
+                    non-delivering)."
   ([args current-gen times] (suppress args current-gen times nil))
   ([{:keys [generation frame] :as args} current-gen {:keys [completed-at]} target]
    (reply/suppress target

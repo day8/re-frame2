@@ -1,24 +1,24 @@
 (ns re-frame.event-reply-envelope-conformance-cljs-test
   "Conformance for delivering managed-effect replies through the event model.
 
-  `reply-conformance` owns the pure reply vocabulary and laws — including the
-  FULL stale-delivery authority / forgery truth table over the unforgeable
-  `StaleDeliveryCapability` (rf2-3fc89f.13); family suites own their lowering.
-  This integration suite proves the remaining boundary: composing the reply
-  machinery with the ordinary `reg-event` dispatch pipeline.
+  `reply-conformance` owns the pure reply vocabulary and laws; family suites own
+  their lowering. This integration suite proves the remaining boundary:
+  composing the reply machinery with the ordinary `reg-event` dispatch pipeline.
 
     - A completed `:rf/reply-to` target appends one canonical reply map to the
       event vector, and the ordinary `reg-event` pipeline receives it with normal
       coeffects/effects semantics (the natural-success case).
 
-    - A STALE completion honours the `suppress` DELIVERY GATE — the `:deliver?`
-      field of the suppression outcome (the observable projection of that
-      unforgeable capability boundary). The event leg dispatches ONLY through
-      `:deliver?`: a framework/tool-authorised target (capability +
-      `:dispatch-stale? true`) is DELIVERING and its stale envelope reaches
-      exactly its handler; an app-authored target (no capability, no opt-in) is
-      NON-delivering and its handler never runs — yet the stale reply is still a
-      well-formed envelope, so non-delivery is not confused with malformed data.
+    - A STALE completion is UNIVERSALLY non-delivering (rf2-j538f7.14): the
+      `suppress` outcome always carries `:deliver? false`, so an app reply target
+      NEVER receives a stale envelope through the event pipeline. A framework/tool
+      OBSERVER that wants to see a stale reply reads `(:reply outcome)` and
+      dispatches it on its OWN authority — an explicit `complete` + dispatch,
+      structurally separate from any target field, with nothing capability-bearing
+      riding the target. Both teeth hold: authorised observation reaches exactly
+      its handler, AND the suppress boundary asserts app non-delivery — yet the
+      stale reply is a well-formed envelope, so non-delivery is not confused with
+      malformed data.
 
   Both stale cases route to an EXPLICIT non-default frame carrying its OWN image
   handler PLUS a same-id default-registrar sentinel, so neither a targeting
@@ -62,20 +62,18 @@
           :kind             :event
           :id               id}))
 
-;; THE delivery gate, as a test-local helper (DESIGN, rf2-j538f7.4). It consumes
-;; the COMPLETE suppression outcome (`{:deliver? :reply}`) as the delivery
-;; AUTHORITY: it `complete`s + `dispatch-sync`s the stale event ONLY when
-;; `:deliver? true`, and returns whether it dispatched. There is NO code path
-;; that dispatches around `:deliver?` — so a regression that flips an authorised
-;; outcome to non-delivering (while carrying the IDENTICAL stale reply) delivers
-;; NOTHING and turns the positive integration RED. Test-only and explicit: the
-;; managed-effect runtime owns real stale lowering; this invents no production
-;; API and re-derives no authority truth table (that is `reply`'s).
-(defn- deliver-through-gate!
-  [{:keys [deliver? reply]} target dispatch-opts]
-  (when deliver?
-    (rf/dispatch-sync (reply/complete target reply) dispatch-opts))
-  (boolean deliver?))
+;; THE observer's own trusted path, as a test-local helper (DESIGN,
+;; rf2-j538f7.14). `suppress` is universally non-delivering (`:deliver? false`),
+;; so an app reply target never receives a stale envelope. A framework/tool
+;; OBSERVER that WANTS to see one reads the stale `:reply` off the outcome and
+;; dispatches it on its OWN authority — this helper is that explicit
+;; self-dispatch (`complete` + `dispatch-sync`). Nothing capability-bearing rides
+;; the target; the observation path is structurally separate from the
+;; (non-)delivery decision. Test-only: the managed-effect runtime owns real stale
+;; lowering (and never app-delivers a stale reply); this invents no production API.
+(defn- observe-stale-reply!
+  [{:keys [reply]} target dispatch-opts]
+  (rf/dispatch-sync (reply/complete target reply) dispatch-opts))
 
 (deftest reply-completion-is-an-ordinary-reg-event-dispatch
   (testing "a completed reply target is an ordinary event with the reply last"
@@ -129,10 +127,11 @@
         (is (= "Welcome" @(rf/subscribe [:evt-reply/last-title]))
             "the {:db …} effect derived from the reply value committed")))))
 
-(deftest an-authorised-stale-reply-is-delivered-only-through-the-gate
-  (testing "a framework/tool-authorised stale reply is delivered as an ordinary
-            event — but ONLY because the suppress outcome is :deliver? true —
-            reaching exactly its handler on an explicit non-default frame"
+(deftest an-observer-self-dispatches-a-stale-reply-on-its-own-authority
+  (testing "a framework/tool OBSERVER can dispatch a stale reply as an ordinary
+            event on its OWN authority — reaching exactly its handler on an
+            explicit non-default frame — while the suppress outcome itself is
+            (universally) non-delivering"
     ;; Same-id GLOBAL sentinel on the default registrar. A resolution
     ;; fall-through (default registrar instead of the frame's image generation)
     ;; or a targeting fall-through (the ambient default frame instead of the
@@ -151,27 +150,26 @@
                     {:db (assoc db :delivered-by :image)}))]
           img  (image/image {:id :evt.reply/stale-img :select-ns {:include ["evt.reply.stale"]}})
           _    (lf/make-frame {:id :evt.reply/frame :images [img]} pool)
-          ;; A FRAMEWORK/TOOL target: it carries the unforgeable stale-delivery
-          ;; capability (`with-stale-authority`) AND opts in via :dispatch-stale?.
-          target  (assoc (reply/with-stale-authority [:article/loaded {:id 42}])
-                         :dispatch-stale? true)
+          ;; A PLAIN app-shaped target — nothing capability-bearing rides it.
+          target  [:article/loaded {:id 42}]
           carried {:work/id [:rf.work/resource [:rf.scope/global :r {}] 4] :generation 4}
           current {:work/id [:rf.work/resource [:rf.scope/global :r {}] 5] :generation 5}
           outcome (reply/suppress target carried current
                     {:rf.reply/work-id (:work/id carried)
                      :work/kind        :resource
                      :rf.frame/id      :evt.reply/frame})]
-      (testing "the suppression outcome IS the delivery authority — authorised,
-                so it authorises delivery"
-        (is (true? (:deliver? outcome))
-            "an authorised stale target (capability + :dispatch-stale? true) yields :deliver? true")
+      (testing "TOOTH — app non-delivery: the suppress outcome is universally
+                non-delivering, so the ONLY way the stale reply reaches a handler
+                is a deliberate observer self-dispatch"
+        (is (false? (:deliver? outcome))
+            "the suppress boundary never authorises app delivery of a stale reply")
         (is (reply/valid-reply? (:reply outcome))
             (str "the suppressed reply must be a canonical stale envelope: "
-                 (reply/validate-reply (:reply outcome)))))
-      (testing "delivery happens ONLY through the gate-driven helper (the sole
-                dispatch site, driven by :deliver?)"
-        (is (true? (deliver-through-gate! outcome target {:frame :evt.reply/frame}))
-            "the helper dispatched because the outcome authorises delivery"))
+                 (reply/validate-reply (:reply outcome))))
+        (is (zero? @call-count) "nothing has been dispatched yet"))
+      (testing "TOOTH — authorised observation: the observer self-dispatches the
+                stale reply on its OWN authority (explicit complete + dispatch)"
+        (observe-stale-reply! outcome target {:frame :evt.reply/frame}))
       (testing "the stale envelope reached EXACTLY the intended handler, once,
                 with ORDINARY event-model shape — reply appended last"
         (is (= 1 @call-count) "the target handler ran exactly once")
@@ -186,8 +184,8 @@
               "a stale reply carries NO :value — it mutates no app state")
           (is (contains? reply/statuses (:status delivered))
               ":stale is in the ONE closed status vocabulary")))
-      (testing "the event was routed to the EXPLICIT frame via ITS OWN image —
-                not the ambient default frame, nor the default registrar"
+      (testing "the observer's dispatch was routed to the EXPLICIT frame via ITS
+                OWN image — not the ambient default frame, nor the default registrar"
         (is (= :image (:delivered-by (rf/app-db-value :evt.reply/frame)))
             "the explicit frame's OWN image handler ran (resolved through its generation)")
         (is (not= :global (:delivered-by (rf/app-db-value :evt.reply/frame)))
@@ -195,22 +193,12 @@
         (is (nil? (:delivered-by (rf/app-db-value :rf/default)))
             "targeting did NOT fall through to the ambient default frame")
         (is (nil? registrar/*generation*)
-            "the image generation binding unwound after the dispatch"))
-      (testing "FAIL-BEFORE ORACLE (teeth): forcing the SAME authorised reply to
-                :deliver? false through the SAME helper dispatches NOTHING — the
-                positive path cannot be satisfied by dispatching around the gate,
-                so a regression that flips the authorised decision to
-                non-delivering turns this test RED"
-        (is (false? (deliver-through-gate! (assoc outcome :deliver? false)
-                                           target {:frame :evt.reply/frame}))
-            "a forced non-delivering outcome returns false (no dispatch)")
-        (is (= 1 @call-count)
-            "the handler count did NOT advance — the ONLY dispatch site consults :deliver?")))))
+            "the image generation binding unwound after the dispatch")))))
 
-(deftest an-app-authored-stale-reply-is-non-delivering
-  (testing "a normal app reply target (no capability, no :dispatch-stale? opt-in)
-            with a superseded correlation is NON-delivering — the app handler
-            never runs on ANY frame, yet the stale reply is well-formed data"
+(deftest a-stale-completion-is-non-delivering-without-an-explicit-observer
+  (testing "an app reply target with a superseded correlation is NON-delivering:
+            with NO observer self-dispatch, the app handler never runs on ANY
+            frame, yet the stale reply is well-formed data"
     ;; Same-id global sentinel again: a leaked delivery WOULD be observable.
     (rf/reg-event :article/loaded
       (fn [{:keys [db]} _] {:db (assoc db :delivered-by :global)}))
@@ -226,9 +214,8 @@
           img  (image/image {:id :evt.reply/app-img :select-ns {:include ["evt.reply.app"]}})
           _    (lf/make-frame {:id :evt.reply/app-frame :images [img]} pool)
           ;; A NORMAL app target: the bare public short form built from
-          ;; `:rf/reply-to` data. It cannot obtain the stale-delivery capability
-          ;; and does not opt in, so `suppress` is NON-delivering (no throw — the
-          ;; loud-forgery path is `reply`'s truth table, not this integration).
+          ;; `:rf/reply-to` data. `suppress` is UNIVERSALLY non-delivering, and
+          ;; nobody self-dispatches — so the app handler never runs.
           target  [:article/loaded {:id 42}]
           carried {:work/id [:rf.work/resource [:rf.scope/global :r {}] 4] :generation 4}
           current {:work/id [:rf.work/resource [:rf.scope/global :r {}] 5] :generation 5}
@@ -236,14 +223,11 @@
                     {:rf.reply/work-id (:work/id carried)
                      :work/kind        :resource
                      :rf.frame/id      :evt.reply/app-frame})]
-      (testing "the suppression outcome is NON-delivering for an app target"
+      (testing "the suppression outcome is NON-delivering"
         (is (false? (:deliver? outcome))
-            "an app target (no capability, no :dispatch-stale?) yields :deliver? false"))
-      (testing "the gate-driven helper dispatches NOTHING"
-        (is (false? (deliver-through-gate! outcome target {:frame :evt.reply/app-frame}))
-            "the helper returned false — it did not dispatch"))
+            "a stale outcome yields :deliver? false — no app delivery"))
       (testing "no handler ran and NO app-db mutated — on EITHER the explicit
-                frame or the ambient default frame"
+                frame or the ambient default frame (nobody self-dispatched)"
         (is (= ::unset @seen-event) "the app handler was never invoked")
         (is (zero? @call-count)     "the target handler ran zero times")
         (is (nil? (:delivered-by (rf/app-db-value :evt.reply/app-frame)))

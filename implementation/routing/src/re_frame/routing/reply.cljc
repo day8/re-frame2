@@ -200,8 +200,9 @@
                 stale reply verbatim.
     `current` — the LIVE nav-token read from
                 `[:rf.runtime/routing :current :nav-token]` at completion.
-    `target`  — the (optional) reply target, consulted only for its
-                `:dispatch-stale?` opt-in (framework test / tool only).
+    `target`  — the (optional) reply target, threaded to
+                `re-frame.reply/suppress` for call-site uniformity but not
+                consulted for delivery (a stale outcome never app-delivers).
 
   Returns the `re-frame.reply/suppress` shape:
     {:deliver?    <bool>          ;; false ⇒ DO NOT run the app reply target

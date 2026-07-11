@@ -220,15 +220,16 @@
     (is (true?  (probe/suppress? 1 2)) "superseded → stale")
     (is (false? (probe/suppress? 2 2)) "current → live"))
 
-  (testing "a framework test/tool target MAY opt into stale delivery; app targets MUST NOT"
-    (is (false? (:deliver? (probe/suppress base-args 2 {} [:t]))) "no opt-in → not delivered")
-    (is (false? (:deliver? (probe/suppress base-args 2 {} {:event [:t] :dispatch-stale? false}))))
-    (is (true?  (:deliver? (probe/suppress base-args 2 {}
-                                           (reply/with-stale-authority {:event [:t] :dispatch-stale? true}))))
-        ":dispatch-stale? true on a framework/tool-authorised target → delivered")
-    (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
-                 (probe/suppress base-args 2 {} {:event [:t] :dispatch-stale? true}))
-        "an APP target setting :dispatch-stale? true without framework authority FAILS LOUD")))
+  (testing "rf2-j538f7.14 — a stale timer completion is UNIVERSALLY non-delivering
+            through the probe's suppress: no target, app or otherwise, receives it"
+    (is (false? (:deliver? (probe/suppress base-args 2 {} [:t]))) "plain target → not delivered")
+    (is (false? (:deliver? (probe/suppress base-args 2 {} {:event [:t]}))) "descriptor → not delivered")
+    (is (false? (:deliver? (probe/suppress base-args 2 {} {:event [:t] :dispatch-stale? true})))
+        "an inert :dispatch-stale? flag grants nothing → not delivered")
+    (is (false? (:deliver? (probe/suppress base-args 2 {}
+                                           {:event [:t] :dispatch-stale? true
+                                            :re-frame.reply/stale-authority true})))
+        "a forged authority datum grants nothing → not delivered")))
 
 ;; ===========================================================================
 ;; Property 9 — the reply-target functor law (Managed-Effects §Reply mapping
