@@ -1875,6 +1875,39 @@
         _              (when-let [validate (late-bind/get-fn
                                             :frame-classification/validate!)]
                          (validate id config))
+        ;; rf2-ktmto9: routing-owned frame-config PREFLIGHT at the frame-config
+        ;; COMMIT chokepoint. The routing artefact validates an explicitly-
+        ;; declared `:url-strategy` (shape + host-required callable legs) against
+        ;; the FINAL expanded config — here, alongside the other pure preflights,
+        ;; BEFORE the record build, `registrar/register!`, the trace-policy
+        ;; writes, the `frames` swap, the `:initial-events` setup dispatch, and
+        ;; any trace emit. So a malformed declaration fails with ZERO residue on
+        ;; a first registration, and a failed RE-registration preserves every
+        ;; previously committed value (config, generation, URL listener, claim
+        ;; order) and emits no `:rf.frame/re-registered`. Routing owns the
+        ;; MEANING (presence semantics: an ABSENT `:url-strategy` is a no-op —
+        ;; omission alone selects the default; a PRESENT key, including explicit
+        ;; nil, must be a valid strategy map); core owns the TIMING. Late-bound
+        ;; because core must not require the optional routing artefact (bundle
+        ;; isolation). When the hook is UNPUBLISHED but the config declares
+        ;; `:url-strategy`, fail loud — storing a strategy nobody can validate
+        ;; or execute is worse than a dependency error (it would only fail
+        ;; later, deep in a consult point). A `:url-bound?`-only config with no
+        ;; `:url-strategy` key stays registrable before routing loads (the
+        ;; late-load case is unchanged).
+        _              (if-let [preflight-routing! (late-bind/get-fn
+                                                    :routing/preflight-frame-config!)]
+                         (preflight-routing! id config)
+                         (when (contains? config :url-strategy)
+                           (error/throw-error!
+                             :rf.error/routing-artefact-missing
+                             'rf/reg-frame
+                             (str "this frame config declares :url-strategy, which "
+                                  "requires day8/re-frame2-routing on the classpath; "
+                                  "add it to deps and require re-frame.routing at app "
+                                  "boot, BEFORE the frame is constructed, so the "
+                                  "strategy can be validated at registration time.")
+                             {:extra {:frame id}})))
         existing       (get @frames id)
         ;; rf2-hhlzky: construct the frame record BEFORE any process-global
         ;; write (the registrar row + the trace-suppression flags below).

@@ -397,6 +397,35 @@
                               context)}))))
   strategy)
 
+(defn preflight-frame-config!
+  "Registration-time PREFLIGHT over a frame's FINAL expanded `reg-frame`
+  config (rf2-ktmto9). PURE validation — no writes, no side effects, no
+  strategy-leg execution (shape/callability is the enforceable static
+  contract; probing `:push!` / `:install-listener!` would itself cause
+  browser effects).
+
+  PRESENCE semantics: a config with NO `:url-strategy` key is a no-op —
+  omission alone selects the default `history-url-strategy`. A PRESENT key
+  — INCLUDING an explicit `nil` — is an explicit declaration and must be a
+  valid strategy map, so `{:url-strategy nil}` fails loud
+  (`:rf.error/invalid-url-strategy`) exactly like any other malformed
+  value. The ex-data carries `{:frame frame-id}` so the diagnostic names
+  the offending frame.
+
+  Published as the `:routing/preflight-frame-config!` late-bind hook on
+  BOTH hosts; `re-frame.frame/reg-frame` (the one frame-config commit
+  chokepoint) invokes it with the final expanded config BEFORE any
+  candidate-derived write — the frame-record build, the registrar row, the
+  trace-policy flags, the frames swap, the `:initial-events` setup
+  dispatch, and any trace emit — so a malformed declaration leaves NO
+  residue on a first registration and preserves every previously committed
+  value (and the installed URL listener) on a re-registration. Returns nil."
+  [frame-id config]
+  (when (contains? config :url-strategy)
+    (validate-url-strategy! (:url-strategy config) 'rf/reg-frame
+                            {:frame frame-id}))
+  nil)
+
 (defn url-strategy-from-config
   "Read `:url-strategy` from a frame's stored `reg-frame` config map,
   defaulting to `history-url-strategy` when unset (or when `config` is not
