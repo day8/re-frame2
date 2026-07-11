@@ -970,17 +970,27 @@
   ([fx-id args frame-id]
    (emit-handled! fx-id args frame-id nil))
   ([fx-id args frame-id elapsed-ms]
+   (emit-handled! fx-id args frame-id elapsed-ms nil))
+  ([fx-id args frame-id elapsed-ms from-id]
    ;; rf2-hhh92: `elapsed-ms` (the wall-clock duration of the fx-handler
    ;; invoke, dev-only) rides onto `:rf.fx/handled` as `:rf.fx/elapsed-ms`
    ;; so the Trace panel's DURATION column reads the per-op duration. The
    ;; slot construction rides `(some? elapsed-ms)` — callers pass nil in
    ;; production (the brackets ride `interop/debug-enabled?`), so the
    ;; assoc collapses and the prod emit shape is unchanged.
+   ;;
+   ;; rf2-2siusz: `from-id` (the ORIGINAL fx-id of a keyword-redirected
+   ;; entry, nil otherwise) rides as `:rf.fx/from` so the classification
+   ;; projector composes the original registration's classification over
+   ;; the redirect target's — and tools see the redirect fact on the
+   ;; handled trace itself, not only on the separate
+   ;; `:rf.fx/override-applied` event.
    (trace/emit! :rf.fx :rf.fx/handled
                 (cond-> {:rf.fx/id   fx-id
                          :rf.fx/args args
                          :frame      frame-id}
-                  (some? elapsed-ms) (assoc :rf.fx/elapsed-ms elapsed-ms)))))
+                  (some? elapsed-ms) (assoc :rf.fx/elapsed-ms elapsed-ms)
+                  (some? from-id)    (assoc :rf.fx/from from-id)))))
 
 (defn handle-one-fx
   "Process one [fx-id args] pair. Falls into one of three buckets:
@@ -1070,7 +1080,21 @@
         ;; spec resolution order for user ids. (Reject-tier ids were already
         ;; neutralised above, so they never reach this branch.)
         fn-value-override? (and (contains? overrides original-fx-id)
-                                (fn? (get overrides original-fx-id)))]
+                                (fn? (get overrides original-fx-id)))
+        ;; rf2-2siusz — keyword-redirect provenance. When `:fx-overrides`
+        ;; id-redirected this entry (`fx-id` ≠ `original-fx-id`), the
+        ;; fx-arg-bearing emits below stamp the ORIGINAL id as `:rf.fx/from`
+        ;; (the same tag vocabulary `:rf.fx/override-applied` already uses),
+        ;; so the classification projector (`re-frame.classification/
+        ;; project-fx-tags`) can compose the ORIGINAL registration's static
+        ;; `:sensitive` / `:large` AND its per-fx-id dynamic classification
+        ;; over args the redirect TARGET's registration knows nothing about
+        ;; — a `:sensitive? true` `:rf.http/managed` request redirected to a
+        ;; canned/test stub must not ride raw at the stub's `:rf.fx/handled`
+        ;; / fx-error trace slots. nil when no redirect fired (the fn-value
+        ;; and fallthrough branches resolve to the original id, so only a
+        ;; SUCCESSFUL keyword redirect stamps it).
+        redirected-from (when (not= original-fx-id fx-id) original-fx-id)]
    ;; Per Spec 009 §Performance instrumentation (rf2-du3i): every fx
    ;; invocation — reserved or user-registered — runs inside a perf
    ;; bracket so prod builds with the perf flag enabled produce a
@@ -1255,25 +1279,34 @@
                               origin-event-id
                               frame-id
                               e
-                              {:failing-id        fx-id
-                               :rf.fx/id          fx-id
-                               :rf.fx/args        args
-                               :frame             frame-id
-                               :exception         e
-                               :exception-message msg
-                               :reason            (str "Effect handler `" fx-id "` threw: " msg ".")
-                               :recovery          :no-recovery}))
+                              (cond-> {:failing-id        fx-id
+                                       :rf.fx/id          fx-id
+                                       :rf.fx/args        args
+                                       :frame             frame-id
+                                       :exception         e
+                                       :exception-message msg
+                                       :reason            (str "Effect handler `" fx-id "` threw: " msg ".")
+                                       :recovery          :no-recovery}
+                                ;; rf2-2siusz — redirect provenance on the
+                                ;; always-on error trace too: the projector
+                                ;; must reach the ORIGINAL id's classification
+                                ;; when a redirected stub throws mid-args.
+                                redirected-from (assoc :rf.fx/from redirected-from))))
                           false))]
               (when ok?
                 (emit-handled! fx-id args frame-id
-                               (when interop/debug-enabled? (- (interop/now-ms) t0))))))))
+                               (when interop/debug-enabled? (- (interop/now-ms) t0))
+                               redirected-from))))))
         (trace/emit! :warning :rf.fx/skipped-on-platform
-                     {:rf.fx/id                   fx-id
-                      :frame                      frame-id
-                      :rf.fx/args                 args
-                      :rf.fx/platform             active-platform
-                      :rf.fx/registered-platforms (:platforms meta)
-                      :recovery                   :skipped}))
+                     (cond-> {:rf.fx/id                   fx-id
+                              :frame                      frame-id
+                              :rf.fx/args                 args
+                              :rf.fx/platform             active-platform
+                              :rf.fx/registered-platforms (:platforms meta)
+                              :recovery                   :skipped}
+                       ;; rf2-2siusz — same provenance on the skip trace: it
+                       ;; stamps the same [:rf.fx/id :rf.fx/args] pair.
+                       redirected-from (assoc :rf.fx/from redirected-from))))
       ;; rf2-goum9x: an unknown fx-id is a production-reachable runtime
       ;; error (Spec 009 §Error event catalogue) — fan it out through the
       ;; always-on listener so load-order / optional-artefact mistakes are

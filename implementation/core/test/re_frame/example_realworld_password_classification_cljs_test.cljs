@@ -256,14 +256,43 @@
         ":realworld-resources.demo/http-stub owns [:request :body :user :password]")))
 
 (deftest request-body-password-redacts-in-fx-handled-trace
-  (testing "a managed request routed through a stub carrying the app's
-            :sensitive redacts the request-body password in the always-emitted
-            :rf.fx/handled trace, while the non-secret email rides visible"
+  (testing "a :sensitive? true managed request routed through a stub redacts
+            the WHOLE request body in the always-emitted :rf.fx/handled trace:
+            post-rf2-2siusz the keyword redirect stamps :rf.fx/from
+            :rf.http/managed and the projector composes the ORIGINAL id's
+            dynamic classification (the same whole-body scrub the dedicated
+            :rf.http/* composers run) over the stub's own static path"
     (with-new-frame [f (frame/make-anon-frame-record! {})]
       (rf/with-fx-overrides {:rf.http/managed :test.realworld/body-stub}
         (let [traces (record-traces! ::body)]
           (rf/dispatch-sync [:test.realworld/emit-managed (login-args)] {:frame f})
           (rf/unregister-listener! :trace ::body)
+          (let [handled (->> @traces
+                             (filter #(= :test.realworld/body-stub
+                                         (get-in % [:tags :rf.fx/id]))))]
+            (is (seq handled)
+                "the stub emitted a :rf.fx/handled trace with its args")
+            (doseq [ev handled]
+              (is (= :rf.http/managed (get-in ev [:tags :rf.fx/from]))
+                  "the redirect provenance rides the handled trace")
+              (is (= privacy/redacted-sentinel
+                     (get-in ev [:tags :rf.fx/args :request :body]))
+                  "the :sensitive? true request's WHOLE body reads :rf/redacted
+                   — run-mode parity with the real managed handler's composers")
+              (is (not (str/includes? (pr-str ev) sentinel))
+                  "no raw password rides the handled trace"))))))))
+
+(deftest request-body-password-redacts-selectively-when-unflagged
+  (testing "an UNFLAGGED managed request routed through the stub still rides
+            the stub's OWN selective static classification: the declared
+            password path redacts while the non-secret email rides visible
+            (no reflexive whole-body over-redaction without :sensitive?)"
+    (with-new-frame [f (frame/make-anon-frame-record! {})]
+      (rf/with-fx-overrides {:rf.http/managed :test.realworld/body-stub}
+        (let [traces   (record-traces! ::body-unflagged)
+              unflagged (update (login-args) :request dissoc :sensitive?)]
+          (rf/dispatch-sync [:test.realworld/emit-managed unflagged] {:frame f})
+          (rf/unregister-listener! :trace ::body-unflagged)
           (let [handled (->> @traces
                              (filter #(= :test.realworld/body-stub
                                          (get-in % [:tags :rf.fx/id]))))]

@@ -428,12 +428,28 @@
   `:rf.error/fx-handler-exception` fans out through the always-on error-emit
   listener, not just the dev trace, so an fx that persists / sends a
   classified value (a session token to localStorage, an auth header) must NOT
-  egress it raw when the fx throws."
+  egress it raw when the fx throws.
+
+  A KEYWORD-REDIRECTED fx (`:fx-overrides` id-redirect — rf2-2siusz) stamps
+  the ORIGINAL fx-id as `:rf.fx/from` alongside the resolved `:rf.fx/id`,
+  and the args are the SAME value the caller shaped for the ORIGINAL fx's
+  contract — so the walk composes `project-fx-args` for BOTH ids: the
+  redirect TARGET's own declaration first (an app stub may declare its own
+  static paths), then the ORIGINAL registration's static paths + per-fx-id
+  dynamic classification. This closes the run-mode leak where a
+  `:sensitive? true` `:rf.http/managed` request redirected to a canned /
+  test stub rode RAW on the stub's own `:rf.fx/handled` — the stub
+  registration declares nothing and the resolved id matches no dynamic
+  case, but the ORIGINAL id carries both."
   [tags]
   (if-not (contains? tags :rf.fx/args)
     tags
     (let [args  (:rf.fx/args tags)
-          args' (project-fx-args (:rf.fx/id tags) args)]
+          from  (:rf.fx/from tags)
+          args' (project-fx-args (:rf.fx/id tags) args)
+          args' (if (and from (not= from (:rf.fx/id tags)))
+                  (project-fx-args from args')
+                  args')]
       (if (identical? args args')
         tags
         (assoc tags :rf.fx/args args')))))
