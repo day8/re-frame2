@@ -52,6 +52,26 @@
                                      teardown call routes through this hook.
                                      Signature: `(f frame-id) → nil`.
 
+  - `:recorder/reset-dom-buffer`   — dom-capture → recorder. Called by
+                                     `recorder/start-recording!` and
+                                     `recorder/clear!` to cancel every
+                                     pending DOM type-debounce flush timer
+                                     and drop the per-selector type-buffer.
+                                     Without it a keystroke buffered under a
+                                     PRIOR recording (its `setTimeout` flush
+                                     still pending) would fire after a new
+                                     recording started / the recorder was
+                                     cleared and — via the `:recording?`-
+                                     agnostic buffered append — bleed into
+                                     the CURRENT recording's `:entries`
+                                     (rf2-x76af2.18). `recorder` (cljc)
+                                     cannot `:require` `dom-capture` (cljs;
+                                     cycle: dom-capture → recorder), so the
+                                     drain routes through this hook. Absent
+                                     on hosts with no DOM capture (bare
+                                     JVM), where there is no buffer to drain.
+                                     Signature: `(f) → nil`.
+
   - `:render-host`                 — story (via the canonical
                                      `install-render-host!`) → render. The
                                      CLJS host's view-render seam, consumed

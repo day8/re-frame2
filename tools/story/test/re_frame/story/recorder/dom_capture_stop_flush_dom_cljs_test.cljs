@@ -153,3 +153,86 @@
           (is (= 1 (count type-entries))
               "rapid typing still folds to a single in-session entry")
           (is (= "ali" (:text (first type-entries)))))))))
+
+;; ---- cross-recording bleed regression (rf2-x76af2.18) --------------------
+;;
+;; rf2-eztym.3 made `flush-type-buffer!` bypass the `:recording?` re-check so
+;; the FINAL keystroke survives a flush firing after stop (stop-into-SAME-
+;; recording). But it left the DOM type-buffer + its live `setTimeout` timers
+;; untied to the recorder start/clear boundary: a keystroke buffered under
+;; recording A, whose pending flush fired AFTER a fresh `start-recording!` B
+;; (or `clear!`), appended UNCONDITIONALLY into the CURRENT recorder atom —
+;; bleeding an A-relative `:dom/type` step into B (or a phantom into the next
+;; recording). The fix: `start-recording!` / `clear!` drain + cancel the
+;; pending buffer via the `:recorder/reset-dom-buffer` late-bind seam.
+
+(deftest stop-then-restart-does-not-bleed-across-recordings
+  (when (dom-available?)
+    (testing "a keystroke buffered under recording A, then a NON-flushing
+              stop + start-recording! B within the debounce window, does NOT
+              land in B's :entries — start-recording! drains + cancels the
+              pending DOM type-buffer (rf2-x76af2.18)"
+      (recorder/start-recording! :story.a/rec)
+      (dom/set-debounce-ms! 5000)          ; hold the buffer open (no sync flush)
+      (let [input (.createElement js/document "input")]
+        (.setAttribute input "id" "note")
+        (.appendChild @test-root input)
+        (set! (.-value input) "aaa")
+        (.dispatchEvent input (js/Event. "input" #js {:bubbles true}))
+        ;; STOP via the non-flushing facade path; the debounce timer T is
+        ;; still pending, the buffered "aaa" still held.
+        (recorder/stop-recording!)
+        ;; A FRESH recording B starts before T fires. This must DRAIN A's
+        ;; pending buffer (cancel T + drop the entry), not carry it into B.
+        (recorder/start-recording! :story.b/rec)
+        (is (recorder/recording?) "B is recording")
+        (is (empty? (recorder/recorded-entries)) "B starts with no entries")
+        ;; Force any surviving timer to fire. Under the bug A's "aaa" appends
+        ;; here into B (append-dom-buffered ignores :recording?); under the
+        ;; fix the buffer was cancelled + emptied, so this is a no-op.
+        (dom/flush-type-buffer!)
+        (let [type-entries (filterv #(= :dom/type (:kind %))
+                                    (recorder/recorded-entries))]
+          (is (= [] type-entries)
+              "A's buffered keystroke did NOT bleed into recording B"))))))
+
+(deftest clear-while-typing-leaves-no-phantom-in-next-recording
+  (when (dom-available?)
+    (testing "clear! while a keystroke is buffered cancels the pending flush,
+              so a subsequent recording sees no phantom entry (rf2-x76af2.18)"
+      (recorder/start-recording! :story.a/rec)
+      (dom/set-debounce-ms! 5000)
+      (let [input (.createElement js/document "input")]
+        (.setAttribute input "id" "note")
+        (.appendChild @test-root input)
+        (set! (.-value input) "bbb")
+        (.dispatchEvent input (js/Event. "input" #js {:bubbles true}))
+        ;; Discard the recording mid-type.
+        (recorder/clear!)
+        ;; Start a fresh recording; the cancelled buffer must not resurface.
+        (recorder/start-recording! :story.c/rec)
+        (dom/flush-type-buffer!)
+        (is (empty? (filterv #(= :dom/type (:kind %))
+                             (recorder/recorded-entries)))
+            "clear! cancelled the pending flush — no phantom entry in C")))))
+
+(deftest stop-into-same-recording-final-keystroke-still-survives
+  (when (dom-available?)
+    (testing "rf2-eztym.3 guard still holds under the rf2-x76af2.18 fix:
+              stop-recording! does NOT drain the buffer, so a flush firing
+              after stop (with NO intervening start/clear) still captures the
+              final keystroke into the stopped recording"
+      (recorder/start-recording! :story.x/same)
+      (dom/set-debounce-ms! 5000)
+      (let [input (.createElement js/document "input")]
+        (.setAttribute input "id" "note")
+        (.appendChild @test-root input)
+        (set! (.-value input) "keep")
+        (.dispatchEvent input (js/Event. "input" #js {:bubbles true}))
+        (recorder/stop-recording!)          ; no start/clear after → buffer intact
+        (dom/flush-type-buffer!)            ; the pending timer's late fire
+        (let [type-entries (filterv #(= :dom/type (:kind %))
+                                    (recorder/recorded-entries))]
+          (is (= 1 (count type-entries))
+              "the final keystroke survived the post-stop flush (rf2-eztym.3)")
+          (is (= "keep" (:text (first type-entries)))))))))

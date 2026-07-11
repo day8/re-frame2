@@ -122,6 +122,7 @@
   - `insert-assertion!`       — impure entrypoint for the picker UI."
   (:require [clojure.string :as str]
             [re-frame.story.config :as config]
+            [re-frame.story.late-bind :as late-bind]
             [re-frame.story.predicates :as pred]
             [re-frame.story.review-dialog :as review-dialog]
             ;; The listener surface lives in `re-frame.trace.tooling`
@@ -788,6 +789,16 @@
 ;; production CLJS build's call sites elide cleanly.
 ;; ---------------------------------------------------------------------------
 
+(defn- reset-dom-buffer!
+  "Cancel + drop any pending DOM type-debounce buffer via the late-bound
+  `:recorder/reset-dom-buffer` seam the CLJS `dom-capture` layer registers.
+  No-op on hosts where DOM capture isn't loaded (bare JVM — no buffer
+  exists). Called at recording start/clear so a keystroke buffered under a
+  PRIOR recording cannot bleed into the next one (rf2-x76af2.18)."
+  []
+  (when-let [f (late-bind/get-fn :recorder/reset-dom-buffer)]
+    (f)))
+
 (defn start-recording!
   "Begin recording events dispatched against `variant-id`'s frame.
   Returns the new state. Stops any in-flight recording first. Under
@@ -798,6 +809,10 @@
   frame-scoped (`{:frame variant-id}`) so it lands in the frame's own running
   environment by construction — the recorder stamps no separate realm key.
 
+  Drains the DOM type-debounce buffer (cancels pending flush timers) so a
+  keystroke still buffered from a prior recording cannot bleed into this one
+  (rf2-x76af2.18).
+
   The two-arity `(start-recording! variant-id now-ms)` lets a test pin the
   wall-clock start time."
   ([variant-id]
@@ -805,7 +820,8 @@
                                    :cljs (.now js/Date))))
   ([variant-id now-ms]
    (if config/enabled?
-     (swap! state start variant-id now-ms)
+     (do (reset-dom-buffer!)
+         (swap! state start variant-id now-ms))
      initial-state)))
 
 (defn stop-recording!
@@ -819,10 +835,15 @@
 
 (defn clear!
   "Drop the captured events and return to idle. Under elision returns
-  `initial-state` without touching the atom."
+  `initial-state` without touching the atom.
+
+  Also drains the DOM type-debounce buffer (cancels pending flush timers) so
+  a discarded recording leaves no phantom keystroke to land in a subsequent
+  recording (rf2-x76af2.18)."
   []
   (if config/enabled?
-    (reset! state initial-state)
+    (do (reset-dom-buffer!)
+        (reset! state initial-state))
     initial-state))
 
 (defn toggle!
