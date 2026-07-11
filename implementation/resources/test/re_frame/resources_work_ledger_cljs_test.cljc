@@ -499,6 +499,45 @@
         (is (= :cancelled (:status (record wid))))
         (is (contains? (set @aborts) (req wid)))))))
 
+(deftest clear-scope-cancelled-row-carries-causal-completed-at
+  ;; rf2-x76af2.14 — a clear-scope cancellation is a COMPLETION: the terminal
+  ;; :cancelled work row carries the event's causal :completed-at (from the
+  ;; declared-flat :rf/time-ms), symmetric with the reply-driven aborted /
+  ;; failed rows (rf2-rl27r2). Pre-fix, clear-scope was registered
+  ;; framework-authority-meta (no :rf/time-ms cofx) so the row had NO
+  ;; :completed-at — an epoch / tooling correlation gap for logout / tenant
+  ;; switch cancellations.
+  (rf/reg-resource :cst/article (article-spec {:scope :rf.scope/from-caller}) article-spec-request)
+  (let [scope-a      {:user "a"}
+        ka           (state/scoped-resource-key scope-a :cst/article {:slug "w"})
+        completed-at 1781649764222]
+    (rf/dispatch-sync [:rf.resource/ensure {:resource :cst/article :scope scope-a
+                                            :params {:slug "w"} :owner [:lease :a 1]}])
+    (let [wid (:current-work (entry ka))]
+      (rf/dispatch-sync [:rf.resource/clear-scope {:scope scope-a :cause :logout}]
+                        {:rf.cofx {:rf/time-ms completed-at}})
+      (testing "the cancelled work row carries the causal :completed-at"
+        (is (= :cancelled (:status (record wid))))
+        (is (= {:reason :clear-scope :completed-at completed-at}
+               (:outcome (record wid))))))))
+
+(deftest remove-cancelled-row-carries-causal-completed-at
+  ;; rf2-x76af2.14 — remove has the identical gap clear-scope had: its terminal
+  ;; :cancelled row now carries the event's causal :completed-at.
+  (rf/reg-resource :rmt/article (article-spec) article-spec-request)
+  (let [scoped-key   (state/scoped-resource-key :rf.scope/global :rmt/article {:slug "w"})
+        completed-at 1781649764333]
+    (rf/dispatch-sync [:rf.resource/ensure {:resource :rmt/article :scope :rf.scope/global
+                                            :params {:slug "w"} :owner [:lease :rm 1]}])
+    (let [wid (:current-work (entry scoped-key))]
+      (rf/dispatch-sync [:rf.resource/remove {:resource :rmt/article :scope :rf.scope/global
+                                              :params {:slug "w"}}]
+                        {:rf.cofx {:rf/time-ms completed-at}})
+      (testing "the cancelled work row carries the causal :completed-at"
+        (is (= :cancelled (:status (record wid))))
+        (is (= {:reason :remove :completed-at completed-at}
+               (:outcome (record wid))))))))
+
 ;; ===========================================================================
 ;; 9. frame destroy cleans the side tables (durable records may persist)
 ;; ===========================================================================
