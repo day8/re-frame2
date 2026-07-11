@@ -21,10 +21,10 @@
 
 (defn- contains-sentinel?
   "True when the sentinel survives anywhere in `x`, including secondary or
-  stringified slots. The exact-leaf match prevents unrelated substrings from
-  satisfying the check."
+  stringified slots. The sentinel is a unique long literal, so a substring
+  scan cannot be satisfied by an unrelated value."
   [x]
-  (gen/contains-string? x sentinel true))
+  (gen/contains-string? x sentinel))
 
 (def ^:private gen-clean-event
   "A non-sensitive trace event - no :sensitive? stamp (or explicit false)."

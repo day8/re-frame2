@@ -28,9 +28,9 @@
 (def ^:private sentinel "S3CR3T-rf2-3cfvt-PUBLIC-PROFILE-DO-NOT-SHIP")
 
 (defn- contains-sentinel?
-  "True when the exact sentinel survives anywhere in `x`."
+  "True when the sentinel survives anywhere in `x` (substring scan)."
   [x]
-  (gen/contains-string? x sentinel true))
+  (gen/contains-string? x sentinel))
 
 (def ^:private big-string (apply str (repeat 40000 \x)))
 

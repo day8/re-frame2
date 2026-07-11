@@ -177,32 +177,27 @@
 ;; one copy gaining a leak-class fix the siblings silently miss.
 ;;
 ;; Each surface keeps its OWN per-file sentinel string local and calls
-;; `(contains-string? x sentinel exact?)`, passing `exact?` to preserve that
-;; surface's per-node matching: some surfaces match the sentinel as an EXACT
-;; string equality on each walked leaf (`exact? true`), others as a SUBSTRING
-;; (`exact? false`, the `re-find` form - catches a sentinel embedded inside a
-;; larger leaf). Either way the `pr-str` fallback always uses a SUBSTRING scan,
-;; so a sentinel surviving inside a non-string leaf (a keyword/symbol form
-;; built from it, or a stringified collection) is still caught.
+;; `(contains-string? x sentinel)`. Every surface matches the sentinel as a
+;; SUBSTRING - both the per-leaf walker (`re-find`) and the `pr-str` fallback
+;; scan for it - so a sentinel surviving inside a larger leaf, OR inside a
+;; non-string leaf (a keyword/symbol form built from it, or a stringified
+;; collection), is still caught.
 ;; ---------------------------------------------------------------------------
 
 (defn contains-string?
-  "Deep-walk `x`; true when `needle` appears anywhere - as a value, inside a
-  collection, or inside a stringified form. When `exact?` is truthy, a walked
-  STRING leaf matches only on exact `=` equality with `needle`; otherwise a
-  leaf matches when `needle` REGEX-matches it (`re-find` over `(re-pattern
-  needle)`). The `pr-str` fallback always uses the same regex search, so
-  `needle` surviving inside a non-string leaf (e.g. a keyword/symbol form
-  built from it) is also caught. `needle` MUST therefore be a regex-safe
-  literal (no unescaped regex metacharacters); the current sentinels are."
-  [x needle exact?]
+  "Deep-walk `x`; true when `needle` appears anywhere - as a string leaf, inside
+  a collection, or inside a stringified form. A walked STRING leaf matches when
+  `needle` REGEX-matches it (`re-find` over `(re-pattern needle)`), and the
+  `pr-str` fallback runs the same regex search over the rendered value, so
+  `needle` surviving inside a non-string leaf (e.g. a keyword/symbol form built
+  from it) is also caught. `needle` MUST therefore be a regex-safe literal (no
+  unescaped regex metacharacters); the current sentinels are."
+  [x needle]
   (let [hit (volatile! false)]
     (walk/postwalk
       (fn [node]
         (when (and (string? node)
-                   (if exact?
-                     (= needle node)
-                     (re-find (re-pattern needle) node)))
+                   (re-find (re-pattern needle) node))
           (vreset! hit true))
         node)
       x)

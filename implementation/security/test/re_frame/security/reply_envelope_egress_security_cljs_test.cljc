@@ -26,9 +26,9 @@
 (def ^:private sentinel "S3CR3T-rf2-3cfvt-REPLY-EGRESS-DO-NOT-SHIP")
 
 (defn- contains-sentinel?
-  "True when the exact sentinel survives anywhere in `x`."
+  "True when the sentinel survives anywhere in `x` (substring scan)."
   [x]
-  (gen/contains-string? x sentinel true))
+  (gen/contains-string? x sentinel))
 
 ;; `trace-summary` elides each wire slot rooted at its OWN value (not at the
 ;; reply-map root), so classification paths are relative to each slot value:
