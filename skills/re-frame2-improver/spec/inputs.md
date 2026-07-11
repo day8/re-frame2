@@ -23,7 +23,7 @@ The normative source each leaf footers to. Verified-current ownership the leaves
 
 | Surface | Spec owner |
 |---------|-----------|
-| Managed HTTP + the closed failure-category set (`:rf.http/transport` `:rf.http/cors` `:rf.http/timeout` `:rf.http/http-4xx` `:rf.http/http-5xx` `:rf.http/decode-failure` `:rf.http/accept-failure` `:rf.http/aborted`) + the retryable subset | [014-HTTPRequests](../../../spec/014-HTTPRequests.md) |
+| Managed HTTP — explicit reply addressing (`:reply-to` / `:on-success` / `:on-failure`) + the canonical reply envelope appended as the target event's last arg (`:status` ∈ `:ok` / `:error` / `:cancelled`; `:stale` suppressed) + the closed failure-category set (`:rf.http/transport` `:rf.http/cors` `:rf.http/timeout` `:rf.http/http-4xx` `:rf.http/http-5xx` `:rf.http/decode-failure` `:rf.http/accept-failure` `:rf.http/aborted`) + the retryable subset. The old co-located reply-to-origin default is retired; a targetless request throws `:rf.error/http-no-reply-target`. | [014-HTTPRequests](../../../spec/014-HTTPRequests.md) |
 | State machines + tags query layer (`reg-machine`, `:tags`, `machine-has-tag?`) | [005-StateMachines](../../../spec/005-StateMachines.md) |
 | Schemas at boundaries (`:schema`, `reg-app-schema`, the `:rf.schema/at-boundary` registered interceptor ref — `validate-at-boundary-interceptor` is the registration-boundary Var, not a chain entry) | [010-Schemas](../../../spec/010-Schemas.md) |
 | Views as pure projections | [004-Views](../../../spec/004-Views.md) |
@@ -56,7 +56,7 @@ These shape voice and structure but aren't quoted directly.
 
 ## 7. Update procedure
 
-1. **A canonical idiom changes in `skills/re-frame2/patterns/` or `spec/`** → re-verify every leaf that cross-links it; update the "After" snippet and the failure-category / API references.
+1. **A canonical idiom changes in `skills/re-frame2/patterns/` or `spec/`** → re-verify every leaf that cross-links it; update the "After" snippet and the failure-category / API references. In particular, a **Spec 014 reply-addressing / appended-envelope** change routes to BOTH HTTP leaves (`manual-retry-loops.md` + `schemaless-events.md`) and their behavioural evals (17, 20, 26).
 2. **A new anti-pattern surfaces across 3+ real reviews** → add a leaf (locked five-section format) and a catalogue row; promote a deferred candidate from design.md §4 if it matches.
 3. **The shared protocol changes** (`skills/shared/retro-protocol.md`) → re-check the SKILL.md §Workflow step 5 pointer and the §Anti-patterns one-line reminder still match step 6.
 4. **Spec ownership moves** (e.g. a surface migrates spec documents) → re-verify the §3 ownership table and every leaf footer.

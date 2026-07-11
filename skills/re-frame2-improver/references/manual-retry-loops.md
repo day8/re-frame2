@@ -45,22 +45,26 @@ Spec source: [`spec/014-HTTPRequests.md`](../../../spec/014-HTTPRequests.md) and
               :event [:article/load slug (inc attempt)]}]]})))
 ```
 
-**After** — Managed HTTP:
+**After** — Managed HTTP with an explicit reply target:
 
 ```clojure
 (rf/reg-event :article/load
-  (fn [{:keys [db]} [_ {:keys [slug] :as msg}]]
-    (if-let [reply (:rf/reply msg)]
-      (case (:status reply)
-        :ok    {:db (assoc-in db [:article] {:status :loaded :data (:value reply)})}
-        :error {:db (assoc-in db [:article] {:status :error  :error (:error reply)})})
+  (fn [{:keys [db]} [_ {:keys [slug] :as msg} reply]]           ;; the reply envelope rides as the last arg
+    (if reply
+      (case (:status reply)                                     ;; closed statuses — :ok / :error / :cancelled
+        :ok        {:db (assoc db :article {:status :loaded :data (:value reply)})}
+        :error     {:db (assoc db :article {:status :error  :error (:error reply)})}
+        :cancelled {:db (assoc-in db [:article :status] :idle)})
       {:db (assoc-in db [:article :status] :loading)
        :fx [[:rf.http/managed
-             {:request {:method :get :url (str "/articles/" slug)}
-              :retry   {:on           #{:rf.http/transport :rf.http/http-5xx :rf.http/timeout}
-                        :max-attempts 4
-                        :backoff      {:base-ms 250 :factor 2 :max-ms 5000 :jitter true}}}]]})))
+             {:request  {:method :get :url (str "/articles/" slug)}
+              :retry    {:on           #{:rf.http/transport :rf.http/http-5xx :rf.http/timeout}
+                         :max-attempts 4
+                         :backoff      {:base-ms 250 :factor 2 :max-ms 5000 :jitter true}}
+              :reply-to [:article/load msg]}]]})))               ;; address the reply back to this event
 ```
+
+The runtime dispatches `[:article/load msg <reply>]` when the request settles — the canonical reply envelope (`{:status :ok :value …}` / `{:status :error :error …}` / `{:status :cancelled …}`) **appended as the last argument** to the `:reply-to` target. Every request must address its reply — `:reply-to` (one target for both outcomes; branch on `:status`), or the `:on-success` / `:on-failure` split sugar; a targetless request throws `:rf.error/http-no-reply-target` at fx-call time (the old co-located reply-to-origin default was retired pre-alpha). A `:stale` result is suppressed, never delivered.
 
 ## Edge cases — when manual is fine
 
