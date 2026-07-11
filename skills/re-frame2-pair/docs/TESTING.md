@@ -1,13 +1,13 @@
 # Testing plan
 
-Four surfaces need coverage at different fidelities.
+Three surfaces need coverage at different fidelities.
 
-> **Scope (current surface).** The **MCP server** (`tools/re-frame2-pair-mcp/`) is the only skill-facing transport, and it carries its own test suite under that directory (`shadow-cljs compile server-test`). The surfaces below cover the skill's **runtime preload** + **structural docs** + the **retained bash shims** (now harness/ad-hoc-only, not reachable from the skill's `allowed-tools:`). §2 in particular exercises the retained shims for the project's own e2e harness — it is not the skill's live transport.
+> **Scope (current surface).** The **MCP server** (`tools/re-frame2-pair-mcp/`) is the only skill-facing transport — and the one implementation of every operation. It carries its own test suite under that directory (`shadow-cljs compile server-test`), including the live end-to-end fixture gate (`test/live-e2e-fixture.cjs`). The surfaces below cover the skill's **runtime preload** + **structural docs** that live in this tree. (The retired bash/babashka transport — `scripts/ops.clj`, its shell wrappers, and the `tests/shim/` + `tests/e2e/` suites that drove it — has been removed; the connect/dispatch/trace/hot-reload coverage now drives the MCP server over stdio from `tools/re-frame2-pair-mcp/test/live-e2e-fixture.cjs`.)
 
-The fixture app at `tests/fixture/` backs the shim and e2e
-surfaces — a minimal Reagent + shadow-cljs build that preloads
-`re-frame2-pair.runtime` and renders a counter. See `tests/fixture/README.md`
-for run instructions.
+The fixture app at `tests/fixture/` backs the structural pure-core surface
+and the pair-mcp live-e2e gate — a minimal Reagent + shadow-cljs build that
+preloads `re-frame2-pair.runtime` and renders a counter. See
+`tests/fixture/README.md` for run instructions.
 
 ## 1. Runtime unit tests — two halves
 
@@ -56,8 +56,7 @@ must keep (`app_db_reset_test.clj` → `rf/replace-frame-state!`,
 `dom_readback_redaction_test.clj` → `rf/project-egress`,
 `registrar_describe_test.clj` → `strip-fns` / `:handler-fn` hygiene,
 `frame_registrar_test.clj`, `dispatch_consequence_test.clj`); and the load-time
-sentinel (`preload_sentinel_test.clj`). `watch_op_modes_test.clj` pins the
-retained `scripts/ops.clj` bash-transport predicate logic (not the preload).
+sentinel (`preload_sentinel_test.clj`).
 
 **To run:**
 
@@ -72,78 +71,50 @@ shipped `pure.cljc` in §1a, and the source-coord/view parsers are canonical
 core aliases (`re-frame.source-coords/*`) covered by
 `implementation/core/test/re_frame/source_coords_cljs_test.cljs`.
 
-## 2. Bash-shim integration (`tests/shim/`) — retained harness only
+## 2. End-to-end live fixture (`tools/re-frame2-pair-mcp/test/live-e2e-fixture.cjs`)
 
-**Status: scaffolded — see `tests/shim/` for the current deftests; runs in changed-surface PR CI.**
+**Status: the ground-truth gate — soft-skips when the fixture is down.**
 
-> The bash shims this suite drives are **retired from the skill surface** —
-> they are not reachable from `allowed-tools:`. This suite is retained because
-> the shims are kept on disk for the project's own e2e harness and ad-hoc
-> shell use; it guards that harness contract, not the skill's live MCP
-> transport.
+The live connect/dispatch/trace/hot-reload coverage lives with the one
+implementation, the MCP server. `tools/re-frame2-pair-mcp/test/live-e2e-fixture.cjs`
+spawns the compiled `out/server.js`, boots a headless Chromium via
+[playwright](https://playwright.dev/) so the fixture's `re-frame2-pair.runtime`
+preload runs, and drives the three flows through the real MCP boundary
+against the live fixture app (`tests/fixture/`). It auto-detects fixture
+availability (server bundle + HTTP probe + nREPL port file + Playwright)
+and soft-skips with exit 0 when anything's missing — safe to run anywhere
+without false failures.
 
-Per-push integration suite against a **stubbed nREPL**, not the live
-fixture. `tests/shim/stub_nrepl.clj` is a babashka program that accepts
-bencode, writes a port file at `target/shadow-cljs/nrepl.port` (the
-canonical location re-frame2-pair's `ops.clj` probes), and returns canned
-responses from a small needle → CLJS-value table.
+The flows (each an MCP `tools/call` against the booted runtime):
 
-Test driver `tests/shim/shim_test.clj` invokes `bb ops.clj <subcmd>`
-directly (the `.sh` wrappers are 3-line `exec` shims, so running
-`ops.clj` exercises the same contract on Windows + POSIX without bash).
-
-Covers: `discover` (healthy + `:runtime-not-preloaded`), `eval`,
-`dispatch --sync`, `trace-recent`, `tail-build` (no-probe soft path),
-unknown-subcommand refusal.
-
-Run:
-
-```bash
-bb tests/shim/shim_test.clj
-```
-
-The live-fixture variant (probe-flips against a real shadow-cljs
-build) lives in `tests/e2e/` — see §3.
-
-## 3. End-to-end in-browser (`tests/e2e/`)
-
-**Status: scaffolded — 3 specs, soft-skip when fixture is down.**
-
-Drives a headless Chromium via [playwright](https://playwright.dev/)
-against the live fixture app (`tests/fixture/`). The runner
-(`tests/e2e/run.cjs`) auto-detects fixture availability via an HTTP
-probe and soft-skips with exit 0 when nothing's running — so the suite
-is safe to run manually without false failures.
-
-Specs (each a `*.e2e.cjs` exporting `async function run(ctx)`):
-
-- **`connect-discover.e2e.cjs`** — `discover-app` returns `:ok? true`
-  against a live build; verifies preload landed and the lone frame is
+- **connect** — `discover-app` returns `:ok? true` / `:debug-enabled? true`
+  against a live build; verifies the preload landed and the lone frame is
   `:rf/default`.
-- **`dispatch-trace.e2e.cjs`** — `dispatch '[:counter/inc]' --sync`
-  bumps the on-screen value and surfaces the epoch via `trace-recent`.
-- **`hot-reload-probe.e2e.cjs`** — touch-edit `core.cljs`, confirm
-  `tail-build --probe '(registrar-handler-ref :event :counter/inc)'`
-  reports `:ok? true :soft? false`. This is the safety-critical
+- **dispatch + trace** — `dispatch {event "[:counter/inc]" sync true}`
+  bumps the on-screen `#value` to `6` and surfaces the epoch via
+  `trace-window`.
+- **hot-reload** — touch-edit `core.cljs`, confirm
+  `tail-build {probe "(re-frame2-pair.runtime/registrar-handler-ref :event :counter/inc)" wait-ms …}`
+  reports `:soft? false` once the probe flips. This is the safety-critical
   probe-based reload contract from §4.5.
 
 Run:
 
 ```bash
 # 1. boot the fixture
-cd tests/fixture && npx shadow-cljs watch app
+cd skills/re-frame2-pair/tests/fixture && npx shadow-cljs watch app
 
-# 2. run e2e (in a sibling terminal)
-cd skills/re-frame2-pair
-RE_FRAME2_PAIR_FIXTURE_URL=http://localhost:8030 node tests/e2e/run.cjs
+# 2. build the server + run the gate (sibling terminal)
+cd tools/re-frame2-pair-mcp && npm run build
+RE_FRAME2_PAIR_FIXTURE_URL=http://localhost:8030 npm run test:live-e2e-fixture
 ```
 
-Future specs to add: `dom/source-at` against the annotated DOM,
-`restore-epoch` against the seven documented failure modes (Tool-Pair
-§Time-travel), full page-refresh + re-injection, multi-frame routing. See
-`tests/e2e/README.md` for the scaffolded extension points.
+The mcp-conformance hermetic live suite
+(`tools/mcp-conformance/scripts/run-re-frame2-pair-live-hermetic-suite.cjs`)
+runs the same class of coverage in CI by booting the fixture itself and
+driving the pair-mcp server over stdio.
 
-## 4. Skill-prompt regression (`tests/prompts/`)
+## 3. Skill-prompt regression (`tests/prompts/`)
 
 **Status: scaffolded — see `tests/prompts/prompt_regression_test.clj` for the current deftests; runs in changed-surface PR CI.**
 
@@ -197,8 +168,7 @@ re-deriving the prompts.
 |---|---|
 | MCP server suite (`tools/re-frame2-pair-mcp/`) | The skill-facing transport's own tests — `shadow-cljs compile server-test` + the descriptor-manifest drift gate. Run under the tool's directory, not this skill's `tests/`. |
 | Runtime structural tests | PR CI when `skills/re-frame2-pair/**` changes; nightly/manual expensive workflow may also run them before release. |
-| Bash-shim integration (retained harness) | PR CI when `skills/re-frame2-pair/**` changes. Guards the harness shims, not the skill's live transport. |
-| End-to-end in-browser | Manual/nightly diagnostic; not required PR coverage because it depends on a live fixture. |
+| End-to-end live fixture (`tools/re-frame2-pair-mcp/test/live-e2e-fixture.cjs`) | Runnable on demand (soft-skips without a live fixture). The mcp-conformance hermetic live suite runs the equivalent stdio coverage in CI by booting the fixture itself. |
 | Prompt regression | PR CI when `skills/re-frame2-pair/**` changes. |
 
 Release should not be cut from an unverified re-frame2-pair surface: structural
@@ -223,7 +193,8 @@ Mitigation while E2E remains manual/nightly:
 - `restore-epoch` failure-mode traces against a live runtime (only
   shape-tested via `tests/runtime/`).
 - Hot-reload probe-form *selection heuristics* (the probe contract
-  itself is exercised by `tests/e2e/hot-reload-probe.e2e.cjs`).
+  itself is exercised by the hot-reload flow in
+  `tools/re-frame2-pair-mcp/test/live-e2e-fixture.cjs`).
 - Claude-in-the-loop prompt regression (the structural drift detector
   is in `tests/prompts/`; conversation-driving variant is a follow-up).
 

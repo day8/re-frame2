@@ -190,8 +190,9 @@ wired into the build, and consumers can use it today.
 - **`tools/re-frame2-pair-mcp/`** — `@day8/re-frame2-pair-mcp`. A Node-based
   stdio JSON-RPC **MCP server** (compiled from ClojureScript via
   shadow-cljs) that pair-programs with a live re-frame2 app over a
-  persistent nREPL socket. Structural successor to the bash-shim →
-  babashka → nREPL chain under `skills/re-frame2-pair/scripts/`.
+  persistent nREPL socket. The one implementation of every pair
+  operation — it replaced (and the project has since removed) the
+  earlier bash-shim → babashka → nREPL transport.
   Twenty-two tools — the per-op set (`discover-app`, `eval-cljs`,
   `dispatch`, `dispatch-dry-run`, `trace-window`, `watch-epochs`,
   `tail-build`), the mega-op reads (`snapshot`, `get-path`), the

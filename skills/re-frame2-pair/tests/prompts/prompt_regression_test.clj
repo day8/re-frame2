@@ -88,7 +88,7 @@
 ;; LEAST ONE alternative appears in recipes.md.
 ;;
 ;; ALTERNATION RATIONALE — re-frame2-pair's vocabulary admits multiple surfaces
-;; for the same op (MCP tool name, bash shim name, runtime fn name).
+;; for the same op (MCP tool name, runtime fn name).
 ;; The regression should fire when ALL of them disappear, not when one
 ;; rename happens. The list per row is the set the recipe *currently*
 ;; uses; if a future edit drops one and adds another, the test still
@@ -322,9 +322,12 @@
 
 (deftest local-dev-is-mcp-primary-not-babashka-required
   (testing "LOCAL_DEV no longer lists Babashka as a skill prerequisite"
-    (is (str/includes? @local-dev-md "Babashka is not a skill requirement")
-        (str "LOCAL_DEV must scope Babashka to the retained harness shims, not "
-             "list it as a skill prerequisite (rf2-ojo3z)."))
+    ;; The retired bash/babashka transport was removed (rf2-dduetj), so
+    ;; LOCAL_DEV must not mention Babashka at all — not as a prerequisite,
+    ;; not as a harness caveat.
+    (is (not (str/includes? @local-dev-md "Babashka"))
+        (str "LOCAL_DEV still mentions Babashka — the bash/babashka transport "
+             "was removed; the MCP server is the one implementation (rf2-dduetj)."))
     (is (not (str/includes? @local-dev-md "scripts/discover-app.sh"))
         (str "LOCAL_DEV references the retired scripts/discover-app.sh as the "
              "live first-use path — first use calls the discover-app MCP tool "
@@ -351,14 +354,20 @@
     (is (str/includes? @capabilities-md "list-handlers")
         "capabilities.md must name the list-handlers tool.")))
 
-(deftest testing-scopes-shim-suite-as-harness-only
-  (testing "TESTING.md frames the bash-shim suite as retained harness, not the live transport"
-    (is (str/includes? @testing-md "retained harness")
-        (str "TESTING.md must mark the bash-shim integration suite as a "
-             "retained harness (not the skill's live MCP transport) "
-             "(rf2-ojo3z)."))
+(deftest testing-names-mcp-as-the-one-implementation
+  (testing "TESTING.md states the MCP server is the only transport, one implementation"
     (is (str/includes? @testing-md "only skill-facing transport")
-        "TESTING.md must state the MCP server is the only skill-facing transport.")))
+        "TESTING.md must state the MCP server is the only skill-facing transport.")
+    ;; The retired bash-shim integration suite was removed (rf2-dduetj); the
+    ;; docs must not resurrect the "retained harness" framing for it.
+    (is (not (str/includes? @testing-md "retained harness"))
+        (str "TESTING.md still frames a 'retained harness' bash-shim suite — "
+             "the bash/babashka transport was removed; the live coverage moved "
+             "to tools/re-frame2-pair-mcp/test/live-e2e-fixture.cjs (rf2-dduetj)."))
+    (is (str/includes? @testing-md "live-e2e-fixture.cjs")
+        (str "TESTING.md must point at the migrated pair-mcp live-e2e gate "
+             "(tools/re-frame2-pair-mcp/test/live-e2e-fixture.cjs) as the "
+             "connect/dispatch/trace/hot-reload coverage (rf2-dduetj)."))))
 
 (deftest streaming-progress-payload-matches-impl
   (testing "streaming-subscriptions.md documents _meta.data + both payload slots (finding 2)"

@@ -17,12 +17,6 @@ Same as the README's *Requirements*:
 - A re-frame2 + shadow-cljs app to exercise it against. (Optional: re-com — used as a fallback source-coord source, not required.)
 - The **`re-frame2-pair.runtime` preload** on the app's `:source-paths`. From a clone (this doc's install paths) it comes for free off the linked skill dir's `preload/` — point `:source-paths` at the absolute `skills/re-frame2-pair/preload/` path. For a non-clone (npm) install, run `npm install -D @day8/re-frame2-pair` in the app first and point at `node_modules/@day8/re-frame2-pair/preload` (see the README's *Install* §). Either way the preload is **required** — `discover-app` refuses with `:runtime-loaded-but-preload-missing` without it (the normal missing-preload verdict; `:runtime-not-preloaded` is the degradation fallback the ladder returns only if it errors mid-diagnosis, and the reason the per-op marker check reports).
 
-> **Babashka is not a skill requirement.** The retired bash shims under
-> `scripts/` (and the project's own `tests/shim/` harness) exec `bb`, but
-> they are not reachable from the skill's `allowed-tools:`. You only need
-> [`babashka`](https://babashka.org) on `PATH` if you are running those
-> shims directly for the e2e harness or ad-hoc shell use.
-
 ## MCP server from a clone
 
 The install paths below link the **skill directory** (`SKILL.md` + `preload/`
@@ -143,7 +137,6 @@ The power of the symlink approach is that editing `SKILL.md` / `references/*.md`
 | `references/*.md` | Picked up on the next leaf load — no restart needed. |
 | `preload/re_frame2_pair/runtime.cljs` | shadow-cljs hot-reloads the namespace into the running app as soon as you save (it's on the consumer's `:source-paths`). No re-inject command. If the changes touch `defonce`'d state (listeners, atoms), reload the page once. |
 | The MCP server (`tools/re-frame2-pair-mcp/`) | Rebuild it (`npm run build` in that dir) and restart Claude Code so it reconnects to the new server. |
-| The retired shell shims (`scripts/*.sh`, `scripts/ops.clj`) | Not reachable from the skill — they only affect the project's own `tests/shim/` e2e harness. A re-run of `bb ops.clj` (or the `.sh` wrapper) picks them up. |
 
 ## Troubleshooting
 
@@ -153,15 +146,6 @@ The power of the symlink approach is that editing `SKILL.md` / `references/*.md`
 - Confirm `SKILL.md` is at the top level of that directory, not nested.
 - Restart Claude Code — it reads the skill registry at session start.
 - Check the skill name in `SKILL.md`'s frontmatter — it must match the directory name (`re-frame2-pair`).
-
-### `babashka-missing` (harness-only — not the skill path)
-
-You will only see this if you run the retired bash shims (`scripts/*.sh`, `tests/shim/`) directly for the e2e harness — the skill itself never execs `bb`. It means `bb` isn't on `PATH`. Verify with `which bb` (macOS/Linux) or `where bb` (Windows). Install:
-
-- macOS: `brew install borkdude/brew/babashka`
-- Linux / Windows: [babashka install guide](https://github.com/babashka/babashka#installation)
-
-Restart the shell so the new `PATH` takes effect.
 
 ### `discover-app` can't find the nREPL
 

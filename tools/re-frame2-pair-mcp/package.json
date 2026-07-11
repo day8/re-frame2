@@ -20,7 +20,8 @@
     "start": "node out/server.js",
     "stdio-roundtrip": "node test/stdio-roundtrip.js",
     "test:post-merge-hook": "node test/post-merge-hook-test.cjs",
-    "test:roots-discovery-live": "node test/roots-discovery-live.js"
+    "test:roots-discovery-live": "node test/roots-discovery-live.js",
+    "test:live-e2e-fixture": "node test/live-e2e-fixture.cjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
