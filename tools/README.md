@@ -70,8 +70,9 @@ Two tools are deliberate exceptions to the Clojars publish model:
   template repo, invoked via `clojure -Tnew create`. See the `template`
   entry under "Shipped" below.
 - **`tools/testbed-support/`** is **not a published jar at all** — it
-  has no `deps.edn`/Clojars coord and is consumed only as an extra
-  source path wired into the testbed builds. See its entry under
+  has no Clojars/publish coord (its local `deps.edn` exists only for the
+  JVM endpoint tests, not as a packaging surface) and is consumed only as
+  an extra source path wired into the testbed builds. See its entry under
   "Shipped" below.
 
 A top-level `tools/deps.edn` and `tools/shadow-cljs.edn` (rf2-nuuk3) act
@@ -134,8 +135,10 @@ wired into the build, and consumers can use it today.
   [`tools/machines-viz/README.md`](./machines-viz/README.md).
 
 - **`tools/testbed-support/`** — a small dev-only support library
-  (two namespaces: `re-frame.testbed.config` and
-  `re-frame.testbed.story-host`) the Xray / Story browser testbeds share.
+  (three namespaces: `re-frame.testbed.config`,
+  `re-frame.testbed.story-host`, and the security-sensitive
+  `re-frame.testbed.open-in-editor-server`) the Xray / Story browser
+  testbeds share.
   `config/resolve-source-root` derives the on-disk source root for
   "open in editor" from a build-env `checkout-root` `goog-define` (seeded
   per build via `#shadow/env`, so it's cross-platform with no hardcoded
