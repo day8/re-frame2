@@ -30,8 +30,15 @@
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+   [clojure.string :as str]
    [re-frame.core :as rf]
+   [re-frame.elision :as elision]
+   [re-frame.privacy :as privacy]
    [re-frame.reply :as reply]
+   ;; rf2-x76af2.13 — the mutation classification-lowering regression reads the
+   ;; per-frame elision registry the succeeded-handler lowers into, then projects
+   ;; the populated entry's data through the registry-driven egress projector.
+   [re-frame.resources.classification :as classification]
    ;; load-bearing side-effecting requires: register the :rf.resource/* +
    ;; :rf.mutation/* events + subs + the generation cofx/fx.
    [re-frame.resources]
@@ -461,6 +468,60 @@
         (is (= :loaded (:status e)))
         (is (= {:slug "w" :title "Fresh"} (:data e)))
         (is (= #{[:article "w"]} (:tags e)))))))
+
+(deftest populate-lowers-sensitive-classification-without-manual-reconcile
+  ;; rf2-x76af2.13 — the entry-mutating mutation handlers are wrapped in
+  ;; resource-events/with-classification-lowering (like the resource reply
+  ;; handlers), so the per-frame elision registry stays in step with :entries
+  ;; after a mutation. A :populates can CREATE a brand-new registered-resource
+  ;; entry the registry never lowered a declaration for; without the reconcile
+  ;; the registry drifts and project-entry-data's registry-classifies-under?
+  ;; gate rides a fine-grained-classified field VERBATIM.
+  ;;
+  ;; NON-VACUOUS: this dispatches a REAL mutation and NEVER calls
+  ;; reconcile-registry (unlike the classification suites, which manually
+  ;; reconcile before asserting). Pre-fix — succeeded-handler unwrapped — the
+  ;; registry has no :acct/profile declaration, so project-entry-data rides the
+  ;; :ssn verbatim and the redaction assertion FAILS.
+  (rf/reg-resource :acct/profile
+                   {:scope :rf.scope/global
+                    :params-schema [:map [:slug :string]]
+                    :sensitive [[:data :ssn]]
+                    :tags (fn [{:keys [slug]} _] #{[:acct slug]})}
+                   (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}}))
+  (rf/reg-mutation :m/save-profile
+                   {:params-schema [:map [:slug :string]]
+                    :populates (fn [_params result]
+                                 {{:resource :acct/profile :params {:slug "w"}
+                                   :scope :rf.scope/global} result})}
+                   (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
+  ;; NO prior ensure — the populate SEEDS a brand-new entry (the un-reconciled
+  ;; path: no wrapped resource event ever ran for this key).
+  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save-profile :params {:slug "w"} :instance :sp1}])
+  (reply-success! @last-managed-args {:ssn "123-45-6789" :name "Alice"})
+  (let [rkey (state/scoped-resource-key :rf.scope/global :acct/profile {:slug "w"})
+        k-id (state/key-id rkey)
+        e    (entry rkey)]
+    (testing "the populate seeded the entry — raw data lives in the durable cache
+              (redaction is an egress concern, not a durable one)"
+      (is (= :loaded (:status e)))
+      (is (= {:ssn "123-45-6789" :name "Alice"} (:data e))))
+    (testing "rf2-x76af2.13 — the succeeded-handler LOWERED the resource's
+              :data :ssn declaration into the frame registry (under :source
+              :resource), WITHOUT the test reconciling"
+      (is (= #{{:source :resource}}
+             (get (elision/sensitive-declarations :rf/default)
+                  [:rf.runtime/resources :entries k-id :data :ssn]))
+          "the mutation handler kept the elision registry in step with :entries"))
+    (testing "rf2-x76af2.13 — SSR project-entry-data redacts the field via the
+              registry the handler lowered (the drift is closed)"
+      (let [projected (classification/project-entry-data
+                        (:data e) k-id :rf/default :rf.egress/ssr-hydration)]
+        (is (= privacy/redacted-sentinel (:ssn projected))
+            "the populated entry's :ssn is redacted at egress")
+        (is (= "Alice" (:name projected)) "the undeclared sibling rides verbatim")
+        (is (not (str/includes? (pr-str projected) "123-45-6789"))
+            "no raw sensitive value rides")))))
 
 (deftest success-populate-arms-stale-and-gc-timers
   ;; rf2-h4cv5e — a mutation :populates seeds a fresh, OWNERLESS :loaded entry

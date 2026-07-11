@@ -542,9 +542,23 @@
 ;; replay for free. The internal replies carry the verification payload
 ;; (instance id + work-id + generation). User code MUST NOT dispatch the
 ;; internal replies.
+;;
+;; The ENTRY-mutating mutation handlers (`execute` optimistic apply / seed;
+;; `succeeded` `:patches` / `:populates` / `:removes`; `failed` conflict-aware
+;; rollback restore / remove / invalidate) are wrapped in
+;; `resource-events/with-classification-lowering` exactly like the resource
+;; reply/lifecycle handlers — a `:populates` can CREATE a brand-new registered-
+;; resource entry the elision registry never lowered a declaration for, so
+;; without the reconcile the per-frame registry drifts out of step with
+;; `:entries` and a fine-grained-classified field would ride egress verbatim
+;; (rf2-x76af2.13). The reconcile is idempotent + value-independent, so it is
+;; safe to add and rides unchanged when a handler makes no durable write.
+;; `:rf.mutation/clear` is a causal INSTANCE reset (no resource-entry write), so
+;; it stays unwrapped.
 (events/reg-event :rf.mutation/execute
                      generation-meta
-                     mutation-events/execute-handler)
+                     (resource-events/with-classification-lowering
+                       mutation-events/execute-handler))
 (events/reg-event :rf.mutation/clear
                      framework-authority-meta
                      mutation-events/clear-handler)
@@ -554,10 +568,12 @@
 ;; the time cofx (success + failure both, symmetric).
 (events/reg-event :rf.mutation.internal/succeeded
                      time-meta
-                     mutation-events/succeeded-handler)
+                     (resource-events/with-classification-lowering
+                       mutation-events/succeeded-handler))
 (events/reg-event :rf.mutation.internal/failed
                      time-meta
-                     mutation-events/failed-handler)
+                     (resource-events/with-classification-lowering
+                       mutation-events/failed-handler))
 
 ;; Passive mutation subs. Per Spec 016 §Mutations.
 (mutation-subs/register-subs!)
