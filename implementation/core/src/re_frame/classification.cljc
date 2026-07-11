@@ -316,43 +316,78 @@
   (when id
     (registration-classification kind id)))
 
+(defn- project-execute-event-payload
+  "Per-event-id DYNAMIC projection for a `[:rf.mutation/execute <args>]` event
+  vector (rf2-3ej3xu). The execute payload's classification lives on the
+  MUTATION spec named INSIDE the args (`:mutation` — per-owner,
+  projection-relative), not on the `:rf.mutation/execute` event registration,
+  so the static registration layer cannot express it. Defers to the late-bound
+  `:resources/project-execute-event-args` hook (published by the
+  `re-frame.resources` facade; core stays decoupled — the event peer of the
+  `:http/project-managed-fx-args` seam). Hook unbound (resources artefact
+  absent) ⇒ pass-through: without the artefact the event has no handler at
+  all, the documented fail-open. Identity-preserving when nothing applies."
+  [event]
+  (if-let [project (late-bind/get-fn :resources/project-execute-event-args)]
+    (if (>= (count event) 2)
+      (let [payload  (nth event 1)
+            payload' (project payload)]
+        (if (identical? payload payload') event (assoc event 1 payload')))
+      event)
+    event))
+
 (defn redact-event-by-registration
-  "Apply the REGISTRATION-OWNED `:sensitive` / `:large` classification declared
-  by the event handler registered under `(first event)` to the event vector
-  `event`, returning the vector with declared arg-map paths redacted. A no-op
-  when `event` is not a `[event-id arg-map …]` vector or the handler declared
-  none.
+  "Project an event vector for egress — the SINGLE event-vector chokepoint,
+  the event peer of `project-fx-args`. Two layers compose (rf2-3ej3xu):
+
+  1. The event REGISTRATION's static `:sensitive` / `:large` classification
+     declared under `(first event)`, applied to the arg-map paths (EP-0015 —
+     event args are registration-owned transient payloads).
+  2. Per-event-id DYNAMIC classification the static model cannot express:
+     `:rf.mutation/execute` — the payload's classification lives on the
+     MUTATION spec named inside the args (per-owner, rf2-825mzj's declaration
+     surface), so the resources-published
+     `:resources/project-execute-event-args` hook projects it
+     (`project-execute-event-payload`). Unbound ⇒ pass-through.
+
+  A no-op when `event` is not a `[event-id arg-map …]` vector or nothing
+  applies.
 
   ALWAYS-ON (NOT gated on `interop/debug-enabled?`) — the registration
   classification is populated at registration time in production as well as dev
   (only the emit-time TRACE projection is dev-gated), and this fn is the
-  production egress consumer (rf2-qe6v1u): EP-0015 makes event args
-  REGISTRATION-OWNED transient payloads.
+  production egress consumer (rf2-qe6v1u).
 
   Published via the `:classification/redact-event-by-registration` late-bind
   hook; `re-frame.projection` consumes it for the `:rf.observe/error` /
-  handled-event `:event` slot."
+  handled-event `:event` slot, and `project-event-tags` / the `:dispatch` /
+  `:dispatch-later` fx-arg recursion route every other event-bearing slot
+  through it, so all of them redact identically."
   [event]
-  (if-let [class (classification-when :event (when (vector? event) (first event)))]
-    (let [[sens large] (classification-paths class)]
-      (redact-event-vec event sens large))
-    event))
+  (let [event' (if-let [class (classification-when :event (when (vector? event) (first event)))]
+                 (let [[sens large] (classification-paths class)]
+                   (redact-event-vec event sens large))
+                 event)]
+    (case (when (vector? event') (first event'))
+      :rf.mutation/execute (project-execute-event-payload event')
+      event')))
 
 (defn- project-event-tags
   "Walk `:rf.event/dispatched` / `:rf.event/db-changed` / `:rf.fx/do-fx` tag
   shapes: the dispatched event vector lives at `:rf.event/v` and is a
-  `[event-id arg-map]` form. Classification comes from the event handler's
-  registration. The `:rf.error/*` error traces carry the event vector under the
-  bare `:event` slot, so we redact whichever slot the trace carries."
+  `[event-id arg-map]` form; the `:rf.error/*` error traces carry it under the
+  bare `:event` slot, so we redact whichever slot the trace carries — through
+  `redact-event-by-registration`, the single event-vector chokepoint (static
+  registration classification + the per-event-id dynamic layer, rf2-3ej3xu),
+  so this slot, the always-on `:rf.observe/*` records, and the `:dispatch` /
+  `:dispatch-later` fx-arg recursion all redact identically.
+  Reference-preserving when nothing applies."
   [tags slot]
-  (let [event    (get tags slot)
-        event-id (when (vector? event) (first event))
-        class    (classification-when :event event-id)]
-    (if-not class
+  (let [event  (get tags slot)
+        event' (redact-event-by-registration event)]
+    (if (identical? event event')
       tags
-      (let [[sens large] (classification-paths class)
-            redacted (redact-event-vec event sens large)]
-        (assoc tags slot redacted)))))
+      (assoc tags slot event'))))
 
 (defn- project-dispatch-later-args
   "Redact a `:dispatch-later` args map (`{:ms <ms> :event [target-id arg-map …]}`

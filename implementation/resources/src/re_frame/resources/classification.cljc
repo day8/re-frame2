@@ -235,10 +235,27 @@
 ;; unaffected; only the completion echo is projected.
 ;; ---------------------------------------------------------------------------
 
+(defn- carrier-decl-paths
+  "Re-root ONE axis (`:sensitive` / `:large`) of `spec`'s projection-relative
+  declarations onto a `{:params … :scope …}` sibling CARRIER map — the shape
+  the mutation continuation REPLY and the `[:rf.mutation/execute …]` event
+  payload share. The `:params` bucket holds params-rooted paths (head
+  stripped) AND `:scope`-rooted paths (kept WITH their `[:scope …]` head), so
+  a scope entry indexes the carrier's sibling `:scope` verbatim while a params
+  entry re-roots under `[:params …]`. A `:data`-rooted / bare decl re-roots
+  under `data-slot` when one is given (the reply's `:value` result projection)
+  and is DROPPED when `data-slot` is nil (the execute payload carries no
+  result slot at execute time). Pure."
+  [spec k data-slot]
+  (let [{:keys [data params]} (split-projection-paths spec k)]
+    (into (if data-slot (mapv #(into [data-slot] %) data) [])
+          (mapv (fn [p] (if (= :scope (first p)) p (into [:params] p)))
+                params))))
+
 (defn redact-continuation-reply
   "Redact the owner-declared `:sensitive` / `:large` param + scope subpaths of a
   mutation continuation REPLY map, deriving the paths from the mutation `spec`'s
-  projection-relative declaration (`split-projection-paths`). The reply carries
+  projection-relative declaration (`carrier-decl-paths`). The reply carries
   `:params` + `:scope` as siblings and the decoded result under `:value`, so a
   `:params`-rooted decl `[:password]` redacts reply `[:params :password]`, a
   `:scope`-rooted decl redacts reply `[:scope …]`, and a `:data`-rooted decl
@@ -247,22 +264,51 @@
   that declares neither axis — or a nil spec (unregistered owner) — rides the
   reply UNCHANGED. Pure / value-independent."
   [reply spec]
-  (let [s       (split-projection-paths spec :sensitive)
-        l       (split-projection-paths spec :large)
-        ;; reply-relative re-rooting: the `:params` bucket holds params-rooted
-        ;; paths (head stripped) AND `:scope`-rooted paths (kept WITH their
-        ;; `[:scope …]` head), so a scope entry indexes the reply's sibling
-        ;; `:scope` verbatim while a params entry re-roots under `[:params …]`.
-        ;; The `:data` bucket re-roots under the reply's `:value` result slot.
-        ->reply (fn [{:keys [data params]}]
-                  (into (mapv #(into [:value] %) data)
-                        (mapv (fn [p] (if (= :scope (first p)) p (into [:params] p)))
-                              params)))
-        sens    (->reply s)
-        large   (->reply l)]
+  (let [sens  (carrier-decl-paths spec :sensitive :value)
+        large (carrier-decl-paths spec :large :value)]
     (if (or (seq sens) (seq large))
       (classification/redact-with-paths reply sens large)
       reply)))
+
+(defn project-execute-event-args
+  "Redact a `[:rf.mutation/execute <args>]` event's ARGS MAP for the
+  event-bearing trace slots the CORE event projection walks — `:rf.event/v` on
+  the dispatched / lifecycle traces, the bare `:event` error slot, the
+  always-on `:rf.observe/*` records, and the `:dispatch` / `:dispatch-later`
+  fx-arg recursion (rf2-3ej3xu). The mutation OWNER's projection-relative
+  `:sensitive` / `:large` declarations govern the payload — the SAME single
+  declaration surface the durable-instance lowering and the continuation-reply
+  projection read (rf2-825mzj), never a second classification language: a
+  `:params`-rooted decl redacts args `[:params …]`, a `:scope`-rooted decl the
+  sibling `:scope`; `:data`-rooted decls name the RESULT projection, which
+  does not exist at execute time, and are skipped. The `:reply-to`
+  continuation address — when a payload-carrying event vector — additionally
+  rides the TARGET event registration's own classification through the
+  core-bound `:classification/redact-event-by-registration` hook, the same
+  composition the managed-HTTP `:on-success` / `:on-failure` addresses get.
+
+  Consumed by core through the `:resources/project-execute-event-args`
+  late-bind hook (published by the `re-frame.resources` facade with
+  `mutation-registry/mutation-meta` as `spec-of` — the registry requires this
+  ns, so a static back-require would cycle). An unregistered `:mutation` id, a
+  spec that declares neither axis, or a non-map `args` rides UNCHANGED (the
+  EP-0025 fail-open). The causal write is untouched — the execute handler
+  reads the RAW payload; only egress projects. Pure / value-independent."
+  [args spec-of]
+  (if-not (map? args)
+    args
+    (let [spec  (when-let [mid (:mutation args)] (spec-of mid))
+          sens  (when spec (carrier-decl-paths spec :sensitive nil))
+          large (when spec (carrier-decl-paths spec :large nil))
+          args  (if (or (seq sens) (seq large))
+                  (classification/redact-with-paths args sens large)
+                  args)
+          redact-event (late-bind/get-fn :classification/redact-event-by-registration)
+          reply-to     (:reply-to args)]
+      (if (and redact-event (vector? reply-to))
+        (let [rt' (redact-event reply-to)]
+          (if (identical? reply-to rt') args (assoc args :reply-to rt')))
+        args))))
 
 ;; ---------------------------------------------------------------------------
 ;; Schemas validate; they do NOT classify durably.
