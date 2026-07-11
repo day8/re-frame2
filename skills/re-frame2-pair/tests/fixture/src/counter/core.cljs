@@ -4,7 +4,8 @@
  Deliberately tiny: three `reg-event` handlers (`:counter/inc`, `:counter/dec`,
  `:counter/initialise`), one sub (`:count`), one reg-view
  (`counter-buttons`). Mirrors examples/core/counter/core.cljs and
- exists so re-frame2-pair's tests/shim, tests/e2e, and tests/prompts surfaces
+ exists so re-frame2-pair's tests/runtime + tests/prompts structural surfaces
+ and the pair-mcp live-e2e gate (tools/re-frame2-pair-mcp/test/live-e2e-fixture.cjs)
  have a stable target.
 
  Source-coord DOM annotation is mandatory in debug builds (gated on

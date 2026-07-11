@@ -13,6 +13,7 @@ integration scripts.
 | Does the full tool catalogue (the ordered `registry/tools` list) still produce the documented EDN wire shape per (tool × args × stub-conn)? | **CLJS** — `re_frame2_pair_mcp/conformance_test.cljs` |
 | Does the compiled `out/server.js` complete an MCP handshake and surface the documented tool descriptors? | **JS** — `stdio-roundtrip.js` |
 | Does the persistent nREPL socket survive multiple ops on one server process without leaking / hanging? | **JS** — `live-nrepl.js` |
+| Do connect / dispatch / trace / hot-reload work end-to-end against a live browser-hosted fixture, through the real MCP boundary? | **JS** — `live-e2e-fixture.cjs` |
 
 If a regression would only be visible **after** the CLJS compiles to
 JS, write a JS test. If it would be visible in the CLJS source, write a
@@ -111,6 +112,37 @@ documented as a smoke harness. Exercises:
 Run with: `NREPL_TEST_PORT=17778 node test/live-nrepl.js`
 (after starting an nREPL on that port).
 
+#### `live-e2e-fixture.cjs` — connect / dispatch / trace / hot-reload
+
+The end-to-end live gate. Spawns `out/server.js` and drives it with real
+MCP frames against the browser-hosted pair fixture
+(`skills/re-frame2-pair/tests/fixture/`), exercising the three flows the
+retired `skills/re-frame2-pair/tests/e2e/` suite used to drive through the
+`scripts/ops.clj` bash transport — now through the one implementation, the
+MCP server:
+
+- **connect** — `discover-app` finds the preloaded runtime and returns a
+  healthy snapshot (`:ok?`, `:debug-enabled?`, `:frames [:rf/default]`).
+- **dispatch + trace** — `dispatch {event "[:counter/inc]" sync true}`
+  commits, the on-screen `#value` reads `6`, and `trace-window` carries a
+  matching `:counter/inc` epoch.
+- **hot-reload** — capture a `registrar-handler-ref` probe, touch-edit the
+  fixture's `core.cljs` to trigger a shadow-cljs reload, and confirm
+  `tail-build {probe … wait-ms …}` reports `:soft? false` once the probe
+  flips.
+
+Requires an already-running fixture (`npx shadow-cljs watch app` in the
+fixture dir) plus a resolvable Playwright (for the browser that hosts the
+runtime). SOFT-SKIPS (exits 0 with a `SKIP` banner) when the server bundle,
+the fixture HTTP endpoint, the nREPL port file, or Playwright is absent, so
+it is safe to invoke anywhere without a false red. It is the pair-mcp-owned
+counterpart to the mcp-conformance hermetic live suite, which boots the
+fixture itself; this one attaches to a fixture you booted.
+
+Run with: `npm run test:live-e2e-fixture` (after `npm run build` and booting
+the fixture; `RE_FRAME2_PAIR_FIXTURE_URL` / `SHADOW_CLJS_NREPL_PORT`
+override discovery).
+
 #### `post-merge-hook-test.cjs` — stale-binary post-merge hook (rf2-6jj3r)
 
 Unit + smoke tests for the repo's `post-merge` git hook (source lives
@@ -145,8 +177,9 @@ Is the regression visible in CLJS source?
   │         └── concerns the public wire envelope?   → conformance_test.cljs
   │
   └── no → JS integration test
-            ├── concerns the stdio handshake / tool catalogue? → stdio-roundtrip.js
-            └── concerns the live nREPL socket?                 → live-nrepl.js
+            ├── concerns the stdio handshake / tool catalogue?   → stdio-roundtrip.js
+            ├── concerns the live nREPL socket?                   → live-nrepl.js
+            └── concerns an end-to-end flow against a live app?   → live-e2e-fixture.cjs
 ```
 
 ## Why this layout is unusual

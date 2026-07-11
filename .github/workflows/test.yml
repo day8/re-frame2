@@ -3123,7 +3123,7 @@ jobs:
         run: |
           set -euo pipefail
           bb tests/prompts/prompt_regression_test.clj
-          for test_file in tests/runtime/*_test.clj tests/shim/shim_test.clj; do
+          for test_file in tests/runtime/*_test.clj; do
             bb "$test_file"
           done
 

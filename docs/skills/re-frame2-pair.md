@@ -50,9 +50,11 @@ The skill is **MCP-only**: a single skill-facing transport.
   `npm install -g @day8/re-frame2-pair-mcp` and add to your agent
   host's MCP config. Source: [`tools/re-frame2-pair-mcp/`](https://github.com/day8/re-frame2/tree/main/tools/re-frame2-pair-mcp).
 
-The `scripts/` bash shims are **non-skill-facing**: they are not in the
-skill's `allowed-tools` and live on disk only for the project's own e2e
-test harness and ad-hoc shell use.
+The MCP server is the one implementation of every operation. The
+bash/babashka transport that originally fronted these ops
+(`scripts/ops.clj` + shell wrappers) has been removed; the live
+connect/dispatch/trace/hot-reload coverage now drives the MCP server over
+stdio from `tools/re-frame2-pair-mcp/test/live-e2e-fixture.cjs`.
 
 To force-load in Claude Code:
 

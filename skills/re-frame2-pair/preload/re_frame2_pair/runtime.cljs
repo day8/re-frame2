@@ -181,8 +181,8 @@
       true))
 
 (defn sentinel
-  "Return the session sentinel. Used by the shim to confirm the runtime
-   is still alive in the current browser runtime."
+  "Return the session sentinel. Used by the `discover-app` MCP tool to
+   confirm the runtime is still alive in the current browser runtime."
   []
   {:ok?        true
    :session-id session-id
@@ -3809,8 +3809,8 @@
    single epoch when a handler synchronously dispatches further events;
    we span from the FIRST run-start to the LAST run-end so the value
    answers 'how long did this cascade's handler-chain hold the
-   thread?', which is the intuition `--timing-ms` users have from the
-   bash shim.
+   thread?', which is the intuition behind the `:timing-ms` predicate
+   the `watch-epochs` / `trace-window` MCP tools accept.
 
    Returns nil when neither bracket is present (degenerate cascades, or
    epochs whose `:trace-events` slot was elided for ring-buffer age —
@@ -3820,7 +3820,7 @@
 
 (defn epoch-matches?
   "Test an epoch record against a predicate map built from
-   `watch-epochs.sh` CLI args.
+   the `watch-epochs` MCP tool's predicate args.
 
    Recognised keys: :event-id, :event-id-prefix, :effects (matches
    :fx-id in the projection), :touches-path (anywhere in db-before /
@@ -4117,7 +4117,7 @@
 
 (defn health
   "One-call summary of the runtime's view of the world. Used by
-   `discover-app.sh` to confirm the environment is healthy.
+   the `discover-app` MCP tool to confirm the environment is healthy.
 
    Side effects: installs the last-click capture listener; registers
    the trace and epoch listeners. All idempotent."

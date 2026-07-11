@@ -14,7 +14,10 @@
 > `references/mcp-transport.md`).
 > The `scripts/*.sh` + babashka `ops.clj` shims and the `cljs-eval`
 > injection step described below are **retired** from the skill
-> surface — shims on disk for the e2e harness only, and there is no
+> surface and have since been **removed** from the tree — the MCP
+> server is the one implementation of all six operations, and the live
+> connect/dispatch/trace/hot-reload coverage lives in
+> `tools/re-frame2-pair-mcp/test/live-e2e-fixture.cjs`. There is no
 > `inject-runtime` tool (gone; the runtime ships via shadow-cljs
 > `:devtools :preloads`). The §3.3 component layout, §4 op-catalogue
 > slash-op names, and the §6 phased-delivery table below are a
@@ -74,7 +77,7 @@ re-frame2-pair itself contributes **zero** additional host-project configuration
 - **Writes.** `dispatch` (with `:origin :pair` opt), `reg-*` re-registration, `restore-epoch`, container reset (rare).
 - **Runtime introspection API.** Every Tool-Pair surface listed in [Tool-Pair §How AI tools attach](https://github.com/day8/re-frame2/blob/main/spec/Tool-Pair.md#how-ai-tools-attach).
 - **Connection mechanism.** nREPL -> shadow-cljs -> browser runtime.
-- **Packaging.** `SKILL.md` + `references/` + the `re-frame2-pair.runtime` preload, driven over the **MCP server** (`tools/re-frame2-pair-mcp/`) — the only skill-facing transport. The `scripts/*.sh` + `ops.clj` (babashka) shims predate the MCP server and are retired from the skill surface; they remain on disk for the project's own e2e harness only.
+- **Packaging.** `SKILL.md` + `references/` + the `re-frame2-pair.runtime` preload, driven over the **MCP server** (`tools/re-frame2-pair-mcp/`) — the only skill-facing transport. The `scripts/*.sh` + `ops.clj` (babashka) shims predated the MCP server, were retired from the skill surface, and have since been removed from the tree.
 - **Cardinal rule.** Two modes — REPL (ephemeral) vs source edit (permanent via hot-reload). See §3.
 
 ---

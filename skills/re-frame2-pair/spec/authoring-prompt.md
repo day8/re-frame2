@@ -39,8 +39,7 @@ A self-contained prompt that re-authors the `re-frame2-pair` skill from this `sp
 > │   ├── wire-size-budget.md             (de-dupe decoding + size-conscious args)
 > │   ├── stories.md                      (live-session story-mcp tools)
 > │   └── variant-as-frame.md             (driving Story variants from a pair session)
-> ├── scripts/                            (bash shims — retired from the skill surface; on disk only for the e2e harness)
-> ├── tests/                              (smoke tests)
+> ├── tests/                              (fixture app + structural / prompt pins)
 > ├── docs/                               (maintainer docs)
 > └── spec/
 >     ├── design.md
@@ -50,7 +49,7 @@ A self-contained prompt that re-authors the `re-frame2-pair` skill from this `sp
 >
 > *Keep leaves single-concept, ideally ≤250 lines AND ≤16 KB; catalogue-shaped leaves (`ops.md`, `recipes.md`) may run longer where a split would not reduce tokens-per-session. SKILL.md is the always-loaded router — keep it well under Anthropic's 500-line ceiling. All references one level deep — no SKILL → A → B chains.*
 >
-> *Frontmatter — `allowed-tools` lists **all 30** MCP tools (`mcp__re-frame2-pair__discover-app`, `eval-cljs`, `dispatch`, `dispatch-dry-run`, `describe-image`, `trace-window`, `watch-epochs`, `tail-build`, … plus the two write tools `restore-epoch` / `replace-app-db`) plus the editor tools (`Read`, `Edit`, `Write`, `Grep`, `Glob`). The two write tools (`restore-epoch`, `replace-app-db`) are the canonical named-write path; they are gated behind the server's default-OFF `--allow-writes` flag (refusing with `:rf.error/writes-disabled` until an operator flips it at launch), so the server's gate — not the allow-list — is the write boundary and allow-listing them is safe. There is **no** `inject-runtime` tool (the runtime ships via shadow-cljs `:devtools :preloads`), and **no** `Bash(...)` shim entries (the MCP server is the only transport; the `scripts/*.sh` shims stay on disk for the e2e harness only). The `description` is "pushy" and lists every re-frame2 surface: `app-db`, `dispatch`, `subscribe`, `reg-event`, `reg-sub`, `reg-fx`, `reg-machine`, `frame`, `epoch`, `interceptor`, `sub-cache`, `trace-buffer`, `register-listener!`, `register-epoch-listener!`, `restore-epoch`, plus toolchain (`re-com`, `shadow-cljs`).*
+> *Frontmatter — `allowed-tools` lists **all 30** MCP tools (`mcp__re-frame2-pair__discover-app`, `eval-cljs`, `dispatch`, `dispatch-dry-run`, `describe-image`, `trace-window`, `watch-epochs`, `tail-build`, … plus the two write tools `restore-epoch` / `replace-app-db`) plus the editor tools (`Read`, `Edit`, `Write`, `Grep`, `Glob`). The two write tools (`restore-epoch`, `replace-app-db`) are the canonical named-write path; they are gated behind the server's default-OFF `--allow-writes` flag (refusing with `:rf.error/writes-disabled` until an operator flips it at launch), so the server's gate — not the allow-list — is the write boundary and allow-listing them is safe. There is **no** `inject-runtime` tool (the runtime ships via shadow-cljs `:devtools :preloads`), and **no** `Bash(...)` shim entries (the MCP server is the only transport; the retired `scripts/*.sh` + `scripts/ops.clj` shims were removed). The `description` is "pushy" and lists every re-frame2 surface: `app-db`, `dispatch`, `subscribe`, `reg-event`, `reg-sub`, `reg-fx`, `reg-machine`, `frame`, `epoch`, `interceptor`, `sub-cache`, `trace-buffer`, `register-listener!`, `register-epoch-listener!`, `restore-epoch`, plus toolchain (`re-com`, `shadow-cljs`).*
 >
 > *Cardinal rules to bake in (SKILL.md):*
 >
@@ -90,7 +89,7 @@ A self-contained prompt that re-authors the `re-frame2-pair` skill from this `sp
 ## Notes on the reauthoring contract
 
 - The prompt above is a one-shot — feed it to a fresh session, it produces the skill.
-- The prompt assumes the session has read access to the re-frame2 repo, the `tools/re-frame2-pair-mcp/` package, and the `scripts/` shim source.
+- The prompt assumes the session has read access to the re-frame2 repo and the `tools/re-frame2-pair-mcp/` package (the one implementation of every op).
 - The prompt does **not** ask the session to verify the resulting skill against a live app — Mike runs the smoke tests and reviews the PR.
 - If `spec/Tool-Pair.md` has changed significantly between authoring passes, the `references/ops.md` and `references/recipes.md` need re-derivation from the new contract.
 

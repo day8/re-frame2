@@ -2,8 +2,9 @@
 ;;
 ;; A deliberately tiny re-frame2 counter (mirrors examples/core/counter)
 ;; with `re-frame2-pair.runtime` wired in as a shadow-cljs `:devtools :preloads`
-;; entry. re-frame2-pair's tests/shim, tests/e2e, and tests/prompts surfaces target
-;; this fixture.
+;; entry. re-frame2-pair's tests/runtime + tests/prompts structural surfaces and
+;; the pair-mcp live-e2e gate (tools/re-frame2-pair-mcp/test/live-e2e-fixture.cjs)
+;; target this fixture.
 ;;
 ;; The fixture is intentionally trivial — one event, one sub, one view,
 ;; one frame. Validation here proves re-frame2-pair's runtime ↔ Tool-Pair contract
@@ -11,9 +12,10 @@
 
 # re-frame2-pair fixture app
 
-Minimal re-frame2 counter app used by `tests/shim`, `tests/e2e`, and
-`tests/prompts`. Mirrors `examples/core/counter/core.cljs`, with
-`re-frame2-pair.runtime` preloaded.
+Minimal re-frame2 counter app used by `tests/runtime`, `tests/prompts`, and
+the pair-mcp live-e2e gate
+(`tools/re-frame2-pair-mcp/test/live-e2e-fixture.cjs`). Mirrors
+`examples/core/counter/core.cljs`, with `re-frame2-pair.runtime` preloaded.
 
 ## Layout
 
@@ -45,11 +47,15 @@ http://localhost:8030 in a browser tab — the counter should render and
 
 ## Verify the preload landed
 
+Open http://localhost:8030 in a browser tab, then drive the pair-mcp
+`discover-app` tool against the running fixture — the pair-mcp live-e2e
+gate does exactly this:
+
 ```bash
-# bash shim path
-cd ../..   # back to skills/re-frame2-pair/
-SHADOW_CLJS_BUILD_ID=app scripts/discover-app.sh
-# => {:ok? true :session-id "..." :debug-enabled? true :frames [:rf/default] ...}
+cd ../../../../tools/re-frame2-pair-mcp   # to tools/re-frame2-pair-mcp/
+npm run build
+RE_FRAME2_PAIR_FIXTURE_URL=http://localhost:8030 npm run test:live-e2e-fixture
+# => discover-app -> {:ok? true :debug-enabled? true :frames [:rf/default] ...}
 ```
 
 ## Counter contract

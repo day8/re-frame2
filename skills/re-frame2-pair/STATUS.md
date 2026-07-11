@@ -13,7 +13,7 @@ A living record of what's actually implemented, what's scaffolded, and what's bl
 | Tool catalogue | **30 MCP tools** (catalogued in `tools/re-frame2-pair-mcp/tool-descriptors.edn`). All 30 reachable from `allowed-tools:`; the two write tools `restore-epoch` + `replace-app-db` are the canonical named-write path and refuse with `:rf.error/writes-disabled` unless the server is launched with the default-OFF `--allow-writes` flag (the server's gate, not the allow-list, is the write boundary). |
 | `SKILL.md` + `references/*.md` | Written — the full vocabulary Claude learns; the routed leaves carry the live surface. |
 | `preload/re_frame2_pair/runtime.cljs` | Written — helpers over re-frame2's public Tool-Pair surfaces. Loaded into the app via shadow-cljs `:devtools :preloads`. |
-| Bash shims (`scripts/*.sh` + `ops.clj`) | **Retired from the skill surface** — kept on disk only for the project's own e2e harness and ad-hoc shell use. |
+| Bash / babashka transport (`scripts/*.sh` + `ops.clj`) | **Removed.** The MCP server is the one implementation of all six operations; the retired parallel stack was deleted. The live connect/dispatch/trace/hot-reload coverage moved to `tools/re-frame2-pair-mcp/test/live-e2e-fixture.cjs` (drives the built server over stdio). |
 | Push-mode streaming | **Landed** — `subscribe` / `unsubscribe` MCP tools push live trace/epoch events as `notifications/progress`. See [`streaming-subscriptions.md`](references/streaming-subscriptions.md). |
 | Fixture app | **Landed** — `tests/fixture/`. Minimal Reagent counter + `re-frame2-pair.runtime` preload. |
 | `.claude-plugin/plugin.json`, `package.json` | Written. Release rides re-frame2's own release pipeline — this skill ships no skill-local CI/release workflow (see `RELEASING.md`). |
@@ -77,7 +77,7 @@ Everything else is structurally correct per the Tool-Pair Spec but not exhaustiv
 
 In order:
 
-1. Continue ground-truthing the *Known unknowns* against the live fixture using the `tests/e2e/` runner.
+1. Continue ground-truthing the *Known unknowns* against the live fixture using the `tools/re-frame2-pair-mcp/test/live-e2e-fixture.cjs` harness.
 2. Adjust `runtime.cljs` to match any findings.
 3. Graduate out of pre-alpha and cut `v0.1.0-beta.1`.
 
