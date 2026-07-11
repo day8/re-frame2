@@ -9,7 +9,8 @@
             [re-frame.source-coords :as source-coords]
             [re-frame.source-coords.editor-uri :as editor-uri])
   (:import [java.net URI]
-           [java.io File]))
+           [java.io File InputStream InputStreamReader]
+           [java.util.concurrent TimeUnit]))
 
 (set! *warn-on-reflection* true)
 
@@ -89,12 +90,67 @@
       line   (str ":" line)
       column (str ":" column))))
 
+(def ^:dynamic *launch-timeout-ms*
+  "Max wall-clock ms to wait for the launch child to exit before terminating
+  it and reporting a timeout. Dynamic so tests can shrink the budget to
+  exercise the timeout branch without a real ten-second stall."
+  10000)
+
+(def ^:private stderr-diagnostic-cap
+  "Max chars of child stderr retained as a launch diagnostic. The stream is
+  ALWAYS drained to EOF (so the child's stderr pipe can never fill and block
+  the child before it exits); only the RETAINED head is bounded, so a runaway
+  dependency cannot trade the pipe deadlock for unbounded parent memory."
+  8192)
+
+(defn ^:private drain-stream
+  "Read `in` to EOF, returning up to `stderr-diagnostic-cap` chars of its head.
+  ALWAYS consumes the whole stream — draining the OS pipe even past the
+  retained cap. Runs on its own thread (a future) concurrently with the timed
+  wait so a child that fills its stderr pipe still makes progress to exit,
+  rather than blocking on a write the parent hasn't read. Never throws."
+  [^InputStream in]
+  (let [sb  (StringBuilder.)
+        buf (char-array 4096)
+        cap (int stderr-diagnostic-cap)]
+    (try
+      (with-open [r (InputStreamReader. in java.nio.charset.StandardCharsets/UTF_8)]
+        (loop []
+          (let [n (.read r buf)]
+            (when-not (neg? n)                       ;; -1 = EOF
+              (let [room (- cap (.length sb))]
+                (when (and (pos? n) (pos? room))
+                  (.append sb buf (int 0) (int (min n room)))))
+              (recur)))))
+      (catch Throwable _ nil))
+    (.toString sb)))
+
+(defn ^:private terminate!
+  "Best-effort stop of a child that overran its budget: destroy, wait briefly,
+  then FORCE-destroy if it is still alive and wait again. Returns true when the
+  child is confirmed dead. Force-termination is the fallback for a child that
+  ignores the graceful destroy signal."
+  [^Process proc]
+  (.destroy proc)
+  (when (and (.isAlive proc)
+             (not (.waitFor proc 500 TimeUnit/MILLISECONDS)))
+    (.destroyForcibly proc)
+    (.waitFor proc 1000 TimeUnit/MILLISECONDS))
+  (not (.isAlive proc)))
+
 (defn launch!
   "Invoke launch-editor from the dev JVM cwd and return `{:ok ...}`.
 
   Missing files are rejected before spawning Node because launch-editor
   otherwise exits successfully without opening anything. Other failures are
-  returned as messages instead of escaping the Ring boundary."
+  returned as messages instead of escaping the Ring boundary.
+
+  The child's pipes are owned before the wait: stdout is DISCARDed (the
+  endpoint never consumes it) and stderr is drained CONCURRENTLY on its own
+  thread. OS pipes are bounded, so a child that fills an undrained pipe blocks
+  on the write and never reaches `process.exit` — the parent would then time
+  out waiting for an exit its own undrained pipe prevents (rf2-j538f7.21). A
+  bounded head of stderr is retained as the failure diagnostic."
   [abs-path line column command]
   (if-not (file-exists? abs-path)
     {:ok false :message "file-not-found"}
@@ -103,21 +159,28 @@
                  command (conj command))]
       (try
         (let [pb (doto (ProcessBuilder. ^java.util.List args)
-                   (.redirectErrorStream false))
-              _  (.directory pb (File. (System/getProperty "user.dir")))
-              proc (.start pb)
-              ;; Bound the wait so Node cannot wedge a dev-server thread.
-              done? (.waitFor proc 10 java.util.concurrent.TimeUnit/SECONDS)
-              exit  (when done? (.exitValue proc))
-              err   (when done?
-                      (slurp (.getErrorStream proc)))]
-          (cond
-            (not done?)  (do (.destroy proc)
-                             {:ok false :message "launch-editor timed out"})
-            (zero? exit) {:ok true}
-            :else        {:ok false
-                          :message (or (when (seq err) (str/trim err))
-                                       (str "launch-editor exited " exit))}))
+                   ;; stdout is unused by the endpoint — discard it so a chatty
+                   ;; child can never fill an undrained stdout pipe and wedge.
+                   (.redirectOutput java.lang.ProcessBuilder$Redirect/DISCARD)
+                   (.redirectErrorStream false)
+                   (.directory (File. (System/getProperty "user.dir"))))
+              proc      (.start pb)
+              ;; Drain stderr CONCURRENTLY with the wait — the whole point: a
+              ;; child that fills its stderr pipe must still reach exit.
+              err-drain (future (drain-stream (.getErrorStream proc)))
+              done?     (.waitFor proc (long *launch-timeout-ms*) TimeUnit/MILLISECONDS)]
+          (if-not done?
+            ;; The child overran its budget: kill it (which EOFs stderr, so the
+            ;; drain future completes on its own) and report the timeout.
+            (do (terminate! proc)
+                {:ok false :message "launch-editor timed out"})
+            (let [exit (.exitValue proc)
+                  err  (deref err-drain 1000 "")]
+              (if (zero? exit)
+                {:ok true}
+                {:ok false
+                 :message (or (when (seq err) (str/trim err))
+                              (str "launch-editor exited " exit))}))))
         (catch Throwable t
           {:ok false :message (.getMessage t)})))))
 

@@ -465,6 +465,128 @@
     (is (= {:ok false :message "file-not-found"} (oies/launch! nil 1 1 nil)))
     (is (= {:ok false :message "file-not-found"} (oies/launch! "   " 1 1 nil)))))
 
+;; ---------------------------------------------------------------------------
+;; Real-subprocess pipe-drain regressions (rf2-j538f7.21).
+;;
+;; OS pipes are bounded (~64 KiB). The pre-fix `launch!` called `.waitFor`
+;; BEFORE reading either child pipe and never read stdout at all — so a child
+;; that filled either pipe blocked on the write, could not reach `process.exit`,
+;; and the JVM timed out waiting for an exit its own undrained pipe prevented.
+;; These spawn REAL node children (the boundary the unit path never exercised
+;; — every other launch! test stubs launch! or stops at missing-file rejection)
+;; that write MORE than a pipe's worth to stdout / stderr. With the fix (stdout
+;; DISCARDed, stderr drained concurrently) each child exits and `launch!`
+;; classifies it correctly. Each test rebinds a short `*launch-timeout-ms*`
+;; budget so a reintroduced wait-before-drain fails as a BOUNDED timeout result
+;; rather than hanging the suite.
+;; ---------------------------------------------------------------------------
+
+(defn ^:private node-available?
+  "Whether a `node` binary is on PATH — the real-subprocess regressions below
+  need it. Returns false (⇒ the test self-skips with a note) rather than
+  hard-failing on a node-less box."
+  []
+  (try
+    (let [p (.start (ProcessBuilder. ["node" "--version"]))]
+      (and (.waitFor p 10 java.util.concurrent.TimeUnit/SECONDS)
+           (zero? (.exitValue p))))
+    (catch Throwable _ false)))
+
+(def ^:private one-mib-plus
+  "Comfortably more than a plausible OS pipe buffer (~64 KiB)."
+  1200000)
+
+(defn ^:private tmp-existing-file
+  "A real on-disk file whose absolute path `launch!` accepts (file-exists?),
+  so the launch path is reached without opening an editor."
+  []
+  (doto (File/createTempFile "oies-drain-" ".cljs") (.deleteOnExit)))
+
+(defmacro ^:private timed
+  "Eval `body`, returning `[result elapsed-ms]`."
+  [& body]
+  `(let [t0# (System/nanoTime)
+         r#  (do ~@body)]
+     [r# (quot (- (System/nanoTime) t0#) 1000000)]))
+
+(deftest launch-drains-huge-stdout-and-reports-success
+  ;; Criterion 1: a child that floods STDOUT (>1 MiB) and exits 0 is a SUCCESS,
+  ;; reached promptly — never the timeout the undrained-stdout deadlock
+  ;; manufactured. The 8 s budget bounds a reintroduced wait-before-drain to a
+  ;; timeout RESULT at ~8 s (this assertion then goes red) instead of hanging.
+  (if-not (node-available?)
+    (is true "skipped: node not on PATH")
+    (let [f    (tmp-existing-file)
+          shim (str "var b='x'.repeat(" one-mib-plus ");"
+                    "process.stdout.write(b);process.exit(0);")]
+      (with-redefs [oies/launch-shim shim]
+        (binding [oies/*launch-timeout-ms* 8000]
+          (let [[res ms] (timed (oies/launch! (.getAbsolutePath f) nil nil nil))]
+            (is (= {:ok true} res)
+                "a >1 MiB stdout flood + exit 0 is a prompt success, not a timeout")
+            (is (< ms 8000)
+                "returned well within the budget — the child was not wedged by its own pipe")))))))
+
+(deftest launch-drains-huge-stderr-and-reports-bounded-failure
+  ;; Criterion 2: a child that floods STDERR (>1 MiB) and exits nonzero is a
+  ;; FAILURE carrying a BOUNDED diagnostic (never the timeout, never unbounded
+  ;; memory), plus a small-stderr control.
+  (if-not (node-available?)
+    (is true "skipped: node not on PATH")
+    (let [f (tmp-existing-file)]
+      (testing "huge stderr + nonzero exit ⇒ bounded non-timeout diagnostic"
+        (let [shim (str "var b='y'.repeat(" one-mib-plus ");"
+                        "process.stderr.write(b);process.exit(7);")]
+          (with-redefs [oies/launch-shim shim]
+            (binding [oies/*launch-timeout-ms* 8000]
+              (let [[res ms] (timed (oies/launch! (.getAbsolutePath f) nil nil nil))]
+                (is (false? (:ok res)))
+                (is (not= "launch-editor timed out" (:message res))
+                    "a drained stderr flood is a real failure, not the deadlock timeout")
+                (is (<= (count (:message res)) 8192)
+                    "the retained diagnostic is bounded — no unbounded parent memory")
+                (is (< ms 8000) "returned within the budget"))))))
+      (testing "small stderr control still round-trips verbatim"
+        (with-redefs [oies/launch-shim "process.stderr.write('controlled failure');process.exit(7);"]
+          (binding [oies/*launch-timeout-ms* 8000]
+            (is (= {:ok false :message "controlled failure"}
+                   (oies/launch! (.getAbsolutePath f) nil nil nil)))))))))
+
+(deftest launch-genuine-timeout-honours-short-budget
+  ;; Criterion 4 (a): a child that never exits yields the timeout message
+  ;; WITHIN the (short, test-configurable) budget — proving the wait is bounded
+  ;; and the budget is honoured, not the hardcoded 10 s.
+  (if-not (node-available?)
+    (is true "skipped: node not on PATH")
+    (let [f (tmp-existing-file)]
+      (with-redefs [oies/launch-shim "setInterval(function(){},1000);"] ;; never exits
+        (binding [oies/*launch-timeout-ms* 500]
+          (let [[res ms] (timed (oies/launch! (.getAbsolutePath f) nil nil nil))]
+            (is (= {:ok false :message "launch-editor timed out"} res)
+                "a non-exiting child times out")
+            (is (< ms 5000)
+                "the short budget was honoured — nowhere near the old 10 s stall")))))))
+
+(deftest terminate!-force-kills-a-child-that-ignores-graceful-destroy
+  ;; Criterion 4 (b): after cleanup the child is no longer alive, INCLUDING the
+  ;; force-termination fallback when a graceful destroy does not complete (a
+  ;; child that traps SIGTERM — the force path is exercised on POSIX CI; on
+  ;; Windows `.destroy` already terminates forcibly).
+  (if-not (node-available?)
+    (is true "skipped: node not on PATH")
+    (let [pb   (doto (ProcessBuilder. ["node" "-e"
+                                       "process.on('SIGTERM',function(){});setInterval(function(){},1000);"])
+                 (.redirectOutput java.lang.ProcessBuilder$Redirect/DISCARD)
+                 (.redirectErrorStream true))
+          proc (.start pb)]
+      (try
+        (is (.isAlive proc) "the child started and is running")
+        (is (true? (#'oies/terminate! proc))
+            "terminate! confirms the child is dead (force-destroy fallback used if needed)")
+        (is (not (.isAlive proc)) "the child is no longer alive after cleanup")
+        (finally
+          (when (.isAlive proc) (.destroyForcibly proc)))))))
+
 (deftest endpoint-rejects-missing-file-with-422
   (testing "request-level regression: a valid local POST whose `:file`
             resolves to a nonexistent path answers 422 file-not-found (NOT a
