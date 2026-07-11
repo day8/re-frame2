@@ -728,7 +728,7 @@
 ;; ============================================================================
 ;;
 ;; The form and control panel grey themselves out once the page is archived,
-;; using `@(rf/subscribe [:rf.machine/has-tag? :ui/nine-states :mode/read-only])`. Notice
+;; using `@(subscribe [:rf.machine/has-tag? :ui/nine-states :mode/read-only])`. Notice
 ;; what they DON'T ask: "are we in the :done state of the :mode region?"
 ;; They ask "is this read-only?" and leave it at that. The view states an
 ;; intent and lets the machine decide which state happens to carry it —
@@ -740,7 +740,7 @@
           new-todo-form []
   (let [draft       @(subscribe [:new-todo/draft])
         field-err   @(subscribe [:new-todo/field-error :title])
-        read-only?  @(rf/subscribe [:rf.machine/has-tag? :ui/nine-states :mode/read-only])]
+        read-only?  @(subscribe [:rf.machine/has-tag? :ui/nine-states :mode/read-only])]
     [:form.new-todo
      {:on-submit (fn [e]
                    (.preventDefault e)
@@ -757,7 +757,7 @@
 (rf/reg-view ^{:doc "Your remote control: one button per state, so you can
                   jump the demo straight to any of the nine."}
           control-panel []
-  (let [read-only? @(rf/subscribe [:rf.machine/has-tag? :ui/nine-states :mode/read-only])]
+  (let [read-only? @(subscribe [:rf.machine/has-tag? :ui/nine-states :mode/read-only])]
     [:div.control-panel
      [:h3 "Drive the demo"]
      [:button {:on-click #(dispatch [:nine-states.app/initialise])
