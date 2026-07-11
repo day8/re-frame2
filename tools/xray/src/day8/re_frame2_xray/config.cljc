@@ -578,15 +578,25 @@
 ;; named-boundary model matches the per-(tool,frame) `local_render.cljc`
 ;; seam shipped in this tool.
 ;;
-;; This atom holds Xray's local-render egress PROFILE. Xray is a
-;; framework-published trace consumer (its preload listener + the
-;; trace-collector snapshot feed every panel), so every value-bearing slot
-;; it surfaces on a dev surface ships under this profile. The "is a
-;; `:sensitive?` event visible?" decision derives from the profile's
-;; `:rf.size/include-sensitive?` resolution
+;; This atom holds Xray's TRACE-COLLECTOR egress PROFILE. It governs
+;; the trace collector's whole-event `:sensitive?` drop ONLY (spec 013
+;; §Trace-Consumer + spec 015 §Cross-tool visibility grain, rf2-g7zayk):
+;; Xray is a framework-published trace consumer (its preload listener
+;; feeds the trace rings the L2 event list + Trace panel read), and the
+;; profile decides whether a `:sensitive?`-tagged event survives that
+;; feed. The "is a `:sensitive?` event visible?" decision derives from
+;; the profile's `:rf.size/include-sensitive?` resolution
 ;; via the framework projection table (`projection/profile-size-opts`), the
 ;; SAME table `project-egress` consumes — one source of truth, no
 ;; re-implemented redaction policy.
+;;
+;; It does NOT gate the on-box panels that read LIVE frame state.
+;; App-DB (`rf/app-db-value` / epoch records) and Resources (runtime-db)
+;; bypass the trace collector, so they carry their OWN per-(tool,frame)
+;; redaction: `panels/local_render`'s `raw?` grain
+;; (`:rf.egress/local-redacted` by default). Those panels fail closed
+;; independently of this atom — see `panels/local_render.cljc` +
+;; spec/004-App-DB-Diff.md §On-box local-render.
 ;;
 ;; Default is `:rf.egress/local-redacted` — FAIL-CLOSED: sensitive display
 ;; suppressed. An engineer debugging redaction policy on their OWN machine
