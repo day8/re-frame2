@@ -600,16 +600,26 @@
      flow-id))))
 
 (defn- dissoc-in-safe
-  "Remove a nested leaf without creating nil parents or descending into a
-  non-map intermediate. Returns `db` unchanged when the path is absent."
+  "Remove a nested leaf without creating nil parents. A MAP parent has the leaf
+  `dissoc`'d; a VECTOR parent with an in-range non-negative integer index is
+  vacated by `assoc`-ing `nil` at that index — the ONLY local vacation a vector
+  admits (a `dissoc` would shift every later element and silently corrupt
+  sibling outputs). Integer segments are valid path elements
+  (`re-frame.path/segment?`), and `evaluate-flow!` writes a vector-index output
+  via `assoc-in`, so vacation must be symmetric with that write — matching
+  `re-frame.path/container-for`'s vector-index semantics (rf2-vx1ps6). Returns
+  `db` unchanged when the path is absent or the parent is a scalar / set / seq
+  (or an out-of-range vector index) that cannot hold the leaf."
   [db path]
   (let [parent-path (vec (butlast path))
         leaf        (last path)
         parent      (get-in db parent-path ::missing)]
     (cond
       (or (= ::missing parent) (nil? parent)) db
-      (not (map? parent)) db
-      :else (update-in db parent-path dissoc leaf))))
+      (map? parent) (update-in db parent-path dissoc leaf)
+      (and (vector? parent) (integer? leaf) (<= 0 leaf) (< leaf (count parent)))
+      (assoc-in db path nil)
+      :else db)))
 
 (defn ^:no-doc vacate-path-in-db
   "Pure leaf removal shared by immediate and in-drain path vacation.
