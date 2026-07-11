@@ -312,16 +312,59 @@
   (.querySelector grid-el
                   (str "[data-rf-xray-resizable-col='" (name col-id) "']")))
 
-(defn- on-pointer-down
+;; rf2-65015d — hold the active drag's window listeners so an
+;; interrupted drag can always tear them down. Without this the
+;; `pointermove` listener stays bound to `window` whenever `pointerup`
+;; is never delivered (a `pointercancel` from a touch/gesture preempt,
+;; a context menu, or the pointer leaving to another window), and the
+;; next `pointerdown` piles a second listener pair on top — each orphan
+;; re-dispatching `resize-pair-tick` on every subsequent window
+;; pointermove. `defonce` so a shadow-cljs `:after-load` mid-drag
+;; doesn't strand a half-installed listener (the next pointerdown
+;; re-installs cleanly). Mirrors the sibling `resize_handle.cljs`
+;; drag-state + `detach-…!` pattern — `resizable-table` was the lone
+;; drag surface diverging from it.
+(defonce ^:private drag-state
+  ;; {:on-move <fn> :on-up <fn> :on-cancel <fn>} — the bound window
+  ;; handlers for the in-progress drag; nil when no drag is running.
+  (atom nil))
+
+(defn dragging?
+  "Test seam — true iff a column-resize drag is in progress. Pure read
+  of the drag-state atom; the drag lifecycle tests (rf2-65015d) assert
+  the start/teardown transitions through it."
+  []
+  (some? @drag-state))
+
+(defn- detach-window-listeners!
+  "Remove the in-progress drag's window listeners and clear the drag
+  state. Idempotent — a no-op when no drag is running. Runs on
+  pointerup, on pointercancel, and defensively at the head of the next
+  pointerdown so a stranded listener from a failed prior drag never
+  double-fires or piles up. Guards on `js/window` (node-test has none)
+  and swallows per-listener removal errors so teardown always reaches
+  the `reset!`."
+  []
+  (when-let [{:keys [on-move on-up on-cancel]} @drag-state]
+    (when (and (exists? js/window) (.-removeEventListener js/window))
+      (try (.removeEventListener js/window "pointermove" on-move)   (catch :default _ nil))
+      (try (.removeEventListener js/window "pointerup" on-up)       (catch :default _ nil))
+      (try (.removeEventListener js/window "pointercancel" on-cancel) (catch :default _ nil)))
+    (reset! drag-state nil)))
+
+(defn on-pointer-down
   "Begin a drag: capture both adjacent columns' starting widths
   from the live DOM (so the first drag works even when state
-  carries no override), register window-level move/up handlers,
-  dispatch resize-pair events on each move, clean up on up.
+  carries no override), register window-level move/up/cancel handlers,
+  dispatch resize-pair events on each move, clean up on up OR cancel.
+
+  Public for the drag-lifecycle test seam (rf2-65015d) — the shell
+  never calls it except through the `header-gutter` `:on-pointer-down`.
 
   `dispatch-fn` (rf2-r0o63) is the frame-bound `dispatch` the
   surrounding `resizable-table` `reg-view` body injects (the macro
   expands it over a `capture-frame` capturing the render frame). The
-  pointer-move/up handlers run OUTSIDE the React tree (via raw
+  pointer-move/up/cancel handlers run OUTSIDE the React tree (via raw
   `window.addEventListener`), so the dynamic frame
   context has unwound by the time they fire — but the injected
   `dispatch` already bound the instance frame synchronously during
@@ -337,6 +380,11 @@
   [dispatch-fn table-id left-id right-id ev]
   (.preventDefault ev)
   (.stopPropagation ev)
+  ;; rf2-65015d — defensive: tear down any stranded prior drag before
+  ;; attaching a fresh listener set (a missed pointerup / pointercancel
+  ;; from a previous drag would otherwise leave its move listener bound
+  ;; and pile a second pair here).
+  (detach-window-listeners!)
   (when-let [gutter-el (.-currentTarget ev)]
     (let [grid-el  (.-parentElement gutter-el)
           left-el  (find-col-cell grid-el left-id)
@@ -356,12 +404,53 @@
                                           table-id
                                           left-id new-left
                                           right-id new-right])))
-              on-up     (fn on-up [_]
+              ;; rf2-65015d — pointerup AND an interrupted-drag
+              ;; pointercancel both commit the last tick (persisting the
+              ;; widths already painted on screen, so stored never
+              ;; diverges from displayed after a preempted drag) and
+              ;; tear the listeners down. A preempted drag therefore
+              ;; never strands a listener.
+              finish!   (fn []
                           (dispatch-fn [:rf.xray.column-widths/resize-pair-commit])
-                          (.removeEventListener js/window "pointermove" on-move)
-                          (.removeEventListener js/window "pointerup" on-up))]
-          (.addEventListener js/window "pointermove" on-move)
-          (.addEventListener js/window "pointerup" on-up))))))
+                          (detach-window-listeners!))
+              on-up     (fn [_] (finish!))
+              on-cancel (fn [_] (finish!))]
+          (reset! drag-state {:on-move on-move :on-up on-up :on-cancel on-cancel})
+          (when (and (exists? js/window) (.-addEventListener js/window))
+            (try (.addEventListener js/window "pointermove" on-move)     (catch :default _ nil))
+            (try (.addEventListener js/window "pointerup" on-up)         (catch :default _ nil))
+            (try (.addEventListener js/window "pointercancel" on-cancel) (catch :default _ nil))))))))
+
+;; ---- test seams (rf2-65015d) --------------------------------------------
+;; Drive the window-level drag handlers without a real DOM — node-test
+;; has no `js/window`, so `on-pointer-down` sets the drag state but
+;; never attaches real listeners. Mirrors resize_handle.cljs's
+;; simulate-* seams: the drag-state lifecycle is the observable proxy
+;; for the listener lifecycle (detach removes the listeners AND clears
+;; the state in one place).
+
+(defn simulate-move!
+  "Test-only: drive the in-progress drag's pointermove handler with a
+  clientX. No-op when no drag is running."
+  [client-x]
+  (when-let [{:keys [on-move]} @drag-state]
+    (on-move #js {:clientX client-x})))
+
+(defn simulate-up!
+  "Test-only: drive the pointerup handler (commit + teardown). No-op
+  when no drag is running."
+  []
+  (when-let [{:keys [on-up]} @drag-state]
+    (on-up nil)))
+
+(defn simulate-cancel!
+  "Test-only: drive the pointercancel handler (commit + teardown).
+  Covers the system-preempt path — a touch gesture override, a context
+  menu, or the pointer leaving to another window. No-op when no drag is
+  running."
+  []
+  (when-let [{:keys [on-cancel]} @drag-state]
+    (on-cancel nil)))
 
 ;; ---- Header gutter (interactive) ----------------------------------------
 
