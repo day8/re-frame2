@@ -65,7 +65,7 @@
   (rf2-k647w); since tag pills retired in favour of a hover-only
   tooltip, the same fixture exercises the new attr-surface."
   {:initial :idle
-   :states  {:idle    {:tags [:initial-tag] :on {:start :loading}}
+   :states  {:idle    {:tags #{:initial-tag} :on {:start :loading}}
              :loading {:on {:done :idle}}}})
 
 (def ^:private namespaced-tag-machine
@@ -73,7 +73,7 @@
   tag-identity-preservation fix is assertable (the visible label + the
   `data-tag` attr must read `door/open`, not the truncated `open`)."
   {:initial :open
-   :states  {:open {:tags [:door/open] :on {:close :shut}}
+   :states  {:open {:tags #{:door/open} :on {:close :shut}}
              :shut {}}})
 
 (def ^:private machine-level-on-machine
