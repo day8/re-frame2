@@ -230,6 +230,20 @@
     (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
       (= :rf.error/non-edn-identity (:rf.error/id (ex-data e))))))
 
+(defn- non-edn-id-reason
+  "Run `thunk`; return the `:reason` of a caught `:rf.error/non-edn-identity`
+  ex-info, or `:no-throw` / `:other-error` so a test can pin the exact
+  fail-closed reason keyword."
+  [thunk]
+  (try
+    (thunk)
+    :no-throw
+    (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
+      (let [d (ex-data e)]
+        (if (= :rf.error/non-edn-identity (:rf.error/id d))
+          (:reason d)
+          :other-error)))))
+
 (deftest rejection-cases
   (testing "floats / NaN / infinities / ratios fail closed"
     (is (non-edn-id-error? #(id/canonical-bytes 1.5)))
@@ -370,3 +384,108 @@
              "value-equal js/Date keys collapse to one entry on CLJS")
          (is (= 1 (count (re-seq #"t:2026-06-10T00:00:00\.000Z"
                                  (id/canonical-bytes m)))))))))
+
+;; ---- rf2-eynsfe: the reserved tagged-instant canonical form --------------
+;;
+;; The canonical form of an instant is the reserved tagged tuple
+;; [:rf.identity/instant "<RFC-3339 UTC millisecond text>"]. `canonical-bytes`
+;; is UNCHANGED — a host instant AND the tuple both emit `t:<text>`, a plain
+;; string stays `s:` — so the byte contract (and the frozen conformance
+;; fixture) is untouched, while `canonical` no longer collapses an instant to a
+;; bare string that aliases a look-alike string one level down. Laws + the
+;; fail-closed cases run on BOTH hosts via the `.cljc`; the JVM-only
+;; Date-vs-Instant and sub-millisecond legs ride `#?(:clj …)`.
+
+(def ^:private sample-instant-text "2026-06-10T00:00:00.000Z")
+(def ^:private sample-instant #inst "2026-06-10T00:00:00.000-00:00")
+(def ^:private sample-tuple [:rf.identity/instant "2026-06-10T00:00:00.000Z"])
+
+(deftest instant-tagged-canonical-form
+  (testing "canonical returns the reserved tagged tuple; canonical-bytes emits t:<text>"
+    (is (= :rf.identity/instant id/instant-marker))
+    (is (= sample-tuple (id/canonical sample-instant)))
+    (is (= "t:2026-06-10T00:00:00.000Z" (id/canonical-bytes sample-instant)))
+    (is (= "t:2026-06-10T00:00:00.000Z" (id/canonical-bytes sample-tuple))))
+  (testing "law 1 — canonical is idempotent; an already-tagged tuple is returned unchanged"
+    (is (= (id/canonical (id/canonical sample-instant)) (id/canonical sample-instant)))
+    (is (= sample-tuple (id/canonical sample-tuple))))
+  (testing "law 2 — canonical-bytes agrees across the canonical projection"
+    (is (= (id/canonical-bytes (id/canonical sample-instant))
+           (id/canonical-bytes sample-instant)))
+    (is (= (id/canonical-bytes (id/canonical sample-tuple))
+           (id/canonical-bytes sample-tuple))))
+  (testing "laws 3/4 — an instant is DISTINCT from a look-alike string on both surfaces"
+    (is (not= (id/canonical sample-instant) (id/canonical sample-instant-text)))
+    (is (not= (id/canonical-bytes sample-instant) (id/canonical-bytes sample-instant-text)))
+    (is (not (id/identical-identity? sample-instant sample-instant-text))))
+  (testing "a heterogeneous instant+string-keyed map is a LEGAL two-entry map on BOTH surfaces"
+    (let [m {sample-instant :via-instant sample-instant-text :via-string}]
+      (is (= 2 (count m)) "the instant key and the string key are distinct host keys")
+      ;; canonical-bytes accepts it (no duplicate-canonical-key rejection) and
+      ;; carries both a t: and an s: key token.
+      (is (string? (id/canonical-bytes m)))
+      (is (re-find #"t:2026-06-10T00:00:00\.000Z" (id/canonical-bytes m)))
+      (is (re-find #"s:\"2026-06-10T00:00:00\.000Z\"" (id/canonical-bytes m)))
+      ;; canonical accepts it too and keeps two entries, keyed distinctly.
+      (let [c (id/canonical m)]
+        (is (= 2 (count c)))
+        (is (= :via-instant (get c sample-tuple)))
+        (is (= :via-string (get c sample-instant-text)))))))
+
+(deftest instant-tagged-fail-closed
+  (testing "a vector under the reserved marker is validated STRICTLY — never a generic vector"
+    (is (= :invalid-canonical-instant
+           (non-edn-id-reason #(id/canonical-bytes [:rf.identity/instant])))
+        "wrong arity (1)")
+    (is (= :invalid-canonical-instant
+           (non-edn-id-reason #(id/canonical [:rf.identity/instant "2026-06-10T00:00:00.000Z" :extra])))
+        "wrong arity (3)")
+    (is (= :invalid-canonical-instant
+           (non-edn-id-reason #(id/canonical-bytes [:rf.identity/instant 123])))
+        "non-string payload")
+    (is (= :invalid-canonical-instant
+           (non-edn-id-reason #(id/canonical-bytes [:rf.identity/instant "2026-06-10T00:00:00Z"])))
+        "not millisecond precision")
+    (is (= :invalid-canonical-instant
+           (non-edn-id-reason #(id/canonical-bytes [:rf.identity/instant "2026-13-01T00:00:00.000Z"])))
+        "impossible month")
+    (is (= :invalid-canonical-instant
+           (non-edn-id-reason #(id/canonical-bytes [:rf.identity/instant "2026-02-30T00:00:00.000Z"])))
+        "impossible day (Feb 30) — a host clock silently rolls it, the round-trip rejects it")
+    (is (= :invalid-canonical-instant
+           (non-edn-id-reason #(id/canonical [:rf.identity/instant "2026-06-12T24:00:00.000Z"])))
+        "hour 24 folds to the next day — rejected by the round-trip")
+    (is (= :invalid-canonical-instant
+           (non-edn-id-reason #(id/canonical-bytes [:rf.identity/instant "10000-01-01T00:00:00.000Z"])))
+        "5-digit year is outside the fixed-width portable window"))
+  (testing "the portable-range boundaries are admitted, inclusive"
+    (is (= "t:0000-01-01T00:00:00.000Z"
+           (id/canonical-bytes [:rf.identity/instant "0000-01-01T00:00:00.000Z"])))
+    (is (= "t:9999-12-31T23:59:59.999Z"
+           (id/canonical-bytes [:rf.identity/instant "9999-12-31T23:59:59.999Z"])))
+    (is (= [:rf.identity/instant "0000-01-01T00:00:00.000Z"]
+           (id/canonical [:rf.identity/instant "0000-01-01T00:00:00.000Z"]))))
+  (testing "the reserved marker as a PLAIN keyword is still an ordinary encodable value"
+    (is (= "k::rf.identity/instant" (id/canonical-bytes :rf.identity/instant)))
+    (is (= :rf.identity/instant (id/canonical :rf.identity/instant))))
+  (testing "a host instant and its tagged tuple for one moment are a DUPLICATE canonical key"
+    ;; both encode to the identical t:<text> token, so a map keyed by both fails
+    ;; closed — holds on both hosts (js/Date and a vector are distinct keys).
+    (is (= :duplicate-canonical-map-key
+           (non-edn-id-reason
+             #(id/canonical-bytes {sample-instant :a sample-tuple :b}))))
+    (is (= :duplicate-canonical-map-key
+           (non-edn-id-reason
+             #(id/canonical {sample-instant :a sample-tuple :b})))))
+  #?(:cljs
+     (testing "an invalid js/Date (NaN time value) fails closed with :invalid-instant"
+       (is (= :invalid-instant
+              (non-edn-id-reason #(id/canonical-bytes (js/Date. "not-a-date")))))
+       (is (= :invalid-instant
+              (non-edn-id-reason #(id/canonical (js/Date. "not-a-date")))))))
+  #?(:clj
+     (testing "sub-millisecond JVM precision truncates to the millisecond text"
+       (is (= "t:2026-06-10T00:00:00.123Z"
+              (id/canonical-bytes (java.time.Instant/ofEpochSecond 1781049600 123456789))))
+       (is (= [:rf.identity/instant "2026-06-10T00:00:00.123Z"]
+              (id/canonical (java.time.Instant/ofEpochSecond 1781049600 123456789)))))))

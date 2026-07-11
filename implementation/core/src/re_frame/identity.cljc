@@ -62,10 +62,14 @@
 ;; A fixed UTC RFC 3339 formatter pinned to millisecond precision so an
 ;; instant at a whole second renders `...T00:00:00.000Z`, not `...T00:00:00Z`
 ;; — the encoding is deterministic either way, but the spec pins
-;; millisecond text, so we pin it.
+;; millisecond text, so we pin it. Uses `uuuu` (the signed proleptic year),
+;; not `yyyy` (year-of-era), so the full portable window renders a correct
+;; fixed-width 4-digit year down to `0000` — the two spellings are identical
+;; for every year in that window, so the frozen CEDN-1 fixture token is
+;; unchanged.
 #?(:clj
    (def ^:private ^DateTimeFormatter rfc3339-millis-utc
-     (-> (DateTimeFormatter/ofPattern "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'")
+     (-> (DateTimeFormatter/ofPattern "uuuu-MM-dd'T'HH:mm:ss.SSS'Z'")
          (.withZone ZoneOffset/UTC))))
 
 ;; ---- the fail-closed rejection -------------------------------------------
@@ -118,31 +122,124 @@
   #?(:clj  (instance? UUID x)
      :cljs (uuid? x)))
 
-(defn- instant->utc-millis-string
-  "Render an instant as RFC 3339 UTC text with millisecond precision.
-  Equivalent instants in different source timezones normalize to the same
-  UTC text — timezone text from the source literal is not identity."
-  [x]
-  #?(:clj
-     (let [^Instant inst (cond
-                           (instance? Instant x) x
-                           (instance? Date x)    (.toInstant ^Date x)
-                           :else                 nil)]
-       (when inst
-         ;; Truncate to milliseconds, render with a fixed millisecond-
-         ;; precision UTC formatter.
-         (let [millis (.toEpochMilli inst)]
-           (.format rfc3339-millis-utc (Instant/ofEpochMilli millis)))))
-     :cljs
-     (when (instance? js/Date x)
-       ;; `toISOString` already emits `...T..:..:..\.SSSZ` (millisecond
-       ;; precision, UTC) — the JS counterpart of the JVM formatter above.
-       (.toISOString ^js x))))
-
 (defn- instant-value?
   [x]
   #?(:clj  (or (instance? Instant x) (instance? Date x))
      :cljs (instance? js/Date x)))
+
+;; ---- the reserved tagged-instant tuple -----------------------------------
+;;
+;; The canonical form of an instant (java.util.Date / java.time.Instant /
+;; js/Date) is the reserved tagged tuple
+;;
+;;     [:rf.identity/instant "<RFC-3339 UTC millisecond text>"]
+;;
+;; e.g. [:rf.identity/instant "2026-06-10T00:00:00.000Z"]. The tuple keeps the
+;; instant KIND distinct from a look-alike plain string on BOTH identity
+;; surfaces: `canonical` returns the tuple, and `canonical-bytes` emits the
+;; SAME `t:<text>` token for a host instant AND for the tagged tuple (a plain
+;; string stays `s:`). So `{#inst "…" :a, "…" :b}` is a legal two-entry map on
+;; both surfaces, and an instant param never aliases a same-looking string
+;; param. A BARE-string canonical form would recreate the instant-vs-string
+;; collision one level down; the tagged tuple is collision-resistant vs user
+;; data and mirrors the `[:rf.path/param …]` reserved-tuple precedent
+;; (Conventions §Canonical EDN identity).
+
+(def instant-marker
+  "The reserved head keyword of the canonical tagged-instant tuple. The ENTIRE
+  `[:rf.identity/instant <text>]` grammar is reserved: a vector headed by this
+  marker is validated as a tagged instant and NEVER falls through to the
+  generic vector branch — a wrong-arity / non-string / non-canonical /
+  impossible-date payload fails closed with `:invalid-canonical-instant`."
+  :rf.identity/instant)
+
+;; Portable instant range (RULED — do not re-litigate): the four-digit-year
+;; RFC-3339 window, inclusive
+;; [0000-01-01T00:00:00.000Z .. 9999-12-31T23:59:59.999Z]. Fixed-width `uuuu`
+;; year, inside JS Date's ±8.64e15 ms envelope on both hosts. Both boundaries
+;; are the SAME epoch-millisecond on the JVM (java.time) and CLJS (js/Date)
+;; hosts — proleptic-Gregorian UTC agrees across hosts. Outside the window an
+;; instant fails closed with `:instant-out-of-portable-range`.
+(def ^:private min-portable-instant-millis -62167219200000) ;; 0000-01-01T00:00:00.000Z
+(def ^:private max-portable-instant-millis 253402300799999) ;; 9999-12-31T23:59:59.999Z
+
+(def ^:private instant-text-re
+  "The canonical millisecond-precision UTC spelling: fixed-width 4-digit year,
+  zero-padded fields, literal `T` and `Z`, and exactly three fractional
+  digits."
+  #"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z")
+
+(defn- portable-instant-millis?
+  [millis]
+  (and (<= min-portable-instant-millis millis)
+       (<= millis max-portable-instant-millis)))
+
+(defn- millis->utc-text
+  "Epoch-milliseconds → the canonical RFC-3339 millisecond-UTC text. `bad` is
+  the original host / tuple value carried in the fail-closed error when the
+  moment is outside the portable range."
+  [bad millis]
+  (when-not (portable-instant-millis? millis)
+    (reject! bad :instant-out-of-portable-range))
+  #?(:clj  (.format rfc3339-millis-utc (Instant/ofEpochMilli millis))
+     :cljs (.toISOString (js/Date. millis))))
+
+(defn- host-instant->utc-text
+  "Project a host instant (java.util.Date / java.time.Instant / js/Date) to
+  canonical millisecond-UTC text at epoch-millisecond precision. Equivalent
+  instants in different source timezones normalize to the same UTC text —
+  source-literal timezone is never identity. Converts the host leaks (JVM
+  `toEpochMilli` overflow; a NaN `js/Date` from an invalid time value) into the
+  fail-closed identity error rather than letting a host exception escape."
+  [x]
+  #?(:clj
+     (let [^Instant inst (if (instance? Instant x) x (.toInstant ^Date x))
+           millis        (try (.toEpochMilli inst)
+                              (catch ArithmeticException _
+                                (reject! x :instant-out-of-portable-range)))]
+       (millis->utc-text x millis))
+     :cljs
+     (let [millis (.getTime ^js x)]
+       (if (js/isNaN millis)
+         (reject! x :invalid-instant)
+         (millis->utc-text x millis)))))
+
+(defn- canonical-instant-text?
+  "True iff `s` is EXACTLY the canonical millisecond-UTC spelling of a real
+  instant in the portable range — the fixed-shape regex PLUS a host round-trip
+  (parse → reformat → compare). The round-trip rejects a shape-valid but
+  IMPOSSIBLE spelling that a host clock silently folds (hour 24, a leap
+  second) or that denotes a different day (Feb 30), and an out-of-range year."
+  [s]
+  (boolean
+    (and (string? s)
+         (re-matches instant-text-re s)
+         (let [millis #?(:clj  (try (.toEpochMilli (Instant/parse s))
+                                    (catch Exception _ nil))
+                         :cljs (let [t (.getTime (js/Date. s))]
+                                 (when-not (js/isNaN t) t)))]
+           (and millis
+                (portable-instant-millis? millis)
+                (= s #?(:clj  (.format rfc3339-millis-utc (Instant/ofEpochMilli millis))
+                        :cljs (.toISOString (js/Date. millis)))))))))
+
+(defn- tagged-instant-head?
+  "True iff `x` is a vector headed by the reserved `instant-marker` — a
+  tagged-instant CANDIDATE. A candidate is validated strictly
+  (`tagged-instant-text`) and never treated as a generic vector."
+  [x]
+  (and (vector? x)
+       (= instant-marker (nth x 0 nil))))
+
+(defn- tagged-instant-text
+  "Validate a tagged-instant candidate and return its canonical UTC text, or
+  fail closed with `:invalid-canonical-instant` (wrong arity, or a
+  non-string / non-canonical / impossible-date payload)."
+  [x]
+  (if (and (= 2 (count x))
+           (canonical-instant-text? (nth x 1)))
+    (nth x 1)
+    (reject! x :invalid-canonical-instant)))
 
 (defn- bad-number?
   "A number outside the CEDN-1 numeric domain: floats, ratios, arbitrary-
@@ -230,7 +327,12 @@
     ;; UUID / instant BEFORE the symbol/number branches (a host date is
     ;; not a number; a UUID is not a symbol).
     (uuid-value? x)     (str "u:" (str/lower-case (str x)))
-    (instant-value? x)  (str "t:" (instant->utc-millis-string x))
+    (instant-value? x)  (str "t:" (host-instant->utc-text x))
+    ;; The reserved tagged-instant tuple encodes to the SAME `t:<text>` token
+    ;; as the host instant it denotes — so `canonical-bytes (canonical x)` =
+    ;; `canonical-bytes x` — and is checked BEFORE the generic vector branch so
+    ;; a malformed tuple fails closed rather than encoding as a plain vector.
+    (tagged-instant-head? x) (str "t:" (tagged-instant-text x))
     (symbol? x)         (encode-symbol x)
     (integer? x)        (if (and (not (bad-number? x)) (safe-integer? x))
                           (str "i:" x)
@@ -265,12 +367,16 @@
   "Canonicalize a map's keys and values, failing closed on DUPLICATE
   canonical keys. Two DISTINCT source keys can canonicalize to the SAME key
   (e.g. a java.util.Date and a java.time.Instant for one instant both
-  normalize to the same UTC text), which would silently collapse two
+  normalize to the same `[:rf.identity/instant <text>]` tuple, as does a host
+  instant and its already-tagged tuple), which would silently collapse two
   identity-distinct entries into one. Per Conventions §Map key
   canonicalization (\"Duplicate canonical keys are invalid and MUST be
   rejected before the value becomes a cache key, route identity, or work
   id\") this rejects the whole identity closed — the same fail-closed rule
-  `canonical-bytes` enforces, so the two surfaces never diverge."
+  `canonical-bytes` enforces, so the two surfaces never diverge. An instant key
+  and a look-alike STRING key are DISTINCT canonical keys (the tuple carries
+  the instant kind), so a heterogeneous instant+string-keyed map is a legal
+  multi-entry map, not a duplicate."
   [m]
   (let [out (reduce-kv (fn [acc k v]
                          (let [ck (canonical k)]
@@ -288,14 +394,20 @@
   The normalization recursively reorders map entries and set elements into
   CEDN-1 canonical order while preserving vector / list order and EDN kind,
   so two map spellings that differ only in insertion order return an `=`
-  canonical value. Instants normalize to a single representation
-  (millisecond-precision UTC), so `canonical` and `canonical-bytes` share ONE
-  canonical form — a value stored via `canonical` and a value compared via
-  `canonical-bytes` can never disagree. Fails closed with
-  `:rf.error/non-edn-identity` for any out-of-domain value — the validation
-  walk runs eagerly so a host handle buried anywhere in the structure is
-  rejected, never host-stringified — and for a map carrying DUPLICATE
-  canonical keys (two distinct host keys whose CEDN-1 bytes collide).
+  canonical value. An instant normalizes to the reserved tagged tuple
+  `[:rf.identity/instant \"<millisecond-precision UTC text>\"]`, which
+  `canonical-bytes` encodes to the SAME `t:<text>` token as the host instant it
+  denotes — so `canonical` and `canonical-bytes` share ONE canonical form and a
+  value stored via `canonical` can never disagree with the same value compared
+  via `canonical-bytes`. Because the tuple carries the instant KIND, an instant
+  key and a look-alike STRING key stay DISTINCT on both surfaces:
+  `(canonical {#inst \"…\" :a, \"…\" :b})` is a legal two-entry map, not a
+  collision. Fails closed with `:rf.error/non-edn-identity` for any
+  out-of-domain value — the validation walk runs eagerly so a host handle
+  buried anywhere in the structure is rejected, never host-stringified — and
+  for a map carrying DUPLICATE canonical keys (two distinct host keys whose
+  CEDN-1 bytes collide, e.g. a `java.util.Date` and a `java.time.Instant`, or a
+  host instant and its tagged tuple, for one millisecond).
 
   Present `nil` stays distinct from a missing key: `(canonical {:page nil})`
   is not `(canonical {})`. `nil` elision, if a surface wants it, is a
@@ -312,9 +424,13 @@
     ;; Instants DO diverge: a java.util.Date and a java.time.Instant for one
     ;; moment are NOT `=`, so preserving the host object would give two
     ;; unequal canonical values for one identity fact. Normalize both to the
-    ;; single CEDN-1 UTC text so `canonical` and `canonical-bytes` agree on a
-    ;; single canonical form.
-    (instant-value? value) (instant->utc-millis-string value)
+    ;; reserved tagged tuple so `canonical` and `canonical-bytes` agree on a
+    ;; single kind-preserving canonical form.
+    (instant-value? value) [instant-marker (host-instant->utc-text value)]
+    ;; An already-tagged tuple is validated and returned unchanged (idempotent)
+    ;; — never reinterpreted as a generic vector. Checked BEFORE the vector
+    ;; branch so a malformed tuple fails closed.
+    (tagged-instant-head? value) [instant-marker (tagged-instant-text value)]
     (symbol? value)    value
     (integer? value)   (if (and (not (bad-number? value)) (safe-integer? value))
                          value

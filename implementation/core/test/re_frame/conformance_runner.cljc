@@ -992,6 +992,20 @@
                   (str "canonical-distinct expected DISTINCT identities: "
                        (pr-str (:a call)) " vs " (pr-str (:b call))))})
 
+    ;; rf2-eynsfe — `:canonical-value` pins the exact NORMALIZED value
+    ;; `canonical` returns (distinct from `:canonical-bytes`, which pins the
+    ;; byte token). Used for the reserved tagged-instant tuple + its idempotence.
+    :canonical-value
+    (let [actual (try (identity/canonical (:value call))
+                      (catch #?(:clj Throwable :cljs :default) e
+                        (str "<error: " (ex-message e) ">")))
+          expect (:expect call)]
+      {:passed? (= expect actual)
+       :detail  (when (not= expect actual)
+                  (str "canonical-value " (pr-str (:value call))
+                       "\n    expected: " (pr-str expect)
+                       "\n    actual:   " (pr-str actual)))})
+
     ;; `:path-instantiate` — `(path/instantiate path bindings)` = `:expect`,
     ;; OR fails closed with `:expect-error`. Concrete-path PRODUCER boundary.
     :path-instantiate
