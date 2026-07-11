@@ -373,14 +373,31 @@
                                         {:ok? false :reason :unexpected-shape :value env})]
                        ;; A known-tool runtime failure (`:ok? false`, e.g.
                        ;; the reducer rejected the event / an interceptor
-                       ;; early-returned → `:no-new-epoch`, or a degraded
-                       ;; runtime → `:unexpected-shape`) rides back as an
-                       ;; `isError` envelope, matching the dispatch /
-                       ;; read-sub no-silent-success parity model and the
-                       ;; published wire contract — a non-landed dry-run
-                       ;; must not read as green. The structured
-                       ;; `:reason`/`:hint` rides through verbatim so the
-                       ;; caller still sees why.
-                       (if (false? (:ok? result))
+                       ;; early-returned → `:no-new-epoch`, a FAILED
+                       ;; rollback → `:rollback-failed` (rf2-glg4uo), or a
+                       ;; degraded runtime → `:unexpected-shape`) rides
+                       ;; back as an `isError` envelope, matching the
+                       ;; dispatch / read-sub no-silent-success parity
+                       ;; model and the published wire contract — a
+                       ;; non-landed / non-rolled-back dry-run must not
+                       ;; read as green. The structured `:reason`/`:hint`
+                       ;; rides through verbatim so the caller still sees
+                       ;; why.
+                       ;;
+                       ;; SAFETY (rf2-glg4uo): route to isError when
+                       ;; `:ok?` is false OR the rollback did not complete.
+                       ;; The runtime now reports a failed rollback as
+                       ;; `:ok? false`, so the `:ok?` arm already catches
+                       ;; it; the extra `(false? (:rolled-back? result))`
+                       ;; guard is defence-in-depth AT THE MCP BOUNDARY —
+                       ;; a degraded or older runtime that still returned
+                       ;; `:ok? true` alongside `:rolled-back? false` (the
+                       ;; would-be db IS the live db) must NOT read green
+                       ;; either. A successful dry-run always rolls back
+                       ;; (`:rolled-back? true`); a non-`:else` failure
+                       ;; omits the key entirely (nil, so `false?` is
+                       ;; false), so neither is affected.
+                       (if (or (false? (:ok? result))
+                               (false? (:rolled-back? result)))
                          (wire/err-text result)
                          (wire/ok-text result)))))))))

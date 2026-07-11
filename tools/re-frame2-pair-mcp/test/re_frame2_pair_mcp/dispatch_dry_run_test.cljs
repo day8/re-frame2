@@ -631,6 +631,94 @@
                      (is (= :no-new-epoch (:reason edn))))
                    (done)))))))
 
+(deftest rollback-failed-rides-as-iserror
+  ;; rf2-glg4uo (P2 SAFETY). The simulation LANDED but the rollback FAILED
+  ;; (`restore-epoch` returned false: nil before-id on a frame's first
+  ;; epoch, or a tiny epoch-history ring evicted the target). The would-be
+  ;; db IS now the LIVE app-db and a spurious epoch is left at the ring
+  ;; head. The runtime now reports this as the documented
+  ;; `:ok? false :reason :rollback-failed :rolled-back? false` shape (NOT
+  ;; the old `:ok? true` + `:rollback-hint` that read GREEN over a mutated
+  ;; db). The tool's `(false? (:ok? result))` routing MUST surface it as
+  ;; an isError envelope so a dry-run that silently mutated the live app
+  ;; can never read as success. The structured :reason/:hint +
+  ;; :before-epoch-id ride through verbatim so the caller can re-restore.
+  (async done
+    (let [hint (str "restore-epoch returned false; the would-be db IS the live db "
+                    "and a spurious epoch remains at the ring head. Re-restore "
+                    "manually via (rf/restore-epoch! <frame> <before-epoch-id>) "
+                    "using :before-epoch-id from this envelope.")
+          env {:ok?             false
+               :reason          :rollback-failed
+               :dry-run?        true
+               :rolled-back?    false
+               :event           [:cart/checkout]
+               :frame           :rf/default
+               :before-epoch-id nil
+               :hint            hint}]
+      (-> (with-captured-eval! (atom []) (wrap env 0)
+            (fn []
+              (dry-run/dispatch-dry-run-tool (fresh-conn) #js {:event "[:cart/checkout]"})))
+          (.then (fn [r]
+                   (is (err? r)
+                       ":rollback-failed dry-run rides as isError, not a silent green over a mutated db")
+                   (let [edn (read-result-text r)]
+                     (is (false? (:ok? edn)))
+                     (is (= :rollback-failed (:reason edn)))
+                     (is (false? (:rolled-back? edn))
+                         "the mutated-state signal (rolled-back? false) rides through")
+                     (is (= hint (:hint edn))
+                         "the re-restore hint rides through verbatim for manual recovery"))
+                   (done)))))))
+
+(deftest rolled-back-false-still-iserror-even-if-runtime-claims-ok
+  ;; rf2-glg4uo belt-and-braces (defence-in-depth AT THE MCP BOUNDARY). A
+  ;; DEGRADED or OLDER runtime could still return the pre-fix shape —
+  ;; `:ok? true` alongside `:rolled-back? false` (the would-be db IS the
+  ;; live db). The MCP tool is the safety boundary the host trusts, so it
+  ;; must NOT green-light a non-rolled-back dry-run regardless of what the
+  ;; runtime claims for `:ok?`. The `(false? (:rolled-back? result))`
+  ;; guard catches exactly that — an `:ok? true :rolled-back? false`
+  ;; envelope routes to isError.
+  (async done
+    (let [env {:ok?          true
+               :dry-run?     true
+               :rolled-back? false
+               :event        [:cart/checkout]
+               :frame        :rf/default}]
+      (-> (with-captured-eval! (atom []) (wrap env 0)
+            (fn []
+              (dry-run/dispatch-dry-run-tool (fresh-conn) #js {:event "[:cart/checkout]"})))
+          (.then (fn [r]
+                   (is (err? r)
+                       "an :ok? true :rolled-back? false envelope must NOT read green — the boundary guard fires")
+                   (let [edn (read-result-text r)]
+                     (is (false? (:rolled-back? edn))
+                         "the non-rolled-back signal rides through to the caller"))
+                   (done)))))))
+
+(deftest happy-rolled-back-true-stays-green
+  ;; Guard the boundary check does not over-fire: a genuine success
+  ;; (`:ok? true :rolled-back? true`) MUST still ride green — the
+  ;; belt-and-braces `(false? (:rolled-back? result))` guard only fires on
+  ;; an explicit false, never on the true happy path.
+  (async done
+    (let [env {:ok?          true
+               :dry-run?     true
+               :rolled-back? true
+               :event        [:cart/checkout]
+               :frame        :rf/default}]
+      (-> (with-captured-eval! (atom []) (wrap env 0)
+            (fn []
+              (dry-run/dispatch-dry-run-tool (fresh-conn) #js {:event "[:cart/checkout]"})))
+          (.then (fn [r]
+                   (is (not (err? r))
+                       "a rolled-back? true success still reads green")
+                   (let [edn (read-result-text r)]
+                     (is (true? (:ok? edn)))
+                     (is (true? (:rolled-back? edn))))
+                   (done)))))))
+
 (deftest non-map-runtime-result-surfaced-as-unexpected-shape
   ;; A runtime without `dispatch-dry-run` returns something other than
   ;; the wrapped map. The tool surfaces that as a structured
