@@ -44,21 +44,28 @@
   (-> (URLEncoder/encode (str s) (.name StandardCharsets/UTF_8))
       (str/replace "+" "%20")))
 
-;; Cookie attributes are concatenated into a header value, so reject the
-;; CR/LF/NUL characters that can split headers. The shared predicate keeps
-;; the effect boundary and this last wire boundary on one grammar.
+;; Cookie attributes (:domain / :path / :max-age / :same-site) are
+;; concatenated VERBATIM after `; ` separators, so reject both the CR/LF/NUL
+;; header-splitting chars AND the raw `;` cookie-attribute delimiter — a `;`
+;; inside a value escapes its assigned attribute and fabricates extra
+;; attributes (SameSite=None, Secure, …). Cookie :value is exempt: it is
+;; percent-encoded upstream, so a `;` there stays data (`%3B`). The shared
+;; predicate keeps the effect boundary and this last wire boundary on one
+;; grammar.
 
 (defn- validate-attribute-string!
   [attr-key v]
   (let [s (str v)]
-    (when (http-validation/contains-injection-char? s)
+    (when (http-validation/contains-cookie-attr-injection-char? s)
       (error/throw-error!
         :rf.error/cookie-invalid-attribute
         'rf.ssr/cookie->set-cookie-header
         (str "cookie attribute " attr-key
-             " contains CR/LF/NUL — forbidden by"
-             " RFC 7230 §3.2.4 (header-splitting"
-             " injection). Strip CR/LF/NUL from the attribute value.")
+             " contains CR/LF/NUL or a `;` — forbidden by"
+             " RFC 7230 §3.2.4 (header-splitting injection) and"
+             " RFC 6265 §4.1.1 (the `;` is the cookie-attribute delimiter,"
+             " so it would fabricate extra Set-Cookie attributes). Strip"
+             " CR/LF/NUL and `;` from the attribute value.")
         {:recovery :remove-injection-chars-from-cookie-attr
          :extra    {:attribute attr-key
                     :value     v}}))
@@ -117,11 +124,14 @@
   Validation:
     - `:name` is checked against the RFC 6265 §4.1.1 token grammar — no
       CTLs / whitespace / separators. Throws `:rf.error/cookie-invalid-name`.
-    - `:domain` / `:path` / `:max-age` / `:same-site` are checked for
-      CR / LF / NUL before concatenation. Throws
+    - `:domain` / `:path` / `:max-age` / `:same-site` are concatenated
+      verbatim after `; ` separators, so they are checked for CR / LF / NUL
+      AND the raw `;` cookie-attribute delimiter before concatenation — a
+      `;` inside a value would escape its attribute and fabricate extra
+      attributes (`SameSite=None`, `Secure`, …). Throws
       `:rf.error/cookie-invalid-attribute`. `:value` is URL-encoded
-      upstream so any CR/LF/NUL in it ends up as `%0D` / `%0A` / `%00` —
-      no injection path through `:value`.
+      upstream so any CR/LF/NUL/`;` in it ends up as `%0D` / `%0A` / `%00`
+      / `%3B` — no injection path through `:value`.
     - `:expires` was already type-checked as `integer?`; no string
       content reaches the wire."
   [{:keys [name value max-age secure http-only same-site path domain expires]

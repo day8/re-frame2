@@ -2213,6 +2213,71 @@
           (is (= :max-age (:attribute (fx-error-extra traces :rf.error/cookie-invalid-attribute)))
               (str "hostile :max-age " (pr-str hostile) " rides the :attribute payload slot")))))))
 
+(deftest ssr-set-cookie-rejects-semicolon-attribute-delimiter
+  (testing "rf2-j538f7.16 / Spec 011 §Cookie shape: :rf.server/set-cookie
+            rejects a raw `;` in every VERBATIM-concatenated attribute
+            (:path / :domain / :max-age / :same-site / :expires). The `;` is
+            the RFC 6265 §4.1.1 cookie-attribute delimiter — a value carrying
+            one would escape its attribute and fabricate additional
+            attributes (SameSite=None, Secure, …), defeating the structured-
+            cookie boundary. The fx boundary is the single enforcement point
+            for non-Ring host adapters that serialise the accumulator
+            themselves; failures route through the one catalogued
+            :rf.error/cookie-invalid-attribute id with the offending
+            :attribute in the payload."
+    (doseq [[attr hostile] [[:path      "/; SameSite=None; Secure"]
+                            [:domain    "evil.com; Secure"]
+                            [:max-age   "3600; SameSite=None; Secure"]
+                            [:same-site "Lax; Secure"]
+                            [:expires   "Wed, 09 Jun 2027 10:18:14 GMT; Secure"]]]
+      (rf/reg-event :ck/semicolon-attr
+        (fn [_ _]
+          {:fx [[:rf.server/set-cookie
+                 (assoc {:name "sid" :value "abc"} attr hostile)]]}))
+      (let [f      (frame/make-anon-frame-record! {:platform :server})
+            traces (capture-fx-traces!
+                     (fn [] (rf/dispatch-sync [:ck/semicolon-attr] {:frame f})))]
+        (expect-fx-error-keyword!
+          traces :rf.error/cookie-invalid-attribute
+          (str "set-cookie with `;` in " attr " " (pr-str hostile)))
+        (is (= attr (:attribute (fx-error-extra traces :rf.error/cookie-invalid-attribute)))
+            (str "the offending attribute (" attr ") rides the :attribute payload slot"))
+        (is (empty? (:cookies (get-response f)))
+            (str "no cookie lands on the accumulator — `;` in " attr
+                 " is a rejected no-op")))))
+
+  (testing "rf2-j538f7.16 — a `;` in cookie :value is DATA (the host serialiser
+            percent-encodes it), so set-cookie ACCEPTS it and stores it
+            verbatim on the accumulator — no over-rejection"
+    (rf/reg-event :ck/semicolon-value
+      (fn [_ _]
+        {:fx [[:rf.server/set-cookie {:name "sid" :value "a;b" :path "/"}]]}))
+    (let [f      (frame/make-anon-frame-record! {:platform :server})
+          traces (capture-fx-traces!
+                   (fn [] (rf/dispatch-sync [:ck/semicolon-value] {:frame f})))
+          cookies (:cookies (get-response f))]
+      (is (empty? (fx-error-extra traces :rf.error/cookie-invalid-attribute))
+          "no cookie-invalid-attribute error for a `;` in :value")
+      (is (= 1 (count cookies)) "the cookie lands on the accumulator")
+      (is (= "a;b" (:value (first cookies)))
+          "the `;`-bearing :value is stored verbatim (encoding is host-adapter business)")))
+
+  (testing "rf2-j538f7.16 — :rf.server/delete-cookie runs the same delimiter
+            gate on :path and :domain (it is sugar over set-cookie)"
+    (doseq [attr [:path :domain]]
+      (rf/reg-event :ck/del-semicolon
+        (fn [_ _]
+          {:fx [[:rf.server/delete-cookie
+                 (assoc {:name "sid"} attr "x; Secure")]]}))
+      (let [f      (frame/make-anon-frame-record! {:platform :server})
+            traces (capture-fx-traces!
+                     (fn [] (rf/dispatch-sync [:ck/del-semicolon] {:frame f})))]
+        (expect-fx-error-keyword!
+          traces :rf.error/cookie-invalid-attribute
+          (str "delete-cookie with `;` in " attr))
+        (is (= attr (:attribute (fx-error-extra traces :rf.error/cookie-invalid-attribute)))
+            (str "delete-cookie `;` in " attr " rides the :attribute payload slot"))))))
+
 (deftest ssr-set-cookie-rejects-non-string-name-type
   (testing "rf2-9t17id — a cookie :name that is neither a string nor a Named
             (keyword / symbol) is rejected at the fx boundary with the

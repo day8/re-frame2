@@ -235,30 +235,54 @@
 
 (defn- validate-cookie-attr!
   "Throw the catalogued `:rf.error/cookie-invalid-attribute` (Spec 009) if
-  the cookie attribute string contains CR / LF / NUL. Applied to EVERY
-  attribute a host adapter concatenates into the Set-Cookie wire form — the
-  members of `checked-cookie-attrs`. The value is `str`-coerced first because
-  callers legitimately pass non-string forms (`:max-age` as an int,
-  `:expires` as an epoch-millis long); the CR/LF/NUL ban applies to the
-  serialised form a host adapter would emit. The offending attribute rides
-  the payload's `:attribute` slot — the SAME error id + `{:attribute :value}`
-  emit shape the Ring materialiser throws, so the fx boundary and the wire serialiser share one catalogued
-  vocabulary: the injection class is one fact, and WHICH attribute carried the
-  injection char is data, not a distinct error id. Spec 011 §CRLF fail-fast mandates
-  checking EVERY attribute, not just :value — an attacker who controls any one
-  attribute must not be able to re-enter the header line as CRLF-bearing
-  payload)."
+  the cookie attribute string carries a forbidden wire-grammar char. Applied
+  to EVERY attribute a host adapter concatenates into the Set-Cookie wire
+  form — the members of `checked-cookie-attrs`.
+
+  Two grammars, one error id:
+    - `:value` is percent-encoded by the host serialiser, so it bans only
+      the CR / LF / NUL header-splitting chars (a `;` in `:value` is safe —
+      it serialises as `%3B`).
+    - every OTHER attribute (`:path` / `:domain` / `:max-age` /
+      `:same-site` / `:expires`) is concatenated VERBATIM after `; `
+      separators, so it additionally bans the raw `;` RFC 6265 §4.1.1
+      cookie-attribute delimiter — a `;` there escapes its attribute and
+      fabricates extra attributes (`SameSite=None`, `Secure`, `Max-Age=0`,
+      …), defeating the structured-cookie boundary.
+
+  The value is `str`-coerced first because callers legitimately pass
+  non-string forms (`:max-age` as an int, `:expires` as an epoch-millis
+  long); the ban applies to the serialised form a host adapter would emit.
+  The offending attribute rides the payload's `:attribute` slot — the SAME
+  error id + `{:attribute :value}` emit shape the Ring materialiser throws,
+  so the fx boundary and the wire serialiser share one catalogued
+  vocabulary: the injection class is one fact, and WHICH attribute carried
+  the injection char is data, not a distinct error id. Spec 011 §CRLF
+  fail-fast mandates checking EVERY attribute, not just :value — an attacker
+  who controls any one attribute must not be able to re-enter the header
+  line as CRLF- or delimiter-bearing payload)."
   [attr-key v]
-  (let [s (str v)]
-    (when (http-validation/contains-injection-char? s)
+  (let [s      (str v)
+        ;; `:value` is percent-encoded downstream, so `;` there is data;
+        ;; every other attribute is concatenated verbatim and must also
+        ;; reject the `;` cookie-attribute delimiter.
+        value? (= attr-key :value)
+        bad?   (if value?
+                 (http-validation/contains-injection-char? s)
+                 (http-validation/contains-cookie-attr-injection-char? s))]
+    (when bad?
       (error/throw-error!
         :rf.error/cookie-invalid-attribute
         'rf.ssr/response
         (str "cookie attribute " attr-key " " (pr-str s)
-             " contains CR/LF/NUL — forbidden by"
-             " RFC 7230 §3.2.4 (header-splitting"
-             " injection). Strip CR/LF/NUL from the cookie "
-             (name attr-key) ".")
+             (if value?
+               " contains CR/LF/NUL — forbidden by RFC 7230 §3.2.4"
+               (str " contains CR/LF/NUL or a `;` — forbidden by"
+                    " RFC 7230 §3.2.4 and RFC 6265 §4.1.1 (the `;` is the"
+                    " cookie-attribute delimiter)"))
+             " (header-splitting / attribute injection). Strip "
+             (if value? "CR/LF/NUL" "CR/LF/NUL and `;`")
+             " from the cookie " (name attr-key) ".")
         {:recovery :remove-injection-chars-from-cookie-attr
          :extra    {:attribute attr-key
                     :value     v}}))

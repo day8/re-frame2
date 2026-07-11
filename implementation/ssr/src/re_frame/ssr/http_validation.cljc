@@ -9,13 +9,24 @@
   immediately before bytes reach the host. Keeping the predicates here makes
   that defence-in-depth policy portable without duplicating the grammars.
 
-  Two grammars:
+  Three grammars:
 
     - `injection-char-re`  — the three control chars RFC 7230 §3.2.4
                              forbids inside any header value (`\\r` / `\\n`
                              / `\\x00`). A value carrying one would split
                              the header on the wire (header-splitting
                              injection).
+    - `cookie-attr-injection-re` — the header-splitting chars PLUS the raw
+                             `;` cookie-attribute delimiter (RFC 6265
+                             §4.1.1). A Set-Cookie attribute (`:domain` /
+                             `:path` / `:max-age` / `:same-site` /
+                             `:expires`) is concatenated verbatim after a
+                             `; ` separator, so a `;` inside its value
+                             escapes the assigned attribute and fabricates
+                             additional attributes (`SameSite=None`,
+                             `Secure`, …). Cookie `:value` is exempt — the
+                             host serialiser percent-encodes it, so a `;`
+                             there stays data (`%3B`).
     - `token-name-re`      — RFC 7230 §3.2.6 `token` (= RFC 6265 §4.1.1
                              cookie-name): `1*tchar` where `tchar` is the
                              visible US-ASCII set MINUS the separators
@@ -24,7 +35,8 @@
                              the grammar is auditable in place; the `+`
                              quantifier rejects empty names.
 
-  Two predicates (`contains-injection-char?`, `valid-token-name?`) carry
+  Three predicates (`contains-injection-char?`,
+  `contains-cookie-attr-injection-char?`, `valid-token-name?`) carry
   the accept/reject decision; the THROW shape stays at each callsite
   because the two boundaries surface distinct `:where` tags that are part
   of each layer's documented contract — the fx boundary throws
@@ -48,6 +60,18 @@
   the wire and let an attacker forge second-and-later headers."
   #"[\r\n\x00]")
 
+(def cookie-attr-injection-re
+  "The RFC 7230 §3.2.4 header-splitting chars (CR / LF / NUL) PLUS the raw
+  `;` RFC 6265 §4.1.1 cookie-attribute delimiter. A Set-Cookie attribute
+  value (`:domain` / `:path` / `:max-age` / `:same-site` / `:expires`) is
+  concatenated verbatim after a `; ` separator, so a `;` inside the value
+  is itself a delimiter — it escapes the assigned attribute and fabricates
+  additional attributes (`SameSite=None`, `Secure`, `Max-Age=0`, …),
+  defeating the structured-cookie boundary. Cookie `:value` does NOT use
+  this grammar: the host serialiser percent-encodes it (`;` → `%3B`), so
+  data stays data."
+  #"[\r\n\x00;]")
+
 (def token-name-re
   "RFC 7230 §3.2.6 `token` grammar (= RFC 6265 §4.1.1 cookie-name):
   `1*tchar`, where `tchar` is the visible US-ASCII set MINUS the
@@ -64,6 +88,19 @@
   value is rendered for both the check and the error payload."
   [s]
   (boolean (re-find injection-char-re s)))
+
+(defn contains-cookie-attr-injection-char?
+  "True when string `s` carries a CR / LF / NUL (RFC 7230 §3.2.4
+  header-splitting) OR a `;` (the RFC 6265 §4.1.1 cookie-attribute
+  delimiter). The wire-grammar gate for Set-Cookie attributes concatenated
+  verbatim into the header line — `:domain` / `:path` / `:max-age` /
+  `:same-site` / `:expires`. NOT for cookie `:value`, which the host
+  serialiser percent-encodes; use `contains-injection-char?` there. Callers
+  `(str v)`-coerce before the check; this fn does NOT coerce so the caller
+  controls how a non-string value is rendered for both the check and the
+  error payload."
+  [s]
+  (boolean (re-find cookie-attr-injection-re s)))
 
 (defn valid-token-name?
   "True when string `s` is a non-empty RFC 7230 §3.2.6 `token` (the
