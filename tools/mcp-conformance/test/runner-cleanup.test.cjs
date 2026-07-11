@@ -171,6 +171,144 @@ test('makeCleanup HARD-CAPS a never-settling browser.close() instead of hanging 
   );
 });
 
+// ---------------------------------------------------------------------------
+// rf2-j538f7.19: the teardown must be GRADED, not merely awaited. A bounded
+// wait that cannot prove the children were reaped is a DIRTY teardown that the
+// normal path must refuse to certify green — the pre-fix `cleanup()` resolved
+// to `undefined` (no grading) so a leaked browser / shadow JVM was silently
+// blessed by the final `process.exit(0)`.
+// ---------------------------------------------------------------------------
+
+test('makeCleanup GRADES a rejected browser.close() + never-exiting shadow as DIRTY, after attempting BOTH (rf2-j538f7.19 AC1/AC3/AC6)', async () => {
+  // Browser close rejects and the browser has NO isConnected() — disconnection
+  // cannot be proven. Shadow ignores every signal and never emits exit. The
+  // OLD orchestrator resolved cleanup as successful (undefined) and certified
+  // this run GREEN; the fixed factory must record BOTH failures.
+  const closeCalls = [];
+  const browser = {
+    close: () => { closeCalls.push('close'); return Promise.reject(new Error('close failed')); },
+    // no isConnected() ⇒ disconnection NOT provable
+  };
+  const shadow = makeFakeShadow(); // never exits on any signal
+  const cleanup = makeCleanup({
+    getBrowser: () => browser,
+    getShadow: () => shadow,
+    hasShadowExited: () => shadow.exited,
+    log: () => {},
+    logErr: () => {},
+    browserCloseMs: 40,
+    shadowTermGraceMs: 30,
+    shadowKillGraceMs: 30,
+  });
+
+  const report = await cleanup();
+
+  // THE red-then-green teeth: pre-fix, `report` was `undefined`, so reading
+  // `.clean` here throws — the OLD orchestrator had NO gradeable outcome.
+  assert.equal(report.clean, false, 'a rejected close + never-exiting shadow must be graded DIRTY');
+  // BOTH steps were attempted before the failure was surfaced (AC1: all other
+  // resources are still cleaned before the failure is surfaced).
+  assert.deepEqual(closeCalls, ['close'], 'browser.close() must still be attempted');
+  assert.deepEqual(
+    shadow.killSignals,
+    ['SIGTERM', 'SIGKILL'],
+    'shadow teardown must still escalate SIGTERM→SIGKILL despite the browser failure',
+  );
+  // The report names both dirty resources with structured issues.
+  assert.equal(report.browser.state, 'dirty');
+  assert.equal(report.shadow.state, 'alive');
+  assert.equal(report.issues.length, 2, 'both failures recorded: ' + JSON.stringify(report.issues));
+});
+
+test('makeCleanup treats a rejected browser.close() as CLEAN when isConnected() proves disconnection (rf2-j538f7.19 AC1)', async () => {
+  // A close rejection is acceptable ONLY if disconnection can be independently
+  // proven. isConnected() === false is that proof.
+  const browser = {
+    close: () => Promise.reject(new Error('transport already closed')),
+    isConnected: () => false,
+  };
+  const cleanup = makeCleanup({
+    getBrowser: () => browser,
+    getShadow: () => null,
+    hasShadowExited: () => true,
+    log: () => {},
+    logErr: () => {},
+    browserCloseMs: 100,
+  });
+  const report = await cleanup();
+  assert.equal(report.clean, true, 'a reject is tolerable when isConnected()===false proves the browser is gone');
+  assert.equal(report.browser.state, 'disconnected');
+});
+
+test('makeCleanup grades a browser close that exceeds its cap + stays connected as DIRTY (rf2-j538f7.19 AC2)', async () => {
+  // Never-settling close, and isConnected() still reports true — the browser
+  // is provably STILL connected past the cap ⇒ dirty, not a green pass-through.
+  const browser = {
+    close: () => new Promise(() => {}),
+    isConnected: () => true,
+  };
+  const cleanup = makeCleanup({
+    getBrowser: () => browser,
+    getShadow: () => null,
+    hasShadowExited: () => true,
+    log: () => {},
+    logErr: () => {},
+    browserCloseMs: 60,
+  });
+  const report = await cleanup();
+  assert.equal(report.clean, false, 'a close that exceeds its cap while still connected is DIRTY');
+  assert.equal(report.browser.state, 'dirty');
+});
+
+test('makeCleanup grades a happy teardown (resolved close + already-exited shadow) as CLEAN (rf2-j538f7.19 AC4)', async () => {
+  const browser = { close: () => Promise.resolve() };
+  const cleanup = makeCleanup({
+    getBrowser: () => browser,
+    getShadow: () => null,
+    hasShadowExited: () => true,
+    log: () => {},
+    logErr: () => {},
+  });
+  const report = await cleanup();
+  assert.equal(report.clean, true);
+  assert.equal(report.browser.state, 'closed');
+  assert.equal(report.shadow.state, 'exited');
+});
+
+test('makeCleanup grades a SIGTERM-exit shadow as CLEAN with the observed exit (rf2-j538f7.19 AC4)', async () => {
+  const shadow = makeFakeShadow({ exitOnTermMs: 20 });
+  const cleanup = makeCleanup({
+    getBrowser: () => null,
+    getShadow: () => shadow,
+    hasShadowExited: () => shadow.exited,
+    log: () => {},
+    logErr: () => {},
+    shadowTermGraceMs: 500,
+  });
+  const report = await cleanup();
+  assert.equal(report.clean, true);
+  assert.equal(report.shadow.state, 'exited');
+  assert.deepEqual(report.shadow.signals, ['SIGTERM'], 'a child that exits on SIGTERM is never escalated to SIGKILL');
+});
+
+test('concurrent cleanup() callers observe the SAME graded report — no split success/failure (rf2-j538f7.19 AC5)', async () => {
+  const browser = { close: () => Promise.reject(new Error('x')) }; // dirty (no isConnected)
+  const shadow = makeFakeShadow(); // never exits ⇒ dirty
+  const cleanup = makeCleanup({
+    getBrowser: () => browser,
+    getShadow: () => shadow,
+    hasShadowExited: () => shadow.exited,
+    log: () => {},
+    logErr: () => {},
+    browserCloseMs: 30,
+    shadowTermGraceMs: 20,
+    shadowKillGraceMs: 20,
+  });
+  const [r1, r2] = await Promise.all([cleanup(), cleanup()]);
+  assert.equal(r1, r2, 'concurrent callers must receive the identical report object');
+  assert.equal(r1.clean, false, 'and both observe the same DIRTY verdict');
+});
+
 test('makeCleanup is idempotent: concurrent calls share one in-flight promise (rf2-7ckmwx finding 1)', async () => {
   const shadow = makeFakeShadow({ exitOnTermMs: 40 });
   const cleanup = makeCleanup({
