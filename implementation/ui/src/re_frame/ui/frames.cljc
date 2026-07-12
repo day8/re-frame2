@@ -112,14 +112,16 @@
       React context (`frame-root` / `frame-provider` scope) >
       loud `:rf.error/no-frame-context`
 
-  There is NO `:rf/default` floor (the EP-0002 carried invariant). The
-  chain reads the SHARED React context object
-  (`re-frame.adapter.context/frame-context`) directly rather than the
-  `:adapter/current-frame` late-bind hook: that hook is published by the
-  per-adapter routing chains and is dead in an app running the compiled
-  substrate alone. (When the ui substrate grows its own adapter spec, it
-  should ALSO route the hook so core's ambient `dispatch`/`subscribe`
-  see the context tier — an adapter-side touchpoint, out of S2c scope.)
+  There is NO `:rf/default` floor (the EP-0002 carried invariant). This
+  primitive reads the SHARED React context object
+  (`re-frame.adapter.context/frame-context`) DIRECTLY. The COMPILED
+  sub-read path (`reactive/sub-read` → `observation/resolve-target` →
+  `frame/require-current-frame!`) instead reaches the context tier through
+  the `:adapter/current-frame` late-bind hook, which `re-frame.ui.adapter`
+  now publishes for the pure compiled-view runtime (rf2-vxgfnd.24) — the
+  same reader, routed against the plain-atom adapter — so an app running the
+  compiled substrate alone resolves the React-context tier on ambient
+  `dispatch`/`subscribe` too, not only through this primitive.
 
   Scope has React context semantics: it applies to descendant VIEW
   boundaries rendered under the provider; sites in the SAME template body
@@ -134,7 +136,13 @@
             [re-frame.late-bind :as late-bind]
             [re-frame.live-frame :as live-frame]
             [re-frame.ui.reactive :as reactive]
-            #?@(:cljs [[re-frame.adapter.context :as adapter-context]])))
+            ;; rf2-vxgfnd.24: loading `re-frame.ui.adapter` publishes the
+            ;; `:adapter/current-frame` reader for the pure compiled-view
+            ;; runtime (React-context tier on the sub-read path). Required for
+            ;; the ns-load side-effect — frames is on every ui mount/render
+            ;; path, so the hook is live before any sub-read runs.
+            #?@(:cljs [[re-frame.adapter.context :as adapter-context]
+                       [re-frame.ui.adapter]])))
 
 ;; ---------------------------------------------------------------------------
 ;; The plan-install registry

@@ -927,10 +927,11 @@
                    re-frame.adapter.reagent-slim
                    re-frame.adapter.uix
                    re-frame.adapter.helix
-                   re-frame.adapter.test-react]
+                   re-frame.adapter.test-react
+                   re-frame.ui.adapter]
     :chained?    true
     :design-bead "rf2-d4sf"
-    :description "React-context-tier frame-id reader (each adapter routes via current-adapter)."}
+    :description "React-context-tier frame-id reader (each adapter routes via current-adapter). rf2-vxgfnd.24: re-frame.ui.adapter routes it against plain-atom for the pure compiled-view runtime."}
    {:key         :adapter/current-component
     :producer-ns '[re-frame.adapter.reagent
                    re-frame.adapter.reagent-slim]
