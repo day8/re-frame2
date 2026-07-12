@@ -533,6 +533,131 @@
       (obs/release! lease))))
 
 ;; ===========================================================================
+;; rf2-vxgfnd.70 — a follower must not publish a lease behind the FIRST owner's
+;; still-installing hook.
+;;
+;; PR #5737's handshake flips the node record's readiness flag as the lease
+;; ENROLS, before interop/add-on-dispose! actually registers the callback. A
+;; follower that reads the flag true installs no hook of its own and trusts a
+;; hook that does not yet exist. If disposal wins before the first owner
+;; resumes, no hook fires and the follower's invalidation is lost (or delayed
+;; without bound). The fix publishes readiness (`:hook-installed?`) only AFTER
+;; the callback is registered; a follower enrolling in the install window
+;; installs its OWN backstop hook — an independent disposal fallback — so no
+;; owner is ever published behind a not-yet-installed hook (take-owners! keeps
+;; duplicate hooks harmless).
+;; ===========================================================================
+
+#?(:clj
+   (deftest first-owner-hook-install-window-follower-covered-before-first-owner-resumes
+     ;; Three-party JVM barrier (CountDownLatch, no sleeps). Thread A is the
+     ;; first owner, PAUSED mid-install (inside add-on-dispose!, before the
+     ;; callback registers). Thread B follows during that window. Thread C
+     ;; disposes the node BEFORE A resumes. With the fix, B installed its own
+     ;; backstop hook, so C's disposal drains BOTH owners here — the
+     ;; invalidation never waits for A. Pre-fix B installs no hook (it trusts
+     ;; A's not-yet-installed readiness flag), so C's disposal fires nothing and
+     ;; the pending queue is empty — the discriminating assertion fails.
+     (reg-items!)
+     (seed-items! [:a])
+     (let [target             (items-target)
+           notes-a            (atom [])
+           notes-b            (atom [])
+           l1                 (atom nil)
+           l2                 (atom nil)
+           real-add           interop/add-on-dispose!
+           a-installing       (java.util.concurrent.CountDownLatch. 1)
+           b-done             (java.util.concurrent.CountDownLatch. 1)
+           a-proceed          (java.util.concurrent.CountDownLatch. 1)
+           canonical-installs (atom 0)
+           pending-at-dispose (atom nil)]
+       (with-redefs
+         [interop/next-tick (fn [_f] nil)
+          interop/add-on-dispose!
+          (fn [reaction f]
+            (if (and (identical? reaction (:reaction (entry [:obs/items])))
+                     (= 1 (swap! canonical-installs inc)))
+              ;; A's node-disposed-hook install: signal mid-install, then BLOCK
+              ;; until released — the paused first installer.
+              (do (.countDown a-installing)
+                  (.await a-proceed)
+                  (real-add reaction f))
+              ;; B's backstop install (and the construction-time input-release
+              ;; closure, which the entry does not yet hold) proceed at once.
+              (real-add reaction f)))]
+         (let [fa (future (reset! l1 (obs/acquire! target (fn [n] (swap! notes-a conj n)))))]
+           (.await a-installing) ;; A is paused mid-install (no sleeps)
+           (let [fb (future
+                      (reset! l2 (obs/acquire! target (fn [n] (swap! notes-b conj n))))
+                      (.countDown b-done))]
+             (.await b-done)
+             (is (some? @l2)
+                 "B completed the follower acquire while A is paused mid-install")
+             ;; C disposes the node BEFORE A resumes.
+             (force-dispose-node! [:obs/items])
+             (reset! pending-at-dispose (vec @@#'obs/pending-disposals))
+             (is (= 2 (count @pending-at-dispose))
+                 (str "B's OWN backstop hook drained BOTH owners on disposal — "
+                      "the invalidation did not wait for the first owner to "
+                      "resume; pre-fix B installs no hook and this queue is empty "
+                      "(saw " (count @pending-at-dispose) ")"))
+             ;; Release A: it lands its now-dead hook, marks readiness, re-checks
+             ;; non-canonical, and self-drains to an already-empty owner set.
+             (.countDown a-proceed)
+             @fa
+             @fb
+             (is (some? @l1) "the first owner completed and returned its lease")
+             (testing "no synchronous fan-out — the drain only ENQUEUED"
+               (is (empty? @notes-a))
+               (is (empty? @notes-b)))
+             (obs/drain-pending-disposals! :disposed)
+             (is (= 1 (count @notes-a)) "first owner notified exactly once")
+             (is (= 1 (count @notes-b)) "follower notified exactly once")
+             (obs/release! @l1)
+             (obs/release! @l2)))))))
+
+(deftest first-owner-hook-install-failure-tears-down-and-recovers
+  ;; rf2-vxgfnd.70 — if interop/add-on-dispose! THROWS while an owner installs
+  ;; the node hook, acquire! must not leak: tear THIS owner down (ref-count /
+  ;; watch / enrolment balanced), leave readiness UNPUBLISHED so the node is
+  ;; not poisoned, and propagate the original exception through acquire!'s
+  ;; fail-loud path. A later acquire (install healthy) then succeeds — future
+  ;; acquirers are never stranded. Both hosts (single-threaded, with-redefs).
+  (reg-items!)
+  (seed-items! [:a])
+  (let [target   (items-target)
+        real-add interop/add-on-dispose!
+        boom     (ex-info "add-on-dispose! boom" {::boom true})
+        fail?    (atom true)]
+    (with-redefs
+      [interop/next-tick (fn [_f] nil)
+       interop/add-on-dispose!
+       (fn [reaction f]
+         ;; Fail ONLY the observation node-disposed-hook install on the
+         ;; canonical node, once; the construction-time input-release closure
+         ;; (entry does not yet hold the reaction) and later installs proceed.
+         (if (and @fail?
+                  (identical? reaction (:reaction (entry [:obs/items]))))
+           (do (reset! fail? false) (throw boom))
+           (real-add reaction f)))]
+      (testing "the install throw propagates through acquire!'s fail-loud path"
+        (let [e (try (obs/acquire! target (fn [_])) nil
+                     (catch #?(:clj Throwable :cljs :default) e e))]
+          (is (identical? boom e) "acquire! rethrew the original install exception")))
+      (testing "the failed owner was torn down cleanly — ref-count balanced"
+        (is (nil? (entry [:obs/items]))
+            "the sole owner's ref was released, disposing the node — no leaked ref"))
+      (testing "readiness stayed unpublished — a fresh acquire installs + succeeds"
+        (let [lease (obs/acquire! target (fn [_]))]
+          (is (obs/lease? lease))
+          (is (true? (obs/owned? lease)))
+          (is (= 1 (ref-count [:obs/items])) "exactly one reference on the rebuilt node")
+          (is (= [:a] (:value (obs/read lease))))
+          (is (true? (obs/current? lease target)))
+          (obs/release! lease)
+          (is (nil? (entry [:obs/items]))))))))
+
+;; ===========================================================================
 ;; rf2-vxgfnd.28 — the disposal-notification drain contains a throwing owner
 ;; and SURFACES the escape (it was the one uncontained fan-out)
 ;;

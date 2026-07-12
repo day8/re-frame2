@@ -106,18 +106,29 @@
   (frame-destroy, explicit cache clears) drain on the next tick with cause
   `:disposed`.
 
-  The first owner's enrol + disposal-hook install is NOT one atomic step: the
-  node record advertises `:hooked?` as the lease enrols, before
-  `interop/add-on-dispose!` registers the callback. A disposal that linearizes
-  in that gap could fire no hook (the callback lands on an already-disposed
-  reaction and is silently lost — every substrate's `-dispose` clears its
-  callbacks first) or drain the owner set before a second owner enrolled. So
-  `acquire!` closes the handshake with a CANONICALITY RE-CHECK (rf2-vxgfnd.32):
-  because every disposal path evicts the cache entry before `interop/dispose!`,
-  a reaction that is no longer the frame's canonical node was disposed in the
-  window — the staged owners are self-drained and enqueued exactly once
-  (`take-owners!` is the single-drain point), so no acquired lease is ever left
-  behind an uninstalled/dead hook without its invalidation.
+  Readiness is published HONESTLY (rf2-vxgfnd.70): the node record's
+  `:hook-installed?` flag is set only AFTER `interop/add-on-dispose!` has
+  actually registered the callback, never as the lease merely enrols. So a
+  fresh follower — whose `register-owner!` reads that flag — can never observe a
+  ready hook before the hook exists. A concurrent follower whose enrolment
+  interleaves the install window (flag still unset) is told to install too: it
+  registers its OWN node-scoped disposal hook, an independent fallback that
+  observes disposal without waiting for the first owner to finish. Duplicate
+  hooks are harmless because `take-owners!` is the single-drain point — the
+  first to fire snapshots-and-clears the owners, the rest no-op — so the node
+  still fans out O(current owners) exactly once, and steady state (every later
+  owner a cache HIT behind a confirmed hook) keeps ONE hook per node.
+
+  `acquire!` still closes the disposed-before-my-install window with a
+  CANONICALITY RE-CHECK (rf2-vxgfnd.32): because every disposal path evicts the
+  cache entry before `interop/dispose!`, a reaction that is no longer the
+  frame's canonical node was disposed in the window — the staged owners are
+  self-drained and enqueued exactly once (`take-owners!` is the single-drain
+  point), so no acquired lease is ever left behind an uninstalled/dead hook
+  without its invalidation. If the install itself throws, the owner tears
+  itself down (ref/watch/enrolment balanced) and the exception propagates
+  through acquire!'s fail-loud path, leaving readiness unpublished so the node
+  is never poisoned.
 
   The same eviction-before-dispose fact means a node the build itself just
   installed can be DISPLACED — invalidated-and-rebuilt to a newer canonical node
@@ -227,7 +238,7 @@
 ;; ---- node records (weak identity-keyed) -------------------------------------
 ;;
 ;; Per-node observation bookkeeping — `{:node-key <int> :version <int>
-;; :value <last-observed> :owners #{lease…} :hooked? bool}` — keyed by the
+;; :value <last-observed> :owners #{lease…} :hook-installed? bool}` — keyed by the
 ;; cache node's reaction OBJECT in a WEAK identity-keyed table, so a record's
 ;; lifetime is exactly its reaction's: an evicted/disposed node's record
 ;; becomes unreachable with the node, and the port never prunes, scans, or
@@ -759,9 +770,13 @@
 ;; any node an owner keeps live (an unbounded leak, and O(all owners ever) at
 ;; the eventual disposal) — the port keeps an IDENTITY-keyed set of the node's
 ;; CURRENTLY-active owner leases inside the weak node record, and installs ONE
-;; node-scoped disposal hook per reaction. `acquire!` enrols the lease and
-;; installs the hook on the first owner; `release!` de-enrols it; node disposal
-;; snapshots-and-clears the live owners and enqueues each once. The owner set
+;; node-scoped disposal hook per reaction (steady state). `acquire!` enrols the
+;; lease and installs the hook when none is CONFIRMED installed yet — the first
+;; owner, plus any follower whose enrolment interleaves that install window
+;; (rf2-vxgfnd.70), whose own hook is an independent disposal fallback; `release!`
+;; de-enrols it; node disposal snapshots-and-clears the live owners and enqueues
+;; each once (`take-owners!` the single-drain point, so duplicate hooks are
+;; harmless). The owner set
 ;; rides the SAME weak record (and the same JVM lock discipline) as the version
 ;; bookkeeping, so it dies with the reaction — no pruning, no scan of historical
 ;; owners, storage O(current owners) not O(all owners ever acquired). The lease
@@ -780,26 +795,51 @@
 (defn- register-owner!
   "Enrol owner `lease` in `reaction`'s active-owner set within the weak node
   record (minting the record if a prior probe/observe has not — in practice
-  `acquire!` observes first, so the record exists). Returns true iff THIS call
-  must install the node's single disposal hook — i.e. it was the first owner
-  (`:hooked?` false → true). JVM: under the node-records lock, the same
-  discipline the version records use."
+  `acquire!` observes first, so the record exists). Returns true iff the node's
+  disposal hook is NOT yet CONFIRMED installed — i.e. THIS caller must install
+  it (rf2-vxgfnd.70). Crucially it does NOT flip the readiness flag: readiness
+  is published by [[mark-hook-installed!]] only AFTER `interop/add-on-dispose!`
+  has actually registered the callback, so a fresh follower can never observe a
+  ready hook before the hook exists. A follower whose enrolment interleaves the
+  install window (`:hook-installed?` still unset) is told to install too — its
+  own node-scoped hook is an independent disposal fallback, and duplicate hooks
+  are harmless because `take-owners!` is the single-drain point. JVM: under the
+  node-records lock, the same discipline the version records use."
   [reaction lease]
   #?(:clj
      (locking node-records
-       (let [rec     (or (.get node-records reaction)
-                         {:node-key (swap! node-key-counter inc) :version 0 :value nil})
-             hooked? (:hooked? rec)]
+       (let [rec        (or (.get node-records reaction)
+                            {:node-key (swap! node-key-counter inc) :version 0 :value nil})
+             installed? (:hook-installed? rec)]
          (.put node-records reaction
-               (assoc rec :owners (conj (or (:owners rec) #{}) lease) :hooked? true))
-         (not hooked?)))
+               (assoc rec :owners (conj (or (:owners rec) #{}) lease)))
+         (not installed?)))
      :cljs
-     (let [rec     (or (.get node-records reaction)
-                       {:node-key (swap! node-key-counter inc) :version 0 :value nil})
-           hooked? (:hooked? rec)]
+     (let [rec        (or (.get node-records reaction)
+                          {:node-key (swap! node-key-counter inc) :version 0 :value nil})
+           installed? (:hook-installed? rec)]
        (.set node-records reaction
-             (assoc rec :owners (conj (or (:owners rec) #{}) lease) :hooked? true))
-       (not hooked?))))
+             (assoc rec :owners (conj (or (:owners rec) #{}) lease)))
+       (not installed?))))
+
+(defn- mark-hook-installed!
+  "Publish the node's disposal-hook readiness: set `:hook-installed?` on the
+  weak node record AFTER `interop/add-on-dispose!` has actually registered the
+  callback (rf2-vxgfnd.70). Only from this point does a fresh follower's
+  [[register-owner!]] see a confirmed hook and skip installing its own; a
+  follower that enrolled earlier (in the install window) already installed an
+  independent backstop hook. Idempotent — a co-staged backstop installer may
+  set it too. No-op when the record has already died with a disposed reaction.
+  JVM: under the node-records lock. Returns nil."
+  [reaction]
+  #?(:clj
+     (locking node-records
+       (when-let [rec (.get node-records reaction)]
+         (.put node-records reaction (assoc rec :hook-installed? true))))
+     :cljs
+     (when-let [rec (.get node-records reaction)]
+       (.set node-records reaction (assoc rec :hook-installed? true))))
+  nil)
 
 (defn- deregister-owner!
   "Remove owner `lease` from `reaction`'s active-owner set. No-op when the
@@ -894,6 +934,10 @@
 
 ;; ---- acquire! -------------------------------------------------------------------
 
+;; `build-node-lease!`'s install-failure path reuses the full `release!`
+;; teardown (ref-count / watch / enrolment), which is defined below.
+(declare release!)
+
 (defn- make-watch-handler
   "Per-lease change watch: constant-work — advance the node record with the
   DELIVERED new value (no recompute, per I-5) and fan the mark-dirty payload
@@ -922,26 +966,36 @@
   already taken a real +1 reference on — in a live NODE lease. Register the
   per-lease change watch (on watchable hosts; `add-watch` never fires
   synchronously), take the baseline observation through the activated node,
-  enrol the lease as an active owner, and — only for the FIRST owner — install
-  the node's single disposal hook (delivery is queued; see the ns docstring's
-  HMR section). `release!` de-enrols the lease, so a released lease is no longer
-  reachable from the live reaction: disposal work stays O(current owners), never
-  O(all owners ever acquired) (rf2-vxgfnd.15).
+  enrol the lease as an active owner, and — whenever the node hook is not yet
+  CONFIRMED installed — install the node's disposal hook (delivery is queued;
+  see the ns docstring's HMR section). `release!` de-enrols the lease, so a
+  released lease is no longer reachable from the live reaction: disposal work
+  stays O(current owners), never O(all owners ever acquired) (rf2-vxgfnd.15).
 
-  Closes the first-owner disposal-hook HANDSHAKE (rf2-vxgfnd.32): the record's
-  `:hooked?` flag flips as the lease enrols, BEFORE `add-on-dispose!` actually
-  registers the callback, so a disposal that linearizes in that gap can (a) fire
-  NO hook — the callback lands on an already-disposed reaction and is lost (every
-  substrate's `-dispose` snapshot-and-clears its callbacks, and the JVM
-  Reaction's field is even unsynchronized, so an install racing `-dispose` can be
-  dropped outright) — or (b) drain the owner set before this lease enrolled.
-  Since every disposal path evicts the cache entry BEFORE `interop/dispose!`
-  (`re-frame.subs.cache`), a reaction that is no longer the frame's canonical
-  node WAS disposed in the window; self-drain the staged owners so each is
-  enqueued exactly once (`take-owners!` is the single-drain point; the installed
-  hook, if it did fire, already drained). No synchronous `on-change`: the drain
-  only ENQUEUES — delivery rides the next-tick / HMR drain boundary off the
-  acquire stack, preserving acquire!'s no-fan-out guarantee. Returns the lease."
+  Publishes readiness HONESTLY (rf2-vxgfnd.70): [[mark-hook-installed!]] sets
+  the record's `:hook-installed?` flag only AFTER `add-on-dispose!` has actually
+  registered the callback — never as the lease enrols — so a fresh follower can
+  never observe a ready hook before the hook exists. A concurrent follower whose
+  enrolment interleaves this install window ([[register-owner!]] still saw the
+  flag unset) installs its OWN node-scoped hook: an independent fallback that
+  observes disposal without waiting for the first owner, so no owner is ever
+  published behind a not-yet-installed hook. Duplicate hooks are harmless
+  because `take-owners!` is the single-drain point.
+
+  Closes the disposed-before-my-install window with the CANONICALITY RE-CHECK
+  (rf2-vxgfnd.32): since every disposal path evicts the cache entry BEFORE
+  `interop/dispose!` (`re-frame.subs.cache`), a reaction that is no longer the
+  frame's canonical node WAS disposed in the window; self-drain the staged
+  owners so each is enqueued exactly once (`take-owners!` is the single-drain
+  point; a hook that did fire already drained). No synchronous `on-change`: the
+  drain only ENQUEUES — delivery rides the next-tick / HMR drain boundary off
+  the acquire stack, preserving acquire!'s no-fan-out guarantee.
+
+  If `add-on-dispose!` itself throws, this owner has no hook of its own: tear it
+  down cleanly (`release!` balances ref-count / watch / enrolment) and rethrow,
+  leaving `:hook-installed?` unset so the node is not poisoned — a co-staged
+  backstop owner keeps its own hook and future acquirers install afresh. Returns
+  the lease."
   [target frame-id query reaction on-change]
   (let [state (atom {:lease-kind :node
                      :target     target
@@ -967,7 +1021,18 @@
                                 :version  (:version rec)
                                 :node-key (:node-key rec)}))
     (when (register-owner! reaction lease)
-      (interop/add-on-dispose! reaction (node-disposed-hook reaction)))
+      ;; Install the node's disposal hook, THEN publish readiness
+      ;; (rf2-vxgfnd.70): a fresh follower never observes a ready hook before
+      ;; the callback exists, and an install-window follower installs its OWN
+      ;; backstop hook (idempotent via take-owners!). On install failure, tear
+      ;; THIS owner down cleanly and rethrow — readiness stays unpublished so
+      ;; the node is not poisoned.
+      (try
+        (interop/add-on-dispose! reaction (node-disposed-hook reaction))
+        (mark-hook-installed! reaction)
+        (catch #?(:clj Throwable :cljs :default) t
+          (release! lease)
+          (throw t))))
     (when-not (node-still-canonical? @state)
       (drain-owners! reaction))
     lease))
@@ -1011,13 +1076,16 @@
   acquire is the cache's ref-count attach (Spec 006 §Lookup algorithm; a
   miss builds the node through the real cache-install path), plus per-lease
   callback registration: a unique change watch (on watchable hosts). The lease
-  is also enrolled as an active owner behind the node's single, once-installed
-  disposal hook; `release!` de-enrols it, so a released lease never leaks a
-  dormant closure (rf2-vxgfnd.15). A disposal that races the first-owner
-  hook install is caught by a canonicality re-check that self-drains the
-  staged owners (rf2-vxgfnd.32 — see the ns docstring's HMR section), so no
-  acquired lease is left behind an uninstalled/dead hook without its
-  invalidation. `acquire!` never invokes `on-change` synchronously — no
+  is also enrolled as an active owner behind the node's disposal hook (one hook
+  per node in steady state); `release!` de-enrols it, so a released lease never
+  leaks a dormant closure (rf2-vxgfnd.15). Readiness is published only AFTER the
+  hook is actually installed, and a follower that enrols in the install window
+  installs its own independent backstop hook rather than trusting a not-yet-
+  installed one (rf2-vxgfnd.70); a disposal that races the install is also
+  caught by a canonicality re-check that self-drains the staged owners
+  (rf2-vxgfnd.32 — see the ns docstring's HMR section), so no acquired lease is
+  left behind an uninstalled/dead hook without its invalidation. `acquire!`
+  never invokes `on-change` synchronously — no
   fan-out during acquire (movement in the render→commit gap is the commit
   evidence comparison's job, invariant 5).
 
