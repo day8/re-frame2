@@ -19,26 +19,24 @@ The **boot lifecycle** of `your-app/core.cljs` — the entry namespace shadow-cl
 The entry namespace is the top of `core.cljs` — the `ns` form, a `defonce` React-root atom, and the exported `init` fn shadow-cljs calls. It is the mount half of the one copy-complete counter in [`first-counter.md`](first-counter.md) (§The whole file; counter-specific mount notes in §Mount), not a file you write separately. Reading that `init` top to bottom, it does four things, in order — full contract in §Order of operations below:
 
 1. `(rf/init! reagent-adapter/adapter)` — install the Reagent adapter (no frame yet).
-2. `(rf/reg-frame :rf/default {})` — register the app frame (a surgical, hot-reload-safe update).
-3. `(rf/with-frame :rf/default …)` — under a live frame scope, attach the frame-local schema and `(rf/dispatch-sync [:counter/initialise])` to seed app-db (the reset boundary).
-4. `(rdc/render …)` — mount the tree wrapped in `[rf/frame-provider {:frame :rf/default} …]` so every bare `dispatch` / `subscribe` under it resolves against `:rf/default`.
+2. `(register-schema!)` — attach the frame-local schema, naming the app frame explicitly (`{:frame :rf/default}`), before the frame even exists.
+3. `(rdc/render …)` — mount the tree wrapped in `[rf/frame-root {:id :rf/default :initial-events [[:counter/initialise]]} …]`. `frame-root` is the ENSURE element: it **creates** `:rf/default` the first time (running the `:initial-events` seed synchronously, so the initial render sees the seeded app-db), **reuses** the live frame without re-seeding on every later mount, and provides it so every bare `dispatch` / `subscribe` under it resolves against `:rf/default`.
 
-`defonce` guards the React root so a save doesn't create a second one (§The Reagent root pattern). shadow-cljs's `:browser` target re-runs `:init-fn` (`init`) after **each** hot reload, so `init` IS the re-render path — no separate `^:dev/after-load` hook, and the `dispatch-sync` seed in step 3 is what re-seeds demo state on every reload. Events / subs / views live above the mount point in `core.cljs`, or in their own namespaces for anything larger (§Where everything else goes).
+`defonce` guards the React root so a save doesn't create a second one (§The Reagent root pattern). shadow-cljs's `:browser` target re-runs `:init-fn` (`init`) after **each** hot reload, so `init` IS the re-render path — no separate `^:dev/after-load` hook. The re-rendered `frame-root` finds `:rf/default` already live and leaves your state alone — a hot reload is a **no-op for app state**; the `:initial-events` seed runs once, at frame creation (refresh the tab to re-seed). Events / subs / views live above the mount point in `core.cljs`, or in their own namespaces for anything larger (§Where everything else goes).
 
-`counter-app` is the top-level registered view. `:rf/default` is the generator template's frame id — under EP-0002 (the carried-frame invariant) it is **not** auto-registered; you register it with `reg-frame` and scope it at the root with `frame-provider`'s `{:frame …}` SCOPE-only shape (§Order of operations). Any id works — keep it consistent across `reg-frame`, `with-frame`, and the provider.
+`counter-app` is the top-level registered view. `:rf/default` is the generator template's frame id — under EP-0002 (the carried-frame invariant) it is **not** auto-registered; the view's `frame-root` ENSURE element creates it at mount (§Order of operations). Any id works — keep it consistent between `frame-root`'s `:id` and the schema attach's `{:frame …}` target.
 
-The entry symbol is `init`, matching the generator template's `:init-fn {{namespace}}.core/init`. (The repo's `examples/core/counter/core.cljs` names its entry fn `run` and uses a different boot shape — the lazy-root + `frame-root {:id … :initial-events …}` ENSURE form; see [`boot-and-mount-an-app.md`](../../../docs/core/how-to/boot-and-mount-an-app.md). Pick any entry-symbol name and keep `:init-fn` pointing at it; this skill uses `init`.)
+The entry symbol is `init`, matching the generator template's `:init-fn {{namespace}}.core/init`. (The repo's `examples/core/counter/core.cljs` names its entry fn `run` — the same lazy-root + `frame-root {:id … :initial-events …}` ENSURE boot; see [`boot-and-mount-an-app.md`](../../../docs/core/how-to/boot-and-mount-an-app.md). Pick any entry-symbol name and keep `:init-fn` pointing at it; this skill uses `init`.)
 
 ## Order of operations
 
 `init` must do these things, **in this order**, every time:
 
 1. **`(rf/init! reagent-adapter/adapter)`** — install the substrate adapter. (`init!` installs the adapter and runtime capabilities only; it creates **no** frame.)
-2. **`(rf/reg-frame :rf/default {})`** — register the app frame. On a hot reload this is a **surgical update** that preserves the existing app-db / sub-cache / queue and only replaces metadata/config.
-3. **`(rf/with-frame :rf/default (rf/dispatch-sync [:your-app/initialise]))`** — seed the app-db under a live frame scope, synchronously, before render. This explicit `dispatch-sync` is the **reset boundary**: it re-seeds the demo/initial state on **every** hot reload (the surgical update in step 2 does not rerun any `:initial-events`). Some apps instead seed lazily on first interaction; either way the frame must be registered before render. **A frame-local schema attach belongs in this same scope, before the seed** — `reg-app-schema` targets a frame and cannot register at ns-load (`:rf.error/no-frame-context`); see [`first-counter.md` §Schema](first-counter.md) for the full shape.
-4. **`(rdc/render react-root [rf/frame-provider {:frame :rf/default} [counter-app]])`** — mount the React tree **wrapped in `frame-provider`'s `{:frame …}` SCOPE-only shape** so every bare `dispatch` / `subscribe` under it resolves against `:rf/default`. (The frame already exists from step 2's `reg-frame`, so you scope it with `{:frame …}` rather than ensure it; `frame-provider`'s other shape, `{:id …}`, *ensures* a named frame — for a view-owned frame, not the app root.)
+2. **`(register-schema!)`** — attach the frame-local schema. The registration names the app frame **explicitly** (`(rf/reg-app-schema [] {:frame :rf/default} CounterDb)`), so it runs at boot BEFORE the frame exists — the `:initial-events` seed in step 3 is then validated from its very first write. (A bare two-slot `reg-app-schema` with no frame scope raises `:rf.error/no-frame-context`; see [`first-counter.md` §Schema](first-counter.md).)
+3. **`(rdc/render react-root [rf/frame-root {:id :rf/default :initial-events [[:your-app/initialise]]} [counter-app]])`** — mount the React tree in `frame-root`'s `{:id …}` **ENSURE** shape. `frame-root` creates `:rf/default` the first time — running the `:initial-events` seed **synchronously at frame creation**, so the initial render sees the seeded app-db — then **reuses** the live frame without re-seeding on every later mount, and provides the frame so every bare `dispatch` / `subscribe` under it resolves against `:rf/default`. A hot reload therefore never clobbers state; the seed runs at frame **creation** (a browser refresh re-seeds), and editing what `:your-app/initialise` writes changes what a fresh mount seeds. (`frame-provider` is the SCOPE-only sibling — it provides an **already-created** frame, e.g. one your code built programmatically with `rf/make-frame`, and fails loud given `{:id …}`.)
 
-If you render *without* the provider (or before `reg-frame`), every `subscribe` / `dispatch` in the tree raises `:rf.error/no-frame-context` — the runtime refuses to guess a frame. If you render before `rf/init!`, the views call `subscribe` against an uninstalled adapter and you get `:rf.error/no-adapter-installed`.
+If you render *without* `frame-root` (or a `frame-provider` around an existing frame), every `subscribe` / `dispatch` in the tree raises `:rf.error/no-frame-context` — the runtime refuses to guess a frame. If you render before `rf/init!`, `frame-root`'s frame creation finds no substrate adapter and you get `:rf.error/no-adapter-installed`.
 
 ## Why `rf/init!` exists (and why it's explicit)
 
@@ -47,7 +45,7 @@ re-frame2 splits **the registry** (the process-wide handler / sub / fx map your 
 Three consequences:
 
 - **Adapters are values, not magic.** `re-frame.adapter.reagent/adapter` is a regular CLJS var holding a map. `rf/init!` takes that value directly — no global registration, no name-based lookup. Swap it for `re-frame.adapter.uix/adapter` or `re-frame.adapter.helix/adapter` and you have a UIx / Helix app.
-- **`rf/init!` is idempotent — safe to call more than once.** `init` re-runs on **every** hot reload, so `rf/init!` runs again each save; that is safe — a second `init!` re-installs the substrate config only when none is seated, and creates no frame. Leave it unguarded in `init` (don't wrap it in a `defonce`); the idempotence is what makes the per-reload re-run harmless. (`reg-frame` on the same id is likewise a surgical, hot-reload-safe update.)
+- **`rf/init!` is idempotent — safe to call more than once.** `init` re-runs on **every** hot reload, so `rf/init!` runs again each save; that is safe — a second `init!` re-installs the substrate config only when none is seated, and creates no frame. Leave it unguarded in `init` (don't wrap it in a `defonce`); the idempotence is what makes the per-reload re-run harmless. (`frame-root` re-mounting against the same `:id` likewise reuses the live frame — no re-seed, no state loss.)
 - **No implicit boot.** No default adapter — multi-substrate support and the per-frame substrate-config model (Spec 006) mean the runtime must know *which* adapter you want before any subscription resolves, so you supply it at boot via the explicit `init!`.
 
 **You don't construct the adapter map — you require the namespace and pass its exported `adapter` var.** App authors never assemble it by hand; the map implements the reactive-substrate adapter contract of [Spec 006](../../../spec/006-ReactiveSubstrate.md), and constructing or extending it is the **`re-frame2-implementor`** skill's territory, not greenfield's.
@@ -68,7 +66,7 @@ In a tiny app, all of this fits in `your-app/core.cljs` above the mount point:
 - **Events** — `(rf/reg-event ...)` (the one event-registration form)
 - **Subscriptions** — `(rf/reg-sub ...)`; **Effects** — `(rf/reg-fx ...)` (per-app fx)
 - **Views** — `(reg-view <name> [...] <body>)` (the `reg-view` macro from `re-frame.core`)
-- **`(rf/dispatch-sync [:your-app/initialise])`** in `init` — the initial seed event
+- **`:initial-events [[:your-app/initialise]]`** on the root `frame-root` — the initial seed event, run once at frame creation
 
 For anything beyond the first counter, split:
 
@@ -105,7 +103,7 @@ This skill scaffolds against **Reagent** (the default reference substrate). For 
 
   > **Heads-up on the UIx version target.** `spec/006-ReactiveSubstrate.md` names **UIx 2.x** (hooks-based) as the design target, but the generator template pins **`com.pitch/uix` `1.4.4`** — the **known-good, tested** set. Use the template pin; treat UIx 2.x as an unverified manual override to test before relying on it. (Pins read off the template's `_uix/deps.edn`; re-check if either bumps.)
 - **shared dataflow** — first lay down the substrate-neutral `events.cljs` + `subs.cljs` + `schema.cljs` from [`shared-dataflow.md`](shared-dataflow.md), copied **verbatim** into `src/your_app/`. They carry the `:counter/initialise` / `:counter/increment` events, the `:counter/value` sub, and the `CounterDb` schema + `register-schema!` — identical for UIx and Helix (and to the events / sub / schema the Reagent `first-counter.md` inlines). Do **not** copy them out of the Reagent file, and do **not** re-derive them per substrate.
-- **entry ns** — `:require` the shared `your-app.events`, `your-app.subs`, and `your-app.schema` (so their registrations load), require `[re-frame.adapter.uix :as uix-adapter]` (or `re-frame.adapter.helix`), pass `uix-adapter/adapter` to `rf/init!`, register the app frame, then under `(rf/with-frame :rf/default …)` call `(schema/register-schema!)` **before** the `(rf/dispatch-sync [:counter/initialise])` seed (the generator's boot order), and mount with the substrate's own root API — **wrapping the tree in the adapter's `frame-provider` `{:frame …}` SCOPE shape** (a `$`-element native component; scope-only since the frame already exists from `reg-frame`). For UIx that's `uix.dom/create-root` + `uix.dom/render-root`, view wrapped in `$` from `uix.core`:
+- **entry ns** — `:require` the shared `your-app.events`, `your-app.subs`, and `your-app.schema` (so their registrations load), require `[re-frame.adapter.uix :as uix-adapter]` (or `re-frame.adapter.helix`), pass `uix-adapter/adapter` to `rf/init!`, call `(schema/register-schema!)` (it names `:rf/default` explicitly, so it runs before the frame exists — the generator's boot order), and mount with the substrate's own root API — **wrapping the tree in the adapter's `frame-root` `{:id … :initial-events …}` ENSURE shape** (a `$`-element native component that creates the frame at mount and reuses it without re-seeding on later mounts). For UIx that's `uix.dom/create-root` + `uix.dom/render-root`, view wrapped in `$` from `uix.core`:
   ```clojure
   (ns your-app.core
     (:require [uix.core             :refer [$]]
@@ -121,12 +119,10 @@ This skill scaffolds against **Reagent** (the default reference substrate). For 
 
   (defn ^:export init []
     (rf/init! uix-adapter/adapter)
-    (rf/reg-frame :rf/default {})
-    (rf/with-frame :rf/default
-      (schema/register-schema!)                   ;; attach the frame-local schema FIRST
-      (rf/dispatch-sync [:counter/initialise]))   ;; then seed — reset boundary, re-seeds each hot reload
+    (schema/register-schema!)   ;; names :rf/default explicitly — attach before the frame exists
     (uix-dom/render-root
-      ($ uix-adapter/frame-provider {:frame :rf/default}
+      ($ uix-adapter/frame-root {:id             :rf/default
+                                 :initial-events [[:counter/initialise]]}
         ($ views/counter-app))
       react-root))
   ```
@@ -146,15 +142,13 @@ This skill scaffolds against **Reagent** (the default reference substrate). For 
 
   (defn ^:export init []
     (rf/init! helix-adapter/adapter)
-    (rf/reg-frame :rf/default {})
-    (rf/with-frame :rf/default
-      (schema/register-schema!)                   ;; attach the frame-local schema FIRST
-      (rf/dispatch-sync [:counter/initialise]))   ;; then seed — reset boundary, re-seeds each hot reload
+    (schema/register-schema!)   ;; names :rf/default explicitly — attach before the frame exists
     (.render react-root
-      ($ helix-adapter/frame-provider {:frame :rf/default}
+      ($ helix-adapter/frame-root {:id             :rf/default
+                                   :initial-events [[:counter/initialise]]}
         ($ views/counter-app))))
   ```
-  Every adapter's `frame-provider` scopes the already-registered frame for its subtree; rendering without it raises `:rf.error/no-frame-context` on the first subscribe. Both entry namespaces match the generator template's `_uix/core.cljs` / `_helix/core.cljs`.
+  Every adapter's `frame-root` ensures + provides the app frame for its subtree; rendering without it raises `:rf.error/no-frame-context` on the first subscribe. Both entry namespaces match the generator template's `_uix/core.cljs` / `_helix/core.cljs`.
 - **views** — the substitution `first-counter.md` does **not** cover. Reagent's `reg-view` auto-injects `dispatch`/`subscribe`; UIx and Helix have **no auto-injection** — components read subs through the adapter's `use-subscribe` hook and dispatch through `(:dispatch (rf/capture-frame))`, captured once per render (the closed-over `dispatch` still targets that frame from an async callback). UIx uses `defui` + `$`; Helix uses `defnc` + `helix.dom`. Copy the matching `views.cljs` below verbatim (identical to the template's `_uix/views.cljs` / `_helix/views.cljs`, reproduced here so the recipe is self-contained):
 
   ```clojure
@@ -197,12 +191,12 @@ This skill scaffolds against **Reagent** (the default reference substrate). For 
       (d/h1 "your-app")
       ($ counter-buttons)))
   ```
-- everything the two substrates share is **single-sourced**: the events, subscription, and schema live once in [`shared-dataflow.md`](shared-dataflow.md), and the `dispatch-sync` seed + `:init-fn ...core/init` boot are the same. **Only the view layer differs** — do not reach for the Reagent `reg-view` first-counter leaf on a UIx/Helix app; use the substrate views above (or take the complete generator route below).
+- everything the two substrates share is **single-sourced**: the events, subscription, and schema live once in [`shared-dataflow.md`](shared-dataflow.md), and the `frame-root` `:initial-events` seed + `:init-fn ...core/init` boot are the same. **Only the view layer differs** — do not reach for the Reagent `reg-view` first-counter leaf on a UIx/Helix app; use the substrate views above (or take the complete generator route below).
 
 The fastest path for a non-Reagent greenfield is the **generator template**, which ships complete `_uix/` and `_helix/` variants. This is a **user-run** route — the **author** invokes `clojure -Tnew create … :substrate :uix` (or `:helix`) in their own shell; **this skill does not run `clojure -Tnew`** (its `allowed-tools` cover only the manual scaffold). Pre-publish caveat + the working `:local/root` dev route: [`SKILL.md` cardinal rule 5](../SKILL.md) and [the generator-template section](../README.md#relationship-to-the-generator-template).
 
 ## Differences from re-frame v1
 
-For a v1 dev starting fresh, three things changed at the entry-namespace layer: the render surface is now `reagent.dom.client` (`rdc/render` against a `create-root` root — React 19); boot is **explicit** (`(rf/init! reagent-adapter/adapter)` is mandatory — no self-install); and there is **no implicit global `app-db`** — you register one app frame (`reg-frame`) and scope it at the root with `frame-provider {:frame …}` (the runtime never infers a default; multi-frame apps add more providers). Views are registered with the `reg-view` macro (v1 used plain `defn`).
+For a v1 dev starting fresh, three things changed at the entry-namespace layer: the render surface is now `reagent.dom.client` (`rdc/render` against a `create-root` root — React 19); boot is **explicit** (`(rf/init! reagent-adapter/adapter)` is mandatory — no self-install); and there is **no implicit global `app-db`** — the root `frame-root {:id … :initial-events …}` ENSURE element creates your one app frame at mount (the runtime never infers a default; multi-frame apps add more roots/providers). Views are registered with the `reg-view` macro (v1 used plain `defn`).
 
 The full v1→v2 story is the migration skill's territory (`migration/from-re-frame-v1/`, via `SKILL-REDIRECT.md`); this skill is greenfield-only.

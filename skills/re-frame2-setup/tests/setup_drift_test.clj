@@ -839,54 +839,47 @@
                "route that actually works today (rf2-79gtjr).")))))
 
 ;; ---------------------------------------------------------------------------
-;; Lock 8 — the manual boot seed matches the generator's reset-boundary
+;; Lock 8 — the manual boot seed matches the generator's frame-root ENSURE
 ;; contract.
 ;;
-;; The generator template seeds via an explicit `(rf/dispatch-sync
-;; [...initialise])` under `(rf/with-frame :rf/default ...)`, NOT via a
-;; `reg-frame ... {:initial-events [...]}` seed. This matters for hot reload:
-;; `reg-frame` re-registration is a surgical update that preserves app-db and
-;; does NOT rerun `:initial-events`, so an `:initial-events`-only seed would not
-;; re-seed on save. The manual copyable snippets (first-counter.md + entry-namespace.md)
-;; must match the generator's reset-boundary shape so the manual route lands on
-;; the same boot/seed behaviour the same skill teaches.
+;; The generator template mounts through `frame-root`'s `{:id :rf/default
+;; :initial-events [[:counter/initialise]]}` ENSURE shape: the seed runs ONCE,
+;; synchronously, at frame creation; a hot-reload re-mount REUSES the live
+;; frame without re-seeding (refresh the tab to re-seed). The retired boot
+;; ceremony (reg-frame + with-frame + dispatch-sync) must not reappear in the
+;; template OR the manual snippets — the manual route (first-counter.md +
+;; entry-namespace.md) must land on the same boot/seed behaviour the
+;; generator ships (rf2-xqds87 lineage; frame-root migration).
 ;; ---------------------------------------------------------------------------
 
-(deftest manual-boot-seed-matches-generator-reset-boundary
-  (testing "the generator Reagent template still uses the dispatch-sync reset-boundary seed (premise of this lock)"
+(deftest manual-boot-seed-matches-generator-frame-root-contract
+  (testing "the generator Reagent template mounts via frame-root {:id … :initial-events …} (premise of this lock)"
     (let [tmpl @reagent-template-core]
-      (is (and (str/includes? tmpl "(rf/with-frame :rf/default")
-               (re-find #"dispatch-sync\s+\[:counter/initialise\]" tmpl))
-          (str "the generator Reagent template no longer seeds via "
-               "`(rf/with-frame :rf/default ... (rf/dispatch-sync "
-               "[:counter/initialise]))`. If the generator boot contract "
-               "changed, update this lock AND the manual snippets together "
-               "(rf2-xqds87)."))
-      (is (not (re-find #"reg-frame[^)]*:initial-events" tmpl))
-          (str "the generator Reagent template now seeds via `:initial-events` — "
-               "re-check the manual-snippet alignment in this lock "
-               "(rf2-xqds87)."))))
-  (testing "first-counter.md + entry-namespace.md seed via dispatch-sync under with-frame, not :initial-events"
+      (is (and (str/includes? tmpl "rf/frame-root")
+               (re-find #":initial-events\s+\[\[:counter/initialise\]\]" tmpl))
+          (str "the generator Reagent template no longer mounts via "
+               "`[rf/frame-root {:id :rf/default :initial-events "
+               "[[:counter/initialise]]}]`. If the generator boot contract "
+               "changed, update this lock AND the manual snippets together."))
+      (is (not (str/includes? tmpl "reg-frame"))
+          (str "the generator Reagent template reintroduced the retired "
+               "`reg-frame` boot ceremony — re-check the manual-snippet "
+               "alignment in this lock."))))
+  (testing "first-counter.md + entry-namespace.md mount via frame-root's ENSURE seed, not the retired ceremony"
     (doseq [[label body] [["first-counter.md" @first-counter-md]
                           ["entry-namespace.md" @entry-namespace-md]]]
-      ;; `with-frame` opens the seed scope; the seed dispatch-sync follows on a
-      ;; later line. A frame-local `(register-schema!)` attach MAY sit between
-      ;; them (it shares the same `with-frame` scope — see first-counter.md
-      ;; §Schema), so tolerate a few intervening body lines, not exactly one.
-      (is (re-find #"with-frame[^\n]*(?:\n[^\n]*){0,4}?dispatch-sync\s+\[:(counter|your-app)/initialise\]"
+      (is (re-find #"frame-root\s+\{:id\s+:rf/default[^}]*:initial-events\s+\[\[:(counter|your-app)/initialise\]\]"
                    body)
-          (str label " no longer seeds the manual counter via "
-               "`(rf/with-frame ... (rf/dispatch-sync [...initialise]))`. The "
-               "manual boot must match the generator's reset-boundary seed so "
-               "hot reload re-seeds demo state (reg-frame re-registration "
-               "preserves app-db and does not rerun :initial-events) (rf2-xqds87)."))
-      (is (not (re-find #"reg-frame[^)\n]*:initial-events\s+\[\[:(counter|your-app)/initialise\]\]"
-                        body))
-          (str label " still seeds the manual counter via a `reg-frame ... "
-               "{:initial-events [[...initialise]]}` boundary. That only runs on the "
-               "first registration; a hot-reload surgical update does not "
-               "rerun it, so the demo would not re-seed. Use the "
-               "dispatch-sync reset boundary instead (rf2-xqds87).")))))
+          (str label " no longer mounts the manual counter via "
+               "`frame-root {:id :rf/default :initial-events "
+               "[[...initialise]]}`. The manual boot must match the "
+               "generator's ENSURE contract (seed once at frame creation; "
+               "hot reload reuses the live frame without re-seeding)."))
+      (is (not (re-find #"\(rf/reg-frame" body))
+          (str label " reintroduced the retired `reg-frame` boot ceremony. "
+               "The frame is created by the view's frame-root ENSURE "
+               "element; programmatic creation is rf/make-frame (not part "
+               "of the greenfield boot recipe).")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Lock 14 — the UIx/Helix manual namespace graph is COMPLETE and SELF-CONTAINED.
@@ -922,12 +915,13 @@
                "registration the counter renders nil (:rf.error/no-such-sub) "
                "(rf2-3fc89f)."))
       (is (and (str/includes? body "CounterDb")
-               (re-find #"reg-app-schema\s+\[\]\s+CounterDb" body)
+               (re-find #"reg-app-schema\s+\[\]\s+\{:frame :rf/default\}\s+CounterDb" body)
                (str/includes? body "register-schema!"))
           (str "shared-dataflow.md no longer supplies the CounterDb schema + a "
                "frame-local register-schema! that calls (reg-app-schema [] "
-               "CounterDb). The day-one typed-boundary posture requires the "
-               "whole-app-db schema to be attachable at boot (rf2-3fc89f)."))
+               "{:frame :rf/default} CounterDb) — the explicit-frame attach "
+               "that runs at boot BEFORE the frame-root mount creates the "
+               "frame (rf2-3fc89f)."))
       ;; The events source must require re-frame.schemas (side-effecting) so the
       ;; Malli validator is live before register-schema! runs.
       (is (str/includes? body "[re-frame.schemas]")
@@ -957,15 +951,16 @@
                "BOTH the UIx and Helix core.cljs. The frame-local schema attach "
                "must run at boot on every substrate, matching the generator's "
                "_uix/core.cljs / _helix/core.cljs (rf2-3fc89f)."))
-      ;; …and it must sit UNDER with-frame, BEFORE the dispatch-sync seed
-      ;; (reg-app-schema needs a live frame; the first seed write must be validated).
-      (is (re-find #"with-frame[^\n]*(?:\n[^\n]*){0,2}?\(schema/register-schema!\)[^\n]*(?:\n[^\n]*){0,2}?dispatch-sync\s+\[:counter/initialise\]"
+      ;; …and it must run BEFORE the frame-root mount (the attach names
+      ;; :rf/default explicitly, so it precedes frame creation; the frame's
+      ;; :initial-events seed is then validated from its first write).
+      (is (re-find #"\(schema/register-schema!\)[^\n]*(?:\n[^\n]*){0,6}?frame-root\s+\{:id\s+:rf/default[\s\S]{0,80}?:initial-events\s+\[\[:counter/initialise\]\]"
                    body)
           (str "entry-namespace.md's substrate boot no longer attaches the schema "
-               "under with-frame BEFORE the dispatch-sync seed. reg-app-schema "
-               "needs a live frame and the first :counter/initialise write must be "
-               "validated — order must be with-frame → register-schema! → "
-               "dispatch-sync (rf2-3fc89f).")))))
+               "BEFORE the frame-root ENSURE mount. The explicit-frame "
+               "register-schema! must precede the mount so the "
+               ":counter/initialise seed is validated from its first write "
+               "(rf2-3fc89f lineage; frame-root migration).")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Run

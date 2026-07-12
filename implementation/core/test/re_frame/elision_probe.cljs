@@ -45,6 +45,7 @@
   to root the dead-code-elimination graph at every surface. The grep
   test is the assertion."
   (:require [re-frame.core         :as rf]
+ [re-frame.frame :as frame]
             [re-frame.registrar    :as registrar]
             [re-frame.schemas      :as schemas]
             [re-frame.trace        :as trace]
@@ -506,7 +507,13 @@
     (late-bind/set-fn! hook-key
                        (fn [& _] (throw (ex-info "probe teardown-hook throw"
                                                  {:hook :probe}))))
-    (rf/make-frame {:id :rf.probe/teardown-frame :doc "throwing teardown hook"})
+    ;; ENGINE seat (frame/upsert-frame!, generation-less): this probe's
+    ;; documented contract deliberately does NOT root the image-loading path
+    ;; (make-frame / assemble) so the assembly fns stay DCE-able when unused
+    ;; (PROD_ABSENT_WHEN_UNUSED). rf2-h1vqa4: the retired reg-frame spelling
+    ;; WAS this engine; the probe keeps the engine seat, not the public
+    ;; constructor.
+    (frame/upsert-frame! :rf.probe/teardown-frame {:doc "throwing teardown hook"})
     (try
       ;; The accumulated always-on report flushes (survives prod), and the
       ;; per-hook DEV diagnostic emits at its causal position (DCEs in prod).
@@ -752,7 +759,13 @@
   ;;     (the rf2-cprm0q trap). This touch roots the gated emit so the control
   ;;     build (DEBUG=true) contains the `:reason` sentinel and the production
   ;;     build (DEBUG=false) must NOT — giving the elision assertion teeth.
-  (rf/make-frame {:id :rf.probe/drain-depth :drain-depth 4})
+  ;; ENGINE seat (frame/upsert-frame!, generation-less): this probe's
+  ;; documented contract deliberately does NOT root the image-loading path
+  ;; (make-frame / assemble) so the assembly fns stay DCE-able when unused
+  ;; (PROD_ABSENT_WHEN_UNUSED). rf2-h1vqa4: the retired reg-frame spelling
+  ;; WAS this engine; the probe keeps the engine seat, not the public
+  ;; constructor.
+  (frame/upsert-frame! :rf.probe/drain-depth {:drain-depth 4})
   (rf/reg-event :rf.probe/loop-forever
     (fn [_ _] {:fx [[:dispatch [:rf.probe/loop-forever]]]}))
   (rf/dispatch-sync [:rf.probe/loop-forever] {:frame :rf.probe/drain-depth}))
