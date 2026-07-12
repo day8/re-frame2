@@ -103,6 +103,17 @@
   [id fallback-html]
   (ssr/streaming-failed-template id fallback-html))
 
+(defn- failed-chunk-with-delta-html
+  "A CONTRADICTORY wire shape (rf2-x76af2.40): a failed `<template>` (the
+  server's inline-fallback marker) followed by a hydrate-delta `<script>` for
+  the SAME id — which the shipped server NEVER emits for a failed
+  continuation. Models a malformed / duplicated / reordered stream the client
+  must fail CLOSED on: the failed fallback swaps, but the delta must be
+  quarantined, not merged."
+  [id fallback-html delta]
+  (str (ssr/streaming-failed-template id fallback-html)
+       (ssr/streaming-hydrate-delta-script id (pr-str delta))))
+
 (defn- final-payload-html []
   (str "<script id=\"" constants/payload-script-id
        "\" type=\"application/edn\">{:rf/version 1 :rf/app-db {} :rf/render-hash \"00000000\"}</script>"))
@@ -295,6 +306,109 @@
           (finally
             (trace-tooling/unregister-listener! k)
             (remove-root! host)))))))
+
+(deftest failed-boundary-suppresses-matching-hydration-delta
+  (testing "rf2-x76af2.40 — a boundary the server flagged FAILED must NEVER
+            merge a matching hydrate-delta into app-db, even under a
+            contradictory / duplicated / reordered stream that pairs a
+            `data-rf2-suspense-failed` template with a (valid-map) delta
+            `<script>` for the same id. #5728 made `seen` an undifferentiated
+            set, so `apply-ready-deltas!` would merge ANY seen id's delta —
+            including a failed boundary's. The delta must be QUARANTINED (not
+            merged), its script consumed, and exactly one `:quarantined-delta`
+            diagnostic emitted; the failed fallback still swaps and emits its
+            `:inline-fallback` signal exactly once. (Initial-sweep path — both
+            nodes present at install, synchronous + deterministic.)"
+    (if-not (browser?)
+      (is true ":node-test: no DOM")
+      (let [fid       (make-client-frame!)
+            host      (make-root! [:card.flaky])
+            captured  (atom [])
+            k         (str (gensym "stream-failquarantine-cb"))
+            failed-of #(filter (fn [ev] (= :rf.ssr/suspense-boundary-failed (:operation ev)))
+                               @captured)]
+        (trace-tooling/register-listener! k (fn [ev] (swap! captured conj ev)))
+        (try
+          ;; A failed template AND a VALID-MAP delta for the SAME id — the
+          ;; contradictory shape. The delta WOULD merge for a successful
+          ;; boundary; it must NOT for a failed one.
+          (append-chunk!
+            host
+            (failed-chunk-with-delta-html
+              :card.flaky "<div class=\"card card-failed\">unavailable</div>"
+              {:cards {:flaky {:value 99}}}))
+          (let [stop! (streaming-client/install! {:frame fid :root host})]
+            (try
+              (is (= 1 (card-count host "card-failed"))
+                  "the failed chunk's fallback HTML swapped in")
+              (is (= {} (frame/frame-app-db-value fid))
+                  "the failed boundary's delta is NOT merged (fail-closed)")
+              (is (nil? @(rf/subscribe [:sct/card :flaky] {:frame fid}))
+                  "a subscription reads no speculative state for the failed boundary")
+              (is (zero? (count (array-seq (.querySelectorAll host (str "[" wire/attr-suspense-hydrate "]")))))
+                  "the contradictory delta script is consumed (DOM left script-free)")
+              ;; exactly one :quarantined-delta diagnostic.
+              (let [q (filter #(= :quarantined-delta (:recovery %)) (failed-of))]
+                (is (= 1 (count q))
+                    (str "exactly one :quarantined-delta diagnostic; saw recoveries: "
+                         (pr-str (mapv :recovery (failed-of))))))
+              ;; the inline-fallback failed signal still fires exactly once.
+              (let [f (filter #(= :inline-fallback (:recovery %)) (failed-of))]
+                (is (= 1 (count f))
+                    "the failed fallback swap still emits its :inline-fallback signal exactly once"))
+              (finally (stop!))))
+          (finally
+            (trace-tooling/unregister-listener! k)
+            (remove-root! host)))))))
+
+(deftest failed-boundary-suppresses-delta-arriving-first
+  (testing "rf2-x76af2.40 — order independence + observer batching: the
+            hydrate-delta `<script>` arrives in a SEPARATE, EARLIER batch than
+            the failed `<template>`. The first sweep must HOLD the delta (the
+            boundary has not swapped → no outcome recorded); when the failed
+            template arrives and swaps, the boundary's outcome is `:failed`, so
+            the still-present delta is quarantined — never merged — regardless
+            of arrival order. Proves the fail-closed rule is not FIFO-only."
+    (if-not (browser?)
+      (is true ":node-test: no DOM")
+      (async
+        done
+        (let [fid      (make-client-frame!)
+              host     (make-root! [:card.flaky])
+              captured (atom [])
+              k        (str (gensym "stream-failfirst-cb"))]
+          (trace-tooling/register-listener! k (fn [ev] (swap! captured conj ev)))
+          ;; Batch 1: ONLY the delta <script> — its (failed) template has not arrived.
+          (append-chunk!
+            host
+            (ssr/streaming-hydrate-delta-script
+              :card.flaky (pr-str {:cards {:flaky {:value 99}}})))
+          (let [stop! (streaming-client/install! {:frame fid :root host})]
+            ;; First sweep: boundary not swapped → delta held, not applied.
+            (is (= {} (frame/frame-app-db-value fid))
+                "delta held (boundary not swapped yet) — nothing merged speculatively")
+            (is (= 1 (count (array-seq (.querySelectorAll host (str "[" wire/attr-suspense-hydrate "]")))))
+                "the delta <script> waits in the DOM (not consumed before its swap)")
+            ;; Batch 2: the FAILED template arrives → swaps → outcome :failed.
+            (append-chunk!
+              host
+              (failed-chunk-html :card.flaky "<div class=\"card card-failed\">unavailable</div>"))
+            (js/setTimeout
+              (fn []
+                (is (= 1 (card-count host "card-failed"))
+                    "failed fallback swapped in the later sweep")
+                (is (= {} (frame/frame-app-db-value fid))
+                    "the delta (which arrived FIRST) is quarantined once its boundary resolved FAILED — never merged")
+                (is (zero? (count (array-seq (.querySelectorAll host (str "[" wire/attr-suspense-hydrate "]")))))
+                    "the contradictory delta script is consumed")
+                (is (some #(and (= :rf.ssr/suspense-boundary-failed (:operation %))
+                                (= :quarantined-delta (:recovery %)))
+                          @captured)
+                    ":quarantined-delta diagnostic emitted for the failed-boundary delta")
+                (stop!)
+                (remove-root! host)
+                (done))
+              0)))))))
 
 (deftest parseable-non-map-delta-fails-closed
   (testing "rf2-l3paoi — a resolved chunk whose hydrate-delta `<script>` body
