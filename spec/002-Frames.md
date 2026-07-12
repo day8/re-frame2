@@ -1304,6 +1304,8 @@ Ambient *scope* lookup (dynamic var → React context) does **not** survive asyn
 - A per-call `:frame` in the dispatch opts MUST NOT override the captured frame — the handle is **locked** to one frame.
 - It is an OPERATION BUNDLE, not a container: read the frame's app-db value via `(rf/app-db-value (:frame handle))`, not the handle itself.
 
+> **One primitive, three faces.** `capture-frame` is THE hold primitive; `reg-view` injection and `use-frame` are its two ergonomic spellings. Reagent's `reg-view` macro injects the bundle's `dispatch` / `subscribe` as lexical bindings at registration; the UIx/Helix `use-frame` hook returns the same bundle for the ambient provider frame (capture-frame in hook position, per [006 §Cross-substrate affordance summary](006-ReactiveSubstrate.md#cross-substrate-affordance-summary)). Neither spelling is a second hold surface — all three faces resolve, lock, and carry identically.
+
 ```clojure
 (rf/reg-view StreamView [_]
   (let [{:keys [dispatch]} (rf/capture-frame)]   ;; captures the render frame

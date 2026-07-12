@@ -10,6 +10,7 @@
             [re-frame.frame             :as frame]
             [re-frame.substrate.spine   :as spine]
             [re-frame.adapter.resource-lease :as resource-lease]
+            [re-frame.adapter.use-frame :as use-frame-hook]
             [re-frame.views.frame-boundary :as boundary]))
 
 ;; ---- shared spine wiring --------------------------------------------------
@@ -110,6 +111,27 @@
   Reads the surrounding frame-provider by default; the 2-arg form pins an
   explicit frame id."
   (:use-subscribe spine-fns))
+
+(def use-frame
+  "UIx hook returning the frame api for the ambient frame — EXACTLY what
+  `(rf/capture-frame)` returns (the frame-locked ops map
+  `{:frame :dispatch :dispatch-sync :subscribe}`), captured in hook
+  position. capture-frame is THE hold primitive; `reg-view` injection
+  (Reagent) and this hook are its two ergonomic spellings.
+
+      (defui counter-buttons []
+        (let [count              (use-subscribe [:counter/value])
+              {:keys [dispatch]} (use-frame)]
+          ($ :button {:on-click #(dispatch [:counter/inc])} \"+\")))
+
+  Resolution matches the ambient `use-subscribe`: dynamic-var tier first,
+  then the surrounding `frame-provider` / `frame-root` via React context;
+  no scope raises `:rf.error/no-frame-context`. The returned map is
+  reference-stable across re-renders for the same resolved frame (safe in
+  effect deps / child props); a provider swap re-renders the caller and
+  yields a map locked to the new frame. No options map, no variants — for
+  an explicit frame call `(rf/capture-frame frame-id)` directly."
+  use-frame-hook/use-frame)
 
 (def use-resource-lease
   "UIx hook that takes a resource liveness lease for the calling

@@ -82,6 +82,10 @@
   ;; --- UIx adapter (day8/re-frame2-uix) — probe fully-rowed ---
   {:namespace "re-frame.adapter.uix" :var "adapter"             :kind :var :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.uix" :var "use-subscribe"       :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
+  ;; rf2-y6dz8t — capture-frame in hook position: returns EXACTLY the
+  ;; capture-frame ops map for the ambient provider frame. UIx/Helix only
+  ;; (Reagent's spelling of the same hold primitive is reg-view injection).
+  {:namespace "re-frame.adapter.uix" :var "use-frame"           :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.uix" :var "use-resource-lease"  :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.uix" :var "use-current-frame"   :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.uix" :var "frame-provider"      :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
@@ -92,6 +96,9 @@
   ;; --- Helix adapter (day8/re-frame2-helix) — probe fully-rowed ---
   {:namespace "re-frame.adapter.helix" :var "adapter"             :kind :var :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.helix" :var "use-subscribe"       :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
+  ;; rf2-y6dz8t — same shared `use-frame` hook as the UIx adapter (one core
+  ;; impl, re-exported; capture-frame in hook position).
+  {:namespace "re-frame.adapter.helix" :var "use-frame"           :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.helix" :var "use-resource-lease"  :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.helix" :var "use-current-frame"   :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.helix" :var "frame-provider"      :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
