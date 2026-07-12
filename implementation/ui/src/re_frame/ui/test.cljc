@@ -39,8 +39,10 @@
   above. Handing a CSS string to `find`, a structural tree to `query`,
   or a DOM element to `attrs`/`text` is a typed error
   (`:rf.error/ui-test-tier-mismatch`) pointing at the other tier.
-  Tier-3 mounting (`with-root` / `flush!` / `simulate!`) lands with the
-  mount/reactivity slices (S1c/S2) — `query` has no live behaviour yet.
+  Tier-3 mounting (`with-root` / `simulate!`, and `flush!`'s React-`act`
+  half) lands with the mount/reactivity slices (S1c/S2) — `query` has no
+  live behaviour yet; `flush!`'s host-agnostic epoch-drain half is landed
+  (S2d, the global spelling of the Q51 flush scope ruling).
 
   ## JVM semantics under test (06 §1 subset)
 
@@ -464,6 +466,32 @@
   events, re-render, assert on the new tree."
   [frame-target event]
   (router/dispatch-sync! event {:frame frame-target})
+  nil)
+
+;; ---------------------------------------------------------------------------
+;; flush! — the epoch drain (07 §2 "act + epoch drain + commit — the only
+;; flush idiom")
+;; ---------------------------------------------------------------------------
+
+(defn flush!
+  "`(flush!)` — the TEST-ONLY GLOBAL all-roots flush (07 §2's single flush
+  idiom): synchronously drain EVERY pending ViewCell notification, closing
+  the framework epoch so pending sub deltas advance their cells' revisions
+  before the test's next assertion.
+
+  This is the GLOBAL spelling of the Q51 scope ruling (03 §3; recorded in
+  `re-frame.ui.reactive`): app code forces PER-ROOT (`ui/flush!`, S2f) or
+  per-frame (`reactive/flush-frame!`); only the test surface flushes every
+  root at once. Returns nil.
+
+  Scope note — the epoch-drain half is host-agnostic and lands here; the
+  `act()`/`flushSync` wrapping that also settles React's own commit for a
+  MOUNTED Tier-3 root (`with-root`) rides the mount slice, since no mounted
+  root exists to settle until then. On the JVM Tier-1 surface renders are
+  one-shot (no mounted cells), so a `flush!` there drains an empty registry
+  — honest, not a stub."
+  []
+  (reactive/flush-pending!)
   nil)
 
 ;; ---------------------------------------------------------------------------
