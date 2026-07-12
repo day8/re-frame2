@@ -28,6 +28,11 @@
    [badge {:label title}]
    [:p "count=" n]])
 
+(defview greeting
+  "Reads a sub — the Tier-1 headless read path (03 §3)."
+  []
+  [:h1.greeting (ui/sub [:greeting/text])])
+
 (defn- err-id [thunk]
   (try
     (thunk)
@@ -168,7 +173,41 @@
   (is (= 1 (:rf.ui/tree-version
             (uit/render badge {:props {:label "x"}
                                :sub-overrides {[:cart/locked?] true}})))
-      "the override door validates + binds; consumed by the S2 read slice"))
+      "the override door validates + binds; a sub-free view is inert"))
+
+;; ---------------------------------------------------------------------------
+;; S2b — the Tier-1 headless sub read (03 §3): a real read against a frame,
+;; and the explicit override door intercepting it
+;; ---------------------------------------------------------------------------
+
+(deftest sub-read-against-a-frame
+  (rf/reg-sub :greeting/text (fn [db _] (:greeting db)))
+  (let [f    (uit/frame {:app-db {:greeting "hello"}})
+        tree (uit/render greeting {:frame f})]
+    (is (= "hello" (uit/text (uit/find tree :h1)))
+        "the compiled view's (sub …) reads the real cache value on the JVM"))
+  (testing "app-db movement is reflected on re-render (headless read points)"
+    (rf/reg-event ::set-greeting
+      (fn [{:keys [db]} [_ v]] {:db (assoc db :greeting v)}))
+    (let [f (uit/frame {:app-db {:greeting "hi"}})]
+      (uit/dispatch! f [::set-greeting "bye"])
+      (is (= "bye" (uit/text (uit/find (uit/render greeting {:frame f}) :h1)))
+          "a re-render reads the moved value"))))
+
+(deftest sub-read-honours-the-override-door
+  (rf/reg-sub :greeting/text (fn [db _] (:greeting db)))
+  (let [f    (uit/frame {:app-db {:greeting "real"}})
+        tree (uit/render greeting {:frame f
+                                   :sub-overrides {[:greeting/text] "pinned"}})]
+    (is (= "pinned" (uit/text (uit/find tree :h1)))
+        "the explicit override door intercepts the read (Story-override door,
+         JVM spelling — 03 §3)")))
+
+(deftest sub-read-unknown-sub-is-fail-loud
+  (let [f (uit/frame {:app-db {}})]
+    (is (= :rf.error/no-such-sub
+           (err-id #(uit/render greeting {:frame f})))
+        "an unregistered entry sub is fail-loud through the observation port")))
 
 ;; ---------------------------------------------------------------------------
 ;; Frame opts — :app-db mints (and destroys) a test frame; :frame targets

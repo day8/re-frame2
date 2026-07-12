@@ -204,14 +204,20 @@
     (is (nil? (get-in (tree/render dyn-handler {:h nil}) [:children 0 :events]))
         "nil -> the entry is dropped")))
 
-(deftest sub-grammar-compiles-reads-land-s2
+(deftest sub-grammar-compiles-untaken-branch-renders
   (is (= {:view-id ::subby :props {:read? false} :rf.ui/tree-version 1
           :children [{:tag :div}]}
          (tree/render subby {:read? false}))
-      "sub GRAMMAR compiles at S1; untaken branches render")
-  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"ui-sub-unavailable"
-                        (tree/render subby {:read? true}))
-      "no Stage-1 Tier-1 fixture may exercise a sub read"))
+      "sub GRAMMAR compiles at S1; an untaken branch renders with no read")
+  ;; S2b: reads LANDED — the staging :rf.error/ui-sub-unavailable is retired.
+  ;; tree/render is frameless, so a taken read resolves the ambient frame
+  ;; and raises honestly (a real frame-scoped read is covered in
+  ;; test-render-jvm-test via ui.test/render + a registered sub).
+  (is (= :rf.error/no-frame-context
+         (try (tree/render subby {:read? true})
+              nil
+              (catch clojure.lang.ExceptionInfo e (:rf.error/id (ex-data e)))))
+      "a live sub read with no ambient frame raises :rf.error/no-frame-context"))
 
 (deftest q5-mutual-recursion-via-declare-hint
   (is (= "pong-base"
