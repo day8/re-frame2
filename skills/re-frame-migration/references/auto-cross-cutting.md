@@ -243,7 +243,7 @@ rg -n '\(rf/reg-event-(db|fx|ctx)\b' src
 
 Detect **by slot-shape, not by interceptor identity** — a real worker missed a bare `mw/complete-progress` by anchoring on `unwrap`; flag any bare, vector, or metadata-plus-vector chain shape. (An existing metadata map with `:interceptors [...]` is already canonical; a metadata map without `:interceptors` and no following vector is fine.)
 
-> **An interceptor id-reference is NOT a load-order dependency — keep the defining ns loaded.** Moving a chain to `{:interceptors [:app/x]}` replaces a direct **value** reference (`mw/x` — which made `mw`'s namespace a compile-time `:require` dependency of this ns) with a **runtime id lookup** (`:app/x`). The id is just a keyword; it creates **no** load-order edge to the namespace whose `reg-interceptor` registers it. So if the migration also **drops that ns's `:require`** — because, with the value gone, `mw` now "looks dead" — the defining ns's `reg-interceptor` may not have run when THIS ns registers its events. `reg-event` / `reg-frame` **validate their `:interceptors` refs at registration**, so the boot throws `:rf.error/unregistered-interceptor` (per [`spec/002-Frames.md` §Validation and resolution timing](../../../spec/002-Frames.md#validation-and-resolution-timing); re-guarded again at dispatch-time chain assembly). **The fix:** every ns that references an interceptor id MUST still guarantee the defining ns **LOADS first** — either keep a **side-effecting `:require`** of the interceptor-registry ns (`(:require [app.interceptors])`, even though no symbol from it is used anymore), OR **load all interceptor-registering nses early from a foundational ns the whole app requires**, before any `reg-event` references them. "Dropping the require because the value isn't used anymore" is exactly the trap: the value is gone, but the **load-order obligation it used to carry is not**. (Same hazard for the M-17 `reg-global-interceptor` → `reg-frame` `:interceptors` fold — see [`guided-interceptors-subs.md` §M-17](guided-interceptors-subs.md#m-17--reg-global-interceptor-in-a-multi-frame-app).)
+> **An interceptor id-reference is NOT a load-order dependency — keep the defining ns loaded.** Moving a chain to `{:interceptors [:app/x]}` replaces a direct **value** reference (`mw/x` — which made `mw`'s namespace a compile-time `:require` dependency of this ns) with a **runtime id lookup** (`:app/x`). The id is just a keyword; it creates **no** load-order edge to the namespace whose `reg-interceptor` registers it. So if the migration also **drops that ns's `:require`** — because, with the value gone, `mw` now "looks dead" — the defining ns's `reg-interceptor` may not have run when THIS ns registers its events. `reg-event` / `make-frame` **validate their `:interceptors` refs at registration**, so the boot throws `:rf.error/unregistered-interceptor` (per [`spec/002-Frames.md` §Validation and resolution timing](../../../spec/002-Frames.md#validation-and-resolution-timing); re-guarded again at dispatch-time chain assembly). **The fix:** every ns that references an interceptor id MUST still guarantee the defining ns **LOADS first** — either keep a **side-effecting `:require`** of the interceptor-registry ns (`(:require [app.interceptors])`, even though no symbol from it is used anymore), OR **load all interceptor-registering nses early from a foundational ns the whole app requires**, before any `reg-event` references them. "Dropping the require because the value isn't used anymore" is exactly the trap: the value is gone, but the **load-order obligation it used to carry is not**. (Same hazard for the M-17 `reg-global-interceptor` → frame-config `:interceptors` fold — see [`guided-interceptors-subs.md` §M-17](guided-interceptors-subs.md#m-17--reg-global-interceptor-in-a-multi-frame-app).)
 
 ---
 
@@ -338,7 +338,7 @@ The adapter value is the `adapter` Var from the substrate adapter ns (e.g. `(:re
 
 > **A v1 app has no `init!` call site to "find". You must ADD one — and ADD it in the right place.** The `SEARCH` shape above assumes a `(rf/init!)` already exists (the v2-pre-rename case). A genuine v1 app has **no `init!` at all**: in v1 the registry is populated by `reg-event-*` at namespace-load and the global `app-db` ratom exists immediately, so v1 boot code dispatches freely — the canonical v1 boot is `(dispatch-sync [:initialize-db])` *then* `(reagent.dom/render …)`. M-40-as-a-rename does not cover this; for a v1 app, M-40 is an **add**, governed by this invariant.
 
-**The invariant:** `(rf/init! <adapter>)` MUST execute **before the first `dispatch` / `dispatch-sync` AND before the first render**. Under EP-0002 (the carried-frame invariant), `init!` installs adapters and runtime capabilities **only — it does NOT create any frame**. There is **no ambient `:rf/default`** the runtime synthesises for you; frame identity is *carried, not found*. So a v1 boot needs **two** adds, not one: (1) `init!`, and (2) an explicitly-registered **app frame** that boot-time dispatches and the render run *under*. You register it (`reg-frame`) and establish it as a lexical scope (`with-frame`) or React scope (`frame-provider` with its `{:frame …}` SCOPE-only shape, since the frame already exists from `reg-frame`).
+**The invariant:** `(rf/init! <adapter>)` MUST execute **before the first `dispatch` / `dispatch-sync` AND before the first render**. Under EP-0002 (the carried-frame invariant), `init!` installs adapters and runtime capabilities **only — it does NOT create any frame**. There is **no ambient `:rf/default`** the runtime synthesises for you; frame identity is *carried, not found*. So a v1 boot needs **two** adds, not one: (1) `init!`, and (2) an explicitly-created **app frame** that boot-time dispatches and the render run *under*. You create it (`make-frame`) and establish it as a lexical scope (`with-frame`) or React scope (`frame-provider` with its `{:frame …}` SCOPE-only shape, since the frame already exists from `make-frame`) — or do both in one move by mounting the root under `frame-root {:id …}` (the ENSURE boundary).
 
 **Two distinct failure modes — both are surfaced loud now.**
 
@@ -347,7 +347,7 @@ The adapter value is the `adapter` Var from the substrate adapter ns (e.g. `(:re
 
 > **Field failure mode:** placing `(rf/init! adapter)` *inside* the render fn (e.g. a `mount-gui` defn) runs it **after** the boot code's seed `dispatch-sync` and any bootstrap dispatch. Put `init!` at the **top of the boot function**, ahead of every boot-time dispatch and the render call — and wrap the boot dispatches in the app frame's scope.
 
-**Corrected canonical v2 boot order** (a v1 app ADDs *both* the `init!` line and the app-frame registration + scope). Seed via `:initial-events` — they run synchronously at `reg-frame` time, inside the frame's own scope:
+**Corrected canonical v2 boot order** (a v1 app ADDs *both* the `init!` line and the app-frame creation + scope). Seed via `:initial-events` — they run synchronously at `make-frame` time, inside the frame's own scope:
 
 ```clojure
 (ns my-app.core
@@ -361,24 +361,25 @@ The adapter value is the `adapter` Var from the substrate adapter ns (e.g. `(:re
 
 (defn ^:export init []                ; the boot entry point
   (rf/init! reagent/adapter)          ; 1. ADD: install adapter (creates NO frame)
-  (rf/reg-frame app-frame             ; 2. ADD: register the app frame, seeding
-    {:initial-events [[:initialize-db]]}) ; via :initial-events — dispatch-sync'd into
-                                      ;    the fresh frame; by the time reg-frame RETURNS,
-                                      ;    app-db already reflects the seed cascade.
+  (rf/make-frame                      ; 2. ADD: create the app frame, seeding
+    {:id app-frame                    ;    via :initial-events — dispatch-sync'd into
+     :initial-events [[:initialize-db]]}) ; the fresh frame; by the time make-frame
+                                      ;    RETURNS, app-db already reflects the seed cascade.
   (rdomc/render (rdomc/create-root el); 3. render LAST, UNDER the SCOPE-only frame-provider:
     [rf/frame-provider {:frame app-frame}  ; scope-only — frame already exists
      [app-root]]))
 ```
 
-`:initial-events` are the single seed mechanism — **do not also `dispatch-sync` the same event** from a `with-frame` wrap. The framework dispatch-syncs each `:initial-events` step into the freshly-created frame at `reg-frame` time and drains to fixed point, so by the time `reg-frame` returns the seed has already committed (verified in [`spec/002-Frames.md` §reg-frame metadata grammar](../../../spec/002-Frames.md)). Re-dispatching `[:initialize-db]` after `reg-frame` runs the same handler **twice** — harmless for an idempotent seed, but a boot handler that emits effects, starts a machine, increments a counter, or stamps durable state then double-fires. To seed multiple events, list them directly in the `:initial-events` vector, in order (see the M-15 walkthrough in [`guided-handlers-state.md`](guided-handlers-state.md#m-15--top-level-app-db-seeding)); never repeat an `:initial-events` step in a separate boot dispatch.
+`:initial-events` are the single seed mechanism — **do not also `dispatch-sync` the same event** from a `with-frame` wrap. The framework dispatch-syncs each `:initial-events` step into the freshly-created frame at `make-frame` time and drains to fixed point, so by the time `make-frame` returns the seed has already committed (verified in [`spec/002-Frames.md` §make-frame config grammar](../../../spec/002-Frames.md)). Re-dispatching `[:initialize-db]` after `make-frame` runs the same handler **twice** — harmless for an idempotent seed, but a boot handler that emits effects, starts a machine, increments a counter, or stamps durable state then double-fires. To seed multiple events, list them directly in the `:initial-events` vector, in order (see the M-15 walkthrough in [`guided-handlers-state.md`](guided-handlers-state.md#m-15--top-level-app-db-seeding)); never repeat an `:initial-events` step in a separate boot dispatch.
 
 **Extra boot work before render** (a *different* event, not the seed) — reach for an explicit `with-frame` wrap only when boot logic must run dispatches the `:initial-events` cascade doesn't already cover:
 
 ```clojure
 (defn ^:export init []
   (rf/init! reagent/adapter)
-  (rf/reg-frame app-frame
-    {:initial-events [[:initialize-db]]}) ; seed runs here, once
+  (rf/make-frame
+    {:id app-frame
+     :initial-events [[:initialize-db]]}) ; seed runs here, once
   (rf/with-frame app-frame            ; establish a scope for ADDITIONAL boot work …
     (rf/dispatch-sync [:app/extra-boot-work]))  ; … a DISTINCT event, not :initialize-db
   (rdomc/render (rdomc/create-root el)
@@ -386,7 +387,7 @@ The adapter value is the `adapter` Var from the substrate adapter ns (e.g. `(:re
      [app-root]]))
 ```
 
-Either way, **the render is wrapped in `frame-provider` (its `{:frame …}` SCOPE-only shape) for the app frame** so every bare `dispatch` / `subscribe` in the tree resolves against it. (The frame already exists from `reg-frame`, so you scope it with `{:frame …}` rather than ensure it; `frame-provider`'s other shape, `{:id …}`, would *ensure* a named frame — create-if-absent, reuse-no-reseed — which the app root doesn't need.) If the v1 boot used `(reagent.dom/render …)`, that mount call is itself a React-19 rewrite (M-42 mount-path half → `react-dom/client` `createRoot` + `render`); the **ordering** rule and the provider wrap are independent of which mount API the app lands on.
+Either way, **the render is wrapped in `frame-provider` (its `{:frame …}` SCOPE-only shape) for the app frame** so every bare `dispatch` / `subscribe` in the tree resolves against it. (The frame already exists from `make-frame`, so you scope it with `{:frame …}` rather than ensure it; the sibling `frame-root {:id …}` component *ensures* a named frame — create-if-absent, reuse-no-reseed — which this boot shape doesn't need because `make-frame` already created it.) If the v1 boot used `(reagent.dom/render …)`, that mount call is itself a React-19 rewrite (M-42 mount-path half → `react-dom/client` `createRoot` + `render`); the **ordering** rule and the provider wrap are independent of which mount API the app lands on.
 
 > **The boot kick is the SYNCHRONOUS sibling of a larger no-frame-context class — the async one needs a DIFFERENT fix.** Wrapping the synchronous boot dispatch in `with-frame` works only because the dispatch runs *while the binding is live*. A bare `dispatch` / `subscribe` that runs **after** boot from an async callback registered outside any view — a module-level `addEventListener` (popstate / hashchange), a `setTimeout` / `setInterval` / `requestAnimationFrame` timer, a `window 'error'` handler, a JS-lib lifecycle callback — raises the same `:rf.error/no-frame-context`, but a registration-time `with-frame` does **not** survive into the callback; the frame must be re-established **inside** it. See [`guided-handlers-state.md` §The async listener timer and error-handler class](guided-handlers-state.md#the-async-listener-timer-and-error-handler-class).
 

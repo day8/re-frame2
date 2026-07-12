@@ -4,8 +4,9 @@ The **normal** way an app ships event + error records to Datadog / Sentry / Hone
 
 ```clojure
 ;; The normal path: frame :observability + a registered sink fn.
-(rf/reg-frame :rf/default
-  {:observability {:handled-events [{:sink :my-app.sinks/datadog
+(rf/make-frame
+  {:id :rf/default
+   :observability {:handled-events [{:sink :my-app.sinks/datadog
                                      :rf.egress/profile :rf.egress/off-box-observability}]
                    :errors         [{:sink :my-app.sinks/sentry
                                      :rf.egress/profile :rf.egress/off-box-observability}]}})

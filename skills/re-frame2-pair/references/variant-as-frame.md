@@ -16,7 +16,7 @@ Do **not** load this leaf to author variants — that lives in `skills/re-frame2
 Per [`spec/007-Stories.md` §Relationship with frames](../../../spec/007-Stories.md) and [`tools/story/spec/002-Runtime.md` §Per-variant frame allocation](../../../tools/story/spec/002-Runtime.md), at variant-mount time the Story runtime calls:
 
 ```clojure
-(rf/reg-frame variant-id {:doc ... :preset :story :rf/story? true :rf/variant variant-id ...})
+(rf/make-frame {:id variant-id :doc ... :preset :story :rf/story? true :rf/variant variant-id ...})
 ```
 
 (The frame is created with `:preset :story` plus the `:rf/story?` / `:rf/variant` marker keys; app-db seeding rides the variant's `:loaders` / `:events` as setup events, not a create-time `:app-db` key. There is no `:initial-db` config seed.) The `variant-id` keyword (e.g. `:story.counter/loaded`) is BOTH the variant id Story tracks in its side-table AND the frame id re-frame2's registrar knows — the same keyword, no separate "frame-id for this variant". **No resolver step needed.** Anywhere re-frame2-pair's ops take a `frame: ":foo"` arg (or `{:frame <id>}` in the runtime helpers), pass the variant id directly.
@@ -65,7 +65,7 @@ Each variant has its own isolated copy of every per-frame surface. State does no
 
 A frame resolves behaviour against its **resolved image generation** (the image selects the registration set — SKILL.md §Multi-frame model). In a single-installation app (the Story case) the global `reg-event`, `reg-sub`, `reg-fx`, `reg-machine`, `reg-view`, `reg-decorator`, etc. register into one shared set, and every variant/frame sharing it sees them. Hot-swapping a handler via re-frame2-pair's `eval-cljs` affects every variant sharing that set — useful for the experiment loop (`recipes.md §Experiment loop`), occasionally surprising if you expected variant-scoped isolation.
 
-If you need a handler change to affect *only* one variant, use the per-frame `:interceptor-overrides` slot on `reg-frame` (Spec 002 §Per-frame overrides) — but Story's variant-mount doesn't expose this directly; you'd need to mutate the variant's frame metadata via `eval-cljs`. Usually the right move is to dispatch different args into different variants rather than reach for per-frame overrides.
+If you need a handler change to affect *only* one variant, use the per-frame `:interceptor-overrides` slot on the frame config (Spec 002 §Per-frame overrides) — but Story's variant-mount doesn't expose this directly; you'd need to mutate the variant's frame metadata via `eval-cljs`. Usually the right move is to dispatch different args into different variants rather than reach for per-frame overrides.
 
 ## Discovering the current variant
 

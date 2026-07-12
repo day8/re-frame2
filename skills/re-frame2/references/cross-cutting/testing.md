@@ -141,9 +141,8 @@ Pin at the boundary that owns it: a caller-pinned id is simplest on the **event 
   (rf/dispatch-sync [:counter/inc])
   (ts/assert-path-equals [:n] 1))
 
-(rf/with-new-frame [f (rf/reg-frame :stories {})]  ;; new frame, symbol AND dynamic var
-  (is (= :stories f))                              ;; reg-frame returns the id
-  (is (= :stories (rf/current-frame-id))))
+(rf/with-new-frame [f (rf/make-frame {:id :stories})]  ;; new frame, symbol AND dynamic var
+  (is (= :stories (rf/current-frame-id))))             ;; make-frame returns the frame VALUE
 ```
 
 On CLJS reach the macro via `rf/with-frame` after `(:require [re-frame.core :as rf])`, or `:require-macros [re-frame.core :refer [with-frame]]`. On JVM use the `(rf/with-frame frame-id (fn [] ...))` function form.
@@ -348,7 +347,7 @@ For HTTP stubs, the fn form lets the test return a canned response shape without
                                    {:frame (:frame m)})))}})
 ```
 
-Per-frame `:fx-overrides` in `reg-frame` accepts the same fn-value form, so a test frame can install a stub once for every dispatch routed to it. The id-keyword form (`{:rf.http/managed :rf.http/managed-canned-success}`) is the portable pattern-level form — use it when the stub is shared across many tests or when SSR / serialisation is in play; reach for the fn form when one test wants a bespoke response.
+Per-frame `:fx-overrides` in the frame config accepts the same fn-value form, so a test frame can install a stub once for every dispatch routed to it. The id-keyword form (`{:rf.http/managed :rf.http/managed-canned-success}`) is the portable pattern-level form — use it when the stub is shared across many tests or when SSR / serialisation is in play; reach for the fn form when one test wants a bespoke response.
 
 ## Discovering a project's gates
 

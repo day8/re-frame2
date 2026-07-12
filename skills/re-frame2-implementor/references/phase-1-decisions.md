@@ -187,7 +187,7 @@ Already locked in D2 (the substrate / view-layer choice). Recorded here for cros
 
 **Options.** figwheel/shadow-cljs (CLJS); Vite HMR (JS/TS) — and the analogous Vite-HMR-compatible source-build pipeline for each in-scope host (Squint, Fable, Scala.js, PureScript, Kotlin/JS, Melange / ReScript / Reason).
 
-**Constraint.** Re-registration emits `:rf.registry/handler-replaced` per [`spec/001-Registration.md` §Hot-reload semantics](https://day8.github.io/re-frame2/spec/001-Registration/). Frame state preserved across re-registration of `reg-frame`.
+**Constraint.** Re-registration emits `:rf.registry/handler-replaced` per [`spec/001-Registration.md` §Hot-reload semantics](https://day8.github.io/re-frame2/spec/001-Registration/). Frame state preserved across re-construction via `make-frame`.
 
 **Where the spec speaks.** [Implementor-Checklist §F6](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#f6-hot-reload-primitive).
 
@@ -323,7 +323,7 @@ From [Implementor-Checklist §Errors](https://day8.github.io/re-frame2/spec/Impl
 
 There are **two distinct public ways** to consume that production error stream — keep them straight:
 
-- **The NORMAL off-box error path is the frame-owned `:observability :errors` sink.** Declare the policy on `reg-frame` and wire the concrete sink fn with `register-observability-sink!`. The sink receives an **already-projected** record (sensitive paths redacted, the host `:exception` dropped under `:rf.egress/public-error`) — this is the privacy/egress-respecting Sentry / Rollbar / hosted-monitor path, and the one a port should reach for first.
+- **The NORMAL off-box error path is the frame-owned `:observability :errors` sink.** Declare the policy on the frame config and wire the concrete sink fn with `register-observability-sink!`. The sink receives an **already-projected** record (sensitive paths redacted, the host `:exception` dropped under `:rf.egress/public-error`) — this is the privacy/egress-respecting Sentry / Rollbar / hosted-monitor path, and the one a port should reach for first.
 - **`register-listener! :errors` is the ADVANCED corpus-wide hook**, NOT the off-box default. It fans the record across EVERY frame UNPROJECTED (`:event` wire-elided, but `:exception` rides RAW under no frame egress policy), for an intentionally cross-frame post-mortem shipper that needs the raw throwable + stack. Reach for it only when the frame-sink routing does not carry the record.
 
 This is the single error-observability surface; recovery is the framework's typed per-category default — there is **no app-steering recovery policy**. Per-listener exceptions are isolated (one listener / sink throwing must not abort the cascade). Strings-as-errors are out — every error has an `:operation` namespaced keyword and a `:tags` map. Design the error path so it does NOT ride only the dev-elided trace surface, or production error reporting silently vanishes. The public listener surface is the stream-parameterized `register-listener!` / `unregister-listener!` verb; there are no `register-(event|error)-listener!` / `unregister-(event|error)-listener!` facade functions — those bare names are internal namespace functions only (`re-frame.event-emit` / `re-frame.error-emit`), never on the public facade.

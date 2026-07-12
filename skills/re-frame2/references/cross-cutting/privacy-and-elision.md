@@ -71,7 +71,7 @@ Wire the init event with `:initial-events [[:app/init]]` so the classification i
 - **Sensitive wins over large.** A path that's both redacts as sensitive and emits *no* size marker (the marker's `:path` / `:bytes` would themselves leak structure).
 - Malformed effect payloads (a non-vector value, a non-path entry, an unknown axis) **fail loud pre-commit** with `:rf.error/classification-effect-shape` — the transition aborts, no `:db` commits.
 
-There is **no frame `:sensitive {:app-db …}` annotation** and **no schema-prop route** to classify a durable app-db path — the event is app-db's definition site, full stop. App-specific HTTP carrier names ride the `:rf.http/managed` `reg-fx` registration's `:carriers` block (transient-payload case; the earlier frame `:sensitive {:http …}` block is removed); observability sink policy *does* still live on the frame ([§Choosing where observations go](#choosing-where-observations-go-frame-observability)). A `reg-frame` carrying `:sensitive` or `:large` now fails loud.
+There is **no frame `:sensitive {:app-db …}` annotation** and **no schema-prop route** to classify a durable app-db path — the event is app-db's definition site, full stop. App-specific HTTP carrier names ride the `:rf.http/managed` `reg-fx` registration's `:carriers` block (transient-payload case; the earlier frame `:sensitive {:http …}` block is removed); observability sink policy *does* still live on the frame ([§Choosing where observations go](#choosing-where-observations-go-frame-observability)). A frame config carrying `:sensitive` or `:large` now fails loud.
 
 ## 2 — Subsystem-owned: machine and resource instance data
 
@@ -127,8 +127,9 @@ A secret carried positionally (`[:auth/login "alice" "hunter2"]`) has **no stabl
 Sink policy is the other thing you declare. Production observability — the always-on handled-event / error records that survive a release build — is routed by frame `:observability`:
 
 ```clojure
-(rf/reg-frame :app/main
-  {:observability
+(rf/make-frame
+  {:id :app/main
+   :observability
    {:handled-events [{:sink :my-app.sinks/datadog
                       :rf.egress/profile :rf.egress/off-box-observability
                       :opts {:service "checkout-spa" :env "prod"}}]
@@ -233,7 +234,7 @@ These names are not part of the API. Reaching for any of them is a wrong turn �
 | Surface that does not exist | Use instead |
 |---|---|
 | `add-marks` / `set-marks` / `clear-app-db-marks!` — imperative post-creation app-db marks | the `:sensitive` / `:large` / `:clear-sensitive` / `:clear-large` **classification effects** a handler returns. Durable app-db classification is declared from the writing event; there is no imperative mark API |
-| frame `:sensitive` / `:large` keys (durable `:app-db` annotation + the `:sensitive {:http …}` HTTP carrier block) | the four classification effects (durable app-db) + the `:rf.http/managed` `:carriers` block (HTTP carriers). A `reg-frame` carrying `:sensitive` or `:large` is rejected fail-loud. (The frame still owns the `:observability` sink policy — a different surface.) |
+| frame `:sensitive` / `:large` keys (durable `:app-db` annotation + the `:sensitive {:http …}` HTTP carrier block) | the four classification effects (durable app-db) + the `:rf.http/managed` `:carriers` block (HTTP carriers). A frame config carrying `:sensitive` or `:large` is rejected fail-loud. (The frame still owns the `:observability` sink policy — a different surface.) |
 | schema-attached `{:sensitive? true}` on an **app-db** `reg-app-schema` slot | the `:sensitive` classification effect. (The same `:sensitive?` prop on an **HTTP `:decode`-body** schema is *correct and live* — the transient-payload route; on a **machine `[:schemas :data]` slot or a resource `:data-schema`** it drives only validation-failure-trace redaction, not snapshot egress — see [the subsystem row](#2--subsystem-owned-machine-and-resource-instance-data).) |
 | schema-prop driving machine `:data` snapshot redaction | projection-relative `:sensitive` / `:large` on the `reg-machine` definition. Machine `:data` durable classification travels with the machine definition, lowered per actor instance — not its `[:schemas :data]` |
 | **any sensitivity propagation** — input → output inheritance through subs / flows, and an `:rf.egress/output-sensitivity` declassification claim | classify the output path directly. Nothing propagates; a derived secret is just a classified db path (see [no propagation](#no-propagation-no-taint)) |

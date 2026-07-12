@@ -165,7 +165,7 @@ If a build *is* running but discovery picks the wrong port (`connection refused`
 
 ### `:no-frames-registered`
 
-The app hasn't established its app frame yet (or the only frame was destroyed). `init!` installs only the adapter and creates no frame under EP-0002, so calling it won't help — wait for boot, or have the app register its frame at the root (e.g. a root `frame-root {:id ...}`, or `reg-frame`).
+The app hasn't established its app frame yet (or the only frame was destroyed). `init!` installs only the adapter and creates no frame under EP-0002, so calling it won't help — wait for boot, or have the app establish its frame at the root (e.g. a root `frame-root {:id ...}`, or `make-frame`).
 
 ### `:ambiguous-frame`
 

@@ -76,7 +76,7 @@
  ;; installs only the adapter). The boot dispatch
  ;; runs under the frame scope and the render is wrapped in
  ;; `frame-provider`'s {:frame …} SCOPE-only shape (the frame already exists
- ;; from reg-frame) so the reg-view-injected dispatch/subscribe resolve to it.
+ ;; from make-frame) so the reg-view-injected dispatch/subscribe resolve to it.
  ;; re-frame2-pair attaches over nREPL and operates this frame.
  (rf/init! reagent-adapter/adapter)
  (rf/make-frame {:id :rf/default})

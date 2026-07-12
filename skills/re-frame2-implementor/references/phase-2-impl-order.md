@@ -82,7 +82,7 @@ Per [`spec/Conventions.md` §The `:rf/path` algebra / §Canonical EDN identity /
 
 ## EP 002 — Frames + events + effects + subscriptions
 
-**Read first.** [`spec/002-Frames.md`](https://day8.github.io/re-frame2/spec/002-Frames/) — this is the spec's biggest chapter and most load-bearing. Plan two reads: one for the frame contract, one for the drain semantics. Keep the `reg-event` / `reg-sub` / `reg-fx` / `reg-cofx` / `dispatch` / `subscribe` / `reg-frame` entries in [`spec/API.md`](https://day8.github.io/re-frame2/spec/API/) open for the exact public signatures.
+**Read first.** [`spec/002-Frames.md`](https://day8.github.io/re-frame2/spec/002-Frames/) — this is the spec's biggest chapter and most load-bearing. Plan two reads: one for the frame contract, one for the drain semantics. Keep the `reg-event` / `reg-sub` / `reg-fx` / `reg-cofx` / `dispatch` / `subscribe` / `make-frame` entries in [`spec/API.md`](https://day8.github.io/re-frame2/spec/API/) open for the exact public signatures.
 
 **The contract.**
 
@@ -93,7 +93,7 @@ Per [`spec/Conventions.md` §The `:rf/path` algebra / §Canonical EDN identity /
 - **Six-step pipeline.** Per the EP — coeffect assembly → event handler → effects map → fx routing → side-effects → trace. Coeffect assembly delivers the handler's **declared** coeffects (`:rf.cofx/requires`) flat into the coeffects map alongside the fold's own `:db` / `:event` and the framework context keys `:rf.db/runtime` / `:rf.frame/id` (see [The world-input contract](#the-world-input-contract-ep-0010)).
 - **Run-to-completion drain.** Per frame; an event's cascade settles before the next event is processed. Async fx schedule and re-enter via `:dispatch`.
 - **Subscription system.** Query → value-from-state with stable composition. Layer-1 app subs read the **app-db** projection; layer-1 framework subs read the **runtime-db** projection; layer-2+ compose via `:<-`. Cache invalidates by `=`-equality, **partition-aware** — a runtime-only commit does not invalidate app subs, and an app-only commit does not invalidate framework subs (see the two-partition note below).
-- **`reg-frame` is atomic** create-and-register. Frame state (both partitions) is preserved across `reg-frame` re-registration for hot-reload.
+- **`make-frame` is atomic** create-and-register. Frame state (both partitions) is preserved across `make-frame` re-construction for hot-reload.
 
 #### The two-partition frame contract
 
