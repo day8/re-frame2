@@ -37,6 +37,10 @@
     (h) parallel-region explicit `:on {:rf.machine.spawn/error …}` escape
         hatch is REGION-scoped — a sibling region's explicit
         handler must NOT catch another region's child failure.
+    (i) a parallel-region `:spawn :on-error` GUARD reading the invoke-id off
+        `(nth ev 1)` sees the region-RELATIVE path (`[:working]`), NOT the
+        region-prefixed `[:loader :working]`, so it matches (before the
+        region-relative event re-stamp the guard never matched).
 
   Named `*-cljs-test.cljc` so it runs under both cognitect.test-runner (JVM)
   and shadow-cljs (CLJS), matching `final_state_cljs_test.cljc`."
@@ -526,3 +530,51 @@
           "the :loader region's own explicit :on {:rf.machine.spawn/error …} caught its child's failure (its guarded :on-error missed → fell through to the in-region explicit :on)")
       (is (= :idle (get-in (snapshot :rf2-w84jv-h/parent) [:state :other]))
           "the sibling :other region's DECOY explicit :on handler did NOT fire — the explicit escape hatch is region-scoped"))))
+
+;; ---- (i) region :spawn :on-error GUARD reads the region-RELATIVE invoke-id ----
+;;
+;; The synthetic spawn-error event is `[:rf.machine.spawn/error <invoke-id>
+;; <error>]`. For a `:spawn` declared inside a parallel REGION the invoke-id is
+;; region-PREFIXED (`[:loader :working]`). `pick-spawn-error-transition` strips
+;; the region head so the resolver routes region-relative — but the event a
+;; guard / action reads off `(nth ev 1)` must be re-stamped region-relative too,
+;; SYMMETRIC with `pick-done-transition`. Without the re-stamp a region
+;; `:on-error` guard testing the invoke-id sees the region-PREFIXED
+;; `[:loader :working]` and NEVER matches (the region stays put). This asserts
+;; the guard reading `(nth ev 1)` sees the region-RELATIVE `[:working]` and
+;; fires the transition.
+
+(deftest parallel-region-spawn-on-error-guard-reads-region-relative-invoke-id
+  (testing "a region :spawn :on-error guard reading (nth ev 1) matches on the region-RELATIVE invoke-id (rf2-cttpk4)"
+    (rf/reg-machine :rf2-cttpk4-i/child
+      {:initial :running
+       :data    {}
+       :states  {:running {:on {:boom {:target :failed
+                                       :action (fn [{data :data ev :event}]
+                                                 {:data (assoc data :err (second ev))})}}}
+                 :failed  {:final?     true
+                           :error?     true
+                           :output-key :err}}})
+    (rf/reg-machine :rf2-cttpk4-i/parent
+      {:type    :parallel
+       :data    {}
+       :regions {:loader {:initial :working
+                          :states  {:working {:spawn {:machine-id :rf2-cttpk4-i/child
+                                                      ;; The guard branches on the invoke-id
+                                                      ;; carried at (nth ev 1). It must be the
+                                                      ;; region-RELATIVE [:working], NOT the
+                                                      ;; region-prefixed [:loader :working].
+                                                      :on-error {:guard  (fn [{ev :event}]
+                                                                           (= [:working] (nth ev 1)))
+                                                                 :target :errored}}}
+                                    :errored {}}}
+                 :other  {:initial :idle
+                          :states  {:idle {}}}}})
+    (rf/dispatch-sync [:rf2-cttpk4-i/parent [:rf.machine.spawn/spawned]])
+    (let [child (spawned-id-for :rf2-cttpk4-i/parent [:loader :working])]
+      (is (some? child) "child spawned under the real parent in the :loader region")
+      (rf/dispatch-sync [child [:boom :network-down]])
+      (is (= :errored (get-in (snapshot :rf2-cttpk4-i/parent) [:state :loader]))
+          "the :on-error guard matched on the region-RELATIVE invoke-id [:working] → :loader moved to :errored (before the region-relative re-stamp the guard saw the region-prefixed [:loader :working], never matched, and the region stayed :working)")
+      (is (= :idle (get-in (snapshot :rf2-cttpk4-i/parent) [:state :other]))
+          "the sibling :other region is untouched"))))
