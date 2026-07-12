@@ -258,7 +258,10 @@
 (defn- jvm-root-semantic [form]
   (let [{:keys [ast]} (analyze-mount-form form)
         tree ((eval `(fn [] ~(emit-jvm/emit-node ast))))]
-    (semantic/normalize tree)))
+    ;; the raw emitted root node bypasses `tree/render`, which is what
+    ;; stamps `:rf.ui/tree-version` in the real path — stamp it here so
+    ;; the semantic-version gate sees a well-formed v1 root (rf2-vxgfnd.20).
+    (semantic/normalize (assoc tree :rf.ui/tree-version tree/tree-version))))
 
 (deftest frame-root-is-transparent-in-the-jvm-tree
   (let [wrapped '[re-frame.ui/frame-root {:id :chat/frame}
