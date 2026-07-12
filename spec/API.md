@@ -219,6 +219,39 @@ The multi-frame surface is organised by **intent**, not mechanism (a front-porch
 
 ---
 
+## Compiled views — `re-frame.ui` (Spec 004)
+
+> **Additive, staged.** The `re-frame.ui` namespace (alias `ui`, artefact `day8/re-frame2-ui`) is the compiled-view substrate ([Spec 004](004-Views.md)). Each row carries the **stage** (S1–S7) whose conformance slice asserts it (per [Spec 004 §Stage conformance profiles](004-Views.md#stage-conformance-profiles)); S1 rows are live now, later-stage rows are declared-not-yet-asserted. The blessed S1 export set is exactly `#{defview custom-element sub lease raw html raw-fn spread mount create-root render! hydrate-root unmount! frame-root}`. The frozen `reg-view` family ([§Registration](#registration)) is **unchanged**; it re-statuses to the compatibility tier only at the S7 adapter deletion wave — not now.
+
+| API | M/Fn | Signature | Stage | Tier | Notes |
+|---|---|---|---|---|---|
+| `defview` | M | `(ui/defview name ?doc ?opts [props] body+)` | S1 | front-porch | The one component form — a pure `(props) → template` fn; defs a Var AND registers under the registrar `:view` kind. Zero/one arg (a props map; no positional args). Closed opts `#{:props :id :display-name}`. Memoised by default on the generated `rf=` comparator. |
+| `custom-element` | M | `(ui/custom-element tag {:properties #{…}})` | S4 | advanced | Declares a custom element's property-vs-attribute classification; `:properties` is the entire v1 grammar (options map closed). |
+| `sub` | Fn | `(ui/sub [:query …])` → value | S2 | front-porch | Compile-indexed reactive read; one React bridge per view; `sub` in loops is a compile error. |
+| `local` | Fn | `(ui/local init)` → `[value set!]` | S3 | front-porch | Host component-local ephemeral state, outside re-frame2 epochs (the narrow placement rule, [Spec 004](004-Views.md#local-state--local--and-the-placement-rule-this-spec-owns-the-rule)). |
+| `effect` | M | `(ui/effect [deps…] body)` / `(ui/effect :connect body)` | S3 | advanced | Passive host effect; `rf=` deps; cleanup on dep change/disconnect/unmount. No "once"/"mount" name. |
+| `lease` | Fn | `(ui/lease descriptor)` | S2 → S3 | advanced | Declares resource liveness; reconciled by one aggregated post-commit effect (per [016](016-Resources.md)). |
+| `dispatch-fn` | Fn | `(ui/dispatch-fn)` → fn | S3 | advanced | The stable committed-frame dispatcher for imperative callbacks; fails loud in every non-connected state (`:rf.error/dispatch-disconnected`). |
+| `presence` | M | `(ui/presence {:timeout-ms n} children)` | S4 | advanced | Declarative enter/exit retention; `:timeout-ms` mandatory. |
+| `presence-phase` | Fn | `(ui/presence-phase)` → `:mounting`/`:present`/`:unmounting` | S4 | advanced | The single presence-phase read; `:present` outside a boundary. |
+| `raw` | Fn | `(ui/raw react-element)` | S1 → S4 | advanced | Embed an existing React element (child position; SSR needs a `client-only` sibling fallback). |
+| `raw-fn` | Fn | `(ui/raw-fn f)` | S3 | advanced | Pass a callback through by identity (callback-ref form; identity-as-protocol APIs). |
+| `html` | M | `(ui/html string)` | S1 | advanced | Trusted markup — the one explicit escaping bypass; both emitters treat it identically; the site is recorded in the compiler manifest. |
+| `spread` | Fn | `(ui/spread base overrides)` | S1 | advanced | The one generic runtime prop-map conversion (the single dynamic-map path, driven by the owning rule table). |
+| `->react` | Fn | `(ui/->react view)` → React component | S6 | advanced | Export a view as a React component (the outward migration bridge); memoised per view id. |
+| `error-boundary` | M | `(ui/error-boundary {:fallback … :reset-key … :on-error […]} child)` | S3 | advanced | The explicit error component; `:on-error` dispatches after the failing commit through a captured live frame. |
+| `client-only` | M | `(ui/client-only {:fallback tpl} client-tpl)` | S3 → S5 | advanced | Browser-only subtree; mandatory capability-free fallback; one root phase-flip swaps all sites (per [011](011-SSR.md)). |
+| `mount` | M | `(ui/mount root-form dom-node ?opts)` | S1 | front-porch | Macro over a literal root form; carries root identity in opts (Root Descriptor v1, [Spec 004C](004C-Roots-and-Mount.md)). |
+| `create-root` | Fn | `(ui/create-root dom-node opts)` → Root | S1 | advanced | Identity fixed for the Root's lifetime. |
+| `render!` | M | `(ui/render! root root-form)` | S1 | advanced | Render/re-render the literal root form into a Root. |
+| `hydrate-root` | M | `(ui/hydrate-root dom-node root-form ?opts)` → Root | S1 → S5 | advanced | Hydrating mount; identity comes FROM the manifest (supplying client identity opts is `:rf.error/root-manifest-invalid`). |
+| `unmount!` | Fn | `(ui/unmount! root)` | S1 | advanced | Total teardown; unregisters the root-id. |
+| `frame-root` | — | `[ui/frame-root {:id …} …]` | S1 → S2 | front-porch | Top-region root-form marker; scopes an already-live frame (frames are created at host preflight, per [002](002-Frames.md)). |
+| `element` / `view` / `portal` | — | — | [WAVE-2] | — | Runtime-chosen element/component (`ui/element`), registry-addressed component (`ui/view`), React portal (`ui/portal`) — demand-gated, no v1 existence. `re-frame.ui.data` (the runtime UI interpreter) is a reserved future separate artefact. |
+| `re-frame.ui.test` | — | see [008](008-Testing.md) | S1 | testing | The Tier-1 headless test surface (`render` / `find` / `find-all` / `query` / `text` / `attrs` / `frame`; `flush!` staged S2, `flush-presence!` S4) — contract in [008](008-Testing.md); selector grammar [004D](004D-UI-Test-Selectors.md); node reading [004B](004B-UI-Tree-and-Conversion.md). |
+
+---
+
 ## Reagent adapter (Spec 006)
 
 Reagent-specific surfaces live in `re-frame.adapter.reagent` (artefact `day8/re-frame2-reagent`, the browser default). Reagent is the default substrate; its `frame-provider` Component is rowed in [§View ergonomics](#view-ergonomics) and the `reg-view` macro in [§Registration](#registration), not here. Apps targeting Reagent `:require [re-frame.adapter.reagent :as reagent-adapter]` and pass `reagent-adapter/adapter` to `(rf/init! …)`.
