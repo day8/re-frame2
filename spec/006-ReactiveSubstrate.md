@@ -1154,6 +1154,47 @@ The port and the public read API split deliberately ⟨09 codex2 F1 — binding�
   propagating only on cold probes would make probe temperature observable — cold probes
   are first-class, so both temperatures recover identically. Port-entry conditions
   remain fail-loud.)*
+- **`acquire!` fails loud when the ENTRY node's own build cannot cache.** `acquire!` IS
+  the ref-count **attach** ([§The port operations](#the-port-operations-final)) — it must return a lease over a REAL cached node holding a
+  real reference. Three build outcomes hand back a **non-nil but never-cached, zero-ref
+  recovery reaction** instead of a canonical node: a **cyclic entry sub** (the target's
+  own query sits on a `:<-` cycle, so the build recovers to a nil-yielding reaction that
+  is deliberately NOT cached — [§Subscription cache](#subscription-cache--contract-and-operational-semantics)), a **parametric `input-fn` failure** (the entry sub's
+  `input-fn` threw or returned a value outside the input grammar — [§Subscription input
+  producers](#subscription-input-producers--app-db-reader-static-parametric-input-fn)), and a **frame destroyed mid-build** (the frame's cache vanished between the
+  port's liveness check and the build's cache-install step — the JVM race). In every
+  case there is **no node to own**, so `acquire!` is **fail-loud** and throws the typed
+  error mirroring the condition rather than lease a reaction that owns nothing:
+  `:rf.error/sub-cycle` (cyclic entry sub), `:rf.error/sub-input-fn-exception` /
+  `:rf.error/sub-input-fn-bad-return` (parametric failure), `:rf.error/frame-destroyed`
+  (mid-build destroy race — the same catalogue id and throwing surface a
+  destroyed-frame entry already uses). **The invariant is binding: a lease MUST NOT
+  report `owned?` true without a real cache ref + attach** — a lease that claims
+  ownership of an uncached zero-ref reaction is `current? false` from birth, so every
+  commit retargets and rebuilds a fresh orphan + node record + disposal hook and
+  re-emits — structural churn instead of one honest typed throw. (rf2-vxgfnd.27.)
+  - **Emit discipline — one always-on record, never a duplicate.** The parametric
+    categories already fan their always-on record from the build ([009 §Error event
+    catalogue](009-Instrumentation.md#error-event-catalogue)), so the port re-throws the same id **without** a second fan.
+    `:rf.error/frame-destroyed` fans + throws through the port's existing throwing
+    surface (the build emits nothing for the race). `:rf.error/sub-cycle` **stays
+    diagnostic** (its 009 channel is unchanged — it is emitted on the dev trace channel
+    by the build); the port throws the typed carrier to the ViewCell error boundary but
+    does **not** promote sub-cycle to the always-on axis.
+  - **This is the entry-node line, not the mid-graph line.** The bullet above governs a
+    sub **body's** `:<-` reference to a failing/cyclic INPUT: that recovers to nil and
+    the ENTRY node still caches normally, so `acquire!` takes ownership of the real
+    entry node (a nested recovery never blocks the attach). The fail-loud rule here
+    governs only the case where the **entry node itself** cannot be cached.
+  - **`acquire!` and `probe` diverge here by design, exactly as they do for a
+    destroyed frame.** `probe` recovers a cyclic / parametric-failed entry query to a
+    pure evidence `nil` (a legitimate value to render, identical cold and live — the
+    bullet above), because a probe produces a *value*. `acquire!` must attach a
+    *reference to a node that structurally cannot exist*, so it cannot recover — it
+    fails loud, and the ViewCell maps the throw to the view error boundary
+    (loud-at-the-seam; the public `subscribe` surface keeps its recover-to-nil
+    semantics unchanged). This is the same probe-recovers / acquire-throws split the
+    port already draws for `:rf.error/frame-destroyed`.
 
 ### The slice-scoped probe memo
 

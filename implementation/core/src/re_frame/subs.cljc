@@ -625,6 +625,40 @@
 
 (declare subscribe subscribe-in-frame unsubscribe compute-and-cache!)
 
+;; ---- observation-port acquire recovery channel (rf2-vxgfnd.27) -----------
+;;
+;; The observation port's `acquire!` is the cache's ref-count ATTACH (Spec 006
+;; §The internal observation port). Three build outcomes hand back a NON-NIL but
+;; NEVER-CACHED, zero-ref recovery reaction instead of a canonical node: a
+;; cyclic entry sub (`compute-and-cache!`'s outermost catch), a parametric
+;; `input-fn` failure (`build-and-cache!*`'s `input-error?` escaped-caching
+;; branch), and a frame destroyed mid-build (the same branch with `cache` nil).
+;; There is no cache node to attach to, so the port must NOT lease a lying
+;; `owned?`-true zero-ref reaction — it re-derives WHICH recovery happened and
+;; throws the matching typed error. This out-channel carries that classification
+;; from the build sites up to `acquire-cache-reaction!`. It is bound ONLY by the
+;; port's acquire path; on the public `subscribe` / `compute-sub` paths it is
+;; nil and every recorder call short-circuits, so those paths are byte-identical.
+
+(def ^:dynamic ^:no-doc *acquire-recovery*
+  "Port-internal recovery out-channel (rf2-vxgfnd.27) — a `volatile!` bound by
+  `acquire-cache-reaction!` around the reactive build, or nil on the public
+  subscribe / compute-sub paths. The never-cached recovery sites record their
+  classification into it via [[record-acquire-recovery!]]; the port reads it to
+  throw the matching typed error rather than lease a zero-ref recovery reaction."
+  nil)
+
+(defn- record-acquire-recovery!
+  "Record a never-cached recovery classification for the observation-port
+  acquire path — `kind` ∈ `:cycle` / `:input-fn-exception` /
+  `:input-fn-bad-return`; `data` carries the typed error id + context the port
+  re-throws with. A no-op (channel nil-bound) on the public subscribe /
+  compute-sub paths, so this is invisible there. rf2-vxgfnd.27."
+  [kind data]
+  (when-some [sink *acquire-recovery*]
+    (vreset! sink (assoc data :recovery kind)))
+  nil)
+
 ;; The memo wrappers (`make-layer-1-memoised-body`,
 ;; `make-layer-n-single-input-memoised-body`, `make-layer-n-memoised-body`) and
 ;; the trace/perf/validate/recover bracket (`validate-and-trace`,
@@ -718,11 +752,27 @@
     [(produce-input-queries sub-meta query-v) false]
     (catch #?(:clj Throwable :cljs :default) e
       (let [bad-return? (= :rf.error/sub-input-fn-bad-return
-                           (:rf.error/id (ex-data e)))]
-        (emit-sub-input-fn-error! (if bad-return?
-                                    :rf.error/sub-input-fn-bad-return
-                                    :rf.error/sub-input-fn-exception)
-                                  query-id query-v frame-id e where)
+                           (:rf.error/id (ex-data e)))
+            error-kw    (if bad-return?
+                          :rf.error/sub-input-fn-bad-return
+                          :rf.error/sub-input-fn-exception)]
+        (emit-sub-input-fn-error! error-kw query-id query-v frame-id e where)
+        ;; Observation-port acquire path only (rf2-vxgfnd.27): record the
+        ;; parametric-failure classification so `acquire!` throws the matching
+        ;; typed error instead of leasing this never-cached recovery reaction.
+        ;; `emit-sub-input-fn-error!` ALREADY fanned the always-on record above,
+        ;; so the port re-throws the same id WITHOUT a second fan (one record,
+        ;; one throw). No-op on the subscribe / compute-sub paths.
+        (record-acquire-recovery!
+          (if bad-return? :input-fn-bad-return :input-fn-exception)
+          {:error-kw error-kw
+           :query-v  query-v
+           :reason   (str "parametric subscription " (pr-str query-id)
+                          " input-fn "
+                          (if bad-return?
+                            "returned a value outside the input grammar"
+                            "threw")
+                          " while materializing.")})
         [recovery-qs true]))))
 
 (defn- release-input-ref!
@@ -1195,6 +1245,14 @@
           (if (= :rf.error/sub-cycle (:rf.error/id (ex-data e)))
             (do
               (emit-sub-cycle! frame-id query-v (:cycle (ex-data e)) :subscribe)
+              ;; Observation-port acquire path only (rf2-vxgfnd.27): record the
+              ;; cycle so `acquire!` throws typed `:rf.error/sub-cycle`
+              ;; (fail-loud → the ViewCell error boundary) rather than lease
+              ;; this never-cached nil reaction. sub-cycle stays DIAGNOSTIC (009
+              ;; catalogue) — the port throws the typed carrier but does NOT
+              ;; promote it to the always-on axis. No-op on the subscribe path.
+              (record-acquire-recovery! :cycle {:cycle   (:cycle (ex-data e))
+                                                :query-v query-v})
               (adapter/make-derived-value [] (constantly nil)))
             (throw e))))
       (build-and-cache!* frame-id query-v))))
@@ -1925,6 +1983,55 @@
   [query-v db memo]
   (compute-sub* query-v db memo))
 
+(defn- canonical-cache-reaction?
+  "True when `reaction` is still exactly the frame's live cache entry for `k`
+  — an identical cached node, so a real ref-count attach happened. False for a
+  never-cached recovery reaction (nothing at `k`, or a different node), and for
+  the single-thread-unreachable case of a node evicted in the build→check
+  window. rf2-vxgfnd.27."
+  [frame-id k reaction]
+  (boolean
+    (when-let [cache (:sub-cache (frame/frame frame-id))]
+      (identical? reaction (:reaction (get @cache k))))))
+
+(defn- build-and-classify!
+  "Drive `compute-and-cache!` for the observation-port acquire path and
+  DISCRIMINATE its result (rf2-vxgfnd.27). Returns `{:reaction r}` for a
+  CANONICAL cached node (a real ref-count attach) or `{:recovery kind …}` for a
+  never-cached, zero-ref recovery reaction:
+
+    - `:frame-destroyed` — the frame's cache vanished DURING the build (the race
+      that used to slip through the caller's nil→guard).
+    - `:cycle` / `:input-fn-exception` / `:input-fn-bad-return` — the entry
+      node's OWN build recovered, recording its classification through
+      `*acquire-recovery*`.
+
+  The canonical check is AUTHORITATIVE: a real cached node is owned even when a
+  mid-graph INPUT recovered (the graph's own recover-to-nil), so a nested
+  recovery recorded on the channel is IGNORED once the entry node itself cached."
+  [frame-id query-v k]
+  (let [sink     (volatile! nil)
+        reaction (binding [*acquire-recovery* sink]
+                   (compute-and-cache! frame-id query-v))]
+    (cond
+      ;; Frame torn down during the build — the reaction escaped caching (the
+      ;; `build-and-cache!*` else-branch). Map it to the typed
+      ;; `:rf.error/frame-destroyed`, closing the nil→guard bypass the race used.
+      (nil? (:sub-cache (frame/frame frame-id)))
+      {:recovery :frame-destroyed}
+
+      ;; A real cached node — the build installed or adopted it and took a +1
+      ;; reference. Own it (ignore any nested-input recovery on the channel).
+      (canonical-cache-reaction? frame-id k reaction)
+      {:reaction reaction}
+
+      ;; Non-canonical: the entry node's OWN build produced a never-cached
+      ;; recovery reaction. Use the recorded classification; fall back to
+      ;; `:frame-destroyed` for the (single-thread-unreachable) evicted-in-window
+      ;; case where nothing recorded.
+      :else
+      (or @sink {:recovery :frame-destroyed}))))
+
 (defn ^:no-doc acquire-cache-reaction!
   "INTERNAL (observation port). Resolve-or-build the canonical sub-cache
   node for `query-v` in `frame-id` and take ONE reference on it — the
@@ -1938,15 +2045,30 @@
   seam so an image-loaded frame's build resolves the sub through its own
   generation, byte-identical to `subscribe`.
 
-  Returns the cache node's reaction, or nil when the frame's cache is gone
-  (destroyed in the race window — the caller maps nil to its typed
-  `:rf.error/frame-destroyed`). Callers release via the identity-guarded
-  decrement they own (the lease `release!`), or `unsubscribe`."
+  Returns a DISCRIMINATED result (rf2-vxgfnd.27):
+
+    {:reaction <r>}          — a CANONICAL cached node holding a real +1
+                               reference: the ONLY result the caller wraps in an
+                               owning lease.
+    {:recovery <kind> …}     — the build produced a NON-NIL but NEVER-CACHED,
+                               zero-ref recovery reaction instead of a canonical
+                               node. `<kind>` is `:cycle` (cyclic entry sub),
+                               `:input-fn-exception` / `:input-fn-bad-return`
+                               (parametric `input-fn` failure), or
+                               `:frame-destroyed` (the frame's cache vanished
+                               before or during the build). `acquire` IS the
+                               ref-count attach — there is no node to own — so
+                               the caller (the fail-loud observation port) throws
+                               the matching typed error rather than lease a
+                               lying `owned?`-true zero-ref reaction.
+
+  Callers release via the identity-guarded decrement they own (the lease
+  `release!`), or `unsubscribe`."
   [frame-id query-v]
   (live-frame/call-with-frame-resolution
     (live-frame/frame-resolution-target frame-id)
     (fn []
-      (when-let [cache (:sub-cache (frame/frame frame-id))]
+      (if-let [cache (:sub-cache (frame/frame frame-id))]
         (let [k (cache-key query-v)]
           (if-let [entry (get @cache k)]
             ;; Hit — bump ref-count under the same CAS-after-snapshot
@@ -1962,9 +2084,11 @@
                                   (update-in m [k :ref-count] (fnil inc 0))
                                   m)))]
               (if (identical? reaction (get-in new [k :reaction]))
-                reaction
-                (compute-and-cache! frame-id query-v)))
-            (compute-and-cache! frame-id query-v)))))))
+                {:reaction reaction}
+                (build-and-classify! frame-id query-v k)))
+            (build-and-classify! frame-id query-v k)))
+        ;; The frame's cache is gone (destroyed before the build began).
+        {:recovery :frame-destroyed}))))
 
 (defn unsubscribe
   "Decrement the ref-count on the cached subscription for query-v.
