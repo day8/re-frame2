@@ -1193,6 +1193,21 @@ The port and the public read API split deliberately ⟨09 codex2 F1 — binding�
     diagnostic** (its 009 channel is unchanged — it is emitted on the dev trace channel
     by the build); the port throws the typed carrier to the ViewCell error boundary but
     does **not** promote sub-cycle to the always-on axis.
+  - **A live-cache DISPLACEMENT is not a destruction (rf2-vxgfnd.63).** The build's
+    canonical-node re-check can also fail while the frame is **live**: a just-built
+    canonical node **invalidated-and-rebuilt** to a newer node — an HMR sub
+    re-registration or an explicit cache clear landing in the build→check window — leaves
+    the built reaction non-canonical with the frame record untouched. That is a normal
+    **displacement**, not a teardown, so `:rf.error/frame-destroyed` is **reserved for a
+    verified destruction of the targeted frame incarnation**. `acquire!` disambiguates
+    against the targeted frame's **incarnation token** (captured while the frame is
+    verified live): on a still-live incarnation it **retargets** to the current canonical
+    node by re-running the acquire — a **bounded** retry gated on the incarnation staying
+    live, so it converges on a canonical current lease (no false frame-destroyed, no
+    leaked displaced reaction) and cannot spin forever under repeated HMR; only a
+    nil/changed incarnation is the mid-build destroy race that fans + throws
+    `:rf.error/frame-destroyed`. The retry preserves the no-synchronous-`on-change`
+    acquisition rule (it re-runs the acquire, never a callback).
   - **This is the entry-node line, not the mid-graph line.** The bullet above governs a
     sub **body's** `:<-` reference to a failing/cyclic INPUT: that recovers to nil and
     the ENTRY node still caches normally, so `acquire!` takes ownership of the real

@@ -532,6 +532,142 @@
       (is (= :hmr (:cause (first @notes))))
       (obs/release! lease))))
 
+;; ===========================================================================
+;; rf2-vxgfnd.63 — a live-cache DISPLACEMENT must not be misclassified as frame
+;; destruction during acquire!
+;;
+;; subs/build-and-classify! drives compute-and-cache! then re-checks whether the
+;; just-built reaction is still the frame's canonical cache node. If that node is
+;; DISPLACED — invalidated-and-rebuilt to a newer canonical node — in that window
+;; (a concurrent HMR sub re-registration or an explicit cache clear) while the
+;; FRAME STAYS LIVE, the build succeeded (recovery sink nil) yet the node is no
+;; longer canonical, so build-and-classify!'s :else fallback returns
+;; {:recovery :frame-destroyed}. Pre-fix acquire! throws + fans a FALSE always-on
+;; :rf.error/frame-destroyed even though the frame is live. The fix: acquire!
+;; disambiguates against the targeted frame's incarnation token
+;; (frame/frame-incarnation-token) — a still-live incarnation means the node was
+;; merely displaced, so acquire! retargets to the current canonical node (bounded
+;; retry) instead of throwing; only a nil/changed incarnation is a verified
+;; teardown of the targeted incarnation.
+;;
+;; Deterministic barrier (no sleeps, both hosts): wrap subs/compute-and-cache!
+;; so the FIRST build of the target query displaces the just-built canonical node
+;; before returning it — landing the reaction non-canonical exactly in the
+;; build→canonical-check window, with the frame record (and its incarnation
+;; token) untouched. A compare-and-set! makes it fire once, so the acquire!-side
+;; retry settles the next canonical build.
+;; ===========================================================================
+
+(defn- evict-node!
+  "Evict the cache entry for `query-v` — the swap EVERY real disposal path does
+  BEFORE interop/dispose!. Models an explicit cache clear on a still-live frame."
+  [query-v]
+  (swap! (sub-cache) dissoc query-v))
+
+(defn- displace-node!
+  "Model an HMR-style displacement of the just-built canonical `reaction` for
+  `query-v`: evict the cache entry then dispose the reaction, leaving the frame
+  record — and its incarnation token — untouched (the frame stays LIVE)."
+  [query-v reaction]
+  (evict-node! query-v)
+  (interop/dispose! reaction))
+
+(deftest acquire-live-cache-displacement-retargets-not-frame-destroyed
+  (reg-items!)
+  (seed-items! [:a])
+  (let [target  (items-target)
+        real-cc @#'subs/compute-and-cache!
+        raced?  (atom false)]
+    (with-redefs
+      [subs/compute-and-cache!
+       (fn [frame-id query-v]
+         (let [reaction (real-cc frame-id query-v)]
+           ;; Displace the just-built canonical node ONCE, in the
+           ;; build→canonical-check window, with the frame left LIVE.
+           (when (and (= query-v [:obs/items])
+                      (compare-and-set! raced? false true))
+             (displace-node! [:obs/items] reaction))
+           reaction))]
+      (let [[[outcome lease] records] (with-error-records #(obs/acquire! target (fn [_])))]
+        (is (true? @raced?) "the displacement fired in the build→check window")
+        (testing "acquire! did NOT throw or fan a false frame-destroyed while the frame is live"
+          (is (= :ok outcome) "acquire! returned a lease, not a throw")
+          (is (obs/lease? lease))
+          (is (empty? (filter #(= :rf.error/frame-destroyed (:error %)) records))
+              "no false always-on frame-destroyed record was fanned")
+          (is (some? (frame/frame fid)) "the frame remained live throughout"))
+        (testing "it converged on the CURRENT canonical node — an owned, current lease"
+          (is (obs/owned? lease) "the retarget adopted a real cache node")
+          (is (true? (obs/current? lease target))
+              "the lease covers the live canonical node")
+          (is (= 1 (ref-count [:obs/items])) "exactly one reference on the current node")
+          (is (= [:a] (:value (obs/read lease)))
+              "reads the live value through the adopted canonical node"))
+        (testing "no leak — release drops the last ref and disposes the current node"
+          (obs/release! lease)
+          (is (nil? (entry [:obs/items]))))))))
+
+(deftest acquire-repeated-live-displacement-is-bounded-and-converges
+  ;; Repeated displacement (explicit-cache-clear style: evict only) on the first
+  ;; K attempts, then quiescence. The bounded retry converges on a canonical
+  ;; current lease at attempt K+1 — it does not spin, and never fans a false
+  ;; frame-destroyed while the frame stays live (rf2-vxgfnd.63 — the retry is
+  ;; bounded and cannot spin forever under repeated HMR).
+  (reg-items!)
+  (seed-items! [:a])
+  (let [target  (items-target)
+        real-cc @#'subs/compute-and-cache!
+        k       3
+        builds  (atom 0)]
+    (with-redefs
+      [subs/compute-and-cache!
+       (fn [frame-id query-v]
+         (let [reaction (real-cc frame-id query-v)]
+           (when (= query-v [:obs/items])
+             ;; Evict the first K builds in-window; the (K+1)th settles.
+             (when (<= (swap! builds inc) k)
+               (evict-node! [:obs/items])))
+           reaction))]
+      (let [[[outcome lease] records] (with-error-records #(obs/acquire! target (fn [_])))]
+        (is (= (inc k) @builds) "converged on the very next build after K displacements")
+        (is (= :ok outcome) "acquire! converged on a lease — it did not spin or throw")
+        (is (empty? (filter #(= :rf.error/frame-destroyed (:error %)) records))
+            "no false frame-destroyed under repeated live displacement")
+        (is (true? (obs/current? lease target)))
+        (is (= 1 (ref-count [:obs/items])))
+        (obs/release! lease)
+        (is (nil? (entry [:obs/items])))))))
+
+(deftest acquire-genuine-destruction-in-window-still-throws-frame-destroyed
+  ;; The disambiguation's OTHER side: when the TARGETED incarnation is actually
+  ;; destroyed in the build→check window (its incarnation token → nil), acquire!
+  ;; MUST still throw + fan exactly one :rf.error/frame-destroyed. Displacement
+  ;; retargeting must never swallow a real teardown (rf2-vxgfnd.63 regression).
+  (let [race-fid :obs/race-frame-63]
+    (rf/make-frame {:id race-fid :adapter plain-atom/adapter})
+    (rf/reg-sub :obs/items63 (fn [db _] (:items db)))
+    (frame/replace-app-db! race-fid {:items [:a]})
+    (let [target  (obs/resolve-target {:frame race-fid :query-v [:obs/items63]})
+          real-cc @#'subs/compute-and-cache!
+          raced?  (atom false)]
+      (with-redefs
+        [subs/compute-and-cache!
+         (fn [frame-id query-v]
+           (let [reaction (real-cc frame-id query-v)]
+             (when (and (= query-v [:obs/items63])
+                        (compare-and-set! raced? false true))
+               ;; Destroy the targeted incarnation in the window — token → nil.
+               (frame/destroy-frame! race-fid))
+             reaction))]
+        (let [[[outcome e] records] (with-error-records #(obs/acquire! target (fn [_])))]
+          (is (true? @raced?) "the destruction fired in the build→check window")
+          (is (= :threw outcome) "a real teardown still throws — it is not retargeted")
+          (is (= :rf.error/frame-destroyed (error-id e)))
+          (is (= 1 (count (filter #(= :rf.error/frame-destroyed (:error %)) records)))
+              "exactly one always-on frame-destroyed record was fanned")
+          (is (nil? (frame/frame race-fid))
+              "the targeted incarnation is gone — nothing was leased"))))))
+
 (deftest reentrant-graph-op-is-dev-asserted-inside-the-fan-out
   (reg-items!)
   (seed-items! [:a])

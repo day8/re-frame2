@@ -112,7 +112,21 @@
   a reaction that is no longer the frame's canonical node was disposed in the
   window — the staged owners are self-drained and enqueued exactly once
   (`take-owners!` is the single-drain point), so no acquired lease is ever left
-  behind an uninstalled/dead hook without its invalidation."
+  behind an uninstalled/dead hook without its invalidation.
+
+  The same eviction-before-dispose fact means a node the build itself just
+  installed can be DISPLACED — invalidated-and-rebuilt to a newer canonical node
+  — inside `subs/build-and-classify!`'s build→canonical-check window while the
+  frame stays LIVE (a concurrent HMR re-registration or explicit cache clear).
+  `build-and-classify!` maps that to a `:frame-destroyed` recovery via its `:else`
+  fallback, conflating a normal displacement with a teardown. `acquire!`
+  disambiguates against the targeted frame's incarnation token
+  (`frame/frame-incarnation-token`, captured while the frame is verified live):
+  a still-live incarnation means the node was merely displaced, so `acquire!`
+  retargets to the current canonical node by re-running the acquire (bounded
+  retry, gated on incarnation liveness); only a nil/changed incarnation is a
+  verified destruction of the targeted incarnation and throws
+  `:rf.error/frame-destroyed` (rf2-vxgfnd.63)."
   (:refer-clojure :exclude [read])
   (:require [re-frame.error :as error]
             [re-frame.error-emit :as error-emit]
@@ -792,6 +806,85 @@
                      :frame-epoch    (frame/frame-commit-epoch (:frame-id st))
                      :registry-epoch @registry-epoch*}))))))
 
+(defn- build-node-lease!
+  "Wrap a CANONICAL cached `reaction` — one `subs/acquire-cache-reaction!` has
+  already taken a real +1 reference on — in a live NODE lease. Register the
+  per-lease change watch (on watchable hosts; `add-watch` never fires
+  synchronously), take the baseline observation through the activated node,
+  enrol the lease as an active owner, and — only for the FIRST owner — install
+  the node's single disposal hook (delivery is queued; see the ns docstring's
+  HMR section). `release!` de-enrols the lease, so a released lease is no longer
+  reachable from the live reaction: disposal work stays O(current owners), never
+  O(all owners ever acquired) (rf2-vxgfnd.15).
+
+  Closes the first-owner disposal-hook HANDSHAKE (rf2-vxgfnd.32): the record's
+  `:hooked?` flag flips as the lease enrols, BEFORE `add-on-dispose!` actually
+  registers the callback, so a disposal that linearizes in that gap can (a) fire
+  NO hook — the callback lands on an already-disposed reaction and is lost (every
+  substrate's `-dispose` snapshot-and-clears its callbacks, and the JVM
+  Reaction's field is even unsynchronized, so an install racing `-dispose` can be
+  dropped outright) — or (b) drain the owner set before this lease enrolled.
+  Since every disposal path evicts the cache entry BEFORE `interop/dispose!`
+  (`re-frame.subs.cache`), a reaction that is no longer the frame's canonical
+  node WAS disposed in the window; self-drain the staged owners so each is
+  enqueued exactly once (`take-owners!` is the single-drain point; the installed
+  hook, if it did fire, already drained). No synchronous `on-change`: the drain
+  only ENQUEUES — delivery rides the next-tick / HMR drain boundary off the
+  acquire stack, preserving acquire!'s no-fan-out guarantee. Returns the lease."
+  [target frame-id query reaction on-change]
+  (let [state (atom {:lease-kind :node
+                     :target     target
+                     :frame-id   frame-id
+                     :query-v    query
+                     :reaction   reaction
+                     :on-change  on-change
+                     :status     :live})
+        lease (->ObservationLease state)]
+    ;; Watch BEFORE the baseline observe: a watched reaction is live on the
+    ;; reactive hosts, so the observe below reads through the activated node.
+    (when (watchable? reaction)
+      (let [wk (gensym "rf-obs-lease")]
+        (add-watch reaction wk (make-watch-handler state))
+        (swap! state assoc :watch-key wk)))
+    (let [[rec v] (observe-node! reaction)]
+      (swap! state assoc :last {:value    v
+                                :version  (:version rec)
+                                :node-key (:node-key rec)}))
+    (when (register-owner! reaction lease)
+      (interop/add-on-dispose! reaction (node-disposed-hook reaction)))
+    (when-not (node-still-canonical? @state)
+      (drain-owners! reaction))
+    lease))
+
+(def ^:private max-displacement-retries
+  "Retry budget for acquire!'s live-cache-displacement retarget (rf2-vxgfnd.63).
+  A DISPLACEMENT — the just-built canonical node invalidated-and-rebuilt (an HMR
+  sub re-registration or an explicit cache clear) in the build→canonical-check
+  window while the frame stays LIVE — is a NORMAL condition, not frame
+  destruction, so acquire! retargets by re-running `subs/acquire-cache-reaction!`
+  against the now-current cache. Each real displacement is a discrete finite
+  event whose very next build settles a canonical node, so convergence is
+  effectively immediate (attempt 2 wins); the retry is additionally gated on the
+  targeted incarnation staying live (`targeted-incarnation-still-live?`), so any
+  incarnation movement terminates it at once. This fixed budget is the belt: it
+  forecloses an unbounded live-lock under a pathological displacer that could
+  otherwise re-race every window, guaranteeing acquire! cannot spin forever."
+  32)
+
+(defn- targeted-incarnation-still-live?
+  "True when `frame-id`'s CURRENTLY-live incarnation is identical to the
+  `incarnation` token captured at acquire entry — i.e. the SAME frame
+  incarnation acquire! is targeting is still live (rf2-vxgfnd.63). A sub
+  re-registration or an explicit cache clear leaves the frame record — and its
+  `:drain-lock` incarnation token — untouched, so a live-cache displacement
+  reads true here (retarget). A nil-or-changed token means the targeted
+  incarnation was destroyed, or destroyed-and-reincarnated under a reused id;
+  either is a VERIFIED destruction of the targeted incarnation (frame-destroyed),
+  never a displacement."
+  [frame-id incarnation]
+  (let [now (frame/frame-incarnation-token frame-id)]
+    (and (some? now) (identical? now incarnation))))
+
 (defn acquire!
   "Commit-only: acquire ownership of `target`, returning a LEASE — the owner
   token (identity equality, never `=`).
@@ -830,8 +923,14 @@
   `:rf.error/sub-input-fn-exception` / `:rf.error/sub-input-fn-bad-return`,
   `:rf.error/frame-destroyed`) rather than lease a zero-ref recovery reaction
   (rf2-vxgfnd.27): a lease MUST NOT report `owned?` without a real cache ref +
-  attach. The static override lease and the public subscribe surface keep their
-  recover-to-nil semantics."
+  attach. `:rf.error/frame-destroyed` is reserved for a VERIFIED destruction of
+  the targeted frame incarnation: a `:frame-destroyed` recovery over a STILL-LIVE
+  incarnation is a live-cache DISPLACEMENT (the node invalidated-and-rebuilt in
+  the build→canonical-check window — HMR re-registration or an explicit cache
+  clear), NOT a teardown, so `acquire!` retargets to the current canonical node
+  (bounded retry, gated on the incarnation staying live) instead of throwing
+  (rf2-vxgfnd.63). The static override lease and the public subscribe surface
+  keep their recover-to-nil semantics."
   [target on-change]
   (assert-not-in-fan-out! 're-frame.substrate.observation/acquire!)
   (case (:kind target)
@@ -851,64 +950,42 @@
           (when (nil? (registrar/lookup :sub (first query)))
             (throw-no-such-sub! 're-frame.substrate.observation/acquire!
                                 frame-id query))))
-      (let [result (subs/acquire-cache-reaction! frame-id query)]
-        (if-some [reaction (:reaction result)]
-          ;; Canonical cached node — the real ref-count attach. Take ownership.
-          (let [state (atom {:lease-kind :node
-                             :target     target
-                             :frame-id   frame-id
-                             :query-v    query
-                             :reaction   reaction
-                             :on-change  on-change
-                             :status     :live})
-                lease (->ObservationLease state)]
-            ;; Watch BEFORE the baseline observe: a watched reaction is live
-            ;; on the reactive hosts, so the observe below reads through the
-            ;; activated node. `add-watch` never fires synchronously.
-            (when (watchable? reaction)
-              (let [wk (gensym "rf-obs-lease")]
-                (add-watch reaction wk (make-watch-handler state))
-                (swap! state assoc :watch-key wk)))
-            (let [[rec v] (observe-node! reaction)]
-              (swap! state assoc :last {:value    v
-                                        :version  (:version rec)
-                                        :node-key (:node-key rec)}))
-            ;; Node-disposed notification. Enrol this lease as an active owner
-            ;; and — only for the FIRST owner — install the node's single
-            ;; disposal hook (delivery is queued; see the ns docstring's HMR
-            ;; section). `release!` de-enrols the lease, so a released lease is no
-            ;; longer reachable from the live reaction: disposal work stays
-            ;; O(current owners), never O(all owners ever acquired) (rf2-vxgfnd.15).
-            (when (register-owner! reaction lease)
-              (interop/add-on-dispose! reaction (node-disposed-hook reaction)))
-            ;; First-owner disposal-hook HANDSHAKE (rf2-vxgfnd.32). The record's
-            ;; :hooked? flag flips as the lease enrols, BEFORE add-on-dispose!
-            ;; actually registers the callback, so a disposal that linearizes in
-            ;; that gap can (a) fire NO hook — the callback lands on an
-            ;; already-disposed reaction and is lost (every substrate's -dispose
-            ;; snapshot-and-clears its callbacks, and the JVM Reaction's field is
-            ;; even unsynchronized, so an install racing -dispose can be dropped
-            ;; outright) — or (b) drain the owner set before this lease enrolled.
-            ;; Close the handshake with a canonicality re-check that EVERY owner
-            ;; (first or not) runs: since every disposal path evicts the cache
-            ;; entry BEFORE interop/dispose! (re-frame.subs.cache), a reaction
-            ;; that is no longer the frame's canonical node WAS disposed in the
-            ;; window. Self-drain the staged owners so each is enqueued exactly
-            ;; once (take-owners! is the single-drain point; the installed hook,
-            ;; if it did fire, already drained). No synchronous on-change: drain
-            ;; only ENQUEUES — delivery rides the next-tick / HMR drain boundary
-            ;; off the acquire stack, preserving acquire!'s no-fan-out guarantee.
-            (when-not (node-still-canonical? @state)
-              (drain-owners! reaction))
-            lease)
-          ;; NEVER-CACHED, zero-ref RECOVERY reaction (rf2-vxgfnd.27): a cyclic
-          ;; entry sub, a parametric input-fn failure, or a frame destroyed
-          ;; mid-build. There is no cache node to attach to — `acquire!` is the
-          ;; ref-count attach — so the port is fail-loud and throws the matching
-          ;; typed error rather than lease an owned?-true reaction that owns
-          ;; nothing (no entry, no ref) and re-churns a fresh orphan + node
-          ;; record + disposal hook + re-emit on EVERY commit.
-          (throw-acquire-recovery! frame-id query result))))))
+      ;; Capture the targeted frame incarnation while it is verified live
+      ;; (rf2-vxgfnd.63). A :frame-destroyed recovery below is disambiguated
+      ;; against THIS token, so :rf.error/frame-destroyed is reserved for a
+      ;; VERIFIED destruction of the targeted incarnation.
+      (let [incarnation (frame/frame-incarnation-token frame-id)]
+        (loop [attempt 0]
+          (let [result (subs/acquire-cache-reaction! frame-id query)]
+            (if-some [reaction (:reaction result)]
+              ;; Canonical cached node — the real ref-count attach. Take
+              ;; ownership (watch + baseline observe + first-owner disposal-hook
+              ;; handshake, rf2-vxgfnd.32/.15).
+              (build-node-lease! target frame-id query reaction on-change)
+              ;; No canonical node. The build handed back a NEVER-CACHED, zero-ref
+              ;; recovery reaction; there is no node to attach to — `acquire!` IS
+              ;; the ref-count attach — so the port is fail-loud rather than lease
+              ;; an owned?-true reaction that owns nothing (rf2-vxgfnd.27). But
+              ;; first DISAMBIGUATE a live-cache DISPLACEMENT from genuine frame
+              ;; destruction (rf2-vxgfnd.63): `subs/build-and-classify!` maps a
+              ;; just-built node that was invalidated-and-rebuilt (an HMR sub
+              ;; re-registration or an explicit cache clear) in the
+              ;; build→canonical-check window to :frame-destroyed via its :else
+              ;; fallback — conflating a NORMAL displacement (the frame is LIVE,
+              ;; the node merely displaced by a newer canonical node) with a real
+              ;; teardown. When the targeted incarnation is still live, the node
+              ;; was displaced, not destroyed: retarget by re-running
+              ;; acquire-cache-reaction! against the now-current cache (the very
+              ;; next build settles a canonical node), bounded by the retry budget
+              ;; so a pathological displacer cannot spin acquire! forever. Only a
+              ;; nil/changed incarnation (verified destruction), a
+              ;; non-displacement recovery (cycle / input-fn failure —
+              ;; deterministic, retry is futile), or an exhausted budget throws.
+              (if (and (= :frame-destroyed (:recovery result))
+                       (targeted-incarnation-still-live? frame-id incarnation)
+                       (< attempt max-displacement-retries))
+                (recur (inc attempt))
+                (throw-acquire-recovery! frame-id query result)))))))))
 
 ;; ---- current? -------------------------------------------------------------------
 
