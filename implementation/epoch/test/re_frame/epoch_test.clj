@@ -455,12 +455,12 @@
             OWN epoch — distinct from any later user dispatch's epoch"
     (rf/reg-event :app/init (fn [{:keys [db]} _] {:db {:booted true :n 0}}))
     (rf/reg-event :inc      (fn [{:keys [db]} _] {:db (update db :n inc)}))
-    ;; reg-frame dispatch-syncs the :initial-events event at registration.
+    ;; make-frame dispatch-syncs the :initial-events event at registration.
     (rf/make-frame {:id :test/main :initial-events [[:app/init]]})
 
     (let [after-create (rf/epoch-history :test/main)]
       (is (= 1 (count after-create))
-          "the :initial-events cascade settled its own epoch at reg-frame time")
+          "the :initial-events cascade settled its own epoch at make-frame time")
       (let [r (first after-create)]
         (is (= :app/init (:event-id r))
             "the :initial-events event is the trigger of its own epoch")
@@ -2195,7 +2195,7 @@
     (rf/make-frame {:id :test/main})
     ;; Start from a known-empty capture buffer for this frame — the
     ;; state on a rejected/aborted dispatch that buffered no cascade
-    ;; context. (`reg-frame` emits a :rf.frame/created trace that
+    ;; context. (`make-frame` emits a :rf.frame/created trace that
     ;; capture-event! would buffer; reset so the buffer is genuinely
     ;; empty, mirroring the empty-buffer abort case.)
     (reset! @#'state/capture-buffers {})
@@ -4030,10 +4030,10 @@
     ;; when the destroy lands; pin the contract by inserting a
     ;; synthetic entry.
     ;;
-    ;; (`rf/reg-frame` above emits a `:rf.frame/created` trace which
+    ;; (`rf/make-frame` above emits a `:rf.frame/created` trace which
     ;; capture-event! buffers since the tag carries `:frame`. Reset
     ;; explicitly so the test starts from a known-empty buffer
-    ;; rather than relying on the reg-frame side-effect.)
+    ;; rather than relying on the make-frame side-effect.)
     (let [buffers-atom @#'state/capture-buffers]
       (reset! buffers-atom {})
 

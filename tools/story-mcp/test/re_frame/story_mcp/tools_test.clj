@@ -2779,7 +2779,7 @@
   `variant-id` — `{:sensitive [[..]] :large [[..]]}` (a flat vector of
   `:rf/path`s per axis), omitting an empty axis. This is the value a
   `reg-event` returns alongside `:db` to classify the paths; it replaced the
-  removed `reg-frame` `:sensitive`/`:large {:app-db …}` annotation form."
+  removed `make-frame` `:sensitive`/`:large {:app-db …}` annotation form."
   [variant-id]
   (let [{:keys [sensitive large]} (get @declared-class variant-id)]
     (cond-> {}

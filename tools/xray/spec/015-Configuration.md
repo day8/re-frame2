@@ -765,7 +765,7 @@ visible bridge between `configure!` and the reactive surface.
 own frame with the framework's `:rf.trace/frame-no-emit?` frame-config:
 
 ```clojure
-(rf/reg-frame :rf/xray {:rf.trace/frame-no-emit? true})   ;; mount.cljs/ensure-xray-frame!
+(rf/make-frame {:id :rf/xray :rf.trace/frame-no-emit? true})   ;; mount.cljs/ensure-xray-frame!
 ```
 
 This marks `:rf/xray` a tool / inspector frame: the framework's `emit!`
@@ -773,9 +773,9 @@ This marks `:rf/xray` a tool / inspector frame: the framework's `emit!`
 so Xray's own UI reactivity (`:rf.sub/run` + `:rf.view/render` on every
 panel render) emits NO trace and never floods the shared ring it
 inspects. It is the frame-scoped sibling of the handler-scoped
-`:rf.trace/no-emit?`; honoured on every `reg-frame` (re-)registration so
+`:rf.trace/no-emit?`; honoured on every `make-frame` (re-)registration so
 the gate survives hot-reload. This config is NOT a `configure!` key — it
-is a framework `reg-frame` option Xray sets internally. See
+is a framework `make-frame` option Xray sets internally. See
 [framework API §`:rf.trace/frame-no-emit?`](../../../spec/API.md) +
 [`013-Trace-Consumer.md` §Tool-frame trace gate](./013-Trace-Consumer.md). (Xray
 adds a second, ingest-side belt-and-braces drop for the residual cases

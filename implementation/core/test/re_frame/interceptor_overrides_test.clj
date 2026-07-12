@@ -6,7 +6,7 @@
   retired.
 
   Per-call `{:interceptor-overrides {:my-app/logging nil}}` AND
-  per-frame `(reg-frame :f {:interceptor-overrides {...}})` MUST walk
+  per-frame `(make-frame {:id :f :interceptor-overrides {...}})` MUST walk
   the assembled interceptor chain and substitute entries by canonical
   reference:
 

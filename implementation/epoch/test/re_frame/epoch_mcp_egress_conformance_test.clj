@@ -87,7 +87,7 @@
   classification effects. Seeded through `elision/apply-classification-
   effects` (`:source :effect`) — the same registry write a `reg-event`
   returning `:sensitive` / `:large` performs. The frame container is
-  reg-frame'd by each deftest before this runs. (Classification is
+  make-frame'd by each deftest before this runs. (Classification is
   value-independent: the cascade legitimately leaves each path absent in
   some steps, and a classified path is a harmless no-op over an absent
   value.)"

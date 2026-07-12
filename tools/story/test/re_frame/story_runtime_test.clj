@@ -1566,7 +1566,7 @@
 ;; over-broad "`:rf.error/id` present" to "`:where` = `'rf.story/variant-
 ;; plan`". The discrimination is load-bearing: a FRAMEWORK runtime error
 ;; thrown AFTER frame allocation that ALSO carries an `:rf.error/id` (the
-;; cited case is `:rf.error/no-adapter-installed` from `reg-frame` →
+;; cited case is `:rf.error/no-adapter-installed` from `make-frame` →
 ;; `make-state-container` on a host with no adapter installed) MUST take
 ;; the frame-bound record/transition branch (`record-error!` +
 ;; `loaders/error!`), NOT `plan-error-result` (which would stamp the raw
@@ -2071,7 +2071,7 @@
 ;;
 ;; EP-0025: a variant declares its sensitive / large app-db paths on its body
 ;; via the carrier-keyed NESTED form `:sensitive {:app-db [[:auth :token]]}`
-;; (the SAME owner shape `reg-frame` uses; spec/Conventions.md §Privacy). The
+;; (the SAME owner shape `make-frame` uses; spec/Conventions.md §Privacy). The
 ;; runtime lowers the `:app-db` paths into the variant frame's elision
 ;; registry as EP-0025 commit-plane classification effects right after
 ;; `make-frame`, BEFORE the lifecycle / init events
@@ -2251,7 +2251,7 @@
 ;; The fix routes `:sensitive`/`:large` through `[:world :sensitive]` /
 ;; `[:world :large]` (plan.cljc `context-keys`) and applies the
 ;; classification in `allocate-inline!` (frames.cljc), validating BEFORE
-;; `rf/reg-frame` so a malformed declaration never leaves an orphan
+;; `rf/make-frame` so a malformed declaration never leaves an orphan
 ;; anonymous frame behind (see `validate-classification-effects!`).
 ;;
 ;; The inline frame is anonymous and torn down INSIDE the same promise that
@@ -2317,7 +2317,7 @@
             `:rf.error/classification-effect-shape`, exactly like the
             registered-variant negative test above, rather than a silent
             vacuous pass. `apply-variant-classification!` validates AFTER
-            `rf/reg-frame` (frames.cljc) precisely so this failure has a
+            `rf/make-frame` (frames.cljc) precisely so this failure has a
             live frame to record itself against; the trade-off (an
             orphaned anonymous frame on this authoring-mistake path) is
             documented on that fn."
@@ -2338,5 +2338,5 @@
            registered-variant path uses")
       (is (not= :pass (:status r))
           "the run does NOT report a vacuous :pass — pre-fix (validating
-           before rf/reg-frame) this silently passed with zero
+           before rf/make-frame) this silently passed with zero
            assertions"))))

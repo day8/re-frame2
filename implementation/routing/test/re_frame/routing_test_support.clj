@@ -47,7 +47,7 @@
   ;; in via `{:url-bound? true}`; the body runs with `:rf/default` pinned as
   ;; the ambient scope (the carried-invariant equivalent of wrapping every
   ;; test in `(with-frame :rf/default …)`). Explicit `{:frame …}` opts and
-  ;; inner `with-frame`/`reg-frame` in the bodies still win.
+  ;; inner `with-frame`/`make-frame` in the bodies still win.
   (rf/make-frame {:id :rf/default :url-bound? true
                   :doc "Routing-suite default app frame (explicit URL owner)."})
   ;; Framework events / fx (routing.cljc, ssr.cljc) are registered at

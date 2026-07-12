@@ -77,7 +77,7 @@
 
 (deftest re-acquire-frame-root-reuses-without-reseed
   (testing "re-acquiring the same id REUSES the live frame WITHOUT re-seeding
-            (frame-root ENSURE: idempotent replacement + reg-frame
+            (frame-root ENSURE: idempotent replacement + make-frame
             re-records-but-does-not-replay :initial-events). This is the
             reuse-no-reseed contract the keyed-remount gate pins under a real DOM."
     ;; Register the dispatch handler BEFORE the acquire so it is in the
@@ -118,7 +118,7 @@
   (testing "rf2-83fwld: a frame-root acquire whose :initial-events step THROWS
             out of dispatch-sync rethrows out of acquire-frame-root! AND leaves
             NO frame registered (a setup throw destroys the just-created frame,
-            then rethrows). Transitively: acquire -> make-frame -> reg-frame ->
+            then rethrows). Transitively: acquire -> make-frame -> make-frame ->
             run-setup-events! tears down the partial frame and rethrows
             :rf.error/initial-events-step-failed. This is the ESCAPING-throw
             detection route."

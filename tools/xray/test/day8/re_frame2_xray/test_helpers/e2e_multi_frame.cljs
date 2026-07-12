@@ -91,7 +91,7 @@
        config. The harness teardown owns the ring clear (below).
     2. `registry/register-xray-handlers!` — every `:rf.xray/*` sub /
        event / fx (the orchestrator).
-    3. `reg-frame :rf/xray` — register Xray's frame so subs scoped
+    3. `make-frame :rf/xray` — register Xray's frame so subs scoped
        under it resolve to the right app-db.
     4. Seed `:trace-buffer` + `:epoch-history` + `:target-frame` via
        the same dispatches `mount.cljs/ensure-xray-frame!` runs at

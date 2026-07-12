@@ -406,7 +406,7 @@
   ;; declaration (index-free :rf/path) onto :rf/default's per-frame
   ;; sensitive-declarations so the wire walker substitutes :rf/redacted on
   ;; off-box egress (the same write a reg-event returning `:sensitive` makes).
-  ;; Callers reg-frame :rf/default before invoking.
+  ;; Callers make-frame :rf/default before invoking.
   (frame/swap-runtime-db! :rf/default
     (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:auth :password]]}))))
 

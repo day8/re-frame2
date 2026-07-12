@@ -160,7 +160,7 @@
   (testing "an inline section for a kind EP-0026 does not standardize fails loud
             at rf/image with :rf.error/invalid-image (the unsupported-inline-kind
             diagnostic) — those kinds stay namespace-authored"
-    (doseq [section [:reg-interceptor :reg-view :reg-frame :reg-route :reg-head
+    (doseq [section [:reg-interceptor :reg-view :make-frame :reg-route :reg-head
                      :reg-error-projector :reg-flow :reg-resource :reg-mutation
                      :reg-resource-scope]]
       (is (= :rf.error/invalid-image

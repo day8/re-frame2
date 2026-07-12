@@ -23,7 +23,7 @@
   return, and its interceptor-carrying shape):
     reg-event ({:db}) reg-event (fx) reg-event (interceptor)
     reg-sub        reg-fx         reg-cofx
-    reg-frame      reg-view       reg-machine
+    make-frame      reg-view       reg-machine
     reg-flow       reg-route      reg-app-schema
     reg-error-projector"
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -148,11 +148,11 @@
 (deftest no-source-coords-on-make-frame
   (testing "make-frame (a FN, the ONE constructor) captures NO source coords —
             rf2-h1vqa4 ruling: frame macro-coordinate capture is REMOVED with
-            the reg-frame spelling (frames are live runtime objects, not
+            the make-frame spelling (frames are live runtime objects, not
             click-to-source program members; frame-init dispatch traces keep
             their own source, live metadata lives in frame-meta)"
-    (rf/make-frame {:id :rf2-k84s/reg-frame-sample :doc "smoke"})
-    (let [meta (rf/frame-meta :rf2-k84s/reg-frame-sample)]
+    (rf/make-frame {:id :rf2-k84s/make-frame-sample :doc "smoke"})
+    (let [meta (rf/frame-meta :rf2-k84s/make-frame-sample)]
       (is (some? meta) "frame-meta present for the created frame")
       (is (nil? (:line meta)) "no :line coord on the stored frame config")
       (is (nil? (:file meta)) "no :file coord on the stored frame config"))))

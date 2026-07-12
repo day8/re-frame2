@@ -312,7 +312,7 @@
 ;; ---- registration-time frame-config preflight (rf2-ktmto9) ----------------
 ;;
 ;; `preflight-frame-config!` is the PURE registration-time preflight the core
-;; engine (`re-frame.frame/reg-frame`) invokes through the
+;; engine (`re-frame.frame/make-frame`) invokes through the
 ;; `:routing/preflight-frame-config!` late-bind hook with the FINAL expanded
 ;; config, BEFORE any candidate-derived write. PRESENCE semantics: an ABSENT
 ;; `:url-strategy` key is a no-op (omission alone selects the default); a
@@ -367,7 +367,7 @@
                 :t/owner {:url-strategy {:encode identity
                                          :decode (constantly "/")}})))))
 
-(deftest reg-frame-engine-rejects-malformed-strategy-before-any-write
+(deftest make-frame-engine-rejects-malformed-strategy-before-any-write
   (testing "rf2-ktmto9: the core engine (frame/upsert-frame!) preflights the
             declared :url-strategy BEFORE any write — a malformed first
             registration throws :rf.error/invalid-url-strategy and leaves NO
@@ -387,7 +387,7 @@
       (is (nil? (frame/frame-meta :ktmto9/bad-jvm))
           "the failed frame is invisible to frame-meta"))))
 
-(deftest reg-frame-missing-routing-artefact-fails-loud
+(deftest make-frame-missing-routing-artefact-fails-loud
   (testing "rf2-ktmto9: a config declaring :url-strategy while the
             :routing/preflight-frame-config! hook is UNPUBLISHED (routing not
             loaded before construction) fails loud with

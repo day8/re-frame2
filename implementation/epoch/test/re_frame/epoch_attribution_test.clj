@@ -822,7 +822,7 @@
 ;; belong to?" family. The first three (renders / sub-runs / mount renders)
 ;; fire AFTER a cascade settled and are back-filled to their CAUSING cascade.
 ;; This one is different: a `:rf.frame/created` (or registry-time) emit belongs
-;; to NO cascade at all — `reg-frame` runs `:initial-events` via dispatch-sync
+;; to NO cascade at all — `make-frame` runs `:initial-events` via dispatch-sync
 ;; FIRST (which settles its own epoch), THEN emits `:rf.frame/created` with no
 ;; in-flight cascade and no `:rf.trace/dispatch-id`. Per Spec 009 §Dispatch correlation
 ;; it must stay uncorrelated. Pre-rf2-avvwm it lingered in the capture buffer
@@ -836,7 +836,7 @@
   (mapv (juxt :op-type :operation) (:trace-events record)))
 
 (deftest inv-6-frame-created-not-folded-into-next-epoch
-  (testing "rf2-avvwm — :rf.frame/created, emitted by reg-frame AFTER :initial-events'
+  (testing "rf2-avvwm — :rf.frame/created, emitted by make-frame AFTER :initial-events'
             epoch already settled, must NOT appear in the NEXT dequeued event's
             :trace-events. Mirrors the parallel-frames :below repro: boot the
             frame with :initial-events, then dispatch a user event; that event's
@@ -844,7 +844,7 @@
             :rf.frame/created]."
     (rf/reg-event :app/init (fn [{:keys [db]} _] {:db {:booted true :n 0}}))
     (rf/reg-event :inc      (fn [{:keys [db]} _] {:db (update db :n inc)}))
-    ;; reg-frame dispatch-syncs :initial-events (settles epoch 1), THEN emits the
+    ;; make-frame dispatch-syncs :initial-events (settles epoch 1), THEN emits the
     ;; orphan :rf.frame/created.
     (rf/make-frame {:id :test/main :initial-events [[:app/init]]})
     ;; The next dequeued user event.
@@ -1105,7 +1105,7 @@
 ;; ---------------------------------------------------------------------------
 ;;
 ;; The live vector is RE-REGISTRATION: EP-0027 forbids handler-time frame
-;; CREATION (reg-frame throws when `*handler-scope*` is bound), but a handler /
+;; CREATION (make-frame throws when `*handler-scope*` is bound), but a handler /
 ;; fx re-registering an ALREADY-EXISTING sibling frame B is unguarded and DOES
 ;; emit `:rf.frame/re-registered {:frame B}` while A's `:rf.trace/dispatch-id`
 ;; is in scope. Pre-fix, `build-event` stamped A's id onto that marker; at the
@@ -1203,11 +1203,11 @@
           observer :test/observer]
       ;; Mirror the runtime: the observer frame registers
       ;; `:rf.trace/frame-no-emit? true` (what `mount/ensure-xray-frame!` does
-      ;; for `:rf/xray`); reg-frame routes the flag to the trace gate.
+      ;; for `:rf/xray`); make-frame routes the flag to the trace gate.
       (rf/make-frame {:id app})
       (rf/make-frame {:id observer :rf.trace/frame-no-emit? true})
       (is (trace/frame-trace-disabled? observer)
-          "the observer frame is registered trace-disabled (reg-frame honoured
+          "the observer frame is registered trace-disabled (make-frame honoured
            :rf.trace/frame-no-emit?)")
       (is (not (trace/frame-trace-disabled? app))
           "the inspected app frame is NOT trace-disabled")

@@ -73,7 +73,7 @@
 
 (defn install!
   "Register all three multi-frame testbed frames + their handlers.
-  Idempotent — `reg-frame` is harmless to re-call (registrar replace
+  Idempotent — `make-frame` is harmless to re-call (registrar replace
   is a warning, not an error)."
   []
   (rf/make-frame {:id frame-a})

@@ -2,7 +2,7 @@
   "EP-0027 — `:initial-events` frame construction engine. Pins the accepted
   EP-0027 §Specification end-to-end against the reference implementation:
 
-    * the NORMALIZER + RUNNER — top-level `make-frame` / `reg-frame` with
+    * the NORMALIZER + RUNNER — top-level `make-frame` with
       `:initial-events` runs the setup steps SYNCHRONOUSLY, in order, BEFORE the
       constructor returns (exactly the hand-written `dispatch-sync` loop, written
       as data); a map step's `:opts` (a deterministic clock) is honoured;
@@ -12,7 +12,7 @@
       registered);
     * RETIREMENT — a supplied `:on-create` / `:initial-db` fails loud
       (`:rf.error/on-create-retired` / `:rf.error/initial-db-retired`);
-    * RESET — `destroy-frame!` + re-`reg-frame` with the SAME config
+    * RESET — `destroy-frame!` + re-`make-frame` with the SAME config
       re-dispatches the recorded `:initial-events` (durable frame config,
       best-effort, no snapshot) — there is no dedicated reset verb (rf2-lxwpob
       retired `reset-frame!`; a full replace is this two-call composition);
@@ -20,7 +20,7 @@
       resolved image generation across reset when the caller re-supplies the
       SAME `:images`, so an INLINE-only registration still resolves on replay
       (rf2-qnk02m — the silent registrar-degrade guard);
-    * RE-REGISTRATION — an idempotent re-`reg-frame` RE-RECORDS but does NOT
+    * RE-REGISTRATION — an idempotent re-`make-frame` RE-RECORDS but does NOT
       REPLAY the setup (durable app-db preserved);
     * TEARDOWN (STRICT construction, EP-0027 §Failure / rf2-vw5h1r) — ANY setup-
       step failure tears down the partial frame (no live half-frame is left) and
@@ -124,10 +124,10 @@
 ;; 1. The normalizer + runner — synchronous, in order, before return
 ;; ===========================================================================
 
-(deftest reg-frame-initial-events-runs-sync-in-order-before-return
-  (testing "reg-frame :initial-events dispatches each step synchronously, in
+(deftest make-frame-initial-events-runs-sync-in-order-before-return
+  (testing "make-frame :initial-events dispatches each step synchronously, in
             order, draining each before the next — app-db is fully settled by
-            the time reg-frame returns"
+            the time make-frame returns"
     (reg-test-events!)
     (rf/make-frame {:id :boot/seq :initial-events [[:test/set-db {:n 0 :log []}]
                                      [:test/inc]
@@ -272,10 +272,10 @@
     (reg-test-events!)
     (is (= :rf.error/on-create-retired
            (err-id #(rf/make-frame {:id :ret/oc :on-create [:test/inc]})))
-        "reg-frame rejects :on-create")
+        "make-frame rejects :on-create")
     (is (= :rf.error/on-create-retired
            (err-id #(lf/make-frame {:id :ret/oc2 :on-create [:test/inc]})))
-        "make-frame rejects :on-create (it flows through to reg-frame's guard)")
+        "make-frame rejects :on-create (it flows through to make-frame's guard)")
     (is (nil? (frame/frame :ret/oc)) "no frame left registered")))
 
 (deftest initial-db-is-retired
@@ -283,20 +283,20 @@
     (reg-test-events!)
     (is (= :rf.error/initial-db-retired
            (err-id #(rf/make-frame {:id :ret/idb :initial-db {:n 0}})))
-        "reg-frame rejects :initial-db")
+        "make-frame rejects :initial-db")
     (is (= :rf.error/initial-db-retired
            (err-id #(lf/make-frame {:id :ret/idb2 :initial-db {:n 0}})))
         "make-frame rejects :initial-db (no longer an image-selection key)")
     (is (nil? (frame/frame :ret/idb)) "no frame left registered")))
 
 ;; ===========================================================================
-;; 5. Reset — destroy-frame! + re-reg-frame replays the recorded :initial-events
+;; 5. Reset — destroy-frame! + re-make-frame replays the recorded :initial-events
 ;;    (rf2-lxwpob: there is no dedicated reset verb; a full replace is this
 ;;    two-call composition, re-supplying the SAME config the caller holds)
 ;; ===========================================================================
 
 (deftest reset-frame-replays-recorded-initial-events
-  (testing "destroy-frame! + re-reg-frame with the SAME config re-dispatches the
+  (testing "destroy-frame! + re-make-frame with the SAME config re-dispatches the
             recorded :initial-events through the CURRENT handlers (best-effort;
             durable config replayed)"
     (reg-test-events!)
@@ -312,10 +312,10 @@
       (frame/destroy-frame! :reset/main)
       (rf/make-frame (assoc config :id :reset/main))
       (is (= 1 (:n (rf/app-db-value :reset/main)))
-          "destroy + re-reg-frame replayed the recorded :initial-events, back to n=1"))))
+          "destroy + re-make-frame replayed the recorded :initial-events, back to n=1"))))
 
 (deftest reset-frame-repeated-reset-is-idempotent
-  (testing "rf2-060di5: destroy + re-reg-frame is idempotent across repeated
+  (testing "rf2-060di5: destroy + re-make-frame is idempotent across repeated
             resets — reset twice in a row equals one reset, and a reset → mutate
             → reset returns to the recorded seed. reset is itself a destroy +
             re-register that re-records its own :initial-events, so a regression
@@ -422,7 +422,7 @@
 ;; ===========================================================================
 
 (deftest re-registration-re-records-but-does-not-replay
-  (testing "an idempotent re-reg-frame under the same id RE-RECORDS the new
+  (testing "an idempotent re-make-frame under the same id RE-RECORDS the new
             :initial-events but does NOT replay it — durable app-db is preserved"
     (reg-test-events!)
     (rf/make-frame {:id :remount/main :initial-events [[:test/set-db {:n 0}]
@@ -436,12 +436,12 @@
       (rf/make-frame (assoc new-config :id :remount/main))
       (is (= 2 (:n (rf/app-db-value :remount/main)))
           "re-registration did NOT replay the new setup — durable app-db preserved")
-      ;; The recording IS replaced: a subsequent destroy + re-reg-frame replays
+      ;; The recording IS replaced: a subsequent destroy + re-make-frame replays
       ;; the NEW setup.
       (frame/destroy-frame! :remount/main)
       (rf/make-frame (assoc new-config :id :remount/main))
       (is (= 999 (:n (rf/app-db-value :remount/main)))
-          "destroy + re-reg-frame after re-reg replays the RE-RECORDED setup (n=999)"))))
+          "destroy + re-make-frame after re-reg replays the RE-RECORDED setup (n=999)"))))
 
 ;; ===========================================================================
 ;; 7. Teardown — STRICT construction: ANY setup-step failure destroys the partial
@@ -568,7 +568,7 @@
             :rf.error/frame-construction-in-handler"
     (reg-test-events!)
     (let [caught (atom nil)]
-      ;; A handler that tries to reg-frame a child mid-cascade. The construction
+      ;; A handler that tries to make-frame a child mid-cascade. The construction
       ;; throw propagates out of the handler; capture it inside the handler so we
       ;; can assert its id without depending on how dispatch-sync surfaces it.
       (rf/reg-event :handler/makes-frame
@@ -579,7 +579,7 @@
       (rf/make-frame {:id :parent/main :initial-events [[:test/set-db {}]]})
       (rf/dispatch-sync [:handler/makes-frame] {:frame :parent/main})
       (is (= :rf.error/frame-construction-in-handler @caught)
-          "a reg-frame inside a handler fails loud")
+          "a make-frame inside a handler fails loud")
       (is (nil? (frame/frame :child/in-handler))
           "no half-registered child frame is left behind"))))
 
@@ -589,7 +589,7 @@
             BODY. A handler that returns {:fx [[:dispatch [:fx/makes-frame]]]}
             re-enters the cascade to run :fx/makes-frame; the router keeps
             *handler-scope* bound across the :fx-driven nested dispatch, so a
-            reg-frame inside :fx/makes-frame must STILL fail loud
+            make-frame inside :fx/makes-frame must STILL fail loud
             :rf.error/frame-construction-in-handler. This is the load-bearing
             case the body-only test (above) does NOT cover: a regression that
             unbound *handler-scope* around :fx processing / queued nested
@@ -607,14 +607,14 @@
           {:db db}))
       ;; The originating handler emits the construction attempt via :fx
       ;; :dispatch (the EXPLICITLY forbidden EP-0027 route), so the child
-      ;; reg-frame runs on the queued nested-dispatch re-entry path.
+      ;; make-frame runs on the queued nested-dispatch re-entry path.
       (rf/reg-event :handler/fx-makes-frame
         (fn [{:keys [db]} _]
           {:db db :fx [[:dispatch [:fx/makes-frame]]]}))
       (rf/make-frame {:id :parent/fx :initial-events [[:test/set-db {}]]})
       (rf/dispatch-sync [:handler/fx-makes-frame] {:frame :parent/fx})
       (is (= :rf.error/frame-construction-in-handler @caught)
-          "a reg-frame on the :fx /nested-dispatch re-entry path fails loud —
+          "a make-frame on the :fx /nested-dispatch re-entry path fails loud —
            the guard keys on *handler-scope*, which the router keeps bound
            across :fx-driven nested dispatch (the body-only test would not
            catch a regression here)")
@@ -647,6 +647,6 @@
       (rf/make-frame {:id :parent/nested :initial-events [[:test/set-db {}]]})
       (rf/dispatch-sync [:nested/parent] {:frame :parent/nested})
       (is (= :rf.error/frame-construction-in-handler @caught)
-          "a reg-frame inside a nested mid-cascade dispatch fails loud")
+          "a make-frame inside a nested mid-cascade dispatch fails loud")
       (is (nil? (frame/frame :child/via-nested))
           "no half-registered child frame is left behind"))))

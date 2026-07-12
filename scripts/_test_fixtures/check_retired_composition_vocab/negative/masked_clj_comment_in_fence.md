@@ -6,5 +6,5 @@ so a retired symbol mentioned only in a comment must stay GREEN.
 
 ```clojure
 ;; rf/install! and (rf/realm ...) were retired by EP-0023; rf/app-owns too.
-(rf/reg-frame :app/main {:images [app-image]})
+(rf/make-frame {:id :app/main :images [app-image]})
 ```

@@ -162,9 +162,9 @@
       (is (nil? (registrar/lookup :flow :churn))
           "registrar :flow slot is RESERVED-but-empty throughout (rf2-en00bk single-store)"))))
 
-;; ---- frame-id reuse: new reg-frame starts clean -------------------------
+;; ---- frame-id reuse: new make-frame starts clean -------------------------
 
-(deftest reg-frame-after-destroy-starts-clean
+(deftest make-frame-after-destroy-starts-clean
   (testing "registering a frame under a reused id after destroy starts with no leftover flow state"
     (rf/make-frame {:id :fc/scratch :doc "first incarnation"})
     (rf/reg-event :fc/seed (fn [{:keys [db]} _] {:db {:w 3 :h 4}}))
@@ -219,7 +219,7 @@
     (is (= {} (elision/declarations :fc/scratch))
         "the destroyed frame exposes no flow-sourced large declarations")))
 
-(deftest reg-frame-after-destroy-observes-no-stale-flow-output-marks
+(deftest make-frame-after-destroy-observes-no-stale-flow-output-marks
   (testing "Per rf2-yt5bbl (adversarial): a frame-id reused after a destroy
             that left flow-output marks behind starts with a FRESH empty
             container — the second incarnation observes NONE of the first
@@ -251,7 +251,7 @@
 ;; mutates. `call-serialized-with-drain!` runs the registration thunk in-line
 ;; for a non-live frame, so without the guard the registration would install a
 ;; `flows` row and an elision declaration stamped with the dead frame-id — and
-;; a later `reg-frame` reusing that id would inherit the resurrected flow.
+;; a later `make-frame` reusing that id would inherit the resurrected flow.
 ;; SINGLE-STORE (rf2-en00bk): there is no registrar `:flow` slot to install,
 ;; so the `registrar/lookup :flow` checks below are nil throughout (the slot is
 ;; RESERVED-but-empty) — the per-frame `flows`-snapshot equality checks are the
@@ -308,7 +308,7 @@
       (is (= registrar-before (registrar/lookup :flow :typo/flow))
           "the :flow registrar slot is unchanged"))))
 
-(deftest reg-flow-after-destroy-then-reg-frame-reuse-starts-without-resurrected-flow
+(deftest reg-flow-after-destroy-then-make-frame-reuse-starts-without-resurrected-flow
   (testing "Per rf2-zbxvqj: a reg-flow against a frame in its destroyed window,
             followed by re-registering that frame id, leaves the fresh frame
             with NO inherited flow — the resurrection path is closed"

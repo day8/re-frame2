@@ -188,11 +188,11 @@ track (the picker-row React `:on-click` calls a top-level `select-track!`
 boundary):
 
 1. LAZILY creates the track's `:machine/<track>` frame on first entry
-   (`rf/reg-frame` with an `:initial-events` boot event — BOOT-ON-SELECT, so
+   (`rf/make-frame` with an `:initial-events` boot event — BOOT-ON-SELECT, so
    the first observed epoch is the machine's START cascade). Per EP-0027 a
    frame is constructed by the VIEW or at TOP LEVEL, **never inside an event
    handler cascade** (`:rf.error/frame-construction-in-handler`) — and an
-   `:fx` still runs inside `*handler-scope*` — so the `reg-frame` runs at the
+   `:fx` still runs inside `*handler-scope*` — so the `make-frame` runs at the
    React `:on-click` (and at boot in `run`) top level, BEFORE the select
    event is dispatched, not in the `:machine-epochs/select` handler;
 2. dispatches `:machine-epochs/select`, which sets the SHELL frame's
@@ -211,7 +211,7 @@ frame (`{:frame :machine/<track>}`) — two epochs: a shell cursor write
 selection live in app-db (events + subs), not Reagent atoms (rf2-5sjbg).
 
 **Restart** resets the selected track's machine frame
-(`destroy-frame!` + re-`reg-frame` with the same
+(`destroy-frame!` + re-`make-frame` with the same
 `:initial-events` — there is no dedicated reset verb, rf2-lxwpob), so the
 ring clears and the machine re-arcs from boot; the track cursor clears. Like
 select, the reset runs at the TOP LEVEL (a `restart-track!` boundary called

@@ -22,7 +22,7 @@
   ## Durable app-db classification is FRAME-OWNED (EP-0015): a variant
   ## declares its sensitive paths via the `:sensitive` slot on its body
   ## (`:sensitive {:app-db [[:auth :token]]}`) and the runtime threads
-  ## them onto the variant's `reg-frame` config — there is no public
+  ## them onto the variant's `make-frame` config — there is no public
   ## post-creation `add-marks` / `set-marks` mutation. A sensitive path
   ## records `:rf/redacted` instead of the raw value; a non-sensitive path
   ## passes through unchanged. rf2-006y9b extends the same projection to
@@ -68,7 +68,7 @@
 ;;   A variant declares its sensitive app-db paths at registration via the
 ;;   EP-0015 frame-owned `:sensitive` slot on its body
 ;;   (`:sensitive {:app-db [[:auth :token]]}`). The runtime threads that onto
-;;   the variant's `reg-frame` config, so the classification is installed as
+;;   the variant's `make-frame` config, so the classification is installed as
 ;;   part of frame creation — a single `run-variant` is enough; there is NO
 ;;   public post-creation `add-marks` / `set-marks` mutation. An assertion
 ;;   against that path records `:rf/redacted` in `:actual` (rf2-ee38b.3) and

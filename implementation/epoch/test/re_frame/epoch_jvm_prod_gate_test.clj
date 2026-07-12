@@ -38,7 +38,7 @@
 ;; ambient scope — the carried-invariant equivalent of wrapping every test
 ;; in `(with-frame :rf/default …)`. So the bare framework-operation surfaces
 ;; this suite drives (dispatch / epoch / restore / frame-state replacement)
-;; resolve a carried frame stamp without a hand-rolled `reg-frame` + `with-
+;; resolve a carried frame stamp without a hand-rolled `make-frame` + `with-
 ;; frame` dance here. Explicit `{:frame …}` opts in the bodies still win.
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture

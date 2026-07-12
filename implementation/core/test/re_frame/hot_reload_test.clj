@@ -253,7 +253,7 @@
 ;; ---- (3) :frame re-register preserves snapshot ---------------------------
 
 (deftest frame-re-register-preserves-snapshot
-  (testing "reg-frame on an already-registered id is a SURGICAL metadata
+  (testing "make-frame on an already-registered id is a SURGICAL metadata
             update — live app-db (including [:rf.runtime/machines :snapshots] snapshot for
             active machine instances) is preserved"
     ;; Register a frame with an arbitrary doc.

@@ -167,7 +167,7 @@
   "#3 Machine spawn at boot before substrate adapter ready —
    :initial-events runs synchronously after the adapter is installed."
   ;; In :node-test the adapter is installed by reset-runtime before any
-  ;; reg-frame call, so :initial-events always runs against a ready adapter.
+  ;; make-frame call, so :initial-events always runs against a ready adapter.
   ;; This test pins that property: a frame's :initial-events setup event
   ;; reaches a live sub-cache and the spawned machine's snapshot lands in app-db.
   ;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state.
@@ -175,7 +175,7 @@
     (fn [_ _] {:rf.db/runtime {:rf.runtime/machines {:snapshots {:flow/boot {:state :armed
                                                                             :data  {}}}}}}))
   ;; EP-0002 (rf2-9o48ih): the reset-runtime fixture establishes an ambient
-  ;; `*current-frame*` :rf/default scope. `reg-frame`'s `:initial-events`
+  ;; `*current-frame*` :rf/default scope. `make-frame`'s `:initial-events`
   ;; dispatch branches on `*current-frame*` (in-flight-cascade heuristic,
   ;; rf2-cufbh) between a synchronous top-level drain and an async child-frame
   ;; queue. This test models a TOP-LEVEL boot — clear the ambient scope so the
@@ -370,7 +370,7 @@
       (with-trace-recorder! [traces]
         ;; Mount under frame-provider so the subtree is scoped to
         ;; the ALREADY-CREATED target-frame in the React-context tier
-        ;; (the frame is constructed above via reg-frame + dispatch-sync
+        ;; (the frame is constructed above via make-frame + dispatch-sync
         ;; seed; this is a SCOPE, not an owned create — EP-0024). Even
         ;; though the render fn reads via frame/app-db-container directly,
         ;; the scope-provider mount path is the documented user-facing

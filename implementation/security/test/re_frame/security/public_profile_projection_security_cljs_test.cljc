@@ -49,7 +49,7 @@
 
 (deftest off-box-profiles-redact-frame-owned-app-db
   (testing "project-egress under each off-box / redacted profile redacts the
-            reg-frame :sensitive :app-db leaf and elides the :large :app-db
+            retired frame-config :sensitive :app-db leaf and elides the :large :app-db
             leaf under frame-owned durable classification"
     (mk-frame! :pub/offbox)
     (doseq [profile [:rf.egress/off-box-tool
@@ -95,7 +95,7 @@
   (testing "project-egress naming an UNREGISTERED frame fails closed — an
             unresolvable frame's empty registry must NOT fall through to a
             permissive identity walk"
-    ;; :pub/never-registered is never reg-frame'd — its registry is unreachable.
+    ;; :pub/never-registered is never make-frame'd — its registry is unreachable.
     (binding [frame/*current-frame* nil]
       (let [out (rf/project-egress (app-db-value)
                   {:frame :pub/never-registered

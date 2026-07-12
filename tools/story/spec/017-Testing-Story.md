@@ -2998,7 +2998,7 @@ accumulator, so a replay cannot read green while the tape is red.
 `opts` MAY carry `:frame` (replay into a caller-owned frame),
 `:hooks` (richer settled-boundary flush-hooks — a `:dom` adapter declares
 `:provides :dom`; the fx decisions still wrap its `:dispatch!`), and
-`:frame-config` (extra `reg-frame` config for the allocated frame).
+`:frame-config` (extra `make-frame` config for the allocated frame).
 
 The replay result is **stable + canonicalizable** (§Canonicalization): it
 feeds cleanly through `canonicalize` / `run-hash`, so the determinism gate

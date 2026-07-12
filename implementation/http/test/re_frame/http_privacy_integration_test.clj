@@ -21,7 +21,7 @@
 ;; ---- per-test reset --------------------------------------------------------
 
 ;; rf2-ppkh3v — app-specific carriers are FRAME policy now (EP-0015 §3); the
-;; process-global clear-* fixtures are gone. Frame-extension cases reg-frame
+;; process-global clear-* fixtures are gone. Frame-extension cases make-frame
 ;; their carriers and the canonical fixture's registrar snapshot/restore resets
 ;; them between tests (it also clears trace listeners, so no explicit
 ;; clear-listeners! is needed).

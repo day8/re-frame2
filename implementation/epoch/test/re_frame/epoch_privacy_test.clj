@@ -49,7 +49,7 @@
 ;; ambient scope — the carried-invariant equivalent of wrapping every test
 ;; in `(with-frame :rf/default …)`. The bare framework-operation surfaces
 ;; this suite drives therefore resolve a carried frame stamp without a
-;; hand-rolled `reg-frame` + `with-frame` here. Explicit `{:frame …}` opts
+;; hand-rolled `make-frame` + `with-frame` here. Explicit `{:frame …}` opts
 ;; in the bodies still win.
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
@@ -68,7 +68,7 @@
   EP-0025: durable app-db classification rides the commit-plane
   classification effects — seeded through `elision/apply-classification-
   effects` (`:source :effect`), the same registry write a `reg-event`
-  returning `:sensitive` performs. The frame container is reg-frame'd by
+  returning `:sensitive` performs. The frame container is make-frame'd by
   each deftest before this runs. Classification is value-independent, so
   cascades that legitimately leave `:auth` absent (a non-auth event) or
   clear `:password` mid-cascade need no `:maybe` / `:optional` wrapper."
@@ -80,7 +80,7 @@
 (defn- install-large-schema!
   "Declare a `[:blob :payload]` large path against `frame-id` (EP-0025 —
   commit-plane classification effect, `elision/apply-classification-effects`
-  under `:source :effect`). The frame container is reg-frame'd by each
+  under `:source :effect`). The frame container is make-frame'd by each
   deftest before this runs."
   [frame-id]
   (frame/swap-runtime-db! frame-id

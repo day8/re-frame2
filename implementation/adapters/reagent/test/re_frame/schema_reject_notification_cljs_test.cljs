@@ -40,7 +40,7 @@
             (rf2-uhk9ko — the candidate is validated before install)"
     (let [fid  :reagent.schema-reject/main
           runs (atom 0)]
-      (rf/reg-frame fid {})
+      (rf/make-frame fid {})
       (rf/reg-app-schema [:n] {:frame fid} [:int])
       (rf/reg-event :reject.test/seed  (fn [_ _] {:db {:n 0}}))
       (rf/reg-event :reject.test/break (fn [{:keys [db]} _]

@@ -429,7 +429,7 @@
           ;; the runtime never synthesises a frame from absence; core.cljc
           ;; init! docstring). The scaffold's frame is created by the VIEW:
           ;; the rf/frame-root ENSURE element in core.cljs (rf2-h1vqa4 —
-          ;; the reg-frame boot ceremony is retired). A
+          ;; the make-frame boot ceremony is retired). A
           ;; second init! call does NOT re-install the adapter, snapshot the
           ;; registrar, or reset app-db. The README must NOT overstate this
           ;; ("each call to init! snapshots the registrar, re-installs the

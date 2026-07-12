@@ -359,14 +359,14 @@
             (is (= 5 (count (:rank t))))))
 
         ;; ---- :rf.frame op-type ---------------------------------------------
-        (testing ":rf.frame :rf.frame/created fires on first reg-frame for an id"
+        (testing ":rf.frame :rf.frame/created fires on first make-frame for an id"
           (is (has-op? events :rf.frame :rf.frame/created)
               "expected :rf.frame :rf.frame/created")
           (let [t (:tags (find-op events :rf.frame :rf.frame/created))]
             (is (keyword? (:frame t)))
             (is (map?     (:config t)))))
 
-        (testing ":rf.frame :rf.frame/re-registered fires on subsequent reg-frame for the same id"
+        (testing ":rf.frame :rf.frame/re-registered fires on subsequent make-frame for the same id"
           (is (has-op? events :rf.frame :rf.frame/re-registered)
               "expected :rf.frame :rf.frame/re-registered")
           (is (keyword? (:frame (:tags (find-op events :rf.frame :rf.frame/re-registered))))))

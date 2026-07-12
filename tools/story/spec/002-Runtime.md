@@ -12,7 +12,7 @@ Per
 [spec/007 §Relationship-with-frames](../../../spec/007-Stories.md)
 each variant *is* a frame. At variant-mount time the runtime:
 
-1. Calls `(rf/reg-frame variant-id {:doc ... :app-db {} :substrate :reagent ...})`
+1. Calls `(rf/make-frame {:id variant-id :doc ... :app-db {} :substrate :reagent ...})`
    (per
    [spec/002 atomic create-and-register](../../../spec/002-Frames.md)).
 2. Records side-table metadata (view id, decorators, play, tags,
@@ -729,7 +729,7 @@ baselines.
 1. **Fresh-run boundary** (rf2-294yq5.3): if a frame already exists
    under `variant-id`, `run-variant` DESTROYS it first, then allocates
    a clean frame. `run-variant` never reuses an existing frame — a bare
-   `allocate!` against an existing frame goes through `reg-frame`'s
+   `allocate!` against an existing frame goes through `make-frame`'s
    surgical-update path, which preserves the prior app-db and sub-cache,
    and (worse) leaves an already-`:ready` loader variant short-circuiting
    its loaders on the second run. Two consecutive `run-variant` calls on

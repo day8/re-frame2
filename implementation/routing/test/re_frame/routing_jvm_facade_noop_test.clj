@@ -71,7 +71,7 @@
             suite fixture already binds :rf/default) is REPORTED via a diagnostic
             but must never throw."
     (is (= :ok (outcome #(rf/make-frame {:id :zz/jvm-url-owner :url-bound? true})))
-        "reg-frame of a url-bound frame returns normally on the JVM — the
+        "make-frame of a url-bound frame returns normally on the JVM — the
          listener-install leg is CLJS-only and skipped server-side")
     (is (= "/" (routing/current-url))
         "current-url still reads the SSR root while a url-bound frame is live")

@@ -584,7 +584,7 @@
       SAME id with a RE-SEEDING `:initial-events [[:rf/set-db {:n 999}]]`. The
       existing frame must be REUSED — durable `{:n 42}` survives, NOT re-seeded
       to `{:n 999}` — because `make-frame` is idempotent replacement and
-      `reg-frame` re-records-but-does-not-replay `:initial-events`."
+      `make-frame` re-records-but-does-not-replay `:initial-events`."
   (if-not (browser?)
     (is true ":node-test: no DOM — browser-test runner exercises the assertions")
     (async done

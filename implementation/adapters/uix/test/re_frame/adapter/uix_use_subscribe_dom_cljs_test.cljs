@@ -9,7 +9,7 @@
   their side-channel observation atoms, and the substrate-baked
   frame/query keywords are built HERE and handed to the suite via the cfg
   map (Approach A: components passed in as elements + atoms + keywords).
-  The orchestration (reg-frame, dispatch, mount under act, assert) lives
+  The orchestration (make-frame, dispatch, mount under act, assert) lives
   once in the suite; a gap on UIx is a gap on Helix by construction.
 
   Coverage forwarded:

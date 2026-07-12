@@ -9,7 +9,7 @@
  * shares one runtime: the installed substrate adapter, the registrar, the
  * late-bind directory, machine/trace counters — all process-global state.
  *
- * EP-0023 collapse made `make-frame` / `reg-frame` allocate a RUNNABLE
+ * EP-0023 collapse made `make-frame` allocate a RUNNABLE
  * backing record (app-db / queue / sub-cache), which needs an installed
  * substrate adapter. A test namespace whose fixture FORGETS to install its
  * own adapter (via `make-reset-runtime-fixture {:adapter ...}` or
@@ -58,7 +58,7 @@ const path = require('node:path');
 // ---------------------------------------------------------------------------
 // The curated scan surface — EP-0023 image/frame runtime-construction test
 // namespaces whose fixtures MUST self-install a substrate adapter (a runnable
-// `make-frame` / `reg-frame` backing record needs one). Each is run ALONE; a
+// `make-frame` backing record needs one). Each is run ALONE; a
 // fixture leaning on a sibling's leaked adapter goes red standalone.
 //
 // To add a namespace: append its ns symbol (the `(ns ...)` name). Run
