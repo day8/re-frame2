@@ -650,6 +650,30 @@
     ;; arise from that seam.
     true))
 
+(defn frame-closing?
+  "True when `id` is anywhere in its CLOSE lifecycle: a `destroy-frame!` for it
+  is IN FLIGHT (its teardown recipe is running) OR the frame is already
+  destroyed / dissoc'd. False for a live, not-being-destroyed frame — including
+  a FRESH same-id incarnation created after a prior destroy fully completed.
+
+  The linearization read the compiled-view ViewCell commit consults so a cell
+  that acquires leases + enrols while a frame is being torn down does not
+  publish ownership onto a dying frame (rf2-vxgfnd.61). `destroying-frames` is
+  populated at the TOP of `destroy-frame!` — BEFORE the `:ui/on-frame-destroyed!`
+  sweep snapshots the live cells — and cleared only in `destroy-frame!`'s
+  terminal `finally`, AFTER `mark-frame-destroyed!` flips liveness and
+  `dissoc-frame!` forgets the record. So `frame-closing?` is CONTINUOUSLY true
+  across the entire teardown window (the in-flight-but-not-yet-flipped sub-window
+  the destroyed?/absent test alone MISSES). A commit that enrols into the
+  live-cell registry and THEN reads this predicate therefore linearizes the
+  sweep's victim SELECTION against the frame's CLOSURE: if its enrolment was too
+  late for the sweep's snapshot, the frame was necessarily already in
+  `destroying-frames` when the commit read it, so it observes the close and joins
+  the teardown instead of stranding `:connected`. Keyed by the bare frame-id."
+  [id]
+  (or (contains? @destroying-frames id)
+      (frame-disposed-for-drain? id)))
+
 (defn frame-address
   "Resolve the ADDRESS key for `frame-id` — the key a per-frame SIDE-CHANNEL
   (SSR request / response / error-trace / head snapshot, …) keys its entries by.

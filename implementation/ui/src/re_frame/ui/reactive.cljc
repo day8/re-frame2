@@ -1161,11 +1161,36 @@
           (doseq [[_ lease] to-release]
             (obs/release! lease))
           ;; lifecycle: connect (reconnect annotation when re-committing a
-          ;; hidden cell)
+          ;; hidden cell). This ENROLS the cell into the live-cell registry —
+          ;; the discoverability publish a frame-destroy sweep consults.
           (connect! cell)
-          ;; step 8 — moved evidence corrects before paint
-          (when moved?
-            (advance-revision! cell))
+          ;; Linearize this commit against a concurrent frame-destroy teardown
+          ;; (rf2-vxgfnd.61). #5731 wires destroy to a SNAPSHOT sweep of the
+          ;; live cells that runs while the frame is still live, with no
+          ;; ordering against acquisition on the JVM: a commit that acquires
+          ;; leases + enrols in the window between the sweep's snapshot and the
+          ;; liveness flip is MISSED by the sweep, would publish :connected, and
+          ;; then lose its cache under the remaining destroy recipe. The fix is a
+          ;; two-phase close with revalidation AFTER the enrolment publish:
+          ;; `connect!` has just added this cell to the live-cell registry, so if
+          ;; the sweep's snapshot could have missed us, the destroy necessarily
+          ;; added the frame to `destroying-frames` BEFORE snapshotting (it is
+          ;; populated at the very top of `destroy-frame!`), and `frame-closing?`
+          ;; is continuously true across the whole teardown window — so this
+          ;; read observes the close. Selection and closure thus become ONE
+          ;; linearized boundary: a cell enrolling mid-teardown is either in the
+          ;; sweep or, seeing a closing frame here, JOINS the teardown — tearing
+          ;; itself down against the still-releasable cache rather than lingering
+          ;; :connected on a dying frame. A live, not-being-destroyed frame (incl.
+          ;; a fresh same-id incarnation) makes this a constant false check, so
+          ;; disjoint frames commit/destroy concurrently and the single-threaded
+          ;; CLJS host — where destroy runs to completion without yielding to a
+          ;; commit — never sees it true.
+          (if (some frame/frame-closing? (cell-frames cell))
+            (teardown! cell)
+            ;; step 8 — moved evidence corrects before paint
+            (when moved?
+              (advance-revision! cell)))
           cell)))))
 
 ;; ---- test/inspection reads --------------------------------------------------
