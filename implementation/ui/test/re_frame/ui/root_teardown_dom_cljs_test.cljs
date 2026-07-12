@@ -17,6 +17,7 @@
   substrate the other browser fixtures use; here it simply provides a real
   React mount surface for a compiled `defview`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            ["react" :as React]
             ["react-dom" :as react-dom]
             [re-frame.core :as rf]
             [re-frame.adapter.uix :as uix-adapter]
@@ -31,14 +32,62 @@
 (defn- browser? []
   (and (exists? js/document) (some? (.-createElement js/document))))
 
+;; ---------------------------------------------------------------------------
+;; The canonical React act() helper (rf2-vxgfnd.89 template; rf2-powx4d sweep)
+;;
+;; The repository's established native-React act pattern — the same
+;; get-act / enable-react-act-env! shape as core's shared React suite
+;; (react_shared_suite.cljs `with-browser-act`) and the frame-scope keystone
+;; fixture (frame_scope_resolve_dom_cljs_test.cljs). It uses React's OWN
+;; `act()`, NOT UIx/Helix/Reagent machinery, so this fixture stays native
+;; re-frame.ui + the substrate adapter under test.
+;;
+;; `flushSync` is NOT an act substitute: React's test contract treats any
+;; update committed outside an act scope as "not wrapped in act(...)". The
+;; `:browser-test` build runs EVERY `-dom-cljs-test` namespace on one shared
+;; page, and sibling suites set IS_REACT_ACT_ENVIRONMENT=true and never reset
+;; it — so a flushSync-only mount/unmount here emits that warning once the flag
+;; has leaked true. Wrapping every commit in `act` — with the act env enabled
+;; per-test in the fixture — makes the fixture clean under act rather than
+;; silencing anything.
+(defn- get-act
+  "React's act() — React 19 promotes it to the React namespace proper
+  (react-dom/test-utils on 18)."
+  []
+  (or (when (exists? (.-act React)) (.-act React))
+      (try (.-act (js/require "react-dom/test-utils")) (catch :default _ nil))))
+
+(defn- enable-react-act-env! []
+  (when (browser?)
+    (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)))
+
+(defn- act!
+  "Run `thunk` inside React `act()`, returning the thunk's value. `act()`
+  itself returns a thenable (not the callback's value); the mount/unmount work
+  here commits synchronously under IS_REACT_ACT_ENVIRONMENT (enabled per-test
+  in the fixture), so the callback runs eagerly and we capture its result."
+  [thunk]
+  (let [ret    (volatile! nil)
+        act-fn (get-act)]
+    (act-fn (fn [] (vreset! ret (thunk))))
+    @ret))
+
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
    {:adapter uix-adapter/adapter :ambient-frame nil})
   (fn [f]
-    (reactive/reset-scheduler!)
-    (client/reset-live-roots!)
-    (try (f)
-         (finally (reactive/reset-scheduler!) (client/reset-live-roots!)))))
+    ;; Enable React's act environment for this ns's DOM tests, then RESTORE the
+    ;; prior value so the fixture neither depends on nor leaks the shared-page
+    ;; flag.
+    (let [prior (when (browser?) (.-IS_REACT_ACT_ENVIRONMENT js/globalThis))]
+      (enable-react-act-env!)
+      (reactive/reset-scheduler!)
+      (client/reset-live-roots!)
+      (try (f)
+           (finally (reactive/reset-scheduler!)
+                    (client/reset-live-roots!)
+                    (when (browser?)
+                      (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) prior)))))))
 
 (def ^:private frame-kw :rt.dom/frame)
 
@@ -59,7 +108,7 @@
       (register-app!)
       (rf/dispatch-sync [:rt.dom/seed] {:frame frame-kw})
       (let [c    (container)
-            root (react-dom/flushSync
+            root (act!
                   #(ui/mount [frame-provider {:frame frame-kw} [leaf {}]]
                              c {:root-id :rt.dom/root}))
             cells (reactive/current-live-cells)
@@ -69,7 +118,7 @@
           (is (= 1 (count cells)) "exactly one live ViewCell under the root")
           (is (= :connected (reactive/lifecycle cell))))
         (testing "a REAL root unmount proves the cell :unmounted → :dead"
-          (react-dom/flushSync #(ui/unmount! root))
+          (act! #(ui/unmount! root))
           (is (= :dead (reactive/lifecycle cell))
               "not stuck at the transient :unknown — the host teardown upgraded it")
           (is (= :unmounted (:reason (peek (reactive/intervals cell))))
@@ -87,16 +136,16 @@
       (rf/dispatch-sync [:rt.dom/seed] {:frame frame-kw})
       (let [ca    (container)
             cb    (container)
-            root-a (react-dom/flushSync
+            root-a (act!
                     #(ui/mount [frame-provider {:frame frame-kw} [leaf {}]]
                                ca {:root-id :rt.dom/root-a}))
-            root-b (react-dom/flushSync
+            root-b (act!
                     #(ui/mount [frame-provider {:frame frame-kw} [leaf {}]]
                                cb {:root-id :rt.dom/root-b}))]
         ;; two roots, two cells; root B still renders after root A unmounts
         (is (= 2 (count (reactive/current-live-cells))) "two live cells")
         (let [before (vec (reactive/current-live-cells))]
-          (react-dom/flushSync #(ui/unmount! root-a))
+          (act! #(ui/unmount! root-a))
           (testing "root A's cell is dead; root B's cell is untouched"
             (let [alive (filter #(= :connected (reactive/lifecycle %)) before)
                   dead  (filter #(= :dead (reactive/lifecycle %)) before)]
@@ -104,4 +153,4 @@
               (is (= 1 (count alive)) "exactly one cell still connected")
               (is (= "7" (.-textContent (.querySelector cb ".leaf")))
                   "root B still renders")))
-          (react-dom/flushSync #(ui/unmount! root-b)))))))
+          (act! #(ui/unmount! root-b)))))))

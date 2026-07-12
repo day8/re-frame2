@@ -18,6 +18,7 @@
   the `:browser-test` build; under `:node-test` every DOM body gates on
   `(browser?)` and exits early."
   (:require [cljs.test :refer [deftest is use-fixtures]]
+            ["react" :as React]
             ["react-dom" :as react-dom]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
@@ -29,15 +30,77 @@
 
 (defn- browser? [] (exists? js/document))
 
+;; ---------------------------------------------------------------------------
+;; The canonical React act() helper (rf2-vxgfnd.89 template; rf2-powx4d sweep)
+;;
+;; The repository's established native-React act pattern — the same
+;; get-act / enable-react-act-env! shape as core's shared React suite
+;; (react_shared_suite.cljs `with-browser-act`) and the frame-scope keystone
+;; fixture. It uses React's OWN `act()`, NOT UIx/Helix/Reagent machinery, so
+;; this fixture stays native re-frame.ui + plain-atom.
+;;
+;; `flushSync` is NOT an act substitute: React's test contract treats any
+;; update committed outside an act scope as "not wrapped in act(...)". The
+;; `:browser-test` build runs EVERY `-dom-cljs-test` namespace on one shared
+;; page, and sibling suites set IS_REACT_ACT_ENVIRONMENT=true and never reset
+;; it — so a flushSync-only mount here emits that warning once the flag has
+;; leaked true. Wrapping every committing mount in `act` — with the act env
+;; enabled per-test in the fixture — makes the fixture clean under act rather
+;; than silencing anything.
+(defn- get-act
+  "React's act() — React 19 promotes it to the React namespace proper
+  (react-dom/test-utils on 18)."
+  []
+  (or (when (exists? (.-act React)) (.-act React))
+      (try (.-act (js/require "react-dom/test-utils")) (catch :default _ nil))))
+
+(defn- enable-react-act-env! []
+  (when (browser?)
+    (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)))
+
+(defn- act!
+  "Run `thunk` inside React `act()`, returning the thunk's value. The mount
+  work commits synchronously under IS_REACT_ACT_ENVIRONMENT (enabled per-test
+  in the fixture), so the callback runs eagerly and we capture its result."
+  [thunk]
+  (let [ret    (volatile! nil)
+        act-fn (get-act)]
+    (act-fn (fn [] (vreset! ret (thunk))))
+    @ret))
+
+(defn- flush-without-act!
+  "Run `thunk` inside `flushSync` with the act env toggled OFF, restoring the
+  prior flag after. For a mount that DELIBERATELY throws (`require-scope-frame!`
+  aborting a top-region provider with an absent frame): React `act` would
+  surface the intended error at the act boundary, and the best-effort teardown
+  commit during rollback would warn under the leaked act env. The canonical
+  'real flushSync commit path' (react_shared_suite.cljs) — the throw still
+  propagates for the surrounding `thrown-id`, and the clean retry commits
+  through the same act-env-off path."
+  [thunk]
+  (let [prior (.-IS_REACT_ACT_ENVIRONMENT js/globalThis)]
+    (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
+    (try (react-dom/flushSync thunk)
+         (finally (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) prior)))))
+
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter
                                             :ambient-frame nil})
   (fn [t]
-    (client/reset-live-roots!)
-    (frames/reset-installed-plans!)
-    (t)
-    (client/reset-live-roots!)
-    (frames/reset-installed-plans!)))
+    ;; Enable React's act environment for this ns's DOM tests, then RESTORE the
+    ;; prior value so the fixture neither depends on nor leaks the shared-page
+    ;; flag.
+    (let [prior (when (browser?) (.-IS_REACT_ACT_ENVIRONMENT js/globalThis))]
+      (enable-react-act-env!)
+      (client/reset-live-roots!)
+      (frames/reset-installed-plans!)
+      (try
+        (t)
+        (finally
+          (client/reset-live-roots!)
+          (frames/reset-installed-plans!)
+          (when (browser?)
+            (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) prior)))))))
 
 (defn- container [] (js/document.createElement "div"))
 
@@ -59,7 +122,7 @@
   (when (browser?)
     (reg-events!)
     (let [c (container)]
-      (react-dom/flushSync
+      (act!
        #(ui/mount [frame-root {:id :app/shop :initial-events [[:test/set-db {:n 10}]]}
                    [mini {:label "shop"}]]
                   c {:root-id :dom-pf/shop}))
@@ -80,11 +143,11 @@
                                          :initial-events [[:test/set-db {:n 1}]]}
                              [mini {:label "keep"}]]
                             c {:root-id :dom-pf/keep})]
-      (react-dom/flushSync mount!)
+      (act! mount!)
       (rf/dispatch-sync [:test/inc] {:frame :app/keep})
       (is (= 2 (:n (rf/app-db-value :app/keep))))
       ;; same root-id + same container -> re-preflight finds the frame live
-      (react-dom/flushSync mount!)
+      (act! mount!)
       (is (= 2 (:n (rf/app-db-value :app/keep)))
           "the reload path re-runs preflight but does NOT re-seed"))))
 
@@ -96,7 +159,7 @@
   (when (browser?)
     (reg-events!)
     ;; root A installs :app/shared with one config
-    (react-dom/flushSync
+    (act!
      #(ui/mount [frame-root {:id :app/shared :initial-events [[:test/set-db {:n 1}]]}
                  [mini {:label "a"}]]
                 (container) {:root-id :dom-pf/a}))
@@ -133,7 +196,7 @@
   (when (browser?)
     (rf/make-frame {:id :app/live :doc "scope target"})
     (let [c (container)]
-      (react-dom/flushSync
+      (act!
        #(ui/mount [scoping-view {:frame-id :app/live}] c
                   {:root-id :dom-pf/scoped}))
       (is (re-find #"<div class=\"wrap\"><div class=\"mini\">inside</div></div>"
@@ -170,7 +233,7 @@
     (let [c (container)
           mount-provider!
           (fn []
-            (react-dom/flushSync
+            (flush-without-act!
              #(ui/mount [frame-provider {:frame :dom-absent/never}
                          [mini {:label "scoped"}]]
                         c {:root-id :dom-absent/root})))]
@@ -189,4 +252,4 @@
             "the freed root-id + container accept a clean retry")
         (is (re-find #"<div class=\"mini\">scoped</div>" (.-innerHTML c))
             "the provider scopes the now-live frame transparently")
-        (ui/unmount! root)))))
+        (act! #(ui/unmount! root))))))

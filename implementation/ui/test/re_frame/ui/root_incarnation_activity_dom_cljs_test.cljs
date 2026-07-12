@@ -33,14 +33,35 @@
 (defn- browser? []
   (and (exists? js/document) (some? (.-createElement js/document))))
 
+;; This ns is a flushSync-TIMING / Activity-microtask discriminator, not an act
+;; test: each `flushSync` checkpoint below deliberately forces React to commit
+;; exactly what the reactive scheduler / Activity mode flip has notified SO FAR,
+;; to observe the disconnect/reconnect lifecycle across the microtask boundary.
+;; `act` would drain the pending microtask and collapse that timing, so the
+;; whole ns runs the real flushSync path with IS_REACT_ACT_ENVIRONMENT OFF (the
+;; react_shared_suite.cljs pattern) — no "not wrapped in act" warning, timing
+;; preserved. Sibling suites on the shared `:browser-test` page leak the flag
+;; true; the fixture stashes the prior value and restores it in :after (which
+;; cljs.test runs after the async body completes).
+(defonce ^:private prior-act-env (atom nil))
+
+(defn- disable-act-env! []
+  (when (exists? js/globalThis)
+    (reset! prior-act-env (.-IS_REACT_ACT_ENVIRONMENT js/globalThis))
+    (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)))
+
+(defn- restore-act-env! []
+  (when (exists? js/globalThis)
+    (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) @prior-act-env)))
+
 ;; A WATCHABLE substrate (UIx spine) so a sub move fires the port's on-change
 ;; watch that drives the Activity-mode re-render; `:ambient-frame nil` so views
 ;; resolve their frame ONLY from the enclosing frame-provider.
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
    {:adapter uix-adapter/adapter :ambient-frame nil :async? true})
-  {:before #(do (reactive/reset-scheduler!) (client/reset-live-roots!))
-   :after  #(do (reactive/reset-scheduler!) (client/reset-live-roots!))})
+  {:before #(do (disable-act-env!) (reactive/reset-scheduler!) (client/reset-live-roots!))
+   :after  #(do (reactive/reset-scheduler!) (client/reset-live-roots!) (restore-act-env!))})
 
 (def ^:private frame-kw :ract/frame)
 

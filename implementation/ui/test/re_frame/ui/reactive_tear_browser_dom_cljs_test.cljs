@@ -73,11 +73,33 @@
 ;; test using `(async done …)` requires every `:each` fixture to be a map,
 ;; and this fixture must survive the microtask/macrotask checkpoints. The
 ;; live-root reset rides the same map form.
+;; This ns is a flushSync-TIMING discriminator, not an act test: every
+;; `flushSync` checkpoint below deliberately forces React to commit exactly
+;; what the reactive scheduler has notified SO FAR, to observe WHEN the
+;; coalesced flush fires. `act` would drain the pending microtask and collapse
+;; the microtask/macrotask distinction under test, so the whole ns runs the
+;; real flushSync path with IS_REACT_ACT_ENVIRONMENT OFF (the
+;; react_shared_suite.cljs pattern) — no "not wrapped in act" warning, timing
+;; preserved. Sibling suites on the shared `:browser-test` page leak the flag
+;; true; the fixture stashes the prior value and restores it in :after (which
+;; cljs.test runs after the async body completes), so it neither depends on nor
+;; leaks that flag.
+(defonce ^:private prior-act-env (atom nil))
+
+(defn- disable-act-env! []
+  (when (exists? js/globalThis)
+    (reset! prior-act-env (.-IS_REACT_ACT_ENVIRONMENT js/globalThis))
+    (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)))
+
+(defn- restore-act-env! []
+  (when (exists? js/globalThis)
+    (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) @prior-act-env)))
+
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
     {:adapter uix-adapter/adapter :ambient-frame nil :async? true})
-  {:before #(client/reset-live-roots!)
-   :after  #(client/reset-live-roots!)})
+  {:before #(do (disable-act-env!) (client/reset-live-roots!))
+   :after  #(do (client/reset-live-roots!) (restore-act-env!))})
 
 (def ^:private frame-kw :rf.tear/frame)
 
