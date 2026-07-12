@@ -1632,6 +1632,18 @@ Each per-feature artefact is **independent**. Core MUST NOT transitively `:requi
 
 The independence rule applies to the per-adapter tier too: adapters depend on core; core never depends on an adapter. The runtime's substrate-aware seams (e.g. `re-frame.ssr/install-render-to-string!`) are call-back hooks the adapter ns wires from its own load-time, not requires from core.
 
+### Internal cross-artefact seams
+
+A narrow companion to the independence rule: an **internal seam** is a core-shipped namespace that exactly one named sibling artefact consumes by direct `:require` — neither public API nor an optional-capability hook. There is currently exactly one: **`re-frame.substrate.observation`**, the six-operation observation port (normative home: [Spec 006 §The internal observation port](006-ReactiveSubstrate.md#the-internal-observation-port-adapter-internal)). It ships inside `day8/re-frame2` (core); its sole consumer is the `day8/re-frame2-ui` view runtime.
+
+The packaging posture, pinned:
+
+- **Not public API.** The namespace is not re-exported from `re-frame.core`, is not an entry in the Spec 006 adapter contract (the 11-key adapter spec map stays closed for v1), and adds no feature predicate — a consumer cannot branch on the port's presence because the port is not consumable. Third-party consumption is unsupported by construction.
+- **Not late-bind.** The consumer reaches the seam by direct `:require` (the allowed dependency direction: consumer artefact → core). The late-bind hook registry exists for optional capabilities reached from the always-loaded facade; the port is reached from no facade surface and is not optional for its one consumer, so it mints no hook keys.
+- **Lockstep-versioned, ABI-guarded.** Core and `day8/re-frame2-ui` release together on the lockstep release train (R-6), so the port may change shape between releases without deprecation ceremony. Skew is a boot error, never undefined behaviour: the namespace exports an integer `port-abi-version`, the consumer records the version it compiled against and asserts it at load, failing loudly with `:rf.error/observation-port-version-mismatch` (catalogued per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)).
+
+The seam category is deliberately exceptional: absent a ruled exception of this shape, cross-artefact plumbing stays on the late-bind registry per the independence rule above.
+
 ### Optional-artefact wrapper convention
 
 <a id="facade-re-export-artefact-require"></a>
