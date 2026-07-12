@@ -1379,7 +1379,7 @@ The current pairs:
 
 | Macro (ergonomic) | Fn (`*` form) | Spec |
 |---|---|---|
-| `reg-view` | `reg-view*` | [004 §reg-view*](004-Views.md#reg-view--the-plain-fn-escape-hatch) |
+| `reg-view` | `reg-view*` | [004 §reg-view*](004-Views.md#removed-forms--normative-absences) |
 | `reg-machine` | `reg-machine*` | [005 §reg-machine vs reg-machine*](005-StateMachines.md) |
 | `->interceptor` | `->interceptor*` | [001 §Source-coordinate capture](001-Registration.md#source-coordinate-capture-cljs-reference) — definition-site coord stamping. Framework-**internal** lowering constructor only (EP-0022): the public application-authoring form for interceptors is `reg-interceptor`, and `->interceptor` values MUST NOT appear in a public event/frame `:interceptors` chain (which carries refs). |
 
@@ -1504,7 +1504,7 @@ The convention extends `dispatch` / `subscribe`'s opts-map shape — `:frame` is
 
 ## `reg-view` auto-id derivation rule
 
-Per [Spec 004 §reg-view](004-Views.md#reg-view-is-the-multi-frame-contract), the `reg-view` macro auto-derives the registered id from the symbol you supply:
+Per [Spec 004 §reg-view](004-Views.md#removed-forms--normative-absences), the `reg-view` macro auto-derives the registered id from the symbol you supply:
 
 ```
 id = (keyword (str *ns*) (str sym))
@@ -1539,7 +1539,7 @@ Render trees use Vars; runtime lookups use ids. `reg-view` bridges them — auto
 [(rf/view :feature/widget) "x"]      ;; render tree — splice the looked-up fn
 ```
 
-A bare `[:keyword args]` head in a render tree is an **HTML element** (Reagent's existing semantics) — the runtime does not intercept the keyword case to dispatch via the views registry. See [Spec 004 §Calling a registered view](004-Views.md#calling-a-registered-view) and [Cross-Spec-Interactions §21 Family asymmetry](Cross-Spec-Interactions.md#21-family-asymmetry--only-reg-view-keeps-a--suffixed-fn-partner).
+A bare `[:keyword args]` head in a render tree is an **HTML element** (Reagent's existing semantics) — the runtime does not intercept the keyword case to dispatch via the views registry. See [Spec 004 §Calling a registered view](004-Views.md#template-grammar) and [Cross-Spec-Interactions §21 Family asymmetry](Cross-Spec-Interactions.md#21-family-asymmetry--only-reg-view-keeps-a--suffixed-fn-partner).
 
 ## React keys: stable per-row identity, never positional, when rows can mutate
 

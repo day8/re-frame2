@@ -264,7 +264,7 @@ Per [002-Frames §The public registrar query API](002-Frames.md#the-public-regis
 (rf/view :nope)                      ;; → nil
 ```
 
-`view` is the canonical lookup handle because the registry is **id-keyed** while render trees consume **Vars** (see [Spec 004 §Calling a registered view](004-Views.md#calling-a-registered-view) and [Conventions §Render-tree shape vs runtime lookup](Conventions.md#render-tree-shape-vs-runtime-lookup--vars-and-ids)). The lookup is the bridge for callers that hold an id but no Var — typically `reg-view*` registrations (where there is no auto-defed Var) and tools/devtools that walk the registry by id. Returning `nil` for an unregistered id is a normal lookup miss (no error trace).
+`view` is the canonical lookup handle because the registry is **id-keyed** while render trees consume **Vars** (see [Spec 004 §Calling a registered view](004-Views.md#template-grammar) and [Conventions §Render-tree shape vs runtime lookup](Conventions.md#render-tree-shape-vs-runtime-lookup--vars-and-ids)). The lookup is the bridge for callers that hold an id but no Var — typically `reg-view*` registrations (where there is no auto-defed Var) and tools/devtools that walk the registry by id. Returning `nil` for an unregistered id is a normal lookup miss (no error trace).
 
 ## Hot-reload semantics
 

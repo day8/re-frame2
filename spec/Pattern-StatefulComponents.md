@@ -9,7 +9,7 @@
 
 A **named pattern**, not a Spec. Re-frame2's view substrate ([Spec 004 — Views](004-Views.md)) is built around pure render functions that compute hiccup from state. A small but unavoidable fraction of real-world views need to wrap a third-party JS library that **owns its own DOM** and exposes an imperative `init / update / dispose` lifecycle.
 
-This doc names the wrapping shape — **outer/inner split** — so feature code, adapter READMEs, and the [Animations Regime C](004-Views.md#regime-c--library-bridged-animations-framer-motion-react-spring-gsap-autoanimate) discussion cite a single canonical description rather than re-deriving the rationale per library.
+This doc names the wrapping shape — **outer/inner split** — so feature code, adapter READMEs, and the [Animations Regime C](#regime-c--library-bridged-animations) discussion cite a single canonical description rather than re-deriving the rationale per library.
 
 The runtime contract for the lifecycle hooks themselves is owned per-adapter ([§Per-adapter spelling](#per-adapter-spelling) below); this doc owns the **shape** that composes those hooks with the framework's reactive flow.
 
@@ -21,7 +21,7 @@ Third-party JS components — D3 charts, Mapbox/Leaflet maps, CodeMirror / Monac
 - **They have an imperative lifecycle.** "Initialise against this DOM node," "you have new data, please re-draw," "you're going away, please clean up." None of those phases is a pure function of props.
 - **They register their own listeners and timers.** Map pans, chart hovers, editor selection-change events, animation completions — all attached on the library's side, all needing teardown on unmount or they leak.
 
-A re-frame2 view body, on the other hand, **MUST NOT** dispatch from render, **MUST NOT** `addEventListener` from render, and **MUST NOT** own an imperative library lifecycle directly (per [Spec 004 §View antipatterns](004-Views.md#view-antipatterns)). The render body computes hiccup; the work that violates "pure render" lives somewhere else.
+A re-frame2 view body, on the other hand, **MUST NOT** dispatch from render, **MUST NOT** `addEventListener` from render, and **MUST NOT** own an imperative library lifecycle directly (per [Spec 004 §View antipatterns](004-Views.md#effects-and-leases--the-view-side-surface)). The render body computes hiccup; the work that violates "pure render" lives somewhere else.
 
 The pattern in this doc is *where else*.
 
@@ -74,7 +74,7 @@ The shape is identical across adapters; only the lifecycle-hook surface differs.
 
 | Adapter | Inner lifecycle surface | Registration | Reference |
 |---|---|---|---|
-| **Reagent** | `reagent.core/create-class` Form-3 (`:reagent-render` + `:component-did-mount` + `:component-did-update` + `:component-will-unmount`) | `reg-view*` (the plain-fn surface — the `reg-view` macro rejects Form-3 bodies per [Spec 004 §Form-3](004-Views.md#form-3-class--out-of-scope-for-the-macro)) | [Reagent adapter README](../implementation/adapters/reagent/README.md) |
+| **Reagent** | `reagent.core/create-class` Form-3 (`:reagent-render` + `:component-did-mount` + `:component-did-update` + `:component-will-unmount`) | `reg-view*` (the plain-fn surface — the `reg-view` macro rejects Form-3 bodies per [Spec 004 §Form-3](004-Views.md#removed-forms--normative-absences)) | [Reagent adapter README](../implementation/adapters/reagent/README.md) |
 | **Reagent-slim** | `reagent2.core/create-class` Form-3, **7-key cap** (the six lifecycle keys plus `:display-name`) | `reg-view*` | [Reagent-slim adapter README](../implementation/adapters/reagent-slim/README.md) and [`FORM-3.md`](../implementation/adapters/reagent-slim/FORM-3.md) — the slim adapter's single source of truth for Form-3 |
 | **UIx** | `uix.core/use-effect` inside a `defui`, with a deps vector listing every prop the effect reads. Cleanup is the fn the effect body returns | `reg-view` (UIx components are plain fns) | [UIx adapter README](../implementation/adapters/uix/README.md) |
 | **Helix** | `helix.hooks/use-effect` inside a `defnc`. Deps vector comes **first** in Helix's macro form; the body is the effect; cleanup is the last expression | `reg-view` (Helix components are plain fns) | [Helix adapter README](../implementation/adapters/helix/README.md) |
@@ -159,28 +159,34 @@ The hooks-based adapters (UIx, Helix) compress the lifecycle into a single `use-
 
 ## Animations are a special case of this pattern
 
-[Spec 004 §Regime C — Library-bridged animations](004-Views.md#regime-c--library-bridged-animations-framer-motion-react-spring-gsap-autoanimate) describes animation libraries (Framer Motion, React-Spring, GSAP, AutoAnimate) that own their own imperative timing inside their own component tree. **The wrapping shape is exactly this pattern.** Animation libraries are not a separate category from stateful JS components — they are one instance of it. The outer reads subs and produces state-derived props (target opacity, target x/y, easing curve, target colour); the inner is a Form-3 / `use-effect` wrapper that hands the library those props; the library's internal completion callbacks (e.g. Framer Motion's `onAnimationComplete`) are bridged at the inner boundary, dispatching via the same captured `(rf/capture-frame)` discipline.
+Animation is a view-layer concern, but views are derivative — they compute a template from state. The portable principle: **state is the truth; the view animates the transition; animation completion is silent unless explicitly modelled in state.** Three regimes cover the space. This doc is the canonical home for the regime taxonomy; [Spec 004 §Effects and leases](004-Views.md#effects-and-leases--the-view-side-surface) owns the RAF-as-fx and effect-plus-ref *mechanics* those regimes use. Choose the regime by what the state actually needs to know.
 
-Regimes A (CSS-driven transitions) and B (per-frame RAF loops in a registered fx) of [Spec 004 §Animations](004-Views.md#animations) do **not** use this pattern. Choose the regime by what the state needs to know:
+### Regime A — Transition animations
 
-- **Regime A** — state is the truth; view re-renders with a new `:class`; CSS animates. No outer/inner; no library to wrap.
-- **Regime B** — state advances per-frame; a registered fx owns the RAF loop and dispatches a per-frame event. No outer/inner; no library to wrap.
-- **Regime C** — a third-party library owns the imperative timing. **Use this pattern.**
+The 95% case. State changes; the view re-renders with a different `:class` or `:style`; CSS (or the substrate's animation engine) completes the visual transition silently. **No completion dispatch is needed** — by the time the animation kicks off, `app-db` has already moved on and the visual is catching up. Opacity fades, slide in/out, accordion expand, list reorder, modal scrim, route transitions. Sequencing belongs in CSS (`animation-delay`, keyframes) or a small `:dispatch-later` chain that advances a `:phase` key at known intervals. No outer/inner; no library to wrap.
+
+### Regime B — Continuous animations (RAF loops)
+
+Per-frame state mutation IS the truth. The right shape is a registered fx (e.g. `:ui/raf-loop`) that owns the `requestAnimationFrame` cycle and dispatches a per-frame event carrying delta-time; the fx captures the frame at registration (per [Pattern-AsyncEffect](Pattern-AsyncEffect.md)), the handler updates state, the view renders it, and a sibling fx cancels the RAF handle. This is Pattern-AsyncEffect with `requestAnimationFrame` substituted for HTTP — particle systems, scroll inertia, physics, game loops all fit. No outer/inner; no library to wrap.
+
+### Regime C — Library-bridged animations
+
+Framer Motion, React-Spring, GSAP, AutoAnimate — the animation library is component-shaped: it owns its own imperative timing inside its own component tree. **The wrapping shape is exactly this pattern.** Animation libraries are not a separate category from stateful JS components — they are one instance of it. The outer reads subs and produces state-derived props (target opacity, target x/y, easing curve, target colour); the inner is a Form-3 / `use-effect` wrapper that hands the library those props; the library's internal completion callbacks (e.g. Framer Motion's `onAnimationComplete`) are bridged at the inner boundary, dispatching via the same captured `(rf/capture-frame)` discipline as the outer/inner split above. **Use this pattern** for Regime C.
 
 ## What NOT to do
 
-The shapes that look tempting but compose badly with re-frame2's reactive flow. Each is owned (with the full reason) by [Spec 004 §View antipatterns](004-Views.md#view-antipatterns); listed here so the trap is visible from the pattern doc.
+The shapes that look tempting but compose badly with re-frame2's reactive flow. Each is owned (with the full reason) by [Spec 004 §View antipatterns](004-Views.md#effects-and-leases--the-view-side-surface); listed here so the trap is visible from the pattern doc.
 
-- **Attaching `addEventListener` from a render body** ([Spec 004 §Views MUST NOT attach native DOM event listeners from render bodies](004-Views.md#views-must-not-attach-native-dom-event-listeners-from-render-bodies)) — the listener fires on a fresh stack with no `*current-frame*` binding; a bare `(rf/dispatch …)` from inside it carries no frame stamp and fails loudly with `:rf.error/no-frame-context` (no `:rf/default` fall-through). The listener also leaks: nothing detaches it on re-render or unmount. The right home for `addEventListener` is the **inner's** lifecycle hook, with a cleanup that removes the listener on unmount.
-- **Owning a library lifecycle directly in a render body** ([Spec 004 §Views MUST NOT own imperative library lifecycles directly](004-Views.md#views-must-not-own-imperative-library-lifecycles-directly)) — `(js/MyLib. el opts)` from a Form-1 body builds a fresh library instance every render. The library was built to be instantiated **once** at mount; building it on every render leaks instances at the rate of every reactive update. The right home is the **inner's** `:component-did-mount` (or `use-effect` mount phase).
+- **Attaching `addEventListener` from a render body** ([Spec 004 §Views MUST NOT attach native DOM event listeners from render bodies](004-Views.md#effects-and-leases--the-view-side-surface)) — the listener fires on a fresh stack with no `*current-frame*` binding; a bare `(rf/dispatch …)` from inside it carries no frame stamp and fails loudly with `:rf.error/no-frame-context` (no `:rf/default` fall-through). The listener also leaks: nothing detaches it on re-render or unmount. The right home for `addEventListener` is the **inner's** lifecycle hook, with a cleanup that removes the listener on unmount.
+- **Owning a library lifecycle directly in a render body** ([Spec 004 §Views MUST NOT own imperative library lifecycles directly](004-Views.md#effects-and-leases--the-view-side-surface)) — `(js/MyLib. el opts)` from a Form-1 body builds a fresh library instance every render. The library was built to be instantiated **once** at mount; building it on every render leaks instances at the rate of every reactive update. The right home is the **inner's** `:component-did-mount` (or `use-effect` mount phase).
 - **Calling `@(subscribe …)` inside a lifecycle hook body.** Subscriptions need reactive context; `:component-did-mount`, `:component-did-update`, `:component-will-unmount`, and `use-effect` bodies all run after commit with no reactive context. Subscribe in the **outer** (or, on Reagent adapters, in `:reagent-render`); pass the value as a prop to the inner.
 - **Stashing the library instance in `defonce` or a top-level `def`.** Top-level cells leak across mounts and across hot-reloads, and they break when the component mounts twice (e.g. in two different frames simultaneously). The library instance is **per-mount** state; the closure inside the inner is the right home.
 
 ## Cross-references
 
-- [Spec 004 §View antipatterns](004-Views.md#view-antipatterns) — the normative "MUST NOT" rules that make this pattern the right answer.
-- [Spec 004 §Form-3 (class — out of scope for the macro)](004-Views.md#form-3-class--out-of-scope-for-the-macro) — why Form-3 ships through `reg-view*` rather than the `reg-view` macro.
-- [Spec 004 §Animations — Regime C](004-Views.md#regime-c--library-bridged-animations-framer-motion-react-spring-gsap-autoanimate) — animation libraries as a special case of this pattern.
+- [Spec 004 §View antipatterns](004-Views.md#effects-and-leases--the-view-side-surface) — the normative "MUST NOT" rules that make this pattern the right answer.
+- [Spec 004 §Form-3 (class — out of scope for the macro)](004-Views.md#removed-forms--normative-absences) — why Form-3 ships through `reg-view*` rather than the `reg-view` macro.
+- [§Regime C — Library-bridged animations](#regime-c--library-bridged-animations) — animation libraries as a special case of this pattern.
 - [Spec 002 §Dispatches issued from inside a handler body](002-Frames.md#dispatches-issued-from-inside-a-handler-body) — why `(rf/capture-frame)` must be captured at render-time, not inside the lifecycle callback.
 - [Pattern — Async Effect](Pattern-AsyncEffect.md) — the sibling pattern for "external work + dispatched reply" outside the view layer (HTTP, IndexedDB, WebSocket, RAF loops); composes with this pattern when the library exposes its own async callbacks (e.g. a tile-loaded event from a map library).
 - [Reagent adapter README §Imperative escape hatch](../implementation/adapters/reagent/README.md), [Reagent-slim adapter README §Imperative escape hatch](../implementation/adapters/reagent-slim/README.md) and [`FORM-3.md`](../implementation/adapters/reagent-slim/FORM-3.md), [UIx adapter README §Imperative escape hatch](../implementation/adapters/uix/README.md), [Helix adapter README §Imperative escape hatch](../implementation/adapters/helix/README.md) — the four per-adapter spellings.
