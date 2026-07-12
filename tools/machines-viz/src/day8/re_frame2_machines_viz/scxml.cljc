@@ -58,9 +58,10 @@
 
   SCXML state ids are `xsd:ID` (XML NCName): letters / digits / `-` `.`
   `_`, NO `:`. The codec hex-escapes every keyword ns/name char to
-  `_<2-hex>` (`.` → `_2e`, `?` → `_3f`, `_` → `_5f`) and uses two
-  reserved markers the escaper can provably never emit — `__` between a
-  keyword's namespace and name, `___` between vector-path segments — so:
+  `_<2-hex>` (`.` → `_2e`, `?` → `_3f`, `_` → `_5f`) — or `_u<4-hex>` above
+  U+00FF (CJK, emoji) — and uses two reserved markers the escaper can
+  provably never emit — `__` between a keyword's namespace and name, `___`
+  between vector-path segments — so:
 
   - ANY keyword round-trips EXACTLY, regardless of how many dots its
     namespace or name has (`:my.app.auth/login` ≠ `:my/app.auth.login`
@@ -188,11 +189,11 @@
 ;;
 ;; The hex-escape codec (the same injective scheme `chart/layout`'s
 ;; `node-id` uses for xyflow ids) handles this. EVERY non-alphanumeric
-;; char in a segment is escaped to `_<2-hex>` (so a literal `_` → `_5f`,
-;; `.` → `_2e`, `?` → `_3f`). After escaping, an `_` appears ONLY as the
-;; lead of a `_XX` hex triple — never two underscores in a row — so we can
-;; use consecutive-underscore RESERVED MARKERS the escaper can provably
-;; never emit:
+;; char in a segment is escaped to `_<2-hex>` (≤ U+00FF: a literal `_` →
+;; `_5f`, `.` → `_2e`, `?` → `_3f`) or `_u<4-hex>` (> U+00FF: CJK, emoji).
+;; After escaping, an `_` is ALWAYS followed by a hex digit or the `u`
+;; sentinel — never another underscore — so we can use consecutive-
+;; underscore RESERVED MARKERS the escaper can provably never emit:
 ;;
 ;; - `__`  (DOUBLE underscore) joins a keyword's NAMESPACE and NAME:
 ;;   `:auth/login`         → `"auth__login"`
@@ -212,8 +213,9 @@
 
 (def ^:private ns-name-sep
   "The keyword NAMESPACE↔NAME boundary in an SCXML id. `__` (double
-  underscore) is impossible for `escape-id-segment` to emit (it only ever
-  emits `_` + 2 hex digits), so it is the injective ns/name marker."
+  underscore) is impossible for `escape-id-segment` to emit (every escape
+  is `_` + 2 hex or `_u` + 4 hex — a `_` is never followed by a `_`), so it
+  is the injective ns/name marker."
   "__")
 
 (def ^:private path-segment-sep
@@ -224,22 +226,25 @@
   "___")
 
 ;; The xsd:ID-safe injective escape is the SHARED `grammar/escape-id-segment`
-;; (every char outside `[A-Za-z0-9]` → `_<2-hex>`, the underscore itself →
-;; `_5f`; no two consecutive underscores, so the `__` / `___` reserved markers
-;; can never arise from segment content). The SINGLE injective scheme across
+;; (every char outside `[A-Za-z0-9]` → `_<2-hex>` ≤ U+00FF / `_u<4-hex>` above,
+;; the underscore itself → `_5f`; no two consecutive underscores, so the `__` /
+;; `___` reserved markers can never arise from segment content). The SINGLE
+;; injective scheme across
 ;; all machines-viz id emitters, so the SCXML codec mints byte-identical
 ;; segment escapes to the chart `node-id` + mermaid `sanitise-id`.
 (def ^:private escape-id-segment g/escape-id-segment)
 
 (defn- unescape-id-segment
-  "Inverse of `escape-id-segment`: replace every `_<2-hex>` triple with
-  the char it encodes."
+  "Inverse of `escape-id-segment`: replace every escape with the code unit
+  it encodes — `_u<4-hex>` (> U+00FF) OR `_<2-hex>` (≤ U+00FF). The `u`
+  sentinel keeps the two widths unambiguous, so the decode is exact across
+  the whole code-unit range (rf2-qgtcvy)."
   [s]
   (str/replace s
-               #"_([0-9a-fA-F]{2})"
-               (fn [[_ hex]]
-                 (str (char #?(:clj  (Integer/parseInt hex 16)
-                               :cljs (js/parseInt hex 16)))))))
+               #"_u([0-9a-fA-F]{4})|_([0-9a-fA-F]{2})"
+               (fn [[_ wide narrow]]
+                 (str (char #?(:clj  (Integer/parseInt (or wide narrow) 16)
+                               :cljs (js/parseInt (or wide narrow) 16)))))))
 
 (defn- keyword->id-string
   "Map a single keyword to its injective, xsd:ID-conformant SCXML id

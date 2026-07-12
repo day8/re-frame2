@@ -306,6 +306,29 @@
             "single namespaced keyword must NOT become [:auth :login]")
         (is (keyword? (get-in back [:states :a :on :go])))))))
 
+(deftest round-trip-non-latin1-ids
+  (testing "rf2-qgtcvy — state ids above U+00FF (CJK) round-trip EXACTLY.
+            The pre-fix `_<var-hex>` encode + `_XX` (2-hex) decode mis-read
+            `:开始` (`_5f00_59cb`) as `:_00Ycb`; the fixed-width `_u<4-hex>`
+            codec is now reversible across the whole code-unit range"
+    (let [begin (keyword "开始")            ;; U+5F00 U+59CB
+          done  (keyword "结束")            ;; U+7ED3 U+675F
+          spec  {:initial begin
+                 :states  {begin {:on {:go done}}
+                           done  {}}}
+          back  (-> spec scxml/spec->scxml scxml/scxml->spec)]
+      (is (= spec back) "the whole CJK-id machine round-trips exactly")
+      (is (= done (get-in back [:states begin :on :go]))
+          "the CJK transition target survives")))
+  (testing "a bare CJK id decodes back to the SAME keyword (not a vector /
+            mis-split), since a plain name carries no `__` ns/name marker"
+    (let [k    (keyword "结束")
+          spec {:initial k :states {k {}}}
+          back (-> spec scxml/spec->scxml scxml/scxml->spec)]
+      (is (= spec back))
+      (is (keyword? (:initial back)))
+      (is (= "结束" (name (:initial back)))))))
+
 ;; ---------------------------------------------------------------------------
 ;; Error cases
 

@@ -289,3 +289,32 @@
     (testing "definition-summary embeds the canonical defect category so every
               surface that stashes it carries the same category"
       (is (= :rf.error/machine-unknown-node-key (get-in summary [:defect :category]))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-qgtcvy — injective id codec: fixed-width escape, reversible + collision-
+;; free across the whole UTF-16 code-unit range (the pre-fix `_<var-hex>` was
+;; neither self-delimiting nor reversible above 0xFF).
+
+(deftest escape-id-segment-fixed-width-and-injective
+  (testing "≤ U+00FF keeps the 2-hex `_XX` form (Latin-1 golden ids unchanged)"
+    (is (= "_2f" (g/escape-id-segment "/")))
+    (is (= "_2d" (g/escape-id-segment "-")))
+    (is (= "_5f" (g/escape-id-segment "_")))
+    (is (= "_3f" (g/escape-id-segment "?")))
+    (is (= "_11" (g/escape-id-segment (str (char 0x11))))))
+  (testing "> U+00FF uses the self-delimiting `_u<4-hex>` form"
+    (is (= "_u5f00" (g/escape-id-segment "开")))      ;; 开
+    (is (= "_u59cb" (g/escape-id-segment "始")))      ;; 始
+    (is (= "_u0111" (g/escape-id-segment "đ"))))     ;; đ
+  (testing "the pre-fix collision is gone: đ (U+0111) vs \\u0011 + \"1\""
+    (is (not= (g/escape-id-segment "đ")
+              (g/escape-id-segment (str (char 0x11) "1")))
+        "distinct inputs must mint distinct ids"))
+  (testing "no two consecutive underscores, so the `__`/`___`/`_2f` markers
+            can never arise from segment content"
+    (is (not (str/includes? (g/escape-id-segment "开始") "__")))
+    (is (not (str/includes? (g/escape-id-segment "đ") "__"))))
+  (testing "distinct segment strings always mint distinct escapes (injective)"
+    (let [segs ["/" "-" "_" "?" (str (char 0x11)) "đ" "开" "始"
+                (str (char 0x11) "1") "a-b" "a/b" "a_b"]]
+      (is (= (count segs) (count (distinct (map g/escape-id-segment segs))))))))
