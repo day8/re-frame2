@@ -214,6 +214,55 @@
       (ui/unmount! root))))
 
 ;; ---------------------------------------------------------------------------
+;; stale-root render! guard (rf2-vxgfnd.31)
+;; ---------------------------------------------------------------------------
+
+(deftest render-on-stale-root-fails-loud-with-zero-side-effects
+  ;; render! on a root-id that is no longer live (its handle was
+  ;; unmount!ed) must fail loud with :rf.error/root-not-live BEFORE any
+  ;; side effect — the render-side mirror of unmount!*'s membership guard.
+  ;; The pre-fix path ran frame preflight (draining :initial-events —
+  ;; IRREVERSIBLE fx) and wrote install records under the dead root-id, then
+  ;; only failed on .render against the unmounted React root.
+  (when (browser?)
+    (let [c    (container)
+          root (ui/create-root c {:root-id :dom-stale/panel})]
+      (react-dom/flushSync #(ui/render! root [mini-app {:title "live"}]))
+      (is (re-find #"live" (.-innerHTML c)))
+      ;; tear it down — the handle is now STALE
+      (ui/unmount! root)
+      (is (not (contains? (client/live-root-ids) :dom-stale/panel)))
+      (is (= "" (.-innerHTML c)) "the container is cleared by unmount!")
+      ;; a preflight capture hook stands in for the side-effecting frame
+      ;; executor: if the guard fired BEFORE run-preflight!, it is never
+      ;; called (0 invocations) — proving no frame install / :initial-events
+      ;; drain was attempted against the dead root.
+      (let [preflight-calls (atom 0)]
+        (client/set-preflight-hook! (fn [_ _] (swap! preflight-calls inc)))
+        (try
+          (let [{:keys [id data]}
+                (thrown-error
+                 (fn []
+                   (react-dom/flushSync
+                    (fn []
+                      (ui/render! root
+                                  [frame-root {:id :dom-stale/session
+                                               :initial-events [[:boot 1]]}
+                                   [mini-app {:title "stale"}]])))))]
+            (is (= :rf.error/root-not-live id)
+                "render! on the stale handle fails loud with the typed error")
+            (is (= :dom-stale/panel (:root-id data))
+                "the error names the stale root-id"))
+          (is (zero? @preflight-calls)
+              "the guard throws BEFORE run-preflight! — zero frame preflight, zero :initial-events drain")
+          (is (= "" (.-innerHTML c))
+              "no .render happened — the unmounted container stays empty")
+          (is (not (contains? (client/live-root-ids) :dom-stale/panel))
+              "the stale render! writes no install record under the dead root-id")
+          (finally
+            (client/set-preflight-hook! nil)))))))
+
+;; ---------------------------------------------------------------------------
 ;; frame-root: transparent render + the preflight seam
 ;; ---------------------------------------------------------------------------
 

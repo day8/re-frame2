@@ -285,6 +285,7 @@ share the roster:
 | `:rf.error/duplicate-root-id` | equal root-id at any layer above |
 | `:rf.error/root-container-missing` | hydration locator resolves to no element (§4) |
 | `:rf.error/root-container-in-use` | `create-root`/`mount` on a node already owned by a different live root |
+| `:rf.error/root-not-live` | `render!` on a `Root` whose id is no longer live — `unmount!`ed or superseded by a newer root claiming the same id (guarded like `unmount!`, but fails loud rather than no-op, before any side effect) |
 | `:rf.error/root-manifest-invalid` | manifest missing/unreadable at hydrate, schema-version incompatible, identity opts passed client-side, unserialisable props at emit, prefix conflict |
 | `:rf.error/frame-payload-conflict` | below |
 | `:rf.error/root-hydration-mismatch` | fingerprint/digest disagreement (existing 03 §11 row — unchanged) |
