@@ -420,7 +420,19 @@
                  (scxml/spec->scxml {:initial :idle}))))
   (testing "parallel without :regions throws"
     (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
-                 (scxml/spec->scxml {:type :parallel})))))
+                 (scxml/spec->scxml {:type :parallel}))))
+  (testing "rf2-bj3sxo — a malformed flat-ROOT `:on` (non-map fallback slot)
+            is rejected as the clean :scxml/invalid-spec, NOT an uncaught host
+            ISeq exception (the emit path first validates via
+            grammar/valid-definition?)"
+    (let [d (try (scxml/spec->scxml {:initial :a :states {:a {}} :on :retry}) nil
+                 (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e (ex-data e)))]
+      (is (= :scxml/invalid-spec (:rf.error/id d))
+          "the malformed root :on surfaces the documented invalid-spec outcome")
+      ;; the value-free summary carries the canonical structural defect category
+      (is (= :rf.error/machine-bad-on-clause
+             (get-in d [:spec-summary :defect :category]))
+          "the summary carries the canonical bad-on-clause defect category"))))
 
 (deftest scxml->spec-rejects-non-string
   (testing "non-string input throws :scxml/parse-error"

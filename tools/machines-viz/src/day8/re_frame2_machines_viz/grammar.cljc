@@ -656,17 +656,29 @@
     :else
     {:category :rf.error/machine-bad-target :path (vec path) :slot slot}))
 
+(defn- transition-slot-shape-defect
+  "The SHARED transition-SLOT shape rule (rf2-qgtcvy node scope / rf2-bj3sxo
+  root scopes). A fallback-transition `:on` / `:after` slot present on `node`
+  at `path` must be a MAP of clause → spec. A non-map (e.g. `{:on :retry}`
+  from an LLM) would throw an uncaught ISeq exception the moment it is
+  iterated, instead of the clean `:invalid-definition` the emit paths promise.
+  Surface the runtime's own slot-specific defect category so the emit path
+  rejects cleanly.
+
+  Deliberately shared by EVERY scope that consumes the `:on` / `:after`
+  fallback grammar — compound state node (`transition-target-defect`), flat
+  root, region root, and parallel root (`flat-defect` / `region-defect` /
+  `parallel-defect`) — so the four scopes cannot drift and one path cannot
+  reintroduce an unchecked iteration (rf2-bj3sxo)."
+  [path node]
+  (or (when (and (contains? node :on) (not (map? (:on node))))
+        {:category :rf.error/machine-bad-on-clause :path (vec path)})
+      (when (and (contains? node :after) (not (map? (:after node))))
+        {:category :rf.error/machine-bad-after-spec :path (vec path)})))
+
 (defn- transition-target-defect [scope path node]
   (or
-    ;; rf2-qgtcvy — `:on` / `:after` must each be a MAP of clause → spec. A
-    ;; non-map (e.g. `{:on :retry}` from an LLM) previously threw an uncaught
-    ;; ISeq exception when iterated below, instead of the clean
-    ;; `:invalid-definition` the emit paths promise. Surface the runtime's own
-    ;; slot-specific defect category so the emit path rejects cleanly.
-    (when (and (contains? node :on) (not (map? (:on node))))
-      {:category :rf.error/machine-bad-on-clause :path (vec path)})
-    (when (and (contains? node :after) (not (map? (:after node))))
-      {:category :rf.error/machine-bad-after-spec :path (vec path)})
+    (transition-slot-shape-defect path node)
     (let [check (fn [slot v]
                   (some (fn [{:keys [present? target]}]
                           (when present? (target-defect scope path slot target)))
@@ -760,7 +772,10 @@
 (defn- root-on-target-defect
   "The non-parallel root's OWN `:on` (the ancestor-fallback slot, decl-path
   `[]`) target resolution — mirror of the engine's root `:on` branch in
-  `validate-transition-targets!`."
+  `validate-transition-targets!`. Assumes `:on` is a MAP: its shape is
+  guarded upstream in `flat-defect` by `transition-slot-shape-defect`, so a
+  malformed non-map root `:on` is rejected cleanly BEFORE this iterates it
+  (rf2-bj3sxo)."
   [scope d]
   (some (fn [[_ v]]
           (some (fn [{:keys [present? target]}]
@@ -778,6 +793,13 @@
     (let [scope (:states d)]
       (or (node-keys-defect [] d true)
           (tags-defect [] d)
+          ;; rf2-bj3sxo — the flat ROOT's own `:on` / `:after` fallback slot
+          ;; is validated for shape with the SAME rule as a state node's,
+          ;; BEFORE `root-on-target-defect` iterates it. A malformed root
+          ;; `:on` (`{… :on :retry}`) now returns the clean
+          ;; `machine-bad-on-clause` defect instead of throwing an ISeq
+          ;; exception out of `valid-definition?` / the emit paths.
+          (transition-slot-shape-defect [] d)
           (some (fn [[path node]] (node-defect scope path node)) (walk-scope-nodes scope))
           (history-scope-defect scope)
           (root-on-target-defect scope d)))))
@@ -798,6 +820,9 @@
     (let [scope (:states body)]
       (or (node-keys-defect [region-name] body false)
           (tags-defect [region-name] body)
+          ;; rf2-bj3sxo — the region ROOT's own `:on` / `:after` ancestor
+          ;; fallback slot gets the same shape guard as every other scope.
+          (transition-slot-shape-defect [region-name] body)
           (some (fn [[path node]]
                   (or (when (= :parallel (:type node))
                         {:category :rf.error/machine-parallel-nested-not-supported :path (vec path)})
@@ -814,6 +839,9 @@
       {:category :rf.error/machine-parallel-bad-shape :path []}
       :else
       (or (node-keys-defect [] d true)
+          ;; rf2-bj3sxo — the parallel ROOT's own `:on` / `:after` ancestor
+          ;; fallback slot gets the same shape guard as every other scope.
+          (transition-slot-shape-defect [] d)
           (some (fn [[region-name body]] (region-defect region-name body)) regions)))))
 
 (defn definition-defect
