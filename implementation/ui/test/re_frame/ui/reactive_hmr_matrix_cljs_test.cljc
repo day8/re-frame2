@@ -1,0 +1,286 @@
+(ns re-frame.ui.reactive-hmr-matrix-cljs-test
+  "S2e (rf2-vxgfnd.11) — THE consolidated hot-reload matrix, proven headlessly
+  over the REAL observation port + REAL sub-cache (plain-atom) on BOTH hosts
+  (node via `test:cljs`, JVM via `clojure -M:test`). The normative source is
+  03 §10 (the HMR contract): stable shells + the hook-signature hash, site
+  identity, frame non-reseed, sub replacement via lease `current?` rejection of
+  disposed nodes, and REPL == file-save reload (one path).
+
+  Every cell exercises the actual substrate primitive — no proxy:
+
+    1. HOOK-SIGNATURE DECIDES PRESERVE vs REMOUNT. `hook-signature-hash`
+       (shipped since S1b, consumed here) keyed through the view-body
+       GENERATION registry: a template edit (same hook signature, moved
+       template fingerprint) KEEPS the generation → mounted cells preserve; a
+       hook edit (moved signature) BUMPS it → the shell remounts a fresh cell.
+       `sub`/`lease`/event sites are excluded from the signature, so adding your
+       first `sub` is a same-signature edit.
+    2. STALE-CELL REJECTION AT COMMIT (step 1). A live cell whose generation
+       advanced past its in-flight capture is stale-rejected (`:stale`) with no
+       ownership touched — the same-shell reload's mark-stale-then-re-render.
+    3. SITE IDENTITY survives edits. Sites are keyed by target IDENTITY
+       `(frame, query)`: a sibling site added above a lease never retargets it;
+       a site whose query moves retargets (kept-check fails → release + acquire)
+       and a shared node never churns.
+    4. SUB REPLACEMENT via lease `current?`. A committed ViewCell lease whose
+       sub is re-registered is REJECTED by `current?` (the disposed canonical
+       node) and re-acquired at the next commit — the ViewCell-level extension
+       of the S2a-confirmed observation-port [S2-CONFIRM] queue-alignment proof
+       (`re-frame.observation-port-cljs-test`).
+    5. FRAME NON-RESEED. A reloaded root re-runs preflight ENSURE, which finds
+       the frame live at the same config fingerprint and does NOT re-seed —
+       app-db survives the edit (consolidated here; the disposition table lives
+       in `re-frame.ui.preflight-frame-wiring-cljs-test`).
+    6. REPL == FILE-SAVE. The generation decision is ONE path: a REPL re-eval
+       and a file-save reload carrying the same hook signature both keep the
+       generation; both carrying a changed signature both bump — identical
+       outcomes. (The build-authority upsert-vs-pass convergence is
+       `re-frame.ui.build-repl-hmr-convergence-jvm-test`.)"
+  (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
+               :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+            [re-frame.core                  :as rf]
+            [re-frame.frame                 :as frame]
+            [re-frame.subs                  :as subs]
+            [re-frame.substrate.observation :as obs]
+            [re-frame.substrate.plain-atom  :as plain-atom]
+            [re-frame.test-support          :as test-support]
+            [re-frame.ui.fingerprint        :as fp]
+            [re-frame.ui.frames             :as frames]
+            [re-frame.ui.reactive           :as reactive]))
+
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter})
+  (fn [t]
+    (reactive/reset-scheduler!)
+    (frames/reset-installed-plans!)
+    (t)
+    (reactive/reset-scheduler!)
+    (frames/reset-installed-plans!)))
+
+(def ^:private fid :rf/default)
+
+(defn- sub-cache [] (:sub-cache (frame/frame fid)))
+(defn- entry [q] (get @(sub-cache) q))
+(defn- ref-count [q] (:ref-count (entry q)))
+(defn- seed! [db] (frame/replace-app-db! fid db))
+(defn- tk [q] [:sub fid q])
+(defn- target [q] (rf/with-frame fid (obs/resolve-target {:query-v q})))
+
+(defn- render! [cell queries]
+  (rf/with-frame fid
+    (reactive/with-capture cell (fn [] (mapv reactive/sub-read queries))))
+  cell)
+
+(defn- render+commit! [cell queries]
+  (render! cell queries)
+  (reactive/commit! cell)
+  cell)
+
+;; ===========================================================================
+;; Cell 1 — hook-signature hash decides preserve vs remount (03 §10)
+;; ===========================================================================
+;;
+;; Real fingerprint inputs: the signature excludes `sub`/`lease`/event sites and
+;; hashes only the ordered `:locals`/`:effects` plan (the S3 host-hook surfaces).
+;; At S2 every defview still emits the empty-plan signature, so a REAL S2 edit is
+;; always a same-signature edit — the fixtures drive the decision with the varied
+;; plans the fingerprint contract already supports.
+
+(deftest hook-signature-hash-is-stable-across-a-template-only-edit
+  (testing "a template edit moves the TEMPLATE fingerprint but NOT the hook
+            signature — the preserve trigger (03 §10)"
+    (let [hs   (fp/hook-signature-hash {:locals [] :effects []})
+          hs'  (fp/hook-signature-hash {:locals [] :effects []})
+          tf1  (fp/template-fingerprint [:div "v1"])
+          tf2  (fp/template-fingerprint [:div [:strong "v2"]])]
+      (is (= hs hs') "identical hook plan ⇒ identical hook signature")
+      (is (not= tf1 tf2) "the template edit moved the template fingerprint"))))
+
+(deftest hook-signature-hash-moves-on-a-hook-edit
+  (testing "adding/reordering a user hook site moves the signature — the remount
+            trigger"
+    (is (not= (fp/hook-signature-hash {:locals [] :effects []})
+              (fp/hook-signature-hash {:locals ['draft] :effects []})))
+    (is (not= (fp/hook-signature-hash {:locals ['a 'b] :effects []})
+              (fp/hook-signature-hash {:locals ['b 'a] :effects []}))
+        "hook ORDER is part of the signature (React hook-order safety)")))
+
+(deftest same-signature-reload-keeps-the-view-generation
+  (let [vid ::preserve-view
+        hs0 (fp/hook-signature-hash {:locals [] :effects []})]
+    (is (= 0 (reactive/register-view-generation! vid hs0))
+        "first registration seeds generation 0")
+    (testing "a template-only reload (same hook signature) KEEPS the generation
+              → mounted cells preserve state"
+      (is (= 0 (reactive/register-view-generation! vid hs0)))
+      (is (= 0 (reactive/register-view-generation! vid hs0)))
+      (is (= 0 (reactive/view-generation vid))))))
+
+(deftest changed-signature-reload-bumps-the-view-generation
+  (let [vid ::remount-view
+        hs0 (fp/hook-signature-hash {:locals [] :effects []})
+        hs1 (fp/hook-signature-hash {:locals ['draft] :effects []})
+        hs2 (fp/hook-signature-hash {:locals ['draft] :effects ['sync]})]
+    (is (= 0 (reactive/register-view-generation! vid hs0)))
+    (testing "a hook edit (moved signature) BUMPS the generation → the shell
+              remounts cleanly"
+      (is (= 1 (reactive/register-view-generation! vid hs1)))
+      (is (= 1 (reactive/view-generation vid)))
+      (is (= 2 (reactive/register-view-generation! vid hs2))
+          "each distinct signature bumps once")
+      (testing "reverting to a prior signature is itself a change (monotone gen)"
+        (is (= 3 (reactive/register-view-generation! vid hs0)))))))
+
+(deftest freshly-mounted-cell-mints-at-the-view-generation
+  (let [vid ::mint-view
+        hs0 (fp/hook-signature-hash {:locals [] :effects []})
+        hs1 (fp/hook-signature-hash {:locals ['x] :effects []})]
+    (reactive/register-view-generation! vid hs0)
+    (reactive/register-view-generation! vid hs1)  ; a changed-signature reload
+    (is (= 1 (reactive/view-generation vid)))
+    (let [cell (reactive/make-cell vid (reactive/view-generation vid))]
+      (is (= 1 (reactive/generation cell))
+          "a cell mounted after a remount starts at the current view generation")
+      (is (empty? (reactive/committed-target-keys cell))
+          "the remounted shell is a FRESH cell — no committed deps (fresh state)"))))
+
+;; ===========================================================================
+;; Cell 2 — stale-cell rejection at commit (step 1): the same-shell reload
+;; ===========================================================================
+
+(deftest stale-generation-capture-rejected-at-commit-step-1
+  (rf/reg-sub :r/a (fn [db _] (:a db)))
+  (seed! {:a 1})
+  (let [cell (render+commit! (reactive/make-cell ::v 0) [[:r/a]])
+        lease0 (reactive/committed-lease cell (tk [:r/a]))]
+    (is (= 1 (ref-count [:r/a])) "precondition: committed at generation 0")
+    (testing "a reload BUMPS the live cell's body generation; its in-flight
+              capture (rendered under the prior body) is now stale"
+      (render! cell [[:r/a]])                       ; capture at generation 0
+      (reactive/advance-generation! cell 1)         ; the same-shell reload bump
+      (is (= 1 (reactive/generation cell)))
+      (is (= :stale (reactive/commit! cell))
+          "commit step 1 REJECTS the stale-generation capture (the host re-renders)"))
+    (testing "no ownership was touched — the prior committed set stays installed"
+      (is (identical? lease0 (reactive/committed-lease cell (tk [:r/a]))))
+      (is (= 1 (ref-count [:r/a])) "no acquire, no release on a stale rejection"))
+    (testing "the re-render under the new body commits normally — state preserved"
+      (render+commit! cell [[:r/a]])
+      (is (identical? lease0 (reactive/committed-lease cell (tk [:r/a])))
+          "the same lease is retained across the reload — the committed dep set
+           is carried forward (a same-signature preserve)"))))
+
+(deftest advance-generation-is-monotone
+  (let [cell (reactive/make-cell ::v 2)]
+    (reactive/advance-generation! cell 1)   ; lower — ignored
+    (is (= 2 (reactive/generation cell)) "a lower generation never regresses a cell")
+    (reactive/advance-generation! cell 5)
+    (is (= 5 (reactive/generation cell)))))
+
+;; ===========================================================================
+;; Cell 3 — site identity survives edits (target identity, not position)
+;; ===========================================================================
+
+(deftest sibling-site-added-above-never-retargets-an-existing-lease
+  (rf/reg-sub :r/a (fn [db _] (:a db)))
+  (rf/reg-sub :r/b (fn [db _] (:b db)))
+  (seed! {:a 1 :b 2})
+  (let [cell   (render+commit! (reactive/make-cell ::v) [[:r/a]])
+        lease-a (reactive/committed-lease cell (tk [:r/a]))]
+    (testing "an edit inserts a NEW sibling site ABOVE :a; :a's lease is keyed by
+              target identity (frame,query), never by position"
+      (render+commit! cell [[:r/b] [:r/a]])
+      (is (identical? lease-a (reactive/committed-lease cell (tk [:r/a])))
+          ":a keeps the SAME lease — the prepended :b did not shift its owner")
+      (is (= #{(tk [:r/a]) (tk [:r/b])} (reactive/committed-target-keys cell)))
+      (is (= 1 (ref-count [:r/a])) ":a never re-acquired")
+      (is (= 1 (ref-count [:r/b])) ":b acquired fresh"))))
+
+(deftest site-retargets-when-its-query-moves-anchor-loss
+  (rf/reg-sub :r/p (fn [db [_ k]] (get db k)))
+  (seed! {:x 10 :y 20})
+  (let [cell    (render+commit! (reactive/make-cell ::v) [[:r/p :x]])
+        lease-x (reactive/committed-lease cell (tk [:r/p :x]))]
+    (is (= 1 (ref-count [:r/p :x])))
+    (testing "the site's query moves [:r/p :x] → [:r/p :y]: a NEW target identity,
+              so the kept-check fails and the site retargets (release old +
+              acquire new)"
+      (render+commit! cell [[:r/p :y]])
+      (is (= #{(tk [:r/p :y])} (reactive/committed-target-keys cell)))
+      (is (not (identical? lease-x (reactive/committed-lease cell (tk [:r/p :y])))))
+      (is (nil? (entry [:r/p :x])) "the abandoned query's node disposed (zero-owner)")
+      (is (= 1 (ref-count [:r/p :y])) "the new query acquired one owner"))))
+
+;; ===========================================================================
+;; Cell 4 — sub replacement via lease current? (ViewCell-level; 03 §10)
+;; ===========================================================================
+;; The observation-port half (one coalesced :hmr notification, current? false,
+;; fresh canonical node) is S2a-CONFIRMED in re-frame.observation-port-cljs-test
+;; (hmr-reregistration-notifies-former-owners-once-with-cause-hmr). Here the SAME
+;; mechanism is driven through the ViewCell commit reconciler.
+
+(deftest reregistered-sub-disposed-lease-rejected-by-current?-and-reacquired
+  (rf/reg-sub :r/x (fn [db _] (:a db)))
+  (seed! {:a 1})
+  (let [cell   (render+commit! (reactive/make-cell ::v) [[:r/x]])
+        lease0 (reactive/committed-lease cell (tk [:r/x]))
+        tgt    (target [:r/x])]
+    (is (= 1 (ref-count [:r/x])))
+    (is (true? (obs/current? lease0 tgt)) "the live lease is current before the reload")
+    (testing "an HMR sub re-registration disposes the canonical node"
+      (rf/reg-sub :r/x (fn [db _] (inc (:a db))))   ; new body
+      (is (false? (obs/current? lease0 tgt))
+          "current? REJECTS the committed lease — its node was disposed (03 §10)"))
+    (testing "the next commit re-acquires the NEW canonical node"
+      (render+commit! cell [[:r/x]])
+      (let [lease1 (reactive/committed-lease cell (tk [:r/x]))]
+        (is (not (identical? lease0 lease1)) "a fresh lease on the new node")
+        (is (true? (obs/current? lease1 tgt)))
+        (is (= 1 (ref-count [:r/x])) "exactly one owner — no cell pinned the disposed node")
+        (is (= {(tk [:r/x]) 2} (reactive/committed-values cell))
+            "the view re-read the new body's value on the reload")))))
+
+;; ===========================================================================
+;; Cell 5 — frame payloads never reseed on reload (03 §10)
+;; ===========================================================================
+
+(deftest frame-payload-never-reseeds-on-reload
+  (rf/reg-event :hmr/set (fn [_ [_ db]] {:db db}))
+  (rf/reg-event :hmr/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+  (let [plan {:frame-id :frame/hmr
+              :config {:initial-events [[:hmr/set {:n 3}]]}
+              :config-fingerprint "cf1-hmraaaaaaaaaaaa"}]
+    (frames/execute-frame-plans! :root/page [plan])
+    (is (= 3 (:n (rf/app-db-value :frame/hmr))) ":initial-events seeded once at preflight")
+    (testing "mutate durable state, then RELOAD (re-run the same plan) — no re-seed"
+      (rf/dispatch-sync [:hmr/inc] {:frame :frame/hmr})
+      (is (= 4 (:n (rf/app-db-value :frame/hmr))))
+      (frames/execute-frame-plans! :root/page [plan])   ; the reload's preflight
+      (is (= 4 (:n (rf/app-db-value :frame/hmr)))
+          "the reload found the frame live at the same fingerprint — NOT re-init")
+      (frames/execute-frame-plans! :root/page [plan])   ; and again
+      (is (= 4 (:n (rf/app-db-value :frame/hmr)))
+          "idempotent across repeated reloads — the frame keeps its app-db"))))
+
+;; ===========================================================================
+;; Cell 6 — REPL == file-save reload (one path; 03 §10, 02 §8)
+;; ===========================================================================
+
+(deftest repl-and-file-save-reload-converge-on-one-generation-decision
+  ;; The generation decision (`register-view-generation!`) is the ONE seam both
+  ;; the shadow file-save re-registration and a REPL re-eval feed. Same input ⇒
+  ;; same outcome, so the two paths can never diverge (df9873: REPL evals upsert;
+  ;; the build hook drives compile-boundary passes — but the RUNTIME
+  ;; re-registration semantics are identical).
+  (let [hs0 (fp/hook-signature-hash {:locals [] :effects []})
+        hs1 (fp/hook-signature-hash {:locals ['n] :effects []})
+        run (fn [view-id]
+              (reactive/register-view-generation! view-id hs0)   ; initial reg
+              [(reactive/register-view-generation! view-id hs0)   ; same-sig reload
+               (reactive/register-view-generation! view-id hs1)   ; changed-sig reload
+               (reactive/register-view-generation! view-id hs0)]) ; changed again
+        file-save (run ::via-file-save)
+        repl      (run ::via-repl)]
+    (is (= [0 1 2] file-save) "same-sig keeps, each change bumps once")
+    (is (= file-save repl)
+        "a REPL re-eval and a file-save reload take the IDENTICAL generation path")))

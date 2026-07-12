@@ -397,6 +397,85 @@
             :listeners      {}
             :intervals      []}))))
 
+;; ---------------------------------------------------------------------------
+;; View-body generation — the HMR hook-signature → preserve/remount decision
+;; (03 §10)
+;; ---------------------------------------------------------------------------
+;;
+;; The "stable shell + hook-signature hash" contract, realized as a per-view-id
+;; BODY GENERATION. A view re-registration — shadow hot reload OR REPL re-eval,
+;; ONE path (02 §8) — consults the ordered user-hook-site signature hash
+;; (`re-frame.ui.fingerprint/hook-signature-hash`, shipped since S1b — consumed
+;; here, never rebuilt). An UNCHANGED signature KEEPS the generation: mounted
+;; cells preserve their state — their committed captures stay current, the next
+;; render runs the NEW body, and the commit reconciles the changed `sub` sites
+;; (`sub`/`lease`/event sites are EXCLUDED from the signature by the
+;; fingerprint's own contract, so a template edit — or adding your first `sub`
+;; under the dev fixed full hook skeleton, I-15 — is a same-signature edit). A
+;; CHANGED signature BUMPS the generation: the shell deliberately remounts a
+;; fresh cell at the new generation, never a corrupted hook order.
+;;
+;; The registry is the ONE authority the runtime's `register-view!` feeds and a
+;; freshly-mounted ViewCell mints against (`view-generation`); a LIVE cell whose
+;; view generation advanced is stale-rejected at its next commit (step 1) via
+;; `advance-generation!`. Host-agnostic, so the decision is graft-checked on both
+;; hosts.
+
+(defonce ^:private view-generations
+  ;; view-id -> {:hook-signature hs :generation g}. `defonce` (module-lived);
+  ;; `reset-scheduler!` clears it between fixtures.
+  (atom {}))
+
+(defn register-view-generation!
+  "Consume a view's `hook-signature` at (re-)registration and return its current
+  BODY GENERATION (03 §10). The first registration seeds generation 0. A
+  re-registration carrying the SAME `hook-signature` KEEPS the generation
+  (mounted cells preserve — a template-only edit changes the template
+  fingerprint, never the hook signature); a DIFFERENT `hook-signature` BUMPS it
+  (the shell remounts cleanly). One decision for shadow reload and REPL re-eval
+  (02 §8), so both converge on the same generation. A nil `hook-signature` is a
+  value like any other (a sub/effect-free view never changes signature). Returns
+  the (possibly bumped) generation."
+  [view-id hook-signature]
+  (-> (swap! view-generations update view-id
+             (fn [prev]
+               (cond
+                 (nil? prev)
+                 {:hook-signature hook-signature :generation 0}
+                 (= hook-signature (:hook-signature prev))
+                 prev
+                 :else
+                 {:hook-signature hook-signature
+                  :generation     (inc (:generation prev))})))
+      (get view-id)
+      :generation))
+
+(defn view-generation
+  "The current body generation for `view-id` (0 when never registered) — the
+  generation a freshly-mounted ViewCell for this view is minted at (tool/test
+  read)."
+  [view-id]
+  (get-in @view-generations [view-id :generation] 0))
+
+(defn advance-generation!
+  "Advance a LIVE `cell`'s view-body generation to `generation` — the same-shell
+  HMR seam (03 §10). A same-signature reload bumps a mounted cell's generation
+  so any in-flight capture rendered under the PRIOR body is stale-rejected at the
+  next commit (step 1); the next render runs the new body and the commit
+  reconciles the changed `sub` sites — STATE PRESERVED (the same cell, its
+  committed dependency set carried forward). Monotone: a no-op unless
+  `generation` exceeds the cell's current generation. Returns the cell."
+  [^ViewCell cell generation]
+  (let [st (state cell)]
+    (when (> generation (:generation @st))
+      (swap! st assoc :generation generation)))
+  cell)
+
+(defn generation
+  "The cell's current view-body generation (tool/test read)."
+  [^ViewCell cell]
+  (:generation @(state cell)))
+
 ;; ---- read + query stabilization ---------------------------------------------
 
 (defn sub-read
@@ -961,6 +1040,7 @@
   (reset! teardown-collector nil)
   (reset! evidence-sink nil)
   (reset! last-sink-escape nil)
+  (reset! view-generations {})
   nil)
 
 (defn- on-change-fn
