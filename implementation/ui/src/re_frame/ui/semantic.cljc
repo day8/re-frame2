@@ -153,7 +153,7 @@
               c)))
         children))
 
-(defn- norm-element [el]
+(defn- norm-element [el path]
   (let [tag   (:tag el)
         pp    (if (custom-element-tag? tag)
                 (set (or (:rf.ui/property-props el) #{}))
@@ -177,7 +177,7 @@
         attrs     (cond-> attrs
                     (or textarea? select?) (dissoc :value))
         fa        (final-attrs attrs pp)
-        chs       (norm-nodes (:children el))
+        chs       (norm-nodes (:children el) path)
         chs       (cond
                     (some? ta-val)  [(str-val ta-val)]
                     (some? sel-val) (mark-selected-options chs (str-val sel-val))
@@ -202,24 +202,51 @@
   it is only the fragment signal in the ABSENCE of the three primaries."
   [:tag :view-id :html])
 
+(defn- coalesce
+  "Canonicalize a spliced node vector (step 6): coalesce adjacent text
+  runs into one string and drop empty-text nodes. Shared by `norm-nodes`
+  (element children) and `normalize` (the root splice) so the root and
+  every nested children level canonicalize identically."
+  [vs]
+  (let [coalesced (reduce (fn [acc v]
+                            (if (and (string? v) (string? (peek acc)))
+                              (conj (pop acc) (str (peek acc) v))
+                              (conj acc v)))
+                          [] vs)]
+    (into [] (remove #(and (string? %) (= "" %))) coalesced)))
+
 (defn- malformed-node!
   "Fail loud with the shared node-malformation id, naming the closed
-  variant set (the escape the emitter/author should honour)."
-  [reason extra]
+  variant set (the escape the emitter/author should honour) AND the
+  root-relative `path` that LOCATES the offending node.
+
+  `path` is the deterministic `get-in`-shaped position of the node in the
+  INPUT tree — a vector of `:children`/index segments threaded through the
+  walk (`[]` is the root; `[:children 0 :children 2]` is the root's first
+  child's third child). It rides both the human message (so a log reader
+  can find the node) and the `:path` ex-data slot (so a tool can
+  `(get-in tree path)` straight to it), and DISAMBIGUATES two equal-looking
+  malformed nodes at different positions. `extra` carries the arm-specific
+  slots (`:value`, `:got`)."
+  [reason path extra]
   (error/throw-error!
    :rf.error/ui-tree-malformed 're-frame.ui.semantic/normalize
-   reason {:extra extra}))
+   (str reason " (at tree path " (pr-str path) ")")
+   {:extra (assoc extra :path path)}))
 
 (defn- norm-node
-  "-> vector of semantic nodes/strings this tree node contributes.
+  "-> vector of semantic nodes/strings this tree node contributes. `path`
+  is the node's own root-relative `get-in` position in the INPUT tree
+  (threaded by `norm-nodes*`; `[]` at the root), carried onto every
+  malformation so a deeply nested failure LOCATES the offending node.
 
   Discrimination is CLOSED and UNAMBIGUOUS (jvm-tree contract §Node
   discrimination): a map node carries exactly one of `node-
   discriminators`, or none plus `:children` (a fragment). Zero
   discriminators with no `:children`, or two-plus discriminators, is a
-  malformed node — it fails loud rather than being guessed by branch
-  order or silently dropped as `[]`."
-  [node]
+  malformed node — it fails loud (carrying its `path`) rather than being
+  guessed by branch order or silently dropped as `[]`."
+  [node path]
   (cond
     (string? node) [node]
     (map? node)
@@ -233,18 +260,18 @@
               "markup), or a fragment (none of these, splicing its "
               ":children); an ambiguous map must not be interpreted by "
               "branch order: " (pr-str node))
-         {:value node :got ds})
+         path {:value node :got ds})
 
         (= 1 (count ds))
         (case (first ds)
-          :tag     [(norm-element node)]
+          :tag     [(norm-element node path)]
           :html    [{:html (:html node)}]
           ;; view boundaries SPLICE — children replace the node
-          :view-id (norm-nodes* (:children node)))
+          :view-id (norm-nodes* (:children node) path))
 
         ;; no primary discriminator: a fragment (splices its children)
         (contains? node :children)
-        (norm-nodes* (:children node))
+        (norm-nodes* (:children node) path)
 
         ;; no discriminator AND no :children — not a renderable node; must
         ;; not silently disappear as [] (a lost fragment / corrupt node)
@@ -254,27 +281,31 @@
               "is an element (:tag), a view boundary (:view-id), trusted "
               "markup (:html), or a fragment (:children); a map with none "
               "is not a renderable tree node: " (pr-str node))
-         {:value node :got []})))
+         path {:value node :got []})))
     :else
     (malformed-node!
      (str "malformed tree node in normalization N: " (pr-str node))
-     {:value node})))
+     path {:value node})))
 
 (defn- norm-nodes*
-  [children]
-  (into [] (mapcat norm-node) children))
+  "Splice a children vector, threading each child's root-relative path.
+  `parent-path` is the OWNING node's path; child `i` is located at
+  `parent-path` + `[:children i]` — a deterministic INPUT-tree position
+  that depends only on document child ORDER (order-significant per the
+  contract), never on map key iteration order."
+  [children parent-path]
+  (into []
+        (comp (map-indexed
+               (fn [i c] (norm-node c (conj parent-path :children i))))
+              cat)
+        children))
 
 (defn norm-nodes
-  "Normalize + canonicalize a children vector: splice, then coalesce
-  adjacent text runs and drop empties (step 6)."
-  [children]
-  (let [vs (norm-nodes* children)
-        coalesced (reduce (fn [acc v]
-                            (if (and (string? v) (string? (peek acc)))
-                              (conj (pop acc) (str (peek acc) v))
-                              (conj acc v)))
-                          [] vs)]
-    (into [] (remove #(and (string? %) (= "" %))) coalesced)))
+  "Normalize + canonicalize a children vector under `parent-path`: splice
+  (locating any malformed child), then coalesce adjacent text runs and
+  drop empties (step 6)."
+  [children parent-path]
+  (coalesce (norm-nodes* children parent-path)))
 
 (def ^:private supported-tree-versions
   "The node-schema versions `normalize` (semantic projection N) accepts.
@@ -311,8 +342,10 @@
 (defn normalize
   "`N(tree)` — the semantic-node projection of a version-1 structural
   tree. Validates the root `:rf.ui/tree-version` FIRST (fail-loud on a
-  missing / non-integer / unsupported version), then returns the VECTOR
-  of semantic roots in document order."
+  missing / non-integer / unsupported version), then walks from the ROOT
+  (path `[]`) and returns the VECTOR of semantic roots in document order.
+  A malformed node past the version gate fails loud carrying the
+  root-relative `:path` that locates it (`malformed-node!`)."
   [tree]
   (validate-tree-version! tree)
-  (norm-nodes [tree]))
+  (coalesce (norm-node tree [])))
