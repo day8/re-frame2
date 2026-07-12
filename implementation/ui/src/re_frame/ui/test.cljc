@@ -44,11 +44,11 @@
 
   ## JVM semantics under test (06 §1 subset)
 
-  Structure, branches, lists and event intent are fully faithful;
-  `sub` reads land S2 (any executed `(ui/sub …)` raises
-  `:rf.error/ui-sub-unavailable` at S1), effects don't run, host ops
-  raise `:rf.error/jvm-host-op`. The events/subs a view touches must be
-  `.cljc` — the standard re-frame discipline.
+  Structure, branches, lists and event intent are fully faithful; `sub`
+  reads are the one-shot headless read (03 §3) — resolved against the
+  render's frame and the explicit `:sub-overrides` door — effects don't
+  run, host ops raise `:rf.error/jvm-host-op`. The events/subs a view
+  touches must be `.cljc` — the standard re-frame discipline.
 
   Dev/test scope ONLY: nothing in a production bundle may `:require`
   this namespace (bundle-isolation gate)."
@@ -60,6 +60,7 @@
             [re-frame.registrar :as registrar]
             [re-frame.router :as router]
             [re-frame.ui.eq :as eq]
+            [re-frame.ui.reactive :as reactive]
             #?@(:clj [[re-frame.ui.compiler.analyze :as ana]
                       [re-frame.ui.compiler.emit-jvm :as emit-jvm]
                       [re-frame.ui.compiler.env :as env]
@@ -470,16 +471,6 @@
 ;; ---------------------------------------------------------------------------
 
 #?(:clj
-   (def ^:dynamic *sub-overrides*
-     "The explicit JVM sub-override door (03 §3): bound by `render` from
-  its `{:sub-overrides {query value}}` opt for the duration of the
-  render. CONSUMED by the S2 reactive-read slice — at S1 every executed
-  `(ui/sub …)` raises `:rf.error/ui-sub-unavailable` before any override
-  could be read, so binding it is inert (validated + carried, honestly
-  unread)."
-     nil))
-
-#?(:clj
    (defn- validate-render-opts!
      [opts allow-props?]
      (when (some? opts)
@@ -525,7 +516,7 @@
   raises honestly rather than defaulting."
      [opts thunk]
      (let [run  (if (contains? opts :sub-overrides)
-                  #(binding [*sub-overrides* (:sub-overrides opts)] (thunk))
+                  #(binding [reactive/*sub-overrides* (:sub-overrides opts)] (thunk))
                   thunk)
            root (cond
                   (contains? opts :frame)
@@ -645,10 +636,10 @@
   combines with both forms (the explicit JVM override door; consumed by
   the S2 read slice). Registrations come from the loaded namespaces.
 
-  Tier-1 renders the JVM structural subset: no effects, no host ops,
-  `sub` reads land S2. CLJS has no structural trees (the client emitter
-  targets React directly) — expanding this macro in a CLJS compile is a
-  didactic compile error."
+  Tier-1 renders the JVM structural subset: no effects, no host ops;
+  `sub` is the one-shot headless read (03 §3). CLJS has no structural
+  trees (the client emitter targets React directly) — expanding this
+  macro in a CLJS compile is a didactic compile error."
      ([root-or-view] `(render ~root-or-view nil))
      ([root-or-view opts]
       (when (some? (:ns &env))

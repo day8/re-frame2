@@ -40,6 +40,7 @@
   (jvm-tree-and-conversion-contract.md)."
   #?(:cljs (:require-macros [re-frame.ui]))
   (:require [re-frame.error :as error]
+            [re-frame.ui.reactive :as reactive]
             #?@(:clj  [[re-frame.ui.compiler :as compiler]
                        [re-frame.ui.compiler.root :as root]
                        [re-frame.ui.tree :as tree]
@@ -190,17 +191,15 @@
 
 (defn sub
   "(sub [:query ...]) — returns the subscription's value at a compile-
-  indexed view site. The GRAMMAR compiles at S1 (loop rejection is a
-  compile error); actual reads land with the S2 reactivity slice — until
-  then every call raises :rf.error/ui-sub-unavailable."
+  indexed view site. In a live CLJS view the read is reactive: all of a
+  view's sites share one ViewCell (one `useSyncExternalStore`), the render
+  probes ownership-free, and the layout commit acquires the captured
+  target (`re-frame.ui.reactive` / `re-frame.ui.viewcell`). On the JVM
+  Tier-1 render it is a one-shot headless read honouring the explicit
+  override door (`ui.test/render {:sub-overrides …}`). Fail-loud rides the
+  observation port: `:rf.error/no-such-sub` / `:rf.error/frame-destroyed`."
   [query]
-  #?(:clj  (error/throw-error!
-            :rf.error/ui-sub-unavailable 're-frame.ui/sub
-            (str "(sub " (pr-str query) ") — reactive reads land with the S2 "
-                 "reactivity slice; no Stage-1 Tier-1 fixture may exercise a "
-                 "sub read")
-            {:extra {:query query}})
-     :cljs (runtime/sub* query)))
+  (reactive/sub-read query))
 
 (defn lease
   "(lease descriptor) — declares resource liveness at a view site.

@@ -126,16 +126,9 @@
      {:extra {:value v}})))
 
 ;; ---------------------------------------------------------------------------
-;; sub — S1 stub (grammar compiles; reads land S2)
+;; lease — S2 declaration surface stub (grammar compiles; leases land with
+;; the resource-lease slice — 03 §7's aggregated post-commit effect)
 ;; ---------------------------------------------------------------------------
-
-(defn sub*
-  [query]
-  (error/throw-error!
-   :rf.error/ui-sub-unavailable 're-frame.ui/sub
-   (str "(sub " (pr-str query) ") — reactive reads land with the S2 "
-        "reactivity slice; no Stage-1 Tier-1 fixture may exercise a sub read")
-   {:extra {:query query}}))
 
 (defn lease*
   [descriptor]

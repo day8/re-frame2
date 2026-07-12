@@ -363,6 +363,17 @@
         body       (emit-node ast st false)
         binds      (vec (header-bindings header))
         render-sym (symbol (str (name vname) "$render"))
+        ;; A view with reactive `(sub …)` sites gets a ViewCell: its render
+        ;; body runs under `re-frame.ui.viewcell/render` (one
+        ;; useSyncExternalStore, render-time probes, layout-commit
+        ;; ownership). Sub-free views are never wrapped — no per-view hook
+        ;; overhead, byte-identical S1 emission (I-15's dev fixed-hook
+        ;; skeleton is an S2e HMR refinement).
+        has-subs?  (boolean (seq (:subs (:sites manifest))))
+        inner      (if (seq binds) `(let [~@binds] ~body) body)
+        render-body (if has-subs?
+                      `(re-frame.ui.viewcell/render ~view-id (fn [] ~inner))
+                      inner)
         var-meta   (cond-> {:rf.ui/view true
                             :rf.ui/view-id view-id
                             :rf.ui/children? children?}
@@ -371,7 +382,7 @@
     `(do
        ~@(:defs @st)
        (defn ~render-sym [~props-sym]
-         ~(if (seq binds) `(let [~@binds] ~body) body))
+         ~render-body)
        (def ~(vary-meta vname merge var-meta)
          (re-frame.ui.runtime/memo-view
           ~render-sym
