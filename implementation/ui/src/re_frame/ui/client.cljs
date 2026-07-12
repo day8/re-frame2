@@ -235,26 +235,44 @@
   nil)
 
 (defn require-live-root!
-  "The `render!` stale-handle guard — the render-side mirror of
+  "The shared live-root OWNERSHIP invariant — the render-side mirror of
   `unmount!*`'s membership check. A `Root` is LIVE iff the live-root
   registry still maps its root-id to THIS exact Root; a handle whose id
   was `unmount!`ed (absent entry) or SUPERSEDED by a newer root claiming
   the same id (entry points at a different Root) is STALE. `unmount!` on
-  a stale root is an idempotent no-op, but `render!` fails LOUD with
-  `:rf.error/root-not-live`: a stale root can never commit a render, so
-  running its frame preflight (the `:initial-events` drain — IRREVERSIBLE
-  fx) and writing install records against a dead root-id would be side
-  effects with NO committed render. Thrown BEFORE any side effect; retry
-  = `create-root` + `render!` (or `mount`) a fresh root."
+  a stale root is an idempotent no-op, but a render fails LOUD with
+  `:rf.error/root-not-live`: a stale/superseded root can never commit a
+  render, so writing a descriptor or `.render`ing into it would be side
+  effects with NO committed render.
+
+  ONE invariant, THREE call sites (rf2-vxgfnd.52, rf2-vxgfnd.69):
+
+    1. `render!*` PRE-preflight — the stale-handle guard: a handle already
+       dead before this call fails before running its frame preflight (the
+       `:initial-events` drain — IRREVERSIBLE fx) or writing install
+       records against a dead root-id.
+    2. `render!*` POST-preflight and 3. `mount*`'s same-root fast path
+       POST-preflight — the re-entrancy revalidation: `run-preflight!`
+       drains `:initial-events` SYNCHRONOUSLY (arbitrary app code that may
+       `unmount!` this root and mount a replacement under the same
+       id/container), so the captured handle can be superseded MID-CALL.
+       Re-checking here — before the descriptor write or `.render` — means
+       a stale render fails loud and leaves the replacement root wholly
+       untouched, mirroring the fresh-mount re-check.
+
+  Thrown BEFORE the descriptor write / `.render`; retry = `create-root` +
+  `render!` (or `mount`) a fresh root."
   [^Root root where]
   (let [rid (.-root-id root)]
     (when-not (identical? (:root (get @live-roots rid)) root)
       (error/throw-error!
        :rf.error/root-not-live where
-       (str "render! was called on root-id " (pr-str rid) ", whose Root "
-            "handle is no longer live — it was unmount!ed, or superseded "
-            "by a newer root claiming the same id. A stale root can never "
-            "commit a render; rendering into it would drain :initial-events "
+       (str "the Root handle for root-id " (pr-str rid) " is no longer the "
+            "live root for that id — it was unmount!ed, or superseded by a "
+            "newer root claiming the same id (possibly during this "
+            "operation's frame preflight, which drains :initial-events — "
+            "arbitrary app code). A superseded root can never commit a "
+            "render; rendering into it would drain :initial-events "
             "(irreversible fx) and write install records against a dead "
             "root. create-root + render! (or mount) a fresh root")
        {:recovery :recreate-the-root
@@ -362,6 +380,13 @@
         ;; re-preflight BEFORE the re-render: a failure leaves the live
         ;; root and its last committed render untouched (Q49).
         (run-preflight! root-id plans-thunk)
+        ;; rf2-vxgfnd.69: run-preflight! drained :initial-events SYNCHRONOUSLY
+        ;; (arbitrary app code) that may have unmount!ed this root and mounted
+        ;; a replacement under the same id/container. Revalidate ownership of
+        ;; the CAPTURED handle before the re-render — a superseded root must
+        ;; never commit, and `.render`ing the stale handle would write into a
+        ;; root the replacement now owns. Mirrors the fresh-path re-check.
+        (require-live-root! root 're-frame.ui/mount)
         (.render (.-react-root root) (element-thunk))
         root)
       (do
@@ -425,23 +450,38 @@
   Otherwise preflight runs FIRST, keyed by the Root's identity (fixed at
   create-root): a preflight failure leaves the root's last committed
   render (and, in dev, its descriptor) untouched (the Q49 ruling — retry =
-  re-call `render!`). In dev, completes the compile-time descriptor-base
-  with the Root's identity on the registry entry."
+  re-call `render!`). Preflight drains `:initial-events` (arbitrary app
+  code) that may unmount this root and mount a replacement under the same
+  id, so ownership is REVALIDATED after preflight (rf2-vxgfnd.69) before the
+  descriptor write or `.render`: a superseded handle fails loud and the
+  replacement root is left untouched. In dev, completes the compile-time
+  descriptor-base with the Root's identity on the registry entry — the swap
+  is IDENTITY-GUARDED to THIS exact Root, never merely the current entry
+  under the same id, so it can never write the stale call's descriptor onto
+  a replacement root."
   [^Root root element-thunk plans-thunk descriptor-base]
   (require-live-root! root 're-frame.ui/render!)
   (let [rid (.-root-id root)]
     (run-preflight! rid plans-thunk)
+    ;; rf2-vxgfnd.69: revalidate ownership AFTER the side-effecting preflight
+    ;; (which may have unmount!ed this root and mounted a replacement under
+    ;; the same id) and BEFORE the descriptor write / .render — a superseded
+    ;; handle fails loud, leaving the replacement root untouched.
+    (require-live-root! root 're-frame.ui/render!)
     (when ^boolean js/goog.DEBUG
       (when descriptor-base
         (swap! live-roots
                (fn [m]
-                 (if-let [entry (get m rid)]
-                   (assoc m rid
-                          (assoc entry :descriptor
-                                 (assoc descriptor-base
-                                        :root-id rid
-                                        :root-id-provenance (:provenance entry))))
-                   m)))))
+                 ;; identity-guarded to THIS exact Root (rf2-vxgfnd.69): never
+                 ;; write the descriptor onto a root that merely shares the id.
+                 (let [entry (get m rid)]
+                   (if (identical? (:root entry) root)
+                     (assoc m rid
+                            (assoc entry :descriptor
+                                   (assoc descriptor-base
+                                          :root-id rid
+                                          :root-id-provenance (:provenance entry))))
+                     m))))))
     (.render (.-react-root root) (element-thunk))
     root))
 
