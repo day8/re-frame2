@@ -42,6 +42,12 @@
       - `day8.re-frame2-xray.open-in-editor` — the editor-URI chip.
       - `day8.re-frame2-xray.runtime` — the discovery sentinel + safe-egress
         entry points.
+  - `re-frame.ui` (rf2-qz1h5d) — the Spec-004 compiled-view substrate. A
+    curated subset (direction 1 only): its blessed S1 export set is rowed, but
+    the live namespace also publishes `frame-root` / `frame-provider`
+    (intentionally unrowed under re-frame.ui — `frame-root` rides the
+    re-frame.core façade row; the compiled-view `frame-provider` is rowed in
+    spec/API.md §View ergonomics, not here), so it is NOT `:fully-rowed`.
 
   The pair-MCP server (`re-frame2-pair-mcp.server`) is the third
   CLJS-only surface the keystone names. It compiles under the pair-MCP
@@ -78,7 +84,13 @@
             [day8.re-frame2-xray.static.schemas.panel]
             [day8.re-frame2-xray.config]
             [day8.re-frame2-xray.open-in-editor]
-            [day8.re-frame2-xray.runtime]))
+            [day8.re-frame2-xray.runtime]
+            ;; rf2-qz1h5d — the Spec-004 compiled-view substrate. A `.cljc`
+            ;; namespace already on the consolidated :node-test classpath
+            ;; (ui/src); the require forces its analysis so `emit-ns-publics`
+            ;; reads the live CLJS publics. Curated subset (direction-1 only —
+            ;; see the Coverage note), so NOT in `fully-rowed`.
+            [re-frame.ui]))
 
 ;; ---------------------------------------------------------------------------
 ;; The live CLJS public surface, captured at compile time.
@@ -107,7 +119,12 @@
    "day8.re-frame2-xray.static.schemas.panel"        (emit-ns-publics day8.re-frame2-xray.static.schemas.panel)
    "day8.re-frame2-xray.config"                      (emit-ns-publics day8.re-frame2-xray.config)
    "day8.re-frame2-xray.open-in-editor"              (emit-ns-publics day8.re-frame2-xray.open-in-editor)
-   "day8.re-frame2-xray.runtime"                     (emit-ns-publics day8.re-frame2-xray.runtime)})
+   "day8.re-frame2-xray.runtime"                     (emit-ns-publics day8.re-frame2-xray.runtime)
+   ;; rf2-qz1h5d — re-frame.ui compiled-view substrate. Curated subset
+   ;; (direction-1 only): the live namespace also publishes `frame-root` +
+   ;; `frame-provider`, intentionally NOT rowed under re-frame.ui, so it is
+   ;; absent from `fully-rowed` below.
+   "re-frame.ui"                                     (emit-ns-publics re-frame.ui)})
 
 (def fully-rowed
   "Namespaces whose ENTIRE public surface must be rowed (direction 2).
