@@ -69,6 +69,18 @@
     (swap! probe-frame-provider-observed conj v)
     ($ :div (str "k=" v))))
 
+;; ---- use-frame probe (rf2-y6dz8t) ------------------------------------------
+;; Pushes each render's `use-frame` ops map into a side-channel atom; the
+;; suite asserts shape / provider resolution / dispatch lock / reference
+;; stability once for both adapters.
+
+(def ^:private use-frame-observed (atom []))
+
+(defui ProbeUseFrame []
+  (let [ops (uix-adapter/use-frame)]
+    (swap! use-frame-observed conj ops)
+    ($ :div "uf")))
+
 (defui ProbeRefcount []
   (let [target @refcount-target
         v (uix-adapter/use-subscribe target [:rf.uix-use-subscribe-test/m])]
@@ -214,6 +226,10 @@
    :probe-frame-provider-observed probe-frame-provider-observed
    :frame-provider-frame          :rf.uix-use-subscribe-test/frame-provider-frame
    :frame-provider-query          :rf.uix-use-subscribe-test/k
+   ;; rf2-y6dz8t — use-frame (capture-frame in hook position)
+   :probe-use-frame-element (fn [] (uix/$ ProbeUseFrame))
+   :use-frame-observed      use-frame-observed
+   :uf-frame                :rf.uix-use-frame/probe-frame
    ;; rf2-4mi2zj — 1-arg full frame-resolution chain (reuses ProbeFrameProvider
    ;; + :frame-provider-query :k; isolated frame ids per case).
    :provider-tier-frame               :rf.uix-4mi2zj/provider-tier-frame
@@ -273,6 +289,12 @@
 
 (deftest use-subscribe-2-arg-pins-explicit-frame
   (suite/assert-use-subscribe-2-arg-pins-explicit-frame cfg))
+
+;; rf2-y6dz8t — use-frame returns EXACTLY the capture-frame ops map for the
+;; ambient provider frame: shape, provider resolution, dispatch lock, and
+;; reference stability across re-renders.
+(deftest use-frame-capture-frame-in-hook-position
+  (suite/assert-use-frame-capture-frame-in-hook-position cfg))
 
 ;; rf2-4mi2zj — 1-arg full frame-resolution chain (the bug: spine fed the
 ;; raw use-context read into the explicit 2-arg path, bypassing the chain).

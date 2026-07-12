@@ -3212,6 +3212,84 @@
             (finally
               (try (.unmount root) (catch :default _ nil))))))))))
 
+;; ---- use-frame — capture-frame in hook position (rf2-y6dz8t) ---------------
+
+(defn assert-use-frame-capture-frame-in-hook-position
+  "rf2-y6dz8t: `use-frame` returns EXACTLY what `(rf/capture-frame)`
+  returns — the frame-locked ops map — for the ambient provider frame, and
+  the map is REFERENCE-STABLE across re-renders for the same resolved
+  frame. capture-frame is THE hold primitive; `reg-view` injection and
+  `use-frame` are its two ergonomic spellings (Spec 002 §capture-frame,
+  Spec 006 §Cross-substrate affordance summary).
+
+  Four contracts pinned:
+    1. SHAPE — the returned map carries exactly the capture-frame key set
+       (`:frame :dispatch :dispatch-sync :subscribe`; fn-valued ops),
+       byte-matching `(rf/capture-frame frame-id)`'s key set.
+    2. RESOLUTION — `:frame` is the surrounding provider's frame (the raw
+       context read is discarded; the carried-invariant chain decides —
+       same chain as the ambient `use-subscribe`).
+    3. LOCK — an op pulled off the held map dispatches into the captured
+       frame from outside the render (the hold survives).
+    4. STABILITY — a re-render under the same provider frame returns the
+       IDENTICAL map object (render-phase memo-by-value, rf2-mwft2
+       discipline — safe in effect deps / child props).
+
+  cfg keys:
+    :frame-provider-mount-element  thunk (fn [frame-kw child-el]) → the
+                                   substrate `($ frame-provider {…} child)`
+                                   element (reused from the use-subscribe
+                                   cluster)
+    :probe-use-frame-element       thunk → the ProbeUseFrame element
+    :use-frame-observed            atom the probe pushes each render's ops
+                                   map into
+    :uf-frame                      frame-id keyword for the wrapped frame"
+  [{:keys [name frame-provider-mount-element probe-use-frame-element
+           use-frame-observed uf-frame]}]
+  (testing (str name " — use-frame is capture-frame in hook position (rf2-y6dz8t)")
+    (with-browser-act
+     (fn [act-fn]
+      ;; Clear the fixture's ambient `:rf/default` dynamic scope so the
+      ;; provider tier is the genuine decider (the rf2-4mi2zj masking note:
+      ;; the dynamic-var tier legitimately shadows the provider).
+      (binding [frame/*current-frame* nil]
+        (reset! use-frame-observed [])
+        (rf/make-frame {:id uf-frame :doc "use-frame probe frame"})
+        (rf/reg-event ::uf-seed (fn [{:keys [db]} _] {:db {:n 1}}))
+        (rf/reg-event ::uf-inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
+        (rf/dispatch-sync [::uf-seed] {:frame uf-frame})
+        (let [mount-node (make-mount-node!)
+              root       (react-dom-client/createRoot mount-node)]
+          (try
+            (act-fn (fn [] (.render root (frame-provider-mount-element
+                                           uf-frame (probe-use-frame-element)))))
+            (let [ops (peek @use-frame-observed)]
+              (is (map? ops) "use-frame returned a map")
+              (is (= #{:frame :dispatch :dispatch-sync :subscribe}
+                     (set (keys ops)))
+                  "EXACTLY the capture-frame ops-map key set — no growth, no omission")
+              (is (= (set (keys ops)) (set (keys (rf/capture-frame uf-frame))))
+                  "key set matches (rf/capture-frame frame-id) — one primitive, three faces")
+              (is (= uf-frame (:frame ops))
+                  "resolved the surrounding provider's frame")
+              (is (every? fn? (map ops [:dispatch :dispatch-sync :subscribe]))
+                  "the three ops are fns")
+              ;; LOCK — dispatch off the held map from a plain post-render
+              ;; callback; the captured frame (and only it) moves.
+              (act-fn (fn [] ((:dispatch-sync ops) [::uf-inc])))
+              (is (= 2 (:n (rf/app-db-value uf-frame)))
+                  "(:dispatch-sync ops) dispatched into the captured frame"))
+            ;; STABILITY — re-render under the same provider frame; the
+            ;; probe's next observed ops map must be the IDENTICAL object.
+            (act-fn (fn [] (.render root (frame-provider-mount-element
+                                           uf-frame (probe-use-frame-element)))))
+            (let [obs @use-frame-observed]
+              (is (>= (count obs) 2) "probe rendered at least twice")
+              (is (identical? (peek obs) (nth obs (- (count obs) 2)))
+                  "same resolved frame ⇒ IDENTICAL ops map across re-renders (reference-stable)"))
+            (finally
+              (try (.unmount root) (catch :default _ nil))))))))))
+
 (defn assert-use-subscribe-2-arg-pins-explicit-frame
   "rf2-rcgsc / rf2-y0db2: use-subscribe's 2-arg form
   `(use-subscribe frame-kw query-v)` reads from the named frame's app-db,
