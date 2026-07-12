@@ -108,18 +108,63 @@
               #(root/resolve-root-identity 'ui/mount {} views)))))))
 
 (deftest root-id-slug-cases
-  (is (= "page-shop" (root/root-id-slug :page/shop)))
-  (is (= "shop-app--left" (root/root-id-slug [:shop/app :left])))
-  (is (= "shop-app--2" (root/root-id-slug [:shop/app 2])))
-  (is (= "app" (root/root-id-slug :app)) "namespace absent -> name")
-  (is (= "a-b-c-d" (root/root-id-slug :a.b/c*d))
-      "outside [A-Za-z0-9_-] normalises to -")
-  (is (= "shop-app--a-b" (root/root-id-slug [:shop/app "a b"]))))
+  (is (= "page_Sshop" (root/root-id-slug :page/shop))
+      "keyword -> enc(ns) _S enc(name)")
+  (is (= "_V_Kshop_Sapp_Kleft" (root/root-id-slug [:shop/app :left]))
+      "vector -> _V + type-tagged escaped elements")
+  (is (= "_V_Kshop_Sapp_I2" (root/root-id-slug [:shop/app 2]))
+      "integer element tagged _I")
+  (is (= "app" (root/root-id-slug :app)) "namespace absent -> enc(name)")
+  (is (= "a_2e_b_Sc_2a_d" (root/root-id-slug :a.b/c*d))
+      "outside [A-Za-z0-9-] is reversibly escaped _<hex>_, never normalised")
+  (is (= "_V_Kshop_Sapp_Ta_20_b" (root/root-id-slug [:shop/app "a b"]))
+      "string element tagged _T; space escaped _20_"))
 
-(deftest identifier-prefix-default
-  (is (= "rf2-page-shop-" (root/default-identifier-prefix :page/shop)))
-  (is (= "rf2-shop-app--left-"
-         (root/default-identifier-prefix [:shop/app :left]))))
+;; --- INJECTIVITY (rf2-vxgfnd.17): distinct valid root-ids MUST NOT share
+;;     a slug, hence never a default identifier-prefix / synthesized
+;;     locator. The old lossy transform aliased each pair below.
+(deftest root-id-slug-injective-on-known-collisions
+  (doseq [[a b old] [[:a/b-c          :a-b/c            "a-b-c"]      ; ns/name join vs `-` in name
+                     [:a/b.c          :a/b-c            "a-b-c"]      ; `.`-normalisation vs literal `-`
+                     [:a/b            :a-b              "a-b"]        ; qualified vs unqualified
+                     [[:x/y "a--b"]   [:x/y "a" "b"]    "x-y--a--b"]  ; string `--` vs element join
+                     [[:x/y "a-b"]    [:x/y "a" "b"]    "x-y--a-b"]   ; one component vs two
+                     [[:x/y :foo]     [:x/y "foo"]      "x-y--foo"]   ; keyword vs string disambiguator
+                     [[:x/y 5]        [:x/y "5"]        "x-y--5"]]]   ; integer vs string disambiguator
+    (is (not= (root/root-id-slug a) (root/root-id-slug b))
+        (str "distinct root-ids must not share a slug: " (pr-str a) " vs "
+             (pr-str b) " (both -> " (pr-str old) " under the old transform); "
+             "now " (pr-str (root/root-id-slug a)) " vs "
+             (pr-str (root/root-id-slug b))))))
+
+(deftest root-id-slug-injective-over-enumerated-grammar
+  ;; Enumerate valid root-ids over an alphabet that hits every boundary the
+  ;; encoding must protect — `-`, `--`, `.`, `_`, whitespace, the empty
+  ;; string, the marker letters themselves (S/V/K/T/I), and all three
+  ;; disambiguator types — then assert the slug map is INJECTIVE and every
+  ;; slug (and default identifier-prefix) stays within the DOM-safe alphabet.
+  (let [strs  ["" "a" "-" "a-b" "a--b" "a.b" "a_b" "a b" "S" "V" "5"]
+        nms   ["a" "b" "a-b" "a.b" "a_b" "S"]           ; keyword names (non-empty)
+        nss   ["a" "a-b" "a.b" "x"]                     ; namespaces
+        kws   (distinct (concat (map keyword nms)                 ; unqualified
+                                (for [s nss n nms] (keyword s n)))) ; qualified
+        vecs  (distinct (concat
+                         (for [k (take 4 kws) s strs]       [k s])
+                         (for [k (take 4 kws) n nms]        [k (keyword n)])
+                         (for [k (take 4 kws) i [0 5 -5]]   [k i])
+                         (for [k (take 2 kws) a strs b strs] [k a b])))
+        roots (vec (distinct (concat kws vecs)))
+        by-slug (group-by root/root-id-slug roots)
+        collisions (into {} (filter (fn [[_ v]] (< 1 (count v))) by-slug))
+        dom-safe? #(re-matches #"[A-Za-z0-9_-]+" %)]
+    (is (< 300 (count roots)) "the enumeration is a meaningful sample")
+    (is (empty? collisions)
+        (str "root-id-slug is non-injective — these distinct root-ids share "
+             "a slug: " (pr-str collisions)))
+    (is (every? #(dom-safe? (root/root-id-slug %)) roots)
+        "every slug stays within the DOM-safe identifierPrefix alphabet")
+    (is (every? #(dom-safe? (root/default-identifier-prefix %)) roots)
+        "every default identifier-prefix stays DOM-safe")))
 
 ;; ---------------------------------------------------------------------------
 ;; Top-region walk: frame plans (contract §6)
