@@ -25,8 +25,8 @@ React-family library is rendering them.
 
 Above the view, you write in the idiom your substrate prefers. For UIx,
 that idiom is hooks. So instead of Reagent's reactive ratom, you call a
-`use-subscribe` hook. And instead of a macro handing you `dispatch`, you
-pull it off a capture-frame yourself. The
+`use-subscribe` hook. And instead of a macro handing you `dispatch`, the
+`use-frame` hook hands you the frame's ops. The
 [adapter](../../../../docs/core/glossary.md#adapter) is the small map of glue
 that makes that swap a one-liner.
 
@@ -54,9 +54,10 @@ that makes that swap a one-liner.
   atom. Same subscription, same cached value.
 - **`dispatch` off a frame api** — UIx has no `reg-view` macro to inject
   `dispatch` for you (that convenience stays Reagent-only; UIx users write
-  `defui` directly). So the view takes `dispatch` off a
-  [frame api](../../../../docs/core/glossary.md#capture-frame) —
-  `(:dispatch (rf/capture-frame))` — and closes over it. A frame api is a
+  `defui` directly). So the view takes `dispatch` off the `use-frame` hook —
+  the [frame api](../../../../docs/core/glossary.md#capture-frame) in hook
+  position, `(let [{:keys [dispatch]} (uix-adapter/use-frame)] …)` — and
+  closes over it. A frame api is a
   frame captured *as a value*. It pins the render-time frame, so the
   closed-over `dispatch` keeps firing into the right frame even from an
   async callback, instead of raising `:rf.error/no-frame-context` once the

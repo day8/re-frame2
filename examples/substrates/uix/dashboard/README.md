@@ -62,10 +62,10 @@ value. The [adapter](../../../../docs/core/glossary.md#adapter) just hands
 it to you in the shape React's rules-of-hooks expect.
 
 To [dispatch](../../../../docs/core/glossary.md#dispatch) on a click, the
-chips read the frame's `:dispatch` from
-[`(rf/capture-frame)`](../../../../docs/core/glossary.md#capture-frame) at
-render time. That's the idiomatic way to dispatch from inside a UIx
-event callback.
+chips read the frame's `:dispatch` from the `use-frame` hook — the
+[capture-frame](../../../../docs/core/glossary.md#capture-frame) frame api
+in hook position, read at render time. That's the idiomatic way to
+dispatch from inside a UIx event callback.
 
 **The sparklines are pure functions, not a chart widget.** Each
 sparkline is one SVG `<path>`. Its `d` string is computed straight from
@@ -108,7 +108,7 @@ creating it on the first mount, reusing it untouched on a hot reload — and
 `:initial-events` fires once on creation to seed the
 [app-db](../../../../docs/core/glossary.md#app-db) before the first paint.
 With the tree inside the provider, every `use-subscribe` and
-`capture-frame` resolves to that frame through React context; render with
+`use-frame` resolves to that frame through React context; render with
 *no* provider and the hooks raise `:rf.error/no-frame-context` —
 [identity is carried, not
 found](../../../../docs/core/glossary.md#frame-identity-is-carried-not-found),
