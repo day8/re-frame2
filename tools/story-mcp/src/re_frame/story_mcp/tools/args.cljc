@@ -380,8 +380,9 @@
   Crystallises the four-line prelude shared by seven tool handlers
   (`preview-variant`, `get-variant`, `explain-variant`, `variant->edn`,
   `run-variant`, `snapshot-identity`, `record-as-variant`). Tools that
-  tolerate unregistered variants (`read-a11y-violations`, `read-failures`,
-  `unregister-variant`) reach for `with-variant-id` instead."
+  tolerate a registered-but-never-run variant (`read-a11y-violations`,
+  `read-failures`, `unregister-variant`) reach for `with-variant-id`
+  instead."
   [arguments f]
   (let [[vid err] (required-arg arguments :variant-id)]
     (if err
@@ -423,13 +424,15 @@
   registered-variants set (no JVM intern outside the allowlist).
   Returns `(f vk)` when the id resolves; otherwise an error result.
 
-  Used by tools whose reads tolerate an unregistered variant
-  (`read-a11y-violations`, `read-failures`, `unregister-variant`) — but
-  the no-intern bound means an UNREGISTERED variant id can't resolve
-  through this surface either. A never-seen id returns the same
-  `Variant not found` error result `with-variant` emits — the honest
-  answer, since if the id was never registered there's nothing to
-  read."
+  Used by tools whose reads tolerate a REGISTERED-but-never-RUN variant
+  (`read-a11y-violations`, `read-failures`, `unregister-variant`): the id
+  must still be registered (safe-keyword resolves it against the live
+  variant set), but it may carry no recorded run/body yet, and the
+  handler answers vacuously (e.g. `read-failures` returns an empty
+  accumulator). It does NOT tolerate a genuinely UNREGISTERED id — the
+  no-intern bound can't resolve one, so a never-registered id returns the
+  same `Variant not found` error result `with-variant` emits, the honest
+  answer since there's nothing to read."
   [arguments f]
   (let [[vid err] (required-arg arguments :variant-id)]
     (if err
