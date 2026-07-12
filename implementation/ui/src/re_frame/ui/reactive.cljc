@@ -316,6 +316,10 @@
   ;;    :generation g            ; view-body generation (HMR); commit rejects
   ;;                             ;   a stale capture (step 1)
   ;;    :lifecycle :fresh|:connected|:disconnected|:dead
+  ;;    :root incarnation|nil    ; owning root-incarnation token — a per-mount
+  ;;                             ;   identity that SURVIVES an Activity hide, so
+  ;;                             ;   root teardown reaps a cell hidden before its
+  ;;                             ;   window (rf2-vxgfnd.85; see `root-cells`)
   ;;    :committed {tk -> lease} ; installed dependency set
   ;;    :values    {tk -> value} ; last published site values (stabilization
   ;;                             ;   + the revision snapshot's evidence)
@@ -346,6 +350,7 @@
      (atom {:view-id        view-id
             :generation     generation
             :lifecycle      :fresh
+            :root           nil
             :committed      {}
             :values         {}
             :revision       0
@@ -474,6 +479,27 @@
   ;; (no retention leak). `defonce` (module-lived); tests clear it via
   ;; `reset-scheduler!`.
   (atom #{}))
+
+(defonce ^:private root-cells
+  ;; ROOT-INCARNATION OWNERSHIP: `incarnation -> #{owned cells}`. Every ViewCell
+  ;; attached to a root (`attach-root!`, the mount seam) enrols here under its
+  ;; root's incarnation and STAYS enrolled across a transient Activity hide — a
+  ;; hide removes the cell from `live-cells` (it holds no committed deps) but NOT
+  ;; from its root membership. This is the piece `teardown-collector` alone cannot
+  ;; supply: a cell hidden by React Activity BEFORE the root's teardown window is
+  ;; armed already left `:fresh`/`:connected`, so its cleanup can never enrol it in
+  ;; the window, and it would otherwise linger `:disconnected {:reason :unknown}`
+  ;; and RECONNECTABLE after its root is gone (rf2-vxgfnd.85). `teardown-root!`
+  ;; consults this registry to reap those already-hidden cells alongside the ones
+  ;; the window captures. Membership is bounded to CURRENTLY-retained cells: a cell
+  ;; leaves on final `teardown!` (`detach-root!`), and an incarnation's entry is
+  ;; dropped the moment its last cell leaves — so repeated mount/hide/unmount
+  ;; cycles never grow a historical registry. The incarnation is a FRESH per-mount
+  ;; identity (`make-root-incarnation`), NOT the reusable root-id, so a stale
+  ;; teardown can never reap the cells of a replacement root mounted under the same
+  ;; root-id. `defonce` (module-lived); `reset-scheduler!` clears it between
+  ;; fixtures.
+  (atom {}))
 
 (defonce ^:private teardown-collector
   ;; The COLLECTION WINDOW of an in-flight host/root teardown (`teardown-root!`),
@@ -841,6 +867,7 @@
   (reset! flush-scheduled? false)
   (reset! slice-memo* nil)
   (reset! live-cells #{})
+  (reset! root-cells {})
   (reset! teardown-collector nil)
   (reset! evidence-sink nil)
   (reset! last-sink-escape nil)
@@ -879,6 +906,80 @@
   plus any retroactive annotations."
   [^ViewCell cell]
   (:intervals @(state cell)))
+
+;; ---- root-incarnation ownership (03 §4; rf2-vxgfnd.85) ----------------------
+;;
+;; A ViewCell's committed dependency set (`live-cells`) is the discoverability
+;; surface a FRAME-destroy sweep consults, but it is dropped the instant the cell
+;; disconnects — so it cannot survive an Activity hide. Root teardown needs an
+;; ownership association that DOES survive a transient hide: the `root-cells`
+;; registry keyed by a per-mount root incarnation. `attach-root!` (the mount seam)
+;; enrols a cell under its root's incarnation; the cell stays enrolled across a
+;; hide and leaves only when it is proven dead (`detach-root!` from `teardown!`).
+;; `teardown-root!` reaps a root's already-hidden cells through this registry.
+
+(defn make-root-incarnation
+  "Mint a FRESH, opaque root-incarnation token — a per-mount identity with no
+  structure, compared only by `identical?`. A root that re-mounts under the same
+  (reusable) root-id gets a DISTINCT incarnation, so a stale teardown carrying an
+  old incarnation can never reap a replacement root's cells (rf2-vxgfnd.85). The
+  mount seam mints one per root and threads it to every ViewCell under that root
+  via `attach-root!`."
+  []
+  #?(:clj (Object.) :cljs (js-obj)))
+
+(defn- forget-root-cell!
+  "Remove `cell` from `incarnation`'s membership set, DROPPING the incarnation
+  entry entirely when its last cell leaves — so repeated mount/hide/unmount
+  cycles never grow a historical registry (rf2-vxgfnd.85 AC5)."
+  [^ViewCell cell incarnation]
+  (when (some? incarnation)
+    (swap! root-cells
+           (fn [m]
+             (let [s (disj (get m incarnation #{}) cell)]
+               (if (empty? s) (dissoc m incarnation) (assoc m incarnation s)))))))
+
+(defn attach-root!
+  "Mount seam: associate `cell` with root `incarnation` — the per-mount ownership
+  token (`make-root-incarnation`) that SURVIVES a transient Activity disconnect
+  and lets `teardown-root!` reap a cell already Activity-hidden BEFORE the host
+  unmount window (rf2-vxgfnd.85). Enrols the cell in `root-cells` under
+  `incarnation` (idempotent — a set); re-attaching to a DIFFERENT incarnation
+  first drops the old membership, so a cell can never straddle two roots. An
+  Activity hide (which removes the cell from `live-cells`) does NOT drop this
+  membership — that is the whole point. Returns the cell."
+  [^ViewCell cell incarnation]
+  (let [st  (state cell)
+        old (:root @st)]
+    (when (and (some? old) (not (identical? old incarnation)))
+      (forget-root-cell! cell old))
+    (swap! st assoc :root incarnation)
+    (swap! root-cells update incarnation (fnil conj #{}) cell))
+  cell)
+
+(defn- detach-root!
+  "Drop `cell`'s root-incarnation membership on FINAL teardown — the cell is
+  proven dead, so it leaves the registry (membership is bounded to
+  currently-retained cells). Idempotent; a no-op when the cell owns no root."
+  [^ViewCell cell]
+  (let [st  (state cell)
+        inc (:root @st)]
+    (when (some? inc)
+      (forget-root-cell! cell inc)
+      (swap! st assoc :root nil))))
+
+(defn cell-root
+  "The root incarnation `cell` is attached to, or nil (tool/test read)."
+  [^ViewCell cell]
+  (:root @(state cell)))
+
+(defn root-cell-count
+  "The number of root incarnations currently tracked, or — with `incarnation` —
+  the number of cells owned by it (tool/test read). Proves the ownership registry
+  is bounded to retained/mounted cells and drops empty incarnations on final
+  teardown (rf2-vxgfnd.85 AC5)."
+  ([] (count @root-cells))
+  ([incarnation] (count (get @root-cells incarnation))))
 
 (defn- release-committed!
   "Release every lease in the committed dependency set and clear it —
@@ -965,7 +1066,10 @@
       (release-committed! cell)
       (discard-pending! cell)
       (swap! st assoc :lifecycle :dead)
-      (swap! live-cells disj cell))
+      (swap! live-cells disj cell)
+      ;; leave the root-incarnation registry — a dead cell is no longer
+      ;; retained, so it must not linger as reapable ownership (rf2-vxgfnd.85).
+      (detach-root! cell))
     cell))
 
 (defn teardown-frame!
@@ -1011,23 +1115,65 @@
   disconnects with NO window armed, is never captured, and stays reconnectable —
   a reveal proves it `:activity-hidden {:proof :reconnect}`.
 
+  ## Reaping cells already Activity-hidden before the window (rf2-vxgfnd.85)
+
+  The window alone captures ONLY cells whose effect cleanup fires DURING the host
+  unmount. A ViewCell hidden by React Activity/Offscreen BEFORE the window is
+  armed already left `:fresh`/`:connected` for `:disconnected`, so its cleanup can
+  never re-enrol it — React does not re-run an already-destroyed effect when it
+  discards the hidden fiber at root unmount. Such a cell would linger
+  `:disconnected {:reason :unknown}` and RECONNECTABLE after its root is gone. So
+  teardown ALSO consults the `root-cells` ownership registry: after the window
+  closes it reaps every still-`:disconnected` cell owned by a torn-down root
+  incarnation. Two incarnation sources, unioned:
+
+    - `root-incarnation` — the explicit incarnation the caller (the mount/root
+      layer) names for the root being unmounted. This is the deterministic path:
+      it reaps a root's hidden cells even when the window captured NONE (the whole
+      root hidden, or a single already-hidden cell).
+    - the incarnations of every WINDOW-CAPTURED cell — a captured cell names its
+      own root's incarnation, so its still-hidden siblings under the same root are
+      reaped too, even when no explicit incarnation is supplied.
+
+  Only `:disconnected` owned cells are reaped; a still-`:connected` cell of a
+  SIBLING root's incarnation is never in the set, and an incarnation is a fresh
+  per-mount identity, so a replacement root under the same root-id is untouched.
+
   Ordering-robust and re-entrancy-safe by save/restore. If `unmount-thunk`
   THROWS (React refused to unmount — it did NOT tear the tree down, so no
   cleanup ran and nothing was collected), the window is restored and the throw
   propagates WITHOUT tearing any cell down: the orphaned tree's cells stay live,
   and the original host error is never masked (the ruled host-teardown
-  behaviour, rf2-vxgfnd.53). Returns the count of cells torn down."
-  [unmount-thunk]
-  (let [prev      @teardown-collector
-        collected (do (reset! teardown-collector #{})
-                      (try
-                        (unmount-thunk)
-                        @teardown-collector
-                        (finally
-                          (reset! teardown-collector prev))))]
-    (doseq [cell collected]
-      (teardown! cell))
-    (count collected)))
+  behaviour, rf2-vxgfnd.53). A throwing thunk reaps NOTHING — including the
+  registry sweep — because the root was not actually torn down. Returns the count
+  of cells torn down.
+
+  Two arities: `[unmount-thunk]` (no explicit incarnation — window + captured-cell
+  incarnations only, the current `client/unmount!*` call) and
+  `[root-incarnation unmount-thunk]` (the incarnation-aware path)."
+  ([unmount-thunk] (teardown-root! nil unmount-thunk))
+  ([root-incarnation unmount-thunk]
+   (let [prev      @teardown-collector
+         collected (do (reset! teardown-collector #{})
+                       (try
+                         (unmount-thunk)
+                         @teardown-collector
+                         (finally
+                           (reset! teardown-collector prev))))
+         ;; the incarnations whose hidden cells this teardown owns: the explicit
+         ;; one plus every window-captured cell's own incarnation.
+         incs      (cond-> (into #{} (keep cell-root) collected)
+                     (some? root-incarnation) (conj root-incarnation))
+         ;; already-Activity-hidden owned cells the window could NOT capture —
+         ;; still `:disconnected`, belonging to a torn-down incarnation.
+         hidden    (into #{}
+                         (comp (mapcat #(get @root-cells %))
+                               (filter #(= :disconnected (lifecycle %))))
+                         incs)
+         victims   (into collected hidden)]
+     (doseq [cell victims]
+       (teardown! cell))
+     (count victims))))
 
 ;; ---------------------------------------------------------------------------
 ;; The 8-step layout-commit reconciler (03 §3)
