@@ -738,8 +738,7 @@
              ;; destroy+recreate under the same id (a distinct token), or a
              ;; colliding actor's frame, survives. Never a bare id.
              (doseq [[fid t] @owned]
-               (when (identical? t (rframe/frame-incarnation-token fid))
-                 (rframe/destroy-frame! fid)))
+               (rframe/destroy-frame! fid t))
              (release-plan-frames! wanted)))))))
 
 #?(:clj
