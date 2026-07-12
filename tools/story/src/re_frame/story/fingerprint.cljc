@@ -656,15 +656,33 @@
   (-canon [x]))
 
 (defn- canon-map-entries
-  "Map canon: sort by the canonicalised key (via `pr-str` of the
-  canon-key), flatten into a `[k v k v ...]` vector, then wrap under the
+  "Map canon: sort each canonicalised entry by the `pr-str` of its
+  canon-KEY, breaking a key `pr-str` tie by the `pr-str` of its
+  canon-VALUE, flatten into a `[k v k v ...]` vector, then wrap under the
   reserved `map-tag` so a map is never byte-identical to a vector / set of
   the same flattened shape. Symmetric across JVM + CLJS because
-  `pr-str` over canonical scalars is host-identical."
+  `pr-str` over canonical scalars is host-identical.
+
+  The value is a STRICTLY SECONDARY sort key, never a primary one: two
+  entries with DISTINCT canon-key `pr-str`s order EXACTLY as a bare
+  `(sort-by (comp pr-str key))` ordered them — the value is never consulted
+  — so an ordinary map's canonical bytes, and every golden captured from
+  them, are UNCHANGED (no rebase). It only bites when two DISTINCT keys
+  canonicalise to the SAME `pr-str`: every fn folds to `:rf/opaque-fn`,
+  every `##NaN` to `:rf/nan`, and `1.0` / `1` both to `1` (rf2-8r5yzb).
+  There the bare key sort fell back to Clojure's map ITERATION order, so two
+  `=`-equal maps built in different insertion orders (`{f1 :a f2 :b}` vs
+  `{f2 :b f1 :a}`) produced DIFFERENT canonical bytes → unequal hash → a
+  spurious `:non-deterministic` verdict / golden mismatch, breaking the
+  'equivalent values hash equal' contract. The value tiebreak makes the
+  order content-derived and iteration-INDEPENDENT: two entries whose key AND
+  value both canonicalise identically ARE byte-identical, so their relative
+  order cannot perturb the flattened form (the deliberate fn-identity
+  collapse, spec/017 — two values differing ONLY in fn identity hash equal)."
   [m]
   (let [entries (->> m
                      (map (fn [[k v]] [(-canon k) (-canon v)]))
-                     (sort-by (fn [[k _]] (pr-str k))))]
+                     (sort-by (fn [[k v]] [(pr-str k) (pr-str v)])))]
     [map-tag (into [] (mapcat identity) entries)]))
 
 (defn- stable-canon-order
