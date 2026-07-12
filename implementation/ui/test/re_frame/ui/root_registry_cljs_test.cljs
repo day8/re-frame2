@@ -111,26 +111,33 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest preflight-hook-seam
+  ;; S2c: preflight is LIVE (the default runs re-frame.ui.frames'
+  ;; execute-frame-plans!). This seam test drives the test/tool OVERRIDE
+  ;; hook — a capture consumer that observes plan threading WITHOUT
+  ;; touching the frames registry (so it needs no adapter). The live ENSURE
+  ;; path (install + drain + conflict + non-reseed) is pinned by the
+  ;; preflight-frame-wiring DOM fixtures (G-4/G-6).
   (let [seen (atom nil)
         evals (atom 0)
         plans-thunk (fn [] (swap! evals inc)
                       [{:frame-id :shop :config-fingerprint "cf1-x"
                         :config {:n 1}}])]
-    (testing "no hook installed (all of S1): plans never evaluate"
-      (client/run-preflight! plans-thunk)
-      (is (zero? @evals)))
-    (testing "an installed hook receives the evaluated plans"
-      (let [hook #(reset! seen %)
+    (testing "an installed override hook receives (root-id plans)"
+      (let [hook (fn [rid plans] (reset! seen [rid plans]))
             prev (client/set-preflight-hook! hook)]
         (is (nil? prev))
-        (client/run-preflight! plans-thunk)
-        (is (= 1 @evals))
-        (is (= [{:frame-id :shop :config-fingerprint "cf1-x" :config {:n 1}}]
-               @seen))
-        (client/run-preflight! nil)
-        (is (= [] @seen) "no static plans -> the hook still sees the preflight")
-        (is (identical? hook (client/set-preflight-hook! nil))
-            "set-preflight-hook! returns the previous hook")))))
+        (client/run-preflight! :page/shop plans-thunk)
+        (is (= 1 @evals) "config expressions evaluate exactly at preflight")
+        (is (= [:page/shop
+                [{:frame-id :shop :config-fingerprint "cf1-x" :config {:n 1}}]]
+               @seen)
+            "the hook sees the arriving root-id + evaluated plans")))
+    (testing "a nil plans-thunk (no static plans) is a preflight no-op"
+      (reset! seen ::untouched)
+      (client/run-preflight! :page/shop nil)
+      (is (= ::untouched @seen) "the hook is not called")
+      (is (= 1 @evals) "the plans-thunk is never evaluated"))
+    (is (fn? (client/set-preflight-hook! nil)))))
 
 ;; ---------------------------------------------------------------------------
 ;; S1 hydrate: fail loud, never guess identity

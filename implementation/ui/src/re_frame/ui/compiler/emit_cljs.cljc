@@ -256,14 +256,26 @@
        ~arr)))
 
 (defn- emit-frame-root
-  "S1: a top-region `frame-root` renders TRANSPARENTLY — children under a
+  "A top-region `frame-root` renders TRANSPARENTLY — children under a
   Fragment. Its ENSURE semantics ride the extracted static plan (the
-  descriptor `:frame-plans` + the client preflight seam; the frame wiring
-  lands S2), never the rendered tree."
+  descriptor `:frame-plans` + the client preflight, `re-frame.ui.frames`),
+  which runs at host preflight BEFORE any render — never the rendered
+  tree. The emitted component then only scopes the already-live frame."
   [node st inline?]
   (jsx-call `re-frame.ui.runtime/Fragment []
             (children-forms st (:children node) inline?)
             {:present? false}))
+
+(defn- emit-frame-provider
+  "S2c: `frame-provider` scopes its children to an already-live frame
+  (a runtime `:frame` target) through the shared React frame context —
+  `re-frame.ui.frames/provider-scope-element` validates the target
+  (fail-loud on nil / bad / absent-frame) and wraps the children in the
+  context Provider. Children stay in an array so the Provider keys them."
+  [node st inline?]
+  `(re-frame.ui.frames/provider-scope-element
+    ~(:frame node)
+    (cljs.core/array ~@(children-forms st (:children node) inline?))))
 
 (defn emit-node
   "AST node -> CLJS form (nil for a statically-absent child)."
@@ -277,6 +289,7 @@
     :element  (emit-element node st inline?)
     :fragment (emit-fragment node st inline?)
     :frame-root (emit-frame-root node st inline?)
+    :frame-provider (emit-frame-provider node st inline?)
     :view     (emit-component node st inline?)
     :foreign  (emit-component node st inline?)
     :if       `(if ~(:test node)

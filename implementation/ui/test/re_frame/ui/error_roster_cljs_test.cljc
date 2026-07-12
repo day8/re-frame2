@@ -102,6 +102,7 @@
     :rf.ui.compile/runtime-root-form
     :rf.ui.compile/frame-root-misplaced
     :rf.ui.compile/bad-frame-root
+    :rf.ui.compile/bad-frame-provider
     :rf.ui.compile/client-entry-on-jvm
     :rf.ui.compile/missing-root-id
     :rf.ui.compile/identity-opts-at-hydrate
@@ -173,6 +174,7 @@
       html        {:fqn 're-frame.ui/html :meta {}}
       raw-fn      {:fqn 're-frame.ui/raw-fn :meta {}}
       spread      {:fqn 're-frame.ui/spread :meta {}}
+      frame-provider {:fqn 're-frame.ui/frame-provider :meta {}}
       child-view  {:fqn 'app.views/child-view
                    :meta {:rf.ui/view true :rf.ui/children? true}}
       leaf-view   {:fqn 'app.views/leaf-view
@@ -284,6 +286,12 @@
    [:rf.ui.compile/children-not-accepted '[leaf-view {} [:p "kid"]] [":children"]]
    [:rf.ui.compile/undeclared-prop '[closed-view {:a 1 :c 3}] ["declared:"]]
    [:rf.ui.compile/bad-fragment-props '[:<> {:key k :class "x"} [:p "a"]] ["{:key"]]
+   ;; frame-provider (S2c) — the SCOPE form's rejection roster
+   [:rf.ui.compile/bad-frame-provider '[frame-provider "x"] ["literal props map"]]
+   [:rf.ui.compile/bad-frame-provider '[frame-provider {:id :x} [:p "y"]] ["frame-root {:id"]]
+   [:rf.ui.compile/bad-frame-provider '[frame-provider {} [:p "y"]] ["requires :frame"]]
+   [:rf.ui.compile/bad-frame-provider
+    '[frame-provider {:frame :y :extra 1} [:p "z"]] ["only scope"]]
    ;; control forms
    [:rf.ui.compile/multi-form-body '(when c [:p "a"] [:p "b"]) ["[:<>"]]
    [:rf.ui.compile/bad-cond '(cond a) [":else"]]
