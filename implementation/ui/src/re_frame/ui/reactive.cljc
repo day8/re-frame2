@@ -704,42 +704,76 @@
 ;; internal observation port; 03 §3).
 
 (def ^:private ^:const target-cap
-  ;; Distinct moving targets kept per pending window before overflow folds
-  ;; into a running dropped-count — bounds the evidence to constant size.
+  ;; Distinct moving targets SHOWN per pending window — a bounded SAMPLE of what
+  ;; moved. Further distinct targets fold into the bounded `:dropped` loss SET
+  ;; (not a running occurrence count), keeping the shown sample constant-size.
   8)
+
+(def ^:private ^:const dropped-cap
+  ;; The SECOND bound: distinct OMITTED target keys tracked in `:dropped` before
+  ;; the loss account ITSELF saturates. Past this many distinct omissions,
+  ;; `:dropped-exact?` flips false and `(count :dropped)` becomes a LOWER bound.
+  ;; The whole record therefore stays constant-size (≤ target-cap shown +
+  ;; ≤ dropped-cap omitted, all small sub-query-vector keys).
+  64)
 
 (defn- fold-evidence
   "DEBUG plane: fold one invalidation `payload` into a cell's pending-window
   evidence `ev` (nil = a fresh window). Returns a BOUNDED, constant-size
   record — never an unbounded payload vector:
 
-    {:first-epoch  e0    ; the FIRST movement's frame-epoch (the anchor)
-     :latest-epoch eN    ; the most-recent movement's frame-epoch
-     :count        n     ; total invalidations folded this window
-     :causes       #{…}  ; the SET of causes seen (:value/:hmr/:disposed — ≤3)
-     :targets      [tk…] ; distinct moved target keys, capped at `target-cap`
-     :dropped      m}    ; distinct targets dropped past the cap (loss account)
+    {:first-epoch    e0    ; the FIRST movement's frame-epoch (the anchor)
+     :latest-epoch   eN    ; the most-recent movement's frame-epoch
+     :count          n     ; total invalidation OCCURRENCES folded this window
+     :causes         #{…}  ; the SET of causes seen (:value/:hmr/:disposed — ≤3)
+     :targets        [tk…] ; distinct moving targets SHOWN, capped at `target-cap`
+     :dropped        #{tk} ; distinct moving targets OMITTED past the shown cap —
+                           ;   a BOUNDED SET; its COUNT is the honest fan-out loss
+     :dropped-exact? b}    ; true ⇒ every omission is individually tracked;
+                           ;   false ⇒ the loss set saturated at `dropped-cap`, so
+                           ;   `(count :dropped)` is a LOWER bound
 
-  The cause set and epoch scalars are naturally bounded; the target vector is
-  explicitly capped with a dropped-count, so overflow is REPORTED, never
-  silently lost (acceptance-criterion 3)."
+  Honesty (rf2-vxgfnd.74). `:count` is the OCCURRENCE axis (every fold, including
+  repeats of an already-seen target); `:dropped` is the DISTINCT-target LOSS
+  axis. They are complementary, never duplicates: re-invalidating one already-
+  omitted target N times advances `:count` by N but leaves `:dropped` unchanged
+  (that target's identity is already recorded). So a window that invalidates
+  eight retained targets once then a NINTH target 100 times reports `:count 108`
+  yet `:dropped #{tk9}` — ONE distinct omission, not 100. The field means what it
+  says (distinct omitted targets), so it never overstates fan-out.
+
+  The cause set and epoch scalars are naturally bounded; BOTH the shown-target
+  vector and the omitted-target set are explicitly capped, so overflow is
+  REPORTED (never silently lost) yet the record stays constant-size — a
+  distinct omission past `dropped-cap` sets `:dropped-exact? false` rather than
+  growing the set (acceptance-criteria 3/5)."
   [ev {:keys [cause target frame-epoch]}]
   (let [tk (when target (target-key target))]
     (if (nil? ev)
-      {:first-epoch  frame-epoch
-       :latest-epoch frame-epoch
-       :count        1
-       :causes       (if cause #{cause} #{})
-       :targets      (if tk [tk] [])
-       :dropped      0}
-      (let [known?  (or (nil? tk) (some #(= tk %) (:targets ev)))
-            at-cap? (>= (count (:targets ev)) target-cap)]
+      {:first-epoch    frame-epoch
+       :latest-epoch   frame-epoch
+       :count          1
+       :causes         (if cause #{cause} #{})
+       :targets        (if tk [tk] [])
+       :dropped        #{}
+       :dropped-exact? true}
+      (let [known?     (or (nil? tk)
+                           (some #(= tk %) (:targets ev))
+                           (contains? (:dropped ev) tk))
+            at-cap?    (>= (count (:targets ev)) target-cap)
+            drop-full? (>= (count (:dropped ev)) dropped-cap)]
         (cond-> (-> ev
                     (assoc :latest-epoch frame-epoch)
                     (update :count inc))
-          cause                            (update :causes conj cause)
-          (and (not known?) (not at-cap?)) (update :targets conj tk)
-          (and (not known?) at-cap?)       (update :dropped inc))))))
+          cause                                       (update :causes conj cause)
+          ;; a NEW distinct target with room in the shown sample
+          (and (not known?) (not at-cap?))            (update :targets conj tk)
+          ;; a NEW distinct target past the shown cap, with room in the loss set:
+          ;; record its IDENTITY so `:dropped` counts DISTINCT omissions
+          (and (not known?) at-cap? (not drop-full?)) (update :dropped conj tk)
+          ;; a NEW distinct omission but the loss set is FULL: the count is now a
+          ;; floor — mark it inexact (the honest "≥ dropped-cap distinct" signal)
+          (and (not known?) at-cap? drop-full?)       (assoc :dropped-exact? false))))))
 
 (defn- record-evidence!
   "DEBUG plane: fold `payload`'s bounded causal evidence into `cell`'s
@@ -1016,8 +1050,10 @@
   when the cell is not pending, or in a production build where the debug plane
   is elided). The coalesced summary of every invalidation folded into this one
   render batch — see `fold-evidence` for the shape: first/latest frame-epoch,
-  the fold count, the cause set, a capped distinct-target vector, and a
-  dropped-count. The `re-frame.ui.tool`/Xray projection reads this (or receives
+  the total occurrence `:count`, the cause set, a capped SHOWN distinct-target
+  vector, and a bounded `:dropped` SET of the distinct targets OMITTED past the
+  shown cap (its count is the honest fan-out loss, `:dropped-exact?` flags
+  saturation). The `re-frame.ui.tool`/Xray projection reads this (or receives
   it via `set-evidence-sink!`) to attribute a coalesced render to its
   contributing movement WITHOUT forcing a render per epoch (rf2-vxgfnd.46;
   tool/test read)."

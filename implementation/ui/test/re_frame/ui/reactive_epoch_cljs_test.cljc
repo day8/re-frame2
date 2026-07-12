@@ -418,7 +418,8 @@
         (is (= 1 (:first-epoch ev)) "anchored to the FIRST epoch")
         (is (= 8 (:latest-epoch ev)) "…and tracks the LATEST")
         (is (= 8 (:count ev)) "all 8 invalidations folded")
-        (is (= 0 (:dropped ev)) "nothing dropped")))
+        (is (= #{} (:dropped ev)) "nothing dropped — the loss set is empty")
+        (is (:dropped-exact? ev) "…and the loss account is exact")))
     (is (= 1 (reactive/pending-cell-count)) "enrolled ONCE despite 8 marks")
     (reactive/flush-pending!)
     (testing "coalesced to ONE render, and the flush CARRIED the evidence"
@@ -445,9 +446,10 @@
       (is (= 1 (:count ev))))))
 
 (deftest evidence-target-vector-is-bounded-with-a-loss-account
-  ;; MORE distinct moving targets than the cap fold into a CAPPED target vector
-  ;; plus an explicit dropped-count — the evidence is constant-size, and
-  ;; overflow is reported rather than silently lost (AC 3).
+  ;; MORE distinct moving targets than the cap fold into a CAPPED SHOWN vector
+  ;; plus a bounded `:dropped` SET of the distinct OMITTED targets — the evidence
+  ;; is constant-size, and overflow is reported by IDENTITY rather than silently
+  ;; lost (AC 3). End-to-end through the real :hmr fan-out.
   (let [n       10                          ;; > the target cap (8)
         ids     (mapv (fn [i] (keyword "r" (str "s" i))) (range n))
         queries (mapv vector ids)]
@@ -459,11 +461,56 @@
         (rf/reg-sub (ids i) (fn [db _] (get db i))))
       (let [ev (reactive/pending-evidence cell)]
         (is (= n (:count ev)) "every invalidation is counted")
-        (is (= 8 (count (:targets ev))) "the target vector is capped at target-cap")
-        (is (= 2 (:dropped ev)) "the 2 overflow targets are counted, not silently lost")
+        (is (= 8 (count (:targets ev))) "the shown target vector is capped at target-cap")
+        (is (= 2 (count (:dropped ev)))
+            "the 2 DISTINCT overflow targets are recorded by identity, not silently lost")
+        (is (every? vector? (:dropped ev)) ":dropped holds target KEYS, not a bare count")
+        (is (:dropped-exact? ev) "the loss account is exact — well under dropped-cap")
         (is (= #{:hmr} (:causes ev)) "the cause set stays bounded"))
       (testing "the whole capped batch still coalesces to ONE render"
         (let [hits (atom 0)]
           (reactive/subscribe cell (fn [] (swap! hits inc)))
           (reactive/flush-dirty! cell)
           (is (= 1 @hits) "one notification for the whole bounded batch"))))))
+
+(deftest evidence-dropped-counts-distinct-omissions-not-occurrences
+  ;; rf2-vxgfnd.74 — the HONESTY fix, exercised at the fold unit. `:dropped` is
+  ;; the DISTINCT-omitted-target axis, NOT overflow OCCURRENCES: re-invalidating
+  ;; one already-omitted target N times advances `:count` by N but must NOT
+  ;; inflate the loss. The fold unit is the right level here — a SAME-target
+  ;; re-invalidation storm can't be staged through the real :hmr path (an HMR
+  ;; dispose fires a target's live lease exactly once), yet it is the exact
+  ;; shape that made the old occurrence-counting `:dropped` dishonest.
+  (let [fold    @#'reactive/fold-evidence
+        target  (fn [i] {:kind :subscription :frame-id fid :query [(keyword "r" (str "s" i))]})
+        key-i   (fn [i] (tk fid [(keyword "r" (str "s" i))]))
+        payload (fn [i] {:cause :hmr :target (target i) :frame-epoch i})
+        after-8 (reduce fold nil (map payload (range 8)))]  ;; 8 distinct shown, once each
+    (testing "the headline example — 8 retained once, then ONE ninth target 100×"
+      ;; PRE-FIX this window read {:count 108 :targets 8 :dropped 100} — claiming
+      ;; 100 omitted targets when only ONE distinct target was ever dropped.
+      (let [ev (reduce fold after-8 (repeat 100 (payload 8)))]
+        (is (= 108 (:count ev)) ":count still totals every invalidation OCCURRENCE")
+        (is (= 8 (count (:targets ev))) "the shown sample stays capped at target-cap")
+        (is (= #{(key-i 8)} (:dropped ev))
+            "ONE distinct target omitted — the field reports its IDENTITY, not 100")
+        (is (= 1 (count (:dropped ev)))
+            "…so the fan-out loss is 1, NOT 100 — the field no longer overstates")
+        (is (:dropped-exact? ev) "and the loss account is exact — far under dropped-cap")))
+    (testing "genuinely-distinct overflow — the distinct-omission set grows honestly"
+      (let [ev (reduce fold after-8 (map payload (range 8 11)))]  ;; 9th/10th/11th distinct
+        (is (= 11 (:count ev)))
+        (is (= 8 (count (:targets ev))))
+        (is (= #{(key-i 8) (key-i 9) (key-i 10)} (:dropped ev))
+            "three DISTINCT overflow targets → three distinct omissions, by identity")
+        (is (:dropped-exact? ev))))
+    (testing "the loss set is ITSELF bounded — saturation flips :dropped-exact? false"
+      (let [cap @#'reactive/dropped-cap
+            n   (+ 8 cap 50)                        ;; far past BOTH caps
+            ev  (reduce fold nil (map payload (range n)))]
+        (is (= n (:count ev)) "every occurrence still counts")
+        (is (= 8 (count (:targets ev))) "shown sample bounded")
+        (is (= cap (count (:dropped ev)))
+            "the loss set is bounded at dropped-cap — constant-size, never unbounded")
+        (is (false? (:dropped-exact? ev))
+            "…and honestly flags that (count :dropped) is now a LOWER bound")))))
