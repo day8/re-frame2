@@ -307,15 +307,41 @@
   teardown projection, registrar cleanup, and `spawn-order/forget!`
   run atomically per `destroy-single-actor!` and `finalize-machine`.
 
-  See Spec 005 §Destroy is silent-idempotent for the normative paragraph."
+  See Spec 005 §Destroy is silent-idempotent for the normative paragraph.
+
+  ## The reap form (rf2-tj3l6a)
+
+  A THIRD arg shape — the map `{:rf/actor-id <id> :rf/reason <reason>}` —
+  is the DIRECT-actor REAP form the `:spawn-all` join uses to tear down an
+  ALREADY-TERMINAL child at resolution. Unlike the imperative keyword form,
+  it carries the destroy `:reason` explicitly so `emit-destroyed!` stamps a
+  NON-cancellation reason (`:rf.machine/join-reaped`) and therefore attaches
+  NO cancelled reply facts — the reaped child already has a closed terminal
+  status (its `join-child-reply` `:completed` / `:failed`), so a
+  `:cancelled` teardown reply would be a SECOND, contradictory terminal for
+  the same work-id. The teardown itself is IDENTICAL to the keyword /
+  imperative destroy (snapshot, timers, resource leases, spawn-order removal);
+  only the reply-emitting reason differs. Distinct from the tracked map form:
+  the reap carries the actor-id DIRECTLY (a `:spawn-all` child's join slot
+  holds the whole join-state map, not a single actor-id, so the
+  slot-resolution the tracked form uses does not apply)."
   [frame-id args]
-  (let [tracked?  (map? args)
+  (let [mapped?   (map? args)
+        ;; The reap form carries the actor-id directly + an explicit
+        ;; non-cancellation `:reason`; the tracked form resolves the actor-id
+        ;; from the `[:spawned parent-id invoke-id]` slot.
+        reap?     (and mapped? (contains? args :rf/actor-id))
+        reason    (if reap? (:rf/reason args :explicit) :explicit)
+        tracked?  (and mapped? (not reap?))
         parent-id (when tracked? (:rf/parent-id args))
         invoke-id (when tracked? (:rf/invoke-id args))
         old-db    (frame/frame-runtime-db-value frame-id)
         slot-id   (when (and tracked? old-db)
                     (get-in old-db (paths/spawned-path parent-id invoke-id)))
-        actor-id  (if tracked? slot-id args)
+        actor-id  (cond
+                    reap?    (:rf/actor-id args)
+                    tracked? slot-id
+                    :else    args)
         ;; Silent-idempotent guard. `live?` is true iff ANY
         ;; liveness signal survives. The first three (registrar entry /
         ;; snapshot present / spawn-order entry) are the resolved-actor-id
@@ -339,21 +365,26 @@
       (teardown-live-actor!
         frame-id actor-id
         {:actor-id actor-id :parent-id parent-id :invoke-id invoke-id}
-        ;; D6 — `:reason :explicit` discriminates "an action / fx
-        ;; tore the actor down" from `:rf.machine/finished` (the auto-destroy
-        ;; on `:final?`). Always stamp `:system-id` (nil when not bound) per
-        ;; the destroyed-trace-shape contract for the `destroy-single!` site.
-        ;; `released-sid` is the binding the teardown projection released —
-        ;; resolved from the reverse index BEFORE the dissoc, symmetric with
-        ;; `finalize-machine` and with the pre-teardown `old-db` read it
-        ;; replaces (the `:system-ids` index is untouched by the exit cascade
-        ;; / abort / mark-clear / timer-cancel steps, so the value is equal).
+        ;; D6 — `:reason` discriminates "an action / fx tore the actor down"
+        ;; (`:explicit`, a cancellation) from `:rf.machine/finished` (the
+        ;; auto-destroy on `:final?`) and, for the reap form,
+        ;; `:rf.machine/join-reaped` (post-completion cleanup of an
+        ;; already-terminal `:spawn-all` join child — NOT a cancellation, so
+        ;; no second-terminal cancelled reply, rf2-tj3l6a). Always stamp
+        ;; `:system-id` (nil when not bound) per the destroyed-trace-shape
+        ;; contract for the `destroy-single!` site. `released-sid` is the
+        ;; binding the teardown projection released — resolved from the reverse
+        ;; index BEFORE the dissoc, symmetric with `finalize-machine` and with
+        ;; the pre-teardown `old-db` read it replaces (the `:system-ids` index
+        ;; is untouched by the exit cascade / abort / mark-clear / timer-cancel
+        ;; steps, so the value is equal).
         (fn [released-sid]
           (traces/emit-destroyed! {:frame     frame-id
                                    :actor-id  actor-id
                                    :system-id released-sid
                                    :parent-id parent-id
-                                   :invoke-id invoke-id}))))
+                                   :invoke-id invoke-id
+                                   :reason    reason}))))
     nil))
 
 (defn destroy-machine-fx
