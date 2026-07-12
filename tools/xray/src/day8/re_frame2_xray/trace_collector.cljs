@@ -31,6 +31,7 @@
             [re-frame.trace :as trace]
             [re-frame.trace.tooling :as trace-tooling]
             [day8.re-frame2-xray.config :as config]
+            [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.self-noise :as self-noise]))
 
 ;; ---- frameless secondary ring -------------------------------------------
@@ -198,12 +199,6 @@
                                        (trace-tooling/trace-buffer fid {:flat true})))
                           frame-ids)
         frameless   (frameless-events)
-        ;; Sort by :id so the resulting flat vector preserves the
-        ;; cross-frame oldest-first invariant the projection code +
-        ;; the L2 event list both assume. Frameless events carry no
-        ;; :id only in pathological cases (host produced an envelope
-        ;; without one); fall back to js/Number.MAX_SAFE_INTEGER so they
-        ;; sort to the tail.
         all         (into per-frame frameless)]
     (into []
           ;; Privacy gate (rf2-0ax6f): scrub retained-but-sensitive
@@ -212,6 +207,12 @@
           ;; local-render egress profile reveals sensitive values
           ;; (`:rf.egress/local-raw` opt-in) or the event is non-sensitive.
           (remove config/suppress-sensitive?)
+          ;; Sort by :id so the resulting flat vector preserves the
+          ;; cross-frame oldest-first invariant the projection code +
+          ;; the L2 event list both assume. Frameless events carry no
+          ;; :id only in pathological cases (host produced an envelope
+          ;; without one); fall back to js/Number.MAX_SAFE_INTEGER so they
+          ;; sort to the tail.
           (sort-by (fn [ev] (or (:id ev) js/Number.MAX_SAFE_INTEGER))
                    all))))
 
@@ -236,9 +237,9 @@
   Returns nothing."
   []
   (when interop/debug-enabled?
-    (when (some? (frame/frame :rf/xray))
+    (when (some? (frame/frame defaults/default-frame-id))
       (let [snapshot (snapshot-from-rings)]
-        (rf/with-frame :rf/xray
+        (rf/with-frame defaults/default-frame-id
           (rf/dispatch-sync [:rf.xray/sync-trace-buffer snapshot])))))
   nil)
 
@@ -347,8 +348,8 @@
   (when interop/debug-enabled?
     (trace-tooling/clear-trace-rings!)
     (clear-frameless-ring!)
-    (when (some? (frame/frame :rf/xray))
-      (rf/with-frame :rf/xray
+    (when (some? (frame/frame defaults/default-frame-id))
+      (rf/with-frame defaults/default-frame-id
         (rf/dispatch [:rf.xray/clear-trace-buffer])))
     (config/reset-suppressed-count!))
   nil)
