@@ -1187,15 +1187,19 @@
 
 ;; ---- async scheduler -----------------------------------------------------
 
-(defn- schedule!
-  "Run `f` after `ms` milliseconds. CLJS → `js/setTimeout`; JVM →
-  block the calling thread via `Thread/sleep` then invoke. Returns a
-  cancellable handle on CLJS, nil on JVM."
-  [ms f]
-  #?(:cljs (js/setTimeout f ms)
-     :clj  (do (when (pos? ms) (Thread/sleep ^long ms))
-               (f)
-               nil)))
+#?(:cljs
+   (defn- schedule!
+     "Run `f` after `ms` milliseconds via `js/setTimeout`, yielding to the
+     event loop so queued effects drain before the next step. Returns a
+     cancellable timeout handle.
+
+     CLJS-only. On the JVM the run loop folds a `:wait` INLINE (a
+     `Thread/sleep` then a `recur`) so it stays in tail position rather than
+     nesting a scheduled continuation per wait — a JVM `schedule!` would do
+     `(Thread/sleep ms)(f)`, a fresh `run-loop!` frame per wait, growing the
+     call stack (rf2-epqsvh)."
+     [ms f]
+     (js/setTimeout f ms)))
 
 ;; ---- assertion-slot recording -------------------------------------------
 ;;
@@ -1310,9 +1314,18 @@
             nm   (:name state)]
         (cond
           (= :wait (runner/step-type step))
-          (let [ms (runner/step-wait-ms step)]
+          (let [ms (or (runner/step-wait-ms step) 0)]
             (record-result! frame-id play-key nm idx step (runner/step-skip idx step))
-            (schedule! (or ms 0) #(run-loop! frame-id play-key token done-cb)))
+            ;; JVM: fold the wait INTO the loop so it stays in TAIL position.
+            ;; `schedule!` on the JVM used to nest `(Thread/sleep ms)(f)` — a
+            ;; fresh `run-loop!` frame per wait — so a script of many
+            ;; `[:wait ms]` steps grew the call stack (StackOverflowError) and
+            ;; blocked the caller for the summed waits. `recur` keeps the stack
+            ;; flat. CLJS keeps async `setTimeout` scheduling so the event loop
+            ;; drains between steps (rf2-epqsvh).
+            #?(:clj  (do (when (pos? ms) (Thread/sleep ^long ms))
+                         (recur frame-id play-key token done-cb))
+               :cljs (schedule! ms #(run-loop! frame-id play-key token done-cb))))
 
           :else
           (let [_      (record-settle-boundary! frame-id play-key step)
