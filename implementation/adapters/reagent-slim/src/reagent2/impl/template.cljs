@@ -546,6 +546,16 @@
 ;; A user can attach a key via `^{:key "k"}` meta on the hiccup vector,
 ;; OR via `:key` in the props map. We honour the meta first, falling
 ;; back to the props map.
+;;
+;; Reached from two directions: the element constructors AND `expand-seq`'s
+;; per-child missing-key DEBUG warning, which runs on the RAW list children
+;; of EVERY head shape. That warning path is why each interop head keeps a
+;; case here — including `:r>`: `raw-element` owns `:r>` key stamping during
+;; construction, but a raw `:r>` child (e.g.
+;; `(for [x xs] [:r> C #js {:key x}])`) still flows through the missing-key
+;; check, and React honours `props.key` on a `:r>` element, so the case
+;; reads the js-props `.key`. Dropping it would spuriously warn on a
+;; properly-keyed `:r>` list child.
 ;; ---------------------------------------------------------------------------
 
 (defn- get-react-key [v]
@@ -553,6 +563,8 @@
     (or k
         (case (when (vector? v) (nth v 0 nil))
           (:> :f>) (when (map? (nth v 2 nil)) (:key (nth v 2 nil)))
+          ;; `:r>` reaches here only via expand-seq's missing-key warning
+          ;; (see the header note); read the js-props `.key` React honours.
           :r>      (some-> (nth v 2 nil) (.-key))
           (when (map? (nth v 1 nil)) (:key (nth v 1 nil)))))))
 
