@@ -74,9 +74,15 @@
   as a false conflict. A later plan for the same id is a genuinely new
   frame lifetime — created fresh, `:initial-events` REPLAYED (the opt-in
   destroy-then-reseat composition, rf2-lxwpob). A plan that throws mid-run
-  tags the siblings it already installed `:mount-incomplete`
-  (rf2-vxgfnd.30 (b)), so a later conflict names an incomplete mount, not
-  a phantom completed owner.
+  labels the siblings it already wrote by PROVENANCE (rf2-vxgfnd.30 (b),
+  rf2-vxgfnd.72): a sibling that this run FRESH-installed is tagged
+  `:mount-incomplete` — its mount never completed and no root yet scopes
+  it. A sibling that was ALREADY LIVE (a refresh of an installed root, or
+  an adopt of a boot frame) keeps its live-root state and carries neutral
+  `:preflight-attempt-failed` evidence instead: the frame and its scoping
+  root PERSIST (Q49), only the re-preflight ATTEMPT failed. So a later
+  conflict names an incomplete FRESH mount without ever claiming that a
+  still-live root does not scope its refreshed frame.
 
   ## Atomicity posture (the rf2-ktmto9 mirror)
 
@@ -155,8 +161,11 @@
   ;;   ADOPTED (a boot / external frame this root merely SCOPES — NO refresh
   ;;     rights; boot config stays authoritative):
   ;;     {:config-fingerprint "cf1-…" :adopted-by root-id :adopted true}
-  ;; A failed mount that installed earlier siblings tags their surviving
-  ;; records `:mount-incomplete true` (rf2-vxgfnd.30 (b)). Records are
+  ;; A failed run labels the surviving records it wrote by provenance
+  ;; (rf2-vxgfnd.30 (b), rf2-vxgfnd.72): a FRESH install → `:mount-incomplete
+  ;; true` (mount never completed, no root scopes it); an ALREADY-LIVE refresh
+  ;; or adopt → `:preflight-attempt-failed true` (neutral attempt evidence —
+  ;; the live frame + its scoping root persist, Q49). Records are
   ;; PRUNED on `frame/destroy-frame!` (rf2-vxgfnd.30 (a)) — the destroy hook
   ;; dissocs the id, so a re-created same-id frame is a genuinely new
   ;; lifetime rather than a resurrected dead-lifetime record.
@@ -197,10 +206,19 @@
         (pr-str frame-id) " whose config fingerprint differs from the "
         "installed frame's recorded plan (installed by root "
         (pr-str (:installed-by installed)) ")"
-        (when (:mount-incomplete installed)
+        (cond
+          ;; FRESH first mount that never completed — truthful "no root scopes"
+          (:mount-incomplete installed)
           (str ", whose mount did NOT complete — a later plan in that "
                "root's run threw, so the frame is live only from its "
-               "already-fired :initial-events and no root actually scopes it"))
+               "already-fired :initial-events and no root actually scopes it")
+          ;; ALREADY-LIVE root whose re-preflight run failed — the frame and
+          ;; its scoping root PERSIST (Q49); only the last attempt failed.
+          (:preflight-attempt-failed installed)
+          (str ", whose most recent preflight run did NOT complete — a later "
+               "plan in that root's re-preflight threw. The installed frame is "
+               "still LIVE and scoped by root " (pr-str (:installed-by installed))
+               "; its prior mount and last committed render are untouched (Q49)"))
         ". One frame, one plan: align "
         "the configs, or drop the duplicate frame-root. The installed "
         "frame and the roots already using it are untouched — this root "
@@ -226,7 +244,11 @@
         (pr-str frame-id) ", but that frame is already live and "
         "boot-authoritative"
         (if installed
-          (str " (adopted by root " (pr-str (:adopted-by installed)) ")")
+          (str " (adopted by root " (pr-str (:adopted-by installed)) ")"
+               (when (:preflight-attempt-failed installed)
+                 (str " — the run that recorded that adoption did not fully "
+                      "complete (a later plan threw), though the boot frame "
+                      "remains live and authoritative")))
           " (created outside the plan registry — a boot rf/make-frame)")
         ". A frame-root plan cannot install or refresh its config over a "
         "frame it does not OWN — adoption only SCOPES a boot frame, it never "
@@ -242,9 +264,10 @@
                         :root-id root-id}}}))
 
 (defn- mark-mount-incomplete!
-  "Tag the surviving install records `frame-ids` (siblings this run wrote
-  before a later plan threw) `:mount-incomplete true`, so a later conflict
-  never presents their root as a completed owner it never became."
+  "Tag the surviving FRESH-installed records `frame-ids` (siblings this run
+  created for the first time before a later plan threw) `:mount-incomplete
+  true`, so a later conflict never presents their root as a completed owner
+  it never became — their mount did not complete and no root scopes them yet."
   [frame-ids]
   (when (seq frame-ids)
     (swap! installed-plans
@@ -253,17 +276,38 @@
                                (contains? m id) (assoc-in [id :mount-incomplete] true)))
                            m frame-ids)))))
 
-(defn- clear-mount-incomplete!
-  "A run completed: every frame it touched is backed by a completed mount,
-  so drop any stale `:mount-incomplete` tag left by an earlier failed run.
-  Only entries that carry the tag are rewritten (the found-live no-op path
-  stays write-free in the common, unmarked case)."
+(defn- mark-preflight-attempt-failed!
+  "Tag the surviving ALREADY-LIVE records `frame-ids` (a refresh of an
+  installed root, or an adopt of a boot frame, that this run wrote before a
+  later plan threw) `:preflight-attempt-failed true` (rf2-vxgfnd.72). Neutral
+  attempt evidence: the frame and its scoping root PERSIST (Q49), so this
+  records that the re-preflight ATTEMPT did not complete WITHOUT overwriting
+  the live root's completed-mount state with a mount-incomplete claim."
+  [frame-ids]
+  (when (seq frame-ids)
+    (swap! installed-plans
+           (fn [m] (reduce (fn [m id]
+                             (cond-> m
+                               (contains? m id)
+                               (assoc-in [id :preflight-attempt-failed] true)))
+                           m frame-ids)))))
+
+(defn- clear-run-incomplete-evidence!
+  "A run completed: every frame it touched is backed by a completed mount, so
+  drop any stale failed-run evidence an earlier throwing run left — both the
+  fresh-mount `:mount-incomplete` tag and the live-root
+  `:preflight-attempt-failed` attempt tag. Only entries that carry a tag are
+  rewritten (the found-live no-op path stays write-free in the common,
+  unmarked case)."
   [frame-ids]
   (swap! installed-plans
          (fn [m] (reduce (fn [m id]
-                           (cond-> m
-                             (:mount-incomplete (get m id))
-                             (update id dissoc :mount-incomplete)))
+                           (let [rec (get m id)]
+                             (cond-> m
+                               (or (:mount-incomplete rec)
+                                   (:preflight-attempt-failed rec))
+                               (update id dissoc :mount-incomplete
+                                       :preflight-attempt-failed))))
                          m frame-ids))))
 
 (defn execute-frame-plans!
@@ -281,9 +325,11 @@
   (no re-seed — the HMR guarantee); a live plan-less (boot-created) frame
   met by a CONFIG-LESS plan is ADOPTED under a non-owning record — its
   config/generation untouched, only the fingerprint recorded
-  (rf2-vxgfnd.26, rf2-vxgfnd.56). A plan that throws mid-run tags the
-  siblings it already installed `:mount-incomplete` (rf2-vxgfnd.30 (b)).
-  Returns nil."
+  (rf2-vxgfnd.26, rf2-vxgfnd.56). A plan that throws mid-run labels the
+  siblings it already wrote by provenance: a FRESH install →
+  `:mount-incomplete`; an ALREADY-LIVE refresh/adopt →
+  `:preflight-attempt-failed` (the live root persists, Q49 — rf2-vxgfnd.30
+  (b), rf2-vxgfnd.72). Returns nil."
   [root-id plans]
   (let [decided
         (mapv (fn [{:keys [frame-id config config-fingerprint] :as plan}]
@@ -327,9 +373,15 @@
                     :else
                     (assoc plan ::action :install))))
               plans)
-        ;; frame-ids whose record THIS run writes (install/refresh/adopt),
-        ;; accumulated in document order so a mid-run throw can tag the
-        ;; siblings already written (rf2-vxgfnd.30 (b)).
+        ;; frame-ids whose record THIS run writes, each tagged by PROVENANCE
+        ;; so a mid-run throw can label it honestly (rf2-vxgfnd.30 (b),
+        ;; rf2-vxgfnd.72):
+        ;;   :fresh — an :install that created the frame this run. On a later
+        ;;     throw its mount never completed and no root yet scopes it.
+        ;;   :live  — a :refresh of an already-live installed root, or an
+        ;;     :adopt of an already-live boot frame. On a later throw the frame
+        ;;     and its scoping root PERSIST (Q49); only the ATTEMPT failed.
+        ;; Accumulated in document order.
         written (volatile! [])]
     (try
       (doseq [{:keys [frame-id config config-fingerprint] :as plan} decided]
@@ -342,33 +394,45 @@
           ;; ADOPTED (non-owning) record so a later cross-root arrival is
           ;; conflict-scoped — the boot frame's config/generation/`:images`
           ;; are left entirely untouched (rf2-vxgfnd.26), and the record can
-          ;; never enter a root-owned refresh path (rf2-vxgfnd.56).
+          ;; never enter a root-owned refresh path (rf2-vxgfnd.56). The boot
+          ;; frame was already LIVE, so a later throw is an attempt failure,
+          ;; not a mount-incomplete over never-mounted state.
           :adopt (do (swap! installed-plans assoc frame-id
                             {:config-fingerprint config-fingerprint
                              :adopted-by root-id
                              :adopted true})
-                     (vswap! written conj frame-id))
+                     (vswap! written conj [frame-id :live]))
 
           ;; :install / :refresh — create-if-absent / surgical refresh;
           ;; :initial-events drain synchronously inside the engine, in
           ;; document order across plans. The record lands only AFTER a
           ;; successful install, so a throwing plan leaves no install record
-          ;; (and the engine leaves no frame residue).
+          ;; (and the engine leaves no frame residue). An :install is FRESH
+          ;; (nothing scoped this id before); a :refresh acts on an
+          ;; ALREADY-LIVE installed root (its prior mount + render persist).
           (do
             (live-frame/make-frame (assoc (or config {}) :id frame-id))
             (swap! installed-plans assoc frame-id
                    {:config-fingerprint config-fingerprint
                     :installed-by root-id})
-            (vswap! written conj frame-id))))
+            (vswap! written conj
+                    [frame-id (if (= :install (::action plan)) :fresh :live)]))))
       ;; the whole run completed — every touched frame is backed by a
-      ;; completed mount, so drop any stale mount-incomplete tag.
-      (clear-mount-incomplete! (map :frame-id decided))
+      ;; completed mount, so drop any stale failed-run evidence.
+      (clear-run-incomplete-evidence! (map :frame-id decided))
       (catch #?(:clj Throwable :cljs :default) e
-        ;; a plan threw mid-run: the siblings this run already installed stay
-        ;; live (irreversible :initial-events — the atomicity posture), but
-        ;; the mount did NOT complete. Tag their records so a later conflict
-        ;; names an incomplete mount, not a phantom completed owner.
-        (mark-mount-incomplete! @written)
+        ;; a plan threw mid-run: the siblings this run wrote stay live
+        ;; (irreversible :initial-events — the atomicity posture). Label each
+        ;; by provenance (rf2-vxgfnd.72): a FRESH install whose mount never
+        ;; completed is :mount-incomplete + "no root scopes"; an already-LIVE
+        ;; refresh/adopt keeps its live-root state and carries neutral
+        ;; :preflight-attempt-failed evidence instead — its live root and last
+        ;; committed render are untouched (Q49).
+        (let [w @written]
+          (mark-mount-incomplete!
+           (into [] (comp (filter #(= :fresh (second %))) (map first)) w))
+          (mark-preflight-attempt-failed!
+           (into [] (comp (filter #(= :live (second %))) (map first)) w)))
         (throw e)))
     nil))
 
