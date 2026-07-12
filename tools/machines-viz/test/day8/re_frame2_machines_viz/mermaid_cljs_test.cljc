@@ -277,6 +277,28 @@
           out (m/emit m)]
       (is (str/includes? out "a --> b : go [ready?]")))))
 
+(deftest emit-renders-inline-fn-guard-consistently
+  (testing "rf2-qgtcvy — an INLINE-FN guard renders via the shared
+            `grammar/name-of` (its :name meta or a stable \"fn\"), the SAME
+            way the chart + SCXML emitters do — NOT the host object string
+            (`#object[...]`) the pre-fix `label-value` `pr-str` arm leaked"
+    (let [named {:initial :a
+                 :states  {:a {:on {:go {:target :b
+                                         :guard (with-meta (fn [_] true)
+                                                  {:name 'ready?})}}}
+                           :b {}}}
+          anon  {:initial :a
+                 :states  {:a {:on {:go {:target :b :guard (fn [_] true)}}}
+                           :b {}}}
+          out-n (m/emit named)
+          out-a (m/emit anon)]
+      (is (str/includes? out-n "a --> b : go [ready?]")
+          "a :name-tagged inline-fn guard surfaces its name (mirrors SCXML cond)")
+      (is (str/includes? out-a "a --> b : go [fn]")
+          "an anonymous inline-fn guard reads as the stable [fn] placeholder")
+      (is (not (str/includes? out-a "#object"))
+          "never the host Function object string"))))
+
 (deftest emit-renders-multiple-candidate-transition-vectors
   (testing "candidate vectors render every target-bearing branch"
     (let [m   {:initial :editing

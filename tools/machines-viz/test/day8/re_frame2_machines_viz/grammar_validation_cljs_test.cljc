@@ -318,3 +318,23 @@
     (let [segs ["/" "-" "_" "?" (str (char 0x11)) "đ" "开" "始"
                 (str (char 0x11) "1") "a-b" "a/b" "a_b"]]
       (is (= (count segs) (count (distinct (map g/escape-id-segment segs))))))))
+
+;; rf2-qgtcvy — a non-MAP `:on` / `:after` (e.g. `{:on :retry}` from an LLM)
+;; must return the clean slot-specific defect, NOT throw an uncaught ISeq
+;; exception (which bypassed the emit paths' `:invalid-definition` promise).
+
+(deftest non-map-on-after-rejected-cleanly
+  (testing "a non-map `:on` yields :rf.error/machine-bad-on-clause (no throw)"
+    (is (= :rf.error/machine-bad-on-clause
+           (category {:initial :a :states {:a {:on :retry}}})))
+    (is (= :rf.error/machine-bad-on-clause
+           (category {:initial :a :states {:a {:on [:retry]}}}))))
+  (testing "a non-map `:after` yields :rf.error/machine-bad-after-spec (no throw)"
+    (is (= :rf.error/machine-bad-after-spec
+           (category {:initial :a :states {:a {:after :later}}}))))
+  (testing "`valid-definition?` returns false (rather than throwing) for both"
+    (is (false? (g/valid-definition? {:initial :a :states {:a {:on :retry}}})))
+    (is (false? (g/valid-definition? {:initial :a :states {:a {:after 500}}}))))
+  (testing "a well-formed MAP `:on` / `:after` is still accepted"
+    (is (nil? (g/definition-defect {:initial :a :states {:a {:on {:go :b}} :b {}}})))
+    (is (nil? (g/definition-defect {:initial :a :states {:a {:after {500 :b}} :b {}}})))))

@@ -657,15 +657,25 @@
     {:category :rf.error/machine-bad-target :path (vec path) :slot slot}))
 
 (defn- transition-target-defect [scope path node]
-  (let [check (fn [slot v]
-                (some (fn [{:keys [present? target]}]
-                        (when present? (target-defect scope path slot target)))
-                      (candidate-targets v)))]
-    (or (some (fn [[_ v]] (check :on v)) (:on node))
-        (some (fn [[_ v]] (check :after v)) (:after node))
-        (some (fn [entry] (check :always entry)) (always-entries node))
-        (when (contains? node :on-done) (check :on-done (:on-done node)))
-        (when-let [oe (get-in node [:spawn :on-error])] (check :spawn/on-error oe)))))
+  (or
+    ;; rf2-qgtcvy — `:on` / `:after` must each be a MAP of clause → spec. A
+    ;; non-map (e.g. `{:on :retry}` from an LLM) previously threw an uncaught
+    ;; ISeq exception when iterated below, instead of the clean
+    ;; `:invalid-definition` the emit paths promise. Surface the runtime's own
+    ;; slot-specific defect category so the emit path rejects cleanly.
+    (when (and (contains? node :on) (not (map? (:on node))))
+      {:category :rf.error/machine-bad-on-clause :path (vec path)})
+    (when (and (contains? node :after) (not (map? (:after node))))
+      {:category :rf.error/machine-bad-after-spec :path (vec path)})
+    (let [check (fn [slot v]
+                  (some (fn [{:keys [present? target]}]
+                          (when present? (target-defect scope path slot target)))
+                        (candidate-targets v)))]
+      (or (some (fn [[_ v]] (check :on v)) (:on node))
+          (some (fn [[_ v]] (check :after v)) (:after node))
+          (some (fn [entry] (check :always entry)) (always-entries node))
+          (when (contains? node :on-done) (check :on-done (:on-done node)))
+          (when-let [oe (get-in node [:spawn :on-error])] (check :spawn/on-error oe))))))
 
 (defn- node-defect
   "First defect on one MAP state-node at `path` within `scope` (its region /

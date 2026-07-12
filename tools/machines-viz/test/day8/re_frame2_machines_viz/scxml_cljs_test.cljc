@@ -329,6 +329,25 @@
       (is (keyword? (:initial back)))
       (is (= "结束" (name (:initial back)))))))
 
+(deftest parse-attrs-accepts-single-quoted-attributes
+  (testing "rf2-qgtcvy — `parse-attrs` matched only double-quoted values, so
+            an imported `<state id='idle'>` keyed the state under nil. Every
+            attribute in a single-quoted document must parse identically"
+    (let [spec   {:initial :idle
+                  :states  {:idle {:on {:go :done}}
+                            :done {:final? true}}}
+          xml    (scxml/spec->scxml spec)
+          ;; the emitter escapes `"`/`'` INSIDE values (&quot;/&apos;), so raw
+          ;; quotes are only attribute delimiters — swapping them wholesale
+          ;; yields a valid single-quoted document.
+          single (str/replace xml "\"" "'")]
+      (is (str/includes? single "id='"))
+      (is (not (str/includes? single "id=\"")))
+      (is (= (scxml/scxml->spec xml) (scxml/scxml->spec single))
+          "single-quoted attributes parse identically to double-quoted")
+      (is (= spec (scxml/scxml->spec single))
+          "and the single-quoted document round-trips to the original spec"))))
+
 ;; ---------------------------------------------------------------------------
 ;; Error cases
 
