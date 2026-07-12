@@ -12,7 +12,6 @@ One-line signatures for the public `re-frame.core` surface. **For full docstring
 | `rf/reg-sub` | `(id (fn [db query-v] value))` layer-1 · `(id :<- […] … (fn [inputs query-v] value))` static · `(id (fn [query-v] [[:q…]…]) (fn [inputs query-v] value))` parametric — input fn returns a **vector of query vectors** (EP-0004), NOT `subscribe` reactions |
 | `rf/reg-view` | `(sym [args] body)` — defn-shape, auto-injects `dispatch`/`subscribe` |
 | `rf/reg-view*` | `(id metadata? render-fn)` — runtime form |
-| `rf/reg-frame` | `(id metadata-map)` |
 | `rf/reg-app-schema` | `(path schema)` / `(path {:frame frame} schema)` — schema is the positional value slot, optional middle metadata map carries `:frame`; boundary validation; needs `day8/re-frame2-schemas` |
 | `rf/reg-machine` | `(id metadata? machine-spec)` — registration macro stays on the façade (call-site coord capture, no owned-ns macro form); needs `day8/re-frame2-machines`. The plain-fn runtime form `reg-machine*` is the owned-ns surface `re-frame.machines/reg-machine*`, **not** on the `rf/` façade |
 | `rf/reg-flow` | `(flow-id metadata derive-fn)` — 3-slot: id first, pure derive fn last; `metadata` carries `:inputs` / `:output-path` (both REQUIRED) + optional `:doc` / `:schema` / `:frame`. A `:derive` inside the metadata is rejected (`:rf.error/invalid-flow-metadata`). Needs `day8/re-frame2-flows` |
@@ -34,12 +33,12 @@ The `reg-event` metadata-map is the one **superset** middle slot — reflection 
 | `rf/compute-sub` | `(query-v db)` — pure; bypass cache (preferred in tests) |
 | `rf/with-frame` | `(frame-id body)` — pin `body` to an existing frame (lexical scope) |
 | `rf/with-new-frame` | `([sym expr] body)` — create+own+destroy a frame for `body` |
-| `rf/frame-provider` | (CLJS) per-adapter React-context component, ONE component / TWO config shapes (EP-0024 amended). **SCOPE-only** `[frame-provider {:frame ...} & children]`: provides an already-existing frame id; creates / refreshes / destroys nothing; fails loud if absent. **ENSURE** `[frame-root {:id ... :images ... :initial-events ...} & children]`: creates the frame if absent, reuses-no-reseed if present, provides its id to descendants; no destroy-on-unmount (same opts as `make-frame`). Shape selected by `:frame` vs `:id` |
+| `rf/frame-provider` / `rf/frame-root` | (CLJS) per-adapter React-context boundary components, one verb each — roots ensure, providers scope (EP-0024 amended; rf2-nyea0r split). **SCOPE-only** `[frame-provider {:frame ...} & children]`: provides an already-existing frame; creates / refreshes / destroys nothing; fails loud if absent. **ENSURE** `[frame-root {:id ... :images ... :initial-events ...} & children]`: creates the frame if absent, reuses-no-reseed if present, provides its id to descendants; no destroy-on-unmount (same opts as `make-frame`). Pick the component — each fails loud when handed the other's key |
 | `rf/capture-frame` | `()` / `(frame-id)` → `{:frame :dispatch :dispatch-sync :subscribe}` — the one public carry primitive; frame api captured at creation, survives async |
 | `rf/current-frame-id` | `()` — active frame id; raises `:rf.error/no-frame-context` outside any frame scope |
 | `rf/app-db-value` | `(frame-id)` — value-form **app-db** partition read (plain map, no deref) |
 | `rf/frame-state-value` | `(frame-id)` → `{:rf.db/app … :rf.db/runtime …}` — the whole frame (SSR / epoch / tools); the runtime-db-only read is `(:rf.db/runtime (rf/frame-state-value frame-id))` |
-| `rf/make-frame` / `rf/destroy-frame!` | low-level frame lifecycle (a full reset composes `destroy-frame!` + re-`reg-frame`/`make-frame` with the same config — no dedicated verb; clears BOTH partitions) |
+| `rf/make-frame` / `rf/destroy-frame!` | frame lifecycle — `make-frame` is the ONE constructor, `(make-frame {:id … :initial-events … :images …})` (a full reset composes `destroy-frame!` + re-`make-frame` with the same config — no dedicated verb; clears BOTH partitions) |
 
 ## Machines
 
@@ -126,12 +125,12 @@ The view-tree assertion axis (commonly aliased `:as h`). Walk hiccup by `:data-t
 
 ## Privacy / egress — `015 Data Classification` (see `cross-cutting/privacy-and-elision.md`)
 
-Owner classifies / framework projects / sinks consume. Classification keys are *declarations*, not calls — they live in `reg-frame` / registration / schema maps:
+Owner classifies / framework projects / sinks consume. Classification keys are *declarations*, not calls — they live in the frame config / registration / schema maps:
 
 | Surface | Shape |
 |---|---|
 | durable app-db classification effects | `{:db … :sensitive [[:auth :token]] :large [[:docs :csv]] :clear-sensitive [[…]] :clear-large [[…]]}` — returned by a handler alongside `:db`, applied at commit; the durable app-db route (NOT a frame annotation). Value-independent; malformed → fail-loud pre-commit |
-| `:rf.http/managed` `:carriers` + frame `:observability` | `(reg-fx :rf.http/managed {:carriers {:headers […] :query-params […]}} h)` — app-specific HTTP carrier names (transient-payload case); `(reg-frame id {:observability {…}})` — production sink policy. (The frame has NO `:sensitive` / `:large` key — durable app-db is the effects above; HTTP carriers ride `:rf.http/managed`.) |
+| `:rf.http/managed` `:carriers` + frame `:observability` | `(reg-fx :rf.http/managed {:carriers {:headers […] :query-params […]}} h)` — app-specific HTTP carrier names (transient-payload case); `(make-frame {:id … :observability {…}})` — production sink policy. (The frame has NO `:sensitive` / `:large` key — durable app-db is the effects above; HTTP carriers ride `:rf.http/managed`.) |
 | frame `:observability` | `{:handled-events [{:sink <id> :rf.egress/profile :rf.egress/off-box-observability :opts {…}}] :errors [...]}` — production sink policy (fail-closed, frame-scoped) |
 | registration `:sensitive` / `:large` | `{:sensitive [[:password]] :large [[:blob]]}` on `reg-event`/`reg-sub`/`reg-fx`/`reg-flow` — transient-payload paths; `[[]]` = whole shape |
 | subsystem `:sensitive` / `:large` | `(reg-machine id {:sensitive [[:data :token]] …})` / `(reg-resource id {:sensitive [[:data :ssn]] …})` — projection-relative durable classification, lowered per instance (the machine/resource snapshot-egress route) |
@@ -142,7 +141,7 @@ Owner classifies / framework projects / sinks consume. Classification keys are *
 | `rf/projected-record` | `(record)` — dev-only projected epoch/observation record read |
 | `rf/register-listener!` `:events` / `:errors` (+ `rf/unregister-listener!`) | advanced low-level listener registries beneath frame `:observability` |
 
-Six `:rf.egress/profile` values (closed enum): `:rf.egress/off-box-observability` · `off-box-tool` · `local-redacted` (local default) · `local-raw` (trusted-local opt-in) · `ssr-hydration` · `public-error`. Classification is **fail-open** (an unclassified path ships raw; no propagation/taint). **Not part of the API (use instead):** `add-marks` / `set-marks` and the frame `:sensitive {:app-db …}` annotation → the `:sensitive` classification effect (alongside `:db`); `redact-interceptor` → registration `:sensitive`; `declare-sensitive-header!` / `declare-sensitive-query-param!` AND the frame `:sensitive {:http …}` block → the `:rf.http/managed` `reg-fx` registration's `:carriers` block; `:rf.egress/output-sensitivity` (propagation/declassification) → classify the output path directly. (A `reg-frame` carrying a `:sensitive` / `:large` key fails loud.)
+Six `:rf.egress/profile` values (closed enum): `:rf.egress/off-box-observability` · `off-box-tool` · `local-redacted` (local default) · `local-raw` (trusted-local opt-in) · `ssr-hydration` · `public-error`. Classification is **fail-open** (an unclassified path ships raw; no propagation/taint). **Not part of the API (use instead):** `add-marks` / `set-marks` and the frame `:sensitive {:app-db …}` annotation → the `:sensitive` classification effect (alongside `:db`); `redact-interceptor` → registration `:sensitive`; `declare-sensitive-header!` / `declare-sensitive-query-param!` AND the frame `:sensitive {:http …}` block → the `:rf.http/managed` `reg-fx` registration's `:carriers` block; `:rf.egress/output-sensitivity` (propagation/declassification) → classify the output path directly. (A frame config carrying a `:sensitive` / `:large` key fails loud.)
 
 ## Trace and epoch — `day8/re-frame2-epoch`
 

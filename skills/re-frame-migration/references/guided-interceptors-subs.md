@@ -20,34 +20,35 @@ For handler- / view- / db-seeding- / error-handler-shaped Type B rewrites, see [
 
 **Trigger**: only Type B when the codebase has more than one frame. Single-frame codebases hit the Type A rewrite (move to `:rf/default` `:interceptors`).
 
-> **Correctness trap — all global interceptors for a frame fold into ONE `reg-frame` call.** `reg-frame` re-registration is a **complete replacement** of the metadata map's replaceable slots, not a merge — and `:interceptors` is one of those slots (per [`spec/002-Frames.md` §Re-registration — surgical update](../../../spec/002-Frames.md#re-registration--surgical-update): "the re-registered metadata map is the **complete replacement** of the previous map's replaceable slots, *not* a merge"). So you **cannot** translate N `reg-global-interceptor` calls into N separate `(rf/reg-frame :rf/default {:interceptors [...]})` calls — the **last** call wins and silently wipes every earlier `:interceptors` vector. Fold ALL of a frame's global interceptors into a **single** `reg-frame` call's `:interceptors` vector:
+> **Correctness trap — all global interceptors for a frame fold into ONE frame declaration.** Frame re-registration is a **complete replacement** of the config map's replaceable slots, not a merge — and `:interceptors` is one of those slots (per [`spec/002-Frames.md` §Re-registration — surgical update](../../../spec/002-Frames.md#re-registration--surgical-update): "the re-registered metadata map is the **complete replacement** of the previous map's replaceable slots, *not* a merge"). So you **cannot** translate N `reg-global-interceptor` calls into N separate `(rf/make-frame {:id :rf/default :interceptors [...]})` calls — the **last** call wins and silently wipes every earlier `:interceptors` vector. Fold ALL of a frame's global interceptors into a **single** frame declaration's `:interceptors` vector:
 >
 > ```clojure
 > ;; v1 — two global interceptors
 > (rf/reg-global-interceptor my-audit-icpt)
 > (rf/reg-global-interceptor recorder-icpt)
 >
-> ;; v2 — register each value once, then ONE reg-frame referencing BOTH by id,
-> ;; in the same vector (NOT two reg-frame calls).
+> ;; v2 — register each value once, then ONE make-frame referencing BOTH by id,
+> ;; in the same vector (NOT two make-frame calls).
 > ;; A frame `:interceptors` chain carries references, never inline values (EP-0022) —
 > ;; an inline value here throws :rf.error/inline-interceptor-removed.
 > (rf/reg-interceptor :app/audit  my-audit-icpt)
 > (rf/reg-interceptor :app/record recorder-icpt)
-> (rf/reg-frame :rf/default
->   {:interceptors [:app/audit :app/record]})
+> (rf/make-frame
+>   {:id :rf/default
+>    :interceptors [:app/audit :app/record]})
 > ```
 >
-> This applies to the single-frame Type-A rewrite too (it's a correctness fact about re-registration, not a multi-frame concern) — but it's stated here because a multi-frame fold makes the trap easy to walk into when you're replicating "globals" across several `reg-frame` sites.
+> This applies to the single-frame Type-A rewrite too (it's a correctness fact about re-registration, not a multi-frame concern) — but it's stated here because a multi-frame fold makes the trap easy to walk into when you're replicating "globals" across several frame declarations.
 
-> **Judgement call — multi-namespace or multi-lifecycle globals are NOT pure Type-A.** When the v1 `reg-global-interceptor` calls are spread across **multiple namespaces**, or registered at **different lifecycles** (e.g. one at ns-load, another *deferred* until after some external dependency has initialised — its interceptor body depends on that init having run), folding them into a single `reg-frame` `:interceptors` vector forces a **single registration site and a single activation moment**. That can change ordering (activating a deferred interceptor too early) — a behavioural decision, not a mechanical rewrite. **Surface it to the author** (where the combined `reg-frame` should live, when it should run relative to the external init), rather than auto-applying. Even a single-frame app trips this judgement case when the globals had staggered lifecycles.
+> **Judgement call — multi-namespace or multi-lifecycle globals are NOT pure Type-A.** When the v1 `reg-global-interceptor` calls are spread across **multiple namespaces**, or registered at **different lifecycles** (e.g. one at ns-load, another *deferred* until after some external dependency has initialised — its interceptor body depends on that init having run), folding them into a single frame-config `:interceptors` vector forces a **single registration site and a single activation moment**. That can change ordering (activating a deferred interceptor too early) — a behavioural decision, not a mechanical rewrite. **Surface it to the author** (where the combined frame declaration should live, when it should run relative to the external init), rather than auto-applying. Even a single-frame app trips this judgement case when the globals had staggered lifecycles.
 
-> **An interceptor id-reference is NOT a load-order dependency.** Folding `reg-global-interceptor` values into a frame's `{:interceptors [:app/audit :app/record]}` replaces direct **value** references (which made the defining ns a `:require` dependency) with **id lookups** — keywords that create **no** load-order edge to the ns whose `reg-interceptor` registers them. If the migration then drops that ns's `:require` because the value "looks dead", the `reg-interceptor` may not have run when this `reg-frame` validates its refs at registration — the boot throws `:rf.error/unregistered-interceptor`. Keep a side-effecting `:require` of the interceptor-registry ns (or load all interceptor-registering nses early from a foundational ns the whole app requires), before any `reg-event` / `reg-frame` references them. "Dropping the require because the value isn't used anymore" is the trap. Full version (and the same hazard for the M-70 chain-shape rewrite): [`auto-cross-cutting.md` §M-70](auto-cross-cutting.md#event-interceptor-chains--metadata-interceptors-m-70--mechanical-loud-at-runtime-not-loud-at-compile).
+> **An interceptor id-reference is NOT a load-order dependency.** Folding `reg-global-interceptor` values into a frame's `{:interceptors [:app/audit :app/record]}` replaces direct **value** references (which made the defining ns a `:require` dependency) with **id lookups** — keywords that create **no** load-order edge to the ns whose `reg-interceptor` registers them. If the migration then drops that ns's `:require` because the value "looks dead", the `reg-interceptor` may not have run when this `make-frame` validates its refs at registration — the boot throws `:rf.error/unregistered-interceptor`. Keep a side-effecting `:require` of the interceptor-registry ns (or load all interceptor-registering nses early from a foundational ns the whole app requires), before any `reg-event` / `make-frame` references them. "Dropping the require because the value isn't used anymore" is the trap. Full version (and the same hazard for the M-70 chain-shape rewrite): [`auto-cross-cutting.md` §M-70](auto-cross-cutting.md#event-interceptor-chains--metadata-interceptors-m-70--mechanical-loud-at-runtime-not-loud-at-compile).
 
-**Identify**: every `(rf/reg-global-interceptor ...)` AND the codebase has any non-default `reg-frame`.
+**Identify**: every `(rf/reg-global-interceptor ...)` AND the codebase has any non-default frame declaration.
 
 **Risk**: "global" meant "every frame" in v1 because there was only one frame. In v2 the right scope depends on intent:
 
-- If the interceptor was meant to **apply to every frame** (genuinely cross-frame behaviour modification): replicate in each `reg-frame` `:interceptors` vector. Usually an architectural smell.
+- If the interceptor was meant to **apply to every frame** (genuinely cross-frame behaviour modification): replicate in each frame config's `:interceptors` vector. Usually an architectural smell.
 - If the interceptor was **observer-shaped** (audit, telemetry, schema-validation-via-trace): wrong tool; convert to `register-listener!`.
 - If "global" really meant **"the default frame's events"** (a common single-frame habit that shouldn't apply to story/test/SSR frames): scope to `:rf/default` `:interceptors` only.
 
@@ -395,7 +396,7 @@ Read the body and propose; author confirms.
 **Decision shape**:
 
 1. **Observer-shaped callback**: convert to a listener. `(rf/register-listener! :trace key cb)` is **dev-only** (production-elided); if the callback must keep firing in production (off-box telemetry, error egress) use the always-on streams of the same verb — `(rf/register-listener! :events key cb)` / `(rf/register-listener! :errors key cb)` — instead — see [`error-events.md` §Production elision](error-events.md#production-elision--what-elides-and-what-stays-always-on). Listeners see every dispatched event; filter on `:operation` / `:op-type` for the equivalent. The closed catalogue of `:operation` keywords and `:op-type` values lives in [`spec/009-Instrumentation.md` §Error event catalogue](../../../spec/009-Instrumentation.md#error-event-catalogue) — see [`error-events.md`](error-events.md) for the pointer.
-2. **Behaviour-modifying callback**: convert to a frame-level interceptor declared in `reg-frame` metadata.
+2. **Behaviour-modifying callback**: convert to a frame-level interceptor declared in the frame config.
 
 Read the callback body; categorise; propose; author confirms.
 

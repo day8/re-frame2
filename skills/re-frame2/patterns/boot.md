@@ -16,7 +16,7 @@ For trivial boots (≤3 steps, no error states, no progress UI), use the chained
 
 | Feature | Role |
 |---|---|
-| `reg-frame` `:initial-events` | Atomic entry point — fires `[:app/boot [:rf.machine/start]]` exactly once per frame creation; survives hot-reload. |
+| frame-config `:initial-events` | Atomic entry point — fires `[:app/boot [:rf.machine/start]]` exactly once per frame creation; survives hot-reload. |
 | `:spawn` per phase | Each phase spawns its async work (`:rf.http/managed` or a domain child like `:auth/restore-session`) and transitions on `:succeeded` / `:failed`. |
 | Consolidated `:entry` action | Per Spec 005, `:entry` is one fn or one registered id — never a vector. To update `:data` AND dispatch, write one action returning `{:data ..., :fx ...}`. |
 | `:after` (numeric delay) | Retry-with-backoff between failed phase and re-attempt. |

@@ -111,7 +111,7 @@ Inline interceptor maps, values, or Vars in a public chain are `:rf.error/inline
 
 **Standard `[:rf.interceptor/path path-vector]`** is the one framework-standard interceptor. It focuses the handler's `:db` coeffect onto the named app-db slice and re-widens the returned slice afterwards, so the handler reads and returns slice-relative state. It preserves the frame-commit `identical?` no-op: a path-focused handler that returns its slice unchanged still commits as a no-op. There is no public `rf/path` value constructor — the chain language is uniform keywords and `[id arg]` refs.
 
-**Frame-level `:interceptors`** is the "global within this frame" mechanism: `(rf/reg-frame :dev/main {:interceptors [:dev/record-events]})` applies the referenced behaviour to every event dispatched in that frame.
+**Frame-level `:interceptors`** is the "global within this frame" mechanism: `(rf/make-frame {:id :dev/main :interceptors [:dev/record-events]})` applies the referenced behaviour to every event dispatched in that frame.
 
 ## Common gotchas
 

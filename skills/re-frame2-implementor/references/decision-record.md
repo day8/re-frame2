@@ -88,7 +88,7 @@ Every spec citation in this record (and in subsequent code) is against the pinne
 #### F6 Hot-reload primitive
 
 - **Mechanism:** <e.g. "Vite HMR module boundary at reg-* call sites" / "figwheel/shadow-cljs reload">
-- **State-preservation contract:** <how frame state survives re-registration of `reg-frame`>
+- **State-preservation contract:** <how frame state survives re-construction via `make-frame`>
 
 ### State storage (S1–S3)
 

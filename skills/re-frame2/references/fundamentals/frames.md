@@ -6,7 +6,7 @@ Working with multi-frame apps: registering a non-default frame, targeting a disp
 
 ## The teaching model: frame identity is carried, not found
 
-The one rule (EP-0002 carried invariant): **frame identity is a value that travels with every causal token; an operation reads its frame from the scope it runs under and never synthesises one from absence.** A single-frame app establishes exactly one frame at its root (`reg-frame` it, then scope it with `frame-provider {:frame …}` / `with-frame`); *inside that scope* `rf/dispatch` / `rf/subscribe` stay ambient and ergonomic — no frame talk. There is **no implicit `:rf/default` floor**: a frame-scoped call issued under no scope fails loudly with `:rf.error/no-frame-context`. Reach for a frame affordance only when one of these intents applies:
+The one rule (EP-0002 carried invariant): **frame identity is a value that travels with every causal token; an operation reads its frame from the scope it runs under and never synthesises one from absence.** A single-frame app establishes exactly one frame at its root (mount it under `frame-root {:id …}`, or `make-frame` it and scope it with `frame-provider {:frame …}` / `with-frame`); *inside that scope* `rf/dispatch` / `rf/subscribe` stay ambient and ergonomic — no frame talk. There is **no implicit `:rf/default` floor**: a frame-scoped call issued under no scope fails loudly with `:rf.error/no-frame-context`. Reach for a frame affordance only when one of these intents applies:
 
 | Intent | Affordance |
 |---|---|
@@ -25,7 +25,7 @@ A `reg-view` body needs none of these for ordinary dispatch / subscribe — the 
 
 ## What a frame is
 
-A **frame** is an isolated runtime boundary holding **two durable partitions** plus its own router queue and sub-cache. Frames are identified by keywords. Every re-frame2 app establishes at least one — registered explicitly with `reg-frame` and scoped at the root with `frame-provider {:frame …}` / `with-frame`. `init!` installs adapters and runtime capabilities but creates **no** frame; there is no auto-registered `:rf/default`.
+A **frame** is an isolated runtime boundary holding **two durable partitions** plus its own router queue and sub-cache. Frames are identified by keywords. Every re-frame2 app establishes at least one — mounted at the root with `frame-root {:id …}` (ENSURE), or created explicitly with `make-frame` and scoped with `frame-provider {:frame …}` / `with-frame`. `init!` installs adapters and runtime capabilities but creates **no** frame; there is no auto-registered `:rf/default`.
 
 The two partitions:
 
@@ -36,24 +36,22 @@ Together they compose a **frame-state** value: `{:rf.db/app <app-db> :rf.db/runt
 
 > **Where any value lives — the four storage classes.** The two durable partitions plus the per-frame sub-cache are the **storage classes** re-frame2 names for any declared value: `:app-db` (user-owned durable, the `:db` partition), `:runtime-db` (framework-owned durable, the `:rf.db/runtime` partition), `:ephemeral` (sub-cache / reaction value — recomputable, never written to durable frame state), `:host-transient` (handles *outside* frame state — an `AbortController`, a timer — cleared at a lifecycle boundary, never the only copy of a fact). You don't declare it — it falls out of *which* `reg-*` form you reach for (a sub is `:ephemeral`, a flow materialises to `:app-db`, a resource caches in `:runtime-db`) — but it's the vocabulary inspection tools and `SKILL-REDIRECT.md` → *Derivations and processes (the algebra)* use. A *remote* fact still has a **local** storage class (`:runtime-db` cache entry) — "remote" is its *authority*, never where it's stored.
 
-A frame is a mutable runtime boundary, and public code targets it by one of two identity forms. **Mounted / app code** addresses a frame by a **registered keyword id** (`reg-frame`); **anonymous tests / harnesses / per-mount lifetimes** target the **live frame value** returned from `make-frame` (a lifecycle token). Prefer an id when other code must address the frame by name; prefer the direct value when the creator owns the lifecycle. `dispatch` / `subscribe` / `destroy-frame!` / `app-db-value` / `frame-provider` all accept either form directly — there is no separate value→id accessor to reach for.
+A frame is a mutable runtime boundary, and public code targets it by one of two identity forms. **Mounted / app code** addresses a frame by a **registered keyword id** (the `:id` in its frame config); **anonymous tests / harnesses / per-mount lifetimes** target the **live frame value** returned from `make-frame` (a lifecycle token). Prefer an id when other code must address the frame by name; prefer the direct value when the creator owns the lifecycle. `dispatch` / `subscribe` / `destroy-frame!` / `app-db-value` / `frame-provider` all accept either form directly — there is no separate value→id accessor to reach for.
 
 ## Canonical signatures
 
 ```clojure
-;; Register / re-register a named frame.
-(rf/reg-frame :frame-id metadata)
-
-;; Per-instance frame. The ONE constructor (EP-0024) — accepts image-selection
-;; opts AND record-config opts in one call; returns the live frame VALUE
-;; (a lifecycle token). dispatch / subscribe / destroy-frame! accept the
-;; value OR its id directly — no separate accessor needed.
+;; Create / re-declare a frame. The ONE constructor (EP-0024) — accepts
+;; image-selection opts AND record-config opts in one call; returns the live
+;; frame VALUE (a lifecycle token). dispatch / subscribe / destroy-frame!
+;; accept the value OR its id directly — no separate accessor needed.
 (rf/make-frame opts)            ;; e.g. {:id :todo :images [todo-image] :initial-events [[:rf/set-db {}] [...]]}
 
 ;; Destroy / reset.
 (rf/destroy-frame! :frame-id)
-(do (rf/destroy-frame! :frame-id)   ;; full reset = destroy + re-register (no dedicated verb):
-    (rf/reg-frame :frame-id config)) ;; clears BOTH partitions, re-dispatches :initial-events
+(do (rf/destroy-frame! :frame-id)   ;; full reset = destroy + re-create (no dedicated verb):
+    (rf/make-frame config))          ;; SAME config (carries :id) — clears BOTH partitions,
+                                     ;; re-dispatches :initial-events
                                      ;; (for app-db-only reset that keeps live machines/routes:
                                      ;; (rf/replace-frame-state! :frame-id {:rf.db/app {}}))
 
@@ -72,7 +70,7 @@ A frame is a mutable runtime boundary, and public code targets it by one of two 
 (rf/replace-frame-state! :frame-id {:rf.db/app app-db :rf.db/runtime runtime-db}) ;; replace BOTH partitions atomically (full-frame install)
 ```
 
-Verified in `re-frame.frame` (`reg-frame`, `make-frame`, `destroy-frame!`). The public macro layer is in `re-frame.core`. An app-only map (`{:rf.db/app v}`) replaces only the app-db partition; a both-key map is the full-frame surface — a db-shaped key never silently overwrites the other partition. A map with no recognized partition key, or an unrecognized key, is rejected.
+Verified in `re-frame.frame` / `re-frame.live-frame` (`make-frame`, `destroy-frame!`). The public facade is `re-frame.core`. An app-only map (`{:rf.db/app v}`) replaces only the app-db partition; a both-key map is the full-frame surface — a db-shaped key never silently overwrites the other partition. A map with no recognized partition key, or an unrecognized key, is rejected.
 
 ## Frame resolution chain
 
@@ -128,12 +126,13 @@ And establishing the app frame at boot (the runtime infers no frame, so you regi
 ;; User-defined fxs sit under a user-feature prefix per
 ;; spec/Conventions.md §Reserved namespaces — never under `:rf.<feature>/…`,
 ;; which is reserved for framework-owned surfaces.
-(rf/reg-frame :app/login                      ;; an explicit app-frame id (a migration may pick :rf/default)
-  {:doc          "Login demo frame."
+(rf/make-frame
+  {:id           :app/login                   ;; an explicit app-frame id (a migration may pick :rf/default)
+   :doc          "Login demo frame."
    :fx-overrides {:rf.http/managed :auth.login.demo/managed-stub}})
 
 ;; ...then scope it at the root so bare dispatch/subscribe resolve to it
-;; (frame-provider {:frame …} — the frame already exists from reg-frame above):
+;; (frame-provider {:frame …} — the frame already exists from make-frame above):
 (rdc/render root
   [rf/frame-provider {:frame :app/login}
    [app-root]])
@@ -141,7 +140,7 @@ And establishing the app frame at boot (the runtime infers no frame, so you regi
 
 ## Frame metadata — what goes in it
 
-The metadata map (`reg-frame` in `re-frame.frame`) accepts:
+The frame config map (`make-frame`) accepts:
 
 - `:doc` — one-sentence what-and-why.
 - `:preset` — one of `:default :test :story :ssr-server`; expands at registration into a fixed metadata bundle.
@@ -156,7 +155,7 @@ User-supplied keys win on conflict with preset expansion.
 
 `frame-provider` is **one** per-adapter React-context component with **two config shapes**, selected by the prop map (`:frame` vs `:id`) — choose by intent:
 
-- **`frame-provider {:frame existing-id}`** — the **SCOPE-only** shape. Wraps a Reagent / Helix / UIx subtree so descendants resolve `current-frame-id` to a frame that **already exists** (created elsewhere by `reg-frame`, a direct `make-frame`, a tool runtime, or an enclosing provider). It creates / refreshes / destroys nothing, and **fails loud if the frame is absent** (`:rf.error/frame-provider-frame-absent`):
+- **`frame-provider {:frame existing-id}`** — the **SCOPE-only** shape. Wraps a Reagent / Helix / UIx subtree so descendants resolve `current-frame-id` to a frame that **already exists** (created elsewhere by `make-frame`, a tool runtime, or an enclosing boundary). It creates / refreshes / destroys nothing, and **fails loud if the frame is absent** (`:rf.error/frame-provider-frame-absent`):
 
   ```clojure
   [rf/frame-provider {:frame :stories} [my-story-shell]]
@@ -174,7 +173,7 @@ User-supplied keys win on conflict with preset expansion.
 
 ## Common gotchas
 
-- **`reg-frame` is atomic and hot-reload safe.** First call creates and runs `:initial-events`; subsequent calls perform a **surgical update** of metadata only — existing app-db, sub-cache, queue, machine snapshots all preserved (`reg-frame` in `re-frame.frame`). For a full destroy+recreate, compose `destroy-frame!` then re-`reg-frame`/`make-frame` with the same config — there is no dedicated reset verb.
+- **`make-frame` is atomic and hot-reload safe.** First call creates and runs `:initial-events`; subsequent calls against the same `:id` perform a **surgical update** of config only — existing app-db, sub-cache, queue, machine snapshots all preserved. For a full destroy+recreate, compose `destroy-frame!` then re-`make-frame` with the same config — there is no dedicated reset verb.
 - **`destroy-frame!` cascades.** Per active machine snapshot, the runtime emits *one* `:rf.machine.lifecycle/destroyed` trace carrying `:reason :parent-frame-destroyed` under `:tags` (the unified lifecycle channel — same op-type used at `reg-machine`'s `:created` emit); in-flight HTTP requests get an abort hook; sub-cache reactions all dispose. **Subsequent dispatch / subscribe does NOT throw** — the runtime recovers (a teardown / hot-reload race must not crash the caller) but still emits an observable `:rf.error/frame-destroyed` so a genuine use-after-destroy bug stays visible (the `recover-but-emit` contract). The two outcomes differ: a **dispatch** to a destroyed frame **no-ops** (the envelope is dropped, the drain continues) and emits the error; a **subscribe** **returns `nil`** (no reaction) and emits the error. Tests must assert the no-op / `nil` outcome plus the emitted trace — **never** a thrown exception or a try/catch path. See [009 §`:op-type` vocabulary](../../../../spec/009-Instrumentation.md#op-type-vocabulary).
 - **`with-frame` works on both CLJS and the JVM.** The `re-frame.core/with-frame` macro expands on both platforms — use it from JVM tests / SSR / REPL as well as CLJS. For programmatic frame-pinning where a macro is awkward, bind the current-frame dynamic var directly (see the frame-resolution chain above).
 - **Wrapping a plain Reagent fn in a `frame-provider` doesn't bind the frame** (§The merged `frame-provider` in views) — use `reg-view`, or capture a `capture-frame`.

@@ -206,13 +206,15 @@ A forwarder classified "observer (off-box egress)" that must run in production l
             [sentry.core :as sentry]
             [datadog.core :as datadog]))
 
-;; 1. Declare the policy on the frame (classification lives here too).
-(rf/reg-frame :app/main
-  {:observability {:handled-events [{:sink :my-app.sinks/datadog
+;; 1. Declare the sink policy on the frame. (Durable app-db classification
+;;    is NOT a frame key — a handler returns the :sensitive / :large
+;;    commit-plane effects alongside its :db write, EP-0025.)
+(rf/make-frame
+  {:id :app/main
+   :observability {:handled-events [{:sink :my-app.sinks/datadog
                                      :rf.egress/profile :rf.egress/off-box-observability}]
                    :errors         [{:sink :my-app.sinks/sentry
-                                     :rf.egress/profile :rf.egress/off-box-observability}]}
-   :sensitive     {:app-db [[:auth :token]]}})   ;; redaction declared once, at the owner
+                                     :rf.egress/profile :rf.egress/off-box-observability}]}})
 
 ;; 2. Register the concrete sink fns. The record is ALREADY projected —
 ;;    no redact-sensitive, no cap-or-elide; sensitive paths arrive :rf/redacted.
