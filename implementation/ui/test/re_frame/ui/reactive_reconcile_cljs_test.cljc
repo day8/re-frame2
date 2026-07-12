@@ -87,6 +87,35 @@
       (is (nil? (entry [:r/b]))
           "the 10k-abandoned-renders-retain-zero property holds at the cell"))))
 
+(deftest abandoned-render-retains-at-most-one-capture
+  ;; rf2-vxgfnd.44 (finding b) — an abandoned render acquires no OWNERSHIP
+  ;; (proven above), but it DOES stash its one `:latest-capture` of values, which
+  ;; lingers until the next render overwrites it. The honest bound is AT MOST ONE
+  ;; capture retained per cell — never accumulating. (`with-capture` cannot clear
+  ;; on abandon: StrictMode's effect replay re-commits the SAME capture with no
+  ;; intervening render, so the stash is REQUIRED, not a leak — hence the
+  ;; docstring is the fix, not a clear.)
+  (rf/reg-sub :r/a (fn [db _] (:a db)))
+  (rf/reg-sub :r/b (fn [db _] (:b db)))
+  (seed! {:a 1 :b 2})
+  (let [cell (reactive/make-cell ::v)]
+    (is (nil? (reactive/latest-capture cell)) "no capture before the first render")
+    ;; an abandoned render (never committed) stashes exactly its one capture
+    (render! cell [[:r/a]])
+    (let [cap1 (reactive/latest-capture cell)]
+      (is (some? cap1) "the abandoned render retained its capture")
+      (is (= [(tk [:r/a])] (:order cap1)) "the capture holds this render's site")
+      ;; the NEXT render OVERWRITES it — captures never accumulate
+      (render! cell [[:r/b]])
+      (let [cap2 (reactive/latest-capture cell)]
+        (is (not (identical? cap1 cap2)) "the next render replaced the capture")
+        (is (= [(tk [:r/b])] (:order cap2))
+            "exactly ONE capture retained — the latest; the prior is gone")))
+    ;; N further abandoned renders still leave exactly ONE capture, not N
+    (dotimes [_ 1000] (render! cell [[:r/a]]))
+    (is (= [(tk [:r/a])] (:order (reactive/latest-capture cell)))
+        "1000 abandoned renders retain ONE capture (the last) — never accumulate")))
+
 ;; ===========================================================================
 ;; commit installs + reads; kept-check retains untouched
 ;; ===========================================================================
@@ -350,13 +379,45 @@
       (is (= {:state :disconnected :reason :unknown}
              (peek (reactive/intervals cell)))))
 
-    (testing "a reconnect reacquires AND retroactively proves an Activity hide"
+    (testing "a SETTLED disconnect then reconnect proves a genuine Activity hide"
+      ;; Model the host yield of a genuine reveal: the disconnect outlived its
+      ;; synchronous commit (on CLJS a microtask settles it; headless we settle
+      ;; explicitly). Only a SETTLED disconnect, on reconnect, proves a hide —
+      ;; an UNSETTLED same-commit reconnect is a StrictMode replay (rf2-vxgfnd.44,
+      ;; see `lifecycle-strictmode-replay-does-not-fabricate-hide-proof`).
+      (reactive/settle-disconnect! cell)
       (render+commit! cell [[:r/a]])
       (is (= :connected (reactive/lifecycle cell)))
       (is (= 1 (ref-count [:r/a])) "reveal reacquires")
       (is (= {:state :disconnected :reason :activity-hidden :proof :reconnect}
              (peek (reactive/intervals cell)))
           "the PRIOR interval is annotated — never the present"))))
+
+(deftest lifecycle-strictmode-replay-does-not-fabricate-hide-proof
+  ;; rf2-vxgfnd.44 — React StrictMode's dev effect double-invoke is
+  ;; mount→cleanup→remount within ONE synchronous commit: connect → disconnect →
+  ;; reconnect with NO host yield between them, so the disconnect never settles.
+  ;; That reconnect is NOT an Activity hide — the runtime observed neither a hide
+  ;; nor an unmount — and it must NOT be annotated `:activity-hidden` (the pre-fix
+  ;; false proof). Headless model of the replay: drive the sequence with NO
+  ;; `settle-disconnect!` before the reconnect, exactly as the synchronous
+  ;; StrictMode replay leaves it (the settle microtask has not yet fired).
+  (rf/reg-sub :r/a (fn [db _] (:a db)))
+  (seed! {:a 1})
+  (let [cell (reactive/make-cell ::v)]
+    (render+commit! cell [[:r/a]])
+    (is (= :connected (reactive/lifecycle cell)))
+    (reactive/disconnect! cell)
+    (is (= :disconnected (reactive/lifecycle cell)))
+    ;; NO settle — the replay reconnects within the same synchronous commit.
+    (render+commit! cell [[:r/a]])
+    (is (= :connected (reactive/lifecycle cell)) "the replay reconnects")
+    (is (= {:state :disconnected :reason :unknown}
+           (peek (reactive/intervals cell)))
+        "the same-commit replay disconnect stays :unknown — NOT upgraded to
+         :activity-hidden; the runtime never observed a hide (rf2-vxgfnd.44)")
+    (is (not-any? #(= :activity-hidden (:reason %)) (reactive/intervals cell))
+        "no interval carries a fabricated Activity-hide proof")))
 
 (deftest lifecycle-host-teardown-proves-unmount
   (rf/reg-sub :r/a (fn [db _] (:a db)))

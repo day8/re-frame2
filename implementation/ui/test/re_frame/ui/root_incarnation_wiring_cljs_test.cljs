@@ -105,6 +105,10 @@
     (reactive/disconnect! cell)
     (is (= :disconnected (reactive/lifecycle cell)) "hidden, not :dead")
     (testing "a reveal reconnects and proves the interval an Activity hide"
+      ;; GENUINE hide→reveal — settle models the host yield a real reveal spans;
+      ;; an unsettled same-commit reconnect is a StrictMode dev replay and must
+      ;; NOT be proven a hide (rf2-vxgfnd.44).
+      (reactive/settle-disconnect! cell)
       (rf/with-frame :ri/frame
         (reactive/with-capture cell (fn [] (reactive/sub-read [:ri/a]))))
       (reactive/commit! cell)
