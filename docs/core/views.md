@@ -292,7 +292,7 @@ The plain-`defn` lane is not a lesser option — it's the right lane for a *genu
 
 ??? note "On the hooks substrates"
 
-    The lane rule holds on UIx and Helix too. There's no `reg-view` macro there (see *"`reg-view` is the Reagent surface"* above) — a component that reads state reads it through the adapter's hooks (`use-subscribe`, `use-current-frame`) itself, rather than receiving a `dispatch`/`subscribe` (or their hook results) drilled down as props. Reach for state where you need it; don't thread it.
+    The lane rule holds on UIx and Helix too. There's no `reg-view` macro there (see *"`reg-view` is the Reagent surface"* above) — a component that reads state reads it through the adapter's `use-subscribe` hook and holds its frame ops through the `use-frame` hook (`(let [{:keys [dispatch]} (use-frame)] …)` — [capture-frame in hook position](glossary.md#capture-frame)) itself, rather than receiving a `dispatch`/`subscribe` (or their hook results) drilled down as props. Reach for state where you need it; don't thread it.
 
 ## The one rule: views compute hiccup only
 

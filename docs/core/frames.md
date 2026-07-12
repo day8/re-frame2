@@ -311,6 +311,27 @@ Don't over-learn that, though. `capture-frame` is still needed for callbacks the
 
 This page is the canonical home of the capture pattern. When the [views](views.md) and [subscriptions](subscriptions.md) pages warn "don't dispatch bare from async callbacks," this is the full story they're pointing at.
 
+### Hold first, scope second, override last
+
+You've now met every way a piece of code learns which frame it belongs to. They fall into three jobs, and reaching for them in this order keeps a multi-frame app honest:
+
+1. **Hold** — capture the frame *as a value* and carry it. This is the primary move, the one that survives every boundary: an async callback, a component that dispatches, a fn handed to an outside library. There is **one** hold primitive, `capture-frame`, wearing a different face per context:
+    - `reg-view` injection — Reagent's face. A `reg-view` body's `dispatch` / `subscribe` are the captured ops, handed to you lexically.
+    - `use-frame` — the UIx / Helix face. `(use-frame)` returns the same ops map in hook position (see [Use UIx, Helix, or reagent-slim](how-to/use-uix-helix-or-slim.md#step-3--why-callbacks-dispatch-off-the-frame-api)).
+    - `capture-frame` itself — the bare form, for anything that leaves the render stack: an async setup fn, a tool, a test, a callback registered with the outside world.
+
+    *One primitive, three faces.* Whichever face you use, you're holding the frame — the thing that actually travels.
+
+2. **Scope** — establish a frame for a *region* so the code inside it doesn't have to name one. `frame-root` / `frame-provider` scope a frame down a React subtree; `with-frame` scopes one across a synchronous, non-React block (a test, a REPL session, a setup fn). Scope is a convenience over hold: it works only while control stays inside the region, which is exactly why an async callback that outlives the region falls back to hold.
+
+3. **Override** — pass `{:frame f}` explicitly. The rare escape: a tool, a test, or an SSR pass addressing a specific frame from outside any scope. First-class, but you reach for it last, because a call that *needs* an explicit `:frame` is a call that lost its ambient frame — usually a sign to hold instead.
+
+Two taglines pin the two scope mechanisms, because they are easy to confuse:
+
+> **`with-frame` = dynamic binding. `frame-provider` = React context.**
+
+`with-frame` binds a dynamic var, so it scopes a *synchronous* block and evaporates the instant control crosses an async or React-render boundary. `frame-provider` scopes a *React subtree* through context, so it reaches every component rendered beneath it — but, being render-time knowledge, it too is gone by the time a click handler fires. Both are scope; neither survives async; that's what hold is for.
+
 ## The hard rule: subscriptions never reach across frames
 
 A [subscription](glossary.md#subscription) — a derived, cached read over app-db — belongs to one frame. It computes from that frame's app-db and from other subscriptions *in that frame*, never from another frame's state. There is no window between worlds: no "read frame B from a sub in frame A" affordance exists, and you must not build one by sneaking a cross-frame read into a sub's computation function. That's the anti-pattern, full stop.
