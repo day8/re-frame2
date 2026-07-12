@@ -15,36 +15,53 @@
   it is untouched by abandoned renders, StrictMode replay, HMR, and error
   recovery — there is nothing render-phased to replay.
 
+  Two authorities, kept DISTINCT (rf2-vxgfnd.56). An INSTALLED record
+  means this root OWNS the frame lifetime and may refresh it; an ADOPTED
+  record means the frame is boot/externally authoritative and the root
+  merely SCOPES it — adoption never grants refresh rights.
+
   Per-plan disposition (document order; conflicts validated FIRST):
 
     - NO live frame         -> INSTALL: `make-frame` creates it
       (create-if-absent), then record `{:config-fingerprint
-      :installed-by}`.
+      :installed-by}` (root-OWNED authority).
     - LIVE frame, NO install
       record (a boot `rf/make-frame`
-      the plan registry never saw) -> ADOPT: create-if-absent means
-      create NOTHING (03 §8 / 004C §6 — later roots find it live and do
-      not re-seed). The boot frame's OWN config + image generation are
-      AUTHORITATIVE and left UNTOUCHED — no `make-frame`, so no
-      config/generation clobber, no `:images` discard, no re-seed. Only
-      the plan's `{:config-fingerprint :installed-by}` is recorded, so a
-      later cross-root arrival is conflict-scoped against it. This is the
-      shared-frame case: an app boots the frame with its images /
-      `:fx-overrides` and a root then declares `[frame-root {:id …}]`
-      merely to SCOPE it. (rf2-vxgfnd.26: adopting via a config-carrying
-      `make-frame` used to swap the generation to the default and wipe
-      the boot config — the durable app-db survived, masking the clobber.)
+      the plan registry never saw):
+        · CONFIG-LESS plan `[frame-root {:id …}]` -> ADOPT: create-if-
+          absent means create NOTHING (03 §8 / 004C §6). The boot frame's
+          OWN config + image generation are AUTHORITATIVE and left
+          UNTOUCHED — no `make-frame`, no clobber, no `:images` discard,
+          no re-seed. An ADOPTED record `{:config-fingerprint :adopted-by
+          :adopted true}` is written (for cross-root conflict scoping)
+          that can NEVER enter a refresh path. This is the shared-frame
+          case: an app boots the frame with its images / `:fx-overrides`
+          and a root declares `[frame-root {:id …}]` merely to SCOPE it.
+          (rf2-vxgfnd.26: adopting via a config-carrying `make-frame` used
+          to swap the generation to the default and wipe the boot config —
+          the durable app-db survived, masking the clobber.)
+        · CONFIG-BEARING plan -> `:rf.error/frame-payload-conflict`: the
+          plan would silently discard its config onto a boot-authoritative
+          frame. Fail loud instead (rf2-vxgfnd.56) — either boot the frame
+          config-less and scope it, or drop the boot `make-frame` and let
+          the frame-root own the lifetime.
+    - ADOPTED frame, later
+      SAME-root plan:
+        · CONFIG-LESS  -> found live: PURE NO-OP.
+        · CONFIG-BEARING -> `:rf.error/frame-payload-conflict`: an adopt
+          record confers no ownership, so a later config edit can NOT
+          `make-frame`/refresh over the boot config (rf2-vxgfnd.56).
     - SAME fingerprint      -> found live: PURE NO-OP (the ratified
       idempotent install — no re-seed, no config churn, no trace noise).
       This is the HMR / remount / shared-frame non-reseed guarantee.
     - DIFFERENT fingerprint,
-      SAME installing root  -> REFRESH: the root re-declares its OWN
-      frame (an HMR config edit). `make-frame`'s surgical update applies
-      the new config; durable state survives; `:initial-events` are
-      RE-RECORDED, never REPLAYED (EP-0027). The recorded fingerprint
-      advances. (The §7 conflict names two DIFFERENT parties —
-      `:installed-by` — so same-party re-declaration is the Clojure
-      re-def model, exactly the Layer-1 same-file watch tolerance.)
+      SAME installing root  -> REFRESH (INSTALLED records only): the root
+      re-declares its OWN frame (an HMR config edit). `make-frame`'s
+      surgical update applies the new config; durable state survives;
+      `:initial-events` are RE-RECORDED, never REPLAYED (EP-0027). The
+      recorded fingerprint advances. (The §7 conflict names two DIFFERENT
+      parties — `:installed-by` — so same-party re-declaration is the
+      Clojure re-def model, exactly the Layer-1 same-file watch tolerance.)
     - DIFFERENT fingerprint,
       DIFFERENT root        -> `:rf.error/frame-payload-conflict`:
       fail THE ARRIVING ROOT; the installed frame and the roots already
@@ -124,7 +141,12 @@
 ;; ---------------------------------------------------------------------------
 
 (defonce ^:private installed-plans
-  ;; frame-id -> {:config-fingerprint "cf1-…" :installed-by root-id}
+  ;; frame-id -> ONE of two records, discriminated by authority:
+  ;;   INSTALLED (this root OWNS the frame lifetime — refresh rights):
+  ;;     {:config-fingerprint "cf1-…" :installed-by root-id}
+  ;;   ADOPTED (a boot / external frame this root merely SCOPES — NO refresh
+  ;;     rights; boot config stays authoritative):
+  ;;     {:config-fingerprint "cf1-…" :adopted-by root-id :adopted true}
   ;; A failed mount that installed earlier siblings tags their surviving
   ;; records `:mount-incomplete true` (rf2-vxgfnd.30 (b)). Records are
   ;; PRUNED on `frame/destroy-frame!` (rf2-vxgfnd.30 (a)) — the destroy hook
@@ -132,11 +154,18 @@
   ;; lifetime rather than a resurrected dead-lifetime record.
   (atom {}))
 
+(defn- adopted-record?
+  "True when `record` marks a boot/external frame this root merely SCOPES
+  (no installation authority — never a refresh target)."
+  [record]
+  (true? (:adopted record)))
+
 (defn installed-plan-entry
-  "The recorded install for `frame-id` (tool/test read):
-  `{:config-fingerprint … :installed-by root-id}` or nil. Records are pruned
-  on destroy; the extra live-guard keeps a never-hooked path from surfacing
-  a stale record as an install."
+  "The recorded install/adoption for `frame-id` (tool/test read):
+  `{:config-fingerprint … :installed-by root-id}` (installed) or
+  `{:config-fingerprint … :adopted-by root-id :adopted true}` (adopted), or
+  nil. Records are pruned on destroy; the extra live-guard keeps a
+  never-hooked path from surfacing a stale record as an install."
   [frame-id]
   (when (some? (frame/frame frame-id))
     (get @installed-plans frame-id)))
@@ -174,6 +203,36 @@
             :arriving  {:config-fingerprint config-fingerprint
                         :root-id root-id}}}))
 
+(defn- throw-boot-authority-conflict!
+  "A config-BEARING plan met a boot / external frame this root does not own
+  (a live plan-less frame, or one already ADOPTED as boot-authoritative).
+  Adoption is create-if-absent SCOPING, never an ownership transfer: a
+  frame-root carrying config cannot install/refresh over boot authority.
+  Fails loud instead of silently discarding the config (rf2-vxgfnd.56).
+  Same `:rf.error/frame-payload-conflict` id — the arriving plan's payload
+  conflicts with the frame's authoritative boot config."
+  [root-id {:keys [frame-id config-fingerprint]} installed]
+  (error/throw-error!
+   :rf.error/frame-payload-conflict 're-frame.ui/preflight
+   (str "root " (pr-str root-id) " declares a CONFIG-BEARING frame-root for "
+        (pr-str frame-id) ", but that frame is already live and "
+        "boot-authoritative"
+        (if installed
+          (str " (adopted by root " (pr-str (:adopted-by installed)) ")")
+          " (created outside the plan registry — a boot rf/make-frame)")
+        ". A frame-root plan cannot install or refresh its config over a "
+        "frame it does not OWN — adoption only SCOPES a boot frame, it never "
+        "transfers ownership. Either (a) boot the frame WITHOUT config and "
+        "scope it with a config-less [frame-root {:id " (pr-str frame-id)
+        "}], or (b) drop the boot rf/make-frame and let this frame-root own "
+        "the lifetime. The boot frame's config is untouched — this root "
+        "failed before any install")
+   {:recovery :scope-config-less-or-own-the-lifetime
+    :extra {:frame-id  frame-id
+            :installed installed
+            :arriving  {:config-fingerprint config-fingerprint
+                        :root-id root-id}}}))
+
 (defn- mark-mount-incomplete!
   "Tag the surviving install records `frame-ids` (siblings this run wrote
   before a later plan threw) `:mount-incomplete true`, so a later conflict
@@ -206,39 +265,56 @@
   :config {…}} …]` in document order; `root-id` is the arriving root.
 
   Phase 1 VALIDATES every plan (pure — cross-root fingerprint conflicts
-  throw `:rf.error/frame-payload-conflict` before ANY install). Phase 2
+  AND config-bearing-vs-boot-authority conflicts throw
+  `:rf.error/frame-payload-conflict` before ANY install). Phase 2
   installs/adopts/refreshes in document order: `make-frame` creates the
   frame if absent and drains `:initial-events` synchronously before
   returning (EP-0027); a found-live same-fingerprint plan is a pure no-op
   (no re-seed — the HMR guarantee); a live plan-less (boot-created) frame
-  is ADOPTED — its config/generation untouched, only the fingerprint
-  recorded (rf2-vxgfnd.26). A plan that throws mid-run tags the siblings it
-  already installed `:mount-incomplete` (rf2-vxgfnd.30 (b)). Returns nil."
+  met by a CONFIG-LESS plan is ADOPTED under a non-owning record — its
+  config/generation untouched, only the fingerprint recorded
+  (rf2-vxgfnd.26, rf2-vxgfnd.56). A plan that throws mid-run tags the
+  siblings it already installed `:mount-incomplete` (rf2-vxgfnd.30 (b)).
+  Returns nil."
   [root-id plans]
   (let [decided
-        (mapv (fn [{:keys [frame-id config-fingerprint] :as plan}]
-                (let [installed (installed-plan-entry frame-id)]
+        (mapv (fn [{:keys [frame-id config config-fingerprint] :as plan}]
+                (let [installed       (installed-plan-entry frame-id)
+                      config-bearing? (boolean (seq config))]
                   (cond
+                    ;; a recorded plan/adoption already governs this LIVE frame
                     (some? installed)
-                    ;; a recorded plan already governs this LIVE frame
-                    (cond
-                      (= (:config-fingerprint installed) config-fingerprint)
-                      (assoc plan ::action :found-live)
+                    (if (adopted-record? installed)
+                      ;; ADOPTED = boot-authoritative; NO refresh rights. A
+                      ;; config-less re-scope is a pure no-op; a config-bearing
+                      ;; plan cannot install its config over boot authority
+                      ;; (rf2-vxgfnd.56 — adoption never grants refresh rights).
+                      (if config-bearing?
+                        (throw-boot-authority-conflict! root-id plan installed)
+                        (assoc plan ::action :found-live))
+                      ;; INSTALLED = this-or-another root OWNS the lifetime.
+                      (cond
+                        (= (:config-fingerprint installed) config-fingerprint)
+                        (assoc plan ::action :found-live)
 
-                      (= (:installed-by installed) root-id)
-                      (assoc plan ::action :refresh)
+                        (= (:installed-by installed) root-id)
+                        (assoc plan ::action :refresh)
 
-                      :else
-                      (throw-plan-conflict! root-id plan installed))
+                        :else
+                        (throw-plan-conflict! root-id plan installed)))
 
-                    ;; No install record. Either the id is genuinely absent
-                    ;; (INSTALL) or a frame is already LIVE under it but was
-                    ;; created OUTSIDE the plan registry — a boot
-                    ;; `rf/make-frame`. ENSURE is create-if-absent (03 §8):
-                    ;; a live frame is ADOPTED, never re-created, so its
-                    ;; boot config + image generation stay authoritative.
+                    ;; No install record, but a frame is already LIVE under
+                    ;; this id — created OUTSIDE the plan registry (a boot
+                    ;; `rf/make-frame`). ENSURE is create-if-absent (03 §8): a
+                    ;; CONFIG-LESS plan ADOPTS it (scopes, never re-creates —
+                    ;; boot config/generation stay authoritative). A
+                    ;; CONFIG-BEARING plan would silently discard its config
+                    ;; onto a boot-authoritative frame — fail loud instead
+                    ;; (rf2-vxgfnd.56).
                     (some? (frame/frame frame-id))
-                    (assoc plan ::action :adopt)
+                    (if config-bearing?
+                      (throw-boot-authority-conflict! root-id plan nil)
+                      (assoc plan ::action :adopt))
 
                     :else
                     (assoc plan ::action :install))))
@@ -254,14 +330,15 @@
           :found-live nil
 
           ;; a live plan-less (boot-created) frame: create-if-absent means
-          ;; create NOTHING. Record only the plan's fingerprint so a later
-          ;; cross-root arrival is conflict-scoped — the boot frame's
-          ;; config/generation/`:images` are left entirely untouched
-          ;; (rf2-vxgfnd.26: a config-carrying `make-frame` here clobbered
-          ;; them, masked by the durable app-db surviving).
+          ;; create NOTHING. Record only the plan's fingerprint under an
+          ;; ADOPTED (non-owning) record so a later cross-root arrival is
+          ;; conflict-scoped — the boot frame's config/generation/`:images`
+          ;; are left entirely untouched (rf2-vxgfnd.26), and the record can
+          ;; never enter a root-owned refresh path (rf2-vxgfnd.56).
           :adopt (do (swap! installed-plans assoc frame-id
                             {:config-fingerprint config-fingerprint
-                             :installed-by root-id})
+                             :adopted-by root-id
+                             :adopted true})
                      (vswap! written conj frame-id))
 
           ;; :install / :refresh — create-if-absent / surgical refresh;
