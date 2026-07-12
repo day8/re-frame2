@@ -195,22 +195,22 @@
         ":fx-overrides survive adoption (the boot config is not replaced wholesale)")
     (is (= "boot-authored config" (:doc (frame/frame-meta :app/session)))
         "the boot :doc config survives adoption")
-    (is (= {:config-fingerprint "cf1-adopt-aaaaaaaaa" :installed-by :page/app}
+    (is (= {:config-fingerprint "cf1-adopt-aaaaaaaaa" :adopted-by :page/app :adopted true}
            (frames/installed-plan-entry :app/session))
-        "adoption records the plan fingerprint (for conflict scoping) and NOTHING else")))
+        "adoption records a NON-OWNING record (fingerprint + adopter, marked :adopted) — never installed-by")))
 
 (deftest adoption-then-same-fingerprint-second-root-is-a-found-live-no-op
   (rf/make-frame {:id :app/session :images [(rf/image {:id :app/img})]})
   (let [gen0 (frame/frame-generation :app/session)
         p    (plan :app/session {} "cf1-adopt-bbbbbbbbb")]
     (frames/execute-frame-plans! :page/one [p])
-    (is (= :page/one (:installed-by (frames/installed-plan-entry :app/session)))
+    (is (= :page/one (:adopted-by (frames/installed-plan-entry :app/session)))
         "the first adopter is recorded")
     ;; a second root sharing the same frame with the same (config-less) plan
     (frames/execute-frame-plans! :page/two [p])
     (is (identical? gen0 (frame/frame-generation :app/session))
         "the second-root found-live pass leaves the generation untouched too")
-    (is (= :page/one (:installed-by (frames/installed-plan-entry :app/session)))
+    (is (= :page/one (:adopted-by (frames/installed-plan-entry :app/session)))
         "found-live writes nothing — the first adopter is retained")))
 
 (deftest adoption-coexists-with-a-fresh-install-in-the-same-root
@@ -261,7 +261,7 @@
   ;; root B (fingerprint Y) declares a config-less [frame-root {:id :frame/f}]
   ;; to SCOPE the re-booted frame — it ADOPTS cleanly, NO false conflict on A.
   (frames/execute-frame-plans! :root/b [(plan :frame/f {} "cf1-y222222222222222")])
-  (is (= :root/b (:installed-by (frames/installed-plan-entry :frame/f)))
+  (is (= :root/b (:adopted-by (frames/installed-plan-entry :frame/f)))
       "root B adopts the re-booted frame — the dead A-lifetime record never resurrected")
   (is (= "re-booted" (:doc (frame/frame-meta :frame/f)))
       "the re-booted boot config is authoritative (adoption does not clobber it)"))
@@ -317,6 +317,79 @@
     (is (nil? (:mount-incomplete entry))
         "a completed run clears the stale :mount-incomplete tag")
     (is (= :root/a (:installed-by entry)) "the ownership record is intact")))
+
+;; ---- rf2-vxgfnd.56: adoption never grants installation authority ---------
+;; A boot/external frame is boot-authoritative. A config-less [frame-root
+;; {:id …}] may ADOPT (scope) it, but an adopted record must NEVER enter a
+;; root-owned refresh path, and a CONFIG-BEARING plan meeting a boot frame
+;; must fail loud rather than silently discard its config then later clobber.
+
+(deftest config-bearing-plan-against-a-boot-frame-fails-loud
+  (reg-events!)
+  ;; a boot rf/make-frame owns :app/boot with authoritative config + state
+  (rf/make-frame {:id :app/boot :doc "boot-authoritative"})
+  (rf/dispatch-sync [:test/set-db {:n 42}] {:frame :app/boot})
+  (let [id (err-id
+            #(frames/execute-frame-plans!
+              :page/x [(plan :app/boot {:initial-events [[:test/set-db {:n 0}]]}
+                             "cf1-cfgbearingaaaa1")]))]
+    (is (= :rf.error/frame-payload-conflict id)
+        "a config-BEARING frame-root cannot install its config over a boot frame"))
+  (is (= 42 (:n (rf/app-db-value :app/boot)))
+      "preflight rollback: boot state untouched — the conflict fails before any write")
+  (is (= "boot-authoritative" (:doc (frame/frame-meta :app/boot)))
+      "the boot config is untouched")
+  (is (nil? (frames/installed-plan-entry :app/boot))
+      "no record is written for the rejected config-bearing plan"))
+
+(deftest adopted-frame-later-config-bearing-same-root-cannot-refresh
+  ;; THE rf2-vxgfnd.56 repro: boot-authoritative -> config-less adopt (A) ->
+  ;; a later same-root CONFIG-BEARING plan (B) must NOT be classified :refresh
+  ;; and make-frame over the boot state.
+  (reg-events!)
+  (rf/make-frame {:id :app/boot :doc "boot-authoritative"})
+  (rf/dispatch-sync [:test/set-db {:n 7}] {:frame :app/boot})
+  ;; step A: a config-less frame-root adopts the boot frame (scope only)
+  (frames/execute-frame-plans! :page/x [(plan :app/boot {} "cf1-adopt-eeeeeeeee")])
+  (is (= :page/x (:adopted-by (frames/installed-plan-entry :app/boot)))
+      "the config-less plan adopts the boot frame (non-owning record)")
+  ;; step B: the SAME root now sends a CONFIG-BEARING plan (different fp)
+  (let [id (err-id
+            #(frames/execute-frame-plans!
+              :page/x [(plan :app/boot {:initial-events [[:test/set-db {:n 999}]]}
+                             "cf1-refresh-ffffff1")]))]
+    (is (= :rf.error/frame-payload-conflict id)
+        "an adopt record confers NO refresh rights — the config-bearing edit fails loud"))
+  (is (= 7 (:n (rf/app-db-value :app/boot)))
+      "boot authority preserved: no make-frame, no reseed, no clobber")
+  (is (= "boot-authoritative" (:doc (frame/frame-meta :app/boot)))
+      "the boot config survives the rejected refresh"))
+
+(deftest boot-frame-destroyed-then-absent-plan-installs-a-root-owned-lifetime
+  ;; acceptance: destroying the external frame invalidates the adoption record;
+  ;; a later absent-frame plan installs a NEW root-owned lifetime and then uses
+  ;; normal same-owner refresh semantics.
+  (reg-events!)
+  (rf/make-frame {:id :app/boot :doc "boot-authoritative"})
+  (frames/execute-frame-plans! :page/x [(plan :app/boot {} "cf1-adopt-ggggggggg")])
+  (is (:adopted (frames/installed-plan-entry :app/boot)) "sanity: adopted")
+  (frame/destroy-frame! :app/boot)
+  (is (nil? (frames/installed-plan-entry :app/boot))
+      "destroy prunes the adoption record")
+  ;; now an absent-frame config-bearing plan INSTALLS a root-owned lifetime
+  (frames/execute-frame-plans!
+   :page/x [(plan :app/boot {:initial-events [[:test/set-db {:n 3}]]}
+                  "cf1-install-hhhhhh1")])
+  (is (= :page/x (:installed-by (frames/installed-plan-entry :app/boot)))
+      "the re-declared plan now OWNS the frame (installed-by, not adopted)")
+  (is (= 3 (:n (rf/app-db-value :app/boot))) "the new lifetime re-seeds")
+  ;; and normal same-owner refresh now works over the root-owned frame
+  (frames/execute-frame-plans!
+   :page/x [(plan :app/boot {:initial-events [[:test/set-db {:n 3}]]}
+                  "cf1-install-iiiiii2")])
+  (is (= "cf1-install-iiiiii2"
+         (:config-fingerprint (frames/installed-plan-entry :app/boot)))
+      "same-owner refresh advances the fingerprint on the now root-owned frame"))
 
 ;; ===========================================================================
 ;; G-6 — the ambient frame chain + scope
