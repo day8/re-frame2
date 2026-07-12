@@ -708,40 +708,82 @@
      (record-evidence! cell {:frame-epoch epoch}))
    (enrol-dirty! cell)))
 
-(defn- flush-one!
-  "Clear `cell`'s pending flag and advance its revision once (the caller has
-  already removed it from the registry). No-op when not dirty — idempotent
-  under a concurrent drain.
+(defn- complete-flush!
+  "PHASE 1 of a batch flush (rf2-vxgfnd.86): complete `cell`'s SCHEDULER STATE
+  with NO arbitrary user code — capture the pre-clear DEBUG evidence, clear
+  `:dirty?`/evidence, and advance the revision (WITHOUT notifying listeners yet).
+  No-op / nil when the cell is not dirty. Returns `[cell ev]` for the cell it
+  completed (`ev` nil in production / when the window carried none), else nil.
 
-  SCHEDULER COMPLETION IS ISOLATED FROM THE DEBUG OBSERVER (rf2-vxgfnd.73).
-  The flush COMPLETES first — captures the pre-clear bounded evidence, clears
-  `:dirty?`/evidence, and advances the revision (notifying listeners) — and
-  only THEN hands the captured summary to the installed `evidence-sink` (Xray;
-  rf2-vxgfnd.46), inside a guard. A THROWING sink is a broken DEBUG tool, never
-  an authority over the render correction: its throw is CONTAINED here (caught
-  and returned to `flush-scope!` for one bounded batch diagnostic) so it can
-  neither strand this cell in a dirty-but-unregistered limbo nor abort the
-  batch's remaining cells. Because the flush already cleared `:dirty?` and
-  advanced the revision, a re-entrant sink that re-marks this (or any) cell
-  enrols a FRESH pending window rather than losing the notification. The sink
-  still receives the exact pre-clear bounded summary once per flushed cell.
-  Returns `{:cell cell :error e}` on a contained sink escape (DEV only), else
-  nil; the whole evidence/containment path DCEs under `goog.DEBUG=false`."
+  Splitting completion from notification is the order-independence fix. The batch
+  core runs this over the WHOLE drained batch BEFORE `deliver-flush!` runs ANY
+  listener or evidence-sink, so a re-entrant re-mark (from a phase-2 listener or
+  sink) always finds every drained cell already completed and, seeing a cleared
+  `:dirty?`, enrols a FRESH pending window (next-batch semantics) — independent of
+  set iteration order. Previously each cell was completed-and-notified one at a
+  time, so whether a re-marked cell was already cleared (→ fresh window) or still
+  in the drained-but-uncompleted batch (→ mark lost) depended on hash order."
   [^ViewCell cell]
   (let [st (state cell)]
     (when (:dirty? @st)
-      (let [ev   (when interop/debug-enabled? (:evidence @st))
-            sink (when interop/debug-enabled? @evidence-sink)]
-        ;; complete the flush FIRST — a throwing sink below cannot pre-empt it
+      (let [ev (when interop/debug-enabled? (:evidence @st))]
         (swap! st assoc :dirty? false :evidence nil)
-        (advance-revision! cell)
-        ;; DEV: best-effort evidence delivery, CONTAINED (never re-enters here)
-        (when (and interop/debug-enabled? (some? sink))
-          (try
-            (sink cell ev)
-            nil
-            (catch #?(:clj Throwable :cljs :default) e
-              {:cell cell :error e})))))))
+        (swap! st update :revision inc)
+        [cell ev]))))
+
+(defn- deliver-flush!
+  "PHASE 2 of a batch flush (rf2-vxgfnd.86): now that `complete-flush!` has
+  settled the WHOLE batch's scheduler state, notify `cell`'s listeners (the
+  production re-render trigger — one coalesced React render batch, since every
+  listener fires synchronously within this flush) and, in DEV, hand the captured
+  `ev` to the installed `evidence-sink` (Xray; rf2-vxgfnd.46) inside a guard.
+
+  A THROWING sink is a broken DEBUG tool, never an authority over the render
+  correction: its throw is CONTAINED here (caught and returned to the batch core
+  for one bounded diagnostic) so it can neither strand a cell nor abort the
+  batch's remaining cells (rf2-vxgfnd.73). Because completion already finished for
+  the whole batch, a re-entrant sink/listener that re-marks this (or ANY) cell
+  enrols a FRESH pending window rather than losing the notification. The sink
+  still receives the exact pre-clear bounded summary once per flushed cell.
+  Returns `{:cell cell :error e}` on a contained sink escape (DEV only), else nil;
+  the whole evidence/containment path DCEs under `goog.DEBUG=false`."
+  [^ViewCell cell ev]
+  (notify-listeners! cell)
+  (when interop/debug-enabled?
+    (when-some [sink @evidence-sink]
+      (try
+        (sink cell ev)
+        nil
+        (catch #?(:clj Throwable :cljs :default) e
+          {:cell cell :error e})))))
+
+(defn- run-flush-batch!
+  "The two-phase batch-flush CORE over an explicit ordered `cells` seq
+  (rf2-vxgfnd.86). PHASE 1 (`complete-flush!`) settles every dirty cell's
+  scheduler state — with no user code — so the whole batch is complete before
+  PHASE 2 (`deliver-flush!`) runs any listener or evidence-sink. A re-entrant
+  re-mark in phase 2 therefore always sees a fully-completed batch and opens the
+  NEXT window, regardless of iteration order. Preserves the DEV containment:
+  each `deliver-flush!` contains a throwing sink, the batch captures the FIRST
+  escape and emits ONE bounded diagnostic (never through the sink), and the whole
+  DEBUG branch DCEs under `goog.DEBUG=false`. Returns the count actually flushed."
+  [cells]
+  (let [completed (into [] (keep complete-flush!) cells)]
+    (if interop/debug-enabled?
+      ;; deliver EVERY cell regardless of tool behaviour — a throwing sink is
+      ;; contained per-cell (returns the escape, never propagates). Evaluate the
+      ;; delivery FIRST (never inside `or`, which would short-circuit the rest of
+      ;; the batch after the first escape), keep the FIRST escape, emit ONE
+      ;; bounded diagnostic — never through the sink.
+      (let [escape (reduce (fn [acc [cell ev]]
+                             (let [e (deliver-flush! cell ev)] (or acc e)))
+                           nil
+                           completed)]
+        (when (some? escape)
+          (report-sink-escape! escape)))
+      (doseq [[cell _] completed]
+        (deliver-flush! cell nil)))
+    (count completed)))
 
 (defn flush-scope!
   "The scoped-flush PRIMITIVE: synchronously flush every pending cell for
@@ -749,27 +791,26 @@
   the scope stay pending (no epoch work leaks across scopes). Reentrancy-
   SAFE by construction — the matching cells are removed from the registry
   ATOMICALLY (`swap-vals!`) before any notify, so a notify-triggered
-  re-entrant flush sees an already-drained set. Returns the count flushed."
+  re-entrant flush sees an already-drained set. The drained batch runs through
+  the two-phase `run-flush-batch!` core, so a re-entrant re-mark of ANOTHER cell
+  in the same batch is order-INDEPENDENT (rf2-vxgfnd.86). Returns the count
+  flushed."
   [scope-pred]
   (let [[old _] (swap-vals! dirty-cells
                             (fn [cells] (into #{} (remove scope-pred) cells)))
         flushed (filterv scope-pred old)]
-    (if interop/debug-enabled?
-      ;; DEV: complete EVERY cell's flush regardless of tool behaviour — a
-      ;; throwing `evidence-sink` is contained per-cell in `flush-one!` (which
-      ;; returns the escape rather than propagating), so one bad debug callback
-      ;; can neither strand its cell nor abort the batch. Capture the FIRST
-      ;; escape and emit ONE bounded diagnostic for the batch; never through
-      ;; the sink. This whole branch DCEs under `goog.DEBUG=false`, leaving the
-      ;; production `doseq` below.
-      (let [escape (reduce (fn [acc cell] (let [e (flush-one! cell)] (or acc e)))
-                           nil
-                           flushed)]
-        (when (some? escape)
-          (report-sink-escape! escape)))
-      (doseq [cell flushed]
-        (flush-one! cell)))
-    (count flushed)))
+    (run-flush-batch! flushed)))
+
+(defn flush-batch-in-order!
+  "Test seam (rf2-vxgfnd.86): drain and flush EXACTLY `cells` in the GIVEN order
+  through the same two-phase `run-flush-batch!` core `flush-scope!` uses, so a
+  fixture can FORCE a deterministic iteration order and prove the flush is
+  order-independent (drive `[a b]` and `[b a]`, assert identical outcomes).
+  Removes them from the dirty registry first (mirroring `flush-scope!`'s atomic
+  drain), then runs the ordered two-phase flush. Returns the count flushed."
+  [cells]
+  (swap! dirty-cells #(reduce disj % cells))
+  (run-flush-batch! (vec cells)))
 
 (defn flush-pending!
   "GLOBAL drain — flush EVERY pending cell once (the test-only all-roots
