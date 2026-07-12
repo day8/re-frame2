@@ -94,6 +94,43 @@
                                      :rf.reply/cancel-reason (:rf.reply/cancel-reason summary)
                                      :rf.reply/correlation (:correlation summary))))))
 
+(defn emit-destroy-bad-arg!
+  "Fail loud when a `:rf.machine/destroy` fx receives a MAP arg the runtime
+  cannot honour. The actor is NOT torn down and NO `:rf.machine/destroyed`
+  trace fires — the fx refuses rather than silently choosing a semantic
+  reason (rf2-3lyqzu).
+
+  Two `cause`s:
+
+    - `:unverified-reap` — a `{:rf/reap true :rf/parent-id p :rf/invoke-id i
+      :rf/child-id c}` reap request whose claim does NOT match the live join
+      state (the named `:spawn-all` join at `[:spawned p i]` does not own
+      `c`, or `c` is not yet in `:done ∪ :failed`). The cancellation-
+      SUPPRESSING `:rf.machine/join-reaped` destroyed reason may only be
+      selected when the runtime can PROVE, against durable join state, that
+      the named actor is the completed / failed child of the named join —
+      an in-progress actor's teardown is always an `:explicit` cancellation.
+
+    - `:unknown-shape` — a map matching NONE of the known destroy shapes
+      (the keyword `actor-id` form, the tracked `{:rf/parent-id :rf/invoke-id}`
+      `:spawn` exit-cascade form, the `:rf/spawn-all` form, or the verified
+      reap). Notably this is the pre-auth forgery
+      `{:rf/actor-id … :rf/reason …}`, which used to mint a CALLER-chosen
+      destroyed reason and thereby suppress the cancellation terminal of an
+      in-progress actor at the public reserved-fx boundary.
+
+  Diagnostic channel (DCE'd in production), matching the sibling forgery
+  guard `:rf.error/machine-spawn-all-bad-child-id`: the SAFE behaviour (no
+  teardown, no dishonest terminal) holds in every build; the loud dev trace
+  names the offending arg. Per Spec 009 §Error event catalogue."
+  [frame-id cause args]
+  (trace/emit-error! :rf.error/machine-destroy-bad-arg
+                     {:cause    cause
+                      :arg      args
+                      :frame    frame-id
+                      :recovery :no-teardown})
+  nil)
+
 (defn emit-system-id-released!
   "Per Spec 005 §Cancellation cascade D8 — fire
   `:rf.machine/system-id-released` when an actor's `:system-id` binding
