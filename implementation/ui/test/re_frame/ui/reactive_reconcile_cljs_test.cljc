@@ -30,6 +30,7 @@
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core                 :as rf]
             [re-frame.frame                :as frame]
+            [re-frame.live-frame           :as live-frame]
             [re-frame.subs                 :as subs]
             [re-frame.substrate.observation :as obs]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -183,6 +184,61 @@
   (let [cell (render+commit! (reactive/make-cell ::v) [[:r/a]])]
     (is (= 0 (reactive/revision cell))
         "no movement in the gap ⇒ no revision advance")))
+
+;; ===========================================================================
+;; rf2-vxgfnd.93 — the reconciler consumes read's :node-key reincarnation axis
+;; (completes rf2-vxgfnd.14 / #5774 on the S2b live branch). A same-id frame
+;; DESTROY + RECREATE across the render→commit gap must classify as MOVED even
+;; when node-version + frame/registry epochs COINCIDE across the incarnations —
+;; the S2 invariant break the version+epoch-only comparison would misread as
+;; unchanged. Uses a NAMED frame so the destroy+recreate is real; the plain-atom
+;; adapter is CLJC so this graft-checks on node (`test:cljs`) AND JVM.
+;; ===========================================================================
+
+(deftest reincarnation-in-the-gap-detected-via-node-key-advances-revision
+  (rf/reg-sub :re/v (fn [db _] (:v db)))
+  (live-frame/make-frame {:id :re/frame})
+  (frame/replace-app-db! :re/frame {:v 1})
+  (let [cell (reactive/make-cell ::v)]
+    ;; render probes a LIVE node (hold a subscribe ref so the ownership-free
+    ;; probe reads a canonical node — captures node-key K_A at version 0).
+    (subs/subscribe [:re/v] {:frame :re/frame})
+    (rf/with-frame :re/frame
+      (reactive/with-capture cell (fn [] (reactive/sub-read [:re/v]))))
+    (is (= 0 (reactive/revision cell)) "precondition: no revision yet")
+    ;; reincarnate in the gap: identical construction + a single replace-app-db!
+    ;; makes node-version + frame/registry epochs COINCIDE with the destroyed
+    ;; incarnation's (dissoc restarts the commit epoch, fresh node ⟹ version 0,
+    ;; no :sub re-registration) — only the FRESH reaction's node-key differs.
+    (frame/destroy-frame! :re/frame)
+    (live-frame/make-frame {:id :re/frame})
+    (frame/replace-app-db! :re/frame {:v 1})
+    ;; commit acquires the FRESH node K_B; read K_B ≠ probe K_A ⟹ moved via the
+    ;; node-key axis alone (version+epoch tie) ⟹ corrective revision advance.
+    (reactive/commit! cell)
+    (is (= 1 (reactive/revision cell))
+        "same-id reincarnation classified MOVED via :node-key — a corrective
+         render before paint (version+epoch alone MISS it — the pre-fix break)")
+    (is (= :connected (reactive/lifecycle cell))
+        "resolved against the LIVE fresh incarnation it acquired — not torn down")
+    (frame/destroy-frame! :re/frame)))
+
+(deftest unchanged-live-node-across-commit-does-not-false-advance
+  ;; The node-key fast-path guard (rf2-vxgfnd.14 AC #4, at the ui layer): a
+  ;; genuinely-unchanged live node reads the SAME node-key/version/epochs across
+  ;; the render probe and the commit read, so the new :node-key clause introduces
+  ;; NO false movement.
+  (rf/reg-sub :re/v (fn [db _] (:v db)))
+  (live-frame/make-frame {:id :re/frame2})
+  (frame/replace-app-db! :re/frame2 {:v 7})
+  (let [cell (reactive/make-cell ::v)]
+    (subs/subscribe [:re/v] {:frame :re/frame2})   ;; a live canonical node
+    (rf/with-frame :re/frame2
+      (reactive/with-capture cell (fn [] (reactive/sub-read [:re/v]))))
+    (reactive/commit! cell)                         ;; same live node at commit
+    (is (= 0 (reactive/revision cell))
+        "an unchanged live node reads the same node-key — no false movement")
+    (frame/destroy-frame! :re/frame2)))
 
 ;; ===========================================================================
 ;; useSyncExternalStore contract — subscribe / snapshot / notify

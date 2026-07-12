@@ -145,6 +145,30 @@
 #?(:clj (set! *warn-on-reflection* true))
 
 ;; ---------------------------------------------------------------------------
+;; Observation-port ABI lockstep (Spec 006 §The internal observation port)
+;;
+;; This ns is the SOLE reactive consumer of the internal observation port, and
+;; from ABI v2 onward it RELIES on the `read` evidence axis `:node-key` — the
+;; reincarnation-identity `evidence-moved?` consumes below (rf2-vxgfnd.14/.93).
+;; So it PINS the ABI it compiled against and asserts it AT LOAD: a core that
+;; predates the `:node-key` read axis is a BOOT ERROR
+;; (`:rf.error/observation-port-version-mismatch`, always-on + fanned through
+;; the production error-emit axis), never a silently-missed reincarnation
+;; correction. Core and re-frame2-ui release on a lockstep train.
+;; ---------------------------------------------------------------------------
+
+(def ^:const expected-observation-port-abi
+  "The observation-port ABI version this reactive consumer is written against —
+  v2 (rf2-vxgfnd.14): `read` on a node lease carries `:node-key`, which
+  `evidence-moved?` compares to classify a same-id frame REINCARNATION across
+  the render→commit gap as MOVEMENT even when node-version + frame/registry
+  epochs coincide. Asserted against the live port at load
+  (`assert-port-abi-version!`) so artifact drift fails loud at boot."
+  2)
+
+(obs/assert-port-abi-version! expected-observation-port-abi)
+
+;; ---------------------------------------------------------------------------
 ;; The static override door (03 §3)
 ;;
 ;; `resolve-target` consumes a Story-override HIT off the site-ctx. On the
@@ -1224,14 +1248,45 @@
   "Did the target move in the render→commit gap? Compares the acquire-time
   `read` against the render's `probe` evidence. A cold probe
   (`:node-version nil`) falls back to `rf=` on value; a live probe compares
-  the node version and the frame/registry epochs (belt-and-braces the
-  two-guard rule leans on)."
+  the node IDENTITY (`:node-key`), the node version, and the frame/registry
+  epochs (belt-and-braces the two-guard rule leans on).
+
+  The `:node-key` clause (ABI v2, rf2-vxgfnd.14/.93) is the reincarnation axis:
+  a same-id frame DESTROY + RECREATE across the gap builds a FRESH reaction with
+  a strictly-greater `:node-key`, so the render probed one node's key and the
+  commit read a DIFFERENT node's key — MOVEMENT the reconciler must correct
+  before paint. Version + epochs ALONE can tie across the two incarnations
+  (`frame/dissoc-frame!` restarts the commit epoch), so without this clause the
+  reincarnation reads as unchanged. The unchanged-node fast path is preserved:
+  the same live node reads the same key/version/epochs, so no correction fires.
+  The cold-probe (`:node-version nil`) and static-override (`read` returns no
+  `:node-key`, probed cold) branches are untouched."
   [read-result probe-ev]
   (if (nil? (:node-version probe-ev))
     (not (eq/rf= (:value read-result) (:value probe-ev)))
     (or (not= (:version read-result) (:node-version probe-ev))
+        (not= (:node-key read-result) (:node-key probe-ev))
         (not= (:frame-epoch read-result) (:frame-epoch probe-ev))
         (not= (:registry-epoch read-result) (:registry-epoch probe-ev)))))
+
+(def ^:dynamic ^:no-doc *commit-barrier*
+  "JVM/DOM linearization TEST SEAM — nil in production (two nil checks per commit,
+  zero further cost), NEVER bound off a test path (the `*upsert-decide-probe*`
+  idiom). Bound to a `(fn [phase cell] …)`, `commit!` calls it at two
+  deterministic points so a fixture can interleave a frame destroy / same-id
+  reincarnation with a commit:
+
+    :pre-acquire   — after the render capture is loaded, BEFORE the kept-check /
+                     stage-acquire. A same-id DESTROY+RECREATE here makes the
+                     commit ACQUIRE the FRESH incarnation while the render probed
+                     the destroyed one — the `:node-key` reincarnation
+                     `evidence-moved?` must correct before paint (rf2-vxgfnd.93).
+    :post-acquire  — after stage-acquire + the evidence read, BEFORE the publish.
+                     A full destroy of the ACQUIRED incarnation + a fresh same-id
+                     incarnation here proves the frame-close revalidation joins the
+                     commit to the acquired incarnation's teardown, not the
+                     replacement id (rf2-vxgfnd.88)."
+  nil)
 
 (defn commit!
   "Run the 8-step layout commit for `cell` against its latest render
@@ -1287,6 +1342,10 @@
                  ") — the frame/root was torn down under a retained handle; a "
                  "dead cell cannot resume")
             {:extra {:view-id (:view-id st0)}}))
+        ;; :pre-acquire test seam — a fixture may reincarnate the frame in the
+        ;; render→commit gap here so the stage-acquire below binds the FRESH
+        ;; incarnation while the render probed the destroyed one (rf2-vxgfnd.93).
+        (when-some [barrier *commit-barrier*] (barrier :pre-acquire cell))
         (let [committed  (:committed st0)          ;; tk -> lease
               new-order  (:order cap)              ;; tk, render order
               new-by     (:by-key cap)
@@ -1340,6 +1399,11 @@
                                      (assoc! acc tk (:value (new-by tk))))
                                    (transient {})
                                    new-order))]
+          ;; :post-acquire test seam — a fixture may destroy the ACQUIRED
+          ;; incarnation + recreate the id here to prove the revalidation below
+          ;; joins this commit to the acquired incarnation's teardown, not the
+          ;; replacement id (rf2-vxgfnd.88).
+          (when-some [barrier *commit-barrier*] (barrier :post-acquire cell))
           ;; step 6 — publish (committed values + dependency set)
           (swap! st assoc
                  :committed (merge retained staged-map)
