@@ -1902,6 +1902,40 @@
   (when-let [on-registered! (late-bind/get-fn :routing/on-frame-registered!)]
     (on-registered! id)))
 
+(def ^:dynamic ^:no-doc *upsert-decide-probe*
+  "JVM linearization TEST SEAM — `nil` in production (one `nil` check per
+  construction, zero further cost). When bound to a 1-arg fn, `upsert-frame!`
+  calls `(*upsert-decide-probe* id)` exactly ONCE, AFTER it snapshots the
+  `frames` registry for `id` and BEFORE its guarded-CAS decide→install loop —
+  i.e. INSIDE the read→CAS window the A-prime retry loop closes (rf2-vxgfnd.76).
+  A concurrency fixture binds it (conveyed into the racing thread by `future`'s
+  binding-conveyance) to pause one actor precisely in that window while another
+  installs or destroys the same id, then releases it — proving the guarded CAS
+  linearizes create/create, re-register/destroy, and must-create collisions with
+  no clobber, no zombie resurrection, and no lost update. NEVER bound off the JVM
+  test path."
+  nil)
+
+(defn- throw-frame-id-taken!
+  "Throw the typed `:rf.error/frame-id-taken` collision (rf2-vxgfnd.76) — the
+  create-exclusive (`:rf.frame/must-create?`) primitive `ui.test` rests its
+  fresh-isolated-frame contract on. Raised when an exclusive construction for
+  `id` meets (or races to lose against) an already-live frame under the same id:
+  in exclusive mode a pre-existing frame is a COLLISION, never an adoption or a
+  surgical refresh (the fall-throughs ordinary construction takes). Never
+  returns."
+  [id]
+  (error/throw-error!
+    :rf.error/frame-id-taken 'rf/make-frame
+    (str "exclusive frame construction for " (pr-str id) " collided with an "
+         "already-live frame under the same id. The caller requested "
+         "create-exclusive construction (:rf.frame/must-create?), so a "
+         "pre-existing (or concurrently-installed) frame is a hard collision, "
+         "not an adoption or a surgical refresh. Use a distinct frame id, or "
+         "destroy the existing frame before constructing.")
+    {:recovery :use-a-distinct-frame-id
+     :extra    {:frame id}}))
+
 (defn ^:no-doc upsert-frame!
   "PRIVATE frame ENGINE — atomic create-or-REFRESH (upsert) of the frame
   record for `id` (rf2-h1vqa4). Called by `re-frame.live-frame/make-frame`
@@ -1931,7 +1965,17 @@
   `frame-meta` / `frame-ids`, not the registrar query API."
   [id metadata]
   (let [;; The registry is keyed by the bare frame-id.
-        config (expand-preset metadata)
+        config       (expand-preset metadata)
+        ;; INTERNAL create-exclusive mode (rf2-vxgfnd.76): when the caller
+        ;; threads `:rf.frame/must-create?`, a collision on the id (a live frame
+        ;; already present at decide, OR a concurrent install winning the guarded
+        ;; CAS) throws a typed `:rf.error/frame-id-taken` instead of the ordinary
+        ;; fall-through to a surgical re-registration. `ui.test` consumes it to
+        ;; keep plan frames FRESH + isolated (adopt/refresh become collisions).
+        ;; A construction-only reserved key: read here, stripped from `config`
+        ;; below so it never lands in the stored `:config` or a lifecycle trace.
+        must-create? (true? (:rf.frame/must-create? config))
+        config       (dissoc config :rf.frame/must-create?)
         ;; EP-0027 PREFLIGHT (BEFORE any container / process-global write): reject
         ;; the retired `:on-create` / `:initial-db` keys fail-loud, and normalize
         ;; + validate `:initial-events` into a vector of setup steps. Both run
@@ -1999,7 +2043,14 @@
                                   "boot, BEFORE the frame is constructed, so the "
                                   "strategy can be validated at registration time.")
                              {:extra {:frame id}})))
-        existing       (get @frames id)
+        ;; rf2-vxgfnd.76: a SPECULATIVE first snapshot. The authoritative decide
+        ;; happens inside the guarded-CAS loop below (which re-reads under the
+        ;; CAS); this read only lets `new-frame-record` (with its adapter
+        ;; `make-state-container` call) be built ONCE, ABOVE the trace writes, so
+        ;; a no-adapter construction throw still escapes before any process-global
+        ;; write (rf2-hhlzky, preserved). The loop reuses this record when it wins
+        ;; a create and rebuilds only in the rare decide-changed-to-create recur.
+        existing0      (get @frames id)
         ;; rf2-hhlzky: construct the frame record BEFORE any process-global
         ;; write (the trace-suppression flags below).
         ;; `new-frame-record` calls `adapter/make-state-container`, which THROWS
@@ -2013,7 +2064,7 @@
         ;; DEFER form of the rollback the bead calls for — there is nothing to
         ;; unwind because nothing was written. Re-registration is a surgical
         ;; update (no container is built), so `new-record` is nil there.
-        new-record     (when (nil? existing) (new-frame-record id config))]
+        new-record     (when (nil? existing0) (new-frame-record id config))]
     ;; SUBSTRATE OWNERSHIP (rf2-h1vqa4): deliberately NO `registrar/register!`
     ;; here. A seated frame lives in the `frames` registry alone. The former
     ;; `:frame` registrar row leaked into the registration SOURCE STORE
@@ -2045,108 +2096,115 @@
       (when-let [set-retained! (late-bind/get-fn-cached
                                 :trace.tooling/set-frame-events-retained!)]
         (set-retained! id (:rf.trace/events-retained config))))
-    (cond
-        ;; First registration: install the record built above (rf2-hhlzky —
-        ;; construction already succeeded, so the writes above are safe).
-        (nil? existing)
-        (let [f new-record]
-          (swap! frames assoc id f)
-          ;; EP-0025: there is no durable app-db classification install here
-          ;; anymore — the frame `:sensitive` / `:large {:app-db …}` annotation
-          ;; was removed in favour of the commit-plane classification effects
-          ;; (a `reg-event` returns `:sensitive` / `:large` alongside `:db`).
-          ;; A `:frame-init` `:initial-events` step that classifies a path
-          ;; runs (below) at frame creation, so any trace the init cascade emits
-          ;; is still redacted. The frame's policy keys were already validated
-          ;; above; nothing is written into the elision registry from here.
-          ;; EP-0027 §Construction — FORBID handler-time frame construction.
-          ;; Frames are created by the VIEW (frame-provider) or at TOP LEVEL
-          ;; (tests, boot, SSR per request); constructing a frame INSIDE an event
-          ;; handler is not supported — a handler changes app-db, the view
-          ;; materializes frames from it. This REMOVES today's two-regime
-          ;; `:on-create` handling (sync at top level / async-queue mid-cascade):
-          ;; the mid-cascade case is now a fail-loud error, not a queued
-          ;; creation. The signal for "inside a handler" is `trace/*handler-scope*`
-          ;; being bound — the router binds it for the duration of a handler's
-          ;; execution and ONLY then (a bare ambient `with-frame` scope does NOT
-          ;; bind it), so it distinguishes "created mid-cascade" from "top-level
-          ;; boot under an ambient scope" precisely. The frame container was
-          ;; already swapped into `frames` above; tear it back down before
-          ;; throwing so a handler-time construction leaves NO half-registered
-          ;; frame. (The Spec 002 NORMATIVE text recording this principle is a
-          ;; separate hot-zone bead; this is the CODE guard.)
-          (when trace/*handler-scope*
-            (destroy-frame! id)
-            (error/throw-error!
-              :rf.error/frame-construction-in-handler
-              'rf/make-frame
-              (str "constructing a frame inside an event handler is not supported "
-                   "(EP-0027) — got a frame construction for " (pr-str id) " while a cascade is in "
-                   "flight. Frames are created by the VIEW (frame-provider) or at "
-                   "TOP LEVEL; a handler changes app-db, and the view materializes "
-                   "frames from it. Move the frame creation to a frame-provider in "
-                   "the view tree, or to top-level boot.")
-              {:recovery :construct-frames-in-view-or-top-level
-               :extra    {:frame id}}))
-          ;; Run the :initial-events setup steps synchronously, in order, BEFORE
-          ;; emitting :frame/created (Spec 002 §Frame creation; EP-0027
-          ;; §Construction). The router/dispatch ns is reached through late-bind
-          ;; (in the runner) to avoid a cyclic dep at compile time. `setup-steps`
-          ;; was already PREFLIGHT-validated at the top of the engine (so a bad
-          ;; shape threw before any container existed). A step that throws at
-          ;; runtime tears down the partial frame inside the runner and rethrows.
-          ;;
-          ;; Each setup dispatch carries construction provenance: `:source
-          ;; :frame-init` + its step index (added by the runner). Frame
-          ;; construction captures NO source coords (rf2-h1vqa4 — `make-frame`
-          ;; is a FN, and frames are live runtime objects, not click-to-source
-          ;; program members; live metadata lives in `frame-meta`), so no
-          ;; `:rf.trace/call-site` is stamped here.
-          (run-setup-events! id setup-steps {} 'rf/make-frame)
-          (trace/emit! :rf.frame :rf.frame/created
-                       {:frame id :config (dissoc config :rf.frame/generation
-                                                  :rf.frame/initial-db)})
-          (fire-frame-registered-hook! id)
-          id)
+    ;; A-prime linearization (rf2-vxgfnd.76): the DECIDE (existing?) + INSTALL
+    ;; (the `frames` swap) run as a guarded-CAS RETRY loop through the `frames`
+    ;; atom ITSELF — the `set-generation!` discipline — so a create linearizes
+    ;; against a concurrent create/destroy with NO last-writer clobber and NO
+    ;; zombie-resurrection of a dissoc'd record. The pure preflight validation +
+    ;; the idempotent trace writes above ran ONCE (they stay ABOVE the loop);
+    ;; only decide+install repeats. `run-setup-events!` runs EXACTLY ONCE, in the
+    ;; won-create branch (EP-0027: setup drains before the constructor returns —
+    ;; preserved because ONLY decide+install moved into the loop). The one-shot
+    ;; decide→install-window test probe fires here (before the first CAS).
+    (when-let [probe *upsert-decide-probe*] (probe id))
+    (loop []
+      (let [existing (get @frames id)]
+        (cond
+          ;; ---- CREATE: install the record iff the id is STILL absent ---------
+          (nil? existing)
+          (let [f (or new-record (new-frame-record id config))
+                ;; Guarded CAS: assoc our record ONLY when the id is absent in
+                ;; the winning snapshot. `swap-vals!` returns [old new]; we WON
+                ;; the create iff `id` was absent in `old` (our assoc actually
+                ;; ran). A concurrent installer between the decide read and here
+                ;; leaves `id` present in `old` → we lost, and `f` was NEVER
+                ;; installed (the guard returned `m` unchanged), so nothing to
+                ;; unwind.
+                [old _] (swap-vals! frames (fn [m] (if (contains? m id) m (assoc m id f))))]
+            (if (contains? old id)
+              (if must-create?
+                ;; Exclusive mode (ui.test): a taken id is a hard COLLISION, not
+                ;; an adoption — throw the typed error (nothing was installed).
+                (throw-frame-id-taken! id)
+                ;; Ordinary construction: fall through to a RE-registration on the
+                ;; now-present id (idempotent replacement, EP-0024) — recur.
+                (recur))
+              ;; WON the create: our record is the sole installed one.
+              (do
+                ;; EP-0025: no durable app-db classification install here anymore
+                ;; — the frame `:sensitive` / `:large {:app-db …}` annotation was
+                ;; removed in favour of the commit-plane classification effects.
+                ;; A `:frame-init` `:initial-events` step that classifies a path
+                ;; runs (below) at creation, so init-cascade trace stays redacted.
+                ;; EP-0027 §Construction — FORBID handler-time frame construction.
+                ;; Frames are created by the VIEW (frame-provider) or at TOP LEVEL
+                ;; (tests, boot, SSR per request); constructing a frame INSIDE an
+                ;; event handler is not supported. The signal for "inside a
+                ;; handler" is `trace/*handler-scope*` being bound — the router
+                ;; binds it for the duration of a handler's execution and ONLY
+                ;; then. The container was already installed above; tear it back
+                ;; down before throwing so a handler-time construction leaves NO
+                ;; half-registered frame.
+                (when trace/*handler-scope*
+                  (destroy-frame! id)
+                  (error/throw-error!
+                    :rf.error/frame-construction-in-handler
+                    'rf/make-frame
+                    (str "constructing a frame inside an event handler is not supported "
+                         "(EP-0027) — got a frame construction for " (pr-str id) " while a cascade is in "
+                         "flight. Frames are created by the VIEW (frame-provider) or at "
+                         "TOP LEVEL; a handler changes app-db, and the view materializes "
+                         "frames from it. Move the frame creation to a frame-provider in "
+                         "the view tree, or to top-level boot.")
+                    {:recovery :construct-frames-in-view-or-top-level
+                     :extra    {:frame id}}))
+                ;; Run the :initial-events setup steps synchronously, in order,
+                ;; BEFORE emitting :frame/created (Spec 002 §Frame creation;
+                ;; EP-0027 §Construction). `setup-steps` was PREFLIGHT-validated
+                ;; at the top of the engine. A step that throws at runtime tears
+                ;; down the partial frame inside the runner and rethrows. Runs
+                ;; ONCE — only on the WON install, never on a CAS-loss recur.
+                (run-setup-events! id setup-steps {} 'rf/make-frame)
+                (trace/emit! :rf.frame :rf.frame/created
+                             {:frame id :config (dissoc config :rf.frame/generation
+                                                        :rf.frame/initial-db)})
+                (fire-frame-registered-hook! id)
+                id)))
 
-        ;; Re-registration: surgical update of replaceable slots only.
-        ;; Per Spec 002 §Re-registration — surgical update.
-        :else
-        (let [;; EP-0024: idempotent replacement — re-`make-frame`
-              ;; threads the freshly-resolved generation under the reserved
-              ;; `:rf.frame/generation` config key. Refresh the `:generation`
-              ;; slot from it (a re-make WITH new `:images` swaps the running
-              ;; generation; a re-make WITHOUT `:images` carries nil and CLEARS
-              ;; it back to an ordinary configured frame — matching the
-              ;; first-creation contract). The retired `:rf.frame/initial-db`
-              ;; reserved key is stripped defensively (no longer threaded). The
-              ;; reserved `:rf.frame/generation` key is stripped from the stored
-              ;; `:config`.
-              ;;
-              ;; EP-0027 §Reset / §Frame provider — idempotent re-registration
-              ;; RE-RECORDS but does NOT REPLAY `:initial-events`: the new
-              ;; `:initial-events` (durable frame config) lands in `:config` here,
-              ;; REPLACING the prior recording (and CLEARING it when the key is
-              ;; absent), while durable app-db / sub-cache / queue are preserved.
-              ;; The recorded setup is replayed ONLY by the opt-in full-replace
-              ;; composition (`destroy-frame!` then `make-frame`, rf2-lxwpob),
-              ;; never on a surgical re-registration / a React remount /
-              ;; StrictMode double-invoke / Story re-eval.
-              stored-config (dissoc config :rf.frame/generation :rf.frame/initial-db)]
-          (swap! frames update id
-                 assoc :config stored-config :generation (get config :rf.frame/generation))
-          ;; EP-0025: re-registration installs no durable app-db classification
-          ;; — the frame `:sensitive` / `:large {:app-db …}` annotation was
-          ;; removed (classification now rides the commit-plane effects, whose
-          ;; `:source :effect` elision entries are owned by event handlers and
-          ;; survive re-registration untouched). The new `:config` (with its
-          ;; HTTP-carrier + observability policy) was already validated above and
-          ;; lands in `:config`; runtime state (app-db, sub-cache, queue, the
-          ;; effect-/flow-sourced elision registry) is preserved.
-          (trace/emit! :rf.frame :rf.frame/re-registered
-                       {:frame id :config stored-config})
-          (fire-frame-registered-hook! id)
-          id))))
+          ;; ---- must-create met a LIVE frame at the decide read → COLLISION ---
+          ;; Exclusive mode never adopts or surgically refreshes; a present id is
+          ;; a hard collision (the id may have been created since the claim).
+          must-create?
+          (throw-frame-id-taken! id)
+
+          ;; ---- RE-REGISTER: surgical update iff the id is STILL present ------
+          ;; Per Spec 002 §Re-registration. EP-0024 idempotent replacement:
+          ;; refresh the `:generation` slot + replaceable `:config` while durable
+          ;; runtime state (app-db, sub-cache, queue) is preserved. EP-0027 §Reset
+          ;; — the new `:initial-events` is RE-RECORDED into `:config`, never
+          ;; REPLAYED (replay is the opt-in `destroy-frame!` then `make-frame`
+          ;; composition, rf2-lxwpob).
+          :else
+          (let [stored-config (dissoc config :rf.frame/generation :rf.frame/initial-db)
+                ;; Guarded CAS: update ONLY while the id is still present. If a
+                ;; concurrent `destroy-frame!` dissoc'd it between the decide read
+                ;; and this CAS, `old` will not contain `id` — recur (now a
+                ;; CREATE). This closes the zombie-resurrection hole a bare
+                ;; `(update m id assoc …)` on a dissoc'd id would open (it would
+                ;; resurrect a partial `{:config … :generation …}` record with no
+                ;; state container and no `:drain-lock`).
+                [old _] (swap-vals! frames
+                          (fn [m] (if (contains? m id)
+                                    (update m id assoc :config stored-config
+                                            :generation (get config :rf.frame/generation))
+                                    m)))]
+            (if (contains? old id)
+              (do
+                (trace/emit! :rf.frame :rf.frame/re-registered
+                             {:frame id :config stored-config})
+                (fire-frame-registered-hook! id)
+                id)
+              (recur))))))))
 
 (defn make-anon-frame-record!
   "INTERNAL anonymous-instance creation (EP-0024): generate a
