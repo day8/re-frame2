@@ -1269,6 +1269,48 @@
         (not= (:frame-epoch read-result) (:frame-epoch probe-ev))
         (not= (:registry-epoch read-result) (:registry-epoch probe-ev)))))
 
+;; ---- frame-close revalidation: incarnation-safe (rf2-vxgfnd.88, extends .61) ---
+;;
+;; A commit publishing ownership must resolve against the EXACT frame incarnation
+;; it acquired its leases from — never merely the reused frame-id. `destroy-frame!`
+;; + a fresh same-id construction mints a DISTINCT incarnation token
+;; (`frame/frame-incarnation-token` — the record's `:drain-lock`, stable across one
+;; incarnation, distinct across destroy+recreate), so comparing the token captured
+;; at ACQUIRE against the live token catches a same-id reincarnation the bare-id
+;; `frame-closing?` check alone misses: a commit that acquired incarnation A but
+;; finds B live under the id must JOIN A's teardown, not publish `:connected`
+;; against the replacement (rf2-vxgfnd.88). The bare-id `frame-closing?` clause is
+;; RETAINED for the .61 in-flight window (A mid-teardown, still live pre-flip,
+;; token unchanged — the marker is the only signal there).
+
+(defn- committed-frame-incarnations
+  "Snapshot `{frame-id -> incarnation-token}` for every frame the committed map
+  `committed` observes — captured at ACQUIRE time so the frame-close revalidation
+  compares each frame's LIVE incarnation against the one this commit acquired from
+  (rf2-vxgfnd.88). A frame absent/destroyed reads nil. O(observed frames)."
+  [committed]
+  (persistent!
+    (reduce (fn [acc tk]
+              (if (= :sub (nth tk 0))
+                (assoc! acc (nth tk 1) (frame/frame-incarnation-token (nth tk 1)))
+                acc))
+            (transient {})
+            (keys committed))))
+
+(defn- incarnation-superseded?
+  "True when ANY frame in the acquire-time `incarnations` snapshot is no longer
+  live under the SAME incarnation token — its incarnation was destroyed (nil now)
+  or REPLACED by a fresh same-id incarnation (a distinct token). The
+  exact-identity half of the frame-close revalidation (rf2-vxgfnd.88): a commit
+  must resolve against the incarnation it ACQUIRED from, never the reused id."
+  [incarnations]
+  (reduce-kv (fn [_ fid captured]
+               (if (identical? captured (frame/frame-incarnation-token fid))
+                 false
+                 (reduced true)))
+             false
+             incarnations))
+
 (def ^:dynamic ^:no-doc *commit-barrier*
   "JVM/DOM linearization TEST SEAM — nil in production (two nil checks per commit,
   zero further cost), NEVER bound off a test path (the `*upsert-decide-probe*`
@@ -1388,6 +1430,11 @@
                                               (throw e)))]
                                (recur (rest ks) (conj acc [tk lease])))))
               staged-map (into {} staged)
+              ;; ACQUIRE-time incarnation snapshot for the frame-close
+              ;; revalidation (rf2-vxgfnd.88): the exact incarnation each lease
+              ;; was acquired from, so a same-id reincarnation before publish is
+              ;; caught by token identity, not merely the reused frame-id.
+              incarnations (committed-frame-incarnations (merge retained staged-map))
               ;; step 5 — evidence comparison (moved in the render→commit gap)
               moved?     (boolean
                            (some (fn [[tk lease]]
@@ -1415,29 +1462,41 @@
           ;; hidden cell). This ENROLS the cell into the live-cell registry —
           ;; the discoverability publish a frame-destroy sweep consults.
           (connect! cell)
-          ;; Linearize this commit against a concurrent frame-destroy teardown
-          ;; (rf2-vxgfnd.61). #5731 wires destroy to a SNAPSHOT sweep of the
-          ;; live cells that runs while the frame is still live, with no
-          ;; ordering against acquisition on the JVM: a commit that acquires
-          ;; leases + enrols in the window between the sweep's snapshot and the
-          ;; liveness flip is MISSED by the sweep, would publish :connected, and
-          ;; then lose its cache under the remaining destroy recipe. The fix is a
-          ;; two-phase close with revalidation AFTER the enrolment publish:
-          ;; `connect!` has just added this cell to the live-cell registry, so if
-          ;; the sweep's snapshot could have missed us, the destroy necessarily
-          ;; added the frame to `destroying-frames` BEFORE snapshotting (it is
-          ;; populated at the very top of `destroy-frame!`), and `frame-closing?`
-          ;; is continuously true across the whole teardown window — so this
-          ;; read observes the close. Selection and closure thus become ONE
-          ;; linearized boundary: a cell enrolling mid-teardown is either in the
-          ;; sweep or, seeing a closing frame here, JOINS the teardown — tearing
-          ;; itself down against the still-releasable cache rather than lingering
-          ;; :connected on a dying frame. A live, not-being-destroyed frame (incl.
-          ;; a fresh same-id incarnation) makes this a constant false check, so
-          ;; disjoint frames commit/destroy concurrently and the single-threaded
-          ;; CLJS host — where destroy runs to completion without yielding to a
-          ;; commit — never sees it true.
-          (if (some frame/frame-closing? (cell-frames cell))
+          ;; INCARNATION-SAFE frame-close revalidation (rf2-vxgfnd.88, extending
+          ;; rf2-vxgfnd.61). Two reasons this commit must JOIN a teardown instead
+          ;; of publishing `:connected`, checked against the ACQUIRE-time
+          ;; incarnation snapshot rather than the bare frame-id:
+          ;;
+          ;;   (a) `incarnation-superseded?` — a frame this commit acquired from
+          ;;       is no longer live under the SAME incarnation token: it was
+          ;;       destroyed, OR a fresh same-id incarnation replaced it in the
+          ;;       render→commit gap. The bare-id `frame-closing?` MISSES this once
+          ;;       the old incarnation's teardown completed and cleared its marker
+          ;;       while a replacement went live under the id — so an old lease
+          ;;       would otherwise survive on the replacement id (rf2-vxgfnd.88).
+          ;;       Token identity (`frame/frame-incarnation-token`, the record's
+          ;;       `:drain-lock`, distinct per incarnation) resolves the commit to
+          ;;       exactly the incarnation it targeted.
+          ;;
+          ;;   (b) `frame-closing?` — a frame is IN-FLIGHT closing (rf2-vxgfnd.61).
+          ;;       #5731 wires destroy to a SNAPSHOT sweep of the live cells that
+          ;;       runs while the frame is still LIVE (pre-flip), then flips
+          ;;       liveness. A commit that acquires + enrols between the sweep
+          ;;       snapshot and the flip is MISSED by the sweep, and its
+          ;;       incarnation token is UNCHANGED (the frame is still live
+          ;;       pre-flip) — so token identity alone would not catch it. But
+          ;;       `destroying-frames` is populated at the TOP of `destroy-frame!`,
+          ;;       so `frame-closing?` is continuously true across the whole
+          ;;       teardown window: the enrolled cell observes the close and joins
+          ;;       the teardown against the still-releasable cache.
+          ;;
+          ;; A live, not-closing frame under an unchanged incarnation (incl. a
+          ;; committed fresh same-id incarnation this commit legitimately acquired)
+          ;; makes both checks false — disjoint frames commit/destroy concurrently,
+          ;; and the single-threaded CLJS host (destroy runs to completion without
+          ;; yielding to a commit) never sees either true.
+          (if (or (incarnation-superseded? incarnations)
+                  (some frame/frame-closing? (keys incarnations)))
             (teardown! cell)
             ;; step 8 — moved evidence corrects before paint
             (when moved?
