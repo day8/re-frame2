@@ -663,7 +663,7 @@ guide-impact assessment.
 7. **Guide + dogfood**: rewrite `docs/core/how-to/paginate-a-feed.md` to teach
    numbered-vs-infinite and the new primitive; add a flagship example feed; add
    conformance + small synthetic tests (not Playwright — per the standing
-   Causa/Story CLJS-unit-test default).
+   Xray/Story CLJS-unit-test default).
 
 ## Open Issues
 

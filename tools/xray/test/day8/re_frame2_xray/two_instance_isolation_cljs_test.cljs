@@ -20,7 +20,7 @@
 
   ## How it's tested at the data layer
 
-  This is a data-layer test (per the rf2-dhoc9 / Causa-as-CLJS-unit-test
+  This is a data-layer test (per the rf2-dhoc9 / Xray-as-CLJS-unit-test
   posture): frame isolation is an app-db property, so we register two
   shell frames, drive each via `(rf/with-frame <frame-id> …)` — exactly
   the binding the parameterized `shell-view` establishes through its

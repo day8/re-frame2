@@ -1212,7 +1212,7 @@ The contract is authored as the appendix argues — *one carried invariant*, the
   ambiguous → unselected*.
 - **R6 — Lead the rationale with replay determinism (appendix G).** A
   silently-defaulted frame **poisons replay** — epoch replay, `restore-epoch!`,
-  time-travel, and Story / Causa determinism become unsound. "Frames are carried so
+  time-travel, and Story / Xray determinism become unsound. "Frames are carried so
   history is replayable" is the central argument; the benchmark libraries
   (TanStack / Redux / Apollo / Relay) are supporting, not central. Detection shifts
   left where the shape allows (conformance lint + registration-time flagging), and
@@ -1562,7 +1562,7 @@ Then reconcile `:rf.error/no-frame-context`, `:ambiguous-frame`, and `:rf.tool/n
 
 Three sharpenings that use machinery the project already has:
 
-- **Lead with replay determinism, not the benchmark libraries.** TanStack / Redux / Apollo justify explicit providers for *view hooks*. re-frame2's decisive argument is one none of them can make: a silently-defaulted frame **poisons replay**. If an operation's target frame cannot be reconstructed *from data*, then epoch replay, `restore-epoch!`, time-travel, and Story / Causa determinism are unsound — the same record can re-run against a different frame. "Frames must be *carried* so history is *replayable*" is the re-frame2 sentence; the benchmark table is supporting, not central.
+- **Lead with replay determinism, not the benchmark libraries.** TanStack / Redux / Apollo justify explicit providers for *view hooks*. re-frame2's decisive argument is one none of them can make: a silently-defaulted frame **poisons replay**. If an operation's target frame cannot be reconstructed *from data*, then epoch replay, `restore-epoch!`, time-travel, and Story / Xray determinism are unsound — the same record can re-run against a different frame. "Frames must be *carried* so history is *replayable*" is the re-frame2 sentence; the benchmark table is supporting, not central.
 - **Shift detection left.** The EP makes every failure a *runtime* error and adds a *grep* as the regression guard. The best error is the one that cannot be written. Promote the static sweep to a first-class **conformance lint** in CI (part of the contract, not a regex in prose), and let `reg-view` / macro expansion flag a bare `rf/dispatch` in a view body where the injected frame-bound `dispatch` was the intended call. Catch at compile / registration where the shape allows; reserve runtime errors for the genuinely dynamic async case.
 - **Attribute the frameless error causally.** The suggested payload is *static* (`:operation :where :event-id`). re-frame2 already threads `:rf.trace/dispatch-id` / `:rf.trace/parent-dispatch-id`. A no-frame error should carry its *capture-site ancestry* — "this callback was captured at handler X in frame Y; the cascade ended; the continuation fired with no stamp" — so the hardest case (the EP's own "brutal to debug" async clobber) becomes fully attributed through the existing correlation graph, even though the error itself is frameless.
 

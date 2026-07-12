@@ -24,8 +24,7 @@
      default rf-dispatch.
 
   Pure-data unit tests; no DOM mount. Default for new
-  Causa/Story tests per `feedback-causa-story-cljs-unit-tests-not-
-  playwright`."
+  Xray/Story tests per the Xray/Story-as-CLJS-unit-test ruling."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.substrate.plain-atom :as plain-atom]

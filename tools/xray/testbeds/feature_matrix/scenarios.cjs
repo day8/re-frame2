@@ -2379,7 +2379,7 @@ async function runPaletteOpenExecute(page, state) {
   };
 }
 
-// A deliberate exception to the "default Causa/Story tests to CLJS" rule:
+// A deliberate exception to the "default Xray/Story tests to CLJS" rule:
 // real-browser CSS-variable resolution is the signal under test. The CLJS
 // render-tree tests pin the inline-style → `var(--rf-xray-*)` contract at
 // the hiccup layer but cannot prove the browser actually substitutes a
@@ -2874,7 +2874,7 @@ async function runMachineEpochs(page, state) {
   // reading `:machine/<track>`). The deep RENDER-FIDELITY assertions (cascade
   // kinds/order, microsteps, timer-cancel, spawn/destroy, set-diff,
   // throw-as-error) live in the CLJS unit test
-  // `panels.epoch.machine-epochs-harness-cljs-test` per the Causa/Story-as-
+  // `panels.epoch.machine-epochs-harness-cljs-test` per the Xray/Story-as-
   // CLJS rule. Here we confirm each step lands the expected configuration in
   // its OWN frame, prove the per-machine frame isolation with a cross-frame
   // flip, and confirm the Machine Inspector mounts.
@@ -3621,7 +3621,7 @@ const SCENARIOS = [
   },
   {
     // Theme-token CSS-variable resolution probe. A deliberate exception
-    // to the "default Causa/Story tests to CLJS" rule — real-browser
+    // to the "default Xray/Story tests to CLJS" rule — real-browser
     // CSS-variable resolution is the signal under test, which CLJS unit
     // tests can't reach. Guards against the regression class where a boot
     // path that embeds bare Xray widgets without calling
@@ -3685,7 +3685,7 @@ const SCENARIOS = [
     // boot-on-select is the SOLE machine-action-exception trigger). The deep
     // RENDER-FIDELITY assertions (cascade kinds/order, microsteps, timer-
     // cancel, spawn/destroy, set-diff, throw-as-error) live in the CLJS unit
-    // test `panels.epoch.machine-epochs-harness-cljs-test` per the Causa/
+    // test `panels.epoch.machine-epochs-harness-cljs-test` per the Xray/
     // Story-as-CLJS rule (the chart-render shim-survival probe stays owned by
     // the `deep machine inspector substrate` scenario).
     name: 'machine-epochs multi-machine frame-isolated stepper (rf2-q3lfm: pick a machine -> Xray follows its own epoch ring; per-track door/traffic/quiz/brew/session/fuse/hvac/media/modal/gate paths; cross-frame flip isolation; restart = frame reset; boot-on-select fuse THROW)',

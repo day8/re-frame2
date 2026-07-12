@@ -37,7 +37,7 @@
     (c) RENDERED rows — the Epoch-panel projection emits the expected row
         kinds / verbs.
 
-  Causa/Story-as-CLJS-unit-test (feedback_causa_story_cljs_unit_tests_not_playwright),
+  Xray/Story-as-CLJS-unit-test (the Xray/Story-as-CLJS-unit-test ruling),
   NOT Playwright. The render facts are pinned against REALITY: drive the
   substrate, read what the projection produces."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]

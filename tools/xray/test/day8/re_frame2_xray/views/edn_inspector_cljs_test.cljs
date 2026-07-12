@@ -21,8 +21,8 @@
   7. **Sentinels** (`:rf/redacted`, `:rf.size/large-elided`, combined)
      render their first-class chip chrome.
 
-  Pure-data unit tests; no DOM mount. Default for new Causa/Story
-  tests per `feedback-causa-story-cljs-unit-tests-not-playwright`."
+  Pure-data unit tests; no DOM mount. Default for new Xray/Story
+  tests per the Xray/Story-as-CLJS-unit-test ruling."
   (:require [clojure.string :as str]
             [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
