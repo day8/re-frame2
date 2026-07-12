@@ -47,13 +47,15 @@ Use it as the body of `src/your_app/core.cljs`. When it mounts and clicks work, 
 ;; target a frame, and the runtime never synthesises one from absence. A
 ;; bare ns-load reg-app-schema with no frame in scope raises
 ;; :rf.error/no-frame-context, so the attach lives in `register-schema!` and
-;; runs at BOOT — `init` calls it under `with-frame :rf/default`, AFTER
-;; `reg-frame` makes the frame live (see the Mount section below). This is the
-;; same register-schema! the generator template ships in `_shared/schema.cljs`.
-;; (Contrast reg-event / reg-sub, which are frame-agnostic global
-;; registrations and are fine at ns-load.)
+;; runs at BOOT — `init` calls it, and the registration names the app frame
+;; EXPLICITLY ({:frame :rf/default}, the optional middle metadata slot), so
+;; it can run BEFORE the `frame-root` mount even creates the frame — the
+;; frame's `:initial-events` seed is then validated from its first write.
+;; This is the same register-schema! the generator template ships in
+;; `_shared/schema.cljs`. (Contrast reg-event / reg-sub, which are
+;; frame-agnostic global registrations and are fine at ns-load.)
 (defn register-schema! []
-  (rf/reg-app-schema [] CounterDb))   ;; schema is the positional value slot
+  (rf/reg-app-schema [] {:frame :rf/default} CounterDb))   ;; schema is the positional value slot
 
 ;; -- Events ----------------------------------------------------------------
 
@@ -89,18 +91,18 @@ Use it as the body of `src/your_app/core.cljs`. When it mounts and clicks work, 
 ;; reload, so init IS the re-render path — no separate ^:dev/after-load hook.
 (defn ^:export init []
   (rf/init! reagent-adapter/adapter)             ;; install the Reagent adapter (no frame yet)
-  (rf/reg-frame :rf/default {})                   ;; register the app frame (surgical hot-reload update)
-  (rf/with-frame :rf/default                      ;; under a live frame scope:
-    (register-schema!)                            ;;   attach the frame-local schema (needs a frame)
-    (rf/dispatch-sync [:counter/initialise]))     ;;   seed app-db synchronously — the reset boundary
+  (register-schema!)                              ;; attach the frame-local schema (names :rf/default explicitly)
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
     (when-not @react-root
       (reset! react-root (rdc/create-root el)))
-    ;; frame-provider's {:frame …} SCOPE shape scopes the already-registered
-    ;; :rf/default frame into the tree (it creates / destroys nothing).
+    ;; frame-root's {:id …} ENSURE shape creates :rf/default the first time
+    ;; (running the :initial-events seed synchronously, so the initial render
+    ;; sees the seeded app-db) and REUSES the live frame WITHOUT re-seeding
+    ;; on every later mount — hot reload is a no-op for your state.
     (rdc/render @react-root
-                [rf/frame-provider {:frame :rf/default}
+                [rf/frame-root {:id             :rf/default
+                                :initial-events [[:counter/initialise]]}
                  [counter-app]])))
 ```
 
@@ -119,9 +121,9 @@ The canonical worked example `examples/core/counter/core.cljs` uses the same `:c
 Two contracts make the attach work:
 
 - **The artefact must be loaded as a side effect before any `reg-app-schema` runs.** Requiring `re-frame.schemas` publishes Malli's `validate`/`explain` into the framework's late-bind hook table (it self-requires its Malli adapter — no separate `re-frame.schemas.malli` require is needed) — so the registration actually validates rather than throwing `:rf.error/schemas-artefact-missing`. (On the CLJS reference, schema **implies** validation — Spec 010 §Schema implies validation; there is no silent soft-pass with the artefact on the classpath.)
-- **The attach is frame-local and runs at boot, not at ns-load.** `reg-app-schema` targets a frame (EP-0002 carried-frame invariant); at namespace-load time no frame is established, so registering there raises `:rf.error/no-frame-context`. The attach therefore lives in a `register-schema!` fn that `init` calls **after** `reg-frame` makes `:rf/default` live, inside `(rf/with-frame :rf/default …)`. (Contrast `reg-event` / `reg-sub`, which are frame-agnostic global registrations and are fine at ns-load.)
+- **The attach is frame-local and runs at boot, not at ns-load.** `reg-app-schema` targets a frame (EP-0002 carried-frame invariant); at namespace-load time no frame scope is established, so a bare two-slot registration there raises `:rf.error/no-frame-context`. The attach therefore lives in a `register-schema!` fn that `init` calls at boot, naming the app frame **explicitly** via the optional middle metadata slot — `(rf/reg-app-schema [] {:frame :rf/default} CounterDb)` — which is valid even before the `frame-root` mount creates the frame, so the `:initial-events` seed is validated from its very first write. (Contrast `reg-event` / `reg-sub`, which are frame-agnostic global registrations and are fine at ns-load.)
 
-A schema describes **shape**, not egress policy — whether a path is `:sensitive?` / `:large?` (redacted/elided at Xray/trace boundaries) is **frame-owned** on `reg-frame`, not on the schema (Spec 015).
+A schema describes **shape**, not egress policy — a path's `:sensitive?` / `:large?` classification (redacted/elided at Xray/trace boundaries) is authored by the **event that writes the data** (the commit-plane effects returned alongside `:db`), never on the schema (Spec 015).
 
 ### Events
 
@@ -135,13 +137,13 @@ One subscription, `[:counter/value]`, reads `(:counter/value db)`. Views deref i
 
 ### Views
 
-`reg-view` **registers a view** under `(keyword *ns* sym)` (here `:your-app.core/counter-buttons` / `:counter-app`) and defs a same-named var so `[counter-buttons]` works. Inside the body it auto-injects two frame-bound locals — `dispatch` (e.g. `(dispatch [:counter/increment])`) and `subscribe` (e.g. `@(subscribe [:counter/value])`) — resolved at render time against the frame in scope (here `:rf/default`, from the root `frame-provider` in `init`), so you never thread the frame through components. The result is regular Reagent hiccup.
+`reg-view` **registers a view** under `(keyword *ns* sym)` (here `:your-app.core/counter-buttons` / `:counter-app`) and defs a same-named var so `[counter-buttons]` works. Inside the body it auto-injects two frame-bound locals — `dispatch` (e.g. `(dispatch [:counter/increment])`) and `subscribe` (e.g. `@(subscribe [:counter/value])`) — resolved at render time against the frame in scope (here `:rf/default`, provided by the root `frame-root` in `init`), so you never thread the frame through components. The result is regular Reagent hiccup.
 
 ### Mount
 
-`defonce` guards `react-root` against hot-reload. `init` runs four steps in order — `rf/init!` → `reg-frame` → `with-frame (register-schema!) (dispatch-sync …)` → `rdc/render` wrapped in `frame-provider` — fully detailed in [`entry-namespace.md` §Order of operations](entry-namespace.md). Two counter-specific facts:
+`defonce` guards `react-root` against hot-reload. `init` runs three steps in order — `rf/init!` → `(register-schema!)` → `rdc/render` wrapped in `frame-root`'s `{:id … :initial-events …}` ENSURE shape — fully detailed in [`entry-namespace.md` §Order of operations](entry-namespace.md). Two counter-specific facts:
 
-- **Step 3 attaches the schema before the seed**, both inside `(rf/with-frame :rf/default …)`: `reg-app-schema` needs an established frame (§Schema), and seeding synchronously means the initial render sees `{:counter/value 0}`.
+- **Step 2 attaches the schema before the mount** (explicit `{:frame :rf/default}` target — §Schema), and `frame-root` runs the `:initial-events` seed synchronously at frame creation, so the initial render sees `{:counter/value 0}` already validated.
 - **The `dispatch-sync` seed re-seeds this counter on every hot reload** (the reset boundary — see entry-namespace.md), so a save mid-demo resets the count to `0` rather than leaving it where you'd clicked.
 
 ## Verifying it works
@@ -170,7 +172,7 @@ First-run failures, roughly in order:
 If you see a blank page, open the browser console. Most failures land there with a clear error — but note the missing-sub case below is *silent* on this bare route:
 - `Cannot read property 'getElementById' of undefined` — script ran before DOM was ready; check `index.html` loads `main.js` at the *bottom* of `<body>`.
 - A thrown `:rf.error/no-adapter-installed` (reason: *"was called before `(rf/init! ...)`; require an adapter ns and pass its `adapter` Var"*) — a view subscribed/rendered before `(rf/init! ...)` seated an adapter. `rf/init!` didn't run before render: check `init` is the `:init-fn` shadow-cljs is calling.
-- A thrown / emitted `:rf.error/no-frame-context` — the tree rendered with **no frame established**. Under EP-0002 the runtime infers no frame (`:rf/default` is not auto-registered — you register it yourself), so a bare `subscribe` / `dispatch` outside any scope fails loudly. Fix: wrap the root in `[rf/frame-provider {:frame :rf/default} [root-view]]` and ensure `(rf/reg-frame :rf/default …)` ran before render — see `init` above.
+- A thrown / emitted `:rf.error/no-frame-context` — the tree rendered with **no frame established**. Under EP-0002 the runtime infers no frame (`:rf/default` is not auto-registered — you register it yourself), so a bare `subscribe` / `dispatch` outside any scope fails loudly. Fix: wrap the root in `[rf/frame-root {:id :rf/default …} [root-view]]` — the ENSURE element creates the frame at mount and provides it to the subtree — see `init` above.
 - A blank/empty subscribed value with **no console error** (e.g. the number never appears) — a subscribe to an unregistered sub builds a nil-yielding reaction and emits `:rf.error/no-such-sub`; it does **not** throw. On this bare route there's no error-sink listener wired, so the miss surfaces only as a silent `nil` render — registrations didn't run. If you split subs into multiple namespaces, make sure `core.cljs` `:require`s them so they load. (The generator template wires an error-sink in `events.cljs` that pushes `:rf.error/no-such-sub` to the console; this minimal counter doesn't, so the only tell is the blank value.)
 
 **No schema errors? That's validation running clean, not a soft-pass.** This counter attaches the `CounterDb` schema (§Schema), so after `:counter/initialise` and each `:counter/increment` the framework *does* validate the new app-db — and `{:counter/value 0}` (then `1`, `2`, …) conforms, so no `:rf.error/schema-validation-failure` traces. It is real validation: with `day8/re-frame2-schemas` on the classpath, requiring `re-frame.schemas` wires Malli automatically (Spec 010 §Schema implies validation on CLJS). To *see* it fire, temporarily seed a non-`:int` (e.g. `{:counter/value "0"}` in `:counter/initialise`) — the write rolls back and the error sink surfaces the violation; revert once seen.

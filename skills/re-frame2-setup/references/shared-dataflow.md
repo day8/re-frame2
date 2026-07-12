@@ -64,8 +64,9 @@ One subscription: `[:counter/value]` reads `(:counter/value db)`. re-frame2 cach
 ```clojure
 (ns your-app.schema
   "App-db schema — substrate-neutral. Copy verbatim for UIx or Helix.
-   register-schema! is FRAME-LOCAL: core/init calls it under with-frame,
-   AFTER reg-frame and BEFORE the dispatch-sync seed (see the boot order below)."
+   register-schema! is FRAME-LOCAL: it names the app frame explicitly
+   ({:frame :rf/default}), so core/init calls it at boot BEFORE the
+   frame-root mount creates the frame (see the boot order below)."
   (:require [re-frame.core :as rf]))
 
 ;; A whole-app-db schema attached at the empty path `[]` (get-in/assoc-in grain:
@@ -78,12 +79,14 @@ One subscription: `[:counter/value]` reads `(:counter/value db)`. re-frame2 cach
    [:counter/value :int]])
 
 ;; App-db schemas are FRAME-LOCAL (EP-0002 carried-frame invariant): they target
-;; a frame, and a bare ns-load reg-app-schema with no frame in scope raises
-;; :rf.error/no-frame-context. So the attach lives in this fn and runs at BOOT —
-;; core/init calls it under `with-frame :rf/default`, after reg-frame makes the
-;; frame live. This is the same register-schema! the generator template ships.
+;; a frame, and a bare two-slot ns-load reg-app-schema with no frame in scope
+;; raises :rf.error/no-frame-context. So the attach lives in this fn, names the
+;; app frame EXPLICITLY (the optional middle metadata slot), and runs at BOOT —
+;; core/init calls it before the frame-root mount even creates the frame, so
+;; the frame's :initial-events seed is validated from its first write. This is
+;; the same register-schema! the generator template ships.
 (defn register-schema! []
-  (rf/reg-app-schema [] CounterDb))
+  (rf/reg-app-schema [] {:frame :rf/default} CounterDb))
 ```
 
 ## Why the schema attaches at boot (not ns-load)
@@ -91,15 +94,14 @@ One subscription: `[:counter/value]` reads `(:counter/value db)`. re-frame2 cach
 Two contracts make the attach work — the same two the Reagent counter documents in [`first-counter.md` §Schema](first-counter.md):
 
 - **`re-frame.schemas` must be loaded before any `reg-app-schema` runs.** Requiring it (in `events.cljs` above) publishes Malli's `validate` / `explain` into the framework's late-bind hook table — so the registration actually validates rather than throwing `:rf.error/schemas-artefact-missing`. It self-requires its Malli adapter; **no** separate `re-frame.schemas.malli` require is needed.
-- **The attach is frame-local and runs at boot, not at ns-load.** `reg-app-schema` targets a frame (EP-0002), and no frame exists at namespace-load time, so registering there raises `:rf.error/no-frame-context`. `register-schema!` therefore runs from `init`, inside `(rf/with-frame :rf/default …)`, after `reg-frame` makes `:rf/default` live.
+- **The attach is frame-local and runs at boot, not at ns-load.** `reg-app-schema` targets a frame (EP-0002); a bare two-slot registration at namespace-load time has no frame scope and raises `:rf.error/no-frame-context`. `register-schema!` therefore names the app frame **explicitly** (`{:frame :rf/default}`, the optional middle metadata slot) and runs from `init` — valid even before the `frame-root` mount creates the frame.
 
 ## How the entry namespace wires them
 
 The substrate `core.cljs` (from [`entry-namespace.md` §UIx / Helix greenfield](entry-namespace.md)) `:require`s all three namespaces so their registrations load, then boots in this order — **matching the generator template's boot order**:
 
 1. `(rf/init! <substrate>-adapter/adapter)` — install the adapter (no frame yet).
-2. `(rf/reg-frame :rf/default {})` — register the app frame.
-3. `(rf/with-frame :rf/default …)` — under the live frame scope, **first** `(schema/register-schema!)` (the frame-local schema attach), **then** `(rf/dispatch-sync [:counter/initialise])` (the synchronous seed / reset boundary).
-4. Mount through the substrate's own root API, wrapped in the adapter's `frame-provider` `{:frame :rf/default}` scope.
+2. `(schema/register-schema!)` — attach the frame-local schema (explicit `{:frame :rf/default}` target; the frame does not exist yet).
+3. Mount through the substrate's own root API, wrapped in the adapter's `frame-root` `{:id :rf/default :initial-events [[:counter/initialise]]}` ENSURE element — it creates the frame at mount, runs the seed synchronously at creation, and reuses the live frame without re-seeding on later mounts.
 
-Registering the schema **before** the seed means the first `:counter/initialise` write is validated against `CounterDb`. The full boot ceremony (adapter install, the `defonce` root, the provider scope) is explained in [`entry-namespace.md`](entry-namespace.md).
+Registering the schema **before** the mount means the very first `:counter/initialise` write is validated against `CounterDb`. The full boot ceremony (adapter install, the `defonce` root, the ENSURE mount) is explained in [`entry-namespace.md`](entry-namespace.md).

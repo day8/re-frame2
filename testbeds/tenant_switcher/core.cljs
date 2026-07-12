@@ -49,9 +49,10 @@
             ;; transport. Requiring it publishes the late-bind feature probe
             ;; the resource lowering consults (`:http/abort-on-actor-destroy`)
             ;; so an HTTP-backed ensure does not fail artefact-missing. The
-            ;; testbed then OVERRIDES the `:rf.http/managed` fx with a
-            ;; deterministic in-memory stub (below) so no request crosses the
-            ;; wire — a testbed IS a test affordance, so this is correct.
+            ;; testbed then routes `:rf.http/managed` to a deterministic
+            ;; in-memory stub through the frame's `:fx-overrides` (below) so
+            ;; no request crosses the wire — a testbed IS a test affordance,
+            ;; and `:fx-overrides` is the designed per-frame stub seam.
             [re-frame.http.managed]
             [re-frame.views]
             [re-frame.adapter.reagent :as reagent-adapter])
@@ -137,7 +138,12 @@
     (when (and (vector? scope) (= :rf.scope/tenant (first scope)))
       (:tenant-id (second scope)))))
 
-(rf/reg-fx :rf.http/managed
+;; rf2-h1vqa4: the stub is a TESTBED-OWNED fx id routed through the frame's
+;; `:fx-overrides` (see `run` below) — the designed per-frame replacement
+;; seam — rather than a re-registration of the framework's `:rf.http/managed`
+;; id, which would sit beside the framework row as a cross-namespace
+;; duplicate and fail the frame's default-image assembly loud.
+(rf/reg-fx ::fake-http
   (fn [_frame-ctx {:keys [on-success]}]
     ;; HOT PATH — synthesise the success reply the live transport would have
     ;; dispatched. `on-success` is `[reply-id verification-payload]`; the
@@ -301,7 +307,11 @@
   ;; `:rf/default` is this testbed's frame, registered explicitly; the
   ;; boot dispatch runs under it and the render is wrapped in a
   ;; `frame-provider` so in-tree dispatch/subscribe resolve to it.
-  (rf/make-frame {:id :rf/default})
+  (rf/make-frame {:id :rf/default
+                  ;; Route managed-HTTP through the deterministic in-memory
+                  ;; stub for every dispatch in this frame (keyword-redirect
+                  ;; form of `:fx-overrides`, spec/002).
+                  :fx-overrides {:rf.http/managed ::fake-http}})
   (rf/with-frame :rf/default
     (rf/dispatch-sync [::initialise]))
   (rdc/render react-root [rf/frame-provider {:frame :rf/default} [root]]))

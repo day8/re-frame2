@@ -74,7 +74,7 @@ You're done when all of these hold:
 - [ ] `npx shadow-cljs watch app` compiles cleanly — no missing-namespace or classpath errors.
 - [ ] The browser shows the counter and the `+1` button increments the number.
 - [ ] The Xray panel auto-opens in the right-side `[data-rf-xray-host]` column beside `#app` (the day-one `:devtools/preloads` wiring).
-- [ ] app-db validates against `CounterDb` after each event — `core.cljs` requires **only** `re-frame.schemas` (which self-wires its Malli adapter; **no** separate `re-frame.schemas.malli` require) and attaches the schema via `(rf/reg-app-schema [] CounterDb)` inside the boot `(rf/with-frame :rf/default …)` scope.
+- [ ] app-db validates against `CounterDb` after each event — `core.cljs` requires **only** `re-frame.schemas` (which self-wires its Malli adapter; **no** separate `re-frame.schemas.malli` require) and attaches the schema at boot via `(rf/reg-app-schema [] {:frame :rf/default} CounterDb)` — the explicit frame target, valid before the `frame-root` mount creates the frame.
 
 Hand off: *"Setup is done. Switch to **`re-frame2`** for events/subs/machines/schemas/frames/fx. The Xray panel is already open on the right (day-one preload) — load **`re-frame2-xray`** to tour its tabs. For live REPL inspection, install **`re-frame2-pair`**."*
 

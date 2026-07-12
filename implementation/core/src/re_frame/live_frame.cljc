@@ -333,8 +333,6 @@
   [frame-target]
   (frame-generation frame-target))
 
-(declare flush-projection-if-dirty!)
-
 (defn call-with-frame-resolution
   "Invoke `thunk` with `registrar/*generation*` bound to `frame-target`'s
   resolved image generation WHEN the target names an image-loaded frame;
@@ -372,8 +370,17 @@
   normalize + one record read and then runs `thunk` with ZERO dynamic-binding
   cost."
   [frame-target thunk]
+  ;; LATE-BOUND consult (not a direct fn reference): the flush body pulls the
+  ;; whole reprojection + image-assembly graph, which must DCE out of
+  ;; production bundles that never root `make-frame`/`assemble` (the Spec 009
+  ;; elision probe pins `resolve-within-image` ABSENT-when-unused). The
+  ;; dev-only publisher lives in the debug-gated auto-reprojection `defonce`
+  ;; below, so under `:advanced` + `goog.DEBUG=false` nothing references the
+  ;; flush and the graph folds away — the same seam the deferred tick's hook
+  ;; install already rides.
   (when interop/debug-enabled?
-    (flush-projection-if-dirty!))
+    (when-let [flush! (late-bind/get-fn-cached :live-frame/flush-projection!)]
+      (flush!)))
   (if-let [gen (frame-resolution-generation frame-target)]
     (binding [registrar/*generation* gen]
       (thunk))
@@ -1297,4 +1304,9 @@
     ;; cannot require this ns (cycle), so it consults this late-bind key on
     ;; its removal paths; same dirty-mark + coalescing as the register side.
     (late-bind/set-fn! :live-frame/mark-projection-dirty! mark-dirty-and-schedule!)
+    ;; The read-time coalesced flush consult in `call-with-frame-resolution`
+    ;; (rf2-h1vqa4) — published HERE, inside the debug gate, so production
+    ;; bundles never reference the flush body and the reprojection +
+    ;; assembly graph DCEs (Spec 009 elision probe).
+    (late-bind/set-fn! :live-frame/flush-projection! flush-projection-if-dirty!)
     :installed))

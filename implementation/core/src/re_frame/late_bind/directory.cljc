@@ -1074,6 +1074,10 @@
     :producer-ns 're-frame.live-frame
     :design-bead "rf2-h1vqa4"
     :description "Mark the live-frame default-image projection DIRTY on a registrar REMOVAL (`unregister!` / `clear-kind!` / `clear-all!`) — the removal twin of the registration hook `re-frame.live-frame` installs for `reg-*`. A cleared handler must disappear from image-loaded frames at their next resolution (read-time coalesced flush / CLJS deferred tick), not linger in a sealed generation the source store no longer backs. Dev-only: published under `interop/debug-enabled?` alongside the auto-reprojection hook; production builds never consult it (the registrar stops mutating after boot)."}
+   {:key         :live-frame/flush-projection!
+    :producer-ns 're-frame.live-frame
+    :design-bead "rf2-h1vqa4"
+    :description "Read-time coalesced reprojection flush — consulted by `re-frame.live-frame/call-with-frame-resolution` at the top of every frame-targeted resolution so a dirty default-image projection is flushed BEFORE the target generation is read (a reg-* after make-frame is deterministically visible to the very next same-tick dispatch/subscribe). Late-bound rather than a direct call so production bundles never reference the flush body: the publisher lives in the debug-gated auto-reprojection defonce, and under :advanced + goog.DEBUG=false the whole reprojection + image-assembly graph DCEs (Spec 009 elision probe pins assembly ABSENT-when-unused)."}
    {:key         :frame/current-frame-id
     :producer-ns 're-frame.frame
     :design-bead "rf2-g1b2m"

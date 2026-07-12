@@ -163,8 +163,13 @@
   payload."
   []
   (let [fid (keyword "rf.frame" (str (gensym "stream-client-")))]
-    (rf/make-frame {:id fid :doc "streaming-client-test frame" :platform :client})
+    ;; Register BEFORE creating the frame (rf2-h1vqa4): an explicit id in the
+    ;; reserved `rf.frame` namespace is a DIRECT frame — auto-reprojection
+    ;; deliberately never touches it (EP-0023 §Frame), so its default image
+    ;; generation is sealed at construction and a post-construction reg-sub
+    ;; would be invisible to `{:frame fid}` resolution.
     (rf/reg-sub :sct/card (fn [db [_ id]] (get-in db [:cards id])))
+    (rf/make-frame {:id fid :doc "streaming-client-test frame" :platform :client})
     fid))
 
 ;; ---- the acceptance test ---------------------------------------------------
