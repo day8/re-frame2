@@ -201,16 +201,31 @@
   {:namespace "day8.re-frame2-xray.runtime" :var "session-id"    :kind :var :facade? false :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
   ;; --- re-frame.ui (day8/re-frame2-ui) — the Spec-004 compiled-view substrate
   ;;     (epic rf2-vxgfnd). `re-frame.ui` is a `.cljc` namespace, but its rows
-  ;;     are carried HERE (not JVM-introspected by the generator) so the manifest
-  ;;     surface stays EXACTLY the blessed S1 export set: a whole-namespace JVM
-  ;;     `ns-publics` would additionally pull in `frame-root` / `frame-provider`,
-  ;;     live vars intentionally NOT rowed under re-frame.ui (`frame-root` rides
-  ;;     the re-frame.core façade row; the compiled-view `frame-provider` is
-  ;;     rowed in spec/API.md §View ergonomics, not here).
+  ;;     are carried HERE (not JVM-introspected by the generator) so the curated
+  ;;     order + tiers stay verbatim from spec/API.md §Compiled views. The rows
+  ;;     below ARE the blessed S1 export set (spec/API.md §Compiled views):
+  ;;     defview / custom-element / sub / lease / raw / html / raw-fn / spread /
+  ;;     mount / create-root / render! / hydrate-root / unmount! / frame-root.
+  ;;     `frame-root` (rf2-vxgfnd.71) is NAMESPACE-SPECIFIC — the compiled-view
+  ;;     ENSURE root-form marker (a compile-marker `defn`, :kind :fn), rowed
+  ;;     against re-frame.ui itself. It is NOT the re-frame.core / adapter façade
+  ;;     `frame-root` Var: manifest identity is namespace + var, so a re-frame.core
+  ;;     row cannot classify or verify `re-frame.ui/frame-root` (the earlier
+  ;;     "rides the core façade row" claim was the drift this bead reconciles).
+  ;;     ONE live public var is intentionally UNROWED here:
+  ;;     `re-frame.ui/frame-provider` (a live compile-marker `defn`). Its manifest
+  ;;     + spec/API.md classification is DEFERRED to the context-tier mechanism
+  ;;     decision rf2-vxgfnd.24 — if .24 picks a non-`frame-provider` mechanism
+  ;;     the var may become internal, so it is NOT blessed / rowed now. Recorded
+  ;;     here EXPLICITLY (not silently dropped): re-frame.ui stays a CURATED
+  ;;     SUBSET (NOT :fully-rowed) precisely so this one deferred var does not
+  ;;     force a row before .24 rules. When .24 lands, either row it under
+  ;;     re-frame.ui + add its spec/API.md §Compiled views row (and consider
+  ;;     making re-frame.ui :fully-rowed), or make the source Var `^:no-doc`.
   ;;     RUNTIME-VERIFIED via the 2mtte CLJS probe (rf2-qz1h5d): the probe loads
   ;;     re-frame.ui and reconciles these rows against its live CLJS publics
   ;;     DIRECTION-1 ONLY — a CURATED SUBSET, exactly like the Xray mount surface
-  ;;     (NOT :fully-rowed, so the two extra live vars above do not force rows),
+  ;;     (NOT :fully-rowed, so the deferred `frame-provider` does not force a row),
   ;;     so a row removed / renamed in source turns the probe RED. Hence
   ;;     :runtime-verified? true. The later-stage verbs (local / effect /
   ;;     dispatch-fn / presence / presence-phase / ->react / error-boundary /
@@ -230,7 +245,8 @@
   {:namespace "re-frame.ui" :var "create-root"    :kind :macro :facade? false :tier :advanced    :owner "004" :status "Spec-004 S1" :runtime-verified? true}
   {:namespace "re-frame.ui" :var "render!"        :kind :macro :facade? false :tier :advanced    :owner "004" :status "Spec-004 S1" :runtime-verified? true}
   {:namespace "re-frame.ui" :var "hydrate-root"   :kind :macro :facade? false :tier :advanced    :owner "004" :status "Spec-004 S1" :runtime-verified? true}
-  {:namespace "re-frame.ui" :var "unmount!"       :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S1" :runtime-verified? true}]
+  {:namespace "re-frame.ui" :var "unmount!"       :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S1" :runtime-verified? true}
+  {:namespace "re-frame.ui" :var "frame-root"     :kind :fn    :facade? false :tier :front-porch :owner "004" :status "Spec-004 S1" :runtime-verified? true}]
 
  ;; --------------------------------------------------------------------------
  ;; API.md var-rows that are KNOWINGLY absent from the manifest. The
