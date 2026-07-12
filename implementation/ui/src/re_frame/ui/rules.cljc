@@ -731,11 +731,12 @@
 ;;   register-custom-element!     a declaration re-runs — STAGES into the open
 ;;                                cycle (or, at initial load / in production where
 ;;                                no cycle is open, writes through directly).
-;;   (note-reloaded-sources! ..)  the reload machinery (rf2-df9873's shadow build
-;;                                hook) records WHICH sources re-ran / were removed
-;;                                this cycle — the signal a zero-declaration or
-;;                                deleted source cannot emit for itself. Optional:
-;;                                absent, only the staged sources are reconciled.
+;;   (note-reloaded-sources! ..)  the SHADOW_NS_RESET producer (rf2-vxgfnd.77;
+;;                                see below) records WHICH sources re-ran this
+;;                                cycle — the signal a zero-declaration source
+;;                                cannot emit for itself (absence cannot
+;;                                self-report). Optional: absent, only the
+;;                                staged sources are reconciled.
 ;;   (commit-reload! [build?])    ^:dev/after-load — COMMIT atomically: every
 ;;                                staged source REPLACES its whole prior
 ;;                                contribution, every reloaded-but-unstaged /
@@ -826,10 +827,11 @@
 
 (defn note-reloaded-sources!
   "Record the sources that re-ran (or were removed) in the open reload cycle —
-  the signal a zero-declaration or deleted source cannot emit for itself, fed by
-  the reload machinery (rf2-df9873's shadow build hook). `sources` is a coll of
-  ns-syms (paired with `build-id`) or ready-made [build ns] pairs. A no-op when
-  no cycle is open; unions into the cycle so it can be called repeatedly."
+  the signal a zero-declaration source cannot emit for itself, fed in the shipped
+  browser reload path by `reload-source-reset!` (the SHADOW_NS_RESET producer;
+  rf2-vxgfnd.77). `sources` is a coll of ns-syms (paired with `build-id`) or
+  ready-made [build ns] pairs. A no-op when no cycle is open; unions into the
+  cycle so it can be called repeatedly."
   ([sources] (note-reloaded-sources! sources default-build))
   ([sources build-id]
    (when (contains? @reload-cycles build-id)
@@ -861,6 +863,75 @@
        (rebuild-live!)
        (swap! reload-cycles dissoc build-id)))
    nil))
+
+;; ---------------------------------------------------------------------------
+;; The production producer: shadow-cljs's real reload machinery feeds
+;; `note-reloaded-sources!` (rf2-vxgfnd.77)
+;;
+;; The ledger above evicts a source that dropped its last declaration ONLY when
+;; `note-reloaded-sources!` is told the source re-ran. But a source that re-runs
+;; declaring NOTHING emits no code to announce itself — absence cannot
+;; self-report — so the signal cannot come from the emitted
+;; `register-custom-element!` calls (a zero-declaration source emits none). It
+;; must come from the reload machinery, which knows which namespaces re-ran
+;; regardless of what they declared.
+;;
+;; shadow-cljs exposes exactly that seam: its `before-load-src` calls every fn on
+;; `js/goog.global.SHADOW_NS_RESET` with the ns symbol of each source it reloads,
+;; DURING the code-load phase — after the `^:dev/before-load` `notify-reload!`
+;; opened the cycle and before the `^:dev/after-load` `commit-reload!` closes it.
+;; `reload-source-reset!` rides that seam: for every reloaded ns it stages a
+;; `:touched` entry, so `commit-reload!` reconciles the sources that ACTUALLY
+;; re-ran and evicts the stale rows of one that now declares nothing — the exact
+;; runtime analogue of the compile side, where `build/commit-slice` evicts a
+;; source that recompiled contributing nothing.
+;;
+;; Bounded case (matches rf2-df9873's ruling AND the compile side): a source FILE
+;; deleted with no reloading dependent never re-runs, so shadow never reports it
+;; and its runtime rows persist until the next full page load — "no design can
+;; observe an unsaved deletion." The compile-side `finish-build!` evicts the
+;; deleted source from the COMPILE registry via `:build-sources` membership; the
+;; runtime arm converges on the next full reload. `note-reloaded-sources!` stays
+;; the seam an authoritative removed-source manifest would feed if one is wired.
+;;
+;; Dev-only: the whole install is `js/goog.DEBUG`-gated, so `:advanced`
+;; production carries no producer and never references SHADOW_NS_RESET.
+;; ---------------------------------------------------------------------------
+
+#?(:cljs
+   (defn reload-source-reset!
+     "The per-source action shadow-cljs's reload machinery drives (through
+     `js/goog.global.SHADOW_NS_RESET`) for every namespace it reloads this cycle:
+     record `ns` as a source that re-ran, so `commit-reload!` evicts it when it
+     staged no declaration this cycle. A no-op when no reload cycle is open
+     (initial load / production). `ns` is a CLJS ns symbol; a string is coerced."
+     [ns]
+     (note-reloaded-sources! [(cond-> ns (string? ns) symbol)])
+     nil))
+
+#?(:cljs
+   (defn install-reload-source-producer!
+     "Wire the runtime reload ledger to shadow-cljs's real reload machinery — the
+     PRODUCER that feeds `note-reloaded-sources!` in the shipped browser reload
+     path (rf2-vxgfnd.77). Pushes `reload-source-reset!` onto
+     `js/goog.global.SHADOW_NS_RESET` (ensuring the array `||`-style, so it
+     neither clobbers nor is clobbered by shadow's own init), so shadow calls it
+     with each reloaded source's ns from `before-load-src`. Dev-only (gated on
+     `js/goog.DEBUG`, elided from `:advanced` production) and installed exactly
+     once via the `defonce` below (a hot-reload of THIS ns never double-registers)."
+     []
+     (when ^boolean js/goog.DEBUG
+       (let [arr (or js/goog.global.SHADOW_NS_RESET #js [])]
+         (set! (.-SHADOW_NS_RESET js/goog.global) arr)
+         (.push arr reload-source-reset!)
+         true))))
+
+#?(:cljs
+   (defonce ^:private _reload-source-producer
+     ;; Install at client load so the shipped reload path has a producer the
+     ;; moment this ns is present; `defonce` survives a hot-reload of rules.cljc
+     ;; itself, so the callback is registered exactly once.
+     (install-reload-source-producer!)))
 
 (defn reset-custom-elements!
   "Test support: clear the runtime custom-element registry, the per-source

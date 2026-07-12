@@ -332,3 +332,105 @@
             @rules/custom-elements)]
     (is (= (full-reload!) (incremental!))
         "incremental reload equals a clean full-page-reload rebuild")))
+
+;; ---------------------------------------------------------------------------
+;; The production producer (rf2-vxgfnd.77) — the reload ledger's zero-declaration
+;; eviction fired THROUGH the shipped browser reload path, not a direct
+;; `note-reloaded-sources!` call. `reload-source-reset!` is what shadow-cljs's
+;; `before-load-src` drives (through `js/goog.global.SHADOW_NS_RESET`) for every
+;; reloaded ns; `install-reload-source-producer!` (run once at ns load via a
+;; `defonce`) is the wire. These tests are CLJS-only — the producer is the
+;; runtime arm and does not exist on the JVM compile host.
+;; ---------------------------------------------------------------------------
+
+#?(:cljs
+   (defn- fire-shadow-ns-reset!
+     "Simulate shadow-cljs's `before-load-src`: call every fn registered on the
+     `SHADOW_NS_RESET` array with the reloaded ns, exactly as the real reload
+     machinery does mid-cycle. Wrapped so an unrelated resetter registered by
+     other code can't fail the ledger assertion."
+     [ns]
+     (doseq [f (array-seq js/goog.global.SHADOW_NS_RESET)]
+       (try (f ns) (catch :default _ nil)))))
+
+#?(:cljs
+   (deftest reload-producer-is-wired-to-shadow-reset-array
+     ;; The wire itself: install-reload-source-producer! (run at ns load) must
+     ;; have registered reload-source-reset! on shadow's per-reload callback
+     ;; array, so the shipped reload path has a real caller for the ledger seam.
+     (is (exists? js/goog.global.SHADOW_NS_RESET)
+         "install-reload-source-producer! ensured the SHADOW_NS_RESET array")
+     (is (some #(identical? % rules/reload-source-reset!)
+               (array-seq js/goog.global.SHADOW_NS_RESET))
+         "the shipped producer is registered on shadow's per-reload callback array")))
+
+#?(:cljs
+   (deftest reload-producer-evicts-zero-declaration-source-end-to-end
+     ;; The headline gap (rf2-vxgfnd.67 shipped the seam with NO production
+     ;; caller): a source that re-runs declaring NOTHING must have its stale rows
+     ;; evicted. Here the eviction fires through the SHIPPED producer — we drive
+     ;; shadow's SHADOW_NS_RESET callback (as before-load-src does), NOT
+     ;; note-reloaded-sources! directly — proving the browser reload path now
+     ;; fires what the ledger always could but never had a caller for.
+     (rules/reset-custom-elements!)
+     (rules/register-custom-element! :x-el {:properties #{:help-text}} 'app.a)
+     (is (= #{:help-text} (rules/custom-element-properties :x-el))
+         "initial load classifies :help-text as a property")
+     (rules/notify-reload!)                        ; ^:dev/before-load
+     (fire-shadow-ns-reset! 'app.a)                ; before-load-src: app.a re-runs, declares nothing
+     (rules/commit-reload!)                        ; ^:dev/after-load
+     (is (= #{} (rules/custom-element-properties :x-el))
+         "the shipped SHADOW_NS_RESET producer evicts the zero-declaration source")
+     (is (= {} @rules/custom-elements)
+         "no stale rows survive the zero-declaration reload through the real path")))
+
+#?(:cljs
+   (deftest reload-producer-preserves-untouched-and-updates-reloaded
+     ;; Through the shipped producer: reloading only app.b (which re-declares)
+     ;; must update B and leave A's rows intact — A is neither fired by
+     ;; SHADOW_NS_RESET nor re-staged, so it is untouched.
+     (rules/reset-custom-elements!)
+     (rules/register-custom-element! :a-el {:properties #{:a-prop}} 'app.a)
+     (rules/register-custom-element! :b-el {:properties #{:b-prop}} 'app.b)
+     (rules/notify-reload!)
+     (fire-shadow-ns-reset! 'app.b)                                          ; only app.b reloads
+     (rules/register-custom-element! :b-el {:properties #{:b-prop2}} 'app.b) ; ...re-declaring
+     (rules/commit-reload!)
+     (is (= #{:a-prop} (rules/custom-element-properties :a-el))
+         "untouched source A keeps its classification across B's reload")
+     (is (= #{:b-prop2} (rules/custom-element-properties :b-el))
+         "reloaded source B's classification updates through the real path")))
+
+#?(:cljs
+   (deftest reload-producer-drops-last-declaration-but-keeps-a-sibling
+     ;; app.a reloads, dropping :x-el but keeping :y-el. The producer fires
+     ;; app.a (touched); :y-el stages; commit replaces app.a's WHOLE contribution
+     ;; so the dropped :x-el is evicted while :y-el survives — all through the
+     ;; shipped path, no direct seam call.
+     (rules/reset-custom-elements!)
+     (rules/register-custom-element! :x-el {:properties #{:help-text}} 'app.a)
+     (rules/register-custom-element! :y-el {:properties #{:label}} 'app.a)
+     (rules/notify-reload!)
+     (fire-shadow-ns-reset! 'app.a)
+     (rules/register-custom-element! :y-el {:properties #{:label}} 'app.a)   ; only :y-el survives
+     (rules/commit-reload!)
+     (is (= #{} (rules/custom-element-properties :x-el))
+         "the dropped :x-el is evicted through the real producer")
+     (is (= #{:label} (rules/custom-element-properties :y-el))
+         "the surviving :y-el is retained")))
+
+#?(:cljs
+   (deftest reload-producer-is-build-isolated
+     ;; The producer notes into the ::default build (one compiled bundle = one
+     ;; build). Explicit-build rows are untouched by a ::default-build reload —
+     ;; the [build-id ns] ownership holds through the real path too.
+     (rules/reset-custom-elements!)
+     (rules/register-custom-element! :app-el {:properties #{:a-prop}} 'app.core)       ; ::default
+     (rules/register-custom-element! :lib-el {:properties #{:l-prop}} 'lib.core :lib)  ; build :lib
+     (rules/notify-reload!)                       ; opens the ::default cycle
+     (fire-shadow-ns-reset! 'app.core)            ; app.core re-runs, declares nothing
+     (rules/commit-reload!)
+     (is (= #{} (rules/custom-element-properties :app-el))
+         "the ::default reload evicts its own zero-declaration source")
+     (is (= #{:l-prop} (rules/custom-element-properties :lib-el))
+         "build :lib's row is untouched — the producer cannot cross builds")))
