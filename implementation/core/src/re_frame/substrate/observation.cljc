@@ -218,8 +218,13 @@
 
 (defonce ^:private registry-epoch*
   ;; Monotonic count of `:sub` registrations (first-time AND replacement) —
-  ;; the `:registry-epoch` evidence axis. Bumped by the registration hook
-  ;; installed at the bottom of this ns.
+  ;; the `:registry-epoch` evidence axis. Bumped ONCE per `:sub` registration by
+  ;; the registrar hooks installed at the bottom of this ns: a FIRST-TIME
+  ;; registration bumps on the registration hook; a RE-REGISTRATION bumps on the
+  ;; replacement hook BEFORE the `:hmr` drain runs — so the disposal notification
+  ;; reports the SAME (post-bump) epoch the next probe will read, never a stale
+  ;; pre-bump value the consumer would misread as phantom registry movement
+  ;; (rf2-vxgfnd.36).
   (atom 0))
 
 ;; ---- reentrancy guard (dev) -------------------------------------------------
@@ -381,6 +386,28 @@
          "the public subscribe surface keeps its recover-to-nil semantics).")
     {:unresolved-input query-v
      :resolved-inputs  []}))
+
+(defn- throw-malformed-target!
+  "Default arm for the target-taking ops' `(case (:kind target) …)` dispatch: a
+  target whose `:kind` is neither `:subscription` nor `:story-override` is a
+  MALFORMED target — one that did not come from [[resolve-target]] (the ONLY
+  resolution point), a substrate/consumer bug. Per Spec 006 §Error contract every
+  port op throws TYPED; without this arm a bogus `:kind` would fall through `case`
+  to a BARE host error (\"No matching clause\"), which the ViewCell error boundary
+  cannot classify. Throws the typed `:rf.error/observation-malformed-target`. Pure
+  `throw-error!` (diagnostic channel) — a corrupted target is a programming defect,
+  unreachable in correct generated code, so it does NOT fan the always-on axis.
+  Never returns."
+  [where target]
+  (error/throw-error!
+    :rf.error/observation-malformed-target
+    where
+    (str where " received a malformed observation target: its :kind "
+         (pr-str (:kind target)) " is neither :subscription nor :story-override. "
+         "A target must come from resolve-target (the port's ONLY resolution "
+         "point); a hand-constructed or corrupted target is a substrate bug.")
+    {:recovery :no-recovery
+     :extra    {:kind (:kind target)}}))
 
 (defn- throw-acquire-recovery!
   "rf2-vxgfnd.27 — the ENTRY node's OWN build produced a NEVER-CACHED, zero-ref
@@ -855,7 +882,9 @@
                (let [fs   (frame/frame-state-value frame-id)
                      memo (slice-memo-table! slice-memo frame-id)
                      v    (subs/compute-sub-with-memo query fs memo)]
-                 (evidence frame-id v nil nil false))))))))))
+                 (evidence frame-id v nil nil false)))))))
+
+     (throw-malformed-target! 're-frame.substrate.observation/probe target))))
 
 ;; ---- active-owner tracking (the released-lease-retention fix) ----------------
 ;;
@@ -1308,7 +1337,9 @@
                 (if (< attempt max-displacement-retries)
                   (recur (inc attempt))
                   (throw-retry-exhausted! frame-id query (inc attempt)))
-                (throw-acquire-recovery! frame-id query result)))))))))
+                (throw-acquire-recovery! frame-id query result)))))))
+
+    (throw-malformed-target! 're-frame.substrate.observation/acquire! target)))
 
 ;; ---- current? -------------------------------------------------------------------
 
@@ -1509,12 +1540,30 @@
 
 (defonce ^:private _registrar-hooks
   (do
+    ;; FIRST-TIME `:sub` registrations bump the registry epoch here. The
+    ;; registration hook fires on EVERY register! (first-time AND replacement),
+    ;; so the `(nil? was)` guard restricts THIS bump to first-time registrations;
+    ;; a re-registration's bump rides the replacement hook below instead. That
+    ;; split is load-bearing for the `:hmr` disposal notification (rf2-vxgfnd.36):
+    ;; registrar runs replacement hooks BEFORE registration hooks, so bumping a
+    ;; re-registration here (last) would leave the earlier `:hmr` drain reading a
+    ;; STALE pre-bump epoch — one the consumer diffing notification-epoch vs the
+    ;; next probe-epoch would misread as phantom registry movement.
     (registrar/add-registration-hook!
-      (fn observation-registry-epoch-hook [{:keys [kind]}]
-        (when (= :sub kind)
+      (fn observation-registry-epoch-hook [{:keys [kind was]}]
+        (when (and (= :sub kind) (nil? was))
           (swap! registry-epoch* inc))))
+    ;; A `:sub` RE-REGISTRATION bumps the epoch FIRST, THEN drains the queued
+    ;; `:hmr` disposal notifications — so each notification's `:registry-epoch`
+    ;; equals the value a probe issued right after the re-registration reports
+    ;; (no phantom movement — rf2-vxgfnd.36). This replacement hook is registered
+    ;; AFTER `re-frame.subs.cache`'s invalidation hook (require order), so the
+    ;; cache eviction that enqueued the former owners has already completed; the
+    ;; bump-then-drain keeps the whole re-registration internally consistent (an
+    ;; in-drain probe, and the notification epoch, agree).
     (registrar/add-replacement-hook!
       (fn observation-hmr-drain-hook [{:keys [kind]}]
         (when (= :sub kind)
+          (swap! registry-epoch* inc)
           (drain-pending-disposals! :hmr))))
     :installed))
