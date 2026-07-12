@@ -62,6 +62,72 @@
               "canonical timer :work/id closes the cancelled work attempt")
           (is (= :rf.work/timer (first (:rf.reply/work-id (:tags cancelled))))))))))
 
+;; ---- region :after timer work-id correlation (rf2-cttpk4) --------------
+;;
+;; An `:after` declared inside a parallel REGION carries a region-PREFIXED
+;; invoke-id (`prefix-region-invoke-id` prepends the region name). The FIRED /
+;; STALE timer replies strip that region head (`pick-after-transition`'s
+;; `carried-decl-path`) when building their `:rf.reply/work-id`, but the
+;; CANCELLED reply historically used the raw region-prefixed `:spawn` — so the
+;; SAME logical `:after`'s cancelled row landed under a different
+;; `[:rf.work/timer <logical-id> <epoch>]` than its fired / stale rows,
+;; splitting one timer across the work/reply ledger. This drives ONE region
+;; `:after` to BOTH fire and (on the firing exit) cancel its still-pending host
+;; handle in a single dispatch, and asserts the two rows share ONE work-id.
+
+(deftest region-after-fired-and-cancelled-share-one-work-id
+  (testing "rf2-cttpk4 — a region :after's :fired and :cancelled rows carry the
+            SAME region-stripped :rf.reply/work-id (was split by the region head)"
+    (rf/reg-machine :cttpk4-tw/timer
+      {:type    :parallel
+       :data    {}
+       :regions {:loader {:initial :working
+                          :states  {:working {:after {30000 :timeout}}
+                                    :timeout {}}}
+                 :other  {:initial :idle
+                          :states  {:idle {}}}}})
+    (mtest/with-trace-capture captured
+      ;; Birth the singleton parallel machine (schedules :loader/:working's
+      ;; :after at its per-region epoch — a still-pending 30s host handle).
+      (rf/dispatch-sync [:cttpk4-tw/timer [:rf.machine.spawn/spawned]])
+      (let [snap  (mtest/snapshot :cttpk4-tw/timer)
+            epoch (get-in snap [:data :rf/after-epoch-by-region :loader [:working]])]
+        (is (= :working (get-in snap [:state :loader])) ":loader entered :working")
+        (is (some? epoch) "the region :after was scheduled at a per-region epoch")
+        ;; Fire the :loader :after via its synthetic elapsed event carrying the
+        ;; region-PREFIXED decl-path (exactly what the real host timer
+        ;; dispatches). The :working→:timeout transition ALSO exits :working,
+        ;; cancelling the still-pending host handle → ONE dispatch emits BOTH
+        ;; :fired and :cancelled for the SAME logical :after.
+        (rf/dispatch-sync
+          [:cttpk4-tw/timer
+           [:rf.machine.timer/after-elapsed 30000 epoch [:loader :working]]])
+        (is (= :timeout (get-in (mtest/snapshot :cttpk4-tw/timer) [:state :loader]))
+            "the region :after fired → :loader moved to :timeout")
+        (let [fired         (->> @captured
+                                 (filter #(and (= :rf.machine.timer/fired (:operation %))
+                                               (true? (:fired? (:tags %)))))
+                                 first)
+              cancelled     (->> @captured
+                                 (filter #(= :rf.machine.timer/cancelled (:operation %)))
+                                 first)
+              fired-wid     (:rf.reply/work-id (:tags fired))
+              cancelled-wid (:rf.reply/work-id (:tags cancelled))]
+          (is (some? fired)     ":rf.machine.timer/fired trace fired")
+          (is (some? cancelled) ":rf.machine.timer/cancelled trace fired (the firing exit released the host handle)")
+          (is (= :rf.work/timer (first cancelled-wid)))
+          ;; The cancelled work-id's logical-id is region-STRIPPED: it ends in
+          ;; the region-RELATIVE state :working and does NOT carry the region
+          ;; name :loader (which the raw region-prefixed :spawn had put at
+          ;; position 1 of the logical-id, splitting the ledger row).
+          (is (= :working (last (second cancelled-wid))))
+          (is (not (some #{:loader} (second cancelled-wid)))
+              "the region name is stripped from the cancelled work-id logical-id")
+          ;; The headline correlation: fired and cancelled share ONE work-id, so
+          ;; both rows of this ONE :after join the same work/reply ledger row.
+          (is (= fired-wid cancelled-wid)
+              "the region :after's :fired and :cancelled rows share one :rf.reply/work-id"))))))
+
 ;; ---- actor destroy (explicit cancellation) -----------------------------
 
 (deftest explicit-destroy-trace-carries-cancelled-reply
