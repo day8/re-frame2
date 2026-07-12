@@ -1622,6 +1622,47 @@
       (get supplied :rf.db/app))
     supplied))
 
+(def ^:no-doc observation-opts-key
+  "INTERNAL (observation port, Spec 006 §The internal observation port).
+  Memo-atom slot key the port's COLD-PROBE path seeds before handing the
+  memo to [[compute-sub-with-memo]]. Value shape: `{:frame <frame-id>}`.
+
+  When present, an UNREGISTERED sub encountered MID-GRAPH during the pure
+  compute (a `:<-` / parametric input naming a sub that has no
+  registration) emits the always-on `:rf.error/no-such-sub` — the same
+  one-error-event / nil-substituted / body-still-runs contract the
+  reactive graph gives (Spec 006 §What happens when a sub references an
+  unknown sub) — so a cold probe and a live probe report the unknown
+  mid-graph input IDENTICALLY. The public `compute-sub` never sets this
+  key, so the pure testing form's documented silent-nil behaviour is
+  byte-for-byte unchanged."
+  ::observation-opts)
+
+(defn- maybe-emit-cold-probe-no-such-sub!
+  "Emit the always-on `:rf.error/no-such-sub` for an unregistered sub hit
+  MID-GRAPH under an observation-port cold probe (the `memo` carries
+  [[observation-opts-key]]). No-op for every other `compute-sub` caller.
+  Mirrors the reactive build's emission shape (`build-and-cache!*`) with a
+  `:where :observation-cold-probe` discriminator. Returns nil."
+  [memo query-v]
+  (when-let [{:keys [frame]} (get @memo observation-opts-key)]
+    (when-let [emit-error-both!
+               (late-bind/get-fn-cached :error-emit/emit-error-both)]
+      (emit-error-both!
+        :rf.error/no-such-sub
+        query-v               ;; attempted query-vector (as :event)
+        (first query-v)       ;; sub-id (as :event-id)
+        frame
+        nil                   ;; no exception — invalid op
+        0                     ;; elapsed-ms
+        (interop/now-ms)      ;; time
+        {:rf.sub/id        (first query-v)
+         :unresolved-input query-v
+         :resolved-inputs  []
+         :where            :observation-cold-probe
+         :frame            frame})))
+  nil)
+
 (defn- compute-sub*
   "Recursive worker for `compute-sub`. Threads a per-call `memo` atom
   (`{query-v -> value}`) through the `:<-` recursion so each DISTINCT
@@ -1664,7 +1705,16 @@
       (if-not meta
         ;; Unregistered sub computes to nil; memoise so a repeated
         ;; reference within the same call is also a single resolution.
-        (do (swap! memo assoc query-v nil) nil)
+        ;; Under an observation-port cold probe (and ONLY there — see
+        ;; `observation-opts-key`) the miss additionally emits the
+        ;; always-on `:rf.error/no-such-sub`, matching the reactive
+        ;; graph's one-error-event / nil-substituted contract. The memo
+        ;; dedupes: a repeated reference is a memo HIT and never reaches
+        ;; this branch again, so the error event fires once per distinct
+        ;; unknown input per slice.
+        (do (maybe-emit-cold-probe-no-such-sub! memo query-v)
+            (swap! memo assoc query-v nil)
+            nil)
         (do
           ;; Mark query-v mid-computation for the cycle guard above; popped
           ;; after its inputs resolve + its body runs (rf2-x76af2.24).
@@ -1913,6 +1963,64 @@
   ;; Seed a fresh per-call memo for the recursion. The public arity is
   ;; unchanged; the memo is purely an internal accumulator.
   (compute-sub* query-v db (atom {})))
+
+;; ---- observation-port internal entry points (Spec 006 §The internal ------
+;; observation port). Two `^:no-doc` seams `re-frame.substrate.observation`
+;; consumes; NOT public API and NOT for adapters or apps.
+
+(defn ^:no-doc compute-sub-with-memo
+  "INTERNAL (observation port). [[compute-sub]] with a CALLER-SUPPLIED memo
+  atom — the slice-scoped pure memo table behind the port's cold `probe`
+  (Spec 006 §The slice-scoped probe memo): N sibling cold probes within one
+  synchronous slice thread ONE memo atom, so shared derivation parents
+  compute once per slice instead of once per probe. The memo may carry
+  [[observation-opts-key]] (seeded by the port) to opt the unregistered-
+  mid-graph-input miss into the always-on `:rf.error/no-such-sub` emission.
+  Pure apart from that emission; creates no cache entry, no watch, no
+  disposal obligation. Same value contract as `compute-sub`."
+  [query-v db memo]
+  (compute-sub* query-v db memo))
+
+(defn ^:no-doc acquire-cache-reaction!
+  "INTERNAL (observation port). Resolve-or-build the canonical sub-cache
+  node for `query-v` in `frame-id` and take ONE reference on it — the
+  ref-count attach of Spec 006 §Lookup algorithm, exactly the CAS-after-
+  snapshot hit/bump/build discipline `subscribe` uses — WITHOUT the public
+  subscribe path's render-context machinery: no sub-override consult
+  (invariant 2 — commit must not re-resolve context), no dev deref-sink /
+  fragmentation hooks, no recover-to-nil frame handling (the PORT is the
+  fail-loud surface; it checks frame liveness + registration BEFORE calling
+  here and throws typed). Runs under the target frame's image-resolution
+  seam so an image-loaded frame's build resolves the sub through its own
+  generation, byte-identical to `subscribe`.
+
+  Returns the cache node's reaction, or nil when the frame's cache is gone
+  (destroyed in the race window — the caller maps nil to its typed
+  `:rf.error/frame-destroyed`). Callers release via the identity-guarded
+  decrement they own (the lease `release!`), or `unsubscribe`."
+  [frame-id query-v]
+  (live-frame/call-with-frame-resolution
+    (live-frame/frame-resolution-target frame-id)
+    (fn []
+      (when-let [cache (:sub-cache (frame/frame frame-id))]
+        (let [k (cache-key query-v)]
+          (if-let [entry (get @cache k)]
+            ;; Hit — bump ref-count under the same CAS-after-snapshot
+            ;; discipline as the subscribe hit path; on a lost race
+            ;; (concurrent eviction / rebuild) fall through to a fresh
+            ;; build.
+            (let [reaction (:reaction entry)
+                  [_old new]
+                  (swap-vals! cache
+                              (fn [m]
+                                (if (identical? reaction
+                                                (get-in m [k :reaction]))
+                                  (update-in m [k :ref-count] (fnil inc 0))
+                                  m)))]
+              (if (identical? reaction (get-in new [k :reaction]))
+                reaction
+                (compute-and-cache! frame-id query-v)))
+            (compute-and-cache! frame-id query-v)))))))
 
 (defn unsubscribe
   "Decrement the ref-count on the cached subscription for query-v.

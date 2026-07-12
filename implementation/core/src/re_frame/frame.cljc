@@ -917,6 +917,47 @@
 ;; it. Per Spec 002 §An ordinary :db return replaces only app-db + §Write
 ;; authority is by convention, and Spec 006 §Commit boundary.
 
+;; ---- per-frame commit epoch (Spec 006 §The internal observation port) ------
+;;
+;; A monotonic per-frame counter bumped once per PHYSICAL frame-state install
+;; (both write chokepoints: `commit-frame-transition!` and `swap-partition!`).
+;; The observation port's probe/acquire EVIDENCE carries it as `:frame-epoch`
+;; so the commit-side evidence comparison can detect "the frame's durable
+;; state moved in the render→commit gap" without watching anything — a pure
+;; counter read, no watch, no allocation on the read side. A value-equal-but-
+;; fresh-object install still bumps (the counter tracks physical installs, not
+;; `=`-change) — a false-positive epoch advance costs at most one redundant
+;; commit-side evidence re-check, which invariant 5 already prices in; a
+;; MISSED advance would break correction-before-paint, so the counter is
+;; conservative in the safe direction. The identical?-noop short-circuit in
+;; `commit-frame-transition!` genuinely installs nothing, so it does not bump.
+;;
+;; Storage is a dedicated side atom (frame-id → int), NOT a slot on the frame
+;; record: the record is swapped through several lifecycle paths that preserve
+;; state-bearing slots by identity, and threading a counter through all of
+;; them would couple every swap site to this concern. `dissoc-frame!` clears
+;; the destroyed frame's entry so the table stays bounded by live frames.
+
+(defonce ^:private frame-commit-epochs
+  (atom {}))
+
+(defn- bump-commit-epoch!
+  "Advance frame `id`'s commit epoch by one. Called at BOTH physical
+  frame-state write chokepoints, after the container install. INTERNAL."
+  [id]
+  (swap! frame-commit-epochs update id (fnil inc 0))
+  nil)
+
+(defn frame-commit-epoch
+  "Return the monotonic per-frame commit epoch for frame `id` — the count of
+  physical frame-state installs since the frame's registration (0 for a fresh
+  or unknown frame). Consumed by the observation port's probe/acquire
+  evidence (Spec 006 §The internal observation port); a moved epoch between
+  two port reads means the frame's durable state was (re)installed in the
+  gap. Pure read."
+  [id]
+  (get @frame-commit-epochs id 0))
+
 (defn commit-frame-transition!
   "Atomically install a frame transition into the ONE physical frame-state
   container (Spec 002 §Drain-loop pseudocode §commit; Spec 006 §Commit
@@ -978,7 +1019,10 @@
       ;; The cheap fast-path is reference identity; deeper equality is `=`.
       (when-not (and (identical? next-app (get current app-partition-key))
                      (identical? next-rt  (get current runtime-partition-key)))
-        (adapter/replace-container! container next-fs))
+        (adapter/replace-container! container next-fs)
+        ;; Observation-port evidence counter (Spec 006 §The internal
+        ;; observation port): one bump per physical frame-state install.
+        (bump-commit-epoch! id))
       changed)))
 
 (defn replace-app-db!
@@ -1040,6 +1084,10 @@
     (let [current   (adapter/read-container container)
           new-slice (apply f (get current pk) args)]
       (adapter/replace-container! container (assoc current pk new-slice))
+      ;; Observation-port evidence counter (Spec 006 §The internal
+      ;; observation port): one bump per physical frame-state install —
+      ;; this is the second (and last) frame-state write chokepoint.
+      (bump-commit-epoch! id)
       new-slice)))
 
 (defn swap-frame-db!
@@ -2473,9 +2521,13 @@
 
 (defn- dissoc-frame!
   ;; The frame record is keyed by the bare frame-id; removing it is a plain
-  ;; dissoc.
+  ;; dissoc. Also clears the frame's observation-port commit-epoch counter so
+  ;; the side table stays bounded by live frames (a fresh same-id incarnation
+  ;; restarts at 0 — the incarnation change is what the port's `current?` /
+  ;; frame-identity checks detect, not the counter value).
   [id]
-  (swap! frames dissoc id))
+  (swap! frames dissoc id)
+  (swap! frame-commit-epochs dissoc id))
 
 (defn- notify-epoch-listeners!
   "Fire the epoch destroy hook, threading the two frame-state snapshots the
