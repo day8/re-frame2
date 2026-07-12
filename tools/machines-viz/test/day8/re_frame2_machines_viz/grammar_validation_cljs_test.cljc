@@ -338,3 +338,53 @@
   (testing "a well-formed MAP `:on` / `:after` is still accepted"
     (is (nil? (g/definition-defect {:initial :a :states {:a {:on {:go :b}} :b {}}})))
     (is (nil? (g/definition-defect {:initial :a :states {:a {:after {500 :b}} :b {}}})))))
+
+;; rf2-bj3sxo — the SAME slot-shape rule must cover the FALLBACK `:on` /
+;; `:after` at every root scope (flat root, region root, parallel root), not
+;; only ordinary state nodes. Pre-fix `root-on-target-defect` iterated the flat
+;; root `:on` with NO shape guard, so `{:initial :a :states {:a {}} :on :retry}`
+;; threw an uncaught ISeq exception out of `valid-definition?` / the emitters
+;; instead of returning the catalogued defect.
+
+(deftest non-map-root-fallback-on-rejected-cleanly
+  (testing "a malformed FLAT-ROOT `:on` (`{… :on :retry}`) returns
+            :rf.error/machine-bad-on-clause at path [] — NOT a host exception"
+    (let [d {:initial :a :states {:a {}} :on :retry}]
+      (is (= :rf.error/machine-bad-on-clause (category d)))
+      (is (= [] (:path (g/definition-defect d))))
+      (is (false? (g/valid-definition? d)))))
+  (testing "a malformed flat-root `:after` returns :rf.error/machine-bad-after-spec"
+    (is (= :rf.error/machine-bad-after-spec
+           (category {:initial :a :states {:a {}} :after :later}))))
+  (testing "a malformed REGION-ROOT `:on` returns the same defect at the region path"
+    (let [d {:type :parallel
+             :regions {:r {:initial :a :states {:a {}} :on :retry}}}]
+      (is (= :rf.error/machine-bad-on-clause (category d)))
+      (is (= [:r] (:path (g/definition-defect d))))))
+  (testing "a malformed PARALLEL-ROOT `:on` returns the same defect at path []"
+    (let [d {:type :parallel
+             :on :retry
+             :regions {:r {:initial :a :states {:a {}}}}}]
+      (is (= :rf.error/machine-bad-on-clause (category d)))
+      (is (= [] (:path (g/definition-defect d))))))
+  (testing "the defect is VALUE-FREE — the malformed application value never leaks"
+    ;; a NON-map `:on` carrying a secret payload rejects with only the
+    ;; structural category + path; the offending value never rides the defect.
+    (let [defect (g/definition-defect {:initial :a :states {:a {}}
+                                       :on [:secret-token "leak-me-42"]})]
+      (is (= :rf.error/machine-bad-on-clause (:category defect)))
+      (is (= #{:category :path} (set (keys defect)))
+          "the defect carries ONLY :category + :path — no offending value")
+      (is (not (some #(and (string? %) (str/includes? % "leak-me-42"))
+                     (tree-seq coll? seq defect)))
+          "the malformed application value must not appear anywhere in the defect")))
+  (testing "a well-formed MAP root fallback `:on` / `:after` still PROJECTS
+            (handler normalization + ancestor-fallback precedence preserved)"
+    ;; flat root `:on` fallback (every state inherits :logout)
+    (is (nil? (g/definition-defect {:initial :a :on {:logout :a}
+                                    :states {:a {:on {:go :b}} :b {}}})))
+    ;; parallel root `:on` fallback (region-qualified target grammar)
+    (is (nil? (g/definition-defect {:type :parallel
+                                    :on {:one [:a :two]}
+                                    :regions {:a {:initial :one :states {:one {} :two {}}}
+                                              :b {:initial :one :states {:one {} :two {}}}}})))))
