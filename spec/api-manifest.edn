@@ -485,16 +485,16 @@
   {:namespace "re-frame.test-support", :var "sequester-app-registration!", :tier :testing, :kind :fn, :owner "008", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.test-support", :var "snapshot-registrar", :tier :testing, :kind :fn, :owner "008", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.test-support", :var "with-trace-recorder!", :tier :testing, :kind :macro, :owner "008", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.ui", :var "create-root", :tier :advanced, :kind :macro, :owner "004", :status "Spec-004 S1", :facade? false, :runtime-verified? false}
-  {:namespace "re-frame.ui", :var "custom-element", :tier :advanced, :kind :macro, :owner "004", :status "Spec-004 S1", :facade? false, :runtime-verified? false}
-  {:namespace "re-frame.ui", :var "defview", :tier :front-porch, :kind :macro, :owner "004", :status "Spec-004 S1", :facade? false, :runtime-verified? false}
-  {:namespace "re-frame.ui", :var "html", :tier :advanced, :kind :fn, :owner "004", :status "Spec-004 S1", :facade? false, :runtime-verified? false}
-  {:namespace "re-frame.ui", :var "hydrate-root", :tier :advanced, :kind :macro, :owner "004", :status "Spec-004 S1", :facade? false, :runtime-verified? false}
-  {:namespace "re-frame.ui", :var "lease", :tier :advanced, :kind :fn, :owner "004", :status "Spec-004 S1", :facade? false, :runtime-verified? false}
-  {:namespace "re-frame.ui", :var "mount", :tier :front-porch, :kind :macro, :owner "004", :status "Spec-004 S1", :facade? false, :runtime-verified? false}
-  {:namespace "re-frame.ui", :var "raw", :tier :advanced, :kind :fn, :owner "004", :status "Spec-004 S1", :facade? false, :runtime-verified? false}
-  {:namespace "re-frame.ui", :var "raw-fn", :tier :advanced, :kind :fn, :owner "004", :status "Spec-004 S1", :facade? false, :runtime-verified? false}
-  {:namespace "re-frame.ui", :var "render!", :tier :advanced, :kind :macro, :owner "004", :status "Spec-004 S1", :facade? false, :runtime-verified? false}
-  {:namespace "re-frame.ui", :var "spread", :tier :advanced, :kind :fn, :owner "004", :status "Spec-004 S1", :facade? false, :runtime-verified? false}
-  {:namespace "re-frame.ui", :var "sub", :tier :front-porch, :kind :fn, :owner "004", :status "Spec-004 S1", :facade? false, :runtime-verified? false}
-  {:namespace "re-frame.ui", :var "unmount!", :tier :advanced, :kind :fn, :owner "004", :status "Spec-004 S1", :facade? false, :runtime-verified? false}]}
+  {:namespace "re-frame.ui", :var "create-root", :tier :advanced, :kind :macro, :owner "004", :status "Spec-004 S1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.ui", :var "custom-element", :tier :advanced, :kind :macro, :owner "004", :status "Spec-004 S1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.ui", :var "defview", :tier :front-porch, :kind :macro, :owner "004", :status "Spec-004 S1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.ui", :var "html", :tier :advanced, :kind :fn, :owner "004", :status "Spec-004 S1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.ui", :var "hydrate-root", :tier :advanced, :kind :macro, :owner "004", :status "Spec-004 S1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.ui", :var "lease", :tier :advanced, :kind :fn, :owner "004", :status "Spec-004 S1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.ui", :var "mount", :tier :front-porch, :kind :macro, :owner "004", :status "Spec-004 S1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.ui", :var "raw", :tier :advanced, :kind :fn, :owner "004", :status "Spec-004 S1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.ui", :var "raw-fn", :tier :advanced, :kind :fn, :owner "004", :status "Spec-004 S1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.ui", :var "render!", :tier :advanced, :kind :macro, :owner "004", :status "Spec-004 S1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.ui", :var "spread", :tier :advanced, :kind :fn, :owner "004", :status "Spec-004 S1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.ui", :var "sub", :tier :front-porch, :kind :fn, :owner "004", :status "Spec-004 S1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.ui", :var "unmount!", :tier :advanced, :kind :fn, :owner "004", :status "Spec-004 S1", :facade? false, :runtime-verified? true}]}

@@ -200,32 +200,37 @@
   {:namespace "day8.re-frame2-xray.runtime" :var "egress-value"  :kind :fn  :facade? false :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
   {:namespace "day8.re-frame2-xray.runtime" :var "session-id"    :kind :var :facade? false :tier :tooling :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
   ;; --- re-frame.ui (day8/re-frame2-ui) — the Spec-004 compiled-view substrate
-  ;;     (epic rf2-vxgfnd). `re-frame.ui` is a `.cljc` namespace, but the
-  ;;     generator's classpath (implementation/scripts/api-manifest/deps.edn) does
-  ;;     NOT yet include day8/re-frame2-ui, so its public surface is not JVM-
-  ;;     introspected — its rows are carried here verbatim like the other non-
-  ;;     introspected surfaces. The blessed S1 export set is live now (the live
-  ;;     public vars of re-frame.ui, per spec/API.md §Compiled views — re-frame.ui);
-  ;;     the later-stage verbs (local / effect / dispatch-fn / presence /
-  ;;     presence-phase / ->react / error-boundary / client-only) are NOT yet
-  ;;     defined and stay on the :api-md-known-unmanifested allowlist below until
-  ;;     they ship. NOT probe-covered yet (the 2mtte CLJS probe loads adapters +
-  ;;     Xray, not re-frame.ui), so :runtime-verified? false — a follow-up wires
-  ;;     probe coverage. Tiers are verbatim from spec/API.md §Compiled views;
-  ;;     :kind is the source form (html is a `defn`, not a macro).
-  {:namespace "re-frame.ui" :var "defview"        :kind :macro :facade? false :tier :front-porch :owner "004" :status "Spec-004 S1" :runtime-verified? false}
-  {:namespace "re-frame.ui" :var "custom-element" :kind :macro :facade? false :tier :advanced    :owner "004" :status "Spec-004 S1" :runtime-verified? false}
-  {:namespace "re-frame.ui" :var "sub"            :kind :fn    :facade? false :tier :front-porch :owner "004" :status "Spec-004 S1" :runtime-verified? false}
-  {:namespace "re-frame.ui" :var "lease"          :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S1" :runtime-verified? false}
-  {:namespace "re-frame.ui" :var "raw"            :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S1" :runtime-verified? false}
-  {:namespace "re-frame.ui" :var "raw-fn"         :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S1" :runtime-verified? false}
-  {:namespace "re-frame.ui" :var "html"           :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S1" :runtime-verified? false}
-  {:namespace "re-frame.ui" :var "spread"         :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S1" :runtime-verified? false}
-  {:namespace "re-frame.ui" :var "mount"          :kind :macro :facade? false :tier :front-porch :owner "004" :status "Spec-004 S1" :runtime-verified? false}
-  {:namespace "re-frame.ui" :var "create-root"    :kind :macro :facade? false :tier :advanced    :owner "004" :status "Spec-004 S1" :runtime-verified? false}
-  {:namespace "re-frame.ui" :var "render!"        :kind :macro :facade? false :tier :advanced    :owner "004" :status "Spec-004 S1" :runtime-verified? false}
-  {:namespace "re-frame.ui" :var "hydrate-root"   :kind :macro :facade? false :tier :advanced    :owner "004" :status "Spec-004 S1" :runtime-verified? false}
-  {:namespace "re-frame.ui" :var "unmount!"       :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S1" :runtime-verified? false}]
+  ;;     (epic rf2-vxgfnd). `re-frame.ui` is a `.cljc` namespace, but its rows
+  ;;     are carried HERE (not JVM-introspected by the generator) so the manifest
+  ;;     surface stays EXACTLY the blessed S1 export set: a whole-namespace JVM
+  ;;     `ns-publics` would additionally pull in `frame-root` / `frame-provider`,
+  ;;     live vars intentionally NOT rowed under re-frame.ui (`frame-root` rides
+  ;;     the re-frame.core façade row; the compiled-view `frame-provider` is
+  ;;     rowed in spec/API.md §View ergonomics, not here).
+  ;;     RUNTIME-VERIFIED via the 2mtte CLJS probe (rf2-qz1h5d): the probe loads
+  ;;     re-frame.ui and reconciles these rows against its live CLJS publics
+  ;;     DIRECTION-1 ONLY — a CURATED SUBSET, exactly like the Xray mount surface
+  ;;     (NOT :fully-rowed, so the two extra live vars above do not force rows),
+  ;;     so a row removed / renamed in source turns the probe RED. Hence
+  ;;     :runtime-verified? true. The later-stage verbs (local / effect /
+  ;;     dispatch-fn / presence / presence-phase / ->react / error-boundary /
+  ;;     client-only) are NOT yet defined and stay on the
+  ;;     :api-md-known-unmanifested allowlist below until they ship. Tiers are
+  ;;     verbatim from spec/API.md §Compiled views; :kind is the source form
+  ;;     (html is a `defn`, not a macro).
+  {:namespace "re-frame.ui" :var "defview"        :kind :macro :facade? false :tier :front-porch :owner "004" :status "Spec-004 S1" :runtime-verified? true}
+  {:namespace "re-frame.ui" :var "custom-element" :kind :macro :facade? false :tier :advanced    :owner "004" :status "Spec-004 S1" :runtime-verified? true}
+  {:namespace "re-frame.ui" :var "sub"            :kind :fn    :facade? false :tier :front-porch :owner "004" :status "Spec-004 S1" :runtime-verified? true}
+  {:namespace "re-frame.ui" :var "lease"          :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S1" :runtime-verified? true}
+  {:namespace "re-frame.ui" :var "raw"            :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S1" :runtime-verified? true}
+  {:namespace "re-frame.ui" :var "raw-fn"         :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S1" :runtime-verified? true}
+  {:namespace "re-frame.ui" :var "html"           :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S1" :runtime-verified? true}
+  {:namespace "re-frame.ui" :var "spread"         :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S1" :runtime-verified? true}
+  {:namespace "re-frame.ui" :var "mount"          :kind :macro :facade? false :tier :front-porch :owner "004" :status "Spec-004 S1" :runtime-verified? true}
+  {:namespace "re-frame.ui" :var "create-root"    :kind :macro :facade? false :tier :advanced    :owner "004" :status "Spec-004 S1" :runtime-verified? true}
+  {:namespace "re-frame.ui" :var "render!"        :kind :macro :facade? false :tier :advanced    :owner "004" :status "Spec-004 S1" :runtime-verified? true}
+  {:namespace "re-frame.ui" :var "hydrate-root"   :kind :macro :facade? false :tier :advanced    :owner "004" :status "Spec-004 S1" :runtime-verified? true}
+  {:namespace "re-frame.ui" :var "unmount!"       :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S1" :runtime-verified? true}]
 
  ;; --------------------------------------------------------------------------
  ;; API.md var-rows that are KNOWINGLY absent from the manifest. The
