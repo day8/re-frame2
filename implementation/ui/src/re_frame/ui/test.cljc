@@ -62,10 +62,11 @@
             [re-frame.registrar :as registrar]
             [re-frame.router :as router]
             [re-frame.ui.eq :as eq]
+            [re-frame.ui.frames :as frames]
             [re-frame.ui.reactive :as reactive]
-            #?@(:clj [[re-frame.ui.compiler.analyze :as ana]
-                      [re-frame.ui.compiler.emit-jvm :as emit-jvm]
+            #?@(:clj [[re-frame.ui.compiler.emit-jvm :as emit-jvm]
                       [re-frame.ui.compiler.env :as env]
+                      [re-frame.ui.compiler.root :as root]
                       [re-frame.ui.tree :as tree]])))
 
 ;; ---------------------------------------------------------------------------
@@ -500,7 +501,7 @@
 
 #?(:clj
    (defn- validate-render-opts!
-     [opts allow-props?]
+     [opts allow-props? plan-bearing?]
      (when (some? opts)
        (when-not (map? opts)
          (bad-opts! 'rf.ui.test/render
@@ -518,6 +519,15 @@
          (bad-opts! 'rf.ui.test/render
                     "a literal root form carries its props IN the form — {:props …} combines only with a bare view reference"
                     {:props (:props opts)}))
+       (when (and plan-bearing? (or (contains? opts :frame) (contains? opts :app-db)))
+         (bad-opts! 'rf.ui.test/render
+                    (str "a PLAN-BEARING root form OWNS its frames — its "
+                         "top-region frame-root(s) preflight fresh test frames "
+                         "before the render. Drop {:frame …}/{:app-db …}; a "
+                         "frame plan and an explicit frame are two ways to say "
+                         "one thing. Explicit frame opts stay valid for "
+                         "plan-free root/view forms")
+                    (select-keys opts [:frame :app-db])))
        (when (and (contains? opts :frame) (contains? opts :app-db))
          (bad-opts! 'rf.ui.test/render
                     "{:frame f} XOR {:app-db v} — :app-db mints a fresh test frame, :frame targets one you hold; pass one"
@@ -563,19 +573,56 @@
        (assoc root :rf.ui/tree-version tree/tree-version))))
 
 #?(:clj
+   (defn- render-plan-bearing
+     "Runtime half of a PLAN-BEARING literal root form: run the root's static
+  frame plans through the S2c preflight ENSURE against FRESH test frames
+  (`re-frame.ui.frames/execute-frame-plans!` — the same executor `ui/mount`
+  drives), bind the resolved ambient frame (the innermost top-region
+  frame-root enclosing the mounted view) for the JVM structural render, and
+  tear down EVERY test-owned frame (those this render created) in a
+  `finally` — a preflight failure leaves no frame residue and preserves the
+  typed error. Plan config expressions evaluate exactly once, here at
+  preflight, before any tree traversal."
+     [opts thunk root-id plans-thunk ambient-frame-id]
+     (let [plans  (plans-thunk)
+           before (set (keys @rframe/frames))
+           run    (if (contains? opts :sub-overrides)
+                    #(binding [reactive/*sub-overrides* (:sub-overrides opts)] (thunk))
+                    thunk)]
+       (try
+         (frames/execute-frame-plans! root-id plans)
+         (let [root (if (some? ambient-frame-id)
+                      (binding [rframe/*current-frame* ambient-frame-id] (run))
+                      (run))]
+           (assoc root :rf.ui/tree-version tree/tree-version))
+         (finally
+           ;; test-owned = the plan frames not already live before preflight
+           ;; (siblings installed before a failing plan are torn down too —
+           ;; the Tier-1 no-residue guarantee, not production's irreversible-
+           ;; fx posture).
+           (doseq [fid (remove before (map :frame-id plans))]
+             (rframe/destroy-frame! fid)))))))
+
+#?(:clj
    (defn ^:no-doc render-view*
-     "Runtime half of `render` form 1 (bare view reference)."
+     "Runtime half of `render` form 1 (bare view reference — never plan-bearing)."
      [view-fn opts]
-     (validate-render-opts! opts true)
+     (validate-render-opts! opts true false)
      (render-with-opts (or opts {}) #(view-fn (get opts :props {})))))
 
 #?(:clj
    (defn ^:no-doc render-form*
      "Runtime half of `render` form 2 (literal root form — the compiled
-  template thunk)."
-     [thunk opts]
-     (validate-render-opts! opts false)
-     (render-with-opts (or opts {}) thunk)))
+  template thunk). `plans-thunk` is nil for a plan-free form (frames combine
+  with :frame/:app-db, today's behaviour) and the evaluate-at-preflight
+  thunk when the root owns frames (a top-region frame-root); `root-id` and
+  `ambient-frame-id` are the compile-resolved identity + innermost ambient
+  frame the plan-bearing path binds."
+     [thunk opts root-id plans-thunk ambient-frame-id]
+     (validate-render-opts! opts false (some? plans-thunk))
+     (if plans-thunk
+       (render-plan-bearing (or opts {}) thunk root-id plans-thunk ambient-frame-id)
+       (render-with-opts (or opts {}) thunk))))
 
 #?(:clj
    (defn- render-view-reference-form
@@ -604,43 +651,82 @@
        `(render-view* ~vsym ~opts))))
 
 #?(:clj
+   (defn- innermost-frame-root-id
+     "The frame-id of the INNERMOST top-region `frame-root` enclosing the
+  root form's single mounted view (nil when the view sits under no
+  frame-root). The JVM emits `frame-root` transparently, so this collapses
+  the client's nearest-ancestor React-context scope to the one ambient
+  frame a Tier-1 headless render binds; a `frame-provider` in the subtree
+  re-binds its own frame at emission and wins for its descendants."
+     [ast]
+     (let [result (volatile! nil)]
+       (letfn [(walk [n enclosing]
+                 (case (:op n)
+                   :view       (vreset! result enclosing)
+                   :frame-root (run! #(walk % (:frame-id n)) (:children n))
+                   (:element :fragment :frame-provider)
+                   (run! #(walk % enclosing) (:children n))
+                   nil))]
+         (walk ast nil))
+       @result)))
+
+#?(:clj
+   (defn- emit-plans-thunk
+     "Emit the evaluate-at-preflight plans thunk — `(fn [] [{:frame-id ..
+  :config-fingerprint .. :config <expr>} ..])` in document order — mirroring
+  `re-frame.ui.compiler.root`'s mount-side thunk so config EXPRESSIONS
+  evaluate exactly when preflight runs. nil when the root form carries no
+  plans."
+     [plans]
+     (when (seq plans)
+       `(fn []
+          [~@(map (fn [{:keys [frame-id config-fingerprint config]}]
+                    `{:frame-id ~frame-id
+                      :config-fingerprint ~config-fingerprint
+                      :config ~config})
+                  plans)]))))
+
+#?(:clj
    (defn- render-literal-form
-     "Expansion for form 2: a literal root form — the same grammar `mount`
-  takes. One mounted view per root form is the invariant (root identity
-  is the view's id); the template compiles through the same analyzer +
-  JVM emitter as `defview` bodies."
+     "Expansion for form 2: a literal root form — the SAME root grammar
+  `ui/mount` takes (`root/analyze-root`: the top-region scan collects the
+  mounted view + static frame plans; conditional/list `frame-root` is a
+  compile error there). One mounted view per root form is the invariant
+  (root identity is the view's id). A plan-bearing form preflights fresh
+  test frames and binds the ambient frame; a plan-free form combines with
+  the explicit :frame/:app-db opts as before."
      [menv form opts]
-     (let [head (nth form 0 nil)]
-       (when (keyword? head)
+     (let [e   (-> (env/make-env {:host :clj :ns-sym (ns-name *ns*)})
+                   (env/with-locals (keys menv)))
+           {:keys [ast views plans]} (root/analyze-root e 'rf.ui.test/render form)]
+       (when-not (= 1 (count views))
          (throw (env/compile-error
                  :rf.ui.compile/bad-test-root
-                 (str "ui.test/render: a root form mounts ONE view — root "
-                      "identity is the mounted view's id, so the head must be "
-                      "a defview; got " (pr-str head) ". Wrap the markup in a "
-                      "defview (bare elements/fragments have no view identity)")
-                 {:form form})))
-       (let [e   (-> (env/make-env {:host :clj :ns-sym (ns-name *ns*)})
-                     (env/with-locals (keys menv)))
-             ast (ana/analyze e form)]
-         (when-not (= :view (:op ast))
-           (throw (env/compile-error
-                   :rf.ui.compile/bad-test-root
-                   (str "ui.test/render: the root form's head must be a "
-                        "defview — got a " (name (:op ast)) " head. Foreign "
-                        "components have no view identity (and never appear "
-                        "in the JVM tree)")
-                   {:form form})))
-         (doseq [w @(:warnings e)]
-           (binding [*out* *err*]
-             (println (str "WARNING re-frame.ui [ui.test/render] "
-                           (:id w) ": " (:msg w)))))
-         `(render-form* (fn [] ~(emit-jvm/emit-node ast)) ~opts)))))
+                 (str "ui.test/render: a root form mounts exactly ONE view — "
+                      "root identity is the mounted view's id; this form has "
+                      (count views) ". "
+                      (if (zero? (count views))
+                        (str "Wrap the markup in a defview (bare elements / "
+                             "fragments / foreign heads have no view identity)")
+                        (str "Keep one mounted view (a fragment of two views "
+                             "has no single identity)")))
+                 {:form form :view-ids (mapv :view-id views)})))
+       (doseq [w @(:warnings e)]
+         (binding [*out* *err*]
+           (println (str "WARNING re-frame.ui [ui.test/render] "
+                         (:id w) ": " (:msg w)))))
+       `(render-form* (fn [] ~(emit-jvm/emit-node ast))
+                      ~opts
+                      ~(:view-id (first views))
+                      ~(emit-plans-thunk plans)
+                      ~(innermost-frame-root-id ast)))))
 
 #?(:clj
    (defmacro render
      "`(render root-or-view opts?)` — run the real compiled view against a
   real frame on the JVM and return the versioned public STRUCTURAL TREE
-  (root = the view's boundary node, stamped `:rf.ui/tree-version`).
+  (the top node — a view boundary, or the top-region wrapper enclosing the
+  one mounted view — stamped `:rf.ui/tree-version`).
 
   Accepted forms — exactly two (root-identity-and-mount §9):
 
@@ -651,13 +737,20 @@
        destroyed after). With neither, structural rendering proceeds
        frameless and any frame-scoped read raises honestly.
 
-    2. A LITERAL ROOT FORM — the same grammar `mount` takes:
-       `(render [product-card {:product p}] {:frame f})`.
-       `{:props p}` is REJECTED (props live in the form). Frame-plan-
-       bearing top-region wrappers (`frame-root`) land with the mount
-       slice; per the §9 [S1-CONFIRM] reading, `{:frame …}`/`{:app-db …}`
-       alongside a PLAN-BEARING root form is rejected ('the root form
-       owns its frames') — with today's plan-free forms they combine.
+    2. A LITERAL ROOT FORM — the SAME root grammar `mount` takes
+       (`root/analyze-root`): the top-region wrappers (element / fragment /
+       `frame-root` / `frame-provider`) surrounding exactly ONE mounted
+       view, e.g. `(render [product-card {:product p}] {:frame f})` or
+       `(render [frame-root {:id :shop :initial-events [[:shop/boot]]}
+                 [product-card {:product p}]])`.
+       `{:props p}` is REJECTED (props live in the form). A PLAN-BEARING
+       root form (a top-region `frame-root`) OWNS its frames: its static
+       plans preflight FRESH test frames (the S2c ENSURE executor) before
+       the structural render, the mounted view resolves the innermost
+       enclosing `frame-root`'s frame as its ambient scope, and every
+       test-owned frame is torn down after. `{:frame …}`/`{:app-db …}`
+       alongside a plan-bearing form is rejected ('the root form owns its
+       frames' — §9 [S1-CONFIRM]); with plan-free forms they combine.
 
   A runtime-assembled vector is the same compile error as at `mount` —
   hiccup is compiled, not interpreted. `{:sub-overrides {query value}}`

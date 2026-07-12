@@ -9,10 +9,15 @@
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
             [re-frame.ui :as ui :refer [defview]]
+            [re-frame.ui.frames :as frames]
             [re-frame.ui.test :as uit]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter})
+  ;; the plan-install registry is process-global; a plan-bearing render
+  ;; tears its frames down (invalidating their records), but wipe it around
+  ;; each test so a stale record never leaks between cases.
+  (fn [t] (frames/reset-installed-plans!) (t) (frames/reset-installed-plans!)))
 
 ;; ---------------------------------------------------------------------------
 ;; Fixtures
@@ -280,3 +285,139 @@
            (err-id #(uit/find tree badge)))
         "the view FN would match everything as a pred-fn — the guard names
          the var/view-id spellings instead")))
+
+;; ---------------------------------------------------------------------------
+;; Plan-bearing root forms (rf2-vxgfnd.19) — the literal form follows the
+;; SAME root grammar ui/mount takes: a top-region frame-root contributes a
+;; static frame plan, ENSURE preflights FRESH test frames before the JVM
+;; structural render, the mounted view resolves the innermost enclosing
+;; frame-root's frame as ambient scope, {:frame}/{:app-db} is rejected, and
+;; every test-owned frame is torn down.
+;; ---------------------------------------------------------------------------
+
+(defn- reg-greeting! []
+  (rf/reg-sub :greeting/text (fn [db _] (:greeting db))))
+
+(deftest plan-bearing-root-renders-from-the-preflighted-frame
+  (reg-greeting!)
+  (let [before (set (keys @frame/frames))
+        tree   (uit/render
+                [ui/frame-root {:id :test/greet
+                                :initial-events [[:rf/set-db {:greeting "planned"}]]}
+                 [greeting {}]])]
+    (is (= ::greeting (:view-id (uit/find tree ::greeting)))
+        "the one mounted view is found under the transparent frame-root")
+    (is (= "planned" (uit/text (uit/find tree :h1)))
+        "the view's (sub …) reads the plan's ambient frame on the JVM")
+    (is (= 1 (:rf.ui/tree-version tree)) "the tree is version-stamped")
+    (is (= before (set (keys @frame/frames)))
+        "the test-owned frame is torn down after the render — no residue")))
+
+(deftest plan-bearing-root-tolerates-a-wrapper-head
+  (reg-greeting!)
+  (let [before (set (keys @frame/frames))
+        tree   (uit/render
+                [:div.shell
+                 [ui/frame-root {:id :test/greet
+                                 :initial-events [[:rf/set-db {:greeting "wrapped"}]]}
+                  [greeting {}]]])]
+    (is (= :div (:tag tree)) "the top-region element wrapper IS the tree root")
+    (is (= "wrapped" (uit/text (uit/find tree :h1)))
+        "a view nested under element + frame-root still resolves its ambient frame")
+    (is (= before (set (keys @frame/frames))) "no frame residue")))
+
+(deftest innermost-frame-root-is-the-ambient-scope
+  (reg-greeting!)
+  (let [before (set (keys @frame/frames))
+        tree   (uit/render
+                [ui/frame-root {:id :test/outer
+                                :initial-events [[:rf/set-db {:greeting "outer"}]]}
+                 [:div
+                  [ui/frame-root {:id :test/inner
+                                  :initial-events [[:rf/set-db {:greeting "inner"}]]}
+                   [greeting {}]]]])]
+    (is (= "inner" (uit/text (uit/find tree :h1)))
+        "the INNERMOST enclosing frame-root supplies the view's ambient frame
+         (mirrors the client's nearest-ancestor React-context scope)")
+    (is (= before (set (keys @frame/frames)))
+        "both preflighted frames are torn down — no residue")))
+
+(deftest plan-config-expression-evaluates-once-at-preflight
+  (reg-greeting!)
+  (let [calls (atom 0)
+        tree  (uit/render
+               [ui/frame-root {:id :test/greet
+                               :initial-events [[:rf/set-db
+                                                 (do (swap! calls inc)
+                                                     {:greeting "once"})]]}
+                [greeting {}]])]
+    (is (= "once" (uit/text (uit/find tree :h1))))
+    (is (= 1 @calls)
+        "the plan's config expression evaluates exactly once, at preflight —
+         never during speculative tree traversal")))
+
+(deftest plan-bearing-root-rejects-explicit-frame-opts
+  (reg-greeting!)
+  (let [f (uit/frame {:app-db {:greeting "held"}})]
+    (is (= :rf.error/ui-test-bad-opts
+           (err-id #(uit/render [ui/frame-root {:id :test/greet} [greeting {}]]
+                                {:frame f})))
+        "a plan-bearing root form OWNS its frames — {:frame} is rejected")
+    (is (= :rf.error/ui-test-bad-opts
+           (err-id #(uit/render [ui/frame-root {:id :test/greet} [greeting {}]]
+                                {:app-db {:greeting "x"}})))
+        "...and {:app-db} likewise")
+    (is (= {:greeting "held"} (rf/app-db-value f))
+        "the rejection is pure — the held frame is untouched")))
+
+(deftest plan-free-form-still-combines-with-frame-opts
+  (reg-greeting!)
+  (let [f    (uit/frame {:app-db {:greeting "explicit"}})
+        tree (uit/render [greeting {}] {:frame f})]
+    (is (= "explicit" (uit/text (uit/find tree :h1)))
+        "a plan-free literal root form still targets an explicit :frame")))
+
+(deftest plan-bearing-root-composes-with-sub-overrides
+  (reg-greeting!)
+  (let [tree (uit/render
+              [ui/frame-root {:id :test/greet
+                              :initial-events [[:rf/set-db {:greeting "real"}]]}
+               [greeting {}]]
+              {:sub-overrides {[:greeting/text] "pinned"}})]
+    (is (= "pinned" (uit/text (uit/find tree :h1)))
+        "the explicit override door intercepts the read on a plan-bearing form")))
+
+(deftest preflight-failure-leaves-no-residue-and-preserves-the-typed-error
+  (reg-greeting!)
+  (let [before (set (keys @frame/frames))
+        id     (err-id #(uit/render
+                         [ui/frame-root {:id :test/bad
+                                         :initial-events [:not-a-vector]}
+                          [greeting {}]]))]
+    (is (some? id) "the malformed plan fails loud with a typed error")
+    (is (nil? (frame/frame :test/bad)) "the failing plan leaves no frame")
+    (is (= before (set (keys @frame/frames)))
+        "a preflight failure leaves no test-frame residue")))
+
+(deftest two-plan-bearing-renders-are-separate-scopes
+  (reg-greeting!)
+  (let [before (set (keys @frame/frames))
+        t1 (uit/render [ui/frame-root {:id :test/scope-a
+                                       :initial-events [[:rf/set-db {:greeting "alpha"}]]}
+                        [greeting {}]])
+        t2 (uit/render [ui/frame-root {:id :test/scope-b
+                                       :initial-events [[:rf/set-db {:greeting "beta"}]]}
+                        [greeting {}]])]
+    (is (= "alpha" (uit/text (uit/find t1 :h1))))
+    (is (= "beta" (uit/text (uit/find t2 :h1)))
+        "each render preflights its own frames — no state leaks between calls")
+    (is (= before (set (keys @frame/frames)))
+        "both renders' test-owned frames are torn down; no residue accumulates")))
+
+(deftest plan-bearing-conditional-frame-root-is-a-compile-error
+  (is (= :rf.ui.compile/frame-root-misplaced
+         (expand-error
+          '(re-frame.ui.test/render
+            [:div (when true [re-frame.ui/frame-root {:id :x}])] nil)))
+      "a frame-root under a control form is the analyzer's misplacement error
+       — the literal form scans identically to ui/mount"))
