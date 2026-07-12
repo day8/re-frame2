@@ -23,7 +23,9 @@
 
   Every lexical `(sub …)` in a view is a compile-indexed site; all of a
   view's sites share ONE ViewCell — one `useSyncExternalStore`, one scalar
-  revision snapshot, one notification per epoch. Render probes WITHOUT
+  revision snapshot, one coalesced notification per render batch (the
+  drain-quiescence boundary, NOT per epoch — see §Drain coalescing below).
+  Render probes WITHOUT
   ownership (resolve-target + probe, no ref-count / watch / cache node);
   the layout commit acquires the CAPTURED targets. Abandoned renders
   (StrictMode double-render, time-sliced tear-off) retain NOTHING because
@@ -49,22 +51,41 @@
   object reuse (the parametric-args case) needs compile-site identity and
   lands with the HMR site-identity slice (S2e).
 
-  ## Epoch coalescing + `flush!` scope (S2d — 03 §3 invariant 6; Spec 006
+  ## Drain coalescing + `flush!` scope (S2d — 03 §3 invariant 6; Spec 006
   §Epoch finalization)
 
-  The sixth frozen invariant: EPOCH CLOSE NOTIFIES EACH DIRTY CELL ONCE.
-  Sub deltas mark their cell dirty through constant-work `on-change`
-  (never compute — I-5); the cell enters a module-level DIRTY REGISTRY
-  exactly once (a set, deduped by cell identity) and one coalesced flush
-  is scheduled per microtask (`interop/next-tick` — drain→React is
-  microtask-aligned) ON CLJS; the JVM headless host has no async render
-  loop, so it auto-schedules NOTHING and drains via the EXPLICIT `flush!`
-  (07 §2's only flush idiom; SSR is one-shot) — one honest option per
-  host. N sub deltas within one epoch therefore advance the cell's
-  revision ONCE. Coalescing is per-cell-per-flush-boundary; the
-  cross-epoch SEPARATION the push-economics bench asserts (8 epochs ⇒ 8
-  renders — G-5/G-13) rides the async drain boundaries and is wired with
-  the bench in S2f, not here.
+  The sixth frozen invariant, stated correctly: THE RENDER BATCH BOUNDARY
+  IS DRAIN QUIESCENCE, NOT EPOCH CLOSE. An event/frame EPOCH is a
+  write-side commit + diagnostic-evidence unit (one per dequeued event —
+  Spec 002 §Drain versus event); it is NOT a React render boundary. A
+  single run-to-completion drain may settle SEVERAL queued events, each
+  committing its OWN epoch record, before the host regains control — and
+  every one of those epochs coalesces into ONE render batch.
+
+  The mechanism: sub deltas mark their cell dirty through constant-work
+  `on-change` (never compute — I-5), carrying the moving frame's epoch as
+  CAUSE EVIDENCE only. The cell enters a module-level DIRTY REGISTRY
+  exactly once (a set, deduped by cell identity); a re-mark while already
+  pending FOLDS IN regardless of its epoch tag — the pending flag is the
+  coalescing key, the epoch tag is NEVER a second key. On CLJS one
+  coalesced flush is armed per drain (`interop/next-tick` — a
+  `goog.async.nextTick` MICROTASK that cannot run until the synchronous
+  run-to-completion drain unwinds, so it fires strictly AFTER drain
+  quiescence, never between two queued events of the same drain); the JVM
+  headless host has no async render loop, so it auto-schedules NOTHING and
+  drains via the EXPLICIT `flush!` (07 §2's only flush idiom; SSR is
+  one-shot) — one honest option per host. Either way, N epochs committed
+  in one drain advance each dirty cell's revision ONCE and let React
+  perform ONE read/render batch.
+
+  Render SEPARATION is therefore per DRAIN, not per epoch: two epochs
+  settled in one drain share one render batch; two epochs settled in
+  SEPARATE drains (distinct external events, the host regaining control
+  between them) render separately — NO render count may be inferred from
+  the number of event/frame epochs. The push-economics bench's queued-
+  cascade gate (a parent event that queues further events, proving one
+  ViewCell notification and one React render for the whole batch —
+  G-5/G-13) is wired with the bench in S2f, not here.
 
   `flush!` — the SYNCHRONOUS forcing of pending notifications — is SCOPED
   over that registry. The Q51 scope ruling, PINNED here:
@@ -406,15 +427,19 @@
   (swap! (state cell) update :revision inc)
   (notify-listeners! cell))
 
-;; ---- epoch coalescing + the notification scheduler (S2d) --------------------
+;; ---- drain coalescing + the notification scheduler (S2d) --------------------
 ;;
-;; `on-change` is constant-work (mark-dirty; never compute — I-5). A cell
-;; enters the module DIRTY REGISTRY exactly once per flush boundary (the
-;; set dedups by identity); N sub deltas in one epoch therefore advance
-;; the cell ONCE at flush. One coalesced async flush is scheduled per
-;; microtask (drain→React is microtask-aligned — 03 §3); `flush!` is the
-;; synchronous forcing, SCOPED so no epoch work leaks across roots. The
-;; Q51 scope ruling and the reentrancy contract live in the ns docstring.
+;; `on-change` is constant-work (mark-dirty; never compute — I-5), carrying
+;; the moving epoch as CAUSE EVIDENCE only. A cell enters the module DIRTY
+;; REGISTRY exactly once per flush boundary (the set dedups by identity; a
+;; re-mark while pending folds in regardless of epoch tag). N epochs
+;; committed in one run-to-completion drain therefore advance the cell ONCE
+;; at flush — the render batch boundary is DRAIN QUIESCENCE, not epoch close.
+;; On CLJS one coalesced async flush is armed per drain (the `next-tick`
+;; microtask fires only after the synchronous drain unwinds — 03 §3);
+;; `flush!` is the synchronous forcing, SCOPED so no pending work leaks
+;; across roots. The Q51 scope ruling and the reentrancy contract live in
+;; the ns docstring.
 
 (defonce ^:private dirty-cells
   ;; The set of ViewCells with a pending (unflushed) notification — the
@@ -442,9 +467,12 @@
 
 (defn- schedule-flush!
   "Arm ONE coalesced microtask that drains the whole registry — the CLJS
-  host's realization of the microtask-aligned epoch close (03 §3). Re-marks
-  before it runs fold into the same flush; a synchronous `flush!` beforehand
-  just leaves it an empty drain.
+  host's realization of the drain-quiescence render batch (03 §3). One
+  microtask per drain, NOT per epoch: it is armed by the first mark of a
+  drain and fires only after the synchronous run-to-completion drain
+  unwinds, so every epoch committed by the drain's queued events folds into
+  the same flush. Re-marks before it runs fold in; a synchronous `flush!`
+  beforehand just leaves it an empty drain.
 
   CLJS-only: `interop/next-tick` there is a true `goog.async.nextTick`
   microtask that fires AFTER the synchronous render pass. The JVM headless
@@ -465,11 +493,14 @@
 (defn mark-dirty!
   "The `on-change` body: mark `cell` dirty for `epoch` and enrol it in the
   dirty registry (once — a re-mark while already dirty coalesces), then
-  arm one microtask flush. Never acquires/releases (no reentrant-graph-op)
-  and never computes (I-5) — it flags a revision advance the scheduled
-  render re-probes. `epoch` (the moving frame's commit epoch, from the
-  `on-change` payload) tags the pending notification; nil when driven
-  without epoch evidence."
+  arm one per-drain microtask flush. Never acquires/releases (no reentrant-
+  graph-op) and never computes (I-5) — it flags a revision advance the
+  scheduled render re-probes. `epoch` (the moving frame's commit epoch,
+  from the `on-change` payload) tags the pending notification as CAUSE
+  EVIDENCE only: coalescing keys on the pending flag, NEVER on the epoch
+  tag, so epochs committed by later queued events in the same drain fold
+  into this one pending notification (the first mark's epoch stays the
+  anchor). nil when driven without epoch evidence."
   ([^ViewCell cell] (mark-dirty! cell nil))
   ([^ViewCell cell epoch]
    (let [st (state cell)]
@@ -549,6 +580,16 @@
   "True when `cell` has a pending (unflushed) notification (tool/test read)."
   [^ViewCell cell]
   (boolean (:dirty? @(state cell))))
+
+(defn pending-epoch
+  "The epoch tag anchoring `cell`'s pending notification — the CAUSE EVIDENCE
+  the FIRST `on-change` of the current pending window carried (nil when the
+  cell is not pending, or was dirtied without epoch evidence). Epoch ids are
+  movement/cause evidence ONLY; coalescing keys on the pending flag, never on
+  this tag, so later queued events' epochs fold into the same render batch
+  without re-anchoring or advancing it (tool/test read)."
+  [^ViewCell cell]
+  (:dirty-epoch @(state cell)))
 
 (defn pending-cell-count
   "The number of cells with a pending notification (tool/test read)."

@@ -983,11 +983,23 @@ These are normative (R-2). Each names the bug class it deletes.
    movement in the render→commit gap advances the cell's revision and notifies, and the
    host corrects **before paint**. *(Deletes: painting a frame computed from stale
    reads.)*
-6. **One notification per cell per epoch.** Source-side notification is constant work —
-   mark the cell stale with target/version/epoch/cause evidence, never execute a
-   prop-dependent query (per I-5) — and epoch close flushes each dirty cell **exactly
-   once** (exact coalescing at the transaction boundary, never debounce-by-time; per
-   I-3/I-6). *(Deletes: zombie children; N-notifications-per-event fan-out.)*
+6. **One notification per cell per render batch — the boundary is drain quiescence, not
+   epoch close.** An event/frame **epoch** is a write-side commit + diagnostic-evidence
+   unit (one per dequeued event — per
+   [002 §Drain versus event](002-Frames.md#drain-versus-event--the-epoch-unit)); it is
+   **not** a React render boundary. Source-side notification is constant work — mark the
+   cell stale with target/version/epoch/cause evidence, never execute a prop-dependent
+   query (per I-5) — carrying the moving epoch as **cause evidence only**. A single
+   run-to-completion drain may settle several queued events, each committing its own epoch
+   record; every dirty cell coalesces the **whole drain's** epochs and is flushed
+   **exactly once** when the drain reaches quiescence (exact coalescing at the drain
+   boundary, keyed on the cell's pending state — never on the epoch tag, never
+   debounce-by-time; per I-3/I-6). Render **separation** is therefore **per drain, not per
+   epoch**: epochs settled in one drain share one render batch; epochs settled in separate
+   drains (distinct external events, the host regaining control between them) render
+   separately — **no render count may be inferred from the number of event/frame epochs**.
+   *(Deletes: zombie children; N-notifications-per-event fan-out; the false
+   N-epochs⇒N-renders equation.)*
 
 ### The port operations (final)
 
@@ -1222,20 +1234,30 @@ commit reconciler's evidence comparison (invariant 5) catches movement of
 corrects before paint. No third mechanism exists or is needed. A memo table that
 outlives its slice is a conformance bug (a leak fixture pins it).
 
-### Epoch finalization — the adapter-internal final phase
+### Epoch finalization — the adapter-internal render-batch boundary
 
 On the observation-port substrate, the invalidation algorithm's Phase 3
 ([§Invalidation algorithm](#invalidation-algorithm) — "notify subscribers") is realised
-as constant-work stale-marking (invariant 6), and the commit sequence gains an
-**adapter-internal final phase — epoch close**: after the event drain settles
-derivations (Phases 1–2) and dirty cells are marked (Phase 3), the framework epoch
-closes and each dirty ViewCell is flushed **once** into the host scheduler. Drain→React
-scheduling is microtask-aligned. `flush-render!` (and the test flush built on it) closes
-the framework epoch **before** React renders; a re-entrant `flushSync`-style forcing
-into an open epoch is a dev error carrying epoch evidence
-(`:rf.error/flush-in-open-epoch`, dev tier — catalogue row required per
+as constant-work stale-marking (invariant 6). The commit sequence gains an
+**adapter-internal final phase — the drain-quiescence render batch**: a run-to-completion
+drain may settle several queued events, each settling its derivations (Phases 1–2) and
+marking dirty cells (Phase 3) as it commits its **own** epoch record; then, **when the
+drain reaches quiescence** (not at each epoch close), each dirty ViewCell is flushed
+**once** into the host scheduler and React performs **one read/render batch** over the
+whole drain's coalesced epochs. The moving epoch rides the stale-mark as **cause
+evidence only** — coalescing keys on the cell's pending state, never on the epoch tag —
+so N epochs committed in one drain produce exactly one render batch, and render
+separation follows **drain** boundaries, never the epoch count (see invariant 6). On
+CLJS the flush is microtask-aligned: a single `goog.async.nextTick` microtask, armed by
+the first mark of the drain, cannot run until the synchronous drain unwinds, so it fires
+strictly **after** drain quiescence and never between two queued events of the same
+drain. The headless (JVM/SSR) host has no async render loop and drains via the explicit
+`flush!` idiom. `flush-render!` (and the test flush built on it) closes the render batch
+**before** React renders; a re-entrant `flushSync`-style forcing into an open drain is a
+dev error carrying epoch evidence (`:rf.error/flush-in-open-epoch`, dev tier — catalogue
+row required per
 [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) when the
-epoch-close phase lands with the ViewCell layer, Stage 2b/2c). This phase is
+render-batch phase lands with the ViewCell layer, Stage 2b/2c). This phase is
 adapter-internal: it adds no public contract fn and does not alter `flush-render!`'s
 public signature or semantics.
 
