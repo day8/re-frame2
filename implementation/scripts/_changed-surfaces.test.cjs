@@ -1086,6 +1086,84 @@ test('all-required-passed aggregator needs jvm-ui + cljs-ui-g1 (rf2-vxgfnd.6)', 
   assert.match(block, /- cljs-ui-g1\r?\n/, 'aggregator must list cljs-ui-g1 in needs:');
 });
 
+// rf2-vxgfnd.90 — re-frame.ui now ships REAL DOM tests
+// (`*-dom-cljs-test.{cljs,cljc}`) in the `:browser-test` build (the S1c/S2
+// mount + reactivity + frame-scope keystone fixtures — the ONLY place
+// React act discipline / real react-dom/client roots / live ViewCell
+// teardown are exercised). The `implementation/ui/*` case previously left
+// cljs_browser=false on a stale "no production build :requires
+// re-frame.ui.* yet" comment, so a test-only UI PR (e.g. #5767, which
+// changed exactly one `*-dom-cljs-test`) merged GREEN while its only
+// relevant browser test reported SKIPPED — a false-green hole. The gate
+// now fires cljs_browser for EVERY implementation/ui/** source or test
+// change (conservative: trigger the browser gate MORE, never less).
+// cljs_prod (elision) + bundle_isolation stay OFF — they gate the
+// PRODUCTION `:advanced` builds and no production build :requires
+// re-frame.ui.* yet.
+
+test('implementation/ui SOURCE change fires cljs_browser (transitive DOM-test coverage) (rf2-vxgfnd.90)', () => {
+  const result = classify('implementation/ui/src/re_frame/ui/reactive.cljc');
+  assert.equal(
+    result.cljs_browser,
+    'true',
+    'a UI runtime source change affects the *-dom-cljs-test namespaces transitively; it must run the browser gate',
+  );
+  // Regression: the rf2-vxgfnd.6 trio stays armed alongside the new browser gate.
+  assert.equal(result.implementation_jvm, 'true');
+  assert.equal(result.cljs_node_test, 'true');
+  assert.equal(result.ui_gates, 'true');
+});
+
+test('the frame-scope keystone DOM test fires cljs_browser (the #5767 false-green path) (rf2-vxgfnd.90)', () => {
+  const result = classify(
+    'implementation/ui/test/re_frame/ui/frame_scope_resolve_dom_cljs_test.cljs',
+  );
+  assert.equal(
+    result.cljs_browser,
+    'true',
+    'a *-dom-cljs-test change must run the :browser-test gate instead of reporting SKIPPED (the exact #5767 regression)',
+  );
+});
+
+test('representative other *-dom-cljs-test paths fire cljs_browser (rf2-vxgfnd.90)', () => {
+  for (const file of [
+    'implementation/ui/test/re_frame/ui/root_mount_dom_cljs_test.cljs',
+    'implementation/ui/test/re_frame/ui/root_teardown_dom_cljs_test.cljs',
+    'implementation/ui/test/re_frame/ui/reactive_tear_browser_dom_cljs_test.cljs',
+    'implementation/ui/test/re_frame/ui/preflight_frame_wiring_dom_cljs_test.cljs',
+  ]) {
+    const result = classify(file);
+    assert.equal(
+      result.cljs_browser,
+      'true',
+      `${file} is a browser-only DOM test; it must fire cljs_browser`,
+    );
+  }
+});
+
+test('an ordinary UI cljs test (non-DOM) also fires cljs_browser + node-test (rf2-vxgfnd.90)', () => {
+  // The whole implementation/ui/** tree fires the browser gate — an
+  // ordinary *_cljs_test.cljc under ui/test is not exempted (conservative
+  // routing: UI test changes can move a shared fixture a DOM test :requires).
+  const result = classify('implementation/ui/test/re_frame/ui/eq_cljs_test.cljc');
+  assert.equal(result.cljs_browser, 'true');
+  assert.equal(result.cljs_node_test, 'true');
+});
+
+test('implementation/ui/* does NOT arm cljs_prod / bundle_isolation — no production surface yet (rf2-vxgfnd.90 scope)', () => {
+  // The browser-TEST surface is present (cljs_browser), but no PRODUCTION
+  // build :requires re-frame.ui.*, so the `:advanced` elision + bundle
+  // gates stay off until an S2+ slice gives it a production surface.
+  const result = classify('implementation/ui/src/re_frame/ui/reactive.cljc');
+  assert.equal(result.cljs_prod, 'false');
+  assert.equal(result.bundle_isolation, 'false');
+});
+
+test('a docs/spec-only change does NOT arm cljs_browser (negative — scope discipline) (rf2-vxgfnd.90)', () => {
+  assert.equal(classify('spec/006-ReactiveSubstrate.md').cljs_browser, 'false');
+  assert.equal(classify('docs/core/intro.md').cljs_browser, 'false');
+});
+
 let failed = 0;
 for (const { name, fn } of tests) {
   try {

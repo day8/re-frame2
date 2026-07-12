@@ -392,12 +392,32 @@ else
         # invariants + G-14 compile budget); cljs_node_test fires the
         # consolidated node suite (the live cross-emitter parity
         # corpus rides it); ui_gates fires the cljs-ui-g1 bench gate
-        # (test.yml). No production build :requires re-frame.ui.* yet,
-        # so no cljs_browser / cljs_prod / bundle_isolation fan-out —
-        # widen when the S2+ slices give it a production surface.
+        # (test.yml).
+        #
+        # rf2-vxgfnd.90 — false-green fix. re-frame.ui now ships REAL DOM
+        # tests: the `*-dom-cljs-test.{cljs,cljc}` namespaces (the S1c/S2
+        # mount + reactivity + frame-scope keystone fixtures) opt into the
+        # `:browser-test` build (headless Chromium) and are the ONLY place
+        # React act discipline, real react-dom/client roots, and live
+        # ViewCell teardown are exercised — none of which the JVM/node
+        # suites can validate. The stale "no production build :requires
+        # re-frame.ui.* yet, so no cljs_browser" reasoning conflated a
+        # PRODUCTION-bundle surface (still absent) with a browser-TEST
+        # surface (now present): a test-only UI PR (e.g. #5767, which
+        # changed exactly one `*-dom-cljs-test`) merged GREEN while its
+        # only relevant browser test reported SKIPPED. Fire cljs_browser
+        # for EVERY implementation/ui/** source or test change — UI runtime
+        # changes affect those DOM tests transitively, and the conservative
+        # direction is to trigger the gate MORE (worst case: slower CI),
+        # never to skip it (worst case: a false-green). cljs_prod
+        # (elision probe) and bundle_isolation stay OFF: they gate the
+        # PRODUCTION `:advanced` builds, and no production build :requires
+        # re-frame.ui.* yet — widen them when the S2+ slices give it a
+        # production surface.
         implementation_jvm=true
         cljs_node_test=true
         ui_gates=true
+        cljs_browser=true
         ;;
       implementation/scripts/run-ui-bench.cjs)
         # rf2-vxgfnd.6 — false-green fix, mirroring the launcher cases
