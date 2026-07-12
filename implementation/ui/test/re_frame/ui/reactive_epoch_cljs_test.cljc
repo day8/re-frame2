@@ -1,7 +1,8 @@
 (ns re-frame.ui.reactive-epoch-cljs-test
   "rf2-vxgfnd.10 (S2d) — epoch coalescing + `flush!` scope over the ViewCell
-  notification scheduler (03 §3 invariant 6 'epoch close notifies each dirty
-  cell once'; Spec 006 §Epoch finalization). Headless fixtures on the REAL
+  notification scheduler (03 §3 invariant 6 'one notification per cell per
+  render batch — the boundary is drain quiescence, not epoch close'; Spec 006
+  §Epoch finalization). Headless fixtures on the REAL
   observation port + plain-atom sub-cache — the value-movement `on-change`
   watch channel is a reactive-host surface, so these fixtures drive the
   notification seam DIRECTLY (`mark-dirty!` with an epoch tag) exactly the

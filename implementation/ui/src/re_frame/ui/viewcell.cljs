@@ -26,7 +26,7 @@
       React unmount / Activity hide releases owners and reveal reacquires
       and corrects before paint.
 
-  ## Epoch close → React (S2d)
+  ## Drain quiescence → React (S2d)
 
   Sub deltas do NOT re-render synchronously. A moving site's `on-change`
   (registered at commit) marks the cell dirty in `reactive`'s dirty
