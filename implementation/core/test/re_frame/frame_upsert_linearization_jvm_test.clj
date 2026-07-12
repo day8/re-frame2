@@ -31,15 +31,35 @@
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace])
+            [re-frame.trace :as trace]
+            ;; Loads the trace-tooling artefact so its
+            ;; `:trace.tooling/set-frame-events-retained!` late-bind is published
+            ;; before these tests run (the retention override is otherwise a
+            ;; silent no-op) and so the per-frame retention store is observable.
+            [re-frame.trace.tooling :as trace-tooling])
   (:import [java.util.concurrent CountDownLatch CyclicBarrier TimeUnit]))
 
 (defn reset-runtime [test-fn]
   (registrar/clear-all!)
   (reset! frame/frames {})
   (trace/clear-listeners!)
+  ;; Clear the process-global trace-policy stores so a frame-scoped no-emit /
+  ;; retention override written by one test never leaks into the next
+  ;; (rf2-umsyo9 — these stores are SEPARATE from `frames`, which the reset
+  ;; above does unwind).
+  (trace/clear-frame-no-emit!)
+  (trace-tooling/clear-trace-rings!)
   (rf/init! plain-atom/adapter)
   (test-fn))
+
+;; The per-frame retention cap the winning config's `:rf.trace/events-retained`
+;; override installed, read straight from the trace-tooling ring store (a
+;; white-box read of the process-global store the guarded CAS must linearize).
+;; nil when no override ring was written for the frame.
+(defn- retained-cap [frame-id]
+  ;; Double deref: `#'…/trace-rings` is the VAR, its value is the store ATOM,
+  ;; and the atom's value is the rings map.
+  (get-in @@#'re-frame.trace.tooling/trace-rings [frame-id :events-retained]))
 
 (use-fixtures :each reset-runtime)
 
@@ -169,3 +189,57 @@
           "A's exclusive construction loses the window race → typed collision, not adoption")
       (is (identical? token-b (frame/frame-incarnation-token :mc/race))
           "B's frame is untouched — the losing exclusive construction wrote nothing"))))
+
+;; ===========================================================================
+;; rf2-umsyo9 — the exclusive-CAS loser must not overwrite the WINNER's
+;; frame-scoped trace policy.
+;;
+;; `upsert-frame!`'s two frame-scoped TRACE POLICY writes — the `set-frame-
+;; no-emit!` suppression flag (always written) and the `:rf.trace/events-
+;; retained` retention override — live in process-global stores SEPARATE from
+;; the `frames` registry, so the guarded CAS does not linearize them. PR #5776
+;; ran them ABOVE the CAS, so a must-create LOSER (or a create/create loser)
+;; already mutated the WINNER's trace policy for the id by the time its CAS
+;; failed — an exclusive collision that claims to write NOTHING corrupted the
+;; live winner's tracing (self-noise from an inspector frame, a rewritten ring
+;; cap). The `*upsert-decide-probe*` seam now fires BEFORE those writes, opening
+;; the actual pre-side-effect window; the fix makes them ride the winning
+;; branch. Fails against PR #5776's ordering (the loser's writes clobber the
+;; winner's policy); passes once the writes are linearized onto the winner.
+;; ===========================================================================
+
+(deftest exclusive-cas-loser-must-not-overwrite-winner-trace-policy
+  ;; LOSER A: exclusive (must-create) construction with DISTINCT trace policy —
+  ;; no-emit? FALSE, retention 10. A reads the id absent and pauses in the
+  ;; PRE-side-effect window (after the decide snapshot, before its policy writes
+  ;; / CAS). WINNER B: ordinary construction, no-emit? TRUE, retention 99 —
+  ;; installs the id and writes its policy fully on the main thread. A resumes;
+  ;; its guarded CAS finds the id present → typed `:rf.error/frame-id-taken`. The
+  ;; winner's suppression flag AND retention override must be UNCHANGED. Pre-fix:
+  ;; A's policy writes ran on CAS loss and overwrote B's (no-emit? → false,
+  ;; retention → 10) → both post-collision assertions fail.
+  (let [reached (CountDownLatch. 1)
+        release (CountDownLatch. 1)
+        a (binding [frame/*upsert-decide-probe* (window-probe :tp/race reached release)]
+            (future (err-id #(frame/upsert-frame! :tp/race
+                               {:rf.frame/must-create?    true
+                                :rf.trace/frame-no-emit?  false
+                                :rf.trace/events-retained 10}))))]
+    (.await reached 10 TimeUnit/SECONDS)
+    (frame/upsert-frame! :tp/race {:rf.trace/frame-no-emit?  true
+                                   :rf.trace/events-retained 99})
+    (is (true? (trace/frame-trace-disabled? :tp/race))
+        "precondition: winner B registered trace-disabled (no-emit? true)")
+    (is (= 99 (retained-cap :tp/race))
+        "precondition: winner B installed its retention override (99)")
+    (.countDown release)
+    (is (= :rf.error/frame-id-taken @a)
+        "the exclusive loser threw the typed collision — it installed nothing")
+    (is (true? (trace/frame-trace-disabled? :tp/race))
+        "winner B's trace SUPPRESSION survives the collision — the loser never
+         overwrote the winner's frame-scoped no-emit flag (rf2-umsyo9). Pre-fix:
+         the loser's `set-frame-no-emit! false` on CAS loss cleared it → fails")
+    (is (= 99 (retained-cap :tp/race))
+        "winner B's RETENTION override survives — the loser never rewrote the
+         winner's per-frame :rf.trace/events-retained store (rf2-umsyo9).
+         Pre-fix: the loser's write dropped the cap to 10 → fails")))
