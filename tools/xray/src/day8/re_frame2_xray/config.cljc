@@ -902,15 +902,15 @@
   ([]
    (reset! suppressed-counters {})
    #?(:cljs
-      (when (frame/frame :rf/xray)
-        (rf/with-frame :rf/xray
+      (when (frame/frame defaults/default-frame-id)
+        (rf/with-frame defaults/default-frame-id
           (rf/dispatch [:rf.xray/reset-suppressed-counters]))))
    nil)
   ([frame-id]
    (swap! suppressed-counters dissoc (or frame-id :global))
    #?(:cljs
-      (when (frame/frame :rf/xray)
-        (rf/with-frame :rf/xray
+      (when (frame/frame defaults/default-frame-id)
+        (rf/with-frame defaults/default-frame-id
           (rf/dispatch [:rf.xray/reset-suppressed-counters frame-id]))))
    nil))
 

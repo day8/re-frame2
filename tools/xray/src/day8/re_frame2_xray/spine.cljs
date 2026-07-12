@@ -436,6 +436,16 @@
         ;; head-tracking branches never fall back to slot-id (an empty
         ;; buffer yields a nil head, which downstream treats as cold
         ;; start, NOT as the stale slot).
+        ;;
+        ;; The nested boolean reads as "LIVE-paused, OR (NOT the
+        ;; snap-to-head branch AND NOT the LIVE-unpaused branch)" — i.e.
+        ;; the two `eff-event-bundle` branches that resolve BY STORED
+        ;; slot-id (LIVE-paused and :else/RETRO). It only takes EFFECT in
+        ;; the `eff-id` `or` below when `eff-event-bundle` is nil (an
+        ;; evicted pin): the snap-to-head branch always yields a real head
+        ;; record whose `:dispatch-id` wins the `or` before this fallback
+        ;; is consulted, so retro-pin? is masked there even when the
+        ;; boolean itself reads true.
         retro-pin? (or (and (= :live mode) paused?)
                        (and (not (and (some? head-id) (not slot-pinnable?)))
                             (not (and (= :live mode) (not paused?)))))

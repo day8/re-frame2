@@ -550,20 +550,22 @@
   ;; driven dispatches before the user opened Xray (rf2-43koh consumer
   ;; substrate; rf2-boyc2 :epoch-history + :target-frame).
   ;;
-  ;; The snapshot comes from `trace-collector/refresh-trace-rings!` —
-  ;; the same path the production microtask coalescer uses. After the
-  ;; snapshot lands in `:trace-buffer`, project the buffer through the
-  ;; same pipeline the `:rf.xray/event-bundles` sub uses (projection +
+  ;; The snapshot comes from `trace-collector/snapshot-from-rings` — a
+  ;; synchronous read of the same per-frame rings + frameless secondary
+  ;; ring the production microtask coalescer drains. After the snapshot
+  ;; lands in `:trace-buffer`, project the buffer through the same
+  ;; pipeline the `:rf.xray/event-bundles` sub uses (projection +
   ;; Xray-internal hard-filter) to derive the seed-frame. Without the
   ;; internal filter a tool-frame event-bundle could be chosen as the head,
   ;; which the user never sees in the L2 list.
   (fn [frame-id]
-    ;; `refresh-trace-rings!` is async via dispatch in production but
-    ;; safe to call here even though the shell frame was just
-    ;; registered — the dispatch lands in the queue; we follow up with
-    ;; a sync dispatch through `:rf.xray/sync-trace-buffer` carrying the
-    ;; same snapshot so the first-mount render reads against pre-mount
-    ;; events deterministically.
+    ;; `snapshot-from-rings` reads the rings synchronously (the
+    ;; production coalescer instead refreshes them via an async
+    ;; dispatch) — safe here because the shell frame was just
+    ;; registered and the seed must commit before first paint. We
+    ;; dispatch-sync the snapshot through `:rf.xray/sync-trace-buffer`
+    ;; so the first-mount render reads against pre-mount events
+    ;; deterministically.
     (let [buffer     (trace-collector/snapshot-from-rings)
           event-bundles   (self-noise/filtered-event-bundles buffer)
           seed-frame (or (spine/focusable-head-frame-id event-bundles)

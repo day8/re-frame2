@@ -16,6 +16,7 @@
             ;; the dev-only tooling surface remains independently elidable.
             [re-frame.trace.tooling :as trace-tooling]
             [re-frame.epoch :as epoch]
+            [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.mount :as mount]
             [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
@@ -68,13 +69,13 @@
         ;; Resolved against the framework's frame registry (NOT a
         ;; Xray-side flag) so a teardown / re-register cycle stays
         ;; correctly tracked without our needing extra state.
-        (when (frame/frame :rf/xray)
-          ;; Wrap the dispatch in :rf/xray so the registry's handler
-          ;; writes to Xray's app-db, not the host's. The cb's
+        (when (frame/frame defaults/default-frame-id)
+          ;; Wrap the dispatch in the Xray shell frame so the registry's
+          ;; handler writes to Xray's app-db, not the host's. The cb's
           ;; record carries :frame — pass it as the dispatch arg so
           ;; the handler can compare against its target-frame and
           ;; skip updates for non-target frames.
-          (rf/with-frame :rf/xray
+          (rf/with-frame defaults/default-frame-id
             (rf/dispatch [:rf.xray/epoch-recorded (:frame record)]))))))
   nil)
 
