@@ -42,14 +42,14 @@
       - `day8.re-frame2-xray.open-in-editor` — the editor-URI chip.
       - `day8.re-frame2-xray.runtime` — the discovery sentinel + safe-egress
         entry points.
-  - `re-frame.ui` (rf2-qz1h5d) — the Spec-004 compiled-view substrate. A
-    curated subset (direction 1 only): its blessed S1 export set — INCLUDING
-    the namespace-specific `frame-root` row (rf2-vxgfnd.71) — is rowed. The
-    live namespace also publishes `frame-provider`, whose manifest + spec/API.md
-    classification is DEFERRED to the context-tier mechanism decision
-    rf2-vxgfnd.24 (if .24 picks a non-`frame-provider` mechanism the var may
-    become internal); it is intentionally left unrowed pending that ruling, so
-    re-frame.ui stays NOT `:fully-rowed`.
+  - `re-frame.ui` (rf2-qz1h5d; completed rf2-vxgfnd.83) — the Spec-004
+    compiled-view substrate. FULLY-ROWED (both directions): all fifteen blessed
+    exports are rowed — the S1 set, the namespace-specific `frame-root` row
+    (rf2-vxgfnd.71), and `frame-provider`, the S2 SCOPE form (rf2-vxgfnd.83,
+    rowed once rf2-vxgfnd.24 blessed it as the native SCOPE grammar). A row
+    removed / renamed in source → RED (direction 1); a NEW public Var added to
+    this closed compiler grammar without a row → RED (direction 2), so an
+    accidental public export cannot accumulate silently.
 
   The pair-MCP server (`re-frame2-pair-mcp.server`) is the third
   CLJS-only surface the keystone names. It compiles under the pair-MCP
@@ -122,21 +122,26 @@
    "day8.re-frame2-xray.config"                      (emit-ns-publics day8.re-frame2-xray.config)
    "day8.re-frame2-xray.open-in-editor"              (emit-ns-publics day8.re-frame2-xray.open-in-editor)
    "day8.re-frame2-xray.runtime"                     (emit-ns-publics day8.re-frame2-xray.runtime)
-   ;; rf2-qz1h5d — re-frame.ui compiled-view substrate. Curated subset
-   ;; (direction-1 only): the blessed S1 export set is rowed (incl. the
-   ;; namespace-specific `frame-root` row, rf2-vxgfnd.71); the live namespace
-   ;; also publishes `frame-provider`, deferred to rf2-vxgfnd.24 and left
-   ;; intentionally unrowed, so re-frame.ui is absent from `fully-rowed` below.
+   ;; rf2-qz1h5d + rf2-vxgfnd.83 — re-frame.ui compiled-view substrate.
+   ;; FULLY-ROWED now: all fifteen blessed exports are rowed (the S1 set, the
+   ;; namespace-specific `frame-root` row rf2-vxgfnd.71, and the S2 SCOPE form
+   ;; `frame-provider` rf2-vxgfnd.83 — rowed once rf2-vxgfnd.24 blessed it), so
+   ;; re-frame.ui is in `fully-rowed` below (both directions checked).
    "re-frame.ui"                                     (emit-ns-publics re-frame.ui)})
 
 (def fully-rowed
   "Namespaces whose ENTIRE public surface must be rowed (direction 2).
    The three adapter namespaces — their public surface IS the documented
-   adapter API. The Xray mount surface is a curated subset (direction 1
-   only), so it is deliberately absent here."
+   adapter API — and `re-frame.ui`, the Spec-004 compiled-view substrate:
+   with `frame-provider` now rowed (rf2-vxgfnd.83, once rf2-vxgfnd.24 blessed
+   it as the native SCOPE form), all fifteen blessed exports are rowed, so a
+   NEW accidental public Var added to this first-party closed compiler grammar
+   fails direction-2 completeness. The Xray mount surface stays a curated
+   subset (direction 1 only), so it is deliberately absent here."
   #{"re-frame.adapter.reagent"
     "re-frame.adapter.uix"
-    "re-frame.adapter.helix"})
+    "re-frame.adapter.helix"
+    "re-frame.ui"})
 
 (def cljs-only-rows
   "The `:cljs-only` rows from spec/api-manifest-metadata.edn, embedded at
