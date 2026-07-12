@@ -49,8 +49,8 @@
   | `{:type :parallel :regions ...}`      | `<parallel>` containing region `<state>`s |
   | Parallel-ROOT `:on` / `:after` (the ancestor fallback) | `<transition event=\"event\"\\|\"after.ms\" target=\"a___x b___y\"/>` as a DIRECT `<parallel>` child. A MULTI-region target is a SPACE-SEPARATED id list (W3C `target` grammar); a targetless / action-only root transition emits NO `target`. Round-trips back to the region-qualified grammar (`[:a :x]` / `[[:a :x] [:b :y]]`). |
   | `{:type :history :deep? <b> :default-target <t>}` | W3C `<history type=\"shallow\\|deep\">` inside the owning compound; a `:default-target` rides a default `<transition target=\"…\"/>`. Round-trips back to `:type :history`. A history pseudo-state is NEVER occupiable — it is a transition TARGET that resolves to the recorded/default leaf — so it emits `<history>`, never `<state>`/`<final>`. |
-  | Namespaced ids (`:auth/login`)        | `auth__login` (hex-escaped; `__` separates ns/name) |
-  | Multi-dot-ns ids (`:my.app/login`)    | `my_2eapp__login` (dots in the ns are escaped to `_2e`) |
+  | Namespaced ids (`:auth/login`)        | `auth-login` (hex-escaped; `-` separates ns/name) |
+  | Multi-dot-ns ids (`:my.app/login`)    | `my_2eapp-login` (dots in the ns are escaped to `_2e`) |
   | Vector-path targets (`[:parent :child]`) | `parent___child` (`___` joins path segments) |
   | Nested-state ids                      | FULLY QUALIFIED (root→leaf, `___`-joined) — unique xsd:ID |
 
@@ -58,10 +58,10 @@
 
   SCXML state ids are `xsd:ID` (XML NCName): letters / digits / `-` `.`
   `_`, NO `:`. The codec hex-escapes every keyword ns/name char to
-  `_<2-hex>` (`.` → `_2e`, `?` → `_3f`, `_` → `_5f`) — or `_u<4-hex>` above
-  U+00FF (CJK, emoji) — and uses two reserved markers the escaper can
-  provably never emit — `__` between a keyword's namespace and name, `___`
-  between vector-path segments — so:
+  `_<2-hex>` (`.` → `_2e`, `?` → `_3f`, `_` → `_5f`, `-` → `_2d`) — or
+  `_u<4-hex>` above U+00FF (CJK, emoji) — and uses two reserved markers
+  the escaper can provably never emit — `-` between a keyword's namespace
+  and name, `___` between vector-path segments — so:
 
   - ANY keyword round-trips EXACTLY, regardless of how many dots its
     namespace or name has (`:my.app.auth/login` ≠ `:my/app.auth.login`
@@ -190,39 +190,57 @@
 ;; The hex-escape codec (the same injective scheme `chart/layout`'s
 ;; `node-id` uses for xyflow ids) handles this. EVERY non-alphanumeric
 ;; char in a segment is escaped to `_<2-hex>` (≤ U+00FF: a literal `_` →
-;; `_5f`, `.` → `_2e`, `?` → `_3f`) or `_u<4-hex>` (> U+00FF: CJK, emoji).
-;; After escaping, an `_` is ALWAYS followed by a hex digit or the `u`
-;; sentinel — never another underscore — so we can use consecutive-
-;; underscore RESERVED MARKERS the escaper can provably never emit:
+;; `_5f`, `.` → `_2e`, `?` → `_3f`, `-` → `_2d`) or `_u<4-hex>` (> U+00FF:
+;; CJK, emoji). After escaping, a segment carries only alphanumerics and
+;; `_`+hex escapes — no `-`, no `.`, and no two consecutive underscores.
+;; Two RESERVED MARKERS the escaper can provably never emit join the parts:
 ;;
-;; - `__`  (DOUBLE underscore) joins a keyword's NAMESPACE and NAME:
-;;   `:auth/login`         → `"auth__login"`
-;;   `:my.app.auth/login`  → `"my_2eapp_2eauth__login"`
-;;   (the dots in the ns are escaped to `_2e`; the SINGLE `__` is the
+;; - `-`   (a single HYPHEN) joins a keyword's NAMESPACE and NAME. The
+;;   escaper always renders a literal `-` as `_2d`, so a bare `-` never
+;;   arises from segment content:
+;;   `:auth/login`         → `"auth-login"`
+;;   `:my.app.auth/login`  → `"my_2eapp_2eauth-login"`
+;;   (the dots in the ns are escaped to `_2e`; the SINGLE `-` is the
 ;;   unambiguous ns/name boundary regardless of how many dots the ns has)
-;; - `___` (TRIPLE underscore) joins the SEGMENTS of a vector path:
+;; - `___` (TRIPLE underscore) joins the SEGMENTS of a vector path. No
+;;   segment carries consecutive underscores, so a `___` run only ever
+;;   arises from this join:
 ;;   `[:authenticated :browsing]` → `"authenticated___browsing"`
-;;   `[:auth/region :browsing]`   → `"auth__region___browsing"`
+;;   `[:auth/region :browsing]`   → `"auth-region___browsing"`
 ;;
-;; Decode is unambiguous: split on `___` (longest marker first) to
-;; recover vector-path segments, then split each segment on `__` to
-;; recover ns vs name, then `_XX`-unescape each part. Because the escaper
-;; never emits `__` or `___`, neither boundary can collide with segment
-;; content for ANY keyword (multi-dot ns, dotted name, `/` in ns/name) —
-;; the codec is fully injective and every emitted id is a valid xsd:ID.
+;; Decode is unambiguous: split on `___` to recover vector-path segments,
+;; then split each segment on its FIRST `-` to recover ns vs name, then
+;; `_XX`-unescape each part. Because the escaper never emits `-` or a
+;; `___` run, neither boundary can collide with segment content for ANY
+;; keyword (multi-dot ns, dotted name, a name whose leading char escapes
+;; to `_…` — rf2-t69tdo) — the codec is fully injective and every emitted
+;; id is a valid xsd:ID.
 
 (def ^:private ns-name-sep
-  "The keyword NAMESPACE↔NAME boundary in an SCXML id. `__` (double
-  underscore) is impossible for `escape-id-segment` to emit (every escape
-  is `_` + 2 hex or `_u` + 4 hex — a `_` is never followed by a `_`), so it
-  is the injective ns/name marker."
-  "__")
+  "The keyword NAMESPACE↔NAME boundary in an SCXML id. `-` (a single
+  hyphen) is impossible for `escape-id-segment` to emit — a `-` is always
+  escaped to `_2d`, so a bare hyphen NEVER arises from segment content —
+  making it the injective ns/name marker AND a valid xsd:ID `NameChar`
+  (letters / digits / `-` / `.` / `_`).
+
+  rf2-t69tdo — the marker was `__` (double underscore). Because EVERY
+  escape starts with `_`, a name segment whose FIRST char is
+  non-alphanumeric (any CJK name → leading `_u…`, or `:a/-b`'s name `-b`
+  → `_2db`) began with `_`, so `<ns>` + `__` + `_<name-escape>` minted
+  `___` (triple underscore) at the boundary — the EXACT
+  `path-segment-sep`. `unescape-id-string` then mis-read the namespaced
+  keyword as a vector path (`:a/-b` → `[:a :2db]`). A non-underscore
+  boundary token the escaper can never emit removes the collision at its
+  root: no boundary can ever grow into a `___` run."
+  "-")
 
 (def ^:private path-segment-sep
   "The vector-PATH segment boundary in an SCXML id. `___` (triple
-  underscore) the escaper can never emit and is distinct from the `__`
+  underscore) the escaper can never emit — every escape is `_` + 2 hex or
+  `_u` + 4 hex, so a `_` is never followed by a `_`; segment content
+  carries no consecutive underscores at all. Distinct from the `-`
   ns/name marker, so a vector path can never collide with a single
-  namespaced keyword. A valid xsd:ID."
+  namespaced keyword (rf2-t69tdo). A valid xsd:ID."
   "___")
 
 ;; The xsd:ID-safe injective escape is the SHARED `grammar/escape-id-segment`
@@ -249,9 +267,9 @@
 (defn- keyword->id-string
   "Map a single keyword to its injective, xsd:ID-conformant SCXML id
   string. Namespace and name are each `escape-id-segment`-escaped and
-  joined with `__` (`ns-name-sep`); a bare keyword emits just its escaped
+  joined with `-` (`ns-name-sep`); a bare keyword emits just its escaped
   name. Exact round-trip for ANY keyword (multi-dot ns, dotted name,
-  `?`/`-`/`_` in either)."
+  `?`/`-`/`_` in either, or a name whose leading char escapes to `_…`)."
   [k]
   (if-let [ns (namespace k)]
     (str (escape-id-segment ns) ns-name-sep (escape-id-segment (name k)))
@@ -291,9 +309,11 @@
 
 (defn- id-string->keyword
   "Inverse of `keyword->id-string` for a SINGLE keyword segment (no `___`
-  path separator). Splits on the `__` ns/name marker (at most once),
-  `_XX`-unescaping each part: `\"auth__login\"` → `:auth/login`,
-  `\"my_2eapp_2eauth__login\"` → `:my.app.auth/login`, bare
+  path separator). Splits on the FIRST `-` ns/name marker (at most once —
+  the escaper renders any literal `-` as `_2d`, so the first bare `-` is
+  always the namespace boundary), `_XX`-unescaping each part:
+  `\"auth-login\"` → `:auth/login`,
+  `\"my_2eapp_2eauth-login\"` → `:my.app.auth/login`, bare
   `\"name\"` → `:name`. The symmetric inverse used by BOTH the id decoder
   and the guard `cond=` decoder."
   [s]
@@ -940,16 +960,19 @@
 
   - `___` (`path-segment-sep`) joins VECTOR-PATH segments. Its presence
     is the injective marker of a vector path.
-  - `__` (`ns-name-sep`) joins a namespaced keyword's namespace and name
+  - `-` (`ns-name-sep`) joins a namespaced keyword's namespace and name
     WITHIN a segment.
 
   So: an id containing `___` decodes to a vector of per-segment keywords
   (each segment via `id-string->keyword`); an id with NO `___` decodes to
-  a single keyword (one `__` ⇒ namespaced, none ⇒ bare). Because the
-  escaper never emits `__` or `___`, a vector path
+  a single keyword (one `-` ⇒ namespaced, none ⇒ bare). Because the
+  escaper never emits a bare `-` or a `___` run, a vector path
   (`\"authenticated___browsing\"`) can never collide with a namespaced
-  keyword (`\"authenticated__browsing\"`), and a multi-dot namespace
-  (`\"my_2eapp_2eauth__login\"`) round-trips its dots exactly."
+  keyword (`\"authenticated-browsing\"`), a multi-dot namespace
+  (`\"my_2eapp_2eauth-login\"`) round-trips its dots exactly, and a
+  namespaced keyword whose name's leading char escapes to `_…`
+  (`:a/-b` → `\"a-_2db\"`) no longer mints a spurious `___` at the
+  boundary (rf2-t69tdo)."
   [s]
   (when s
     (if (str/includes? s path-segment-sep)
@@ -1080,7 +1103,7 @@
   A numeric delay parses to a Long/int; a non-numeric delay is an
   id-encoded keyword (rf2-mnp93.1) decoded symmetrically with
   `keyword->id-string` so a namespaced keyword delay (`:a/b` →
-  `after.a__b`) round-trips its namespace. Shared by `consume-transitions`
+  `after.a-b`) round-trips its namespace. Shared by `consume-transitions`
   and `parse-root-parallel-transitions` (each keeps its own target decoder)."
   [event]
   (let [d-str (subs event 6)

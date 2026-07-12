@@ -165,16 +165,22 @@
       (is (str/includes? out "<state id=\"authenticated___paying\"")))))
 
 (deftest emit-namespaced-ids-use-ns-name-marker
-  (testing "rf2-mnp93.1 — :auth/idle → id=\"auth__idle\" (the `__`
+  (testing "rf2-mnp93.1 / rf2-t69tdo — :auth/idle → id=\"auth-idle\" (the `-`
             ns/name marker; the keyword name/ns chars are hex-escaped so
-            the codec is fully injective and xsd:ID-conformant)"
+            the codec is fully injective and xsd:ID-conformant). The `-`
+            marker — which the escaper never emits (a literal `-` → `_2d`)
+            — can never grow into a `___` path-run at the ns/name boundary,
+            unlike the pre-fix `__` marker."
     (let [out (scxml/spec->scxml namespaced-machine)]
-      (is (str/includes? out "initial=\"auth__idle\""))
-      (is (str/includes? out "<state id=\"auth__idle\""))
-      (is (str/includes? out "<state id=\"auth__loading\""))
-      (is (str/includes? out "event=\"rf__load\""))
+      (is (str/includes? out "initial=\"auth-idle\""))
+      (is (str/includes? out "<state id=\"auth-idle\""))
+      (is (str/includes? out "<state id=\"auth-loading\""))
+      (is (str/includes? out "event=\"rf-load\""))
       ;; The old non-injective `.`-as-ns/name form must be gone.
-      (is (not (str/includes? out "id=\"auth.idle\""))))))
+      (is (not (str/includes? out "id=\"auth.idle\"")))
+      ;; rf2-t69tdo — the ns/name boundary must NOT be a `__` run that could
+      ;; collide with the `___` path separator.
+      (is (not (str/includes? out "id=\"auth__idle\""))))))
 
 (deftest emit-guards-render-as-cond-attribute
   (testing "rf2-mnp93.1 — guarded transitions render with cond= on
@@ -321,13 +327,67 @@
       (is (= done (get-in back [:states begin :on :go]))
           "the CJK transition target survives")))
   (testing "a bare CJK id decodes back to the SAME keyword (not a vector /
-            mis-split), since a plain name carries no `__` ns/name marker"
+            mis-split), since a plain name carries no `-` ns/name marker"
     (let [k    (keyword "结束")
           spec {:initial k :states {k {}}}
           back (-> spec scxml/spec->scxml scxml/scxml->spec)]
       (is (= spec back))
       (is (keyword? (:initial back)))
-      (is (= "结束" (name (:initial back)))))))
+      (is (= "结束" (name (:initial back))))))
+  (testing "rf2-t69tdo — a NAMESPACED CJK id (`:开始/名`) round-trips EXACTLY.
+            #5762 (rf2-qgtcvy) had to scope its CJK round-trip down to PLAIN
+            (non-namespaced) CJK because the pre-fix `__` ns/name marker +
+            the escaped (leading `_u…`) name segment minted `___` at the
+            boundary, so the namespaced keyword mis-decoded to a vector.
+            With the `-` ns/name marker the namespaced case round-trips too."
+    (let [k    (keyword "开始" "名")          ;; ns 开始 (U+5F00 U+59CB), name 名 (U+540D)
+          spec {:initial k
+                :states  {k {:on {(keyword "登录" "成功") :done}}
+                          :done {:final? true}}}
+          back (-> spec scxml/spec->scxml scxml/scxml->spec)]
+      (is (= spec back) "the whole namespaced-CJK machine round-trips exactly")
+      (is (keyword? (:initial back)) "the namespaced CJK id stays a keyword")
+      (is (= "开始" (namespace (:initial back))) "the CJK namespace survives")
+      (is (= "名"  (name (:initial back)))       "the CJK name survives")
+      (is (keyword? (-> back :states (get k) :on keys first))
+          "the namespaced-CJK EVENT key stays a keyword, not a mis-split vector"))))
+
+(deftest round-trip-ns-name-boundary-escaped-leading-char
+  (testing "rf2-t69tdo — a namespaced keyword whose NAME segment begins with
+            an escaped char (leading `_…`) round-trips EXACTLY, not to a
+            vector. Pre-fix the `<ns>` + `__` + `_<name-escape>` boundary
+            minted `___` (the path separator), so `:a/-b` decoded to the
+            vector `[:a :2db]` instead of the namespaced keyword."
+    (doseq [k [:a/-b            ;; the bead's exact repro (name -b → _2db)
+               :auth/-flag      ;; another leading-hyphen name
+               :x/?ready        ;; leading `?` name (→ _3f)
+               (keyword "登录" "成功")]] ;; namespaced CJK (leading _u…)
+      (let [spec {:initial :s0
+                  :states  {:s0 {:on {:go {:target :s1 :guard k}}}
+                            :s1 {}}}
+            back (-> spec scxml/spec->scxml scxml/scxml->spec)]
+        (is (= spec back)
+            (str "namespaced keyword with escaped-leading-char name round-trips: " k))
+        (is (= k (get-in back [:states :s0 :on :go :guard]))
+            (str "the guard keyword keeps its namespace + name exactly: " k))))
+    ;; and as a STATE / target id (not just a guard): the id must NOT
+    ;; mis-decode into a vector path.
+    (let [spec {:initial :a/-b
+                :states  {:a/-b {:on {:go :done}}
+                          :done {:final? true}}}
+          back (-> spec scxml/spec->scxml scxml/scxml->spec)]
+      (is (= spec back) "an :a/-b STATE id round-trips exactly")
+      (is (keyword? (:initial back)) "the state id stays a keyword, not a vector"))
+    ;; and INSIDE a vector-path target: a namespaced segment whose name
+    ;; leads with an escape must not blur the `___` path boundary.
+    (let [spec {:initial :a
+                :states  {:a       {:on {:go [:auth/-region :browsing]}}
+                          :auth/-region {:initial :browsing
+                                         :states  {:browsing {}}}}}
+          back (-> spec scxml/spec->scxml scxml/scxml->spec)]
+      (is (= spec back) "a vector path with a leading-escape-name namespaced segment round-trips")
+      (is (= [:auth/-region :browsing] (get-in back [:states :a :on :go]))
+          "the vector target stays a 2-segment vector, not mis-split"))))
 
 (deftest parse-attrs-accepts-single-quoted-attributes
   (testing "rf2-qgtcvy — `parse-attrs` matched only double-quoted values, so
