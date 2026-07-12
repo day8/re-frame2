@@ -47,7 +47,68 @@
   `rf=`-stable read does not repaint downstream. Stabilization here is
   keyed by target identity `(frame, stabilized query)`; per-site query-
   object reuse (the parametric-args case) needs compile-site identity and
-  lands with the HMR site-identity slice (S2e)."
+  lands with the HMR site-identity slice (S2e).
+
+  ## Epoch coalescing + `flush!` scope (S2d — 03 §3 invariant 6; Spec 006
+  §Epoch finalization)
+
+  The sixth frozen invariant: EPOCH CLOSE NOTIFIES EACH DIRTY CELL ONCE.
+  Sub deltas mark their cell dirty through constant-work `on-change`
+  (never compute — I-5); the cell enters a module-level DIRTY REGISTRY
+  exactly once (a set, deduped by cell identity) and one coalesced flush
+  is scheduled per microtask (`interop/next-tick` — drain→React is
+  microtask-aligned) ON CLJS; the JVM headless host has no async render
+  loop, so it auto-schedules NOTHING and drains via the EXPLICIT `flush!`
+  (07 §2's only flush idiom; SSR is one-shot) — one honest option per
+  host. N sub deltas within one epoch therefore advance the cell's
+  revision ONCE. Coalescing is per-cell-per-flush-boundary; the
+  cross-epoch SEPARATION the push-economics bench asserts (8 epochs ⇒ 8
+  renders — G-5/G-13) rides the async drain boundaries and is wired with
+  the bench in S2f, not here.
+
+  `flush!` — the SYNCHRONOUS forcing of pending notifications — is SCOPED
+  over that registry. The Q51 scope ruling, PINNED here:
+
+    - `flush!` is PER-ROOT at the public boundary: it flushes the CALLING
+      root's pending commit work. The substrate primitive is a scoped
+      drain (`flush-scope!`), and the natural scope the substrate owns is
+      the FRAME — a dirty cell's pending work belongs to the frame(s) its
+      committed sites observe. Root scope COMPOSES over frame scope (a
+      root scopes ≥1 frame); the root→frames resolution lives in the
+      client root registry (where roots live — off this artefact's
+      surface), so the ROOT-spelled public `ui/flush!` / `flush-render!`
+      wires there (S2f). The substrate mechanism + the frame-scoped and
+      global spellings land HERE.
+    - `(flush-frame! frame-id)` — the frame arity — flushes every root
+      observing that frame (each dirty cell whose committed deps include
+      the frame).
+    - the GLOBAL all-roots flush is the TEST-ONLY `ui.test/flush!`
+      spelling (`flush-pending!` here). There is no app-facing global
+      flush — an app forces its own root, never every root.
+
+  A scoped flush leaves out-of-scope cells pending — no epoch work leaks
+  across roots. Flush is reentrancy-SAFE BY CONSTRUCTION: `flush-scope!`
+  atomically drains-then-notifies (`swap-vals!`), so a notify-triggered
+  re-entrant flush finds the registry already drained and cannot
+  double-advance a cell. The DEV-tier `:rf.error/flush-in-open-epoch`
+  signal — the DX guard naming a re-entrant flushSync-into-an-open-epoch
+  misuse (03 §11; Spec 006 §Epoch finalization) — is REFERENCED, not
+  emitted, here: its typed throw lands with its Spec 009 catalogue row in
+  the S2f 009 batch (the catalogue↔throw co-edit ratchet couples them,
+  and the reentrancy it guards is only reachable once mounted Tier-3
+  roots land).
+
+  ## The slice-scoped probe memo (S2d item 3 — 03 §3; Spec 006 §The
+  slice-scoped probe memo)
+
+  `sub-read` threads a SLICE-SCOPED pure memo (`obs/make-slice-memo`)
+  into every `probe`, so N sibling rows probing one query compute shared
+  derivation parents once per synchronous execution slice, not once per
+  row (the first-mount fan-out mitigation). The handle is created lazily
+  on the first probe of a slice and cleared on the next microtask
+  (`interop/next-tick`), so an abandoned slice's table is unreachable
+  garbage. The memo is an ECONOMY, never an authority — the commit
+  evidence comparison (step 5) corrects any staleness before paint."
   (:require [re-frame.error :as error]
             [re-frame.interop :as interop]
             [re-frame.substrate.observation :as obs]
@@ -115,6 +176,41 @@
         (assoc-in [:by-key tk] {:target target :evidence ev :value value}))))
 
 ;; ---------------------------------------------------------------------------
+;; The slice-scoped probe memo (S2d item 3; 03 §3)
+;;
+;; ONE memo handle per synchronous execution slice, shared by every probe
+;; in the slice so sibling rows compute shared derivation parents once
+;; (the first-mount fan-out mitigation). Created lazily on the first probe
+;; of a slice; cleared on the next microtask so an abandoned slice's table
+;; is unreachable garbage. The memo is an ECONOMY only — commit step 5
+;; corrects any staleness before paint — so a single module holder (probes
+;; never nest across slices synchronously) is sufficient.
+;; ---------------------------------------------------------------------------
+
+(def ^:private slice-memo* (atom nil))
+
+(defn- current-slice-memo
+  "The current slice's probe memo handle — reused across every probe of
+  this synchronous slice, created lazily. On CLJS a fresh slice mints a
+  fresh handle and the old one is released on the next microtask (a true
+  `goog.async.nextTick` boundary firing AFTER the synchronous render pass).
+  On the JVM `next-tick` is a concurrent executor, not a microtask, so a
+  timer-driven clear would race a synchronous render; there the handle is
+  invalidated by the memo's own `(frame, frame-epoch, registry-epoch)` tag
+  on the next epoch (`slice-memo-table!`) and cleared between fixtures by
+  `reset-scheduler!`. The memo is an ECONOMY — commit step 5 corrects any
+  staleness before paint — so the coarser JVM lifetime is harmless."
+  []
+  (or @slice-memo*
+      (let [h (obs/make-slice-memo)]
+        (reset! slice-memo* h)
+        ;; Release OUR handle at slice end; a later slice may already have
+        ;; installed a newer one, so clear only while ours is still current.
+        #?(:cljs
+           (interop/next-tick (fn [] (compare-and-set! slice-memo* h nil))))
+        h)))
+
+;; ---------------------------------------------------------------------------
 ;; The ViewCell
 ;; ---------------------------------------------------------------------------
 
@@ -130,7 +226,8 @@
   ;;    :values    {tk -> value} ; last published site values (stabilization
   ;;                             ;   + the revision snapshot's evidence)
   ;;    :revision  int           ; get-snapshot returns this (useSyncExternalStore)
-  ;;    :dirty?    bool          ; coalescing flag for the async notify path
+  ;;    :dirty?    bool          ; pending-notification flag (epoch coalescing)
+  ;;    :dirty-epoch epoch|nil   ; the epoch the pending notification tags
   ;;    :latest-capture cap|nil  ; last finished render capture (commit input)
   ;;    :listeners {k -> fn}     ; useSyncExternalStore subscribers
   ;;    :intervals [interval]}   ; lifecycle facts (dev/tool; 03 §4)
@@ -157,6 +254,7 @@
             :values         {}
             :revision       0
             :dirty?         false
+            :dirty-epoch    nil
             :latest-capture nil
             :listeners      {}
             :intervals      []}))))
@@ -182,7 +280,7 @@
         site-ctx (cond-> {:query-v query}
                    (some? override) (assoc :override override))
         target   (obs/resolve-target site-ctx)
-        ev       (obs/probe target)
+        ev       (obs/probe target (current-slice-memo))
         v        (:value ev)
         {:keys [cell capture]} @ambient]
     (if (some? cell)
@@ -241,39 +339,153 @@
   (swap! (state cell) update :revision inc)
   (notify-listeners! cell))
 
-;; ---- the async dirty path (value-movement on watchable hosts) ---------------
+;; ---- epoch coalescing + the notification scheduler (S2d) --------------------
 ;;
-;; `on-change` is constant-work (mark-dirty; never compute — I-5). Multiple
-;; movements coalesce to one revision advance per microtask. (Exact
-;; once-per-epoch coalescing at the transaction boundary is S2d; per-tick
-;; coalescing here already satisfies the useSyncExternalStore contract.)
+;; `on-change` is constant-work (mark-dirty; never compute — I-5). A cell
+;; enters the module DIRTY REGISTRY exactly once per flush boundary (the
+;; set dedups by identity); N sub deltas in one epoch therefore advance
+;; the cell ONCE at flush. One coalesced async flush is scheduled per
+;; microtask (drain→React is microtask-aligned — 03 §3); `flush!` is the
+;; synchronous forcing, SCOPED so no epoch work leaks across roots. The
+;; Q51 scope ruling and the reentrancy contract live in the ns docstring.
 
-(defn flush-dirty!
-  "Run any pending coalesced notification synchronously (test seam + the
-  scheduled-flush body): if the cell is dirty, clear the flag and advance
-  the revision once."
+(defonce ^:private dirty-cells
+  ;; The set of ViewCells with a pending (unflushed) notification — the
+  ;; input to every scoped flush. `defonce` (module-lived); tests clear it
+  ;; via `reset-scheduler!`.
+  (atom #{}))
+
+(defonce ^:private flush-scheduled? (atom false))
+
+(declare flush-pending!)
+
+(defn- schedule-flush!
+  "Arm ONE coalesced microtask that drains the whole registry — the CLJS
+  host's realization of the microtask-aligned epoch close (03 §3). Re-marks
+  before it runs fold into the same flush; a synchronous `flush!` beforehand
+  just leaves it an empty drain.
+
+  CLJS-only: `interop/next-tick` there is a true `goog.async.nextTick`
+  microtask that fires AFTER the synchronous render pass. The JVM headless
+  host has NO async render loop to align to — its epoch close is the
+  EXPLICIT `flush!` (07 §2 'the only flush idiom'; SSR renders one-shot) —
+  and `next-tick` there is a CONCURRENT executor, not a microtask, so a
+  background auto-drain would race synchronous callers. One honest option
+  per host, not a pretended same mechanism (03 §3)."
+  []
+  #?(:cljs
+     (when (compare-and-set! flush-scheduled? false true)
+       (interop/next-tick
+         (fn []
+           (reset! flush-scheduled? false)
+           (flush-pending!))))
+     :clj nil))
+
+(defn mark-dirty!
+  "The `on-change` body: mark `cell` dirty for `epoch` and enrol it in the
+  dirty registry (once — a re-mark while already dirty coalesces), then
+  arm one microtask flush. Never acquires/releases (no reentrant-graph-op)
+  and never computes (I-5) — it flags a revision advance the scheduled
+  render re-probes. `epoch` (the moving frame's commit epoch, from the
+  `on-change` payload) tags the pending notification; nil when driven
+  without epoch evidence."
+  ([^ViewCell cell] (mark-dirty! cell nil))
+  ([^ViewCell cell epoch]
+   (let [st (state cell)]
+     (when-not (:dirty? @st)
+       (swap! st assoc :dirty? true :dirty-epoch epoch)
+       (swap! dirty-cells conj cell)
+       (schedule-flush!)))))
+
+(defn- flush-one!
+  "Clear `cell`'s pending flag and advance its revision once (the caller
+  has already removed it from the registry). No-op when not dirty —
+  idempotent under a concurrent drain."
   [^ViewCell cell]
   (let [st (state cell)]
     (when (:dirty? @st)
-      (swap! st assoc :dirty? false)
+      (swap! st assoc :dirty? false :dirty-epoch nil)
       (advance-revision! cell))))
 
-(defn mark-dirty!
-  "The `on-change` body (also the notification seam S2d refines to exact
-  once-per-epoch coalescing): mark the cell dirty and schedule one
-  coalesced flush. Never acquires/releases (no reentrant-graph-op) and
-  never computes (I-5) — it advances the revision, and the render it
-  schedules re-probes. Multiple marks before the scheduled flush coalesce
-  to one revision advance."
+(defn flush-scope!
+  "The scoped-flush PRIMITIVE: synchronously flush every pending cell for
+  which `(scope-pred cell)` is truthy, advancing each once; cells outside
+  the scope stay pending (no epoch work leaks across scopes). Reentrancy-
+  SAFE by construction — the matching cells are removed from the registry
+  ATOMICALLY (`swap-vals!`) before any notify, so a notify-triggered
+  re-entrant flush sees an already-drained set. Returns the count flushed."
+  [scope-pred]
+  (let [[old _] (swap-vals! dirty-cells
+                            (fn [cells] (into #{} (remove scope-pred) cells)))
+        flushed (filterv scope-pred old)]
+    (doseq [cell flushed]
+      (flush-one! cell))
+    (count flushed)))
+
+(defn flush-pending!
+  "GLOBAL drain — flush EVERY pending cell once (the test-only all-roots
+  spelling `ui.test/flush!` rides this). Returns the count flushed."
+  []
+  (flush-scope! (constantly true)))
+
+(defn- cell-frames
+  "The set of frame-ids `cell`'s committed subscription sites observe."
   [^ViewCell cell]
-  (let [st (state cell)]
-    (when-not (:dirty? @st)
-      (swap! st assoc :dirty? true)
-      (interop/next-tick #(flush-dirty! cell)))))
+  (into #{}
+        (keep (fn [tk] (when (= :sub (nth tk 0)) (nth tk 1))))
+        (keys (:committed @(state cell)))))
+
+(defn cell-observes-frame?
+  "True when `cell`'s committed dependency set includes a site in frame
+  `frame-id` (the frame-scope membership test)."
+  [^ViewCell cell frame-id]
+  (contains? (cell-frames cell) frame-id))
+
+(defn flush-frame!
+  "The FRAME arity of `flush!` — flush every pending cell observing frame
+  `frame-id` (every root that observes that frame). Cells scoped to other
+  frames stay pending. Returns the count flushed."
+  [frame-id]
+  (flush-scope! #(cell-observes-frame? % frame-id)))
+
+(defn flush-dirty!
+  "Synchronously flush THIS cell's pending notification, if any (test seam
+  + the per-cell forcing door). Returns nil."
+  [^ViewCell cell]
+  (flush-scope! #(identical? % cell))
+  nil)
+
+(defn- discard-pending!
+  "Drop `cell`'s pending notification WITHOUT advancing its revision —
+  used at disconnect/teardown so an unmounted or dead cell never lingers
+  in the registry or fires a stale flush. Returns nil."
+  [^ViewCell cell]
+  (swap! dirty-cells disj cell)
+  (swap! (state cell) assoc :dirty? false :dirty-epoch nil)
+  nil)
+
+(defn dirty?
+  "True when `cell` has a pending (unflushed) notification (tool/test read)."
+  [^ViewCell cell]
+  (boolean (:dirty? @(state cell))))
+
+(defn pending-cell-count
+  "The number of cells with a pending notification (tool/test read)."
+  []
+  (count @dirty-cells))
+
+(defn reset-scheduler!
+  "Test support: drop every pending notification and the slice memo without
+  advancing any revision — a clean slate between fixtures. Returns nil."
+  []
+  (reset! dirty-cells #{})
+  (reset! flush-scheduled? false)
+  (reset! slice-memo* nil)
+  nil)
 
 (defn- on-change-fn
   [^ViewCell cell]
-  (fn [_payload] (mark-dirty! cell)))
+  (fn [payload] (mark-dirty! cell (:frame-epoch payload))))
 
 ;; ---- lifecycle (03 §4) ------------------------------------------------------
 ;;
@@ -337,6 +549,7 @@
   (let [st (state cell)]
     (when (contains? #{:fresh :connected} (:lifecycle @st))
       (release-committed! cell)
+      (discard-pending! cell)
       (swap! st (fn [m]
                   (-> m
                       (assoc :lifecycle :disconnected)
@@ -358,6 +571,7 @@
         (swap! st update :intervals conj
                {:state :unmounted :reason :unmounted :proof :host-teardown}))
       (release-committed! cell)
+      (discard-pending! cell)
       (swap! st assoc :lifecycle :dead))
     cell))
 

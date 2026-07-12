@@ -21,7 +21,23 @@
       idempotent (kept-check retains unchanged leases untouched); the
       lifecycle layout effect (empty deps) owns connect/disconnect, so
       React unmount / Activity hide releases owners and reveal reacquires
-      and corrects before paint."
+      and corrects before paint.
+
+  ## Epoch close → React (S2d)
+
+  Sub deltas do NOT re-render synchronously. A moving site's `on-change`
+  (registered at commit) marks the cell dirty in `reactive`'s epoch-scoped
+  registry (constant-work, coalesced once per cell per epoch); one
+  microtask-aligned flush advances the cell's revision, `getSnapshot`
+  moves, and this component re-renders. React BATCHING is inherited, not
+  hand-rolled: `useSyncExternalStore` routes every revision advance
+  through React's own scheduler, so N cells flushed in one drain settle in
+  ONE render pass, and adding an explicit batch wrapper here would only
+  fight React's ownership of the schedule. The synchronous forcing door is
+  `reactive/flush-frame!` / `ui.test/flush!` (the Q51 scope ruling —
+  03 §3); the commit reconciler's own step-8 advance already runs inside
+  this layout effect (React's commit phase), correcting moved evidence
+  before paint without any flush call."
   (:require ["react" :as react]
             [re-frame.ui.reactive :as reactive]))
 
