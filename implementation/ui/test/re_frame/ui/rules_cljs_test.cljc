@@ -167,45 +167,81 @@
       "undeclared elements default to all-attributes"))
 
 ;; ---------------------------------------------------------------------------
-;; Custom-element runtime registry — hot-reload eviction (rf2-vxgfnd.48). The
-;; RUNTIME arm of .16 AC5; the compile/JVM arm lives in
-;; re-frame.ui.compiler-build-jvm-test.
+;; Custom-element runtime reconciliation registry — the reload-cycle protocol
+;; (rf2-vxgfnd.67, residual of .48). The RUNTIME arm of .16 AC5; the compile/JVM
+;; arm lives in re-frame.ui.compiler-build-jvm-test. Eviction is driven from the
+;; reload BOUNDARY (notify-reload! / commit-reload!), NOT from a surviving
+;; re-registration — so a source that now declares zero elements, or whose file
+;; is deleted, is reconciled away too.
 ;; ---------------------------------------------------------------------------
 
-(deftest removed-custom-element-clears-runtime-property-classification
+(deftest edit-reload-replaces-a-source-contribution-atomically
+  ;; AC3: a rename — app.a's :x-el becomes :y-el — replaces the WHOLE source
+  ;; contribution on commit; the live union never retains the stale :x-el after.
   (rules/reset-custom-elements!)
-  ;; initial load: app.a declares :x-el with :help-text
   (rules/register-custom-element! :x-el {:properties #{:help-text}} 'app.a)
   (is (= #{:help-text} (rules/custom-element-properties :x-el))
-      "the declaration classifies :help-text as a property")
-  ;; hot-reload app.a: :x-el renamed to :y-el (its declaration deleted). The
-  ;; ^:dev/before-load hook bumps the generation; re-running app.a's forms
-  ;; re-opens the source, evicting its whole prior contribution first.
-  (rules/notify-reload!)
-  (rules/register-custom-element! :y-el {:properties #{:label}} 'app.a)
+      "initial load classifies :help-text as a property (direct write-through)")
+  (rules/notify-reload!)                                       ; ^:dev/before-load
+  (rules/register-custom-element! :y-el {:properties #{:label}} 'app.a) ; stages
+  (is (= #{:help-text} (rules/custom-element-properties :x-el))
+      "mid-cycle the live aggregate stays last-known-good (staged, not committed)")
+  (rules/commit-reload!)                                       ; ^:dev/after-load
   (is (= #{} (rules/custom-element-properties :x-el))
-      "the removed :x-el no longer classifies any property (was leaking until
-       a full page reload)")
+      "on commit the renamed-away :x-el is evicted (was leaking until page reload)")
   (is (= #{:label} (rules/custom-element-properties :y-el))
       "the current :y-el declaration classifies its property"))
 
+(deftest zero-declaration-reload-evicts-the-whole-source
+  ;; AC1: app.a removes its LAST custom-element declaration. On reload it
+  ;; re-runs but registers NOTHING, so .48's re-registration trigger never
+  ;; fired and :x-el leaked. The reload machinery notes app.a re-ran; commit
+  ;; evicts its now-empty contribution without a page reload.
+  (rules/reset-custom-elements!)
+  (rules/register-custom-element! :x-el {:properties #{:help-text}} 'app.a)
+  (is (= #{:help-text} (rules/custom-element-properties :x-el)))
+  (rules/notify-reload!)
+  (rules/note-reloaded-sources! ['app.a])   ; app.a re-ran (its build hook says so)
+  ;; ...and registered no declarations this cycle.
+  (rules/commit-reload!)
+  (is (= #{} (rules/custom-element-properties :x-el))
+      "a source that drops its last declaration is evicted (residual .48 gap)")
+  (is (= {} @rules/custom-elements)
+      "no stale rows survive the zero-declaration reload"))
+
+(deftest deleted-source-file-is-reconciled-away
+  ;; AC2: app.a's FILE is deleted — it does not reload at all, but the reload
+  ;; machinery reports it removed. app.b is untouched and keeps its rows.
+  (rules/reset-custom-elements!)
+  (rules/register-custom-element! :a-el {:properties #{:a-prop}} 'app.a)
+  (rules/register-custom-element! :b-el {:properties #{:b-prop}} 'app.b)
+  (rules/notify-reload!)
+  (rules/note-reloaded-sources! ['app.a])   ; app.a's file removed this cycle
+  (rules/commit-reload!)
+  (is (= #{} (rules/custom-element-properties :a-el))
+      "the deleted source's former contribution is reconciled away")
+  (is (= #{:b-prop} (rules/custom-element-properties :b-el))
+      "an untouched source keeps its classification across the reload"))
+
 (deftest hot-reload-preserves-untouched-sources
-  ;; A reload cycle that reloads source B must NOT drop source A's rows — A's
-  ;; forms did not re-run, so it keeps its prior generation (the runtime mirror
-  ;; of the compile-side incremental-preserves-untouched semantics).
+  ;; A reload cycle that reloads only source B must NOT drop source A's rows —
+  ;; A did not re-run, so it is neither staged nor touched (the runtime mirror of
+  ;; compile-side incremental-preserves-untouched).
   (rules/reset-custom-elements!)
   (rules/register-custom-element! :a-el {:properties #{:a-prop}} 'app.a)
   (rules/register-custom-element! :b-el {:properties #{:b-prop}} 'app.b)
   (rules/notify-reload!)
   (rules/register-custom-element! :b-el {:properties #{:b-prop2}} 'app.b) ; only B reloads
+  (rules/commit-reload!)
   (is (= #{:a-prop} (rules/custom-element-properties :a-el))
       "untouched source A keeps its classification across B's reload")
   (is (= #{:b-prop2} (rules/custom-element-properties :b-el))
       "reloaded source B's classification updates"))
 
 (deftest multiple-declarations-in-one-source-accumulate-then-replace
-  ;; Two elements in one source accumulate; on reload, both re-open together
-  ;; and only the survivors remain (never clear-on-first-declaration).
+  ;; Two elements in one source accumulate in the staged cycle; on commit the
+  ;; whole contribution replaces, so a dropped declaration is evicted even though
+  ;; the source no longer touches it (never clear-on-first-declaration).
   (rules/reset-custom-elements!)
   (rules/register-custom-element! :a-el {:properties #{:a-prop}} 'app.multi)
   (rules/register-custom-element! :b-el {:properties #{:b-prop}} 'app.multi)
@@ -214,7 +250,85 @@
   ;; reload app.multi keeping only :a-el (with a changed decl); :b-el deleted
   (rules/notify-reload!)
   (rules/register-custom-element! :a-el {:properties #{:a-prop2}} 'app.multi)
+  (rules/commit-reload!)
   (is (= #{:a-prop2} (rules/custom-element-properties :a-el))
       "the surviving declaration's classification updates")
   (is (= #{} (rules/custom-element-properties :b-el))
       "the dropped :b-el is evicted even though app.multi no longer touches it"))
+
+(deftest aborted-reload-retains-the-last-known-good-manifest
+  ;; AC4: a reload throws after staging a partial new set. shadow-cljs never
+  ;; runs ^:dev/after-load, so commit-reload! is not reached — the live manifest
+  ;; must stay exactly the last known-good, never a half-applied union.
+  (rules/reset-custom-elements!)
+  (rules/register-custom-element! :a-el {:properties #{:a-prop}} 'app.a)
+  (rules/register-custom-element! :b-el {:properties #{:b-prop}} 'app.b)
+  (let [known-good @rules/custom-elements]
+    (rules/notify-reload!)
+    (rules/register-custom-element! :a-el {:properties #{:a-prop2}} 'app.a) ; partial
+    ;; ...a later top-level form throws → after-load never fires (no commit).
+    (is (= known-good @rules/custom-elements)
+        "a mid-reload throw leaves the live registry untouched (staged, uncommitted)")
+    ;; the NEXT reload opens a fresh cycle, discarding the aborted staging.
+    (rules/notify-reload!)
+    (rules/register-custom-element! :a-el {:properties #{:a-prop2}} 'app.a)
+    (rules/register-custom-element! :b-el {:properties #{:b-prop}} 'app.b)
+    (rules/commit-reload!)
+    (is (= {:a-el {:properties #{:a-prop2}}
+            :b-el {:properties #{:b-prop}}} @rules/custom-elements)
+        "the recovering reload commits the full new manifest, no ghost of the abort")))
+
+(deftest build-ids-are-isolated
+  ;; AC5: two builds sharing one runtime atom own their rows independently.
+  ;; Reloading (and evicting a source in) build :app cannot touch build :lib.
+  (rules/reset-custom-elements!)
+  (rules/register-custom-element! :app-el {:properties #{:a-prop}} 'app.core :app)
+  (rules/register-custom-element! :lib-el {:properties #{:l-prop}} 'lib.core :lib)
+  (is (= #{:a-prop} (rules/custom-element-properties :app-el)))
+  (is (= #{:l-prop} (rules/custom-element-properties :lib-el)))
+  ;; build :app reloads app.core with its declaration deleted
+  (rules/notify-reload! :app)
+  (rules/note-reloaded-sources! ['app.core] :app)
+  (rules/commit-reload! :app)
+  (is (= #{} (rules/custom-element-properties :app-el))
+      "reconciling build :app evicts its own source")
+  (is (= #{:l-prop} (rules/custom-element-properties :lib-el))
+      "build :lib's row is untouched — reconciling one build cannot delete another's"))
+
+(deftest repl-reeval-converges-to-the-same-manifest-as-file-save-hmr
+  ;; AC6: REPL re-evaluation of a source (including a zero-declaration one) goes
+  ;; through the SAME begin/stage/commit protocol as a file-save reload, so it
+  ;; converges to an identical manifest.
+  (letfn [(build-then-drop! []
+            (rules/reset-custom-elements!)
+            (rules/register-custom-element! :x-el {:properties #{:help-text}} 'app.a)
+            (rules/register-custom-element! :k-el {:properties #{:keep-me}} 'app.b)
+            (rules/notify-reload!)
+            (rules/note-reloaded-sources! ['app.a])   ; app.a re-evaluated, now empty
+            (rules/commit-reload!)
+            @rules/custom-elements)]
+    (let [file-save (build-then-drop!)
+          repl      (build-then-drop!)]
+      (is (= file-save repl)
+          "REPL re-eval and file-save HMR converge to the same manifest")
+      (is (= {:k-el {:properties #{:keep-me}}} file-save)
+          "the zero-declaration source's rows are gone; the untouched one survives"))))
+
+(deftest incremental-reconcile-equals-a-full-page-reload
+  ;; AC7: the manifest after an incremental reload cycle equals the one a full
+  ;; page reload (a clean rebuild of exactly the current live sources) produces.
+  (letfn [(full-reload! []       ; clean process: every live source registers direct
+            (rules/reset-custom-elements!)
+            (rules/register-custom-element! :y-el {:properties #{:label}} 'app.a)
+            (rules/register-custom-element! :k-el {:properties #{:keep-me}} 'app.b)
+            @rules/custom-elements)
+          (incremental! []       ; edit app.a (:x-el -> :y-el) in a live session
+            (rules/reset-custom-elements!)
+            (rules/register-custom-element! :x-el {:properties #{:help-text}} 'app.a)
+            (rules/register-custom-element! :k-el {:properties #{:keep-me}} 'app.b)
+            (rules/notify-reload!)
+            (rules/register-custom-element! :y-el {:properties #{:label}} 'app.a)
+            (rules/commit-reload!)
+            @rules/custom-elements)]
+    (is (= (full-reload!) (incremental!))
+        "incremental reload equals a clean full-page-reload rebuild")))

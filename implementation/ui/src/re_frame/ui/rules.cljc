@@ -706,89 +706,169 @@
   (when (contains? #{:svg :mathml} ctx) ctx))
 
 ;; ---------------------------------------------------------------------------
-;; Custom-element declarations (RULED grammar) — runtime registry
+;; Custom-element declarations (RULED grammar) — runtime reconciliation registry
 ;;
-;; The RUNTIME arm of the compile-side build-scoped model (rf2-vxgfnd.16 AC5,
-;; runtime/HMR half; rf2-vxgfnd.48). #5719 made the COMPILE-time custom-element
-;; ledger build-scoped — a removed / renamed declaration drops its stale
-;; property classification with its source — but the RUNTIME registry stayed
-;; append-only: after a declaration is deleted and its ns hot-reloads, the
-;; emitted registration simply stops executing, so the stale row lingered in
-;; the browser's atom and `ui/spread` kept classifying the removed
-;; `:properties` until a full page reload. The inverse operation the registry
-;; lacked is a per-source eviction, mirrored here on the runtime atom: emitted
-;; registrations carry their declaring ns, and a hot-reload generation bump
-;; (the shadow-cljs `^:dev/before-load` hook) makes a re-registering source
-;; replace its WHOLE prior contribution — so a dropped declaration vanishes.
+;; The RUNTIME arm of the compile-side build-scoped model (rf2-vxgfnd.16 AC5;
+;; rf2-vxgfnd.48 shipped the first cut; rf2-vxgfnd.67 makes it a full
+;; reconciliation protocol). `ui/spread` and the JVM tree builder classify a
+;; custom element's `:properties` by reading the LIVE aggregate
+;; `custom-elements` (tag -> decl). That aggregate must be a PURE FUNCTION of
+;; the CURRENT set of live sources — never of process history — exactly like
+;; the compile-side build registries (`re-frame.ui.compiler.build`).
+;;
+;; .48 evicted a source's contribution ONLY when it re-registered — i.e. it used
+;; a SURVIVING declaration as the signal that the source was rebuilt. That left
+;; three holes: a source that deletes its LAST declaration (or whose file is
+;; deleted) never re-registers, so its stale rows lingered until a full page
+;; reload; a reload that threw mid-way left the live registry half-mutated; and
+;; two builds sharing one runtime atom cross-contaminated. .67 replaces
+;; registration-triggered eviction with an explicit reload-cycle protocol driven
+;; from the reload BOUNDARY, not from re-registration:
+;;
+;;   (notify-reload! [build?])    ^:dev/before-load — OPEN a reload cycle. From
+;;                                here re-registrations STAGE; the live aggregate
+;;                                stays at its last-known-good until commit.
+;;   register-custom-element!     a declaration re-runs — STAGES into the open
+;;                                cycle (or, at initial load / in production where
+;;                                no cycle is open, writes through directly).
+;;   (note-reloaded-sources! ..)  the reload machinery (rf2-df9873's shadow build
+;;                                hook) records WHICH sources re-ran / were removed
+;;                                this cycle — the signal a zero-declaration or
+;;                                deleted source cannot emit for itself. Optional:
+;;                                absent, only the staged sources are reconciled.
+;;   (commit-reload! [build?])    ^:dev/after-load — COMMIT atomically: every
+;;                                staged source REPLACES its whole prior
+;;                                contribution, every reloaded-but-unstaged /
+;;                                removed source is EVICTED, untouched sources are
+;;                                kept, and the live aggregate is rebuilt from the
+;;                                reconciled ledger in ONE swap. shadow-cljs runs
+;;                                after-load only on a SUCCESSFUL reload, so a
+;;                                thrown / aborted reload never commits — the last
+;;                                known-good manifest survives.
+;;
+;; Ownership is [build-id ns-sym] so two builds sharing one atom (a shared JVM /
+;; a test) reconcile independently — evicting one build's source can never drop
+;; another's rows. The emitted 3-arg registration uses ns-only ownership under
+;; the sole ::default build (one compiled bundle = one build, its own atoms); the
+;; explicit build-scoped arities exist for multi-build reconciliation and tests.
+;;
+;; Production never opens a cycle (`notify-reload!` is a dev-only hook), so every
+;; registration writes through directly and classification stays a plain lookup —
+;; all reconciliation machinery is reload-only.
 ;; ---------------------------------------------------------------------------
 
-(defonce ^{:doc "tag keyword -> {:properties #{kebab-kw}}. Populated by
-  `ui/custom-element` (top-level, compile-resolvable; undeclared elements
-  need no declaration — all-attributes default). Consumers (`ui/spread`, the
-  JVM tree builder) read this unchanged."}
+(defonce ^{:doc "tag keyword -> {:properties #{kebab-kw}}. The LIVE aggregate
+  `ui/spread` and the JVM tree builder read (unchanged; undeclared elements need
+  no declaration — all-attributes default). A pure function of the current live
+  sources: rebuilt from the ledger on every reload commit."}
   custom-elements
   (atom {}))
 
 (defonce ^{:private true
-           :doc "ns-sym -> {:gen <reload-gen> :tags #{tag}} — the per-source
-  RUNTIME ledger mirroring the compile-side build ledger, so a hot-reload that
-  DROPS a declaration evicts its now-stale runtime row."}
+           :doc "[build-id ns-sym] -> {tag decl} — the per-source committed
+  contribution ledger (the runtime mirror of the compile-side build ledger). The
+  live aggregate is the merge of every source's map, so a source whose file is
+  deleted, or whose last declaration is dropped, vanishes the moment its ledger
+  row is reconciled away — no surviving declaration required."}
   element-sources
   (atom {}))
 
 (defonce ^{:private true
-           :doc "Monotonic hot-reload counter — the runtime analogue of the
-  compile-side build generation. `notify-reload!` (the shadow-cljs
-  `^:dev/before-load` hook) bumps it; a source re-opens (evicts its prior
-  rows) the first time it re-registers at a newer generation."}
-  reload-generation
-  (atom 0))
+           :doc "build-id -> {:staged {[build ns] {tag decl}} :touched #{[build ns]}}
+  for each build whose reload cycle is IN FLIGHT (absent = no cycle → direct
+  write-through). `:staged` accumulates this cycle's re-registrations, held back
+  from the live aggregate until commit; `:touched` is the reloaded/removed source
+  set `note-reloaded-sources!` records — the sources to reconcile even when they
+  staged nothing (zero-declaration / deletion)."}
+  reload-cycles
+  (atom {}))
 
-(defn- open-element-source!
-  "Evict `ns-sym`'s prior custom-element rows the FIRST time it (re-)registers
-  in the current reload generation — idempotent for its later same-generation
-  declarations. The runtime mirror of the compile-side `open-source!`: a
-  dropped / renamed declaration vanishes because the source's whole prior
-  contribution is replaced on re-registration, not merely overwritten
-  tag-by-tag (which never removes a row the new code no longer declares)."
-  [ns-sym]
-  (let [g @reload-generation]
-    (when (not= g (:gen (get @element-sources ns-sym)))
-      (doseq [tag (:tags (get @element-sources ns-sym))]
-        (swap! custom-elements dissoc tag))
-      (swap! element-sources assoc ns-sym {:gen g :tags #{}})))
+(def ^:private default-build ::default)
+
+(defn- rebuild-live!
+  "Rebuild the live aggregate as the merge of every ledger source's map — the
+  live registry is a PURE FUNCTION of the ledger. One `reset!` (sources merged in
+  a stable order), so consumers never observe a partial manifest."
+  []
+  (reset! custom-elements
+          (reduce (fn [agg src] (merge agg (get @element-sources src)))
+                  {}
+                  (sort-by str (keys @element-sources))))
   nil)
 
 (defn register-custom-element!
-  "Register (or, on hot-reload, re-register) `tag`'s runtime property
-  classification under its declaring `ns-sym`. Emitted top-level by
-  `ui/custom-element`, so it re-runs on every ns hot-reload; opening the
-  source first replaces the ns's whole prior contribution, so a removed /
-  renamed declaration's classification is evicted rather than leaking until a
-  full page reload (rf2-vxgfnd.48)."
-  [tag decl ns-sym]
-  (open-element-source! ns-sym)
-  (swap! custom-elements assoc tag decl)
-  (swap! element-sources update-in [ns-sym :tags] (fnil conj #{}) tag)
-  tag)
+  "Register `tag`'s runtime property classification under its declaring source.
+  Emitted top-level by `ui/custom-element`, so it re-runs on every ns hot-reload.
+  While a reload cycle is open for the build it STAGES (the live aggregate stays
+  last-known-good until `commit-reload!`); otherwise — initial load, production —
+  it writes through directly. Ownership is [build-id ns-sym]; the 3-arg emit uses
+  the sole ::default build."
+  ([tag decl ns-sym] (register-custom-element! tag decl ns-sym default-build))
+  ([tag decl ns-sym build-id]
+   (let [source [build-id ns-sym]]
+     (if (contains? @reload-cycles build-id)
+       (swap! reload-cycles update-in [build-id :staged source]
+              (fnil assoc {}) tag decl)
+       (do (swap! element-sources update source (fnil assoc {}) tag decl)
+           (swap! custom-elements assoc tag decl))))
+   tag))
 
 (defn ^:dev/before-load notify-reload!
-  "shadow-cljs hot-reload hook (dev only): bump the reload generation so each
-  reloaded source re-opens — evicting its stale rows — on its next
-  re-registration this cycle. The runtime analogue of the compile-side
-  `begin-build!` generation bump; production never hot-reloads, so this never
-  fires there."
-  []
-  (swap! reload-generation inc)
-  nil)
+  "shadow-cljs hot-reload hook (dev only): OPEN a reload cycle for `build-id`
+  (the runtime analogue of the compile-side `begin-build!`). Re-registrations
+  from here stage instead of mutating the live aggregate; opening a fresh cycle
+  discards any staging left by a previously ABORTED reload. Production never hot-
+  reloads, so this never fires there."
+  ([] (notify-reload! default-build))
+  ([build-id]
+   (swap! reload-cycles assoc build-id {:staged {} :touched #{}})
+   nil))
+
+(defn note-reloaded-sources!
+  "Record the sources that re-ran (or were removed) in the open reload cycle —
+  the signal a zero-declaration or deleted source cannot emit for itself, fed by
+  the reload machinery (rf2-df9873's shadow build hook). `sources` is a coll of
+  ns-syms (paired with `build-id`) or ready-made [build ns] pairs. A no-op when
+  no cycle is open; unions into the cycle so it can be called repeatedly."
+  ([sources] (note-reloaded-sources! sources default-build))
+  ([sources build-id]
+   (when (contains? @reload-cycles build-id)
+     (let [pairs (map (fn [s] (if (vector? s) s [build-id s])) sources)]
+       (swap! reload-cycles update-in [build-id :touched] (fnil into #{}) pairs)))
+   nil))
+
+(defn ^:dev/after-load commit-reload!
+  "shadow-cljs hot-reload hook (dev only): COMMIT the open reload cycle for
+  `build-id` atomically. Every STAGED source replaces its whole prior
+  contribution; every source flagged by `note-reloaded-sources!` that staged
+  NOTHING (a zero-declaration edit or a deleted file) is evicted; untouched
+  sources are kept; then the live aggregate is rebuilt from the reconciled ledger
+  in one swap. shadow-cljs runs after-load only on a SUCCESSFUL reload, so an
+  aborted reload never reaches here and the last known-good manifest survives.
+  A no-op when no cycle is open."
+  ([] (commit-reload! default-build))
+  ([build-id]
+   (when-let [{:keys [staged touched]} (get @reload-cycles build-id)]
+     (let [sources (into (set (keys staged)) touched)]
+       (swap! element-sources
+              (fn [ledger]
+                (reduce (fn [l src]
+                          (if-let [decls (get staged src)]
+                            (assoc l src decls)   ; re-declared: replace whole contribution
+                            (dissoc l src)))      ; zero-declaration / removed: evict
+                        ledger
+                        sources)))
+       (rebuild-live!)
+       (swap! reload-cycles dissoc build-id)))
+   nil))
 
 (defn reset-custom-elements!
   "Test support: clear the runtime custom-element registry, the per-source
-  ledger, and the reload generation."
+  ledger, and any in-flight reload cycles."
   []
   (reset! custom-elements {})
   (reset! element-sources {})
-  (reset! reload-generation 0)
+  (reset! reload-cycles {})
   nil)
 
 (defn custom-element-properties [tag]
