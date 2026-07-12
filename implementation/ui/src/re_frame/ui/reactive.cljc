@@ -424,6 +424,20 @@
 
 (defonce ^:private flush-scheduled? (atom false))
 
+(defonce ^:private live-cells
+  ;; The set of currently-CONNECTED ViewCells — the input to a frame-destroy
+  ;; sweep (`teardown-frame!`). A cell enrols on `connect!` (its first commit,
+  ;; when it starts observing a frame) and leaves on `disconnect!` (React
+  ;; unmount / Activity hide, when it releases its committed dependency set) or
+  ;; `teardown!` (it goes :dead). Membership therefore tracks EXACTLY the cells
+  ;; carrying a live committed dependency set, so a destroyed frame can find the
+  ;; cells observing it and transition them to :dead (03 §4) rather than leave
+  ;; them live to throw `:rf.error/frame-destroyed` on their next read. Because
+  ;; a disconnected cell leaves the set, an unmounted cell never lingers here
+  ;; (no retention leak). `defonce` (module-lived); tests clear it via
+  ;; `reset-scheduler!`.
+  (atom #{}))
+
 (declare flush-pending!)
 
 (defn- schedule-flush!
@@ -548,6 +562,7 @@
   (reset! dirty-cells #{})
   (reset! flush-scheduled? false)
   (reset! slice-memo* nil)
+  (reset! live-cells #{})
   nil)
 
 (defn- on-change-fn
@@ -604,7 +619,10 @@
   (let [st @(state cell)]
     (when (= :disconnected (:lifecycle st))
       (annotate-open-disconnect! cell :activity-hidden :reconnect))
-    (swap! (state cell) assoc :lifecycle :connected)))
+    (swap! (state cell) assoc :lifecycle :connected)
+    ;; Enrol in the live-cell registry (idempotent — a set) so a frame-destroy
+    ;; sweep can find this cell while it observes a live committed dep set.
+    (swap! live-cells conj cell)))
 
 (defn disconnect!
   "Effects-cleanup transition (React unmount OR Activity hide —
@@ -617,6 +635,9 @@
     (when (contains? #{:fresh :connected} (:lifecycle @st))
       (release-committed! cell)
       (discard-pending! cell)
+      ;; Leave the live-cell registry: a disconnected cell holds no committed
+      ;; deps, so it observes no frame — and an unmounted cell must not linger.
+      (swap! live-cells disj cell)
       (swap! st (fn [m]
                   (-> m
                       (assoc :lifecycle :disconnected)
@@ -627,9 +648,10 @@
   "Explicit host/root teardown (root unmount, parent teardown, frame
   destroy): the frame/adapter/root is destroyed under this cell's handle —
   the retained interval is proven an unmount. Detaches leases, marks the
-  cell `:dead` (no resume), and annotates. Wired by the frame/root
-  teardown path (S2c/core) for a frame-scoped destroy; here it is the
-  substrate contract + its fixtures. Idempotent. Returns the cell."
+  cell `:dead` (no resume), annotates, and de-enrols it from the live-cell
+  registry. Wired from core's frame-destroy path via `teardown-frame!` (the
+  `:ui/on-frame-destroyed!` late-bind hook `re-frame.ui.frames` registers).
+  Idempotent. Returns the cell."
   [^ViewCell cell]
   (let [st (state cell)]
     (when-not (= :dead (:lifecycle @st))
@@ -639,8 +661,30 @@
                {:state :unmounted :reason :unmounted :proof :host-teardown}))
       (release-committed! cell)
       (discard-pending! cell)
-      (swap! st assoc :lifecycle :dead))
+      (swap! st assoc :lifecycle :dead)
+      (swap! live-cells disj cell))
     cell))
+
+(defn teardown-frame!
+  "Frame-destroy sweep: transition every currently-connected ViewCell
+  observing frame `frame-id` to `:dead` (03 §4 dead-cell lifecycle). Each
+  matched cell's leases are detached, its pending notification dropped, and
+  its retained interval proven an unmount (`:unmounted {:proof
+  :host-teardown}`) — so a subsequent read/probe on such a cell follows the
+  dead-cell lifecycle instead of throwing `:rf.error/frame-destroyed` off the
+  observation port. Fired from core's `frame/destroy-frame!` through the
+  `:ui/on-frame-destroyed!` late-bind hook wired in `re-frame.ui.frames`;
+  the sweep runs while the frame is still live, so each cell releases its
+  leases against the live sub-cache (symmetric with `disconnect!`). The
+  membership test rides the cell's committed dependency set
+  (`cell-observes-frame?`); a disconnected cell holds none and is therefore
+  never a target. Iterates a snapshot, so the per-cell `teardown!` de-enrol
+  is safe. Returns the count torn down."
+  [frame-id]
+  (let [victims (filterv #(cell-observes-frame? % frame-id) @live-cells)]
+    (doseq [cell victims]
+      (teardown! cell))
+    (count victims)))
 
 ;; ---------------------------------------------------------------------------
 ;; The 8-step layout-commit reconciler (03 §3)

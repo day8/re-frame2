@@ -109,7 +109,9 @@
   (`jvm-provider-scope`)."
   (:require [re-frame.error :as error]
             [re-frame.frame :as frame]
+            [re-frame.late-bind :as late-bind]
             [re-frame.live-frame :as live-frame]
+            [re-frame.ui.reactive :as reactive]
             #?@(:cljs [[re-frame.adapter.context :as adapter-context]])))
 
 ;; ---------------------------------------------------------------------------
@@ -329,3 +331,19 @@
   (binding [frame/*current-frame*
             (require-scope-frame! target 're-frame.ui/frame-provider)]
     (body-thunk)))
+
+;; ---------------------------------------------------------------------------
+;; Frame-destroy → ViewCell teardown wiring (03 §4; rf2-vxgfnd.42)
+;; ---------------------------------------------------------------------------
+;;
+;; core's `frame/destroy-frame!` fires the named cleanup hook
+;; `:ui/on-frame-destroyed!` — exactly like `:machines/on-frame-destroyed!`,
+;; `:schemas/on-frame-destroyed!`, `:routing/on-frame-destroyed!`, … — one
+;; per optional artefact that owns frame-scoped teardown. The compiled-view
+;; substrate answers it by transitioning every currently-connected ViewCell
+;; observing the destroyed frame to `:dead` (`reactive/teardown-frame!`), so a
+;; subsequent read/probe follows the 03 §4 dead-cell lifecycle instead of
+;; throwing `:rf.error/frame-destroyed` off the observation port. Late-bound so
+;; core never statically requires this artefact — the hook is simply unbound
+;; (a no-op) when day8/re-frame2-ui is absent from the classpath.
+(late-bind/set-fn! :ui/on-frame-destroyed! reactive/teardown-frame!)
