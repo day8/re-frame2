@@ -174,6 +174,26 @@
     (is (= 2 (count (:subs sites))))
     (is (= [[:title]] (map :query (take 1 (:subs sites)))))))
 
+(deftest html-sites-index
+  (testing "ui/html records a manifest site — the profile row's 'manifest
+  site recording' sub-assertion: every visible escaping bypass is listed with
+  its source/template path and serialisability flag"
+    (let [{:keys [sites]} (ana-full '[:div
+                                      [:section.a (html "<b>x</b>")]
+                                      [:aside.b (html "<i>y</i>")]])]
+      (is (= 2 (count (:htmls sites))) "both bypass sites recorded")
+      (is (= "<b>x</b>" (:form (first (:htmls sites)))))
+      (is (true? (:static? (first (:htmls sites)))))
+      (is (true? (:serializable? (first (:htmls sites))))
+          "a literal-string bypass is serialisable data")
+      (is (vector? (:path (first (:htmls sites))))
+          "the site carries its template path")))
+  (testing "a non-string (dynamic) html argument records a non-serialisable site"
+    (let [{:keys [sites]} (ana-full '[:div.c (html markup)])]
+      (is (= 1 (count (:htmls sites))))
+      (is (false? (:static? (first (:htmls sites)))))
+      (is (false? (:serializable? (first (:htmls sites))))))))
+
 ;; ---------------------------------------------------------------------------
 ;; Interop forms
 ;; ---------------------------------------------------------------------------
