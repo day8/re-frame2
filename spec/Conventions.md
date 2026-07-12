@@ -1505,7 +1505,7 @@ The convention extends `dispatch` / `subscribe`'s opts-map shape — `:frame` is
 
 ## `reg-view` auto-id derivation rule
 
-Per [Spec 004 §reg-view](004-Views.md#removed-forms--normative-absences), the `reg-view` macro auto-derives the registered id from the symbol you supply:
+The `reg-view` macro auto-derives the registered id from the symbol you supply — this convention is the **live carrier** for the frozen stock-Reagent tier's derivation rule (per [Spec 004 §Removed forms — normative absences](004-Views.md#removed-forms--normative-absences), which freezes the `reg-view` family and names Conventions as its carrier):
 
 ```
 id = (keyword (str *ns*) (str sym))

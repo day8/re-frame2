@@ -305,8 +305,8 @@ unexercised — Stage 1 confirms.
 
 ### Custom elements (per the RULED grammar)
 
-Per the rewrite's **[RULED — Mike, 2026-07-12]** block (read-only source of truth;
-restated here as consumer): a declared `(ui/custom-element tag {:properties #{…}})`
+Per [Spec 004 §Template grammar](004-Views.md#template-grammar)'s RULED `ui/custom-element`
+grammar (restated here as consumer): a declared `(ui/custom-element tag {:properties #{…}})`
 name compiles to the camelCase JS **property** (`:help-text` → `helpText`) on the
 client; undeclared names are attributes; undeclared elements default to
 all-attributes. In this tree: property-classified props stay in `:attrs` (author
