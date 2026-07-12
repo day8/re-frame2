@@ -34,21 +34,37 @@
   passing the key).
 
   `reason` is the discriminator — `:explicit` for direct-destroy
-  cascades, `:rf.machine/finished` for final-state auto-destroy.
+  cascades, `:rf.machine/finished` for final-state auto-destroy,
+  `:rf.machine/join-reaped` for a `:spawn-all` join reaping an
+  ALREADY-TERMINAL child at resolution (rf2-tj3l6a).
 
-  An `:explicit` destroy is a CANCELLATION of an in-progress actor work
-  attempt (the actor was torn down before reaching a `:final?` leaf), so
-  it closes the work attempt the reply-envelope way: a
+  Only an `:explicit` destroy is a CANCELLATION of an IN-PROGRESS actor work
+  attempt (the actor was torn down before reaching a terminal outcome), so
+  ONLY it closes the work attempt the reply-envelope way: a
   `:status :cancelled` reply (cancellation as DATA, not the absence of a
   reply — Managed-Effects §Cancellation; EP-0011 §Cancellation). The
   reply-envelope facts (`:rf.reply/work-id` keyed on the destroyed actor instance,
   `:rf.reply/status :cancelled`, `:rf.reply/work-status :cancelled`,
   `:rf.reply/cancel-reason`) ride ADDITIVELY so the cancelled completion joins the
   same uniform work/reply row the spawn started, classified the same way
-  the single-`:spawn` `:rf.machine/done` reply is. A `:rf.machine/finished`
-  destroy is NOT a cancellation — the actor already closed its attempt
-  through `finalize-machine`'s `:rf.machine/done` reply — so it carries no
-  cancelled reply facts. The public destroyed-trace shape is unchanged."
+  the single-`:spawn` `:rf.machine/done` reply is.
+
+  A NON-`:explicit` destroy is POST-COMPLETION cleanup, NOT a cancellation,
+  so it carries NO cancelled reply facts (the second-terminal contradiction
+  the `cancelled?` gate below avoids):
+
+    - `:rf.machine/finished` — the actor already closed its attempt through
+      `finalize-machine`'s `:rf.machine/done` reply.
+    - `:rf.machine/join-reaped` — the child already closed its attempt as a
+      `:spawn-all` join-child completion (`join-child-reply`'s
+      `:completed` / `:failed` terminal for the same canonical
+      `[:rf.work/machine spawned-id invoke-id generation]`); its
+      `:on-child-done` / `:on-child-error` terminal state was NOT `:final?`,
+      so it stays a LIVE actor that the join tears down at resolution — but
+      its terminal status is already decided, so re-classifying the teardown
+      as `:cancelled` would emit a SECOND, contradictory terminal (rf2-tj3l6a).
+
+  The public destroyed-trace shape is unchanged."
   [{:keys [frame actor-id system-id parent-id invoke-id child-id reason]
     :or {reason :explicit}
     :as args}]

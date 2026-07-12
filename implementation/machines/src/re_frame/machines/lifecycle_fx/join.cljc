@@ -25,8 +25,13 @@
    6. Else evaluates the join condition. The join grammar is a CLOSED
       two-member enum — `:all` (default) + `:any`. On resolution:
         - latches `:resolved?` true,
-        - unconditionally emits per-sibling `:rf.machine/destroy` fx and
-          `:rf.machine.spawn/cancelled-on-join-resolution` traces,
+        - tears down EVERY child: SURVIVORS (never reported completion) via
+          the `:explicit` `:rf.machine/destroy` fx + a
+          `:rf.machine.spawn/cancelled-on-join-resolution` trace each (their
+          teardown IS a cancellation); COMPLETED / FAILED children via the
+          non-cancellation `:rf.machine/join-reaped` reap form (they already
+          closed their attempt as a join-child completion — reaping avoids a
+          second, contradictory terminal reply, rf2-tj3l6a),
         - dispatches the parent join event via `:fx [[:dispatch ...]]`.
    7. Writes the new join state back into runtime-db.
 
@@ -283,12 +288,13 @@
                             reply-facts))))))
 
 (defn- build-resolution-fx
-  "Build the fx vector to fire on resolution: per-survivor
-  `:rf.machine/destroy` (with one
-  `:rf.machine.spawn/cancelled-on-join-resolution` trace each), followed by
-  the join-event dispatch carrying the decisive child's forwarded payload.
-  Cancelling surviving siblings on the join decision is unconditional.
-  Per Spec 005 §Spawn-and-join, the
+  "Build the fx vector to fire on resolution: a `:rf.machine/destroy` per
+  child (survivors via the `:explicit` cancellation form with one
+  `:rf.machine.spawn/cancelled-on-join-resolution` trace each; completed /
+  failed children via the non-cancellation `:rf.machine/join-reaped` reap
+  form — rf2-tj3l6a), followed by the join-event dispatch carrying the
+  decisive child's forwarded payload. Cancelling surviving siblings on the
+  join decision is unconditional. Per Spec 005 §Spawn-and-join, the
   dispatched event shape is:
 
       [<parent-id> [<resolution-event> <decisive-child-id> & <child-extra>]]
@@ -345,7 +351,7 @@
                               :rf.reply/cancelled?  (:cancelled? survivor-summary)
                               :rf.reply/cancel-reason (:rf.reply/cancel-reason survivor-summary)
                               :rf.reply/correlation (:correlation survivor-summary)})))
-            ;; Destroy EVERY child of the resolved join — the survivors
+            ;; Tear down EVERY child of the resolved join — the survivors
             ;; (cancelled, traced above) AND the COMPLETED children. A
             ;; `:spawn-all` child's `:on-child-done` / `:on-child-error`
             ;; terminal state is NOT necessarily `:final?`, so a "completed"
@@ -356,13 +362,34 @@
             ;; cascade) — so an INTERNAL/self resolution handler (or a parent
             ;; with no `:on` for the resolution event, which stays in the
             ;; state) leaked all N completed children's
-            ;; snapshots/timers/resources (rf2-qb1j5z). Destroying every child
-            ;; HERE closes that leak regardless of whether the resolution
-            ;; transition exits the state. Destroying an already-torn-down
+            ;; snapshots/timers/resources (rf2-qb1j5z). Tearing down every
+            ;; child HERE closes that leak regardless of whether the resolution
+            ;; transition exits the state. Tearing down an already-torn-down
             ;; child (a `:final?` terminal that already auto-destroyed, or the
             ;; exit-cascade's later sweep) is a silent-idempotent no-op.
-            (mapv (fn [[_ spawned-id]]
-                    [:rf.machine/destroy spawned-id])
+            ;;
+            ;; But the teardown of a COMPLETED child is NOT a cancellation
+            ;; (rf2-tj3l6a). A completed / failed child has ALREADY closed its
+            ;; work attempt as a join-child completion — its `join-child-reply`
+            ;; stamped the closed `:completed` / `:failed` terminal for the
+            ;; canonical `[:rf.work/machine spawned-id invoke-id generation]`.
+            ;; Routing it through the ordinary `:explicit` keyword destroy would
+            ;; make `emit-destroyed!` attach a SECOND, contradictory
+            ;; `:cancelled` terminal for the same work-id, so a work-ledger /
+            ;; Xray projection could not decide whether the child completed,
+            ;; failed, or was cancelled. So split by completion:
+            ;;   - COMPLETED / FAILED children (`completed-ids`) → the direct-
+            ;;     actor REAP form `{:rf/actor-id … :rf/reason
+            ;;     :rf.machine/join-reaped}`, which does the IDENTICAL teardown
+            ;;     but stamps a non-cancellation reason (no second terminal);
+            ;;   - SURVIVORS (never reported completion) → the `:explicit`
+            ;;     keyword destroy, whose cancellation reply is legitimate and
+            ;;     matches the `cancelled-on-join-resolution` trace above.
+            (mapv (fn [[cid spawned-id]]
+                    (if (contains? completed-ids cid)
+                      [:rf.machine/destroy {:rf/actor-id spawned-id
+                                            :rf/reason   :rf.machine/join-reaped}]
+                      [:rf.machine/destroy spawned-id]))
                   children)))
         dispatch-fx
         (when resolution-event

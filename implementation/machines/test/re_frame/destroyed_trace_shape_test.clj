@@ -108,12 +108,14 @@
       ;; (3) Reason discriminator always present.
       (is (contains? tags :reason)
           (str label ": :reason discriminator is always emitted"))
-      (is (#{:explicit :rf.machine/finished} (:reason tags))
-          (str label ": :reason is one of :explicit / :rf.machine/finished"))
+      (is (#{:explicit :rf.machine/finished :rf.machine/join-reaped} (:reason tags))
+          (str label ": :reason is one of :explicit / :rf.machine/finished / :rf.machine/join-reaped"))
       ;; An :explicit destroy is a cancellation; it carries the
-      ;; reply-envelope cancellation facts. A :rf.machine/finished destroy is
-      ;; NOT a cancellation (the actor closed through :rf.machine/done) — no
-      ;; cancelled reply facts.
+      ;; reply-envelope cancellation facts. A NON-:explicit destroy is
+      ;; post-completion cleanup, NOT a cancellation, so it carries no
+      ;; cancelled reply facts — :rf.machine/finished (the actor closed
+      ;; through :rf.machine/done) and :rf.machine/join-reaped (an
+      ;; already-terminal :spawn-all join child, rf2-tj3l6a).
       (if (= :explicit (:reason tags))
         (do
           (is (= :cancelled (:rf.reply/status tags))
