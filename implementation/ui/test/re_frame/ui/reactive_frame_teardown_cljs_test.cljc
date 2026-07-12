@@ -63,9 +63,17 @@
   (is (some? (late-bind/get-fn :ui/on-frame-destroyed!))
       "re-frame.ui.frames must publish :ui/on-frame-destroyed! at load — the
        seam frame/destroy-frame! reaches the compiled-view substrate through")
-  (is (identical? reactive/teardown-frame!
-                  (late-bind/get-fn :ui/on-frame-destroyed!))
-      "the hook resolves to the substrate's frame-destroy sweep"))
+  ;; rf2-vxgfnd.30 (a): the hook now COMPOSES install-record pruning with the
+  ;; ViewCell teardown sweep, so it is no longer identical? to teardown-frame!.
+  ;; Assert it still drives the sweep behaviourally — firing the registered
+  ;; hook directly transitions a connected cell to :dead.
+  (rf/reg-sub :hk/a (fn [db _] (:a db)))
+  (let [fid  (make-frame! :hk/frame {:a 1})
+        cell (render+commit! (reactive/make-cell ::hook-v) fid [[:hk/a]])]
+    (is (= :connected (reactive/lifecycle cell)) "precondition: connected")
+    ((late-bind/get-fn :ui/on-frame-destroyed!) fid)
+    (is (= :dead (reactive/lifecycle cell))
+        "the registered hook runs the substrate's frame-destroy sweep")))
 
 ;; ===========================================================================
 ;; The core contract: a destroyed frame transitions its cells to :dead

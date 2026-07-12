@@ -239,6 +239,85 @@
            (frames/installed-plan-entry :app/fresh))
         "the new install is recorded with its fingerprint + installing root")))
 
+;; ---- rf2-vxgfnd.30 (a): destroy PRUNES the install record ----------------
+;; `installed-plan-entry` used to only HIDE a dead record behind a liveness
+;; guard, so a boot re-create of the same id resurrected the stale record as a
+;; false frame-payload-conflict blaming the dead lifetime's installer. The
+;; `:ui/on-frame-destroyed!` hook now prunes the record on destroy.
+
+(deftest destroy-then-recreate-then-replan-no-false-conflict
+  (reg-events!)
+  ;; root A installs :frame/f (fingerprint X)
+  (frames/execute-frame-plans!
+   :root/a [(plan :frame/f {:initial-events [[:test/set-db {:n 1}]]}
+                  "cf1-x111111111111111")])
+  (frame/destroy-frame! :frame/f)
+  (is (nil? (frames/installed-plan-entry :frame/f))
+      "the destroyed frame's install record is pruned, not merely hidden")
+  ;; a boot rf/make-frame re-creates :frame/f OUTSIDE the plan registry
+  (rf/make-frame {:id :frame/f :doc "re-booted"})
+  (is (nil? (frames/installed-plan-entry :frame/f))
+      "the re-created frame carries NO resurrected record from the dead lifetime")
+  ;; root B (fingerprint Y) declares a config-less [frame-root {:id :frame/f}]
+  ;; to SCOPE the re-booted frame — it ADOPTS cleanly, NO false conflict on A.
+  (frames/execute-frame-plans! :root/b [(plan :frame/f {} "cf1-y222222222222222")])
+  (is (= :root/b (:installed-by (frames/installed-plan-entry :frame/f)))
+      "root B adopts the re-booted frame — the dead A-lifetime record never resurrected")
+  (is (= "re-booted" (:doc (frame/frame-meta :frame/f)))
+      "the re-booted boot config is authoritative (adoption does not clobber it)"))
+
+;; ---- rf2-vxgfnd.30 (b): a failed mount tags surviving records -------------
+;; When a later plan in a root's run throws, the siblings it already installed
+;; stay live (irreversible :initial-events) but the mount did NOT complete —
+;; their records are tagged :mount-incomplete so a later conflict names an
+;; incomplete mount, not a phantom completed owner.
+
+(deftest failed-mount-tags-surviving-records-mount-incomplete
+  (reg-events!)
+  ;; root A: plan 1 installs :frame/ok; plan 2 (:frame/bad) throws in make-frame.
+  (let [id (err-id
+            #(frames/execute-frame-plans!
+              :root/a [(plan :frame/ok {:initial-events [[:test/set-db {:n 1}]]}
+                             "cf1-ok11111111111111")
+                       (plan :frame/bad {:initial-events [:not-a-vector]}
+                             "cf1-bad1111111111111")]))]
+    (is (some? id) "the malformed sibling plan throws — the mount fails"))
+  (is (some? (frame/frame :frame/ok))
+      "the earlier sibling stays live (irreversible-fx atomicity posture)")
+  (let [entry (frames/installed-plan-entry :frame/ok)]
+    (is (= :root/a (:installed-by entry)) "the record still names its installing root")
+    (is (true? (:mount-incomplete entry))
+        "but is tagged :mount-incomplete — the root's mount never completed"))
+  ;; a later cross-root config conflict on :frame/ok names root A AND flags the
+  ;; incomplete mount, instead of presenting A as a clean completed owner.
+  (let [msg (try (frames/execute-frame-plans!
+                  :root/c [(plan :frame/ok {:initial-events [[:test/set-db {:n 9}]]}
+                                 "cf1-ccc1111111111111")])
+                 nil
+                 (catch cljs.core/ExceptionInfo e (ex-message e)))]
+    (is (some? msg) "the cross-root arrival still fails loud")
+    (is (some? (re-find #"did NOT complete" msg))
+        "the conflict diagnostic flags the phantom installer's incomplete mount")))
+
+(deftest completed-retry-clears-the-mount-incomplete-tag
+  (reg-events!)
+  ;; A's first mount fails at plan 2 -> :frame/ok tagged incomplete
+  (err-id #(frames/execute-frame-plans!
+            :root/a [(plan :frame/ok {:initial-events [[:test/set-db {:n 1}]]}
+                           "cf1-ok22222222222222")
+                     (plan :frame/bad {:initial-events [:not-a-vector]}
+                           "cf1-bad2222222222222")]))
+  (is (true? (:mount-incomplete (frames/installed-plan-entry :frame/ok)))
+      "sanity: the failed mount tagged the surviving record")
+  ;; A retries WITHOUT the bad plan -> the mount completes -> the tag clears.
+  (frames/execute-frame-plans!
+   :root/a [(plan :frame/ok {:initial-events [[:test/set-db {:n 1}]]}
+                  "cf1-ok22222222222222")])
+  (let [entry (frames/installed-plan-entry :frame/ok)]
+    (is (nil? (:mount-incomplete entry))
+        "a completed run clears the stale :mount-incomplete tag")
+    (is (= :root/a (:installed-by entry)) "the ownership record is intact")))
+
 ;; ===========================================================================
 ;; G-6 — the ambient frame chain + scope
 ;; ===========================================================================
