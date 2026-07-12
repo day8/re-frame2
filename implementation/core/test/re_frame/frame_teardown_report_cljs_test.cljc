@@ -391,6 +391,78 @@
             "both same-key entries are preserved in order")))))
 
 ;; ===========================================================================
+;; (h) Step 2 (notify-machine-destruction!) is best-effort — a throw there must
+;; NOT leave the frame live + half-torn-down (rf2-jt47s0)
+;; ---------------------------------------------------------------------------
+;; `destroy-frame!` step 1 (`fire-on-destroy-event!`) has its own catch and
+;; every step from `:ui/on-frame-destroyed!` onward rides `safe-call-hook!`, but
+;; step 2 — `notify-machine-destruction!` (the `:machines/teardown-on-frame-
+;; destroy!` hook call, its fallback `:rf.machine.lifecycle/destroyed` trace
+;; emits, and the trace-listener fan-out) — was UNGUARDED. A throwing
+;; non-machines hook consumer escaped `destroy-frame!`'s `try`: the finally
+;; cleared the in-flight marker and the throw propagated, but `:destroyed?` was
+;; never flipped and the record was never dissoc'd → the frame stayed LIVE +
+;; HALF-TORN-DOWN with `:on-destroy` already run. A subsequent `destroy-frame!`
+;; saw the still-live record and RE-RAN the whole recipe, re-firing `:on-destroy`.
+;; The fix runs step 2 through the SAME accumulate-into-`*teardown-hook-
+;; failures*` boundary the later steps use. (The shipped machines callee
+;; self-defends per-actor and trace listeners are isolated at the tooling
+;; fan-out, so the reachable trigger is a non-machines hook consumer — hence P3.)
+;; ===========================================================================
+
+(deftest step2-teardown-throw-is-accumulated-frame-fully-torn-down
+  (testing "Per rf2-jt47s0: a throwing step-2 consumer
+            (`:machines/teardown-on-frame-destroy!`) is ACCUMULATED into the
+            best-effort teardown report — NOT escaped — the frame still fully
+            tears down (record dissoc'd), and a second destroy is a clean no-op
+            that does NOT re-fire `:on-destroy`."
+    (let [on-destroy-runs (atom 0)
+          reports         (atom [])]
+      (rf/register-listener! :errors :test/recorder
+                                   (fn [record] (swap! reports conj record)))
+      (rf/reg-event :teardown/count-on-destroy
+                       (fn [{:keys [db]} _]
+                         (swap! on-destroy-runs inc)
+                         {:db db}))
+      (rf/make-frame {:id         :teardown/step2 :doc "step-2 consumer throws"
+                      :on-destroy [:teardown/count-on-destroy]})
+      (with-hooks*
+        ;; A non-machines step-2 consumer that throws — the reachable P3 trigger.
+        {:machines/teardown-on-frame-destroy! (throwing-hook :machines-teardown)}
+        (fn []
+          (let [thrown (try (rf/destroy-frame! :teardown/step2) nil
+                            (catch #?(:clj Throwable :cljs :default) e e))]
+            (is (nil? thrown)
+                "the step-2 throw did NOT escape destroy-frame! — the best-effort
+                 boundary caught it (pre-fix: the throw propagated out)"))))
+      ;; The frame fully tore down despite the step-2 throw.
+      (is (nil? (frame/frame :teardown/step2))
+          "the record is dissoc'd — fully torn down, NOT left LIVE + half-torn-
+           down (pre-fix: :destroyed? unflipped + record intact → non-nil)")
+      (is (= 1 @on-destroy-runs)
+          ":on-destroy ran exactly once during the completed teardown")
+      ;; The step-2 failure was accumulated into the ONE always-on report.
+      (let [reps (filter #(= :rf.error/frame-teardown-failed (:error %)) @reports)]
+        (is (= 1 (count reps))
+            "the step-2 failure flushed ONE always-on teardown report (pre-fix:
+             the throw escaped before it could be accumulated → no report)")
+        (let [step2 (filter #(= :frame/notify-machine-destruction! (:hook %))
+                            (:hook-failures (first reps)))]
+          (is (= 1 (count step2))
+              "the report carries the step-2 recipe step's failure entry")
+          (is (= :safe-teardown-step! (:where (first step2)))
+              "recorded via the direct-call teardown boundary")))
+      ;; A second destroy is a clean no-op — the frame is already gone, so the
+      ;; recipe does not re-run and :on-destroy is NOT re-fired. (Wrapped so the
+      ;; pre-fix re-run's own step-2 throw surfaces as a FAILED assertion below,
+      ;; not an errored test.)
+      (try (rf/destroy-frame! :teardown/step2)
+           (catch #?(:clj Throwable :cljs :default) _ nil))
+      (is (= 1 @on-destroy-runs)
+          "a second destroy is a clean no-op — :on-destroy is NOT re-fired
+           (pre-fix: the still-live half-torn-down frame re-ran the recipe → 2)"))))
+
+;; ===========================================================================
 ;; (g) Re-entrant / nested destroy accumulator isolation (rf2-chpdkr)
 ;; ---------------------------------------------------------------------------
 ;; `destroy-frame!` holds the per-destroy hook-failure accumulator in a fresh

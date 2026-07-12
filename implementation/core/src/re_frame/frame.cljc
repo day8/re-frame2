@@ -2395,6 +2395,37 @@
 ;; record, so the epoch surface's nil-tolerant fallback applies.
 (def ^:dynamic *run-time-ms* nil)
 
+(defn- record-teardown-failure!
+  "Record a best-effort teardown-step failure on BOTH Spec 009
+  observability channels, then return nil so the caller swallows the
+  throw and teardown continues. Shared by `safe-call-hook!` (late-bound
+  keyed cleanup hooks) and `safe-teardown-step!` (direct-call ordered
+  steps) so every best-effort teardown step reports identically:
+
+    1. ALWAYS-ON axis (EP-0008 R1) — conj `{:hook <step-key> :exception
+       <ex> :where <where>}` onto the per-destroy `*teardown-hook-
+       failures*` accumulator, which `destroy-frame!` flushes ONCE as the
+       bounded `:rf.error/frame-teardown-failed` report.
+    2. DIAGNOSTIC channel (EP-0008 R2) — emit the per-step
+       `:rf.warning/teardown-hook-exception` trace (DCE'd in production)
+       carrying the step key, the in-flight `*destroying-frame-id*`, and
+       the exception, at its causal position.
+
+  `step-key` labels the failing step (a hook key, or the recipe-step
+  name for a direct call); `where` names the boundary that caught it."
+  [step-key where ex]
+  (when-let [acc *teardown-hook-failures*]
+    (swap! acc conj {:hook      step-key
+                     :exception ex
+                     :where     where}))
+  (trace/emit-error! :rf.warning/teardown-hook-exception
+                     {:category  :rf.warning/teardown-hook-exception
+                      :hook      step-key
+                      :frame     *destroying-frame-id*
+                      :exception ex
+                      :where     where})
+  nil)
+
 (defn- safe-call-hook!
   "Fire a late-bound cleanup hook by key. No-op when unbound. Exceptions
   are caught so one bad hook can't block the rest of teardown — but the
@@ -2429,19 +2460,31 @@
   (when-let [f (late-bind/get-fn hook-key)]
     (try (apply f args)
          (catch #?(:clj Throwable :cljs :default) ex
-           ;; Always-on axis: accumulate (flushed once by destroy-frame!).
-           (when-let [acc *teardown-hook-failures*]
-             (swap! acc conj {:hook      hook-key
-                              :exception ex
-                              :where     :safe-call-hook!}))
-           ;; Diagnostic channel: per-hook dev trace at its causal position.
-           (trace/emit-error! :rf.warning/teardown-hook-exception
-                              {:category  :rf.warning/teardown-hook-exception
-                               :hook      hook-key
-                               :frame     *destroying-frame-id*
-                               :exception ex
-                               :where     :safe-call-hook!})
-           nil))))
+           (record-teardown-failure! hook-key :safe-call-hook! ex)))))
+
+(defn- safe-teardown-step!
+  "Run an ordered teardown step that is a DIRECT call (not a late-bound
+  hook) under the SAME best-effort boundary as `safe-call-hook!`: catch
+  any throw, record it on both Spec 009 channels via
+  `record-teardown-failure!`, and swallow it so NO teardown step escapes
+  the recipe mid-flight.
+
+  `safe-call-hook!` covers the optional late-bound cleanup hooks; this
+  covers the ordered direct-call steps that would otherwise throw
+  straight out of `destroy-frame!`'s `try` — notably
+  `notify-machine-destruction!` (step 2), whose `teardown!` hook call,
+  fallback `:rf.machine.lifecycle/destroyed` trace emits, and
+  trace-listener fan-out are all reachable throw sites (rf2-jt47s0). An
+  unguarded throw there left the frame LIVE + HALF-TORN-DOWN
+  (`:destroyed?` never flipped, sub-cache intact, record not dissoc'd) —
+  the `:on-destroy` (step 1) had already run, so a subsequent
+  `destroy-frame!` saw the still-live record and RE-RAN the whole recipe,
+  re-firing the user `:on-destroy`. Guarding the step keeps teardown
+  best-effort end-to-end. `step-key` labels the step in both channels."
+  [step-key thunk]
+  (try (thunk)
+       (catch #?(:clj Throwable :cljs :default) ex
+         (record-teardown-failure! step-key :safe-teardown-step! ex))))
 
 (defn- emit-on-destroy-handler-exception!
   "Surface `:rf.error/on-destroy-handler-exception` through BOTH the
@@ -2885,7 +2928,19 @@
                  *teardown-hook-failures* hook-failures]
         (try
         (fire-on-destroy-event! id f)
-        (notify-machine-destruction! id)
+        ;; Step 2 rides the SAME best-effort boundary as the later
+        ;; `safe-call-hook!` steps (rf2-jt47s0). `notify-machine-destruction!`'s
+        ;; `teardown!` hook call, its fallback `:rf.machine.lifecycle/destroyed`
+        ;; trace emits, and the trace-listener fan-out are all reachable throw
+        ;; sites (a non-machines `:machines/teardown-on-frame-destroy!` consumer,
+        ;; or a throwing tap). Left unguarded, a throw here escaped the recipe
+        ;; BEFORE the liveness flip / sub-cache teardown — the frame stayed LIVE +
+        ;; half-torn-down with `:on-destroy` already run, so a retry re-ran the
+        ;; whole recipe and re-fired `:on-destroy`. Accumulated into
+        ;; `*teardown-hook-failures*` + surfaced on the diagnostic trace, then
+        ;; teardown continues so the frame is fully torn down exactly once.
+        (safe-teardown-step! :frame/notify-machine-destruction!
+                             (fn [] (notify-machine-destruction! id)))
         ;; Detach the compiled-view (day8/re-frame2-ui) observers BEFORE the
         ;; liveness flip / sub-cache teardown, so every currently-connected
         ;; ViewCell observing this frame transitions to :dead (03 §4 dead-cell
