@@ -35,6 +35,24 @@
 # per rf2-2qit). The per-feature split set is now closed; further
 # additions require a new Spec-ulation increment.
 #
+# # The re-frame.ui substrate is deliberately absent (rf2-pc479y)
+#
+# implementation/ui/ (`day8/re-frame2-ui`; epic rf2-vxgfnd — the
+# compiled-view substrate that will replace the adapter trio) is a real,
+# JVM+CLJS-tested artefact — test.yml gates it at PR time via the jvm-ui
+# and cljs-ui-g1 jobs — but it is intentionally PRE-PUBLICATION: its
+# deps.edn carries no :clein/build alias "until the substrate is real".
+# So it has no pre-deploy test step and no deploy leaf here — by design,
+# not an omission. The publishing wiring (a jvm-ui pre-deploy step + a
+# deploy leaf after deploy-core + a verify-version-lockstep.sh inventory
+# entry + a release-notes line) lands in the SAME change that first gives
+# ui a :clein/build. That coupling is enforced, not merely documented:
+# verify-version-lockstep.sh's inventory guard (rf2-qmhysc) FAILS the
+# build the instant any implementation/*/deps.edn gains a :clein/build
+# without a matching lockstep-inventory + release-matrix entry — so ui
+# can neither be published nor silently omitted-once-publishable behind
+# the release train's back.
+#
 # # Lockstep versioning policy through 1.0
 #
 # Per the rf2-w05l decision: pre-1.0, every artefact ships at the same
