@@ -40,6 +40,10 @@
   (try (thunk) nil
        (catch cljs.core/ExceptionInfo e (:rf.error/id (ex-data e)))))
 
+(defn- err-data [thunk]
+  (try (thunk) nil
+       (catch cljs.core/ExceptionInfo e (ex-data e))))
+
 (defn- plan
   ([frame-id] (plan frame-id {} "cf1-aaaaaaaaaaaaaaaa"))
   ([frame-id config fp]
@@ -110,6 +114,27 @@
       "the installed frame is untouched — no last-wins overwrite")
   (is (= :page/shop (:installed-by (frames/installed-plan-entry :frame/session)))
       "the installing root's record survives the rejected arrival"))
+
+(deftest cross-root-conflict-ex-data-carries-config-fingerprint-shape
+  ;; The reconciled ex-data contract (rf2-vxgfnd.33 / 004C §7): the runtime
+  ;; plan-conflict arm carries :config-fingerprint (NOT :digest) in BOTH the
+  ;; :installed record and the :arriving slot, so tooling written to the 004C
+  ;; roster finds the fingerprint under the spec-named key. (:extra merges to
+  ;; top-level ex-data keys — see re-frame.error/thrown-ex-info.)
+  (reg-events!)
+  (frames/execute-frame-plans!
+   :page/shop [(plan :frame/session {} "cf1-1111111111111111")])
+  (let [data (err-data
+              #(frames/execute-frame-plans!
+                :page/admin [(plan :frame/session {} "cf1-2222222222222222")]))]
+    (is (= :rf.error/frame-payload-conflict (:rf.error/id data)))
+    (is (= :frame/session (:frame-id data)))
+    (is (= {:config-fingerprint "cf1-1111111111111111" :installed-by :page/shop}
+           (:installed data))
+        ":installed carries :config-fingerprint + :installed-by (004C §7)")
+    (is (= {:config-fingerprint "cf1-2222222222222222" :root-id :page/admin}
+           (:arriving data))
+        ":arriving carries :config-fingerprint + :root-id (004C §7) — never :digest")))
 
 (deftest conflict-detection-is-pure-before-any-install
   ;; a root carries a GOOD plan followed by a CONFLICTING plan; conflict
