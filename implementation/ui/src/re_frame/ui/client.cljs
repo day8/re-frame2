@@ -177,6 +177,39 @@
                 :owner-root-id owner}})))
   nil)
 
+(defn require-stable-identifier-prefix!
+  "The same-root/same-container re-mount guard for the effective React
+  `identifierPrefix` (rf2-vxgfnd.59). A live root's `identifierPrefix` is
+  fixed at `createRoot` — React root options are IMMUTABLE for the root's
+  lifetime — so a re-mount (an HMR edit) that AUTHORS a different effective
+  prefix for the same root-id / container cannot be applied to the running
+  root. Silently reusing the old option would be dishonest: the authored
+  value never takes effect and React's `use-id` keeps emitting the old
+  prefix. A changed prefix therefore FAILS LOUD with
+  `:rf.error/root-identifier-prefix-immutable`, thrown BEFORE preflight so
+  the live root and its last committed render are untouched and no
+  `:initial-events` drain runs. Equal prefixes (the common idempotent
+  re-mount, and every non-prefix HMR edit) pass; a no-op when EITHER side
+  lacks an effective prefix (bare test/tool infos), mirroring the
+  `check-root-claim!` prefix arm — the compiled mount path always supplies a
+  derived-or-authored effective prefix, so a nil arises only from a bare
+  info and never expresses a real prefix change."
+  [where root-id requested existing]
+  (when (and (some? requested) (some? existing) (not= requested existing))
+    (error/throw-error!
+     :rf.error/root-identifier-prefix-immutable where
+     (str "re-mount of root " (pr-str root-id) " requested identifierPrefix "
+          (pr-str requested) ", but this live root was created with "
+          (pr-str existing) " — a root's identifierPrefix is fixed at "
+          "createRoot (React root options are immutable for the root's "
+          "lifetime), so a re-mount / HMR edit cannot change it in place and "
+          "the old prefix is still in effect. unmount! this root, then mount "
+          "again to adopt the new identifierPrefix")
+     {:recovery :unmount-before-changing-identifier-prefix
+      :extra {:root-id   root-id
+              :requested requested
+              :existing  existing}})))
+
 (defn register-live-root!
   "Register a claimed root (checks already passed) — before any render.
   The effective `:identifier-prefix` rides the entry so a later claim can
@@ -318,6 +351,14 @@
   (let [existing (get @live-roots root-id)]
     (if (and existing (identical? (:container existing) container))
       (let [^Root root (:root existing)]
+        ;; rf2-vxgfnd.59: the effective identifierPrefix is IMMUTABLE for a
+        ;; live root (React root options are fixed at createRoot). A same-root
+        ;; re-mount that authored a DIFFERENT effective prefix fails loud
+        ;; BEFORE preflight — the running root cannot adopt it, and silently
+        ;; reusing the old option (the pre-fix behaviour) is dishonest.
+        (require-stable-identifier-prefix!
+         're-frame.ui/mount root-id
+         (:identifier-prefix info) (:identifier-prefix existing))
         ;; re-preflight BEFORE the re-render: a failure leaves the live
         ;; root and its last committed render untouched (Q49).
         (run-preflight! root-id plans-thunk)

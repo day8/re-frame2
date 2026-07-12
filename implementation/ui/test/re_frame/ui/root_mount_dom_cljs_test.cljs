@@ -10,6 +10,8 @@
   `:node-test-ui` still load it and every DOM-mounting test gates on
   `(browser?)` and exits early where `js/document` is absent."
   (:require [cljs.test :refer [deftest is testing use-fixtures]]
+            [clojure.string :as str]
+            ["react" :as react]
             ["react-dom" :as react-dom]
             [re-frame.error :as error]
             [re-frame.ui :as ui :refer [defview frame-root]]
@@ -42,6 +44,23 @@
 (defview other-app
   []
   [:div.other "other content"])
+
+;; A plain React function component that reads React's `useId` and renders it
+;; as text. useId's output carries the mounted root's effective
+;; `identifierPrefix` (React root option), so it is the live proof that a
+;; root's prefix reaches the mounted React tree (rf2-vxgfnd.59 AC6). Built and
+;; mounted through the SAME `root-options` → `createRoot` path the compiler
+;; emits (`client/root-options` + `client/mount*`).
+(defn- use-id-probe []
+  (react/createElement "span" #js {:className "uid"} (react/useId)))
+
+(defn- mount-probe! [container prefix root-id]
+  (client/mount*
+   {:root-id root-id :provenance :authored :identifier-prefix prefix}
+   container
+   (fn [] (react/createElement use-id-probe))
+   (client/root-options prefix nil nil nil)
+   nil))
 
 ;; ---------------------------------------------------------------------------
 ;; mount — the guide-01 one-liner + idempotent re-mount
@@ -153,6 +172,64 @@
       (let [r2 (ui/create-root c2 {:root-id :dom-pfx/b :identifier-prefix "rf2-shared-"})]
         (is (some? r2) "the prefix is reclaimable once its owner unmounts")
         (ui/unmount! r2)))))
+
+;; ---------------------------------------------------------------------------
+;; identifier-prefix reaches React useId; same-root prefix change fails loud
+;; (rf2-vxgfnd.59)
+;; ---------------------------------------------------------------------------
+
+(deftest identifier-prefix-reaches-react-use-id-and-collisions-stop-before-commit
+  ;; AC6 — mounted DOM proof via React useId. Two roots with DISTINCT
+  ;; effective prefixes render distinct useId output that each carries its own
+  ;; prefix (proving the prefix reaches the mounted React tree), and an
+  ;; AUTHORED collision (a third root reusing a live prefix) is stopped at the
+  ;; claim BEFORE createRoot / any commit — the colliding container stays empty.
+  (when (browser?)
+    (let [ca (container) cb (container) cc (container)
+          ra (react-dom/flushSync #(mount-probe! ca "rf2-uida-" :uid/a))
+          rb (react-dom/flushSync #(mount-probe! cb "rf2-uidb-" :uid/b))
+          id-a (.-textContent ca)
+          id-b (.-textContent cb)]
+      (is (str/includes? id-a "rf2-uida-")
+          "root A's useId carries its effective identifierPrefix — the prefix reaches React")
+      (is (str/includes? id-b "rf2-uidb-")
+          "root B's useId carries its own effective identifierPrefix")
+      (is (not= id-a id-b)
+          "distinct prefixes yield distinct useId output — no cross-root collision")
+      (let [{:keys [id data]}
+            (thrown-error
+             #(react-dom/flushSync (fn [] (mount-probe! cc "rf2-uida-" :uid/c))))]
+        (is (= :rf.error/duplicate-identifier-prefix id)
+            "a third root reusing A's prefix fails loud")
+        (is (= :uid/a (:owner-root-id data)))
+        (is (= "" (.-innerHTML cc))
+            "the colliding root committed nothing — stopped before createRoot"))
+      (client/unmount!* ra)
+      (client/unmount!* rb))))
+
+(deftest same-root-remount-changed-prefix-fails-loud-live
+  ;; AC3 end-to-end: a real root mounted with prefix P1, then re-mounted on the
+  ;; SAME root-id + container with a CHANGED prefix P2, fails loud — React root
+  ;; options are immutable, so the running root cannot adopt P2. Its committed
+  ;; render + registered prefix stay intact (untouched).
+  (when (browser?)
+    (let [c   (container)
+          r1  (react-dom/flushSync #(mount-probe! c "rf2-p1-" :hmr/x))
+          id1 (.-textContent c)]
+      (is (str/includes? id1 "rf2-p1-"))
+      (let [{:keys [id data msg]}
+            (thrown-error
+             #(react-dom/flushSync (fn [] (mount-probe! c "rf2-p2-" :hmr/x))))]
+        (is (= :rf.error/root-identifier-prefix-immutable id)
+            "a changed prefix on a same-root re-mount fails loud")
+        (is (= "rf2-p1-" (:existing data)) "the error names the live prefix")
+        (is (= "rf2-p2-" (:requested data)) "and the requested one")
+        (is (error/message-has-id-token? msg)))
+      (is (= id1 (.-textContent c))
+          "the original render is intact — the running root kept its prefix")
+      (is (= "rf2-p1-" (:identifier-prefix (client/live-root-entry :hmr/x)))
+          "the registry entry still carries the original prefix")
+      (client/unmount!* r1))))
 
 ;; ---------------------------------------------------------------------------
 ;; unmount! — total teardown + remount

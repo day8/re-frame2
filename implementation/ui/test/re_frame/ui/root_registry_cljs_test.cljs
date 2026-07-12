@@ -144,6 +144,63 @@
         "an absent effective prefix never aliases")))
 
 ;; ---------------------------------------------------------------------------
+;; same-root re-mount: the identifier-prefix is immutable (rf2-vxgfnd.59)
+;; ---------------------------------------------------------------------------
+
+(deftest same-root-remount-with-changed-prefix-fails-loud
+  ;; the idempotent same-root/same-container fast path COMPARES the requested
+  ;; effective identifierPrefix against the live root's. A live root's prefix
+  ;; is fixed at createRoot (React root options are immutable), so an HMR
+  ;; re-mount that authored a DIFFERENT prefix cannot be applied — it fails
+  ;; loud BEFORE preflight rather than silently reusing the old option.
+  (let [c      (js-obj)
+        a      (fake-root :page/x)
+        info-a {:root-id :page/x :provenance :authored :identifier-prefix "rf2-a-"}]
+    (client/register-live-root! info-a c a)
+    (let [preflight-calls (atom 0)]
+      (client/set-preflight-hook! (fn [_ _] (swap! preflight-calls inc)))
+      (try
+        (let [{:keys [id data msg]}
+              (thrown-error
+               #(client/mount*
+                 {:root-id :page/x :provenance :authored :identifier-prefix "rf2-b-"}
+                 c (fn [] nil) (js-obj)
+                 (fn [] [{:frame-id :page/session :config-fingerprint "cf" :config {}}])))]
+          (is (= :rf.error/root-identifier-prefix-immutable id))
+          (is (= :page/x (:root-id data)))
+          (is (= "rf2-b-" (:requested data)) "the data names the requested prefix")
+          (is (= "rf2-a-" (:existing data)) "and the live root's current prefix")
+          (is (error/message-has-id-token? msg)))
+        (is (zero? @preflight-calls)
+            "the guard throws BEFORE preflight — no :initial-events drain")
+        (is (identical? a (:root (client/live-root-entry :page/x)))
+            "the existing root is untouched — same Root")
+        (is (= "rf2-a-" (:identifier-prefix (client/live-root-entry :page/x)))
+            "and still carries its original prefix")
+        (finally (client/set-preflight-hook! nil))))))
+
+(deftest same-root-remount-with-unchanged-prefix-is-idempotent
+  ;; the common reload path: same root-id + same container + same effective
+  ;; prefix re-runs preflight and re-renders the existing Root (no prefix
+  ;; throw). A counting fake react-root proves the fast path was taken.
+  (let [c        (js-obj)
+        rendered (atom 0)
+        rr       (js-obj)
+        _        (unchecked-set rr "render" (fn [_] (swap! rendered inc)))
+        a        (client/->Root rr c :page/x)
+        info     {:root-id :page/x :provenance :authored :identifier-prefix "rf2-a-"}
+        plans    (fn [] [{:frame-id :page/session :config-fingerprint "cf" :config {}}])]
+    (client/register-live-root! info c a)
+    (let [preflight-calls (atom 0)]
+      (client/set-preflight-hook! (fn [_ _] (swap! preflight-calls inc)))
+      (try
+        (let [ret (client/mount* info c (fn [] nil) (js-obj) plans)]
+          (is (identical? a ret) "the existing Root is returned (fast path)")
+          (is (= 1 @preflight-calls) "preflight ran once")
+          (is (= 1 @rendered) "the existing Root re-rendered"))
+        (finally (client/set-preflight-hook! nil))))))
+
+;; ---------------------------------------------------------------------------
 ;; Re-entrant mount during preflight (rf2-vxgfnd.52)
 ;; ---------------------------------------------------------------------------
 
