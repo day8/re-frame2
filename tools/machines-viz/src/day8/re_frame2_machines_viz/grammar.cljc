@@ -889,12 +889,13 @@
   `/`+`00`, never as one wide escape.
 
   Neither form ever mints two consecutive underscores (a `_` is always
-  followed by a hex digit or `u`), so the reserved markers the consumers
+  followed by a hex digit or `u`), and no `-` / `.` survives unescaped (a
+  literal `-` → `_2d`, `.` → `_2e`), so the reserved markers the consumers
   layer on top — `_2f` (the hex of `/`) for a keyword's ns/name boundary,
   `__` between path segments (xyflow `node-id` / mermaid `sanitise-id`),
-  `__`/`___` (SCXML ns-name / path separators) — can never arise from
-  segment content. This is the SINGLE injective scheme all three emitters'
-  id codecs build on, so they address every node identically."
+  `-` (SCXML ns-name) / `___` (SCXML path) separators — can never arise
+  from segment content. This is the SINGLE injective scheme all three
+  emitters' id codecs build on, so they address every node identically."
   [s]
   (str/join
     (map (fn [ch]

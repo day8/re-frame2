@@ -2080,8 +2080,8 @@ back.
 | `:always [...]`                       | `<transition target="..."/>` (eventless) |
 | `{:type :parallel :regions ...}`      | `<parallel>` containing region `<state>`s |
 | `{:type :history :deep? <b> :default-target <t>}` (rf2-m285a) | W3C `<history type="shallow\|deep">` inside the owning compound; a `:default-target` rides a default `<transition target="…"/>`. NEVER occupiable (a transition TO it resolves to the recorded/default leaf), so it emits `<history>`, never `<state>`/`<final>`. Round-trips back to `:type :history`. |
-| Namespaced ids (`:auth/login`)        | `auth__login` (hex-escaped; `__` separates ns from name) |
-| Multi-dot-ns ids (`:my.app/login`)    | `my_2eapp__login` (ns dots escaped to `_2e`) |
+| Namespaced ids (`:auth/login`)        | `auth-login` (hex-escaped; `-` separates ns from name) |
+| Multi-dot-ns ids (`:my.app/login`)    | `my_2eapp-login` (ns dots escaped to `_2e`) |
 | Vector-path targets (`[:parent :child]`) | `parent___child` (`___` joins path SEGMENTS) |
 | Nested-state ids                      | fully qualified (root→leaf, `___`-joined) — unique xsd:ID |
 
@@ -2096,25 +2096,34 @@ back.
 > range** (rf2-qgtcvy — the pre-fix `_<var-hex>` was neither self-delimiting
 > nor reversible above `0xFF`: `:开始` mis-decoded and `đ` collided with
 > `U+0011`+`"1"`); the `u` sentinel (not a hex digit) keeps the two widths
-> unambiguous. Parts join with two RESERVED MARKERS the escaper can provably
-> never emit (a `_` is always followed by a hex digit or `u`, so neither
-> width mints two consecutive underscores):
+> unambiguous. A literal `-` is escaped to `_2d`, so no bare hyphen ever
+> arises from segment content either. Parts join with two RESERVED MARKERS
+> the escaper can provably never emit:
 >
-> - `__` (double underscore) separates a *namespaced keyword's* namespace
->   from its name: `:auth/login` → `auth__login`,
->   `:my.app.auth/login` → `my_2eapp_2eauth__login` (the namespace dots
->   are escaped, so the single `__` marks the ns/name boundary regardless
+> - `-` (a single hyphen) separates a *namespaced keyword's* namespace
+>   from its name: `:auth/login` → `auth-login`,
+>   `:my.app.auth/login` → `my_2eapp_2eauth-login` (the namespace dots
+>   are escaped, so the single `-` marks the ns/name boundary regardless
 >   of how many dots the namespace has).
 > - `___` (triple underscore) joins the *segments of a vector path*:
 >   `[:authenticated :browsing]` → `authenticated___browsing`;
->   a namespaced segment keeps its own `__`, e.g. `[:auth/region :browsing]`
->   → `auth__region___browsing`.
+>   a namespaced segment keeps its own `-`, e.g. `[:auth/region :browsing]`
+>   → `auth-region___browsing`.
 >
-> Because the segment escaper never produces two consecutive underscores,
-> neither marker can collide with segment content or with each other, so
-> the codec is **fully injective for ANY keyword** — including
-> multi-segment namespaces and dotted names, which the pre-mnp93.1
-> `.`-as-ns/name scheme corrupted (`:my.app.auth/login` and
+> The pre-`t69tdo` scheme used `__` (double underscore) for the ns/name
+> boundary, but because EVERY escape begins with `_`, a name segment whose
+> leading char escaped to `_…` (any CJK name, or `:a/-b`'s name `-b` →
+> `_2db`) grew the `__` boundary into a `___` run — the exact path
+> separator — so the namespaced keyword silently mis-decoded to a vector
+> (`:a/-b` → `[:a :2db]`). A non-underscore boundary token the escaper
+> never emits (`-`) removes the collision at its root: no ns/name boundary
+> can ever become a `___` run.
+>
+> Because the segment escaper never produces two consecutive underscores
+> and never a bare `-`, neither marker can collide with segment content or
+> with each other, so the codec is **fully injective for ANY keyword** —
+> including multi-segment namespaces and dotted names, which the
+> pre-mnp93.1 `.`-as-ns/name scheme corrupted (`:my.app.auth/login` and
 > `:my/app.auth.login` both encoded to `my.app.auth.login`). State ids
 > are additionally **fully PATH-QUALIFIED** (root→leaf), so two
 > same-named nested states emit UNIQUE xsd:IDs and transition targets
