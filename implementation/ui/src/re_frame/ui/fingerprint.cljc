@@ -40,46 +40,112 @@
                             at preflight; the fingerprint is what
                             build-time plan-conflict detection compares)
 
-  ## Canonical EDN
+  ## Canonical serialization
 
-  `canonical-edn` prints with maps recursively sorted by `pr-str` of key
-  and sets sorted likewise — one value, one string, on both hosts.
-  Canonicalization recurses into map KEYS and set ELEMENTS as well as
-  values, so a map (or nested collection) used as a key or a set member
-  reaches a stable form regardless of its authoring order — two `=`-equal
-  plans always digest identically (no spurious plan-conflict).
+  `canonical-string` is a TYPE-PRESERVING, INJECTIVE canonical string (not
+  EDN). Every node is one self-delimiting token — a type-tag char, the
+  char length of its body, a `:`, then the body — so a set / vector / list /
+  map carry DISTINCT tags and a set never collides with a vector (or map) of
+  the same flattened elements. Sets and map keys are order-normalized;
+  vectors and lists stay order-sensitive; scalars carry their host-identical
+  `pr-str`. Two `=`-equal plans (up to map-key / set authoring order) always
+  digest identically (no spurious plan-conflict); a genuine config change —
+  including a set↔vector↔list type flip — always digests differently.
   Cross-host equality of the hex output is pinned by
   `re-frame.ui.fingerprint-cljs-test`."
   (:require [clojure.string :as str]))
 
 ;; ---------------------------------------------------------------------------
-;; Canonical EDN
+;; Canonical serialization
 ;; ---------------------------------------------------------------------------
+;;
+;; The digest input is a TYPE-PRESERVING, INJECTIVE canonical string — not
+;; EDN. Every node is emitted as one self-delimiting token
+;;
+;;     <type-tag><char-length of body>":"<body>
+;;
+;; — a single type-tag char, the CHARACTER count of the body, a ":"
+;; separator, then the body. The length turns each token into a netstring:
+;; a parent collection's body is just its child tokens concatenated, and no
+;; two distinct child sequences can share an encoding (the concatenation
+;; parses back unambiguously).
+;;
+;; The TYPE TAG is what makes the encoding type-preserving. A set (`s`),
+;; vector (`v`), list/seq (`l`), and map (`m`) carry DISTINCT tags, so a set
+;; never collides with a vector — or a map — of the same flattened elements.
+;; That was the pre-#5745 hazard: a set was flattened to a bare vector of its
+;; elements' `pr-str` STRINGS, so the distinct configs `#{:a}` and `[":a"]`
+;; shared one canonical form (`[":a"]`). That is a GUARANTEED pre-hash
+;; collision — a real config change reads as an idempotent no-op — closed here
+;; because `#{:a}` -> "s.." and `[":a"]` -> "v.." can never coincide, and the
+;; inner keyword `:a` -> "t..:a" and string `":a"` -> "t..\":a\"" differ too.
+;;
+;; ORDER handling: sets sort their child tokens (order-INSENSITIVE), map
+;; entries sort by their canonical KEY token (authoring-order-insensitive,
+;; #5745), and vectors/lists preserve producer order (order-SENSITIVE).
+;; Emitting map entries as a length-delimited token stream — rather than
+;; reducing them into an intermediate `sorted-map-by` — means two DISTINCT
+;; keys that share a comparator rank can never overwrite one another; both
+;; entries survive into the digest.
+;;
+;; SCALARS (`t`) carry their `pr-str`, which is host-identical for the
+;; supported terminal types and already type-distinct: a keyword `:a`, the
+;; string `":a"`, and the symbol `a` print differently, so they never collide.
 
-(defn- canonicalize [x]
-  (cond
-    ;; Recurse into BOTH key and value: a map (or any nested collection) used
-    ;; AS A KEY must canonicalize to a stable form too, or its authoring order
-    ;; survives into the printed digest and two semantically identical plans
-    ;; fingerprint differently (a spurious cross-root
-    ;; `:rf.error/frame-payload-conflict`). The sorted-map-by comparator then
-    ;; sorts on the ALREADY-canonical key, so entry order is stable regardless
-    ;; of key shape.
-    (map? x)  (into (sorted-map-by (fn [a b] (compare (pr-str a) (pr-str b))))
-                    (map (fn [[k v]] [(canonicalize k) (canonicalize v)]))
-                    x)
-    ;; Elements canonicalize before they are printed for the sorted vec — a
-    ;; map (or nested collection) inside a set has the same authoring-order
-    ;; hazard as a map-as-key.
-    (set? x)  (vec (sort (map (comp pr-str canonicalize) x)))  ; sets as sorted printed vec
-    (vector? x) (mapv canonicalize x)
-    (seq? x)  (apply list (map canonicalize x))
-    :else x))
+(def ^:private canonical-version
+  "Version marker prefixing every canonical string. It is hashed with the
+  body, so a fingerprint computed under an older encoding is detectably
+  distinct — never silently reinterpreted — when the encoding is revised.
+  `cfp2` is the type-preserving, length-delimited writer (rf2-vxgfnd.78);
+  the unversioned `pr-str`-flattening form (pre-#5745 / #5745) was v1."
+  "cfp2:")
 
-(defn canonical-edn
-  "One deterministic EDN string per value, both hosts."
+(declare -write)
+
+(defn- token
+  "A self-delimiting canonical token: the `tag` char, the CHARACTER length
+  of `body`, a `:` separator, then `body`. The length makes the token a
+  netstring, so concatenated child tokens parse back unambiguously and no
+  two distinct child sequences share an encoding."
+  [tag body]
+  (str tag (count body) ":" body))
+
+(defn- -write
+  "Emit the injective, type-preserving canonical token for `x`. Collections
+  carry a distinct type tag (`m`/`s`/`v`/`l`) so a map, set, vector, and
+  list never collide; sets and map keys are order-normalized while vectors
+  and lists keep producer order; scalars (`t`) carry their host-identical,
+  type-distinct `pr-str`."
   [x]
-  (pr-str (canonicalize x)))
+  (cond
+    ;; Map — sort ENTRIES by their canonical KEY token, then emit key and
+    ;; value tokens in that order. A token stream (not a sorted-map) means
+    ;; two distinct keys can never overwrite one another.
+    (map? x)    (token "m" (->> x
+                                (map (fn [[k v]] [(-write k) (-write v)]))
+                                (sort-by first)
+                                (mapcat (fn [[k v]] [k v]))
+                                (apply str)))
+    ;; Set — order-INSENSITIVE: sort the child tokens. The `s` tag keeps a
+    ;; set distinct from a vector/list of the same elements.
+    (set? x)    (token "s" (apply str (sort (map -write x))))
+    ;; Vector — order-SENSITIVE: preserve producer order.
+    (vector? x) (token "v" (apply str (map -write x)))
+    ;; List / seq — order-SENSITIVE; the `l` tag keeps it distinct from a
+    ;; vector of the same elements.
+    (seq? x)    (token "l" (apply str (map -write x)))
+    ;; Scalar — `pr-str` is host-identical and type-distinct for the
+    ;; supported terminals (keyword vs string vs symbol vs number vs nil).
+    :else       (token "t" (pr-str x))))
+
+(defn canonical-string
+  "One deterministic, type-preserving canonical string per value, identical
+  on both hosts (see the section comment above for the token grammar).
+  Equal values — up to map-key / set authoring order — produce the same
+  string; distinct values, including a set vs a vector vs a list of the same
+  elements, produce different strings."
+  [x]
+  (str canonical-version (-write x)))
 
 ;; ---------------------------------------------------------------------------
 ;; FNV-1a 64
@@ -120,9 +186,9 @@
      :cljs (.encode (js/TextEncoder.) s)))
 
 (defn digest
-  "prefix + FNV-1a-64 hex of the canonical EDN of `form`."
+  "prefix + FNV-1a-64 hex of the canonical string of `form`."
   [prefix form]
-  (str prefix (hex64 (fnv1a-64 (utf8-bytes (canonical-edn form))))))
+  (str prefix (hex64 (fnv1a-64 (utf8-bytes (canonical-string form))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The three named digests
