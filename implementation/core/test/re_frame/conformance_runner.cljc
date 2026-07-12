@@ -435,8 +435,8 @@
                              (rf/dispatch-sync event {:frame frame-id}))
            ;; Per EP-0027 §Handler-time guard (rf2-emqiqk): frame construction invoked
            ;; from an fx body (mid-cascade) trips the construction guard.
-           :reg-frame! (fn [frame-id config]
-                         (rf/make-frame (assoc config :id frame-id)))}
+           :make-frame! (fn [frame-id config]
+                          (rf/make-frame (assoc config :id frame-id)))}
           fx-bodies   (get handlers-map :fx)
           fx-registry (get-in fixture [:fixture/registry :fx] {})
           all-fx-ids  (into #{} (concat (keys fx-bodies) (keys fx-registry)))]
@@ -921,7 +921,7 @@
     ;; EP-0027 construction-engine registration call (rf2-kmk9z4). `:config`
     ;; is passed to `make-frame`; `:expect-error <:rf.error/id>` ⇒ construction
     ;; must throw that id. The frame is destroyed afterward (best-effort).
-    :reg-frame
+    :make-frame
     (let [frame-id   (or (:frame-id call) :rf.test/construction)
           want-error (:expect-error call)
           thrown     (try (rf/make-frame (assoc (:config call) :id frame-id)) nil
@@ -933,13 +933,13 @@
               ok?    (= want-error got-id)]
           {:passed? ok?
            :detail  (when-not ok?
-                      (str "reg-frame\n"
+                      (str "make-frame\n"
                            "    expected error :rf.error/id: " want-error "\n"
                            "    actual   error :rf.error/id: " got-id "\n"
                            "    thrown:                       " (some-> thrown ex-message)))})
         {:passed? (nil? thrown)
          :detail  (when (some? thrown)
-                    (str "reg-frame\n"
+                    (str "make-frame\n"
                          "    expected: no error (well-formed config)\n"
                          "    thrown:   " (ex-message thrown)))}))
 

@@ -1,6 +1,6 @@
 ;; Conformance fixture: construction/retired-keys-fail-loud
 ;; EP-0027 §Retirement — the legacy construction keys :on-create and :initial-db
-;; are RETIRED. Supplying either to reg-frame fails loud with a stable
+;; are RETIRED. Supplying either to make-frame fails loud with a stable
 ;; discriminator (:rf.error/on-create-retired / :rf.error/initial-db-retired),
 ;; never a silent ignore. A conformant host must reject them with the SAME id so
 ;; a port can't silently accept the old shape. A well-formed :initial-events
@@ -9,7 +9,7 @@
 {:fixture/id           :construction/retired-keys-fail-loud
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/frame}
- :fixture/doc          "Per EP-0027 §Retirement: reg-frame with :on-create fails :rf.error/on-create-retired; with :initial-db fails :rf.error/initial-db-retired. A well-formed :initial-events config is the must-not-throw control. Pins the construction fail-loud discriminators host-agnostically (the :reg-frame Mode-B call op, mirror of :reg-machine)."
+ :fixture/doc          "Per EP-0027 §Retirement: make-frame with :on-create fails :rf.error/on-create-retired; with :initial-db fails :rf.error/initial-db-retired. A well-formed :initial-events config is the must-not-throw control. Pins the construction fail-loud discriminators host-agnostically (the :make-frame Mode-B call op, mirror of :reg-machine)."
 
  :fixture/registry
  {:event {:ctor/seed {:doc "Seed used by the well-formed control config."}}}
@@ -20,15 +20,15 @@
  :fixture/dispatches []
 
  :fixture/calls
- ;; :reg-frame call op — pure construction-registration assertion. :expect-error
+ ;; :make-frame call op — pure construction-registration assertion. :expect-error
  ;; pins the :rf.error/id the construction must throw; the frame is torn down
  ;; afterward so no half-frame leaks.
- [{:call :reg-frame
+ [{:call :make-frame
    :frame-id :ctor/oc
    :config {:on-create [:ctor/seed {:n 0}]}
    :expect-error :rf.error/on-create-retired}
 
-  {:call :reg-frame
+  {:call :make-frame
    :frame-id :ctor/idb
    :config {:initial-db {:n 0}}
    :expect-error :rf.error/initial-db-retired}
@@ -36,7 +36,7 @@
   ;; Control: a well-formed :initial-events config must NOT throw (no
   ;; :expect-error) — proves the retirement guards reject the LEGACY keys
   ;; specifically, not all construction.
-  {:call :reg-frame
+  {:call :make-frame
    :frame-id :ctor/ok
    :config {:initial-events [[:ctor/seed {:n 0}]]}}]
 

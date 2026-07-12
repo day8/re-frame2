@@ -24,8 +24,8 @@
     [:fx fx-id args]                emit a single fx
     [:fx [[fx-id args] ...]]        emit multiple
     [:dispatch event-vec]           sugar for [:fx :dispatch event-vec]
-    [:reg-frame-capture path frame-id config]
-                                    (fx bodies) reg-frame mid-cascade, capture
+    [:make-frame-capture path frame-id config]
+                                    (fx bodies) make-frame mid-cascade, capture
                                     the thrown :rf.error/id into app-db at path
                                     (EP-0027 handler-time construction guard)
 
@@ -468,7 +468,7 @@
                      (assoc ctx :fx (conj (or fx []) [:dispatch-sync ev])))
 
     ;; Per EP-0027 §Handler-time guard (rf2-emqiqk): an fx body may invoke
-    ;; `reg-frame` while the originating handler cascade is in
+    ;; `make-frame` while the originating handler cascade is in
     ;; flight (the `do-fx` walk runs under the router's `*handler-scope*`
     ;; binding). The construction engine rejects it LOUD —
     ;; `:rf.error/frame-construction-in-handler`.
@@ -480,11 +480,11 @@
     ;; capture-into-atom shape the JVM/CLJS unit tests use). `:rf/no-error` is
     ;; written when the construction did NOT throw (a regression that re-enabled
     ;; mid-cascade construction).
-    :reg-frame-capture (let [[_ path child-id child-config] step
-                             cid (resolve-value child-id ctx)
-                             cfg (resolve-value child-config ctx)]
-                         (assoc ctx :fx (conj (or fx [])
-                                              [:reg-frame-capture path cid cfg])))
+    :make-frame-capture (let [[_ path child-id child-config] step
+                              cid (resolve-value child-id ctx)
+                              cfg (resolve-value child-config ctx)]
+                          (assoc ctx :fx (conj (or fx [])
+                                               [:make-frame-capture path cid cfg])))
 
     ;; The :throw DSL op exists to surface a FIXTURE-SUPPLIED message
     ;; downstream (the runtime re-emits it as :exception-message), so —
@@ -637,11 +637,11 @@
   the surrounding handler is mid-drain; the router's `:in-drain?` guard
   surfaces `:rf.error/dispatch-sync-in-handler`.
 
-  read-db!/write-db!/dispatch!/dispatch-sync!/reg-frame! are wired
+  read-db!/write-db!/dispatch!/dispatch-sync!/make-frame! are wired
   by the runner so this namespace stays free of internal substrate / router
   deps."
   [fx-id steps {:keys [read-db! write-db! dispatch! dispatch-sync!
-                       reg-frame!]}]
+                       make-frame!]}]
   (fn [{:keys [frame]} args]
     (let [db              (read-db! frame)
           synthetic-event [fx-id args]
@@ -656,8 +656,8 @@
       ;; through the helper — the router's in-drain guard surfaces the
       ;; structured error when this fires inside a handler cascade.
       ;;
-      ;; Per rf2-emqiqk the :reg-frame-capture pair
-      ;; invokes `reg-frame` mid-cascade and CAPTURES the thrown
+      ;; Per rf2-emqiqk the :make-frame-capture pair
+      ;; invokes `make-frame` mid-cascade and CAPTURES the thrown
       ;; `:rf.error/id` into the originating frame's app-db at `path` (the guard
       ;; throw would otherwise be swallowed into `:rf.error/fx-handler-exception`
       ;; by `do-fx`). `:rf/no-error` records a no-throw — a regression that
@@ -670,9 +670,9 @@
           (and (vector? pair) (= :dispatch-sync (first pair)) dispatch-sync!)
           (dispatch-sync! (second pair) frame)
 
-          (and (vector? pair) (= :reg-frame-capture (first pair)) reg-frame!)
+          (and (vector? pair) (= :make-frame-capture (first pair)) make-frame!)
           (let [[_ path child-id child-config] pair
-                err-id (try (reg-frame! child-id child-config) nil
+                err-id (try (make-frame! child-id child-config) nil
                             (catch #?(:clj clojure.lang.ExceptionInfo
                                       :cljs cljs.core/ExceptionInfo) e
                               (:rf.error/id (ex-data e))))]
