@@ -30,6 +30,19 @@
   `:children` sub-map has every spawned child id. The handler iterates
   `:children` and tears each one down, then clears the slot.
 
+  A fourth, INTERNAL map shape — the VERIFIED reap
+  `{:rf/reap true :rf/parent-id <p> :rf/invoke-id <i> :rf/child-id <c>}` —
+  is what a `:spawn-all` join emits to tear down an ALREADY-TERMINAL
+  (completed / failed) child at resolution WITHOUT a contradictory
+  cancellation reply (rf2-tj3l6a). It is the ONLY selector of the
+  cancellation-suppressing `:rf.machine/join-reaped` destroyed reason, and it
+  is AUTHENTICATED against the live join state before being honoured — the
+  reason and the reaped actor-id are runtime-derived from durable join state,
+  never caller-supplied, so the form cannot be forged at the public
+  reserved-fx boundary (rf2-3lyqzu). See `destroy-join-reap!`. Any map that
+  matches none of these shapes fails loud with
+  `:rf.error/machine-destroy-bad-arg` and performs no teardown.
+
   The actor-teardown runtime-db dance lives in
   `re-frame.machines.lifecycle-fx.teardown` — one helper, three
   call-sites."
@@ -259,31 +272,22 @@
                                                    :invoke-id invoke-id}))))
     nil))
 
-(defn- destroy-single!
-  "The keyword (imperative) form and the single-
-  `:spawn` (tracked map) form of `:rf.machine/destroy`. Resolves the
-  actor-id (keyword direct OR via the `[:rf.runtime/machines :spawned ...]` slot), emits
-  the `:rf.machine/destroyed` trace, then applies the unified teardown
-  projection.
+(defn- destroy-resolved!
+  "Shared tail of every `destroy-single!` shape: run the liveness-gated
+  ordered teardown for an ALREADY-RESOLVED `actor-id` and emit its
+  `:rf.machine/destroyed` trace with `reason`. The keyword / tracked-`:spawn`
+  / verified-reap shapes differ ONLY in how they resolve `actor-id` +
+  `reason` (+ the trace's `:parent-id` / `:invoke-id`); this is their
+  common teardown-and-emit tail.
 
   Aligned with XState convention, destroying an **already-destroyed** actor
-  is a **silent idempotent no-op**. The actor's lifecycle has one observable
-  transition
-  (Active → Stopped); subsequent destroy attempts emit NO
-  `:rf.machine/destroyed` trace, perform NO teardown, and raise NO
-  error.
-
-  The liveness probe must distinguish *already-destroyed* (the actor
-  was alive and the teardown projection ran) from
-  *not-yet-materialised-snapshot* (the actor IS alive
-  in this drain — a spawn + destroy back-to-back in the same `:fx`
-  vector, before the snapshot swap landed — but its snapshot is not
-  yet installed at `[:rf.runtime/machines :snapshots actor-id]`).
-  Snapshot-presence alone is not the right signal: the spawn-order
-  entry (recorded unconditionally on every spawn) is the reliable
-  \"alive\" bit when the snapshot swap is still in flight.
-
-  `live?` is true iff ANY of the following hold:
+  is a **silent idempotent no-op**: subsequent destroy attempts emit NO
+  `:rf.machine/destroyed` trace, perform NO teardown, and raise NO error.
+  The liveness probe must distinguish *already-destroyed* (the actor was
+  alive and the teardown projection ran) from *not-yet-materialised-snapshot*
+  (the actor IS alive in this drain — a spawn + destroy back-to-back in the
+  same `:fx` vector, before the snapshot swap landed). `live?` is true iff
+  ANY of the following hold:
 
     - **Registrar entry present** at `actor-id`. Normal spawned actors have no
       per-instance entry, but teardown recognises stale or externally installed
@@ -298,94 +302,147 @@
       so the entry's presence/absence is the most reliable
       \"alive-or-gone\" bit, covering the back-to-back spawn-then-destroy
       window before the snapshot swap lands.
-    - **Tracked-form slot present** at `[:rf.runtime/machines :spawned parent-id
-      invoke-id]`. Belt-and-braces for the declarative-`:spawn`
-      tracked-map form — covers the tracked codepath even when the
-      actor-id resolution above went via the slot lookup.
+    - **`slot-live?`** — the tracked-form belt-and-braces liveness hint (the
+      `[:rf.runtime/machines :spawned parent-id invoke-id]` slot's presence),
+      passed true ONLY by the tracked-`:spawn` shape; false for the keyword
+      and reap shapes.
 
-  A truly-already-destroyed actor has ALL FOUR gone — the unified
+  A truly-already-destroyed actor has ALL of these gone — the unified
   teardown projection, registrar cleanup, and `spawn-order/forget!`
   run atomically per `destroy-single-actor!` and `finalize-machine`.
+  See Spec 005 §Destroy is silent-idempotent for the normative paragraph."
+  [frame-id actor-id reason parent-id invoke-id old-db slot-live?]
+  (when (or (actor-live? frame-id actor-id old-db) slot-live?)
+    ;; Shared ordered teardown pipeline (see `teardown-live-actor!`). The
+    ;; `:exit` cascade runs BEFORE the `:rf.machine/destroyed` trace:
+    ;; per Spec 005 §Declarative `:spawn` §Composition with explicit `:entry`
+    ;; / `:exit` (005:2138) the `:exit` action reads the actor's final
+    ;; snapshot before the auto-destroy clears it, so a consumer observing the
+    ;; db between `:exit` and `:rf.machine/destroyed` sees the live snapshot.
+    ;; This mirrors `finalize-machine`'s order (exit cascade → teardown →
+    ;; destroyed) so both destroy entry-points share one ordering convention.
+    (teardown-live-actor!
+      frame-id actor-id
+      {:actor-id actor-id :parent-id parent-id :invoke-id invoke-id}
+      ;; D6 — `:reason` discriminates "an action / fx tore the actor down"
+      ;; (`:explicit`, a cancellation) from `:rf.machine/finished` (the
+      ;; auto-destroy on `:final?`) and, for the VERIFIED reap shape,
+      ;; `:rf.machine/join-reaped` (post-completion cleanup of an
+      ;; already-terminal `:spawn-all` join child — NOT a cancellation, so
+      ;; no second-terminal cancelled reply, rf2-tj3l6a). Always stamp
+      ;; `:system-id` (nil when not bound) per the destroyed-trace-shape
+      ;; contract for the `destroy-single!` site. `released-sid` is the
+      ;; binding the teardown projection released — resolved from the reverse
+      ;; index BEFORE the dissoc, symmetric with `finalize-machine`.
+      (fn [released-sid]
+        (traces/emit-destroyed! {:frame     frame-id
+                                 :actor-id  actor-id
+                                 :system-id released-sid
+                                 :parent-id parent-id
+                                 :invoke-id invoke-id
+                                 :reason    reason}))))
+  nil)
 
-  See Spec 005 §Destroy is silent-idempotent for the normative paragraph.
+(defn- destroy-join-reap!
+  "The VERIFIED reap form `{:rf/reap true :rf/parent-id p :rf/invoke-id i
+  :rf/child-id c}` — the ONLY way `:rf.machine/join-reaped` (a
+  cancellation-SUPPRESSING destroy reason) can be selected (rf2-tj3l6a,
+  rf2-3lyqzu).
 
-  ## The reap form (rf2-tj3l6a)
+  A `:spawn-all` join reaps its ALREADY-TERMINAL (completed / failed)
+  children at resolution. Their teardown must NOT re-classify as an
+  `:explicit` cancellation: a completed / failed child already closed its
+  attempt as a join-child completion (`join-child-reply`'s `:completed` /
+  `:failed` terminal for the same canonical `[:rf.work/machine spawned-id
+  invoke-id generation]`), so a `:cancelled` teardown reply would be a
+  SECOND, contradictory terminal for that work-id. `:rf.machine/join-reaped`
+  suppresses that second reply; the teardown itself is IDENTICAL to the
+  keyword / imperative destroy (snapshot, timers, resource leases,
+  spawn-order removal).
 
-  A THIRD arg shape — the map `{:rf/actor-id <id> :rf/reason <reason>}` —
-  is the DIRECT-actor REAP form the `:spawn-all` join uses to tear down an
-  ALREADY-TERMINAL child at resolution. Unlike the imperative keyword form,
-  it carries the destroy `:reason` explicitly so `emit-destroyed!` stamps a
-  NON-cancellation reason (`:rf.machine/join-reaped`) and therefore attaches
-  NO cancelled reply facts — the reaped child already has a closed terminal
-  status (its `join-child-reply` `:completed` / `:failed`), so a
-  `:cancelled` teardown reply would be a SECOND, contradictory terminal for
-  the same work-id. The teardown itself is IDENTICAL to the keyword /
-  imperative destroy (snapshot, timers, resource leases, spawn-order removal);
-  only the reply-emitting reason differs. Distinct from the tracked map form:
-  the reap carries the actor-id DIRECTLY (a `:spawn-all` child's join slot
-  holds the whole join-state map, not a single actor-id, so the
-  slot-resolution the tracked form uses does not apply)."
+  Because the reason changes terminal semantics, the runtime AUTHENTICATES
+  the reap against DURABLE join state before honouring it — the fix for the
+  forgeable pre-auth `{:rf/actor-id … :rf/reason …}` shape (rf2-3lyqzu). The
+  named `:spawn-all` join at `[:spawned p i]` MUST exist, OWN `child-id`,
+  and have folded `child-id` into `:done ∪ :failed`. The actor-id is then
+  RESOLVED from the live join state (`(get-in join-state [:children
+  child-id])`), never carried by the caller — so the reap can neither point
+  post-completion teardown at an arbitrary victim NOR suppress the
+  cancellation of an in-progress (not-yet-completed) actor. An unverifiable
+  reap FAILS LOUD (`:rf.error/machine-destroy-bad-arg`, `:cause
+  :unverified-reap`) and performs no teardown.
+
+  Verification against join state is INDEPENDENT of the liveness guard in
+  `destroy-resolved!`: the composed final-child case (a child that reached a
+  top-level `:final?` state auto-destroys synchronously with
+  `:rf.machine/finished`, THEN its queued completion event resolves the
+  parent's join) verifies OK — the join still records it as a completed
+  child — yet is a silent liveness no-op, so no second destroyed trace fires
+  for the already-dead actor."
+  [frame-id args old-db]
+  (let [parent-id  (:rf/parent-id args)
+        invoke-id  (:rf/invoke-id args)
+        child-id   (:rf/child-id args)
+        join-state (when old-db (get-in old-db (paths/spawned-path parent-id invoke-id)))
+        children   (when (map? join-state) (:children join-state))
+        actor-id   (get children child-id)
+        completed? (and (some? actor-id)
+                        (or (contains? (:done   join-state) child-id)
+                            (contains? (:failed join-state) child-id)))]
+    (if completed?
+      ;; Tear down ONLY the child actor — pass NIL parent/invoke so
+      ;; `teardown-actor` does NOT prune the `[:spawned parent invoke]` slot,
+      ;; which for a `:spawn-all` holds the WHOLE join-state map (every
+      ;; child + the frozen `:done` / `:failed` record). That slot is cleared
+      ;; later by the exit-cascade `destroy-spawn-all-children!` if the parent
+      ;; exits the `:spawn-all` state; the reap must leave the join record
+      ;; intact (matching the pre-auth reap, which likewise carried no
+      ;; teardown slot keys). `parent-id` / `invoke-id` / `child-id` were used
+      ;; ABOVE only to READ + verify the join state.
+      (destroy-resolved! frame-id actor-id :rf.machine/join-reaped
+                         nil nil old-db false)
+      (traces/emit-destroy-bad-arg! frame-id :unverified-reap args))))
+
+(defn- destroy-single!
+  "Dispatch the single-actor `:rf.machine/destroy` shapes to the shared
+  teardown tail (`destroy-resolved!`), resolving `actor-id` + `reason` per
+  shape. See the ns docstring for the form grammar.
+
+    - Keyword (imperative) form `[:rf.machine/destroy actor-id]` — the actor-id
+      IS the arg; a live in-progress teardown is ALWAYS an `:explicit`
+      cancellation.
+    - VERIFIED reap form `{:rf/reap true …}` — the sole selector of
+      `:rf.machine/join-reaped`, authenticated against live join state by
+      `destroy-join-reap!`.
+    - Tracked single-`:spawn` exit-cascade form `{:rf/parent-id p
+      :rf/invoke-id i}` — resolve actor-id from the `[:spawned p i]` slot;
+      the teardown is `:explicit`.
+    - UNKNOWN / malformed map shape — e.g. the pre-auth forgery
+      `{:rf/actor-id … :rf/reason …}` — fails loud
+      (`:rf.error/machine-destroy-bad-arg`, `:cause :unknown-shape`) with no
+      teardown, so an app action can never mint a caller-chosen destroyed
+      reason at the public reserved-fx boundary (rf2-3lyqzu).
+
+  (The `:rf/spawn-all` form is routed to `destroy-spawn-all-children!` by
+  `destroy-machine-fx` before this fn is reached.)"
   [frame-id args]
-  (let [mapped?   (map? args)
-        ;; The reap form carries the actor-id directly + an explicit
-        ;; non-cancellation `:reason`; the tracked form resolves the actor-id
-        ;; from the `[:spawned parent-id invoke-id]` slot.
-        reap?     (and mapped? (contains? args :rf/actor-id))
-        reason    (if reap? (:rf/reason args :explicit) :explicit)
-        tracked?  (and mapped? (not reap?))
-        parent-id (when tracked? (:rf/parent-id args))
-        invoke-id (when tracked? (:rf/invoke-id args))
-        old-db    (frame/frame-runtime-db-value frame-id)
-        slot-id   (when (and tracked? old-db)
-                    (get-in old-db (paths/spawned-path parent-id invoke-id)))
-        actor-id  (cond
-                    reap?    (:rf/actor-id args)
-                    tracked? slot-id
-                    :else    args)
-        ;; Silent-idempotent guard. `live?` is true iff ANY
-        ;; liveness signal survives. The first three (registrar entry /
-        ;; snapshot present / spawn-order entry) are the resolved-actor-id
-        ;; signals shared with `destroy-single-actor!` via `actor-live?`
-        ;; (both destroy paths apply the identical probe). The tracked-slot
-        ;; signal is local to this site — belt-and-braces for the
-        ;; declarative-`:spawn` tracked-map form. See docstring for what each
-        ;; signal covers.
-        live?     (or (actor-live? frame-id actor-id old-db)
-                      (and tracked? (some? slot-id)))]
-    (when live?
-      ;; Shared ordered teardown pipeline (see `teardown-live-actor!`). The
-      ;; `:exit` cascade runs BEFORE the `:rf.machine/destroyed` trace:
-      ;; per Spec 005 §Declarative `:spawn` §Composition with
-      ;; explicit `:entry` / `:exit` (005:2138) the `:exit` action reads the
-      ;; actor's final snapshot before the auto-destroy clears it, so a
-      ;; consumer observing the db between `:exit` and `:rf.machine/destroyed`
-      ;; sees the live snapshot. This mirrors `finalize-machine`'s order
-      ;; (exit cascade → teardown → destroyed) so both destroy entry-points
-      ;; share one ordering convention.
-      (teardown-live-actor!
-        frame-id actor-id
-        {:actor-id actor-id :parent-id parent-id :invoke-id invoke-id}
-        ;; D6 — `:reason` discriminates "an action / fx tore the actor down"
-        ;; (`:explicit`, a cancellation) from `:rf.machine/finished` (the
-        ;; auto-destroy on `:final?`) and, for the reap form,
-        ;; `:rf.machine/join-reaped` (post-completion cleanup of an
-        ;; already-terminal `:spawn-all` join child — NOT a cancellation, so
-        ;; no second-terminal cancelled reply, rf2-tj3l6a). Always stamp
-        ;; `:system-id` (nil when not bound) per the destroyed-trace-shape
-        ;; contract for the `destroy-single!` site. `released-sid` is the
-        ;; binding the teardown projection released — resolved from the reverse
-        ;; index BEFORE the dissoc, symmetric with `finalize-machine` and with
-        ;; the pre-teardown `old-db` read it replaces (the `:system-ids` index
-        ;; is untouched by the exit cascade / abort / mark-clear / timer-cancel
-        ;; steps, so the value is equal).
-        (fn [released-sid]
-          (traces/emit-destroyed! {:frame     frame-id
-                                   :actor-id  actor-id
-                                   :system-id released-sid
-                                   :parent-id parent-id
-                                   :invoke-id invoke-id
-                                   :reason    reason}))))
-    nil))
+  (let [old-db (frame/frame-runtime-db-value frame-id)]
+    (cond
+      (not (map? args))
+      (destroy-resolved! frame-id args :explicit nil nil old-db false)
+
+      (:rf/reap args)
+      (destroy-join-reap! frame-id args old-db)
+
+      (and (contains? args :rf/parent-id) (contains? args :rf/invoke-id))
+      (let [parent-id (:rf/parent-id args)
+            invoke-id (:rf/invoke-id args)
+            slot-id   (when old-db (get-in old-db (paths/spawned-path parent-id invoke-id)))]
+        (destroy-resolved! frame-id slot-id :explicit parent-id invoke-id old-db
+                           (some? slot-id)))
+
+      :else
+      (traces/emit-destroy-bad-arg! frame-id :unknown-shape args))))
 
 (defn destroy-machine-fx
   "fx handler for `:rf.machine/destroy`. Dispatches to the keyword-form

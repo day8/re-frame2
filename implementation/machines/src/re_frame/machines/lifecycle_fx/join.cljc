@@ -378,17 +378,26 @@
             ;; `:cancelled` terminal for the same work-id, so a work-ledger /
             ;; Xray projection could not decide whether the child completed,
             ;; failed, or was cancelled. So split by completion:
-            ;;   - COMPLETED / FAILED children (`completed-ids`) → the direct-
-            ;;     actor REAP form `{:rf/actor-id … :rf/reason
-            ;;     :rf.machine/join-reaped}`, which does the IDENTICAL teardown
-            ;;     but stamps a non-cancellation reason (no second terminal);
+            ;;   - COMPLETED / FAILED children (`completed-ids`) → the VERIFIED
+            ;;     reap form `{:rf/reap true :rf/parent-id … :rf/invoke-id …
+            ;;     :rf/child-id …}`, which does the IDENTICAL teardown but
+            ;;     stamps the non-cancellation `:rf.machine/join-reaped` reason
+            ;;     (no second terminal). The reap carries the JOIN COORDINATES
+            ;;     (parent / invoke / child), NOT a caller-chosen actor-id +
+            ;;     reason: `destroy-join-reap!` re-reads the LIVE join state,
+            ;;     resolves the actor-id from `:children`, and PROVES the child
+            ;;     is in `:done ∪ :failed` before suppressing cancellation —
+            ;;     so the cancellation-suppressing reason cannot be forged at
+            ;;     the public reserved-fx boundary (rf2-3lyqzu);
             ;;   - SURVIVORS (never reported completion) → the `:explicit`
             ;;     keyword destroy, whose cancellation reply is legitimate and
             ;;     matches the `cancelled-on-join-resolution` trace above.
             (mapv (fn [[cid spawned-id]]
                     (if (contains? completed-ids cid)
-                      [:rf.machine/destroy {:rf/actor-id spawned-id
-                                            :rf/reason   :rf.machine/join-reaped}]
+                      [:rf.machine/destroy {:rf/reap      true
+                                            :rf/parent-id parent-id
+                                            :rf/invoke-id invoke-id
+                                            :rf/child-id  cid}]
                       [:rf.machine/destroy spawned-id]))
                   children)))
         dispatch-fx
