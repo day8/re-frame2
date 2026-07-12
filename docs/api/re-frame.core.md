@@ -144,36 +144,6 @@ Every entry here registers a named handler into the frame's registrar.
       {:db (assoc db :ui/theme (or local-theme "system"))}))
   ```
 
-### `reg-frame`
-
-- **Kind**: macro
-- **Signature**:
-  ```clojure
-  (reg-frame id metadata)
-  ```
-- **Description**: Atomic create-and-register. A frame is the scoping unit: one `app-db`, one event queue, one pipeline. It is minted with metadata you later read via `frame-meta`. The frame owns the `:observability` sink policy.
-  - Durable `app-db` data classification is **not** a frame annotation: a `reg-frame` config carrying `:sensitive` / `:large` **fails loud** at registration.
-  - To classify durable `app-db` paths, return the four commit-plane classification effects (`:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`) from a `reg-event` alongside `:db`. Wire that event to run at frame creation via `:initial-events`.
-  - See [re-frame.http.md](re-frame.http.md), [re-frame.schemas.md](re-frame.schemas.md), and [Keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md).
-- **Example**:
-  ```clojure
-  ;; User-defined fxs sit under a user-feature prefix per Conventions — never
-  ;; under `:rf.<feature>/…`, which is reserved for framework-owned surfaces.
-  ;;
-  ;; Durable app-db classification rides a commit-plane effect (EP-0025):
-  ;; a reg-event returns :sensitive / :large alongside :db, run at frame
-  ;; creation via :initial-events — NOT a frame annotation.
-  (rf/reg-event :app/init
-    (fn [{:keys [db]} _]
-      {:db        (assoc db :auth {})
-       :sensitive [[:auth :token]]}))   ;; classify before any value lands
-
-  (rf/reg-frame :app/main
-    {:doc            "App demo frame."
-     :initial-events [[:app/init]]      ;; classifies [:auth :token] at creation
-     :fx-overrides   {:rf.http/managed :auth.login.demo/managed-stub}})
-  ```
-
 ### Clearing registrations
 
 Each `clear-*` removes an entry from the registrar; the no-arg form clears the whole kind. Used in tests (the `make-reset-runtime-fixture` registrar snapshot/restore relies on these), REPL workflows, and teardown.
@@ -521,7 +491,7 @@ The view layer is **substrate-agnostic**. The shared dataflow — frames, subscr
   ```
 - **Description**: The two **lexical** (non-React) frame-scoping macros — for regions that aren't a view tree (tests, the REPL, SSR). Each rejects the other's argument shape at compile time.
   - `with-frame` pins `*current-frame*` to an **existing** frame-id for the dynamic extent of `body`, creating and destroying nothing. The lexical counterpart to the `rf/frame-provider` `{:frame …}` SCOPE shape.
-  - `with-new-frame` evaluates `expr` and binds the resulting frame target to `sym` — a live frame value from `make-frame`, or a keyword id from `reg-frame`; either is accepted downstream. It runs `body` in that frame's dynamic context, then **destroys the frame on exit**. The throwaway-frame form for one-off harnesses.
+  - `with-new-frame` evaluates `expr` and binds the resulting frame target to `sym` — typically the live frame value from `make-frame` (a frame value or a keyword id is accepted downstream). It runs `body` in that frame's dynamic context, then **destroys the frame on exit**. The throwaway-frame form for one-off harnesses.
 - **Example**:
   ```clojure
   ;; Pin form — bind *current-frame* to an existing id for the body (most common)
@@ -548,7 +518,7 @@ The effect map is **closed**: app handlers return `:db` + `:fx` only. (A third r
   ```clojure
   (reg-interceptor id {:keys [before after]})
   ```
-- **Description**: The public custom-interceptor authoring form. Register a named interceptor descriptor, then **reference it by id** from a `reg-event` / `reg-frame` `:interceptors` vector. Descriptor shapes:
+- **Description**: The public custom-interceptor authoring form. Register a named interceptor descriptor, then **reference it by id** from a `reg-event` metadata / frame-config `:interceptors` vector. Descriptor shapes:
   - `{:before f}` / `{:after f}` / `{:before f :after g}`;
   - `{:factory f}` for a parameterized family (`f` receives one arg and returns a descriptor; referenced as `[id arg]` — the standard `[:rf.interceptor/path …]` is the canonical factory consumer).
 
@@ -593,7 +563,7 @@ The effect map is **closed**: app handlers return `:db` + `:fx` only. (A third r
   (with-fx-overrides {fx-id -> override, …} body+)
   ```
 - **Description**: For the duration of `body`, every `dispatch` / `dispatch-sync` merges this fx-overrides map into its envelope. Lexical scope; composes with `with-frame`.
-  - The three override scopes compose with a clear precedence: **per-call** (`(rf/dispatch event {:fx-overrides {...}})`) wins, then **lexical** (`with-fx-overrides`), then **per-frame** (`(rf/reg-frame :todo {:fx-overrides {...}})`).
+  - The three override scopes compose with a clear precedence: **per-call** (`(rf/dispatch event {:fx-overrides {...}})`) wins, then **lexical** (`with-fx-overrides`), then **per-frame** (`(rf/make-frame {:id :todo :fx-overrides {...}})`).
   - At the pattern level the override value is an **id**. The CLJS reference implementation also accepts a **fn** value for test wiring. The asymmetry is deliberate: ports that don't ship fn-valued overrides remain pattern-conformant.
 - **Example**:
   ```clojure
@@ -662,33 +632,42 @@ A frame is the scoping unit for `app-db`, the event queue, and the pipeline. Mos
     - `:adapter`.
   - Frame-configuration opts (same call): `:initial-events` (a vector of event vectors dispatched into the new frame at creation), `:fx-overrides`, `:platform`, `:ssr`, `:doc`, `:preset`, `:tags`.
   - **Pass the value directly — no accessor needed.** `dispatch` / `subscribe` / `destroy-frame!` / `app-db-value` / `frame-provider` all accept the frame value OR its id interchangeably. There is no separate value→id accessor to reach for (API-shrink #1, rf2-csbbwu).
-  - Lifecycle is the caller's responsibility — pair a direct `make-frame` with a `destroy-frame!`, or use the UI-owned `rf/frame-provider` boundary.
+  - **The ONE constructor** (rf2-h1vqa4 deleted the `reg-frame` spelling — a frame is a live runtime object, not a registered program member). The day-1 mount recipe is `frame-root` (ENSURE); `make-frame` is the programmatic path (tools, tests, SSR, dynamic, image-loaded frames).
+  - The frame config owns the `:observability` sink policy. Durable `app-db` data classification is **not** a frame annotation: a config carrying `:sensitive` / `:large` **fails loud** at registration. To classify durable `app-db` paths, return the four commit-plane classification effects (`:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`) from a `reg-event` alongside `:db`, wired to run at frame creation via `:initial-events` — see [Keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md).
+  - Lifecycle is the caller's responsibility — pair a direct `make-frame` with a `destroy-frame!`, or use the ENSURE boundary `rf/frame-root` for view-mounted frames.
   - See the [Frames concept guide](../core/frames.md) and [EP-0024](../EP/EP-0024-unified-frame-identity-and-lifecycle.md).
 - **Example**:
   ```clojure
-  ;; A component that OWNS a frame lifetime uses the UI-owned provider,
-  ;; which creates-on-mount and destroys-on-unmount for you (EP-0024):
-  (defn counter-widget [label]
-    [rf/frame-provider {:images         [counter-image]
-                        :initial-events [[:rf/set-db {:count 0}]]}
-     [counter-view label]])
+  ;; Durable app-db classification rides a commit-plane effect (EP-0025):
+  ;; a reg-event returns :sensitive / :large alongside :db, run at frame
+  ;; creation via :initial-events — NOT a frame annotation.
+  (rf/reg-event :app/init
+    (fn [{:keys [db]} _]
+      {:db        (assoc db :auth {})
+       :sensitive [[:auth :token]]}))   ;; classify before any value lands
+
+  (rf/make-frame
+    {:id             :app/main
+     :doc            "App demo frame."
+     :initial-events [[:app/init]]      ;; classifies [:auth :token] at creation
+     :fx-overrides   {:rf.http/managed :auth.login.demo/managed-stub}})
   ```
 
-### Resetting a frame — destroy + reg-frame
+### Resetting a frame — destroy + make-frame
 
-There is no dedicated "reset" function; `reset-frame!` was retired (rf2-lxwpob). A full replace composes the two lifecycle primitives — no third verb needed. Tear the frame down through the normative `destroy-frame!` boundary (running `:on-destroy`, releasing per-feature resources), then re-register it fresh. Machine snapshots, the route slice, flows, and `app-db` are all rebuilt from the registered config:
+There is no dedicated "reset" function; `reset-frame!` was retired (rf2-lxwpob). A full replace composes the two lifecycle primitives — no third verb needed. Tear the frame down through the normative `destroy-frame!` boundary (running `:on-destroy`, releasing per-feature resources), then re-create it fresh. Machine snapshots, the route slice, flows, and `app-db` are all rebuilt from the config:
 
 ```clojure
-;; Full frame replace (destroy + re-reg with the SAME config).
+;; Full frame replace (destroy + re-create with the SAME config).
 ;; Must run OUTSIDE any handler run — e.g. a restart button's :on-click.
 (rf/destroy-frame! :app/main)
-(rf/reg-frame :app/main config)   ;; re-supply the SAME config you built the frame with
+(rf/make-frame config)   ;; re-supply the SAME config (it carries :id :app/main)
 ```
 
-- For an image-loaded frame, re-supply the SAME `:images` vector too (via `make-frame`, not bare `reg-frame`) — otherwise the recreated frame degrades to the default image generation.
+- For an image-loaded frame, re-supply the SAME `:images` vector too — otherwise the recreated frame degrades to the default image generation.
 - To wipe just the `app-db` partition while keeping live runtime-db, reach for `(replace-frame-state! frame-id {:rf.db/app {}})` instead.
 - There is **no** `:initial-db` config key — seeding `app-db` is itself an ordinary, traceable event, `[:rf/set-db {…}]`.
-- **Not atomic** across a handler-cascade boundary (unlike the retired `reset-frame!`). `destroy-frame!` has no handler-scope guard. Called from inside a handler, it destroys the frame; the following `reg-frame` then hits its own construction-in-handler guard and throws, leaving the frame destroyed and not reconstructed. Frame construction/destruction are already top-level/view-only operations, so this only bites a call site that was already violating that rule.
+- **Not atomic** across a handler-cascade boundary (unlike the retired `reset-frame!`). `destroy-frame!` has no handler-scope guard. Called from inside a handler, it destroys the frame; the following `make-frame` then hits its own construction-in-handler guard and throws, leaving the frame destroyed and not reconstructed. Frame construction/destruction are already top-level/view-only operations, so this only bites a call site that was already violating that rule.
 
 ### `destroy-frame!`
 
@@ -746,7 +725,7 @@ There is no dedicated "reset" function; `reset-frame!` was retired (rf2-lxwpob).
 
 ### Image hot-reload — re-`make-frame`
 
-There is no dedicated "reload" function; `reload-images!` was folded into re-construction (rf2-lxwpob). To re-seal a frame's `(kind, id)` resolver after handler/sub/view source changes, re-call `make-frame` against the SAME `:id` with a NEW `:images` vector. Frame memory is preserved: `reg-frame`'s surgical-update path swaps only the generation, while app-db, runtime-db, caches, and lifecycle continue unchanged:
+There is no dedicated "reload" function; `reload-images!` was folded into re-construction (rf2-lxwpob). To re-seal a frame's `(kind, id)` resolver after handler/sub/view source changes, re-call `make-frame` against the SAME `:id` with a NEW `:images` vector. Frame memory is preserved: the constructor's surgical-update path swaps only the generation, while app-db, runtime-db, caches, and lifecycle continue unchanged:
 
 ```clojure
 (rf/make-frame {:id :my/frame :images [new-image]})
@@ -787,7 +766,7 @@ The surfaces that bring a re-frame2 process up and take it down. The one-line bo
   ```
 - **Description**: The idempotent boot. Required arg: the adapter spec map. Each adapter ns exports an `adapter` Var; require the ns and pass the Var, e.g. `(rf/init! reagent-adapter/adapter)`.
   - `(init!)` with no args raises `ArityException` at compile / load time; `(init! nil)` or `(init! :reagent)` raises `:rf.error/no-adapter-specified` at runtime.
-  - Installs adapters and runtime capabilities only; does **not** create or guarantee any frame — register your app frame explicitly (`reg-frame`) and establish it at your root.
+  - Installs adapters and runtime capabilities only; does **not** create or guarantee any frame — mount your app frame at the root with `frame-root` (ENSURE), or construct it explicitly with `make-frame`.
 - **Example**:
   ```clojure
   (:require [re-frame.adapter.reagent :as reagent-adapter])
@@ -823,7 +802,7 @@ The surfaces that bring a re-frame2 process up and take it down. The one-line bo
   ```clojure
   (rf/install-adapter! reagent-adapter/adapter)   ;; seat the substrate (lower-level than init!)
   ;; …custom boot steps between adapter-install and first-frame creation…
-  (rf/reg-frame :app/main {:initial-events [[:app/boot]]})
+  (rf/make-frame {:id :app/main :initial-events [[:app/boot]]})
   ```
 
 ### `destroy-adapter!`
@@ -1140,8 +1119,9 @@ There is deliberately **no** facade `clear-listeners!` verb. Dropping every list
   - This is the production-normal observability seam: frame-scoped and profile-projected. It parallels the corpus-wide `register-listener!` surface, which is cross-frame and raw.
 - **Example**:
   ```clojure
-  (rf/reg-frame :app/main
-    {:observability {:handled-events
+  (rf/make-frame
+    {:id :app/main
+     :observability {:handled-events
                      [{:sink :my-app.sinks/datadog
                        :rf.egress/profile :rf.egress/off-box-observability}]}})
 
@@ -1328,7 +1308,7 @@ The registrar holds every registered handler — events, subs, fx, cofx, flows, 
   ```clojure
   (frame-meta frame-id)
   ```
-- **Description**: What `reg-frame` / `make-frame` stamped at this frame. Returns the (post-preset-expansion) metadata map: `:fx-overrides`, `:interceptors`, `:ssr`, `:on-error`, schema bindings.
+- **Description**: What `make-frame` stamped at this frame. Returns the (post-preset-expansion) metadata map: `:fx-overrides`, `:interceptors`, `:ssr`, `:on-error`, schema bindings.
 - **Example**:
   ```clojure
   (rf/frame-meta :tenants/acme)

@@ -486,7 +486,7 @@ Back/forward, deep links, and the initial page load are all, underneath, URL cha
 
 ```clojure
 ;; Adapted from examples/capabilities/routing/routing/core.cljs (client-only)
-(rf/reg-frame :rf/default {:doc "The app frame." :url-bound? true})
+(rf/make-frame {:id :rf/default :doc "The app frame." :url-bound? true})
 ```
 
 `:url-bound? true` declares which [frame](../core/frames.md) owns the browser URL. Ownership is always explicit, never inferred. Only one frame may hold it — a second claimant is a loud `:rf.error/duplicate-url-binding` (and never installs a listener of its own) — and having *no* owner is legal too: URL pushes and the URL-change listener simply no-op.
@@ -502,8 +502,9 @@ Declaring `:url-bound? true` is the whole story — the frame's creation install
 By default the router speaks **path-form** URLs (`/active`) — it uses the HTML5 History API and a `popstate` listener. But plenty of apps live at a **hash** URL (`#/active`): no-server-rewrite static hosting needs it, and it's the shape most secretary-era re-frame v1 apps have. A **`:url-strategy`** on the URL-owning frame switches the address-bar shape without changing anything else:
 
 ```clojure
-(rf/reg-frame :app {:url-bound?   true
-                    :url-strategy routing/hash-url-strategy})   ;; default: routing/history-url-strategy
+(rf/make-frame {:id           :app
+                :url-bound?   true
+                :url-strategy routing/hash-url-strategy})   ;; default: routing/history-url-strategy
 ```
 
 That one line is all it takes. `route-url` and `match-url` stay path-form — they still build and read `/active` — and the strategy encodes the `#` at exactly four edges: the `route-link` href, `pushState`, `replaceState`, and the URL-change listener (a hash app listens for `hashchange`, a history app for `popstate`). So your links are ordinary `route-link`s, navigation is ordinary `:rf.route/navigate`, and Back/Forward flows through the same event path — the `#` is a rendering detail the strategy owns. Two strategies ship, and the line holds at two:
@@ -518,17 +519,18 @@ Because `:url-bound? true` frame creation installs the listener automatically (t
 A third, orthogonal knob: **`with-base-path`** wraps either strategy for an app deployed under a sub-path — a host mounting several demos side by side, so an app that would otherwise own `/` instead lives at `/realworld/`:
 
 ```clojure
-(rf/reg-frame :app {:url-bound?   true
-                    :url-strategy (routing/with-base-path
-                                    routing/history-url-strategy
-                                    "/realworld")})
+(rf/make-frame {:id           :app
+                :url-bound?   true
+                :url-strategy (routing/with-base-path
+                                routing/history-url-strategy
+                                "/realworld")})
 ```
 
 It strips the base path off every inbound URL and re-adds it to every outbound one, at the same four edges, underneath whichever address-bar form the wrapped strategy provides — `route-url` / `match-url` stay base-agnostic. The [RealWorld example](https://github.com/day8/re-frame2/tree/main/examples/real-apps/realworld_http) is deployed this way.
 
 > **SSR ignores strategies.** On the server there's no address bar and a hash never arrives — the request URL is fed in path-form and `route-link` renders a path-form `<a href>` shell. On hydration the client re-encodes the href through the frame's strategy, so the server ships `/active` and the hydrated anchor becomes `#/active`, both pointing at the same route. The shape is a client-only concern.
 
-> **Frames seed with events, not config.** Note the frame carries `:doc` and `:url-bound?` and nothing else — there's no `:db` or `:initial-db` config key. A frame's startup state is built by dispatching ordinary events via `:initial-events`: `(rf/reg-frame :app {:initial-events [[:rf/set-db {…}] [:app/initialise]]})`. "Events are the unit of state change" holds even for the very first state. See [Frames](../core/frames.md) for the full lifecycle.
+> **Frames seed with events, not config.** Note the frame carries `:doc` and `:url-bound?` and nothing else — there's no `:db` or `:initial-db` config key. A frame's startup state is built by dispatching ordinary events via `:initial-events`: `(rf/make-frame {:id :app :initial-events [[:rf/set-db {…}] [:app/initialise]]})`. "Events are the unit of state change" holds even for the very first state. See [Frames](../core/frames.md) for the full lifecycle.
 
 ### Converting routes ↔ URLs by hand
 

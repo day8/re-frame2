@@ -6,7 +6,7 @@ The core of it is **one runtime, two consumer audiences**. *Story authors* run v
 
 ## Per-variant frame allocation
 
-Every variant runs in its own frame. At variant mount the runtime calls `(rf/reg-frame variant-id {:doc ... :app-db {} :substrate :reagent ...})`, records side-table metadata (view id, decorators, play script, tags, modes, substrates), and runs the four-phase lifecycle. At unmount the runtime calls `(rf/destroy-frame! variant-id)` — any state-machines the variant spawned receive their `:rf.machine/destroy` event as part of frame teardown.
+Every variant runs in its own frame. At variant mount the runtime calls `(rf/make-frame {:id variant-id :doc ... :app-db {} :substrate :reagent ...})`, records side-table metadata (view id, decorators, play script, tags, modes, substrates), and runs the four-phase lifecycle. At unmount the runtime calls `(rf/destroy-frame! variant-id)` — any state-machines the variant spawned receive their `:rf.machine/destroy` event as part of frame teardown.
 
 Hot-reload preserves the side-table; a re-registration of the same variant calls `reset-frame!` and re-runs the lifecycle.
 

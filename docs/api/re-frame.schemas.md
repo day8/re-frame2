@@ -496,7 +496,7 @@ The per-frame registry and diagnostic-latch maintenance hooks. `re-frame.test-su
   ```clojure
   (on-frame-destroyed! frame-id)
   ```
-- **Description**: Drop every schema registered against a destroyed frame so a subsequent `reg-frame` of the same id starts with a clean schema slate. Called from frame teardown through the `:schemas/on-frame-destroyed!` late-bind hook. Idempotent — a missing frame entry is a no-op.
+- **Description**: Drop every schema registered against a destroyed frame so a subsequent `make-frame` of the same id starts with a clean schema slate. Called from frame teardown through the `:schemas/on-frame-destroyed!` late-bind hook. Idempotent — a missing frame entry is a no-op.
 
 ### `clear-validator-unavailable-warned!`
 

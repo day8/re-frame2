@@ -94,7 +94,7 @@ One term in the table below: a [**frame**](../glossary.md#frame) is one isolated
 |---|---|---|
 | Process-wide, the value is plain data | `(rf/configure! {key opts})` | `:epoch-history`, `:trace-buffer`, `:elision` |
 | Slot-level, the value is a swappable implementation | `set-…!` / `install-…!` | schema validator/explainer, substrate adapter |
-| One frame | `reg-frame` metadata / `dispatch` opts | `:drain-depth`, `:observability`, `:fx-overrides` |
+| One frame | frame config (`make-frame`) / `dispatch` opts | `:drain-depth`, `:observability`, `:fx-overrides` |
 
 ### The `configure!` bucket: process-wide data
 
@@ -127,13 +127,14 @@ You touch the `set-…!` bucket only to replace an implementation — a non-Mall
 
 ### The per-frame bucket: frame-lifetime overrides
 
-The per-frame bucket rides `reg-frame` metadata (two of its keys — `:fx-overrides` and `:interceptor-overrides` — can also arrive per-dispatch on the `dispatch` opts argument, where the per-call value wins on conflict; the rest are frame-config-only). Its keys are the frame-lifetime ones — `:drain-depth`, `:fx-overrides`, `:interceptor-overrides`, `:interceptors`, `:initial-events`, `:on-destroy`, and the production-relevant `:observability`:
+The per-frame bucket rides the frame config (two of its keys — `:fx-overrides` and `:interceptor-overrides` — can also arrive per-dispatch on the `dispatch` opts argument, where the per-call value wins on conflict; the rest are frame-config-only). Its keys are the frame-lifetime ones — `:drain-depth`, `:fx-overrides`, `:interceptor-overrides`, `:interceptors`, `:initial-events`, `:on-destroy`, and the production-relevant `:observability`:
 
 ```clojure
 ;; A frame that ships its own error sink — survives goog.DEBUG=false,
 ;; because production observability is a frame-owned policy, not a dev knob.
-(rf/reg-frame :my-app/main
-  {:initial-events [[:my-app/boot]]
+(rf/make-frame
+  {:id :my-app/main
+   :initial-events [[:my-app/boot]]
    :drain-depth    100
    :observability  {:errors [{:sink :my-app.sinks/sentry}]}})
 ```

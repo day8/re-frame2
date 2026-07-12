@@ -70,7 +70,7 @@ Now install the headless SSR adapter, stand up a frame, seed it, render:
 
 A server handles many requests at once, and they must not see each other's state. re-frame2's answer is the tool you already have: give **each request its own frame** — its own isolated app-db, created when the request arrives and destroyed when the response is written.
 
-Step 1 leaned on `with-new-frame`, which destroys its frame when the block exits — perfect for a REPL. The server code below runs the same lifecycle long-hand instead — `reg-frame`, then an explicit `destroy-frame!` in a `finally` — partly so you see every step once before an adapter hides them, and partly because the frame *id* has a job before the frame exists: the incoming request is stashed against it, and the frame's boot events read it from there.
+Step 1 leaned on `with-new-frame`, which destroys its frame when the block exits — perfect for a REPL. The server code below runs the same lifecycle long-hand instead — `make-frame`, then an explicit `destroy-frame!` in a `finally` — partly so you see every step once before an adapter hides them, and partly because the frame *id* has a job before the frame exists: the incoming request is stashed against it, and the frame's boot events read it from there.
 
 That boot event comes first. `:rf/server-init` is a reserved name the framework documents and you supply the body for; it reads the incoming HTTP request through a declared [coeffect](../core/glossary.md#coeffect) and does whatever this page needs:
 
@@ -99,9 +99,10 @@ Now the per-request lifecycle, by hand:
    (defn handle-request [request]
      (let [fid (keyword "rf.frame" (str (gensym "f")))]
        (ssr/set-request! fid request)               ;; 1. stash the request against the id
-       (rf/reg-frame fid                            ;; 2. fresh frame; :initial-events run
-         {:platform       :server                   ;;    synchronously as it comes up —
-          :initial-events [[:rf/server-init]]})     ;;    which is why the stash came first
+       (rf/make-frame                               ;; 2. fresh frame; :initial-events run
+         {:id             fid                       ;;    synchronously as it comes up —
+          :platform       :server                   ;;    which is why the stash came first
+          :initial-events [[:rf/server-init]]})
        (try
          (rf/with-frame fid
            (let [hiccup ((rf/view :app/root))]      ;; 3. the settled state, as hiccup
@@ -117,7 +118,7 @@ And because a handler is just a function, you can serve a "request" right at the
 ;; => "<div class=\"page\"><h1>Recent articles</h1><ul><li><h3>Hello, server</h3></li></ul></div>"
 ```
 
-**Notice two load-bearing details.** `reg-frame` runs its `:initial-events` synchronously and the runtime **drains** — it keeps processing events (and the events those dispatch) until the queue settles — so by the time you render, app-db holds the finished state, never a half-loaded one. And `destroy-frame!` sits in a `finally`: on a server that runs for weeks, tearing the frame down on *every* exit path is what stops you leaking a frame per request. Teardown also clears the request slot for you.
+**Notice two load-bearing details.** `make-frame` runs its `:initial-events` synchronously and the runtime **drains** — it keeps processing events (and the events those dispatch) until the queue settles — so by the time you render, app-db holds the finished state, never a half-loaded one. And `destroy-frame!` sits in a `finally`: on a server that runs for weeks, tearing the frame down on *every* exit path is what stops you leaking a frame per request. Teardown also clears the request slot for you.
 
 One more thing you may have caught: Step 1 handed `render-to-string` the hiccup vector `[(rf/view :app/root)]`, while this code **calls** the view — `((rf/view :app/root))` — and passes the result. `rf/view` looks up the view fn, and calling it returns the hiccup it renders to. `render-to-string` accepts either shape; the reason to hold the called tree in a local shows up in Step 3, when the same tree gets hashed.
 
@@ -183,7 +184,7 @@ The browser now has painted HTML and a payload sitting in the page. The client's
 #?(:cljs
    (defn run []
      (rf/init! reagent-adapter/adapter)      ;; the browser substrate this time
-     (rf/reg-frame :app {:platform :client}) ;; the client's own, named frame
+     (rf/make-frame {:id :app :platform :client}) ;; the client's own, named frame
      (let [payload (ssr/hydrate! {:frame          :app
                                   :render-tree-fn (fn [] ((rf/view :app/root)))})]
        (when-not payload

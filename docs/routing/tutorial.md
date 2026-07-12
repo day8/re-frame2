@@ -197,7 +197,7 @@ Declaring it also does two jobs automatically, the moment the frame is created �
 
 **What you see:** paste `/articles/intro` straight into the address bar and the app boots onto that article. Then navigate Home → Articles → an article and press Back twice — each press steps the page back, because a Back press is now, literally, a dispatch.
 
-> **One mount shape, two spellings.** `frame-provider` with `:id` *creates* the frame if it doesn't exist — handy for a small app that boots everything in one spot. Elsewhere you'll see the two-step spelling: `reg-frame` first, then `frame-provider {:frame …}` to scope it. Same frame, same result; the second form just makes the registration explicit.
+> **One mount shape, two spellings.** `frame-root {:id …}` *creates* the frame if it doesn't exist — handy for a small app that boots everything in one spot. Elsewhere you'll see the two-step spelling: `make-frame` first, then `frame-provider {:frame …}` to scope it. Same frame, same result; the second form just makes the construction explicit.
 
 > **The inversion.** In most routers the URL is the source of truth and your app reacts to it. Here your frame's state is the truth and the URL is a *print-out* of it — which is why [time-travel](../xray/index.md) rewinds the URL for free. [Concepts → The browser is just another event source](concepts.md#the-browser-is-just-another-event-source) goes deeper.
 

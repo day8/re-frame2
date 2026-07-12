@@ -35,7 +35,7 @@ When you then create a frame *without* naming an image, that frame resolves ever
 
 !!! note "Heads-up — the default image is a real sealed generation"
 
-    "The whole registrar sealed into one set" is not just the concept — mechanically it is exactly what you get. `make-frame` with no `:images` key resolves a sealed **default generation** over the whole active store (framework standards included): the implicit selector over everything. It runs the same assembly gate as an explicit selection, so even the default path fails loud on a cross-namespace `[kind id]` collision (`:rf.error/image-duplicate-id`) rather than letting load order silently pick a survivor. The one frame that carries *no* generation is one declared with bare `reg-frame` — it resolves each lookup live against the shared registrar, which is why the read-side accessors below want a `make-frame`-built frame.
+    "The whole registrar sealed into one set" is not just the concept — mechanically it is exactly what you get. `make-frame` with no `:images` key resolves a sealed **default generation** over the whole active store (framework standards included): the implicit selector over everything. It runs the same assembly gate as an explicit selection, so even the default path fails loud on a cross-namespace `[kind id]` collision (`:rf.error/image-duplicate-id`) rather than letting load order silently pick a survivor. Every frame therefore carries a generation and resolves through it.
 
 The common case stays boring, on purpose. You never name an image. New registrations show up the moment you write them. Hot reload keeps working. You meet the image concept *explicitly* only when "everything that's loaded, ids assumed globally unique" stops being the boundary you want.
 
@@ -146,7 +146,7 @@ Most human-authored code should stay with ordinary `reg-*` forms and select by p
 
 ??? note "Going deeper"
 
-    Inline `:registrations` covers **exactly four** registrar kinds: `:reg-event`, `:reg-sub`, `:reg-fx`, `:reg-cofx` — the kinds a test double or generated slice realistically needs without a namespace. Every other section key (`:reg-interceptor`, `:reg-view`, `:reg-frame`, `:reg-route`, `:reg-flow`, …) fails loud with an unsupported-inline-kind diagnostic; those stay namespace-authored and come in via `:select-ns`. Inline `:reg-sub` accepts only the layer-1 db-reader shape `(fn [db query] …)`; subs with declared inputs (the `:<-` and input-function forms) stay in source. Each entry lowers through its kind's own registrar parser, so a malformed inline descriptor fails exactly the way the corresponding `reg-*` call would. These are *descriptions* of registrations, never `reg-*` calls smuggled into a map.
+    Inline `:registrations` covers **exactly four** registrar kinds: `:reg-event`, `:reg-sub`, `:reg-fx`, `:reg-cofx` — the kinds a test double or generated slice realistically needs without a namespace. Every other section key (`:reg-interceptor`, `:reg-view`, `:reg-route`, `:reg-flow`, …) fails loud with an unsupported-inline-kind diagnostic; those stay namespace-authored and come in via `:select-ns`. Inline `:reg-sub` accepts only the layer-1 db-reader shape `(fn [db query] …)`; subs with declared inputs (the `:<-` and input-function forms) stay in source. Each entry lowers through its kind's own registrar parser, so a malformed inline descriptor fails exactly the way the corresponding `reg-*` call would. These are *descriptions* of registrations, never `reg-*` calls smuggled into a map.
 
 !!! warning "Gotcha — `:select-ns` and `:registrations` must be disjoint"
 
@@ -240,7 +240,7 @@ An empty vector means nothing was overridden — so `(empty? (:rf.gen/shadows (r
 
 !!! warning "Gotcha — the read side needs a frame that carries a generation"
 
-    Every `make-frame` frame carries one — an explicit `:images` composition or the sealed default — so the shadow report answers `[]` on a default-image frame (nothing composed, nothing shadowed). The frame with nothing to read is one declared via bare `reg-frame`: it resolves live against the registrar, carries no generation, and `rf/frame-generation` **fails loud** with `:rf.error/frame-no-generation` rather than returning `[]` or `nil`. The same holds for the frame-targeted `{:frame …}` queries below.
+    Every `make-frame` frame carries one — an explicit `:images` composition or the sealed default — so the shadow report answers `[]` on a default-image frame (nothing composed, nothing shadowed). A frame value with no generation to read (an internal, engine-seated harness frame) makes `rf/frame-generation` **fail loud** with `:rf.error/frame-no-generation` rather than returning `[]` or `nil`. The same holds for the frame-targeted `{:frame …}` queries below.
 
 ??? note "Going deeper"
 
@@ -313,7 +313,7 @@ When you want to change a frame's image *composition* outright — swap one whol
 (rf/make-frame {:id :docs/main :images [cart-image routing-image checkout-v2-image]})
 ```
 
-You hand it the SAME `:id` and a new `:images` vector — exactly the shape `make-frame` always takes. It's composition-*replacing*, not member-patching: the whole vector is re-assembled into a fresh sealed generation and installed onto the frame's record via `reg-frame`'s surgical-update path. Only the generation slot moves; app-db, runtime-db, queues, and still-valid subscription caches continue untouched (config other than `:images` is refreshed too, Clojure-`def`-style — re-supply anything you want kept).
+You hand it the SAME `:id` and a new `:images` vector — exactly the shape `make-frame` always takes. It's composition-*replacing*, not member-patching: the whole vector is re-assembled into a fresh sealed generation and installed onto the frame's record via the constructor's surgical-update path. Only the generation slot moves; app-db, runtime-db, queues, and still-valid subscription caches continue untouched (config other than `:images` is refreshed too, Clojure-`def`-style — re-supply anything you want kept).
 
 If you want the diff report the old `reload-images!` verb used to return, read `frame-generation` before and after the call and diff the two values with `generation-diff`:
 
@@ -332,7 +332,7 @@ If you want the diff report the old `reload-images!` verb used to return, read `
 
     `generation-diff` partitions the `(kind, id)` space four ways — `:added`, `:changed`, `:removed`, `:retained` — between the old generation and the new, so you can invalidate only what actually moved (a sub whose definition didn't change keeps its cache). Read `(:rf.gen/shadows (rf/frame-generation f))` on the reloaded frame for its cross-image shadow report — the same shape it always returns — so if a reload changes the override set you see it there too. Reloading one frame never drags a sibling that happened to share a generation along with it — the swap is frame-targeted, and the old generation is never mutated. Re-assembling the new `:images` runs the same assembly gate as any `make-frame` call, so a bad new composition fails loud with the *same* error ids from the table above (a duplicate id, a zero-match include, …) — the swap is all-or-nothing, and a failed reload leaves the frame on its existing generation.
 
-    **Gotcha — reload targets an `:id`-bearing, generation-carrying frame.** Every `make-frame` frame qualifies, the sealed default included — re-pointing a default-image frame at an explicit composition is exactly the move it exists for. A frame declared via bare `reg-frame` (no generation to swap) has no image composition to reload — recreate it with `make-frame` carrying the `:images` you want instead. A frame with no `:id` (a direct, local-only object) has no id to re-`make-frame` against either — discard it and make a new one.
+    **Gotcha — reload targets an `:id`-bearing frame.** Every `make-frame` frame qualifies, the sealed default included — re-pointing a default-image frame at an explicit composition is exactly the move it exists for. A frame with no `:id` (a direct, local-only object) has no id to re-`make-frame` against — discard it and make a new one.
 
 !!! note "Heads-up"
 

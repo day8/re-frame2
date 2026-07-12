@@ -242,7 +242,7 @@
 (defn- ensure-init! []
   (when-not @inited?
     (rf/init! reagent-slim-adapter/adapter)
-    (rf/reg-frame app-frame {})
+    (rf/make-frame {:id app-frame})
     (reset! inited? true)))
 
 ;; ---------------------------------------------------------------------------

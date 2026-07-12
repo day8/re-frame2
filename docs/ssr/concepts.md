@@ -83,7 +83,7 @@ Three opts do the work:
 - **`:root-view`** — the view ref the adapter renders once the frame settles (step 4).
 - **`:payload`** — the allowlist of top-level app-db keys to serialise for the client (step 5). It's a security boundary with its [own section below](#payload--the-fail-closed-allowlist).
 
-That's a working SSR server. Everything below refines one step of the lifecycle. (The [tutorial](tutorial.md) builds this same lifecycle by hand first — `set-request!`, `reg-frame`, `render-to-string`, `destroy-frame!` — which is the better order if the adapter feels like magic.)
+That's a working SSR server. Everything below refines one step of the lifecycle. (The [tutorial](tutorial.md) builds this same lifecycle by hand first — `set-request!`, `make-frame`, `render-to-string`, `destroy-frame!` — which is the better order if the adapter feels like magic.)
 
 ??? info "From re-frame v1"
 
@@ -182,7 +182,7 @@ The client's job is to land in the state the server finished in, without redoing
 
 (defn ^:export run []
   (rf/init! reagent-adapter/adapter)          ;; installs the adapter — creates no frame
-  (rf/reg-frame :app {:platform :client})
+  (rf/make-frame {:id :app :platform :client})
   (let [payload (ssr/hydrate! {:frame          :app
                                :render-tree-fn (fn [] ((rf/view :app/root)))})]
     (when-not payload

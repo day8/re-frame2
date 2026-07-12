@@ -305,7 +305,7 @@ The latter two are payload-provenance checks; the reference `:rf/hydrate` handle
 
 ## Error projection
 
-A frame opts into SSR error projection via the `:ssr {:public-error-id ... :dev-error-detail? ...}` map on its `reg-frame` / `make-frame` metadata. This is **per-frame metadata**, not a `configure` key: different frames in the same process can carry different projector / dev-detail settings.
+A frame opts into SSR error projection via the `:ssr {:public-error-id ... :dev-error-detail? ...}` map on its `make-frame` / `frame-root` config. This is **per-frame metadata**, not a `configure` key: different frames in the same process can carry different projector / dev-detail settings.
 
 ### `reg-error-projector`
 

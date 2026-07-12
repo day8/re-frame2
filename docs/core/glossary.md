@@ -271,8 +271,9 @@ A frame supplies *state*; its *behaviour* comes from an [image](#image). Crucial
 Most apps create one frame at boot and then forget about it. But because frames are independent, you can run several app instances on one page: short-lived frames power tests, stories, and per-request server rendering, and a sidecar tool like [Xray](#xray) is just a separate app in its own frame. A frame's [identity is carried, not found](#frame-identity-is-carried-not-found) — each operation reads its frame from scope.
 
 ```clojure
-(rf/reg-frame :app
-  {:initial-events [[:app/initialise]]
+(rf/make-frame
+  {:id :app
+   :initial-events [[:app/initialise]]
    :images [image1 image2]})    ;; optional: a selected composition of registrations
 ```
 
@@ -312,8 +313,9 @@ The rule that ties it to a frame: **the image supplies behaviour; the [frame](#f
 (def checkout-image
   (rf/image {:select-ns {:include ["app.checkout.*"]}}))
 
-(rf/reg-frame :checkout/story
-  {:images [checkout-image]})
+(rf/make-frame
+  {:id :checkout/story
+   :images [checkout-image]})
 ```
 
 Related: [Images](images.md).
@@ -387,8 +389,9 @@ For example, this registration says: when the runtime sees the event id `:cart/a
 - `reg-fx` registers an [effect handler](#effect-handler).
 - `reg-cofx` registers a [coeffect](#coeffect) supplier.
 - `reg-interceptor` registers an event-handler wrapper.
-- `reg-frame` registers a named [frame](#frame).
 - `reg-view` and `reg-view*` register [views](#view).
+
+(Frame construction is deliberately NOT a `reg-*` member — a frame is a live runtime object, not a registered program member. `make-frame` creates a named [frame](#frame); `frame-root` is the ENSURE mount recipe.)
 
 Flows registration:
 

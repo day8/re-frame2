@@ -355,8 +355,9 @@ Finish `core.cljs` with the boot function your build invokes:
 
 (defn run []
   (rf/init! reagent-adapter/adapter)
-  (rf/reg-frame :rf/default {:doc        "The Conduit app frame."
-                             :url-bound? true})
+  (rf/make-frame {:id         :rf/default
+                  :doc        "The Conduit app frame."
+                  :url-bound? true})
   (rf/with-frame :rf/default
     (rf/dispatch-sync [:app/initialise]))
   (rdc/render root
@@ -367,18 +368,19 @@ Finish `core.cljs` with the boot function your build invokes:
 Reading it top to bottom:
 
 1. `rf/init!` installs the Reagent [adapter](../../core/glossary.md#adapter) — the bridge between re-frame2 and your rendering [substrate](../../core/glossary.md#substrate). One line; swap it for `re-frame.adapter.uix` or `helix` and nothing else in the app moves.
-2. `rf/reg-frame` creates the [**frame**](../../core/glossary.md#frame) your app runs in: one isolated instance with its own app-db, event queue, and subscription cache ([Frames](../../core/frames.md)). (Registrations aren't part of that isolation — they live in a process-global [registrar](../../core/glossary.md#registrar) every frame shares; a frame isolates *state*, not behaviour.) What matters today is `:url-bound? true` — the explicit declaration that *this* frame owns the browser URL. Nothing owns the URL by default, so without that flag the address bar would never change. (Only one frame may claim it; register a second `:url-bound? true` frame and the runtime emits a `:rf.error/duplicate-url-binding` error to your error listeners — it never installs a listener of its own. It doesn't throw — the first claimant keeps the URL and the late-comer's navigation effects quietly no-op — but the error names both frames so the clash is visible rather than a mystery about why the address bar won't move.) The flag also does the *wiring*: the frame's creation automatically syncs the initial URL into state, so deep links work from the very first paint, and turns the browser's Back/Forward into the same kind of route-change event a link click produces — Back is not a special case, it's just another event. There's no separate install call to make.
+2. `rf/make-frame` creates the [**frame**](../../core/glossary.md#frame) your app runs in: one isolated instance with its own app-db, event queue, and subscription cache ([Frames](../../core/frames.md)). (Registrations aren't part of that isolation — they live in a process-global [registrar](../../core/glossary.md#registrar) every frame shares; a frame isolates *state*, not behaviour.) What matters today is `:url-bound? true` — the explicit declaration that *this* frame owns the browser URL. Nothing owns the URL by default, so without that flag the address bar would never change. (Only one frame may claim it; register a second `:url-bound? true` frame and the runtime emits a `:rf.error/duplicate-url-binding` error to your error listeners — it never installs a listener of its own. It doesn't throw — the first claimant keeps the URL and the late-comer's navigation effects quietly no-op — but the error names both frames so the clash is visible rather than a mystery about why the address bar won't move.) The flag also does the *wiring*: the frame's creation automatically syncs the initial URL into state, so deep links work from the very first paint, and turns the browser's Back/Forward into the same kind of route-change event a link click produces — Back is not a special case, it's just another event. There's no separate install call to make.
 3. `dispatch-sync` runs the seed event *synchronously*, before the first render, so the feed never paints against an empty db. `with-frame` says which frame the dispatch targets. (Plain `dispatch` queues for the next tick — fine everywhere else, but at boot you want the state committed *now*.)
 4. `frame-provider {:frame :rf/default}` scopes the mounted tree to the already-registered frame, so every `subscribe` and `dispatch` inside your views resolves to it. ([Frame identity is carried, not found](../../core/glossary.md#frame-identity-is-carried-not-found) — the scope hands the frame down through React; the runtime never guesses one.)
 
 !!! note "An equivalent shape: `:initial-events`"
 
-    This boot seeds app-db with a `dispatch-sync` *after* `reg-frame`, which keeps the two steps visible side by side. A frame can also carry its setup *declaratively*, as an ordered `:initial-events` vector the runtime dispatches synchronously the moment the frame is created:
+    This boot seeds app-db with a `dispatch-sync` *after* `make-frame`, which keeps the two steps visible side by side. A frame can also carry its setup *declaratively*, as an ordered `:initial-events` vector the runtime dispatches synchronously the moment the frame is created:
 
     ```clojure
-    (rf/reg-frame :rf/default {:doc            "The Conduit app frame."
-                               :url-bound?     true
-                               :initial-events [[:app/initialise]]})
+    (rf/make-frame {:id             :rf/default
+                    :doc            "The Conduit app frame."
+                    :url-bound?     true
+                    :initial-events [[:app/initialise]]})
     ```
 
     Both forms run the seed before first render; the explicit `with-frame` / `dispatch-sync` form is the one this tutorial uses, because watching the seed dispatch happen is part of learning the pipeline. Note there's no `:db` config key — a frame *always* starts with `app-db = {}`, and seeding it is itself an event (here `:app/initialise`; the framework also ships `:rf/set-db` for the trivial "just set the whole map" case). Initialisation runs through the same [event pipeline](../../core/glossary.md#event-pipeline) as every later state change. There's no second mechanism for "the first state" — it's events all the way down.

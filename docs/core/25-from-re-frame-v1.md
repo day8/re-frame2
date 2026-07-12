@@ -144,8 +144,9 @@ A [**frame**](glossary.md#frame) is the isolated runtime context an operation ru
 The fix is one line of ceremony at your root: register a frame and scope your tree to it.
 
 ```clojure
-(rf/reg-frame :app/main {:initial-events [[:rf/set-db {}]   ;; seed app-db (frames always start {})
-                                          [:boot]]})        ;; then your boot event(s), in order
+(rf/make-frame {:id :app/main
+                :initial-events [[:rf/set-db {}]   ;; seed app-db (frames always start {})
+                                 [:boot]]})        ;; then your boot event(s), in order
 
 (rdc/render root
   [rf/frame-provider {:frame :app/main}

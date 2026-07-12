@@ -43,7 +43,7 @@ The [app-db](app-db.md) counter rendered the whole UI in one view. Real screens 
    [counter-display]
    [counter-button "+" [:inc]]])
 
-(rf/reg-frame :app {:initial-events [[:initialise]]})
+(rf/make-frame {:id :app :initial-events [[:initialise]]})
 
 [rf/frame-provider {:frame :app}
  [counter]]
@@ -142,7 +142,7 @@ Here is a view doing its whole job: subscribe in, dispatch out, hiccup between. 
    [:span {:style {:margin "0 1em"}} @(rf/subscribe [:views.qty/value])]
    [:button {:on-click #(rf/dispatch [:views.qty/inc])} "+"]])
 
-(rf/reg-frame :demo {:initial-events [[:views.qty/initialise]]})
+(rf/make-frame {:id :demo :initial-events [[:views.qty/initialise]]})
 
 [rf/frame-provider {:frame :demo}
  [qty-stepper]]
@@ -222,7 +222,7 @@ That isn't an oversight — it's [frame identity is carried, not found](glossary
     If a screen needs an event to fire when its frame comes up — load the cart, hydrate a form — don't `dispatch` from the render body. That couples reads to writes and, under a reactive substrate, can loop the render. Name the setup as an event and list it in the frame's `:initial-events`:
 
     ```clojure
-    (rf/reg-frame :cart {:initial-events [[:cart/load]]})
+    (rf/make-frame {:id :cart :initial-events [[:cart/load]]})
     ```
 
     The events fire once, synchronously, in order, the moment the frame is created, and they show up in the trace by name. That's the home for "do this on mount", and it keeps the view itself a plain render fn — see [Frames](frames.md).

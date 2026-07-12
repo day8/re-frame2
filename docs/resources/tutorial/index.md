@@ -176,7 +176,7 @@ Your page owns the layout; Xray owns only the content inside `[data-rf-xray-host
 
 (defn run []
   (rf/init! reagent-adapter/adapter)        ;; 1. install the Reagent substrate
-  (rf/reg-frame :rf/default {})             ;; 2. establish this app's one frame
+  (rf/make-frame {:id :rf/default})             ;; 2. establish this app's one frame
   (rf/with-frame :rf/default
     (rf/dispatch-sync [:app/initialise]))   ;; 3. seed app-db before first render
   (rdc/render root
@@ -193,7 +193,7 @@ What's genuinely new beyond syntax is the **boot**, the part the quickstart's br
 
 **Move 1 — `(rf/init! reagent-adapter/adapter)` installs the substrate.** The [substrate](../../core/glossary.md#substrate) is the view library's reactivity that your subscriptions wire into, and the [adapter](../../core/glossary.md#adapter) is the small map of glue that binds re-frame2 to it; this line installs that glue. It's idempotent, so hot reload is safe — calling it twice does nothing. It creates *no* frame; that's the next move's job. To swap substrates later you change one require and this one Var ([Use UIx, Helix, or reagent-slim](../../core/how-to/use-uix-helix-or-slim.md)).
 
-**Move 2 — `(rf/reg-frame :rf/default {})` establishes the frame.** Every dispatch and subscription runs against a [**frame**](../../core/glossary.md#frame) — an isolated instance of the app holding its own app-db. The runtime *never* invents one for you: [identity is carried, not found](../../core/glossary.md#frame-identity-is-carried-not-found), so there's no ambient global and no silent default. A single-page app has exactly one frame, registered once at the root. `reg-frame` is **atomic** — it creates the frame *and* registers it under the id in one move, so there's never a half-built frame lying around. A fresh frame always starts with `app-db = {}`, which is why the seeding happens in the next move via an event. The empty config map grows in later parts — by Part 5 it carries keys like `:interceptors`, `:fx-overrides`, and `:initial-events` — so don't worry that it looks bare now.
+**Move 2 — `(rf/make-frame {:id :rf/default})` establishes the frame.** Every dispatch and subscription runs against a [**frame**](../../core/glossary.md#frame) — an isolated instance of the app holding its own app-db. The runtime *never* invents one for you: [identity is carried, not found](../../core/glossary.md#frame-identity-is-carried-not-found), so there's no ambient global and no silent default. A single-page app has exactly one frame, registered once at the root. `make-frame` is **atomic** — it creates the frame *and* registers it under the `:id` in one move, so there's never a half-built frame lying around. A fresh frame always starts with `app-db = {}`, which is why the seeding happens in the next move via an event. The empty config map grows in later parts — by Part 5 it carries keys like `:interceptors`, `:fx-overrides`, and `:initial-events` — so don't worry that it looks bare now.
 
 **Move 3 — `with-frame` + `dispatch-sync` seeds state.** Out here, outside the rendered tree, there's no provider in scope, so `with-frame` scopes the dispatch lexically to `:rf/default`. And it's [`dispatch-sync`](../../core/glossary.md#dispatch-sync) — a dispatch that runs the [event pipeline](../../core/glossary.md#event-pipeline) immediately rather than queuing it — because plain [`dispatch`](../../core/glossary.md#dispatch) would let the first render race it and paint an empty app-db. Seeding synchronously at the boot boundary is one of the handful of legitimate uses of `dispatch-sync`; the others are tests and REPL exploration. What they share is that they all run *outside* any handler — `dispatch-sync` from inside a running handler is rejected with `:rf.error/dispatch-sync-in-handler`, because the pipeline is already draining synchronously and a second one would convey nothing.
 
@@ -207,18 +207,18 @@ That's the whole boot. Four moves: install the substrate, register the frame, se
 
 ??? info "Coming from Redux?"
 
-    Move 1 (`init!`) is roughly `applyMiddleware` — it wires the runtime to a substrate. Move 2 (`reg-frame`) is `createStore`. Move 3 is your initial-state argument to `createStore`, except expressed as an event rather than a literal. Move 4 is `<Provider store={...}>`. The big difference: re-frame2 makes you name the store (the frame) explicitly, because a re-frame2 app can run several stores side by side, fully isolated.
+    Move 1 (`init!`) is roughly `applyMiddleware` — it wires the runtime to a substrate. Move 2 (`make-frame`) is `createStore`. Move 3 is your initial-state argument to `createStore`, except expressed as an event rather than a literal. Move 4 is `<Provider store={...}>`. The big difference: re-frame2 makes you name the store (the frame) explicitly, because a re-frame2 app can run several stores side by side, fully isolated.
 
 ### A more idiomatic seed: `:initial-events`
 
-The manual Move 3 (`with-frame` + `dispatch-sync`) is worth meeting first because it makes the seeding visible. But there's a second, more idiomatic way: hand `reg-frame` an `:initial-events` vector and let it run the boot events *for* you, synchronously, as part of registration.
+The manual Move 3 (`with-frame` + `dispatch-sync`) is worth meeting first because it makes the seeding visible. But there's a second, more idiomatic way: hand the frame config an `:initial-events` vector and let `make-frame` run the boot events *for* you, synchronously, as part of construction.
 
 ```clojure
-(rf/reg-frame :rf/default {:initial-events [[:app/initialise]]})
-;; reg-frame dispatch-syncs [:app/initialise] into the new frame before it returns
+(rf/make-frame {:id :rf/default :initial-events [[:app/initialise]]})
+;; make-frame dispatch-syncs [:app/initialise] into the new frame before it returns
 ```
 
-By the time `reg-frame` returns, that pipeline run has settled and `app-db` holds whatever it produced — so you can drop the separate `with-frame` + `dispatch-sync` of Move 3 entirely. From Part 1 on you'll often prefer this form, and the finished reference uses it.
+By the time `make-frame` returns, that pipeline run has settled and `app-db` holds whatever it produced — so you can drop the separate `with-frame` + `dispatch-sync` of Move 3 entirely. From Part 1 on you'll often prefer this form, and the finished reference uses it.
 
 !!! warning "Gotcha — mind the double brackets"
 
@@ -234,7 +234,7 @@ There are two frame-boundary components, one verb each — **roots ensure; provi
 
 !!! warning "Gotcha — `frame-provider {:frame …}` scopes an *existing* frame"
 
-    Hand it a `:frame` that was never registered (or has been destroyed) and it fails loud (`:rf.error/frame-provider-frame-absent`) rather than silently scoping descendants to a phantom frame. Register the frame first (`reg-frame` / `make-frame`), or use `frame-root {:id …}` to create it.
+    Hand it a `:frame` that was never registered (or has been destroyed) and it fails loud (`:rf.error/frame-provider-frame-absent`) rather than silently scoping descendants to a phantom frame. Create the frame first (`make-frame`), or use `frame-root {:id …}` to create it.
 
 !!! warning "Gotcha — pick the component, not a prop-map key"
 
@@ -247,7 +247,7 @@ Each of the four moves has a named way of failing. The good news: every failure 
 | `:rf.error/*` category | What happened | The fix |
 |---|---|---|
 | `:rf.error/no-adapter-installed` | Something rendered or subscribed before any `init!` ran — usually a refactor that moved the boot and dropped Move 1 on the floor. | Install the adapter first; everything else comes after. |
-| `:rf.error/no-frame-context` (at a dispatch) | An event was dispatched with no frame in scope. The classic case is a top-of-namespace `dispatch`, which runs at *load* time — before any frame exists. | Boot-time events belong inside `run`, under `with-frame`, after `reg-frame`. |
+| `:rf.error/no-frame-context` (at a dispatch) | An event was dispatched with no frame in scope. The classic case is a top-of-namespace `dispatch`, which runs at *load* time — before any frame exists. | Boot-time events belong inside `run`, under `with-frame`, after `make-frame`. |
 | `:rf.error/no-frame-context` (at a subscribe) | The tree rendered *without* the provider, so the first `subscribe` in a view has no frame to read. No fallback exists underneath. | Wrap the root in `frame-provider {:frame …}` (Move 4). |
 | `:rf.error/no-such-handler` | A dispatch reached the runtime but nothing is registered under that id. Once the app spans files (Part 1 on), the usual cause isn't a typo — it's a feature namespace never `:require`d from `core`, so its registrations never ran. | `:require` the feature namespace from `core` so its registrations run at load. |
 | `:rf.error/no-such-fx` | The same story for an [effect](../../core/glossary.md#effect) — a side-effect the framework performs for you — whose [effect handler](../../core/glossary.md#effect-handler) lives in a namespace that never loaded. | This is why Part 2 requires the HTTP artefact at boot, so its effects register. |
