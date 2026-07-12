@@ -465,9 +465,13 @@
             ;; by :rf.machine/spawn-all-init on entry).
             join-state (get-in runtime-db (paths/spawned-path parent-id invoke-id))]
         (cond
-          ;; Pure-call snapshot: no runtime-db join state seeded yet — fall
-          ;; through to no-op (the runtime tracks join state via the fx
-          ;; handlers, not via the pure machine-transition).
+          ;; No LIVE child-bearing join state at the slot — fall through to
+          ;; no-op. Both no-`:children` cases land here: a pure-call snapshot
+          ;; where the slot was never seeded (the runtime tracks join state
+          ;; via the fx handlers, not the pure machine-transition), AND a
+          ;; childless `spawn-all-reject-sentinel` from an atomically-rejected
+          ;; `:spawn-all` (rf2-qb1j5z) — physically present but child-less, so
+          ;; a stray / forged completion against it is a harmless no-op.
           (or (not (map? join-state))
               (not (contains? join-state :children)))
           {:rf.db/runtime runtime-db :fx []}

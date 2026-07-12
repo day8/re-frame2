@@ -572,15 +572,23 @@
 
   This fx fires FIRST in the entry `:fx` vector — BEFORE the per-child
   `:rf.machine/spawn` fxs. If ANY child in the set names an UNREGISTERED
-  machine TYPE (no inline `:definition`), the join is REJECTED here: NO
-  join-state is seeded. A never-running spec-less child would otherwise
-  never dispatch its `:on-child-done`, blocking an `:all` join FOREVER
-  (`join.cljc` `(= n-done n-total)` can never hold). With no seeded
-  join-state, a registered sibling's later `:on-child-done` finds no slot
-  and falls through to the documented no-op (`join.cljc` \"no runtime-db
-  join state seeded yet\"), so the join cannot deadlock. The per-child
-  `:rf.machine/spawn` fx for each unregistered child ALSO rejects
-  independently in `spawn-fx`."
+  machine TYPE (no inline `:definition`), the WHOLE invoke is REJECTED
+  ATOMICALLY here (rf2-qb1j5z): instead of a live child-bearing join
+  state, this fx seeds `spawn-all-reject-sentinel` at the join slot — a
+  slot that is PHYSICALLY present in runtime-db but carries NO `:children`,
+  so it is a reject marker, NOT a live join. A never-running spec-less
+  child would otherwise never dispatch its `:on-child-done`, blocking an
+  `:all` join FOREVER (`join.cljc` `(= n-done n-total)` can never hold).
+  The registered siblings' per-child `:rf.machine/spawn` fxs — SEPARATE
+  entries later in THIS same entry vector — read the sentinel
+  (`spawn-all-invoke-rejected?`) and SUPPRESS themselves BEFORE installing,
+  so a malformed set spawns NOTHING rather than orphaning the registered
+  siblings under no live join (each unregistered child's own
+  `:rf.machine/spawn` fx also rejects independently in `spawn-fx`).
+  Because the sentinel is childless, no actor is ever spawned to complete:
+  a stray / forged `:on-child-done` hits `join.cljc`'s childless-slot
+  guard and is a no-op (no deadlock), and `destroy-spawn-all-children!`
+  finds nothing to tear down and clears the sentinel on parent exit."
   [{frame-id :frame} args]
   (let [;; EP-0002 carried invariant — the fx context carries the cascade
         ;; envelope frame; a nil stamp is an invariant failure
