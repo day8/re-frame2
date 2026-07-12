@@ -1344,6 +1344,16 @@
                          (not (vector? raw-invoke-id)) raw-invoke-id
                          region (vec (rest raw-invoke-id))
                          :else  raw-invoke-id)
+        ;; The invoke-id also rides on `:event` (`(nth event 1)`) for a guard /
+        ;; action reading which spawn failed; re-stamp it region-relative so the
+        ;; in-region view is consistent (the region-name head is an internal
+        ;; routing detail). Symmetric with `pick-done-transition`'s event
+        ;; re-stamp — without it a region `:on-error` guard reading `(nth ev 1)`
+        ;; sees the region-PREFIXED invoke-id and never matches. The error
+        ;; payload `(nth event 2)` is region-agnostic and left untouched.
+        event          (if (and region (vector? raw-invoke-id))
+                         (assoc (vec event) 1 invoke-id)
+                         event)
         ;; The `:spawn`-bearing state lives at `invoke-id` (absolute prefix
         ;; path, region-stripped above). It is only resolvable when still on
         ;; the active `path` — a transition that already exited the spawning
