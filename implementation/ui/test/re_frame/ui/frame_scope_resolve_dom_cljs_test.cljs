@@ -91,10 +91,10 @@
 
 ;; ---------------------------------------------------------------------------
 ;; NEGATIVE — a compiled sub OUTSIDE any provider/root still fails loud
-;; (React captures the render-phase throw; the container never commits).
+;; (React aborts the commit; the container never renders the scoped value).
 ;; The synchronous, assert-the-id form of this negative rides the headless
-;; twin (frame-context-hook-cljs-test); here we pin the mount-level effect:
-;; no scope → nothing renders.
+;; twin (frame-context-hook-cljs-test); here we pin the mount-level effect on
+;; a REAL root: no scope → nothing renders.
 ;; ---------------------------------------------------------------------------
 
 (defview bare-sub-root [] [:div.bare [n-view]])
@@ -104,13 +104,26 @@
     (reg!)
     (rf/make-frame {:id :app/orphan})
     (rf/dispatch-sync [:test/set-db {:n 99}] {:frame :app/orphan})
-    (let [c (container)]
-      ;; no frame-provider / frame-root anywhere above n-view → the ambient
+    (let [c        (container)
+          captured (atom nil)]
+      ;; No frame-provider / frame-root anywhere above n-view → the ambient
       ;; sub-read finds no scope and throws :rf.error/no-frame-context during
-      ;; render; React aborts the commit, so the scoped value never appears.
-      (try (react-dom/flushSync
-            #(ui/mount [bare-sub-root {}] c {:root-id :dom-scope/orphan}))
-           (catch :default _e nil))
+      ;; render. Under React 19 an uncaught render-phase throw is NOT re-thrown
+      ;; out of `.render`; React aborts the commit and reports the error through
+      ;; the root's `onUncaughtError` HOST callback (see root_mount_dom_cljs_test
+      ;; §criterion-3). We route that callback into `captured` so (a) the
+      ;; fail-loud error is asserted at the host tier, and (b) React's DEFAULT
+      ;; onUncaughtError — which calls `reportError`, surfacing an uncaught
+      ;; window error the browser-test runner rejects even on a green cljs.test
+      ;; summary (rf2-mwx08) — is REPLACED rather than left to fire.
+      (react-dom/flushSync
+       #(ui/mount [bare-sub-root {}] c
+                  {:root-id :dom-scope/orphan
+                   :on-uncaught-error (fn [error _info] (reset! captured error))}))
+      (is (= :rf.error/no-frame-context (:rf.error/id (ex-data @captured)))
+          (str "the ambient sub with NO provider/root above it FAILED LOUD with "
+               ":rf.error/no-frame-context, routed to the root's onUncaughtError "
+               "host callback (rf2-vxgfnd.24/.25)"))
       (is (not (re-find #"n=99" (.-innerHTML c)))
-          (str "with NO provider/root above it, the ambient sub does not "
-               "silently resolve some frame — the fail-loud contract holds")))))
+          (str "React aborted the commit — the ambient sub did not silently "
+               "resolve some frame; the scoped value never renders")))))
