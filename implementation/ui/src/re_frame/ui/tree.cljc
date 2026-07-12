@@ -183,6 +183,15 @@
     :props   compile-time property-prop set (custom elements)
     :children thunk building the children vector (bound ns context)"
   [tag {:keys [static norm dyn events dyn-events key? key-val props children]}]
+  ;; Property classification for DYNAMIC (`ui/spread`) props needs the tag's
+  ;; declared properties at RENDER time. This builder is emitted into the view
+  ;; fn (emit-jvm), so it runs with NO `cljs.env/*compiler*` bound — a pure
+  ;; runtime read, not a compile read. Its correct source is therefore the
+  ;; RUNTIME arm ledger `re-frame.ui.rules/custom-elements` (populated on this
+  ;; host by the emitted `register-custom-element!`, keyed `[build-id ns-sym]`),
+  ;; NOT the compile-time `build/elements` slice. With the process-global
+  ;; compiler mirror removed (rf2-vxgfnd.91), that ledger is no longer clobbered
+  ;; by a sibling build's contribution, so this render read is now stable.
   (let [properties (when (str/includes? (name tag) "-")
                      (rules/custom-element-properties tag))
         base    (reduce-kv (fn [m k v] (if (nil? v) m (assoc m k v)))
