@@ -1279,7 +1279,11 @@
   is a no-op (its reference died with the eviction). Idempotent — a second
   `release!` no-ops; the static override lease no-ops entirely. Never
   invokes `on-change` (no fan-out during release). Dev-asserted
-  `:rf.error/reentrant-graph-op` from inside the fan-out. Returns nil."
+  `:rf.error/reentrant-graph-op` from inside the fan-out. The live→released
+  transition also nils the lease's `:reaction` and `:on-change` — both unused
+  after release — so a consumer-retained released lease pins neither the
+  on-change closure nor (on CLJS) the disposed reaction (rf2-x76af2.34). Returns
+  nil."
   [lease]
   (assert-not-in-fan-out! 're-frame.substrate.observation/release!)
   (let [state (lease-state lease)
@@ -1287,7 +1291,20 @@
                                (fn [st]
                                  (if (and (= :node (:lease-kind st))
                                           (= :live (:status st)))
-                                   (assoc st :status :released)
+                                   ;; Drop the reaction + on-change refs as the
+                                   ;; lease goes released (rf2-x76af2.34 FINDING
+                                   ;; 2): both are unused after release (read /
+                                   ;; current?/notify all short-circuit on
+                                   ;; :released, and read-after-release needs
+                                   ;; only :query-v/:frame-id), so a
+                                   ;; consumer-retained released lease pins
+                                   ;; neither the on-change closure (either host)
+                                   ;; nor the CLJS reaction. #5753's .37 already
+                                   ;; broke the JVM reaction strong-pin (weak
+                                   ;; ref); this drops the remaining dangling
+                                   ;; refs on both hosts.
+                                   (assoc st :status :released
+                                             :reaction nil :on-change nil)
                                    st)))]
     ;; We won the live→released transition iff `old` was a live node lease —
     ;; exactly-once teardown under the same swap-vals! discipline the cache

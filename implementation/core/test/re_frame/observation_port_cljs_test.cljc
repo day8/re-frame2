@@ -1097,6 +1097,44 @@
         (obs/release! keep)))))
 
 ;; ===========================================================================
+;; rf2-x76af2.34 FINDING 2 — a released node lease drops its reaction +
+;; on-change refs
+;;
+;; #5753's .37 change broke the JVM node-records value→key strong-pin by
+;; holding the reaction WEAKLY in the lease state. This complements it: the
+;; live→released transition also nils :reaction and :on-change — both unused
+;; after release (read/current?/notify short-circuit on :released;
+;; read-after-release needs only :query-v/:frame-id) — so a consumer that
+;; retains a released lease pins neither the on-change closure (either host)
+;; nor the CLJS reaction. Hygiene, not a true leak, but it drops the dangling
+;; refs promptly and matches the "released lease retains nothing" intent.
+;; ===========================================================================
+
+(deftest released-node-lease-drops-reaction-and-on-change-refs
+  (reg-items!)
+  (seed-items! [:a])
+  (let [target    (items-target)
+        on-change (fn [_] :never)
+        lease     (obs/acquire! target on-change)
+        state     (@#'obs/lease-state lease)]
+    (testing "a live node lease holds its reaction + on-change"
+      (is (= :live (:status @state)))
+      (is (some? (:reaction @state)))
+      (is (some? (:on-change @state))))
+    (obs/release! lease)
+    (testing "the released lease dropped both refs — nothing dangling"
+      (is (= :released (:status @state)))
+      (is (nil? (:reaction @state)) "the reaction ref was dropped on release")
+      (is (nil? (:on-change @state)) "the on-change closure was dropped on release"))
+    (testing "read-after-release still throws from :query-v/:frame-id alone"
+      (is (= :rf.error/read-after-release
+             (error-id (try (obs/read lease)
+                            (catch #?(:clj Throwable :cljs :default) e e))))))
+    (testing "release! stays idempotent after the drop"
+      (obs/release! lease)
+      (is (= :released (:status @state))))))
+
+;; ===========================================================================
 ;; the JVM WeakHashMap self-reference leak fixture — rf2-vxgfnd.37
 ;;
 ;; The JVM node-records table is a process-global java.util.WeakHashMap keyed by
