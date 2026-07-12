@@ -141,10 +141,11 @@
 (deftest plain-left-click-passes-params-and-query
   (testing "the dispatched payload carries :params and :query when present"
     (rf/reg-route :route/article {:params [:map [:id :string]]
-                                  :query  [:map [:tab :keyword]]} "/articles/:id")
-    ;; :tab is declared :keyword in the route's :query schema; pass a
-    ;; conformant value through the link click so rf2-ug2m1's route-url
-    ;; validation doesn't reject the caller's payload.
+                                  :query  [:map [:tab [:enum :summary :details]]]} "/articles/:id")
+    ;; :tab is declared as a BOUNDED [:enum …] keyword slot in the route's
+    ;; :query schema (a bare :keyword slot is rejected at reg-route,
+    ;; rf2-qot6ii); pass a conformant value through the link click so
+    ;; rf2-ug2m1's route-url validation doesn't reject the caller's payload.
     (let [{:keys [dispatched]}
           (click! {:to     :route/article
                    :params {:id "intro"}

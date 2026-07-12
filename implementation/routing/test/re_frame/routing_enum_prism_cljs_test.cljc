@@ -94,3 +94,66 @@
           "an out-of-enum keyword value raises rather than emitting a URL")
       (is (= :rf.error/route-url-validation (:rf.error/id (ex-data ex)))
           "the structured validation error fires (not a stringified URL)"))))
+
+;; ---- the BARE (unbounded) :keyword sibling: rejected at reg-route ---------
+;;
+;; The deftests above pin the BOUNDED `[:enum …]` keyword prism (interns via
+;; the allowlist, round-trips). A BARE (unbounded) `:keyword`-typed :params /
+;; :query slot is the un-round-trippable sibling (rf2-qot6ii): `route-url`
+;; host-stringifies the keyword value (`:asc` → `%3Aasc`), but `match-url`
+;; keeps the URL segment a STRING (the rf2-3k3o7 keyword-interning guard),
+;; which then FAILS the route's own `:keyword` schema — so `route-url` builds
+;; a URL that fails the SAME route's re-match. Like the `:double` precedent,
+;; it is rejected fail-loud at reg-route (`reject-keyword-route-schema!`), NOT
+;; silently accepted. `[:enum …]` keyword slots stay supported.
+
+(deftest bare-keyword-route-slot-rejected-at-reg-route-rf2-qot6ii
+  (testing "a bare / optioned (unbounded) :keyword :params or :query slot is
+            rejected fail-loud at reg-route on BOTH hosts; a bounded [:enum …]
+            keyword slot is admitted"
+    (letfn [(reg-throws [id metadata path]
+              (try
+                (rf/reg-route id metadata path)
+                nil
+                (catch #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) e e)))]
+
+      (testing "a bare :keyword PATH param is rejected"
+        (let [ex (reg-throws :route/kw1 {:params [:map [:x :keyword]]} "/kw/:x")]
+          (is (some? ex) "reg-route with a bare :keyword :params key must throw")
+          (is (= :rf.error/route-keyword-unbounded-unsupported
+                 (:rf.error/id (ex-data ex)))
+              "the structured discriminator is :rf.error/route-keyword-unbounded-unsupported")
+          (is (re-find #"\[:rf\.error/route-keyword-unbounded-unsupported\]"
+                       (ex-message ex))
+              "the message carries the greppable [:rf.error/…] token")
+          (is (re-find #"\[:enum" (ex-message ex))
+              "the message steers the author to [:enum …]")
+          (let [data (ex-data ex)]
+            (is (= :route/kw1 (:route-id data)))
+            (is (= :params (:slot data)))
+            (is (= :x (:param data))))))
+
+      (testing "a bare :keyword QUERY key is rejected — the :query slot is scanned"
+        (let [ex (reg-throws :route/kw2 {:query [:map [:sort :keyword]]} "/kw")]
+          (is (= :rf.error/route-keyword-unbounded-unsupported
+                 (:rf.error/id (ex-data ex))))
+          (is (= :query (:slot (ex-data ex))))
+          (is (= :sort (:param (ex-data ex))))))
+
+      (testing "an OPTIONED [:keyword {…}] slot is rejected the same way — the
+                properties map does not launder the unbounded type"
+        (let [ex (reg-throws :route/kw3 {:params [:map [:x [:keyword {:min 1}]]]} "/kw/:x")]
+          (is (= :rf.error/route-keyword-unbounded-unsupported
+                 (:rf.error/id (ex-data ex))))))
+
+      (testing "a [:maybe :keyword] slot is rejected (the wrapper is unwrapped)"
+        (let [ex (reg-throws :route/kw4 {:query [:map [:sort [:maybe :keyword]]]} "/kw")]
+          (is (= :rf.error/route-keyword-unbounded-unsupported
+                 (:rf.error/id (ex-data ex))))))
+
+      (testing "a BOUNDED [:enum :a :b] keyword slot is NOT rejected — it
+                round-trips via the enum prism (the deftests above)"
+        (is (nil? (reg-throws :route/kw5 {:query [:map [:sort [:enum :asc :desc]]]} "/kw5"))
+            "[:enum …] :query reg-route does not throw")
+        (is (nil? (reg-throws :route/kw6 {:params [:map [:x [:enum :asc :desc]]]} "/kw6/:x"))
+            "[:enum …] :params reg-route does not throw")))))
