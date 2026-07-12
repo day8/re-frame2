@@ -231,7 +231,7 @@
             #(defview** form menv vname forms)))
 
 (defn- custom-element**
-  [coords tag opts]
+  [coords ns-sym tag opts]
   (when-not (and (keyword? tag) (nil? (namespace tag))
                  (str/includes? (name tag) "-"))
     (fail :rf.ui.compile/bad-custom-element
@@ -264,10 +264,14 @@
     ;; compile-time registration (this JVM performs macroexpansion for
     ;; both hosts) routed through the build-scoped model so a removed /
     ;; renamed declaration drops its stale property classification with
-    ;; its file (rf2-vxgfnd.16) + emitted runtime registration (ui/spread
-    ;; classifies at render via the same registry, on the client).
+    ;; its file (rf2-vxgfnd.16). The emitted runtime registration (ui/spread
+    ;; classifies at render via the same registry, on the client) carries the
+    ;; declaring ns so a hot-reload that DROPS this declaration evicts its
+    ;; stale runtime row — the runtime arm of the same eviction model
+    ;; (rf2-vxgfnd.48).
     (build/contribute! build/elements (:file coords) tag {:properties props})
-    `(re-frame.ui.rules/register-custom-element! ~tag {:properties ~props})))
+    `(re-frame.ui.rules/register-custom-element!
+      ~tag {:properties ~props} '~ns-sym)))
 
 (defn custom-element*
   "The RULED custom-element declaration grammar (Mike, 2026-07-12):
@@ -277,8 +281,9 @@
   not silent growth. `form` = &form, `menv` = &env — compile errors are
   anchored with the declaration form's source coordinates (S1e)."
   [form menv tag opts]
-  (let [coords (source-coords form (some? (:ns menv)))]
+  (let [coords (source-coords form (some? (:ns menv)))
+        ns-sym (if (:ns menv) (-> menv :ns :name) (ns-name *ns*))]
     (anchored coords
-              #(custom-element** coords tag opts))))
+              #(custom-element** coords ns-sym tag opts))))
 
 ))

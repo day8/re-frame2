@@ -707,17 +707,89 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Custom-element declarations (RULED grammar) — runtime registry
+;;
+;; The RUNTIME arm of the compile-side build-scoped model (rf2-vxgfnd.16 AC5,
+;; runtime/HMR half; rf2-vxgfnd.48). #5719 made the COMPILE-time custom-element
+;; ledger build-scoped — a removed / renamed declaration drops its stale
+;; property classification with its source — but the RUNTIME registry stayed
+;; append-only: after a declaration is deleted and its ns hot-reloads, the
+;; emitted registration simply stops executing, so the stale row lingered in
+;; the browser's atom and `ui/spread` kept classifying the removed
+;; `:properties` until a full page reload. The inverse operation the registry
+;; lacked is a per-source eviction, mirrored here on the runtime atom: emitted
+;; registrations carry their declaring ns, and a hot-reload generation bump
+;; (the shadow-cljs `^:dev/before-load` hook) makes a re-registering source
+;; replace its WHOLE prior contribution — so a dropped declaration vanishes.
 ;; ---------------------------------------------------------------------------
 
 (defonce ^{:doc "tag keyword -> {:properties #{kebab-kw}}. Populated by
   `ui/custom-element` (top-level, compile-resolvable; undeclared elements
-  need no declaration — all-attributes default)."}
+  need no declaration — all-attributes default). Consumers (`ui/spread`, the
+  JVM tree builder) read this unchanged."}
   custom-elements
   (atom {}))
 
-(defn register-custom-element! [tag decl]
+(defonce ^{:private true
+           :doc "ns-sym -> {:gen <reload-gen> :tags #{tag}} — the per-source
+  RUNTIME ledger mirroring the compile-side build ledger, so a hot-reload that
+  DROPS a declaration evicts its now-stale runtime row."}
+  element-sources
+  (atom {}))
+
+(defonce ^{:private true
+           :doc "Monotonic hot-reload counter — the runtime analogue of the
+  compile-side build generation. `notify-reload!` (the shadow-cljs
+  `^:dev/before-load` hook) bumps it; a source re-opens (evicts its prior
+  rows) the first time it re-registers at a newer generation."}
+  reload-generation
+  (atom 0))
+
+(defn- open-element-source!
+  "Evict `ns-sym`'s prior custom-element rows the FIRST time it (re-)registers
+  in the current reload generation — idempotent for its later same-generation
+  declarations. The runtime mirror of the compile-side `open-source!`: a
+  dropped / renamed declaration vanishes because the source's whole prior
+  contribution is replaced on re-registration, not merely overwritten
+  tag-by-tag (which never removes a row the new code no longer declares)."
+  [ns-sym]
+  (let [g @reload-generation]
+    (when (not= g (:gen (get @element-sources ns-sym)))
+      (doseq [tag (:tags (get @element-sources ns-sym))]
+        (swap! custom-elements dissoc tag))
+      (swap! element-sources assoc ns-sym {:gen g :tags #{}})))
+  nil)
+
+(defn register-custom-element!
+  "Register (or, on hot-reload, re-register) `tag`'s runtime property
+  classification under its declaring `ns-sym`. Emitted top-level by
+  `ui/custom-element`, so it re-runs on every ns hot-reload; opening the
+  source first replaces the ns's whole prior contribution, so a removed /
+  renamed declaration's classification is evicted rather than leaking until a
+  full page reload (rf2-vxgfnd.48)."
+  [tag decl ns-sym]
+  (open-element-source! ns-sym)
   (swap! custom-elements assoc tag decl)
+  (swap! element-sources update-in [ns-sym :tags] (fnil conj #{}) tag)
   tag)
+
+(defn ^:dev/before-load notify-reload!
+  "shadow-cljs hot-reload hook (dev only): bump the reload generation so each
+  reloaded source re-opens — evicting its stale rows — on its next
+  re-registration this cycle. The runtime analogue of the compile-side
+  `begin-build!` generation bump; production never hot-reloads, so this never
+  fires there."
+  []
+  (swap! reload-generation inc)
+  nil)
+
+(defn reset-custom-elements!
+  "Test support: clear the runtime custom-element registry, the per-source
+  ledger, and the reload generation."
+  []
+  (reset! custom-elements {})
+  (reset! element-sources {})
+  (reset! reload-generation 0)
+  nil)
 
 (defn custom-element-properties [tag]
   (get-in @custom-elements [tag :properties] #{}))
