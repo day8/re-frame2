@@ -15,9 +15,15 @@
 ;;      vocabulary now keeps every URL key as a string. Authors who want
 ;;      keyword keys declare them. (Pre-alpha -- no back-compat shim.)
 ;;
-;;   2. **Enum-only keyword values** (rf2-3k3o7). A bare `:keyword`
-;;      type-form stays as string; only `[:enum :a :b ...]` allowlists
-;;      gate the string->keyword intern.
+;;   2. **Enum-only keyword values** (rf2-3k3o7 + rf2-qot6ii). Only
+;;      `[:enum :a :b ...]` allowlists gate the string->keyword intern. A
+;;      bare (unbounded) `:keyword` slot is now REJECTED fail-loud at
+;;      `reg-route` (rf2-qot6ii): it has no round-trippable URL form
+;;      (route-url host-stringifies `:asc` -> `%3Aasc` but match-url keeps
+;;      the segment a string, which then fails the route's own `:keyword`
+;;      schema), so it can never reach match-url in the first place. That
+;;      reg-route reject is pinned by the routing unit tests, not this
+;;      match-url behaviour corpus.
 ;;
 ;; Together these close the "burn permanent JVM keyword slots from
 ;; user-controlled URLs" surface AT THE SOURCE: a hostile URL of N-unique
@@ -30,7 +36,7 @@
 {:fixture/id           :routing/query-keyword-discipline
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:routing/match-url}
- :fixture/doc          "Routes that declare no `:query` vocabulary keep every URL query key as a string (the rf2-5ifai cut of the legacy keyword-all fallback). Routes that declare a `:query` schema keyword only the declared keys; unknown keys stay as strings. Bare `:keyword` types stay as strings; only `[:enum ...]` allowlists gate the keyword intern (rf2-3k3o7)."
+ :fixture/doc          "Routes that declare no `:query` vocabulary keep every URL query key as a string (the rf2-5ifai cut of the legacy keyword-all fallback). Routes that declare a `:query` schema keyword only the declared keys; unknown keys stay as strings. A bare (unbounded) `:keyword` slot is rejected at reg-route (rf2-qot6ii — no round-trippable URL form); only `[:enum ...]` allowlists gate the keyword intern (rf2-3k3o7)."
 
  :fixture/registry
  {:route
@@ -41,9 +47,10 @@
    :route/declared  {:path  "/declared"
                      :query [:map [:q :string] [:page {:optional true} :int]]}
 
-   ;; Bare `:keyword` slot -- stays string (rf2-3k3o7).
-   :route/bare-kw   {:path  "/bare-kw"
-                     :query [:map [:tag :keyword]]}
+   ;; A bare (unbounded) `:keyword` slot is rejected at reg-route
+   ;; (rf2-qot6ii — no round-trippable URL form), so it cannot be
+   ;; registered here; the `[:enum ...]` slot below is the DoS-safe keyword
+   ;; path. The reg-route reject is pinned by the routing unit tests.
 
    ;; Bounded `[:enum ...]` slot -- keyword'd ONLY for declared values.
    :route/enum-kw   {:path  "/enum-kw"
@@ -76,21 +83,12 @@
             :fragment nil
             :validation-failed? false}}
 
-  ;; --- Bare `:keyword` type-form: value stays a string ----------------
-  ;; rf2-3k3o7 -- `:keyword` without an enum allowlist is the unbounded
-  ;; intern site; the framework refuses to widen the keyword table on
-  ;; behalf of arbitrary URL values. Layered Malli validation then
-  ;; catches the type mismatch (`"arbitrary-value"` is a string, not a
-  ;; keyword) and surfaces `:validation-failed? true` (rf2-ug2m1).
-  ;; The keyword-discipline contract pinned here is the SHAPE -- the
-  ;; framework keeps the value as a string regardless of what the
-  ;; declared type says; layered validation handles the type mismatch.
-  {:call :match-url :url "/bare-kw?tag=arbitrary-value"
-   :expect {:route-id :route/bare-kw
-            :params   {}
-            :query    {:tag "arbitrary-value"}
-            :fragment nil
-            :validation-failed? true}}
+  ;; --- Bare `:keyword` type-form: rejected at reg-route (rf2-qot6ii) --
+  ;; A bare (unbounded) `:keyword` slot has no round-trippable URL form, so
+  ;; it is rejected fail-loud at reg-route and never reaches match-url. That
+  ;; reject is pinned by the routing unit tests (routing_enum_prism +
+  ;; routing_registry), not this match-url behaviour corpus. `[:enum ...]`
+  ;; below is the DoS-safe keyword path that replaces it.
 
   ;; --- `[:enum ...]` allowlist gates the intern ----------------------
   ;; Declared choice -> keyword'd.

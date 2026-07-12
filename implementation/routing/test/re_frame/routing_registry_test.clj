@@ -1087,24 +1087,23 @@
 
 (deftest query-coercion-vocabulary
   (testing "coerce-by-type-form honours :int / :boolean for query-string
-            values. Per rf2-3k3o7 a bare `:keyword` type-form is
-            unbounded — the value stays as a string rather than
-            interning an attacker-controllable string as a Clojure
-            keyword. The narrowing-via-enum path is exercised by
-            `query-coercion-keyword-enum-allowlist` below."
+            values, and a BOUNDED `[:enum …]` keyword slot interns declared
+            choices. A bare (unbounded) `:keyword` type-form is NOT usable —
+            it is rejected fail-loud at reg-route (rf2-qot6ii); `[:enum …]` is
+            the keyword path (the DoS-safe allowlist, rf2-3k3o7)."
     (rf/reg-route :route/search
                   {:query [:map
                            [:count    :int]
-                           [:sort     :keyword]
+                           [:sort     [:enum :asc :desc]]
                            [:archived :boolean]
                            [:plain    :string]]} "/search")
     (let [m (routing/match-url "/search?count=42&sort=desc&archived=true&plain=hello")]
       (is (= 42 (get-in m [:query :count]))
           ":int coerces to a Long")
-      (is (= "desc" (get-in m [:query :sort]))
-          "rf2-3k3o7: bare `:keyword` stays as string — the JVM keyword-
-          interning DoS surface is closed by requiring an `[:enum ...]`
-          allowlist for keyword values")
+      (is (= :desc (get-in m [:query :sort]))
+          "rf2-3k3o7: a declared `[:enum …]` choice interns to its keyword —
+          the bounded allowlist that supersedes the un-round-trippable bare
+          `:keyword` slot (now rejected at reg-route, rf2-qot6ii)")
       (is (= true (get-in m [:query :archived]))
           ":boolean coerces \"true\" to true")
       (is (= "hello" (get-in m [:query :plain]))
@@ -1419,8 +1418,11 @@
 ;; 1. Selective keywording — only keys declared by the route's `:query`
 ;;    schema / `:query-defaults` / `:query-retain` are promoted to keyword
 ;;    keys. Unknown keys stay as **string** keys. (This IS the closure.)
-;; 2. `:keyword`-typed value gate — a bare `:keyword` type-form stays
-;;    as a string; `[:enum :a :b ...]` is the bounded-allowlist path.
+;; 2. `:keyword`-typed value gate — `[:enum :a :b ...]` is the bounded
+;;    keyword-allowlist path (values matching a declared choice intern,
+;;    others stay string). A bare / unbounded `:keyword` slot is REJECTED
+;;    fail-loud at reg-route (rf2-qot6ii — it cannot round-trip the URL
+;;    prism); it is no longer silently accepted as a string.
 
 (deftest rf2-3k3o7-repeated-query-key-last-wins-stays-string
   (testing "rf2-5ifai: no :query vocabulary declared, so a repeated key
@@ -1554,15 +1556,28 @@
       (is (= "hostile-value" (get-in m3 [:query :sort]))
           "value outside the enum allowlist stays as string — no intern"))))
 
-(deftest rf2-3k3o7-bare-keyword-stays-string
-  (testing "rf2-3k3o7: bare `:keyword` type-form (no enum allowlist) is
-            an unbounded-intern site — value stays as a string"
-    (rf/reg-route :route/page
-                  {:query [:map [:tag :keyword]]} "/page")
-    (let [m (routing/match-url "/page?tag=arbitrary-value")]
-      (is (= "arbitrary-value" (get-in m [:query :tag]))
-          "bare :keyword preserves the URL value as a string — no
-          unbounded intern site"))))
+(deftest rf2-qot6ii-bare-keyword-rejected-at-reg-route
+  (testing "rf2-qot6ii supersedes the rf2-3k3o7 `bare :keyword stays string`
+            leg: a bare (unbounded) `:keyword`-typed slot cannot round-trip the
+            match-url / route-url prism (route-url host-stringifies :asc ->
+            %3Aasc while match-url keeps a STRING that then fails the route's
+            own :keyword schema), so it is now REJECTED fail-loud at reg-route
+            rather than silently accepted. `[:enum …]` is the bounded keyword
+            path (the DoS-safe allowlist, still supported)."
+    (let [ex (try
+               (rf/reg-route :route/page
+                             {:query [:map [:tag :keyword]]} "/page")
+               nil
+               (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? ex) "reg-route with a bare :keyword :query key must throw")
+      (is (= :rf.error/route-keyword-unbounded-unsupported
+             (:rf.error/id (ex-data ex)))
+          "the structured discriminator is :rf.error/route-keyword-unbounded-unsupported")
+      (is (re-find #"\[:rf\.error/route-keyword-unbounded-unsupported\]"
+                   (ex-message ex))
+          "the message carries the greppable [:rf.error/…] token")
+      (is (= :query (:slot (ex-data ex))))
+      (is (= :tag (:param (ex-data ex)))))))
 
 ;; ---- T3: :query-defaults populates absent keys -------------------------
 

@@ -298,6 +298,97 @@
                           :type-form tf})))))))))
   nil)
 
+;; ---- authoring-boundary guard: reject un-round-trippable :keyword slots ---
+;;
+;; A bare (unbounded) `:keyword`-typed `:params` / `:query` slot is the SAME
+;; "no canonical-EDN-round-trippable URL form" class `:double` is fail-loud-
+;; rejected for (`reject-decimal-route-schema!`), but rf2-3k3o7 left it SILENTLY
+;; accepted — and it cannot round-trip through the match-url / route-url prism
+;; (rf2-qot6ii):
+;;   - `route-url` host-stringifies the keyword value (`:asc` → `%3Aasc`), while
+;;   - `match-url` keeps the URL segment a STRING (the rf2-3k3o7 keyword-
+;;     interning DoS guard — an unbounded `:keyword` slot MUST NOT intern
+;;     arbitrary URL input), which then FAILS the route's own `[k :keyword]`
+;;     schema (`:validation-failed? true`).
+;; So `route-url` builds a URL that fails the SAME route's re-match, and every
+;; value class breaks: a STRING value is rejected by route-url validation up
+;; front; a KEYWORD value emits `%3A…` and fails inbound validation. Unlike the
+;; emission-boundary `assert-url-value!`, a keyword IS canonical EDN, so it is
+;; admitted there too — nothing downstream catches it. A `[:enum :a :b …]`
+;; keyword slot DOES round-trip (the `enum-keyword-token` allowlist prism,
+;; rf2-dcmkke) and is deliberately NOT rejected. Rather than silently produce
+;; un-round-trippable route data, fail LOUD at `reg-route`, steering authors to
+;; `[:enum …]` (bounded) or `:string`. There are zero in-repo non-test
+;; bare-`:keyword` route registrations to migrate.
+
+(defn- keyword-type-form?
+  "True when a Malli param/query slot type-form `tf` denotes a BARE / OPTIONED
+  (unbounded) `:keyword` value — the shapes `normalize-type-form` reduces to
+  `:rf.route/keyword-unbounded`: bare `:keyword`, an optioned `[:keyword {…}]`,
+  or either wrapped in `[:maybe …]`. A `[:enum :a :b …]` keyword allowlist is
+  NOT matched (its head is `:enum`, not `:keyword`) — it round-trips via the
+  enum prism and stays supported. rf2-qot6ii; the `:keyword` twin of
+  `decimal-type-form?`."
+  [tf]
+  (boolean
+    (cond
+      (= :keyword tf) true
+      (vector? tf)
+      (let [head (first tf)]
+        (cond
+          (= :keyword head) true
+          (= :maybe head)   (keyword-type-form? (second tf))
+          :else             false))
+      :else false)))
+
+(defn- reject-keyword-route-schema!
+  "Authoring-boundary guardrail (rf2-qot6ii): throw
+  `:rf.error/route-keyword-unbounded-unsupported` (canonical thrown-error
+  shape, per Spec 009) when `metadata` declares a BARE / OPTIONED (unbounded)
+  `:keyword`-typed key in its `:params` or `:query` `[:map …]` schema. An
+  unbounded `:keyword` slot cannot round-trip through match-url / route-url:
+  `route-url` host-stringifies the keyword (`:asc` → `%3Aasc`) but `match-url`
+  keeps the segment a STRING (the rf2-3k3o7 keyword-interning guard), which
+  then fails the route's own `:keyword` schema — the URL `route-url` built
+  fails the SAME route's re-match. The thrown error names the offending slot +
+  key and steers the author to `[:enum …]` (bounded, round-trips via the enum
+  prism) or `:string`. Fails in dev AND prod (a caller bug, not user input).
+  Runs only on the routing-owned `:params` / `:query` slots; a `[:enum …]`
+  keyword slot is admitted (`keyword-type-form?` excludes it). Mirrors
+  `reject-decimal-route-schema!` — the `:double` un-round-trippable precedent."
+  [route-id metadata]
+  (doseq [slot [:params :query]]
+    (let [schema (get metadata slot)]
+      (when (vector? schema)
+        (doseq [entry (rest schema)]      ;; skip the leading `:map` head
+          (when (and (vector? entry) (keyword? (first entry)))
+            (let [k  (first entry)
+                  tf (cond
+                       (= 2 (count entry)) (second entry)   ;; [k type]
+                       (= 3 (count entry)) (last entry)      ;; [k {opts} type]
+                       :else               nil)]
+              (when (keyword-type-form? tf)
+                (throw (route-error
+                         :rf.error/route-keyword-unbounded-unsupported
+                         'rf/reg-route
+                         (str "route " route-id " declares a bare :keyword-typed "
+                              (name slot) " key " k " — an unbounded :keyword "
+                              "route slot cannot round-trip through match-url / "
+                              "route-url (the EP-0012 route prism): route-url "
+                              "host-stringifies the keyword (:asc -> %3Aasc) but "
+                              "match-url keeps the URL segment a STRING (the "
+                              "rf2-3k3o7 keyword-interning guard), which then "
+                              "fails the route's own :keyword schema. Use "
+                              "[:enum :a :b …] for a BOUNDED keyword slot (it "
+                              "interns + round-trips via the enum allowlist) or "
+                              ":string for a free-form value (parse it in a "
+                              "handler).")
+                         {:route-id  route-id
+                          :slot      slot
+                          :param     k
+                          :type-form tf})))))))))
+  nil)
+
 ;; ---- registration --------------------------------------------------------
 
 (defn reg-route
@@ -383,6 +474,15 @@
         ;; hosts. Fail loud here rather than produce un-round-trippable route
         ;; data — see `reject-decimal-route-schema!`.
         _            (reject-decimal-route-schema! id metadata)
+        ;; rf2-qot6ii: reject a bare / optioned (unbounded) :keyword :params /
+        ;; :query key at the authoring boundary — the un-round-trippable twin of
+        ;; the :double reject above. route-url host-stringifies a keyword value
+        ;; (:asc -> %3Aasc) but match-url keeps it a STRING (the rf2-3k3o7
+        ;; keyword-interning guard), so the URL route-url builds fails the SAME
+        ;; route's re-match. Fail loud, steering to [:enum …] (bounded) or
+        ;; :string. [:enum …] keyword slots round-trip and are admitted. See
+        ;; `reject-keyword-route-schema!`.
+        _            (reject-keyword-route-schema! id metadata)
         pattern      (match/canonical-route-pattern (:path metadata))
         metadata     (assoc metadata :path pattern)
         idx          (swap! reg-counter inc)
@@ -542,6 +642,10 @@
   - bare scalar `:int` / `:uuid` / `:boolean` → itself.
   - bare `:keyword` → `:rf.route/keyword-unbounded` (no enum allowlist;
     stays a string at coerce time — the rf2-3k3o7 unbounded-intern guard).
+    Since rf2-qot6ii rejects a bare / optioned `:keyword` :params / :query
+    slot fail-loud at `reg-route` (`reject-keyword-route-schema!`), this
+    mapping is now a defensive no-op passthrough — unreachable for a
+    registered route's coercion table.
   - `[:enum :a :b …]` / `[:enum {…opts} :a :b …]` with all-keyword
     choices → `[:rf.route/enum-keyword #{choice-names…}]` (rf2-3k3o7
     bounded allowlist).
@@ -765,7 +869,10 @@
     ;; rf2-3k3o7: `:keyword` without an enum allowlist stays as string —
     ;; permitting `(keyword v)` here is the unbounded keyword-interning
     ;; DoS surface this fix closes. Authors who want keyword values
-    ;; must declare an `[:enum ...]` allowlist.
+    ;; must declare an `[:enum ...]` allowlist. rf2-qot6ii now rejects a
+    ;; bare / optioned `:keyword` slot at `reg-route`, so this token no
+    ;; longer enters a registered route's coerce table — the branch is a
+    ;; defensive no-op passthrough (identical to `:else`).
     v
 
     (and (vector? type-form) (= :rf.route/enum-keyword (first type-form)))

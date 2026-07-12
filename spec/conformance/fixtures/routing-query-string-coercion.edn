@@ -6,11 +6,12 @@
 ;; :int, :boolean, and the enum-bounded keyword form `[:enum :a :b ...]`.
 ;; Strings and unknown types pass through.
 ;;
-;; Per rf2-3k3o7 a bare `:keyword` slot is treated as an unbounded
-;; keyword-interning DoS site (JVM keywords intern forever); the URL
-;; value is preserved as a string rather than being interned. Authors
-;; who want a keyword-typed slot declare an `[:enum :a :b ...]`
-;; allowlist — the bounded keyword universe.
+;; Per rf2-3k3o7 + rf2-qot6ii a bare (unbounded) `:keyword` slot is both an
+;; unbounded keyword-interning DoS site (JVM keywords intern forever) AND
+;; has no round-trippable URL form, so it is REJECTED fail-loud at
+;; reg-route (rf2-qot6ii) — never coerced here. Authors who want a
+;; keyword-typed slot declare an `[:enum :a :b ...]` allowlist — the
+;; bounded keyword universe that both interns and round-trips.
 ;;
 ;; Per rf2-oyw04 :int coercion is STRICT and host-IDENTICAL: a value
 ;; coerces to a number only when the WHOLE string is an integer literal
