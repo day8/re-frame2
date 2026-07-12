@@ -2078,7 +2078,18 @@
               ;; snapshot), so a parent and a child entered in the same
               ;; cascade get independent epochs and the synthetic event
               ;; carries the decl-path for unambiguous staleness routing.
-              (let [leaf-state (last prefix)
+              (let [;; A parallel-ROOT `:after` (decl-path `[]`, scheduled via
+                    ;; `schedule-root-after-fx` passing `[[[] machine]]`) has
+                    ;; `(last prefix)` nil; mark it with the root sentinel
+                    ;; `:rf/parallel-root` so the `:scheduled` / `:cancelled`
+                    ;; `:state` matches the `:fired` / `:stale-after` rows
+                    ;; (`root-after-match` / the fired-reply emit both set
+                    ;; `:rf/parallel-root`) and the `(actor,state,epoch)` pairing
+                    ;; `emit-cancelled!` promises holds. A flat / region-root
+                    ;; `:after` is rejected at registration
+                    ;; (`validate-non-parallel-root-after!`), so an empty prefix
+                    ;; here is ALWAYS the supported parallel-root case.
+                    leaf-state (if (empty? prefix) :rf/parallel-root (last prefix))
                     epoch      (node-epoch machine snap-final prefix)]
                 (mapv
                   (fn [[delay-key _target]]

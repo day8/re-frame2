@@ -128,6 +128,47 @@
           (is (= fired-wid cancelled-wid)
               "the region :after's :fired and :cancelled rows share one :rf.reply/work-id"))))))
 
+;; ---- parallel-root :after :state consistency (rf2-cttpk4) --------------
+;;
+;; A parallel-ROOT `:after` (decl-path `[]`) is scheduled via
+;; `schedule-root-after-fx` → `build-after-fx` with an EMPTY prefix, so
+;; `(last prefix)` is nil. The FIRED / STALE resolvers stamp the root sentinel
+;; `:rf/parallel-root` as the `:state`; the SCHEDULED / CANCELLED traces used to
+;; emit `:state nil`, breaking the `(actor, state, epoch)` pairing
+;; `emit-cancelled!`'s docstring promises. Both the scheduled and cancelled
+;; root-timer traces must carry `:rf/parallel-root` too.
+
+(deftest parallel-root-after-scheduled-and-cancelled-state-is-parallel-root
+  (testing "rf2-cttpk4 — a parallel-root :after's :scheduled and :cancelled traces
+            carry :state :rf/parallel-root (matching :fired / :stale), not nil"
+    (rf/reg-machine :cttpk4-root/m
+      {:type    :parallel
+       :data    {}
+       :after   {30000 {:target [[:a :two]]}}
+       :regions {:a {:initial :one :states {:one {} :two {}}}}})
+    (rf/make-frame {:id :cttpk4-root/f :doc "root-after :state test frame"})
+    (mtest/with-trace-capture captured
+      ;; Birth in the named frame → schedules the root :after (a still-pending
+      ;; 30s host handle) and emits the :scheduled trace.
+      (rf/dispatch-sync [:cttpk4-root/m [:rf.machine/start]] {:frame :cttpk4-root/f})
+      (let [scheduled (->> @captured
+                           (filter #(and (= :rf.machine.timer/scheduled (:operation %))
+                                         (= 30000 (:delay (:tags %)))))
+                           first)]
+        (is (some? scheduled) "the root :after emitted a :scheduled trace at birth")
+        (is (= :rf/parallel-root (:state (:tags scheduled)))
+            "the scheduled root-timer :state is the :rf/parallel-root sentinel (was nil)"))
+      ;; Frame teardown cancels the still-pending root timer with
+      ;; :reason :on-frame-destroy → a :cancelled trace.
+      (rf/destroy-frame! :cttpk4-root/f)
+      (let [cancelled (->> @captured
+                           (filter #(and (= :rf.machine.timer/cancelled (:operation %))
+                                         (= :on-frame-destroy (:reason (:tags %)))))
+                           first)]
+        (is (some? cancelled) "frame teardown cancelled the pending root timer")
+        (is (= :rf/parallel-root (:state (:tags cancelled)))
+            "the cancelled root-timer :state is the :rf/parallel-root sentinel (was nil)")))))
+
 ;; ---- actor destroy (explicit cancellation) -----------------------------
 
 (deftest explicit-destroy-trace-carries-cancelled-reply
