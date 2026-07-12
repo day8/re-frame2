@@ -2580,6 +2580,16 @@
                                       Falls back to minimal HTTP-abort +
                                       trace when the machines artefact is
                                       absent.
+    2b. :ui/on-frame-destroyed!     — detach the compiled-view
+                                      (day8/re-frame2-ui) observers: every
+                                      currently-connected ViewCell observing
+                                      this frame transitions to :dead (03 §4)
+                                      and releases its leases against the
+                                      still-live sub-cache, so a later
+                                      read/probe follows the dead-cell
+                                      lifecycle rather than throwing
+                                      :rf.error/frame-destroyed. No-op when
+                                      the artefact is absent (rf2-vxgfnd.42).
     3. mark-frame-destroyed!        — flip :lifecycle :destroyed?.
     4. tear-down-sub-cache!         — dispose every cached reaction
                                       via the sub-cache-owned
@@ -2699,6 +2709,15 @@
         (try
         (fire-on-destroy-event! id f)
         (notify-machine-destruction! id)
+        ;; Detach the compiled-view (day8/re-frame2-ui) observers BEFORE the
+        ;; liveness flip / sub-cache teardown, so every currently-connected
+        ;; ViewCell observing this frame transitions to :dead (03 §4 dead-cell
+        ;; lifecycle) and releases its leases against the still-live sub-cache —
+        ;; instead of being left live to throw :rf.error/frame-destroyed off the
+        ;; observation port on its next read. Symmetric with the machine cascade
+        ;; above (observers torn down against a live container). No-op when the
+        ;; re-frame2-ui artefact is absent (the hook is unbound) — rf2-vxgfnd.42.
+        (safe-call-hook! :ui/on-frame-destroyed! id)
         ;; Flip the liveness bit under the frame's OWN `:drain-lock` (the ONE
         ;; frame-owned lifecycle gate, via the same `call-serialized-with-drain!`
         ;; the flows lifecycle ops use) so a concurrent cold `reg-flow` / flow

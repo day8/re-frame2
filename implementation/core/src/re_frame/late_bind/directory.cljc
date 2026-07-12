@@ -1109,6 +1109,12 @@
     :design-bead "rf2-931pm"
     :description "Restore the no-op default focus predicate (no epoch focused). Withdraw counterpart of `:trace.cascade/set-focus-predicate!`; same no-Xray-consumer status — only the core `trace_cascade_captured_test` calls `re-frame.trace.cascade/clear-focus-predicate!` directly."}
 
+   ;; ---- re-frame.ui (compiled-view substrate; day8/re-frame2-ui) -----------
+   {:key         :ui/on-frame-destroyed!
+    :producer-ns 're-frame.ui.frames
+    :design-bead "rf2-vxgfnd.42"
+    :description "Transition every currently-connected ViewCell observing the destroyed frame to :dead (re-frame.ui.reactive/teardown-frame!) so a subsequent read/probe follows the 03 §4 dead-cell lifecycle instead of throwing :rf.error/frame-destroyed off the observation port. Consumed by frame/destroy-frame! (fired before the liveness flip, against the still-live sub-cache); no-op when the day8/re-frame2-ui artefact is absent from the classpath."}
+
    ;; NOTE: `:subs/resolve-sub-override` — the SUBSTITUTIVE
    ;; dev-only sub-override seam consulted by `re-frame.subs/subscribe`
    ;; inside its `interop/debug-enabled?` gate — is PUBLISHED from the
