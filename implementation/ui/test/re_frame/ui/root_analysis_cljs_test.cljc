@@ -275,8 +275,7 @@
         {:keys [root-id provenance]}
         (root/resolve-root-identity 'ui/mount opts views)]
     (root/root-descriptor {:root-id root-id :provenance provenance
-                           :views views :plans plans :ast ast
-                           :build-digest "bd1-test"})))
+                           :views views :plans plans :ast ast})))
 
 (deftest descriptor-literal-props
   (let [d (descriptor* '[app-view {:promo :spring :sizes [1 2] :opts {:a 1}}]
@@ -290,7 +289,9 @@
     (is (= {:promo :spring :sizes [1 2] :opts {:a 1}} (:static-props d))
         ":static-props records the literal map verbatim")
     (is (re-find #"^tf1-[0-9a-f]{16}$" (:template-fingerprint d)))
-    (is (= "bd1-test" (:build-digest d)))))
+    (is (not (contains? d :build-digest))
+        "root-descriptor bakes NO :build-digest — the whole-build digest is a
+         read-time projection stamped by descriptor-index (rf2-vxgfnd.47)")))
 
 (deftest descriptor-dynamic-props
   (let [d (descriptor* '[app-view {:promo (current-promo)}] {})]
