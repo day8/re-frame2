@@ -597,7 +597,7 @@
   fires after the synchronous drain unwinds and BEFORE the next paint, so a
   watch-fired invalidation is corrected before a torn frame can show
   (rf2-vxgfnd.40). The JVM headless host has NO async render loop to align
-  to — its epoch close is the EXPLICIT `flush!` (07 §2 'the only flush
+  to — its drain-quiescence flush is the EXPLICIT `flush!` (07 §2 'the only flush
   idiom'; SSR renders one-shot) — and `interop/next-tick` there is a
   CONCURRENT executor, not a microtask, so a background auto-drain would
   race synchronous callers. One honest option per host, not a pretended same
