@@ -185,7 +185,19 @@
   "Run `f`, then synchronously drain + COMMIT pending render work to the
   DOM. Wraps `(do (f) (batching/flush!))` in `react-dom/flushSync` so the
   forced re-renders commit synchronously under React 19 `createRoot`
-  (rf2-0bz5ah). Returns nil."
+  (rf2-0bz5ah). Returns nil.
+
+  Single component pass: `batching/flush!` drains the component queue
+  exactly ONCE inside the `flushSync` boundary. `ratom/flush!` fully
+  settles the subscription graph before that pass, so the normal
+  dispatch→render→observe loop commits with final sub values. But a
+  render-INDUCED second-order cascade — a component whose forced re-render
+  ENQUEUES a further component (IMPL-SPEC §4.4: a component re-queued during
+  a drain is held for the NEXT microtask turn, not flattened into this one)
+  — commits on a microtask AFTER `flush-render!` returns. A headless
+  Tool-Pair dispatch→render→observe-DOM caller (Spec 006 §flush-render!)
+  that can construct such a render-triggers-render cascade must flush a
+  SECOND time before observing the tail component's DOM."
   [f]
   (react-dom/flushSync
     (fn []
