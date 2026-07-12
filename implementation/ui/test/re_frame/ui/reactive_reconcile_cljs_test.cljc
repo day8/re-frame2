@@ -460,3 +460,37 @@
                 (reactive/with-capture cell (fn [] (reactive/sub-read [:r/coll]))))]
       (is (identical? committed ret)
           "an rf=-stable read returns the prior exact value (stabilized identity)"))))
+
+;; ---------------------------------------------------------------------------
+;; G-4 equality no-op (S2f) — an rf=-EQUAL recompute leaves the PORT VERSION
+;; un-advanced ⇒ ZERO cell revision change (no React render). The
+;; stabilization above proves the returned REFERENCE is stable; this proves the
+;; whole commit is inert: the equality gate on the node record's version
+;; (advance-node-record! bumps :version only when the value differs by =)
+;; suppresses the version bump, so the commit evidence comparison (step 5) finds
+;; no movement and the revision never advances.
+;; ---------------------------------------------------------------------------
+
+(deftest rf-equal-recompute-leaves-port-version-unadvanced-zero-revision
+  (rf/reg-sub :r/coll (fn [db _] (:coll db)))
+  (seed! {:coll [1 2 3] :n 1})
+  (let [cell  (render+commit! (reactive/make-cell ::v) [[:r/coll]])
+        lease (reactive/committed-lease cell (tk [:r/coll]))
+        v0    (get (reactive/committed-values cell) (tk [:r/coll]))
+        ver0  (:version (obs/read lease))]
+    (is (= 0 (reactive/revision cell)) "precondition: committed, no revision yet")
+    (is (some? ver0) "the live node has a port version")
+    ;; Force the sub to RECOMPUTE — a sibling db key (:n) moves, so the frame
+    ;; commits a new epoch and the reaction re-derives — but keep :coll rf=-EQUAL
+    ;; (a fresh-identity, structurally-equal vector).
+    (seed! {:coll [1 2 3] :n 2})
+    (is (= ver0 (:version (obs/read lease)))
+        "G-4: the rf=-equal recompute left the PORT VERSION un-advanced —
+         advance-node-record!'s equality gate suppressed the version bump")
+    ;; Re-render + commit: the retained lease reads an un-advanced version, so
+    ;; step 5 finds no movement and step 8 advances NOTHING.
+    (render+commit! cell [[:r/coll]])
+    (is (= 0 (reactive/revision cell))
+        "G-4: an rf=-equal recompute ⇒ ZERO cell revision change ⇒ NO React render")
+    (is (identical? v0 (get (reactive/committed-values cell) (tk [:r/coll])))
+        "…and the committed value stays the prior exact reference (stable identity)")))

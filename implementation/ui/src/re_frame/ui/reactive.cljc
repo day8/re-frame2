@@ -947,7 +947,16 @@
   (flush-scope! (constantly true)))
 
 (defn- cell-frames
-  "The set of frame-ids `cell`'s committed subscription sites observe."
+  "The set of frame-ids `cell`'s committed subscription sites observe.
+
+  Keyed on `:sub` target keys ONLY. A static Story-override site commits an
+  `[:override id]` key that names NO frame (the pinned value IS the
+  resolution — there is no node and no observed frame), so an OVERRIDE-ONLY
+  cell observes no frame and this returns `#{}`. The frame-scope membership
+  test (`cell-observes-frame?`) is therefore false for such a cell against
+  EVERY frame, and `flush-frame!` — which scopes on it — can never reach an
+  override-only cell; only the GLOBAL `flush-pending!` drains one. A cell
+  mixing `sub` and override sites observes exactly its `sub` sites' frames."
   [^ViewCell cell]
   (into #{}
         (keep (fn [tk] (when (= :sub (nth tk 0)) (nth tk 1))))
@@ -962,7 +971,9 @@
 (defn flush-frame!
   "The FRAME arity of `flush!` — flush every pending cell observing frame
   `frame-id` (every root that observes that frame). Cells scoped to other
-  frames stay pending. Returns the count flushed."
+  frames stay pending — and an OVERRIDE-ONLY cell, which observes no frame at
+  all (`cell-frames` tracks `:sub` keys only), is never in scope: only the
+  global `flush-pending!` drains such a cell. Returns the count flushed."
   [frame-id]
   (flush-scope! #(cell-observes-frame? % frame-id)))
 
