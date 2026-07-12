@@ -14,14 +14,20 @@
 
   The mount-surface macros are client entry points (JVM-host expansion is a
   compile error), so the Layer-1 / descriptor writes are driven the way
-  `re-frame.ui.compiler.root/mount-form` drives them (register-root-site! +
-  register-plan-site! + the descriptor contribution) — the same call
-  sequence one mount site performs. `defview` and `ui/custom-element` ARE
-  JVM-expandable and run their real macro bodies, with the source file bound
-  so distinct 'files' are addressable in the ledger."
+  `re-frame.ui.compiler.root/mount-form` drives them — `mount-site!` runs the
+  REAL assembly path (analyze-root + resolve-root-identity +
+  register-root-site! + register-plan-site! + the `root/root-descriptor`
+  contribution), NOT a hand-built descriptor, so the descriptor's
+  `:build-digest` (read-time projected by `root/descriptor-index`) is
+  actually exercised by the incremental-equals-clean assertion (rf2-vxgfnd.47
+  — the prior hand-built descriptors carried no digest, masking the bug).
+  `defview` and `ui/custom-element` ARE JVM-expandable and run their real
+  macro bodies, with the source file bound so distinct 'files' are
+  addressable in the ledger."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.ui.compiler :as compiler]
             [re-frame.ui.compiler.build :as build]
+            [re-frame.ui.compiler.env :as env]
             [re-frame.ui.compiler.root :as root]
             [re-frame.ui.rules :as rules]))
 
@@ -54,24 +60,49 @@
                                          {:line 1})
                               {} tag {:properties properties})))
 
+(def ^:private resolver
+  "Injected Q5 resolution stub for the root-form analyzer driven by
+  `mount-site!` (mirrors root-analysis-cljs-test's stub)."
+  (fn [sym]
+    (case sym
+      frame-root {:fqn 're-frame.ui/frame-root :meta {}}
+      app-view   {:fqn 'app.views/app-view
+                  :meta {:rf.ui/view true :rf.ui/view-id :app.views/app-view}}
+      nil)))
+
 (defn- mount-site!
-  "Mirror `mount-form`'s Layer-1 / descriptor writes for one root site in
-  `file`: index the root-id, index each frame plan, and contribute the Root
-  Descriptor — exactly the sequence a `ui/mount` expansion performs."
-  [file root-id plans desc]
-  (let [coords {:file file :line 1}]
-    (root/register-root-site! 'ui/mount root-id :authored coords)
-    (doseq [p plans] (root/register-plan-site! 'ui/mount p coords))
-    (build/contribute! build/descriptors file root-id desc)))
+  "Drive the REAL `mount-form` descriptor path for one root site in `file`:
+  analyze the LITERAL root form, resolve identity, index the root-id + each
+  EXTRACTED frame plan, and contribute the Root Descriptor built by the
+  actual `root/root-descriptor` assembly — exactly the sequence a `ui/mount`
+  expansion performs (no hand-built descriptor, no baked digest). The
+  descriptor's `:build-digest` is thus a read-time projection
+  (`root/descriptor-index`), so the incremental-equals-clean assertion
+  exercises it (rf2-vxgfnd.47)."
+  [file root-form opts]
+  (binding [*file* file]
+    (let [coords {:file file :line 1}
+          e (env/make-env {:host :clj :ns-sym 'app.test :resolver resolver})
+          {:keys [ast views plans]} (root/analyze-root e 'ui/mount root-form)
+          {:keys [root-id provenance]} (root/resolve-root-identity
+                                        'ui/mount opts views)]
+      (root/register-root-site! 'ui/mount root-id provenance coords)
+      (doseq [p plans] (root/register-plan-site! 'ui/mount p coords))
+      (build/contribute! build/descriptors file root-id
+                         (root/root-descriptor
+                          {:root-id root-id :provenance provenance
+                           :views views :plans plans :ast ast})))))
 
 (defn- snapshot
-  "The observable state of all five build registries + the build digest."
+  "The observable state of all five build registries + the build digest. The
+  descriptor index is read through `root/descriptor-index` so its read-time
+  `:build-digest` projection is part of what clean-vs-incremental compares."
   []
   {:views       @compiler/build-views
    :digest      (compiler/current-build-digest)
    :roots       @root/build-roots
    :plans       @root/build-plans
-   :descriptors @root/build-descriptors
+   :descriptors (root/descriptor-index)
    :elements    @rules/custom-elements})
 
 ;; ---------------------------------------------------------------------------
@@ -140,18 +171,20 @@
   / :x-el)."
   []
   (declare-view! "app/a.cljs" 'bar [:section "bar"])
-  (mount-site!   "app/a.cljs" :page/cart
-                 [{:frame-id :cart :config-fingerprint "cf1-cart"}]
-                 {:rf.root/schema-version 1 :root-id :page/cart})
+  (mount-site!   "app/a.cljs"
+                 '[frame-root {:id :cart :initial-events [[:cart/boot]]}
+                   [app-view {:promo :winter}]]
+                 {:root-id :page/cart})
   (declare-element! "app/a.cljs" :y-el #{:label}))
 
 (deftest incremental-edit-equals-clean-build
   ;; 1) the ORIGINAL source A, built in this JVM
   (build/begin-build! :app)
   (declare-view! "app/a.cljs" 'foo [:div "foo"])
-  (mount-site!   "app/a.cljs" :page/shop
-                 [{:frame-id :shop :config-fingerprint "cf1-shop"}]
-                 {:rf.root/schema-version 1 :root-id :page/shop})
+  (mount-site!   "app/a.cljs"
+                 '[frame-root {:id :shop :initial-events [[:shop/boot]]}
+                   [app-view {:promo :spring}]]
+                 {:root-id :page/shop})
   (declare-element! "app/a.cljs" :x-el #{:help-text})
   ;; 2) EDIT the same file in the SAME JVM (no restart) — incremental rebuild
   (build/begin-build! :app)
@@ -174,13 +207,61 @@
       (testing "the digest is a function of current views only"
         (is (= (:digest clean) (:digest incremental)))))))
 
+;; ---------------------------------------------------------------------------
+;; The descriptor :build-digest is a READ-TIME projection (rf2-vxgfnd.47) —
+;; compile-order independent + never stale under an incremental view edit.
+;; The prior harness hand-built digest-free descriptors, masking both.
+;; ---------------------------------------------------------------------------
+
+(deftest descriptor-digest-is-compile-order-independent-and-covers-all-views
+  ;; ORDER 1: the mount site expands BEFORE the rest of the build's views
+  ;; compile. Baked-at-expansion would freeze its descriptor digest over only
+  ;; a-view; the read-time projection reads the WHOLE-build digest.
+  (build/begin-build! :app)
+  (declare-view! "app/a.cljs" 'a-view [:div "a"])
+  (mount-site!   "app/m.cljs" '[app-view {}] {:root-id :page/m})
+  (declare-view! "app/b.cljs" 'b-view [:section "b"])
+  (let [digest-1 (get-in (root/descriptor-index) [:page/m :build-digest])]
+    (is (= (compiler/current-build-digest) digest-1)
+        "the descriptor digest reflects ALL build views (a-view AND b-view),
+         not only those compiled before the mount site expanded")
+    ;; ORDER 2: same two views, but the mount site expands LAST.
+    (build/reset-build!)
+    (build/begin-build! :app)
+    (declare-view! "app/b.cljs" 'b-view [:section "b"])
+    (declare-view! "app/a.cljs" 'a-view [:div "a"])
+    (mount-site!   "app/m.cljs" '[app-view {}] {:root-id :page/m})
+    (is (= digest-1 (get-in (root/descriptor-index) [:page/m :build-digest]))
+        "same whole-build digest whether the mount site expands first or last
+         (compile-order independent — .16 AC7)")))
+
+(deftest descriptor-digest-tracks-an-incremental-view-only-edit
+  ;; A mount site in m.cljs + a view in v.cljs.
+  (build/begin-build! :app)
+  (mount-site!   "app/m.cljs" '[app-view {}] {:root-id :page/m})
+  (declare-view! "app/v.cljs" 'v-view [:div "one"])
+  (let [d1 (get-in (root/descriptor-index) [:page/m :build-digest])]
+    (is (= (compiler/current-build-digest) d1))
+    ;; INCREMENTAL pass: recompile ONLY the view file (its template changes).
+    ;; The mount site is NOT re-expanded — under baked-at-expansion its stored
+    ;; descriptor would keep the OLD digest; the read-time projection tracks
+    ;; the new whole-build digest.
+    (build/begin-build! :app)
+    (declare-view! "app/v.cljs" 'v-view [:div "two"])
+    (let [d2 (get-in (root/descriptor-index) [:page/m :build-digest])]
+      (is (not= d1 d2)
+          "the view edit changed the whole-build digest")
+      (is (= (compiler/current-build-digest) d2)
+          "the un-re-expanded mount-site descriptor reads the CURRENT digest,
+           not a stale expansion-time snapshot (rf2-vxgfnd.47)"))))
+
 (deftest repeated-rebuilds-stay-bounded-without-a-reset
   ;; AC6: correctness across a watch session needs NO test-only global reset —
   ;; re-declaring the same file N times replaces (never grows).
   (dotimes [_ 25]
     (build/begin-build! :app)
     (declare-view! "app/a.cljs" 'only [:div "only"])
-    (mount-site! "app/a.cljs" :page/shop [] {:rf.root/schema-version 1 :root-id :page/shop}))
+    (mount-site! "app/a.cljs" '[app-view {}] {:root-id :page/shop}))
   (is (= 1 (count @compiler/build-views)) "views bounded across repeated rebuilds")
   (is (= #{:page/shop} (set (keys @root/build-roots))) "roots bounded")
   (is (= #{:page/shop} (set (keys @root/build-descriptors))) "descriptors bounded"))

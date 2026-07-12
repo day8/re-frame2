@@ -346,14 +346,24 @@
   mount zero or several); `:root-id-provenance` is dev-only and never
   reaches shipped manifests. Identity keys are omitted when `root-id` is
   nil (the `render!` descriptor-base — the client completes identity from
-  its Root, fixed at `create-root`)."
-  [{:keys [root-id provenance views plans ast build-digest]}]
+  its Root, fixed at `create-root`).
+
+  Carries the per-root STATIC facts ONLY. `:build-digest` — a whole-build
+  aggregate, identical for every root in the build — is deliberately NOT
+  baked here: it is a READ-TIME projection stamped by `descriptor-index`
+  (rf2-vxgfnd.47). Baking it at expansion made it (a) compile-order
+  dependent — a mount site expanded before the rest of the build's views
+  compiled froze the digest over only the views seen so far — and (b) stale
+  under an incremental view edit — recompiling a view's file without
+  re-expanding the mount site left the descriptor carrying the old digest.
+  Resolving at read (over the sorted, JVM-stable view triples) is
+  compile-order independent and never stale."
+  [{:keys [root-id provenance views plans ast]}]
   (let [view (when (= 1 (count views)) (first views))]
     (cond-> {:rf.root/schema-version 1
              :frame-plans (mapv #(select-keys % [:frame-id :config-fingerprint])
                                 plans)
-             :template-fingerprint (fingerprint/template-fingerprint ast)
-             :build-digest build-digest}
+             :template-fingerprint (fingerprint/template-fingerprint ast)}
       (some? root-id)   (assoc :root-id root-id)
       (some? provenance) (assoc :root-id-provenance provenance)
       view (assoc :view-id (:view-id view))
@@ -402,6 +412,25 @@
   []
   (build/reset-build!)
   nil)
+
+#?(:clj
+   (defn descriptor-index
+     "The Root Descriptor index projected for READING (S5 tooling / Xray /
+     ui.test read compile output through here): every stored per-root static
+     descriptor stamped with the CURRENT whole-build `:build-digest`. The
+     digest is a whole-build aggregate — identical for every root — so it is
+     resolved HERE at read, never baked into a descriptor at expansion time,
+     where it would reflect only the views compiled before that mount site
+     (compile-order dependent) and go stale when a view recompiled without
+     re-expanding the mount site (rf2-vxgfnd.47). Compile-order independent +
+     incremental==clean by construction: the value is
+     `re-frame.ui.compiler/current-build-digest`, recomputed on every read
+     over the sorted view triples."
+     []
+     (let [bd (compiler/current-build-digest)]
+       (into {}
+             (map (fn [[rid desc]] [rid (assoc desc :build-digest bd)]))
+             @build-descriptors))))
 
 (defn- site-str [{:keys [file line]}]
   (str (or file "<unknown-file>") (when line (str ":" line))))
@@ -620,8 +649,7 @@
               _      (register-root-site! 'ui/mount root-id provenance coords)
               _      (doseq [p plans] (register-plan-site! 'ui/mount p coords))
               desc   (root-descriptor {:root-id root-id :provenance provenance
-                                       :views views :plans plans :ast ast
-                                       :build-digest (compiler/current-build-digest)})
+                                       :views views :plans plans :ast ast})
               _      (build/contribute! build/descriptors (:file coords)
                                         root-id desc)
               body   (emit-cljs/emit-inline ast 'rf-ui-root)]
@@ -686,8 +714,7 @@
               _      (print-warnings! e 'ui/render!)
               _      (doseq [p plans]
                        (register-plan-site! 'ui/render! p coords))
-              desc   (root-descriptor {:views views :plans plans :ast ast
-                                       :build-digest (compiler/current-build-digest)})
+              desc   (root-descriptor {:views views :plans plans :ast ast})
               body   (emit-cljs/emit-inline ast 'rf-ui-root)]
           `(re-frame.ui.client/render!*
             ~root
@@ -725,8 +752,7 @@
                 (register-root-site! 'ui/hydrate-root derived :derived coords)
                 (build/contribute! build/descriptors (:file coords) derived
                        (root-descriptor {:root-id derived :provenance :derived
-                                         :views views :plans plans :ast ast
-                                         :build-digest (compiler/current-build-digest)}))))
+                                         :views views :plans plans :ast ast}))))
             (doseq [p plans] (register-plan-site! 'ui/hydrate-root p coords))
             (let [body (emit-cljs/emit-inline ast 'rf-ui-root)]
               `(re-frame.ui.client/hydrate-root*
