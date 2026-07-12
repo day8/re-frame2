@@ -366,12 +366,24 @@
     (is (contains? #{'clojure.core/let 'cljs.core/let} (first emitted))
         "hoisted constants become let bindings around the body")))
 
-(deftest emitters-render-frame-root-transparently
+(deftest emitters-scope-frame-root-to-its-frame
+  ;; rf2-vxgfnd.25: a top-region frame-root SCOPES its ensured frame to its
+  ;; children so an ambient (sub …) resolves it — no longer a bare transparent
+  ;; Fragment. The wrappers add no DOM (a React context Provider on CLJS, a
+  ;; dynamic binding on the JVM); the tree stays transparent, but the frame is
+  ;; now in ambient scope.
   (let [{:keys [ast]} (analyze-root*
                        '[frame-root {:id :shop} [app-view {}]])]
-    (testing "CLJS: children under a Fragment"
-      (let [emitted (emit-cljs/emit-inline ast 'rf-ui-root)]
-        (is (some #{'re-frame.ui.runtime/Fragment} (forms-of emitted)))))
-    (testing "JVM: children spliced under a keyless tree fragment"
+    (testing "CLJS: children scoped via frames/scope-element with the frame id"
+      (let [emitted (emit-cljs/emit-inline ast 'rf-ui-root)
+            forms   (forms-of emitted)]
+        (is (some #{'re-frame.ui.frames/scope-element} forms))
+        (is (some #{:shop} forms)
+            "the frame-root's literal :id is the scope target")
+        (is (not-any? #{'re-frame.ui.runtime/Fragment} forms)
+            "no bare transparent Fragment — the frame-root emits a scope")))
+    (testing "JVM: children bound under frames/jvm-root-scope with the frame id"
       (let [emitted (emit-jvm/emit-node ast)]
-        (is (= 're-frame.ui.tree/fragment (first emitted)))))))
+        (is (= 're-frame.ui.frames/jvm-root-scope (first emitted)))
+        (is (= :shop (second emitted))
+            "the frame-root's literal :id is bound as the ambient frame")))))

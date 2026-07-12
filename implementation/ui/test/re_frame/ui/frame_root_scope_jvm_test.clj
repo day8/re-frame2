@@ -1,0 +1,63 @@
+(ns re-frame.ui.frame-root-scope-jvm-test
+  "rf2-vxgfnd.25 — `frame-root` now EMITS its frame scope on the JVM
+  (structural / SSR) host too: the compiled `:frame-root` node binds the
+  dynamic-tier ambient frame to its literal `:id` around the subtree's
+  construction (`frames/jvm-root-scope`), the mirror of the CLJS
+  `scope-element` and of `jvm-provider-scope`. So an ambient `(sub …)` in a
+  descendant view resolves the frame-root's frame during a Tier-1 render.
+
+    - the `jvm-root-scope` helper binds `*current-frame*` (the emit mechanism,
+      exercised directly, independent of the test render host);
+    - end to end: a `(sub …)` under a `frame-root` reads that frame's app-db
+      through `ui.test/render`."
+  (:require [clojure.test :refer [deftest is use-fixtures]]
+            [re-frame.core :as rf]
+            [re-frame.frame :as frame]
+            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-support :as test-support]
+            [re-frame.ui :as ui :refer [defview]]
+            [re-frame.ui.frames :as frames]
+            [re-frame.ui.test :as uit]))
+
+;; :ambient-frame nil — opt OUT of the fixture's default `:rf/default`
+;; *current-frame* binding, so the jvm-root-scope unit arm sees a clean
+;; nil ambient outside its own binding.
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter
+                                            :ambient-frame nil})
+  (fn [t] (frames/reset-installed-plans!) (t) (frames/reset-installed-plans!)))
+
+(defview rooted-greeting
+  "Reads a sub ambiently — resolves the enclosing frame-root's frame."
+  []
+  [:h1.greet (ui/sub [:greet/text])])
+
+;; ---------------------------------------------------------------------------
+;; the emit mechanism: jvm-root-scope binds the dynamic-tier ambient frame
+;; ---------------------------------------------------------------------------
+
+(deftest jvm-root-scope-binds-the-ambient-frame
+  ;; PURE scope (no validation): outside the scope *current-frame* is nil;
+  ;; inside, it is the frame-root's literal id — exactly what an ambient
+  ;; sub-read resolves. This is the JVM half the emitted :frame-root node calls.
+  (is (nil? frame/*current-frame*) "no ambient frame before the scope")
+  (is (= :app/rooted
+         (frames/jvm-root-scope :app/rooted (fn [] frame/*current-frame*)))
+      "jvm-root-scope binds *current-frame* to the frame-root's id for its subtree")
+  (is (nil? frame/*current-frame*) "the binding is scoped — unwinds after the thunk"))
+
+;; ---------------------------------------------------------------------------
+;; end to end: an ambient (sub …) under a frame-root reads its frame's app-db
+;; ---------------------------------------------------------------------------
+
+(deftest sub-under-frame-root-resolves-its-frame-jvm
+  (rf/reg-sub :greet/text (fn [db _] (:greet db)))
+  (let [before (set (keys @frame/frames))
+        tree   (uit/render
+                [ui/frame-root {:id :app/rooted
+                                :initial-events [[:rf/set-db {:greet "scoped"}]]}
+                 [rooted-greeting {}]])]
+    (is (= "scoped" (uit/text (uit/find tree :h1)))
+        "the ambient (sub …) resolved the frame-root's frame on the JVM")
+    (is (= before (set (keys @frame/frames)))
+        "the test-owned frame is torn down — no residue")))

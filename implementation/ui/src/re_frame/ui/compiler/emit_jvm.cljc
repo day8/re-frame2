@@ -193,11 +193,18 @@
                 `(re-frame.ui.tree/fragment
                   ~(:present? k) ~(:expr k)
                   ~@(keep emit-node (:children node))))
-    ;; A top-region frame-root is TRANSPARENT in the structural tree —
-    ;; its ENSURE plan rides the root descriptor + host preflight, not the
-    ;; render output
-    :frame-root `(re-frame.ui.tree/fragment
-                  false nil ~@(keep emit-node (:children node)))
+    ;; A top-region frame-root SCOPES its ensured frame (rf2-vxgfnd.25): the
+    ;; JVM has no React context, so it BINDS the dynamic-tier ambient frame
+    ;; to the frame-root's literal :id around the subtree's construction (the
+    ;; mirror of the CLJS scope-element / of jvm-provider-scope). ENSURE
+    ;; already ran at host preflight; the subtree itself is a transparent
+    ;; fragment in the structural tree. So an ambient (sub …) in a descendant
+    ;; view resolves the frame-root's frame during a Tier-1 structural render.
+    :frame-root `(re-frame.ui.frames/jvm-root-scope
+                  ~(:frame-id node)
+                  (fn []
+                    (re-frame.ui.tree/fragment
+                     false nil ~@(keep emit-node (:children node)))))
     ;; S2c: frame-provider scopes by BINDING the dynamic-tier ambient frame
     ;; around the subtree's construction (the JVM has no React context); the
     ;; subtree itself is a transparent fragment in the structural tree

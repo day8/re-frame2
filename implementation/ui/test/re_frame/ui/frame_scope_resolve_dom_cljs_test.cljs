@@ -71,8 +71,23 @@
                "through the React-context tier — the :adapter/current-frame "
                "reader is live on the compiled sub-read path (rf2-vxgfnd.24)")))))
 
-;; NOTE: the frame-ROOT counterpart (`sub-under-frame-root-resolves-…`) lands
-;; with rf2-vxgfnd.25 below (frame-root must EMIT its scope first).
+;; ---------------------------------------------------------------------------
+;; rf2-vxgfnd.25 — a compiled sub under a bare frame-root resolves ambiently
+;; (frame-root now EMITS its scope; scope-element is reached, not dead)
+;; ---------------------------------------------------------------------------
+
+(deftest sub-under-frame-root-resolves-scoped-frame-ambiently
+  (when (browser?)
+    (reg!)
+    (let [c (container)]
+      (react-dom/flushSync
+       #(ui/mount [frame-root {:id :app/rooted :initial-events [[:test/set-db {:n 7}]]}
+                   [n-view]]
+                  c {:root-id :dom-scope/root}))
+      (is (re-find #"n=7" (.-innerHTML c))
+          (str "the ambient (sub …) resolved the frame-root-scoped frame — "
+               "frame-root now emits its scope through frames/scope-element "
+               "(rf2-vxgfnd.25), and .24's published reader consults it")))))
 
 ;; ---------------------------------------------------------------------------
 ;; NEGATIVE — a compiled sub OUTSIDE any provider/root still fails loud
