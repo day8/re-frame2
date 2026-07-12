@@ -320,8 +320,10 @@
   ;;    :values    {tk -> value} ; last published site values (stabilization
   ;;                             ;   + the revision snapshot's evidence)
   ;;    :revision  int           ; get-snapshot returns this (useSyncExternalStore)
-  ;;    :dirty?    bool          ; pending-notification flag (epoch coalescing)
-  ;;    :dirty-epoch epoch|nil   ; the epoch the pending notification tags
+  ;;    :dirty?    bool          ; pending-notification flag (drain coalescing)
+  ;;    :evidence  ev|nil        ; DEBUG-only bounded causal evidence for the
+  ;;                             ;   pending window (see `fold-evidence`); nil
+  ;;                             ;   in production (elided) + between flushes
   ;;    :latest-capture cap|nil  ; last finished render capture (commit input)
   ;;    :listeners {k -> fn}     ; useSyncExternalStore subscribers
   ;;    :intervals [interval]}   ; lifecycle facts (dev/tool; 03 §4)
@@ -348,7 +350,7 @@
             :values         {}
             :revision       0
             :dirty?         false
-            :dirty-epoch    nil
+            :evidence       nil
             :latest-capture nil
             :listeners      {}
             :intervals      []}))))
@@ -435,10 +437,12 @@
 
 ;; ---- drain coalescing + the notification scheduler (S2d) --------------------
 ;;
-;; `on-change` is constant-work (mark-dirty; never compute — I-5), carrying
-;; the moving epoch as CAUSE EVIDENCE only. A cell enters the module DIRTY
-;; REGISTRY exactly once per flush boundary (the set dedups by identity; a
-;; re-mark while pending folds in regardless of epoch tag). N epochs
+;; `on-change` is constant-work (mark-dirty; never compute — I-5). The moving
+;; epoch/cause rides as EVIDENCE only (bounded + DEBUG-gated — see the
+;; evidence plane below; production carries just the pending flag). A cell
+;; enters the module DIRTY REGISTRY exactly once per flush boundary (the set
+;; dedups by identity; a re-mark while pending folds in regardless of epoch
+;; tag). N epochs
 ;; committed in one run-to-completion drain therefore advance the cell ONCE
 ;; at flush — the render batch boundary is DRAIN QUIESCENCE, not epoch close.
 ;; On CLJS one coalesced flush is armed per drain on the host MICROTASK queue
@@ -518,33 +522,125 @@
            (flush-pending!))))
      :clj nil))
 
+;; ---- the DEBUG invalidation-evidence plane (rf2-vxgfnd.46) ------------------
+;;
+;; TWO SEPARATE PLANES. The PRODUCTION scheduler needs only the pending flag
+;; + identity-deduped registry membership (`enrol-dirty!`); that is the WHOLE
+;; production invalidation cost — no per-cause allocation, nothing that scales
+;; with the queued-event count. The DEBUG plane accumulates a BOUNDED
+;; (constant-size) causal summary of the coalesced batch for tooling (Xray),
+;; gated behind `interop/debug-enabled?` so it DCEs out of `:advanced` +
+;; goog.DEBUG=false. Notification coalescing and causal evidence stay distinct:
+;; one dirty enrolment / one render, while dev/tool builds retain enough to
+;; attribute the render batch to its contributing movement (Spec 006 §The
+;; internal observation port; 03 §3).
+
+(def ^:private ^:const target-cap
+  ;; Distinct moving targets kept per pending window before overflow folds
+  ;; into a running dropped-count — bounds the evidence to constant size.
+  8)
+
+(defn- fold-evidence
+  "DEBUG plane: fold one invalidation `payload` into a cell's pending-window
+  evidence `ev` (nil = a fresh window). Returns a BOUNDED, constant-size
+  record — never an unbounded payload vector:
+
+    {:first-epoch  e0    ; the FIRST movement's frame-epoch (the anchor)
+     :latest-epoch eN    ; the most-recent movement's frame-epoch
+     :count        n     ; total invalidations folded this window
+     :causes       #{…}  ; the SET of causes seen (:value/:hmr/:disposed — ≤3)
+     :targets      [tk…] ; distinct moved target keys, capped at `target-cap`
+     :dropped      m}    ; distinct targets dropped past the cap (loss account)
+
+  The cause set and epoch scalars are naturally bounded; the target vector is
+  explicitly capped with a dropped-count, so overflow is REPORTED, never
+  silently lost (acceptance-criterion 3)."
+  [ev {:keys [cause target frame-epoch]}]
+  (let [tk (when target (target-key target))]
+    (if (nil? ev)
+      {:first-epoch  frame-epoch
+       :latest-epoch frame-epoch
+       :count        1
+       :causes       (if cause #{cause} #{})
+       :targets      (if tk [tk] [])
+       :dropped      0}
+      (let [known?  (or (nil? tk) (some #(= tk %) (:targets ev)))
+            at-cap? (>= (count (:targets ev)) target-cap)]
+        (cond-> (-> ev
+                    (assoc :latest-epoch frame-epoch)
+                    (update :count inc))
+          cause                            (update :causes conj cause)
+          (and (not known?) (not at-cap?)) (update :targets conj tk)
+          (and (not known?) at-cap?)       (update :dropped inc))))))
+
+(defn- record-evidence!
+  "DEBUG plane: fold `payload`'s bounded causal evidence into `cell`'s
+  pending-window accumulator. Elided in production (every caller gates on
+  `interop/debug-enabled?`)."
+  [^ViewCell cell payload]
+  (swap! (state cell) update :evidence fold-evidence payload))
+
+(defonce ^:private evidence-sink
+  ;; DEBUG-only consumer seam: `(fn [cell evidence] …)` | nil. Invoked at each
+  ;; flush with the coalesced bounded evidence BEFORE it is cleared, so a tool
+  ;; (Xray) receives the causal summary of the render batch rather than it
+  ;; being dead cell state (rf2-vxgfnd.46). `defonce` (module-lived);
+  ;; `reset-scheduler!` clears it between fixtures.
+  (atom nil))
+
+(defn set-evidence-sink!
+  "Install (or clear, with nil) the DEBUG-only invalidation-evidence consumer
+  — a `(fn [cell evidence] …)` the flush invokes with each pending cell's
+  coalesced bounded evidence just before advancing its revision. The intended
+  `re-frame.ui.tool`/Xray projection point; the flush's call is gated on
+  `interop/debug-enabled?`, so it is a no-op in production. Returns nil."
+  [f]
+  (reset! evidence-sink f)
+  nil)
+
+(defn- enrol-dirty!
+  "The PRODUCTION scheduling core: flag `cell` pending, enrol it in the dirty
+  registry once (identity-deduped — a re-mark while already dirty coalesces),
+  and arm one per-drain microtask flush. NO evidence, no compute, no
+  acquire/release (I-5) — this is the WHOLE production invalidation cost, flat
+  in the number of queued events."
+  [^ViewCell cell]
+  (let [st (state cell)]
+    (when-not (:dirty? @st)
+      (swap! st assoc :dirty? true)
+      (swap! dirty-cells conj cell)
+      (schedule-flush!))))
+
 (defn mark-dirty!
-  "The `on-change` body: mark `cell` dirty for `epoch` and enrol it in the
-  dirty registry (once — a re-mark while already dirty coalesces), then
-  arm one per-drain microtask flush. Never acquires/releases (no reentrant-
-  graph-op) and never computes (I-5) — it flags a revision advance the
-  scheduled render re-probes. `epoch` (the moving frame's commit epoch,
-  from the `on-change` payload) tags the pending notification as CAUSE
-  EVIDENCE only: coalescing keys on the pending flag, NEVER on the epoch
-  tag, so epochs committed by later queued events in the same drain fold
-  into this one pending notification (the first mark's epoch stays the
-  anchor). nil when driven without epoch evidence."
+  "The `on-change` body / test seam: enrol `cell` for a coalesced flush
+  (`enrol-dirty!`) and — in DEV/tool builds only — fold `epoch` as minimal
+  cause evidence. Never acquires/releases and never computes (I-5). Coalescing
+  keys on the pending flag, NEVER on any cause tag: a re-mark while already
+  pending advances nothing, yet its evidence still FOLDS into the same bounded
+  pending-window record — so N invalidations in one drain coalesce to ONE
+  render while the debug plane preserves first/latest epoch plus a bounded
+  cause/target summary (rf2-vxgfnd.46). `on-change-fn` folds the RICHER port
+  payload (cause + target); this arity carries only an epoch, for the JVM/test
+  seam. nil when driven without epoch evidence."
   ([^ViewCell cell] (mark-dirty! cell nil))
   ([^ViewCell cell epoch]
-   (let [st (state cell)]
-     (when-not (:dirty? @st)
-       (swap! st assoc :dirty? true :dirty-epoch epoch)
-       (swap! dirty-cells conj cell)
-       (schedule-flush!)))))
+   (when interop/debug-enabled?
+     (record-evidence! cell {:frame-epoch epoch}))
+   (enrol-dirty! cell)))
 
 (defn- flush-one!
-  "Clear `cell`'s pending flag and advance its revision once (the caller
-  has already removed it from the registry). No-op when not dirty —
-  idempotent under a concurrent drain."
+  "Clear `cell`'s pending flag and advance its revision once (the caller has
+  already removed it from the registry). No-op when not dirty — idempotent
+  under a concurrent drain. In DEV/tool builds, first hands the coalesced
+  bounded evidence to the installed `evidence-sink` (Xray): the flush CARRIES
+  the causal summary to its consumer before clearing it (rf2-vxgfnd.46)."
   [^ViewCell cell]
   (let [st (state cell)]
     (when (:dirty? @st)
-      (swap! st assoc :dirty? false :dirty-epoch nil)
+      (when interop/debug-enabled?
+        (when-some [sink @evidence-sink]
+          (sink cell (:evidence @st))))
+      (swap! st assoc :dirty? false :evidence nil)
       (advance-revision! cell))))
 
 (defn flush-scope!
@@ -601,7 +697,7 @@
   in the registry or fires a stale flush. Returns nil."
   [^ViewCell cell]
   (swap! dirty-cells disj cell)
-  (swap! (state cell) assoc :dirty? false :dirty-epoch nil)
+  (swap! (state cell) assoc :dirty? false :evidence nil)
   nil)
 
 (defn dirty?
@@ -610,14 +706,30 @@
   (boolean (:dirty? @(state cell))))
 
 (defn pending-epoch
-  "The epoch tag anchoring `cell`'s pending notification — the CAUSE EVIDENCE
-  the FIRST `on-change` of the current pending window carried (nil when the
-  cell is not pending, or was dirtied without epoch evidence). Epoch ids are
-  movement/cause evidence ONLY; coalescing keys on the pending flag, never on
-  this tag, so later queued events' epochs fold into the same render batch
-  without re-anchoring or advancing it (tool/test read)."
+  "The FIRST-epoch ANCHOR of `cell`'s pending-window evidence — the frame-epoch
+  the FIRST `on-change` of the current window carried (nil when the cell is not
+  pending, was dirtied without epoch evidence, or in a production build where
+  the debug evidence plane is elided). A convenience read over
+  `pending-evidence`. Epoch ids are movement/cause evidence ONLY; coalescing
+  keys on the pending flag, never on this tag, so later queued events' epochs
+  fold into the same render batch without re-anchoring or advancing it. For the
+  FULL coalesced batch — latest epoch, the cause/target span, the loss account
+  — read `pending-evidence` (tool/test read)."
   [^ViewCell cell]
-  (:dirty-epoch @(state cell)))
+  (:first-epoch (:evidence @(state cell))))
+
+(defn pending-evidence
+  "The BOUNDED causal-evidence record for `cell`'s current pending window (nil
+  when the cell is not pending, or in a production build where the debug plane
+  is elided). The coalesced summary of every invalidation folded into this one
+  render batch — see `fold-evidence` for the shape: first/latest frame-epoch,
+  the fold count, the cause set, a capped distinct-target vector, and a
+  dropped-count. The `re-frame.ui.tool`/Xray projection reads this (or receives
+  it via `set-evidence-sink!`) to attribute a coalesced render to its
+  contributing movement WITHOUT forcing a render per epoch (rf2-vxgfnd.46;
+  tool/test read)."
+  [^ViewCell cell]
+  (:evidence @(state cell)))
 
 (defn pending-cell-count
   "The number of cells with a pending notification (tool/test read)."
@@ -632,11 +744,22 @@
   (reset! flush-scheduled? false)
   (reset! slice-memo* nil)
   (reset! live-cells #{})
+  (reset! evidence-sink nil)
   nil)
 
 (defn- on-change-fn
+  "Build the per-lease `on-change` the commit registers on each acquired
+  target (Spec 006 §The internal observation port). Constant-work: enrol
+  `cell` for a coalesced flush and — in DEV/tool builds only — fold the port's
+  rich invalidation payload (`:cause`/`:target`/`:frame-epoch`, plus the
+  `:node-*`/`:registry-epoch` axes it carries) into the bounded pending-window
+  evidence. Production carries only the enrolment (I-5; the evidence fold DCEs
+  out under goog.DEBUG=false)."
   [^ViewCell cell]
-  (fn [payload] (mark-dirty! cell (:frame-epoch payload))))
+  (fn [payload]
+    (when interop/debug-enabled?
+      (record-evidence! cell payload))
+    (enrol-dirty! cell)))
 
 ;; ---- lifecycle (03 §4) ------------------------------------------------------
 ;;

@@ -259,3 +259,83 @@
           "sibling cold probes in ONE render compute the shared parent ONCE
            via the slice-scoped memo threaded through sub-read")
       (is (nil? (entry [:s/parent])) "probes stayed ownership-free — no cache node"))))
+
+;; ===========================================================================
+;; Bounded invalidation evidence across a coalesced batch (rf2-vxgfnd.46)
+;; ===========================================================================
+;;
+;; The observation port emits a rich constant-work invalidation payload
+;; (`:cause`/`:target`/`:node-*`/`:frame-epoch`/`:registry-epoch`). re-frame.ui
+;; keeps TWO planes: the production scheduler folds only the pending flag +
+;; identity-deduped registry membership; a DEBUG plane accumulates a BOUNDED,
+;; constant-size causal summary of the coalesced batch for tooling. Coalescing
+;; and evidence stay independent — one dirty enrolment / one render, yet the
+;; debug plane retains enough to attribute that render to its contributing
+;; movement (first/latest epoch, a cause set, a capped target vector + a
+;; dropped-count) WITHOUT forcing a render per epoch.
+
+(deftest n-invalidations-in-one-drain-preserve-bounded-evidence
+  ;; N invalidations with DISTINCT epochs fold before one flush: ONE revision
+  ;; advance + ONE notification, while the evidence plane summarizes the whole
+  ;; batch (first/latest epoch + fold count) and the flush CARRIES it to the
+  ;; consumer sink — never a per-epoch render (AC 2/3/5).
+  (let [cell (reactive/make-cell ::v)
+        hits (atom 0)
+        seen (atom [])]
+    (reactive/subscribe cell (fn [] (swap! hits inc)))
+    (reactive/set-evidence-sink! (fn [c ev] (swap! seen conj [c ev])))
+    (doseq [e (range 1 9)] (reactive/mark-dirty! cell e))
+    (testing "the pending window's evidence summarizes the whole batch"
+      (let [ev (reactive/pending-evidence cell)]
+        (is (= 1 (:first-epoch ev)) "anchored to the FIRST epoch")
+        (is (= 8 (:latest-epoch ev)) "…and tracks the LATEST")
+        (is (= 8 (:count ev)) "all 8 invalidations folded")
+        (is (= 0 (:dropped ev)) "nothing dropped")))
+    (is (= 1 (reactive/pending-cell-count)) "enrolled ONCE despite 8 marks")
+    (reactive/flush-pending!)
+    (testing "coalesced to ONE render, and the flush CARRIED the evidence"
+      (is (= 1 (reactive/revision cell)) "ONE revision advance")
+      (is (= 1 @hits) "ONE notification — one render batch, not eight")
+      (is (= 1 (count @seen)) "the sink received the coalesced batch exactly once")
+      (is (identical? cell (first (first @seen))))
+      (is (= 8 (:count (second (first @seen)))) "…with the full coalesced count")
+      (is (nil? (reactive/pending-evidence cell)) "evidence clears with the flush"))))
+
+(deftest evidence-folds-the-real-cause-and-target-from-the-port-payload
+  ;; The rich port payload is CONSUMED at on-change, not discarded (AC 1/4). A
+  ;; committed cell whose sub is re-registered receives a REAL `:hmr`
+  ;; invalidation carrying the moving target; the evidence records both.
+  (rf/reg-sub :r/a (fn [db _] (:a db)))
+  (seed! fid {:a 1})
+  (let [cell (rc! (reactive/make-cell ::v) fid [[:r/a]])]
+    (is (nil? (reactive/pending-evidence cell)) "clean before any movement")
+    (rf/reg-sub :r/a (fn [db _] (:a db)))   ;; HMR re-registration → real :hmr fan-out
+    (let [ev (reactive/pending-evidence cell)]
+      (is (reactive/dirty? cell) "the HMR invalidation marked the cell dirty")
+      (is (= #{:hmr} (:causes ev)) "the real :hmr cause is recorded, not thrown away")
+      (is (= [(tk fid [:r/a])] (:targets ev)) "…with the moving target key")
+      (is (= 1 (:count ev))))))
+
+(deftest evidence-target-vector-is-bounded-with-a-loss-account
+  ;; MORE distinct moving targets than the cap fold into a CAPPED target vector
+  ;; plus an explicit dropped-count — the evidence is constant-size, and
+  ;; overflow is reported rather than silently lost (AC 3).
+  (let [n       10                          ;; > the target cap (8)
+        ids     (mapv (fn [i] (keyword "r" (str "s" i))) (range n))
+        queries (mapv vector ids)]
+    (doseq [i (range n)]
+      (rf/reg-sub (ids i) (fn [db _] (get db i))))
+    (seed! fid (into {} (map (fn [i] [i i])) (range n)))
+    (let [cell (rc! (reactive/make-cell ::v) fid queries)]
+      (doseq [i (range n)]                  ;; re-register each → n distinct :hmr targets
+        (rf/reg-sub (ids i) (fn [db _] (get db i))))
+      (let [ev (reactive/pending-evidence cell)]
+        (is (= n (:count ev)) "every invalidation is counted")
+        (is (= 8 (count (:targets ev))) "the target vector is capped at target-cap")
+        (is (= 2 (:dropped ev)) "the 2 overflow targets are counted, not silently lost")
+        (is (= #{:hmr} (:causes ev)) "the cause set stays bounded"))
+      (testing "the whole capped batch still coalesces to ONE render"
+        (let [hits (atom 0)]
+          (reactive/subscribe cell (fn [] (swap! hits inc)))
+          (reactive/flush-dirty! cell)
+          (is (= 1 @hits) "one notification for the whole bounded batch"))))))
