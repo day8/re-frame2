@@ -36,6 +36,17 @@ Thumbs.db
 !/ai/extended-context/
 !/ai/extended-context/**
 
+# Force-tracked exception (TEMPORARY, removed at re-frame.ui S7 — see the S7
+# cleanup bead): ai/findings/new-substrate-synthesis/ is force-added to git
+# (`git add -f`, the same mechanism as new-substrate-codex/) so the ratified
+# re-frame.ui program plan — blessed API table, decision record, certified prep
+# docs, contract drafts — is durable + worker-visible and another AI can pick up
+# the process from a clean clone. The S3–S7 stage epics cite it as the
+# authoritative plan. Content promotes into spec/ across the stages (R-1/R-2);
+# when every cited contract has its spec/ home the tree is git-rm'd. Only this
+# subtree is tracked; all other ai/findings/* stay local. Edits to tracked files
+# commit normally; a NEW synthesis file needs `git add -f`.
+
 # Beads / Dolt files (added by bd init)
 .dolt/
 *.db
