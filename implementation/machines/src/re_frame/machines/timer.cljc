@@ -237,6 +237,23 @@
   (let [delay-key    (:delay k)
         delay-source (:delay-source entry)
         sub-vec      (when (vector? delay-key) delay-key)
+        ;; The timer-table `:spawn` is the region-PREFIXED invoke-id for a
+        ;; region `:after` (`prefix-region-invoke-id`). The fired / stale
+        ;; replies strip the region head (`pick-after-transition`'s
+        ;; `carried-decl-path`), so strip it here too — using the `:region`
+        ;; name recorded at schedule time — before building the reply's
+        ;; `:rf.reply/work-id`. Without the strip the cancelled row's
+        ;; `[:rf.work/timer [<actor> <region> <state...>] epoch]` work-id
+        ;; would split from the fired / stale `[:rf.work/timer
+        ;; [<actor> <state...>] epoch]` rows of the SAME logical `:after`
+        ;; across the work/reply ledger (correlation only — the runtime
+        ;; stale-gate keys on the region-scoped epoch slot and is unaffected).
+        ;; A flat / root timer has no `:region`, so its decl-path is unchanged.
+        region       (:region entry)
+        decl-path    (let [sp (:spawn k)]
+                       (if (and region (seq sp) (= region (first sp)))
+                         (vec (rest sp))
+                         sp))
         ;; Close the timer work attempt the reply-envelope way: a cancelled
         ;; `:after` timer is `:status :cancelled` DATA, not the absence of a
         ;; reply (Managed-Effects §Cancellation). The canonical `:rf.reply/work-id`
@@ -250,7 +267,7 @@
                        {:actor-id  (:parent k)
                         :state     (:state entry)
                         :delay     (:resolved-ms entry)
-                        :decl-path (:spawn k)
+                        :decl-path decl-path
                         :epoch     (:epoch entry)
                         :frame     frame-id
                         :reason    reason})
@@ -364,7 +381,22 @@
   [frame-id parent-id invoke-id state delay-key epoch server? snapshot
    {:keys [emit-scheduled-trace?]}]
   (let [delay-source (transition/classify-delay-source delay-key)
-        k            (after-timer-key parent-id invoke-id delay-key)]
+        k            (after-timer-key parent-id invoke-id delay-key)
+        ;; A region `:after`'s `invoke-id` is region-PREFIXED
+        ;; (`prefix-region-invoke-id` prepends the region name). Record that
+        ;; region name in the entry so `emit-cancelled!` can strip it before
+        ;; building the reply's `:rf.reply/work-id` — matching the fired / stale
+        ;; rows (whose `carried-decl-path` is region-stripped by
+        ;; `pick-after-transition`) so all four rows of ONE logical `:after`
+        ;; share one work-id in the work/reply ledger. Parallel machines carry
+        ;; a region-name → state MAP as `:state` (mirrors `on-sub-changed!`);
+        ;; a flat / compound machine's `:state` is a keyword / vector path (no
+        ;; region head), and the parallel-ROOT timer's `invoke-id` is empty
+        ;; (`[]`, no head) — both yield nil, so nothing is stripped.
+        region       (when (and snapshot
+                                 (map? (:state snapshot))
+                                 (seq invoke-id))
+                       (first invoke-id))]
     (cancel-after-timer-entry! frame-id k :on-supersede)
     (cond
       server?
@@ -440,6 +472,7 @@
                     :resolved-ms     resolved-ms
                     :epoch           epoch
                     :state           state
+                    :region          region
                     :delay-source    delay-source
                     :token           token})
             (let [handle
