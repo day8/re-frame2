@@ -179,6 +179,23 @@
   ([reg-id build-id]
    (effective (get @state build-id empty-slice) reg-id ::none)))
 
+(defn committed-aggregate
+  "The build's LAST-KNOWN-GOOD aggregate for `reg-id`: the merge of the
+  COMMITTED rows only, IGNORING the open pass's staging. Unlike `aggregate`
+  (the effective view — committed-untouched PLUS staged), this reads solely
+  the committed layer, which changes ONLY at a successful commit / finish
+  boundary (`commit-build!` / `finish-build!`; `begin-build!` / `abort-build!`
+  never touch it). So a read during an OPEN, FAILED, or interleaved pass
+  returns the last finalized snapshot — never a partial mid-pass mix — and
+  the value a consumer reads is finalized-at-the-successful-build-boundary by
+  construction. Per-build-id like `aggregate`; on the no-pass REPL / plain-JVM
+  path a contribution upserts straight into committed, so this reader sees it
+  immediately. Pure."
+  ([reg-id] (committed-aggregate reg-id (current-build-id)))
+  ([reg-id build-id]
+   (reduce-kv (fn [m _src regs] (merge m (get regs reg-id)))
+              {} (:committed (get @state build-id empty-slice)))))
+
 (defn element-properties
   "The declared `:properties` set for custom-element `tag` in the ambient (or
   given) build's compile-time `elements` registry — the compile-path read the

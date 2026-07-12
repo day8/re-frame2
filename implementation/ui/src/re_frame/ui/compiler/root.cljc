@@ -348,16 +348,23 @@
   nil (the `render!` descriptor-base — the client completes identity from
   its Root, fixed at `create-root`).
 
-  Carries the per-root STATIC facts ONLY. `:build-digest` — a whole-build
-  aggregate, identical for every root in the build — is deliberately NOT
-  baked here: it is a READ-TIME projection stamped by `descriptor-index`
-  (rf2-vxgfnd.47). Baking it at expansion made it (a) compile-order
-  dependent — a mount site expanded before the rest of the build's views
-  compiled froze the digest over only the views seen so far — and (b) stale
-  under an incremental view edit — recompiling a view's file without
-  re-expanding the mount site left the descriptor carrying the old digest.
-  Resolving at read (over the sorted, JVM-stable view triples) is
-  compile-order independent and never stale."
+  This is the Root Descriptor v1 STATIC CORE (Spec 004C §2): the per-root
+  static facts, baked at expansion into the emitted CLJS and stored on the
+  client live-root registry entry. `:build-digest` — a whole-build aggregate,
+  identical for every root in the build — is deliberately NOT baked here: it
+  is the ONE field that cannot be a per-site static fact, so it is a READ-TIME
+  projection stamped onto the COMPLETE descriptor by `descriptor-index`
+  (compiler side) and by `re-frame.ui.client/descriptor-index` (client side).
+  Baking it at expansion made it (a) compile-order dependent — a mount site
+  expanded before the rest of the build's views compiled froze the digest over
+  only the views seen so far — and (b) stale under an incremental view edit —
+  recompiling a view's file without re-expanding the mount site left the
+  descriptor carrying the old digest. df9873's per-build authority does not
+  change that: `finish-build!` finalizes the digest at `:compile-finish`,
+  strictly AFTER every mount-site macroexpansion, so no expansion-time value
+  can be the finalized identity. Projecting it at read — over the finalized,
+  sorted, host-stable view triples — is compile-order independent and never
+  stale on either host (rf2-vxgfnd.47, rf2-vxgfnd.68)."
   [{:keys [root-id provenance views plans ast]}]
   (let [view (when (= 1 (count views)) (first views))]
     (cond-> {:rf.root/schema-version 1
@@ -419,17 +426,24 @@
 
 #?(:clj
    (defn descriptor-index
-     "The Root Descriptor index projected for READING (S5 tooling / Xray /
-     ui.test read compile output through here): every stored per-root static
-     descriptor stamped with the CURRENT whole-build `:build-digest`. The
-     digest is a whole-build aggregate — identical for every root — so it is
-     resolved HERE at read, never baked into a descriptor at expansion time,
-     where it would reflect only the views compiled before that mount site
-     (compile-order dependent) and go stale when a view recompiled without
-     re-expanding the mount site (rf2-vxgfnd.47). Compile-order independent +
-     incremental==clean by construction: the value is
-     `re-frame.ui.compiler/current-build-digest`, recomputed on every read
-     over the sorted view triples."
+     "The COMPLETE Root Descriptor v1 index projected for READING (the S5
+     tooling / Xray / ui.test compiler-side read; Spec 004C §2): every stored
+     per-root static core stamped with the finalized whole-build
+     `:build-digest`. The digest is a whole-build aggregate — identical for
+     every root — so it is resolved HERE at read, never baked into a
+     descriptor at expansion time, where it would reflect only the views
+     compiled before that mount site (compile-order dependent) and go stale
+     when a view recompiled without re-expanding the mount site
+     (rf2-vxgfnd.47). The value is
+     `re-frame.ui.compiler/current-build-digest`, which reads the COMMITTED
+     (last-known-good) view aggregate — finalized at df9873's successful
+     commit boundary, so a read during an open / failed / interleaved pass
+     stamps the last known-good digest, never a partial mid-pass identity
+     (rf2-vxgfnd.68). This is the compiler projection; its CLIENT counterpart
+     is `re-frame.ui.client/descriptor-index`, which projects the SAME
+     `:build-digest` (byte-identical — same `fingerprint/build-digest`
+     algorithm over the same per-view triples) onto the live-root static
+     cores. Compile-order independent + incremental==clean by construction."
      []
      (let [bd (compiler/current-build-digest)]
        (into {}

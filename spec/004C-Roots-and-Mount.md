@@ -74,8 +74,12 @@ server, no render, no reactivity.
  :frame-plans          [{:frame-id :shop
                          :config-fingerprint "…"}] ; extracted ENSURE plans (§6)
  :template-fingerprint "…"                        ; over the compiled root template
- :build-digest         "…"}                       ; build identity (algorithms: note below)
+ :build-digest         "…"}                       ; build identity — a READ-TIME projection, NOT baked at expansion (§2.1)
 ```
+
+`:build-digest` is the one field that is **not** a per-root static fact and is
+**never baked** into the emitted descriptor at expansion — see §2.1 for where it
+lives and why.
 
 **Fingerprint/digest algorithms — ownership.** `:render-fingerprint` and the semantic
 normalization `N` it hashes are owned by
@@ -114,6 +118,52 @@ hydration-salient fields 06 §2 shows:
 This split resolves the 12-§3-postpones-S5 / 08-§2-requires-S1 tension without moving
 either stage: S1 ships the descriptor (compiler artefact, `ui.test`/Xray consumer); S5
 ships the manifest as its extension.
+
+### 2.1 The static core, the whole-build digest, and the read-time projection
+
+`:build-digest` is a **whole-build aggregate** — a hash over *every* view in the build,
+**identical for every root**. It is therefore **not a per-root static fact** and, unlike
+every other descriptor key, **cannot be baked at the mount site's expansion**: at the
+moment a `ui/mount` / `ui/render!` / `ui/hydrate-root` form macroexpands, the build is
+still compiling and only the views seen so far are known — baking the digest there makes
+it *compile-order dependent*, and it goes *stale* the instant a view's file recompiles
+without the mount site re-expanding (an ordinary view-only hot-reload edit). The per-build
+compiler-state authority does not change this: the build's digest is finalized at its
+**successful build boundary** (`:compile-finish`), strictly *after* every mount-site
+macroexpansion, so no expansion-time value can ever be the finalized identity.
+
+Root Descriptor v1 is therefore realised as **two named shapes, one contract:**
+
+- **The static core** — the per-root static facts above **minus** `:build-digest`. This is
+  what the compiler bakes at expansion into the emitted client code and what rides each
+  live-root registry entry (its `:descriptor`) and the compiler's build-emitted descriptor
+  index. It is `:rf.root/schema-version 1` and schema-valid; the digest is simply supplied
+  by the projection, not the core.
+- **The complete descriptor** — the static core **plus** the finalized `:build-digest`,
+  assembled by a **read-time projection** at each consumer. Any value handed out *as* a
+  complete "Root Descriptor v1 / Root Manifest v1" carries the digest.
+
+The digest is projected — never baked — at read on **both hosts**, from the **same input
+via the same algorithm**, so the two projections **agree byte-for-byte** for a given build:
+
+- **Compiler / JVM** — `re-frame.ui.compiler.root/descriptor-index` stamps the digest over
+  the **last-successfully-committed** view triples (`[view-id template-fingerprint
+  hook-signature]`), so a read during an open, failed, or interleaved build returns the
+  last **known-good** identity, never a partial mid-pass one. This is the `ui.test` / Xray
+  / S5-tooling read of compile output.
+- **Client / dev runtime** — `re-frame.ui.client/descriptor-index` (and per-root
+  `re-frame.ui.client/descriptor`) stamps the digest computed from the **registered view
+  manifests** (the same `template-fingerprint` / `hook-signature` the compiler recorded).
+  Because it recomputes over the live view registry, a **view-only hot-reload** that
+  re-registers a view **refreshes the digest an already-mounted root observes without
+  re-expanding its mount site** — the requirement baking could not meet.
+
+**Home of the build identity, made explicit:** the finalized whole-build `:build-digest`
+lives in the **read-time projection**, not in the static core. Both projections are pure
+functions of the finalized per-build view set, so clean, incremental, watch, and REPL
+paths converge on the same digest through real consumers. Dev-only: view manifests and the
+descriptor/digest projections are elided from production builds (goog.DEBUG-gated), so a
+production client carries no descriptor or digest cost.
 
 ## 3. The mount grammar and the host signature set
 
