@@ -35,7 +35,7 @@ If instead you want to test one handler as the pure function it is, see [Test an
 
 !!! note "`with-new-frame` vs `with-frame` — the argument shape tells you which"
 
-    These are siblings, and the macro name telegraphs the intent. `with-new-frame [f expr]` takes a **vector** — it evaluates `expr` (typically `(rf/make-frame {})`), binds the result, runs the body, and *destroys* the frame on exit. `with-frame :some-id` takes a **keyword** — it pins to a frame that already exists (registered via `reg-frame`, or created earlier) and does *not* create or destroy it. Pass the wrong argument shape and the macro rejects it at compile time (`:rf.error/with-new-frame-keyword-form` / `:rf.error/with-frame-vector-form`), so you can't accidentally leak a frame by pinning when you meant to bracket. Reach for `with-new-frame` for per-test fixtures; reach for `with-frame` for a fixture shared across several `deftest`s.
+    These are siblings, and the macro name telegraphs the intent. `with-new-frame [f expr]` takes a **vector** — it evaluates `expr` (typically `(rf/make-frame {})`), binds the result, runs the body, and *destroys* the frame on exit. `with-frame :some-id` takes a **keyword** — it pins to a frame that already exists (created earlier via `make-frame` or a `frame-root` mount) and does *not* create or destroy it. Pass the wrong argument shape and the macro rejects it at compile time (`:rf.error/with-new-frame-keyword-form` / `:rf.error/with-frame-vector-form`), so you can't accidentally leak a frame by pinning when you meant to bracket. Reach for `with-new-frame` for per-test fixtures; reach for `with-frame` for a fixture shared across several `deftest`s.
 
 ## A real pipeline run: the code under test
 
@@ -265,8 +265,9 @@ One boundary to know before you lean on this: a per-call override rides the run 
 A logging or analytics [interceptor](../glossary.md#interceptor) that fires on every event will flood the test output. Remove it for the test frame with `:interceptor-overrides`, keyed by the interceptor's registered **reference** with a value of `nil` to drop it:
 
 ```clojure
-(rf/reg-frame :test/quiet
-  {:initial-events        [[:session/init]]
+(rf/make-frame
+  {:id :test/quiet
+   :initial-events        [[:session/init]]
    :interceptor-overrides {:my-app/request-logger nil}})   ;; nil removes the interceptor
 ```
 

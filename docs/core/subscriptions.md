@@ -60,7 +60,7 @@ and two copies of one truth is two chances to disagree. Derive it, live:
    [:span @(subscribe [:value]) " is " (name @(subscribe [:parity]))]
    [:button {:on-click #(dispatch [:inc])} "+"]])
 
-(rf/reg-frame :app {:initial-events [[:initialise]]})
+(rf/make-frame {:id :app :initial-events [[:initialise]]})
 
 [rf/frame-provider {:frame :app}
  [parity-counter]]
@@ -295,7 +295,7 @@ few times:
    [:p @(subscribe [:cart/currency-label])]
    [:button {:on-click #(dispatch [:cart/add-item])} "add item"]])
 
-(rf/reg-frame :cart {:initial-events [[:cart/initialise]]})
+(rf/make-frame {:id :cart :initial-events [[:cart/initialise]]})
 
 [rf/frame-provider {:frame :cart}
  [cart-summary]]

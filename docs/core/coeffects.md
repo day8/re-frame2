@@ -34,7 +34,7 @@ Here's the constraint. A pure handler must not read the clock — if it did, rep
    (when-let [t @(subscribe [:clicked-at])]
      [:span " — clicked at " t " ms"])])
 
-(rf/reg-frame :app {:initial-events [[:initialise]]})
+(rf/make-frame {:id :app :initial-events [[:initialise]]})
 
 [rf/frame-provider {:frame :app}
  [stamped-counter]]
@@ -259,7 +259,7 @@ A live order-placer. The durable facts — *when* each order was placed, *what* 
        [:span {:style {:color "#888" :margin-left "1em" :font-size "0.85em"}}
         (.toLocaleTimeString (js/Date. placed-at) "en-US")]])]])
 
-(rf/reg-frame :orders {:initial-events [[:demo.order/initialise]]})
+(rf/make-frame {:id :orders :initial-events [[:demo.order/initialise]]})
 
 [rf/frame-provider {:frame :orders}
  [order-list]]

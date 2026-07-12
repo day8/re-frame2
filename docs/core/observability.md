@@ -91,7 +91,7 @@ One knob sets the depth:
 (rf/configure! {:trace-buffer {:events-retained 50}})   ;; the default
 ```
 
-That sets the process default. A frame that wants its own retention sets `:rf.trace/events-retained` in its `reg-frame` metadata. And when you want to start a session from a clean slate — between two recordings, say — `(tooling/clear-trace-buffer! :app)` empties the named frame's ring without touching anyone else's.
+That sets the process default. A frame that wants its own retention sets `:rf.trace/events-retained` in its frame config. And when you want to start a session from a clean slate — between two recordings, say — `(tooling/clear-trace-buffer! :app)` empties the named frame's ring without touching anyone else's.
 
 ??? info "Coming from Redux DevTools?"
 
@@ -237,8 +237,9 @@ You consume both streams by declaring a sink in your frame's `:observability` co
 ```clojure
 ;; frame config declares which sink id handles errors / events,
 ;; under what egress profile:
-(rf/reg-frame :app
-  {:observability {:errors         [{:sink :my-app/sentry
+(rf/make-frame
+  {:id :app
+   :observability {:errors         [{:sink :my-app/sentry
                                      :rf.egress/profile :rf.egress/off-box-observability}]
                    :handled-events [{:sink :my-app/metrics}]}})
 
@@ -326,8 +327,9 @@ One subtlety with a production reach: the always-on `:events` stream honours thi
 **Silence a whole frame — `:rf.trace/frame-no-emit?` in the frame config.** An inspector renders its *own* UI in a dedicated frame, and that UI's subscriptions and renders emit `:rf.sub/run` / `:rf.view/render` like any other — enough, on a busy panel, to evict every application run from the buffer the inspector is supposed to be showing you. Marking the tool's frame trace-disabled makes it emit nothing at all, while every application frame is untouched.
 
 ```clojure
-(rf/reg-frame :my-tool/inspector
-  {:rf.trace/frame-no-emit? true})          ;; a tool frame: no trace from here
+(rf/make-frame
+  {:id :my-tool/inspector
+   :rf.trace/frame-no-emit? true})          ;; a tool frame: no trace from here
 ```
 
 This is the mechanism behind "a devtool in its own frame can storm its own subscriptions without polluting your app frame's history" — the per-frame ring isolates the *storage*, and this flag suppresses the tool frame's *emission* entirely. Both flags sit inside the same dev-only elision gate as everything else here, so they cost nothing in production (which emits no trace anyway).

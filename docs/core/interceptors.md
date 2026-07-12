@@ -227,8 +227,9 @@ The factory runs once per chain assembly to build the executable interceptor for
 Per-handler attachment, as above, fires for that event only — the right scope for event-specific concerns like `path` or undo tags. The second place is the [**frame**](glossary.md#frame) — one isolated, running instance of your app (see [frames](frames.md)) — and it carries the very same references:
 
 ```clojure
-(rf/reg-frame :app/main
-  {:interceptors [:my-app/logger]})   ;; a reference; wraps EVERY event handled in this frame
+(rf/make-frame
+  {:id :app/main
+   :interceptors [:my-app/logger]})   ;; a reference; wraps EVERY event handled in this frame
 ```
 
 Per-frame interceptors are **prepended** to each event's own chain — the frame's slices go on the outside of every sandwich it serves. Frame-wide concerns sit outermost, event-specific ones inside them, the handler in the middle, and the same forward-then-reverse sweep runs across all of it. This is the answer to the three hundred handlers from the top of the page: the boring chores become two or three frame interceptors, registered once, referenced by id, touching no handler code.
@@ -247,8 +248,9 @@ Because the id is the handle, a test can silence or swap one interceptor without
 ```
 
 ```clojure
-(rf/reg-frame :story/cart
-  {:interceptors          [:my-app/auth-guard]
+(rf/make-frame
+  {:id :story/cart
+   :interceptors          [:my-app/auth-guard]
    :interceptor-overrides {:my-app/auth-guard :story/skip-auth}})        ;; swap one reference for another
 ```
 
@@ -401,7 +403,7 @@ Testing the *wiring* — that the reference actually wraps the handler — is on
 
 ## When a reference is wrong
 
-Because a chain is just data, the runtime can check it *eagerly* — and it does. The single most common mistake, a misspelled id, dies at the earliest possible moment: register an event whose `:interceptors` names an id that nobody has registered, and `reg-event` (or `reg-frame`) throws `:rf.error/unregistered-interceptor` right there at the registration site — naming the missing id. You find out when you load the namespace, not when an unlucky user trips the chain.
+Because a chain is just data, the runtime can check it *eagerly* — and it does. The single most common mistake, a misspelled id, dies at the earliest possible moment: register an event whose `:interceptors` names an id that nobody has registered, and `reg-event` (or `make-frame`) throws `:rf.error/unregistered-interceptor` right there at the registration site — naming the missing id. You find out when you load the namespace, not when an unlucky user trips the chain.
 
 A handful of sibling errors cover the other ways a reference can be malformed. They all [fail loud](glossary.md#fail-loud-not-silent) — re-frame2 never silently drops a chain entry it can't make sense of:
 

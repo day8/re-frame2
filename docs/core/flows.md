@@ -43,7 +43,7 @@ Here it is running — note the view reads parity with an ordinary app-db subscr
   (fn [{:keys [db]} _] {:db (update db :value inc)}))
 
 ;; the frame first — the flow below registers into it
-(rf/reg-frame :app {:initial-events [[:initialise]]})
+(rf/make-frame {:id :app :initial-events [[:initialise]]})
 
 ;; the new idea: the derivation is materialised INTO app-db
 (rf/reg-flow :parity

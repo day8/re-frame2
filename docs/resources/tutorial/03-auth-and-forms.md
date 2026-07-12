@@ -440,8 +440,9 @@ The point is that classifying the app-db path does *not* by itself redact the re
 
 ```clojure
 ;; core.cljs — additions to Part 1's boot
-(rf/reg-frame :rf/default
-  {:doc          "The Conduit app frame."
+(rf/make-frame
+  {:id :rf/default
+   :doc          "The Conduit app frame."
    :url-bound?   true                          ;; the frame's routing tracks the browser URL
    :interceptors [:conduit/auth-guard]})       ;; reference the guard registered in the next section
                                                ;; :auth/initialise (above) classifies [:auth :token]

@@ -21,7 +21,7 @@ Start with the boot shape from [Boot and mount an app](boot-and-mount-an-app.md)
 ```clojure
 (defn run []
   (rf/init! reagent-adapter/adapter)   ;; ← the substrate decision, all of it
-  (rf/reg-frame :rf/default {})
+  (rf/make-frame {:id :rf/default})
   (rf/with-frame :rf/default
     (rf/dispatch-sync [:app/initialise]))
   ;; ... mount the root inside a frame-provider ...

@@ -190,7 +190,7 @@ Use `{:frame ...}` when the frame was already created somewhere else — it
 borrows:
 
 ```clojure
-(rf/reg-frame :checkout {:initial-events [[:checkout/initialise]]})
+(rf/make-frame {:id :checkout :initial-events [[:checkout/initialise]]})
 
 [rf/frame-provider {:frame :checkout}
  [checkout-app]]
@@ -252,10 +252,10 @@ line.
 **You pointed `{:frame …}` at a frame that doesn't exist.** The scope shape
 only *scopes* a frame someone else created; it creates nothing. Point
 `[rf/frame-provider {:frame :checkout} …]` at a frame that was never
-`reg-frame`'d (nor ensured by an `{:id}` provider) and it throws
+created (nor ensured by a `frame-root`) and it throws
 `:rf.error/frame-provider-frame-absent`. When the subtree should bring its own
-frame into being, use the **ensure** shape `{:id …}` instead — that's the whole
-difference between [the two shapes](#two-frame-shapes).
+frame into being, use the **ensure** component `frame-root {:id …}` instead —
+that's the whole difference between [the two shapes](#two-frame-shapes).
 
 **You forgot to require a registration namespace.** A `reg-event` or `reg-sub`
 runs only when its namespace loads, so a missing `require` means the

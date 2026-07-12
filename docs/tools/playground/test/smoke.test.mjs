@@ -37,7 +37,7 @@
  * Asserts the rf2-2h1yhk (eager creation marker) contract:
  *   - A fourth ```cljs-rf2 cell pins the quickstart shape: (ns ...) form,
  *     reg-view via the SCI macro shim (injected bare dispatch/subscribe),
- *     and a cell-created frame (reg-frame + frame-provider {:frame ...}).
+ *     and a cell-created frame (make-frame + frame-provider {:frame ...}).
  *   - A third ```cljs-rf2 cell dispatches the eager creation marker
  *     [machine-id [:rf.machine/start]] (the reserved lifecycle keyword, renamed
  *     from the retired :rf.machine/bootstrap per rf2-gl588) against a machine
@@ -152,7 +152,7 @@ const PAGE = `<!DOCTYPE html>
   (:require [re-frame.core :as rf]))
 ;; This cell pins the quickstart's exact shape: an (ns ...) form, reg-view
 ;; via the SCI macro shim (sci.cljs sci-reg-view) with its INJECTED bare
-;; dispatch / subscribe locals, and a cell-created frame — reg-frame +
+;; dispatch / subscribe locals, and a cell-created frame — make-frame +
 ;; frame-provider {:frame ...} — that the injected ops must resolve through
 ;; the context tier. Its state lives in :rf2smoke/frame, not the shared
 ;; harness frame, so no cross-cell app-db interference is possible.
@@ -163,7 +163,7 @@ const PAGE = `<!DOCTYPE html>
   [:div
    [:span#rf2-rv-cnt "rv: " @(subscribe [:rf2smoke/rv])]
    [:button#rf2-rv-btn {:on-click #(dispatch [:rf2smoke/rv-inc])} "inc"]])
-(rf/reg-frame :rf2smoke/frame {:initial-events [[:rf2smoke/rv-init]]})
+(rf/make-frame {:id :rf2smoke/frame :initial-events [[:rf2smoke/rv-init]]})
 [rf/frame-provider {:frame :rf2smoke/frame}
  [rv-counter]]</pre>
   <h2>declared coeffect cell (:rf.cofx/requires)</h2>
@@ -196,7 +196,7 @@ const PAGE = `<!DOCTYPE html>
 ;; the guide's cell shape: the cell creates its own frame, and the flow
 ;; targets it with the metadata :frame key (seed fires before the flow
 ;; registers, so the label stays blank until the first input change).
-(rf/reg-frame :rf2smoke/flowframe {:initial-events [[:rf2smoke/flow-init]]})
+(rf/make-frame {:id :rf2smoke/flowframe :initial-events [[:rf2smoke/flow-init]]})
 (rf/reg-flow :rf2smoke/parity
   {:inputs [[:fval]]
    :output-path [:fparity]
@@ -476,7 +476,7 @@ assert(
 // (sci.cljs sci-reg-view) mirroring the real expansion: reg-view* under a
 // :user/<sym> id, injected `dispatch` / `subscribe` locals from a render-time
 // make-capture-frame, and a def'd var. This cell also pins the (ns ...) form
-// and a cell-created frame (reg-frame + frame-provider {:frame ...}): the
+// and a cell-created frame (make-frame + frame-provider {:frame ...}): the
 // injected ops must resolve :rf2smoke/frame through the context tier, so the
 // seed lands and the clicks move the count IN THAT frame. If any of it
 // regressed, this cell errors or the clicks below do nothing.

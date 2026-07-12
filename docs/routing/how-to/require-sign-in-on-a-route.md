@@ -80,8 +80,9 @@ Two reads do the work, both pure: `rf/handler-meta` pulls the route's `:tags`, a
 Register the guard once, then name it by id in the frame's `:interceptors`. It short-circuits in a single `case` for every non-navigation event, so the cost on ordinary traffic is negligible:
 
 ```clojure
-(rf/reg-frame :rf/default
-  {:doc          "The app frame."
+(rf/make-frame
+  {:id :rf/default
+   :doc          "The app frame."
    :url-bound?   true
    :interceptors [:app/auth-guard]})    ;; reference the registered guard by id
 ```

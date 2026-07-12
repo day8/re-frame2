@@ -40,7 +40,7 @@ One new feature for the counter: every fifth click deserves a little celebration
    (when-let [m @(subscribe [:milestone])]
      [:span " — milestone: " m "!"])])
 
-(rf/reg-frame :app {:initial-events [[:initialise]]})
+(rf/make-frame {:id :app :initial-events [[:initialise]]})
 
 [rf/frame-provider {:frame :app}
  [acting-counter]]

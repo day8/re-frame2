@@ -292,7 +292,7 @@ npx shadow-cljs release app
 - **The causal channel.** Events, effect maps, and the `:rf.cofx` facts stamped on every dispatch. Recordable coeffects are durable causal data — part of how the app computes its state — so they ship unconditionally. Deleting them would delete the app.
 - **The always-on error axis.** One tight, structured [error record](../../core/glossary.md#error-record) per production-reachable failure. A handler exception reaches your error service with its frame and event-id attached, instead of surfacing as a bare `window.onerror`. It survives elision. It is the production observability surface.
 
-That second survivor wants one piece of wiring before you deploy. Declare a sink on your frame's metadata (the `reg-frame` from Part 1) and register its function:
+That second survivor wants one piece of wiring before you deploy. Declare a sink on your frame's config (the `make-frame` from Part 1) and register its function:
 
 ```clojure
 ;; add to the frame's metadata:

@@ -358,7 +358,7 @@ At most one frame owns the browser URL at a time. A frame claims ownership by re
   ```clojure
   (url-owner-frame-id) → frame-id or nil
   ```
-- **Description**: Return the single frame that has explicitly declared browser-history ownership via `(rf/reg-frame :id {:url-bound? true})`, or `nil` when none has.
+- **Description**: Return the single frame that has explicitly declared browser-history ownership via `(rf/make-frame {:id … :url-bound? true})`, or `nil` when none has.
 
   - URL ownership is an explicit host/bootstrap policy, not an absence repair. The runtime never infers `:rf/default` as the owner. `:rf/default` owns the URL only when it carries an explicit `{:url-bound? true}`, like any other frame.
   - Ownership resolves to the first-claimed still-live `:url-bound? true` frame (the incumbent), so a later duplicate cannot steal the URL.
@@ -366,7 +366,7 @@ At most one frame owns the browser URL at a time. A frame claims ownership by re
 - **Example**:
   ```clojure
   ;; one frame opts into URL ownership at boot:
-  (rf/reg-frame :app/main {:url-bound? true})
+  (rf/make-frame {:id :app/main :url-bound? true})
   (routing/url-owner-frame-id)  ;; => :app/main
   ```
 
@@ -381,7 +381,7 @@ At most one frame owns the browser URL at a time. A frame claims ownership by re
 
 ## URL strategies
 
-A `:url-strategy` is a frame-level config map declared on the URL-owning frame — `(rf/reg-frame :app {:url-bound? true :url-strategy routing/hash-url-strategy})`. The strategy is consulted at exactly four egress/ingress points: the two history fxs, the `route-link` href render, and the URL-listener install. `route-url`, `match-url`, and the navigation cascade stay pure and path-form. A strategy map carries `{:encode :decode :push! :replace! :install-listener!}`. The side-effecting keys (`:push!` / `:replace!` / `:install-listener!`) are present on CLJS only. SSR ignores strategies: the server emits path-form hrefs and takes the request URL via `:rf.route/handle-url-change`.
+A `:url-strategy` is a frame-level config map declared on the URL-owning frame — `(rf/make-frame {:id :app :url-bound? true :url-strategy routing/hash-url-strategy})`. The strategy is consulted at exactly four egress/ingress points: the two history fxs, the `route-link` href render, and the URL-listener install. `route-url`, `match-url`, and the navigation cascade stay pure and path-form. A strategy map carries `{:encode :decode :push! :replace! :install-listener!}`. The side-effecting keys (`:push!` / `:replace!` / `:install-listener!`) are present on CLJS only. SSR ignores strategies: the server emits path-form hrefs and takes the request URL via `:rf.route/handle-url-change`.
 
 ### `history-url-strategy`
 
@@ -410,8 +410,9 @@ A `:url-strategy` is a frame-level config map declared on the URL-owning frame �
   - `:install-listener!` wires `hashchange`.
 - **Example**:
   ```clojure
-  (rf/reg-frame :app {:url-bound?   true
-                      :url-strategy routing/hash-url-strategy})
+  (rf/make-frame {:id :app
+                  :url-bound?   true
+                  :url-strategy routing/hash-url-strategy})
   ```
 
 ### `with-base-path`
@@ -424,10 +425,11 @@ A `:url-strategy` is a frame-level config map declared on the URL-owning frame �
 - **Description**: A STRATEGY COMBINATOR, not a third shipped strategy. Use it when an app is deployed under a sub-path — say a host mounting several demos side by side, so an app that would otherwise own `/` instead lives at `/realworld/`. It wraps `strategy` (either shipped strategy, or a custom one) so that `:encode` / `:decode` / `:push!` / `:replace!` / `:install-listener!` all account for `base`. The base is stripped off every inbound URL and re-added to every outbound one, underneath whichever address-bar form `strategy` already provides. `route-url` / `match-url` and the rest of the cascade stay path-form and base-agnostic. A blank or nil `base` returns `strategy` unchanged.
 - **Example**:
   ```clojure
-  (rf/reg-frame :app {:url-bound?   true
-                      :url-strategy (routing/with-base-path
-                                      routing/history-url-strategy
-                                      "/realworld")})
+  (rf/make-frame {:id :app
+                  :url-bound?   true
+                  :url-strategy (routing/with-base-path
+                                  routing/history-url-strategy
+                                  "/realworld")})
   ```
 
 ## Browser URL listener

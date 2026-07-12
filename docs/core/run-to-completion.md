@@ -41,7 +41,7 @@ Watch it happen. The counter's `:inc` already dispatched a follow-up on [Effects
    [:button {:on-click #(dispatch [:drain.demo/submit])} "submit"]
    [:p "steps: " (pr-str @(subscribe [:drain.demo/steps]))]])
 
-(rf/reg-frame :demo {:initial-events [[:drain.demo/initialise]]})
+(rf/make-frame {:id :demo :initial-events [[:drain.demo/initialise]]})
 
 [rf/frame-provider {:frame :demo}
  [drain-demo]]

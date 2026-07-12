@@ -34,8 +34,9 @@ Notice we classified the path **before any token exists there** — `:auth/init`
 Wire `:auth/init` to run at frame creation with `:initial-events`, so the classification is in place before any value can reach an observation boundary:
 
 ```clojure
-(rf/reg-frame :app/main
-  {:initial-events [[:auth/init]]})
+(rf/make-frame
+  {:id :app/main
+   :initial-events [[:auth/init]]})
 ```
 
 !!! note "Classify at the boundary"
@@ -220,8 +221,9 @@ Three durable owners, no overlap. When you have a secret, this is the table to w
 Now send the production records off-box — to Datadog, Sentry, wherever you watch prod. You set this up per frame, under an `:observability` key. There are **two** streams you can route: `:handled-events` (one production-safe record per event processed) and `:errors` (production-survivable [error records](../glossary.md#error-record)). For each, you name a **sink** (an id for the destination), the **profile** (which boundary it's crossing — more on profiles just below), then register the concrete function that does the sending:
 
 ```clojure
-(rf/reg-frame :app/main
-  {:observability {:handled-events
+(rf/make-frame
+  {:id :app/main
+   :observability {:handled-events
                    [{:sink :my-app.sinks/datadog
                      :rf.egress/profile :rf.egress/off-box-observability
                      :opts {:service "checkout-spa" :env "prod"}}]

@@ -29,5 +29,13 @@
    :output-dir "out"
    :asset-path "."
    :modules    {:playground-rf2 {:init-fn rf2-playground.sci/init}}
+   ;; goog.DEBUG stays TRUE in this advanced bundle (rf2-h1vqa4): the
+   ;; playground is a live teaching REPL — cells register handlers and
+   ;; dispatch in the same eval, which needs the framework's DEV-mode
+   ;; live-registrar semantics (auto-reprojection + the read-time
+   ;; projection flush). A goog.DEBUG=false release bundle DCEs that
+   ;; machinery, sealing every frame's image generation at creation, so
+   ;; a cell's freshly-registered handlers would never become visible.
    :compiler-options {:optimizations :advanced
-                      :infer-externs :auto}}}}
+                      :infer-externs :auto
+                      :closure-defines {goog.DEBUG true}}}}}
