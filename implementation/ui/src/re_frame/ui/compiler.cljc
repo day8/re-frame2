@@ -20,26 +20,25 @@
 #?(:clj
    (do
 
-(defonce ^{:doc "view-id -> [template-fingerprint hook-signature-hash],
-  contributed at macro-expansion time through the build-scoped model
-  (`re-frame.ui.compiler.build`) so a recompiled / edited / renamed source
-  replaces its whole prior contribution; `current-build-digest` derives the
-  bd1- digest (compile-order independent — the triples sort by view-id)."}
-  build-views
-  (atom {}))
-
-;; Enrol the two compiler-owned aggregates in the one build-scoped state
-;; model (rf2-vxgfnd.16): views live here; the compile-time custom-element
-;; declarations live in `re-frame.ui.rules/custom-elements` but are WRITTEN
-;; from this ns (macro expansion), so their build boundary is coordinated
-;; here too. The Layer-1 root/plan/descriptor registries enrol from
-;; `re-frame.ui.compiler.root`.
-(build/register! build/views build-views)
+;; The view digest is keyed PER build id in the one build-scoped authority
+;; (`re-frame.ui.compiler.build`, rf2-df9873): a recompiled / edited /
+;; renamed source replaces its whole prior contribution, and the independent
+;; builds one daemon compiles never share rows. `current-build-digest` reads
+;; the ambient build's view aggregate (compile-order independent — the
+;; triples sort by view-id).
+;;
+;; The compile-time custom-element declarations are the one registry that
+;; keeps an external MIRROR atom: they are WRITTEN here (macro expansion) but
+;; READ on the JVM by the tree builder through `re-frame.ui.rules/custom-
+;; elements` (the same var the CLJS RUNTIME arm owns on the client). Register
+;; it as `build/elements`' mirror so build.cljc keeps it synced to the
+;; ambient build's aggregate for that JVM read. The Layer-1 root/plan/
+;; descriptor registries and the view digest read through `build/aggregate`.
 (build/register! build/elements rules/custom-elements)
 
 (defn current-build-digest []
   (fingerprint/build-digest
-   (mapv (fn [[id [tf hs]]] [id tf hs]) @build-views)))
+   (mapv (fn [[id [tf hs]]] [id tf hs]) (build/aggregate build/views))))
 
 (def ^:private defview-option-keys #{:props :id :display-name})
 
@@ -217,7 +216,7 @@
                  :manifest manifest
                  :closed-keys closed-keys
                  :children? children?}]
-    (build/contribute! build/views (:file src) view-id [tf hs])
+    (build/contribute! build/views ns-sym view-id [tf hs])
     (if cljs?
       (emit-cljs/emit-defview args)
       (emit-jvm/emit-defview args))))
@@ -269,7 +268,7 @@
     ;; declaring ns so a hot-reload that DROPS this declaration evicts its
     ;; stale runtime row — the runtime arm of the same eviction model
     ;; (rf2-vxgfnd.48).
-    (build/contribute! build/elements (:file coords) tag {:properties props})
+    (build/contribute! build/elements ns-sym tag {:properties props})
     `(re-frame.ui.rules/register-custom-element!
       ~tag {:properties ~props} '~ns-sym)))
 

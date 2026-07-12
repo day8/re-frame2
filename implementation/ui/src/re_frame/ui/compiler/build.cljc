@@ -1,5 +1,6 @@
 (ns re-frame.ui.compiler.build
-  "The ONE build-scoped compiler state model (rf2-vxgfnd.16).
+  "The ONE build-scoped compiler-state authority, keyed PER shadow build id
+  (rf2-vxgfnd.16 → rf2-df9873).
 
   The S1 compiler runs inside a long-lived JVM (the shadow-cljs daemon, a
   REPL, a whole test run). Its build registries — view digests, the
@@ -10,71 +11,79 @@
   exactly as a clean process would: the process lifetime is NOT the build
   lifetime.
 
-  Before this model the registries were process-global `defonce` atoms
-  that only ever `assoc`ed the current declaration, so a deleted or
-  renamed `defview` / root / frame plan / `ui/custom-element` left its old
-  contribution behind — watch builds, sequential builds in one daemon, and
-  REPL reloads observed ghosts a fresh process never would, and a live
-  file could take a false cross-file `:rf.error/duplicate-root-id` /
-  `:rf.error/frame-payload-conflict` from a deleted site.
+  One daemon compiles `re-frame.ui` for MULTIPLE builds at once
+  (`:node-test`, `:node-test-ui`, `:ui-bench`, browser builds). The prior
+  model held a single GLOBAL build-id and WIPED on switch, so two builds
+  compiling the same namespaces wiped each other's registries — regressing
+  cross-file duplicate detection. This model keys everything PER build id,
+  so independent builds are isolated by construction and never cross-
+  contribute.
 
-  ## The model
+  ## Build identity comes from the compiler env, not a hook
 
-  Each registry stays a plain aggregate atom (`{k v}`) so every existing
-  consumer reads it unchanged — no hot-path lookup pays for this
-  bookkeeping. Alongside, this namespace holds a per-SOURCE contribution
-  ledger: for each registry, which keys each source (a source-file path,
-  the compile unit) contributed, and the build generation it last did so.
+  A contribution's owning build is read AMBIENTLY from the per-thread CLJS
+  compiler env (`cljs.env/*compiler*` -> `:shadow.build.cljs-bridge/state`
+  -> `:shadow.build/build-id`) — correct even under shadow's default
+  PARALLEL compile, where each build's analysis threads carry that build's
+  compiler env. Lifecycle hooks own ONLY pass BOUNDARIES (begin / commit /
+  abort); they never assign identity. Outside a real compile (a REPL, the
+  plain-JVM `clojure -M:test` path) identity falls back to the id the most
+  recent `begin-build!` opened, then to `::default`; tests/REPL can pin it
+  with the `*build-id*` dynamic.
 
-  A source's whole contribution is replaced ATOMICALLY the first time it
-  declares in a new build generation (self-arming — never the unsound
-  'clear on the first macro', which breaks multiple declarations in one
-  file and file deletion). So:
+  ## The one atom + pure transitions
 
-    - multiple declarations in one file accumulate, then replace together;
-    - a recompiled / edited / renamed file drops its entire prior
-      contribution and re-accumulates only what it now declares;
-    - a deleted DECLARATION vanishes when its file re-declares without it.
+  ONE atom holds `{build-id -> slice}`; every mutation is a single `swap!`
+  with a PURE transition. A slice:
 
-  ## Lifecycle hooks (the smallest integration)
+    {:pass-open? bool
+     :committed  {source {reg-id {k v}}}   ; last-known-good, per source
+     :staged     {source {reg-id {k v}}}   ; the OPEN pass's re-declarations
+     :touched    #{source}}                ; sources that re-ran this pass
 
-    (begin-build! [build-id?])  a compile pass starts. Same build-id bumps
-                                the generation (incremental — every source
-                                re-opens fresh on its next declaration); a
-                                different build-id starts an isolated slice
-                                (independent builds in one JVM never cross-
-                                contribute — the wipe is `reset-build!`).
-    (reconcile!)                a WHOLE build pass ended: drop every source
-                                that did NOT re-declare this generation (a
-                                deleted / renamed FILE). Only sound after a
-                                full pass — an incremental pass recompiles a
-                                SUBSET, whose untouched files legitimately
-                                keep their prior generation, so it must NOT
-                                reconcile.
-    (reset-build!)              hard-clear every registered aggregate + the
-                                ledger — the clean-build / test-isolation /
-                                build-id-switch boundary.
+  `source` is the declaring NAMESPACE symbol (the compile unit — matching
+  the runtime arm's `[build-id ns-sym]` key; file/line live in error coords
+  only, so a REPL pseudo-file never forges a false duplicate and Windows
+  path normalization is a non-issue).
 
-  Owners register their aggregate atom (`register!`) at load and route
-  every write through `contribute!` (plain assoc registries) or
-  `open-source!` + `note!` (the Layer-1 indexes, whose pre-write conflict
-  check must read the aggregate AFTER the source's stale rows are evicted,
-  so a source never conflicts with its own ghost).
+  A registry's OBSERVABLE aggregate (`aggregate`) is the EFFECTIVE view:
+  committed rows of sources NOT touched this pass, PLUS the staged rows of
+  the sources that re-ran. So a source's whole prior contribution is
+  superseded ATOMICALLY the moment it re-declares (touched → its committed
+  rows drop out of the effective view), and a pass that ABORTS discards its
+  staging and republishes the committed last-known-good untouched.
 
-  ## One open per source, across every registry
+  ## Pass boundaries (last-known-good publication)
 
-  A source's generation is tracked ONCE (globally), not per registry, and
-  `open-source!` fires exactly once per source per generation — at the
-  source's FIRST declaration of the pass — evicting that source's ENTIRE
-  prior contribution from EVERY registry before it re-accumulates. That
-  cross-registry sweep is what makes a deleted declaration disappear even
-  from a registry the recompiled source no longer touches at all (a file
-  that drops its only frame plan but keeps a root): the plan is gone the
-  moment the file re-declares anything, so it cannot fail a later file
-  with a false `:rf.error/frame-payload-conflict`.
+    (begin-build! [id])   a compile pass starts: open the pass and DISCARD
+                          any staging a failed prior pass left (a successful
+                          pass committed at its close, so there is none).
+    (commit-build! [id])  the pass succeeded: every touched source REPLACES
+                          its committed contribution with what it staged
+                          (or is evicted if it staged nothing — a dropped
+                          declaration); untouched sources are kept.
+    (reconcile! [id])     a WHOLE-build pass ended: commit, THEN drop every
+                          committed source that did not re-declare (a
+                          deleted / renamed FILE). Sound only after a full
+                          pass; an incremental pass recompiles a SUBSET.
+    (finish-build! id ms) whole-build finalize against an AUTHORITATIVE
+                          member set (the shadow hook's `:build-sources`):
+                          commit, then drop committed sources absent from
+                          `ms`. Safe on EVERY pass — macro silence is never
+                          the deletion signal.
+    (abort-build! [id])   the pass failed: discard staging, keep committed.
+    (reset-build!)        hard-clear every slice — the clean-build /
+                          test-isolation boundary.
 
-  Compile-time state is mutated single-threaded (macro expansion), so the
-  aggregate + ledger updates need no coordination.")
+  With NO pass open (a REPL form eval; the plain-JVM test path) a
+  contribution UPSERTS per-key straight into committed (no begin/commit
+  cycle, no sibling eviction) — the RULED REPL posture. A deletion made by
+  a bare REPL re-eval converges at the next watch pass; no design can
+  observe an unsaved deletion.
+
+  Every check-then-act (the Layer-1 duplicate/conflict indexes) runs INSIDE
+  one `swap!` via `contribute-checked!`, so parallel namespace compilation
+  can never expose an evict-then-readd gap or a check-then-assoc race.")
 
 ;; ---------------------------------------------------------------------------
 ;; Registry ids (opaque keys naming the five build-scoped registries)
@@ -90,141 +99,271 @@
 ;; State
 ;; ---------------------------------------------------------------------------
 
-(defonce ^{:private true
-           :doc "Monotonic build-pass counter. `begin-build!` bumps it; a
-  source re-opens (once, across every registry) the first time it declares
-  at a generation newer than the one it last opened at."}
-  generation (atom 0))
+(def ^{:private true
+       :doc "An empty per-build slice — the pure transition seed."}
+  empty-slice
+  {:pass-open? false :committed {} :staged {} :touched #{}})
 
 (defonce ^{:private true
-           :doc "The build-id of the current slice — a different id at
-  `begin-build!` isolates by wiping (independent builds never share rows)."}
-  build-id (atom ::none))
+           :doc "The ONE authority: build-id -> slice. Every registry, every
+  build, one atom, pure transitions."}
+  state (atom {}))
 
 (defonce ^{:private true
-           :doc "source -> the generation it last opened at (tracked ONCE,
-  globally, so a source's cross-registry contribution is evicted together)."}
-  source-gen (atom {}))
+           :doc "The build-id the most recent `begin-build!` opened — the
+  identity fallback for the REPL / plain-JVM paths, where no CLJS compiler
+  env is bound. Never consulted under a real compile (the compiler env wins,
+  and is per-thread correct under parallel builds)."}
+  session-build (atom ::default))
 
 (defonce ^{:private true
-           :doc "registry-id -> {:agg <aggregate atom>
-                                 :keys {source #{k}}}.
-  `:agg` is the plain-map atom consumers read; `:keys` records which keys
-  each source contributed, so a re-opening source's rows evict cleanly."}
-  registries (atom {}))
+           :doc "reg-id -> external MIRROR atom kept synced to the ambient
+  build's aggregate, so a JVM-side reader that derefs a plain atom (the JVM
+  tree builder's custom-element registry) sees the current build's rows. Only
+  the compile-time custom-element registry mirrors; every other registry
+  reads through `aggregate`."}
+  mirrors (atom {}))
+
+(def ^:dynamic *build-id*
+  "Explicit identity override (tests / REPL). Wins over the compiler env and
+  the session fallback; bind it per-thread to drive interleaved builds."
+  nil)
 
 ;; ---------------------------------------------------------------------------
-;; Registration (owners declare their aggregate at load)
+;; Ambient build identity
 ;; ---------------------------------------------------------------------------
+
+#?(:clj
+   (defn- shadow-build-id
+     "The build id of the compile currently running on THIS thread, read from
+     the CLJS compiler env: `cljs.env/*compiler*` (an atom) ->
+     `:shadow.build.cljs-bridge/state` -> `:shadow.build/build-id`. nil
+     outside a shadow compile. Pinned behind this one fn so a shadow upgrade
+     that moves the key breaks here, loudly and in one place."
+     []
+     (try
+       (when-let [compiler-var (resolve 'cljs.env/*compiler*)]
+         (when-let [compiler-atom @compiler-var]
+           (get-in @compiler-atom
+                   [:shadow.build.cljs-bridge/state :shadow.build/build-id])))
+       (catch Throwable _ nil))))
+
+(defn current-build-id
+  "The build id a contribution belongs to: the explicit `*build-id*`
+  override, else the ambient shadow compile (per-thread compiler env), else
+  the last `begin-build!` id, else `::default`."
+  []
+  (or *build-id*
+      #?(:clj (shadow-build-id) :cljs nil)
+      @session-build
+      ::default))
+
+;; ---------------------------------------------------------------------------
+;; Pure reads
+;; ---------------------------------------------------------------------------
+
+(defn- effective
+  "One slice's EFFECTIVE aggregate for `reg-id`: committed rows of the
+  sources NOT touched this pass, merged with the staged rows of the sources
+  that re-ran — EXCLUDING `exclude` (pass `::none` to exclude nothing). Pure."
+  [slice reg-id exclude]
+  (let [touched (:touched slice)
+        committed (reduce-kv
+                   (fn [m src regs]
+                     (if (or (= src exclude) (contains? touched src))
+                       m
+                       (merge m (get regs reg-id))))
+                   {} (:committed slice))]
+    (reduce-kv
+     (fn [m src regs] (if (= src exclude) m (merge m (get regs reg-id))))
+     committed (:staged slice))))
+
+(defn aggregate
+  "The ambient (or given) build's current aggregate for `reg-id` — the
+  effective view (committed last-known-good for untouched sources plus the
+  open pass's staged rows). A pure function of the current build inputs; the
+  read every consumer uses in place of a bare atom deref."
+  ([reg-id] (aggregate reg-id (current-build-id)))
+  ([reg-id build-id]
+   (effective (get @state build-id empty-slice) reg-id ::none)))
+
+(defn pass-open?
+  "Whether a compile pass is currently open for the ambient (or given)
+  build (tests / tooling)."
+  ([] (pass-open? (current-build-id)))
+  ([build-id] (:pass-open? (get @state build-id empty-slice) false)))
+
+;; ---------------------------------------------------------------------------
+;; External mirrors (the compile-time custom-element registry)
+;; ---------------------------------------------------------------------------
+
+(defn- sync-mirror! [reg-id build-id]
+  (when-let [mirror (get @mirrors reg-id)]
+    (reset! mirror (aggregate reg-id build-id)))
+  nil)
+
+(defn- sync-mirrors! [build-id]
+  (doseq [[reg-id _] @mirrors] (sync-mirror! reg-id build-id))
+  nil)
 
 (defn register!
-  "Declare a build-scoped registry: `reg-id` names it, `agg` is the
-  plain-map atom consumers read. Idempotent — the existing ledger is kept
-  so a hot ns reload never drops live contributions."
-  [reg-id agg]
-  (swap! registries update reg-id
-         (fn [r] (if r (assoc r :agg agg) {:agg agg :keys {}})))
+  "Register an external MIRROR atom for `reg-id`: build.cljc keeps it synced
+  to the ambient build's aggregate so a JVM reader that derefs the plain atom
+  (the JVM tree builder's custom-element registry) sees the current build's
+  contributions. Idempotent. Only the compile-time custom-element registry
+  uses this — the Layer-1 indexes and the view digest read through
+  `aggregate`."
+  [reg-id mirror]
+  (swap! mirrors assoc reg-id mirror)
+  (sync-mirror! reg-id (current-build-id))
   nil)
 
 ;; ---------------------------------------------------------------------------
-;; Per-source contribution
+;; Contribution (pure transitions)
 ;; ---------------------------------------------------------------------------
 
-(defn open-source!
-  "Open `source`'s contribution for the current build generation. On
-  `source`'s FIRST declaration this generation, evict its prior keys from
-  EVERY registry's aggregate (the atomic, cross-registry per-source
-  replace) and reset its key sets; idempotent for later same-generation
-  declarations. Call BEFORE reading any aggregate for a conflict check so a
-  source never conflicts with its own stale row (and a dropped declaration
-  is gone from registries the source no longer touches this pass)."
-  [source]
-  (let [g @generation]
-    (when (not= g (get @source-gen source))
-      (doseq [[reg-id r] @registries]
-        (when-let [ks (seq (get-in r [:keys source]))]
-          (apply swap! (:agg r) dissoc ks))
-        (swap! registries assoc-in [reg-id :keys source] #{}))
-      (swap! source-gen assoc source g)))
-  nil)
-
-(defn note!
-  "Record that `source` contributed key `k` to `reg-id` (after storing it
-  in the aggregate). Pairs with `open-source!`."
-  [reg-id source k]
-  (swap! registries update-in [reg-id :keys source] (fnil conj #{}) k)
-  nil)
+(defn- write-slice
+  "Pure: record `source` contributing `k`->`v` to `reg-id`. A pass open →
+  STAGE it (and mark the source touched, so its committed contribution is
+  superseded on commit). No pass → UPSERT straight into committed (the REPL
+  posture: per-key, no sibling eviction)."
+  [slice reg-id source k v]
+  (if (:pass-open? slice)
+    (-> slice
+        (update :touched conj source)
+        (assoc-in [:staged source reg-id k] v))
+    (assoc-in slice [:committed source reg-id k] v)))
 
 (defn contribute!
-  "The plain-registry case: open `source`'s scope, store `k` -> `v` in the
-  aggregate, and note it. Registries with a pre-write conflict check use
-  `open-source!` + `note!` around the check instead."
+  "Contribute `source`'s `k`->`v` to the plain registry `reg-id` in the
+  ambient build — one `swap!`, pure. The Layer-1 indexes use
+  `contribute-checked!` for their pre-write conflict check."
   [reg-id source k v]
-  (open-source! source)
-  (swap! (:agg (get @registries reg-id)) assoc k v)
-  (note! reg-id source k)
-  nil)
+  (let [build-id (current-build-id)]
+    (swap! state update build-id (fnil write-slice empty-slice) reg-id source k v)
+    (sync-mirror! reg-id build-id)
+    nil))
+
+(defn contribute-checked!
+  "The atomic conflict-checked contribution for a Layer-1 index. Inside ONE
+  `swap!`: look up `k` in the ambient build's EFFECTIVE map for `reg-id`,
+  EXCLUDING `source`'s own rows (a source never conflicts with itself —
+  same-source re-declaration replaces), and call `(conflict-fn existing)`. If
+  it returns a non-nil value the write is REJECTED and that value is returned
+  (the caller builds + throws its domain error); otherwise `source`
+  contributes `k`->`v` (staged or upserted) and nil is returned. Atomic, so
+  parallel compilation can neither drop a concurrent write (check-then-assoc
+  race) nor miss a genuine duplicate."
+  [reg-id source k v conflict-fn]
+  (let [build-id (current-build-id)
+        outcome  (atom nil)]           ; call-local — only this call's retries touch it
+    (swap! state update build-id
+           (fn [slice]
+             (let [slice    (or slice empty-slice)
+                   existing (get (effective slice reg-id source) k)
+                   conflict (conflict-fn existing)]
+               (if conflict
+                 (do (reset! outcome {:conflict conflict}) slice)
+                 (do (reset! outcome nil)
+                     (write-slice slice reg-id source k v))))))
+    (sync-mirror! reg-id build-id)
+    @outcome))
 
 ;; ---------------------------------------------------------------------------
-;; Lifecycle hooks
+;; Pass boundaries
 ;; ---------------------------------------------------------------------------
-
-(defn reset-build!
-  "Hard-clear every registered aggregate and the whole ledger — the
-  clean-build / independent-build / test-isolation boundary (generalises
-  the old per-namespace `reset-build-registries!`). `begin-build!`'s
-  per-source replace covers incremental correctness; this is the fresh
-  top-level slice."
-  []
-  (doseq [[reg-id r] @registries]
-    (reset! (:agg r) {})
-    (swap! registries assoc-in [reg-id :keys] {}))
-  (reset! source-gen {})
-  nil)
 
 (defn begin-build!
-  "Open a compile pass. The SAME `build-id` bumps the generation
-  (incremental — every source re-opens fresh on its next declaration, so
-  edits / renames / declaration deletions replace rather than accumulate);
-  a DIFFERENT `build-id` starts an isolated slice (wipes first, so two
-  build-ids sharing one JVM never contribute rows or conflicts to each
-  other). The zero-arg form uses the sole default build."
+  "Open a compile pass for `build-id` (the zero-arg form uses the sole
+  default build). DISCARDS any staging a failed prior pass left — a
+  successful pass commits at its close, so there is normally none — and marks
+  the pass open. Sets the session-build identity fallback so subsequent
+  contributions on the REPL / plain-JVM path route here."
   ([] (begin-build! ::default))
-  ([id]
-   (when (not= id @build-id)
-     (reset! build-id id)
-     (reset-build!))
-   (swap! generation inc)
+  ([build-id]
+   (reset! session-build build-id)
+   (swap! state update build-id
+          (fn [s] (assoc (or s empty-slice) :pass-open? true :staged {} :touched #{})))
+   (sync-mirrors! build-id)
    nil))
 
+(defn- commit-slice
+  "Pure: fold the open pass's staging into committed — every touched source
+  REPLACES its committed contribution with what it staged, or is evicted if
+  it staged nothing."
+  [slice]
+  (let [committed (reduce
+                   (fn [c src]
+                     (let [staged (get-in slice [:staged src])]
+                       (if (seq staged) (assoc c src staged) (dissoc c src))))
+                   (:committed slice)
+                   (:touched slice))]
+    (assoc slice :committed committed :staged {} :touched #{} :pass-open? false)))
+
+(defn commit-build!
+  "Commit the open pass for `build-id`: every touched source's staged
+  contribution replaces its committed one (or evicts it), untouched committed
+  sources are kept, and the pass closes. The last-known-good publication
+  point for an INCREMENTAL pass."
+  ([] (commit-build! (current-build-id)))
+  ([build-id]
+   (swap! state update build-id (fn [s] (commit-slice (or s empty-slice))))
+   (sync-mirrors! build-id)
+   nil))
+
+(defn- keep-members
+  "Pure: drop every committed source absent from `keep?` (a membership
+  predicate over sources)."
+  [slice keep?]
+  (update slice :committed
+          (fn [committed]
+            (select-keys committed (filter keep? (keys committed))))))
+
 (defn reconcile!
-  "Whole-build end hook: drop every source that did NOT re-declare in the
-  current generation (a deleted or renamed FILE no longer contributes),
-  evicting its keys from every aggregate — so the registries equal a clean
-  build over exactly the files that declared this pass. Sound ONLY after a
-  WHOLE pass; an incremental pass that recompiles a subset must not call it
-  (its untouched files keep their prior generation, which is correct)."
-  []
-  (let [g @generation
-        stale (for [[source sg] @source-gen :when (not= sg g)] source)]
-    (doseq [source stale]
-      (doseq [[reg-id r] @registries]
-        (when-let [ks (seq (get-in r [:keys source]))]
-          (apply swap! (:agg r) dissoc ks))
-        (swap! registries update-in [reg-id :keys] dissoc source))
-      (swap! source-gen dissoc source)))
+  "Whole-build finalize for `build-id`: commit the open pass, THEN drop every
+  committed source that did NOT re-declare this pass (a deleted / renamed
+  FILE). Sound ONLY after a WHOLE pass — an incremental pass recompiles a
+  subset, whose untouched sources legitimately keep their prior contribution,
+  so it must NOT reconcile."
+  ([] (reconcile! (current-build-id)))
+  ([build-id]
+   (swap! state update build-id
+          (fn [s]
+            (let [s (or s empty-slice)
+                  touched (:touched s)]
+              (-> s commit-slice (keep-members touched)))))
+   (sync-mirrors! build-id)
+   nil))
+
+(defn finish-build!
+  "Whole-build finalize against an AUTHORITATIVE member set (the shadow
+  hook's `:build-sources`): commit the open pass, then drop every committed
+  source absent from `members` (a coll/set of source ns-syms). Safe on EVERY
+  pass, incrementals included — macro silence is never the deletion signal,
+  so authoritative membership, not `touched`, drives eviction."
+  [build-id members]
+  (let [members (set members)]
+    (swap! state update build-id
+           (fn [s] (-> (or s empty-slice) commit-slice (keep-members members))))
+    (sync-mirrors! build-id))
   nil)
 
-;; ---------------------------------------------------------------------------
-;; Introspection (tests / tooling)
-;; ---------------------------------------------------------------------------
+(defn abort-build!
+  "Discard the open pass's staging for `build-id`; the committed
+  last-known-good survives untouched. A failed / aborted compile."
+  ([] (abort-build! (current-build-id)))
+  ([build-id]
+   (swap! state update build-id
+          (fn [s] (assoc (or s empty-slice) :staged {} :touched #{} :pass-open? false)))
+   (sync-mirrors! build-id)
+   nil))
 
-(defn current-generation
-  "The current build generation (tests / tooling)."
+(defn reset-build!
+  "Hard-clear every build slice — the clean-build / independent-build /
+  test-isolation boundary. `begin-build!`'s per-source replace covers
+  incremental correctness; this is the fresh top-level state."
   []
-  @generation)
-
-(defn source-keys
-  "The keys `source` currently contributes to `reg-id` (tests / tooling)."
-  [reg-id source]
-  (get-in @registries [reg-id :keys source] #{}))
+  (reset! state {})
+  (reset! session-build ::default)
+  (doseq [[_ mirror] @mirrors] (reset! mirror {}))
+  nil)
