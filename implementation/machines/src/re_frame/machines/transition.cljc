@@ -3527,7 +3527,7 @@
                   (result/ok snap-after-spawns all-fx)
                   cascade-steps))))))))))
 
-(defn- pick-always-transition
+(defn pick-always-transition
   "Per Spec 005 §Eventless :always transitions: walk path leaf→root for
   an `:always` whose guard passes (the deepest-wins rule named in
   `path-walk/walk-path-leaf-to-root`). The raw `:always` slot value is
@@ -3576,7 +3576,7 @@
                                                 :raw-value     raw-always}))
            :decl-path prefix})))))
 
-(def ^:private always-depth-limit-default
+(def always-depth-limit-default
   ;; Per Spec 005 §Drain semantics: bounds the `:always` microstep loop
   ;; (each iteration drains every match leaf→root). 16 leaves plenty of
   ;; headroom for legitimate cascades while still catching `:always`
@@ -4140,6 +4140,60 @@
                     (result/with-microsteps always-depth)
                     (result/with-cascade cascade))))))))))
 
+(defn apply-preselected-transition
+  "Apply one already-selected `match` without running the `:always` / raised-
+  event settling tail. This is the APPLY-only seam used by the parallel
+  parent: all sibling event or eventless matches are selected against one
+  frozen whole-machine snapshot, then applied in canonical region order.
+
+  `transition-phase` is `:always` for an eventless round; nil infers the
+  ordinary `:transition` / `:after-action` phase from `match`. The returned
+  Result carries `::handled?`, but always has zero `::microsteps`: the queue
+  owner counts a co-selected eventless SET as one parent round.
+
+  Flat and compound machines continue to call `machine-transition-single`,
+  which composes this seam with `drain-to-fixed-point`."
+  [machine snapshot event match transition-phase]
+  (let [handled? (boolean (and match
+                               (not (:stale? match))
+                               (not (:guard-suppressed? match))))
+        _ (emit-pick-traces! (:rf/frame machine) match
+                             (get-in machine [:rf/cofx :rf/time-ms]))
+        applied
+        (cond
+          (and match (:stale? match))
+          (result/ok snapshot [])
+
+          (and match (:guard-suppressed? match))
+          (result/ok snapshot [])
+
+          match
+          (let [phase (or transition-phase
+                          (if (:delay match) :after-action :transition))
+                ;; `:on` matches carry a partial slot discriminator whose
+                ;; declaration path is known only at the pick site. `:always`
+                ;; matches are already complete and pass through unchanged.
+                t     (cond-> (assoc (:transition match)
+                                     :decl-path (:decl-path match))
+                        (not= phase :always)
+                        (finalize-on-transition-slot (:decl-path match)))]
+            (apply-transition-once machine snapshot event t phase))
+
+          :else
+          (do
+            ;; Only a top-level flat/compound miss emits here. A parallel
+            ;; region carries `:rf/region`; the parent emits one aggregate
+            ;; no-op only when every region and its root fallback decline.
+            (when (and (nil? (:rf/region machine))
+                       (unhandled-event-no-op? event))
+              (trace/emit! :rf.machine :rf.machine.event/unhandled-no-op
+                           {:actor-id (or (:rf/parent-id machine) (:id machine))
+                            :event    event
+                            :state    (:state snapshot)
+                            :frame    (:rf/frame machine)}))
+            (result/ok snapshot [])))]
+    (result/with-handled applied handled?)))
+
 (defn machine-transition-single
   "Pure function. Single-machine (flat or compound) implementation of the
   macrostep. Per Spec 005 §Drain semantics §Level 3:
@@ -4177,16 +4231,10 @@
      surface back un-drained and the queue-owning loop appends them to the
      BACK of its FIFO queue (true breadth-first; a self-draining recursion
      would be depth-first).
-   - A REGION of a parallel parent (`:rf/region` present) ALWAYS defers:
-     its raises belong to the PARENT macrostep's one
-     internal-event queue, which re-broadcasts each across EVERY region
-     against the full evolving snapshot (XState v5 / SCXML: `raise` targets
-     the machine's single internal queue, never a per-region one).
-
-  `:always` stays region-local and settles within whichever microstep owns
-  it, regardless of deferral. The effective defer flag is `(or defer-raises?
-  (some? (:rf/region machine)))` so a region defers even when reached via
-  the bare public arity.
+   - A REGION value passed directly to this single-machine compatibility seam
+     defers raises to its owner. The actual parallel engine does not call this
+     settling path: it calls `apply-preselected-transition` and owns both
+     eventless rounds and raises at the parent whole-configuration level.
 
   `raise-depth` is the count of `:raise` recursions already consumed
   before reaching this call. The public entry passes 0; the queue-owning
@@ -4200,10 +4248,9 @@
   raise-depth defer-raises? match]` SKIPS the internal `pick-transition` and
   applies the caller-supplied `match` (or nil no-op) directly. The 5-arity is
   its select-then-apply shorthand (`match` = `pick-transition` against
-  `snapshot`). The parallel broadcast uses the 6-arity so every region's guard
-  is resolved once, in a SELECT pass, against a FROZEN pre-event view — the
-  APPLY then threads the evolving `:data` into each region's ACTION without
-  re-selecting (rf2-lq5yo3 / Spec 005 §Transition broadcast)."
+  `snapshot`). The parallel engine calls `apply-preselected-transition`
+  directly instead, because its parent must apply the complete regional set
+  before running any eventless stabilization."
   ([machine snapshot event]
    (machine-transition-single machine snapshot event 0 false))
   ([machine snapshot event raise-depth]
@@ -4211,134 +4258,20 @@
   ([machine snapshot event raise-depth defer-raises?]
    ;; SELECT phase (flat / compound path): resolve the matching transition
    ;; against `snapshot`, then delegate to the 6-arity APPLY below. The
-   ;; parallel broadcast (`re-frame.machines.parallel/broadcast-once`) does NOT
-   ;; route through here: it runs a dedicated SELECT pass resolving EVERY
-   ;; region's match against ONE frozen pre-event view (`:data` + `:all-state`
-   ;; + `:tags`) and feeds each pre-selected match straight to the 6-arity — so
-   ;; a later region's guard SELECTION never observes an earlier region's
-   ;; same-macrostep `:data` write (rf2-lq5yo3 / Spec 005 §Transition
-   ;; broadcast). Flat/compound machines and the flat raise-drain re-entry
+   ;; parallel broadcast does NOT route through here: it selects every region
+   ;; against one frozen view and calls the APPLY-only seam directly, so the
+   ;; parent can run eventless rounds only after the full set. Flat/compound
+   ;; machines and the flat raise-drain re-entry
    ;; (`drain-to-fixed-point`) still select-then-apply in one call here.
    (machine-transition-single
      machine snapshot event raise-depth defer-raises?
      (pick-transition machine (state-path (:state snapshot)) event snapshot)))
   ([machine snapshot event raise-depth defer-raises? match]
-  (let [;; A region of a parallel parent always defers (its raises lift to
-        ;; the parent macrostep), even when reached via the bare public
-        ;; arity — see the docstring's `defer-raises?` note. The depth
-        ;; LIMITS themselves (`:always-depth-limit` / `:raise-depth-limit`)
-        ;; are read inside the shared `drain-to-fixed-point`. `match` is the
-        ;; PRE-RESOLVED transition (or nil) — the 5-arity computes it via
-        ;; `pick-transition`; the parallel SELECT pass supplies it directly so
-        ;; the guard was evaluated against the frozen pre-event view.
-        defer?       (or defer-raises? (some? (:rf/region machine)))
-        ;; Per Spec 005 §Parallel regions (005:1168-1171): a region reports
-        ;; whether the inbound event resolved to a real transition so the
-        ;; parent can warn exactly once when EVERY region declines. A stale
-        ;; / guard-suppressed timer is not a handled user event.
-        handled?         (boolean (and match
-                                       (not (:stale? match))
-                                       (not (:guard-suppressed? match))))
-        ;; Trace timer firing / staleness / guard-suppression BEFORE
-        ;; running the transition, so listeners see events in the order
-        ;; they occurred. Thread the CAUSAL completion
-        ;; timestamp (the router-stamped `:rf/time-ms` off the firing
-        ;; dispatch's `:rf.cofx`, the SAME fresh fire-time token the
-        ;; timer-fired guard / action read) so a fired or stale `:after`
-        ;; completion carries `:completed-at` the way the spawned-machine
-        ;; `:rf.machine/done` reply does (Managed-Effects §Causal
-        ;; completion metadata). nil for a pure-fn / hand-dispatched path
-        ;; with no token — then omitted, not nil-filled.
-        _ (emit-pick-traces! (:rf/frame machine) match
-                             (get-in machine [:rf/cofx :rf/time-ms]))
-        result-after-event
-        (cond
-          (and match (:stale? match))
-          (result/ok snapshot [])
-
-          (and match (:guard-suppressed? match))
-          (result/ok snapshot [])
-
-          match
-          ;; The transition's `:action` `action-ran` emit
-          ;; carries `:phase :after-action` when the match came from a
-          ;; firing `:after` timer (the synthetic `:rf.machine.timer/
-          ;; after-elapsed` event), `:transition` otherwise.
-          (apply-transition-once
-            machine snapshot event
-            (-> (:transition match)
-                (assoc :decl-path (:decl-path match))
-                ;; Finalize the `:on` spec-path discriminator:
-                ;; `match-on-clause` stamped the PARTIAL `:rf/transition-slot`
-                ;; (slot / matched key / candidate-idx / raw value); the
-                ;; pick site owns the decl-path prefix (`[]` for a root /
-                ;; parallel-root `:on` fallback), so fold it through
-                ;; `transition-slot` to compute `:root?` + drop the index
-                ;; for index-free value forms. `:after` / `:always` matches
-                ;; already carry a complete discriminator from their pick
-                ;; sites, so only the `:on` partial is finalized here.
-                (finalize-on-transition-slot (:decl-path match)))
-            (if (:delay match) :after-action :transition))
-
-          :else
-          (do
-            ;; No transition matched at any level (including the root `:on`
-            ;; fallback / its `:*` wildcard). Per Spec 005 §Transition
-            ;; resolution the runtime emits the BENIGN no-op trace and
-            ;; leaves the snapshot unchanged — xstate-v5 parity: v5 removed
-            ;; the `strict` flag, so an unhandled event is ignored, not an
-            ;; error. The canonical id / op-type / tags are owned by Spec 009
-            ;; §`:op-type` vocabulary: `:rf.machine.event/unhandled-no-op`,
-            ;; op-type `:rf.machine` (machine-activity family, NOT `:error` /
-            ;; `:warning`), tags `{:machine-id :event :state}`. Benign is not
-            ;; invisible — xstate emits nothing here, but re-frame2 keeps an
-            ;; info-grade observability trace so a debugger can report it.
-            ;; Because the op-type is `:rf.machine` (not a severity
-            ;; discriminator), the Xray issue-projection predicate does not
-            ;; classify it as an issue — no pink wash, no ribbon entry, for
-            ;; free. An unhandled user event is a benign no-op trace, never an
-            ;; error.
-            ;;
-            ;; Reserved-`:rf/*` lifecycle carve-out. The no-op classifies an
-            ;; unknown
-            ;; USER event; framework lifecycle traffic — the synthetic
-            ;; creation marker `[:rf.machine/start]` (cascade-threaded
-            ;; `:event` placeholder), the spawn kick-off
-            ;; `[:rf.machine.spawn/spawned]`, the stories-runtime lifecycle
-            ;; pings — is NOT an unknown user event, so `unhandled-event-
-            ;; no-op?` gates the emit. Severity is unchanged (nothing
-            ;; throws); only the SEMANTIC classification is restored, so
-            ;; the machine's BIRTH renders its `:initial-entry` cascade,
-            ;; not a no-op. This matches xstate (its own `xstate.init` runs
-            ;; the initial-entry and is not reported as unhandled).
-            ;;
-            ;; A region of a parallel-region machine carries `:rf/region`;
-            ;; per Spec 005 §Transition broadcast a single declining region
-            ;; MUST NOT emit — only when EVERY region declines does the
-            ;; machine emit once. That aggregate emission lives in
-            ;; `parallel-machine-transition`, so suppress the per-region
-            ;; emission here.
-            (when (and (nil? (:rf/region machine))
-                       (unhandled-event-no-op? event))
-              (trace/emit! :rf.machine :rf.machine.event/unhandled-no-op
-                           {;; A LIVE actor received the unknown
-                            ;; event; address it by `:actor-id` (the running
-                            ;; INSTANCE), not `:machine-id` (the TYPE).
-                            :actor-id   (or (:rf/parent-id machine) (:id machine))
-                            :event      event
-                            :state      (:state snapshot)
-                            ;; Epoch-capture admission
-                            ;; requires `:frame`.
-                            :frame      (:rf/frame machine)}))
-            (result/ok snapshot [])))]
-    ;; Steps 3-5: hand the post-event seed Result to the shared
-    ;; `drain-to-fixed-point` — raise-drain FIFO, `:always` fixed-point
-    ;; loop, tag commit (this shared tail lets machine birth
-    ;; reuse the identical settling). On a depth-abort the drain returns
-    ;; a `result/depth-abort` `:fail` — the whole macrostep
-    ;; unwinds via the failure surface (no snapshot threaded), leaving the
-    ;; PRE-event `snapshot` committed. `handled?` rides the Result for the
-    ;; parallel parent's all-regions-declined no-op aggregation.
-    (result/with-handled
-     (drain-to-fixed-point machine result-after-event raise-depth defer?)
-     handled?))))
+   (let [defer? (or defer-raises? (some? (:rf/region machine)))
+         seed   (apply-preselected-transition machine snapshot event match nil)]
+     ;; Steps 3-5: flat/compound ownership remains here. The parallel parent
+     ;; calls `apply-preselected-transition` directly and owns settling across
+     ;; the complete regional configuration.
+     (result/with-handled
+       (drain-to-fixed-point machine seed raise-depth defer?)
+       (result/handled? seed)))))
