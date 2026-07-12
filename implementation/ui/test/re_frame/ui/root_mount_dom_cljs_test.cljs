@@ -19,9 +19,70 @@
 
 (defn- browser? [] (exists? js/document))
 
+;; ---------------------------------------------------------------------------
+;; The canonical React act() helper (rf2-vxgfnd.89 template; rf2-powx4d sweep)
+;;
+;; The repository's established native-React act pattern — the same
+;; get-act / enable-react-act-env! shape as core's shared React suite
+;; (react_shared_suite.cljs `with-browser-act`) and the frame-scope keystone
+;; fixture. It uses React's OWN `act()`, NOT UIx/Helix/Reagent machinery.
+;;
+;; `flushSync` is NOT an act substitute: React's test contract treats any
+;; update committed outside an act scope as "not wrapped in act(...)". The
+;; `:browser-test` build runs EVERY `-dom-cljs-test` namespace on one shared
+;; page, and sibling suites set IS_REACT_ACT_ENVIRONMENT=true and never reset
+;; it — so a flushSync-only mount here emits that warning once the flag has
+;; leaked true. Wrapping every mount / render / unmount in `act` — with the act
+;; env enabled per-test in the fixture — makes the fixture clean under act
+;; rather than silencing anything.
+(defn- get-act
+  "React's act() — React 19 promotes it to the React namespace proper
+  (react-dom/test-utils on 18)."
+  []
+  (or (when (exists? (.-act react)) (.-act react))
+      (try (.-act (js/require "react-dom/test-utils")) (catch :default _ nil))))
+
+(defn- enable-react-act-env! []
+  (when (browser?)
+    (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)))
+
+(defn- act!
+  "Run `thunk` inside React `act()`, returning the thunk's value. The
+  mount/render/unmount work commits synchronously under
+  IS_REACT_ACT_ENVIRONMENT (enabled per-test in the fixture), so the callback
+  runs eagerly and we capture its result."
+  [thunk]
+  (let [ret    (volatile! nil)
+        act-fn (get-act)]
+    (act-fn (fn [] (vreset! ret (thunk))))
+    @ret))
+
+(defn- flush-without-act!
+  "Run `thunk` inside `flushSync` with the act env toggled OFF, restoring the
+  prior flag after. For deliberately-throwing / aborting mounts (a throwing
+  element thunk that mount* rolls back and re-throws): React `act` would
+  surface the intended error at the act boundary, and the best-effort teardown
+  commit during rollback would warn under the leaked act env. The canonical
+  'real flushSync commit path' (react_shared_suite.cljs) — the throw still
+  propagates for the surrounding `thrown-with-msg?` / `thrown-error`."
+  [thunk]
+  (let [prior (.-IS_REACT_ACT_ENVIRONMENT js/globalThis)]
+    (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
+    (try (react-dom/flushSync thunk)
+         (finally (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) prior)))))
+
 (use-fixtures :each
-  {:before client/reset-live-roots!
-   :after  client/reset-live-roots!})
+  (fn [f]
+    ;; Enable React's act environment for this ns's DOM tests, then RESTORE the
+    ;; prior value so the fixture neither depends on nor leaks the shared-page
+    ;; flag.
+    (let [prior (when (browser?) (.-IS_REACT_ACT_ENVIRONMENT js/globalThis))]
+      (enable-react-act-env!)
+      (client/reset-live-roots!)
+      (try (f)
+           (finally (client/reset-live-roots!)
+                    (when (browser?)
+                      (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) prior)))))))
 
 (defn- container []
   (js/document.createElement "div"))
@@ -72,7 +133,7 @@
 (deftest mount-smoke
   (when (browser?)
     (let [c (container)
-          root (react-dom/flushSync #(mount-main! c))]
+          root (act! #(mount-main! c))]
       (is (some? root))
       (is (= :dom-smoke/main (client/root-id-of root)))
       (is (re-find #"<div class=\"mini-app\"><h1>hello S1c</h1></div>"
@@ -92,8 +153,8 @@
 (deftest mount-is-idempotent-per-root
   (when (browser?)
     (let [c (container)
-          r1 (react-dom/flushSync #(mount-main! c))
-          r2 (react-dom/flushSync #(mount-main! c))]
+          r1 (act! #(mount-main! c))
+          r2 (act! #(mount-main! c))]
       (is (identical? r1 r2)
           "same root-id + same container re-renders the existing Root")
       (is (= 1 (count (client/live-root-ids)))))))
@@ -107,7 +168,7 @@
 
 (deftest duplicate-derived-root-id-fails-loud-live
   (when (browser?)
-    (react-dom/flushSync #(mount-derived! (container)))
+    (act! #(mount-derived! (container)))
     (let [{:keys [id msg]} (thrown-error #(mount-derived! (container)))]
       (is (= :rf.error/duplicate-root-id id)
           "same root-id on a DIFFERENT container fails loud (Layer 3)")
@@ -117,7 +178,7 @@
 (deftest container-in-use-fails-loud-live
   (when (browser?)
     (let [c (container)]
-      (react-dom/flushSync
+      (act!
        #(ui/mount [mini-app {:title "first"}] c {:root-id :dom-inuse/first}))
       (let [{:keys [id data]}
             (thrown-error
@@ -141,9 +202,9 @@
           root (ui/create-root c {:root-id :dom-cr/panel
                                   :identifier-prefix "rf2-custom-"})]
       (is (= "" (.-innerHTML c)) "create-root renders nothing")
-      (react-dom/flushSync #(ui/render! root [mini-app {:title "one"}]))
+      (act! #(ui/render! root [mini-app {:title "one"}]))
       (is (re-find #"one" (.-innerHTML c)))
-      (react-dom/flushSync #(ui/render! root [mini-app {:title "two"}]))
+      (act! #(ui/render! root [mini-app {:title "two"}]))
       (is (re-find #"two" (.-innerHTML c)) "render! re-renders")
       (let [entry (client/live-root-entry :dom-cr/panel)]
         (is (= :dom-cr/panel (get-in entry [:descriptor :root-id]))
@@ -168,10 +229,10 @@
         (is (= #{:dom-pfx/a} (client/live-root-ids))
             "the first root is untouched"))
       ;; release the owner — the prefix is now free for a fresh root
-      (ui/unmount! r1)
+      (act! #(ui/unmount! r1))
       (let [r2 (ui/create-root c2 {:root-id :dom-pfx/b :identifier-prefix "rf2-shared-"})]
         (is (some? r2) "the prefix is reclaimable once its owner unmounts")
-        (ui/unmount! r2)))))
+        (act! #(ui/unmount! r2))))))
 
 ;; ---------------------------------------------------------------------------
 ;; identifier-prefix reaches React useId; same-root prefix change fails loud
@@ -186,8 +247,8 @@
   ;; claim BEFORE createRoot / any commit — the colliding container stays empty.
   (when (browser?)
     (let [ca (container) cb (container) cc (container)
-          ra (react-dom/flushSync #(mount-probe! ca "rf2-uida-" :uid/a))
-          rb (react-dom/flushSync #(mount-probe! cb "rf2-uidb-" :uid/b))
+          ra (act! #(mount-probe! ca "rf2-uida-" :uid/a))
+          rb (act! #(mount-probe! cb "rf2-uidb-" :uid/b))
           id-a (.-textContent ca)
           id-b (.-textContent cb)]
       (is (str/includes? id-a "rf2-uida-")
@@ -204,8 +265,8 @@
         (is (= :uid/a (:owner-root-id data)))
         (is (= "" (.-innerHTML cc))
             "the colliding root committed nothing — stopped before createRoot"))
-      (client/unmount!* ra)
-      (client/unmount!* rb))))
+      (act! #(client/unmount!* ra))
+      (act! #(client/unmount!* rb)))))
 
 (deftest same-root-remount-changed-prefix-fails-loud-live
   ;; AC3 end-to-end: a real root mounted with prefix P1, then re-mounted on the
@@ -214,7 +275,7 @@
   ;; render + registered prefix stay intact (untouched).
   (when (browser?)
     (let [c   (container)
-          r1  (react-dom/flushSync #(mount-probe! c "rf2-p1-" :hmr/x))
+          r1  (act! #(mount-probe! c "rf2-p1-" :hmr/x))
           id1 (.-textContent c)]
       (is (str/includes? id1 "rf2-p1-"))
       (let [{:keys [id data msg]}
@@ -229,7 +290,7 @@
           "the original render is intact — the running root kept its prefix")
       (is (= "rf2-p1-" (:identifier-prefix (client/live-root-entry :hmr/x)))
           "the registry entry still carries the original prefix")
-      (client/unmount!* r1))))
+      (act! #(client/unmount!* r1)))))
 
 ;; ---------------------------------------------------------------------------
 ;; unmount! — total teardown + remount
@@ -238,19 +299,19 @@
 (deftest unmount-tears-down-and-frees-identity
   (when (browser?)
     (let [c (container)
-          root (react-dom/flushSync
+          root (act!
                 #(ui/mount [other-app {}] c {:root-id :dom-un/x}))]
       (is (re-find #"other content" (.-innerHTML c)))
-      (ui/unmount! root)
+      (act! #(ui/unmount! root))
       (is (= "" (.-innerHTML c)) "total teardown")
       (is (not (contains? (client/live-root-ids) :dom-un/x))
           "the root-id is unregistered")
-      (is (nil? (ui/unmount! root)) "idempotent")
-      (let [root2 (react-dom/flushSync
+      (is (nil? (act! #(ui/unmount! root))) "idempotent")
+      (let [root2 (act!
                    #(ui/mount [other-app {}] c {:root-id :dom-un/x}))]
         (is (re-find #"other content" (.-innerHTML c))
             "identity + container free for a fresh mount")
-        (ui/unmount! root2)))))
+        (act! #(ui/unmount! root2))))))
 
 ;; ---------------------------------------------------------------------------
 ;; exception-safety: total teardown + idempotent mount retry (rf2-vxgfnd.18)
@@ -265,18 +326,18 @@
           info {:root-id :dom-throw/x :provenance :authored}
           boom (fn [] (throw (ex-info "element thunk boom" {:tag :element})))]
       (is (thrown-with-msg? cljs.core/ExceptionInfo #"element thunk boom"
-                            (react-dom/flushSync #(client/mount* info c boom nil nil)))
+                            (flush-without-act! #(client/mount* info c boom nil nil)))
           "the original mount error propagates")
       (is (not (contains? (client/live-root-ids) :dom-throw/x))
           "no phantom live root remains after the failed first mount")
       (is (nil? (client/live-root-entry :dom-throw/x)))
       ;; retry on the SAME container + root-id via the public API succeeds
-      (let [root (react-dom/flushSync
+      (let [root (act!
                   #(ui/mount [mini-app {:title "retry ok"}] c {:root-id :dom-throw/x}))]
         (is (some? root))
         (is (re-find #"retry ok" (.-innerHTML c))
             "a clean retry mounts successfully into the freed container")
-        (ui/unmount! root)))))
+        (act! #(ui/unmount! root))))))
 
 ;; criterion 3 (a synchronous host `.render` throw AFTER host creation) is
 ;; covered by the SAME rollback catch as the thunk throw above: `mount*`
@@ -296,7 +357,7 @@
   ;; render intact (no rollback — the root was live before this call).
   (when (browser?)
     (let [c    (container)
-          root (react-dom/flushSync
+          root (act!
                 #(ui/mount [mini-app {:title "committed"}] c
                            {:root-id :dom-rerender/x}))]
       (is (re-find #"committed" (.-innerHTML c)))
@@ -304,14 +365,14 @@
             boom (fn [] (throw (ex-info "re-render boom" {})))]
         ;; same root-id + same container -> the idempotent re-render branch
         (is (thrown-with-msg? cljs.core/ExceptionInfo #"re-render boom"
-                              (react-dom/flushSync #(client/mount* info c boom nil nil))))
+                              (flush-without-act! #(client/mount* info c boom nil nil))))
         (is (contains? (client/live-root-ids) :dom-rerender/x)
             "the existing root stays registered on a failed re-render")
         (is (identical? root (:root (client/live-root-entry :dom-rerender/x)))
             "it is the same Root — not evicted or replaced")
         (is (re-find #"committed" (.-innerHTML c))
             "its last committed render is intact"))
-      (ui/unmount! root))))
+      (act! #(ui/unmount! root)))))
 
 ;; ---------------------------------------------------------------------------
 ;; stale-root render! guard (rf2-vxgfnd.31)
@@ -327,10 +388,10 @@
   (when (browser?)
     (let [c    (container)
           root (ui/create-root c {:root-id :dom-stale/panel})]
-      (react-dom/flushSync #(ui/render! root [mini-app {:title "live"}]))
+      (act! #(ui/render! root [mini-app {:title "live"}]))
       (is (re-find #"live" (.-innerHTML c)))
       ;; tear it down — the handle is now STALE
-      (ui/unmount! root)
+      (act! #(ui/unmount! root))
       (is (not (contains? (client/live-root-ids) :dom-stale/panel)))
       (is (= "" (.-innerHTML c)) "the container is cleared by unmount!")
       ;; a preflight capture hook stands in for the side-effecting frame
@@ -373,7 +434,16 @@
   ;; container. B's live React tree must survive and A must fail loud with no
   ;; orphan — the re-check (rf2-vxgfnd.52) fires before A createRoots/registers.
   (when (browser?)
-    (let [c-a (container)
+    ;; This re-entrant path mounts inner root B from INSIDE the outer mount's
+    ;; preflight (a bare ui/mount, deliberately outside any flushSync) while the
+    ;; outer mount throws. It is a real flushSync commit path, not an act path:
+    ;; run it with IS_REACT_ACT_ENVIRONMENT OFF (the react_shared_suite.cljs
+    ;; pattern) so B's scheduled render — flushed here, not under act — commits
+    ;; without an act warning, and the outer throw still propagates. The fixture
+    ;; restores the prior flag; we restore it in the finally too.
+    (let [prior  (.-IS_REACT_ACT_ENVIRONMENT js/globalThis)
+          _      (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
+          c-a (container)
           c-b (container)
           b-root (atom nil)]
       (client/set-preflight-hook!
@@ -405,7 +475,8 @@
             "only B is live — A left no phantom entry")
         (finally
           (client/set-preflight-hook! nil)
-          (some-> @b-root ui/unmount!))))))
+          (some-> @b-root ui/unmount!)
+          (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) prior))))))
 
 ;; ---------------------------------------------------------------------------
 ;; frame-root: transparent render + the preflight seam
@@ -425,7 +496,7 @@
       ;; pinned by the preflight-frame-wiring fixtures)
       (client/set-preflight-hook! (fn [_root-id plans] (reset! seen plans)))
       (try
-        (react-dom/flushSync #(mount-framed! (container) 42))
+        (act! #(mount-framed! (container) 42))
         (let [[plan :as plans] @seen]
           (is (= 1 (count plans)))
           (is (= :dom-frames/session (:frame-id plan)))
@@ -447,7 +518,7 @@
     (let [calls (atom 0)]
       (client/set-preflight-hook! (fn [_ _] (swap! calls inc)))
       (try
-        (react-dom/flushSync
+        (act!
          #(ui/mount [mini-app {:title "plain"}] (container)
                     {:root-id :dom-plain/root}))
         (is (zero? @calls)
