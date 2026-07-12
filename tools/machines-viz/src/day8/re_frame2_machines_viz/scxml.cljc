@@ -916,11 +916,14 @@
   map of string keys to unescaped string values. Tolerant of any
   attribute order; recognises both single and double quotes."
   [^String attr-string]
-  (let [pattern #"(\w+)\s*=\s*\"([^\"]*)\""
+  ;; rf2-qgtcvy — match DOUBLE- OR SINGLE-quoted values. Pre-fix the pattern
+  ;; only matched `"…"`, so an imported `<state id='idle'>` (single-quoted, a
+  ;; legal XML form) parsed no `id` and keyed the state under nil.
+  (let [pattern #"(\w+)\s*=\s*(?:\"([^\"]*)\"|'([^']*)')"
         matches (re-seq pattern attr-string)]
     (into {}
-          (map (fn [[_ k v]]
-                 [k (-> v
+          (map (fn [[_ k dq sq]]
+                 [k (-> (or dq sq)
                         (str/replace "&apos;" "'")
                         (str/replace "&quot;" "\"")
                         (str/replace "&gt;"   ">")

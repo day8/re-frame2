@@ -39,11 +39,18 @@
   keyword-label g/name-of)
 
 (defn- label-value
-  "Return a label string for values that appear on Mermaid edges."
+  "Return a label string for values that appear on Mermaid edges.
+
+  rf2-qgtcvy — an INLINE-FN guard/action renders via the SHARED fn-tolerant
+  `grammar/name-of` (its `:name` meta or a stable `\"fn\"`), the SAME way the
+  chart `name-of` + SCXML `ref->label` render it. The pre-fix `pr-str` arm
+  leaked the host object string (`#object[Function]` / `#object[...]`),
+  diverging from the other two emitters for the very same fn ref."
   [v]
   (cond
     (keyword? v) (keyword-label v)
     (string? v)  v
+    (fn? v)      (g/name-of v)
     :else        (pr-str v)))
 
 ;; rf2-b2ygd2 — grammar walker + injective id codec aliased from the SHARED
