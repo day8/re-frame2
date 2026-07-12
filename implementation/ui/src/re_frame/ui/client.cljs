@@ -72,7 +72,9 @@
 
 (defonce ^:private live-roots
   ;; root-id -> {:root Root :container node :provenance kw
-  ;;             :site {..}|nil :descriptor {..}|nil}
+  ;;             :identifier-prefix str|nil :site {..}|nil :descriptor {..}|nil}
+  ;; The effective identifier-prefix rides the entry so claim-time uniqueness
+  ;; (rf2-ez3fqk) reads it and release frees it by dissoc — no side index.
   (atom {}))
 
 (defn live-root-ids
@@ -101,6 +103,18 @@
           (when (identical? (:container entry) container) id))
         @live-roots))
 
+(defn- prefix-owner
+  "root-id of a DIFFERENT live root already claiming effective
+  identifierPrefix `prefix` (`=`), nil if unclaimed. Only non-nil stored
+  prefixes are compared, so entries registered without an effective prefix
+  (bare test infos) never alias (rf2-ez3fqk)."
+  [prefix root-id]
+  (some (fn [[id entry]]
+          (when (and (not= id root-id)
+                     (= prefix (:identifier-prefix entry)))
+            id))
+        @live-roots))
+
 (defn require-container!
   "`:rf.error/root-container-missing` on a nil container — mount /
   create-root need a live element (the S5 hydration arm — a manifest
@@ -119,8 +133,14 @@
   "The Layer-3 checks, BEFORE any render (the existing root is untouched
   on failure): a root-id already live throws
   `:rf.error/duplicate-root-id`; a container owned by a DIFFERENT live
-  root throws `:rf.error/root-container-in-use`."
-  [where {:keys [root-id provenance site]} container]
+  root throws `:rf.error/root-container-in-use`; and a DIFFERENT live root
+  already using this root's effective `identifierPrefix` throws
+  `:rf.error/duplicate-identifier-prefix` (rf2-ez3fqk — the derived default
+  prefix is injective over root-id, so this backstops AUTHORED
+  `:identifier-prefix` opts that can still alias distinct roots and collide
+  `use-id` output). The prefix arm is a no-op when no effective prefix is
+  present (bare infos)."
+  [where {:keys [root-id provenance site identifier-prefix]} container]
   (require-container! where root-id container)
   (when-let [existing (get @live-roots root-id)]
     (error/throw-error!
@@ -142,14 +162,30 @@
           "unmount! the owning root first, or mount into a different node")
      {:recovery :unmount-the-owning-root-first
       :extra {:root-id root-id :owner-root-id owner}}))
+  (when (some? identifier-prefix)
+    (when-let [owner (prefix-owner identifier-prefix root-id)]
+      (error/throw-error!
+       :rf.error/duplicate-identifier-prefix where
+       (str "root " (pr-str root-id) " uses identifierPrefix "
+            (pr-str identifier-prefix) ", already claimed by live root "
+            (pr-str owner) " — two live roots sharing a prefix collide "
+            "React's use-id output. The DERIVED default is unique per "
+            "root-id; give one root a distinct :identifier-prefix")
+       {:recovery :make-identifier-prefixes-unique
+        :extra {:root-id root-id
+                :identifier-prefix identifier-prefix
+                :owner-root-id owner}})))
   nil)
 
 (defn register-live-root!
-  "Register a claimed root (checks already passed) — before any render."
-  [{:keys [root-id provenance site descriptor]} container root]
+  "Register a claimed root (checks already passed) — before any render.
+  The effective `:identifier-prefix` rides the entry so a later claim can
+  assert prefix uniqueness and release frees it by dissoc (rf2-ez3fqk)."
+  [{:keys [root-id provenance site descriptor identifier-prefix]} container root]
   (swap! live-roots assoc root-id {:root root
                                    :container container
                                    :provenance provenance
+                                   :identifier-prefix identifier-prefix
                                    :site site
                                    :descriptor descriptor})
   nil)

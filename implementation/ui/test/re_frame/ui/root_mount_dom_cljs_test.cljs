@@ -131,6 +131,29 @@
             "render! completes the descriptor-base with the Root's identity")
         (is (= :authored (get-in entry [:descriptor :root-id-provenance])))))))
 
+(deftest shared-authored-identifier-prefix-fails-loud-live
+  ;; rf2-ez3fqk end-to-end: two DISTINCT real roots authoring the SAME
+  ;; :identifier-prefix collide (their use-id output would alias). Proves the
+  ;; compiler threads the effective :identifier-prefix through create-root*
+  ;; into the client-tier uniqueness check, and that release frees it.
+  (when (browser?)
+    (let [c1 (container) c2 (container)
+          r1 (ui/create-root c1 {:root-id :dom-pfx/a :identifier-prefix "rf2-shared-"})]
+      (let [{:keys [id data]}
+            (thrown-error
+             #(ui/create-root c2 {:root-id :dom-pfx/b :identifier-prefix "rf2-shared-"}))]
+        (is (= :rf.error/duplicate-identifier-prefix id)
+            "the second root's shared prefix fails loud")
+        (is (= :dom-pfx/a (:owner-root-id data)))
+        (is (= "rf2-shared-" (:identifier-prefix data)))
+        (is (= #{:dom-pfx/a} (client/live-root-ids))
+            "the first root is untouched"))
+      ;; release the owner — the prefix is now free for a fresh root
+      (ui/unmount! r1)
+      (let [r2 (ui/create-root c2 {:root-id :dom-pfx/b :identifier-prefix "rf2-shared-"})]
+        (is (some? r2) "the prefix is reclaimable once its owner unmounts")
+        (ui/unmount! r2)))))
+
 ;; ---------------------------------------------------------------------------
 ;; unmount! — total teardown + remount
 ;; ---------------------------------------------------------------------------
