@@ -53,6 +53,8 @@
   identity and stay in production."
   (:require ["react-dom/client" :as rdc]
             [re-frame.error :as error]
+            [re-frame.registrar :as registrar]
+            [re-frame.ui.fingerprint :as fingerprint]
             [re-frame.ui.frames :as frames]
             [re-frame.ui.reactive :as reactive]
             [re-frame.ui.viewcell :as viewcell]))
@@ -96,6 +98,72 @@
   []
   (reset! live-roots {})
   nil)
+
+;; ---------------------------------------------------------------------------
+;; The COMPLETE Root Descriptor v1 — the client read-time projection (dev only)
+;; ---------------------------------------------------------------------------
+;;
+;; Spec 004C §2 splits Root Descriptor v1 into a STATIC CORE (baked at
+;; expansion, NO `:build-digest` — it rides the emitted CLJS and each live-root
+;; entry's `:descriptor`) and the COMPLETE descriptor (static core PLUS the
+;; whole-build `:build-digest`). The digest is a READ-TIME projection on BOTH
+;; hosts, never baked: it is a whole-build aggregate the mount site cannot know
+;; at expansion — compile-order dependent AND stale under a view-only HMR edit
+;; (see `re-frame.ui.compiler.root/root-descriptor`). These fns are the CLIENT
+;; counterpart of the compiler's `re-frame.ui.compiler.root/descriptor-index`:
+;; they stamp the SAME `:build-digest` — byte-identical, because both hosts run
+;; the SAME `fingerprint/build-digest` algorithm over the SAME `[view-id
+;; template-fingerprint hook-signature]` per-view triples (the compiler feeds
+;; them from `build/committed-aggregate build/views`; the client reads the
+;; equal `tf`/`hs` the registrar `:view` manifests carry) — onto the live-root
+;; static cores. Recomputing over the live `:view` registry keeps it NON-STALE:
+;; a view-only HMR edit that re-runs `register-view!` refreshes the digest an
+;; already-mounted root observes WITHOUT the mount site re-expanding
+;; (rf2-vxgfnd.68). Dev only: `register-view!` is goog.DEBUG-gated, so the
+;; `:view` registry — and every projection over it — is absent from production
+;; (I-12); these reads return nil / {} under goog.DEBUG=false.
+
+(defn current-build-digest
+  "The client's whole-build view-identity digest (dev): the SAME
+  `re-frame.ui.fingerprint/build-digest` the compiler computes, over the
+  `[view-id template-fingerprint hook-signature]` triples of every registered
+  compiled view (the registrar `:view` manifests). Byte-identical to the JVM
+  compiler's `current-build-digest` for the same build — same algorithm, same
+  per-view triples — so the compiler and client projections AGREE. Recomputed
+  over the live registry, so a view-only HMR re-register refreshes it. nil in
+  production (goog.DEBUG=false — no view manifests ship)."
+  []
+  (when ^boolean js/goog.DEBUG
+    (fingerprint/build-digest
+     (map (fn [[id meta]]
+            (let [m (:rf.ui/manifest meta)]
+              [id (:template-fingerprint m) (:hook-signature m)]))
+          (registrar/registrations :view)))))
+
+(defn descriptor
+  "The COMPLETE Root Descriptor v1 for live root `root-id` (dev): its static
+  core from the live-root registry, stamped with the current whole-build
+  `:build-digest` (`current-build-digest`) — the client read-time projection
+  (Spec 004C §2). nil if `root-id` is not live, its entry carries no descriptor
+  yet (a `create-root` before its first `render!`), or in production."
+  [root-id]
+  (when-let [d (:descriptor (get @live-roots root-id))]
+    (assoc d :build-digest (current-build-digest))))
+
+(defn descriptor-index
+  "Every live root's COMPLETE Root Descriptor v1 (dev): root-id -> static core
+  + the current whole-build `:build-digest`. The CLIENT counterpart of the
+  compiler's `re-frame.ui.compiler.root/descriptor-index` — the same shape and
+  the same (byte-identical) digest — the Xray / tool read surface for the live
+  runtime descriptors. Roots still awaiting their first `render!` (no
+  descriptor yet) are omitted. Empty in production."
+  []
+  (let [bd (current-build-digest)]
+    (into {}
+          (keep (fn [[rid entry]]
+                  (when-let [d (:descriptor entry)]
+                    [rid (assoc d :build-digest bd)])))
+          @live-roots)))
 
 (defn- container-owner
   "root-id of the live root owning `container` (identical?), nil if

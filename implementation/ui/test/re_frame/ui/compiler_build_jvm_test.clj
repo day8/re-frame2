@@ -430,6 +430,28 @@
       (is (= (compiler/current-build-digest) d2)
           "the un-re-expanded mount-site descriptor reads the CURRENT digest (rf2-vxgfnd.47)"))))
 
+(deftest descriptor-digest-is-finalized-at-the-commit-boundary
+  ;; rf2-vxgfnd.68: the published digest reads the COMMITTED (last-known-good)
+  ;; view aggregate, so a read DURING an open / incomplete pass returns the last
+  ;; finalized identity — never a partial mid-pass mix of the staged edit. The
+  ;; digest advances only when the pass COMMITS.
+  (build/begin-build! :app)
+  (mount-site!   'app.m "app/m.cljs" '[app-view {}] {:root-id :page/m})
+  (declare-view! 'app.v 'v-view [:div "one"])
+  (build/commit-build! :app)
+  (let [committed-1 (get-in (root/descriptor-index) [:page/m :build-digest])]
+    ;; open an incremental pass and STAGE a view edit — do NOT commit yet.
+    (build/begin-build! :app)
+    (declare-view! 'app.v 'v-view [:div "two"])
+    (is (= committed-1 (get-in (root/descriptor-index) [:page/m :build-digest]))
+        "mid-pass read holds the last-known-good digest — the staged edit is not published")
+    (is (= committed-1 (compiler/current-build-digest))
+        "current-build-digest is the finalized (committed) identity, not the staged view")
+    ;; commit: NOW the finalized identity advances.
+    (build/commit-build! :app)
+    (is (not= committed-1 (get-in (root/descriptor-index) [:page/m :build-digest]))
+        "the digest advances only at the successful commit boundary")))
+
 (deftest repeated-rebuilds-stay-bounded
   ;; correctness across a watch session — re-declaring the same namespace N
   ;; times replaces (never grows).

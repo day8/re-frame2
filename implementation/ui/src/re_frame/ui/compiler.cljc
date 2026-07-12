@@ -23,8 +23,10 @@
 ;; (`re-frame.ui.compiler.build`, rf2-df9873): a recompiled / edited /
 ;; renamed source replaces its whole prior contribution, and the independent
 ;; builds one daemon compiles never share rows. `current-build-digest` reads
-;; the ambient build's view aggregate (compile-order independent — the
-;; triples sort by view-id).
+;; the ambient build's COMMITTED (last-known-good) view aggregate, so the
+;; whole-build identity is finalized at df9873's successful commit / finish
+;; boundary and never a partial mid-pass value (compile-order independent —
+;; the triples sort by view-id).
 ;;
 ;; The compile-time custom-element declarations are a build-scoped registry
 ;; like the other four: WRITTEN here (macro expansion → `build/contribute!
@@ -38,9 +40,20 @@
 ;; `register-custom-element!`, read at render for dynamic `ui/spread` props);
 ;; it is separate from this compile registry.
 
-(defn current-build-digest []
+(defn current-build-digest
+  "The FINALIZED whole-build view-identity digest for the ambient build:
+  `fingerprint/build-digest` over the `[view-id template-fingerprint
+  hook-signature]` triples of the LAST SUCCESSFULLY COMMITTED views
+  (`build/committed-aggregate` — the committed layer, not the open pass's
+  effective/staged view). It therefore changes ONLY at a successful commit /
+  finish boundary (df9873's `finish-build!`): a read during an open, failed,
+  or interleaved pass returns the last known-good digest, never a partial
+  mid-pass identity (rf2-vxgfnd.68). Compile-order independent (triples sort
+  by view-id) and per-build-id isolated. This is the ONE build identity the
+  descriptor read-time projection publishes."
+  []
   (fingerprint/build-digest
-   (mapv (fn [[id [tf hs]]] [id tf hs]) (build/aggregate build/views))))
+   (mapv (fn [[id [tf hs]]] [id tf hs]) (build/committed-aggregate build/views))))
 
 (def ^:private defview-option-keys #{:props :id :display-name})
 
