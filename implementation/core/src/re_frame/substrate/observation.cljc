@@ -38,8 +38,9 @@
   snapshot through the slice-scoped memo and retains NOTHING (the 10k-cold-
   probes-retain-zero fixture pins it). Ownership is commit-only: `acquire!`
   bumps the cache ref-count, registers the per-lease change watch (on hosts
-  whose derived values are watchable), and wires the node-disposed
-  notification hook.
+  whose derived values are watchable), and enrols the lease as an active owner
+  behind the node's single, once-installed disposal hook (`release!` de-enrols
+  it, so a released lease retains no dormant closure — rf2-vxgfnd.15).
 
   ## Evidence, versions, and epochs
 
@@ -558,6 +559,106 @@
                      v    (subs/compute-sub-with-memo query fs memo)]
                  (evidence frame-id v nil nil false))))))))))
 
+;; ---- active-owner tracking (the released-lease-retention fix) ----------------
+;;
+;; rf2-vxgfnd.15: a released lease MUST NOT stay reachable from a live shared
+;; reaction. Rather than one non-removable `interop/add-on-dispose!` closure
+;; per lease — which accumulates one dormant closure per historical owner on
+;; any node an owner keeps live (an unbounded leak, and O(all owners ever) at
+;; the eventual disposal) — the port keeps an IDENTITY-keyed set of the node's
+;; CURRENTLY-active owner leases inside the weak node record, and installs ONE
+;; node-scoped disposal hook per reaction. `acquire!` enrols the lease and
+;; installs the hook on the first owner; `release!` de-enrols it; node disposal
+;; snapshots-and-clears the live owners and enqueues each once. The owner set
+;; rides the SAME weak record (and the same JVM lock discipline) as the version
+;; bookkeeping, so it dies with the reaction — no pruning, no scan of historical
+;; owners, storage O(current owners) not O(all owners ever acquired). The lease
+;; is a `deftype` compared by identity, so a plain persistent set keys it by
+;; identity on both hosts.
+
+(defn- register-owner!
+  "Enrol owner `lease` in `reaction`'s active-owner set within the weak node
+  record (minting the record if a prior probe/observe has not — in practice
+  `acquire!` observes first, so the record exists). Returns true iff THIS call
+  must install the node's single disposal hook — i.e. it was the first owner
+  (`:hooked?` false → true). JVM: under the node-records lock, the same
+  discipline the version records use."
+  [reaction lease]
+  #?(:clj
+     (locking node-records
+       (let [rec     (or (.get node-records reaction)
+                         {:node-key (swap! node-key-counter inc) :version 0 :value nil})
+             hooked? (:hooked? rec)]
+         (.put node-records reaction
+               (assoc rec :owners (conj (or (:owners rec) #{}) lease) :hooked? true))
+         (not hooked?)))
+     :cljs
+     (let [rec     (or (.get node-records reaction)
+                       {:node-key (swap! node-key-counter inc) :version 0 :value nil})
+           hooked? (:hooked? rec)]
+       (.set node-records reaction
+             (assoc rec :owners (conj (or (:owners rec) #{}) lease) :hooked? true))
+       (not hooked?))))
+
+(defn- deregister-owner!
+  "Remove owner `lease` from `reaction`'s active-owner set. No-op when the
+  record or the lease is absent (a disposed/rebuilt node, or a lease already
+  drained). JVM: under the node-records lock. Returns nil."
+  [reaction lease]
+  #?(:clj
+     (locking node-records
+       (when-let [rec (.get node-records reaction)]
+         (when (contains? (:owners rec) lease)
+           (.put node-records reaction (update rec :owners disj lease)))))
+     :cljs
+     (when-let [rec (.get node-records reaction)]
+       (when (contains? (:owners rec) lease)
+         (.set node-records reaction (update rec :owners disj lease)))))
+  nil)
+
+(defn- take-owners!
+  "Snapshot-and-clear `reaction`'s active-owner set, returning the leases that
+  were active (nil/empty when none). Called once from the node's disposal hook,
+  so a re-entrant or duplicate disposal drains nothing the second time. JVM:
+  under the node-records lock."
+  [reaction]
+  #?(:clj
+     (locking node-records
+       (when-let [rec (.get node-records reaction)]
+         (let [owners (:owners rec)]
+           (when (seq owners)
+             (.put node-records reaction (assoc rec :owners #{})))
+           owners)))
+     :cljs
+     (when-let [rec (.get node-records reaction)]
+       (let [owners (:owners rec)]
+         (when (seq owners)
+           (.set node-records reaction (assoc rec :owners #{})))
+         owners))))
+
+(defn ^:no-doc active-owner-count
+  "INTERNAL — the number of active owner leases the port currently tracks for
+  `reaction` (0 when the node has no record or no live owners). Exposed
+  un-private only so the port's own retention tests can assert active ownership
+  returns to the current set after acquire/release churn (rf2-vxgfnd.15), on
+  both hosts. Not part of the port ABI."
+  [reaction]
+  (count #?(:clj  (locking node-records (:owners (.get node-records reaction)))
+            :cljs (:owners (.get node-records reaction)))))
+
+(defn- node-disposed-hook
+  "The ONE node-scoped on-dispose callback for `reaction` (installed exactly
+  once, on the first owner). On node disposal it snapshots-and-clears the
+  CURRENT active owners and enqueues a former-owner notification for each
+  still-live lease — coalesced once per lease at the drain boundary (see the ns
+  docstring's HMR section). It closes over the reaction only, never a lease, so
+  released owners (de-enrolled by `release!`) are unreachable from it."
+  [reaction]
+  (fn observation-node-disposed []
+    (doseq [lease (take-owners! reaction)]
+      (when (= :live (:status @(lease-state lease)))
+        (enqueue-disposal! lease)))))
+
 ;; ---- acquire! -------------------------------------------------------------------
 
 (defn- make-watch-handler
@@ -589,8 +690,10 @@
   handle, so an HMR-disposed render-time node can never be pinned. The
   acquire is the cache's ref-count attach (Spec 006 §Lookup algorithm; a
   miss builds the node through the real cache-install path), plus per-lease
-  callback registration: a unique change watch (on watchable hosts) and the
-  node-disposed notification hook. `acquire!` never invokes `on-change`
+  callback registration: a unique change watch (on watchable hosts). The lease
+  is also enrolled as an active owner behind the node's single, once-installed
+  disposal hook; `release!` de-enrols it, so a released lease never leaks a
+  dormant closure (rf2-vxgfnd.15). `acquire!` never invokes `on-change`
   synchronously — no fan-out during acquire (movement in the render→commit
   gap is the commit evidence comparison's job, invariant 5).
 
@@ -649,15 +752,14 @@
             (swap! state assoc :last {:value    v
                                       :version  (:version rec)
                                       :node-key (:node-key rec)}))
-          ;; Node-disposed notification (self-noops once this lease is
-          ;; released; delivery is queued — see the ns docstring's HMR
-          ;; section). The callback's lifetime is the reaction's: node
-          ;; disposal fires-and-clears it, so a released lease costs one
-          ;; dormant closure until its node's next disposal edge.
-          (interop/add-on-dispose! reaction
-            (fn []
-              (when (= :live (:status @state))
-                (enqueue-disposal! lease))))
+          ;; Node-disposed notification. Enrol this lease as an active owner
+          ;; and — only for the FIRST owner — install the node's single
+          ;; disposal hook (delivery is queued; see the ns docstring's HMR
+          ;; section). `release!` de-enrols the lease, so a released lease is no
+          ;; longer reachable from the live reaction: disposal work stays
+          ;; O(current owners), never O(all owners ever acquired) (rf2-vxgfnd.15).
+          (when (register-owner! reaction lease)
+            (interop/add-on-dispose! reaction (node-disposed-hook reaction)))
           lease)))))
 
 ;; ---- current? -------------------------------------------------------------------
@@ -760,8 +862,10 @@
 
 (defn release!
   "Synchronously release `lease` — the subscriber detach of Spec 006
-  §Reference counting and disposal: the lease's change watch is removed and
-  the cache ref-count decremented under an IDENTITY GUARD (only while the
+  §Reference counting and disposal: the lease's change watch is removed, the
+  lease is de-enrolled from the node's active-owner set (so a released lease is
+  no longer reachable from the live reaction — rf2-vxgfnd.15), and the cache
+  ref-count decremented under an IDENTITY GUARD (only while the
   cache still holds the lease's own reaction), so the 1 → 0 edge disposes
   the node in-tick and a node disposed-or-rebuilt out from under the lease
   is a no-op (its reference died with the eviction). Idempotent — a second
@@ -785,6 +889,10 @@
       (let [{:keys [reaction watch-key frame-id query-v]} old]
         (when watch-key
           (remove-watch reaction watch-key))
+        ;; De-enrol this lease from the node's active-owner set so a released
+        ;; lease is no longer reachable from the live reaction — the node's
+        ;; single disposal hook then never sees it (rf2-vxgfnd.15).
+        (deregister-owner! reaction lease)
         (when-let [cache (:sub-cache (frame/frame frame-id))]
           (let [[o n] (swap-vals! cache
                                   (fn [m]
