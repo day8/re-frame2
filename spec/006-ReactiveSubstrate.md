@@ -100,6 +100,15 @@ Layer-1 app subs read the **app-db** projection; framework subs (`[:rf/machine <
 
 Every adapter implements the surface below. The contract is **closed for v1** — the function set is fixed, signatures are fixed, dispose-after-use is fixed; new adapter capabilities ship post-v1 additively (a new fn with a feature predicate consumers can branch on).
 
+> **The internal observation port is not part of this contract.** The compiled UI
+> substrate reads subscriptions through an adapter-internal observation port (per
+> [§The internal observation port](#the-internal-observation-port-adapter-internal))
+> that lives **outside** this closed ten-fn map: no entry is added to the adapter spec
+> map, no signature here changes, and existing adapters implement nothing new. The
+> port's sole consumer is the `day8/re-frame2-ui` view runtime, via the core-internal
+> `re-frame.substrate.observation` namespace on the lockstep release train. The
+> closed-for-v1 statement above is unaffected by the port's existence.
+
 > **The adapter contract is the canonical mechanism for bridging external reactive sources** (timers, JS event streams, external pub/sub, signals from other libraries). The v1 `reg-sub-raw` escape hatch — which v1 users sometimes leaned on for non-app-db reactivity — is not shipped in v2 (per [MIGRATION §M-18](../migration/from-re-frame-v1/README.md)). A custom adapter brings the external source into the substrate; subs consume normally via `reg-sub`. State that needs to live across [Goal 2 — Frame state revertibility](000-Vision.md#frame-state-revertibility) must reach `app-db` through an event handler (Pattern-AsyncEffect plus a registered fx), not through an adapter-private side channel — see [§What an adapter MUST NOT do](#what-an-adapter-must-not-do).
 
 The adapter surface is **six required functions, three optional functions, and one lifecycle function** — ten fns in total (the adapter **spec map** additionally carries the `:kind` discriminator, so it has eleven entries — API.md's "11-key adapter spec map"). The Normative contract section below specifies the call-shape for each; [§Operational semantics](#subscription-cache--contract-and-operational-semantics) covers cache-invalidation behaviour the adapter must respect; [§CLJS reference: Reagent as default adapter](#cljs-reference-reagent-as-default-adapter) covers reference-host implementation notes.
@@ -844,6 +853,351 @@ Three contract guarantees this enforces:
 - **CLJS-headless / SSR.** No caching. `compute-sub` is a pure function that runs the sub's body fresh every time it's called. Cheap because no SSR run does it twice. The contract above is satisfied trivially: no cached values means no invalidation question.
 - **In-scope JS-cross-compile-language ports (TS-React / Fable / Scala.js / PureScript / Kotlin/JS / Melange / ReScript / Reason / Squint).** Must satisfy the algorithm above explicitly — the per-port adapter implements layer-1/2/3 invalidation atop its host's React binding. The atom-shape's watch/listener machinery and any derived-value memoisation cooperate with React's `useSyncExternalStore`-driven render scheduling to surface invalidation to views. Tools relying on the trace stream's `:sub/recomputed` events depend on the equality-check-on-invalidation rule.
 
+## The internal observation port (adapter-internal)
+
+> **Status: normative.** Semantics frozen per R-2 (2026-07-11); shapes settled by spike
+> S-3 (2026-07-11) and ruled binding (2026-07-12); the four `[S2-CONFIRM]` items were
+> resolved by the S2a reference implementation (2026-07-12) — three confirmed, one
+> corrected (the cold-probe sub-body-throw rule; see the error-contract section below).
+> This port is INTERNAL — it is NOT part of the public adapter API contract; see the
+> scope statement below.
+
+The compiled UI substrate (`re-frame.ui`) reads subscriptions through a six-operation
+**observation port** rather than through the reactive `subscribe`/deref path the current
+view layers use. The port exists because concurrent React separates *rendering* (which
+may run, restart, or be abandoned) from *committing* (which alone may own resources):
+the port splits "read a subscription's value" (render-safe, ownership-free) from "own a
+subscription node" (commit-only), so the sub-cache's ref-counting and synchronous
+disposal contract ([§Reference counting and disposal](#reference-counting-and-disposal))
+is never driven from a speculative render. ⟨03 §3, I-1/I-2⟩
+
+### Scope — outside the closed public adapter contract, one named consumer
+
+The port is **adapter-internal**: a private surface between the core's sub-cache and the
+`re-frame.ui` substrate's view runtime (the ViewCell/commit reconciler, specified with
+the Spec 004 rewrite). It is **not** an entry in the adapter spec map. The public
+adapter API contract remains exactly as [§The adapter API contract](#the-adapter-api-contract)
+states it — six required functions, three optional functions, one lifecycle function,
+plus the `:kind` discriminator (the 11-key adapter spec map) — **closed for v1**.
+Existing adapters (Reagent, reagent-slim, UIx, Helix, plain-atom) implement none of the
+port's operations and are unchanged by this section. No feature predicate is added; a consumer cannot branch on
+the port's presence because the port is not consumable. ⟨03 §3⟩
+
+**The seam, named.** The port's concrete surface is the namespace
+**`re-frame.substrate.observation`** in the core artifact (`day8/re-frame2`), a sibling
+of the existing `re-frame.substrate.*` internals. Its **sole consumer** is the
+**`day8/re-frame2-ui`** artifact's view runtime. The seam is versioned by two rules
+⟨09 codex2 F1; R-6, 08 §5⟩:
+
+1. **Lockstep release train (R-6).** Core and UI artifacts release together; the port
+   may change shape between releases without deprecation ceremony because no third
+   party may consume it.
+2. **Explicit ABI guard.** `re-frame.substrate.observation` exports an integer
+   **`port-abi-version`**; `re-frame2-ui` records the version it compiled against and
+   asserts it at load, failing loudly on skew with
+   `:rf.error/observation-port-version-mismatch` (always-on; catalogued per
+   [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)).
+   Artifact drift is a boot error, never undefined behaviour.
+
+### Observation targets — stable identity, never evidence
+
+During render, each executed subscription site resolves a first-class **observation
+target** via `resolve-target` — the **only** resolution point: ambient frame, explicit
+frame pins, and the Story override context all resolve there, and no later phase
+re-resolves context. A target is a **stable identity**; it carries **no node handle and
+no `:value`/`:version`** for the `:subscription` kind. ⟨S-3 §5⟩
+
+```clojure
+{:kind :subscription  :frame-id :app  :query [:cart/total]}
+;; stabilized: the prior query object is reused while args are rf=
+
+{:kind :story-override :query [:cart/total] :value 99   ; the pinned value IS
+ :override-id <opaque> :version 7}                      ; the resolution
+```
+
+- A `:subscription` target names a sub-cache node **by identity** — `(frame, query)` —
+  in a named frame. It deliberately does NOT capture the node: under hot reload the
+  node resolved at render can be disposed by commit time, so `acquire!` re-resolves the
+  canonical node by identity at acquire. A captured handle could pin a disposed node;
+  an identity re-resolved at acquire cannot. ⟨S-3 §5, fixture 8⟩
+- A `:story-override` target names a pinned value resolved from the Story override
+  context ([§The sub-override subscribe seam](#the-sub-override-subscribe-seam-debug-gated)).
+  The pinned value rides the target because the value IS the resolution — there is no
+  node to re-resolve. Resolution happens **once, at render**; the captured target —
+  never a re-resolution — is what commit acquires (load-bearing: commit must not
+  consult context again). An override target acquires no derivation lease and reports
+  **`:owned? false`** honestly; override changes are a typed render cause; sub
+  output-schema validation still applies to override values.
+
+The `site-ctx` carrier — how a compiled site presents ambient frame, pins, and the
+override context to `resolve-target` — is host-internal and not part of the port ABI.
+The ABI is the target/evidence/lease value shapes plus the six operations' semantics.
+
+### Probe evidence
+
+`probe` is a pure, ownership-free read of a resolved target. It returns **evidence** —
+what this render observed — never a handle:
+
+```clojure
+(probe target ?slice-memo)
+;; => {:value <v>
+;;     :node-version 42 | nil     ; nil = probed cold (no live node) — first-class
+;;     :node-key k | nil
+;;     :live? true|false
+;;     :frame-epoch 17
+;;     :registry-epoch 3}
+```
+
+Probe may read a live cached node; otherwise it computes pure against the current frame
+snapshot through the slice memo (below), creating no cache entry, no watch, and no
+disposal obligation. Cold probes (`:node-version nil`) are first-class: the commit
+evidence comparison falls back to `rf=` on value for them. ⟨S-3 §5, fixture 2⟩
+
+### The six frozen invariants
+
+These are normative (R-2). Each names the bug class it deletes.
+
+1. **Render resolves and probes without ownership.** A render pass may resolve targets
+   and probe their values; it MUST NOT increment a ref-count, register a watch or
+   callback, or materialise a cache node that outlives the pass. *(Deletes:
+   abandoned-render leaks; StrictMode double-render breakage; speculative publication —
+   per I-1.)*
+2. **Commit acquires the exact captured target.** The layout commit acquires the targets
+   recorded in the committed capture — the captured *identity*, with no re-resolution of
+   context (overrides, pins, ambient frame). The canonical *node* is re-resolved by
+   `(frame, query)` at acquire; node identity lives only in evidence. *(Deletes:
+   render→commit context tears — two lookups that could disagree; pinned disposed nodes
+   under HMR; per I-2.)*
+3. **Acquire before release.** On retarget or dependency change, commit acquires every
+   newly-observed or retargeted target **before** releasing anything, so a shared node
+   can never fall through its zero-owner disposal edge ([§Reference counting and
+   disposal](#reference-counting-and-disposal)) mid-reconciliation. *(Deletes:
+   zero-owner disposal churn — dispose-then-rebuild of a node both old and new sets
+   use.)*
+4. **Release is synchronous and idempotent.** Releasing a lease detaches ownership
+   in-tick (the 1 → 0 edge disposes synchronously, per the cache contract), and a second
+   release of the same lease is a no-op. *(Deletes: deferred-release windows; cleanup
+   paths that double-release under error recovery.)*
+5. **Moved evidence corrects before paint.** At commit, each acquired node's version
+   (and the frame/registry epochs) is compared against the render's probe evidence; any
+   movement in the render→commit gap advances the cell's revision and notifies, and the
+   host corrects **before paint**. *(Deletes: painting a frame computed from stale
+   reads.)*
+6. **One notification per cell per epoch.** Source-side notification is constant work —
+   mark the cell stale with target/version/epoch/cause evidence, never execute a
+   prop-dependent query (per I-5) — and epoch close flushes each dirty cell **exactly
+   once** (exact coalescing at the transaction boundary, never debounce-by-time; per
+   I-3/I-6). *(Deletes: zombie children; N-notifications-per-event fan-out.)*
+
+### The port operations (final)
+
+⟨S-3 §5 — the sole shape source; 09 codex2 F1⟩
+
+```clojure
+(resolve-target site-ctx)     ; render: the ONLY resolution point → target
+(probe target ?slice-memo)    ; render: pure evidence read (shape above)
+(acquire! target on-change)   ; commit-only: re-resolves canonical node, +1 owner → lease
+(current? lease target)       ; the commit kept-check, one predicate
+(read lease)                  ; => {:value v :version n}; typed error after release
+(release! lease)              ; synchronous, idempotent (second call no-ops)
+```
+
+Mapping onto the cache contract: `acquire!` is the ref-count attach of
+[§Lookup algorithm](#lookup-algorithm) plus callback registration; `release!` is the
+subscriber detach of [§Reference counting and disposal](#reference-counting-and-disposal);
+`probe` is an ownership-free read with no existing public name (`subscribe-once`
+attaches-and-detaches; `probe` never attaches). `resolve-target` and `current?` have no
+cache-contract counterpart — they are the capture and kept-check layer a concurrent
+host requires.
+
+The movement-evidence axes are realised as: a per-node observation **version** the port
+advances whenever it observes the node's value change by `rf=`; the frame's
+**commit epoch** (one bump per physical frame-state install); and a **registry epoch**
+(one bump per `:sub` registration). `read` on a node lease additionally returns the
+CURRENT `:frame-epoch` / `:registry-epoch` alongside the frozen `{:value v :version n}`
+keys (additive), so the commit reconciler's invariant-5 comparison needs no second
+probe.
+
+### Lease semantics
+
+- **The lease IS the owner token.** Leases are opaque host objects with **identity**
+  equality — never `=`. Owners are keyed by lease identity with **per-lease unique
+  callbacks**, which makes the sibling-callback-clobber bug class structurally
+  impossible and makes StrictMode's release/reacquire naturally balanced. ⟨S-3
+  fixtures 4, 5⟩
+- **`current?`** ≡ not released ∧ node not disposed ∧ same frame ∧ same stabilized
+  query. It is the single commit kept-check: an unchanged live lease is **retained
+  untouched**; a disposed node (HMR), a frame swap, or a restabilized query fails the
+  check and classifies the site as retargeted.
+- **Read-after-release** throws typed `:rf.error/read-after-release`, always — it is a
+  substrate bug, never an app error. It costs nothing: the commit path checks
+  `current?` first and the render path falls back to `probe`, so the throw is
+  unreachable in correct generated code. ⟨S-3 µ⟩
+- **HMR node replacement.** Sub re-registration disposes the canonical node *then*
+  notifies former owners once with cause `:hmr`. Two idempotence extensions carry the
+  whole story: `release!` on a lease whose node was disposed out from under it is a
+  no-op, and `current?` treats a disposed node as "not current", so the next render
+  probes fresh and the next commit acquires the new canonical node. No cell can pin a
+  disposed node. ⟨S-3 fixture 8⟩
+
+### The static override lease
+
+`acquire!` on a `:story-override` target returns a **static lease** — one uniform
+commit path with honest ownership reporting ⟨S-3 §5; 09 codex2 F1⟩:
+
+- `:owned? false` — tools and instance records show the site as not owning a real
+  subscription;
+- `read` returns the pinned value and the override's version;
+- `release!` is a no-op; **no callback is registered** (a pinned value never
+  invalidates);
+- `current?` holds while the site's captured override id/version still match, and fails
+  when the override changed or was removed — retargeting through the normal staged
+  commit path, exactly like a real node.
+
+*(Shape ruled and final; its Tier-3 Story-context fixture remains a named Stage-2
+obligation for the ViewCell layer — the lease semantics themselves are pinned by the
+port's own fixtures.)*
+
+### Transactional multi-acquire — staging and rollback
+
+Commit's dependency reconciliation is transactional ⟨09 codex2 F1 — binding⟩:
+
+1. Every newly-observed or retargeted target is acquired **before anything is
+   released** (invariant 3), and the resulting leases are **staged** — provisional,
+   not yet installed.
+2. **On any acquisition failure**, every newly acquired staged lease is
+   **synchronously released** — in reverse acquisition order, so layered acquisitions
+   unwind symmetrically (the ordering is observable only in dispose traces)
+   *(confirmed, S2a: `release!` is identity-guarded and order-independent-safe, and the
+   reverse-order unwind is pinned by a port fixture — shared nodes survive, solo nodes
+   dispose on their zero-owner edge)* — and **the prior committed set remains
+   installed**: the cell keeps its previous committed dependency set and previously
+   published values, the reconcile aborts, and the acquisition's typed error
+   propagates.
+3. Only after every staged acquisition has succeeded does commit release the prior
+   leases of dropped/retargeted sites and install retained + staged leases as the
+   committed dependency set.
+
+The first-failure case is safe by ordering alone (nothing has been released); the
+k-th-failure case is safe by rollback (staged leases 1..k-1 cannot leak). Nodes shared
+with the prior committed set survive rollback trivially — their prior owner is still
+attached; nodes created solely by a rolled-back acquisition dispose on their zero-owner
+edge, correctly. A multi-target reconcile-failure fixture at the ViewCell layer is a
+named Stage-2 obligation.
+
+### Callback and reentrancy rules
+
+Spike-validated ⟨S-3 §5, µ⟩:
+
+- `on-change` is **constant-work**: mark-dirty with node-key/version/epoch/cause; it
+  never computes (invariant 6, I-5).
+- `acquire!`/`release!` called from **inside the owner-notification fan-out** throw
+  `:rf.error/reentrant-graph-op` (dev-asserted). The rule is cheap because the fan-out
+  is separated from the cell flush: React-driven acquire/release — renders and commits
+  *caused by* the epoch-close notify — are outside the fan-out and always legal.
+
+Conservative rules written ahead of S-3 exercise, now confirmed by the S2a
+implementation ⟨09 codex2 F1⟩:
+
+- `acquire!` and `release!` themselves **never invoke `on-change` synchronously** — no
+  fan-out during acquire/release. Acquire returns state via the lease; movement in the
+  render→commit gap is the commit evidence comparison's job (invariant 5), not a
+  callback's. *(Confirmed, S2a — watch registration never fires synchronously and the
+  release path removes the watch before the decrement; fixture-pinned.)*
+- **HMR-disposal notifications queue.** The dispose-then-notify-once-with-cause-`:hmr`
+  ordering IS S-3-validated; the delivery turn is: the notification rides the same
+  constant-work mark-dirty path, queued at dispose, and is flushed at the notification
+  boundary the re-registration closes — coalesced once per lease, never delivered
+  mid-registry-mutation. *(Confirmed, S2a — the queue drains at the port's registrar
+  replacement hook, which by require order runs strictly after the cache invalidation
+  hook, i.e. after the registry mutation and cache eviction complete; non-registrar
+  disposal paths — frame destroy, explicit cache clears — drain on the next tick with
+  cause `:disposed`.)*
+
+### Error contract — internally fail-loud, publicly recover-to-nil
+
+The port and the public read API split deliberately ⟨09 codex2 F1 — binding⟩:
+
+- **The port is fail-loud.** Every port operation throws typed on failure:
+  - `:rf.error/no-such-sub` — the target's own query names an unregistered sub, at
+    `probe` or `acquire!`. This is the **same catalogue id** the public surface records
+    ([§What happens when a sub references an unknown sub](#what-happens-when-a-sub-references-an-unknown-sub));
+    the spike's `:rf.error/no-sub` spelling is **superseded and must not survive
+    anywhere** — one condition, one catalogue id, two emit surfaces.
+  - `:rf.error/frame-destroyed` — `probe`/`acquire!` against a destroyed frame. Again
+    the existing always-on catalogue id; its 009 row carries the port's **throwing**
+    emit surface (public recovery column unchanged).
+  - `:rf.error/read-after-release` (always) and `:rf.error/reentrant-graph-op` (dev) —
+    catalogued per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue).
+- **The public API is untouched.** `subscribe` and `subscribe-once` keep their
+  checked-in recovery-to-`nil` semantics (`:replaced-with-default`) for unknown subs
+  and destroyed frames — nothing in this section changes
+  [§`subscribe-once`](#subscribe-once-query-v--value--subscribe-once-query-v-frame-f--value)
+  or the unknown-sub section.
+- **Why the split is safe.** The port's callers are generated commit/render machinery,
+  not app code; transactional staging (above) makes every acquire failure
+  non-corrupting, and the ViewCell maps port throws to the view error boundary (the
+  Spec 004 rewrite's surface). Loud-at-the-seam plus recover-at-the-public-surface
+  keeps one catalogue and two honest behaviours.
+- **In-graph input resolution is unchanged.** The fail-loud rule governs the port's
+  *entry point* (the target's own query). A sub **body's** `:<-` reference to an
+  unregistered input keeps the graph's own documented behaviour — one
+  `:rf.error/no-such-sub` error event, `nil` substituted, body still runs —
+  identically under `probe` (including cold probes) and under public `subscribe`.
+  *(Cold-probe edge set confirmed/corrected, S2a: unknown input mid-graph emits the one
+  always-on error event and substitutes nil, identically cold and live; a `:<-` cycle
+  recovers via the structured `:rf.error/sub-cycle`, identically cold and live; a sub
+  body that throws during a probe follows the graph's own documented recovery —
+  `:rf.error/sub-exception` emitted, `nil` substituted — identically cold and live.
+  The earlier draft's "a body throw during a probe propagates" is CORRECTED: a live
+  probe reads through the reactive memo, which already recovers body throws to nil, so
+  propagating only on cold probes would make probe temperature observable — cold probes
+  are first-class, so both temperatures recover identically. Port-entry conditions
+  remain fail-loud.)*
+
+### The slice-scoped probe memo
+
+Probes are ownership-free, so N sibling sites probing the same query during one render
+pass (first-mount fan-out: N rows probing `[:orders/by-id id]`) would recompute shared
+derivation parents N times. The port permits one mitigation: a **slice-scoped pure memo
+table** — the optional `?slice-memo` argument to `probe`. Within one slice, probes
+share computed derivation parents; the table dies with the slice. No entry survives
+into cache state, ownership state, or a later slice.
+
+**Lifetime (S-3-settled).** There is no public React render-pass token; the table is
+scoped to the **current synchronous execution slice**: created lazily on first probe,
+cleared by `queueMicrotask`, and belt-and-braces tagged with
+`(frame, frame-epoch, registry-epoch)` — invalidated on any mismatch. A time-sliced
+pass spanning k slices builds k tables, so the economy is **once-per-slice, not
+once-per-pass** — bounded, allocation-trivial, and requiring zero React internals; an
+interrupted or abandoned slice's table becomes unreachable garbage. ⟨S-3 §5, fixtures
+1b/6⟩
+
+**The memo is an economy, never an authority.** A stale memoized value that survives
+into a committed capture is harmless because the **two-guard rule** already covers it:
+(1) React's own snapshot re-check catches mid-pass movement of *watched* sites; (2) the
+commit reconciler's evidence comparison (invariant 5) catches movement of
+*newly-observed* sites — commit compares acquired versions against probe evidence and
+corrects before paint. No third mechanism exists or is needed. A memo table that
+outlives its slice is a conformance bug (a leak fixture pins it).
+
+### Epoch finalization — the adapter-internal final phase
+
+On the observation-port substrate, the invalidation algorithm's Phase 3
+([§Invalidation algorithm](#invalidation-algorithm) — "notify subscribers") is realised
+as constant-work stale-marking (invariant 6), and the commit sequence gains an
+**adapter-internal final phase — epoch close**: after the event drain settles
+derivations (Phases 1–2) and dirty cells are marked (Phase 3), the framework epoch
+closes and each dirty ViewCell is flushed **once** into the host scheduler. Drain→React
+scheduling is microtask-aligned. `flush-render!` (and the test flush built on it) closes
+the framework epoch **before** React renders; a re-entrant `flushSync`-style forcing
+into an open epoch is a dev error carrying epoch evidence
+(`:rf.error/flush-in-open-epoch`, dev tier — catalogue row required per
+[009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) when the
+epoch-close phase lands with the ViewCell layer, Stage 2b/2c). This phase is
+adapter-internal: it adds no public contract fn and does not alter `flush-render!`'s
+public signature or semantics.
+
 ## What happens when a sub references an unknown sub
 
 A sub registered via `:<-` referencing an undefined input is an error:
@@ -1128,6 +1482,21 @@ Both impls share the dynamic-var tier (`re-frame.frame/*current-frame*`, set by 
 **Honesty boundary (load-bearing).** The override feeds **only** the constant reaction the view derefs. It NEVER writes app-db and NEVER reaches [`compute-sub`](008-Testing.md#compute-sub-algorithm). Because `:rf.assert/sub-equals` (and every subscription assertion) evaluates a sub *through* `compute-sub` against the real app-db, an override can **never** satisfy a subscription assertion. Subscription *correctness* is proven by real setup events / a schema-checked app-db seed / `compute-sub` — never by an override. This rung is, by construction, a picture for the eye, not proof.
 
 **Override schema-validation.** When an override HIT targets a sub that declares an output `:schema` (per [010 §Validation order step 6](010-Schemas.md#validation-order-on-event-processing)), core validates the pinned value against that schema the SAME way `:where :sub-return` does — through the registered validator reached via the `:schemas/validate-with-registered-fn` late-bind hook, dev-only. A mismatch emits `:rf.error/schema-validation-failure` with a `:where :sub-override` discriminator and surfaces `nil` (mirroring `:sub-return`'s `:replaced-with-default` recovery — observational; the failure is reported, the violating value is not surfaced). An override that violates the sub's own output contract is exactly the "pin a state the real derivation could never produce" anti-pattern; validating it closes that honesty gap. See [010 §Validation order](010-Schemas.md#validation-order-on-event-processing).
+
+> **Observation-target consultation (observation-port substrate).** On the compiled UI
+> substrate the override consult is folded into `resolve-target`
+> ([§The internal observation port](#the-internal-observation-port-adapter-internal)):
+> the render pass consults the override context **once per site, at render**, and a HIT
+> resolves the site's captured target to `{:kind :story-override …}` — the pinned value
+> rides the target — instead of a real sub-cache node. Commit acquires that exact
+> captured target as a **static lease** (`:owned? false` reported honestly, `read`
+> yields the pinned value, `release!` no-ops, no callback) — there is no deref-time
+> re-consult and no constant reaction. Everything else in this section is unchanged and
+> applies to both mechanisms: the honesty boundary (an override NEVER reaches
+> `compute-sub`, so no subscription assertion can be satisfied by one), the override
+> schema-validation rule, the production elision envelope, and the bundle-isolation
+> split. The constant-reaction realisation above remains the contract for the current
+> adapters' `subscribe` path.
 
 ### Plain-atom adapter (JVM, SSR, headless)
 
