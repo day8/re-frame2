@@ -40,6 +40,15 @@
 (defn- ref-count [query-v]
   (:ref-count (entry query-v)))
 
+(defn- container-watch-count
+  "Count the watches currently registered on a `clojure.core/atom` container,
+  portably across hosts. The plain-atom frame-state container is a bare atom
+  (`re-frame.substrate.atom-container/make-state-container`); a leaking read
+  that `add-watch`'d it (a cold probe must never subscribe) would bump this."
+  [container]
+  #?(:clj  (count (.getWatches ^clojure.lang.IRef container))
+     :cljs (count (.-watches container))))
+
 (defn- error-id [e]
   (:rf.error/id (ex-data e)))
 
@@ -583,6 +592,75 @@
              (pre-fix the co-pending :hmr drain delivered :hmr here)")
         (is (= target (:target (first @notes))))
         (obs/release! lease)))))
+
+;; ===========================================================================
+;; rf2-vxgfnd.29 (gap b) — the :disposed drain boundary driven END-TO-END from
+;; a real frame/destroy-frame!.
+;;
+;; The sibling :disposed fixtures above drive `drain-pending-disposals!`
+;; directly, after a SIMULATED eviction / cache-clear, with `interop/next-tick`
+;; swallowed to a no-op. That leaves three legs of the fallback path uncovered:
+;;   1. a REAL `frame/destroy-frame!` -> `tear-down-sub-cache!` disposal enqueue
+;;      (intrinsic cause `:frame-destroy` -> `:disposed`),
+;;   2. the next-tick CAS auto-schedule — `compare-and-set!
+;;      disposal-drain-scheduled? false->true` plus the scheduled drain closure
+;;      `(reset! disposal-drain-scheduled? false) (drain-pending-disposals!
+;;      :disposed)` — which every swallow-next-tick sibling skips, and
+;;   3. `frame-commit-epoch` 0 in the delivered payload for the now-destroyed
+;;      frame (its epoch counter was dissoc'd by `dissoc-frame!`).
+;;
+;; This fixture CAPTURES the scheduled next-tick thunk(s) (instead of no-op'ing
+;; next-tick) and DRIVES that exact closure, so the CAS transition, the
+;; closure's latch reset, and the `:disposed` delivery all genuinely run —
+;; deterministically, both hosts, no sleeps.
+;; ===========================================================================
+
+(deftest frame-destroy-schedules-and-drives-the-disposed-drain-with-epoch-zero
+  (reg-items!)
+  (seed-items! [:a])
+  (let [pending    @#'obs/pending-disposals
+        scheduled? @#'obs/disposal-drain-scheduled?]
+    ;; Hermetic start: clear the process-global drain latches so the CAS
+    ;; false->true transition is observable regardless of sibling test order.
+    (reset! pending [])
+    (reset! scheduled? false)
+    (let [target   (items-target)
+          notes    (atom [])
+          captured (atom [])
+          lease    (obs/acquire! target (fn [ev] (swap! notes conj ev)))]
+      (is (= :live (:status @(@#'obs/lease-state lease))))
+      (is (int? (frame/frame-commit-epoch fid)) "the live frame has a commit epoch")
+      ;; CAPTURE the next-tick thunk(s) instead of running them — so the CAS
+      ;; scheduling is observable and the scheduled drain is driven by hand.
+      (with-redefs [interop/next-tick (fn [f] (swap! captured conj f))]
+        (frame/destroy-frame! fid))
+      (testing "the frame-destroy disposal enqueued a :disposed entry and the
+                next-tick CAS scheduled the fallback drain — nothing fanned yet"
+        (is (true? @scheduled?)
+            "compare-and-set! disposal-drain-scheduled? false->true fired")
+        (is (pos? (count @captured)) "interop/next-tick received the drain closure")
+        (is (some (fn [[_lease cause]] (= :disposed cause)) @pending)
+            "the queued entry carries the INTRINSIC :disposed cause
+             (frame-destroy -> :frame-destroy -> :disposed), never :hmr")
+        (is (empty? @notes)
+            "delivery is QUEUED — no synchronous on-change on the destroy stack"))
+      (testing "the destroyed frame's commit-epoch counter is cleared to 0"
+        (is (zero? (frame/frame-commit-epoch fid))
+            "dissoc-frame! dropped the destroyed frame's commit-epoch"))
+      ;; DRIVE the captured next-tick closure(s) = the REAL scheduled path.
+      (doseq [thunk @captured] (thunk))
+      (testing "the scheduled closure ran the :disposed drain and reset the latch"
+        (is (false? @scheduled?)
+            "the drain closure reset disposal-drain-scheduled? to false")
+        (is (empty? @pending) "the :disposed drain emptied the pending queue"))
+      (testing "the still-live destroyed-frame lease received {:cause :disposed}
+                carrying frame-commit-epoch 0"
+        (is (= 1 (count @notes)) "exactly one coalesced disposal notification")
+        (let [ev (first @notes)]
+          (is (= :disposed (:cause ev)) "the intrinsic :frame-destroy cause -> :disposed")
+          (is (= target (:target ev)))
+          (is (zero? (:frame-epoch ev))
+              "the payload's :frame-epoch is 0 for the destroyed frame"))))))
 
 ;; ===========================================================================
 ;; rf2-vxgfnd.70 — a follower must not publish a lease behind the FIRST owner's
@@ -1318,6 +1396,7 @@
   (frame/replace-app-db! fid {:leaf 3})
   (let [cache-count-before   (count @(sub-cache))
         #?@(:clj [node-records-before (.size ^java.util.Map @#'obs/node-records)])
+        watch-count-before   (container-watch-count (frame/frame-state-container fid))
         dispose-traces        (atom 0)]
     (rf/register-listener! :trace ::dispose-watch
       (fn [ev] (when (= :rf.sub/dispose (:operation ev))
@@ -1337,6 +1416,11 @@
         (is (nil? (entry [:obs/leaf2])))
         (is (zero? @dispose-traces)
             "no disposal obligations were created (nothing disposed)")
+        (is (= watch-count-before
+               (container-watch-count (frame/frame-state-container fid)))
+            "10k cold probes installed ZERO watches — a cold probe is a pure
+             read, never a live subscription (which would add-watch the
+             frame-state container); no watch-count leak on either host")
         #?(:clj (is (<= (.size ^java.util.Map @#'obs/node-records)
                         node-records-before)
                     "cold probes never touch the weak node-record table")))
