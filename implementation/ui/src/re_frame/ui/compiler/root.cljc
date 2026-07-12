@@ -86,25 +86,110 @@
           {:root-id root-id}))
   root-id)
 
-(defn- slug-str [s]
-  (str/replace s #"[^A-Za-z0-9_-]" "-"))
+;; The slug is the identity fingerprint that seeds the default React
+;; `identifierPrefix` (§3) and the S5 synthesized locators, so it MUST be
+;; INJECTIVE over the closed valid root-id grammar: distinct valid
+;; root-ids ALWAYS yield distinct slugs, and no two live roots can then
+;; share an effective prefix / locator. The earlier transform (normalise
+;; every disallowed char to `-`, join ns/name with `-`, join vector
+;; components with `--`) was lossy and NOT injective — `:a/b-c` and
+;; `:a-b/c` both flattened to "a-b-c"; `[:x/y "a--b"]` and
+;; `[:x/y "a" "b"]` both to "x-y--a--b".
+;;
+;; Encoding — a decodable, hence injective, canonical form over the
+;; DOM-safe `identifierPrefix` alphabet [A-Za-z0-9_-]:
+;;
+;;   - `_` is the SOLE metacharacter. Every character NOT in [A-Za-z0-9-]
+;;     — INCLUDING `_` itself — is escaped as `_<hex>_`, where <hex> is the
+;;     lowercase UTF-16 code unit. This is a reversible per-char escape, so
+;;     nothing is normalised away; `.`, `*`, whitespace, unicode all round
+;;     trip. The output therefore carries a bare `_` only inside an escape.
+;;   - Structural markers are `_` + an UPPERCASE tag letter — disjoint from
+;;     the lowercase-hex escapes and never emitted by the char escape, so a
+;;     marker can never be mistaken for data (nor data for a marker):
+;;       `_S`  keyword namespace/name separator
+;;       `_V`  vector root-id lead-in
+;;       `_K`  vector element: keyword    `_T` string    `_I` integer
+;;
+;; A keyword root -> `enc-kw`; a vector root -> `_V` + type-tagged, escaped
+;; elements. Every ns/name, element, and type boundary is MARKED rather
+;; than inferred from a data character, so the mapping is losslessly
+;; decodable and thus injective. Keyword roots and vector roots never
+;; collide: a vector slug starts with the literal `_V`, and a keyword slug
+;; starts with either a safe char [A-Za-z0-9-] or `_<lowercase-hex>` — it
+;; can never begin with `_V`.
 
-(defn- kw-slug [k]
+(defn- code-unit
+  "The UTF-16 code unit at index `i` — host-neutral (a CLJS string is a JS
+  string; a JVM `char` is a 16-bit code unit), so the slug is identical
+  across the JVM and CLJS reference runs (contract determinism)."
+  [s i]
+  #?(:clj  (int (.charAt ^String s i))
+     :cljs (.charCodeAt s i)))
+
+(defn- hex [cc]
+  #?(:clj  (Integer/toHexString (int cc))
+     :cljs (.toString cc 16)))
+
+(defn- safe-code? [cc]
+  (or (<= 48 cc 57)     ; 0-9
+      (<= 65 cc 90)     ; A-Z
+      (<= 97 cc 122)    ; a-z
+      (= cc 45)))       ; -
+
+(defn- enc
+  "Reversibly escape a raw string into the DOM-safe alphabet: a character
+  in [A-Za-z0-9-] passes through; anything else (INCLUDING `_`) becomes
+  `_<lowercase-hex-code-unit>_`. The output therefore contains a bare `_`
+  only inside an escape, so the uppercase structural markers can never be
+  confused with escaped data."
+  [s]
+  (let [n (count s)]
+    (loop [i 0, out ""]
+      (if (< i n)
+        (let [cc (code-unit s i)]
+          (recur (inc i)
+                 (str out (if (safe-code? cc)
+                            (subs s i (inc i))
+                            (str "_" (hex cc) "_")))))
+        out))))
+
+(defn- enc-kw
+  "A keyword -> `enc(namespace) _S enc(name)` when qualified, else
+  `enc(name)`. The `_S` marker fixes the namespace/name boundary, so
+  `:a/b-c` and `:a-b/c` cannot alias, and a qualified keyword can never
+  collide with an unqualified one (only the qualified form carries `_S`)."
+  [k]
   (if-let [ns* (namespace k)]
-    (str (slug-str ns*) "-" (slug-str (name k)))
-    (slug-str (name k))))
+    (str (enc ns*) "_S" (enc (name k)))
+    (enc (name k))))
+
+(defn- enc-elem
+  "A vector element, type-tagged so a keyword, string, and integer
+  disambiguator built from the same characters cannot alias, and so the
+  tag also delimits the element: `_K` keyword, `_T` string, `_I` integer."
+  [x]
+  (cond
+    (keyword? x) (str "_K" (enc-kw x))
+    (integer? x) (str "_I" (enc (str x)))
+    :else        (str "_T" (enc x))))
 
 (defn root-id-slug
-  "The ONE deterministic slug (contract §1): keyword ->
-  `namespace \"-\" name` (namespace absent -> name); vector -> element
-  slugs joined by `\"--\"`; any character outside `[A-Za-z0-9_-]`
-  normalised to `-`. `:page/shop` -> \"page-shop\";
-  `[:shop/app :left]` -> \"shop-app--left\"."
+  "The ONE deterministic, INJECTIVE slug (contract §1): distinct valid
+  root-ids ALWAYS produce distinct slugs, so distinct roots can never share
+  an effective `identifierPrefix` (§3) or synthesized locator (S5).
+
+  A keyword root encodes to `enc-kw` (`:page/shop` -> \"page_Sshop\"); a
+  vector root to `_V` + type-tagged, escaped elements (`[:shop/app :left]`
+  -> \"_V_Kshop_Sapp_Kleft\"). Every character outside [A-Za-z0-9-] is
+  reversibly escaped `_<hex>_` rather than normalised, and every ns/name,
+  element, and type boundary is marked — so the mapping is losslessly
+  decodable and thus injective (see the comment above). The slug stays
+  within the DOM-safe alphabet [A-Za-z0-9_-], a valid `identifierPrefix`."
   [root-id]
   (if (vector? root-id)
-    (str/join "--" (map #(if (keyword? %) (kw-slug %) (slug-str (str %)))
-                        root-id))
-    (kw-slug root-id)))
+    (str "_V" (apply str (map enc-elem root-id)))
+    (enc-kw root-id)))
 
 (defn default-identifier-prefix
   "`\"rf2-\" + root-id-slug + \"-\"` (contract §3) — the `identifierPrefix`
