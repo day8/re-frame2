@@ -13,7 +13,11 @@
       of the three-layer duplicate-detection contract (§7). Container
       ownership rides the same registry: a node already owned by a
       different live root is `:rf.error/root-container-in-use`; a nil
-      container is `:rf.error/root-container-missing`;
+      container is `:rf.error/root-container-missing`; and `render!` on a
+      STALE handle (a root-id no longer mapped to that Root — `unmount!`ed
+      or superseded by a newer root claiming the same id) is
+      `:rf.error/root-not-live`, the render-side mirror of `unmount!`'s
+      membership guard (thrown before any side effect);
     - the runtime halves of `ui/mount` / `ui/create-root` / `ui/render!` /
       `ui/hydrate-root` / `ui/unmount!` (the compile halves live in
       `re-frame.ui.compiler.root`);
@@ -161,6 +165,32 @@
              m)))
   nil)
 
+(defn require-live-root!
+  "The `render!` stale-handle guard — the render-side mirror of
+  `unmount!*`'s membership check. A `Root` is LIVE iff the live-root
+  registry still maps its root-id to THIS exact Root; a handle whose id
+  was `unmount!`ed (absent entry) or SUPERSEDED by a newer root claiming
+  the same id (entry points at a different Root) is STALE. `unmount!` on
+  a stale root is an idempotent no-op, but `render!` fails LOUD with
+  `:rf.error/root-not-live`: a stale root can never commit a render, so
+  running its frame preflight (the `:initial-events` drain — IRREVERSIBLE
+  fx) and writing install records against a dead root-id would be side
+  effects with NO committed render. Thrown BEFORE any side effect; retry
+  = `create-root` + `render!` (or `mount`) a fresh root."
+  [^Root root where]
+  (let [rid (.-root-id root)]
+    (when-not (identical? (:root (get @live-roots rid)) root)
+      (error/throw-error!
+       :rf.error/root-not-live where
+       (str "render! was called on root-id " (pr-str rid) ", whose Root "
+            "handle is no longer live — it was unmount!ed, or superseded "
+            "by a newer root claiming the same id. A stale root can never "
+            "commit a render; rendering into it would drain :initial-events "
+            "(irreversible fx) and write install records against a dead "
+            "root. create-root + render! (or mount) a fresh root")
+       {:recovery :recreate-the-root
+        :extra {:root-id rid}}))))
+
 ;; ---------------------------------------------------------------------------
 ;; The preflight — LIVE (S2c); the hook stays as the test/tool override
 ;; ---------------------------------------------------------------------------
@@ -287,13 +317,18 @@
 
 (defn render!*
   "Runtime half of `ui/render!` — frame preflight + render/re-render the
-  compiled root template into `root`. Preflight runs FIRST, keyed by the
-  Root's identity (fixed at create-root): a preflight failure leaves the
-  root's last committed render (and, in dev, its descriptor) untouched
-  (the Q49 ruling — retry = re-call `render!`). In dev, completes the
-  compile-time descriptor-base with the Root's identity on the registry
-  entry."
+  compiled root template into `root`. A STALE handle (its root-id
+  `unmount!`ed or superseded — no longer the live root for its id) fails
+  loud with `:rf.error/root-not-live` BEFORE any side effect (no
+  preflight, no `:initial-events` drain, no install-record write, no
+  `.render`) — the render-side mirror of `unmount!*`'s membership guard.
+  Otherwise preflight runs FIRST, keyed by the Root's identity (fixed at
+  create-root): a preflight failure leaves the root's last committed
+  render (and, in dev, its descriptor) untouched (the Q49 ruling — retry =
+  re-call `render!`). In dev, completes the compile-time descriptor-base
+  with the Root's identity on the registry entry."
   [^Root root element-thunk plans-thunk descriptor-base]
+  (require-live-root! root 're-frame.ui/render!)
   (let [rid (.-root-id root)]
     (run-preflight! rid plans-thunk)
     (when ^boolean js/goog.DEBUG
