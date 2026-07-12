@@ -43,11 +43,13 @@
       - `day8.re-frame2-xray.runtime` — the discovery sentinel + safe-egress
         entry points.
   - `re-frame.ui` (rf2-qz1h5d) — the Spec-004 compiled-view substrate. A
-    curated subset (direction 1 only): its blessed S1 export set is rowed, but
-    the live namespace also publishes `frame-root` / `frame-provider`
-    (intentionally unrowed under re-frame.ui — `frame-root` rides the
-    re-frame.core façade row; the compiled-view `frame-provider` is rowed in
-    spec/API.md §View ergonomics, not here), so it is NOT `:fully-rowed`.
+    curated subset (direction 1 only): its blessed S1 export set — INCLUDING
+    the namespace-specific `frame-root` row (rf2-vxgfnd.71) — is rowed. The
+    live namespace also publishes `frame-provider`, whose manifest + spec/API.md
+    classification is DEFERRED to the context-tier mechanism decision
+    rf2-vxgfnd.24 (if .24 picks a non-`frame-provider` mechanism the var may
+    become internal); it is intentionally left unrowed pending that ruling, so
+    re-frame.ui stays NOT `:fully-rowed`.
 
   The pair-MCP server (`re-frame2-pair-mcp.server`) is the third
   CLJS-only surface the keystone names. It compiles under the pair-MCP
@@ -121,9 +123,10 @@
    "day8.re-frame2-xray.open-in-editor"              (emit-ns-publics day8.re-frame2-xray.open-in-editor)
    "day8.re-frame2-xray.runtime"                     (emit-ns-publics day8.re-frame2-xray.runtime)
    ;; rf2-qz1h5d — re-frame.ui compiled-view substrate. Curated subset
-   ;; (direction-1 only): the live namespace also publishes `frame-root` +
-   ;; `frame-provider`, intentionally NOT rowed under re-frame.ui, so it is
-   ;; absent from `fully-rowed` below.
+   ;; (direction-1 only): the blessed S1 export set is rowed (incl. the
+   ;; namespace-specific `frame-root` row, rf2-vxgfnd.71); the live namespace
+   ;; also publishes `frame-provider`, deferred to rf2-vxgfnd.24 and left
+   ;; intentionally unrowed, so re-frame.ui is absent from `fully-rowed` below.
    "re-frame.ui"                                     (emit-ns-publics re-frame.ui)})
 
 (def fully-rowed
