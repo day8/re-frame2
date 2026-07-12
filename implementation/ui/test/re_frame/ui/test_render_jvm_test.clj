@@ -421,3 +421,98 @@
             [:div (when true [re-frame.ui/frame-root {:id :x}])] nil)))
       "a frame-root under a control form is the analyzer's misplacement error
        — the literal form scans identically to ui/mount"))
+
+;; ---------------------------------------------------------------------------
+;; Fresh-frame contract (rf2-vxgfnd.55) — a plan-bearing render GUARANTEES a
+;; fresh ISOLATED frame per declared id. A plan declaring an ALREADY-LIVE id
+;; would, via the production ENSURE adopt path (03 §8 create-if-absent),
+;; silently reuse ambient state and ignore its own :initial-events/config —
+;; a test-isolation violation. The render REJECTS it with a typed error
+;; BEFORE any frame/install mutation; production adoption semantics (the
+;; shared-frame case in preflight_frame_wiring) are deliberately unchanged.
+;; ---------------------------------------------------------------------------
+
+(deftest plan-bearing-render-rejects-a-pre-existing-frame-id
+  (reg-greeting!)
+  ;; a frame is made LIVE outside the render (a boot rf/make-frame), seeded
+  ;; with ambient state the plan must NOT be allowed to silently adopt.
+  (let [live   (rf/make-frame {:id :test/greet
+                               :initial-events [[:rf/set-db {:greeting "existing"}]]})
+        before (set (keys @frame/frames))
+        ;; a plan-bearing render declares the SAME id with a DIFFERENT seed.
+        id (err-id #(uit/render
+                     [ui/frame-root {:id :test/greet
+                                     :initial-events [[:rf/set-db {:greeting "planned"}]]}
+                      [greeting {}]]))]
+    (is (= :rf.error/ui-test-frame-collision id)
+        "a plan frame-id already live is a test-isolation violation — the
+         render rejects rather than silently ADOPTING the ambient frame
+         (the former false positive: the view read \"existing\", the plan's
+         :initial-events ignored, and the test still passed)")
+    (is (some? (frame/frame :test/greet))
+        "the pre-existing frame is still live — the reject is pure")
+    (is (= {:greeting "existing"} (rf/app-db-value live))
+        "the pre-existing frame's app-db is UNTOUCHED after the failed render —
+         the plan's seed never ran (it would read \"planned\" had it adopted)")
+    (is (= before (set (keys @frame/frames)))
+        "no frame created or destroyed — zero writes on the isolation failure")))
+
+(deftest plan-bearing-collision-diagnostic-names-the-frame-and-root
+  (reg-greeting!)
+  (rf/make-frame {:id :test/greet
+                  :initial-events [[:rf/set-db {:greeting "existing"}]]})
+  (let [ex (try (uit/render
+                 [ui/frame-root {:id :test/greet
+                                 :initial-events [[:rf/set-db {:greeting "planned"}]]}
+                  [greeting {}]])
+                nil
+                (catch clojure.lang.ExceptionInfo e e))]
+    (is (some? ex) "the collision throws a typed ex-info")
+    (is (= :rf.error/ui-test-frame-collision (:rf.error/id (ex-data ex))))
+    (is (= [:test/greet] (:collisions (ex-data ex)))
+        "the diagnostic names the colliding frame-id(s)")
+    (is (= ::greeting (:root-id (ex-data ex)))
+        "…and the arriving root (root identity is the mounted view's id)")))
+
+(deftest plan-bearing-collision-in-a-later-plan-installs-nothing
+  (reg-greeting!)
+  ;; the INNER frame-root's id is already live; the OUTER is fresh. The
+  ;; all-plans preflight must reject before ANY install (atomicity).
+  (let [inner  (rf/make-frame {:id :test/inner
+                               :initial-events [[:rf/set-db {:greeting "existing"}]]})
+        before (set (keys @frame/frames))
+        id (err-id #(uit/render
+                     [ui/frame-root {:id :test/outer
+                                     :initial-events [[:rf/set-db {:greeting "outer"}]]}
+                      [:div
+                       [ui/frame-root {:id :test/inner
+                                       :initial-events [[:rf/set-db {:greeting "planned"}]]}
+                        [greeting {}]]]]))]
+    (is (= :rf.error/ui-test-frame-collision id)
+        "a collision in a LATER plan rejects the whole render")
+    (is (nil? (frame/frame :test/outer))
+        "the EARLIER fresh plan was NOT installed — the all-plans preflight is
+         atomic (a later collision cannot leave an earlier plan installed)")
+    (is (= {:greeting "existing"} (rf/app-db-value inner))
+        "the pre-existing inner frame is untouched")
+    (is (= before (set (keys @frame/frames)))
+        "zero writes — no fresh frame leaked from a partially-applied render")))
+
+(deftest destroying-the-pre-existing-frame-restores-fresh-isolation
+  (reg-greeting!)
+  (rf/make-frame {:id :test/greet
+                  :initial-events [[:rf/set-db {:greeting "existing"}]]})
+  ;; the reject's advertised recovery: destroy the pre-existing frame, then
+  ;; the SAME plan-bearing render mints + SEEDS a fresh frame as intended.
+  (frame/destroy-frame! :test/greet)
+  (let [before (set (keys @frame/frames))
+        tree   (uit/render
+                [ui/frame-root {:id :test/greet
+                                :initial-events [[:rf/set-db {:greeting "planned"}]]}
+                 [greeting {}]])]
+    (is (= "planned" (uit/text (uit/find tree :h1)))
+        "with the pre-existing frame gone, the fresh frame is seeded from the
+         plan's :initial-events (not ambient state) — the isolation the
+         harness advertises")
+    (is (= before (set (keys @frame/frames)))
+        "the fresh test-owned frame is torn down after the render — no residue")))
