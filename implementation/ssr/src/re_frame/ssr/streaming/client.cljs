@@ -333,36 +333,62 @@
                           {:malformed-value-type (pr-str (type parsed))})
         nil))))
 
-(defn- apply-delta-script!
-  "Find the `data-rf2-suspense-hydrate` delta `<script>` for `id-str`,
-  read its bare delta-map EDN, merge it into `frame-id`'s app-db, and
-  drop the script node. The server emits the delta `<script>`
-  immediately after the resolved `<template>`, but DOM order after our
-  swap is not guaranteed, so we match by id attribute rather than
-  sibling position. A malformed delta (unparseable EDN, or parseable but
-  non-map) is skipped with a trace — a bad speculative chunk must not
+(defn- apply-ready-deltas!
+  "Apply + consume every `data-rf2-suspense-hydrate` delta `<script>` whose
+  boundary has already been swapped in (its id is in `seen`), independent of
+  whether the resolved `<template>` is still in the DOM. For each, read its
+  bare delta-map EDN, merge it into `frame-id`'s app-db, and drop the script
+  node. Matched by id attribute (not sibling position) — DOM order after a
+  swap is not guaranteed. A malformed delta (unparseable EDN, or parseable
+  but non-map) is skipped with a trace — a bad speculative chunk must not
   break hydration (the final payload is the correctness lock), but it must
-  also not silently pass for a successful hydration."
-  [root frame-id id-str]
-  (when-let [script (->> (query-by-attr root attr-suspense-hydrate)
-                         (filter #(= id-str (.getAttribute % attr-suspense-hydrate)))
-                         first)]
-    (when-let [delta (read-delta frame-id id-str (.-textContent script))]
-      (merge-delta! frame-id delta))
-    ;; The delta is consumed (or skipped); drop the script node so the DOM
-    ;; is left in its final, script-free shape regardless of delta validity.
-    (when-let [sp (.-parentNode script)]
-      (.removeChild sp script))))
+  also not silently pass for a successful hydration.
+
+  This decouples delta application from the resolved-template's transient
+  presence. The server flushes the resolved `<template>` and its delta
+  `<script>` as TWO SEPARATE chunks — each `.flush`ed (see
+  `re-frame.ssr.ring.streaming/write-chunk!`) — so the client's HTML parser
+  can surface them in SEPARATE `MutationObserver` batches, in EITHER order:
+
+    - template first, delta later: the template is swapped + REMOVED + marked
+      `seen` in an earlier sweep; scanning the delta `<script>`s here (rather
+      than only as a side effect of processing the — now gone — template)
+      merges the delta when it lands in a later sweep. Without this scan the
+      delta is orphaned and its `(into existing delta)` merge is LOST until
+      the final `__rf_payload` self-heals it (rf2-x76af2.35).
+    - delta first, template later: a delta whose boundary has NOT swapped yet
+      (id not in `seen`) is LEFT in the DOM for a future sweep; a later
+      sweep's swap marks the id `seen`, and the delta then merges.
+
+  Idempotent by script removal: a consumed delta `<script>` is dropped from
+  the DOM, so no later sweep can re-merge it — mirroring the swap's own
+  once-only-by-node-removal guarantee, so no separate `delta-applied` set is
+  needed."
+  [root frame-id seen]
+  (doseq [script (query-by-attr root attr-suspense-hydrate)]
+    (let [id-str (.getAttribute script attr-suspense-hydrate)]
+      ;; Gate on the SWAP: apply a delta only for a boundary already swapped
+      ;; this-or-an-earlier sweep. A delta racing ahead of its template waits
+      ;; in the DOM (not consumed) until the swap marks its id `seen`.
+      (when (contains? @seen id-str)
+        (when-let [delta (read-delta frame-id id-str (.-textContent script))]
+          (merge-delta! frame-id delta))
+        ;; The delta is consumed (or skipped); drop the script node so the DOM
+        ;; is left in its final, script-free shape regardless of delta validity.
+        (when-let [sp (.-parentNode script)]
+          (.removeChild sp script))))))
 
 (defn- process-resolved-template!
   "Process one resolved-subtree `<template>` (carrying
   `data-rf2-suspense-resolved`): swap the live mount's content for the
-  resolved HTML, then — for a non-failed boundary — apply the matching
-  per-subtree hydration-delta `<script>`. A `data-rf2-suspense-failed`
-  chunk carries the fallback HTML (which still swaps in, so the author's
-  declared loading state replaces the streaming placeholder) and NO
-  delta; it surfaces `:rf.ssr/suspense-boundary-failed` for
-  observability without a 500 (Spec 011 §Failure semantics — inline
+  resolved HTML and mark the boundary `seen`. The matching per-subtree
+  hydration-delta `<script>` is applied SEPARATELY by `apply-ready-deltas!`
+  at the sweep level (not here), so a delta arriving in a later observer
+  batch than this template is still merged (rf2-x76af2.35). A
+  `data-rf2-suspense-failed` chunk carries the fallback HTML (which still
+  swaps in, so the author's declared loading state replaces the streaming
+  placeholder) and NO delta; it surfaces `:rf.ssr/suspense-boundary-failed`
+  for observability without a 500 (Spec 011 §Failure semantics — inline
   fallback).
 
   `seen` is an atom of the id-strings already SUCCESSFULLY processed so a
@@ -415,36 +441,48 @@
           ;; live DOM. Materialise them so a nested resolved chunk found
           ;; later in this same sweep has a mount to swap into (finding 4).
           (materialise-fallbacks! root))
-        (cond
-          ;; The failed-boundary trace is gated on swap success.
-          ;; The failed content (the author's fallback HTML) only lands when
-          ;; `replace-mount-content!` finds a live mount, so emitting exactly
-          ;; when the swap happens is both correct and exactly-once: `seen` is
-          ;; conj'd only on a successful swap and the swapped-in <template> is
-          ;; removed, so a re-fire cannot re-process it. Previously the failed
-          ;; arm fired regardless of `swapped?`, so a resolved-failed
-          ;; <template> swept before its mount existed (a nested-boundary race
-          ;; / out-of-order stream) stayed un-`seen` and RE-EMITTED the trace
-          ;; on every MutationObserver re-sweep — multi-emit.
-          (and failed? swapped?)
+        ;; The failed-boundary trace is gated on swap success.
+        ;; The failed content (the author's fallback HTML) only lands when
+        ;; `replace-mount-content!` finds a live mount, so emitting exactly
+        ;; when the swap happens is both correct and exactly-once: `seen` is
+        ;; conj'd only on a successful swap and the swapped-in <template> is
+        ;; removed, so a re-fire cannot re-process it. Previously the failed
+        ;; arm fired regardless of `swapped?`, so a resolved-failed
+        ;; <template> swept before its mount existed (a nested-boundary race
+        ;; / out-of-order stream) stayed un-`seen` and RE-EMITTED the trace
+        ;; on every MutationObserver re-sweep — multi-emit.
+        ;;
+        ;; A non-failed boundary's DELTA is NOT applied here — it is handled
+        ;; by `apply-ready-deltas!` at the sweep level so it survives arriving
+        ;; in a later observer batch than this template (rf2-x76af2.35).
+        (when (and failed? swapped?)
           (trace/emit-error! :rf.ssr/suspense-boundary-failed
                              {:id        (read-boundary-id id-str)
                               :frame     frame-id
                               :where     'rf.ssr/streaming-client
                               :reason    "Server-side continuation render failed; client swapped the fallback HTML, no delta applied."
-                              :recovery  :inline-fallback})
-          swapped?
-          (apply-delta-script! root frame-id id-str))
+                              :recovery  :inline-fallback}))
         (boolean swapped?))
       false)))
 
 (defn- sweep!
   "One full sweep: materialise any un-mounted fallback `<template>`s into
-  live visible mounts, then process every `data-rf2-suspense-resolved`
-  `<template>` (swap + delta-merge). Called once on install (chunks that
-  streamed in before the bundle ran) and again whenever the observer
-  reports new nodes. Fallback materialisation runs FIRST so a resolved
-  chunk in the same batch always finds a live mount to swap into.
+  live visible mounts, process every `data-rf2-suspense-resolved`
+  `<template>` (swap the mount + mark `seen`), then apply every ready
+  per-subtree delta `<script>` (`apply-ready-deltas!`). Called once on
+  install (chunks that streamed in before the bundle ran) and again whenever
+  the observer reports new nodes. Fallback materialisation runs FIRST so a
+  resolved chunk in the same batch always finds a live mount to swap into;
+  delta application runs LAST so every boundary swapped this sweep is `seen`
+  before its delta is scanned for.
+
+  Swap and delta application are DECOUPLED: the server flushes a boundary's
+  resolved `<template>` and its delta `<script>` as two separate chunks that
+  the parser can surface in separate observer batches, so applying the delta
+  only as a side effect of the swap would drop it whenever the delta lands in
+  a later batch than its (already-swapped, already-removed) template. Running
+  a `seen`-gated delta scan every sweep makes delta application retryable
+  across sweeps just like the swap (rf2-x76af2.35).
 
   The resolved-processing pass iterates to a fixpoint. A nested boundary whose
   inner resolved chunk is already in
@@ -468,7 +506,13 @@
                             false
                             (query-by-attr root attr-suspense-resolved))]
       (when progress?
-        (recur)))))
+        (recur))))
+  ;; Apply any per-subtree deltas whose boundary has now swapped in. Runs
+  ;; AFTER the swap fixpoint (so every boundary swapped this sweep is `seen`)
+  ;; and independent of resolved-`<template>` presence (so a delta arriving in
+  ;; a later batch than its template — the two are separate flushed chunks —
+  ;; is still merged) (rf2-x76af2.35).
+  (apply-ready-deltas! root frame-id seen))
 
 (defn- element-by-id
   "Find an element with id `id` under `root` without building a raw `#id`

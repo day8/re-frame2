@@ -693,6 +693,112 @@
               (done))
             0))))))
 
+(deftest split-batch-template-first-delta-later
+  (testing "rf2-x76af2.35 — a boundary's resolved `<template>` and its
+            hydrate-delta `<script>` arrive in SEPARATE observer batches
+            (the server flushes them as two `.flush`ed chunks), TEMPLATE
+            FIRST. The template is swapped + REMOVED + marked `seen` in the
+            first sweep; the delta arrives in a LATER sweep, by which point
+            the template node is gone. The delta must STILL merge into
+            app-db. Before the fix the delta was applied only as a side
+            effect of processing the resolved template, so a delta landing
+            after the template was swept was orphaned and its `into` merge
+            was lost (silent progressive-hydration failure until the final
+            payload self-healed it)."
+    (if-not (browser?)
+      (is true ":node-test: no DOM")
+      (async
+        done
+        (let [fid  (make-client-frame!)
+              host (make-root! [:card.revenue])]
+          ;; Batch 1: ONLY the resolved <template> is present at install —
+          ;; its delta <script> has NOT streamed in yet.
+          (append-chunk!
+            host
+            (ssr/streaming-resolved-template
+              :card.revenue "<div class=\"card resolved-revenue\">Revenue 42375</div>"))
+          (let [stop! (streaming-client/install! {:frame fid :root host})]
+            ;; After the synchronous initial sweep: the template swapped in,
+            ;; but app-db is still empty — the delta is in a later chunk.
+            (is (= 1 (card-count host "resolved-revenue"))
+                "template swapped in the first sweep")
+            (is (false? (boolean (showing-fallback? host :card.revenue)))
+                "revenue mount shows resolved content, not a skeleton")
+            (is (nil? @(rf/subscribe [:sct/card :revenue] {:frame fid}))
+                "no delta yet — its <script> is in a later batch")
+            ;; Batch 2: the delta <script> arrives AFTER the template was
+            ;; swapped + removed. The observer fires a fresh sweep.
+            (append-chunk!
+              host
+              (ssr/streaming-hydrate-delta-script
+                :card.revenue (pr-str {:cards {:revenue {:title "Revenue" :value 42375}}})))
+            ;; `setTimeout 0` (macrotask) runs after the observer microtask,
+            ;; so the second-batch sweep has definitely run by the continuation.
+            (js/setTimeout
+              (fn []
+                (is (= {:title "Revenue" :value 42375}
+                       @(rf/subscribe [:sct/card :revenue] {:frame fid}))
+                    "the delta merged even though it arrived in a LATER batch than its template")
+                (is (zero? (count (array-seq
+                                    (.querySelectorAll host (str "[" wire/attr-suspense-hydrate "]")))))
+                    "the delta <script> was consumed (DOM left script-free)")
+                (stop!)
+                (remove-root! host)
+                (done))
+              0)))))))
+
+(deftest split-batch-delta-first-template-later
+  (testing "rf2-x76af2.35 — the same two chunks in SEPARATE observer batches,
+            DELTA FIRST. The delta `<script>` is present before its resolved
+            `<template>`. The first sweep must NOT apply it (the boundary has
+            not swapped — its id is not yet `seen`), and the delta must WAIT
+            in the DOM. When the template arrives in a later sweep and swaps,
+            the still-present delta must merge. Proves the sweep-level delta
+            scan is `seen`-gated (no speculative-before-swap application) yet
+            still recovers the deferred delta."
+    (if-not (browser?)
+      (is true ":node-test: no DOM")
+      (async
+        done
+        (let [fid  (make-client-frame!)
+              host (make-root! [:card.revenue])]
+          ;; Batch 1: ONLY the delta <script> is present at install — its
+          ;; resolved <template> has NOT streamed in yet.
+          (append-chunk!
+            host
+            (ssr/streaming-hydrate-delta-script
+              :card.revenue (pr-str {:cards {:revenue {:title "Revenue" :value 42375}}})))
+          (let [stop! (streaming-client/install! {:frame fid :root host})]
+            ;; After the synchronous initial sweep: no resolved template yet,
+            ;; so the boundary is not `seen` and the delta is HELD (not applied).
+            (is (nil? @(rf/subscribe [:sct/card :revenue] {:frame fid}))
+                "delta held until its template swaps — not applied speculatively before the swap")
+            (is (true? (showing-fallback? host :card.revenue))
+                "the boundary still shows its fallback — no resolved template yet")
+            (is (= 1 (count (array-seq
+                              (.querySelectorAll host (str "[" wire/attr-suspense-hydrate "]")))))
+                "the delta <script> waits in the DOM (not consumed before its swap)")
+            ;; Batch 2: the resolved <template> arrives. The observer fires;
+            ;; the swap marks the id `seen`, then the still-present delta merges.
+            (append-chunk!
+              host
+              (ssr/streaming-resolved-template
+                :card.revenue "<div class=\"card resolved-revenue\">Revenue 42375</div>"))
+            (js/setTimeout
+              (fn []
+                (is (= 1 (card-count host "resolved-revenue"))
+                    "template swapped in the later sweep")
+                (is (= {:title "Revenue" :value 42375}
+                       @(rf/subscribe [:sct/card :revenue] {:frame fid}))
+                    "the delta (which arrived FIRST) merged once its template swapped")
+                (is (zero? (count (array-seq
+                                    (.querySelectorAll host (str "[" wire/attr-suspense-hydrate "]")))))
+                    "the delta <script> was consumed once applied")
+                (stop!)
+                (remove-root! host)
+                (done))
+              0)))))))
+
 (deftest failed-boundary-trace-emits-exactly-once-when-mount-arrives-late
   (testing "rf2-8ymnem — the failed-boundary trace is gated on a SUCCESSFUL
             fallback swap. A resolved-failed <template> whose live mount does
