@@ -551,6 +551,16 @@
                                     "(ui/html x) requires a string"
                                     {:form (first child-fs)}))
                        (when-not (string? s) (walk-expr e s))
+                       ;; Record the trusted-markup site in the compiler
+                       ;; manifest (profile row `ui/html` — "manifest site
+                       ;; recording"): the visible bypass carries source/
+                       ;; template path so tools can list every place escaping
+                       ;; is bypassed. `:serializable?` is false for a dynamic
+                       ;; string expression, true for a literal.
+                       (env/add-site! e :htmls {:form s
+                                                :static? (string? s)
+                                                :serializable? (string? s)
+                                                :path (:path e)})
                        {:op :html :form s :static? (string? s)}))]
       {:op :element
        :tag tag
