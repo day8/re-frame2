@@ -42,8 +42,9 @@
 ;;
 ;; The Helix view idiom, and the only place this example differs from the
 ;; Reagent reference. A view is a plain `defnc`. It reads a subscription
-;; through the adapter's `use-subscribe` hook, and takes `dispatch` off a
-;; `capture-frame`. `:rf.machine/has-tag?` reads are *ask, don't tell* state-tag
+;; through the adapter's `use-subscribe` hook, and takes `dispatch` off the
+;; `use-frame` hook (capture-frame in hook position).
+;; `:rf.machine/has-tag?` reads are *ask, don't tell* state-tag
 ;; queries; `:auth.login/error` is a named sub. To the call site they're
 ;; identical — both are just subscriptions.
 
@@ -54,10 +55,11 @@
         err       (helix-adapter/use-subscribe [:auth.login/error])
         email-err (helix-adapter/use-subscribe [:auth.login/field-error :email])
         pw-err    (helix-adapter/use-subscribe [:auth.login/field-error :password])
-        ;; Take `dispatch` off the render-time capture-frame. It resolves to
-        ;; this frame (`:rf/default`) through the provider in `mount!`. Every
-        ;; dispatch goes to a frame; there is no global dispatch.
-        dispatch  (:dispatch (rf/capture-frame))]
+        ;; Take `dispatch` off the render-time `use-frame` frame api. It
+        ;; resolves to this frame (`:rf/default`) through the provider in
+        ;; `mount!`. Every dispatch goes to a frame; there is no global
+        ;; dispatch.
+        {:keys [dispatch]} (helix-adapter/use-frame)]
     ;; Controlled inputs: each input's `:value` reads the draft from the
     ;; `:auth.login/draft` sub, and `:on-change` dispatches an edit event
     ;; (`:auth.login/edit-field` for email, `:auth.login/edit-password` for the
@@ -143,7 +145,7 @@
     ;; `:initial`/`:data` when the flow first runs.
     ;;
     ;; The provider also scopes the frame into React context, so the
-    ;; `use-subscribe` hook and the `(rf/capture-frame)` capture in `login-form`
+    ;; `use-subscribe` hook and the `use-frame` capture in `login-form`
     ;; resolve to it. The provider is required — without it those reads raise
     ;; `:rf.error/no-frame-context`.
     ;;

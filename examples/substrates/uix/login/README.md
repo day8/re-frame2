@@ -74,8 +74,10 @@ React-family library renders them. Same model, swap the renderer, get UIx.
   [state-machines walkthrough](../../../../docs/machines/concepts.md) teaches; only
   the hook changes.
 
-- **No magic, no auto-injection.** A UIx component reads `dispatch` off a
-  [`capture-frame`](../../../../docs/core/glossary.md#capture-frame) and calls
+- **No magic, no auto-injection.** A UIx component reads `dispatch` off the
+  `use-frame` hook (the
+  [`capture-frame`](../../../../docs/core/glossary.md#capture-frame) frame api
+  in hook position) and calls
   `use-subscribe` itself. Nothing threads state into your components behind your
   back — the read and the dispatch are right there in the function body. The
   view layer is explicit; the model beneath it is shared by all three

@@ -23,9 +23,10 @@ You can see exactly how little moves by reading the file split. The half that kn
 - **The wiring is explicit — no auto-injection.** Under Reagent, `reg-view`
   hands each view a `dispatch` and `subscribe` already bound to the right
   [frame](../../../../docs/core/glossary.md#frame). Helix views skip `reg-view`
-  (it stays Reagent-only), so here the binding is done by hand: grab a
-  [capture-frame](../../../../docs/core/glossary.md#capture-frame) with
-  `(rf/capture-frame)` at render time and pull `dispatch` off it. That is one
+  (it stays Reagent-only), so here the binding is explicit: the `use-frame`
+  hook returns the
+  [capture-frame](../../../../docs/core/glossary.md#capture-frame) frame api
+  at render time and the view pulls `dispatch` off it. That is one
   extra line per component — the honest cost of crossing the boundary. The
   layer beneath never notices.
 

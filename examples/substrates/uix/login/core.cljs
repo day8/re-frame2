@@ -18,7 +18,7 @@
    framework sub. When the flow finally gives up, the terminal `:locked-out`
    state swaps the form for a dead-end locked-account panel.
 
-   For the boundary mechanics — `use-subscribe`, `capture-frame`,
+   For the boundary mechanics — `use-subscribe`, `use-frame`,
    `frame-provider`, and what stays put across React wrappers — see
    docs/core/how-to/use-uix-helix-or-slim.md."
   (:require [uix.core :as uix :refer [$ defui]]
@@ -37,11 +37,12 @@
 ;;
 ;; Here, at last, is the substrate seam — and it's a thin one. A UIx view is
 ;; just a `defui`: it reads each subscription through the `use-subscribe` hook
-;; and gets `dispatch` off `(rf/capture-frame)`. The Reagent twin registers the
-;; same views with `reg-view` and is simply handed `dispatch`/`subscribe`. The
-;; subscription vectors and event vectors don't change one character between
-;; them; all that differs is how a React component reaches the wires. See
-;; docs/core/how-to/use-uix-helix-or-slim.md.
+;; and gets `dispatch` off the `use-frame` hook (capture-frame in hook
+;; position). The Reagent twin registers the same views with `reg-view` and is
+;; simply handed `dispatch`/`subscribe` — the same hold primitive in its other
+;; spelling. The subscription vectors and event vectors don't change one
+;; character between them; all that differs is how a React component reaches
+;; the wires. See docs/core/how-to/use-uix-helix-or-slim.md.
 ;;
 ;; The inputs are controlled: each `:value` reads the draft from
 ;; `:auth.login/draft`, and `:on-change` dispatches an edit event
@@ -55,7 +56,7 @@
         err       (uix-adapter/use-subscribe [:auth.login/error])
         email-err (uix-adapter/use-subscribe [:auth.login/field-error :email])
         pw-err    (uix-adapter/use-subscribe [:auth.login/field-error :password])
-        dispatch  (:dispatch (rf/capture-frame))]
+        {:keys [dispatch]} (uix-adapter/use-frame)]
     ($ :form.login-form
        {:data-testid "login-form"
         :on-submit (fn [e]
@@ -129,7 +130,7 @@
     ;; demo stub and seeds the slice via `:initial-events`), and runs those
     ;; events once. On a hot reload it finds the frame already there, reuses it,
     ;; and skips the events. The `:id :rf/default` names the frame that
-    ;; `use-subscribe` and the `(rf/capture-frame)` inside `login-form` resolve
+    ;; `use-subscribe` and the `use-frame` hook inside `login-form` resolve
     ;; against — which is why those calls need a provider somewhere above them in
     ;; the tree.
     ;;

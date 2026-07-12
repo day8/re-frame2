@@ -42,12 +42,14 @@ model drives a different renderer.
   `(helix-adapter/use-subscribe [:counter/value])` directly and gets back
   the live value.
 - **Dispatching off a frame api** — the click handlers take `dispatch`
-  off a [`(rf/capture-frame)`](../../../../docs/core/glossary.md#capture-frame)
-  and close over it. A frame api is a frame captured *as a value*. It
-  pins the render-time frame, so the closed-over `dispatch` still aims at
-  the right frame when an async callback fires it later. Helix has no
-  auto-injection — `reg-view` stays a Reagent-only convenience, so Helix
-  users write `defnc` and wire `dispatch` themselves.
+  off the `use-frame` hook —
+  [capture-frame](../../../../docs/core/glossary.md#capture-frame) in hook
+  position — and close over it. A frame api is a frame captured *as a
+  value*. It pins the render-time frame, so the closed-over `dispatch`
+  still aims at the right frame when an async callback fires it later.
+  Helix has no auto-injection — `reg-view` stays a Reagent-only
+  convenience, so Helix users write `defnc` and take their frame ops off
+  the hook.
 - **The shared frame-context** — the render is wrapped in
   `frame-provider`, the same React Context machinery the Reagent
   and UIx adapters use. The substrate boundary is real, but it lives in one

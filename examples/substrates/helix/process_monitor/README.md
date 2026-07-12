@@ -68,9 +68,10 @@ tick loop, third below, is where the real care went.
 
 - **Per-row dispatch, captured across the hook boundary.** Each process
   row is its own `defnc`, and the chip strip is another; each grabs
-  `dispatch` off a
-  [`capture-frame`](../../../../docs/core/glossary.md#capture-frame) —
-  `(:dispatch (rf/capture-frame))` — and closes over it. So clicking a
+  `dispatch` off the `use-frame` hook —
+  [`capture-frame`](../../../../docs/core/glossary.md#capture-frame) in hook
+  position, `(let [{:keys [dispatch]} (helix-adapter/use-frame)] …)` — and
+  closes over it. So clicking a
   row [dispatches](../../../../docs/core/glossary.md#dispatch)
   `[:process-monitor/select-process id]` into the right frame. The
   `monitor` `use-effect` uses the same trick to carry dispatch into its

@@ -231,13 +231,13 @@
       ($ tile {:label "Σ CPU"   :value (str (.toFixed (:cpu totals) 1) "%")})
       ($ tile {:label "Σ MEM"   :value (str (:mem totals) "M")}))))
 
-;; To dispatch from a view, grab `dispatch` off a frame api.
-;; `(rf/capture-frame)` captures the current frame as a value, so the click
-;; handler we close over below still lands in this app's frame when it fires.
-;; See docs/core/glossary.md#capture-frame
+;; To dispatch from a view, grab `dispatch` off the `use-frame` frame api —
+;; capture-frame in hook position. It captures the current frame as a value,
+;; so the click handler we close over below still lands in this app's frame
+;; when it fires. See docs/core/glossary.md#capture-frame
 (defnc level-chips []
-  (let [active   (helix-adapter/use-subscribe [:process-monitor/level-filter])
-        dispatch (:dispatch (rf/capture-frame))]
+  (let [active             (helix-adapter/use-subscribe [:process-monitor/level-filter])
+        {:keys [dispatch]} (helix-adapter/use-frame)]
     (d/div {:class "pm-chips"}
       (for [level [:info :warn :error]]
         (d/button {:key   (name level)
@@ -248,7 +248,7 @@
           (name level))))))
 
 (defnc process-row [{:keys [process selected?]}]
-  (let [dispatch (:dispatch (rf/capture-frame))
+  (let [{:keys [dispatch]} (helix-adapter/use-frame)
         {:keys [id status cpu mem pid] process-name :name} process
         cpu-pct (min 100 cpu)]
     (d/li {:class (str "pm-row"
@@ -301,13 +301,15 @@
 
 (defnc monitor []
   ;; This component owns the tick loop's lifecycle: mount arms it, unmount
-  ;; retires it. We capture `(:dispatch (rf/capture-frame))` here in the `let`,
-  ;; at render-time, while the frame is still in scope. By the time the effect
-  ;; and its cleanup actually run — after commit — that scope is gone, so a
-  ;; dispatch fetched in there would have no frame to land in. Grab it now so
-  ;; the closure carries the intended frame. The Helix adapter README
+  ;; retires it. We take `dispatch` off the `use-frame` frame api here in the
+  ;; `let`, at render-time, while the frame is still in scope. By the time the
+  ;; effect and its cleanup actually run — after commit — that scope is gone,
+  ;; so a dispatch fetched in there would have no frame to land in. Grab it
+  ;; now so the closure carries the intended frame (and because `use-frame`'s
+  ;; ops map is reference-stable per resolved frame, the closed-over
+  ;; `dispatch` is a well-behaved effect dependency). The Helix adapter README
   ;; §use-effect has the long version.
-  (let [dispatch (:dispatch (rf/capture-frame))]
+  (let [{:keys [dispatch]} (helix-adapter/use-frame)]
     (helix-hooks/use-effect
       ;; Empty deps ⇒ run once on mount, clean up once on unmount.
       []
@@ -341,7 +343,7 @@
 
 ;; The frame this app runs under. The `frame-provider` in `run` is the single
 ;; place it's set up — it creates the frame and threads it into React context.
-;; Everything downstream (`use-subscribe`, the `(rf/capture-frame)` capture in
+;; Everything downstream (`use-subscribe`, the `use-frame` capture in
 ;; `monitor`) finds this frame through that context. It carries no
 ;; `:initial-events`: db-seeding and loop-arming are both `monitor`'s job (see
 ;; the EVENTS block above for why that's the one arming site).
