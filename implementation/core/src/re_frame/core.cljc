@@ -159,7 +159,7 @@
   ;; CLJS apps need.
   #?(:cljs (:require-macros
              [re-frame.core :refer [reg-event
-                                    reg-sub reg-fx reg-cofx reg-frame
+                                    reg-sub reg-fx reg-cofx
                                     reg-interceptor
                                     reg-flow reg-route reg-app-schema reg-app-schemas
                                     reg-resource reg-mutation reg-resource-scope
@@ -241,18 +241,6 @@
   `re-frame.interceptor-registry/reg-interceptor*` and spec/API.md
   §Registration."}
        reg-interceptor  icpt-reg/reg-interceptor*)
-     (def ^{:doc "Fn-alias of the `reg-frame` macro for HoF / programmatic
-  registration (no source-coord capture). `reg-frame` is the macro spelling of
-  `make-frame` (rf2-lxwpob, Option B: documented sugar, ONE semantics —
-  `(reg-frame id metadata)` ≡ `(make-frame (assoc metadata :id id))`,
-  differing only in source-coord capture). Atomically create + register a
-  frame under `id` with the given metadata — an unregistered id creates; an
-  already-registered id is IDEMPOTENT REPLACEMENT (EP-0024 §Duplicate id
-  policy), not a sibling constructor with its own duplicate-id story.
-  TEMPORARY delegation to the private engine `re-frame.frame/upsert-frame!`
-  (rf2-h1vqa4 scaffolding — the reg-frame spelling is being removed; prefer
-  `make-frame`). See spec/API.md §Registration."}
-       reg-frame       frame/upsert-frame!)
      (def ^{:doc "Fn-alias of the `reg-route` macro for HoF / programmatic
   registration (no source-coord capture). Register a route: `(reg-route id
   metadata path)` — `metadata` is the MIDDLE registration-metadata map
@@ -445,17 +433,6 @@
        this call site. See `re-frame.interceptor-registry/reg-interceptor*`
        for the full signature."
        {:arglists '([id descriptor] [id metadata descriptor])})
-
-     (rm/defreg-macro reg-frame frame/upsert-frame!
-       "Register a frame — the macro spelling of `make-frame` (rf2-lxwpob,
-       Option B: documented sugar, ONE semantics — `(reg-frame id metadata)`
-       ≡ `(make-frame (assoc metadata :id id))`, differing only in
-       source-coord capture; NOT a sibling constructor with its own
-       duplicate-id story). Captures source-coords (Spec 001) at this
-       call site. TEMPORARY delegation to the private engine
-       `re-frame.frame/upsert-frame!` (rf2-h1vqa4 scaffolding — the
-       reg-frame spelling is being removed; prefer `make-frame`)."
-       {:arglists '([id metadata])})
 
      (rm/defreg-macro reg-flow rf-flows/reg-flow
        "Register a flow under `flow-id`. Per rf2-bqstzr the canonical 3-slot
@@ -864,9 +841,9 @@
 ;;     `frame-generation` before/after and comparing with `generation-diff`
 ;;     (§Public registrar query API, below).
 ;;   * `reset-frame!` is DELETED — a full replace is reproducible by
-;;     composition: `(destroy-frame! id) (reg-frame id config)`, re-supplying
-;;     the SAME config (and `:images`, for an image-loaded frame) the caller
-;;     already holds.
+;;     composition: `(destroy-frame! id) (make-frame config)`, re-supplying
+;;     the SAME config (which carries `:id`, and `:images` for an
+;;     image-loaded frame) the caller already holds.
 ;; Both names survive ONLY as `^:no-doc` throwing stubs (the retired-API
 ;; pattern — like the EP-0018 `reg-event-db` / EP-0022 `rf/path` stubs): a
 ;; stale call site resolves to a real var and fails LOUDLY, naming the
@@ -882,9 +859,9 @@
 
 (def ^{:no-doc true
        :doc "REMOVED in rf2-lxwpob (no alias). Calling `reset-frame!` raises
-  `:rf.error/reset-frame-removed`, naming `(destroy-frame! id) (reg-frame id
+  `:rf.error/reset-frame-removed`, naming `(destroy-frame! id) (make-frame
   config)` as the replacement. See `re-frame.frame/reset-frame!` and
-  spec/002-Frames.md §Resetting a frame — destroy + reg-frame."}
+  spec/002-Frames.md §Resetting a frame — destroy + make-frame."}
   reset-frame!   frame/reset-frame!)
 
 (def ^{:doc "Tear down `frame-id` — the normative teardown boundary. Runs
