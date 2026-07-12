@@ -96,15 +96,22 @@
 
   ## HMR-disposal notifications
 
-  Sub re-registration disposes the canonical node then notifies former
-  owners ONCE with cause `:hmr`: the reaction's dispose hook ENQUEUES the
-  live leases, and the queue drains at the notification boundary the
-  re-registration closes (this ns's registrar replacement hook — registered
-  AFTER `re-frame.subs.cache`'s invalidation hook by require order, so the
-  drain runs once the registry mutation + cache eviction completed, never
-  mid-mutation), coalesced once per lease. Non-registrar disposal paths
-  (frame-destroy, explicit cache clears) drain on the next tick with cause
-  `:disposed`.
+  The cause a former owner is told is INTRINSIC to why its node died, not
+  decided by which drain boundary fires (rf2-r8jmdb): each queued entry is a
+  `[lease cause]` pair, the cause captured at enqueue time from the disposing
+  cache site's `re-frame.subs.cache/*disposal-cause*` (`:hot-reload` → `:hmr`;
+  frame-destroy / cache-clear / last-derefer → `:disposed`). Sub re-registration
+  disposes the canonical node then notifies former owners ONCE with cause
+  `:hmr`: the reaction's dispose hook ENQUEUES the live leases tagged `:hmr`, and
+  the queue drains at the notification boundary the re-registration closes (this
+  ns's registrar replacement hook — registered AFTER `re-frame.subs.cache`'s
+  invalidation hook by require order, so the drain runs once the registry
+  mutation + cache eviction completed, never mid-mutation), coalesced once per
+  lease and taking ONLY the `:hmr`-tagged entries. Non-registrar disposal paths
+  (frame-destroy, explicit cache clears) tag their leases `:disposed` and drain
+  on the next tick — so a `:disposed` lease still pending when an unrelated `:sub`
+  re-registration drains is left for its own boundary, never swept into the
+  `:hmr` drain and mislabelled.
 
   Readiness is published HONESTLY (rf2-vxgfnd.70): the node record's
   `:hook-installed?` flag is set only AFTER `interop/add-on-dispose!` has
@@ -487,9 +494,34 @@
      :cljs (:reaction state)))
 
 ;; ---- HMR / disposal notification queue ---------------------------------------
+;;
+;; Each queued entry is a `[lease cause]` PAIR (rf2-r8jmdb): the cause is
+;; INTRINSIC to why the node died — captured at enqueue time from the disposing
+;; cache site's `re-frame.subs.cache/*disposal-cause*` — NOT inferred from which
+;; drain boundary fires. So a frame-destroy / cache-clear lease still pending
+;; when an unrelated `:sub` HMR re-registration drains is NEVER swept into the
+;; `:hmr` drain and mislabelled: `drain-pending-disposals!` takes only the
+;; entries whose intrinsic cause matches the boundary it serves (the registrar
+;; HMR hook drains `:hmr`, the next-tick fallback drains `:disposed`), leaving
+;; the rest queued for their own boundary and delivering each lease its OWN
+;; cause. A documented `on-change` payload contract fix (a consumer branching
+;; `:hmr` = re-acquire vs `:disposed` = gone must not re-acquire a destroyed
+;; frame).
 
 (defonce ^:private pending-disposals (atom []))
 (defonce ^:private disposal-drain-scheduled? (atom false))
+
+(defn- enqueue-cause
+  "Map the disposing cache site's intrinsic `re-frame.subs.cache/*disposal-cause*`
+  reason to the port's `on-change` cause enum: `:hot-reload` → `:hmr` (the node
+  re-registered and WILL rebuild, so a former owner re-acquires), every other
+  reason (`:no-more-derefers` / `:cache-clear` / `:frame-destroy`) AND the
+  unbound-var default → `:disposed` (the node is gone). The default is
+  deliberately `:disposed`, never the re-acquire-signalling `:hmr`: an
+  `acquire!`-stack canonicality re-check (rf2-vxgfnd.32) enqueues OFF the dispose
+  stack where the var is unbound, and an unknown cause must fail safe as gone."
+  []
+  (if (= :hot-reload subs-cache/*disposal-cause*) :hmr :disposed))
 
 (defn- notify-disposal!
   [lease cause]
@@ -525,12 +557,20 @@
       error-id query-v (first query-v) frame-id exception 0 (interop/now-ms))))
 
 (defn ^:no-doc drain-pending-disposals!
-  "Drain the queued node-disposed notifications, coalesced once per lease
-  (identity), delivering only to still-live leases. `cause` is `:hmr` when
-  drained at the sub re-registration boundary (the registrar replacement
-  hook below), `:disposed` on the next-tick fallback (frame-destroy /
-  explicit cache clears). INTERNAL — exposed un-private only so the port's
-  own tests can drive the fallback boundary deterministically.
+  "Drain the queued node-disposed notifications whose INTRINSIC cause is
+  `cause`, coalesced once per lease (identity), delivering only to still-live
+  leases. `cause` is `:hmr` at the sub re-registration boundary (the registrar
+  replacement hook below), `:disposed` on the next-tick fallback (frame-destroy
+  / explicit cache clears). INTERNAL — exposed un-private only so the port's own
+  tests can drive the fallback boundary deterministically.
+
+  Each queued entry is a `[lease intrinsic-cause]` pair (rf2-r8jmdb): this drain
+  takes ONLY the entries whose intrinsic cause equals `cause` — atomically, via
+  `swap-vals!` filtering them out in one CAS — and LEAVES the rest queued for
+  their own boundary. So a `:disposed`-tagged frame-destroy/cache-clear lease
+  still pending when this fires with `:hmr` is never mislabelled `:hmr`; it waits
+  for the next-tick `:disposed` fallback. Because every taken entry already
+  carries `cause`, delivering `cause` to each IS delivering its own cause.
 
   Each lease's notification is CONTAINED in its own `try/catch` so one owner's
   throwing `on-change` cannot starve its siblings (rf2-vxgfnd.28 — this was the
@@ -541,28 +581,39 @@
   AFTER the whole drain so no failure is silently dropped — never silent, never
   starving."
   [cause]
-  (let [[pending _] (reset-vals! pending-disposals [])
-        escapes     (reduce
-                      (fn [acc lease]
-                        (try
-                          (notify-disposal! lease cause)
-                          acc
-                          (catch #?(:clj Throwable :cljs :default) t
-                            (when-let [eid (:rf.error/id (ex-data t))]
-                              (report-disposal-notify-escape! eid lease t))
-                            (conj acc t))))
-                      []
-                      (distinct pending))]
+  (let [[old _new] (swap-vals! pending-disposals
+                               (fn [pending]
+                                 (filterv #(not= cause (second %)) pending)))
+        taken      (into [] (comp (filter #(= cause (second %)))
+                                  (map first)
+                                  (distinct))
+                         old)
+        escapes    (reduce
+                     (fn [acc lease]
+                       (try
+                         (notify-disposal! lease cause)
+                         acc
+                         (catch #?(:clj Throwable :cljs :default) t
+                           (when-let [eid (:rf.error/id (ex-data t))]
+                             (report-disposal-notify-escape! eid lease t))
+                           (conj acc t))))
+                     []
+                     taken)]
     (when (seq escapes)
       (throw (first escapes))))
   nil)
 
 (defn- enqueue-disposal!
   [lease]
-  (swap! pending-disposals conj lease)
+  ;; Capture the node's INTRINSIC cause NOW (rf2-r8jmdb): on the dispose stack
+  ;; the disposing cache site has `subs-cache/*disposal-cause*` bound, so the
+  ;; entry carries the cause the node ACTUALLY died of rather than the boundary
+  ;; that later drains it. Off the dispose stack (the acquire! re-check) the var
+  ;; is unbound and [[enqueue-cause]] fails safe to `:disposed`.
+  (swap! pending-disposals conj [lease (enqueue-cause)])
   ;; Fallback drain boundary for non-registrar disposal paths. The HMR path
-  ;; drains earlier and synchronously (the replacement hook below); this
-  ;; tick then finds an empty queue and no-ops.
+  ;; drains its `:hmr`-tagged entries earlier and synchronously (the replacement
+  ;; hook below); this tick then drains any `:disposed`-tagged entries left.
   (when (compare-and-set! disposal-drain-scheduled? false true)
     (interop/next-tick
       (fn []

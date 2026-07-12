@@ -64,6 +64,33 @@
 
 #?(:clj (set! *warn-on-reflection* true))
 
+;; ---- intrinsic disposal cause (late-bound out to the observation port) ----
+;;
+;; rf2-r8jmdb / rf2-x76af2.34 FINDING 1: the observation port needs each
+;; former-owner disposal notification tagged with the cause the node ACTUALLY
+;; died of (`:hmr` = re-registered, will rebuild → re-acquire; `:disposed` =
+;; gone), NOT with whichever drain boundary happens to fire first. That cause is
+;; known ONLY here, at the eviction site — HMR re-registration and a cache clear
+;; both leave the frame live, so nothing downstream can recover which one ran.
+;; Each site binds this var to its INTRINSIC reason around its `interop/dispose!`
+;; call(s); the observation port's node-disposed hook — which fires
+;; SYNCHRONOUSLY inside `interop/dispose!` — reads it (`re-frame.substrate.
+;; observation` requires THIS ns, so the read is a plain deref, no cycle) and
+;; maps `:hot-reload` → `:hmr`, every other reason → `:disposed`. nil outside any
+;; eviction extent (an `acquire!`-stack re-check enqueue defaults `:disposed` —
+;; never the re-acquire-signalling `:hmr`). Nested binding is correct: a
+;; cascade that drives another site (e.g. an HMR eviction whose reaction dispose
+;; drops a downstream input's last derefer → `dispose-entry-now!`) shadows the
+;; cause for exactly that inner dispose, so a genuinely gone input node reports
+;; `:disposed` even mid-HMR. One of the `:rf.sub/dispose` reason enum values.
+
+(def ^:dynamic *disposal-cause*
+  "The INTRINSIC `:rf.sub/dispose` reason for the reaction(s) being disposed in
+  the current synchronous `interop/dispose!` extent — bound by each eviction
+  site, read late-bound by the observation port's node-disposed hook. nil
+  outside any eviction extent. See the section comment above."
+  nil)
+
 ;; ---- dispose trace emit ---------------------------------------------------
 ;;
 ;; Per Spec 009 §:op-type vocabulary §`:rf.sub/dispose` — every cache
@@ -123,8 +150,12 @@
        ;; `interop/dispose!`) so we never double-emit under contention.
        (emit-dispose! frame-id k :no-more-derefers)
        (when-let [r (get-in old [k :reaction])]
-         (try (interop/dispose! r)
-              (catch #?(:clj Throwable :cljs :default) _ nil))))
+         ;; Tag the observation port's synchronous node-disposed notification
+         ;; with the INTRINSIC cause (→ :disposed) so it can never be mislabelled
+         ;; :hmr by a co-pending HMR drain (rf2-r8jmdb).
+         (binding [*disposal-cause* :no-more-derefers]
+           (try (interop/dispose! r)
+                (catch #?(:clj Throwable :cljs :default) _ nil)))))
      nil)))
 
 (defn unsubscribe!
@@ -247,10 +278,16 @@
           ;; (`:cache-clear`).
           (doseq [k evicted-keys]
             (emit-dispose! frame-id k :hot-reload))
-          (doseq [k evicted-keys]
-            (when-let [r (get-in old [k :reaction])]
-              (try (interop/dispose! r)
-                   (catch #?(:clj Throwable :cljs :default) _ nil)))))))))
+          ;; Tag the observation port's synchronous node-disposed notifications
+          ;; with the INTRINSIC :hot-reload cause (→ :hmr) so a former owner is
+          ;; told the node WILL rebuild (re-acquire), not that it is gone
+          ;; (rf2-r8jmdb). Nested `dispose-entry-now!` cascades (a downstream
+          ;; input losing its last derefer) correctly shadow this to :disposed.
+          (binding [*disposal-cause* :hot-reload]
+            (doseq [k evicted-keys]
+              (when-let [r (get-in old [k :reaction])]
+                (try (interop/dispose! r)
+                     (catch #?(:clj Throwable :cljs :default) _ nil))))))))))
 
 (defonce ^:private _hot-reload-hook
   (do (registrar/add-replacement-hook! invalidate-sub-on-replace!)
@@ -293,16 +330,21 @@
        ;; Evict the whole cache BEFORE any dispose! call — see the
        ;; rf2-awhtpc note above.
        (reset! cache {})
-       (doseq [[k entry] snapshot]
-         ;; Emit dispose per evicted key BEFORE the per-
-         ;; reaction `interop/dispose!`. Reason `:cache-clear`
-         ;; discriminates the explicit-teardown path from sync 1 → 0
-         ;; fires (`:no-more-derefers`) and hot-reload re-registration
-         ;; (`:hot-reload`).
-         (emit-dispose! frame-id k :cache-clear)
-         (when-let [r (:reaction entry)]
-           (try (interop/dispose! r)
-                (catch #?(:clj Throwable :cljs :default) _ nil))))))))
+       ;; Tag the observation port's synchronous node-disposed notifications
+       ;; with the INTRINSIC :cache-clear cause (→ :disposed) so an explicit
+       ;; teardown is never mislabelled :hmr by a co-pending HMR drain
+       ;; (rf2-r8jmdb).
+       (binding [*disposal-cause* :cache-clear]
+         (doseq [[k entry] snapshot]
+           ;; Emit dispose per evicted key BEFORE the per-
+           ;; reaction `interop/dispose!`. Reason `:cache-clear`
+           ;; discriminates the explicit-teardown path from sync 1 → 0
+           ;; fires (`:no-more-derefers`) and hot-reload re-registration
+           ;; (`:hot-reload`).
+           (emit-dispose! frame-id k :cache-clear)
+           (when-let [r (:reaction entry)]
+             (try (interop/dispose! r)
+                  (catch #?(:clj Throwable :cljs :default) _ nil)))))))))
 
 (defn clear-all-frame-sub-caches!
   "CLJC-safe adapter-disposal sub-cache walk: dispose every cached entry
@@ -369,11 +411,15 @@
   (when cache
     (let [snapshot @cache]
       (reset! cache {})
-      (doseq [[k entry] snapshot]
-        (emit-dispose! frame-id k :frame-destroy)
-        (when-let [r (:reaction entry)]
-          (try (interop/dispose! r)
-               (catch #?(:clj Throwable :cljs :default) _ nil))))))
+      ;; Tag the observation port's synchronous node-disposed notifications with
+      ;; the INTRINSIC :frame-destroy cause (→ :disposed) so a frame teardown is
+      ;; never mislabelled :hmr by a co-pending HMR drain (rf2-r8jmdb).
+      (binding [*disposal-cause* :frame-destroy]
+        (doseq [[k entry] snapshot]
+          (emit-dispose! frame-id k :frame-destroy)
+          (when-let [r (:reaction entry)]
+            (try (interop/dispose! r)
+                 (catch #?(:clj Throwable :cljs :default) _ nil)))))))
   nil)
 
 (late-bind/set-fn! :subs.cache/dispose-all-for-frame-destroy!

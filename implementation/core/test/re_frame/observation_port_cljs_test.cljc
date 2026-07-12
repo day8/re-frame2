@@ -21,6 +21,7 @@
             [re-frame.frame                 :as frame]
             [re-frame.interop               :as interop]
             [re-frame.subs                  :as subs]
+            [re-frame.subs.cache            :as subs-cache]
             [re-frame.substrate.observation :as obs]
             [re-frame.substrate.plain-atom  :as plain-atom]
             [re-frame.test-support          :as test-support]))
@@ -531,6 +532,57 @@
       (is (= 1 (count @notes)))
       (is (= :hmr (:cause (first @notes))))
       (obs/release! lease))))
+
+;; ===========================================================================
+;; rf2-r8jmdb / rf2-x76af2.34 FINDING 1 — the disposal cause is INTRINSIC to
+;; why the node died, not decided by which drain boundary fires.
+;;
+;; The port queues former-owner notifications; pre-fix the queue stored bare
+;; leases and the drain boundary STAMPED the cause (the registrar HMR hook
+;; drained the whole queue :hmr; the next-tick fallback drained it :disposed).
+;; So a frame-destroy / cache-clear lease STILL PENDING when an unrelated :sub
+;; HMR re-registration drained was swept into the :hmr drain and delivered
+;; {:cause :hmr} — a documented on-change payload contract violation (a consumer
+;; branching :hmr = re-acquire vs :disposed = gone would re-acquire against a
+;; destroyed frame → :rf.error/frame-destroyed → view error boundary; the #5752
+;; CI symptom: evidence-target saw #{:disposed :hmr}). The fix stores each entry
+;; as a [lease cause] pair whose cause is INTRINSIC (captured at enqueue time
+;; from the disposing cache site's *disposal-cause*): the :hmr drain takes only
+;; :hmr-tagged entries, leaving the :disposed cache-clear lease for the next-tick
+;; fallback, which delivers it its OWN :disposed cause.
+;; ===========================================================================
+
+(deftest disposed-cause-lease-pending-during-hmr-drain-keeps-its-disposed-cause
+  (reg-items!)
+  (seed-items! [:a])
+  (let [target (items-target)
+        notes  (atom [])]
+    ;; Swallow next-tick so the :disposed fallback does not auto-drain — we drive
+    ;; the boundaries deterministically, identical on both hosts (no sleeps).
+    (with-redefs [interop/next-tick (fn [_f] nil)]
+      (let [lease (obs/acquire! target (fn [n] (swap! notes conj n)))]
+        (is (= 1 (ref-count [:obs/items])))
+        ;; A CACHE-CLEAR disposal (intrinsic cause :cache-clear → :disposed)
+        ;; enqueues the lease; next-tick is swallowed so it stays PENDING. The
+        ;; frame stays live throughout — this is NOT a destruction.
+        (subs-cache/clear-sub-cache! fid)
+        (is (nil? (entry [:obs/items])) "cache-clear evicted + disposed the node")
+        (is (empty? @notes) "the disposal only ENQUEUED — no synchronous fan-out")
+        ;; An UNRELATED :sub HMR re-registration fires the :hmr drain boundary
+        ;; while the :disposed lease is still pending. It MUST NOT sweep it.
+        (reg-items!)
+        (is (empty? @notes)
+            "the :hmr drain took only :hmr-tagged entries — the :disposed
+             cache-clear lease was LEFT pending, never mislabelled :hmr")
+        ;; Drive the next-tick :disposed fallback deterministically: the lease
+        ;; receives its OWN intrinsic cause.
+        (obs/drain-pending-disposals! :disposed)
+        (is (= 1 (count @notes)) "the cache-clear lease was notified exactly once")
+        (is (= :disposed (:cause (first @notes)))
+            "it received {:cause :disposed} — its INTRINSIC cause — NEVER :hmr
+             (pre-fix the co-pending :hmr drain delivered :hmr here)")
+        (is (= target (:target (first @notes))))
+        (obs/release! lease)))))
 
 ;; ===========================================================================
 ;; rf2-vxgfnd.70 — a follower must not publish a lease behind the FIRST owner's
