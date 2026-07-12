@@ -315,17 +315,25 @@ prefix-uniqueness backstop share the roster:
 
 - a referenced **payload id already installed with a different content digest**, or
 - a **frame plan whose `:config-fingerprint` differs** from the installed frame's
-  recorded plan fingerprint,
+  recorded plan fingerprint **and was recorded by a *different* root**,
 
-fails **that root** with `:rf.error/frame-payload-conflict`, data
-`{:frame-id … :installed {:digest … :installed-by root-id} :arriving {:digest …
-:root-id …}}`. The installed frame and the roots already using it are untouched —
-exactly 06 §2's failure scoping ("a bad frame payload affects exactly the roots
-referencing it"). There is no first-wins silent merge and no last-wins overwrite.
-Matching digest/fingerprint = the ratified idempotent no-op. Layer 1 additionally
-rejects at build time two *plans* for one frame-id with differing config fingerprints
-inside one entry closure (compile error — the didactic message points at boot/event
-infrastructure per 03 §8).
+fails **that root** with `:rf.error/frame-payload-conflict`. The runtime plan-conflict
+arm carries data `{:frame-id … :installed {:config-fingerprint … :installed-by root-id}
+:arriving {:config-fingerprint … :root-id …}}` — `:installed` is the recorded install
+record *verbatim*, so it may instead carry `:adopted-by`/`:adopted true` (a boot-
+authoritative frame this root only scopes) or an extra `:mount-incomplete true` (a
+sibling mount that threw mid-run). The installed frame and the roots already using it
+are untouched — exactly 06 §2's failure scoping ("a bad frame payload affects exactly
+the roots referencing it"). There is no first-wins silent merge and no last-wins
+overwrite. A **same-root** re-declaration whose fingerprint differs is a surgical
+**refresh** (an HMR config edit — durable state survives, `:initial-events` re-recorded
+not replayed), **not** a conflict; a **matching** fingerprint is the ratified idempotent
+no-op (no re-seed). Layer 1 additionally rejects at build time two *plans* for one
+frame-id with differing config fingerprints inside one entry closure (compile error —
+the didactic message points at boot/event infrastructure per 03 §8). (The S5 hydrate
+arm — a referenced payload id already installed with a different **content** digest —
+carries its own content-`:digest` slot when server rendering lands: the same error id,
+a distinct conflict trigger.)
 
 ## 8. Client-only non-hydrating mounts — identity and defaults
 
@@ -376,8 +384,8 @@ unregisters (a leaked registration failing a later mount is a test-harness bug, 
 
 | Surface | Stage |
 |---|---|
-| Root Descriptor v1, mount grammar + identity opts, derivation + slug, Layer-1 + Layer-3 duplicate detection, client mount/`create-root`/`render!`/`unmount!`, `ui.test/render` forms | **S1** (the 08 §2 "root descriptor" row, now defined) |
-| Root Manifest v1 extension keys, `hydrate-root` preflight (manifest discovery/validation → payload install → hydrate), locator generation, Layer-2 registry, payload-conflict preflight, `render-static` identity participation | **S5** (12 §3's "root manifests" row, now the additive extension of S1) |
+| Root Descriptor v1, mount grammar + identity opts, derivation + slug, Layer-1 + Layer-3 duplicate detection, client mount/`create-root`/`render!`/`unmount!`, `ui.test/render` forms, frame-plan-conflict preflight (the `:config-fingerprint` ENSURE arm — build tier S1c, client-mount/`render!` runtime tier S2c) | **S1** (the 08 §2 "root descriptor" row, now defined) |
+| Root Manifest v1 extension keys, `hydrate-root` preflight (manifest discovery/validation → payload install → hydrate), locator generation, Layer-2 registry, payload-**content-digest** conflict preflight (the hydrate arm of `:rf.error/frame-payload-conflict` only — the plan-fingerprint arm ships at S1c/S2c, row above), `render-static` identity participation | **S5** (12 §3's "root manifests" row, now the additive extension of S1) |
 
 ## Q24–Q28 coverage
 

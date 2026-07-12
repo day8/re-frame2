@@ -44,6 +44,10 @@
 
   `canonical-edn` prints with maps recursively sorted by `pr-str` of key
   and sets sorted likewise — one value, one string, on both hosts.
+  Canonicalization recurses into map KEYS and set ELEMENTS as well as
+  values, so a map (or nested collection) used as a key or a set member
+  reaches a stable form regardless of its authoring order — two `=`-equal
+  plans always digest identically (no spurious plan-conflict).
   Cross-host equality of the hex output is pinned by
   `re-frame.ui.fingerprint-cljs-test`."
   (:require [clojure.string :as str]))
@@ -54,10 +58,20 @@
 
 (defn- canonicalize [x]
   (cond
+    ;; Recurse into BOTH key and value: a map (or any nested collection) used
+    ;; AS A KEY must canonicalize to a stable form too, or its authoring order
+    ;; survives into the printed digest and two semantically identical plans
+    ;; fingerprint differently (a spurious cross-root
+    ;; `:rf.error/frame-payload-conflict`). The sorted-map-by comparator then
+    ;; sorts on the ALREADY-canonical key, so entry order is stable regardless
+    ;; of key shape.
     (map? x)  (into (sorted-map-by (fn [a b] (compare (pr-str a) (pr-str b))))
-                    (map (fn [[k v]] [k (canonicalize v)]))
+                    (map (fn [[k v]] [(canonicalize k) (canonicalize v)]))
                     x)
-    (set? x)  (vec (sort (map pr-str x)))          ; sets as sorted printed vec
+    ;; Elements canonicalize before they are printed for the sorted vec — a
+    ;; map (or nested collection) inside a set has the same authoring-order
+    ;; hazard as a map-as-key.
+    (set? x)  (vec (sort (map (comp pr-str canonicalize) x)))  ; sets as sorted printed vec
     (vector? x) (mapv canonicalize x)
     (seq? x)  (apply list (map canonicalize x))
     :else x))

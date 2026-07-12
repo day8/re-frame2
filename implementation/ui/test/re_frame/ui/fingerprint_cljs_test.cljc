@@ -15,6 +15,30 @@
   (is (not= (fp/canonical-edn [:a :b]) (fp/canonical-edn [:b :a]))
       "vectors stay order-significant"))
 
+(deftest canonicalize-recurses-into-map-keys-and-set-elements
+  ;; A map (or nested collection) used AS A KEY — or as a set element — must
+  ;; canonicalize to a stable form regardless of its authoring order.
+  ;; Otherwise the key's/element's authoring order survives into the printed
+  ;; digest and two `=`-equal plans fingerprint differently, raising a
+  ;; SPURIOUS cross-root `:rf.error/frame-payload-conflict` (rf2-vxgfnd.33).
+  (is (= (fp/canonical-edn {{:a 1 :b 2} :v})
+         (fp/canonical-edn {{:b 2 :a 1} :v}))
+      "a map-as-key canonicalizes regardless of authoring order")
+  (is (= (fp/canonical-edn #{{:a 1 :b 2}})
+         (fp/canonical-edn #{{:b 2 :a 1}}))
+      "a map inside a set canonicalizes regardless of authoring order")
+  ;; the whole point: two frame plans identical up to map-key authoring order
+  ;; MUST fingerprint EQUAL, so preflight sees the idempotent no-op, not a
+  ;; spurious conflict.
+  (is (= (fp/config-fingerprint :frame/f {:routes {{:a 1 :b 2} :left}})
+         (fp/config-fingerprint :frame/f {:routes {{:b 2 :a 1} :left}}))
+      "two plans identical up to map-key authoring order fingerprint EQUAL")
+  ;; a GENUINELY different config still separates — the fix does not collapse
+  ;; distinct plans.
+  (is (not= (fp/config-fingerprint :frame/f {:routes {{:a 1 :b 2} :left}})
+            (fp/config-fingerprint :frame/f {:routes {{:a 1 :b 2} :right}}))
+      "a real config difference still fingerprints differently"))
+
 (deftest fnv1a-64-cross-host-golden
   ;; FNV-1a 64 reference vector: "a" -> af63dc4c8601ec8c; our digest input
   ;; is (canonical-edn "a") = "\"a\"" so pin OUR pipeline's value instead:
