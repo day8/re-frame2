@@ -53,6 +53,7 @@
 
 'use strict';
 
+const fs = require('fs');
 const path = require('path');
 const { createGateReporter } = require('./lib/gate-report.cjs');
 const {
@@ -60,6 +61,7 @@ const {
   countMatches,
   countSubstring,
 } = require('./lib/read-release-bundle.cjs');
+const { assertSentinelSet } = require('./lib/sentinel-scan.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
 const report = createGateReporter();
@@ -677,6 +679,104 @@ const ARTEFACTS = [
   },
 ];
 
+// ----- the positive control (rf2-e6qmxk) -------------------------------------
+
+// The checks above prove each internal sentinel is ABSENT from the counter
+// (no-feature) production bundle. On their own they are only HALF a contract:
+// a negative grep for a string that no longer exists ANYWHERE is a vacuous
+// pass. If a maintainer renames an error id (say `rf.error/flow-cycle` →
+// `rf.error/flow-cyclic` in the flows artefact) WITHOUT updating the sentinel
+// here, the old literal is absent from every bundle — so this gate stays green
+// whether or not the artefact actually leaks, and its teeth silently vanish
+// exactly where it is supposed to bite. Later, a stray `(:require
+// [re-frame.flows])` slipping into a core ns — the precise regression this gate
+// exists to catch — lands flows bodies in the counter bundle and the gate
+// STILL passes.
+//
+// The sibling check-perf-bundle.cjs solved this with an ON-bundle POSITIVE
+// CONTROL: it also greps a build that DOES load the instrumented code and
+// asserts the sentinels are PRESENT (onCount > 0) there, so a moved / renamed
+// string fails LOUD rather than degrading to a vacuous pass. This map mirrors
+// that idea per artefact. Each artefact declares exactly one positive control:
+//
+//   { onBundle: '<example-dir>' }
+//       Grep an example release THIS gate already builds and that DOES load
+//       the artefact; assert every sentinel is PRESENT (count > 0). The
+//       strongest form (the perf-bundle template): it proves the sentinel is a
+//       live literal that survives `:advanced` compilation into a real
+//       production bundle. `login` (examples/core/login/model.cljs) requires
+//       the schemas / machines / http artefacts, so its bundle carries their
+//       sentinels — empirically 1+ each (rf2-e6qmxk validation).
+//
+//   { srcRoots: ['<dir>', ...] }
+//       Grep the artefact's OWN compiled source tree (dirs relative to ROOT;
+//       .clj/.cljc/.cljs only) and assert every sentinel is PRESENT. Used for
+//       artefacts this ISOLATED bundle-isolation CI job builds no on-bundle for
+//       (routing / flows / epoch / ssr — no example in the gate's build set
+//       loads them; the tooling siblings + Story — dev-only surfaces this job
+//       never releases). Scoping to the artefact's own /src/ (NOT docs / spec /
+//       .beads / tests / a sibling artefact) is load-bearing: a rename that
+//       leaves a stale copy of the old literal in the guide or a spec must
+//       STILL fail the control, and it does — the string is grep-ed only inside
+//       the namespace tree that owns it.
+//
+//   { gap: '<reason>' }
+//       No positive control is available in THIS job — recorded explicitly so
+//       the hole is DOCUMENTED, not silent (a documented gap beats a vacuous
+//       pass). Applies to the third-party dev-dependency sentinels (xyflow /
+//       elkjs / cljs-devtools / zprint / editscript): their only on-bundle is a
+//       tools/xray release this bundle-isolation job never builds, and their
+//       literals are UPSTREAM library strings that do not live in our own
+//       source, so neither the onBundle nor the srcRoots form can control them
+//       here. Their negative check still guards the leak this gate exists to
+//       catch (a tools/ dep dragged into a production bundle); what a gap
+//       forgoes is only drift-detection on the upstream string itself, which
+//       this repo does not own.
+//
+// assertPositiveControlComplete() requires EVERY artefact to appear here, so
+// adding a new artefact without declaring its positive control fails fast
+// rather than shipping another negative-only half-contract.
+const THIRD_PARTY_GAP =
+  'third-party dev-dep literal; the only on-bundle is a tools/xray release ' +
+  'this bundle-isolation job does not build, and the string does not live in ' +
+  'our own source — negative check still guards the tools↛production leak';
+
+const POSITIVE_CONTROL = {
+  // On-bundle (perf-bundle template): login loads these three artefacts.
+  schemas:  { onBundle: 'login' },
+  machines: { onBundle: 'login' },
+  http:     { onBundle: 'login' },
+
+  // Scoped source-presence: no on-bundle in this job's build set.
+  routing:  { srcRoots: ['routing/src'] },
+  flows:    { srcRoots: ['flows/src'] },
+  epoch:    { srcRoots: ['epoch/src'] },
+  ssr:      { srcRoots: ['ssr/src'] },
+
+  // Tooling siblings (planted `do-not-rename` markers, each unique to its
+  // artefact's src). Source-presence turns the naming CONVENTION into an
+  // ENFORCED check: rename the marker and the control fails loud.
+  'trace-tooling':     { srcRoots: ['core/src'] },
+  'subs-tooling':      { srcRoots: ['core/src'] },
+  'flows-tooling':     { srcRoots: ['flows/src'] },
+  'resources-tooling': { srcRoots: ['resources/src'] },
+  'routing-tooling':   { srcRoots: ['routing/src'] },
+  'machines-tooling':  { srcRoots: ['machines/src'] },
+  'derivation-graph':  { srcRoots: ['core/src'] },
+  'derivation-egress': { srcRoots: ['core/src'] },
+  'trace-cascade':     { srcRoots: ['core/src'] },
+
+  // Story lives under tools/ (checked out in full by this job).
+  story:    { srcRoots: ['../tools/story/src'] },
+
+  // Documented gaps (upstream library literals; see THIRD_PARTY_GAP).
+  xyflow:          { gap: THIRD_PARTY_GAP },
+  elkjs:           { gap: THIRD_PARTY_GAP },
+  'cljs-devtools': { gap: THIRD_PARTY_GAP },
+  zprint:          { gap: THIRD_PARTY_GAP },
+  editscript:      { gap: THIRD_PARTY_GAP },
+};
+
 // ----- helpers ---------------------------------------------------------------
 
 // Bundle reading + grep primitives (escapeRe / countSubstring /
@@ -726,6 +826,115 @@ function checkArtefact(blob, artefact) {
   };
 }
 
+// ----- positive control (rf2-e6qmxk) -----------------------------------------
+
+// Concatenate every .clj/.cljc/.cljs file under the given source roots (each
+// relative to ROOT) into one blob, so a srcRoots positive control can assert a
+// sentinel still exists in the artefact's own compiled source. A missing root
+// contributes nothing — an absent tree collapses the blob so the
+// sentinel-present assertion FAILS loud rather than passing vacuously.
+const SOURCE_EXTS = new Set(['.clj', '.cljc', '.cljs']);
+
+function readSourceBlob(srcRoots) {
+  const parts = [];
+  const walk = (dir) => {
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch (_e) {
+      return; // missing root — no source; the present-check below fails loud
+    }
+    for (const ent of entries) {
+      const p = path.join(dir, ent.name);
+      if (ent.isDirectory()) {
+        walk(p);
+      } else if (ent.isFile() && SOURCE_EXTS.has(path.extname(ent.name))) {
+        parts.push(fs.readFileSync(p, 'utf8'));
+      }
+    }
+  };
+  for (const root of srcRoots) {
+    walk(path.resolve(ROOT, root));
+  }
+  return parts.join('\n');
+}
+
+// Lazy blob cache: on-bundle blobs keyed by example dir, source blobs keyed by
+// the joined srcRoots. A run only reads what its declared controls reference.
+function makePositiveContext() {
+  const bundleBlobs = new Map();
+  const sourceBlobs = new Map();
+  return {
+    onBundle(dir) {
+      if (!bundleBlobs.has(dir)) {
+        bundleBlobs.set(dir, classifyReleaseBundle(path.join(ROOT, 'out', 'examples', dir)));
+      }
+      return bundleBlobs.get(dir);
+    },
+    source(srcRoots) {
+      const key = srcRoots.join('|');
+      if (!sourceBlobs.has(key)) {
+        sourceBlobs.set(key, readSourceBlob(srcRoots));
+      }
+      return sourceBlobs.get(key);
+    },
+  };
+}
+
+// Run the positive control for one artefact. Appends per-sentinel lines to the
+// report and returns { kind, ok, checked, passed, ... }. A `gap` artefact is
+// reported (non-fatal) and never fails the gate.
+function checkPositiveControl(ctx, artefact) {
+  const pc = POSITIVE_CONTROL[artefact.name];
+  const sentinels = artefact.internalSentinels;
+
+  if (pc.gap) {
+    report.detail(`    [GAP ] positive control: none in this job — ${pc.gap}`);
+    return { kind: 'gap', ok: true, checked: 0, passed: 0, gap: pc.gap };
+  }
+
+  if (pc.onBundle) {
+    const dir = pc.onBundle;
+    const { status, blob } = ctx.onBundle(dir);
+    if (status !== 'ok') {
+      report.detail(`    [FAIL] on-bundle '${dir}' positive control: bundle ${status} — ` +
+                    'cannot prove sentinels present (would be vacuous)');
+      return { kind: 'onBundle', ok: false, checked: sentinels.length, passed: 0, vacuous: true, bundle: dir };
+    }
+    const { ok, passed } = assertSentinelSet(blob, sentinels, {
+      mustContain: true,
+      count: true,
+      emit: (line) => report.detail(line),
+      formatLine: ({ source, sentinel, hits, tag }) =>
+        `    [${tag}] on-bundle '${dir}' present: ${source}: sentinel ` +
+        `${JSON.stringify(sentinel)} expected >= 1, was ${hits}`,
+    });
+    return { kind: 'onBundle', ok, checked: sentinels.length, passed, bundle: dir };
+  }
+
+  // srcRoots
+  const blob = ctx.source(pc.srcRoots);
+  const { ok, passed } = assertSentinelSet(blob, sentinels, {
+    mustContain: true,
+    count: true,
+    emit: (line) => report.detail(line),
+    formatLine: ({ source, sentinel, hits, tag }) =>
+      `    [${tag}] source ${JSON.stringify(pc.srcRoots)} present: ${source}: sentinel ` +
+      `${JSON.stringify(sentinel)} expected >= 1, was ${hits}`,
+  });
+  return { kind: 'srcRoots', ok, checked: sentinels.length, passed, srcRoots: pc.srcRoots };
+}
+
+// Startup completeness: every ARTEFACT must declare a positive control (and no
+// stale entries), so a new artefact cannot ship a negative-only half-contract.
+function assertPositiveControlComplete() {
+  const missing = ARTEFACTS.filter((a) => !POSITIVE_CONTROL[a.name]).map((a) => a.name);
+  const extra = Object.keys(POSITIVE_CONTROL).filter(
+    (n) => !ARTEFACTS.some((a) => a.name === n)
+  );
+  return { missing, extra, ok: missing.length === 0 && extra.length === 0 };
+}
+
 // ----- main ------------------------------------------------------------------
 
 function main() {
@@ -756,10 +965,18 @@ function main() {
   report.detail(`bundle size: ${blob.length} chars`);
   report.detail('');
 
-  let allOk = true;
+  // Completeness (rf2-e6qmxk): every artefact must declare a positive control.
+  const completeness = assertPositiveControlComplete();
+
+  const ctx = makePositiveContext();
+
+  let allOk = completeness.ok;
   const failures = [];
+  const positiveFailures = [];
+  const gaps = [];
   let internalChecked = 0;
   let allowListChecked = 0;
+  let positiveChecked = 0;
   for (const artefact of ARTEFACTS) {
     const res = checkArtefact(blob, artefact);
     internalChecked += res.internalChecked;
@@ -768,6 +985,21 @@ function main() {
       allOk = false;
       failures.push({ name: artefact.name, ...res });
     }
+
+    // Positive control (rf2-e6qmxk): prove the sentinels still exist where they
+    // SHOULD, so a drifted / renamed sentinel fails LOUD instead of silently
+    // turning the negative grep above into a vacuous pass. Skip artefacts with
+    // no declared control — assertPositiveControlComplete already flagged them.
+    if (POSITIVE_CONTROL[artefact.name]) {
+      const pos = checkPositiveControl(ctx, artefact);
+      positiveChecked += pos.checked;
+      if (pos.kind === 'gap') {
+        gaps.push({ name: artefact.name, gap: pos.gap });
+      } else if (!pos.ok) {
+        allOk = false;
+        positiveFailures.push({ name: artefact.name, ...pos });
+      }
+    }
   }
 
   report.detail('');
@@ -775,31 +1007,72 @@ function main() {
     report.pass(
       'bundle-isolation',
       `${ARTEFACTS.length} artefact entries; ${internalChecked} internal sentinels absent; ` +
-        `${allowListChecked} allow-list budgets ok; bundle=${bundleDir} (${blob.length} chars)`
+        `${allowListChecked} allow-list budgets ok; ` +
+        `${positiveChecked} positive-control sentinels present ` +
+        `(${gaps.length} documented gap${gaps.length === 1 ? '' : 's'}: ` +
+        `${gaps.map((g) => g.name).join(', ') || 'none'}); ` +
+        `bundle=${bundleDir} (${blob.length} chars)`
     );
     process.exit(0);
   } else {
     report.flushDetails();
     console.error('=== FAIL ===');
     console.error('');
-    console.error('At least one per-feature artefact (or tools/story) leaked');
-    console.error('into the counter bundle. Per the bundle-isolation contracts');
-    console.error('(rf2-51x5 per-feature, rf2-c9mm story tools):');
-    console.error('  - Counter imports zero per-feature artefacts.');
-    console.error('  - Each artefact ships as its own Maven jar (rf2-p7va,');
-    console.error('    rf2-xbtj, rf2-k682, rf2-tfw3, rf2-5kpd, rf2-uo7v).');
-    console.error('  - core/* MUST NOT `:require` any per-feature ns; the');
-    console.error('    re-export wrappers look the API up through the');
-    console.error('    late-bind hook table at call time.');
-    console.error('  - implementation/ MUST NOT `:require` anything under');
-    console.error('    tools/ (tools/README.md bundle-isolation contract).');
-    console.error('');
-    console.error('A non-zero internal-sentinel hit means a per-feature ns');
-    console.error('got pulled into the bundle (most likely a `:require` was');
-    console.error('added to a core/* namespace). A consumer-allow-list count');
-    console.error('above the expected value means core grew a new preset-map');
-    console.error('/ case-block reference — verify the change is intentional');
-    console.error('and bump expectedAllowListHits in this script.');
+    if (failures.length) {
+      console.error('At least one per-feature artefact (or tools/story) leaked');
+      console.error('into the counter bundle. Per the bundle-isolation contracts');
+      console.error('(rf2-51x5 per-feature, rf2-c9mm story tools):');
+      console.error('  - Counter imports zero per-feature artefacts.');
+      console.error('  - Each artefact ships as its own Maven jar (rf2-p7va,');
+      console.error('    rf2-xbtj, rf2-k682, rf2-tfw3, rf2-5kpd, rf2-uo7v).');
+      console.error('  - core/* MUST NOT `:require` any per-feature ns; the');
+      console.error('    re-export wrappers look the API up through the');
+      console.error('    late-bind hook table at call time.');
+      console.error('  - implementation/ MUST NOT `:require` anything under');
+      console.error('    tools/ (tools/README.md bundle-isolation contract).');
+      console.error('');
+      console.error('A non-zero internal-sentinel hit means a per-feature ns');
+      console.error('got pulled into the bundle (most likely a `:require` was');
+      console.error('added to a core/* namespace). A consumer-allow-list count');
+      console.error('above the expected value means core grew a new preset-map');
+      console.error('/ case-block reference — verify the change is intentional');
+      console.error('and bump expectedAllowListHits in this script.');
+      console.error('');
+    }
+    if (!completeness.ok) {
+      console.error('Positive-control completeness (rf2-e6qmxk):');
+      if (completeness.missing.length) {
+        console.error(`  Artefact(s) with NO positive control declared: ${completeness.missing.join(', ')}`);
+        console.error('  Add a POSITIVE_CONTROL entry (onBundle / srcRoots / gap) so the');
+        console.error('  negative sentinel check cannot ship as a half-contract.');
+      }
+      if (completeness.extra.length) {
+        console.error(`  POSITIVE_CONTROL entries with no matching artefact: ${completeness.extra.join(', ')}`);
+        console.error('  Remove the stale entry or restore the artefact it named.');
+      }
+      console.error('');
+    }
+    if (positiveFailures.length) {
+      console.error('Positive control FAILED — a sentinel is no longer PRESENT where');
+      console.error('it should be (rf2-e6qmxk). The sentinel string has DRIFTED (most');
+      console.error('likely an error-id / message literal was renamed in the artefact');
+      console.error('source without updating this script), so the negative counter-');
+      console.error('bundle check above has LOST ITS TEETH for that artefact: it would');
+      console.error('pass whether or not the artefact actually leaked.');
+      for (const p of positiveFailures) {
+        if (p.vacuous) {
+          console.error(`  - ${p.name}: on-bundle '${p.bundle}' missing/empty — cannot prove presence`);
+        } else if (p.kind === 'onBundle') {
+          console.error(`  - ${p.name}: only ${p.passed}/${p.checked} sentinels present in on-bundle '${p.bundle}'`);
+        } else {
+          console.error(`  - ${p.name}: only ${p.passed}/${p.checked} sentinels present in source ${JSON.stringify(p.srcRoots)}`);
+        }
+      }
+      console.error('  Fix: re-derive the sentinel from the artefact source and update');
+      console.error('  the matching internalSentinels entry (keep it a live, unique');
+      console.error('  literal). Never delete the sentinel to make this pass — that');
+      console.error('  restores the vacuous-green hole this control exists to close.');
+    }
     process.exit(1);
   }
 }
