@@ -160,6 +160,85 @@
     (is (= 1 (:n (rf/app-db-value :frame/session)))
         "new lifetime re-seeds from :initial-events")))
 
+;; ---- ADOPT — a live plan-less (boot-created) frame (rf2-vxgfnd.26) --------
+;; ENSURE is create-if-absent (03 §8 / 004C §6): when a plan meets a frame that
+;; is already LIVE but was never plan-installed (a boot `rf/make-frame`), the
+;; frame is ADOPTED — its config + image generation are AUTHORITATIVE and left
+;; untouched. Only the plan's fingerprint is recorded (for cross-root conflict
+;; scoping). Regression: a config-carrying `make-frame` used to run here, swapping
+;; the generation to the default (discarding the boot `:images`) and wiping the
+;; boot config (`:fx-overrides` / `:doc` / …); the durable app-db survived, which
+;; masked the clobber.
+
+(deftest adoption-of-a-live-plan-less-frame-preserves-config-and-generation
+  ;; boot an app frame with a real image generation + rich config, OUTSIDE the
+  ;; plan registry (the app's own rf/make-frame at boot).
+  (rf/make-frame {:id :app/session
+                  :images       [(rf/image {:id :app/img})]
+                  :fx-overrides {:app/save :app/mock-save}
+                  :doc          "boot-authored config"})
+  (let [gen0 (frame/frame-generation :app/session)]
+    (is (some? gen0) "sanity: the boot frame resolved an image generation")
+    (is (nil? (frames/installed-plan-entry :app/session))
+        "sanity: the boot frame is LIVE but PLAN-LESS (no install record)")
+    ;; a root declares [frame-root {:id :app/session}] purely to SHARE it — a
+    ;; plain, config-less plan.
+    (frames/execute-frame-plans!
+     :page/app [(plan :app/session {} "cf1-adopt-aaaaaaaaa")])
+    (is (identical? gen0 (frame/frame-generation :app/session))
+        "the boot generation is the SAME object — NOT re-resolved to the default")
+    (is (= [:app/img]
+           (mapv :rf.image/id (:rf.gen/images (frame/frame-generation :app/session))))
+        "the boot frame's :images are preserved (not discarded for the default)")
+    (is (= {:app/save :app/mock-save}
+           (:fx-overrides (frame/frame-meta :app/session)))
+        ":fx-overrides survive adoption (the boot config is not replaced wholesale)")
+    (is (= "boot-authored config" (:doc (frame/frame-meta :app/session)))
+        "the boot :doc config survives adoption")
+    (is (= {:config-fingerprint "cf1-adopt-aaaaaaaaa" :installed-by :page/app}
+           (frames/installed-plan-entry :app/session))
+        "adoption records the plan fingerprint (for conflict scoping) and NOTHING else")))
+
+(deftest adoption-then-same-fingerprint-second-root-is-a-found-live-no-op
+  (rf/make-frame {:id :app/session :images [(rf/image {:id :app/img})]})
+  (let [gen0 (frame/frame-generation :app/session)
+        p    (plan :app/session {} "cf1-adopt-bbbbbbbbb")]
+    (frames/execute-frame-plans! :page/one [p])
+    (is (= :page/one (:installed-by (frames/installed-plan-entry :app/session)))
+        "the first adopter is recorded")
+    ;; a second root sharing the same frame with the same (config-less) plan
+    (frames/execute-frame-plans! :page/two [p])
+    (is (identical? gen0 (frame/frame-generation :app/session))
+        "the second-root found-live pass leaves the generation untouched too")
+    (is (= :page/one (:installed-by (frames/installed-plan-entry :app/session)))
+        "found-live writes nothing — the first adopter is retained")))
+
+(deftest adoption-coexists-with-a-fresh-install-in-the-same-root
+  ;; both ways in one run: adopt a live boot frame AND install a genuinely-new
+  ;; one — the new-frame INSTALL path still creates + seeds correctly.
+  (reg-events!)
+  (rf/make-frame {:id :app/session
+                  :images       [(rf/image {:id :app/img})]
+                  :fx-overrides {:app/save :app/mock-save}})
+  (let [gen0 (frame/frame-generation :app/session)]
+    (frames/execute-frame-plans!
+     :page/app
+     [(plan :app/session {} "cf1-adopt-ccccccccc")
+      (plan :app/fresh {:initial-events [[:test/set-db {:n 5}]]} "cf1-fresh-ddddddddd")])
+    ;; adopt arm — untouched
+    (is (identical? gen0 (frame/frame-generation :app/session))
+        "the adopted boot frame's generation is untouched")
+    (is (= {:app/save :app/mock-save}
+           (:fx-overrides (frame/frame-meta :app/session)))
+        "the adopted boot frame keeps its :fx-overrides")
+    ;; install arm — the genuinely-new frame is created + seeded
+    (is (some? (frame/frame :app/fresh)) "the absent frame is created (install)")
+    (is (= 5 (:n (rf/app-db-value :app/fresh)))
+        ":initial-events drain synchronously for the newly-installed frame")
+    (is (= {:config-fingerprint "cf1-fresh-ddddddddd" :installed-by :page/app}
+           (frames/installed-plan-entry :app/fresh))
+        "the new install is recorded with its fingerprint + installing root")))
+
 ;; ===========================================================================
 ;; G-6 — the ambient frame chain + scope
 ;; ===========================================================================

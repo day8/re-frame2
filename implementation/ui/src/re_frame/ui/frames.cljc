@@ -17,10 +17,23 @@
 
   Per-plan disposition (document order; conflicts validated FIRST):
 
-    - NO live install       -> INSTALL: `make-frame` (create-if-absent;
-      an already-live plan-less frame is ADOPTED via the engine's
-      idempotent refresh — durable state preserved, no re-seed), then
-      record `{:config-fingerprint :installed-by}`.
+    - NO live frame         -> INSTALL: `make-frame` creates it
+      (create-if-absent), then record `{:config-fingerprint
+      :installed-by}`.
+    - LIVE frame, NO install
+      record (a boot `rf/make-frame`
+      the plan registry never saw) -> ADOPT: create-if-absent means
+      create NOTHING (03 §8 / 004C §6 — later roots find it live and do
+      not re-seed). The boot frame's OWN config + image generation are
+      AUTHORITATIVE and left UNTOUCHED — no `make-frame`, so no
+      config/generation clobber, no `:images` discard, no re-seed. Only
+      the plan's `{:config-fingerprint :installed-by}` is recorded, so a
+      later cross-root arrival is conflict-scoped against it. This is the
+      shared-frame case: an app boots the frame with its images /
+      `:fx-overrides` and a root then declares `[frame-root {:id …}]`
+      merely to SCOPE it. (rf2-vxgfnd.26: adopting via a config-carrying
+      `make-frame` used to swap the generation to the default and wipe
+      the boot config — the durable app-db survived, masking the clobber.)
     - SAME fingerprint      -> found live: PURE NO-OP (the ratified
       idempotent install — no re-seed, no config churn, no trace noise).
       This is the HMR / remount / shared-frame non-reseed guarantee.
@@ -153,38 +166,66 @@
 
   Phase 1 VALIDATES every plan (pure — cross-root fingerprint conflicts
   throw `:rf.error/frame-payload-conflict` before ANY install). Phase 2
-  installs/refreshes in document order: `make-frame` creates the frame
-  if absent and drains `:initial-events` synchronously before returning
-  (EP-0027); a found-live same-fingerprint plan is a pure no-op (no
-  re-seed — the HMR guarantee). Returns nil."
+  installs/adopts/refreshes in document order: `make-frame` creates the
+  frame if absent and drains `:initial-events` synchronously before
+  returning (EP-0027); a found-live same-fingerprint plan is a pure no-op
+  (no re-seed — the HMR guarantee); a live plan-less (boot-created) frame
+  is ADOPTED — its config/generation untouched, only the fingerprint
+  recorded (rf2-vxgfnd.26). Returns nil."
   [root-id plans]
   (let [decided
         (mapv (fn [{:keys [frame-id config-fingerprint] :as plan}]
                 (let [installed (installed-plan-entry frame-id)]
                   (cond
-                    (nil? installed)
-                    (assoc plan ::action :install)
+                    (some? installed)
+                    ;; a recorded plan already governs this LIVE frame
+                    (cond
+                      (= (:config-fingerprint installed) config-fingerprint)
+                      (assoc plan ::action :found-live)
 
-                    (= (:config-fingerprint installed) config-fingerprint)
-                    (assoc plan ::action :found-live)
+                      (= (:installed-by installed) root-id)
+                      (assoc plan ::action :refresh)
 
-                    (= (:installed-by installed) root-id)
-                    (assoc plan ::action :refresh)
+                      :else
+                      (throw-plan-conflict! root-id plan installed))
+
+                    ;; No install record. Either the id is genuinely absent
+                    ;; (INSTALL) or a frame is already LIVE under it but was
+                    ;; created OUTSIDE the plan registry — a boot
+                    ;; `rf/make-frame`. ENSURE is create-if-absent (03 §8):
+                    ;; a live frame is ADOPTED, never re-created, so its
+                    ;; boot config + image generation stay authoritative.
+                    (some? (frame/frame frame-id))
+                    (assoc plan ::action :adopt)
 
                     :else
-                    (throw-plan-conflict! root-id plan installed))))
+                    (assoc plan ::action :install))))
               plans)]
     (doseq [{:keys [frame-id config config-fingerprint] :as plan} decided]
-      (when (not= :found-live (::action plan))
-        ;; create-if-absent / surgical refresh; :initial-events drain
-        ;; synchronously inside the engine, in document order across
-        ;; plans. The record lands only AFTER a successful install, so a
-        ;; throwing plan leaves no install record (and the engine leaves
-        ;; no frame residue).
-        (live-frame/make-frame (assoc (or config {}) :id frame-id))
-        (swap! installed-plans assoc frame-id
-               {:config-fingerprint config-fingerprint
-                :installed-by root-id})))
+      (case (::action plan)
+        ;; the ratified idempotent no-op: no re-seed, no record churn.
+        :found-live nil
+
+        ;; a live plan-less (boot-created) frame: create-if-absent means
+        ;; create NOTHING. Record only the plan's fingerprint so a later
+        ;; cross-root arrival is conflict-scoped — the boot frame's
+        ;; config/generation/`:images` are left entirely untouched
+        ;; (rf2-vxgfnd.26: a config-carrying `make-frame` here clobbered
+        ;; them, masked by the durable app-db surviving).
+        :adopt (swap! installed-plans assoc frame-id
+                      {:config-fingerprint config-fingerprint
+                       :installed-by root-id})
+
+        ;; :install / :refresh — create-if-absent / surgical refresh;
+        ;; :initial-events drain synchronously inside the engine, in
+        ;; document order across plans. The record lands only AFTER a
+        ;; successful install, so a throwing plan leaves no install record
+        ;; (and the engine leaves no frame residue).
+        (do
+          (live-frame/make-frame (assoc (or config {}) :id frame-id))
+          (swap! installed-plans assoc frame-id
+                 {:config-fingerprint config-fingerprint
+                  :installed-by root-id}))))
     nil))
 
 ;; ---------------------------------------------------------------------------
