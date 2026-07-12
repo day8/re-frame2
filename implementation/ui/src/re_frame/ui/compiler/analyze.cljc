@@ -12,6 +12,7 @@
   branches. Rejected forms throw compile errors with
   {:rf.ui.compile/error <id>} ex-data (the S1e roster keys off the ids)."
   (:require [clojure.string :as str]
+            [re-frame.ui.compiler.build :as build]
             [re-frame.ui.compiler.env :as env]
             [re-frame.ui.rules :as rules]))
 
@@ -405,7 +406,13 @@
   :property-props #{kw} :static? bool}"
   [e tag-info custom? props-form]
   (let [tag        (:tag tag-info)
-        properties (when custom? (rules/custom-element-properties tag))
+        ;; Per-build compile-time property classification, read from the
+        ;; ambient build's `elements` slice (rf2-vxgfnd.91). This analysis
+        ;; runs under `cljs.env/*compiler*`, so `build/element-properties`
+        ;; resolves the CURRENT build's declarations — never a process-global
+        ;; last-writer-wins mirror that a sibling build could clobber between
+        ;; this tag's declaration and this classification read.
+        properties (when custom? (build/element-properties tag))
         spread?    (spread-form? e props-form)]
     (when (and (some? props-form) (not (map? props-form)) (not spread?))
       (env/fail! e :rf.ui.compile/dynamic-props-map

@@ -14,8 +14,7 @@
                       [re-frame.ui.compiler.emit-jvm :as emit-jvm]
                       [re-frame.ui.compiler.env :as env]
                       [re-frame.ui.compiler.header :as header]
-                      [re-frame.ui.fingerprint :as fingerprint]
-                      [re-frame.ui.rules :as rules]])))
+                      [re-frame.ui.fingerprint :as fingerprint]])))
 
 #?(:clj
    (do
@@ -27,14 +26,17 @@
 ;; the ambient build's view aggregate (compile-order independent — the
 ;; triples sort by view-id).
 ;;
-;; The compile-time custom-element declarations are the one registry that
-;; keeps an external MIRROR atom: they are WRITTEN here (macro expansion) but
-;; READ on the JVM by the tree builder through `re-frame.ui.rules/custom-
-;; elements` (the same var the CLJS RUNTIME arm owns on the client). Register
-;; it as `build/elements`' mirror so build.cljc keeps it synced to the
-;; ambient build's aggregate for that JVM read. The Layer-1 root/plan/
-;; descriptor registries and the view digest read through `build/aggregate`.
-(build/register! build/elements rules/custom-elements)
+;; The compile-time custom-element declarations are a build-scoped registry
+;; like the other four: WRITTEN here (macro expansion → `build/contribute!
+;; build/elements`) and READ on the compile path by the template analyzer
+;; through `build/element-properties`, which resolves the AMBIENT build's
+;; slice (rf2-vxgfnd.91). No process-global mirror atom: the former
+;; `build/register! build/elements rules/custom-elements` bridge was a
+;; last-writer-wins hazard where a sibling build's contribution could flip
+;; another build's classification. The CLJS/JVM RUNTIME arm keeps its own
+;; `re-frame.ui.rules/custom-elements` ledger (populated by the emitted
+;; `register-custom-element!`, read at render for dynamic `ui/spread` props);
+;; it is separate from this compile registry.
 
 (defn current-build-digest []
   (fingerprint/build-digest

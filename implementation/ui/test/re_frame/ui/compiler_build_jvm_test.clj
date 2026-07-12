@@ -28,10 +28,10 @@
   source key, rf2-df9873) are addressable."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.ui.compiler :as compiler]
+            [re-frame.ui.compiler.analyze :as ana]
             [re-frame.ui.compiler.build :as build]
             [re-frame.ui.compiler.env :as env]
-            [re-frame.ui.compiler.root :as root]
-            [re-frame.ui.rules :as rules]))
+            [re-frame.ui.compiler.root :as root]))
 
 ;; Every test starts from a clean authority; correctness across a watch
 ;; session comes from per-source replacement on the pass boundaries, but
@@ -507,20 +507,76 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Custom-element declaration removal clears stale property classification
-;; (AC5, compile side — read through the JVM mirror `rules/custom-elements`)
+;; (AC5, compile side — read through the per-build `build/element-properties`
+;; slice, the compile-path reader that replaced the process-global mirror,
+;; rf2-vxgfnd.91)
 ;; ---------------------------------------------------------------------------
 
 (deftest removed-custom-element-clears-stale-property-classification
   (build/begin-build! :app)
   (declare-element! 'app.a :x-el #{:help-text})
   (build/commit-build! :app)
-  (is (= #{:help-text} (rules/custom-element-properties :x-el))
+  (is (= #{:help-text} (build/element-properties :x-el :app))
       "the declaration classifies :help-text as a property")
   ;; edit app.a: :x-el renamed to :y-el (its declaration deleted)
   (build/begin-build! :app)
   (declare-element! 'app.a :y-el #{:label})
   (build/commit-build! :app)
-  (is (= #{} (rules/custom-element-properties :x-el))
+  (is (= #{} (build/element-properties :x-el :app))
       "the removed :x-el no longer classifies any property (was leaking)")
-  (is (= #{:label} (rules/custom-element-properties :y-el))
+  (is (= #{:label} (build/element-properties :y-el :app))
       "the current :y-el declaration classifies its property"))
+
+;; ---------------------------------------------------------------------------
+;; The cross-build interleave the per-build-isolation tests above miss: a
+;; custom-element contribution in ONE build BETWEEN another build's declaration
+;; and its property-classification READ. Under the former process-global mirror
+;; (`build/register! build/elements rules/custom-elements` + `sync-mirror!`),
+;; every contribution reset the single mirror atom to whichever build wrote
+;; last, so the analyzer's classification read flipped with parallel scheduling
+;; — the exact fifth registry #5770 claimed to isolate (rf2-vxgfnd.91).
+;; ---------------------------------------------------------------------------
+
+(defn- analyze-property-props
+  "Drive the REAL compile-path consumer (`analyze-element-props`) for a literal
+  custom-element props map under `build-id`, returning the set of props it
+  lowered as PROPERTIES (vs attributes)."
+  [build-id tag propmap]
+  (binding [build/*build-id* build-id]
+    (:property-props
+     (ana/analyze-element-props
+      (env/make-env {:host :clj :ns-sym 'app.test})
+      {:tag tag :classes [] :id nil}
+      true
+      propmap))))
+
+(deftest custom-element-classification-is-build-scoped-under-interleave
+  ;; build :app declares :x-card's :model property
+  (build/begin-build! :app)
+  (binding [build/*build-id* :app]
+    (declare-element! 'app.card :x-card #{:model}))
+  ;; build :node-test then contributes a DIFFERENT table — the write that, under
+  ;; the old global mirror, reset the single mirror atom to node-test's
+  ;; aggregate (no :x-card), between app's declaration and app's read below
+  (build/begin-build! :node-test)
+  (binding [build/*build-id* :node-test]
+    (declare-element! 'ntest.card :y-card #{:flavour}))
+  ;; app's compile thread classifies :x-card {:model ...}: it must read APP's
+  ;; slice and lower :model as a PROPERTY, deterministically — regardless of the
+  ;; interleaved node-test contribution. (On the pre-fix mirror this read
+  ;; returned node-test's clobbered table, lowering :model as an ATTRIBUTE.)
+  (is (= #{:model} (analyze-property-props :app :x-card {:model "m"}))
+      "app lowers :model as a PROPERTY from its own slice, not the mirror")
+  (is (= #{} (analyze-property-props :node-test :x-card {:model "m"}))
+      "node-test's slice has no :x-card — :model stays an attribute there")
+  (is (= #{:flavour} (analyze-property-props :node-test :y-card {:flavour "f"}))
+      "node-test reads its OWN table for its OWN tag")
+  (is (= #{} (analyze-property-props :app :y-card {:flavour "f"}))
+      "node-test's :y-card never leaks into app's classification")
+  (testing "output is stable no matter which build wrote most recently"
+    ;; a fresh node-test write (the 'last writer') cannot move app's read
+    (build/begin-build! :node-test)
+    (binding [build/*build-id* :node-test]
+      (declare-element! 'ntest.card2 :z-card #{:zz}))
+    (is (= #{:model} (analyze-property-props :app :x-card {:model "m"}))
+        "app's classification is unchanged by a later node-test contribution")))

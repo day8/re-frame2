@@ -116,14 +116,6 @@
   and is per-thread correct under parallel builds)."}
   session-build (atom ::default))
 
-(defonce ^{:private true
-           :doc "reg-id -> external MIRROR atom kept synced to the ambient
-  build's aggregate, so a JVM-side reader that derefs a plain atom (the JVM
-  tree builder's custom-element registry) sees the current build's rows. Only
-  the compile-time custom-element registry mirrors; every other registry
-  reads through `aggregate`."}
-  mirrors (atom {}))
-
 (def ^:dynamic *build-id*
   "Explicit identity override (tests / REPL). Wins over the compiler env and
   the session fallback; bind it per-thread to drive interleaved builds."
@@ -187,36 +179,22 @@
   ([reg-id build-id]
    (effective (get @state build-id empty-slice) reg-id ::none)))
 
+(defn element-properties
+  "The declared `:properties` set for custom-element `tag` in the ambient (or
+  given) build's compile-time `elements` registry — the compile-path read the
+  template analyzer uses to classify a custom element's props (property vs
+  attribute). Per-build, resolved through the ambient compiler build identity
+  (the SAME `current-build-id` mechanism every other registry read uses), so
+  one daemon's parallel builds never cross-classify; NEVER a process-global
+  last-writer-wins mirror. Empty set when `tag` is undeclared in this build."
+  ([tag] (element-properties tag (current-build-id)))
+  ([tag build-id] (get-in (aggregate elements build-id) [tag :properties] #{})))
+
 (defn pass-open?
   "Whether a compile pass is currently open for the ambient (or given)
   build (tests / tooling)."
   ([] (pass-open? (current-build-id)))
   ([build-id] (:pass-open? (get @state build-id empty-slice) false)))
-
-;; ---------------------------------------------------------------------------
-;; External mirrors (the compile-time custom-element registry)
-;; ---------------------------------------------------------------------------
-
-(defn- sync-mirror! [reg-id build-id]
-  (when-let [mirror (get @mirrors reg-id)]
-    (reset! mirror (aggregate reg-id build-id)))
-  nil)
-
-(defn- sync-mirrors! [build-id]
-  (doseq [[reg-id _] @mirrors] (sync-mirror! reg-id build-id))
-  nil)
-
-(defn register!
-  "Register an external MIRROR atom for `reg-id`: build.cljc keeps it synced
-  to the ambient build's aggregate so a JVM reader that derefs the plain atom
-  (the JVM tree builder's custom-element registry) sees the current build's
-  contributions. Idempotent. Only the compile-time custom-element registry
-  uses this — the Layer-1 indexes and the view digest read through
-  `aggregate`."
-  [reg-id mirror]
-  (swap! mirrors assoc reg-id mirror)
-  (sync-mirror! reg-id (current-build-id))
-  nil)
 
 ;; ---------------------------------------------------------------------------
 ;; Contribution (pure transitions)
@@ -239,10 +217,9 @@
   ambient build — one `swap!`, pure. The Layer-1 indexes use
   `contribute-checked!` for their pre-write conflict check."
   [reg-id source k v]
-  (let [build-id (current-build-id)]
-    (swap! state update build-id (fnil write-slice empty-slice) reg-id source k v)
-    (sync-mirror! reg-id build-id)
-    nil))
+  (swap! state update (current-build-id)
+         (fnil write-slice empty-slice) reg-id source k v)
+  nil)
 
 (defn contribute-checked!
   "The atomic conflict-checked contribution for a Layer-1 index. Inside ONE
@@ -255,9 +232,8 @@
   parallel compilation can neither drop a concurrent write (check-then-assoc
   race) nor miss a genuine duplicate."
   [reg-id source k v conflict-fn]
-  (let [build-id (current-build-id)
-        outcome  (atom nil)]           ; call-local — only this call's retries touch it
-    (swap! state update build-id
+  (let [outcome (atom nil)]             ; call-local — only this call's retries touch it
+    (swap! state update (current-build-id)
            (fn [slice]
              (let [slice    (or slice empty-slice)
                    existing (get (effective slice reg-id source) k)
@@ -266,7 +242,6 @@
                  (do (reset! outcome {:conflict conflict}) slice)
                  (do (reset! outcome nil)
                      (write-slice slice reg-id source k v))))))
-    (sync-mirror! reg-id build-id)
     @outcome))
 
 ;; ---------------------------------------------------------------------------
@@ -284,7 +259,6 @@
    (reset! session-build build-id)
    (swap! state update build-id
           (fn [s] (assoc (or s empty-slice) :pass-open? true :staged {} :touched #{})))
-   (sync-mirrors! build-id)
    nil))
 
 (defn- commit-slice
@@ -308,7 +282,6 @@
   ([] (commit-build! (current-build-id)))
   ([build-id]
    (swap! state update build-id (fn [s] (commit-slice (or s empty-slice))))
-   (sync-mirrors! build-id)
    nil))
 
 (defn- keep-members
@@ -332,7 +305,6 @@
             (let [s (or s empty-slice)
                   touched (:touched s)]
               (-> s commit-slice (keep-members touched)))))
-   (sync-mirrors! build-id)
    nil))
 
 (defn finish-build!
@@ -344,8 +316,7 @@
   [build-id members]
   (let [members (set members)]
     (swap! state update build-id
-           (fn [s] (-> (or s empty-slice) commit-slice (keep-members members))))
-    (sync-mirrors! build-id))
+           (fn [s] (-> (or s empty-slice) commit-slice (keep-members members)))))
   nil)
 
 (defn abort-build!
@@ -355,7 +326,6 @@
   ([build-id]
    (swap! state update build-id
           (fn [s] (assoc (or s empty-slice) :staged {} :touched #{} :pass-open? false)))
-   (sync-mirrors! build-id)
    nil))
 
 (defn reset-build!
@@ -365,5 +335,4 @@
   []
   (reset! state {})
   (reset! session-build ::default)
-  (doseq [[_ mirror] @mirrors] (reset! mirror {}))
   nil)
