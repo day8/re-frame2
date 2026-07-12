@@ -77,6 +77,33 @@
 (defn- items-target []
   (obs/resolve-target {:frame fid :query-v [:obs/items]}))
 
+#?(:clj
+   (deftest canonical-read-holds-one-strong-reaction-across-the-jvm-gc-gap
+     (reg-items!)
+     (seed-items! [:a])
+     (let [target       (items-target)
+           lease        (obs/acquire! target (fn [_]))
+           expected     (obs/read lease)
+           reaction-var (ns-resolve 're-frame.substrate.observation
+                                    'lease-reaction)
+           original     (var-get reaction-var)
+           calls        (atom 0)]
+       (try
+         ;; Deterministically model the WeakReference clearing between the old
+         ;; canonicality check and its second lookup in read. The corrected read
+         ;; resolves once and holds that reaction strongly for the whole branch.
+         (with-redefs-fn
+           {reaction-var
+            (fn [state]
+              (if (= 1 (swap! calls inc))
+                (original state)
+                nil))}
+           #(is (= expected (obs/read lease))
+                "a canonical JVM read cannot deref nil after the GC gap"))
+         (is (= 1 @calls) "read resolves the weak reaction exactly once")
+         (finally
+           (obs/release! lease))))))
+
 ;; ===========================================================================
 ;; resolve-target
 ;; ===========================================================================

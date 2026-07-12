@@ -494,3 +494,26 @@
         "G-4: an rf=-equal recompute ⇒ ZERO cell revision change ⇒ NO React render")
     (is (identical? v0 (get (reactive/committed-values cell) (tk [:r/coll])))
         "…and the committed value stays the prior exact reference (stable identity)")))
+
+(deftest nan-valued-node-is-version-and-revision-stable
+  (rf/reg-sub :r/nan (fn [db _]
+                       ;; Depend on :tick so each seed forces a recompute. The
+                       ;; JVM constructor prevents boxed-literal identity from
+                       ;; hiding the numeric equality boundary under test.
+                       (:tick db)
+                       #?(:clj  (Double/parseDouble "NaN")
+                          :cljs js/NaN)))
+  (seed! {:tick 0})
+  (let [cell  (render+commit! (reactive/make-cell ::nan) [[:r/nan]])
+        lease (reactive/committed-lease cell (tk [:r/nan]))
+        ver0  (:version (obs/read lease))]
+    (testing "repeated observation of a stable NaN does not move the node"
+      (dotimes [i 3]
+        (seed! {:tick (inc i)})
+        (is (= ver0 (:version (obs/read lease)))
+            "NaN is self-equal for observation-node versioning")))
+    (testing "render→commit reconciliation therefore cannot self-schedule forever"
+      (dotimes [_ 3]
+        (render+commit! cell [[:r/nan]]))
+      (is (= 0 (reactive/revision cell))
+          "stable NaN evidence causes zero corrective revisions"))))
