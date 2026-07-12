@@ -160,7 +160,61 @@
 (deftest custom-element-rows
   (is (= "helpText" (rules/custom-element-property-name "help-text"))
       "declared names -> camelCase JS property (RULED grammar)")
-  (rules/register-custom-element! :rules-test-el {:properties #{:some-prop}})
+  (rules/register-custom-element! :rules-test-el {:properties #{:some-prop}}
+                                  're-frame.ui.rules-test)
   (is (= #{:some-prop} (rules/custom-element-properties :rules-test-el)))
   (is (= #{} (rules/custom-element-properties :never-declared-el))
       "undeclared elements default to all-attributes"))
+
+;; ---------------------------------------------------------------------------
+;; Custom-element runtime registry — hot-reload eviction (rf2-vxgfnd.48). The
+;; RUNTIME arm of .16 AC5; the compile/JVM arm lives in
+;; re-frame.ui.compiler-build-jvm-test.
+;; ---------------------------------------------------------------------------
+
+(deftest removed-custom-element-clears-runtime-property-classification
+  (rules/reset-custom-elements!)
+  ;; initial load: app.a declares :x-el with :help-text
+  (rules/register-custom-element! :x-el {:properties #{:help-text}} 'app.a)
+  (is (= #{:help-text} (rules/custom-element-properties :x-el))
+      "the declaration classifies :help-text as a property")
+  ;; hot-reload app.a: :x-el renamed to :y-el (its declaration deleted). The
+  ;; ^:dev/before-load hook bumps the generation; re-running app.a's forms
+  ;; re-opens the source, evicting its whole prior contribution first.
+  (rules/notify-reload!)
+  (rules/register-custom-element! :y-el {:properties #{:label}} 'app.a)
+  (is (= #{} (rules/custom-element-properties :x-el))
+      "the removed :x-el no longer classifies any property (was leaking until
+       a full page reload)")
+  (is (= #{:label} (rules/custom-element-properties :y-el))
+      "the current :y-el declaration classifies its property"))
+
+(deftest hot-reload-preserves-untouched-sources
+  ;; A reload cycle that reloads source B must NOT drop source A's rows — A's
+  ;; forms did not re-run, so it keeps its prior generation (the runtime mirror
+  ;; of the compile-side incremental-preserves-untouched semantics).
+  (rules/reset-custom-elements!)
+  (rules/register-custom-element! :a-el {:properties #{:a-prop}} 'app.a)
+  (rules/register-custom-element! :b-el {:properties #{:b-prop}} 'app.b)
+  (rules/notify-reload!)
+  (rules/register-custom-element! :b-el {:properties #{:b-prop2}} 'app.b) ; only B reloads
+  (is (= #{:a-prop} (rules/custom-element-properties :a-el))
+      "untouched source A keeps its classification across B's reload")
+  (is (= #{:b-prop2} (rules/custom-element-properties :b-el))
+      "reloaded source B's classification updates"))
+
+(deftest multiple-declarations-in-one-source-accumulate-then-replace
+  ;; Two elements in one source accumulate; on reload, both re-open together
+  ;; and only the survivors remain (never clear-on-first-declaration).
+  (rules/reset-custom-elements!)
+  (rules/register-custom-element! :a-el {:properties #{:a-prop}} 'app.multi)
+  (rules/register-custom-element! :b-el {:properties #{:b-prop}} 'app.multi)
+  (is (= #{:a-prop} (rules/custom-element-properties :a-el)))
+  (is (= #{:b-prop} (rules/custom-element-properties :b-el)))
+  ;; reload app.multi keeping only :a-el (with a changed decl); :b-el deleted
+  (rules/notify-reload!)
+  (rules/register-custom-element! :a-el {:properties #{:a-prop2}} 'app.multi)
+  (is (= #{:a-prop2} (rules/custom-element-properties :a-el))
+      "the surviving declaration's classification updates")
+  (is (= #{} (rules/custom-element-properties :b-el))
+      "the dropped :b-el is evicted even though app.multi no longer touches it"))
