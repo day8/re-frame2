@@ -1263,11 +1263,15 @@ whole drain's coalesced epochs. The moving epoch rides the stale-mark as **cause
 evidence only** — coalescing keys on the cell's pending state, never on the epoch tag —
 so N epochs committed in one drain produce exactly one render batch, and render
 separation follows **drain** boundaries, never the epoch count (see invariant 6). On
-CLJS the flush is microtask-aligned: a single `goog.async.nextTick` microtask, armed by
-the first mark of the drain, cannot run until the synchronous drain unwinds, so it fires
-strictly **after** drain quiescence and never between two queued events of the same
-drain. The headless (JVM/SSR) host has no async render loop and drains via the explicit
-`flush!` idiom. `flush-render!` (and the test flush built on it) closes the render batch
+CLJS the flush rides a **true host microtask** — `js/queueMicrotask` (a resolved-`Promise`
+job where absent), deliberately **not** `goog.async.nextTick`, which is a **macrotask**
+(`setImmediate`/`MessageChannel`/`setTimeout`) that yields to the event loop and could let
+a torn frame paint before the correction runs. A single microtask, armed by the first
+mark of the drain, cannot run until the synchronous drain unwinds, so it fires strictly
+**after** drain quiescence — at the event loop's microtask checkpoint, which runs
+**before** the next paint — never between two queued events of the same drain, and always
+before a torn frame can show (rf2-vxgfnd.40). The headless (JVM/SSR) host has no async
+render loop and drains via the explicit `flush!` idiom. `flush-render!` (and the test flush built on it) closes the render batch
 **before** React renders; a re-entrant `flushSync`-style forcing into an open drain is a
 dev error carrying epoch evidence (`:rf.error/flush-in-open-epoch`, dev tier — catalogue
 row required per
