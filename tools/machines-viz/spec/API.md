@@ -2088,10 +2088,17 @@ back.
 > **Id codec — injective + xsd:ID-conformant (rf2-mnp93.1/.7,
 > supersedes rf2-csq75).** SCXML state ids are `xsd:ID` (XML NCName):
 > letters / digits / `-` `.` `_`, and crucially **no `:`**. The codec
-> HEX-ESCAPES every keyword namespace/name char outside `[A-Za-z0-9]` to
-> `_<2-hex>` (`.` → `_2e`, `?` → `_3f`, and the underscore itself → `_5f`)
-> and joins parts with two RESERVED MARKERS the escaper can provably
-> never emit:
+> HEX-ESCAPES every keyword namespace/name char outside `[A-Za-z0-9]` to a
+> FIXED-WIDTH, self-delimiting escape of its UTF-16 code unit — `_<2-hex>`
+> at or below `U+00FF` (`.` → `_2e`, `?` → `_3f`, the underscore itself →
+> `_5f`) and `_u<4-hex>` above it (CJK, emoji: `开` → `_u5f00`). Both forms
+> are fixed-width, so the codec is **reversible across the whole code-unit
+> range** (rf2-qgtcvy — the pre-fix `_<var-hex>` was neither self-delimiting
+> nor reversible above `0xFF`: `:开始` mis-decoded and `đ` collided with
+> `U+0011`+`"1"`); the `u` sentinel (not a hex digit) keeps the two widths
+> unambiguous. Parts join with two RESERVED MARKERS the escaper can provably
+> never emit (a `_` is always followed by a hex digit or `u`, so neither
+> width mints two consecutive underscores):
 >
 > - `__` (double underscore) separates a *namespaced keyword's* namespace
 >   from its name: `:auth/login` → `auth__login`,

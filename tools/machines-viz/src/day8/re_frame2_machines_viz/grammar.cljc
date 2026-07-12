@@ -864,21 +864,39 @@
   Hyphens are pervasive in re-frame keywords (`:logged-in`,
   `:rate-limited`), so the collision is reachable.
 
-  Scheme: every char outside `[A-Za-z0-9]` becomes `_<2-hex>` (the
-  underscore itself included → `_5f`), so the mapping is reversible and no
-  two distinct chars share an encoding. Because the result contains no two
-  consecutive underscores, the reserved markers the consumers layer on top
-  — `_2f` (the hex of `/`) for a keyword's ns/name boundary, `__` between
-  path segments (xyflow `node-id` / mermaid `sanitise-id`), `__`/`___`
-  (SCXML ns-name / path separators) — can never arise from segment
-  content. This is the SINGLE injective scheme all three emitters' id
-  codecs build on, so they address every node identically."
+  Scheme: every char outside `[A-Za-z0-9]` becomes a FIXED-WIDTH,
+  self-delimiting escape of its UTF-16 code unit —
+
+    - `≤ U+00FF`  → `_<2-hex>`  (the underscore itself → `_5f`)
+    - `> U+00FF`  → `_u<4-hex>` (CJK, emoji surrogate halves, …)
+
+  Both forms are fixed-width, so the codec is REVERSIBLE across the whole
+  code-unit range and no two distinct inputs share an encoding (rf2-qgtcvy:
+  the pre-fix `_<var-hex>` was neither self-delimiting nor reversible above
+  0xFF — `:开始` mis-decoded and `đ` collided with `\\u0011`+`\"1\"`). The `u`
+  sentinel (not a hex digit) keeps the two widths unambiguous: `_2f` is
+  always a 2-hex escape, `_u5f00` always a 4-hex one, so `_2f00` reads as
+  `/`+`00`, never as one wide escape.
+
+  Neither form ever mints two consecutive underscores (a `_` is always
+  followed by a hex digit or `u`), so the reserved markers the consumers
+  layer on top — `_2f` (the hex of `/`) for a keyword's ns/name boundary,
+  `__` between path segments (xyflow `node-id` / mermaid `sanitise-id`),
+  `__`/`___` (SCXML ns-name / path separators) — can never arise from
+  segment content. This is the SINGLE injective scheme all three emitters'
+  id codecs build on, so they address every node identically."
   [s]
   (str/join
     (map (fn [ch]
            (if (re-matches #"[A-Za-z0-9]" (str ch))
              (str ch)
-             (str "_" #?(:clj  (format "%02x" (int ch))
-                         :cljs (let [h (.toString (.charCodeAt (str ch) 0) 16)]
-                                 (if (= 1 (count h)) (str "0" h) h))))))
+             (let [cu #?(:clj  (int ch)
+                         :cljs (.charCodeAt (str ch) 0))]
+               (if (<= cu 0xff)
+                 (str "_" #?(:clj  (format "%02x" cu)
+                             :cljs (let [h (.toString cu 16)]
+                                     (if (= 1 (count h)) (str "0" h) h))))
+                 (str "_u" #?(:clj  (format "%04x" cu)
+                              :cljs (let [h (.toString cu 16)]
+                                      (str (subs "0000" (count h)) h))))))))
          s)))
