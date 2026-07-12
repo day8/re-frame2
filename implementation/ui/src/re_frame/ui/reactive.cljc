@@ -68,11 +68,14 @@
   exactly once (a set, deduped by cell identity); a re-mark while already
   pending FOLDS IN regardless of its epoch tag — the pending flag is the
   coalescing key, the epoch tag is NEVER a second key. On CLJS one
-  coalesced flush is armed per drain (`interop/next-tick` — a
-  `goog.async.nextTick` MICROTASK that cannot run until the synchronous
-  run-to-completion drain unwinds, so it fires strictly AFTER drain
-  quiescence, never between two queued events of the same drain); the JVM
-  headless host has no async render loop, so it auto-schedules NOTHING and
+  coalesced flush is armed per drain on the host MICROTASK queue
+  (`queue-microtask!` — `js/queueMicrotask`, NOT `goog.async.nextTick`,
+  which is a macrotask): the microtask checkpoint runs after the
+  synchronous run-to-completion drain unwinds and BEFORE the next paint, so
+  the flush fires strictly after drain quiescence — never between two queued
+  events of the same drain, and always before a torn frame can show
+  (rf2-vxgfnd.40); the JVM headless host has no async render loop, so it
+  auto-schedules NOTHING and
   drains via the EXPLICIT `flush!` (07 §2's only flush idiom; SSR is
   one-shot) — one honest option per host. Either way, N epochs committed
   in one drain advance each dirty cell's revision ONCE and let React
@@ -269,8 +272,10 @@
 ;; ONE memo handle per synchronous execution slice, shared by every probe
 ;; in the slice so sibling rows compute shared derivation parents once
 ;; (the first-mount fan-out mitigation). Created lazily on the first probe
-;; of a slice; cleared on the next microtask so an abandoned slice's table
-;; is unreachable garbage. The memo is an ECONOMY only — commit step 5
+;; of a slice; released on the next event-loop tick (`interop/next-tick` —
+;; a macrotask, which is fine here: this is GC hygiene, not a
+;; correctness-before-paint boundary) so an abandoned slice's table is
+;; unreachable garbage. The memo is an ECONOMY only — commit step 5
 ;; corrects any staleness before paint — so a single module holder (probes
 ;; never nest across slices synchronously) is sufficient.
 ;; ---------------------------------------------------------------------------
@@ -280,8 +285,9 @@
 (defn- current-slice-memo
   "The current slice's probe memo handle — reused across every probe of
   this synchronous slice, created lazily. On CLJS a fresh slice mints a
-  fresh handle and the old one is released on the next microtask (a true
-  `goog.async.nextTick` boundary firing AFTER the synchronous render pass).
+  fresh handle and the old one is released on the next event-loop tick
+  (`interop/next-tick` — `goog.async.nextTick`, a macrotask firing after the
+  synchronous render pass; GC hygiene only, not a before-paint boundary).
   On the JVM `next-tick` is a concurrent executor, not a microtask, so a
   timer-driven clear would race a synchronous render; there the handle is
   invalidated by the memo's own `(frame, frame-epoch, registry-epoch)` tag
@@ -435,8 +441,10 @@
 ;; re-mark while pending folds in regardless of epoch tag). N epochs
 ;; committed in one run-to-completion drain therefore advance the cell ONCE
 ;; at flush — the render batch boundary is DRAIN QUIESCENCE, not epoch close.
-;; On CLJS one coalesced async flush is armed per drain (the `next-tick`
-;; microtask fires only after the synchronous drain unwinds — 03 §3);
+;; On CLJS one coalesced flush is armed per drain on the host MICROTASK queue
+;; (`queue-microtask!`), which drains after the synchronous run-to-completion
+;; drain unwinds and BEFORE the next paint — so a watch-fired movement is
+;; corrected before the host can show a torn frame (rf2-vxgfnd.40; 03 §3).
 ;; `flush!` is the synchronous forcing, SCOPED so no pending work leaks
 ;; across roots. The Q51 scope ruling and the reentrancy contract live in
 ;; the ns docstring.
@@ -465,6 +473,24 @@
 
 (declare flush-pending!)
 
+#?(:cljs
+   (defn- queue-microtask!
+     "Enqueue `f` on the host MICROTASK queue. The HTML event loop runs its
+     microtask checkpoint after the current synchronous task and BEFORE the
+     'update the rendering' (paint) step, so a microtask-scheduled flush
+     corrects a moved sub before the host can present a torn frame — the
+     property the drain-quiescence render batch leans on (rf2-vxgfnd.40).
+
+     `js/queueMicrotask` where present (all modern browsers + Node ≥ 11);
+     a resolved-Promise job is the fallback. DELIBERATELY NOT
+     `goog.async.nextTick` (`interop/next-tick`), which is a MACROTASK
+     (`setImmediate` / `MessageChannel` / `setTimeout`) — it yields to the
+     event loop and may let a torn frame paint before it runs."
+     [f]
+     (if (exists? js/queueMicrotask)
+       (js/queueMicrotask f)
+       (.then (js/Promise.resolve) (fn [_] (f))))))
+
 (defn- schedule-flush!
   "Arm ONE coalesced microtask that drains the whole registry — the CLJS
   host's realization of the drain-quiescence render batch (03 §3). One
@@ -474,17 +500,19 @@
   the same flush. Re-marks before it runs fold in; a synchronous `flush!`
   beforehand just leaves it an empty drain.
 
-  CLJS-only: `interop/next-tick` there is a true `goog.async.nextTick`
-  microtask that fires AFTER the synchronous render pass. The JVM headless
-  host has NO async render loop to align to — its epoch close is the
-  EXPLICIT `flush!` (07 §2 'the only flush idiom'; SSR renders one-shot) —
-  and `next-tick` there is a CONCURRENT executor, not a microtask, so a
-  background auto-drain would race synchronous callers. One honest option
-  per host, not a pretended same mechanism (03 §3)."
+  CLJS-only: the flush rides `queue-microtask!` — a TRUE host microtask that
+  fires after the synchronous drain unwinds and BEFORE the next paint, so a
+  watch-fired invalidation is corrected before a torn frame can show
+  (rf2-vxgfnd.40). The JVM headless host has NO async render loop to align
+  to — its epoch close is the EXPLICIT `flush!` (07 §2 'the only flush
+  idiom'; SSR renders one-shot) — and `interop/next-tick` there is a
+  CONCURRENT executor, not a microtask, so a background auto-drain would
+  race synchronous callers. One honest option per host, not a pretended same
+  mechanism (03 §3)."
   []
   #?(:cljs
      (when (compare-and-set! flush-scheduled? false true)
-       (interop/next-tick
+       (queue-microtask!
          (fn []
            (reset! flush-scheduled? false)
            (flush-pending!))))
