@@ -978,11 +978,13 @@ These are normative (R-2). Each names the bug class it deletes.
    in-tick (the 1 → 0 edge disposes synchronously, per the cache contract), and a second
    release of the same lease is a no-op. *(Deletes: deferred-release windows; cleanup
    paths that double-release under error recovery.)*
-5. **Moved evidence corrects before paint.** At commit, each acquired node's version
-   (and the frame/registry epochs) is compared against the render's probe evidence; any
-   movement in the render→commit gap advances the cell's revision and notifies, and the
-   host corrects **before paint**. *(Deletes: painting a frame computed from stale
-   reads.)*
+5. **Moved evidence corrects before paint.** At commit, each acquired node's identity
+   (`:node-key`), version, and the frame/registry epochs are compared against the render's
+   probe evidence; any movement in the render→commit gap — including a same-id frame
+   **reincarnation** the `:node-key` axis catches when version + epochs coincide — advances
+   the cell's revision and notifies, and the host corrects **before paint**. *(Deletes:
+   painting a frame computed from stale reads; a coincident-version reincarnation misread
+   as unchanged.)*
 6. **One notification per cell per render batch — the boundary is drain quiescence, not
    epoch close.** An event/frame **epoch** is a write-side commit + diagnostic-evidence
    unit (one per dequeued event — per
@@ -1010,7 +1012,7 @@ These are normative (R-2). Each names the bug class it deletes.
 (probe target ?slice-memo)    ; render: pure evidence read (shape above)
 (acquire! target on-change)   ; commit-only: re-resolves canonical node, +1 owner → lease
 (current? lease target)       ; the commit kept-check, one predicate
-(read lease)                  ; => {:value v :version n}; typed error after release
+(read lease)                  ; => {:value v :version n :node-key k :frame-epoch fe :registry-epoch re}; typed error after release
 (release! lease)              ; synchronous, idempotent (second call no-ops)
 ```
 
@@ -1023,12 +1025,19 @@ cache-contract counterpart — they are the capture and kept-check layer a concu
 host requires.
 
 The movement-evidence axes are realised as: a per-node observation **version** the port
-advances whenever it observes the node's value change by `rf=`; the frame's
-**commit epoch** (one bump per physical frame-state install); and a **registry epoch**
-(one bump per `:sub` registration). `read` on a node lease additionally returns the
-CURRENT `:frame-epoch` / `:registry-epoch` alongside the frozen `{:value v :version n}`
-keys (additive), so the commit reconciler's invariant-5 comparison needs no second
-probe.
+advances whenever it observes the node's value change by `rf=`; the node's process-unique
+**`:node-key`** identity (the same key `probe` emits — the reincarnation-identity axis);
+the frame's **commit epoch** (one bump per physical frame-state install); and a
+**registry epoch** (one bump per `:sub` registration). `read` on a node lease
+additionally returns the acquired node's `:node-key` and the CURRENT `:frame-epoch` /
+`:registry-epoch` alongside the frozen `{:value v :version n}` keys (**additive** — the
+frozen shape is unchanged), so the commit reconciler's invariant-5 comparison needs no
+second probe. `:node-key` is what lets that comparison distinguish a **same-id frame
+reincarnation** (`destroy-frame!` + a fresh same-id construction builds a new reaction
+with a strictly-greater key) from an unmoved live node **even when version + frame /
+registry epochs coincide** across the two incarnations — a version+epoch tie
+`dissoc-frame!`'s commit-epoch restart can produce, which a version+epoch-only comparison
+would misread as unchanged.
 
 ### Lease semantics
 
