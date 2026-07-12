@@ -331,6 +331,39 @@
     (is (nil? (settle-abort! :story.abort/no-cb nil nil))
         "no done-cb → settle-abort! returns nil without throwing")))
 
+;; ---- JVM-only: many :wait steps do not grow the call stack (rf2-epqsvh) --
+;;
+;; On the JVM the `:wait` branch used to call `(schedule! ms #(run-loop! …))`,
+;; and `schedule!` did `(Thread/sleep ms)(f)` — a NESTED run-loop! call, not a
+;; `recur`. Every wait added a run-loop! frame, so a script with many
+;; `[:wait ms]` steps risked StackOverflowError and blocked the caller for the
+;; summed waits. The fix folds the JVM wait inline (`Thread/sleep` + `recur`)
+;; so the loop stays tail-position; CLJS keeps async `setTimeout` scheduling.
+;; This drives `run-loop!` directly (the established var-quoted seam) with a
+;; high wait-count and ms 0 — the nested path would deepen the stack past
+;; overflow well before completing; the recur path settles flat + fast.
+
+#?(:clj
+   (deftest jvm-many-wait-steps-do-not-grow-the-stack
+     (testing "rf2-epqsvh — a JVM run of MANY [:wait 0] steps completes
+               through the loop (done-cb fires, every step consumed, terminal
+               :pass) WITHOUT StackOverflowError — the wait recurs in tail
+               position instead of nesting a schedule! frame per wait"
+       (let [frame-id :story.wait/deep
+             n        10000
+             spec     {:name nil :script (vec (repeat n [:wait 0]))}
+             started  (-> (runner/start (runner/initial-state spec) 0)
+                          (assoc :run-token "tok-WAIT"))
+             settled  (atom :unset)]
+         (set-state! frame-id nil started)
+         (run-loop! frame-id nil "tok-WAIT" (fn [final] (reset! settled final)))
+         (is (not= :unset @settled)
+             "done-cb fired — the loop ran to completion through every wait")
+         (is (= n (:step-idx @settled))
+             "every wait step was consumed (step-idx reached :total)")
+         (is (= :pass (:status @settled))
+             "an all-:wait run has no failures/refusals → terminal :pass")))))
+
 ;; ---- JVM-only: integration tests against a live re-frame frame ----------
 ;;
 ;; These reuse the namespace-wide `bridge-reset!` fixture above (which
