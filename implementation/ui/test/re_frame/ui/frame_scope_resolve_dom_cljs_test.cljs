@@ -19,6 +19,7 @@
   Browser-only bodies — `-dom-cljs-test$` opts this file into `:browser-test`;
   under `:node-test` every DOM body gates on `(browser?)` and exits early."
   (:require [cljs.test :refer [deftest is use-fixtures]]
+            ["react" :as React]
             ["react-dom" :as react-dom]
             [re-frame.core :as rf]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -30,6 +31,70 @@
 
 (defn- browser? [] (exists? js/document))
 
+;; ---------------------------------------------------------------------------
+;; The canonical React act() helper (rf2-vxgfnd.89)
+;;
+;; This is the repository's established native-React act pattern — the same
+;; get-act / enable-react-act-env! shape as re-frame.adapter's shared React
+;; suite (core/.../react_shared_suite.cljs `with-browser-act`) and the
+;; machines-viz `*-dom-cljs-test` namespaces. It uses React's OWN `act()`, NOT
+;; UIx/Helix/Reagent machinery, so this fixture stays native re-frame.ui +
+;; plain-atom.
+;;
+;; `flushSync` is NOT an act substitute: React's test contract treats any
+;; update committed outside an act scope as "not wrapped in act(...)". The
+;; `:browser-test` build runs EVERY `-dom-cljs-test` namespace on one shared
+;; page, and sibling suites (the adapter + machines-viz DOM tests) set
+;; IS_REACT_ACT_ENVIRONMENT=true and never reset it — so once the browser gate
+;; actually runs this file (rf2-vxgfnd.90), a flushSync-only mount here emits
+;; that warning as soon as the flag has leaked true. Wrapping every mount /
+;; unmount in `act` — with the act env explicitly enabled per-test below —
+;; makes the fixture clean under act rather than silencing anything.
+(defn- get-act
+  "React's act() — React 19 promotes it to the React namespace proper
+  (react-dom/test-utils on 18)."
+  []
+  (or (when (exists? (.-act React)) (.-act React))
+      (try (.-act (js/require "react-dom/test-utils")) (catch :default _ nil))))
+
+(defn- enable-react-act-env! []
+  (when (browser?)
+    (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)))
+
+(defn- act!
+  "Run `thunk` inside React `act()`, returning the thunk's value. `act()`
+  itself returns a thenable (not the callback's value); the mount/unmount work
+  here commits synchronously under IS_REACT_ACT_ENVIRONMENT (enabled per-test
+  in the fixture), so the callback runs eagerly and we capture its result.
+  Wraps the mount (returns the root handle) AND the unmount (returns nil) so
+  every React commit — the happy render AND the render-abort teardown — settles
+  inside an act scope."
+  [thunk]
+  (let [ret    (volatile! nil)
+        act-fn (get-act)]
+    (act-fn (fn [] (vreset! ret (thunk))))
+    @ret))
+
+(defn- mount-expecting-abort!
+  "Run a mount whose render DELIBERATELY throws (the no-provider negative
+  case). React 19 routes the render-phase throw to the root's
+  `onUncaughtError` and aborts the commit WITHOUT re-throwing out of
+  `.render` — but React `act` SURFACES that error at the act boundary, so
+  wrapping this path in `act!` would turn the deliberate abort into an
+  uncaught test error. Use `flushSync` with the act env toggled OFF (the
+  canonical 'real flushSync commit path' pattern — react_shared_suite.cljs)
+  so the error is captured by `onUncaughtError`, not re-thrown, and the
+  aborted render — which commits nothing — emits no act warning. The act env
+  is restored afterwards so `assert-torn-down!`'s unmount still runs under
+  `act!`. Returns the registered root (its claim is still owned)."
+  [thunk]
+  (let [prior (.-IS_REACT_ACT_ENVIRONMENT js/globalThis)]
+    (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
+    (try
+      (react-dom/flushSync thunk)
+      (finally
+        (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) prior)))))
+
 ;; reset-live-roots! / reset-installed-plans! / reset-scheduler! are BOOKKEEPING
 ;; resets — a clean framework slate between tests. They are NOT host teardown:
 ;; each test OWNS the React root it mounts and `ui/unmount!`s it in a `finally`
@@ -39,15 +104,22 @@
   (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter
                                             :ambient-frame nil})
   (fn [t]
-    (reactive/reset-scheduler!)
-    (client/reset-live-roots!)
-    (frames/reset-installed-plans!)
-    (try
-      (t)
-      (finally
-        (reactive/reset-scheduler!)
-        (client/reset-live-roots!)
-        (frames/reset-installed-plans!)))))
+    ;; Enable React's act environment for this ns's DOM tests (act() warns /
+    ;; no-ops unless IS_REACT_ACT_ENVIRONMENT is set), then RESTORE the prior
+    ;; value so the fixture neither depends on nor leaks the shared-page flag.
+    (let [prior (when (browser?) (.-IS_REACT_ACT_ENVIRONMENT js/globalThis))]
+      (enable-react-act-env!)
+      (reactive/reset-scheduler!)
+      (client/reset-live-roots!)
+      (frames/reset-installed-plans!)
+      (try
+        (t)
+        (finally
+          (reactive/reset-scheduler!)
+          (client/reset-live-roots!)
+          (frames/reset-installed-plans!)
+          (when (browser?)
+            (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) prior)))))))
 
 (defn- container [] (js/document.createElement "div"))
 
@@ -57,7 +129,7 @@
 ;; layout-effect cleanup synchronously inside `root.unmount()` (03 §4). After it,
 ;; no live-root claim and no connected ViewCell may survive into the next test.
 (defn- assert-torn-down! [root]
-  (react-dom/flushSync #(some-> root ui/unmount!))
+  (act! #(some-> root ui/unmount!))
   (is (= #{} (client/live-root-ids))
       "the root's claim is released — no live-root survives the test")
   (is (empty? (reactive/current-live-cells))
@@ -86,7 +158,7 @@
     (rf/make-frame {:id :app/live})
     (rf/dispatch-sync [:test/set-db {:n 42}] {:frame :app/live})
     (let [c    (container)
-          root (react-dom/flushSync
+          root (act!
                 #(ui/mount [provider-wrap {:frame-id :app/live}] c {:root-id :dom-scope/prov}))]
       (try
         (is (re-find #"n=42" (.-innerHTML c))
@@ -105,7 +177,7 @@
   (when (browser?)
     (reg!)
     (let [c    (container)
-          root (react-dom/flushSync
+          root (act!
                 #(ui/mount [frame-root {:id :app/rooted :initial-events [[:test/set-db {:n 7}]]}
                             [n-view]]
                            c {:root-id :dom-scope/root}))]
@@ -147,7 +219,12 @@
           ;; than left to fire. React internally unmounts the aborted tree but
           ;; the ROOT stays registered (§criterion-3), so this test still OWNS
           ;; the root-id claim and releases it in `finally` (rf2-vxgfnd.87).
-          root     (react-dom/flushSync
+          ;; The render throw is DELIBERATE, so this mount uses
+          ;; `mount-expecting-abort!` (flushSync, act env off) rather than
+          ;; `act!` — React `act` would surface the intended error instead of
+          ;; letting `onUncaughtError` own it (rf2-vxgfnd.89). The teardown
+          ;; unmount below still runs under `act!` (assert-torn-down!).
+          root     (mount-expecting-abort!
                     #(ui/mount [bare-sub-root {}] c
                                {:root-id :dom-scope/orphan
                                 :on-uncaught-error (fn [error _info] (reset! captured error))}))]
