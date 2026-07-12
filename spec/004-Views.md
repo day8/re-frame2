@@ -195,8 +195,13 @@ emitter emits attributes only; property-props are applied at hydration. Rejected
 Lit-style rich schema (no consumer — demand bar), React-19-style runtime `in` check
 (breaks compile-time totality + gives SSR no static answer), attribute-only-v1 deferral
 (makes property-accepting web components unusable, hollowing "never through
-`ui/raw`"). Ships with the S4 epic; `ui/custom-element` added to the 12 §2 freeze
-table as the delta protocol's first row-level delta.
+`ui/raw`"). **Export-at-S1, assert-at-S4:** the *name* is in the blessed **S1** export
+set (`re-frame.ui`'s S1 public surface, per [API.md](API.md) §Compiled views), so
+`ui/custom-element` is exported and callable from S1 — declaring a name never errors as
+an unknown symbol — but its property-vs-attribute **classification behaviour and
+stage-conformance assertion ship with the S4 epic** (the API.md table stages the row
+S4). `ui/custom-element` is added to the 12 §2 freeze table as the delta protocol's
+first row-level delta.
 
 ## Handlers are data — the callback law
 
