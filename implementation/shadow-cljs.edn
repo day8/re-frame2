@@ -378,6 +378,22 @@
                 ;; sanitization contract.
                 [io.github.nextjournal/markdown "0.7.225"]]
 
+ ;; rf2-df9873 — the re-frame.ui compiler registries (view digests, the
+ ;; Layer-1 root/plan indexes, the Root Descriptor index, the compile-time
+ ;; custom-element declarations) are populated as a SIDE EFFECT of expanding
+ ;; the re-frame.ui macros (defview / mount / custom-element / …). shadow's
+ ;; resource cache skips macroexpansion for a cached namespace, so on a
+ ;; warm-cache daemon start those registries would be INCOMPLETE — a
+ ;; namespace loaded from cache never re-runs its registrations. Blocking the
+ ;; cache for every namespace that uses re-frame.ui's macros forces
+ ;; re-macroexpansion on each compile, keeping the registries a pure function
+ ;; of the current build inputs. NON-NEGOTIABLE for correctness under any
+ ;; build-lifecycle option (the registries are otherwise incomplete on every
+ ;; warm-cache start). Cost: defview/mount-consuming namespaces recompile on
+ ;; daemon start; warm-watch incrementals are unaffected. (Follow-up: move the
+ ;; contributions into cacheable analyzer data to recover caching.)
+ :build-defaults {:cache-blockers #{re-frame.ui}}
+
  ;; Top-level dev-http servers (rf2-aqcix). shadow-cljs's `:dev-http`
  ;; map binds a port to a list of file roots; the dev server cascades
  ;; through the roots in order, returning the first match. Used here for

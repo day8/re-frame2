@@ -1,29 +1,31 @@
 (ns re-frame.ui.compiler-build-jvm-test
-  "rf2-vxgfnd.16 — the S1 compiler build registries are a PURE FUNCTION of
-  the current build inputs, not of process history.
+  "The ONE build-scoped compiler-state authority (rf2-vxgfnd.16 → rf2-df9873):
+  the S1 compiler's build registries are a PURE FUNCTION of the current build
+  inputs, keyed PER shadow build id, with explicit begin/commit/abort pass
+  boundaries and last-known-good publication.
 
-  The adversarial crux: in ONE long-lived JVM (never restarted), declare a
-  source's contributions to all five build registries — a `defview`, a root
-  site + static frame plan + descriptor, a `ui/custom-element` — then
-  rebuild after edits / renames / deletions and assert the registries +
-  `current-build-digest` equal a CLEAN-process build of the edited source.
-  Before this model those registries were process-global `defonce` atoms
-  that only ever `assoc`ed, so a deleted or renamed declaration lingered and
-  a live file could take a FALSE cross-file duplicate-root /
-  frame-payload-conflict from a deleted site.
+  The adversarial cruces:
+
+    - MULTI-BUILD ISOLATION (the headline regression): one long-lived JVM
+      compiles `re-frame.ui` for several builds at once; two build ids must
+      NOT wipe each other's registries (the prior global-build-id +
+      wipe-on-switch model did — regressing cross-file duplicate detection).
+    - PASS BOUNDARIES: an incremental commit replaces only the touched
+      source's contribution and keeps untouched sources; a WHOLE-build
+      reconcile drops sources that did not re-declare; an ABORTED pass
+      republishes the last-known-good, not a partial.
+    - ATOMICITY: `register-root-site!` / `register-plan-site!` check-then-write
+      inside ONE transition, so parallel compilation neither drops a
+      concurrent write nor misses a genuine duplicate.
+    - REPL UPSERT: with no pass open a contribution upserts one key straight
+      into committed (no begin/commit cycle, no sibling eviction).
 
   The mount-surface macros are client entry points (JVM-host expansion is a
   compile error), so the Layer-1 / descriptor writes are driven the way
   `re-frame.ui.compiler.root/mount-form` drives them — `mount-site!` runs the
-  REAL assembly path (analyze-root + resolve-root-identity +
-  register-root-site! + register-plan-site! + the `root/root-descriptor`
-  contribution), NOT a hand-built descriptor, so the descriptor's
-  `:build-digest` (read-time projected by `root/descriptor-index`) is
-  actually exercised by the incremental-equals-clean assertion (rf2-vxgfnd.47
-  — the prior hand-built descriptors carried no digest, masking the bug).
-  `defview` and `ui/custom-element` ARE JVM-expandable and run their real
-  macro bodies, with the source file bound so distinct 'files' are
-  addressable in the ledger."
+  REAL assembly path. `defview` and `ui/custom-element` run their real macro
+  bodies under a bound `*ns*` so distinct declaring namespaces (the ledger's
+  source key, rf2-df9873) are addressable."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.ui.compiler :as compiler]
             [re-frame.ui.compiler.build :as build]
@@ -31,30 +33,32 @@
             [re-frame.ui.compiler.root :as root]
             [re-frame.ui.rules :as rules]))
 
-;; Every test starts from a clean slice; correctness across a watch session
-;; comes from per-source replacement on begin-build!, but tests want
-;; independence, so the fixture uses the hard boundary.
+;; Every test starts from a clean authority; correctness across a watch
+;; session comes from per-source replacement on the pass boundaries, but
+;; tests want independence, so the fixture uses the hard boundary.
 (use-fixtures :each
   (fn [f] (build/reset-build!) (try (f) (finally (build/reset-build!)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Harness — drive the five registries the way real compilation does, with a
-;; controllable source-file key.
+;; controllable declaring namespace (the ledger source key).
 ;; ---------------------------------------------------------------------------
 
 (defn- declare-view!
-  "Run the real `defview` macro body (JVM emitter path) with `file` bound as
-  the source — contributes [template-fp hook-sig] under the derived view-id."
-  [file vname template]
-  (binding [*file* file]
+  "Run the real `defview` macro body (JVM emitter path) with `ns-sym` bound as
+  the declaring namespace — contributes [template-fp hook-sig] under the
+  derived view-id, owned by `ns-sym`."
+  [ns-sym vname template]
+  (binding [*ns* (create-ns ns-sym)]
     (compiler/defview* (with-meta (list 'defview vname [] template) {:line 1})
                        {} vname (list [] template))))
 
 (defn- declare-element!
-  "Run the real `ui/custom-element` macro body with `file` bound as the
-  source — contributes the compile-time property classification for `tag`."
-  [file tag properties]
-  (binding [*file* file]
+  "Run the real `ui/custom-element` macro body with `ns-sym` bound as the
+  declaring namespace — contributes the compile-time property classification
+  for `tag`, owned by `ns-sym`."
+  [ns-sym tag properties]
+  (binding [*ns* (create-ns ns-sym)]
     (compiler/custom-element* (with-meta (list 'custom-element tag
                                                {:properties properties})
                                          {:line 1})
@@ -71,129 +75,305 @@
       nil)))
 
 (defn- mount-site!
-  "Drive the REAL `mount-form` descriptor path for one root site in `file`:
-  analyze the LITERAL root form, resolve identity, index the root-id + each
-  EXTRACTED frame plan, and contribute the Root Descriptor built by the
-  actual `root/root-descriptor` assembly — exactly the sequence a `ui/mount`
-  expansion performs (no hand-built descriptor, no baked digest). The
-  descriptor's `:build-digest` is thus a read-time projection
-  (`root/descriptor-index`), so the incremental-equals-clean assertion
-  exercises it (rf2-vxgfnd.47)."
-  [file root-form opts]
+  "Drive the REAL `mount-form` descriptor path for one root site owned by
+  `ns-sym` (file only feeds the error coords): analyze the LITERAL root form,
+  resolve identity, index the root-id + each EXTRACTED frame plan, and
+  contribute the Root Descriptor built by the actual `root/root-descriptor`
+  assembly — exactly the sequence a `ui/mount` expansion performs."
+  [ns-sym file root-form opts]
   (binding [*file* file]
     (let [coords {:file file :line 1}
           e (env/make-env {:host :clj :ns-sym 'app.test :resolver resolver})
           {:keys [ast views plans]} (root/analyze-root e 'ui/mount root-form)
           {:keys [root-id provenance]} (root/resolve-root-identity
                                         'ui/mount opts views)]
-      (root/register-root-site! 'ui/mount root-id provenance coords)
-      (doseq [p plans] (root/register-plan-site! 'ui/mount p coords))
-      (build/contribute! build/descriptors file root-id
+      (root/register-root-site! 'ui/mount root-id provenance ns-sym coords)
+      (doseq [p plans] (root/register-plan-site! 'ui/mount p ns-sym coords))
+      (build/contribute! build/descriptors ns-sym root-id
                          (root/root-descriptor
                           {:root-id root-id :provenance provenance
                            :views views :plans plans :ast ast})))))
 
 (defn- snapshot
-  "The observable state of all five build registries + the build digest. The
-  descriptor index is read through `root/descriptor-index` so its read-time
-  `:build-digest` projection is part of what clean-vs-incremental compares."
+  "The observable state of all five build registries + the build digest for
+  the ambient build. The descriptor index is read through
+  `root/descriptor-index` so its read-time `:build-digest` projection is part
+  of what clean-vs-incremental compares."
   []
-  {:views       @compiler/build-views
+  {:views       (build/aggregate build/views)
    :digest      (compiler/current-build-digest)
-   :roots       @root/build-roots
-   :plans       @root/build-plans
+   :roots       (root/build-roots)
+   :plans       (root/build-plans)
    :descriptors (root/descriptor-index)
-   :elements    @rules/custom-elements})
+   :elements    (build/aggregate build/elements)})
 
 ;; ---------------------------------------------------------------------------
-;; The build-scoped model itself (re-frame.ui.compiler.build)
+;; The pure-transition model itself (re-frame.ui.compiler.build)
 ;; ---------------------------------------------------------------------------
-
-(def ^:private probe (atom {}))
-(def ^:private probe2 (atom {}))
-(build/register! ::probe probe)
-(build/register! ::probe2 probe2)
 
 (deftest per-source-contribution-replaces-atomically
-  (build/begin-build!)
-  (build/contribute! ::probe "a.cljs" :x 1)
-  (build/contribute! ::probe "a.cljs" :y 2)
-  (is (= {:x 1 :y 2} @probe)
+  (build/begin-build! :app)
+  (build/contribute! ::probe 'ns.a :x 1)
+  (build/contribute! ::probe 'ns.a :y 2)
+  (is (= {:x 1 :y 2} (build/aggregate ::probe :app))
       "multiple declarations in one source accumulate — never clear-on-first-macro")
-  (build/begin-build!)                       ; a fresh pass
-  (build/contribute! ::probe "a.cljs" :x 10) ; the source is edited: :y removed, :x changed
-  (is (= {:x 10} @probe)
+  (build/commit-build! :app)
+  (build/begin-build! :app)                      ; a fresh pass
+  (build/contribute! ::probe 'ns.a :x 10)        ; the source is edited: :y removed
+  (is (= {:x 10} (build/aggregate ::probe :app))
       "recompiling a source replaces its WHOLE prior contribution — :y is gone"))
 
 (deftest open-source-evicts-across-every-registry
   ;; a source contributing to TWO registries, then re-declaring in only one,
   ;; must drop its stale rows from the registry it no longer touches.
-  (build/begin-build!)
-  (build/contribute! ::probe  "a.cljs" :p 1)
-  (build/contribute! ::probe2 "a.cljs" :q 2)
-  (is (= {:p 1} @probe))
-  (is (= {:q 2} @probe2))
-  (build/begin-build!)
-  (build/contribute! ::probe "a.cljs" :p 11) ; a.cljs re-declares only in ::probe
-  (is (= {:p 11} @probe))
-  (is (= {} @probe2)
-      "opening a.cljs evicted its ::probe2 row even though it did not re-touch ::probe2"))
-
-(deftest incremental-preserves-untouched-reconcile-drops-deleted-files
-  (build/begin-build!)
-  (build/contribute! ::probe "a.cljs" :a 1)
-  (build/contribute! ::probe "b.cljs" :b 2)
-  (is (= {:a 1 :b 2} @probe))
-  (build/begin-build!)                       ; incremental: only a.cljs recompiles
-  (build/contribute! ::probe "a.cljs" :a 11)
-  (is (= {:a 11 :b 2} @probe)
-      "an incremental pass recompiles a SUBSET — b.cljs's row is untouched")
-  (build/reconcile!)
-  (is (= {:a 11} @probe)
-      "a whole-build reconcile drops b.cljs — a deleted/renamed FILE that did not re-declare"))
-
-(deftest build-ids-are-isolated
   (build/begin-build! :app)
-  (build/contribute! ::probe "a.cljs" :x 1)
-  (is (= {:x 1} @probe))
+  (build/contribute! ::probe  'ns.a :p 1)
+  (build/contribute! ::probe2 'ns.a :q 2)
+  (is (= {:p 1} (build/aggregate ::probe :app)))
+  (is (= {:q 2} (build/aggregate ::probe2 :app)))
+  (build/commit-build! :app)
+  (build/begin-build! :app)
+  (build/contribute! ::probe 'ns.a :p 11)        ; ns.a re-declares only in ::probe
+  (is (= {:p 11} (build/aggregate ::probe :app)))
+  (is (= {} (build/aggregate ::probe2 :app))
+      "re-touching ns.a evicted its ::probe2 row even though it did not re-touch it")
+  (build/commit-build! :app)
+  (is (= {:p 11} (build/aggregate ::probe :app)))
+  (is (= {} (build/aggregate ::probe2 :app)) "the eviction survives commit"))
+
+(deftest incremental-commit-preserves-untouched-sources
+  (build/begin-build! :app)
+  (build/contribute! ::probe 'ns.a :a 1)
+  (build/contribute! ::probe 'ns.b :b 2)
+  (is (= {:a 1 :b 2} (build/aggregate ::probe :app)))
+  (build/commit-build! :app)
+  (build/begin-build! :app)                       ; incremental: only ns.a recompiles
+  (build/contribute! ::probe 'ns.a :a 11)
+  (is (= {:a 11 :b 2} (build/aggregate ::probe :app))
+      "an incremental pass recompiles a SUBSET — ns.b's row is untouched")
+  (build/commit-build! :app)
+  (is (= {:a 11 :b 2} (build/aggregate ::probe :app))
+      "an incremental commit keeps the untouched source"))
+
+(deftest whole-build-reconcile-drops-deleted-sources
+  (build/begin-build! :app)
+  (build/contribute! ::probe 'ns.a :a 1)
+  (build/contribute! ::probe 'ns.b :b 2)
+  (build/commit-build! :app)
+  (build/begin-build! :app)                       ; WHOLE-build pass: ns.b is gone
+  (build/contribute! ::probe 'ns.a :a 11)
+  (build/reconcile! :app)
+  (is (= {:a 11} (build/aggregate ::probe :app))
+      "a whole-build reconcile drops ns.b — a deleted/renamed FILE that did not re-declare"))
+
+(deftest finish-build-uses-authoritative-membership
+  ;; The shadow-hook primitive: commit + drop committed sources absent from
+  ;; the authoritative :build-sources — safe on EVERY pass (macro silence is
+  ;; never the deletion signal).
+  (build/begin-build! :app)
+  (build/contribute! ::probe 'ns.a :a 1)
+  (build/contribute! ::probe 'ns.b :b 2)
+  (build/finish-build! :app '#{ns.a ns.b})
+  (is (= {:a 1 :b 2} (build/aggregate ::probe :app)) "both members retained")
+  ;; incremental pass recompiles ONLY ns.a; ns.b is untouched but still a member
+  (build/begin-build! :app)
+  (build/contribute! ::probe 'ns.a :a 11)
+  (build/finish-build! :app '#{ns.a ns.b})
+  (is (= {:a 11 :b 2} (build/aggregate ::probe :app))
+      "incremental finish keeps the untouched MEMBER ns.b — silence is not deletion")
+  ;; ns.b's file is deleted → authoritative membership drops it
+  (build/begin-build! :app)
+  (build/contribute! ::probe 'ns.a :a 111)
+  (build/finish-build! :app '#{ns.a})
+  (is (= {:a 111} (build/aggregate ::probe :app))
+      "the deleted ns.b is evicted by authoritative membership, on any pass"))
+
+(deftest aborted-pass-publishes-last-known-good
+  (build/begin-build! :app)
+  (build/contribute! ::probe 'ns.a :good 1)
+  (build/commit-build! :app)
+  (is (= {:good 1} (build/aggregate ::probe :app)))
+  (build/begin-build! :app)
+  (build/contribute! ::probe 'ns.a :bad 2)         ; a doomed pass
+  (build/contribute! ::probe 'ns.b :partial 3)
+  (is (= {:bad 2 :partial 3} (build/aggregate ::probe :app))
+      "the open pass's staging is visible mid-pass")
+  (build/abort-build! :app)                        ; compile failed → skip commit
+  (is (= {:good 1} (build/aggregate ::probe :app))
+      "abort discards the partial staging and republishes last-known-good"))
+
+(deftest begin-discards-a-failed-passes-staging
+  (build/begin-build! :app)
+  (build/contribute! ::probe 'ns.a :ok 1)
+  (build/commit-build! :app)
+  (build/begin-build! :app)
+  (build/contribute! ::probe 'ns.a :doomed 2)      ; compile throws — no commit
+  (build/begin-build! :app)                        ; shadow ran no :compile-finish
+  (build/contribute! ::probe 'ns.a :retry 1)
+  (build/commit-build! :app)
+  (is (= {:retry 1} (build/aggregate ::probe :app))
+      "the failed pass's staging was discarded at the next begin; the retry converges"))
+
+(deftest repl-eval-upserts-committed-without-a-pass
+  ;; No begin-build! → no pass → each contribution UPSERTS one key straight
+  ;; into committed, with NO sibling eviction (the RULED REPL posture).
+  (build/contribute! ::probe 'ns.a :x 1)
+  (build/contribute! ::probe 'ns.a :y 2)
+  (is (= {:x 1 :y 2} (build/aggregate ::probe)) "both keys upserted (no pass, ::default build)")
+  (build/contribute! ::probe 'ns.a :x 10)          ; a bare REPL re-eval of one form
+  (is (= {:x 10 :y 2} (build/aggregate ::probe))
+      "a REPL re-eval upserts the one key — :y is NOT evicted (no begin/commit cycle)")
+  (is (false? (build/pass-open?)) "no pass was ever opened"))
+
+;; ---------------------------------------------------------------------------
+;; MULTI-BUILD ISOLATION — the headline regression (rf2-df9873)
+;; ---------------------------------------------------------------------------
+
+(deftest interleaved-builds-do-not-wipe-each-others-registries
+  ;; ONE JVM compiling `re-frame.ui` for two builds. The prior model held a
+  ;; single GLOBAL build-id and WIPED on switch, so opening the node-test
+  ;; pass BETWEEN app's two root registrations would erase app's first root —
+  ;; regressing app's own cross-file duplicate detection. Per-build slices
+  ;; make the builds independent by construction.
+  (build/begin-build! :app)
   (build/begin-build! :node-test)
-  (is (= {} @probe) "switching build-id starts an isolated (wiped) slice")
-  (build/contribute! ::probe "a.cljs" :y 2)
-  (is (= {:y 2} @probe) "the :app rows never reach the :node-test build"))
+  (binding [build/*build-id* :app]
+    (root/register-root-site! 'ui/mount :page/one :authored 'app.a
+                              {:file "app/a.cljs" :line 1}))
+  ;; the node-test build compiles the SAME namespaces — its :page/one is a
+  ;; different build's row, must not touch app's slice
+  (binding [build/*build-id* :node-test]
+    (root/register-root-site! 'ui/mount :page/one :authored 'ntest.x
+                              {:file "app/a.cljs" :line 1}))
+  (binding [build/*build-id* :app]
+    (root/register-root-site! 'ui/mount :page/two :authored 'app.b
+                              {:file "app/b.cljs" :line 1}))
+  (is (= #{:page/one :page/two}
+         (set (keys (build/aggregate build/roots :app))))
+      "app keeps BOTH roots despite the interleaved node-test build (no wipe)")
+  (is (= #{:page/one}
+         (set (keys (build/aggregate build/roots :node-test))))
+      "the node-test slice is isolated — app's rows never reach it")
+  (testing "app STILL detects its own cross-namespace duplicate"
+    (is (thrown? clojure.lang.ExceptionInfo
+                 (binding [build/*build-id* :app]
+                   (root/register-root-site! 'ui/mount :page/one :authored 'app.c
+                                             {:file "app/c.cljs" :line 1})))
+        "a genuine duplicate in app fires — the interleaved build did not erase :page/one")))
+
+(deftest real-defview-contributions-are-isolated-per-build
+  ;; drive the REAL defview macro body under two build ids
+  (binding [build/*build-id* :app]       (declare-view! 'app.a 'foo [:div "foo"]))
+  (binding [build/*build-id* :node-test] (declare-view! 'app.a 'bar [:section "bar"]))
+  (is (contains? (build/aggregate build/views :app) :app.a/foo)
+      "the app build keeps its view")
+  (is (contains? (build/aggregate build/views :node-test) :app.a/bar)
+      "the node-test build keeps its view")
+  (is (not (contains? (build/aggregate build/views :app) :app.a/bar))
+      "the node-test build's view never reaches the app slice")
+  (is (not (contains? (build/aggregate build/views :node-test) :app.a/foo))
+      "and vice versa"))
+
+(deftest builds-are-isolated-per-build-id
+  (build/begin-build! :app)
+  (build/contribute! ::probe 'ns.a :x 1)
+  (is (= {:x 1} (build/aggregate ::probe :app)))
+  (build/begin-build! :node-test)
+  (is (= {} (build/aggregate ::probe :node-test))
+      "opening the node-test slice does NOT wipe :app")
+  (build/contribute! ::probe 'ns.a :y 2)          ; ambient = session-build = :node-test
+  (is (= {:y 2} (build/aggregate ::probe :node-test)))
+  (is (= {:x 1} (build/aggregate ::probe :app))
+      "the :app slice is untouched by the node-test build"))
+
+;; ---------------------------------------------------------------------------
+;; ATOMICITY under simulated parallel compilation
+;; ---------------------------------------------------------------------------
+
+(deftest register-root-site-is-atomic-under-parallel-writes
+  ;; No lost writes: two builds × N distinct roots, hammered concurrently,
+  ;; ALL land — the one-atom transition has no check-then-assoc gap that a
+  ;; separate-atoms model would drop under contention.
+  (build/begin-build! :app)
+  (build/begin-build! :node-test)
+  (let [n 150
+        futs (doall
+              (for [b [:app :node-test], i (range n)]
+                (future
+                  (binding [build/*build-id* b]
+                    (root/register-root-site!
+                     'ui/mount (keyword "page" (str (name b) "-" i))
+                     :authored (symbol (str "ns." (name b) "." i))
+                     {:file (str (name b) "-" i ".cljs") :line 1})))))]
+    (run! deref futs)
+    (build/commit-build! :app)
+    (build/commit-build! :node-test)
+    (is (= n (count (build/aggregate build/roots :app)))
+        "every concurrent :app write landed — no TOCTOU drop")
+    (is (= n (count (build/aggregate build/roots :node-test)))
+        "every concurrent :node-test write landed, isolated from :app")))
+
+(deftest concurrent-duplicate-root-resolves-to-exactly-one
+  ;; N threads race to register the SAME root-id from distinct namespaces into
+  ;; one build. The atomic transition guarantees exactly one winner and every
+  ;; other thread sees the duplicate — no interleaving lets two through.
+  (build/begin-build! :app)
+  (let [n 40
+        outcomes
+        (->> (for [i (range n)]
+               (future
+                 (binding [build/*build-id* :app]
+                   (try
+                     (root/register-root-site! 'ui/mount :page/dup :authored
+                                               (symbol (str "ns.dup." i))
+                                               {:file (str "dup-" i ".cljs") :line 1})
+                     :ok
+                     (catch clojure.lang.ExceptionInfo e
+                       (:rf.error/id (ex-data e)))))))
+             doall
+             (map deref))]
+    (build/commit-build! :app)
+    (is (= 1 (count (filter #{:ok} outcomes)))
+        "exactly one concurrent registrant wins")
+    (is (= (dec n) (count (filter #{:rf.error/duplicate-root-id} outcomes)))
+        "every other thread sees the atomic duplicate")
+    (is (= 1 (count (build/aggregate build/roots :app)))
+        "exactly one root is committed")))
 
 ;; ---------------------------------------------------------------------------
 ;; Integration — clean-vs-incremental parity across all five registries
 ;; ---------------------------------------------------------------------------
 
-(defn- declare-edited-source!
-  "The EDITED file app/a.cljs: a renamed view, a different root + frame plan,
-  a renamed custom-element (the original declared `foo` / :page/shop / :shop
-  / :x-el)."
-  []
-  (declare-view! "app/a.cljs" 'bar [:section "bar"])
-  (mount-site!   "app/a.cljs"
-                 '[frame-root {:id :cart :initial-events [[:cart/boot]]}
-                   [app-view {:promo :winter}]]
-                 {:root-id :page/cart})
-  (declare-element! "app/a.cljs" :y-el #{:label}))
+(defn- declare-edited-source! []
+  ;; the EDITED namespace app.a: a renamed view, a different root + frame
+  ;; plan, a renamed custom-element (originally foo / :page/shop / :shop / :x-el)
+  (declare-view!   'app.a 'bar [:section "bar"])
+  (mount-site!     'app.a "app/a.cljs"
+                   '[frame-root {:id :cart :initial-events [[:cart/boot]]}
+                     [app-view {:promo :winter}]]
+                   {:root-id :page/cart})
+  (declare-element! 'app.a :y-el #{:label}))
 
 (deftest incremental-edit-equals-clean-build
-  ;; 1) the ORIGINAL source A, built in this JVM
+  ;; 1) the ORIGINAL namespace app.a, built in this JVM
   (build/begin-build! :app)
-  (declare-view! "app/a.cljs" 'foo [:div "foo"])
-  (mount-site!   "app/a.cljs"
-                 '[frame-root {:id :shop :initial-events [[:shop/boot]]}
-                   [app-view {:promo :spring}]]
-                 {:root-id :page/shop})
-  (declare-element! "app/a.cljs" :x-el #{:help-text})
-  ;; 2) EDIT the same file in the SAME JVM (no restart) — incremental rebuild
+  (declare-view!   'app.a 'foo [:div "foo"])
+  (mount-site!     'app.a "app/a.cljs"
+                   '[frame-root {:id :shop :initial-events [[:shop/boot]]}
+                     [app-view {:promo :spring}]]
+                   {:root-id :page/shop})
+  (declare-element! 'app.a :x-el #{:help-text})
+  (build/commit-build! :app)
+  ;; 2) EDIT app.a in the SAME JVM (no restart) — incremental rebuild
   (build/begin-build! :app)
   (declare-edited-source!)
+  (build/commit-build! :app)
   (let [incremental (snapshot)]
-    ;; 3) a CLEAN-process build of the edited source (fresh slice)
+    ;; 3) a CLEAN-process build of the edited namespace (fresh authority)
     (build/reset-build!)
     (build/begin-build! :app)
     (declare-edited-source!)
+    (build/commit-build! :app)
     (let [clean (snapshot)]
       (is (= clean incremental)
           "incremental output after edit/rename/delete EQUALS a clean build")
@@ -210,84 +390,82 @@
 ;; ---------------------------------------------------------------------------
 ;; The descriptor :build-digest is a READ-TIME projection (rf2-vxgfnd.47) —
 ;; compile-order independent + never stale under an incremental view edit.
-;; The prior harness hand-built digest-free descriptors, masking both.
 ;; ---------------------------------------------------------------------------
 
 (deftest descriptor-digest-is-compile-order-independent-and-covers-all-views
   ;; ORDER 1: the mount site expands BEFORE the rest of the build's views
-  ;; compile. Baked-at-expansion would freeze its descriptor digest over only
-  ;; a-view; the read-time projection reads the WHOLE-build digest.
   (build/begin-build! :app)
-  (declare-view! "app/a.cljs" 'a-view [:div "a"])
-  (mount-site!   "app/m.cljs" '[app-view {}] {:root-id :page/m})
-  (declare-view! "app/b.cljs" 'b-view [:section "b"])
+  (declare-view! 'app.a 'a-view [:div "a"])
+  (mount-site!   'app.m "app/m.cljs" '[app-view {}] {:root-id :page/m})
+  (declare-view! 'app.b 'b-view [:section "b"])
+  (build/commit-build! :app)
   (let [digest-1 (get-in (root/descriptor-index) [:page/m :build-digest])]
     (is (= (compiler/current-build-digest) digest-1)
-        "the descriptor digest reflects ALL build views (a-view AND b-view),
-         not only those compiled before the mount site expanded")
-    ;; ORDER 2: same two views, but the mount site expands LAST.
+        "the descriptor digest reflects ALL build views (a-view AND b-view)")
+    ;; ORDER 2: same two views, but the mount site expands LAST
     (build/reset-build!)
     (build/begin-build! :app)
-    (declare-view! "app/b.cljs" 'b-view [:section "b"])
-    (declare-view! "app/a.cljs" 'a-view [:div "a"])
-    (mount-site!   "app/m.cljs" '[app-view {}] {:root-id :page/m})
+    (declare-view! 'app.b 'b-view [:section "b"])
+    (declare-view! 'app.a 'a-view [:div "a"])
+    (mount-site!   'app.m "app/m.cljs" '[app-view {}] {:root-id :page/m})
+    (build/commit-build! :app)
     (is (= digest-1 (get-in (root/descriptor-index) [:page/m :build-digest]))
-        "same whole-build digest whether the mount site expands first or last
-         (compile-order independent — .16 AC7)")))
+        "same whole-build digest whether the mount site expands first or last")))
 
 (deftest descriptor-digest-tracks-an-incremental-view-only-edit
-  ;; A mount site in m.cljs + a view in v.cljs.
   (build/begin-build! :app)
-  (mount-site!   "app/m.cljs" '[app-view {}] {:root-id :page/m})
-  (declare-view! "app/v.cljs" 'v-view [:div "one"])
+  (mount-site!   'app.m "app/m.cljs" '[app-view {}] {:root-id :page/m})
+  (declare-view! 'app.v 'v-view [:div "one"])
+  (build/commit-build! :app)
   (let [d1 (get-in (root/descriptor-index) [:page/m :build-digest])]
     (is (= (compiler/current-build-digest) d1))
-    ;; INCREMENTAL pass: recompile ONLY the view file (its template changes).
-    ;; The mount site is NOT re-expanded — under baked-at-expansion its stored
-    ;; descriptor would keep the OLD digest; the read-time projection tracks
-    ;; the new whole-build digest.
+    ;; INCREMENTAL pass: recompile ONLY the view file. The mount site is NOT
+    ;; re-expanded — under baked-at-expansion its descriptor would keep the OLD
+    ;; digest; the read-time projection tracks the new whole-build digest.
     (build/begin-build! :app)
-    (declare-view! "app/v.cljs" 'v-view [:div "two"])
+    (declare-view! 'app.v 'v-view [:div "two"])
+    (build/commit-build! :app)
     (let [d2 (get-in (root/descriptor-index) [:page/m :build-digest])]
-      (is (not= d1 d2)
-          "the view edit changed the whole-build digest")
+      (is (not= d1 d2) "the view edit changed the whole-build digest")
       (is (= (compiler/current-build-digest) d2)
-          "the un-re-expanded mount-site descriptor reads the CURRENT digest,
-           not a stale expansion-time snapshot (rf2-vxgfnd.47)"))))
+          "the un-re-expanded mount-site descriptor reads the CURRENT digest (rf2-vxgfnd.47)"))))
 
-(deftest repeated-rebuilds-stay-bounded-without-a-reset
-  ;; AC6: correctness across a watch session needs NO test-only global reset —
-  ;; re-declaring the same file N times replaces (never grows).
+(deftest repeated-rebuilds-stay-bounded
+  ;; correctness across a watch session — re-declaring the same namespace N
+  ;; times replaces (never grows).
   (dotimes [_ 25]
     (build/begin-build! :app)
-    (declare-view! "app/a.cljs" 'only [:div "only"])
-    (mount-site! "app/a.cljs" '[app-view {}] {:root-id :page/shop}))
-  (is (= 1 (count @compiler/build-views)) "views bounded across repeated rebuilds")
-  (is (= #{:page/shop} (set (keys @root/build-roots))) "roots bounded")
-  (is (= #{:page/shop} (set (keys @root/build-descriptors))) "descriptors bounded"))
+    (declare-view! 'app.a 'only [:div "only"])
+    (mount-site!   'app.a "app/a.cljs" '[app-view {}] {:root-id :page/shop})
+    (build/commit-build! :app))
+  (is (= 1 (count (build/aggregate build/views :app))) "views bounded across repeated rebuilds")
+  (is (= #{:page/shop} (set (keys (root/build-roots)))) "roots bounded")
+  (is (= #{:page/shop} (set (keys (build/aggregate build/descriptors :app)))) "descriptors bounded"))
 
 ;; ---------------------------------------------------------------------------
-;; The false cross-file duplicate/conflict from a DELETED site (bead §Steps)
+;; The false cross-file duplicate/conflict from a DELETED site
 ;; ---------------------------------------------------------------------------
 
 (deftest deleted-root-site-does-not-falsely-duplicate-a-later-file
-  ;; original: a.cljs mounts :page/shop
-  (build/begin-build!)
-  (root/register-root-site! 'ui/mount :page/shop :authored {:file "a.cljs" :line 1})
-  ;; edit a.cljs: the :page/shop site is DELETED (a.cljs now mounts :page/cart)
-  (build/begin-build!)
-  (root/register-root-site! 'ui/mount :page/cart :authored {:file "a.cljs" :line 1})
-  ;; b.cljs legitimately takes over the now-free :page/shop — the deleted
-  ;; a.cljs site must NOT raise a false :rf.error/duplicate-root-id
-  (is (nil? (root/register-root-site! 'ui/mount :page/shop :authored
+  ;; original: app.a mounts :page/shop
+  (build/begin-build! :app)
+  (root/register-root-site! 'ui/mount :page/shop :authored 'app.a {:file "a.cljs" :line 1})
+  (build/commit-build! :app)
+  ;; edit app.a: the :page/shop site is DELETED (app.a now mounts :page/cart)
+  (build/begin-build! :app)
+  (root/register-root-site! 'ui/mount :page/cart :authored 'app.a {:file "a.cljs" :line 1})
+  ;; app.b legitimately takes over the now-free :page/shop — the deleted
+  ;; app.a site must NOT raise a false :rf.error/duplicate-root-id
+  (is (nil? (root/register-root-site! 'ui/mount :page/shop :authored 'app.b
                                       {:file "b.cljs" :line 1}))
-      "a deleted root site cannot fail a later file (rf2-vxgfnd.16)")
-  (is (= #{:page/cart :page/shop} (set (keys @root/build-roots)))))
+      "a deleted root site cannot fail a later file (rf2-df9873)")
+  (build/commit-build! :app)
+  (is (= #{:page/cart :page/shop} (set (keys (root/build-roots))))))
 
 (deftest genuine-current-cross-file-duplicate-still-fails
-  (build/begin-build!)
-  (root/register-root-site! 'ui/mount :page/dup :authored {:file "a.cljs" :line 1})
-  (let [ex (try (root/register-root-site! 'ui/mount :page/dup :authored
+  (build/begin-build! :app)
+  (root/register-root-site! 'ui/mount :page/dup :authored 'app.a {:file "a.cljs" :line 1})
+  (let [ex (try (root/register-root-site! 'ui/mount :page/dup :authored 'app.b
                                           {:file "b.cljs" :line 2})
                 nil (catch clojure.lang.ExceptionInfo e e))]
     (is (some? ex) "two LIVE sites for one root-id still fail the build")
@@ -295,49 +473,53 @@
     (is (= 2 (count (:sites (ex-data ex)))) "both current sites named with coords")))
 
 (deftest deleted-frame-plan-does-not-falsely-conflict-a-later-file
-  ;; original: a.cljs carries a :shop plan
-  (build/begin-build!)
+  ;; original: app.a carries a :shop plan
+  (build/begin-build! :app)
   (root/register-plan-site! 'ui/mount {:frame-id :shop :config-fingerprint "cf1-a"}
-                            {:file "a.cljs" :line 1})
-  (is (contains? @root/build-plans :shop))
-  ;; edit a.cljs: the :shop plan is DELETED — a.cljs now declares only a root
-  ;; (it no longer touches the plan registry at all). Opening a.cljs must
-  ;; still evict its stale :shop plan (cross-registry sweep).
-  (build/begin-build!)
-  (root/register-root-site! 'ui/mount :page/a :authored {:file "a.cljs" :line 1})
-  (is (not (contains? @root/build-plans :shop))
-      "opening the recompiled a.cljs evicted its dropped :shop plan")
-  ;; b.cljs now carries :shop with a DIFFERENT fingerprint — no false conflict
+                            'app.a {:file "a.cljs" :line 1})
+  (is (contains? (root/build-plans) :shop))
+  (build/commit-build! :app)
+  ;; edit app.a: the :shop plan is DELETED — app.a now declares only a root
+  ;; (it no longer touches the plan registry at all). Re-touching app.a must
+  ;; still evict its stale :shop plan (cross-registry sweep at commit).
+  (build/begin-build! :app)
+  (root/register-root-site! 'ui/mount :page/a :authored 'app.a {:file "a.cljs" :line 1})
+  (is (not (contains? (root/build-plans) :shop))
+      "re-touching the recompiled app.a evicted its dropped :shop plan")
+  ;; app.b now carries :shop with a DIFFERENT fingerprint — no false conflict
   (is (nil? (root/register-plan-site! 'ui/mount
                                       {:frame-id :shop :config-fingerprint "cf1-b"}
-                                      {:file "b.cljs" :line 1}))
-      "a deleted plan cannot fail a later file's differing plan (rf2-vxgfnd.16)")
-  (is (= "cf1-b" (:config-fingerprint (get @root/build-plans :shop)))))
+                                      'app.b {:file "b.cljs" :line 1}))
+      "a deleted plan cannot fail a later file's differing plan (rf2-df9873)")
+  (build/commit-build! :app)
+  (is (= "cf1-b" (:config-fingerprint (get (root/build-plans) :shop)))))
 
 (deftest genuine-current-cross-file-plan-conflict-still-fails
-  (build/begin-build!)
+  (build/begin-build! :app)
   (root/register-plan-site! 'ui/mount {:frame-id :shop :config-fingerprint "cf1-a"}
-                            {:file "a.cljs" :line 1})
+                            'app.a {:file "a.cljs" :line 1})
   (let [ex (try (root/register-plan-site! 'ui/mount
                                           {:frame-id :shop :config-fingerprint "cf1-b"}
-                                          {:file "b.cljs" :line 2})
+                                          'app.b {:file "b.cljs" :line 2})
                 nil (catch clojure.lang.ExceptionInfo e e))]
     (is (some? ex) "two LIVE differing plans for one frame still fail the build")
     (is (= :rf.error/frame-payload-conflict (:rf.error/id (ex-data ex))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Custom-element declaration removal clears stale property classification
-;; (AC5, compile side)
+;; (AC5, compile side — read through the JVM mirror `rules/custom-elements`)
 ;; ---------------------------------------------------------------------------
 
 (deftest removed-custom-element-clears-stale-property-classification
   (build/begin-build! :app)
-  (declare-element! "app/a.cljs" :x-el #{:help-text})
+  (declare-element! 'app.a :x-el #{:help-text})
+  (build/commit-build! :app)
   (is (= #{:help-text} (rules/custom-element-properties :x-el))
       "the declaration classifies :help-text as a property")
-  ;; edit a.cljs: :x-el renamed to :y-el (its declaration deleted)
+  ;; edit app.a: :x-el renamed to :y-el (its declaration deleted)
   (build/begin-build! :app)
-  (declare-element! "app/a.cljs" :y-el #{:label})
+  (declare-element! 'app.a :y-el #{:label})
+  (build/commit-build! :app)
   (is (= #{} (rules/custom-element-properties :x-el))
       "the removed :x-el no longer classifies any property (was leaking)")
   (is (= #{:label} (rules/custom-element-properties :y-el))

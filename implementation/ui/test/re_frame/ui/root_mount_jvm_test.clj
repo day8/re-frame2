@@ -2,9 +2,10 @@
   "S1c Layer-1 (build-tier) duplicate/conflict detection + the
   client-entry host guard (rf2-vxgfnd.3). The Layer-1 indexes live in
   `re-frame.ui.compiler.root` and are exercised directly — the
-  whole-build scoping with same-file replacement tolerance ([S1-CONFIRM]
-  item 3, resolved in the ns docstring there). The mount-surface macros
-  are CLIENT entry points: expanding them for the JVM host is the
+  whole-build scoping with same-NAMESPACE replacement tolerance
+  ([S1-CONFIRM] item 3, resolved in the ns docstring there; the ledger is
+  keyed by declaring ns-sym per rf2-df9873). The mount-surface macros are
+  CLIENT entry points: expanding them for the JVM host is the
   `:rf.ui.compile/client-entry-on-jvm` compile error, pinned here via
   `macroexpand`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -29,11 +30,11 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest cross-file-duplicate-root-id-fails-the-build
-  (root/register-root-site! 'ui/mount :page/shop :authored
+  (root/register-root-site! 'ui/mount :page/shop :authored 'app.entry
                             {:file "app/entry.cljs" :line 10})
   (let [{:keys [id msg data]}
         (thrown-error
-         #(root/register-root-site! 'ui/mount :page/shop :authored
+         #(root/register-root-site! 'ui/mount :page/shop :authored 'app.other
                                     {:file "app/other.cljs" :line 4}))]
     (is (= :rf.error/duplicate-root-id id))
     (is (error/message-has-id-token? msg)
@@ -43,29 +44,29 @@
         "the data map names both parties with source coordinates")))
 
 (deftest both-derived-duplicate-names-the-fix
-  (root/register-root-site! 'ui/mount :app.views/app :derived
+  (root/register-root-site! 'ui/mount :app.views/app :derived 'app.a
                             {:file "app/a.cljs" :line 1})
   (let [{:keys [msg]}
         (thrown-error
-         #(root/register-root-site! 'ui/mount :app.views/app :derived
+         #(root/register-root-site! 'ui/mount :app.views/app :derived 'app.b
                                     {:file "app/b.cljs" :line 1}))]
     (is (re-find #"add :disambiguator or author :root-id" msg)
         "the contract-pinned didactic fix when both ids are derived")))
 
-(deftest same-file-re-registration-replaces
-  (root/register-root-site! 'ui/mount :page/shop :authored
+(deftest same-namespace-re-registration-replaces
+  (root/register-root-site! 'ui/mount :page/shop :authored 'app.entry
                             {:file "app/entry.cljs" :line 10})
-  (is (nil? (root/register-root-site! 'ui/mount :page/shop :authored
+  (is (nil? (root/register-root-site! 'ui/mount :page/shop :authored 'app.entry
                                       {:file "app/entry.cljs" :line 22}))
       "watch-mode re-expansion tolerance — a moved line is not a second site")
-  (is (= 22 (:line (get @root/build-roots :page/shop)))))
+  (is (= 22 (:line (get (root/build-roots) :page/shop)))))
 
 (deftest distinct-root-ids-coexist
-  (root/register-root-site! 'ui/mount :page/shop :authored
+  (root/register-root-site! 'ui/mount :page/shop :authored 'app.a
                             {:file "a.cljs" :line 1})
-  (is (nil? (root/register-root-site! 'ui/mount :page/cart :authored
+  (is (nil? (root/register-root-site! 'ui/mount :page/cart :authored 'app.b
                                       {:file "b.cljs" :line 1})))
-  (is (= #{:page/shop :page/cart} (set (keys @root/build-roots)))))
+  (is (= #{:page/shop :page/cart} (set (keys (root/build-roots))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Layer 1 — frame-plan index
@@ -74,33 +75,33 @@
 (deftest matching-plan-fingerprints-are-idempotent
   (root/register-plan-site! 'ui/mount
                             {:frame-id :shop :config-fingerprint "cf1-aaaa"}
-                            {:file "a.cljs" :line 1})
+                            'app.a {:file "a.cljs" :line 1})
   (is (nil? (root/register-plan-site!
              'ui/mount {:frame-id :shop :config-fingerprint "cf1-aaaa"}
-             {:file "b.cljs" :line 9}))
+             'app.b {:file "b.cljs" :line 9}))
       "matching fingerprint = the ratified idempotent no-op"))
 
 (deftest cross-file-plan-fingerprint-conflict-fails-the-build
   (root/register-plan-site! 'ui/mount
                             {:frame-id :shop :config-fingerprint "cf1-aaaa"}
-                            {:file "a.cljs" :line 1})
+                            'app.a {:file "a.cljs" :line 1})
   (let [{:keys [id data]}
         (thrown-error
          #(root/register-plan-site!
            'ui/mount {:frame-id :shop :config-fingerprint "cf1-bbbb"}
-           {:file "b.cljs" :line 9}))]
+           'app.b {:file "b.cljs" :line 9}))]
     (is (= :rf.error/frame-payload-conflict id))
     (is (= ["cf1-aaaa" "cf1-bbbb"] (:fingerprints data)))))
 
-(deftest same-file-plan-change-replaces
+(deftest same-namespace-plan-change-replaces
   (root/register-plan-site! 'ui/mount
                             {:frame-id :shop :config-fingerprint "cf1-aaaa"}
-                            {:file "a.cljs" :line 1})
+                            'app.a {:file "a.cljs" :line 1})
   (is (nil? (root/register-plan-site!
              'ui/mount {:frame-id :shop :config-fingerprint "cf1-cccc"}
-             {:file "a.cljs" :line 1}))
+             'app.a {:file "a.cljs" :line 1}))
       "editing a plan's config in place is a replacement, not a conflict")
-  (is (= "cf1-cccc" (:config-fingerprint (get @root/build-plans :shop)))))
+  (is (= "cf1-cccc" (:config-fingerprint (get (root/build-plans) :shop)))))
 
 ;; ---------------------------------------------------------------------------
 ;; The client-entry host guard

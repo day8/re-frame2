@@ -373,34 +373,38 @@
 ;; Layer 1 — the build-tier duplicate/conflict indexes (contract §7)
 ;; ---------------------------------------------------------------------------
 
-(defonce ^{:doc "Layer-1 root-site index: root-id -> {:file :line :provenance}.
-  Cross-FILE duplicates fail the build; same-file re-registration replaces
-  (watch-mode re-expansion tolerance — Layer 3 backstops same-file
-  duplicates at runtime). See the ns docstring §Build scope."}
-  build-roots
-  (atom {}))
+;; The Layer-1 / descriptor aggregates are keyed PER build id in the one
+;; build-scoped authority (`re-frame.ui.compiler.build`, rf2-df9873) — no
+;; process-global atom to cross-contaminate between the builds one daemon
+;; compiles in parallel. Consumers read the ambient build's aggregate through
+;; these accessors (a pure function of the current build inputs): a
+;; recompiled / edited / renamed / removed source replaces its whole prior
+;; contribution atomically, so a deleted root or plan cannot linger to raise
+;; a FALSE cross-file duplicate/conflict.
 
-(defonce ^{:doc "Layer-1 frame-plan index: frame-id -> {:config-fingerprint
-  :file :line}. Two plans for one frame-id with differing fingerprints from
-  different files fail the build (:rf.error/frame-payload-conflict)."}
-  build-plans
-  (atom {}))
+(defn build-roots
+  "The ambient build's Layer-1 root-site index: root-id ->
+  {:file :line :provenance}. Cross-NAMESPACE duplicates fail the build;
+  same-namespace re-registration replaces (watch-mode re-expansion tolerance
+  — Layer 3 backstops same-namespace duplicates at runtime)."
+  []
+  (build/aggregate build/roots))
 
-(defonce ^{:doc "Compile-emitted Root Descriptors, root-id -> descriptor —
-  the build-artefact side of \"S1 emits descriptors\" (S5 tooling / Xray
-  read compile output through this index; the runtime copy rides the
-  live-root registry, dev-only)."}
-  build-descriptors
-  (atom {}))
+(defn build-plans
+  "The ambient build's Layer-1 frame-plan index: frame-id ->
+  {:config-fingerprint :file :line}. Two plans for one frame-id with
+  differing fingerprints from different namespaces fail the build
+  (:rf.error/frame-payload-conflict)."
+  []
+  (build/aggregate build/plans))
 
-;; Enrol the three Layer-1 / descriptor aggregates in the one build-scoped
-;; state model (rf2-vxgfnd.16) so a recompiled / edited / renamed / removed
-;; source replaces its whole prior contribution atomically — a deleted root
-;; or plan cannot linger to raise a FALSE cross-file duplicate/conflict, and
-;; the indexes stay a pure function of the current build inputs.
-(build/register! build/roots build-roots)
-(build/register! build/plans build-plans)
-(build/register! build/descriptors build-descriptors)
+(defn build-descriptors
+  "The ambient build's compile-emitted Root Descriptor index: root-id ->
+  descriptor — the build-artefact side of \"S1 emits descriptors\" (S5
+  tooling / Xray read compile output through here; the runtime copy rides the
+  live-root registry, dev-only)."
+  []
+  (build/aggregate build/descriptors))
 
 (defn reset-build-registries!
   "Hard-clear every build-scoped compiler registry (views, the Layer-1
@@ -430,75 +434,70 @@
      (let [bd (compiler/current-build-digest)]
        (into {}
              (map (fn [[rid desc]] [rid (assoc desc :build-digest bd)]))
-             @build-descriptors))))
+             (build-descriptors)))))
 
 (defn- site-str [{:keys [file line]}]
   (str (or file "<unknown-file>") (when line (str ":" line))))
 
 (defn register-root-site!
-  "Index one root site's statically resolved root-id (Layer 1). A second
-  site in a DIFFERENT file with an equal root-id is the build-tier
-  `:rf.error/duplicate-root-id` — thrown through the canonical builder,
-  with the both-derived didactic fix per the contract."
-  [where root-id provenance coords]
-  ;; Open THIS source (cross-registry, once per pass): a moved / renamed /
-  ;; deleted site never conflicts with its own ghost, and a deleted site
-  ;; cannot fail a later file (rf2-vxgfnd.16).
-  (build/open-source! (:file coords))
-  (let [existing (get @build-roots root-id)]
-    (when (and existing
-               (:file existing) (:file coords)
-               (not= (:file existing) (:file coords)))
-      (error/throw-error!
-       :rf.error/duplicate-root-id where
-       (str "two root sites in one build resolve to root-id "
-            (pr-str root-id) " — " (site-str existing) " and "
-            (site-str coords) ". Root-ids are page-unique identity; "
-            (if (= :derived (:provenance existing) provenance)
-              (str "both ids derived from the same view — add "
-                   ":disambiguator or author :root-id")
-              "author distinct :root-id values"))
-       {:recovery :make-root-ids-unique
-        :extra {:root-id    root-id
-                :provenance [(:provenance existing) provenance]
-                :sites      [(dissoc existing :provenance) coords]}}))
-    (swap! build-roots assoc root-id (assoc coords :provenance provenance))
-    (build/note! build/roots (:file coords) root-id)
-    nil))
+  "Index one root site's statically resolved root-id (Layer 1), owned by its
+  declaring namespace `ns-sym`. A second site in a DIFFERENT namespace with
+  an equal root-id is the build-tier `:rf.error/duplicate-root-id` — thrown
+  through the canonical builder, with the both-derived didactic fix per the
+  contract. Same-namespace re-registration REPLACES (watch-mode re-expansion
+  tolerance — a moved / renamed / deleted site never conflicts with its own
+  ghost). The check-then-write is ONE atomic transition, so parallel
+  compilation cannot miss a duplicate or drop a concurrent write."
+  [where root-id provenance ns-sym coords]
+  (when-let [{:keys [conflict]}
+             (build/contribute-checked!
+              build/roots ns-sym root-id (assoc coords :provenance provenance)
+              ;; any OTHER namespace's row for this root-id is the conflict
+              (fn [existing] existing))]
+    (error/throw-error!
+     :rf.error/duplicate-root-id where
+     (str "two root sites in one build resolve to root-id "
+          (pr-str root-id) " — " (site-str conflict) " and "
+          (site-str coords) ". Root-ids are page-unique identity; "
+          (if (= :derived (:provenance conflict) provenance)
+            (str "both ids derived from the same view — add "
+                 ":disambiguator or author :root-id")
+            "author distinct :root-id values"))
+     {:recovery :make-root-ids-unique
+      :extra {:root-id    root-id
+              :provenance [(:provenance conflict) provenance]
+              :sites      [(dissoc conflict :provenance) coords]}}))
+  nil)
 
 (defn register-plan-site!
-  "Index one site's static frame plan (Layer 1). A plan for the same
-  frame-id with a DIFFERING config fingerprint from a different file is
-  the build-tier `:rf.error/frame-payload-conflict` (same-file
-  re-registration replaces — watch tolerance; matching fingerprints are
-  the ratified idempotent no-op)."
-  [where {:keys [frame-id config-fingerprint]} coords]
-  ;; Open THIS source (cross-registry, once per pass) — a deleted / edited
-  ;; plan never conflicts with its own ghost, and a removed plan cannot fail
-  ;; a later file (rf2-vxgfnd.16).
-  (build/open-source! (:file coords))
-  (let [existing (get @build-plans frame-id)]
-    (when (and existing
-               (not= (:config-fingerprint existing) config-fingerprint)
-               (:file existing) (:file coords)
-               (not= (:file existing) (:file coords)))
-      (error/throw-error!
-       :rf.error/frame-payload-conflict where
-       (str "two root sites in one build carry static frame plans for "
-            "frame " (pr-str frame-id) " with DIFFERING config "
-            "fingerprints — " (site-str existing) " and " (site-str coords)
-            ". One frame, one plan: keep the frame's config in ONE "
-            "boot/root site, or align the configs")
-       {:recovery :align-frame-plan-config
-        :extra {:frame-id     frame-id
-                :fingerprints [(:config-fingerprint existing)
-                               config-fingerprint]
-                :sites        [(dissoc existing :config-fingerprint) coords]}}))
-    (swap! build-plans assoc frame-id {:config-fingerprint config-fingerprint
-                                       :file (:file coords)
-                                       :line (:line coords)})
-    (build/note! build/plans (:file coords) frame-id)
-    nil))
+  "Index one site's static frame plan (Layer 1), owned by its declaring
+  namespace `ns-sym`. A plan for the same frame-id with a DIFFERING config
+  fingerprint from a different namespace is the build-tier
+  `:rf.error/frame-payload-conflict` (same-namespace re-registration replaces
+  — watch tolerance; matching fingerprints are the ratified idempotent
+  no-op). The check-then-write is ONE atomic transition."
+  [where {:keys [frame-id config-fingerprint]} ns-sym coords]
+  (when-let [{:keys [conflict]}
+             (build/contribute-checked!
+              build/plans ns-sym frame-id
+              {:config-fingerprint config-fingerprint
+               :file (:file coords) :line (:line coords)}
+              (fn [existing]
+                (when (and existing
+                           (not= (:config-fingerprint existing) config-fingerprint))
+                  existing)))]
+    (error/throw-error!
+     :rf.error/frame-payload-conflict where
+     (str "two root sites in one build carry static frame plans for "
+          "frame " (pr-str frame-id) " with DIFFERING config "
+          "fingerprints — " (site-str conflict) " and " (site-str coords)
+          ". One frame, one plan: keep the frame's config in ONE "
+          "boot/root site, or align the configs")
+     {:recovery :align-frame-plan-config
+      :extra {:frame-id     frame-id
+              :fingerprints [(:config-fingerprint conflict) config-fingerprint]
+              :sites        [(dissoc conflict :config-fingerprint) coords]}}))
+  nil)
 
 ;; ---------------------------------------------------------------------------
 ;; Root opts (contract §3)
@@ -635,7 +634,8 @@
   "`(ui/mount root-form dom-node opts)` — the one-shot client mount:
   create-root + frame preflight + render!, idempotent per root."
   [form menv root-form dom-node opts]
-  (let [coords (source-coords form (some? (:ns menv)))]
+  (let [coords (source-coords form (some? (:ns menv)))
+        ns-sym (-> menv :ns :name)]
     (anchored coords
       (fn []
         (let [e      (expand-env! 'ui/mount menv)
@@ -646,11 +646,13 @@
                                             'ui/mount opts views)
               prefix (or (:identifier-prefix opts)
                          (default-identifier-prefix root-id))
-              _      (register-root-site! 'ui/mount root-id provenance coords)
-              _      (doseq [p plans] (register-plan-site! 'ui/mount p coords))
+              _      (register-root-site! 'ui/mount root-id provenance
+                                          ns-sym coords)
+              _      (doseq [p plans]
+                       (register-plan-site! 'ui/mount p ns-sym coords))
               desc   (root-descriptor {:root-id root-id :provenance provenance
                                        :views views :plans plans :ast ast})
-              _      (build/contribute! build/descriptors (:file coords)
+              _      (build/contribute! build/descriptors ns-sym
                                         root-id desc)
               body   (emit-cljs/emit-inline ast 'rf-ui-root)]
           `(re-frame.ui.client/mount*
@@ -670,7 +672,8 @@
   authored `:root-id` is REQUIRED (the derivation default belongs to the
   root-form-bearing entry points; `ui/mount` is the one-liner path)."
   [form menv dom-node opts]
-  (let [coords (source-coords form (some? (:ns menv)))]
+  (let [coords (source-coords form (some? (:ns menv)))
+        ns-sym (-> menv :ns :name)]
     (anchored coords
       (fn []
         (expand-env! 'ui/create-root menv)
@@ -691,7 +694,7 @@
                   nil))
           (let [prefix (or (:identifier-prefix opts)
                            (default-identifier-prefix root-id))]
-            (register-root-site! 'ui/create-root root-id :authored coords)
+            (register-root-site! 'ui/create-root root-id :authored ns-sym coords)
             `(re-frame.ui.client/create-root*
               {:root-id ~root-id
                :provenance :authored
@@ -706,14 +709,15 @@
   identity resolution happens here; the descriptor-base is completed with
   the Root's identity at runtime (dev)."
   [form menv root root-form]
-  (let [coords (source-coords form (some? (:ns menv)))]
+  (let [coords (source-coords form (some? (:ns menv)))
+        ns-sym (-> menv :ns :name)]
     (anchored coords
       (fn []
         (let [e      (expand-env! 'ui/render! menv)
               {:keys [ast views plans]} (analyze-root e 'ui/render! root-form)
               _      (print-warnings! e 'ui/render!)
               _      (doseq [p plans]
-                       (register-plan-site! 'ui/render! p coords))
+                       (register-plan-site! 'ui/render! p ns-sym coords))
               desc   (root-descriptor {:views views :plans plans :ast ast})
               body   (emit-cljs/emit-inline ast 'rf-ui-root)]
           `(re-frame.ui.client/render!*
@@ -730,7 +734,8 @@
   the same id in the aligned case); the S1 runtime fails loud — manifests
   land S5."
   [form menv dom-node root-form opts]
-  (let [coords (source-coords form (some? (:ns menv)))]
+  (let [coords (source-coords form (some? (:ns menv)))
+        ns-sym (-> menv :ns :name)]
     (anchored coords
       (fn []
         (let [e (expand-env! 'ui/hydrate-root menv)]
@@ -749,11 +754,13 @@
                 _    (print-warnings! e 'ui/hydrate-root)]
             (when (= 1 (count views))
               (let [derived (:view-id (first views))]
-                (register-root-site! 'ui/hydrate-root derived :derived coords)
-                (build/contribute! build/descriptors (:file coords) derived
+                (register-root-site! 'ui/hydrate-root derived :derived
+                                     ns-sym coords)
+                (build/contribute! build/descriptors ns-sym derived
                        (root-descriptor {:root-id derived :provenance :derived
                                          :views views :plans plans :ast ast}))))
-            (doseq [p plans] (register-plan-site! 'ui/hydrate-root p coords))
+            (doseq [p plans]
+              (register-plan-site! 'ui/hydrate-root p ns-sym coords))
             (let [body (emit-cljs/emit-inline ast 'rf-ui-root)]
               `(re-frame.ui.client/hydrate-root*
                 ~dom-node
