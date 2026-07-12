@@ -16,6 +16,7 @@
             [re-frame.error :as error]
             [re-frame.registrar :as registrar]
             [re-frame.ui.eq :as eq]
+            [re-frame.ui.reactive :as reactive]
             [re-frame.ui.rules :as rules]))
 
 ;; ---------------------------------------------------------------------------
@@ -48,13 +49,20 @@
 
 (defn register-view!
   "Registrar `:view` entry for a compiled view (dev builds; the emitted
-  call is goog.DEBUG-gated so production carries no manifests — I-12)."
+  call is goog.DEBUG-gated so production carries no manifests — I-12).
+
+  Also feeds the HMR view-body generation registry (03 §10): a re-registration
+  (shadow hot reload OR REPL re-eval — one path, 02 §8) consults the manifest's
+  hook-signature hash and keeps the generation on a same-signature edit (mounted
+  cells preserve state) or bumps it on a changed signature (the shell remounts).
+  Runs at (re-)registration time, not per render — off the hot path."
   [id component manifest]
   (registrar/register! :view id (cond-> {:rf/id id
                                          :handler-fn component
                                          :rf.ui/compiled? true
                                          :rf.ui/manifest manifest}
                                   (:doc manifest) (assoc :doc (:doc manifest))))
+  (reactive/register-view-generation! id (:hook-signature manifest))
   component)
 
 ;; ---------------------------------------------------------------------------
