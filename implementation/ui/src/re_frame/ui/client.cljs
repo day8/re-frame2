@@ -53,7 +53,8 @@
   identity and stay in production."
   (:require ["react-dom/client" :as rdc]
             [re-frame.error :as error]
-            [re-frame.ui.frames :as frames]))
+            [re-frame.ui.frames :as frames]
+            [re-frame.ui.reactive :as reactive]))
 
 ;; ---------------------------------------------------------------------------
 ;; The Root handle
@@ -510,6 +511,19 @@
   evicts a newer claim) and a second `unmount!*` is then a no-op; the
   host teardown error still propagates to the caller (rf2-vxgfnd.18 AC4).
 
+  LIFECYCLE (03 §4; rf2-vxgfnd.62). The host `.unmount` is driven through
+  `reactive/teardown-root!`, which arms a collection window around it: React
+  runs the effect-cleanups of this root's tree synchronously during `.unmount`,
+  and each ViewCell's cleanup (`disconnect!`) — which emits the transient
+  `:disconnected {:reason :unknown}` fact, indistinguishable from an Activity
+  hide at that moment — is captured. AFTER `.unmount` returns, those captured
+  cells (exactly this root's cells — the sweep is React-scoped, so sibling and
+  nested-portal roots are untouched) are retroactively proven `:unmounted
+  {:proof :host-teardown}` → `:dead`, so a real root unmount no longer leaves an
+  `:unknown` disconnect forever and a retained handle can never reconnect after
+  its root is gone. A throwing `.unmount` (React refused) collected nothing and
+  tears no cell down — the orphaned tree's cells stay live (see below).
+
   AFTERMATH of a THROWING host `.unmount` (rf2-vxgfnd.53). The concrete
   case is React 18/19 refusing to `.unmount` synchronously from inside a
   render pass (\"attempted to synchronously unmount a root while React was
@@ -533,7 +547,12 @@
   (when (and (some? root)
              (identical? (:root (get @live-roots (.-root-id root))) root))
     (try
-      (.unmount (.-react-root root))
+      ;; rf2-vxgfnd.62 — drive the host unmount through the root-teardown window
+      ;; so this root's ViewCells are retroactively proven :unmounted → :dead
+      ;; after React sweeps their effect cleanups (see the docstring LIFECYCLE
+      ;; note). teardown-root! rethrows a throwing host `.unmount` unchanged, so
+      ;; the catch/finally below keep the rf2-vxgfnd.53 ownership behaviour.
+      (reactive/teardown-root! (fn [] (.unmount (.-react-root root))))
       (catch :default e
         ;; rf2-vxgfnd.53 — React did NOT unmount, yet the `finally` below
         ;; still releases the claim (AC4). The live tree is now orphaned and

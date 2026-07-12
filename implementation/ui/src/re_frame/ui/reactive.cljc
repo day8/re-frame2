@@ -475,6 +475,20 @@
   ;; `reset-scheduler!`.
   (atom #{}))
 
+(defonce ^:private teardown-collector
+  ;; The COLLECTION WINDOW of an in-flight host/root teardown (`teardown-root!`),
+  ;; or nil at rest. `teardown-root!` arms it (a set) around the host React
+  ;; `.unmount`; while armed, `disconnect!` attributes each disconnecting cell
+  ;; to it — because a host `.unmount` sweeps the effect-cleanups of EXACTLY its
+  ;; own root's tree (React scopes the unmount), every captured cell belongs to
+  ;; that root and no sibling root's cell can enter the window. The driver then
+  ;; retroactively proves each captured cell an unmount (03 §4). nil while no
+  ;; teardown runs, so an Activity hide (a `disconnect!` with the window unarmed)
+  ;; stays a transient reconnectable disconnect. Save/restored around a teardown
+  ;; so a re-entrant one nests. `defonce` (module-lived); `reset-scheduler!`
+  ;; clears it between fixtures.
+  (atom nil))
+
 (declare flush-pending!)
 
 #?(:cljs
@@ -744,6 +758,7 @@
   (reset! flush-scheduled? false)
   (reset! slice-memo* nil)
   (reset! live-cells #{})
+  (reset! teardown-collector nil)
   (reset! evidence-sink nil)
   nil)
 
@@ -821,7 +836,16 @@
   indistinguishable at this moment): release lease owners (hidden UI must
   not poll) and emit `:disconnected {:reason :unknown}`. The cell is
   reconnectable — a later commit on the same cell reacquires and
-  corrects. Idempotent. Returns the cell."
+  corrects. Idempotent. Returns the cell.
+
+  When a host/root teardown is in flight (`teardown-root!` armed the
+  collection window — this cleanup is firing DURING a real `.unmount`), the
+  disconnecting cell is captured so the driver can retroactively prove it an
+  unmount. The emitted fact is STILL `:disconnected {:reason :unknown}` (the
+  same immediate cleanup fact as an Activity hide — the two are
+  indistinguishable here, 03 §4); the upgrade to `:unmounted` happens later, in
+  `teardown-root!`. With the window unarmed (an Activity hide) nothing is
+  captured and the cell stays reconnectable."
   [^ViewCell cell]
   (let [st (state cell)]
     (when (contains? #{:fresh :connected} (:lifecycle @st))
@@ -833,7 +857,10 @@
       (swap! st (fn [m]
                   (-> m
                       (assoc :lifecycle :disconnected)
-                      (update :intervals conj {:state :disconnected :reason :unknown})))))
+                      (update :intervals conj {:state :disconnected :reason :unknown}))))
+      ;; Host/root teardown in flight: attribute this cell to it (03 §4).
+      (when (some? @teardown-collector)
+        (swap! teardown-collector conj cell)))
     cell))
 
 (defn teardown!
@@ -877,6 +904,46 @@
     (doseq [cell victims]
       (teardown! cell))
     (count victims)))
+
+(defn teardown-root!
+  "Explicit host/ROOT teardown driver (03 §4) — the root-path counterpart to
+  the frame-destroy sweep, driven from `re-frame.ui.client/unmount!*` at the
+  host teardown moment. Runs `unmount-thunk` (the host React `.unmount`) with a
+  collection window armed, so every ViewCell whose effect-cleanup fires DURING
+  the host unmount is captured (`disconnect!` enrols it — see the
+  `teardown-collector` window). Because a host `.unmount` sweeps the cleanups of
+  EXACTLY its own root's tree, the captured set is precisely the cells belonging
+  to that root — sibling and nested-portal roots are structurally isolated (they
+  are separate React roots the sweep never touches).
+
+  Each captured cell is then retroactively proven an unmount via the shared
+  `teardown!` primitive (the SAME machinery the frame-destroy path uses, not a
+  parallel one): its transient `:disconnected {:reason :unknown}` interval —
+  which effect cleanup ALREADY emitted, indistinguishable from an Activity hide
+  at that moment — is upgraded to `:unmounted {:proof :host-teardown}` and the
+  cell goes `:dead`, so a retained handle can never reconnect after its root is
+  gone and a late recommit fails through the dead-cell lifecycle (commit! step
+  2) rather than by probing a torn-down context. An Activity hide, by contrast,
+  disconnects with NO window armed, is never captured, and stays reconnectable —
+  a reveal proves it `:activity-hidden {:proof :reconnect}`.
+
+  Ordering-robust and re-entrancy-safe by save/restore. If `unmount-thunk`
+  THROWS (React refused to unmount — it did NOT tear the tree down, so no
+  cleanup ran and nothing was collected), the window is restored and the throw
+  propagates WITHOUT tearing any cell down: the orphaned tree's cells stay live,
+  and the original host error is never masked (the ruled host-teardown
+  behaviour, rf2-vxgfnd.53). Returns the count of cells torn down."
+  [unmount-thunk]
+  (let [prev      @teardown-collector
+        collected (do (reset! teardown-collector #{})
+                      (try
+                        (unmount-thunk)
+                        @teardown-collector
+                        (finally
+                          (reset! teardown-collector prev))))]
+    (doseq [cell collected]
+      (teardown! cell))
+    (count collected)))
 
 ;; ---------------------------------------------------------------------------
 ;; The 8-step layout-commit reconciler (03 §3)
@@ -1038,3 +1105,10 @@
   "The cell's current revision integer (tool/test read)."
   [^ViewCell cell]
   (:revision @(state cell)))
+
+(defn current-live-cells
+  "The set of currently-CONNECTED ViewCells (tool/test read) — the live-cell
+  registry a frame-destroy sweep consults, and the seam a DOM lifecycle fixture
+  grabs a mounted cell through to observe its post-unmount lifecycle."
+  []
+  @live-cells)
