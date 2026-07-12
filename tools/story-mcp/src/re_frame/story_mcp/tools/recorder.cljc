@@ -250,10 +250,13 @@
             ;;   rendered snippet's first-line `:variant-id` literal —
             ;;   we resolve the caller's string via `safe-keyword`
             ;;   against the live registered-variant set, so it renders
-            ;;   only when it ALREADY names a registered variant. An
-            ;;   unregistered suggested id falls back to the source `vk`
-            ;;   (no intern) rather than minting a fresh keyword for what
-            ;;   may be a one-shot agent suggestion.
+            ;;   only when it ALREADY names a registered variant (no
+            ;;   intern — a one-shot agent suggestion must not mint a
+            ;;   fresh keyword). A suggested id that is NOT registered
+            ;;   cannot be honoured in the snippet-only path, so rather
+            ;;   than silently substituting the source `vk` it returns a
+            ;;   `:rf.story-mcp/new-variant-id-unregistered` diagnostic
+            ;;   directing the caller to `:write-back`.
             (let [extends     (if-let [e-arg (:extends arguments)]
                                 (or (args/safe-keyword e-arg (story/ids :variant))
                                     ;; Reject unknown :extends so the snippet
@@ -279,8 +282,18 @@
                 (let [wb-target   (when (and write-back? (:new-variant-id arguments))
                                     (args/fresh-keyword-checked
                                       (:new-variant-id arguments)
-                                      story/valid-variant-id?))]
-                 (if (and write-back? (:new-variant-id arguments) (nil? wb-target))
+                                      story/valid-variant-id?))
+                      ;; Snippet-only resolution: honour a :new-variant-id that
+                      ;; ALREADY names a registered variant (no intern). A
+                      ;; not-yet-registered id can't resolve here (the sound
+                      ;; no-intern bound) and the snippet-only path can't
+                      ;; register it, so the guard below surfaces that rather
+                      ;; than silently titling the snippet with the SOURCE id.
+                      snippet-target (when (and (not write-back?) (:new-variant-id arguments))
+                                       (args/safe-keyword (:new-variant-id arguments)
+                                                          (story/ids :variant)))]
+                 (cond
+                  (and write-back? (:new-variant-id arguments) (nil? wb-target))
                   (result/error-result
                     (str ":new-variant-id " (pr-str (:new-variant-id arguments))
                          " does not match the canonical variant-id grammar "
@@ -288,6 +301,27 @@
                     {:rf.error       :rf.error/variant-id-shape
                      :tool           "record-as-variant"
                      :new-variant-id (:new-variant-id arguments)})
+
+                  ;; Snippet-only recording cannot title itself with a
+                  ;; genuinely NEW id: rendering the id into the snippet
+                  ;; needs a keyword, and the sound no-intern bound (a
+                  ;; one-shot agent suggestion must not grow the keyword
+                  ;; table) forbids minting one here. Rather than silently
+                  ;; substituting the SOURCE id, tell the caller to open
+                  ;; :write-back (operator-gated) to author a fresh id.
+                  (and (not write-back?) (:new-variant-id arguments) (nil? snippet-target))
+                  (result/error-result
+                    (str ":new-variant-id " (pr-str (:new-variant-id arguments))
+                         " is not a registered variant. A snippet-only recording "
+                         "cannot title itself with a fresh id (the snippet would "
+                         "carry the SOURCE variant id instead). Set :write-back true "
+                         "to register the new id, or pass an already-registered "
+                         ":new-variant-id.")
+                    {:rf.error       :rf.story-mcp/new-variant-id-unregistered
+                     :tool           "record-as-variant"
+                     :new-variant-id (:new-variant-id arguments)})
+
+                  :else
                   (let [target-vid  (cond
                                     ;; write-back path: operator-gated
                                     ;; intern via the grammar-checked,
@@ -295,14 +329,14 @@
                                     (and write-back? (:new-variant-id arguments))
                                     wb-target
 
-                                    ;; non-write-back: snippet-only,
-                                    ;; safe-keyword against the live
-                                    ;; variant set; otherwise default to
-                                    ;; source vk rather than intern.
+                                    ;; non-write-back with a :new-variant-id
+                                    ;; that DOES name a registered variant —
+                                    ;; the keyword resolved above (no intern).
+                                    ;; The unregistered case errored out in the
+                                    ;; guard above; a missing :new-variant-id
+                                    ;; falls through to the source vk.
                                     (:new-variant-id arguments)
-                                    (or (args/safe-keyword (:new-variant-id arguments)
-                                                           (story/ids :variant))
-                                        vk)
+                                    snippet-target
 
                                     :else vk)
                       doc         (:doc arguments)

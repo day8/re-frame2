@@ -368,7 +368,7 @@
                          "Examples: "
                          "1. Clean run: {:variant-id \":story.cart/full\"} -> {:variant-id :story.cart/full :status :pass :total 3 :failures [] :assertions [{:assertion :rf.assert/path-equals :passed? true :status :pass} ...]}. "
                          "2. Mixed pass/fail: {:variant-id \":story.cart/bad\"} -> {:variant-id :story.cart/bad :status :fail :total 5 :failures [{:assertion :rf.assert/sub-equals :passed? false :status :fail :reason \"...\"}] :assertions [...]}. "
-                         "3. Never-run variant: {:variant-id \":story.never/run\"} -> {:variant-id :story.never/run :status :pass :total 0 :failures [] :assertions []} (vacuously green).")
+                         "3. Registered but never-run variant: {:variant-id \":story.never/run\"} -> {:variant-id :story.never/run :status :pass :total 0 :failures [] :assertions []} (vacuously green — the id must be a REGISTERED variant that simply has no run yet; a genuinely unregistered id returns a `Variant not found` error, not an empty accumulator).")
     :typicalTokens  500
     :inputSchema {:type "object"
                   :properties (s/with-max-tokens

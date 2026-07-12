@@ -79,13 +79,19 @@ the read primitives; this jar packages them as MCP tools.
 
 ## Egress indicator counts (`:dropped-sensitive` / `:elided-large`)
 
-The three tools that walk a tree-typed payload — `preview-variant`,
-`run-variant`, `read-failures` — drop `:sensitive? true` assertion
-records and replace over-threshold / schema-`:large?` `:app-db` leaves
-with the `:rf.size/large-elided` marker at the wire egress. Per
+Three tools filter a tree-typed payload at the wire egress:
+`preview-variant`, `run-variant`, and `read-failures`. `preview-variant`
+and `run-variant` do BOTH — they drop `:sensitive? true` records AND
+replace over-threshold / schema-`:large?` `:app-db` leaves with the
+`:rf.size/large-elided` marker. `read-failures` carries no `:app-db`
+(nor a derived tree), so it ONLY drops `:sensitive? true` assertion
+records; it never runs per-leaf elision, so its `:elided-large` count is
+structurally always 0 and — being omit-when-zero — that slot is always
+absent. `read-failures` relies on the wire-boundary overflow cap, not
+per-leaf elision, for size bounding. Per
 [`spec/Conventions.md` §Cross-MCP indicator-field vocabulary][conv]
 (MUST-level) and [Spec 009 §Indicator field on tool responses][s009],
-each of those tools MUST carry a scalar summary of how much the egress
+each of these tools MUST carry a scalar summary of how much the egress
 filtered:
 
 | Slot | Meaning |

@@ -1651,6 +1651,21 @@
       (is (nil? (find-keyword "not-story" "tag30h-wb-invalid-B"))
           "the rejected write-back id MUST NOT leave an interned keyword"))))
 
+(deftest record-as-variant-snippet-only-unregistered-new-id-diagnostic
+  (testing "a snippet-only (no write-back) :new-variant-id naming an
+            UNREGISTERED variant is surfaced as a diagnostic rather than
+            silently titling the snippet with the SOURCE id (rf2-x76af2.33)"
+    (let [r (invoke "record-as-variant"
+                    {:variant-id     "story.button/primary"
+                     :new-variant-id "story.button/never-registered-x76af2"
+                     :duration-ms    0})]
+      (is (error? r) "an unregistered snippet-only :new-variant-id is refused")
+      (is (= :rf.story-mcp/new-variant-id-unregistered
+             (-> r :structuredContent :rf.error))
+          "the diagnostic carries the structured new-variant-id-unregistered error")
+      (is (re-find #":write-back" (-> r :content first :text))
+          "the message directs the caller to :write-back"))))
+
 (deftest register-variant-wide-object-body-rejected-without-interning
   (testing "an object-form body with too many string keys is rejected BEFORE keywordising (rf2-tag30h)"
     (config/set-allow-writes! true)
