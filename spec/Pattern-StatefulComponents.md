@@ -21,7 +21,7 @@ Third-party JS components — D3 charts, Mapbox/Leaflet maps, CodeMirror / Monac
 - **They have an imperative lifecycle.** "Initialise against this DOM node," "you have new data, please re-draw," "you're going away, please clean up." None of those phases is a pure function of props.
 - **They register their own listeners and timers.** Map pans, chart hovers, editor selection-change events, animation completions — all attached on the library's side, all needing teardown on unmount or they leak.
 
-A re-frame2 view body, on the other hand, **MUST NOT** dispatch from render, **MUST NOT** `addEventListener` from render, and **MUST NOT** own an imperative library lifecycle directly (per [Spec 004 §View antipatterns](004-Views.md#effects-and-leases--the-view-side-surface)). The render body computes hiccup; the work that violates "pure render" lives somewhere else.
+A re-frame2 view body, on the other hand, **MUST NOT** dispatch from render, **MUST NOT** `addEventListener` from render, and **MUST NOT** own an imperative library lifecycle directly (per [Spec 004 §Effects and leases — the view-side surface](004-Views.md#effects-and-leases--the-view-side-surface)). The render body computes hiccup; the work that violates "pure render" lives somewhere else.
 
 The pattern in this doc is *where else*.
 
@@ -74,7 +74,7 @@ The shape is identical across adapters; only the lifecycle-hook surface differs.
 
 | Adapter | Inner lifecycle surface | Registration | Reference |
 |---|---|---|---|
-| **Reagent** | `reagent.core/create-class` Form-3 (`:reagent-render` + `:component-did-mount` + `:component-did-update` + `:component-will-unmount`) | `reg-view*` (the plain-fn surface — the `reg-view` macro rejects Form-3 bodies per [Spec 004 §Form-3](004-Views.md#removed-forms--normative-absences)) | [Reagent adapter README](../implementation/adapters/reagent/README.md) |
+| **Reagent** | `reagent.core/create-class` Form-3 (`:reagent-render` + `:component-did-mount` + `:component-did-update` + `:component-will-unmount`) | `reg-view*` (the plain-fn surface — the `reg-view` macro rejects Form-3 bodies per [Spec 004 §Removed forms — normative absences](004-Views.md#removed-forms--normative-absences)) | [Reagent adapter README](../implementation/adapters/reagent/README.md) |
 | **Reagent-slim** | `reagent2.core/create-class` Form-3, **7-key cap** (the six lifecycle keys plus `:display-name`) | `reg-view*` | [Reagent-slim adapter README](../implementation/adapters/reagent-slim/README.md) and [`FORM-3.md`](../implementation/adapters/reagent-slim/FORM-3.md) — the slim adapter's single source of truth for Form-3 |
 | **UIx** | `uix.core/use-effect` inside a `defui`, with a deps vector listing every prop the effect reads. Cleanup is the fn the effect body returns | `reg-view` (UIx components are plain fns) | [UIx adapter README](../implementation/adapters/uix/README.md) |
 | **Helix** | `helix.hooks/use-effect` inside a `defnc`. Deps vector comes **first** in Helix's macro form; the body is the effect; cleanup is the last expression | `reg-view` (Helix components are plain fns) | [Helix adapter README](../implementation/adapters/helix/README.md) |
@@ -175,7 +175,7 @@ Framer Motion, React-Spring, GSAP, AutoAnimate — the animation library is comp
 
 ## What NOT to do
 
-The shapes that look tempting but compose badly with re-frame2's reactive flow. Each is owned (with the full reason) by [Spec 004 §View antipatterns](004-Views.md#effects-and-leases--the-view-side-surface); listed here so the trap is visible from the pattern doc.
+The shapes that look tempting but compose badly with re-frame2's reactive flow. Each is owned (with the full reason) by [Spec 004 §Effects and leases — the view-side surface](004-Views.md#effects-and-leases--the-view-side-surface); listed here so the trap is visible from the pattern doc.
 
 - **Attaching `addEventListener` from a render body** ([Spec 004 §Views MUST NOT attach native DOM event listeners from render bodies](004-Views.md#effects-and-leases--the-view-side-surface)) — the listener fires on a fresh stack with no `*current-frame*` binding; a bare `(rf/dispatch …)` from inside it carries no frame stamp and fails loudly with `:rf.error/no-frame-context` (no `:rf/default` fall-through). The listener also leaks: nothing detaches it on re-render or unmount. The right home for `addEventListener` is the **inner's** lifecycle hook, with a cleanup that removes the listener on unmount.
 - **Owning a library lifecycle directly in a render body** ([Spec 004 §Views MUST NOT own imperative library lifecycles directly](004-Views.md#effects-and-leases--the-view-side-surface)) — `(js/MyLib. el opts)` from a Form-1 body builds a fresh library instance every render. The library was built to be instantiated **once** at mount; building it on every render leaks instances at the rate of every reactive update. The right home is the **inner's** `:component-did-mount` (or `use-effect` mount phase).
@@ -184,8 +184,8 @@ The shapes that look tempting but compose badly with re-frame2's reactive flow. 
 
 ## Cross-references
 
-- [Spec 004 §View antipatterns](004-Views.md#effects-and-leases--the-view-side-surface) — the normative "MUST NOT" rules that make this pattern the right answer.
-- [Spec 004 §Form-3 (class — out of scope for the macro)](004-Views.md#removed-forms--normative-absences) — why Form-3 ships through `reg-view*` rather than the `reg-view` macro.
+- [Spec 004 §Effects and leases — the view-side surface](004-Views.md#effects-and-leases--the-view-side-surface) — the normative "MUST NOT" rules that make this pattern the right answer.
+- [Spec 004 §Removed forms — normative absences](004-Views.md#removed-forms--normative-absences) — why Form-3 ships through `reg-view*` rather than the `reg-view` macro.
 - [§Regime C — Library-bridged animations](#regime-c--library-bridged-animations) — animation libraries as a special case of this pattern.
 - [Spec 002 §Dispatches issued from inside a handler body](002-Frames.md#dispatches-issued-from-inside-a-handler-body) — why `(rf/capture-frame)` must be captured at render-time, not inside the lifecycle callback.
 - [Pattern — Async Effect](Pattern-AsyncEffect.md) — the sibling pattern for "external work + dispatched reply" outside the view layer (HTTP, IndexedDB, WebSocket, RAF loops); composes with this pattern when the library exposes its own async callbacks (e.g. a tile-loaded event from a map library).

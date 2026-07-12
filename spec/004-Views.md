@@ -304,7 +304,7 @@ transactional commit algorithm (acquire-before-release with rollback), and the
 **three-state lifecycle** (`:connected` / `:disconnected` / `:dead`; Activity-hide vs
 unmount are qualified retroactive annotations, never distinct runtime states) — is
 owned by [006](006-ReactiveSubstrate.md) (the R-2 observation port; shapes **final**
-per the rewritten amendment — the observation-port amendment merges with the S2 slice);
+per the merged amendment — the observation-port amendment landed with the S2 slice);
 this Spec owns only the call-site surface. `sub` never fetches (I-11).
 
 ## Local state — `local` — and the placement rule (this Spec owns the rule)
@@ -721,8 +721,8 @@ stages in small batches, 011 → S5).
   amendment); this rewrite merges atomically with the first conforming Stage-1 slice —
   "conforming" is profile-defined: the S1 rows of §Stage conformance profiles.
 - **R-2 — shapes final.** The observation port's six-operation target/evidence/lease
-  ABI is final (the observation-port amendment, merging with the S2 slice, is the sole
-  shape source; the rewritten 006 amendment carries it) — no provisional shapes remain
+  ABI is final (the observation-port amendment, merged with the S2 slice, is the sole
+  shape source; the merged 006 amendment carries it) — no provisional shapes remain
   anywhere in this contract.
 - **R-3 — naming.** `re-frame.ui`, alias `ui`, artifact `day8/re-frame2-ui`; supporting
   `re-frame.ui.test` / `.react` / (if earned) `.data`. Separate artifact on a lockstep

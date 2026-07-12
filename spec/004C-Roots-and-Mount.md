@@ -177,8 +177,8 @@ production client carries no descriptor or digest cost.
 `mount` remains a **macro over a literal root form** (ratified — the compiler must see
 the root to keep the AST closed and extract frame plans; a runtime-assembled vector is
 a compile error pointing at `ui/view`/`ui/element`). The third argument is the **root
-opts map** — this is where root identity rides; codex2 F3's "nowhere to provide a root
-id" is closed here:
+opts map** — this is where root identity rides; the "nowhere to provide a root
+id" gap is closed here:
 
 | Opt | Tier | Contract |
 |---|---|---|
@@ -223,7 +223,7 @@ duplicate detection. Host-behaviour opts may be runtime values.
   row-level delta per the 12 §4 protocol.
 - Frame preflight (ENSURE + `:initial-events` drain, exactly once, before React) runs
   before the first `render!` on a Root and before `hydrate-root`'s hydration — timing
-  and semantics owned by 03 §8 / Spec 002; this draft only pins *what is extracted*
+  and semantics owned by [Spec 002](002-Frames.md); this draft only pins *what is extracted*
   (§6).
 
 ## 4. Element locators

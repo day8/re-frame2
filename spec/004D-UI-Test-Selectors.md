@@ -94,7 +94,7 @@ contract's versioned public ABI. Its read surface:
   `[selector+]` path sugar that would fold over it is demand-bar-deferred; see [OPEN-2]).
 - **Keyword lookup reads the node's *fields*, never its attributes.** Attrs and events
   live under their own keys (`(:events node)`, `(:attrs node)`), so `(:on-click node)`
-  is a field miss — the ruled node-reading contract (09 §codex2 row 2). The attribute
+  is a field miss — the ruled node-reading contract. The attribute
   read is the projection below.
 - **`(ui.test/attrs node)`** — the **merged projection**: attribute map + handler map
   on elements (collision-free — the compiler routes `:on-*` to `:events`), the props
