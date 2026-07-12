@@ -10,7 +10,8 @@
             [re-frame.test-support :as test-support]
             [re-frame.ui :as ui :refer [defview]]
             [re-frame.ui.frames :as frames]
-            [re-frame.ui.test :as uit]))
+            [re-frame.ui.test :as uit])
+  (:import [java.util.concurrent CountDownLatch CyclicBarrier TimeUnit]))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter})
@@ -37,6 +38,22 @@
   "Reads a sub — the Tier-1 headless read path (03 §3)."
   []
   [:h1.greeting (ui/sub [:greeting/text])])
+
+(def ^:dynamic *render-gate*
+  "Concurrency-test seam: the `gated` view calls this thunk while it renders —
+  the window BETWEEN a plan-bearing render's frame install and its teardown. A
+  top-level view cannot close over a test's latches, so the barrier rides this
+  dynamic var (conveyed into the render's thread by `future`). Default no-op."
+  (fn []))
+
+(defview gated
+  "A pure structural view that trips `*render-gate*` as it renders, so a test
+  can hold a plan-bearing render open between install and teardown — no sleeps,
+  and no sub read, so a concurrent actor may destroy/re-create the frame under
+  the same id without the render's own read racing the swap."
+  []
+  (let [_ (*render-gate*)]
+    [:h1.gated "gated"]))
 
 (defn- err-id [thunk]
   (try
@@ -516,3 +533,117 @@
          harness advertises")
     (is (= before (set (keys @frame/frames)))
         "the fresh test-owned frame is torn down after the render — no residue")))
+
+;; ---------------------------------------------------------------------------
+;; Atomic + incarnation-owned acquisition (rf2-vxgfnd.64) — the residual gap
+;; rf2-vxgfnd.55 (#5732) left open. #5732 snapshotted live ids BEFORE the plan
+;; ran and tore frames down by BARE id: a TOCTOU where a concurrently-created
+;; frame could be adopted (and then destroyed) by a losing render, and where
+;; teardown could destroy a LATER same-id incarnation it never owned. The fix
+;; makes plan-frame acquisition an ATOMIC all-or-nothing claim and teardown
+;; INCARNATION-owned. Deterministic barrier fixtures, no sleeps.
+;; ---------------------------------------------------------------------------
+
+(deftest plan-frame-claim-is-atomic-one-of-two-racers-wins
+  ;; The claim linearizes: two acquisitions for the SAME id cannot both win.
+  ;; A rendezvous barrier releases both racers together, then each attempts the
+  ;; atomic claim; exactly one reserves the id (nil), the other sees it already
+  ;; claimed. (White-box on the private claim primitive — the atomic core of
+  ;; the acquisition protocol.)
+  (let [claim!   #'re-frame.ui.test/claim-plan-frames!
+        release! #'re-frame.ui.test/release-plan-frames!
+        gate     (CyclicBarrier. 2)
+        attempt  (fn [] (future
+                          (.await gate 10 TimeUnit/SECONDS)
+                          (claim! [:test/claim-race])))
+        r1       (attempt)
+        r2       (attempt)
+        outcomes [@r1 @r2]]
+    (try
+      (is (= 1 (count (filter nil? outcomes)))
+          "exactly ONE racer wins the claim (nil) — the CAS linearizes them")
+      (is (= 1 (count (filter #{[:test/claim-race]} outcomes)))
+          "the OTHER racer loses — it sees the id already claimed, no double claim")
+      (finally
+        (release! [:test/claim-race])))))
+
+(deftest plan-bearing-render-rejects-a-concurrently-created-frame
+  ;; Absent-at-snapshot / concurrent-create: the collision check reads LIVE
+  ;; state at the ATOMIC CLAIM point, not a snapshot frozen when the render
+  ;; began. A frame a concurrent actor creates AFTER the render evaluated its
+  ;; plans (id absent then) but BEFORE the claim is seen — the render REJECTS
+  ;; (never adopts the ambient frame) and destroys nothing it did not create.
+  (reg-greeting!)
+  (let [at-plans (CountDownLatch. 1)   ; render evaluated its plans (pre-claim)
+        created  (CountDownLatch. 1)   ; actor created the id in the window
+        before   (set (keys @frame/frames))
+        ;; the plan's config EXPRESSION evaluates at preflight, before the
+        ;; claim; it closes over these latches to open a deterministic
+        ;; pre-claim window (the render blocks here until the actor creates).
+        render   (future
+                   (err-id
+                    #(uit/render
+                      [ui/frame-root {:id :test/appear
+                                      :initial-events [[:rf/set-db
+                                                        (do (.countDown at-plans)
+                                                            (.await created 10 TimeUnit/SECONDS)
+                                                            {:greeting "planned"})]]}
+                       [greeting {}]])))]
+    (.await at-plans 10 TimeUnit/SECONDS)
+    (is (nil? (frame/frame :test/appear))
+        "the id was ABSENT when the render evaluated its plans")
+    ;; a concurrent actor creates :test/appear with its OWN seed, in the window
+    ;; between the render's plan evaluation and its atomic claim.
+    (let [actor (rf/make-frame {:id :test/appear
+                                :initial-events [[:rf/set-db {:greeting "actor"}]]})]
+      (.countDown created)
+      (let [result @render]
+        (is (= :rf.error/ui-test-frame-collision result)
+            "the render rejects the concurrently-created frame at its claim — it
+             does NOT adopt ambient state (the stale-snapshot false pass)")
+        (is (some? (frame/frame :test/appear))
+            "the actor's frame is untouched — the losing render destroys nothing")
+        (is (= {:greeting "actor"} (rf/app-db-value actor))
+            "…and its app-db is the actor's seed, never the render's plan (an
+             adopt would have rendered/kept ambient state)")
+        (frame/destroy-frame! :test/appear)
+        (is (= before (set (keys @frame/frames)))
+            "zero residue once the actor's own frame is cleaned up")))))
+
+(deftest plan-bearing-teardown-is-incarnation-owned
+  ;; Destroy/recreate-before-cleanup: teardown must destroy the EXACT
+  ;; incarnation this render created — not whatever frame later occupies the id.
+  ;; The render is held open (mid-render, between install and teardown) while a
+  ;; concurrent actor destroys the render's incarnation and RE-creates a fresh
+  ;; one under the same id; the render's teardown must leave that NEW
+  ;; incarnation alive. (#5732's bare-id teardown destroyed it.)
+  (let [installed (CountDownLatch. 1)   ; render installed + is rendering
+        swapped   (CountDownLatch. 1)   ; actor destroyed + re-created the id
+        before    (set (keys @frame/frames))]
+    (binding [*render-gate* (fn []
+                              (.countDown installed)
+                              (.await swapped 10 TimeUnit/SECONDS))]
+      (let [render  (future
+                      (uit/render [ui/frame-root {:id :test/incarn
+                                                  :initial-events [[:rf/set-db {:n 1}]]}
+                                   [gated {}]]))]
+        (.await installed 10 TimeUnit/SECONDS)
+        (let [token-a (frame/frame-incarnation-token :test/incarn)]
+          (is (some? token-a) "the render installed its own incarnation of :test/incarn")
+          ;; actor destroys the render's incarnation and re-creates a FRESH one.
+          (frame/destroy-frame! :test/incarn)
+          (rf/make-frame {:id :test/incarn :initial-events [[:rf/set-db {:n 2}]]})
+          (let [token-b (frame/frame-incarnation-token :test/incarn)]
+            (is (and (some? token-b) (not (identical? token-a token-b)))
+                "the actor's re-created frame is a DISTINCT incarnation")
+            (.countDown swapped)          ; release the render → it tears down
+            (is (map? @render) "the held render completes and returns its tree")
+            (is (some? (frame/frame :test/incarn))
+                "the actor's re-created incarnation SURVIVES — teardown is
+                 incarnation-owned, not by bare id")
+            (is (identical? token-b (frame/frame-incarnation-token :test/incarn))
+                "…and it is unchanged — the render tore down only ITS incarnation")
+            ;; clean up the actor-owned frame; then no residue.
+            (frame/destroy-frame! :test/incarn)
+            (is (= before (set (keys @frame/frames)))
+                "no residue: the render left nothing, the actor's frame is cleaned")))))))
