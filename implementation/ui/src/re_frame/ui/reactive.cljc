@@ -110,8 +110,12 @@
   garbage. The memo is an ECONOMY, never an authority — the commit
   evidence comparison (step 5) corrects any staleness before paint."
   (:require [re-frame.error :as error]
+            [re-frame.frame :as frame]
             [re-frame.interop :as interop]
+            [re-frame.live-frame :as live-frame]
+            [re-frame.registrar :as registrar]
             [re-frame.substrate.observation :as obs]
+            [re-frame.subs.override-schema :as override-schema]
             [re-frame.ui.eq :as eq]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -131,18 +135,81 @@
 (def ^:dynamic *sub-overrides*
   "Override door: a map of query-vector → pinned value, or nil. A HIT
   resolves the site to a `:story-override` target — the pinned value IS the
-  resolution (no node), and commit acquires a STATIC lease. `:override-id`
-  is the query (the override's stable slot identity); `:version` is the
-  pinned value itself, so `current?` (a `=` on version) retargets exactly
-  when the pinned value moves."
+  resolution (no node), and commit acquires a STATIC lease
+  (`:owned? false`, callback-free). Seeded by the JVM `ui.test/render`
+  door (an explicit `binding`) and, on CLJS, by the Story skeleton off the
+  public override context (that React-context→var seeding is S2f).
+
+  ## The change token (opaque to the observation port — the target ABI)
+
+  `resolve-override` LOWERS a HIT to the port's opaque
+  `{:override-id :version}` change token (see
+  `re-frame.substrate.observation`, which compares both by `=` only and
+  never interprets them). This artefact's private lowering:
+
+    - `:override-id` ← the QUERY — the override's stable slot identity, so
+      two overrides never collide and a site dedups by its slot.
+    - `:version`     ← the VALIDATED value — the movement token, so
+      `current?` (a `=` on version) retargets EXACTLY when the surfaced
+      value moves.
+
+  Because `resolve-override` re-runs (and re-validates) every render, the
+  semantics fall out of the token:
+
+    - equal-value provider replacement → same validated value → version
+      unchanged → the kept-check retains the static lease (no retarget).
+    - nested providers → the CLOSEST enclosing override wins (the innermost
+      `*sub-overrides*` binding / React-context map) → its value is the token.
+    - value change → version differs → the site retargets to a fresh
+      static lease carrying the new value.
+    - HMR / schema change → the override is re-validated against the
+      CURRENT registration each render; a schema that now rejects a
+      previously-valid value flips the surfaced value to nil, moving the
+      version and retargeting the site to nil."
   nil)
 
+(defn- override-sub-meta
+  "The target sub's registration metadata for override-value validation,
+  resolved through the CURRENT frame's IMAGE generation when a scope is in
+  effect (so a multi-image frame validates against its own image's schema —
+  parity with the subscription resolution `re-frame.substrate.observation`
+  performs), else the global registrar (absence-is-default). Non-throwing;
+  nil when the entry sub is unregistered (validation then no-ops)."
+  [query-v]
+  (if-some [frame-id (frame/resolve-current-frame)]
+    (live-frame/call-with-frame-resolution
+      (live-frame/frame-resolution-target frame-id)
+      (fn [] [(registrar/lookup :sub (first query-v)) frame-id]))
+    [(registrar/lookup :sub (first query-v)) nil]))
+
 (defn- resolve-override
+  "Resolve a Story `:sub-overrides` HIT for `query`, or nil on a miss.
+
+  The ENTIRE consult — the `*sub-overrides*` dynamic-var read, the schema
+  validation, and the token lowering — sits behind `interop/debug-enabled?`
+  so a PRODUCTION build (Story absent) carries ZERO per-sub branch, no
+  dynamic-var read, and none of these bytes on the subscription render
+  path: the whole body DCEs under `:advanced` + `goog.DEBUG=false`, and
+  `sub-read`'s `(some? override)` folds to false (rf2-vxgfnd.21).
+
+  On a HIT the pinned value is schema-validated against the target sub's
+  declared output `:schema` through the SHARED
+  `override-schema/validate-sub-override!` primitive — the SAME registered
+  validator + `:rf.error/schema-validation-failure {:where :sub-override}`
+  emission + recover-to-nil the Reagent-family `subscribe` path applies, so
+  the compiled view can never surface a state the sub's own schema says is
+  impossible. A nil-valued (or validation-failed) HIT stays a HIT (distinct
+  from a miss). The returned map is the port's opaque change token (see
+  `*sub-overrides*`)."
   [query]
-  (when-some [m *sub-overrides*]
-    (when (contains? m query)
-      (let [v (get m query)]
-        {:value v :override-id query :version v}))))
+  (when interop/debug-enabled?
+    (when-some [m *sub-overrides*]
+      (when (contains? m query)
+        (let [raw            (get m query)
+              [sub-meta fid] (override-sub-meta query)
+              v              (override-schema/validate-sub-override!
+                               raw query sub-meta fid)]
+          {:value v :override-id query :version v})))))
 
 ;; ---------------------------------------------------------------------------
 ;; Ambient render capture

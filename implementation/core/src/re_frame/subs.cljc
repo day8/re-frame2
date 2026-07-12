@@ -44,6 +44,12 @@
             [re-frame.source-coords :as source-coords]
             [re-frame.subs.cache :as subs-cache]
             [re-frame.subs.memo :as subs-memo]
+            ;; The ONE shared Story-override schema-validation primitive
+            ;; (rf2-vxgfnd.21) — reused verbatim by the compiled-view path
+            ;; (`re-frame.ui.reactive`) so both tiers reject a schema-invalid
+            ;; override identically. Reached ONLY inside the CLJS
+            ;; `interop/debug-enabled?` gate below, so it DCEs in production.
+            [re-frame.subs.override-schema :as override-schema]
             [re-frame.trace :as trace
              #?@(:cljs [:include-macros true])]
             ;; JVM autoload: the tooling sibling has zero
@@ -1195,83 +1201,21 @@
 
 ;; ---- the sub-override subscribe seam (CLJS, dev-only) --------------------
 ;;
-;; See the block comment inside `subscribe` for the full rationale. These
-;; two helpers are CLJS-only and consulted ONLY inside the
+;; See the block comment inside `subscribe` for the full rationale. This
+;; helper is CLJS-only and consulted ONLY inside the
 ;; `interop/debug-enabled?` gate, so the whole seam DCEs under `:advanced`
 ;; + `goog.DEBUG=false`. The resolver fn + the React-context reader are
 ;; published from Story / the CLJS-only carriage ns
 ;; (`re-frame.adapter.sub-override-context`) via the
 ;; `:subs/resolve-sub-override` late-bind hook, so core never `:require`s
 ;; a tools ns (bundle-isolation holds).
-
-#?(:cljs
-   (defn- maybe-validate-sub-override!
-     "When a `:sub-overrides` HIT targets a sub that
-     declares an output `:schema`, validate the pinned `value` against it
-     the SAME way Spec 010 §step 6 validates a `:sub-return` — through the
-     registered validator reached via the `:schemas/validate-with-registered-fn`
-     late-bind hook (NOT a second validation mechanism). On a mismatch,
-     emit `:rf.error/schema-validation-failure` with a NEW `:where
-     :sub-override` discriminator and return nil, mirroring `:sub-return`'s
-     `:replaced-with-default` recovery (observational, dev-only — the
-     failure is surfaced, the violating value is replaced with the
-     default). On a pass / no `:schema` / no registered validator, returns
-     `value` unchanged.
-
-     Rationale: an override that violates the sub's own output contract is
-     exactly the 'pin a state the real derivation could never produce'
-     anti-pattern; schema-validating it closes that honesty gap. Reuses
-     the registered validator so a substituted (non-Malli) validator
-     covers this surface identically to `:sub-return`.
-
-     `frame-id` is the subscribing frame — stamped onto the
-     failure trace so `re-frame.epoch.capture/capture-event!` (which
-     buffers only frame-tagged traces) attributes the override-validation
-     failure to that frame's epoch, mirroring `:sub-return`'s `:frame`
-     stamp (validate.cljc `validate-sub!` 5-arity). Without it the trace
-     is invisible to the per-frame epoch / Xray Schema-timeline lens."
-     [value query-v sub-meta frame-id]
-     (let [schema (:schema sub-meta)]
-       (if (and schema (some? sub-meta))
-         (if-let [validate (late-bind/get-fn-cached :schemas/validate-with-registered-fn)]
-           (if (try (validate schema value)
-                    ;; A throwing validator must not crash the render; treat
-                    ;; it as a pass (mirrors `subs.memo/maybe-validate-sub!`).
-                    (catch :default _ true))
-             value
-             (let [sub-id  (first query-v)
-                   explain (when-let [exp (late-bind/get-fn-cached
-                                            :schemas/explain-with-registered-fn)]
-                             (try (exp schema value) (catch :default _ nil)))
-                   ;; Route the value-bearing slots (`:value` /
-                   ;; `:received` / `:explain` / `:rf.sub/query-v`) through the
-                   ;; SHARED schema-aware redaction seam so a `:sub-override`
-                   ;; on a `:sensitive?`-marked sub schema scrubs identically
-                   ;; to the regular `:sub-return` path (which redacts via
-                   ;; `validate-sub!`). This override path bypasses
-                   ;; `validate-sub!`, so the seam is what keeps the failing
-                   ;; value from leaking verbatim on the `:sub-override`
-                   ;; surface.
-                   redact  (late-bind/get-fn-cached :schemas/redact-validation-tags)
-                   tags    (cond-> {:where          :sub-override
-                                    :rf.sub/id      sub-id
-                                    :failing-id     sub-id
-                                    :schema-id      sub-id
-                                    :rf.sub/query-v query-v
-                                    :received       value
-                                    :value          value
-                                    :explain        explain
-                                    :reason         (str "Subscription " sub-id
-                                                         " :sub-override value failed schema "
-                                                         (pr-str schema) ".")
-                                    :recovery       :replaced-with-default}
-                             frame-id (assoc :frame frame-id))]
-               (trace/emit-error! :rf.error/schema-validation-failure
-                                  (cond-> tags
-                                    redact (->> (redact schema))))
-               nil))
-           value)
-         value))))
+;;
+;; The schema-validation fold-in (`:where :sub-override` — an override
+;; that violates the sub's own declared `:schema` is the 'pin a state the
+;; real derivation could never produce' anti-pattern) lives in the ONE
+;; shared `re-frame.subs.override-schema/validate-sub-override!` primitive
+;; (rf2-vxgfnd.21) so the compiled-view path applies byte-identical
+;; validation + `:replaced-with-default` recovery.
 
 #?(:cljs
    (defn- resolve-sub-override
@@ -1281,12 +1225,12 @@
      returns `[value]` on a hit (a one-element vector so a nil-valued
      override is honoured) or nil on a miss / unbound.
 
-     On a HIT, schema-validate the pinned value (see
-     `maybe-validate-sub-override!`) and return a CONSTANT reaction
-     `(adapter/make-derived-value [] (constantly v))` — no inputs, never
-     recomputes, never cached, never touches app-db / `compute-sub`. On a
-     miss / unbound / unpublished hook, return nil so `subscribe` falls
-     through to the normal build-and-cache path.
+     On a HIT, schema-validate the pinned value (the shared
+     `override-schema/validate-sub-override!` primitive) and return a
+     CONSTANT reaction `(adapter/make-derived-value [] (constantly v))` —
+     no inputs, never recomputes, never cached, never touches app-db /
+     `compute-sub`. On a miss / unbound / unpublished hook, return nil so
+     `subscribe` falls through to the normal build-and-cache path.
 
      CLJS-only and called ONLY inside `subscribe`'s `interop/debug-enabled?`
      gate, so this DCEs in production."
@@ -1295,7 +1239,7 @@
        (when-let [hit (resolve-override query-v)]
          (let [v        (first hit)
                sub-meta (registrar/lookup :sub (first query-v))
-               v*       (maybe-validate-sub-override! v query-v sub-meta frame-id)]
+               v*       (override-schema/validate-sub-override! v query-v sub-meta frame-id)]
            (adapter/make-derived-value [] (constantly v*)))))))
 
 (defn- subscribe-in-frame
