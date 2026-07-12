@@ -533,6 +533,56 @@
       (obs/release! lease))))
 
 ;; ===========================================================================
+;; rf2-vxgfnd.28 — the disposal-notification drain contains a throwing owner
+;; and SURFACES the escape (it was the one uncontained fan-out)
+;;
+;; drain-pending-disposals! reset-vals!-empties the queue then notifies every
+;; queued owner. Pre-fix a throw from owner k aborted k+1..n, whose
+;; notifications were already dequeued and thus LOST — and on the :hmr path the
+;; drain runs inside the registrar replacement hook, whose per-hook catch DROPS
+;; the throw (no log/trace/record), swallowing even the dev
+;; :rf.error/reentrant-graph-op assert exactly where it matters. The fix wraps
+;; each lease's notify in its own try/catch (siblings never starve), fans a
+;; TYPED escape onto the always-on axis (SEEN through the registrar's swallow),
+;; and re-throws after the whole drain (never silent).
+;; ===========================================================================
+
+(deftest disposal-drain-contains-a-throwing-owner-and-surfaces-the-escape
+  (reg-items!)
+  (seed-items! [:a])
+  (let [target    (items-target)
+        notes-b   (atom [])
+        bad-lease (atom nil)
+        ;; Owner A: its on-change does a FORBIDDEN reentrant release! from inside
+        ;; the fan-out → throws the dev :rf.error/reentrant-graph-op assert,
+        ;; escaping the notification (it does NOT catch its own throw).
+        la  (obs/acquire! target (fn [_n] (obs/release! @bad-lease)))
+        ;; Owner B: a well-behaved sibling that MUST still be notified.
+        lb  (obs/acquire! target (fn [n] (swap! notes-b conj n)))]
+    (reset! bad-lease la)
+    (is (= 2 (obs/active-owner-count (:reaction (entry [:obs/items]))))
+        "both owners are enrolled on the shared node")
+    ;; The HMR re-registration disposes the shared node and drains BOTH former
+    ;; owners at the registrar replacement boundary — the exact swallow-prone
+    ;; path. reg-items! itself returns normally: the registrar isolates the
+    ;; replacement hook, so the drain's rethrow is swallowed there and it is the
+    ;; ALWAYS-ON fan that carries visibility.
+    (let [[[outcome _] records] (with-error-records #(reg-items!))]
+      (testing "the throwing owner did NOT starve its sibling — B notified once"
+        (is (= 1 (count @notes-b)))
+        (is (= :hmr (:cause (first @notes-b)))))
+      (testing "the escape is SEEN on the always-on axis despite the registrar's
+                per-hook swallow (rf2-vxgfnd.28 — reentrant-graph-op exists to be seen)"
+        (is (some #(= :rf.error/reentrant-graph-op (:error %)) records)
+            "the swallowed reentrant-graph-op reached the always-on error surface"))
+      (testing "reg-items! returned normally — the registrar isolates the hook"
+        (is (= :ok outcome))))
+    ;; Owner A's release! never completed (it threw); both are cleanly releasable
+    ;; outside the fan-out now.
+    (obs/release! la)
+    (obs/release! lb)))
+
+;; ===========================================================================
 ;; rf2-vxgfnd.63 — a live-cache DISPLACEMENT must not be misclassified as frame
 ;; destruction during acquire!
 ;;
