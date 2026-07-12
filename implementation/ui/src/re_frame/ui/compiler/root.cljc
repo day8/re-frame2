@@ -45,6 +45,7 @@
   (:require [clojure.string :as str]
             [re-frame.error :as error]
             [re-frame.ui.compiler.analyze :as ana]
+            [re-frame.ui.compiler.build :as build]
             [re-frame.ui.compiler.env :as env]
             [re-frame.ui.fingerprint :as fingerprint]
             #?@(:clj [[re-frame.ui.compiler :as compiler]
@@ -297,12 +298,24 @@
   build-descriptors
   (atom {}))
 
+;; Enrol the three Layer-1 / descriptor aggregates in the one build-scoped
+;; state model (rf2-vxgfnd.16) so a recompiled / edited / renamed / removed
+;; source replaces its whole prior contribution atomically — a deleted root
+;; or plan cannot linger to raise a FALSE cross-file duplicate/conflict, and
+;; the indexes stay a pure function of the current build inputs.
+(build/register! build/roots build-roots)
+(build/register! build/plans build-plans)
+(build/register! build/descriptors build-descriptors)
+
 (defn reset-build-registries!
-  "Test support: wipe the Layer-1 indexes + descriptor index."
+  "Hard-clear every build-scoped compiler registry (views, the Layer-1
+  root/plan indexes, the descriptor index, compile-time custom-elements)
+  and the contribution ledger — the clean-build / test-isolation boundary.
+  Delegates to the one build-scoped model; correctness across a watch
+  session comes from per-source replacement on `build/begin-build!`, not
+  from this wipe (rf2-vxgfnd.16 AC6)."
   []
-  (reset! build-roots {})
-  (reset! build-plans {})
-  (reset! build-descriptors {})
+  (build/reset-build!)
   nil)
 
 (defn- site-str [{:keys [file line]}]
@@ -314,6 +327,10 @@
   `:rf.error/duplicate-root-id` — thrown through the canonical builder,
   with the both-derived didactic fix per the contract."
   [where root-id provenance coords]
+  ;; Evict THIS source's prior root rows first (build-scoped replace), so a
+  ;; moved / renamed / deleted site never conflicts with its own ghost and
+  ;; a deleted site cannot fail a later file (rf2-vxgfnd.16).
+  (build/open-source! build/roots (:file coords))
   (let [existing (get @build-roots root-id)]
     (when (and existing
                (:file existing) (:file coords)
@@ -332,6 +349,7 @@
                 :provenance [(:provenance existing) provenance]
                 :sites      [(dissoc existing :provenance) coords]}}))
     (swap! build-roots assoc root-id (assoc coords :provenance provenance))
+    (build/note! build/roots (:file coords) root-id)
     nil))
 
 (defn register-plan-site!
@@ -341,6 +359,10 @@
   re-registration replaces — watch tolerance; matching fingerprints are
   the ratified idempotent no-op)."
   [where {:keys [frame-id config-fingerprint]} coords]
+  ;; Evict THIS source's prior plan rows first (build-scoped replace) — a
+  ;; deleted / edited plan never conflicts with its own ghost, and a
+  ;; removed plan cannot fail a later file (rf2-vxgfnd.16).
+  (build/open-source! build/plans (:file coords))
   (let [existing (get @build-plans frame-id)]
     (when (and existing
                (not= (:config-fingerprint existing) config-fingerprint)
@@ -361,6 +383,7 @@
     (swap! build-plans assoc frame-id {:config-fingerprint config-fingerprint
                                        :file (:file coords)
                                        :line (:line coords)})
+    (build/note! build/plans (:file coords) frame-id)
     nil))
 
 ;; ---------------------------------------------------------------------------
@@ -514,7 +537,8 @@
               desc   (root-descriptor {:root-id root-id :provenance provenance
                                        :views views :plans plans :ast ast
                                        :build-digest (compiler/current-build-digest)})
-              _      (swap! build-descriptors assoc root-id desc)
+              _      (build/contribute! build/descriptors (:file coords)
+                                        root-id desc)
               body   (emit-cljs/emit-inline ast 'rf-ui-root)]
           `(re-frame.ui.client/mount*
             {:root-id ~root-id
@@ -614,7 +638,7 @@
             (when (= 1 (count views))
               (let [derived (:view-id (first views))]
                 (register-root-site! 'ui/hydrate-root derived :derived coords)
-                (swap! build-descriptors assoc derived
+                (build/contribute! build/descriptors (:file coords) derived
                        (root-descriptor {:root-id derived :provenance :derived
                                          :views views :plans plans :ast ast
                                          :build-digest (compiler/current-build-digest)}))))
