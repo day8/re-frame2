@@ -13,7 +13,10 @@
   host `.unmount` thunk, so every cell whose cleanup (`disconnect!`) fires
   DURING the unmount is captured, then upgraded via the shared `teardown!`
   primitive. An Activity hide (a `disconnect!` with the window UNARMED) is never
-  captured and stays reconnectable — the discriminator this file pins.
+  captured — but a cell hidden BEFORE the window still belongs to its root, so
+  root teardown reaps it through the root-incarnation ownership registry
+  (rf2-vxgfnd.85), while a hide with NO teardown stays reconnectable. Both are
+  the discriminators this file pins.
 
   `.cljc` ending `-cljs-test` runs on node (`test:cljs`) AND JVM
   (`clojure -M:test`), so the ownership/lifecycle logic is graft-checked on
@@ -49,6 +52,15 @@
     (reactive/with-capture cell (fn [] (mapv reactive/sub-read queries))))
   (reactive/commit! cell)
   cell)
+
+(defn- mount!
+  "Graft analogue of a real mount UNDER a root: mint a cell for view `vid`,
+  attach it to root `incarnation` (the ownership that survives an Activity hide),
+  then commit it connected under frame `fid` observing `queries`."
+  [vid incarnation fid queries]
+  (let [cell (reactive/make-cell vid)]
+    (reactive/attach-root! cell incarnation)
+    (render+commit! cell fid queries)))
 
 (defn- throws-id [thunk]
   (try (thunk) nil
@@ -120,18 +132,125 @@
              (peek (reactive/intervals cell)))
           "annotated :activity-hidden {:proof :reconnect} — never mislabeled unmounted"))))
 
-(deftest hide-outside-a-window-is-not-captured-by-a-later-teardown
-  ;; A cell hidden BEFORE any root teardown left the window unarmed, so it is
-  ;; not captured — the collection is bounded to cells disconnecting DURING the
-  ;; host unmount (matching live-cells' removed-on-disconnect membership).
+;; ===========================================================================
+;; rf2-vxgfnd.85 — root teardown reaps cells ALREADY Activity-hidden before the
+;; window, via the root-incarnation ownership that survives the hide
+;; ===========================================================================
+
+(deftest root-teardown-reaps-a-cell-hidden-before-the-window
+  ;; The corrected contract (replaces the #5755 test that blessed the miss). A
+  ;; cell hidden by Activity BEFORE any teardown window left :connected, so its
+  ;; cleanup can never enrol it in the window — and React does not re-run an
+  ;; already-destroyed effect when it discards the hidden fiber at root unmount.
+  ;; Root membership SURVIVES the hide via `root-cells`, so an explicit root
+  ;; teardown reaps the already-hidden cell: it must NOT linger reconnectable
+  ;; after its root is gone.
   (rf/reg-sub :rt/a (fn [db _] (:a db)))
   (let [fid  (make-frame! :rt/frame {:a 1})
-        cell (render+commit! (reactive/make-cell ::v) fid [[:rt/a]])]
-    (reactive/disconnect! cell)                       ;; hide, window unarmed
-    (is (= 0 (reactive/teardown-root! (fn [] nil)))   ;; an empty host unmount
-        "a teardown whose unmount disconnects nothing tears down nothing")
-    (is (= :disconnected (reactive/lifecycle cell))
-        "the already-hidden cell is untouched — still reconnectable, not :dead")))
+        inc  (reactive/make-root-incarnation)
+        cell (mount! ::v inc fid [[:rt/a]])]
+    (testing "Activity hide — window unarmed — is the transient :unknown, still owned"
+      (reactive/disconnect! cell)
+      (is (= :disconnected (reactive/lifecycle cell)))
+      (is (= {:state :disconnected :reason :unknown} (peek (reactive/intervals cell))))
+      (is (identical? inc (reactive/cell-root cell)) "root membership SURVIVES the hide")
+      (is (= 1 (reactive/root-cell-count inc)) "…the cell is still owned"))
+    (testing "root teardown reaps the already-hidden cell → :dead {:proof :host-teardown}"
+      (is (= 1 (reactive/teardown-root! inc (fn [] nil)))
+          "the empty host unmount collects nothing, yet the owned hidden cell is reaped")
+      (is (= :dead (reactive/lifecycle cell)))
+      (is (= {:state :disconnected :reason :unmounted :proof :host-teardown}
+             (peek (reactive/intervals cell)))
+          "the prior :unknown disconnect is upgraded — never left reconnectable"))
+    (testing "ownership is bounded — the incarnation is dropped on final teardown"
+      (is (= 0 (reactive/root-cell-count inc)) "no membership lingers for the incarnation")
+      (is (= 0 (reactive/root-cell-count)) "no historical incarnation retained"))
+    (testing "the reaped cell fails a recommit through the dead-cell lifecycle"
+      (rf/with-frame fid
+        (reactive/with-capture cell (fn [] (reactive/sub-read [:rt/a]))))
+      (is (= :rf.error/frame-destroyed (throws-id #(reactive/commit! cell)))
+          "a retained handle cannot reconnect after its root is gone"))))
+
+(deftest a-hide-without-root-teardown-stays-reconnectable
+  ;; The discriminator: an Activity hide with NO root teardown must stay
+  ;; reconnectable and be proven :activity-hidden on reveal — the ownership
+  ;; registry must never itself kill a merely-hidden cell.
+  (rf/reg-sub :rt/a (fn [db _] (:a db)))
+  (let [fid  (make-frame! :rt/frame {:a 1})
+        inc  (reactive/make-root-incarnation)
+        cell (mount! ::v inc fid [[:rt/a]])]
+    (reactive/disconnect! cell)
+    (is (= :disconnected (reactive/lifecycle cell)) "hidden, not :dead")
+    (is (= 1 (reactive/root-cell-count inc)) "still owned — reapable only by ITS root")
+    (testing "a reveal reconnects and proves the interval an Activity hide"
+      (render+commit! cell fid [[:rt/a]])
+      (is (= :connected (reactive/lifecycle cell)))
+      (is (= {:state :disconnected :reason :activity-hidden :proof :reconnect}
+             (peek (reactive/intervals cell)))
+          "never mislabeled unmounted — the registry did not kill a live-again cell"))))
+
+(deftest root-teardown-reaps-hidden-siblings-via-a-captured-cells-incarnation
+  ;; The `[unmount-thunk]` arity (the current client call, no explicit
+  ;; incarnation): a cell that disconnects DURING the window names its root's
+  ;; incarnation, so a SIBLING under the same root that was hidden BEFORE the
+  ;; window is reaped too — the common real unmount (some cells shown, some
+  ;; already Activity-hidden).
+  (rf/reg-sub :rt/a (fn [db _] (:a db)))
+  (let [fid    (make-frame! :rt/frame {:a 1})
+        inc    (reactive/make-root-incarnation)
+        shown  (mount! ::shown inc fid [[:rt/a]])
+        hidden (mount! ::hidden inc fid [[:rt/a]])]
+    (reactive/disconnect! hidden)                      ;; hidden BEFORE the window
+    (is (= :disconnected (reactive/lifecycle hidden)))
+    (is (= :connected (reactive/lifecycle shown)))
+    (is (= 2 (reactive/teardown-root! (fn [] (reactive/disconnect! shown))))
+        "both reaped: the window-captured cell + its already-hidden sibling")
+    (is (= :dead (reactive/lifecycle shown)) "the captured cell")
+    (is (= :dead (reactive/lifecycle hidden))
+        "the pre-hidden sibling is reaped via the captured cell's incarnation")
+    (is (= 0 (reactive/root-cell-count inc)) "the incarnation is fully drained")))
+
+(deftest root-teardown-does-not-reap-a-sibling-roots-hidden-cell
+  ;; Incarnation-scoped: tearing down root A never reaps root B's hidden cell,
+  ;; even though both are :disconnected at once (sibling-root isolation).
+  (rf/reg-sub :rt/a (fn [db _] (:a db)))
+  (let [fid    (make-frame! :rt/frame {:a 1})
+        inc-a  (reactive/make-root-incarnation)
+        inc-b  (reactive/make-root-incarnation)
+        cell-a (mount! ::a inc-a fid [[:rt/a]])
+        cell-b (mount! ::b inc-b fid [[:rt/a]])]
+    (reactive/disconnect! cell-a)                      ;; both hidden at once
+    (reactive/disconnect! cell-b)
+    (is (= 1 (reactive/teardown-root! inc-a (fn [] nil))) "root A reaps only its own")
+    (is (= :dead (reactive/lifecycle cell-a)) "root A's hidden cell dies")
+    (is (= :disconnected (reactive/lifecycle cell-b))
+        "root B's hidden cell is untouched — still reconnectable")
+    (is (= 1 (reactive/root-cell-count inc-b)) "…and still owned by B")
+    (testing "root B's hidden cell still reconnects cleanly"
+      (render+commit! cell-b fid [[:rt/a]])
+      (is (= :connected (reactive/lifecycle cell-b))))))
+
+(deftest a-stale-incarnation-teardown-cannot-reap-a-replacement-roots-cell
+  ;; Root incarnation is a per-mount identity, NOT the reusable root-id. A root
+  ;; torn down and re-mounted under the SAME root-id gets a FRESH incarnation, so
+  ;; replaying the STALE incarnation's teardown reaps nothing in the replacement
+  ;; (rf2-vxgfnd.85 — incarnation-safety).
+  (rf/reg-sub :rt/a (fn [db _] (:a db)))
+  (let [fid   (make-frame! :rt/frame {:a 1})
+        inc-1 (reactive/make-root-incarnation)
+        cell1 (mount! ::v inc-1 fid [[:rt/a]])]
+    (reactive/disconnect! cell1)
+    (reactive/teardown-root! inc-1 (fn [] nil))
+    (is (= :dead (reactive/lifecycle cell1)) "the first incarnation is torn down")
+    (let [inc-2 (reactive/make-root-incarnation)
+          cell2 (mount! ::v inc-2 fid [[:rt/a]])]     ;; replacement, same view-id
+      (reactive/disconnect! cell2)                     ;; hidden
+      (is (not (identical? inc-1 inc-2)) "a fresh incarnation despite the same root-id")
+      (is (= 0 (reactive/teardown-root! inc-1 (fn [] nil)))
+          "replaying the stale incarnation reaps nothing")
+      (is (= :disconnected (reactive/lifecycle cell2))
+          "the replacement root's hidden cell is untouched")
+      (is (= 1 (reactive/root-cell-count inc-2))))))
 
 ;; ===========================================================================
 ;; Root isolation — a teardown only claims the cells its own unmount disconnects
