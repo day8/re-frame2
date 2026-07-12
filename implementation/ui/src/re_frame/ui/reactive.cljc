@@ -605,12 +605,52 @@
 (defn set-evidence-sink!
   "Install (or clear, with nil) the DEBUG-only invalidation-evidence consumer
   — a `(fn [cell evidence] …)` the flush invokes with each pending cell's
-  coalesced bounded evidence just before advancing its revision. The intended
-  `re-frame.ui.tool`/Xray projection point; the flush's call is gated on
-  `interop/debug-enabled?`, so it is a no-op in production. Returns nil."
+  coalesced bounded evidence just after it completes that cell's flush. The
+  intended `re-frame.ui.tool`/Xray projection point; the flush's call is gated
+  on `interop/debug-enabled?`, so it is a no-op in production. A THROWING sink
+  is contained by the flush (see `flush-one!` / `report-sink-escape!`) and can
+  never strand a cell or abort the render batch. Returns nil."
   [f]
   (reset! evidence-sink f)
   nil)
+
+(defonce ^:private last-sink-escape
+  ;; The single bounded diagnostic slot for a CONTAINED evidence-sink throw
+  ;; (`{:cell cell :error e}` | nil). The evidence-sink is a DEBUG-only tool
+  ;; consumer of the scheduler, NEVER an authority over it: a throwing sink
+  ;; must never strand a cell (the acceptance bug rf2-vxgfnd.73) — so
+  ;; `flush-one!` completes every cell's flush FIRST and CONTAINS the sink's
+  ;; throw, and `flush-scope!` records the escape here (overwritten — one slot,
+  ;; the newest escape) plus one host-console diagnostic per batch. Observable
+  ;; via `last-evidence-sink-escape` so the escape is never silent. `defonce`
+  ;; (module-lived); `reset-scheduler!` clears it between fixtures.
+  (atom nil))
+
+(defn- report-sink-escape!
+  "DEV plane: contain the fallout of a THROWING `evidence-sink`. The flush has
+  ALREADY completed every drained cell's scheduler state (`:dirty?`/evidence
+  cleared, revision advanced, listeners notified), so this is a pure
+  after-the-fact report that can neither strand a cell nor abort the batch.
+  Record the escape in the single bounded `last-sink-escape` slot (a
+  tool/test read — `last-evidence-sink-escape`) and, on CLJS, emit ONE host
+  `console.warn` naming the offending view. Reporting NEVER routes back through
+  `evidence-sink` (no recursion). Called at most once per `flush-scope!` batch,
+  and only from its debug-gated branch, so the whole helper DCEs under
+  `goog.DEBUG=false`. `escape` is `{:cell cell :error e}`."
+  [{:keys [cell error] :as escape}]
+  (reset! last-sink-escape escape)
+  #?(:cljs
+     (when (exists? js/console)
+       (.warn js/console
+              (str "[re-frame.ui] an evidence-sink (the DEBUG "
+                   "invalidation-evidence consumer — e.g. Xray) threw while the "
+                   "scheduler flushed view " (pr-str (:view-id @(state cell)))
+                   " — the throw was CONTAINED so the render correction still "
+                   "completed and the batch was not aborted; a debug observer "
+                   "cannot corrupt flush completion. Fix the sink callback "
+                   "installed with (set-evidence-sink! …). Cause: "
+                   (error/ex-message-safe error))))
+     :clj nil))
 
 (defn- enrol-dirty!
   "The PRODUCTION scheduling core: flag `cell` pending, enrol it in the dirty
@@ -645,17 +685,37 @@
 (defn- flush-one!
   "Clear `cell`'s pending flag and advance its revision once (the caller has
   already removed it from the registry). No-op when not dirty — idempotent
-  under a concurrent drain. In DEV/tool builds, first hands the coalesced
-  bounded evidence to the installed `evidence-sink` (Xray): the flush CARRIES
-  the causal summary to its consumer before clearing it (rf2-vxgfnd.46)."
+  under a concurrent drain.
+
+  SCHEDULER COMPLETION IS ISOLATED FROM THE DEBUG OBSERVER (rf2-vxgfnd.73).
+  The flush COMPLETES first — captures the pre-clear bounded evidence, clears
+  `:dirty?`/evidence, and advances the revision (notifying listeners) — and
+  only THEN hands the captured summary to the installed `evidence-sink` (Xray;
+  rf2-vxgfnd.46), inside a guard. A THROWING sink is a broken DEBUG tool, never
+  an authority over the render correction: its throw is CONTAINED here (caught
+  and returned to `flush-scope!` for one bounded batch diagnostic) so it can
+  neither strand this cell in a dirty-but-unregistered limbo nor abort the
+  batch's remaining cells. Because the flush already cleared `:dirty?` and
+  advanced the revision, a re-entrant sink that re-marks this (or any) cell
+  enrols a FRESH pending window rather than losing the notification. The sink
+  still receives the exact pre-clear bounded summary once per flushed cell.
+  Returns `{:cell cell :error e}` on a contained sink escape (DEV only), else
+  nil; the whole evidence/containment path DCEs under `goog.DEBUG=false`."
   [^ViewCell cell]
   (let [st (state cell)]
     (when (:dirty? @st)
-      (when interop/debug-enabled?
-        (when-some [sink @evidence-sink]
-          (sink cell (:evidence @st))))
-      (swap! st assoc :dirty? false :evidence nil)
-      (advance-revision! cell))))
+      (let [ev   (when interop/debug-enabled? (:evidence @st))
+            sink (when interop/debug-enabled? @evidence-sink)]
+        ;; complete the flush FIRST — a throwing sink below cannot pre-empt it
+        (swap! st assoc :dirty? false :evidence nil)
+        (advance-revision! cell)
+        ;; DEV: best-effort evidence delivery, CONTAINED (never re-enters here)
+        (when (and interop/debug-enabled? (some? sink))
+          (try
+            (sink cell ev)
+            nil
+            (catch #?(:clj Throwable :cljs :default) e
+              {:cell cell :error e})))))))
 
 (defn flush-scope!
   "The scoped-flush PRIMITIVE: synchronously flush every pending cell for
@@ -668,8 +728,21 @@
   (let [[old _] (swap-vals! dirty-cells
                             (fn [cells] (into #{} (remove scope-pred) cells)))
         flushed (filterv scope-pred old)]
-    (doseq [cell flushed]
-      (flush-one! cell))
+    (if interop/debug-enabled?
+      ;; DEV: complete EVERY cell's flush regardless of tool behaviour — a
+      ;; throwing `evidence-sink` is contained per-cell in `flush-one!` (which
+      ;; returns the escape rather than propagating), so one bad debug callback
+      ;; can neither strand its cell nor abort the batch. Capture the FIRST
+      ;; escape and emit ONE bounded diagnostic for the batch; never through
+      ;; the sink. This whole branch DCEs under `goog.DEBUG=false`, leaving the
+      ;; production `doseq` below.
+      (let [escape (reduce (fn [acc cell] (let [e (flush-one! cell)] (or acc e)))
+                           nil
+                           flushed)]
+        (when (some? escape)
+          (report-sink-escape! escape)))
+      (doseq [cell flushed]
+        (flush-one! cell)))
     (count flushed)))
 
 (defn flush-pending!
@@ -750,6 +823,16 @@
   []
   (count @dirty-cells))
 
+(defn last-evidence-sink-escape
+  "The most recent CONTAINED `evidence-sink` throw as `{:cell cell :error e}`,
+  or nil when no sink has thrown since the last `reset-scheduler!` (or in a
+  production build, where the debug evidence plane is elided). A throwing
+  DEBUG sink never strands a cell or aborts a flush batch (rf2-vxgfnd.73) — it
+  is contained and surfaced HERE (plus a host `console.warn`) so the escape is
+  never silent (tool/test read)."
+  []
+  @last-sink-escape)
+
 (defn reset-scheduler!
   "Test support: drop every pending notification and the slice memo without
   advancing any revision — a clean slate between fixtures. Returns nil."
@@ -760,6 +843,7 @@
   (reset! live-cells #{})
   (reset! teardown-collector nil)
   (reset! evidence-sink nil)
+  (reset! last-sink-escape nil)
   nil)
 
 (defn- on-change-fn
