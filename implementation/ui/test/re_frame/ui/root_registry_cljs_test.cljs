@@ -79,6 +79,71 @@
       (is (= :page/cart (:root-id data))))))
 
 ;; ---------------------------------------------------------------------------
+;; identifier-prefix uniqueness (rf2-ez3fqk)
+;; ---------------------------------------------------------------------------
+
+(deftest shared-identifier-prefix-across-distinct-roots-fails-loud
+  ;; two DISTINCT roots (distinct root-ids, distinct containers) that author
+  ;; the SAME :identifier-prefix would alias React's use-id output. The
+  ;; derived default is injective over root-id (rf2-vxgfnd.17), so this
+  ;; backstops AUTHORED prefixes; the check is registry-level (claim time).
+  (let [c1 (js-obj) c2 (js-obj)
+        info-a {:root-id :page/a :provenance :authored :identifier-prefix "app-"}]
+    (client/check-root-claim! 're-frame.ui/mount info-a c1)
+    (client/register-live-root! info-a c1 (fake-root :page/a))
+    (let [{:keys [id data msg]}
+          (thrown-error
+           #(client/check-root-claim! 're-frame.ui/mount
+                                      {:root-id :page/b :provenance :authored
+                                       :identifier-prefix "app-"}
+                                      c2))]
+      (is (= :rf.error/duplicate-identifier-prefix id))
+      (is (= :page/a (:owner-root-id data)) "the data map names the owning root")
+      (is (= :page/b (:root-id data)))
+      (is (= "app-" (:identifier-prefix data)))
+      (is (error/message-has-id-token? msg))
+      (is (= #{:page/a} (client/live-root-ids))
+          "the existing root is untouched (failure isolation)"))))
+
+(deftest release-frees-the-identifier-prefix
+  ;; unregistering the owner frees its prefix — a different root may then
+  ;; claim it (release rides the same registry entry, no side index).
+  (let [c1 (js-obj) c2 (js-obj)
+        info-a {:root-id :page/a :provenance :authored :identifier-prefix "app-"}
+        r-a (fake-root :page/a)]
+    (client/register-live-root! info-a c1 r-a)
+    (client/release-root! :page/a r-a)
+    (is (nil? (thrown-error
+               #(client/check-root-claim! 're-frame.ui/mount
+                                          {:root-id :page/b :provenance :authored
+                                           :identifier-prefix "app-"}
+                                          c2)))
+        "the prefix is free once its owner is released")))
+
+(deftest distinct-prefixes-and-absent-prefixes-do-not-alias
+  ;; distinct effective prefixes coexist; and entries without an effective
+  ;; prefix (bare infos — the derived-default path always supplies one, but
+  ;; the registry helpers accept bare infos) never trip the check.
+  (let [c1 (js-obj) c2 (js-obj) c3 (js-obj)]
+    (client/register-live-root! {:root-id :page/a :provenance :authored
+                                 :identifier-prefix "a-"}
+                                c1 (fake-root :page/a))
+    (is (nil? (thrown-error
+               #(client/check-root-claim! 're-frame.ui/mount
+                                          {:root-id :page/b :provenance :authored
+                                           :identifier-prefix "b-"}
+                                          c2)))
+        "distinct prefixes are fine")
+    ;; a bare info (no :identifier-prefix) against a prefixed live root — the
+    ;; arm is a no-op, so only the root-id/container arms can fire (neither
+    ;; does here: distinct id, distinct container)
+    (is (nil? (thrown-error
+               #(client/check-root-claim! 're-frame.ui/mount
+                                          {:root-id :page/c :provenance :authored}
+                                          c3)))
+        "an absent effective prefix never aliases")))
+
+;; ---------------------------------------------------------------------------
 ;; Re-entrant mount during preflight (rf2-vxgfnd.52)
 ;; ---------------------------------------------------------------------------
 

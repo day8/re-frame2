@@ -291,14 +291,20 @@ opts, which can still collide.
 unregisters. Registering an id already live in the document throws
 `:rf.error/duplicate-root-id` (client tier) **before any render** — the existing root
 is untouched (failure isolation). This is the last line, catching fragments composed
-client-side by independently shipped bundles. Two adjacent container/ownership faults
-share the roster:
+client-side by independently shipped bundles. It also asserts **identifier-prefix
+uniqueness** across the document's live roots — the client-tier mirror of the Layer-2
+server check — so two live roots that share an effective `identifierPrefix` (only
+possible via an **authored** `:identifier-prefix`; the derived default is injective
+over root-id, §1) fail loud on the second claim rather than colliding `use-id` output;
+release frees the prefix. Two adjacent container/ownership faults and the
+prefix-uniqueness backstop share the roster:
 
 | Id | When |
 |---|---|
 | `:rf.error/duplicate-root-id` | equal root-id at any layer above |
 | `:rf.error/root-container-missing` | hydration locator resolves to no element (§4) |
 | `:rf.error/root-container-in-use` | `create-root`/`mount` on a node already owned by a different live root |
+| `:rf.error/duplicate-identifier-prefix` | `create-root`/`mount` whose effective `identifierPrefix` is already claimed by a different live root — backstops authored `:identifier-prefix` aliasing (the derived default is injective over root-id, §1) |
 | `:rf.error/root-not-live` | `render!` on a `Root` whose id is no longer live — `unmount!`ed or superseded by a newer root claiming the same id (guarded like `unmount!`, but fails loud rather than no-op, before any side effect) |
 | `:rf.error/root-manifest-invalid` | manifest missing/unreadable at hydrate, schema-version incompatible, identity opts passed client-side, unserialisable props at emit, prefix conflict |
 | `:rf.error/frame-payload-conflict` | below |
