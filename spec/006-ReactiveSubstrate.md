@@ -978,13 +978,17 @@ These are normative (R-2). Each names the bug class it deletes.
    in-tick (the 1 → 0 edge disposes synchronously, per the cache contract), and a second
    release of the same lease is a no-op. *(Deletes: deferred-release windows; cleanup
    paths that double-release under error recovery.)*
-5. **Moved evidence corrects before paint.** At commit, each acquired node's identity
-   (`:node-key`), version, and the frame/registry epochs are compared against the render's
-   probe evidence; any movement in the render→commit gap — including a same-id frame
-   **reincarnation** the `:node-key` axis catches when version + epochs coincide — advances
-   the cell's revision and notifies, and the host corrects **before paint**. *(Deletes:
-   painting a frame computed from stale reads; a coincident-version reincarnation misread
-   as unchanged.)*
+5. **Moved evidence corrects before paint.** At commit, **each acquired node** — both
+   the leases **retained** from the prior committed set and the newly **staged** ones —
+   has its identity (`:node-key`), version, and the frame/registry epochs compared against
+   the render's probe evidence; any movement in the render→commit gap — including a same-id
+   frame **reincarnation** the `:node-key` axis catches when version + epochs coincide —
+   advances the cell's revision and notifies, and the host corrects **before paint**. On a
+   **non-watchable headless host** a retained site has no value-movement watch, so this
+   comparison is its *only* correction — a staged-only comparison would leave a retained
+   site's headless movement caught by nothing. *(Deletes: painting a frame computed from
+   stale reads; a coincident-version reincarnation misread as unchanged; a retained
+   headless site that self-corrects through no channel.)*
 6. **One notification per cell per render batch — the boundary is drain quiescence, not
    epoch close.** An event/frame **epoch** is a write-side commit + diagnostic-evidence
    unit (one per dequeued event — per
@@ -1265,10 +1269,12 @@ interrupted or abandoned slice's table becomes unreachable garbage. ⟨S-3 §5, 
 **The memo is an economy, never an authority.** A stale memoized value that survives
 into a committed capture is harmless because the **two-guard rule** already covers it:
 (1) React's own snapshot re-check catches mid-pass movement of *watched* sites; (2) the
-commit reconciler's evidence comparison (invariant 5) catches movement of
-*newly-observed* sites — commit compares acquired versions against probe evidence and
-corrects before paint. No third mechanism exists or is needed. A memo table that
-outlives its slice is a conformance bug (a leak fixture pins it).
+commit reconciler's evidence comparison (invariant 5) catches movement of every
+*acquired* site — retained as well as newly-observed — by comparing acquired versions
+against probe evidence and correcting before paint (the retained arm is what covers a
+non-watchable headless site, which guard (1) never reaches). No third mechanism exists
+or is needed. A memo table that outlives its slice is a conformance bug (a leak fixture
+pins it).
 
 ### Epoch finalization — the adapter-internal render-batch boundary
 

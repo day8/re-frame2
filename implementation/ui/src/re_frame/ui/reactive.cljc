@@ -16,8 +16,10 @@
   (no second probe at commit step 5); `resolve-target`'s `site-ctx` shape
   is `{:query-v … :frame pin? :override {:value :override-id :version}?}`;
   the value-movement `on-change` watch channel exists only on watchable
-  hosts, so headless movement is caught at the commit evidence comparison
-  (step 5), not by a callback.
+  hosts, so on a headless (non-watchable) host movement is caught at the
+  commit evidence comparison (step 5), not by a callback — for EVERY acquired
+  lease, RETAINED as well as staged (rf2-vxgfnd.39), since a retained site has
+  no watch to self-correct there.
 
   ## The ViewCell (03 §2)
 
@@ -129,9 +131,10 @@
   into every `probe`, so N sibling rows probing one query compute shared
   derivation parents once per synchronous execution slice, not once per
   row (the first-mount fan-out mitigation). The handle is created lazily
-  on the first probe of a slice and cleared on the next microtask
-  (`interop/next-tick`), so an abandoned slice's table is unreachable
-  garbage. The memo is an ECONOMY, never an authority — the commit
+  on the first probe of a slice and cleared on the next event-loop tick
+  (`interop/next-tick` — a MACROTASK, GC hygiene only, not a
+  correctness-before-paint boundary), so an abandoned slice's table is
+  unreachable garbage. The memo is an ECONOMY, never an authority — the commit
   evidence comparison (step 5) corrects any staleness before paint."
   (:require [re-frame.error :as error]
             [re-frame.frame :as frame]
@@ -1350,7 +1353,9 @@
      lease is synchronously released in REVERSE acquisition order, the
      prior committed set stays installed, and the typed error propagates.
   5. Compare each acquired node's version + frame/registry epochs against
-     the render's probe evidence.
+     the render's probe evidence — for BOTH retained and staged leases, so a
+     retained site's movement is caught here on a non-watchable headless host
+     that has no value-movement watch (rf2-vxgfnd.39).
   6. Publish the committed site values + the new dependency set (retained +
      staged) — before the user can interact with the new DOM.
   7. Release the prior leases of dropped + retargeted sites.
@@ -1435,12 +1440,29 @@
               ;; was acquired from, so a same-id reincarnation before publish is
               ;; caught by token identity, not merely the reused frame-id.
               incarnations (committed-frame-incarnations (merge retained staged-map))
-              ;; step 5 — evidence comparison (moved in the render→commit gap)
-              moved?     (boolean
-                           (some (fn [[tk lease]]
-                                   (evidence-moved? (obs/read lease)
-                                                    (:evidence (new-by tk))))
-                                 staged))
+              ;; step 5 — evidence comparison: read EACH acquired node (staged AND
+              ;; retained) against the render's probe evidence, so movement in the
+              ;; render→commit gap is caught before paint (invariant 5).
+              ;;
+              ;;   - STAGED leases: their freshly-installed watch could not have
+              ;;     fired for a pre-acquire gap move, so step 5 is the SOLE catch
+              ;;     on every host.
+              ;;   - RETAINED leases: on a WATCHABLE host their live watch already
+              ;;     caught the move (the cell is pending; its scheduled flush
+              ;;     corrects before paint), but on a NON-WATCHABLE headless host
+              ;;     there is NO watch — so step 5 is the ONLY catch. Without this
+              ;;     read a retained site's headless movement is corrected by
+              ;;     nothing: `:values` publishes the stale render value and no
+              ;;     revision advances (rf2-vxgfnd.39).
+              ;;
+              ;; `read` recomputes the plain-atom node on deref, so a headless move
+              ;; is observed here; the two catches are kept distinct because the
+              ;; step-8 advance treats them differently (see below).
+              moved-in? (fn [[tk lease]]
+                          (evidence-moved? (obs/read lease)
+                                           (:evidence (new-by tk))))
+              staged-moved?   (boolean (some moved-in? staged))
+              retained-moved? (boolean (some moved-in? retained))
               new-values (persistent!
                            (reduce (fn [acc tk]
                                      (assoc! acc tk (:value (new-by tk))))
@@ -1509,8 +1531,13 @@
                           (frame/frame-incarnation-closing? fid token))
                         incarnations))
             (teardown! cell)
-            ;; step 8 — moved evidence corrects before paint
-            (when moved?
+            ;; step 8 — moved evidence corrects before paint. The staged catch
+            ;; always advances synchronously; a RETAINED catch advances only when
+            ;; no live watch already caught the move — a pending (`dirty?`) cell is
+            ;; a watchable host whose scheduled flush already corrects before paint,
+            ;; so advancing here too would add a redundant render (rf2-vxgfnd.39).
+            (when (or staged-moved?
+                      (and retained-moved? (not (dirty? cell))))
               (advance-revision! cell)))
           cell)))))
 

@@ -25,7 +25,9 @@
   hosts. Host honesty: plain-atom derived values are not watchable, so the
   value-movement `on-change` channel is a reactive-host surface — here
   movement is caught at the commit evidence comparison (step 5), exactly
-  the headless contract."
+  the headless contract. Step 5 reads EVERY acquired lease, RETAINED as well
+  as staged, so a retained site's headless movement (which has no watch to
+  self-correct) is caught too (rf2-vxgfnd.39)."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core                 :as rf]
@@ -184,6 +186,44 @@
   (let [cell (render+commit! (reactive/make-cell ::v) [[:r/a]])]
     (is (= 0 (reactive/revision cell))
         "no movement in the gap ⇒ no revision advance")))
+
+;; ---------------------------------------------------------------------------
+;; rf2-vxgfnd.39 — a RETAINED site's movement is caught at step 5 too. On a
+;; NON-WATCHABLE headless host (plain-atom) a retained lease has NO
+;; value-movement watch, so the commit evidence comparison is the ONLY
+;; correction — and it must read retained leases, not only staged ones.
+;; Pre-fix, step 5 read `staged` alone: a retained site's gap-movement was
+;; caught by NOTHING (`:values` published the stale render value, the revision
+;; never advanced, no watch existed to correct it).
+;; ---------------------------------------------------------------------------
+
+(deftest retained-lease-movement-caught-at-commit-step-5
+  (rf/reg-sub :r/a (fn [db _] (:a db)))
+  (seed! {:a 1})
+  (let [cell   (render+commit! (reactive/make-cell ::v) [[:r/a]])
+        lease0 (reactive/committed-lease cell (tk [:r/a]))]
+    (is (= 0 (reactive/revision cell)) "precondition: committed, no revision yet")
+    (is (= {(tk [:r/a]) 1} (reactive/committed-values cell)))
+    (render! cell [[:r/a]])                 ;; render B probes the live node (value 1)
+    (seed! {:a 2})                          ;; move in the render→commit gap
+    (reactive/commit! cell)                 ;; kept-check RETAINS the lease
+    (is (identical? lease0 (reactive/committed-lease cell (tk [:r/a])))
+        "the site was RETAINED (same lease) — a kept, not staged/retargeted, site")
+    (is (= 1 (reactive/revision cell))
+        "a RETAINED site's gap-movement is caught at the commit evidence
+         comparison (step 5) — the revision advances so the host re-renders
+         before paint; pre-fix this was caught by nothing (rf2-vxgfnd.39)")))
+
+(deftest retained-lease-unmoved-does-not-false-advance
+  ;; The retained step-5 read must not introduce false movement: an unchanged
+  ;; retained site reads the same version/node-key across the render→commit gap.
+  (rf/reg-sub :r/a (fn [db _] (:a db)))
+  (seed! {:a 1})
+  (let [cell (render+commit! (reactive/make-cell ::v) [[:r/a]])]
+    (render! cell [[:r/a]])                 ;; render B — no seed between probe + commit
+    (reactive/commit! cell)
+    (is (= 0 (reactive/revision cell))
+        "an unchanged retained site reads the same evidence ⇒ no false advance")))
 
 ;; ===========================================================================
 ;; rf2-vxgfnd.93 — the reconciler consumes read's :node-key reincarnation axis
