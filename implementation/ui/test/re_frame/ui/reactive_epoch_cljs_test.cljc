@@ -9,9 +9,13 @@
 
   The rows:
 
-    - EPOCH COALESCING — N sub deltas within one epoch advance a cell's
-      revision ONCE (the sixth frozen invariant); a fresh epoch after the
-      flush notifies again;
+    - DRAIN COALESCING — N event/frame EPOCHS committed in ONE
+      run-to-completion drain advance a cell's revision ONCE, coalescing
+      into ONE render batch (the corrected sixth invariant: the render
+      boundary is drain quiescence, NOT epoch close; epoch ids are cause
+      evidence, never render triggers). A separate later drain notifies
+      again — later work stays observable, but NO render count follows from
+      the epoch count (replaces the retired false gate `N epochs ⇒ N renders`);
     - flush! SCOPE (the Q51 ruling) — the frame arity `flush-frame!` flushes
       only cells observing that frame; a scoped `flush-scope!` leaves
       out-of-scope cells pending; the global `flush-pending!` /
@@ -61,7 +65,7 @@
   cell)
 
 ;; ===========================================================================
-;; Epoch coalescing — N deltas within one epoch → ONE notification
+;; Drain coalescing — N epochs in ONE drain → ONE render batch
 ;; ===========================================================================
 
 (deftest n-deltas-in-one-epoch-notify-once
@@ -95,6 +99,40 @@
     (reactive/flush-pending!)
     (is (= 1 (reactive/revision cell)))
     (is (= 1 @hits) "still one notification across the flush boundary")))
+
+(deftest n-epochs-in-one-drain-coalesce-to-one-render-batch
+  ;; The corrected sixth invariant, replacing the retired false gate
+  ;; "N epochs ⇒ N renders". A run-to-completion drain may settle SEVERAL
+  ;; queued events, each committing its OWN epoch record, before the host
+  ;; regains control (and flushes). Every one of those epochs folds into ONE
+  ;; render batch — the render boundary is DRAIN QUIESCENCE, not epoch close.
+  ;; Epoch ids ride the invalidation as CAUSE EVIDENCE only: coalescing keys
+  ;; on the pending flag, never on the epoch tag. Render SEPARATION follows
+  ;; DRAIN boundaries, never the epoch count.
+  (let [cell (reactive/make-cell ::v)
+        hits (atom 0)]
+    (reactive/subscribe cell (fn [] (swap! hits inc)))
+    (testing "8 distinct epochs committed in ONE drain ⇒ ONE render batch"
+      ;; one drain: 8 queued events each commit their own epoch, each firing
+      ;; on-change with a DISTINCT epoch tag, all BEFORE the flush that rides
+      ;; drain quiescence (the CLJS microtask / the headless explicit flush)
+      (doseq [e (range 1 9)] (reactive/mark-dirty! cell e))
+      (is (reactive/dirty? cell) "the cell is pending after the drain")
+      (is (= 1 (reactive/pending-cell-count)) "enrolled ONCE despite 8 epochs")
+      (is (= 1 (reactive/pending-epoch cell))
+          "the pending notification stays anchored to the FIRST epoch's
+           evidence; later queued epochs fold in without re-anchoring")
+      (reactive/flush-pending!)              ;; the drain-quiescence read batch
+      (is (= 1 (reactive/revision cell)) "8 epochs in one drain ⇒ ONE revision advance")
+      (is (= 1 @hits) "⇒ ONE notification — one render batch, not eight")
+      (is (nil? (reactive/pending-epoch cell)) "the evidence tag clears with the flush"))
+    (testing "a SEPARATE later drain renders separately — later work stays observable"
+      (reactive/mark-dirty! cell 9)
+      (is (= 9 (reactive/pending-epoch cell)) "a fresh drain re-anchors the evidence")
+      (reactive/flush-pending!)
+      (is (= 2 (reactive/revision cell))
+          "render SEPARATION follows DRAIN boundaries, never the epoch count")
+      (is (= 2 @hits)))))
 
 ;; ===========================================================================
 ;; flush! scope (the Q51 ruling) + no epoch work leaks across roots
