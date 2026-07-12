@@ -508,12 +508,53 @@
   ownership is released in a `finally`, so a throwing host `.unmount`
   still frees the exact root-id/container claim (identity-guarded — never
   evicts a newer claim) and a second `unmount!*` is then a no-op; the
-  host teardown error still propagates to the caller. Returns nil."
+  host teardown error still propagates to the caller (rf2-vxgfnd.18 AC4).
+
+  AFTERMATH of a THROWING host `.unmount` (rf2-vxgfnd.53). The concrete
+  case is React 18/19 refusing to `.unmount` synchronously from inside a
+  render pass (\"attempted to synchronously unmount a root while React was
+  already rendering\"): React did NOT tear the tree down, yet the `finally`
+  releases the claim (the AC4 total-teardown contract, KEPT — the
+  root-id/container must not strand). So the live React tree is now
+  ORPHANED in a container the registry no longer tracks, and — because
+  release makes a second `unmount!*` a no-op (the membership guard) — the
+  framework can never retry the host unmount for that handle. A later
+  `mount` into the same container would `createRoot` OVER the still-live
+  tree (a double-root). The claim-release is deliberate; the orphaned tree
+  is the price of AC4.
+
+  So this is NOT silent: in a dev build a throwing `.unmount` emits a
+  console diagnostic naming the MANUAL ESCAPE — once you are out of the
+  render pass, tear the orphaned tree down yourself with
+  `(.unmount (.-react-root root))` on the SAME `Root` handle BEFORE
+  mounting into that container again. The diagnostic is goog.DEBUG-gated
+  (Closure-DCE'd from production — I-12). Returns nil."
   [^Root root]
   (when (and (some? root)
              (identical? (:root (get @live-roots (.-root-id root))) root))
     (try
       (.unmount (.-react-root root))
+      (catch :default e
+        ;; rf2-vxgfnd.53 — React did NOT unmount, yet the `finally` below
+        ;; still releases the claim (AC4). The live tree is now orphaned and
+        ;; the host root is unrecoverable through the framework (a second
+        ;; `unmount!*` is a no-op). Make the aftermath non-silent: name the
+        ;; manual escape + the remount double-root hazard. Dev-only
+        ;; (goog.DEBUG-stripped in production). Then rethrow the ORIGINAL host
+        ;; error so it still propagates to the caller (AC4).
+        (when (and ^boolean js/goog.DEBUG (exists? js/console))
+          (.warn js/console
+                 (str "[re-frame.ui] host .unmount threw while tearing down root "
+                      (pr-str (.-root-id root)) " — React did NOT unmount it, so "
+                      "its live React tree is now orphaned in a container the "
+                      "framework no longer tracks (the claim is released per the "
+                      "total-teardown contract, so a second unmount! is a no-op). "
+                      "A remount into this container would createRoot OVER the "
+                      "still-live tree (a double-root). Escape: once you are out "
+                      "of the render pass, tear the orphaned tree down yourself "
+                      "with (.unmount (.-react-root root)) on the SAME Root handle "
+                      "before mounting into that container again.")))
+        (throw e))
       (finally
         (release-root! (.-root-id root) root))))
   nil)
