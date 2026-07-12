@@ -50,7 +50,7 @@ For `reg-event`, the metadata-map carries a reserved **`:interceptors`** key —
 
 Every `reg-*` returns its **primary id** — the keyword (or path, for `reg-app-schema`) the caller registered with. The contract is uniform across the family per [Conventions §`reg-*` return-value convention](Conventions.md#reg--return-value-convention). Per-kind surfaces (Specs 002 / 004 / 005 / 010 / 011 / 012 / 013) inherit this without restating it.
 
-Per-kind extensions (e.g., `:initial-events` on `reg-frame`, `:path` on `reg-route`) are documented in their respective Specs. Notably `reg-frame`'s metadata-map *does* recognise `:interceptors` (frames have no positional middle slot — per [Spec 002 §`:interceptors`](002-Frames.md#interceptors--add-interceptors-to-a-frames-events)).
+Per-kind extensions (e.g., `:path` on `reg-route`) are documented in their respective Specs. (Frame construction is not a `reg-*` member — rf2-h1vqa4; the `make-frame` config map *does* recognise `:interceptors`, since frames have no positional middle slot — per [Spec 002 §`:interceptors`](002-Frames.md#interceptors--add-interceptors-to-a-frames-events).)
 
 ### Allowed forms of the middle slot
 
@@ -82,7 +82,7 @@ The metadata-map is the **superset** middle slot: it carries reflection metadata
 
 **A *bare* interceptor is rejected loudly.** Because the discriminator reads a map as metadata, a *bare* interceptor in the middle slot — `(rf/reg-event :id some-interceptor (fn …))` rather than `(rf/reg-event :id {:interceptors [some-interceptor]} (fn …))` — is itself a map (`{:id … :before … :after …}`) and would otherwise be read as the metadata-map, silently dropping the chain. The runtime instead throws `:rf.error/reg-event-bare-interceptor` at registration (an ERROR — the interceptor chain belongs in metadata `:interceptors`; the call is rejected, not coerced). A map carrying `:before` / `:after` in the middle slot is the bare-interceptor tell. See [Conventions §`:interceptors` in the metadata-map — the superset middle slot](Conventions.md#interceptors-in-the-metadata-map--the-superset-middle-slot-reg-event) and [009 §Where trace emission lives](009-Instrumentation.md#where-trace-emission-lives).
 
-For `reg-fx`, `reg-cofx`, `reg-frame`, etc., the middle slot is the metadata map only. Per-kind deviations are deliberate and documented at their owning specs: `reg-sub`'s optional first fn is an `input-fn` producer (not metadata — [Conventions §reg-sub grammar](Conventions.md#reg-sub-input-grammar--input-fn-returns-a-vector-of-query-vectors)), and `reg-app-schema` is path-id + optional metadata + the schema as the positional value slot — `(reg-app-schema path schema)` / `(reg-app-schema path metadata schema)` (rf2-qm7k83 Part A; the path-as-id asymmetry is the only deviation — the schema is an ordinary value slot uniform with the rest of the family — [API §Registration](API.md#registration)). `reg-view` is the **only registration that ships as a defn-shape macro** (auto-defs the symbol, auto-derives the id, auto-injects `dispatch` / `subscribe` lexically); the plain-fn surface for runtime / programmatic registration is `reg-view*`. (`reg-interceptor` also ships as a macro, but only to capture the authoring source-coord — it defs no symbol; see §21.) See [Cross-Spec-Interactions §21 Family asymmetry](Cross-Spec-Interactions.md#21-family-asymmetry--only-reg-view-keeps-a--suffixed-fn-partner) for why the family is asymmetric.
+For `reg-fx`, `reg-cofx`, etc., the middle slot is the metadata map only. Per-kind deviations are deliberate and documented at their owning specs: `reg-sub`'s optional first fn is an `input-fn` producer (not metadata — [Conventions §reg-sub grammar](Conventions.md#reg-sub-input-grammar--input-fn-returns-a-vector-of-query-vectors)), and `reg-app-schema` is path-id + optional metadata + the schema as the positional value slot — `(reg-app-schema path schema)` / `(reg-app-schema path metadata schema)` (rf2-qm7k83 Part A; the path-as-id asymmetry is the only deviation — the schema is an ordinary value slot uniform with the rest of the family — [API §Registration](API.md#registration)). `reg-view` is the **only registration that ships as a defn-shape macro** (auto-defs the symbol, auto-derives the id, auto-injects `dispatch` / `subscribe` lexically); the plain-fn surface for runtime / programmatic registration is `reg-view*`. (`reg-interceptor` also ships as a macro, but only to capture the authoring source-coord — it defs no symbol; see §21.) See [Cross-Spec-Interactions §21 Family asymmetry](Cross-Spec-Interactions.md#21-family-asymmetry--only-reg-view-keeps-a--suffixed-fn-partner) for why the family is asymmetric.
 
 ## Registry model — the canonical `kind` keyword set
 
@@ -96,7 +96,7 @@ The registrar is a `(kind, id) → metadata` map. The `kind` keyword identifies 
 | `:cofx` | Coeffect suppliers (value-returning, graded ambient / recordable — §Coeffects) | `reg-cofx` |
 | `:interceptor` | Registered interceptors — named full-context (`context -> context`) program behaviour referenced by id from event/frame `:interceptors` chains (per [EP-0022](../docs/EP/EP-0022-registered-interceptors.md), §`reg-interceptor` — the `:interceptor` registrar). Application ids are application-owned; framework standard refs live under `:rf.interceptor/*`. | `reg-interceptor` |
 | `:view` | Registered views | `reg-view` |
-| `:frame` | Registered frames | `reg-frame` (also `make-frame`) |
+| `:frame` | Live frames — RESERVED kind; the registrar slot is intentionally **empty** (rf2-h1vqa4). A frame is a LIVE runtime object, not an image-resolved program member: seating a frame writes no registrar row and no source-store descriptor (so seating never bumps the source-store generation or surfaces in image assembly). Frame introspection is `frame-meta` / `frame-ids` (the frames store), never `registrations :frame`. | `make-frame` (Spec 002) |
 | `:route` | Routes | `reg-route` (Spec 012) |
 | `:head` | Registered SSR head/meta functions (per [011 §Head/meta contract](011-SSR.md#headmeta-contract)) | `reg-head` (Spec 011) |
 | `:error-projector` | Registered SSR error projectors (internal trace event → public-error shape, per [011 §Server error projection](011-SSR.md#server-error-projection)) | `reg-error-projector` (Spec 011) |
@@ -339,8 +339,8 @@ Devtools subscribe to this event and refresh their view (handler list, source-co
 ### Edge cases
 
 - **Re-registering a sub mid-cascade.** If a re-registration arrives while a drain cycle is in flight (host-async event delivered between dequeues), the cache invalidation fires, but already-computed values for the in-flight event remain bound to that event's effect map. The next dequeue sees the new sub.
-- **Re-registering a frame's `:initial-events`.** Per [002 §Re-registration — surgical update](002-Frames.md#re-registration--surgical-update), the new `:initial-events` are recorded but do not re-fire. Compose `destroy-frame!` + re-`reg-frame` ([002 §Resetting a frame](002-Frames.md#resetting-a-frame--destroy--reg-frame)) if you want the new setup to run.
-- **Re-registering a destroyed frame's keyword.** Treated as a fresh `reg-frame`; new frame container is created; `:initial-events` fire.
+- **Re-registering a frame's `:initial-events`.** Per [002 §Re-registration — surgical update](002-Frames.md#re-registration--surgical-update), the new `:initial-events` are recorded but do not re-fire. Compose `destroy-frame!` + re-`make-frame` ([002 §Resetting a frame](002-Frames.md#resetting-a-frame--destroy--make-frame)) if you want the new setup to run.
+- **Re-registering a destroyed frame's keyword.** Treated as a fresh construction; new frame container is created; `:initial-events` fire.
 - **Hot-reload in production builds.** Production builds typically have no save-triggered reload. The path is still legal (REPL re-evaluation, plugin systems) but rare.
 
 ## Per-kind index (non-normative)
@@ -355,7 +355,7 @@ A pointer-only summary of the registration functions and the per-Spec docs that 
 | Cofx | `reg-cofx` | [001 §Coeffects](#coeffects--reg-cofx-value-returning-graded) (registrar contract + grades + `:rf.cofx/requires`); [002 §Recordable coeffects](002-Frames.md#recordable-coeffects) (envelope + delivery) |
 | Interceptor | `reg-interceptor` (macro on JVM; also a plain-fn value on CLJS, Convention A) | [001 §Interceptors](#interceptors--reg-interceptor-the-interceptor-registrar) (registrar kind + descriptor + metadata); [002 §Registered interceptors and the chain grammar](002-Frames.md#registered-interceptors-and-the-chain-grammar) (by-reference chains + overrides + standard path) |
 | View | `reg-view` (defn-shape macro) / `reg-view*` (plain fn) | [004-Views.md](004-Views.md) |
-| Frame | `reg-frame` | [002-Frames.md](002-Frames.md) |
+| Frame | `make-frame` (a constructor, not a `reg-*` member) | [002-Frames.md](002-Frames.md) |
 | App-db schema (not a registrar kind — schemas live in the schemas artefact's per-frame side-table) | `reg-app-schema` | [010-Schemas.md](010-Schemas.md) |
 | Route | `reg-route` | [012-Routing.md](012-Routing.md) |
 | Head model | `reg-head` | [011-SSR.md](011-SSR.md) |

@@ -48,7 +48,7 @@ For trivial boots (one or two steps, no error states, no progress UI), a state m
 
 (`:http` here is a placeholder for a user-supplied fx; the framework ships `:rf.http/managed` — see [014-HTTPRequests](014-HTTPRequests.md).)
 
-Each step is a Pattern-AsyncEffect interaction. The frame's `:initial-events` fire `:app/init` (per [002 §`reg-frame` is atomic](002-Frames.md#reg-frame--atomic-create-and-register-and-the-canonical-metadata-grammar)), the chain runs to completion, the UI renders.
+Each step is a Pattern-AsyncEffect interaction. The frame's `:initial-events` fire `:app/init` (per [002 §`make-frame` is atomic](002-Frames.md#make-frame--atomic-create-and-register-and-the-canonical-config-grammar)), the chain runs to completion, the UI renders.
 
 Use this form when the boot graph is **3 steps or fewer**, has **no error states**, and the UI does **not** show per-phase progress.
 
@@ -233,8 +233,9 @@ A singleton is created **lazily** by default — the initial-entry cascade folds
     {:db initial-db                                    ;; (see step 3 — ordering matters)
      :fx [[:dispatch [:app/boot [:rf.machine/start]]]]}))
 
-(rf/reg-frame :app/main
-  {:initial-events [[:app/initialise]]
+(rf/make-frame
+  {:id :app/main
+   :initial-events [[:app/initialise]]
    ;; … views, fx-overrides, etc …
    })
 ```
@@ -429,9 +430,9 @@ The two boots compose cleanly because the boot state machine's snapshot is a run
 
 ### Hot-reload — boot does not re-run
 
-In dev, hot-reload re-evaluates `reg-event` forms; surgical `reg-frame` re-registration preserves the frame-state container — both the app-db and runtime-db partitions (per [002 §Re-registration — surgical update](002-Frames.md#re-registration--surgical-update)). The boot machine's snapshot (in runtime-db) survives; its `:state` is `:ready` (or whichever terminal state it reached); the next dispatch routes via the new handler bodies but does not re-enter `:configuring`.
+In dev, hot-reload re-evaluates `reg-event` forms; surgical `make-frame` re-registration preserves the frame-state container — both the app-db and runtime-db partitions (per [002 §Re-registration — surgical update](002-Frames.md#re-registration--surgical-update)). The boot machine's snapshot (in runtime-db) survives; its `:state` is `:ready` (or whichever terminal state it reached); the next dispatch routes via the new handler bodies but does not re-enter `:configuring`.
 
-This matches the locked rule: boot is **one-shot per app load**. Re-running is opt-in via `destroy-frame!` + re-`reg-frame` with the same config (which re-dispatches the recorded `:initial-events` — no dedicated reset verb, rf2-lxwpob) or an explicit `[:app/boot [:rf.machine/start]]` re-entry event.
+This matches the locked rule: boot is **one-shot per app load**. Re-running is opt-in via `destroy-frame!` + re-`make-frame` with the same config (which re-dispatches the recorded `:initial-events` — no dedicated reset verb, rf2-lxwpob) or an explicit `[:app/boot [:rf.machine/start]]` re-entry event.
 
 ### Re-boot semantics
 
@@ -468,7 +469,7 @@ Routes that depend on auth (a "must-be-logged-in" route) work because `:authenti
 
 ## Cross-references
 
-- [002-Frames §`reg-frame` is atomic](002-Frames.md#reg-frame--atomic-create-and-register-and-the-canonical-metadata-grammar) — `:initial-events` is the canonical entry point for boot.
+- [002-Frames §`make-frame` is atomic](002-Frames.md#make-frame--atomic-create-and-register-and-the-canonical-config-grammar) — `:initial-events` is the canonical entry point for boot.
 - [005-StateMachines.md](005-StateMachines.md) — the substrate; the boot machine uses standard hierarchical / `:spawn` / `:after` mechanics.
 - [011-SSR.md](011-SSR.md) — server-side `:rf/server-init` and the hydration handoff.
 - [012-Routing.md](012-Routing.md) — the `:routing` boot state delegates to the routing surface.

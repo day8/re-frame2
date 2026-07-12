@@ -27,18 +27,18 @@ This Spec inherits the constraints and goals from 000 and adds three frame-speci
 ## API at a glance
 
 ```clojure
-;; Lifecycle — one constructor, one teardown (EP-0024; rf2-lxwpob collapse)
-(rf/reg-frame   :todo {:initial-events [[:todo/initialise]]})  ;; named create + register, atomic; app-db starts {}
-(rf/reg-frame   :todo {:initial-events [[:todo/initialise]]})  ;; against existing — surgical update (config replaced; runtime state preserved)
+;; Lifecycle — one constructor, one teardown (EP-0024; rf2-lxwpob collapse; rf2-h1vqa4 deleted the reg-frame spelling)
+(rf/make-frame {:id :todo :initial-events [[:todo/initialise]]})  ;; named create + register, atomic; app-db starts {}
+(rf/make-frame {:id :todo :initial-events [[:todo/initialise]]})  ;; against existing — surgical update (config replaced; runtime state preserved)
 (def f (rf/make-frame {:id :todo :images [todo-image]    ;; the one constructor: image-selection + record-config opts
                        :initial-events [[:rf/set-db {}]] :fx-overrides {…}}));; returns the live frame VALUE; read its id via the accessor
 (rf/make-frame {:id :todo :images [todo-image-v2]})        ;; re-construction = image hot-reload: generation swaps, memory preserved
 (do (rf/destroy-frame! :todo)                              ;; explicit full replace — destroy + reconstruct re-dispatches :initial-events
-    (rf/reg-frame :todo {:initial-events [[:todo/initialise]]}))
+    (rf/make-frame {:id :todo :initial-events [[:todo/initialise]]}))
 (rf/destroy-frame! :todo)                                  ;; tear down — remove the unified value from the one registry
 
-;; View ergonomics — ensure a named frame vs scope to an existing one (EP-0024 amended)
-[rf/frame-provider {:id :todo :images [todo-image]}     ;; ENSURE: create-if-absent, reuse-no-reseed, provide id, NO destroy-on-unmount
+;; View ergonomics — ensure a named frame vs scope to an existing one (EP-0024 amended; rf2-nyea0r split)
+[rf/frame-root {:id :todo :images [todo-image]}         ;; ENSURE: create-if-absent, reuse-no-reseed, provide id, NO destroy-on-unmount
  [todo-list]]
 [rf/frame-provider {:frame :todo} [todo-list]]          ;; SCOPE an existing frame into a React subtree (fails loud if absent)
 [rf/with-frame :todo [todo-list]]                       ;; SCOPE to an existing frame (lexical / non-React): just establishes context
@@ -228,7 +228,7 @@ from a missing `:rf.frame/id`. It remains a perfectly legal frame id that a smal
 app, example, or test may **explicitly** register and select:
 
 ```clojure
-(rf/reg-frame :rf/default {:doc "The app frame for this program."})
+(rf/make-frame {:id :rf/default :doc "The app frame for this program."})
 
 (rf/with-frame :rf/default
   (rf/dispatch [:app/boot]))
@@ -300,7 +300,7 @@ EP-0002 implementation chain (see [EP-0002 §Bead Structure](../docs/EP/EP-0002-
  :lifecycle    {:created-at <ts>
                 :destroyed? false
                 :listeners  [...]}
- :config       {...}}                   ;; whatever was passed to `reg-frame` / `make-frame`
+ :config       {...}}                   ;; whatever was passed to `make-frame`
 ```
 
 The map above is a **single unified frame value**: one live value owns the id, both
@@ -529,25 +529,26 @@ Transient state is frame-scoped and torn down on `destroy-frame!` (per [§Destro
 
 ## Frame lifecycle
 
-### `reg-frame` — atomic create-and-register and the canonical metadata grammar
+### `make-frame` — atomic create-and-register and the canonical config grammar
 
 ```clojure
-(rf/reg-frame :todo {:initial-events [[:todo/initialise]]})
+(rf/make-frame {:id :todo :initial-events [[:todo/initialise]]})
 ;; creates a frame record (app-db starts {}), registers it under :todo,
-;; dispatch-syncs each :initial-events step into it in order, returns the keyword.
+;; dispatch-syncs each :initial-events step into it in order, returns the frame VALUE.
 ```
 
-Atomic create-and-register. There is no way to obtain an unregistered frame; this matches the rest of re-frame's `reg-*` family and avoids orphan-frame states. The return value (the registered frame keyword) follows the family-wide [`reg-*` return-value convention](Conventions.md#reg--return-value-convention).
+Atomic create-and-register. There is no way to obtain an unregistered frame; this avoids orphan-frame states. The return value is the **live frame value** (the lifecycle token — `dispatch` / `subscribe` / `destroy-frame!` accept the value or its id interchangeably, per [§Frame addressing](#frame-addressing--the-frame-id-is-the-whole-public-address)).
 
-**`reg-frame` is the macro spelling of `make-frame`, not a sibling constructor (rf2-lxwpob, Option B).** `(reg-frame id metadata)` is documented sugar for `(make-frame (assoc metadata :id id))` — the SAME semantics (one constructor, one duplicate-id story: an unregistered id creates, an already-registered id is IDEMPOTENT REPLACEMENT per [§Duplicate id](#duplicate-id--idempotent-replacement)), differing from the `make-frame` call only in capturing the call-site's source coordinates (Spec 001) and in its positional-metadata grammar (chosen at the mayor's ruling over a breaking mechanical sweep to the opts-map grammar across every existing call site — pre-alpha permits the breaking sweep, but a second honest spelling of one semantics costs nothing a sweep would remove). `make-frame` is preferred for image-loaded frames, tools, tests, and dynamic construction (see [§Per-instance frames](#per-instance-frames--make-frame-the-ep-0023-object-constructor)); `reg-frame` is the ergonomic macro apps reach for at the top of a namespace.
+**`make-frame` is the ONE programmatic constructor (rf2-h1vqa4).** The `reg-frame` macro spelling is DELETED — no alias, no tombstone. A frame is a **live runtime object**, not a registered program member: `reg-*` registers image-resolved, inert program members, and a spelling that *constructs* under the registrar grammar corrupted that grammar. Frame construction therefore captures **no source coordinates** (frames are not click-to-source targets; live metadata lives in `frame-meta`, and `:initial-events` dispatch traces carry their own `:source :frame-init` provenance). The **day-1 mount recipe** is [`frame-root`](#frame-root--the-ensure-component-cljs-reference) (ENSURE — creates the frame if absent and establishes it for the subtree); `make-frame` is the programmatic path for tools, tests, SSR, dynamic construction, and image-loaded frames (see [§Per-instance frames](#per-instance-frames--make-frame-the-ep-0023-object-constructor)).
 
-This section is the **canonical grammar** for `reg-frame` metadata. Subsequent sections — [§Re-registration — surgical update](#re-registration--surgical-update), [§Frame presets](#frame-presets--capability-bundles-for-common-configurations), [§Per-instance frames](#per-instance-frames--make-frame-the-ep-0023-object-constructor) — refer to the keys defined here; they do not re-define them.
+This section is the **canonical grammar** for the frame config map. Subsequent sections — [§Re-registration — surgical update](#re-registration--surgical-update), [§Frame presets](#frame-presets--capability-bundles-for-common-configurations), [§Per-instance frames](#per-instance-frames--make-frame-the-ep-0023-object-constructor) — refer to the keys defined here; they do not re-define them.
 
-`reg-frame` accepts a metadata map mirroring other registrations:
+`make-frame` accepts a config map (record-config keys, alongside the image-selection keys covered in [§Per-instance frames](#per-instance-frames--make-frame-the-ep-0023-object-constructor)):
 
 ```clojure
-(rf/reg-frame :todo
-  {:doc          "..."                          ;; like all reg-*
+(rf/make-frame
+  {:id           :todo                          ;; the frame id (registers in the one frame registry)
+   :doc          "..."
    :initial-events [[:todo/initialise]]         ;; ordered setup events dispatched synchronously after creation
    :on-destroy   [:todo/cleanup]                ;; single event dispatched before teardown
    :fx-overrides {:my-app/http http-stub-fn}    ;; per-frame fx replacements
@@ -556,21 +557,20 @@ This section is the **canonical grammar** for `reg-frame` metadata. Subsequent s
    :drain-depth  100                            ;; depth limit for run-to-completion drain
    :platform     :server                        ;; active platform for this frame per [011-SSR.md](011-SSR.md); typically preset-supplied
    :rf.trace/events-retained 200                ;; per-frame trace-ring retention: one slot per EVENT/pipeline run (default 50); per [009 §Per-frame trace rings](009-Instrumentation.md#per-frame-trace-rings-event-keyed-dev-only)
-   :observability {:errors [{:sink :my-app.sinks/sentry}]} ;; frame-owned sink policy per [015 §Frame-owned observability sink policy](015-Data-Classification.md#frame-owned-observability-sink-policy)
-   :ns :line :file})                            ;; auto-supplied
+   :observability {:errors [{:sink :my-app.sinks/sentry}]}}) ;; frame-owned sink policy per [015 §Frame-owned observability sink policy](015-Data-Classification.md#frame-owned-observability-sink-policy)
 ```
 
-The full set of metadata keys — `:doc`, `:initial-events`, `:on-destroy`, `:fx-overrides`, `:interceptor-overrides`, `:interceptors`, `:drain-depth`, `:platform`, `:rf.trace/events-retained`, the frame-owned policy key `:observability`, plus the auto-supplied `:ns`/`:line`/`:file` — is the canonical surface; the `:rf/frame-meta` schema in [Spec-Schemas](Spec-Schemas.md#rfframe-meta) is the normative reference. (The retention knob `:rf.trace/events-retained` is the ruled `event-*` spelling per [Conventions §The `event-*` noun family](Conventions.md#the-event--noun-family): one slot per **event** / pipeline run.)
+The full set of config keys — `:doc`, `:initial-events`, `:on-destroy`, `:fx-overrides`, `:interceptor-overrides`, `:interceptors`, `:drain-depth`, `:platform`, `:rf.trace/events-retained`, the frame-owned policy key `:observability` — is the canonical surface; the `:rf/frame-meta` schema in [Spec-Schemas](Spec-Schemas.md#rfframe-meta) is the normative reference. (The retention knob `:rf.trace/events-retained` is the ruled `event-*` spelling per [Conventions §The `event-*` noun family](Conventions.md#the-event--noun-family): one slot per **event** / pipeline run.)
 
 **Frame-owned policy (`:observability`).** A frame owns its production observability sinks (EP-0015 §9; the full model is normative in [015 §Data Classification](015-Data-Classification.md)). The key, summarised here for the grammar:
 
 - `:observability {:handled-events [<sink-entry>…] :errors [<sink-entry>…]}` — production observation sink policy; each `<sink-entry>` is a map naming a user/library-owned `:sink` keyword id with an optional `:rf.egress/profile` and `:opts` map.
 
-**The frame `:sensitive` / `:large` classification keys are REMOVED.** Durable app-db data classification is not a `reg-frame` annotation (a frame is not app-db's definition site); it is the four commit-plane classification effects (`:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`) a handler returns alongside its `:db` write (normative in [015 §Durable app-db — the four commit-plane effects](015-Data-Classification.md#durable-app-db--the-four-commit-plane-effects)). HTTP carrier classification (the `:sensitive {:http …}` block) is not a frame annotation either — it lives on the `:rf.http/managed` `reg-fx` registration's `:carriers` block (the transient-payload case, normative in [014-HTTPRequests §HTTP carriers](014-HTTPRequests.md#http-carriers-ep-0025)). A `reg-frame` carrying `:sensitive` (or the top-level `:large` frame key) **fails loudly at frame registration** (`:rf.error/bad-frame-classification`). **Unknown classification keys and malformed observability entries also fail loudly** (`:rf.error/bad-frame-classification`, the canonical thrown-error shape) — before any state mutates and before any setup event runs, so a bad declaration leaves no half-registered frame. Optional-artefact frame-config keys preflight at the same pre-commit point through late-bind — an explicitly-declared `:url-strategy` is validated by the routing artefact before any write, on construction and re-construction alike, per [012 §URL strategies](012-Routing.md#url-strategies). `:platform` is framework-supplied via presets in the v1 closed set (`:ssr-server` sets it); user code may set it directly for non-preset configurations. `:rf.trace/events-retained` defaults to 50 when omitted; per-frame override is useful for inspector frames (e.g. `:rf/xray` may want 200 for deep diagnostic walks) and transient story-variant frames (which may want fewer). (There is no `:on-error` recovery-policy slot; recovery is framework-owned. Error observability is the always-on [`register-listener!` (`:errors` stream)](009-Instrumentation.md#what-is-available-in-production) surface.)
+**The frame `:sensitive` / `:large` classification keys are REMOVED.** Durable app-db data classification is not a frame-config annotation (a frame is not app-db's definition site); it is the four commit-plane classification effects (`:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`) a handler returns alongside its `:db` write (normative in [015 §Durable app-db — the four commit-plane effects](015-Data-Classification.md#durable-app-db--the-four-commit-plane-effects)). HTTP carrier classification (the `:sensitive {:http …}` block) is not a frame annotation either — it lives on the `:rf.http/managed` `reg-fx` registration's `:carriers` block (the transient-payload case, normative in [014-HTTPRequests §HTTP carriers](014-HTTPRequests.md#http-carriers-ep-0025)). A frame config carrying `:sensitive` (or the top-level `:large` frame key) **fails loudly at frame registration** (`:rf.error/bad-frame-classification`). **Unknown classification keys and malformed observability entries also fail loudly** (`:rf.error/bad-frame-classification`, the canonical thrown-error shape) — before any state mutates and before any setup event runs, so a bad declaration leaves no half-registered frame. Optional-artefact frame-config keys preflight at the same pre-commit point through late-bind — an explicitly-declared `:url-strategy` is validated by the routing artefact before any write, on construction and re-construction alike, per [012 §URL strategies](012-Routing.md#url-strategies). `:platform` is framework-supplied via presets in the v1 closed set (`:ssr-server` sets it); user code may set it directly for non-preset configurations. `:rf.trace/events-retained` defaults to 50 when omitted; per-frame override is useful for inspector frames (e.g. `:rf/xray` may want 200 for deep diagnostic walks) and transient story-variant frames (which may want fewer). (There is no `:on-error` recovery-policy slot; recovery is framework-owned. Error observability is the always-on [`register-listener!` (`:errors` stream)](009-Instrumentation.md#what-is-available-in-production) surface.)
 
 **Frames always start with `app-db = {}`.** There is no `:db` config key — seeding app-db is itself an event, `[:rf/set-db {…}]`, dispatched as the first `:initial-events` step. This keeps "events are the unit of state change" as a single, consistent mechanism: the initial state is built by the same dispatch pipeline that handles all subsequent state changes (per [EP-0027](../docs/EP/EP-0027-frame-initial-events.md)).
 
-`:initial-events` is an **ordered vector of setup steps** dispatched synchronously into the freshly-created frame, in order, each drained to fixed point per run-to-completion before the next. By the time `reg-frame` returns, the setup drain has settled and `app-db` is in whatever state it produced. Omitting `:initial-events` and supplying `[]` both mean "no setup events." A step is a **bare event vector** (`[:todo/initialise]`), or a **map** when it needs dispatch opts (`{:event [:todo/add "milk"] :opts {:rf.cofx {:rf/time-ms …}}}` — the ordinary `dispatch-sync` opts, with `:frame` forced to the constructed frame and forbidden in `:opts`). A **bare event vector is not a valid top-level value**: `{:initial-events [[:todo/init]]}` is one one-step vector; `{:initial-events [:todo/init]}` is rejected (the diagnostic names the fix — wrap it as `[[:todo/init]]`).
+`:initial-events` is an **ordered vector of setup steps** dispatched synchronously into the freshly-created frame, in order, each drained to fixed point per run-to-completion before the next. By the time `make-frame` returns, the setup drain has settled and `app-db` is in whatever state it produced. Omitting `:initial-events` and supplying `[]` both mean "no setup events." A step is a **bare event vector** (`[:todo/initialise]`), or a **map** when it needs dispatch opts (`{:event [:todo/add "milk"] :opts {:rf.cofx {:rf/time-ms …}}}` — the ordinary `dispatch-sync` opts, with `:frame` forced to the constructed frame and forbidden in `:opts`). A **bare event vector is not a valid top-level value**: `{:initial-events [[:todo/init]]}` is one one-step vector; `{:initial-events [:todo/init]}` is rejected (the diagnostic names the fix — wrap it as `[[:todo/init]]`).
 
 If the frame's initialisation needs to fire multiple events, list them as separate steps (or have one setup event's handler emit `:fx`):
 
@@ -594,7 +594,7 @@ The framework stamps each setup dispatch with the frame's id automatically — t
 
 [Spec 007 — Stories](007-Stories.md) keeps its own richer setup grammar (loaders, `:rf.story/*`) and neither desugars to nor couples to `:initial-events` (per [EP-0027 §Out of scope](../docs/EP/EP-0027-frame-initial-events.md)).
 
-**Handler-time frame construction is an error — handlers mutate app-db; views and top-level materialize frames.** Frame creation is a **view / top-level concern**, not a handler one. Constructing a frame (`reg-frame` / `make-frame`) **inside an event handler is not supported** and fails loudly with `:rf.error/frame-construction-in-handler`. This is a foundational Spec 002 principle (EP-0027): a handler changes app-db; the view (or top-level boot / SSR-per-request) materializes frames *from* app-db state. There is no mid-run frame-creation path and no queued-creation-event allowance — a handler that wants a child frame to exist writes app-db, and the view tree creates the frame in response (e.g. via `frame-provider`). Construction therefore runs only at **top level** (tests, boot, SSR per request) or in the **view tree** (`frame-provider`).
+**Handler-time frame construction is an error — handlers mutate app-db; views and top-level materialize frames.** Frame creation is a **view / top-level concern**, not a handler one. Constructing a frame (`make-frame`) **inside an event handler is not supported** and fails loudly with `:rf.error/frame-construction-in-handler`. This is a foundational Spec 002 principle (EP-0027): a handler changes app-db; the view (or top-level boot / SSR-per-request) materializes frames *from* app-db state. There is no mid-run frame-creation path and no queued-creation-event allowance — a handler that wants a child frame to exist writes app-db, and the view tree creates the frame in response (e.g. via `frame-provider`). Construction therefore runs only at **top level** (tests, boot, SSR per request) or in the **view tree** (`frame-provider`).
 
 ### Destroy
 
@@ -643,7 +643,7 @@ So **machines publishes both**: `:machines/teardown-on-frame-destroy!` (step 2) 
 
 ### Re-registration — surgical update
 
-`reg-frame` against an already-registered keyword performs a **surgical update**: existing runtime state (`app-db`, sub-cache, router queue, in-flight events) is preserved; only the metadata/config is replaced. This is what makes hot-reload Just Work — figwheel/shadow-cljs recompile triggers re-evaluation of `reg-frame` forms, the page doesn't blink, the user's state survives. The contract for re-registration of every other registry kind (events, subs, fx, cofx, machine actions/guards, views, routes, heads, error projectors) is owned by [001 §Hot-reload semantics](001-Registration.md#hot-reload-semantics).
+`make-frame` against an already-registered `:id` performs a **surgical update**: existing runtime state (`app-db`, sub-cache, router queue, in-flight events) is preserved; only the metadata/config is replaced. This is what makes hot-reload Just Work — figwheel/shadow-cljs recompile triggers re-evaluation of `make-frame` forms, the page doesn't blink, the user's state survives. The contract for re-registration of every other registry kind (events, subs, fx, cofx, machine actions/guards, views, routes, heads, error projectors) is owned by [001 §Hot-reload semantics](001-Registration.md#hot-reload-semantics).
 
 **What gets replaced on surgical update:**
 
@@ -652,7 +652,7 @@ So **machines publishes both**: `:machines/teardown-on-frame-destroy!` (step 2) 
 - `:interceptors` vector of interceptor refs — applied to events handled after re-registration.
 - `:doc`, `:ns`/`:line`/`:file` metadata.
 - `:drain-depth` — applied to subsequent drains.
-- `:initial-events` / `:on-destroy` — recorded for a future full-reset composition ([§Resetting a frame](#resetting-a-frame--destroy--reg-frame)) / `destroy-frame!` call; not re-fired on surgical update.
+- `:initial-events` / `:on-destroy` — recorded for a future full-reset composition ([§Resetting a frame](#resetting-a-frame--destroy--make-frame)) / `destroy-frame!` call; not re-fired on surgical update.
 - `:sensitive` / `:large` / `:observability` — the frame-owned classification (EP-0015 §3). Re-registration **replaces** the frame-owned classification: the declaration *is* the frame's policy (no additive merge). The new `:sensitive` / `:large` `:app-db` paths replace the prior frame-owned ones in the durable elision registry; schema-sourced and imperative-mark-sourced declarations (a different source) survive untouched. Replacement applies *before* the `:rf.frame/re-registered` trace fires.
 
 **What does NOT change on surgical update:**
@@ -662,32 +662,32 @@ So **machines publishes both**: `:machines/teardown-on-frame-destroy!` (step 2) 
 - `:on-destroy` events do not fire (they only fire on `destroy-frame!`).
 - Sub-cache, router queue, in-flight events all remain.
 
-**Absent-key semantics on re-registration:** the re-registered metadata map is the **complete replacement** of the previous map's replaceable slots, *not* a merge. A key absent from the new map clears the previous binding; a key present overwrites. So if the original `reg-frame` set `:fx-overrides {:my-app/http stub-fn}` and the re-registration omits `:fx-overrides`, the overrides map clears (no overrides apply going forward). This matches every other `reg-*` shape (re-registering a `reg-event` replaces the handler entirely; metadata behaves the same way), and keeps the on-disk source the single source of truth — the runtime doesn't accumulate state the source no longer mentions. The slots that follow this rule are the same ones listed in *What gets replaced*: `:fx-overrides`, `:interceptor-overrides`, `:interceptors`, `:doc`/`:ns`/`:line`/`:file`, `:drain-depth`, `:initial-events`, `:on-destroy`, and the frame-owned classification keys `:sensitive` / `:large` / `:observability`. The absent-key rule applies to classification too: dropping `:sensitive` on re-registration clears the prior frame-owned sensitive declarations (the source is the single source of truth). Live runtime state (`app-db`, sub-cache, queue) is preserved regardless of what the metadata map says.
+**Absent-key semantics on re-registration:** the re-registered metadata map is the **complete replacement** of the previous map's replaceable slots, *not* a merge. A key absent from the new map clears the previous binding; a key present overwrites. So if the original frame declaration set `:fx-overrides {:my-app/http stub-fn}` and the re-registration omits `:fx-overrides`, the overrides map clears (no overrides apply going forward). This matches every other `reg-*` shape (re-registering a `reg-event` replaces the handler entirely; metadata behaves the same way), and keeps the on-disk source the single source of truth — the runtime doesn't accumulate state the source no longer mentions. The slots that follow this rule are the same ones listed in *What gets replaced*: `:fx-overrides`, `:interceptor-overrides`, `:interceptors`, `:doc`/`:ns`/`:line`/`:file`, `:drain-depth`, `:initial-events`, `:on-destroy`, and the frame-owned classification keys `:sensitive` / `:large` / `:observability`. The absent-key rule applies to classification too: dropping `:sensitive` on re-registration clears the prior frame-owned sensitive declarations (the source is the single source of truth). Live runtime state (`app-db`, sub-cache, queue) is preserved regardless of what the metadata map says.
 
-**Trade-off:** there's some "config drift" between what `reg-frame` literally says and what's running. A developer who edits `:initial-events` and re-saves will not see the new setup re-run — they need to destroy and re-`reg-frame` ([§Resetting a frame](#resetting-a-frame--destroy--reg-frame)) to apply it. This matches today's re-frame: `app-db` doesn't reset when you save a file, and developers expect that.
+**Trade-off:** there's some "config drift" between what the frame declaration literally says and what's running. A developer who edits `:initial-events` and re-saves will not see the new setup re-run — they need to destroy and re-`make-frame` ([§Resetting a frame](#resetting-a-frame--destroy--make-frame)) to apply it. This matches today's re-frame: `app-db` doesn't reset when you save a file, and developers expect that.
 
 **Trace emission on surgical update.** Each surgical re-registration emits a `:rf.frame/re-registered` trace event (per [009-Instrumentation §Frame lifecycle traces](009-Instrumentation.md#core-fields-required-on-every-event)). The trace fires *after* the metadata swap is visible to subsequent dispatches — a test fixture that asserts "the new `:fx-overrides` are in effect by the time the trace fires" can rely on this ordering. Tools (10x, re-frame-pair) listen for this op to refresh their per-frame state.
 
-**Worked-example gotcha — `:on-destroy` clears on omit.** The absent-key rule above applies to `:on-destroy` too. If the original `reg-frame` set `:on-destroy [:todo/cleanup]` and the developer subsequently edits the source to *remove* the `:on-destroy` key (rather than replace its event vector), the next hot-reload re-registration clears the recorded teardown event. A subsequent `(destroy-frame! :todo)` then runs without firing `:todo/cleanup`. This is mostly invisible in production (frames are rarely destroyed) but bites in tests and REPL workflows that destroy frames between cases — the teardown silently stops running after a source edit. The fix is the same as for `:initial-events`: re-register with the desired keys present, or destroy + re-`reg-frame` to re-establish from the current source.
+**Worked-example gotcha — `:on-destroy` clears on omit.** The absent-key rule above applies to `:on-destroy` too. If the original frame declaration set `:on-destroy [:todo/cleanup]` and the developer subsequently edits the source to *remove* the `:on-destroy` key (rather than replace its event vector), the next hot-reload re-registration clears the recorded teardown event. A subsequent `(destroy-frame! :todo)` then runs without firing `:todo/cleanup`. This is mostly invisible in production (frames are rarely destroyed) but bites in tests and REPL workflows that destroy frames between cases — the teardown silently stops running after a source edit. The fix is the same as for `:initial-events`: re-register with the desired keys present, or destroy + re-`make-frame` to re-establish from the current source.
 
-### Resetting a frame — destroy + reg-frame
+### Resetting a frame — destroy + make-frame
 
-For developers who want a fresh start (a test fixture, an explicit "reset to initial state" action, or a story that re-runs setup on demand), a full reset is **one grammar's two verbs composed**, not a third verb (rf2-lxwpob retired the dedicated `reset-frame!`: one axis — create/refresh via `reg-frame` / `make-frame`, destroy via `destroy-frame!` — not three):
+For developers who want a fresh start (a test fixture, an explicit "reset to initial state" action, or a story that re-runs setup on demand), a full reset is **one grammar's two verbs composed**, not a third verb (rf2-lxwpob retired the dedicated `reset-frame!`: one axis — create/refresh via `make-frame`, destroy via `destroy-frame!` — not three):
 
 ```clojure
 (rf/destroy-frame! :todo)
-(rf/reg-frame :todo <current-config>)     ;; re-supply the SAME config the frame was built with
+(rf/make-frame <current-config>)     ;; re-supply the SAME config (carrying :id :todo) the frame was built with
 ```
 
 - **The WHOLE frame is reset** — lifecycle AND *both* durable partitions. Existing `app-db` is reset to `{}` and runtime-db is cleared (every machine snapshot, route slice, elision declaration, and SSR metadata is dropped); the physical frame-state container starts fresh.
 - Sub-cache is disposed; live subscriptions re-materialise on next deref.
 - Router queue is cleared; any unprocessed events are dropped.
 - The recorded `:initial-events` in `<current-config>` are **dispatched** as on any fresh creation, draining each step's run synchronously in order — the setup runs through the current handlers. Because construction is events-only, the setup script *is* the constructed state; there is no separate baseline to restore.
-- For an **image-loaded frame**, `<current-config>` must re-supply the SAME `:images` the frame was originally built with (via `make-frame`, not bare `reg-frame`) so the reconstructed frame resolves against the same composition — the caller already holds that value; there is no snapshot-and-re-thread step to do this automatically. Omitting `:images` degrades the reconstructed frame to the default image generation.
+- For an **image-loaded frame**, `<current-config>` must re-supply the SAME `:images` the frame was originally built with, so the reconstructed frame resolves against the same composition — the caller already holds that value; there is no snapshot-and-re-thread step to do this automatically. Omitting `:images` degrades the reconstructed frame to the default image generation.
 
 This composition is the right tool for "I want this back to its initial state." Tests use it between test cases. Story tools use it for "reset" buttons. It resets the whole frame, not just app-db — for an app-db-only reset that preserves live runtime state, use `(rf/replace-frame-state! frame-id {:rf.db/app {}})` (per [§Frame-state value accessors and mutators](#frame-state-value-accessors-and-mutators)).
 
-**Not atomic across the two calls** — unlike the retired single-verb `reset-frame!`, which rejected a mid-handler-cascade call BEFORE any teardown, this composition has no joint atomicity guarantee: `destroy-frame!` has no handler-scope guard, so calling it from inside a handler destroys the frame before the following `reg-frame` hits its own construction-in-handler guard (`:rf.error/frame-construction-in-handler`) and throws, leaving the frame destroyed-and-not-reconstructed. This is accepted because frame construction and destruction are already top-level/view-only operations (EP-0027) — the composition's non-atomicity only bites a call site that was already violating that rule.
+**Not atomic across the two calls** — unlike the retired single-verb `reset-frame!`, which rejected a mid-handler-cascade call BEFORE any teardown, this composition has no joint atomicity guarantee: `destroy-frame!` has no handler-scope guard, so calling it from inside a handler destroys the frame before the following `make-frame` hits its own construction-in-handler guard (`:rf.error/frame-construction-in-handler`) and throws, leaving the frame destroyed-and-not-reconstructed. This is accepted because frame construction and destruction are already top-level/view-only operations (EP-0027) — the composition's non-atomicity only bites a call site that was already violating that rule.
 
 `destroy-frame!` alone (covered above) goes one step further — the frame keyword is removed from the registry; subsequent dispatch/subscribe with that frame recovers (dispatch no-ops, subscribe returns nil) and emits a production-survivable `:rf.error/frame-destroyed` through the always-on error-emit listener (see the [§Destroy](#destroy) contract).
 
@@ -698,7 +698,7 @@ This composition is the right tool for "I want this back to its initial state." 
 The runtime does **not** register it at load time, does **not** create it from
 `init!`, and does **not** infer it from a missing frame stamp. It is a perfectly
 legal keyword a small app, example, or test may **explicitly** register and select
-via `(rf/reg-frame :rf/default <metadata>)`, like any other frame — the
+via `(rf/make-frame {:id :rf/default …})`, like any other frame — the
 surgical-update rules above apply, and the runtime emits `:rf.frame/re-registered`
 on re-registration. A migration may adopt `:rf/default` as its explicit app-frame
 id; the runtime will not infer it. Absence of any frame is `:rf.error/no-frame-context`,
@@ -710,13 +710,13 @@ A `:preset` key on the metadata expands at registration time into a fixed bundle
 
 ```clojure
 ;; Concise; intent visible at the call site.
-(rf/reg-frame :test/auth-flow
-  {:preset :test})
+(rf/make-frame {:id :test/auth-flow
+                :preset :test})
 
 ;; The `:preset` expands; user-supplied keys override individual expansion entries.
-(rf/reg-frame :test/long-running
-  {:preset :test
-   :drain-depth 1000})        ;; overrides the :test preset's drain-depth default
+(rf/make-frame {:id :test/long-running
+                :preset :test
+                :drain-depth 1000})   ;; overrides the :test preset's drain-depth default
 ```
 
 The closed canonical set of four presets, with their exact expansions. The expansion *table itself* is normatively captured in [Spec-Schemas §`:rf/preset-expansion`](Spec-Schemas.md#rfpreset-expansion); the four sub-sections below mirror that schema for human readability.
@@ -762,7 +762,7 @@ Use case: story / variant frames (per the [007-Stories](007-Stories.md) library,
 
 Server-side handler exceptions surface through the dedicated server error projection (per [011 §Server error projection](011-SSR.md#server-error-projection)) — driven by the registered error projector consuming the always-on error stream, not by any frame-config slot.
 
-The `:initial-events` are **user-supplied** rather than preset-defaulted. The standard pattern is `(rf/reg-frame :ssr/request {:preset :ssr-server :initial-events [[:rf/server-init request]]})` — the user owns the setup so the request payload can be threaded through (see [011-SSR](011-SSR.md)). The framework does not ship a `:rf/server-init` handler. (`:preset` and `:initial-events` are **record-config** keys: under EP-0024 they ride both `reg-frame` and the one `make-frame` constructor, alongside the image-selection keys, in one call — see [§Per-instance frames](#per-instance-frames--make-frame-the-ep-0023-object-constructor).)
+The `:initial-events` are **user-supplied** rather than preset-defaulted. The standard pattern is `(rf/make-frame {:id :ssr/request :preset :ssr-server :initial-events [[:rf/server-init request]]})` — the user owns the setup so the request payload can be threaded through (see [011-SSR](011-SSR.md)). The framework does not ship a `:rf/server-init` handler. (`:preset` and `:initial-events` are **record-config** keys: under EP-0024 they ride the one `make-frame` constructor alongside the image-selection keys, in one call — see [§Per-instance frames](#per-instance-frames--make-frame-the-ep-0023-object-constructor).)
 
 Use case: per-request server-side render frame (per [011-SSR.md](011-SSR.md)).
 
@@ -792,7 +792,7 @@ The preset set is closed; the four presets are canonical for AI scaffolding (an 
 
 #### `:preset` is a record-config key
 
-`:preset` is a **record-config** key, so it rides both `reg-frame` (the front-porch named path) and `make-frame` (the one constructor), applied with the same expansion algorithm and the same conflict-resolution rule. `make-frame` honours record-config keys alongside the image-selection keys (it does not reject them — see [§Per-instance frames](#per-instance-frames--make-frame-the-ep-0023-object-constructor)):
+`:preset` is a **record-config** key on the one `make-frame` constructor (and the `frame-root` ENSURE opts), applied with the expansion algorithm and conflict-resolution rule above. `make-frame` honours record-config keys alongside the image-selection keys (it does not reject them — see [§Per-instance frames](#per-instance-frames--make-frame-the-ep-0023-object-constructor)):
 
 ```clojure
 (rf/make-frame {:preset :test
@@ -807,21 +807,21 @@ The preset set is closed; the four presets are canonical for AI scaffolding (an 
 
 > **One constructor.** `make-frame` is the one constructor (image-selection + record-config opts in one call) that returns the live frame **value**. The heading keeps the EP-0023 anchor for inbound links.
 
-Some use cases need a frame *per mount* rather than a named singleton — devcards, modal stacks, multiple live instances of a `[counter-widget]`, dynamic tabs. For these, re-frame2 ships `make-frame` alongside `reg-frame`. Per [EP-0024](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md), **`make-frame` is the single public constructor for a live frame** — it accepts image-selection options *and* frame-configuration (record-config) options in one call, and **returns the live frame value**. No caller has to create a backing frame first and then create an image-loaded object for the same id: one frame, one call.
+Some use cases need a frame *per mount* rather than a named singleton — devcards, modal stacks, multiple live instances of a `[counter-widget]`, dynamic tabs. Per [EP-0024](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md), **`make-frame` is the single public constructor for a live frame** — it accepts image-selection options *and* frame-configuration (record-config) options in one call, and **returns the live frame value**. No caller has to create a backing frame first and then create an image-loaded object for the same id: one frame, one call.
 
 ```clojure
 (rf/make-frame {:images [counter-image]}) → <frame value>   ;; the live frame VALUE (representation hidden)
 (rf/dispatch [:counter/inc] {:frame frame})                  ;; pass the value directly — no accessor needed
 (rf/destroy-frame! frame)                                    ;; the value (or its id) destroys it
 
-(rf/reg-frame :counter {:initial-events [[:counter/init]]})  ;; the front-porch named path is unchanged
+(rf/make-frame {:id :counter :initial-events [[:counter/init]]})  ;; the named-singleton path — same constructor
 
 (defn counter-widget [label]
-  ;; A view that needs a named frame for its mounted lifetime uses the merged
-  ;; provider's ENSURE shape — create-if-absent, reuse-no-reseed, no
-  ;; destroy-on-unmount (EP-0024 amended). True ownership (explicit teardown)
-  ;; stays make-frame + destroy-frame! in a create-class.
-  [rf/frame-provider {:id :counter/widget :images [counter-image] :initial-events [[:rf/set-db {:count 0}]]}
+  ;; A view that needs a named frame for its mounted lifetime uses the
+  ;; frame-root ENSURE shape — create-if-absent, reuse-no-reseed, no
+  ;; destroy-on-unmount (EP-0024 amended; rf2-nyea0r). True ownership
+  ;; (explicit teardown) stays make-frame + destroy-frame! in a create-class.
+  [rf/frame-root {:id :counter/widget :images [counter-image] :initial-events [[:rf/set-db {:count 0}]]}
    [counter-view label]])
 ```
 
@@ -849,7 +849,7 @@ Tests use the direct-constructor pattern as their fixture lifecycle:
 
 #### Duplicate id — idempotent replacement
 
-`make-frame` (and `reg-frame`) with an `:id` that already names a live frame performs **idempotent replacement** (EP-0024): re-evaluating the same frame declaration updates frame configuration and the resolved image generation **without destroying durable state**, unless the caller explicitly composes `destroy-frame!` + `reg-frame`/`make-frame` for a full reset ([§Resetting a frame](#resetting-a-frame--destroy--reg-frame)). This is hot-reload-friendly and Story-re-evaluation-friendly — re-mounting under the same id preserves the live app-db and runtime-db, and re-supplying a NEW `:images` vector on the same `:id` is exactly how image hot-reload works (rf2-lxwpob folded the dedicated `reload-images!` verb into this).
+`make-frame` with an `:id` that already names a live frame performs **idempotent replacement** (EP-0024): re-evaluating the same frame declaration updates frame configuration and the resolved image generation **without destroying durable state**, unless the caller explicitly composes `destroy-frame!` + `make-frame` for a full reset ([§Resetting a frame](#resetting-a-frame--destroy--make-frame)). This is hot-reload-friendly and Story-re-evaluation-friendly — re-mounting under the same id preserves the live app-db and runtime-db, and re-supplying a NEW `:images` vector on the same `:id` is exactly how image hot-reload works (rf2-lxwpob folded the dedicated `reload-images!` verb into this).
 
 > **Note.** Idempotent replacement here is the same contract the UI-owned `frame-provider` relies on for its idempotent re-mount (per [EP-0024 §Duplicate id policy](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md#duplicate-id-policy)).
 
@@ -921,7 +921,7 @@ The hybrid `[<id> <map>]` shape for non-trivial events is canonical. Subscribe t
 The envelope is just a map. Any field can be set by:
 
 - **The two-arg dispatch form** — `(dispatch [:foo] {:frame :todo :fx-overrides {...}})`. The opts map's keys flow into the envelope. `dispatch-sync` takes the same opts arg. The opts map's schema is `:rf/dispatch-opts` in [Spec-Schemas](Spec-Schemas.md#rfdispatch-opts) — a strict subset of the envelope (the runtime supplies `:event` and stamps `:rf.cofx` `:rf/time-ms` when absent). A caller MAY supply exact recordable facts via the `:rf.cofx` opt (`(dispatch [:e] {:rf.cofx {...}})`) for replay, tests, SSR hydration, and host integrations — supplied values are preserved verbatim and never overwritten (see [§Recordable coeffects](#recordable-coeffects)).
-- **Frame-level config** — `reg-frame` keys (`:fx-overrides`, `:interceptor-overrides`, etc.) are merged into the envelope by the routing layer when an event is routed to that frame.
+- **Frame-level config** — frame config keys (`:fx-overrides`, `:interceptor-overrides`, etc.) are merged into the envelope by the routing layer when an event is routed to that frame.
 - **Lexical injection** — `reg-view`-injected `dispatch` closures carry `:frame` from React context.
 
 The two-arg `dispatch` form is the single mechanism for setting envelope fields per call: `(dispatch event {:frame :todo :fx-overrides {...}})`. Per-event override variants like `dispatch-to`, `dispatch-with`, and `dispatch-sync-with` are not part of the API. Event-vector metadata is not an opt-channel in v2; use the two-arg `(dispatch event opts)` form. (The one v1 metadata case — `^:flush-dom` — is rewritten to `:dispatch-later {:ms 0}`; see [MIGRATION.md §M-16](../migration/from-re-frame-v1/README.md#m-16-flush-dom-event-vector-metadata-removed--replace-with-dispatch-later-ms-0-inside-effect-maps-or-the-top-level-rewrite-outside-event-handlers).)
@@ -971,7 +971,7 @@ Pair-shaped tools and other tooling surfaces set `:origin` to filter their own a
 
 `:origin` is **distinct from `:source`** (the existing envelope key). `:source` describes the trigger kind / functional origin — what *woke* the runtime; the canonical enum is `:rf/dispatch-envelope`'s `:source` in [Spec-Schemas](Spec-Schemas.md#rfdispatch-envelope) (`:ui`, `:frame-init`, `:machine-spawn`, `:machine-action`, `:always`, `:after-timer`, `:fx-dispatch`, `:fx-dispatch-later`, `:http`, `:router`, `:ssr-hydration`, `:test`, `:tool`, `:websocket`, `:repl`, `:unknown`, `:other`). `:origin` describes the actor identity — *who* issued the dispatch. Both can be set independently; tools commonly set `:origin :pair` and let `:source` default to `:unknown` (or stamp `:source :tool`).
 
-The default `:source` value is **`:unknown`**. Frame-init dispatches (the `:initial-events` steps fired by `reg-frame`) explicitly stamp `:source :frame-init` (plus the step index) and carry the `reg-frame` call-site coord under `:rf.trace/call-site` so click-to-source jumps to the `(rf/reg-frame ...)` line. UI handler call-sites either explicitly stamp `:source :ui` or render as `:unknown` — the framework does not assume UI provenance.
+The default `:source` value is **`:unknown`**. Frame-init dispatches (the `:initial-events` steps fired at `make-frame` construction) explicitly stamp `:source :frame-init` (plus the step index) — that provenance is the frame-init trace's source identity (frame construction captures no source coordinates; frames are not click-to-source targets, rf2-h1vqa4). UI handler call-sites either explicitly stamp `:source :ui` or render as `:unknown` — the framework does not assume UI provenance.
 
 Substrate-internal dispatch sites stamp their own specific `:source` kind so the Epoch panel's DISPATCH step renders the precise trigger rather than the prior aggregate (the broad `:fx` / `:machine` / `:dispatch-later` / `:timer` aliases were dropped — every dispatch site stamps the matching specific kind):
 
@@ -1115,7 +1115,7 @@ Replay is unconditionally strict — an incomplete record MUST fail loudly rathe
 **Binding points.** The effective policy for a dispatch resolves **most-specific-wins**, at context assembly:
 
 1. **Per-call** — the `:rf.cofx/mint-policy` **dispatch opt** (`(rf/dispatch [:e] {:rf.cofx/mint-policy :strict})`). This is the lever a **Tool-Pair replay** uses (it re-dispatches a recorded event supplying the recorded `:rf.cofx` *and* `:rf.cofx/mint-policy :strict`, so an incomplete record fails loudly instead of minting a fresh value — see [Tool-Pair §Replay](Tool-Pair.md#replay-mint-policy)), and the lever a test uses to opt back into generation (`:explicit-live`).
-2. **Per-frame** — the `:rf.cofx/mint-policy` key on the frame's `reg-frame` / `make-frame` config (the `:test` preset expands to `:strict`).
+2. **Per-frame** — the `:rf.cofx/mint-policy` key on the frame's `make-frame` config (the `:test` preset expands to `:strict`).
 3. **Default** — `:live`, the router default, when neither is present.
 
 An **unrecognised** policy value is treated conservatively as **non-generating** (equivalent to `:strict`) — an unknown policy MUST NOT silently mint a nondeterministic value into the durable ledger. The policy threads through the satisfaction algorithm (the `deliver-declared-cofx` seam owned by [001 §Coeffects](001-Registration.md#coeffects--reg-cofx-value-returning-graded)); it changes only the declared-absent generator-backed branch, never the present-on-token (supplied / replayed) or ambient branches.
@@ -1585,7 +1585,7 @@ Two sibling macros for tests/REPL that establish an implicit current frame for a
   @(rf/subscribe [:status]))
 ```
 
-Used when the frame already exists (registered via `reg-frame` or created earlier via `make-frame`). The macro binds the dynamic-frame var for the body's duration; plain `dispatch`/`subscribe` route to `:scratch` via the dynamic-binding tier of the resolution chain. The frame is **not** created or destroyed by the macro.
+Used when the frame already exists (created earlier via `make-frame` or a `frame-root` mount). The macro binds the dynamic-frame var for the body's duration; plain `dispatch`/`subscribe` route to `:scratch` via the dynamic-binding tier of the resolution chain. The frame is **not** created or destroyed by the macro.
 
 `with-frame` rejects a vector argument at compile time (`:rf.error/with-frame-vector-form`) — pass a keyword (or a symbol that resolves to one). If you want eval-bind-run-destroy, reach for `with-new-frame`.
 
@@ -1601,7 +1601,7 @@ Use case: REPL sessions, tests that share a fixture across multiple `deftest` bl
 
 Used when the frame's lifetime is exactly the body. The macro evaluates `expr`, binds the resulting frame (`make-frame` returns the live frame **value**) to `sym`, runs the body in that frame's dynamic context, and **destroys** the frame on exit (success or exception). `with-new-frame` *owns* the lifetime — it is one of the ownership affordances per [§Scope, carry, and ownership](#the-multi-frame-surface--choose-by-intent).
 
-The expression may be `(make-frame opts)` (returns a frame value), `(reg-frame :id opts)` (returns the keyword), or any expression returning a frame value or frame keyword. The macro destroys whatever was bound on exit. Inside the body, ambient `dispatch`/`subscribe` resolve to the bound frame; reads like `app-db-value` may take the bound value directly — the tests-and-harness use of a frame value (route public ops by id elsewhere).
+The expression may be `(make-frame opts)` (returns a frame value) or any expression returning a frame value or frame keyword. The macro destroys whatever was bound on exit. Inside the body, ambient `dispatch`/`subscribe` resolve to the bound frame; reads like `app-db-value` may take the bound value directly — the tests-and-harness use of a frame value (route public ops by id elsewhere).
 
 `with-new-frame` rejects a keyword argument at compile time (`:rf.error/with-new-frame-keyword-form`) — pass a `[sym expr]` vector. If you only want to pin to an existing frame-id, reach for `with-frame`.
 
@@ -1645,7 +1645,7 @@ A **drain** and an **event** are distinct units, and the distinction is normativ
 - A **drain** is one turn of the outer loop (`drain!`). It may dequeue and process *several* events back-to-back — the originating event plus every event its handlers `:fx`-dispatch, and so on, until the queue is empty. A drain is a *scheduling* unit: it bounds when the host event loop gets time back and when the read side runs (**derive → render**, once, at settle).
 - An **event** is one dequeued envelope. Each dequeued event runs its **own full pipeline run** — its write side (**assemble → transform → commit → perform**) end-to-end before the next event is dequeued — and **yields its own epoch**: one [`:rf/epoch-record`](Spec-Schemas.md#rfepoch-record) per dequeued event. (First-contact mnemonic: the run's write side is the "six dominoes" — event → effects → dispatch → handler → effects → view.)
 
-**One epoch per dequeued event — every origin.** The epoch boundary is *per top-level dequeue*, irrespective of how the event arrived in the queue: a UI `(rf/dispatch …)`, an `:fx [[:dispatch …]]` child queued by another handler, or a frame-creation setup step (an `:initial-events` element, dispatch-synced at `reg-frame` — see [§reg-frame is atomic](#reg-frame--atomic-create-and-register-and-the-canonical-metadata-grammar)). Each of these is its own dequeued event, so each is its own epoch with its own **pipeline run** and its own trace. A drain that processes a parent event and the child it `:fx`-dispatched therefore produces **two** epoch records, not one — even though both settled inside the same drain.
+**One epoch per dequeued event — every origin.** The epoch boundary is *per top-level dequeue*, irrespective of how the event arrived in the queue: a UI `(rf/dispatch …)`, an `:fx [[:dispatch …]]` child queued by another handler, or a frame-creation setup step (an `:initial-events` element, dispatch-synced at construction — see [§make-frame is atomic](#make-frame--atomic-create-and-register-and-the-canonical-config-grammar)). Each of these is its own dequeued event, so each is its own epoch with its own **pipeline run** and its own trace. A drain that processes a parent event and the child it `:fx`-dispatched therefore produces **two** epoch records, not one — even though both settled inside the same drain.
 
 **Microsteps ride the triggering event's epoch.** A machine's `:raise` sub-events and `:always` microsteps are **not** dequeued events — they are in-memory microsteps inside a single machine **macrostep**, drained pre-commit within the triggering event's handler invocation and never routed through the per-frame queue (per [005 §`:raise`](005-StateMachines.md#raise-rfmachinespawn-and-rfmachinedestroy-are-reserved-fx-ids-inside-fx) / [§Eventless `:always` transitions](005-StateMachines.md#eventless-always-transitions)). They stay **inside the triggering event's epoch**; they do not start a new one. Only a separately *dequeued* event — including an `:fx [[:dispatch …]]` child that round-trips through the queue — opens a fresh epoch. (`:dispatch` to self round-trips the queue as a separate dequeued event — at the back from a plain handler, at the front from a machine handler per [005 §Level 4](005-StateMachines.md#level-4--across-the-runtime); either way a fresh epoch; `:raise` is not dequeued and stays in the same epoch — see [§Edge cases worth pinning](#edge-cases-worth-pinning) #3.)
 
@@ -1665,9 +1665,9 @@ The distinction is documentary and conceptual, not technical. One **event pipeli
    **Halt boundary — what does and doesn't commit.** Atomicity is enforced *at the event boundary*, so there is no multi-event drain state to revert. Each settled event is atomic on its own: a handler's `:db` write either commits in full (when the event settles, yielding its `:ok` epoch) or not at all (the event's own partial work never reaches `app-db` if the event itself fails — see [§Interceptor chain execution](#interceptor-chain-execution--before-short-circuit-after-always-runs)). The halting event makes **no** writes — it was never dequeued into a handler invocation — so nothing of its needs reverting. Frame-local registry mutations follow the same per-event grammar: a `(rf/dispatch [:rf.machine/spawn ...])` that **settled** as its own event durably registered the spawned actor's frame-local handler in its `[:rf.runtime/machines :snapshots <id>]` slot, and that registration is kept along with that event's durable `app-db` — there is no orphaning, because the kept `app-db` is the very value (post that event) that references the registration. Out-of-band side effects already committed to *external* substrates (an HTTP request that flew, a `dispatch-later` timer that was scheduled) are likewise not touched. (The sibling halt case, [§Edge cases worth pinning §Frame disposal mid-drain](#edge-cases-worth-pinning), behaves identically: settled events are durable, only not-yet-dequeued events are dropped, and a `:halted-destroy` marker records the halt.)
 
 ```clojure
-(rf/reg-frame :auth
-  {:initial-events [[:auth/initialise]]
-   :drain-depth    100})    ;; default and runtime-overridable
+(rf/make-frame {:id :auth
+                :initial-events [[:auth/initialise]]
+                :drain-depth    100})    ;; default and runtime-overridable
 ```
 
 ### Single-drainer invariant (concurrent hosts)
@@ -1704,7 +1704,7 @@ React's concurrent renderer (React 18's concurrent features, React 19, and dev-t
 
 - **Subscription reads are tearing-safe.** A render-phase `subscribe` deref reads a stable value across the re-renders of one commit — no torn read. The **UIx and Helix** adapters implement `use-subscribe` on React's official [`useSyncExternalStore`](https://react.dev/reference/react/useSyncExternalStore) (the shared React-hook spine at `re-frame.substrate.spine`), whose `getSnapshot` is a pure deref of the live committed reaction and whose store-subscribe wires the sub only from a **commit-owned** callback — so a render that never commits (Suspense/interrupt) acquires nothing, and the render phase's balanced acquire/release round-trip leaves the sub-cache exactly as it found it (the rebuilt value `=` the disposed one, so no tear is observed). **Reagent** reads through its own reactive deref (`r/atom` + reaction) — a pull-based, idempotent recompute — and its tearing-safety under a concurrent React root is a property of Reagent's own scheduler, not of a re-frame2-installed `useSyncExternalStore` shim (the function-component adapters are the ones that adopt React's official primitive here). *v1 CLJS reference:* `useSyncExternalStore` on the function-component (UIx / Helix) adapters, native reactive deref on Reagent; other-language ports MAY use any read primitive their host offers that gives the same stable-across-re-render guarantee.
 - **The frame keyword is captured by value.** `reg-view`'s injected `dispatch` / `subscribe` are values, and `frame-provider`'s React-context payload is the frame **keyword** (not a mutable record). Re-render produces a fresh closure holding the same keyword; the context read is idempotent, so scoping is stable across the re-renders. (See [§Concurrent rendering edge case](#edge-cases) in the frame-provider discussion above.)
-- **A `dispatch` accidentally issued during render never corrupts state.** An ordinary `dispatch` does not re-run a handler in place on each re-render: it enqueues an envelope on the frame's router queue and the drain settles once on the next microtask (the [§Single-drainer invariant](#single-drainer-invariant-concurrent-hosts) and [§Drain scheduling](#drain-scheduling--microtask-not-timer)). So a `dispatch` that a render body issues N times across N pre-commit renders enqueues N envelopes — N handler runs. **The framework does not dedupe those**; instead the hazard is closed at the source by the normative rule that [**views MUST NOT dispatch from their render bodies**](004-Views.md#views-must-not-dispatch-from-their-render-bodies). Per-mount setup belongs in the frame's `:initial-events` or in a Form-2 outer fn — both of which run **once per mount, not once per render**, and both of which name the dispatch site so tooling sees it. Re-mount of a `frame-provider {:id …}` ENSURE boundary is itself idempotent (per [EP-0024](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md): `make-frame` is idempotent replacement and `reg-frame` re-records but does **not** replay `:initial-events`), so a StrictMode double-mount does not re-seed or double-fire initialisation.
+- **A `dispatch` accidentally issued during render never corrupts state.** An ordinary `dispatch` does not re-run a handler in place on each re-render: it enqueues an envelope on the frame's router queue and the drain settles once on the next microtask (the [§Single-drainer invariant](#single-drainer-invariant-concurrent-hosts) and [§Drain scheduling](#drain-scheduling--microtask-not-timer)). So a `dispatch` that a render body issues N times across N pre-commit renders enqueues N envelopes — N handler runs. **The framework does not dedupe those**; instead the hazard is closed at the source by the normative rule that [**views MUST NOT dispatch from their render bodies**](004-Views.md#views-must-not-dispatch-from-their-render-bodies). Per-mount setup belongs in the frame's `:initial-events` or in a Form-2 outer fn — both of which run **once per mount, not once per render**, and both of which name the dispatch site so tooling sees it. Re-mount of a `frame-root {:id …}` ENSURE boundary is itself idempotent (per [EP-0024](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md): `make-frame` is idempotent replacement — re-construction re-records but does **not** replay `:initial-events`), so a StrictMode double-mount does not re-seed or double-fire initialisation.
 
 This confirmation is backed by the adapter test suites, not re-derived. The React-shaped ENSURE path both function-component adapters ride is exercised under a real React `StrictMode` root — reuse-without-reseed on hot-reload double-mount, pure-context reads across the double-invoke, and concurrent re-renders surviving an `act` flush — in the Reagent adapter's `frame_provider_context_dom` DOM suite (which mounts the substrate-shared `ensure-frame-react-element`). The UIx and Helix `use-subscribe` DOM suites forward the shared-suite assertions that pin `useSyncExternalStore` behaviour directly: StrictMode double-mount ref-count balance, Suspense abort-before-commit leaving no leaked ref-count, `getSnapshot` tracking the live committed (not disposed) reaction, and post-dispatch values propagating through the external-store subscription. The "`dispatch` during render enqueues rather than executing destructively" property is a structural consequence of the router (queue-and-schedule dispatch on `interop/next-tick`) rather than a dedicated test.
 
@@ -2099,13 +2099,13 @@ This per-event drain is the canonical place every other piece of the runtime hoo
 >
 > **Asymmetry (explicit, locked):** other-language implementations need only support **id-valued** overrides — that's the conformance contract. The CLJS reference accepting function values is a local ergonomic affordance, not a pattern-level contract. AI scaffolding (Construction-Prompts) and the conformance corpus generate id-valued overrides. The `:rf/dispatch-envelope` schema's `:fx-overrides` value is `[:map-of :keyword :any]` rather than `[:map-of :keyword :keyword]` precisely because the CLJS reference admits the function-valued form; non-CLJS implementations narrow the value type to id-only.
 
-Two things can be overridden per-call (via the dispatch opts map) and per-frame (via `reg-frame` keys); a third — the authored interceptor chain — is a **frame-only** addition, not a per-call one (EP-0022):
+Two things can be overridden per-call (via the dispatch opts map) and per-frame (via frame config keys); a third — the authored interceptor chain — is a **frame-only** addition, not a per-call one (EP-0022):
 
 | Envelope key             | What it does                                                              | Source: per-call            | Source: per-frame                       |
 |--------------------------|--------------------------------------------------------------------------|-----------------------------|------------------------------------------|
-| `:fx-overrides`          | Replace registered fx handlers (by id)                                    | dispatch opts               | `reg-frame :fx-overrides`                |
-| `:interceptor-overrides` | Replace / remove interceptors in the event's chain (by **exact reference**) | dispatch opts             | `reg-frame :interceptor-overrides`       |
-| `:interceptors`          | The frame-level interceptor **ref** chain prepended to every event in the frame ("global within this frame") | — (not a dispatch opt — EP-0022) | `reg-frame :interceptors`                |
+| `:fx-overrides`          | Replace registered fx handlers (by id)                                    | dispatch opts               | frame config `:fx-overrides`             |
+| `:interceptor-overrides` | Replace / remove interceptors in the event's chain (by **exact reference**) | dispatch opts             | frame config `:interceptor-overrides`    |
+| `:interceptors`          | The frame-level interceptor **ref** chain prepended to every event in the frame ("global within this frame") | — (not a dispatch opt — EP-0022) | frame config `:interceptors`             |
 
 `:fx-overrides` and `:interceptor-overrides` flow through the dispatch envelope and merge per-call over per-frame on key conflict. **Additive per-dispatch `:interceptors` is removed** ([EP-0022](../docs/EP/EP-0022-registered-interceptors.md)): authored behaviour has two homes (event metadata and frame metadata), and per-call variation is expressed by `:interceptor-overrides` (substitute or remove a named ref). Supplying `:interceptors` in a dispatch opts map is not an honoured key — it falls through the generic unknown-dispatch-opt surface (warned, dispatch proceeds unchanged) — see [§Registered interceptors and the chain grammar §Dispatch-option restrictions](#dispatch-option-restrictions).
 
@@ -2122,9 +2122,9 @@ The pattern-level form is **id-valued** — replace one registered fx with anoth
                              :localstorage nil}})  ;; nil = NO override — the original :localstorage fx runs
 
 ;; per-frame — id-valued
-(rf/reg-frame :story.auth.login-form/loading
-  {:initial-events [[:auth/show-loading]]
-   :fx-overrides   {:my-app/http :my-app/http.pending-stub}})
+(rf/make-frame {:id :story.auth.login-form/loading
+                :initial-events [[:auth/show-loading]]
+                :fx-overrides   {:my-app/http :my-app/http.pending-stub}})
 
 ;; per-call — function-valued (CLJS reference convenience for tests)
 (rf/dispatch [:user/login {:email "..."}]
@@ -2177,9 +2177,9 @@ Override matching is by **canonical interceptor reference**, not by an intercept
              {:interceptor-overrides {:my-app/logging nil}})
 
 ;; per-frame — disable logging for everything in a test frame
-(rf/reg-frame :Test.Auth/silent
-  {:initial-events        [[:auth/test-init]]
-   :interceptor-overrides {:my-app/logging nil}})
+(rf/make-frame {:id :Test.Auth/silent
+                :initial-events        [[:auth/test-init]]
+                :interceptor-overrides {:my-app/logging nil}})
 ```
 
 Use cases (all testing-flavoured):
@@ -2198,9 +2198,9 @@ Precedence: **frame overrides < dispatch-opts overrides** — per-call overrides
 `:interceptors` is the frame-level interceptor **ref** chain prepended to every event handled in the frame. It carries interceptor references (bare keywords or `[id arg]` parameterized refs), never inline interceptor values — the full grammar is in [§Event and frame chain grammar](#event-and-frame-chain-grammar).
 
 ```clojure
-(rf/reg-frame :Dev.Recorder/active
-  {:interceptors [:dev/event-recorder
-                  :dev/app-db-validator]})
+(rf/make-frame {:id :Dev.Recorder/active
+                :interceptors [:dev/event-recorder
+                               :dev/app-db-validator]})
 ```
 
 Use cases:
@@ -2257,8 +2257,8 @@ The two public `:interceptors` surfaces are **event metadata** and **frame metad
   (fn [{:keys [db]} [_ sku]]
     {:db (update db :items conj sku)}))
 
-(rf/reg-frame :story/cart
-  {:interceptors [:story/record-events]})
+(rf/make-frame {:id :story/cart
+                :interceptors [:story/record-events]})
 ```
 
 Inline interceptor maps, interceptor values, or Vars in a public `:interceptors` chain are a registration error — `:rf.error/inline-interceptor-removed`. The recovery is to register the behaviour with `reg-interceptor` and reference it by id. (The chain carries refs only. The malformed-`:interceptors`-value and bare-interceptor `reg-event` errors are owned by [001 §Allowed forms of the middle slot](001-Registration.md#allowed-forms-of-the-middle-slot).)
@@ -2315,7 +2315,7 @@ Framework dispatch-time interceptors that are **not** authored image members are
 
 Event and frame metadata store interceptor **references**, not resolved interceptor maps. The runtime resolves references when assembling the dispatch chain.
 
-- **Registration-time validation.** A live `reg-event` / `reg-frame` that references an interceptor id with no registration fails at registration — `:rf.error/unregistered-interceptor`. Typos die before dispatch semantics apply.
+- **Registration-time validation.** A live `reg-event` / `make-frame` that references an interceptor id with no registration fails at registration — `:rf.error/unregistered-interceptor`. Typos die before dispatch semantics apply.
 - **Image-assembly validation.** Image values ([EP-0023](../docs/EP/EP-0023-image-loaded-frames.md)) validate refs during assembly of the resolved image generation — the explicit phase that selects descriptors, validates collisions and references, and seals a generation before the frame runs.
 - **Dispatch-time guard.** A dispatch-time unknown-ref failure exists only as a defensive guard against corrupt state or a hot-reload race.
 
@@ -2462,13 +2462,13 @@ re-frame2 commits to a queryable public registrar for every kind of registered e
 
 Most queries are JVM-runnable because they read from the registrar (which is data) and from `app-db` (which is data). One query is not, and the table marks it: `sub-cache` reads runtime state from the reactive substrate (currently Reagent-specific). Static topology and snapshot reads stay pure-data.
 
-The metadata maps returned by `handler-meta` and `frame-meta` follow a documented shape — see [001 §Registration grammar](001-Registration.md#registration-grammar) for handler metadata, and [§reg-frame is atomic](#reg-frame--atomic-create-and-register-and-the-canonical-metadata-grammar) above for frame metadata. Tools (10x, re-frame-pair, agents, story tools) read these and present them however they want.
+The metadata maps returned by `handler-meta` and `frame-meta` follow a documented shape — see [001 §Registration grammar](001-Registration.md#registration-grammar) for handler metadata, and [§make-frame is atomic](#make-frame--atomic-create-and-register-and-the-canonical-config-grammar) above for frame metadata. Tools (10x, re-frame-pair, agents, story tools) read these and present them however they want.
 
 ### Per-frame and trace surface
 
 - **Per-frame app-db inspection** — covered by `app-db-value` above.
-- **Trace per frame.** Each frame owns its own event-keyed trace ring. Trace events emitted inside an in-flight run route to the frame whose router / reactive substrate / view wrapper is running — they never cross into sibling frames. Each frame's ring is sized independently via `:rf.trace/events-retained` (default 50; per-frame override on `reg-frame`); `(rf/trace-buffer frame-id)` reads event bundles from that frame's ring; cross-frame consumers (pair tools, multi-frame story sessions) merge by `:dispatch-id` across rings. Frameless emits stream live to listeners only and bypass every ring. See [Spec 009 §Per-frame trace rings](009-Instrumentation.md#per-frame-trace-rings-event-keyed-dev-only) for the full contract.
-- **Hot-reload notifications.** `reg-frame`/`reg-event`/etc. re-registration fires notifications on a re-frame-internal pub/sub that tools can listen to and refresh their state. Hot-reload re-emits are deduplicated by shape — unchanged re-registrations do not fire a trace event; only shape changes (handler-fn identity or metadata content) emit. The dedup table is process-scoped and dev-only.
+- **Trace per frame.** Each frame owns its own event-keyed trace ring. Trace events emitted inside an in-flight run route to the frame whose router / reactive substrate / view wrapper is running — they never cross into sibling frames. Each frame's ring is sized independently via `:rf.trace/events-retained` (default 50; per-frame override on the frame config); `(rf/trace-buffer frame-id)` reads event bundles from that frame's ring; cross-frame consumers (pair tools, multi-frame story sessions) merge by `:dispatch-id` across rings. Frameless emits stream live to listeners only and bypass every ring. See [Spec 009 §Per-frame trace rings](009-Instrumentation.md#per-frame-trace-rings-event-keyed-dev-only) for the full contract.
+- **Hot-reload notifications.** `make-frame`/`reg-event`/etc. re-registration fires notifications on a re-frame-internal pub/sub that tools can listen to and refresh their state. Hot-reload re-emits are deduplicated by shape — unchanged re-registrations do not fire a trace event; only shape changes (handler-fn identity or metadata content) emit. The dedup table is process-scoped and dev-only.
 
 ## Story-tool foundation hooks — see Spec 007
 
@@ -2499,16 +2499,16 @@ A pointer-only index of decisions taken in this Spec. Each entry's load-bearing 
 | Unified frame identity & lifecycle (EP-0024, accepted 2026-06-18) — **one live frame value backed by one registry** (it owns the id, both partitions, runtime subsystems, queue/drain, caches, lifecycle hooks, and the **resolved image generation** — no second backing-record registry); the **frame id is the public routing address** (`{:frame id}` / `with-frame`), the frame value is a lifecycle token with a hidden representation; **scope vs ensure vs own vs carry** are separate jobs — `with-frame` (lexical) / `frame-provider {:frame …}` (into a React subtree) scope to an *existing* frame (no lifecycle; **amended** — fails loud if absent), `frame-provider {:id …}` is the per-adapter **ENSURE** boundary (create-if-absent / reuse-no-reseed / provide id / **no destroy-on-unmount** — **amended**, owned destroy-on-unmount retired), explicit `make-frame` + `destroy-frame!` owns teardown, `capture-frame` carries across async; **one `make-frame`** over image-selection + record-config opts (the old two-constructor split + `:rf.error/make-frame-record-only-key` redirect are gone); **duplicate-id is idempotent replacement** (behaviour change from blanket fail-loud — preserves durable state on re-mount, irreconcilable conflicts still fail loud); `make-capture-frame`/`subscribe*`/frame-first arities retiered to internal at the time (`subscribe*` itself was later fully retired, not just demoted — API-shrink #2, rf2-m90brg); **one teardown ownership path** | [§Per-instance frames — `make-frame`](#per-instance-frames--make-frame-the-ep-0023-object-constructor), [§What `frame-provider` is](#frame-provider--the-scope-only-component-cljs-reference), [§Destroy](#destroy), [EP-0024](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md) |
 | API-shrink #1 — frame-targeting collapsed to exactly THREE intents (rf2-csbbwu) — scope (ambient) / override (`{:frame …}`) / hold (`capture-frame`, the ONE public carry primitive); the frame-FIRST positional runtime shape-discrimination EP-0024 had retained as internal plumbing (the then-`dispatch*`/`dispatch-sync*`/`subscribe`/`subscribe-once`'s `vector?`-punned 2-arity — `dispatch*`/`dispatch-sync*` are themselves since fully retired, API-shrink #2 rf2-m90brg) is DELETED entirely — every sig is `[payload]` / `[payload opts]`; `frame-bound-fn` (macro) / `frame-bound-fn*` (fn) are DELETED from the facade (the dynamic-rebinding semantics survive internally as `re-frame.frame/bind-fn`); `frame-provider`'s `:frame` is NORMALIZED to accept a frame value (not just a keyword id), so `frame-value->id` is DELETED from the facade — every public surface accepts a frame value or its id interchangeably | [§`capture-frame` is the ONE carry primitive](#capture-frame-is-the-one-carry-primitive--no-frame-bound-fn-cljs-reference), [§The multi-frame surface](#the-multi-frame-surface--choose-by-intent), [§The merged config-shaped `frame-provider`](#frame-provider--the-scope-only-component-cljs-reference) |
 | Frame target resolution — the carried invariant (EP-0002) — frame identity is **carried, not found**: it travels with every causal token as one canonical **frame stamp**, read via the **scope / hold / override** triad (no ambient priority-list, no `:rf/default` floor); absence is `:rf.error/no-frame-context` (emitted always-on, with capture-site ancestry); `hold` is the primary async-safe carrier, `scope` is sync sugar; `:rf/default` is an ordinary id the runtime never infers; **strict embedded core vs tiered interactive discovery** (Tool-Pair keeps tier-3 unique resolution) reconciled into one **absent → ambiguous → unselected** ladder; rationale leads with **replay determinism** | [§Frame target resolution](#frame-target-resolution--the-carried-invariant), [EP-0002](../docs/EP/EP-0002-frame-target-resolution.md), [Tool-Pair](Tool-Pair.md) |
-| Two-partition frame contract (EP-0001, 14 rulings) — a frame owns user **app-db** (`:db`) + framework **runtime-db** (`:rf.db/runtime`), held as ONE physical frame-state container with app-db/runtime-db projection reactions; an ordinary `:db` return replaces only app-db; `:rf.db/runtime` reserved by convention (not a security boundary); both whole-value and operation-style runtime writes; partition-aware invalidation falls out of projection-equality (no dirty flags); a full reset (`destroy-frame!` + `reg-frame`) resets the whole frame; accessors `app-db-value`/`frame-state-value` (former `runtime-db-value` retired, see API-shrink #3 below), mutator `replace-frame-state!` (former `replace-app-db!`/`replace-runtime-db!` retired, see API-shrink #3 below) | [§The two-partition frame contract](#the-two-partition-frame-contract), [Conventions §The two-partition frame contract](Conventions.md#the-two-partition-frame-contract) |
+| Two-partition frame contract (EP-0001, 14 rulings) — a frame owns user **app-db** (`:db`) + framework **runtime-db** (`:rf.db/runtime`), held as ONE physical frame-state container with app-db/runtime-db projection reactions; an ordinary `:db` return replaces only app-db; `:rf.db/runtime` reserved by convention (not a security boundary); both whole-value and operation-style runtime writes; partition-aware invalidation falls out of projection-equality (no dirty flags); a full reset (`destroy-frame!` + `make-frame`) resets the whole frame; accessors `app-db-value`/`frame-state-value` (former `runtime-db-value` retired, see API-shrink #3 below), mutator `replace-frame-state!` (former `replace-app-db!`/`replace-runtime-db!` retired, see API-shrink #3 below) | [§The two-partition frame contract](#the-two-partition-frame-contract), [Conventions §The two-partition frame contract](Conventions.md#the-two-partition-frame-contract) |
 | API-shrink #3 — frame-state I/O collapsed to ONE partial-map write (rf2-t3lftq, adopted 2026-07-07) — the former `replace-app-db!` / `reset-app-db!` / `replace-runtime-db!` / `replace-frame-state!` four-mutator family (identical machinery, differing only in which partition keys they touched) is consolidated into **`replace-frame-state!`** taking a PARTIAL frame-state map: a present key replaces that partition, an absent key is preserved; a map with no recognized partition key, or an unrecognized key, is rejected as `:rf.error/replace-frame-state-bad-keys` (checked before frame resolution); `snapshot-of` (an empirically zero-caller convenience over `(get-in (app-db-value frame-id) path)`) and `runtime-db-value` (superseded by `(:rf.db/runtime (frame-state-value frame-id))`) are DELETED from the facade | [§Frame-state value accessors and mutators](#frame-state-value-accessors-and-mutators) |
 | Frame presets — closed v1 set `:default` / `:test` / `:story` / `:ssr-server`; expansion is `(merge expansion user-supplied-metadata)` with user keys winning on conflict; adding a fifth preset is a Spec-change-only operation; `:devcards` (subsumed by `:story`), `:repl` (subsumed by `:default`), `:replay` (too coupled to Tool-Pair to stabilise) considered and not adopted in v1 | [§Frame presets](#frame-presets--capability-bundles-for-common-configurations) |
-| `reg-frame` re-registration is a surgical update by default; a full replace is the opt-in composition `destroy-frame!` + `reg-frame` (rf2-lxwpob retired the dedicated `reset-frame!` verb — see the frame-lifecycle collapse row below); `destroy-frame!` removes from registry | [§Re-registration — surgical update](#re-registration--surgical-update), [§Resetting a frame — destroy + reg-frame](#resetting-a-frame--destroy--reg-frame) |
-| `reg-frame` takes no `:db` config — frames always start with `app-db = {}`; initialisation runs through `:initial-events` (seed app-db via a leading `[:rf/set-db {…}]` step) | [§reg-frame is atomic](#reg-frame--atomic-create-and-register-and-the-canonical-metadata-grammar) |
-| Frame-lifecycle facade collapse (rf2-lxwpob, API-shrink #5, adopted 2026-07-07) — the public lifecycle vocabulary is **`make-frame` + `destroy-frame!`** (+ `frame-provider` / `with-new-frame` sugar defined AS the constructor); **`reg-frame` is documented sugar for `make-frame`** (Option B — `(reg-frame id metadata)` ≡ `(make-frame (assoc metadata :id id))`, ONE semantics, no breaking opts-map sweep); **`reset-frame!` is DELETED** — a full replace is reproducible by composition (`destroy-frame!` then `reg-frame`/`make-frame` with the caller's own config), with no equivalent joint mid-cascade atomicity guard (accepted — construction/destruction were already top-level/view-only, EP-0027); **`reload-images!` is FOLDED into re-construction** — re-`make-frame`-ing an `:id`-bearing frame with a new `:images` vector already swaps the generation while preserving frame memory; the reload diff is a **read** (`generation-diff` over two `frame-generation` values), not a bespoke verb | [§`reg-frame`](#reg-frame--atomic-create-and-register-and-the-canonical-metadata-grammar), [§Resetting a frame — destroy + reg-frame](#resetting-a-frame--destroy--reg-frame), [§Image resolution and composition](#image-resolution-and-composition), [§Duplicate id](#duplicate-id--idempotent-replacement) |
+| `make-frame` re-registration is a surgical update by default; a full replace is the opt-in composition `destroy-frame!` + `make-frame` (rf2-lxwpob retired the dedicated `reset-frame!` verb — see the frame-lifecycle collapse row below); `destroy-frame!` removes from registry | [§Re-registration — surgical update](#re-registration--surgical-update), [§Resetting a frame — destroy + make-frame](#resetting-a-frame--destroy--make-frame) |
+| `make-frame` takes no `:db` config — frames always start with `app-db = {}`; initialisation runs through `:initial-events` (seed app-db via a leading `[:rf/set-db {…}]` step) | [§make-frame is atomic](#make-frame--atomic-create-and-register-and-the-canonical-config-grammar) |
+| Frame-lifecycle facade collapse (rf2-lxwpob, API-shrink #5, adopted 2026-07-07; amended by rf2-h1vqa4) — the public lifecycle vocabulary is **`make-frame` + `destroy-frame!`** (+ `frame-root` / `with-new-frame` sugar defined AS the constructor); the `reg-frame` sugar spelling rf2-lxwpob had kept was subsequently **DELETED by rf2-h1vqa4** (no alias, no tombstone — a frame is a live runtime object, not a registered program member; `make-frame` is the ONE constructor); **`reset-frame!` is DELETED** — a full replace is reproducible by composition (`destroy-frame!` then `make-frame` with the caller's own config), with no equivalent joint mid-cascade atomicity guard (accepted — construction/destruction were already top-level/view-only, EP-0027); **`reload-images!` is FOLDED into re-construction** — re-`make-frame`-ing an `:id`-bearing frame with a new `:images` vector already swaps the generation while preserving frame memory; the reload diff is a **read** (`generation-diff` over two `frame-generation` values), not a bespoke verb | [§`make-frame`](#make-frame--atomic-create-and-register-and-the-canonical-config-grammar), [§Resetting a frame — destroy + make-frame](#resetting-a-frame--destroy--make-frame), [§Image resolution and composition](#image-resolution-and-composition), [§Duplicate id](#duplicate-id--idempotent-replacement) |
 | Frame-aware events outside views use the two-arg dispatch form `(rf/dispatch [:foo] {:frame :todo})`; `dispatch-to` / `dispatch-with` are not shipped | [§Routing: the dispatch envelope](#routing-the-dispatch-envelope) |
 | The CLJS reference's `frame-provider` (React context) is an *ergonomic optimisation* atop the pattern-level explicit-frame contract; observable behaviour matches explicit-frame addressing; SSR bypasses context. **EP-0024 (amended — provider collapse)**: ONE merged config-shaped `frame-provider` dispatched on the prop map — `{:frame …}` scopes an *existing* frame into a React subtree (fails loud if absent), `{:id …}` is the per-adapter **ENSURE** boundary (create-if-absent / reuse-no-reseed / provide id / **no destroy-on-unmount**). Owned destroy-on-unmount is retired (zero product consumers); true ownership is explicit `make-frame` + `destroy-frame!`. The pre-amendment name family (the scope-only `frame-provider-existing` + a namespace-safe twin) is fully retired — the `{:frame …}` shape is the one scope-only surface | [§View ergonomics](#view-ergonomics-the-hard-part), [§the merged `frame-provider`](#frame-provider--the-scope-only-component-cljs-reference), [011-SSR.md](011-SSR.md) |
 | Plain Reagent fns can't read the surrounding `frame-provider`'s frame; an ambient `subscribe`/`dispatch` in one raises `:rf.error/no-frame-context` (EP-0002 — no `:rf/default` fall-through; supersedes the old warn-once) | [004-Views §Plain Reagent fns](004-Views.md#plain-reagent-fns-no-frame-injection) |
-| Render safety under concurrent React (confirmed against Reagent / UIx / Helix) — a component may render more than once before commit (concurrent renderer, StrictMode double-invoke) or be discarded (Suspense/interrupt); all three re-render concerns are resolved: **subscription reads are tearing-safe** (UIx/Helix `use-subscribe` on `useSyncExternalStore` with a commit-owned store-subscribe + net-zero render-phase round-trip; Reagent reactive deref), the **frame keyword is captured by value** (idempotent context read), and an accidental **`dispatch` during render never corrupts state** — an ordinary `dispatch` enqueues an envelope and drains once per microtask (single-drainer invariant), N renders enqueue N envelopes, and the hazard is closed at the source by the normative "views MUST NOT dispatch from their render bodies" rule (per-mount setup lives in `:initial-events` or a Form-2 outer fn — once per mount, not per render); ENSURE re-mount is idempotent (make-frame idempotent replacement, reg-frame does NOT replay `:initial-events`) | [§Render safety under concurrent React](#render-safety-under-concurrent-react), [004-Views §Views MUST NOT dispatch from their render bodies](004-Views.md#views-must-not-dispatch-from-their-render-bodies) |
+| Render safety under concurrent React (confirmed against Reagent / UIx / Helix) — a component may render more than once before commit (concurrent renderer, StrictMode double-invoke) or be discarded (Suspense/interrupt); all three re-render concerns are resolved: **subscription reads are tearing-safe** (UIx/Helix `use-subscribe` on `useSyncExternalStore` with a commit-owned store-subscribe + net-zero render-phase round-trip; Reagent reactive deref), the **frame keyword is captured by value** (idempotent context read), and an accidental **`dispatch` during render never corrupts state** — an ordinary `dispatch` enqueues an envelope and drains once per microtask (single-drainer invariant), N renders enqueue N envelopes, and the hazard is closed at the source by the normative "views MUST NOT dispatch from their render bodies" rule (per-mount setup lives in `:initial-events` or a Form-2 outer fn — once per mount, not per render); ENSURE re-mount is idempotent (make-frame idempotent replacement — re-construction does NOT replay `:initial-events`) | [§Render safety under concurrent React](#render-safety-under-concurrent-react), [004-Views §Views MUST NOT dispatch from their render bodies](004-Views.md#views-must-not-dispatch-from-their-render-bodies) |
 | Per-instance frames via the one `make-frame` constructor (EP-0024 — image-selection + record-config opts in one call; returns the frame value; id via one accessor) for per-mount lifecycles | [§Per-instance frames — `make-frame`](#per-instance-frames--make-frame-the-ep-0023-object-constructor) |
 | Per-frame and per-call overrides via `:fx-overrides`, `:interceptor-overrides`; frame-level `:interceptors` ref chain (per-call additive `:interceptors` removed — EP-0022) | [§Per-frame and per-call overrides](#per-frame-and-per-call-overrides) |
 | Registered interceptors (EP-0022): event/frame `:interceptors` carry serializable interceptor **refs** (bare keyword or `[id arg]`), not inline values; `:interceptor-overrides` matches by exact canonical reference (replace with another ref, or `nil` to remove); effective ordering frame-refs → event-refs → handler-wrapper → subsystem dispatch-time interceptors; refs resolve at chain assembly (registration-time + app-value validation; dispatch-time defensive guard); one standard interceptor `[:rf.interceptor/path path-vector]` (the canonical `:factory` consumer) preserving the frame-commit `identical?` no-op; no standard `unwrap` | [§Registered interceptors and the chain grammar](#registered-interceptors-and-the-chain-grammar), [001 §Interceptors](001-Registration.md#interceptors--reg-interceptor-the-interceptor-registrar) |

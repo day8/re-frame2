@@ -81,7 +81,7 @@ _As-of 2026-07-04._
 
 | Property | Score | Notes |
 |---|---|---|
-| P1 Regularity | ✓ | Two registration shapes (`reg-frame` / `make-frame`) is right. View invocation has two forms (`view` / Var) — the `h` macro was dropped. |
+| P1 Regularity | ✓ | One frame constructor (`make-frame` — rf2-h1vqa4 deleted the second spelling) is right. View invocation has two forms (`view` / Var) — the `h` macro was dropped. |
 | P2 Named things | ✓ | Frames, handlers, views, fx all stably-id'd. Anonymous lambdas survive only inside view bodies (`:on-click #(dispatch ...)`) which is borderline acceptable. |
 | P3 Data before magic | ◐ | Dispatch envelope, effect map, frame metadata all data. `:fx-overrides` and `:interceptor-overrides` accept function values at the CLJS reference level. Pattern-level contract is id-based; CLJS reference also accepts fn values. |
 | P4 Public query surfaces | ✓ | `registrations`, `frame-meta`, `frame-ids`, `app-db-value`, `frame-state-value`, `sub-topology` all in. |
@@ -274,7 +274,7 @@ _As-of 2026-07-04._
 | P4 Public query surfaces | ✓ | The elision registry is runtime-db data (reverts with the frame); `project-egress` and the `:rf.egress/*` profile enum are the enumerable egress surface; every profile is exercised by a real consumer surface. |
 | P5 Schemas | ✓ | `:rf/elision-marker` (the `:rf.size/large-elided` shape) and `:rf/project-egress-opts` are registered in [Spec-Schemas](Spec-Schemas.md#rfelision-marker); the `:sensitive` / `:large` axis is `:rf/path` vectors (the shared path algebra, EP-0012). |
 | P6 Deterministic execution | ✓ | Projection is pure and value-independent; **sensitive wins over large** is a fixed precedence; fail-closed on unknown frame / profile is deterministic; classification-as-no-op over absent data is well-defined. |
-| P7 Machine-readable errors | ✓ | `:rf.error/unknown-egress-profile` (fail-closed on a bad profile), `:rf.error/bad-frame-classification` (a rejected `reg-frame` `:sensitive`/`:large` block), `:rf.error/flow-bad-marks` / malformed-path rejection at registration — structured, not stringy. |
+| P7 Machine-readable errors | ✓ | `:rf.error/unknown-egress-profile` (fail-closed on a bad profile), `:rf.error/bad-frame-classification` (a rejected frame-config `:sensitive`/`:large` block), `:rf.error/flow-bad-marks` / malformed-path rejection at registration — structured, not stringy. |
 | P8 Low hidden context | ✓ | Classification lives at the fact's **definition site** (the writing handler / the registration / the subsystem definition) — visible where the data's meaning is authored. **No propagation, no taint**: a classification never silently flows input→output; a derived secret is a new path the author classifies directly. On-box reveal is a per-(tool, frame) trace-visible operator act, not a hidden global toggle. |
 | P9 Name over place | ✓ | Classifications are `:rf/path` vectors (named-key paths into shapes); the egress choice is a named profile (`:rf.egress/off-box-tool` …), not a remembered boolean combination. |
 | Constrained model | ✓ | A declarative leak-prevention overlay on observability — record the path, redact at egress. No runtime cost on the happy path; real values flow through the app unchanged. |

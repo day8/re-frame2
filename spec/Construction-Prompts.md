@@ -1012,7 +1012,7 @@ The drain settles before `with-frame` returns; the final state is captured.
 
 ```clojure
 (defonce client-frame
-  (rf/reg-frame :app/main {:initial-events [[:client/bootstrap]]}))
+  (rf/make-frame {:id :app/main :initial-events [[:client/bootstrap]]}))
 
 (defn read-server-payload []
   (-> (.getElementById js/document "__rf_payload")
@@ -1316,8 +1316,8 @@ The factory takes **exactly one** argument. A behaviour needing several inputs t
     {:db (update db :items conj sku)}))
 
 ;; Frame-level chains prepend to every event handled in the frame:
-(rf/reg-frame :story/cart
-  {:interceptors [:story/record-events]})
+(rf/make-frame {:id :story/cart
+                :interceptors [:story/record-events]})
 ```
 
 The standard **`:rf.interceptor/path`** is the one framework-shipped interceptor (a `:factory`): `[:rf.interceptor/path [:cart :items]]` focuses a handler on an `app-db` sub-slice and re-widens the result — you do not register it ([002 §Standard `:rf.interceptor/path`](002-Frames.md#standard-rfinterceptorpath)). There is no standard `unwrap` / `trim-v`; ordinary handler destructuring covers those (and keeps the `:event` coeffect stable for tracing/replay).

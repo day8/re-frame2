@@ -53,9 +53,9 @@ The plain-atom adapter (JVM, SSR, headless) does NOT ship `flush-views!` — the
 | Scoped REPL/test block | `(rf/with-frame :frame-id body...)` (pin) *or* `(rf/with-new-frame [sym expr] body...)` (eval-bind-run-destroy) — see [§`with-frame` and `with-new-frame`](#with-frame-and-with-new-frame) |
 | Synchronous test trigger | `(rf/dispatch-sync event)` or `(rf/dispatch-sync event opts)` |
 | Stub fx (per-call) | `(rf/dispatch-sync ev {:fx-overrides {:my-app/http stub-fn}})` |
-| Stub fx (per-frame) | `(rf/reg-frame :test-frame {:fx-overrides {…}})` |
+| Stub fx (per-frame) | `(rf/make-frame {:id :test-frame :fx-overrides {…}})` |
 | Replace interceptor | `{:interceptor-overrides {:logger nil}}` per-call or per-frame |
-| Add interceptor (recorder) | `(rf/reg-frame :test-frame {:interceptors [event-recorder]})` |
+| Add interceptor (recorder) | `(rf/make-frame {:id :test-frame :interceptors [event-recorder]})` |
 | Assertion: read app-db | `(rf/app-db-value :test-frame)` |
 | Assertion: read snapshot | `@(rf/subscribe [:rf/machine :auth/state-machine])` (or `(get-in (:rf.db/runtime (rf/frame-state-value f)) [:rf.runtime/machines :snapshots :auth/state-machine])` for storage-layer assertions) |
 | Pure machine simulation | `(machine-transition definition snapshot event)` — no frame needed |
@@ -77,7 +77,7 @@ Two sibling macros — split per concern, the macro name telegraphs the intent. 
   @(rf/subscribe [:status]))
 ```
 
-Pins `*current-frame*` to the supplied frame id for the body's dynamic extent. The frame is **not** created or destroyed by the macro — the keyword is used as-is. Used when the frame already exists (registered via `reg-frame` or created earlier via `make-frame`), e.g. shared fixtures across multiple `deftest` blocks, REPL sessions. Rejects a vector argument at compile time (`:rf.error/with-frame-vector-form`); use `with-new-frame` for eval-bind-run-destroy.
+Pins `*current-frame*` to the supplied frame id for the body's dynamic extent. The frame is **not** created or destroyed by the macro — the keyword is used as-is. Used when the frame already exists (created earlier via `make-frame`), e.g. shared fixtures across multiple `deftest` blocks, REPL sessions. Rejects a vector argument at compile time (`:rf.error/with-frame-vector-form`); use `with-new-frame` for eval-bind-run-destroy.
 
 #### `with-new-frame` — create, use, destroy
 
@@ -147,23 +147,23 @@ For tests that don't need explicit teardown logic, `with-new-frame` handles the 
 For test groups that share setup, register a named test frame once and reset between tests:
 
 ```clojure
-(def test-fixture-config {:initial-events [[:auth/init-idle]]})
+(def test-fixture-config {:id :test-fixture :initial-events [[:auth/init-idle]]})
 
 (use-fixtures :each
   (fn [test-fn]
-    (rf/reg-frame :test-fixture test-fixture-config)   ;; create once
+    (rf/make-frame test-fixture-config)                ;; create once
     (try
       (test-fn)
       (finally
         (rf/destroy-frame! :test-fixture)               ;; reset between tests — destroy +
-        (rf/reg-frame :test-fixture test-fixture-config)))))  ;; re-reg-frame, no dedicated verb (rf2-lxwpob)
+        (rf/make-frame test-fixture-config)))))         ;; re-make-frame, no dedicated verb (rf2-lxwpob)
 
 (deftest one-thing
   (rf/dispatch-sync [:auth/login-pressed] {:frame :test-fixture})
   (is (= :validating (get-in (rf/app-db-value :test-fixture) [:auth :state]))))
 ```
 
-The `destroy-frame!` + re-`reg-frame` composition (per [002 §Resetting a frame](002-Frames.md#resetting-a-frame--destroy--reg-frame)) resets the frame and re-dispatches the recorded `:initial-events`. State is fresh between tests; the registration cost is paid once.
+The `destroy-frame!` + re-`make-frame` composition (per [002 §Resetting a frame](002-Frames.md#resetting-a-frame--destroy--make-frame)) resets the frame and re-dispatches the recorded `:initial-events`. State is fresh between tests; the registration cost is paid once.
 
 ### Pattern 4 — pure machine simulation (no frame)
 
@@ -350,10 +350,9 @@ The grades, the registrar (`reg-cofx`, value-returning + graded), and the satisf
 A test frame declares its intent — and gets the deterministic defaults — with `{:preset :test}` (per [002 §Frame presets](002-Frames.md#frame-presets--capability-bundles-for-common-configurations)). The preset expands to three fixed entries: `:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}` (the canonical Spec 014 HTTP fx redirected to its canned-success stub so test frames never reach the network), `:drain-depth 100` (the framework default, surfaced so tooling reads "this is a test frame" from `frame-meta`), and **`:rf.cofx/mint-policy :strict`**.
 
 ```clojure
-(rf/reg-frame :test/auth-flow {:preset :test})
-;; or anonymous — :preset is a record-config key, so it rides the advanced
-;; record-config `re-frame.frame/make-frame`, not the EP-0023 object constructor:
-(rf/with-new-frame [f (re-frame.frame/make-frame {:preset :test :initial-events [[:auth/init-idle]]})]
+(rf/make-frame {:id :test/auth-flow :preset :test})
+;; or anonymous — :preset is a record-config key on the one constructor:
+(rf/with-new-frame [f (rf/make-frame {:preset :test :initial-events [[:auth/init-idle]]})]
   ...)
 ```
 
@@ -369,9 +368,9 @@ This is why a test frame's missing-cofx failure surfaces as a loud `:rf.error/mi
 (`:my-app/http` here is a placeholder for a user-supplied fx; the framework ships `:rf.http/managed` — see [014-HTTPRequests](014-HTTPRequests.md). The stubbing mechanism is identical regardless of which fx-id is being overridden.)
 
 ```clojure
-(rf/reg-frame :test/auth-flow
-  {:initial-events [[:auth/init-idle]]
-   :fx-overrides   {:my-app/http (fn [_m _args] {:status 200 :body {:user/id 42}})}})
+(rf/make-frame {:id :test/auth-flow
+                :initial-events [[:auth/init-idle]]
+                :fx-overrides   {:my-app/http (fn [_m _args] {:status 200 :body {:user/id 42}})}})
 
 ;; every event handled in :test/auth-flow uses the stub :my-app/http
 ```
@@ -391,17 +390,17 @@ This is why a test frame's missing-cofx failure surfaces as a loud `:rf.error/mi
 
 ```clojure
 ;; Bare-keyword reference — remove the registered :my-app/logger interceptor.
-(rf/reg-frame :test/silent
-  {:initial-events        [[:test/init]]
-   :interceptor-overrides {:my-app/logger nil}})       ;; nil removes the interceptor
+(rf/make-frame {:id :test/silent
+                :initial-events        [[:test/init]]
+                :interceptor-overrides {:my-app/logger nil}})  ;; nil removes the interceptor
 
 ;; Parameterized [id arg] reference — match the exact factory-built interceptor.
 ;; A chain entry [:rf.interceptor/path [:cart]] is matched (and here replaced)
 ;; by its full reference, NOT by the bare :rf.interceptor/path id — an id-only
 ;; key could not say which parameterization it meant.
-(rf/reg-frame :test/cart
-  {:interceptor-overrides {[:rf.interceptor/path [:cart]] :test/recording-path
-                           :my-app/audit                  nil}})
+(rf/make-frame {:id :test/cart
+                :interceptor-overrides {[:rf.interceptor/path [:cart]] :test/recording-path
+                                        :my-app/audit                  nil}})
 ```
 
 Matching is by the canonical (CEDN-1) reference, so a parameterized override must spell the exact `[id arg]` it targets; a replacement value is itself a registered reference resolved through the same registrar. Per-call overrides (in the `dispatch-sync` opts map) win over per-frame on key conflict (per [002 §`:interceptor-overrides`](002-Frames.md#interceptor-overrides--replace-or-remove-interceptors-by-exact-reference)).
@@ -416,8 +415,8 @@ Matching is by the canonical (CEDN-1) reference, so a parameterized override mus
              (swap! recorded conj (-> ctx :coeffects :event))
              ctx)})
 
-(rf/reg-frame :test/recorder-frame
-  {:interceptors [:test/event-recorder]})
+(rf/make-frame {:id :test/recorder-frame
+                :interceptors [:test/event-recorder]})
 ```
 
 After running a test sequence, `@recorded` contains the events that fired, in order. Useful for verifying control flow without checking every state transition.
@@ -694,7 +693,7 @@ When you want to verify what *would* dispatch without actually running the drain
 
 `:dispatch` (and `:dispatch-later`) are in the **OVERRIDABLE** tier of the reserved fx-ids (per [Conventions §Reserved fx-id override tiering](Conventions.md#reserved-fx-id-override-tiering)): a fn-value override pre-empts the reserved body, so the captured event vector is recorded and **not** queued — the drain does not run. This is the canonical "assert what would dispatch" affordance.
 
-**Scope the `:dispatch` override per-call, not per-frame.** A `:dispatch` override placed on a frame's `:fx-overrides` config (a record-config key, so via `reg-frame` / the advanced `re-frame.frame/make-frame`) is re-merged into the envelope on **every** dispatch routed to that frame for the frame's whole lifetime — including framework-internal dispatches (machine actor messages, spawned-actor `:start`, router internals, HTTP reply settles). That silently re-routes traffic the test never meant to touch and is a sharp footgun. The per-call form above scopes the stub to the single event you are asserting on.
+**Scope the `:dispatch` override per-call, not per-frame.** A `:dispatch` override placed on a frame's `:fx-overrides` config (a record-config key on `make-frame`) is re-merged into the envelope on **every** dispatch routed to that frame for the frame's whole lifetime — including framework-internal dispatches (machine actor messages, spawned-actor `:start`, router internals, HTTP reply settles). That silently re-routes traffic the test never meant to touch and is a sharp footgun. The per-call form above scopes the stub to the single event you are asserting on.
 
 **State-installing reserved fxs cannot be stubbed.** The `:fx-overrides` map is tiered: the routing primitives (`:dispatch`, `:dispatch-later`, `:rf.machine/dispatch-to-system`) and the navigation primitives (`:rf.nav/*`) are OVERRIDABLE, but the **state-installing** reserved fxs — `:rf.machine/spawn`, `:rf.machine/destroy`, `:rf.fx/reg-flow`, `:rf.fx/clear-flow`, `:rf.route/with-nav-token` — are **HARD-REJECTED**. An override targeting one of those is ignored (the runtime emits [`:rf.error/reserved-fx-override`](009-Instrumentation.md#error-event-catalogue) and runs the real reserved body), because stubbing them would leave the frame's runtime-db in an inconsistent state that breaks later behaviour far from the override site (e.g. a spawned actor whose snapshot was never installed → every later actor dispatch is `:rf.error/no-such-handler`). To assert on *those* operations, drive the real fx and read the resulting runtime-db state (machine snapshot, flow registry) directly.
 
@@ -727,7 +726,7 @@ The testing surface is framework-agnostic — `make-frame` and friends work from
 
 (use-fixtures :each
   (fn [t]
-    (rf/reg-frame :test-fixture {:initial-events [[:test/init]]})
+    (rf/make-frame {:id :test-fixture :initial-events [[:test/init]]})
     (try (t) (finally (rf/destroy-frame! :test-fixture)))))
 
 (deftest example-test
@@ -760,11 +759,10 @@ The `day8/re-frame-test` library provides `run-test-sync` and similar helpers. r
 A test fixture is a story-variant minus the rendering — the story library's `run-variant` consumes the same primitives a test does (see [007 §Portable into tests](007-Stories.md#portable-into-tests)). The testing surface guarantees these shapes for 007:
 
 - `(make-frame {:images [...] :id … :initial-events [[:rf/set-db {…}]] :adapter …})` — the one-constructor opts shape; image-selection and record-config keys (`:initial-events` / `:fx-overrides` / `:interceptor-overrides` / `:interceptors`) ride the same call. Seed app-db via a leading `[:rf/set-db {…}]` setup step. (There is no `:capabilities` key.)
-- `(reg-frame :id {:initial-events [[:event-id]] :fx-overrides {…} :interceptor-overrides {…} :interceptors [...]})` — exact record-config opts shape.
 - `(dispatch-sync ev {:frame f :fx-overrides {…}})` — exact opts shape.
 - `(app-db-value f)` — current `app-db` value (a plain map) for the named frame; `(get-in (app-db-value f) path)` for a path-scoped read.
 - `(destroy-frame! f)` — exact teardown contract.
-- Inclusion-tag schema is open (additive `set` on `reg-frame` metadata).
+- Inclusion-tag schema is open (additive `set` on the frame config).
 
 ## Story plan execution surface and evidence tools
 

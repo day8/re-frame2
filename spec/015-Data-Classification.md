@@ -83,7 +83,7 @@ Semantics — these are the **commit-plane** half of [002 §Commit-plane data-cl
 
 The classification lands in the per-frame **elision registry** in runtime-db at `[:rf.runtime/elision …]` (per [Conventions §Reserved runtime-db keys](Conventions.md#reserved-runtime-db-keys)): the sensitive axis under `:sensitive-declarations`, the large axis under `:declarations`, each path mapped to a `{:source …}` record. The four effects write `:source :effect`; the registry is read at egress by both the path walker and the record projector. Locating the registry in runtime-db (not app-db) means a classification **walks back atomically with the frame** on a revert, per [000 §Frame state revertibility](000-Vision.md#frame-state-revertibility).
 
-> **There is no frame `:sensitive {:app-db …}` / `:large {:app-db …}` annotation, and no schema-prop route to durable app-db classification.** A `reg-frame` `:sensitive` key carrying an `:app-db` block and a top-level `:large` frame key are both **rejected fail-loud** (declare durable classification from a handler's commit-plane effects); a `reg-app-schema` slot's `:sensitive?` / `:large?` props do **not** classify a durable app-db path (see [§What is removed](#what-is-removed-and-what-is-kept) and [§Schemas describe shape](#schemas-describe-shape-not-durable-app-db-egress-policy)).
+> **There is no frame `:sensitive {:app-db …}` / `:large {:app-db …}` annotation, and no schema-prop route to durable app-db classification.** A frame config `:sensitive` key carrying an `:app-db` block and a top-level `:large` frame key are both **rejected fail-loud** (declare durable classification from a handler's commit-plane effects); a `reg-app-schema` slot's `:sensitive?` / `:large?` props do **not** classify a durable app-db path (see [§What is removed](#what-is-removed-and-what-is-kept) and [§Schemas describe shape](#schemas-describe-shape-not-durable-app-db-egress-policy)).
 
 ## Registration-owned transient classification
 
@@ -236,11 +236,12 @@ The profile resolves to an `:rf.size/*` opt **floor**; explicit caller `:rf.size
 
 <a id="frame-owned-observability-sink-policy"></a><a id="the-three-observation-streams"></a>
 
-Production observability sink policy belongs on the frame, under the `:observability` key, validated for shape at `reg-frame` time through the frame's `validate!` seam (`re-frame.frame-classification`) and routed at runtime (`re-frame.observability`):
+Production observability sink policy belongs on the frame, under the `:observability` key, validated for shape at frame-construction time through the frame's `validate!` seam (`re-frame.frame-classification`) and routed at runtime (`re-frame.observability`):
 
 ```clojure
-(rf/reg-frame :app/main
-  {:observability
+(rf/make-frame
+  {:id :app/main
+   :observability
    {:handled-events [{:sink :my-app.sinks/datadog
                       :rf.egress/profile :rf.egress/off-box-observability
                       :opts {:service "checkout-spa" :env "prod"}}]
@@ -297,8 +298,9 @@ On-box visibility is **per (tool, frame) pair**: there is no process-global `sho
 SSR / hydration is production egress to the browser, and it is **allowlist-first** — it asks "which state is *allowed* to cross?", not "which leaves are sensitive?":
 
 ```clojure
-(rf/reg-frame :app/server
-  {:ssr {:hydrate {:include-app-db [[:route] [:public-config] [:catalog :visible-items]]}}})
+(rf/make-frame
+  {:id :app/server
+   :ssr {:hydrate {:include-app-db [[:route] [:public-config] [:catalog :visible-items]]}}})
 ```
 
 Unlisted state does not cross even if unclassified; an absent payload policy **fails closed** (`:rf.error/ssr-missing-payload-policy`). Classification composes as **defence-in-depth**: a sensitive child of an allowlisted slice is redacted unless SSR policy explicitly permits it. The `:rf.egress/ssr-hydration` profile is exactly the projection applied **after** this allowlist — never a parallel mechanism. The per-frame registry is itself kept off the hydration wire: a classified path can embed a sensitive id (`[:by-id "user-secret" :token]`), and the declaration keys *are* the application's sensitive path structure, so shipping the raw registry would leak both off-box. The registry is therefore **omitted** from the `:rf/runtime-db` hydration slice — the strongest realization of "no raw view crosses the wire," and sufficient because the client runs the same app image and rebuilds its own identical registry from its `reg-event` classification effects / `reg-flow` / `reg-route` / `reg-machine` on mount (the egress walk reads the live per-frame registry, never the wire copy; the classified app-db / route / machine slices were already projected against the registry server-side, so their redaction is baked in and needs no declarations to re-derive). Runtime classifications are per-frame (two frames running the same image share only the init-event baseline).
@@ -400,8 +402,8 @@ Projection exists to stop *accidental* leaks at every framework-mediated observa
 
 **Not present** (this Spec does not describe these as live mechanisms):
 
-- the **frame `:sensitive` / `:large {:app-db …}` durable annotation** — durable app-db classification is the four commit-plane effects (a `reg-frame` `:sensitive` carrying an `:app-db` block **and** a top-level `:large` frame key are BOTH rejected fail-loud with `:rf.error/bad-frame-classification` — `:large` is not a frame key, and a config carrying it does not silently register);
-- the **frame `:sensitive {:http …}` HTTP carrier block** — HTTP carrier classification is the transient-payload case on the `:rf.http/managed` `reg-fx` registration (`:carriers` block); a `reg-frame` carrying ANY `:sensitive` key is rejected fail-loud with `:rf.error/bad-frame-classification` (there is no `:sensitive` frame key — durable app-db classification is the commit-plane effects, HTTP carriers are `:rf.http/managed`);
+- the **frame `:sensitive` / `:large {:app-db …}` durable annotation** — durable app-db classification is the four commit-plane effects (a frame config `:sensitive` carrying an `:app-db` block **and** a top-level `:large` frame key are BOTH rejected fail-loud with `:rf.error/bad-frame-classification` — `:large` is not a frame key, and a config carrying it does not silently register);
+- the **frame `:sensitive {:http …}` HTTP carrier block** — HTTP carrier classification is the transient-payload case on the `:rf.http/managed` `reg-fx` registration (`:carriers` block); a frame config carrying ANY `:sensitive` key is rejected fail-loud with `:rf.error/bad-frame-classification` (there is no `:sensitive` frame key — durable app-db classification is the commit-plane effects, HTTP carriers are `:rf.http/managed`);
 - the **durable-state Malli schema-prop classification route** + its schema→registry bridge (schemas validate + drive validation-failure-trace redaction only; durable classification is effects / subsystem declarations);
 - the **imperative marks API** — `add-marks` / `set-marks` / `clear-app-db-marks!`, the `marks.cljc` namespace, and the `:source :marks` feed (the load-bearing projection substrate is the marks-free elision engine);
 - **all sensitivity propagation** — input → output inheritance through subs *and* flows, and the `:rf.egress/output-sensitivity` declassification claim + its value set;

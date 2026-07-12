@@ -145,7 +145,7 @@ runs and returns a handle the runtime can use to schedule, pause, and tear down.
 - **`virtual-time-driver`** — a debug driver that advances under a controlled clock. Time-travel
   replay can use this to step through a recorded envelope-seq deterministically.
 
-The driver is per-frame, set at `reg-frame` time via `:driver` (default `:microtask`). Frame
+The driver is per-frame, set at frame-construction time via `:driver` (default `:microtask`). Frame
 presets (per [002 §Frame presets](002-Frames.md#frame-presets--capability-bundles-for-common-configurations))
 fix the driver: `:default` → `:microtask`, `:test` → `:manual`, `:ssr-server` → `:manual`,
 `:story` → `:microtask`.

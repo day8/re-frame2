@@ -1341,7 +1341,7 @@ This is a Reagent-substrate concern, not a core-framework one. Non-React substra
 
 Per [011](011-SSR.md), the server-side render path doesn't use the adapter's reactivity machinery at all. The flow:
 
-1. Server creates a frame (per [002 §reg-frame](002-Frames.md#reg-frame--atomic-create-and-register-and-the-canonical-metadata-grammar)).
+1. Server creates a frame (per [002 §make-frame](002-Frames.md#make-frame--atomic-create-and-register-and-the-canonical-config-grammar)).
 2. The frame's `app-db` is a plain atom (the **core's plain-atom adapter**, not the Reagent adapter).
 3. `:initial-events` run; the drain settles.
 4. The view fn is called as a *plain function* against the now-stable `app-db` value.

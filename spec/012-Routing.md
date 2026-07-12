@@ -75,8 +75,8 @@ Audience column: **user** = an event apps dispatch or handle directly; **runtime
 
 ### Frame-level configuration
 
-- `:url-bound?` on `reg-frame` metadata. URL ownership is an explicit declaration — a frame owns the URL only with `:url-bound? true`; there is no `:rf/default`-owns-by-default floor. Only one frame may own the URL. See [§Multi-frame routing](#multi-frame-routing).
-- `:url-strategy` on `reg-frame` metadata. A map `{:encode :decode :push! :replace! :install-listener!}` that skins the router's path-form model onto the browser's chosen address-bar form. Default `history-url-strategy` (path-form); the framework also ships `hash-url-strategy` (`#`-prefixed). Consulted at exactly four egress/ingress points; `route-url` / `match-url` stay pure and path-form; SSR ignores strategies. See [§URL strategies](#url-strategies).
+- `:url-bound?` on the frame config. URL ownership is an explicit declaration — a frame owns the URL only with `:url-bound? true`; there is no `:rf/default`-owns-by-default floor. Only one frame may own the URL. See [§Multi-frame routing](#multi-frame-routing).
+- `:url-strategy` on the frame config. A map `{:encode :decode :push! :replace! :install-listener!}` that skins the router's path-form model onto the browser's chosen address-bar form. Default `history-url-strategy` (path-form); the framework also ships `hash-url-strategy` (`#`-prefixed). Consulted at exactly four egress/ingress points; `route-url` / `match-url` stay pure and path-form; SSR ignores strategies. See [§URL strategies](#url-strategies).
 
 ### Schemas registered with the framework
 
@@ -352,7 +352,7 @@ Because a route is a singleton, activation **replaces** the prior route's `:sour
 
 #### Sensitive wins over large
 
-A path declared **both** `:sensitive` and `:large` lowers as sensitive **only** — its large entry is dropped at lowering time, so no `:rf.size/large-elided` marker (which would leak path / byte size / digest) is ever emitted for it. This is the install-time complement of the elision walker's sensitive-before-large ordering, identical to the [`reg-frame` classification rule](002-Frames.md).
+A path declared **both** `:sensitive` and `:large` lowers as sensitive **only** — its large entry is dropped at lowering time, so no `:rf.size/large-elided` marker (which would leak path / byte size / digest) is ever emitted for it. This is the install-time complement of the elision walker's sensitive-before-large ordering, identical to the [frame classification rule](002-Frames.md).
 
 #### Fail-loud at registration
 
@@ -1428,8 +1428,8 @@ A cross-cutting guard interceptor **must cover all three entry doors**, or it fa
 ;; Attach to the FRAME's :interceptors so it runs on every navigation entry
 ;; event — the "global within this frame" mechanism (EP-0022). Attaching only
 ;; to :rf.route/navigate is the classic fail-open bug.
-(rf/reg-frame :app
-  {:interceptors [:app/section-lockout]})
+(rf/make-frame {:id :app
+                :interceptors [:app/section-lockout]})
 ```
 
 Guards are interceptors, not a special routing mechanism. They are registered once and referenced by id; they compose — list multiple refs in the `:interceptors` chain and they layer in order. Prefer `:can-enter` when the policy belongs to one route; reach for a frame-`:interceptors` guard when it spans many routes uniformly, and cover all three doors when you do.
@@ -1487,10 +1487,10 @@ The corpus-wide `:rf.error/handler-exception` listener (`on-match-error-listener
 
 ## Multi-frame routing
 
-Each frame has its own `[:rf.runtime/routing :current]` slice. URL ownership is an **explicit** declaration — a frame owns the browser URL only by carrying `:url-bound? true` on its `reg-frame` metadata. Frames that do not declare it have independent routes that don't push to the browser URL.
+Each frame has its own `[:rf.runtime/routing :current]` slice. URL ownership is an **explicit** declaration — a frame owns the browser URL only by carrying `:url-bound? true` on its frame config. Frames that do not declare it have independent routes that don't push to the browser URL.
 
 1. Every frame's `runtime-db` may have a `:rf/route` slice at `[:rf.runtime/routing :current]` (a framework-owned runtime-db path, read through the public `:rf/route` sub — not an app-db path).
-2. A frame is **URL-bound** only when it carries an explicit `(reg-frame :id {:url-bound? true})`. The URL owner's `:rf.route/navigate` events fire `:rf.nav/push-url`, and `popstate` (Back/Forward) drives it. The browser URL reflects the URL-owning frame's route. There is **no `:rf/default`-owns-by-default floor** — the runtime never infers URL ownership from absence. `:rf/default` may BE the owner, but only when it carries `:url-bound? true` like any other frame.
+2. A frame is **URL-bound** only when it carries an explicit `(make-frame {:id … :url-bound? true})`. The URL owner's `:rf.route/navigate` events fire `:rf.nav/push-url`, and `popstate` (Back/Forward) drives it. The browser URL reflects the URL-owning frame's route. There is **no `:rf/default`-owns-by-default floor** — the runtime never infers URL ownership from absence. `:rf/default` may BE the owner, but only when it carries `:url-bound? true` like any other frame.
 3. Frames without `:url-bound? true` are **not URL-bound**. `:rf.route/navigate` updates their `:rf/route` slice (state changes) but does not fire `:rf.nav/push-url`. This is the right default for story-variant frames, devcards, per-test fixtures.
 4. The runtime holds "only one frame owns the URL at a time" by detection + deterministic resolution — registering a second `:url-bound? true` frame while one already owns the URL emits `:rf.error/duplicate-url-binding` and ownership resolves to the first claimant (the conflict is observable, not rejected). The duplicate-binding diagnostic fires from a registrar registration-hook that runs *after* the registry slot is written, so the conflict is observable but **not rejected**: both frames' `:url-bound? true` metadata is stored in the registry. Ownership is then a deterministic *resolution* over the stored metadata (`url-owner-frame-id`, [§popstate drives the URL-owner frame](#popstate-drives-the-url-owner-frame-both-directions)) — **the first frame to claim `:url-bound? true` (the incumbent) is the owner; the existing owner is unchanged** and the losing binding's history-mutation fxs (`:rf.nav/push-url` / `:rf.nav/replace-url`) no-op. The resolution is **first-claim-wins, NOT by id ordering**: the registrar's `(kind, id) → metadata` table is unordered, so the artefact tracks claim order in a process-global vector (maintained by the duplicate-binding registration-hook), and `url-owner-frame-id` returns the first-claimed binding that is still live. A later duplicate — *even one whose id sorts before the incumbent* — therefore cannot steal the browser URL; resolving by id ordering would have let it. The resolution is self-healing: if the incumbent later relinquishes its binding (re-registers `:url-bound? false`) or is destroyed, ownership falls to the next-claimed live binding. The error does not mutate any frame's metadata; resolving the conflict (removing one binding) is the app's concern.
 
@@ -1505,7 +1505,7 @@ URL ownership is symmetric across the app↔browser boundary, and resolves to th
 
 This `popstate` listener is wired by the **`:url-bound?` frame LIFECYCLE**, automatically (rf2-g8pbwg): a `:url-bound? true` frame's creation (or re-registration, when it resolves as the URL owner) installs it — and does the initial URL → owner-slice sync in the same step; the frame's destroy removes it. There is no imperative install/remove pair for an app to call — the earlier `install-url-listener!` / `install-history-listener!` / `remove-url-listener!` / `remove-history-listener!` exports are retired (pre-alpha, no back-compat shim). The install is idempotent (a re-registration replaces the prior listener, hot-reload safe) and is the inbound counterpart of the `:rf.nav/push-url` gate. Targeting `url-owner-frame-id` at pop time means the listener tracks whichever frame declared `:url-bound? true` — a popstate dispatched at a stale owner after ownership transferred would update a frozen slice and leave Back/Forward broken. The listener also skips entirely when no owner is declared, rather than synthesising `:rf/default`. A losing duplicate `:url-bound? true` registration (per [§Multi-frame routing](#multi-frame-routing) point 4) never installs its own listener — only the resolved owner's registration reaches the install step, so the existing owner's listener is never torn down and replaced by a loser's.
 
-The install runs from a **POST-CREATE** lifecycle hook — fired *after* the frame container exists (and, on first registration, after `:initial-events` has run) — deliberately **not** the same `:frame` registration hook the duplicate-binding check above consults. That hook fires from *inside* `reg-frame`'s registrar write, before the frame container exists; an install from there would dispatch the initial URL → owner-slice sync at a not-yet-live frame.
+The install runs from a **POST-CREATE** lifecycle hook — fired *after* the frame container exists (and, on first registration, after `:initial-events` has run) — deliberately **not** the same `:frame` registration hook the duplicate-binding check above consults. That hook fires from *inside* the construction engine's frame-registered write, before the frame container exists; an install from there would dispatch the initial URL → owner-slice sync at a not-yet-live frame.
 
 The story / devcard / SSR cases all benefit:
 
@@ -1520,8 +1520,9 @@ The router is **path-form** on the write side: `route-url` builds `/active`, `ma
 A frame declares its strategy alongside `:url-bound?`:
 
 ```clojure
-(rf/reg-frame :app {:url-bound?   true
-                    :url-strategy rf/hash-url-strategy})   ;; default: rf/history-url-strategy
+(rf/make-frame {:id :app
+                :url-bound?   true
+                :url-strategy rf/hash-url-strategy})   ;; default: rf/history-url-strategy
 ```
 
 ### The strategy contract
@@ -1543,7 +1544,7 @@ A strategy is a map with five keys:
 
 **Round-trip law.** `:encode` / `:decode` are inverses over the app-relative URL: for every path `p`, `(decode)` at a URL the browser reached via `(push! (encode p))` yields `p` back. This is the property the conformance fixtures pin for both shipped strategies (encode/decode round-trip per strategy, plus a malformed-URL negative that fails closed to a route-miss).
 
-**Validated at frame construction — before the config commits.** An explicitly-declared `:url-strategy` is host-validated (a map carrying a callable fn for every host-required leg — both hosts require `:encode` / `:decode`; CLJS additionally requires the three browser legs, which SSR never executes) as a registration-time **preflight** at frame construction AND re-construction, over the final expanded config, **before** the frame config commits — before any registrar write, trace-policy write, frame-container creation, `:initial-events` dispatch, or trace emit (per [002 §reg-frame — atomic create-and-register](002-Frames.md#reg-frame--atomic-create-and-register-and-the-canonical-metadata-grammar)'s construction failure-atomicity: a bad declaration leaves no half-registered frame). A malformed declaration fails loud with `:rf.error/invalid-url-strategy`, the ex-data naming the `:frame`. **Omission alone selects the default**: a config with no `:url-strategy` key resolves to `history-url-strategy` and pays no validation; a *present* key — **including an explicit `nil`** — is an explicit declaration and is validated (presence semantics, not truthiness). A failed **re**-registration preserves the previous frame entirely — every previously committed config value, the installed URL listener instance, and the URL-claim order are unchanged, and no `:rf.frame/re-registered` fires. Declaring `:url-strategy` requires the routing artefact loaded **before** the frame is constructed: the preflight reaches core through the `:routing/preflight-frame-config!` late-bind hook, and a config declaring `:url-strategy` while the hook is unpublished fails loud with `:rf.error/routing-artefact-missing` rather than storing a strategy nobody can validate or execute (a `:url-bound?`-only config without the key remains registrable before routing loads). Validation is static shape/callability only — the preflight never *executes* a strategy leg (probing `:push!` or `:install-listener!` would itself cause browser effects); a shape-valid strategy whose leg throws at runtime fails at that lifecycle point, where the listener install keeps its failure-atomic install-new-before-teardown handoff. The four consult points also validate at resolution (defence in depth for registry rows written outside frame construction).
+**Validated at frame construction — before the config commits.** An explicitly-declared `:url-strategy` is host-validated (a map carrying a callable fn for every host-required leg — both hosts require `:encode` / `:decode`; CLJS additionally requires the three browser legs, which SSR never executes) as a registration-time **preflight** at frame construction AND re-construction, over the final expanded config, **before** the frame config commits — before any registrar write, trace-policy write, frame-container creation, `:initial-events` dispatch, or trace emit (per [002 §make-frame — atomic create-and-register](002-Frames.md#make-frame--atomic-create-and-register-and-the-canonical-config-grammar)'s construction failure-atomicity: a bad declaration leaves no half-registered frame). A malformed declaration fails loud with `:rf.error/invalid-url-strategy`, the ex-data naming the `:frame`. **Omission alone selects the default**: a config with no `:url-strategy` key resolves to `history-url-strategy` and pays no validation; a *present* key — **including an explicit `nil`** — is an explicit declaration and is validated (presence semantics, not truthiness). A failed **re**-registration preserves the previous frame entirely — every previously committed config value, the installed URL listener instance, and the URL-claim order are unchanged, and no `:rf.frame/re-registered` fires. Declaring `:url-strategy` requires the routing artefact loaded **before** the frame is constructed: the preflight reaches core through the `:routing/preflight-frame-config!` late-bind hook, and a config declaring `:url-strategy` while the hook is unpublished fails loud with `:rf.error/routing-artefact-missing` rather than storing a strategy nobody can validate or execute (a `:url-bound?`-only config without the key remains registrable before routing loads). Validation is static shape/callability only — the preflight never *executes* a strategy leg (probing `:push!` or `:install-listener!` would itself cause browser effects); a shape-valid strategy whose leg throws at runtime fails at that lifecycle point, where the listener install keeps its failure-atomic install-new-before-teardown handoff. The four consult points also validate at resolution (defence in depth for registry rows written outside frame construction).
 
 ### The four consult points
 
@@ -1568,10 +1569,11 @@ The strategy is resolved from the **URL-owning frame's** `:url-strategy` (defaul
 A third orthogonal concern — a deployment **sub-path** (a host mounting several demos side by side, so an app that would otherwise own `/` instead lives at `/realworld/`) — is NOT a third strategy either. `with-base-path` (rf2-g8pbwg) is a **combinator** over an existing strategy: `(with-base-path strategy base)` re-adds `base` to `:encode` and strips it off `:decode` / `:install-listener!`, so `base` is stripped off every inbound URL and re-added to every outbound one, underneath whichever address-bar form the wrapped strategy already provides. Because `:encode` is the **single outbound encoding authority** (the nav fxs encode once, then drive the raw `:push!` / `:replace!` legs — [The strategy contract](#the-strategy-contract)), the base composition lives in `:encode` **only**; `:push!` / `:replace!` are NOT re-wrapped (rf2-irygd6). The mount-point prefix therefore sits **outside** the address-bar form — a `/demos`-deployed hash app's `route-link` href AND its address bar both read `/demos#/active` (base outside the fragment, the only shape a static host can route), never `#/demos/active` (base swallowed into the fragment):
 
 ```clojure
-(rf/reg-frame :app {:url-bound?   true
-                    :url-strategy (routing/with-base-path
-                                    routing/history-url-strategy
-                                    "/realworld")})
+(rf/make-frame {:id :app
+                :url-bound?   true
+                :url-strategy (routing/with-base-path
+                                routing/history-url-strategy
+                                "/realworld")})
 ```
 
 `route-url` / `match-url` and the rest of the navigation cascade stay path-form and base-agnostic — only the four consult points ever see the base path. A blank/nil `base` returns `strategy` unchanged, so the common no-sub-path app pays no wrapping cost. This closes the gap a base-path-deployed app previously had to fill with a hand-rolled popstate listener (the framework's install assumed the app owned the root path).
@@ -1646,9 +1648,9 @@ The two nav-token trace operations — `:rf.route.nav-token/allocated` and `:rf.
 
 ### URL ownership is an explicit declaration (no default-frame floor)
 
-Per [§Multi-frame routing](#multi-frame-routing) a frame owns the browser URL only by carrying an explicit `(rf/reg-frame :id {:url-bound? true})`; the runtime enforces "only one frame can own the URL at a time" (registering a second `:url-bound? true` frame emits `:rf.error/duplicate-url-binding`). This was chosen over a "first frame to dispatch `:rf.route/navigate` wins" rule because explicit declaration is auditable at registration time and matches the story / devcard / per-test-fixture / SSR-per-request use cases without surprise.
+Per [§Multi-frame routing](#multi-frame-routing) a frame owns the browser URL only by carrying an explicit `(rf/make-frame {:id … :url-bound? true})`; the runtime enforces "only one frame can own the URL at a time" (registering a second `:url-bound? true` frame emits `:rf.error/duplicate-url-binding`). This was chosen over a "first frame to dispatch `:rf.route/navigate` wins" rule because explicit declaration is auditable at registration time and matches the story / devcard / per-test-fixture / SSR-per-request use cases without surprise.
 
-EP-0002 removed the prior `:rf/default`-owns-the-URL-by-default floor: URL ownership was an *absence repair* (the default frame owned the URL unless it opted out), which the carried invariant forbids. Ownership is now a positive host/bootstrap policy. `:rf/default` may BE the URL owner, but only when it declares `:url-bound? true` like any other frame; an app with no declared owner simply has no URL owner (outbound history mutations no-op, the popstate listener skips). A migration that wants the old behaviour declares `(rf/reg-frame :rf/default {:url-bound? true})` at bootstrap.
+EP-0002 removed the prior `:rf/default`-owns-the-URL-by-default floor: URL ownership was an *absence repair* (the default frame owned the URL unless it opted out), which the carried invariant forbids. Ownership is now a positive host/bootstrap policy. `:rf/default` may BE the URL owner, but only when it declares `:url-bound? true` like any other frame; an app with no declared owner simply has no URL owner (outbound history mutations no-op, the popstate listener skips). A migration that wants the old behaviour declares `(rf/make-frame {:id :rf/default :url-bound? true})` at bootstrap.
 
 ### State-first, URL-second update order is locked
 
