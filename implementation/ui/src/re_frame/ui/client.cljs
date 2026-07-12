@@ -231,7 +231,13 @@
   then `createRoot` + registration + render. A preflight failure
   therefore fails the mount loudly with the container untouched — no
   React root, no live-root registration, no render; retry = re-call
-  `mount`. Registration still precedes any render (contract §7 Layer 3).
+  `mount`. Registration still precedes any render (contract §7 Layer 3);
+  if that FIRST render (element thunk or host `.render`) throws, the mount
+  rolls back TOTALLY — the exact claim is released and the host root is
+  best-effort unmounted, so a retry starts clean (no phantom live root),
+  and the original error is rethrown even if cleanup also throws. A failed
+  RE-render on an already-live root is the distinct case: the existing
+  root stays registered with its last committed render intact (Q49).
   Returns the Root."
   [{:keys [root-id] :as info} container element-thunk react-opts plans-thunk]
   (require-container! 're-frame.ui/mount root-id container)
@@ -253,8 +259,20 @@
               root       (Root. react-root container root-id)]
           ;; register BEFORE any render (contract §7 Layer 3)
           (register-live-root! info container root)
-          (.render react-root (element-thunk))
-          root)))))
+          (try
+            (.render react-root (element-thunk))
+            root
+            (catch :default e
+              ;; TOTAL rollback of a failed FIRST mount — the element thunk
+              ;; or the synchronous host render threw. Release this exact
+              ;; claim (identity-guarded: a stale handle never evicts a
+              ;; newer root) and best-effort unmount the host root so a
+              ;; retry starts clean, with no phantom live root and no host
+              ;; root residue. Rethrow the ORIGINAL mount error even if the
+              ;; host cleanup also throws (cleanup never masks it).
+              (release-root! root-id root)
+              (try (.unmount react-root) (catch :default _ nil))
+              (throw e))))))))
 
 (defn create-root*
   "Runtime half of `ui/create-root` — claim identity + container and
@@ -311,10 +329,16 @@
 (defn unmount!*
   "Runtime half of `ui/unmount!` — TOTAL teardown: unmount the React root
   and unregister the root-id (contract §7). Idempotent: a Root already
-  torn down (or superseded in the registry) is a no-op. Returns nil."
+  torn down (or superseded in the registry) is a no-op. Framework
+  ownership is released in a `finally`, so a throwing host `.unmount`
+  still frees the exact root-id/container claim (identity-guarded — never
+  evicts a newer claim) and a second `unmount!*` is then a no-op; the
+  host teardown error still propagates to the caller. Returns nil."
   [^Root root]
   (when (and (some? root)
              (identical? (:root (get @live-roots (.-root-id root))) root))
-    (.unmount (.-react-root root))
-    (release-root! (.-root-id root) root))
+    (try
+      (.unmount (.-react-root root))
+      (finally
+        (release-root! (.-root-id root) root))))
   nil)

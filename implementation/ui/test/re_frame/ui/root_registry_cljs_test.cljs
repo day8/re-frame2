@@ -93,6 +93,45 @@
   (is (nil? (client/unmount!* (fake-root :never/registered))))
   (is (nil? (client/unmount!* nil))))
 
+(defn- root-with-throwing-unmount [root-id container]
+  ;; a Root whose host react-root's `.unmount` throws — exercises the
+  ;; unmount!* teardown boundary without a real React root (the registry
+  ;; release must still run in the `finally`).
+  (let [rr (js-obj)]
+    (unchecked-set rr "unmount"
+                   (fn [] (throw (js/Error. "host teardown boom"))))
+    (client/->Root rr container root-id)))
+
+(deftest unmount-releases-claim-even-when-host-teardown-throws
+  ;; rf2-vxgfnd.18 — TOTAL teardown: a throwing host `.unmount` must not
+  ;; strand the framework claim. The registry release rides a `finally`,
+  ;; the host error still propagates, and a second unmount!* is a no-op.
+  (let [c    (js-obj)
+        root (root-with-throwing-unmount :reg/boom c)]
+    (client/register-live-root! {:root-id :reg/boom :provenance :authored} c root)
+    (is (= #{:reg/boom} (client/live-root-ids)))
+    (is (thrown-with-msg? js/Error #"host teardown boom"
+                          (client/unmount!* root))
+        "the host teardown error propagates to the caller")
+    (is (= #{} (client/live-root-ids))
+        "the exact claim is released despite the throw (finally-shaped)")
+    (is (nil? (client/unmount!* root))
+        "a second unmount!* is a no-op — the claim is already gone")))
+
+(deftest unmount-throw-release-is-identity-guarded
+  ;; a STALE handle whose root-id now maps to a NEWER root must not evict
+  ;; the newer claim, even on the throwing-teardown path (the `when` guard
+  ;; short-circuits before `.unmount` is ever called).
+  (let [c        (js-obj)
+        newer    (fake-root :reg/id)
+        stale    (root-with-throwing-unmount :reg/id c)]
+    (client/register-live-root! {:root-id :reg/id :provenance :authored} c newer)
+    (is (nil? (client/unmount!* stale))
+        "a stale handle is a no-op — its throwing .unmount is never reached")
+    (is (= #{:reg/id} (client/live-root-ids))
+        "the newer claim survives")
+    (is (identical? newer (:root (client/live-root-entry :reg/id))))))
+
 ;; ---------------------------------------------------------------------------
 ;; React root options
 ;; ---------------------------------------------------------------------------

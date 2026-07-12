@@ -153,6 +153,67 @@
         (ui/unmount! root2)))))
 
 ;; ---------------------------------------------------------------------------
+;; exception-safety: total teardown + idempotent mount retry (rf2-vxgfnd.18)
+;; ---------------------------------------------------------------------------
+
+(deftest failed-first-mount-leaves-no-phantom-and-retries-clean
+  ;; criterion 2 — a throwing element thunk on a FIRST mount rolls back
+  ;; TOTALLY: no live-root/container claim, the host root best-effort
+  ;; unmounted, the ORIGINAL error rethrown, and a subsequent mount clean.
+  (when (browser?)
+    (let [c    (container)
+          info {:root-id :dom-throw/x :provenance :authored}
+          boom (fn [] (throw (ex-info "element thunk boom" {:tag :element})))]
+      (is (thrown-with-msg? cljs.core/ExceptionInfo #"element thunk boom"
+                            (react-dom/flushSync #(client/mount* info c boom nil nil)))
+          "the original mount error propagates")
+      (is (not (contains? (client/live-root-ids) :dom-throw/x))
+          "no phantom live root remains after the failed first mount")
+      (is (nil? (client/live-root-entry :dom-throw/x)))
+      ;; retry on the SAME container + root-id via the public API succeeds
+      (let [root (react-dom/flushSync
+                  #(ui/mount [mini-app {:title "retry ok"}] c {:root-id :dom-throw/x}))]
+        (is (some? root))
+        (is (re-find #"retry ok" (.-innerHTML c))
+            "a clean retry mounts successfully into the freed container")
+        (ui/unmount! root)))))
+
+;; criterion 3 (a synchronous host `.render` throw AFTER host creation) is
+;; covered by the SAME rollback catch as the thunk throw above: `mount*`
+;; wraps `(.render react-root (element-thunk))` as one unit, so the thunk
+;; throw exercises the identical release + best-effort-unmount + rethrow
+;; path. There is deliberately no separate "component throws during render"
+;; fixture: under React 19 an uncaught render-phase error does NOT
+;; propagate synchronously out of `.render` — React reports it
+;; (onUncaughtError) and internally unmounts the tree, and `.render`
+;; returns normally, so the root stays legitimately registered (no
+;; phantom). A genuine synchronous `.render` throw is a host-tier
+;; invariant, not a component error, and is not reliably reproducible here.
+
+(deftest re-render-failure-keeps-existing-root-registered
+  ;; criterion 6 — the DISTINCT case: a throwing RE-render on an
+  ;; already-live root leaves that root registered and its last committed
+  ;; render intact (no rollback — the root was live before this call).
+  (when (browser?)
+    (let [c    (container)
+          root (react-dom/flushSync
+                #(ui/mount [mini-app {:title "committed"}] c
+                           {:root-id :dom-rerender/x}))]
+      (is (re-find #"committed" (.-innerHTML c)))
+      (let [info {:root-id :dom-rerender/x :provenance :authored}
+            boom (fn [] (throw (ex-info "re-render boom" {})))]
+        ;; same root-id + same container -> the idempotent re-render branch
+        (is (thrown-with-msg? cljs.core/ExceptionInfo #"re-render boom"
+                              (react-dom/flushSync #(client/mount* info c boom nil nil))))
+        (is (contains? (client/live-root-ids) :dom-rerender/x)
+            "the existing root stays registered on a failed re-render")
+        (is (identical? root (:root (client/live-root-entry :dom-rerender/x)))
+            "it is the same Root — not evicted or replaced")
+        (is (re-find #"committed" (.-innerHTML c))
+            "its last committed render is intact"))
+      (ui/unmount! root))))
+
+;; ---------------------------------------------------------------------------
 ;; frame-root: transparent render + the preflight seam
 ;; ---------------------------------------------------------------------------
 
