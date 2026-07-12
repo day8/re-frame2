@@ -258,10 +258,18 @@
   root is `:rf.error/root-container-in-use`.
 
   ORDER (the Q49 ruling — ns docstring): claim checks, then preflight,
-  then `createRoot` + registration + render. A preflight failure
-  therefore fails the mount loudly with the container untouched — no
-  React root, no live-root registration, no render; retry = re-call
-  `mount`. Registration still precedes any render (contract §7 Layer 3);
+  then a RE-CHECK of the claim, then `createRoot` + registration + render.
+  A preflight failure therefore fails the mount loudly with the container
+  untouched — no React root, no live-root registration, no render; retry =
+  re-call `mount`. The re-check (rf2-vxgfnd.52) closes the re-entrancy
+  window that preflight opens: `run-preflight!` drains `:initial-events`
+  synchronously (arbitrary app code) and a re-entrant mount can claim this
+  root-id / container / identifier-prefix while this mount is still
+  unregistered; the second `check-root-claim!` detects that ownership
+  change and fails loud BEFORE the unconditional register, rather than
+  clobbering the inner root's entry (which the rollback would then delete,
+  orphaning the inner root's live tree). Registration still precedes any
+  render (contract §7 Layer 3);
   if that FIRST render (element thunk or host `.render`) throws, the mount
   rolls back TOTALLY — the exact claim is released and the host root is
   best-effort unmounted, so a retry starts clean (no phantom live root),
@@ -285,6 +293,21 @@
         ;; failure) — and before registration, so a failed mount leaves
         ;; no registry entry either.
         (run-preflight! root-id plans-thunk)
+        ;; RE-CHECK the claim AFTER preflight (rf2-vxgfnd.52). run-preflight!
+        ;; drains :initial-events SYNCHRONOUSLY — arbitrary app code that may
+        ;; itself mount a root for this id or into this container (re-entrancy),
+        ;; registering it while THIS mount is still unregistered. The
+        ;; pre-preflight claim is now stale; re-running it BEFORE createRoot and
+        ;; the UNCONDITIONAL register means a re-entrant mount that took
+        ;; ownership fails this mount loud (duplicate-root-id /
+        ;; root-container-in-use / duplicate-identifier-prefix) rather than
+        ;; createRoot-ing a container the inner root owns and clobbering its
+        ;; registry entry — which the failed-first-render rollback below would
+        ;; then match on THIS root and delete, orphaning the inner root's live
+        ;; React tree. No user code runs between this re-check and register
+        ;; (createRoot is React-internal, register is a swap!), so the window
+        ;; is closed.
+        (check-root-claim! 're-frame.ui/mount info container)
         (let [react-root (rdc/createRoot container react-opts)
               root       (Root. react-root container root-id)]
           ;; register BEFORE any render (contract §7 Layer 3)
