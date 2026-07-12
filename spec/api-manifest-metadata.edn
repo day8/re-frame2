@@ -203,31 +203,35 @@
   ;;     (epic rf2-vxgfnd). `re-frame.ui` is a `.cljc` namespace, but its rows
   ;;     are carried HERE (not JVM-introspected by the generator) so the curated
   ;;     order + tiers stay verbatim from spec/API.md §Compiled views. The rows
-  ;;     below ARE the blessed S1 export set (spec/API.md §Compiled views):
+  ;;     below ARE the COMPLETE blessed export set (spec/API.md §Compiled views +
+  ;;     the Spec-004 `export-surface-is-exactly-the-blessed-set` JVM conformance):
   ;;     defview / custom-element / sub / lease / raw / html / raw-fn / spread /
-  ;;     mount / create-root / render! / hydrate-root / unmount! / frame-root.
+  ;;     mount / create-root / render! / hydrate-root / unmount! / frame-root /
+  ;;     frame-provider — all FIFTEEN live public vars, so re-frame.ui is now
+  ;;     :FULLY-ROWED (BOTH directions checked — see the probe note below).
   ;;     `frame-root` (rf2-vxgfnd.71) is NAMESPACE-SPECIFIC — the compiled-view
   ;;     ENSURE root-form marker (a compile-marker `defn`, :kind :fn), rowed
   ;;     against re-frame.ui itself. It is NOT the re-frame.core / adapter façade
   ;;     `frame-root` Var: manifest identity is namespace + var, so a re-frame.core
   ;;     row cannot classify or verify `re-frame.ui/frame-root` (the earlier
-  ;;     "rides the core façade row" claim was the drift this bead reconciles).
-  ;;     ONE live public var is intentionally UNROWED here:
-  ;;     `re-frame.ui/frame-provider` (a live compile-marker `defn`). Its manifest
-  ;;     + spec/API.md classification is DEFERRED to the context-tier mechanism
-  ;;     decision rf2-vxgfnd.24 — if .24 picks a non-`frame-provider` mechanism
-  ;;     the var may become internal, so it is NOT blessed / rowed now. Recorded
-  ;;     here EXPLICITLY (not silently dropped): re-frame.ui stays a CURATED
-  ;;     SUBSET (NOT :fully-rowed) precisely so this one deferred var does not
-  ;;     force a row before .24 rules. When .24 lands, either row it under
-  ;;     re-frame.ui + add its spec/API.md §Compiled views row (and consider
-  ;;     making re-frame.ui :fully-rowed), or make the source Var `^:no-doc`.
+  ;;     "rides the core façade row" claim was the drift rf2-vxgfnd.71 reconciled).
+  ;;     `frame-provider` (rf2-vxgfnd.83) is its SCOPE sibling — the S2 template
+  ;;     form that scopes a subtree to an ALREADY-LIVE frame through the shared
+  ;;     React context (a compile-marker `defn`, :kind :fn; roots ensure,
+  ;;     providers scope — the rf2-nyea0r split). rf2-vxgfnd.71 DEFERRED it
+  ;;     pending the context-tier mechanism decision rf2-vxgfnd.24; .24 is now
+  ;;     RULED + MERGED — the native UI runtime publishes its React-context
+  ;;     reader via `:adapter/current-frame`, and `frame-provider` REMAINS the
+  ;;     native SCOPE grammar (not internalized). So it is rowed here at S2 and
+  ;;     re-frame.ui flips from curated-subset to fully-rowed; frame-root +
+  ;;     frame-provider were the last two native exports the manifest was missing.
   ;;     RUNTIME-VERIFIED via the 2mtte CLJS probe (rf2-qz1h5d): the probe loads
-  ;;     re-frame.ui and reconciles these rows against its live CLJS publics
-  ;;     DIRECTION-1 ONLY — a CURATED SUBSET, exactly like the Xray mount surface
-  ;;     (NOT :fully-rowed, so the deferred `frame-provider` does not force a row),
-  ;;     so a row removed / renamed in source turns the probe RED. Hence
-  ;;     :runtime-verified? true. The later-stage verbs (local / effect /
+  ;;     re-frame.ui and reconciles these rows against its live CLJS publics in
+  ;;     BOTH directions — direction-1 (a row removed / renamed in source → RED)
+  ;;     AND direction-2 completeness (a NEW public Var added without a row → RED,
+  ;;     so an accidental future public export cannot accumulate silently). It
+  ;;     joins the three adapter namespaces in the probe's `:fully-rowed` set.
+  ;;     Hence :runtime-verified? true. The later-stage verbs (local / effect /
   ;;     dispatch-fn / presence / presence-phase / ->react / error-boundary /
   ;;     client-only) are NOT yet defined and stay on the
   ;;     :api-md-known-unmanifested allowlist below until they ship. Tiers are
@@ -246,7 +250,8 @@
   {:namespace "re-frame.ui" :var "render!"        :kind :macro :facade? false :tier :advanced    :owner "004" :status "Spec-004 S1" :runtime-verified? true}
   {:namespace "re-frame.ui" :var "hydrate-root"   :kind :macro :facade? false :tier :advanced    :owner "004" :status "Spec-004 S1" :runtime-verified? true}
   {:namespace "re-frame.ui" :var "unmount!"       :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S1" :runtime-verified? true}
-  {:namespace "re-frame.ui" :var "frame-root"     :kind :fn    :facade? false :tier :front-porch :owner "004" :status "Spec-004 S1" :runtime-verified? true}]
+  {:namespace "re-frame.ui" :var "frame-root"     :kind :fn    :facade? false :tier :front-porch :owner "004" :status "Spec-004 S1" :runtime-verified? true}
+  {:namespace "re-frame.ui" :var "frame-provider" :kind :fn    :facade? false :tier :front-porch :owner "004" :status "Spec-004 S2" :runtime-verified? true}]
 
  ;; --------------------------------------------------------------------------
  ;; API.md var-rows that are KNOWINGLY absent from the manifest. The
