@@ -532,12 +532,26 @@
       (dissoc :rf/cofx-mint-policy))))
 
 (defn- reduce-regions
-  "Apply `step-fn` to each region of `parent-machine` in declaration
-  order, threading `:data` + `:rf/spawn-counter` between regions and
-  prefixing per-region fx with the region name. `step-fn` receives the
-  synthetic region-spec and the per-region snapshot
-  (`{:state ... :data ... ?:rf/spawn-counter ...}`) and returns a
-  `re-frame.machines.result/Result`.
+  "The APPLY fold: apply `step-fn` to each region of `parent-machine` in
+  declaration order, threading `:data` + `:rf/spawn-counter` + `:rf/history`
+  between regions and prefixing per-region fx with the region name. `step-fn`
+  receives the synthetic region-spec and the per-region snapshot
+  (`{:state ... :data ... :all-state ... :tags ... ?:rf/spawn-counter ...}`)
+  and returns a `re-frame.machines.result/Result`.
+
+  Two callers, both APPLY-only:
+   - `broadcast-once` (the event path) runs its own SELECT pass FIRST —
+     resolving every region's match against a frozen pre-event view (incl.
+     `:data`) — then feeds each PRE-SELECTED match to `apply-region-transition`
+     here, so a region's EVENT guard is never re-selected against the evolving
+     `:data` this fold threads (rf2-lq5yo3). The threaded `:data` reaches only
+     the region ACTIONS + the region's own `:always` drain.
+   - `settle-birth` / `root-fallback-seed` run `settle-region-birth` here,
+     which has NO event-selection phase — it only drains each region's
+     `:always` against the threaded (evolving) `:data`. Birth deliberately
+     stays data-threading: there is no event guard to freeze, and freezing
+     would retime data-coupled birth convergence to the next event (Spec
+     005:1731).
 
   Returns a `result/ok` Result carrying the merged snapshot (post-
   `commit-tags-parallel`) + accumulated fx, or the first region's
@@ -567,25 +581,23 @@
         ;; `:all-state` / `:tags` a region's guard OR action reads are computed
         ;; ONCE here, from the pre-event `state-map`, and threaded UNCHANGED
         ;; into every region's step ctx — NOT rebuilt per region from the
-        ;; evolving `new-states`. This is the SELECT-then-APPLY (two-phase)
-        ;; model in its substrate-honest form: the only cross-region
-        ;; observable during a region step IS `:all-state` / `:tags`
-        ;; (a region's own `:state` is `(get state-map rn)` — already
-        ;; pre-event; `:data` is the one value that flows, accumulating in
-        ;; declaration order). Freezing those two makes the enabled-transition
-        ;; SELECTION declaration-order-INDEPENDENT (region b's guard sees the
-        ;; same frozen sibling config whether a was declared/applied before or
-        ;; after it) — exact XState v5 / SCXML parity (a parallel macrostep
-        ;; selects against the pre-event configuration/context, then applies).
+        ;; evolving `new-states`. Statechart atomicity: the configuration
+        ;; changes atomically old->new, so there is no intermediate
+        ;; configuration some transitions observe and others do not. The frozen
+        ;; view reaches the ACTION ctx AND any step-fn-internal selection (a
+        ;; region's own `:always` guards, a birth `:always` drain) — a region's
+        ;; own `:state` is `(get state-map rn)`, already pre-event.
         ;;
-        ;; The FROZEN view is threaded into the
-        ;; ACTION ctx too (not only guards): statechart atomicity — the
-        ;; configuration changes atomically old->new, there is no intermediate
-        ;; configuration some transitions observe and others do not; only
-        ;; `:data` flows during a macrostep. (`commit-snapshot` preserves the
-        ;; `:all-state` / `:tags` slots through a region's own `:always`
-        ;; microstep loop, so the region's internal cascade also reads the
-        ;; frozen view.)
+        ;; `:data` is the ONE value that flows: it is threaded (evolving) so a
+        ;; region's ACTION accumulates in declaration order. Note the EVENT-
+        ;; guard SELECTION is NOT resolved in this fold — `broadcast-once` runs
+        ;; a dedicated SELECT pass FIRST, resolving every region's match against
+        ;; a frozen pre-event view that ALSO freezes `:data`, so a region's
+        ;; event guard never sees an earlier region's same-macrostep `:data`
+        ;; write; this fold only APPLIES the pre-selected transitions
+        ;; (rf2-lq5yo3). `commit-snapshot` preserves the `:all-state` / `:tags`
+        ;; slots through a region's own `:always` microstep loop, so the
+        ;; region's internal cascade reads the frozen sibling view too.
         ;;
         ;; A region guard / action reads a
         ;; sibling's state via `:all-state` (precise) and `:tags` (coarse
@@ -594,7 +606,7 @@
         ;; cross-region coordination retimes to the NEXT microstep via the
         ;; statechart-idiomatic path (a region `:raise`s / writes `:data`; the
         ;; FIFO re-broadcast re-selects against the now-updated config — a
-        ;; fresh `reduce-regions` recomputes a fresh frozen view per
+        ;; fresh `broadcast-once` recomputes a fresh frozen SELECT view per
         ;; re-broadcast), bounded by `:always-depth-limit` / `:raise-depth-limit`.
         frozen-all-state state-map
         frozen-tags      (compute-tags-parallel parent-machine state-map)]
@@ -835,17 +847,100 @@
           [[] []]
           fx))
 
+(defn- apply-region-transition
+  "APPLY phase of a broadcast pass for ONE region: run `region-spec`'s
+  PRE-SELECTED `match` (resolved in `broadcast-once`'s SELECT pass against the
+  FROZEN pre-event view) against `region-snap`, whose `:data` has ACCUMULATED
+  earlier regions' same-macrostep writes in declaration order — so the
+  transition's ACTION sees the evolving `:data` while its GUARD selection was
+  already frozen (rf2-lq5yo3). Regions always DEFER their raises
+  (`region-spec` carries `:rf/region`), so the 6-arity's `defer?` is true.
+
+  Mirrors `machine-transition`'s guard-throw→`result/fail` wrapper: the region
+  never re-selects the EVENT guard here (that ran in SELECT), but its own
+  `:always` drain DOES evaluate guards, and an `:always` guard body may throw —
+  which must roll the macrostep back through the same failure surface a thrown
+  action / bounded-depth abort takes. Region-specs are pre-desugared at
+  `build-region-machine`, so no per-call desugar / region-order normalise is
+  needed (they are no-ops for a flat/compound region body)."
+  [region-spec region-snap event match]
+  (try
+    (transition/machine-transition-single region-spec region-snap event 0 false match)
+    (catch #?(:clj Throwable :cljs :default) e
+      (if (transition/guard-threw-signal? e)
+        (result/fail (transition/guard-threw->fail-info e))
+        (throw e)))))
+
 (defn- broadcast-once
   "One full broadcast of `event` across every region of `machine` against
-  `snapshot`, via the `reduce-regions` invariant. Regions DEFER their
-  raises, so the returned Result's `fx` may carry surfaced `[:raise …]`
-  entries for the parent loop to harvest. Returns the merged `result/ok`
-  (carrying `::handled?` / `::microsteps` / `::cascade`) or the first
-  region's `result/fail`."
+  `snapshot`, in two phases per Spec 005 §Transition broadcast (SELECT then
+  APPLY — XState v5 / SCXML parity):
+
+    SELECT — resolve EVERY region's enabled transition
+    (`transition/pick-transition`) against ONE frozen pre-event view: `:data`,
+    `:all-state` and `:tags` are all taken from `snapshot` BEFORE any region
+    applies. So a later region's guard SELECTION never observes an earlier
+    region's same-macrostep `:data` write — selection is DECLARATION-ORDER-
+    INDEPENDENT (rf2-lq5yo3). Guard bodies run here, so their
+    `:rf.machine/guard-evaluated` traces cluster ahead of the APPLY-phase
+    action traces within the macrostep.
+
+    APPLY — `reduce-regions` runs each region's PRE-SELECTED transition in
+    declaration order, threading `:data` so a region's ACTION sees the values
+    earlier regions wrote (the one value that flows). Each region's OWN
+    `:always` drain then settles against that region's EVOLVING `:data`
+    (region-internal microsteps stay data-evolving — the blessed residual;
+    Spec 005:1731).
+
+  Regions DEFER their raises, so the returned Result's `fx` may carry surfaced
+  `[:raise …]` entries for the parent loop to harvest. Returns the merged
+  `result/ok` (carrying `::handled?` / `::microsteps` / `::cascade`) or the
+  first region's `result/fail`. Each raised-event re-broadcast re-enters here
+  with a FRESH `snapshot`, so it re-freezes the selection view against the
+  config as of that microstep's start."
   [machine snapshot event]
-  (reduce-regions machine snapshot
-                  (fn [region-spec region-snap]
-                    (machine-transition region-spec region-snap event))))
+  (let [state-map (:state snapshot)
+        ;; Canonical declaration-order region iteration (never map `keys`) —
+        ;; the SAME `ordered` `reduce-regions` folds over, so every region the
+        ;; APPLY pass visits has a SELECT-pass match entry.
+        ordered   (filterv #(contains? state-map %)
+                           (region-order machine))
+        ;; FROZEN pre-event SELECTION view — computed ONCE, shared by every
+        ;; region's SELECT. `:data` joins `:all-state` / `:tags` in the freeze
+        ;; (rf2-lq5yo3): the pre-event `:data` is what every region's guard
+        ;; resolves against regardless of declaration order.
+        frozen-data      (:data snapshot)
+        frozen-all-state state-map
+        frozen-tags      (compute-tags-parallel machine state-map)
+        sc               (:rf/spawn-counter snapshot)
+        hist             (:rf/history snapshot)
+        ;; SELECT pass — per-region match against the frozen view.
+        matches   (persistent!
+                    (reduce
+                      (fn [acc rn]
+                        (let [region-spec (region-spec-overlaid machine rn)
+                              region-snap (cond-> {:state     (get state-map rn)
+                                                   :data      frozen-data
+                                                   :all-state frozen-all-state
+                                                   :tags      frozen-tags}
+                                            (some? sc)   (assoc :rf/spawn-counter sc)
+                                            (some? hist) (assoc :rf/history hist))]
+                          (assoc! acc rn
+                                  (transition/pick-transition
+                                    region-spec
+                                    (transition/state-path (get state-map rn))
+                                    event region-snap))))
+                      (transient {})
+                      ordered))]
+    ;; APPLY pass — declaration-order via `reduce-regions` (threads `:data` +
+    ;; freezes `:all-state` / `:tags` into each region's ACTION ctx). Each
+    ;; region applies its PRE-SELECTED match; it never re-selects the event
+    ;; guard against the evolving `:data`.
+    (reduce-regions machine snapshot
+                    (fn [region-spec region-snap]
+                      (apply-region-transition
+                        region-spec region-snap event
+                        (get matches (:rf/region region-spec)))))))
 
 ;; ---- root parallel `:on` — the ancestor fallback --------------------------
 ;;
