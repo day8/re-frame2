@@ -1478,17 +1478,26 @@
           ;;       `:drain-lock`, distinct per incarnation) resolves the commit to
           ;;       exactly the incarnation it targeted.
           ;;
-          ;;   (b) `frame-closing?` — a frame is IN-FLIGHT closing (rf2-vxgfnd.61).
-          ;;       #5731 wires destroy to a SNAPSHOT sweep of the live cells that
-          ;;       runs while the frame is still LIVE (pre-flip), then flips
-          ;;       liveness. A commit that acquires + enrols between the sweep
-          ;;       snapshot and the flip is MISSED by the sweep, and its
-          ;;       incarnation token is UNCHANGED (the frame is still live
-          ;;       pre-flip) — so token identity alone would not catch it. But
+          ;;   (b) `frame-incarnation-closing?` — the ACQUIRED incarnation is
+          ;;       IN-FLIGHT closing (rf2-vxgfnd.61, scoped to the incarnation by
+          ;;       rf2-vxgfnd.94). #5731 wires destroy to a SNAPSHOT sweep of the
+          ;;       live cells that runs while the frame is still LIVE (pre-flip),
+          ;;       then flips liveness. A commit that acquires + enrols between the
+          ;;       sweep snapshot and the flip is MISSED by the sweep, and its
+          ;;       incarnation token is UNCHANGED (the frame is still live pre-flip)
+          ;;       — so `incarnation-superseded?` alone would not catch it. But
           ;;       `destroying-frames` is populated at the TOP of `destroy-frame!`,
-          ;;       so `frame-closing?` is continuously true across the whole
-          ;;       teardown window: the enrolled cell observes the close and joins
-          ;;       the teardown against the still-releasable cache.
+          ;;       so the marker is continuously present across the whole teardown
+          ;;       window: the enrolled cell observes the close and joins the
+          ;;       teardown against the still-releasable cache. Scoping to the
+          ;;       ACQUIRE-time token (not the bare id) is what closes .88's
+          ;;       reciprocal Failure-2: in the JVM window where an OLD incarnation
+          ;;       A's marker is still set (post-`dissoc-frame!`, pre-`finally`)
+          ;;       while a fresh same-id incarnation B is already live, a commit
+          ;;       that acquired B reads FALSE here (B's token ≠ A's marker token),
+          ;;       so A's stale close authority cannot tear down a cell that owns B
+          ;;       (rf2-vxgfnd.94). The bare-id `frame/frame-closing?` would read
+          ;;       true for the reused id and wrongly reap B's cell.
           ;;
           ;; A live, not-closing frame under an unchanged incarnation (incl. a
           ;; committed fresh same-id incarnation this commit legitimately acquired)
@@ -1496,7 +1505,9 @@
           ;; and the single-threaded CLJS host (destroy runs to completion without
           ;; yielding to a commit) never sees either true.
           (if (or (incarnation-superseded? incarnations)
-                  (some frame/frame-closing? (keys incarnations)))
+                  (some (fn [[fid token]]
+                          (frame/frame-incarnation-closing? fid token))
+                        incarnations))
             (teardown! cell)
             ;; step 8 — moved evidence corrects before paint
             (when moved?

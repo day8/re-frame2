@@ -20,13 +20,15 @@
   AND JVM (`clojure -M:test`) against the REAL observation port + sub-cache
   (plain-atom adapter).
 
-  KNOWN GAP (flagged, not fixed here): the reciprocal Failure-2 — an old
-  incarnation's stale bare-id close marker (present in the JVM window between
-  `dissoc-frame!` and `destroy-frame!`'s terminal `finally`) tearing down a
-  live REPLACEMENT incarnation's cell — cannot be closed from the ui artefact
-  alone: `frame/destroying-frames` is a set of bare ids, so reactive.cljc cannot
-  tell an A-marker from a B-marker. Closing it needs core to key the close marker
-  by incarnation token; tracked as a follow-up."
+  RECIPROCAL Failure-2 (CLOSED by rf2-vxgfnd.94): an old incarnation A's stale
+  close marker (present in the JVM window between `dissoc-frame!` and
+  `destroy-frame!`'s terminal `finally`) tearing down a live REPLACEMENT
+  incarnation B's cell. That could not be closed from the ui artefact alone —
+  `frame/destroying-frames` was a set of bare ids, so reactive.cljc could not tell
+  an A-marker from a B-marker. rf2-vxgfnd.94 keyed `destroying-frames` by the
+  destroying incarnation's token and had the commit consult the incarnation-scoped
+  `frame/frame-incarnation-closing?`; its JVM window fixture lives in
+  `reactive-incarnation-close-race-jvm-test`."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core                 :as rf]
