@@ -972,6 +972,82 @@
         (obs/release! keep)))))
 
 ;; ===========================================================================
+;; the JVM WeakHashMap self-reference leak fixture — rf2-vxgfnd.37
+;;
+;; The JVM node-records table is a process-global java.util.WeakHashMap keyed by
+;; REACTION; its VALUE carries :owners, a strong set of ObservationLease objects,
+;; and each lease's state references its reaction. java.util.WeakHashMap is NOT
+;; an ephemeron map, so a value transitively STRONG-referencing its own weak key
+;; pins that key forever:
+;;   node-records value → :owners → lease → state → reaction (= the weak key)
+;; An interrupted teardown (a committed owner whose cache/frame is dropped
+;; WITHOUT release!/dispose) then leaks the reaction + lease for the process
+;; lifetime. The fix holds the reaction WEAKLY in the lease state, breaking the
+;; value→key edge, so the entry is collectable once the reaction is otherwise
+;; unreachable. This is a deterministic WeakReference proof: an enrolled,
+;; abandoned reaction becomes collectable, and a matched un-enrolled control
+;; demonstrates the fixture can OBSERVE collection. CLJS is unaffected
+;; (js/WeakMap has ephemeron semantics) — this leg is JVM-only.
+;; ===========================================================================
+
+#?(:clj
+   (defn- gc-until-cleared?
+     "Force GC (bounded) until `wref`'s referent is collected; report whether it
+     was. Allocates transient heap pressure between cycles to prod the
+     collector. The bounded loop keeps the fixture deterministic — it never
+     blocks unboundedly (a still-strong-reachable referent returns false, which
+     is the pre-fix failure signal)."
+     [^java.lang.ref.WeakReference wref]
+     (loop [i 0]
+       (cond
+         (nil? (.get wref)) true
+         (>= i 40)          false
+         :else              (do (System/gc)
+                                (System/runFinalization)
+                                (make-array Object 200000) ;; transient pressure
+                                (recur (inc i)))))))
+
+#?(:clj
+   (deftest jvm-weak-node-record-does-not-strong-pin-its-abandoned-reaction
+     (reg-items!)
+     (seed-items! [:a])
+     (testing "CONTROL — an un-enrolled canonical reaction is collectable once
+               dropped (proves the fixture can OBSERVE collection in this JVM)"
+       (let [box (volatile! (do (subs/subscribe [:obs/items] {:frame fid})
+                                (:reaction (entry [:obs/items]))))
+             ref (java.lang.ref.WeakReference. ^Object @box)]
+         (subs/unsubscribe fid [:obs/items]) ;; ref-count → 0: dispose + evict
+         (vreset! box nil)                   ;; drop the last ordinary strong ref
+         (is (gc-until-cleared? ref)
+             "a dropped, un-enrolled reaction is collectable")))
+     (testing "ENROLLED — a committed owner left by an INTERRUPTED teardown does
+               NOT pin its reaction through the weak node-records value (rf2-vxgfnd.37)"
+       (let [lease-box (volatile! (obs/acquire! (items-target) (fn [_])))
+             rx-box    (volatile! (:reaction (entry [:obs/items])))
+             rx-ref    (java.lang.ref.WeakReference. ^Object @rx-box)
+             lease-ref (java.lang.ref.WeakReference. ^Object @lease-box)]
+         (is (= 1 (obs/active-owner-count @rx-box))
+             "the lease is enrolled as an active owner in the weak node record")
+         ;; Interrupted teardown: evict the cache entry (dropping the cache's
+         ;; strong ref to the reaction) WITHOUT release! — so the owner is NEVER
+         ;; de-enrolled and :owners still holds the lease. The ONLY remaining
+         ;; strong path to the reaction is node-records value → :owners → lease →
+         ;; state → reaction. Pre-fix (strong :reaction) that pins the weak key.
+         (swap! (sub-cache) dissoc [:obs/items])
+         (vreset! lease-box nil) ;; drop the last ordinary strong refs
+         (vreset! rx-box nil)
+         (is (gc-until-cleared? rx-ref)
+             (str "the abandoned reaction is GC-collectable — the weak "
+                  "node-records value no longer strong-references its own weak "
+                  "key (this assertion FAILS on PR #5710's strong :reaction)"))
+         ;; The reaction (weak KEY) is gone; a WeakHashMap operation now expunges
+         ;; the stale entry, dropping the map's strong ref to the VALUE (record →
+         ;; :owners → lease), which the next GC reclaims.
+         (.size ^java.util.Map @#'obs/node-records)
+         (is (gc-until-cleared? lease-ref)
+             "the abandoned lease was reclaimed once its node record's weak key died")))))
+
+;; ===========================================================================
 ;; ABI guard
 ;; ===========================================================================
 

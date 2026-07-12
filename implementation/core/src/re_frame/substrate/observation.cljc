@@ -50,8 +50,13 @@
     - `:node-version` — a per-node counter this port advances whenever it
       OBSERVES the node's value change by `rf=` (at probe/acquire/read and on
       watch fires). Node bookkeeping lives in a WEAK identity-keyed side
-      table (`js/WeakMap` / `java.util.WeakHashMap`), so records die with
-      their reactions — no pruning, no retention.
+      table (`js/WeakMap` / `java.util.WeakHashMap`) keyed by the reaction, so
+      a record dies with its reaction — no pruning, no retention. The record's
+      VALUE must never transitively STRONG-reference its own reaction key:
+      `java.util.WeakHashMap` is NOT an ephemeron map (a value→key path pins
+      the key forever), so the owner leases in `:owners` hold their reaction
+      WEAKLY on the JVM (rf2-vxgfnd.37). `js/WeakMap` HAS ephemeron semantics,
+      so CLJS needs no such care.
     - `:frame-epoch` — `re-frame.frame/frame-commit-epoch`: bumped once per
       physical frame-state install. Any durable-state movement in the
       render→commit gap moves it, so a version tie on a multi-move gap is
@@ -222,13 +227,23 @@
 ;; ---- node records (weak identity-keyed) -------------------------------------
 ;;
 ;; Per-node observation bookkeeping — `{:node-key <int> :version <int>
-;; :value <last-observed>}` — keyed by the cache node's reaction OBJECT in a
-;; WEAK identity-keyed table, so a record's lifetime is exactly its
-;; reaction's: an evicted/disposed node's record becomes unreachable with the
-;; node, and the port never prunes, scans, or retains. The cache entry map
-;; itself stays exactly `{:reaction :inputs :ref-count}` (Spec 006 §Cache
-;; shape advertises EXACTLY that key-set; a port slot inside it would be a
-;; contract break).
+;; :value <last-observed> :owners #{lease…} :hooked? bool}` — keyed by the
+;; cache node's reaction OBJECT in a WEAK identity-keyed table, so a record's
+;; lifetime is exactly its reaction's: an evicted/disposed node's record
+;; becomes unreachable with the node, and the port never prunes, scans, or
+;; retains. The cache entry map itself stays exactly
+;; `{:reaction :inputs :ref-count}` (Spec 006 §Cache shape advertises EXACTLY
+;; that key-set; a port slot inside it would be a contract break).
+;;
+;; REACHABILITY INVARIANT (rf2-vxgfnd.37): the record VALUE must never
+;; transitively STRONG-reference its own reaction KEY. `java.util.WeakHashMap`
+;; is NOT an ephemeron map — it holds values strongly and never inspects
+;; value→key paths, so a value reaching its key pins that key (and the whole
+;; entry) for the process lifetime. The record's `:owners` leases reach their
+;; reaction, so each lease holds it WEAKLY on the JVM (`lease-reaction`) and the
+;; value→key edge is broken; an abandoned node (interrupted teardown, no
+;; `release!`) is then collectable. `js/WeakMap` HAS ephemeron semantics, so on
+;; CLJS the reaction is held plainly and no self-reference care is needed.
 
 #?(:clj
    (defonce ^:private ^java.util.Map node-records
@@ -419,6 +434,46 @@
   honestly — a pinned value owns nothing."
   [lease]
   (= :node (:lease-kind @(lease-state lease))))
+
+;; ---- weak reaction reference (JVM WeakHashMap self-reference break) ----------
+;;
+;; rf2-vxgfnd.37: the JVM node-records table is a `java.util.WeakHashMap` keyed
+;; by REACTION, and its VALUE carries the node's active-owner set (`:owners`) of
+;; `ObservationLease` objects. `java.util.WeakHashMap` is NOT an ephemeron map:
+;; a value that transitively STRONG-references its own weak key pins that key
+;; forever (the map holds values strongly and never inspects value→key paths).
+;; So a lease MUST NOT strong-reference its reaction, or the chain
+;;
+;;     node-records value → :owners → lease → state → reaction (= the weak key)
+;;
+;; would defeat the weak key and retain every abandoned node's leases for the
+;; process lifetime. The lease state therefore holds its reaction WEAKLY on the
+;; JVM (deriving the strong reaction on demand via [[lease-reaction]]), so an
+;; otherwise-unreachable reaction — e.g. an interrupted teardown that drops a
+;; cache/frame without completing `release!`/dispose — is GC-collectable and its
+;; node record dies with it. CLJS needs no such care: `js/WeakMap` HAS ephemeron
+;; semantics (a value→key path never pins the key), so the reaction is held as a
+;; plain reference there.
+
+(defn- weak-reaction-ref
+  "Wrap `reaction` for storage in a node lease's state: a `WeakReference` on the
+  JVM (so the weak node-records value cannot strong-reference its own weak key —
+  rf2-vxgfnd.37), the plain reaction on CLJS (`js/WeakMap` is ephemeron)."
+  [reaction]
+  #?(:clj  (java.lang.ref.WeakReference. reaction)
+     :cljs reaction))
+
+(defn- lease-reaction
+  "Derive the STRONG reaction from a node lease's `state` map — or nil when the
+  JVM `WeakReference` has already been collected (the reaction became
+  unreachable while the lease outlived it: an abandoned or displaced node). CLJS
+  returns the plain reference. Every caller guards the nil case — a collected
+  reaction is never the live canonical node, so `current?`/`read` fall back to
+  the last committed observation and `release!` no-ops the cache detach."
+  [state]
+  #?(:clj  (when-let [^java.lang.ref.WeakReference ref (:reaction state)]
+             (.get ref))
+     :cljs (:reaction state)))
 
 ;; ---- HMR / disposal notification queue ---------------------------------------
 
@@ -712,6 +767,15 @@
 ;; owners, storage O(current owners) not O(all owners ever acquired). The lease
 ;; is a `deftype` compared by identity, so a plain persistent set keys it by
 ;; identity on both hosts.
+;;
+;; Because the record VALUE now reaches leases (and a lease reaches its
+;; reaction, the weak KEY), the value→key STRONG-reference that would defeat the
+;; JVM `java.util.WeakHashMap` weak key is broken by holding the reaction WEAKLY
+;; in each lease's state (`lease-reaction`; rf2-vxgfnd.37) — see the node-records
+;; §REACHABILITY INVARIANT above. So even a lease left enrolled by an interrupted
+;; teardown cannot pin its own node's reaction: the record dies with the
+;; reaction on the JVM exactly as `js/WeakMap`'s ephemeron semantics already
+;; guarantee on CLJS.
 
 (defn- register-owner!
   "Enrol owner `lease` in `reaction`'s active-owner set within the weak node
@@ -818,10 +882,15 @@
   order that eviction before this read — so once a reaction has been disposed it
   is no longer the entry's `:reaction`. This is the authority `acquire!`'s
   first-owner handshake (rf2-vxgfnd.32) and the `current?` kept-check both read."
-  [{:keys [frame-id query-v reaction]}]
+  [{:keys [frame-id query-v] :as state}]
   (boolean
-    (when-let [cache (:sub-cache (frame/frame frame-id))]
-      (identical? reaction (:reaction (get @cache query-v))))))
+    ;; Derive the strong reaction (held WEAKLY in the state on the JVM —
+    ;; rf2-vxgfnd.37). A collected reaction is nil and can never be the live
+    ;; canonical node, so the `when-let` short-circuits — never falling into the
+    ;; `(identical? nil (:reaction absent-entry))` ≡ `(identical? nil nil)` trap.
+    (when-let [rx (lease-reaction state)]
+      (when-let [cache (:sub-cache (frame/frame frame-id))]
+        (identical? rx (:reaction (get @cache query-v)))))))
 
 ;; ---- acquire! -------------------------------------------------------------------
 
@@ -834,16 +903,19 @@
     (let [st @state]
       (when (and (= :live (:status st))
                  (not= prev nu))
-        (let [rec (advance-node-record! (:reaction st) nu)
-              last' {:value nu :version (:version rec) :node-key (:node-key rec)}]
-          (swap! state assoc :last last')
-          (fan-out! (:on-change st)
-                    {:cause          :value
-                     :target         (:target st)
-                     :node-key       (:node-key rec)
-                     :node-version   (:version rec)
-                     :frame-epoch    (frame/frame-commit-epoch (:frame-id st))
-                     :registry-epoch @registry-epoch*}))))))
+        ;; The watch only fires while its reaction is live, so `lease-reaction`
+        ;; resolves; the `when-some` is belt-and-braces for a JVM weak reaction.
+        (when-some [rx (lease-reaction st)]
+          (let [rec   (advance-node-record! rx nu)
+                last' {:value nu :version (:version rec) :node-key (:node-key rec)}]
+            (swap! state assoc :last last')
+            (fan-out! (:on-change st)
+                      {:cause          :value
+                       :target         (:target st)
+                       :node-key       (:node-key rec)
+                       :node-version   (:version rec)
+                       :frame-epoch    (frame/frame-commit-epoch (:frame-id st))
+                       :registry-epoch @registry-epoch*})))))))
 
 (defn- build-node-lease!
   "Wrap a CANONICAL cached `reaction` — one `subs/acquire-cache-reaction!` has
@@ -875,7 +947,12 @@
                      :target     target
                      :frame-id   frame-id
                      :query-v    query
-                     :reaction   reaction
+                     ;; Held WEAKLY on the JVM so the process-global weak
+                     ;; node-records table's value cannot strong-reference its
+                     ;; own weak key back into liveness (rf2-vxgfnd.37); plain
+                     ;; on CLJS (js/WeakMap is ephemeron). Derived via
+                     ;; `lease-reaction` at every read.
+                     :reaction   (weak-reaction-ref reaction)
                      :on-change  on-change
                      :status     :live})
         lease (->ObservationLease state)]
@@ -1105,7 +1182,9 @@
               {:extra {:frame          (:frame-id st)
                        :rf.sub/query-v (:query-v st)}})))
         (if (node-still-canonical? st)
-          (let [[rec v] (observe-node! (:reaction st))]
+          ;; Canonical ⟹ the cache holds this reaction strongly, so the weakly
+          ;; held `lease-reaction` resolves (rf2-vxgfnd.37).
+          (let [[rec v] (observe-node! (lease-reaction st))]
             (swap! (lease-state lease) assoc
                    :last {:value v :version (:version rec)
                           :node-key (:node-key rec)})
@@ -1147,13 +1226,19 @@
     ;; uses.
     (when (and (= :node (:lease-kind old))
                (= :live (:status old)))
-      (let [{:keys [reaction watch-key frame-id query-v]} old]
-        (when watch-key
+      (let [{:keys [watch-key frame-id query-v]} old
+            ;; Derived weakly on the JVM (rf2-vxgfnd.37); nil iff the reaction
+            ;; was already collected (an abandoned node the lease outlived), in
+            ;; which case every teardown step below is a correct no-op — the
+            ;; reference died with the eviction, exactly as for a rebuilt node.
+            reaction (lease-reaction old)]
+        (when (and watch-key reaction)
           (remove-watch reaction watch-key))
         ;; De-enrol this lease from the node's active-owner set so a released
         ;; lease is no longer reachable from the live reaction — the node's
         ;; single disposal hook then never sees it (rf2-vxgfnd.15).
-        (deregister-owner! reaction lease)
+        (when reaction
+          (deregister-owner! reaction lease))
         (when-let [cache (:sub-cache (frame/frame frame-id))]
           (let [[o n] (swap-vals! cache
                                   (fn [m]
