@@ -479,6 +479,80 @@
         (rf/unregister-listener! :trace ::dispose-watch)))))
 
 ;; ===========================================================================
+;; the released-lease retention fixture — rf2-vxgfnd.15
+;;
+;; Adversarial to the exact leak the 10k-cold-probe fixture CANNOT catch (cold
+;; probes take no lease, register no callback). A permanent owner keeps a
+;; shared layer-1 node live while N leases acquire/release against the SAME
+;; target — the app-shell-subscription-stays-live-for-the-process shape. Every
+;; released lease must retain ZERO disposal callbacks and leave the node's
+;; active-owner set at the permanent baseline: disposal work O(current owners),
+;; never O(all owners ever acquired). On today's per-lease-hook code the
+;; reaction retains one dormant closure per released lease (1000 leaked) and
+;; this fixture fails; after the node-scoped-hook fix it stays O(1).
+;; ===========================================================================
+
+#?(:clj
+   (defn- reaction-dispose-callback-count
+     "Count the on-dispose callbacks currently stored on a JVM plain-atom
+     `re-frame.interop/Reaction` by reading its private mutable `callbacks`
+     field reflectively. JVM-only: the CLJS reify keeps them in a closed-over
+     atom that is not externally reachable, so the callback-STORAGE assertion
+     is the JVM's; both hosts assert the active-owner set via
+     `obs/active-owner-count`."
+     [reaction]
+     (let [f (.getDeclaredField (class reaction) "callbacks")]
+       (.setAccessible f true)
+       (count (.get f reaction)))))
+
+(deftest released-leases-retain-no-disposal-callbacks-on-a-shared-live-node
+  (reg-items!)
+  (seed-items! [:a])
+  (let [target    (items-target)
+        noop      (fn [_])
+        n         1000
+        ;; The permanent owner keeps the shared node live (ref-count never
+        ;; reaches 0) — the app-shell subscription that lives for the process.
+        permanent (obs/acquire! target noop)
+        reaction  (:reaction (entry [:obs/items]))
+        #?@(:clj [callbacks-baseline (reaction-dispose-callback-count reaction)])]
+    (is (= 1 (ref-count [:obs/items])))
+    (is (= 1 (obs/active-owner-count reaction))
+        "the permanent owner is the only active owner at baseline")
+    ;; Churn: N acquire/release pairs against the SAME live node.
+    (dotimes [_ n]
+      (obs/release! (obs/acquire! target noop)))
+    (testing "the node survived the churn on the permanent owner's reference"
+      (is (= 1 (ref-count [:obs/items])))
+      (is (some? (entry [:obs/items]))))
+    (testing "released leases left the active-owner set at the permanent
+              baseline — not one historical owner retained"
+      (is (= 1 (obs/active-owner-count reaction))
+          "active owners = {permanent}, not {permanent + N released}"))
+    #?(:clj
+       (testing "disposal-callback STORAGE stayed O(1) — released leases
+                 retained ZERO dormant closures (the rf2-vxgfnd.15 leak)"
+         (is (= callbacks-baseline (reaction-dispose-callback-count reaction))
+             (str "the reaction retained a dormant disposal closure per "
+                  "released lease: baseline " callbacks-baseline
+                  ", after " n " acquire/release pairs "
+                  (reaction-dispose-callback-count reaction)
+                  " (retained-released-lease-callbacks="
+                  (- (reaction-dispose-callback-count reaction) callbacks-baseline)
+                  ")"))))
+    (testing "the permanent owner is still notified once on eventual disposal —
+              the node-scoped hook drains the CURRENT owner, not history"
+      (let [notes (atom [])
+            keep  (obs/acquire! target (fn [ev] (swap! notes conj ev)))]
+        (obs/release! permanent)
+        ;; `keep` is now the sole owner; re-registration disposes the node and
+        ;; drains its ONE active owner exactly once.
+        (reg-items!)
+        (is (= 1 (count @notes)) "exactly one former-owner notification")
+        (is (= :hmr (:cause (first @notes))))
+        (obs/release! keep)))))
+
+;; ===========================================================================
 ;; ABI guard
 ;; ===========================================================================
 
