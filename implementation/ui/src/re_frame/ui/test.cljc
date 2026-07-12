@@ -573,6 +573,39 @@
        (assoc root :rf.ui/tree-version tree/tree-version))))
 
 #?(:clj
+   (defn- reject-frame-collision!
+     "The Tier-1 fresh-frame contract (rf2-vxgfnd.55): a plan-bearing
+  `ui.test/render` GUARANTEES fresh ISOLATED test frames — each declared
+  `frame-root` plan mints (and, after the render, tears down) its OWN frame,
+  seeded with its declared `:initial-events`/config. If a plan frame-id is
+  already LIVE at render time, running the production ENSURE path would
+  silently ADOPT that ambient frame (03 §8 / `frames` ns — create-if-absent
+  ADOPTS a live frame, its config authoritative), so the plan's declared
+  seed/config would be IGNORED, ambient state reused, and the assertion still
+  pass. That is a test-isolation violation, not an adoption — reject BEFORE
+  any frame/install mutation, naming the colliding frame(s) and root, rather
+  than adopting via the production path. (Production adoption semantics are
+  deliberately unchanged; this reject is the test HOST's contract, not a
+  `frame-root` behaviour.)"
+     [root-id live-collisions]
+     (let [many? (next live-collisions)]
+       (error/throw-error!
+        :rf.error/ui-test-frame-collision 'rf.ui.test/render
+        (str "plan-bearing ui.test/render for root " (pr-str root-id)
+             " declares a frame-root plan" (when many? "s")
+             " for the ALREADY-LIVE frame" (when many? "s") " "
+             (pr-str (vec live-collisions)) " — a Tier-1 test render OWNS "
+             "FRESH ISOLATED frames and must not adopt ambient frame state "
+             "(the plan's declared :initial-events/config would be silently "
+             "ignored, the pre-existing frame's state reused). Destroy the "
+             "pre-existing frame(s) before rendering — a fresh test frame is "
+             "created + seeded per plan — or target a frame you hold with a "
+             "plan-free form + {:frame f}")
+        {:recovery :isolate-the-test-frame
+         :extra {:root-id     root-id
+                 :collisions  (vec live-collisions)}}))))
+
+#?(:clj
    (defn- render-plan-bearing
      "Runtime half of a PLAN-BEARING literal root form: run the root's static
   frame plans through the S2c preflight ENSURE against FRESH test frames
@@ -582,26 +615,37 @@
   tear down EVERY test-owned frame (those this render created) in a
   `finally` — a preflight failure leaves no frame residue and preserves the
   typed error. Plan config expressions evaluate exactly once, here at
-  preflight, before any tree traversal."
+  preflight, before any tree traversal.
+
+  Fresh-frame contract (rf2-vxgfnd.55): before executing ANY plan, reject if
+  any declared plan frame-id is already LIVE — otherwise the production
+  ENSURE path would ADOPT it and the render would silently reuse ambient
+  state instead of the fresh, seeded frame the harness advertises. The check
+  runs over ALL plans first, so a collision in a later plan cannot leave an
+  earlier one installed (zero writes on failure); the pre-existing frame(s)
+  are untouched."
      [opts thunk root-id plans-thunk ambient-frame-id]
-     (let [plans  (plans-thunk)
-           before (set (keys @rframe/frames))
-           run    (if (contains? opts :sub-overrides)
-                    #(binding [reactive/*sub-overrides* (:sub-overrides opts)] (thunk))
-                    thunk)]
-       (try
-         (frames/execute-frame-plans! root-id plans)
-         (let [root (if (some? ambient-frame-id)
-                      (binding [rframe/*current-frame* ambient-frame-id] (run))
-                      (run))]
-           (assoc root :rf.ui/tree-version tree/tree-version))
-         (finally
-           ;; test-owned = the plan frames not already live before preflight
-           ;; (siblings installed before a failing plan are torn down too —
-           ;; the Tier-1 no-residue guarantee, not production's irreversible-
-           ;; fx posture).
-           (doseq [fid (remove before (map :frame-id plans))]
-             (rframe/destroy-frame! fid)))))))
+     (let [plans      (plans-thunk)
+           before     (set (keys @rframe/frames))
+           collisions (filterv before (map :frame-id plans))]
+       (when (seq collisions)
+         (reject-frame-collision! root-id collisions))
+       (let [run (if (contains? opts :sub-overrides)
+                   #(binding [reactive/*sub-overrides* (:sub-overrides opts)] (thunk))
+                   thunk)]
+         (try
+           (frames/execute-frame-plans! root-id plans)
+           (let [root (if (some? ambient-frame-id)
+                        (binding [rframe/*current-frame* ambient-frame-id] (run))
+                        (run))]
+             (assoc root :rf.ui/tree-version tree/tree-version))
+           (finally
+             ;; test-owned = the plan frames not already live before preflight
+             ;; (siblings installed before a failing plan are torn down too —
+             ;; the Tier-1 no-residue guarantee, not production's irreversible-
+             ;; fx posture).
+             (doseq [fid (remove before (map :frame-id plans))]
+               (rframe/destroy-frame! fid))))))))
 
 #?(:clj
    (defn ^:no-doc render-view*
