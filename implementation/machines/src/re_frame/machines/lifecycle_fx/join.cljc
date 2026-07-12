@@ -300,11 +300,12 @@
   cancellation traces reach the cascade's `:trace-events` slot."
   [frame-id parent-id invoke-id spec join-state'' child-id child-extra
    {:keys [resolved? resolution-event join-event-kw]}]
-  (let [cancel-fx
+  (let [destroy-fx
         (when resolved?
-          (let [completed-ids (into #{} (concat (:done   join-state'')
+          (let [children      (:children join-state'')
+                completed-ids (into #{} (concat (:done   join-state'')
                                                 (:failed join-state'')))
-                survivors     (->> (:children join-state'')
+                survivors     (->> children
                                    (remove (fn [[cid _]]
                                              (contains? completed-ids cid))))]
             (doseq [[cid spawned-id] survivors]
@@ -344,14 +345,30 @@
                               :rf.reply/cancelled?  (:cancelled? survivor-summary)
                               :rf.reply/cancel-reason (:rf.reply/cancel-reason survivor-summary)
                               :rf.reply/correlation (:correlation survivor-summary)})))
+            ;; Destroy EVERY child of the resolved join — the survivors
+            ;; (cancelled, traced above) AND the COMPLETED children. A
+            ;; `:spawn-all` child's `:on-child-done` / `:on-child-error`
+            ;; terminal state is NOT necessarily `:final?`, so a "completed"
+            ;; child stays a LIVE actor after dispatching its completion.
+            ;; Completed children were previously torn down ONLY when the
+            ;; parent's resolution transition EXITED the `:spawn-all` state
+            ;; (destroy.cljc `destroy-spawn-all-children!` in the exit
+            ;; cascade) — so an INTERNAL/self resolution handler (or a parent
+            ;; with no `:on` for the resolution event, which stays in the
+            ;; state) leaked all N completed children's
+            ;; snapshots/timers/resources (rf2-qb1j5z). Destroying every child
+            ;; HERE closes that leak regardless of whether the resolution
+            ;; transition exits the state. Destroying an already-torn-down
+            ;; child (a `:final?` terminal that already auto-destroyed, or the
+            ;; exit-cascade's later sweep) is a silent-idempotent no-op.
             (mapv (fn [[_ spawned-id]]
                     [:rf.machine/destroy spawned-id])
-                  survivors)))
+                  children)))
         dispatch-fx
         (when resolution-event
           (let [inner (vec (concat resolution-event [child-id] child-extra))]
             [[:dispatch [parent-id inner]]]))]
-    (vec (concat (or cancel-fx []) (or dispatch-fx [])))))
+    (vec (concat (or destroy-fx []) (or dispatch-fx [])))))
 
 (defn intercept-spawn-all-event
   "Per Spec 005 §Child completion protocol. When the parent's

@@ -26,13 +26,17 @@
       payloads / `:data` may hold application secrets, and the always-on
       record is production-surviving + not privacy-gated).
 
-   4. **`:spawn-all` join-no-hang (the correctness call-out).** An
-      unregistered child TYPE in a `:spawn-all` set REJECTS — it does not
-      DEADLOCK the `:all` join (a never-running spec-less child would never
-      dispatch `:on-child-done`, blocking `(= n-done n-total)` forever).
-      No join-state is seeded, so a registered sibling's later
-      `:on-child-done` falls through to the documented no-op and the join
-      cannot hang.
+   4. **`:spawn-all` join-no-hang + ATOMIC reject (the correctness
+      call-out).** An unregistered child TYPE in a `:spawn-all` set REJECTS
+      the WHOLE invoke — it does not DEADLOCK the `:all` join (a never-running
+      spec-less child would never dispatch `:on-child-done`, blocking
+      `(= n-done n-total)` forever) AND it does not orphan the registered
+      siblings (rf2-qb1j5z). `spawn-all-init-fx` seeds a reject SENTINEL
+      (`{:rf/spawn-all-rejected? true}`, no `:children`): the join interceptor
+      treats it as unseeded so a stray sibling completion is the documented
+      no-op (no hang), and the registered siblings' per-child spawns detect
+      the sentinel and SUPPRESS themselves (no live orphan actor with no
+      seeded join to ever tear it down).
 
    5. **No false reject.** A registered `:machine-id` and an inline
       `:definition` spawn still install cleanly (the gate fires only on the
@@ -194,9 +198,10 @@
 
 (deftest spawn-all-with-unregistered-child-rejects-not-hangs
   (testing "an UNREGISTERED child TYPE in a :spawn-all :all set REJECTS the
-            whole join (no join-state seeded) rather than deadlocking it
-            forever — the never-running spec-less child can never satisfy
-            (= n-done n-total)"
+            whole invoke ATOMICALLY (a reject sentinel is seeded, no
+            :children; the registered sibling is suppressed) rather than
+            deadlocking the join or orphaning the sibling — the never-running
+            spec-less child can never satisfy (= n-done n-total)"
     (let [ok-child {:initial :running :data {} :states {:running {}}}
           ;; :gc/missing is NEVER reg-machine'd — the unregistered child.
           parent   {:initial :idle
@@ -221,10 +226,18 @@
             "the unregistered child fans at least one always-on reject")
         (is (every? #(= :gc/missing (:machine-id %)) records)
             "every reject names the unregistered child TYPE :gc/missing")
-        ;; NO join-state was seeded — the join cannot hang because there is
-        ;; no slot for a sibling completion to drive toward (= n-done n-total).
-        (is (nil? (get-in (frame-db) [:rf.runtime/machines :spawned :sup/join [:forking]]))
-            "no join-state seeded for a :spawn-all containing an unregistered child")
+        ;; A reject SENTINEL was seeded (no :children) — the join cannot hang
+        ;; because the interceptor treats a childless slot as unseeded, so a
+        ;; sibling completion drives nothing toward (= n-done n-total).
+        (is (= {:rf/spawn-all-rejected? true}
+               (get-in (frame-db) [:rf.runtime/machines :spawned :sup/join [:forking]]))
+            "the reject sentinel (no :children) is seeded for a :spawn-all with an unregistered child")
+        ;; ATOMIC reject: the registered sibling :gc/ok was SUPPRESSED — no
+        ;; orphan actor installed (rf2-qb1j5z).
+        (is (nil? (get-in (frame-db) [:rf.runtime/machines :snapshots :gc/ok#1]))
+            "the registered sibling was suppressed — no orphan snapshot")
+        (is (not (some #{:gc/ok#1} (spawn-order/frame-order :rf/default)))
+            "the registered sibling was suppressed — nothing recorded in spawn-order")
         ;; The parent is still in :forking — it did NOT advance to :ready
         ;; (the join never resolves) but it also did NOT hang the dispatch
         ;; (dispatch-sync returned).
@@ -232,10 +245,9 @@
             "parent stays in :forking — no deadlock, just a refused join")))))
 
 (deftest spawn-all-registered-sibling-completion-is-noop-not-hang
-  (testing "after the join is rejected, the registered sibling's eventual
-            :on-child-done finds NO seeded join-state and falls through to
-            the documented no-op — proving the join cannot be driven into a
-            hang post-reject"
+  (testing "after the join is rejected, a hand-driven :on-child-done finds the
+            childless reject sentinel and falls through to the documented
+            no-op — proving the join cannot be driven into a hang post-reject"
     (let [ok-child {:initial :running
                     :data    {}
                     :states  {:running {:on {:finish {:target :done}}}
@@ -255,12 +267,14 @@
       (rf/reg-machine :gc/ok2 ok-child)
       (rf/reg-machine :sup/join2 parent)
       (rf/dispatch-sync [:sup/join2 [:start]])
-      ;; No join-state — the precondition for "cannot hang".
-      (is (nil? (get-in (frame-db) [:rf.runtime/machines :spawned :sup/join2 [:forking]]))
-          "(precondition) no join-state seeded")
-      ;; Hand-drive a child-done event into the parent — the registered
-      ;; sibling would normally drive the join. With no join-state it is a
-      ;; documented no-op; crucially it does NOT throw and does NOT hang.
+      ;; A childless reject sentinel — the precondition for "cannot hang".
+      (is (= {:rf/spawn-all-rejected? true}
+             (get-in (frame-db) [:rf.runtime/machines :spawned :sup/join2 [:forking]]))
+          "(precondition) the childless reject sentinel is seeded")
+      ;; Hand-drive a child-done event into the parent. The registered sibling
+      ;; :gc/ok2 was suppressed, so this stands in for any stray completion:
+      ;; the interceptor sees the childless sentinel, treats it as unseeded,
+      ;; and it is a documented no-op — it does NOT throw and does NOT hang.
       (rf/dispatch-sync [:sup/join2 [:gc/done :ok]])
       (is (= :forking (mtest/machine-state :sup/join2))
           "a child-done with no seeded join-state is a no-op — never resolves, never hangs"))))

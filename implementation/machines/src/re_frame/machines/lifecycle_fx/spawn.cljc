@@ -155,6 +155,36 @@
                         :reason     reason})
     nil))
 
+(def ^:private spawn-all-reject-sentinel
+  "The join-slot value `spawn-all-init-fx` writes when it REJECTS a
+  `:spawn-all` invoke (some child names an UNREGISTERED TYPE). It carries NO
+  `:children`, so `join.cljc`'s interceptor treats it as an unseeded no-op
+  and `destroy.cljc`'s `destroy-spawn-all-children!` finds nothing to tear
+  down and clears the slot on parent exit.
+
+  Its sole purpose is to make the reject ATOMIC: the registered siblings'
+  per-child `:rf.machine/spawn` fxs — SEPARATE entries later in the SAME
+  entry `:fx` vector — read this sentinel (via `spawn-all-invoke-rejected?`)
+  and suppress themselves, so a malformed `:spawn-all` spawns NOTHING rather
+  than orphaning the registered siblings with no seeded join to ever tear
+  them down (rf2-qb1j5z)."
+  {:rf/spawn-all-rejected? true})
+
+(defn- spawn-all-invoke-rejected?
+  "True iff `args` is a `:spawn-all` per-child spawn whose invoke was
+  REJECTED by `spawn-all-init-fx` (an unregistered sibling TYPE). The reject
+  seeds `spawn-all-reject-sentinel` at the join slot BEFORE the per-child
+  spawns run — `spawn-all-init-fx` is the FIRST fx in the entry vector, ahead
+  of every per-child `:rf.machine/spawn` — so a sibling spawn reads it here
+  and suppresses itself. Keyed on the child's `:rf/spawn-all-id` (== the
+  parent's invoke-id / join-slot key), so it fires ONLY for `:spawn-all`
+  children, never a single `:spawn`."
+  [frame-id args]
+  (when-let [invoke-id (:rf/spawn-all-id args)]
+    (let [slot (get-in (frame/frame-runtime-db-value frame-id)
+                       (paths/spawned-path (:rf/parent-id args) invoke-id))]
+      (boolean (and (map? slot) (:rf/spawn-all-rejected? slot))))))
+
 (defn- machine-type-ref
   "The revertible TYPE reference stamped onto a spawned actor's snapshot root
   under `:rf/machine-type`, so the lazy resolver (`lifecycle-fx.resolver`)
@@ -334,8 +364,21 @@
     ;; `:rf.error/machine-spawn-unregistered-type` and returns nil — the
     ;; strongest atomicity (there is no spec-less spawn path, so there is no
     ;; half-installed bookkeeping the next op could trip over).
-    (if (unregistered-spawn-type? args)
+    (cond
+      (unregistered-spawn-type? args)
       (reject-unregistered-spawn! frame-id (:machine-id args))
+
+      ;; Step 0b — atomic `:spawn-all` reject. When a SIBLING in this
+      ;; `:spawn-all` set named an UNREGISTERED TYPE, `spawn-all-init-fx`
+      ;; (the first fx in this entry vector) rejected the whole invoke and
+      ;; seeded `spawn-all-reject-sentinel` at the join slot. Suppress this
+      ;; registered sibling's spawn so the reject is ATOMIC — no live orphan
+      ;; with no seeded join to ever tear it down (rf2-qb1j5z). Silent: the
+      ;; invoke-level reject trace already fired from `spawn-all-init-fx`.
+      (spawn-all-invoke-rejected? frame-id args)
+      nil
+
+      :else
       (spawn-fx* frame-id args))))
 
 (defn- spawn-fx*
@@ -556,12 +599,29 @@
         unregistered (->> (get-in join-state [:spec :children])
                           (filterv unregistered-spawn-type?))]
     (if (seq unregistered)
-      ;; Fail-closed: reject the join — seed NO join-state — so the never-
-      ;; running spec-less child cannot hang the `:all` join forever. Emit
-      ;; one reject per offending child (structural-only tags, per the
-      ;; privacy contract). The per-child `:rf.machine/spawn` fx rejects too.
+      ;; Fail-closed: reject the join so the never-running spec-less child
+      ;; cannot hang the `:all` join forever. Emit one reject per offending
+      ;; child (structural-only tags, per the privacy contract). The
+      ;; per-child `:rf.machine/spawn` fx rejects each unregistered child too.
+      ;;
+      ;; ATOMIC reject (rf2-qb1j5z): seed `spawn-all-reject-sentinel` at the
+      ;; join slot rather than seeding NO join-state. The registered
+      ;; siblings' per-child `:rf.machine/spawn` fxs — SEPARATE entries later
+      ;; in THIS entry `:fx` vector — would otherwise install live orphan
+      ;; actors that no seeded join ever tears down (they carry
+      ;; `:rf/spawn-all-id`, `track? false`, are recorded only in
+      ;; spawn-order, and leak until frame-destroy). The sentinel signals the
+      ;; rejected invoke so those siblings suppress themselves
+      ;; (`spawn-all-invoke-rejected?`) — the whole malformed invoke spawns
+      ;; NOTHING, the consistent analogue of a single `:spawn`'s atomic
+      ;; reject. The sentinel carries no `:children`, so the join interceptor
+      ;; treats it as unseeded (no deadlock) and `destroy-spawn-all-children!`
+      ;; finds nothing to tear down and clears the slot on parent exit.
       (do (doseq [child unregistered]
             (reject-unregistered-spawn! frame-id (:machine-id child)))
+          (frame/swap-runtime-db! frame-id assoc-in
+                                  (paths/spawned-path parent-id invoke-id)
+                                  spawn-all-reject-sentinel)
           nil)
       (do
         ;; Machine spawn-registry state is durable runtime-db state.
