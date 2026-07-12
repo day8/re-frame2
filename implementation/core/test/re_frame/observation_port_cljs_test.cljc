@@ -952,6 +952,109 @@
           (is (= @builds (:attempts (ex-data e)))
               ":attempts equals the build attempts made"))))))
 
+;; ===========================================================================
+;; rf2-vxgfnd.14 — read carries the node's IDENTITY (:node-key) so a same-id
+;; frame REINCARNATION between render and commit is detected as movement, EVEN
+;; WHEN node-version + frame/registry epochs coincide across the incarnations.
+;;
+;; `frame/dissoc-frame!` clears the destroyed frame's commit-epoch entry, so a
+;; recreate + the same single install RESTARTS the epoch at the value the
+;; destroyed incarnation held; a fresh node observed once is version 0 on both;
+;; and no :sub re-registration in the gap leaves the registry epoch stable. So
+;; the S2b version+epoch-only LIVE comparison ties across incarnations and would
+;; misread the reincarnation as UNCHANGED — the frozen S2 invariant break.
+;; `read` now also returns :node-key (the same identity `probe` already emits);
+;; a reincarnated frame builds a FRESH reaction that mints a strictly-greater
+;; key, so the changed key is the movement signal the reconciler needs.
+;; Deterministic, no sleeps, both hosts (the plain-atom adapter is CLJC).
+;; ===========================================================================
+
+(deftest read-carries-node-key-so-same-id-reincarnation-is-detected
+  (let [rfid :obs/reincarnation]
+    (rf/reg-sub :obs/rv (fn [db _] (:v db)))
+    ;; --- render incarnation: a LIVE node observed by a render-time probe ---
+    (rf/make-frame {:id rfid :adapter plain-atom/adapter})
+    (frame/replace-app-db! rfid {:v 1})
+    (let [target       (obs/resolve-target {:frame rfid :query-v [:obs/rv]})
+          ;; Hold a public subscribe ref so the node is canonical + LIVE when the
+          ;; render-side probe reads it (probe never takes a ref of its own).
+          _render-node (subs/subscribe [:obs/rv] {:frame rfid})
+          render-ev    (obs/probe target)]
+      (is (true? (:live? render-ev)) "the render probe read a LIVE node")
+      (is (= 1 (:value render-ev)))
+      (is (= 0 (:node-version render-ev)) "fresh node observed once ⟹ version 0")
+      (is (int? (:node-key render-ev)))
+      ;; --- reincarnation in the render→commit gap: destroy + recreate the SAME
+      ;;     id, install a DIFFERENT value. The identical make-frame + single
+      ;;     replace-app-db! sequence (with dissoc-frame! clearing the epoch)
+      ;;     makes node-version + frame/registry epochs COINCIDE with the
+      ;;     destroyed incarnation's — the coincident-version reincarnation. ---
+      (frame/destroy-frame! rfid)
+      (rf/make-frame {:id rfid :adapter plain-atom/adapter})
+      (frame/replace-app-db! rfid {:v 2})
+      (let [_commit-node (subs/subscribe [:obs/rv] {:frame rfid})
+            commit-ev    (obs/probe target)          ;; new live node, node-key K2
+            lease        (obs/acquire! target (fn [_]))
+            r            (obs/read lease)]
+        (is (= 2 (:value r)) "acquired + read the reincarnated node's value")
+        (testing "the version + epoch axes COINCIDE across the reincarnation"
+          (is (= (:node-version render-ev) (:version r))
+              "node versions tie — both fresh nodes at version 0")
+          (is (= (:frame-epoch render-ev) (:frame-epoch r))
+              "frame epochs tie — dissoc-frame! restarted the commit epoch")
+          (is (= (:registry-epoch render-ev) (:registry-epoch r))
+              "registry epochs tie — no :sub re-registration in the gap"))
+        (testing "read now carries the node's IDENTITY, DISTINCT across the reincarnation"
+          (is (int? (:node-key r))
+              "read carries :node-key (the fix — omitted before, so nil)")
+          (is (= (:node-key commit-ev) (:node-key r))
+              "read's node-key is the node it actually owns at commit")
+          (is (not= (:node-key render-ev) (:node-key r))
+              "the reincarnated node has a DISTINCT identity from the destroyed one"))
+        (testing "so the S2b evidence comparison classifies it as MOVED, not unchanged"
+          ;; Mirror ui.reactive/evidence-moved?'s live branch: version+epoch ALONE
+          ;; MISSES it (the bug); the additive :node-key axis catches it.
+          (letfn [(version+epoch-moved? [rd pv]
+                    (or (not= (:version rd) (:node-version pv))
+                        (not= (:frame-epoch rd) (:frame-epoch pv))
+                        (not= (:registry-epoch rd) (:registry-epoch pv))))
+                  (node-key-moved? [rd pv]
+                    (or (version+epoch-moved? rd pv)
+                        (not= (:node-key rd) (:node-key pv))))]
+            (is (false? (version+epoch-moved? r render-ev))
+                "version+epoch-only comparison MISSES the reincarnation (the S2 break)")
+            (is (true? (node-key-moved? r render-ev))
+                "carrying :node-key makes the reincarnation detectable as movement")))
+        (obs/release! lease)))
+    (frame/destroy-frame! rfid)))
+
+(deftest unchanged-live-node-reads-the-same-node-key-no-false-movement
+  ;; The fast-path guard (rf2-vxgfnd.14 AC #4): a genuinely-unchanged live node
+  ;; reads the SAME node-key/version/epochs across a render probe and a commit
+  ;; read, so the reconciler's evidence comparison classifies it UNCHANGED — the
+  ;; new :node-key axis introduces no false movement.
+  (reg-items!)
+  (seed-items! [:a])
+  (let [target    (items-target)
+        _live     (subs/subscribe [:obs/items] {:frame fid})
+        render-ev (obs/probe target)
+        lease     (obs/acquire! target (fn [_]))
+        r         (obs/read lease)]
+    (is (true? (:live? render-ev)))
+    (is (= (:node-key render-ev) (:node-key r))
+        "same live node ⟹ same node-key across render and commit")
+    (is (= (:node-version render-ev) (:version r)))
+    (is (= (:frame-epoch render-ev) (:frame-epoch r)))
+    (is (= (:registry-epoch render-ev) (:registry-epoch r)))
+    (letfn [(moved? [rd pv]
+              (or (not= (:version rd) (:node-version pv))
+                  (not= (:frame-epoch rd) (:frame-epoch pv))
+                  (not= (:registry-epoch rd) (:registry-epoch pv))
+                  (not= (:node-key rd) (:node-key pv))))]
+      (is (false? (moved? r render-ev))
+          "no false movement for an unchanged live node — the fast path holds"))
+    (obs/release! lease)))
+
 (deftest reentrant-graph-op-is-dev-asserted-inside-the-fan-out
   (reg-items!)
   (seed-items! [:a])

@@ -64,10 +64,18 @@
     - `:registry-epoch` — bumped on every `:sub` registration (first-time or
       replacement), so an HMR re-registration in the gap is visible.
 
-  `read` on a node lease additionally returns the CURRENT `:frame-epoch` /
-  `:registry-epoch` (additive keys — the frozen `{:value v :version n}`
-  contract is unchanged) so the commit reconciler gets its step-5 comparison
-  inputs from the one acquire-time read instead of a second probe.
+  `read` on a node lease additionally returns the node's `:node-key` (its
+  process-unique IDENTITY — the SAME key probe emits) and the CURRENT
+  `:frame-epoch` / `:registry-epoch` (additive keys — the frozen
+  `{:value v :version n}` contract is unchanged) so the commit reconciler gets
+  its step-5 comparison inputs from the one acquire-time read instead of a
+  second probe. Carrying `:node-key` lets the reconciler distinguish a same-id
+  frame REINCARNATION (destroy + recreate mints a fresh reaction, so a
+  strictly-greater node-key) from an unmoved live node EVEN WHEN node-version
+  and frame/registry epochs coincide across the two incarnations — a
+  version+epoch tie `frame/dissoc-frame!`'s commit-epoch restart can produce,
+  which the version+epoch-only comparison would misread as unchanged
+  (rf2-vxgfnd.14).
 
   ## Error contract — internally fail-loud
 
@@ -168,8 +176,17 @@
   "Integer ABI version of this port. `day8/re-frame2-ui` records the version
   it compiled against and asserts it at load via [[assert-port-abi-version!]],
   failing loudly on skew — artifact drift is a boot error, never undefined
-  behaviour. Per Spec 006 §The internal observation port §Scope."
-  1)
+  behaviour. Per Spec 006 §The internal observation port §Scope.
+
+  v2 (rf2-vxgfnd.14): `read` on a node lease additionally carries `:node-key`
+  — the acquired node's process-unique IDENTITY (the same key `probe` already
+  emits) — so the S2b commit reconciler detects a same-id frame REINCARNATION
+  across the render→commit gap even when node-version and frame/registry
+  epochs coincide (a version+epoch tie `frame/dissoc-frame!`'s commit-epoch
+  restart can produce). The reconciler's evidence comparison relies on it, so
+  a consumer from v2 onward REQUIRES a core that emits it — the guard makes an
+  older core a boot error rather than a silently-missed correction."
+  2)
 
 (defn assert-port-abi-version!
   "Boot guard for the sole consumer: throw `:rf.error/observation-port-
@@ -1303,10 +1320,23 @@
 
 (defn read
   "Commit-side read through a lease. On a live node lease, derefs the owned
-  node fresh and returns `{:value v :version n :frame-epoch fe
-  :registry-epoch re}` (the epoch keys are additive — they hand the commit
-  reconciler its invariant-5 comparison inputs without a second probe). On
-  the static override lease, returns the pinned `{:value v :version n}`.
+  node fresh and returns `{:value v :version n :node-key nk :frame-epoch fe
+  :registry-epoch re}` (the `:node-key`/epoch keys are additive — they hand
+  the commit reconciler its invariant-5 comparison inputs without a second
+  probe). On the static override lease, returns the pinned `{:value v
+  :version n}`.
+
+  `:node-key` carries the acquired node's process-unique IDENTITY (the same
+  key `probe` already emits), so the reconciler can tell the node the RENDER
+  observed apart from a DIFFERENT node acquired at COMMIT — including a same-id
+  frame REINCARNATION (destroy + recreate) whose node-version and
+  frame/registry epochs coincide with the destroyed incarnation's:
+  `frame/dissoc-frame!` restarts the frame's commit epoch, so version+epoch
+  ALONE can tie across incarnations (rf2-vxgfnd.14). A reincarnated frame
+  builds a fresh reaction, which mints a strictly-greater node-key, so a
+  changed key is MOVEMENT the reconciler MUST correct before paint even when
+  version+epoch coincide. The unchanged-node fast path is preserved: the same
+  live node reads the same key/version/epochs, so no correction fires.
 
   `read` on a RELEASED lease throws `:rf.error/read-after-release` — always,
   production included; it is a substrate bug, unreachable in correct
@@ -1353,11 +1383,13 @@
                           :node-key (:node-key rec)})
             {:value          v
              :version        (:version rec)
+             :node-key       (:node-key rec)
              :frame-epoch    (frame/frame-commit-epoch (:frame-id st))
              :registry-epoch @registry-epoch*})
-          (let [{:keys [value version]} (:last st)]
+          (let [{:keys [value version node-key]} (:last st)]
             {:value          value
              :version        version
+             :node-key       node-key
              :frame-epoch    (frame/frame-commit-epoch (:frame-id st))
              :registry-epoch @registry-epoch*}))))))
 
