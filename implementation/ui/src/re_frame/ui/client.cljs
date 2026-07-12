@@ -617,25 +617,34 @@
   its root is gone. A throwing `.unmount` (React refused) collected nothing and
   tears no cell down — the orphaned tree's cells stay live (see below).
 
-  AFTERMATH of a THROWING host `.unmount` (rf2-vxgfnd.53). The concrete
-  case is React 18/19 refusing to `.unmount` synchronously from inside a
-  render pass (\"attempted to synchronously unmount a root while React was
-  already rendering\"): React did NOT tear the tree down, yet the `finally`
-  releases the claim (the AC4 total-teardown contract, KEPT — the
-  root-id/container must not strand). So the live React tree is now
-  ORPHANED in a container the registry no longer tracks, and — because
-  release makes a second `unmount!*` a no-op (the membership guard) — the
-  framework can never retry the host unmount for that handle. A later
-  `mount` into the same container would `createRoot` OVER the still-live
-  tree (a double-root). The claim-release is deliberate; the orphaned tree
-  is the price of AC4.
+  AFTERMATH of a THROWING host `.unmount` (rf2-vxgfnd.53, diagnostic
+  corrected by rf2-vxgfnd.84). The concrete case is React 18/19 refusing to
+  `.unmount` synchronously from inside a render pass (\"attempted to
+  synchronously unmount a root while React was already rendering\"): the
+  SYNCHRONOUS unmount did not complete, yet the `finally` releases the claim
+  (the AC4 total-teardown contract, KEPT — the root-id/container must not
+  strand), and a second `unmount!*` is a no-op (the membership guard). Two
+  facts, verified against the pinned react-dom 19.2.0 source, shape what that
+  aftermath actually IS:
 
-  So this is NOT silent: in a dev build a throwing `.unmount` emits a
-  console diagnostic naming the MANUAL ESCAPE — once you are out of the
-  render pass, tear the orphaned tree down yourself with
-  `(.unmount (.-react-root root))` on the SAME `Root` handle BEFORE
-  mounting into that container again. The diagnostic is goog.DEBUG-gated
-  (Closure-DCE'd from production — I-12). Returns nil."
+    - the root handle is CONSUMED: `ReactDOMRoot.unmount()` nulls its
+      `_internalRoot` BEFORE the flush that throws, so re-calling `.unmount`
+      on the SAME handle is a SILENT NO-OP — there is NO manual escape
+      through the consumed handle (the earlier diagnostic recommended exactly
+      that no-op, which never tears anything down);
+    - React usually DEFERS and self-completes the teardown work it scheduled
+      before the throw, so the tree is typically removed regardless — the
+      \"stuck host root\" is mostly moot, not the common outcome.
+
+  So this is NOT silent, and now HONEST: in a dev build a throwing `.unmount`
+  emits a console diagnostic stating the handle is consumed (no manual
+  escape) and — should a container genuinely be left with a stuck tree —
+  names the only real recovery: clear the container directly (its
+  `innerHTML`) or mount into a FRESH container, never reuse the consumed
+  handle. The diagnostic is goog.DEBUG-gated (Closure-DCE'd from production —
+  I-12). This corrects the diagnostic's GUIDANCE only; the .53 release-on-
+  throw contract itself (release the claim, rethrow the host error) is
+  unchanged. Returns nil."
   [^Root root]
   (when (and (some? root)
              (identical? (:root (get @live-roots (.-root-id root))) root))
@@ -652,25 +661,33 @@
       (reactive/teardown-root! (root-incarnation-of (.-root-id root))
                                (fn [] (.unmount (.-react-root root))))
       (catch :default e
-        ;; rf2-vxgfnd.53 — React did NOT unmount, yet the `finally` below
-        ;; still releases the claim (AC4). The live tree is now orphaned and
-        ;; the host root is unrecoverable through the framework (a second
-        ;; `unmount!*` is a no-op). Make the aftermath non-silent: name the
-        ;; manual escape + the remount double-root hazard. Dev-only
-        ;; (goog.DEBUG-stripped in production). Then rethrow the ORIGINAL host
-        ;; error so it still propagates to the caller (AC4).
+        ;; rf2-vxgfnd.53 / rf2-vxgfnd.84 — the synchronous host .unmount did NOT
+        ;; complete, yet the `finally` below still releases the claim (AC4) and a
+        ;; second `unmount!*` is a no-op (the membership guard). Make the
+        ;; aftermath non-silent AND honest: verified against pinned react-dom
+        ;; 19.2.0, ReactDOMRoot.unmount nulls its internal root BEFORE the flush
+        ;; that threw, so the handle is CONSUMED — re-calling .unmount on it is a
+        ;; silent no-op, NOT a manual escape (the pre-.84 diagnostic recommended
+        ;; that no-op). React usually defers + self-completes the teardown work
+        ;; scheduled pre-throw, so a stuck tree is the exception; when one does
+        ;; strand, the only real recovery is clearing the container (innerHTML) or
+        ;; a fresh container. Dev-only (goog.DEBUG-stripped in production). Then
+        ;; rethrow the ORIGINAL host error so it still propagates (AC4).
         (when (and ^boolean js/goog.DEBUG (exists? js/console))
           (.warn js/console
                  (str "[re-frame.ui] host .unmount threw while tearing down root "
-                      (pr-str (.-root-id root)) " — React did NOT unmount it, so "
-                      "its live React tree is now orphaned in a container the "
-                      "framework no longer tracks (the claim is released per the "
-                      "total-teardown contract, so a second unmount! is a no-op). "
-                      "A remount into this container would createRoot OVER the "
-                      "still-live tree (a double-root). Escape: once you are out "
-                      "of the render pass, tear the orphaned tree down yourself "
-                      "with (.unmount (.-react-root root)) on the SAME Root handle "
-                      "before mounting into that container again.")))
+                      (pr-str (.-root-id root)) " — React did NOT complete the "
+                      "synchronous unmount, but the root handle is now CONSUMED: "
+                      "ReactDOMRoot.unmount nulls its internal root BEFORE the "
+                      "flush that threw, so re-calling .unmount on this handle is "
+                      "a silent no-op — there is no manual escape through it. "
+                      "React usually defers and self-completes the teardown work "
+                      "scheduled before the throw, so the tree is typically "
+                      "removed regardless; the claim is released per the "
+                      "total-teardown contract (a second unmount! is a no-op). If "
+                      "a container is genuinely left with a stuck tree, clear it "
+                      "directly (set its innerHTML to \"\") or mount into a FRESH "
+                      "container — never reuse the consumed handle.")))
         (throw e))
       (finally
         (release-root! (.-root-id root) root))))
