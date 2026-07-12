@@ -36,12 +36,13 @@
   AND `clojure -M:test` (JVM), so the scheduler is graft-checked on both."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
-            [re-frame.core                 :as rf]
-            [re-frame.frame                :as frame]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support         :as test-support]
-            [re-frame.ui.reactive          :as reactive]
-            [re-frame.ui.test              :as uit]))
+            [re-frame.core                  :as rf]
+            [re-frame.frame                 :as frame]
+            [re-frame.substrate.observation :as obs]
+            [re-frame.substrate.plain-atom  :as plain-atom]
+            [re-frame.test-support          :as test-support]
+            [re-frame.ui.reactive           :as reactive]
+            [re-frame.ui.test               :as uit]))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter})
@@ -53,6 +54,7 @@
 
 (defn- sub-cache [] (:sub-cache (frame/frame fid)))
 (defn- entry [q] (get @(sub-cache) q))
+(defn- ref-count [q] (:ref-count (entry q)))
 (defn- seed! [id db] (frame/replace-app-db! id db))
 (defn- tk [id q] [:sub id q])
 
@@ -136,6 +138,71 @@
       (is (= 2 @hits)))))
 
 ;; ===========================================================================
+;; G-3 multi-read scaling (S2f) — 1/4/8/16 sites: ONE body invocation, ONE
+;; notification per drain, against the REAL observation port
+;; ===========================================================================
+;;
+;; N lexical (sub …) sites in a view share ONE ViewCell (one
+;; useSyncExternalStore hook). The render body runs ONCE for all N sites, the
+;; commit acquires N REAL leases (deduped by target identity), and when all N
+;; sites move in ONE drain the cell coalesces to ONE notification — the
+;; notification count per drain is INVARIANT to the site count. Fully against
+;; the real port + plain-atom cache: the one-drain fan-in is a REAL app-db move
+;; caught at the headless commit evidence comparison (step 5/8), which advances
+;; the cell's revision AT MOST ONCE per commit — no scheduler seam, no mock.
+
+(defn- g3-scaling-case
+  "One G-3 case at `n` sites: render a cell with n distinct sub sites, commit,
+  then invalidate ALL n in one drain and assert exactly one body invocation, n
+  real leases, and one notification."
+  [n]
+  (let [ids       (mapv (fn [i] (keyword "g3" (str n "-" i))) (range n))
+        queries   (mapv vector ids)
+        body-runs (atom 0)
+        hits      (atom 0)]
+    (doseq [i (range n)]
+      (rf/reg-sub (ids i) (fn [db _] (get db i))))
+    (seed! fid (into {} (map (fn [i] [i i])) (range n)))
+    (let [cell (reactive/make-cell (keyword (str "g3-cell-" n)))]
+      ;; ONE render body invocation drives all n sites (one ViewCell, one hook)
+      (rf/with-frame fid
+        (reactive/with-capture cell
+          (fn [] (swap! body-runs inc) (mapv reactive/sub-read queries))))
+      (reactive/commit! cell)
+      (is (= 1 @body-runs)
+          (str n " sites → ONE body invocation (one shared ViewCell, not " n ")"))
+      (is (= n (count (reactive/committed-target-keys cell)))
+          (str n " distinct REAL leases acquired against the observation port"))
+      (doseq [q queries]
+        (is (= 1 (ref-count q)) "each site owns exactly one lease — deduped by target"))
+      (reactive/subscribe cell (fn [] (swap! hits inc)))
+      ;; ONE drain fans in ALL n sites through the REAL port: re-registering
+      ;; each sub disposes its canonical node and fires that committed lease's
+      ;; REAL on-change (cause :hmr) — the genuine invalidation channel the port
+      ;; drives, not a scheduler seam. All n fan into the SAME ViewCell, which
+      ;; enrols ONCE; the coalesced flush notifies exactly once, whatever n is.
+      (doseq [i (range n)]
+        (rf/reg-sub (ids i) (fn [db _] (get db i))))
+      (is (reactive/dirty? cell)
+          (str "the " n " real on-change fan-ins marked the cell dirty"))
+      (is (= 1 (reactive/pending-cell-count))
+          (str "enrolled ONCE despite " n " site invalidations in one drain"))
+      (reactive/flush-pending!)
+      (is (= 1 (reactive/revision cell))
+          (str n " site invalidations in ONE drain → ONE revision advance (not " n ")"))
+      (is (= 1 @hits)
+          (str n " sites → ONE notification per drain — scaling the site count "
+               "does not scale notifications-per-drain"))
+      ;; release the case's leases so the next case starts clean
+      (reactive/teardown! cell))))
+
+(deftest g3-multi-read-scaling-one-notification-per-drain
+  (doseq [n [1 4 8 16]]
+    (testing (str n " sites share one ViewCell and one per-drain notification")
+      (reactive/reset-scheduler!)
+      (g3-scaling-case n))))
+
+;; ===========================================================================
 ;; flush! scope (the Q51 ruling) + no epoch work leaks across roots
 ;; ===========================================================================
 
@@ -192,6 +259,38 @@
       (is (= 1 (reactive/revision c2)))
       (is (= 1 (reactive/revision c3)))
       (is (= 0 (reactive/pending-cell-count))))))
+
+;; ===========================================================================
+;; flush-frame! override-only guard (S2f) — an override-only cell observes NO
+;; frame, so the frame arity is a no-op / guarded for it
+;; ===========================================================================
+
+(deftest flush-frame-is-a-no-op-for-an-override-only-cell
+  ;; An override-only cell commits only [:override id] target keys — cell-frames
+  ;; keeps :sub keys ONLY, so the cell observes NO frame. flush-frame! scopes on
+  ;; cell-observes-frame?, so it can never reach an override-only cell; only the
+  ;; global flush-pending! drains one (the override-only-cell-has-no-frame
+  ;; contract — see reactive/flush-frame! + cell-frames, reactive.cljc).
+  (binding [reactive/*sub-overrides* {[:r/a] 99}]
+    (let [cell (rc! (reactive/make-cell ::ov) fid [[:r/a]])
+          hits (atom 0)]
+      (is (= #{[:override [:r/a]]} (reactive/committed-target-keys cell))
+          "the cell's whole committed dep set is a static override — no :sub site")
+      (is (not (reactive/cell-observes-frame? cell fid))
+          "an override-only cell observes NO frame (cell-frames keeps :sub keys only)")
+      (reactive/subscribe cell (fn [] (swap! hits inc)))
+      (reactive/mark-dirty! cell 1)
+      (is (reactive/dirty? cell) "the cell is pending")
+      (testing "flush-frame! is a NO-OP — the override-only cell is never in frame scope"
+        (is (= 0 (reactive/flush-frame! fid)) "no cell flushed by the frame arity")
+        (is (reactive/dirty? cell) "still pending — the frame flush did not reach it")
+        (is (= 0 @hits) "and no notification fired")
+        (is (= 0 (reactive/revision cell))))
+      (testing "the GLOBAL flush is the only forcing that drains an override-only cell"
+        (reactive/flush-pending!)
+        (is (not (reactive/dirty? cell)))
+        (is (= 1 @hits) "the global flush drains it")
+        (is (= 1 (reactive/revision cell)))))))
 
 ;; ===========================================================================
 ;; Reentrancy — safe by construction (the flush-in-open-epoch safety net)
@@ -260,6 +359,34 @@
           "sibling cold probes in ONE render compute the shared parent ONCE
            via the slice-scoped memo threaded through sub-read")
       (is (nil? (entry [:s/parent])) "probes stayed ownership-free — no cache node"))))
+
+(deftest slice-memo-dies-with-slice
+  ;; make-slice-memo scopes derivation sharing to ONE handle = ONE render slice.
+  ;; The reactive layer mints a FRESH handle per slice (and releases it on the
+  ;; next tick / microtask), so a DEAD slice's memo is never retained into the
+  ;; next slice. Proven at the port primitive the reactive layer consumes:
+  ;; sharing holds WITHIN a slice, and a fresh slice recomputes.
+  (let [parent-runs (atom 0)]
+    (rf/reg-sub :s/parent (fn [db _] (swap! parent-runs inc) (:n db)))
+    (rf/reg-sub :s/a :<- [:s/parent] (fn [n _] [:a n]))
+    (rf/reg-sub :s/b :<- [:s/parent] (fn [n _] [:b n]))
+    (seed! fid {:n 5})
+    (rf/with-frame fid
+      (let [h1 (obs/make-slice-memo)]
+        (is (= {:tag nil :memo nil} @h1) "a fresh slice handle retains no table")
+        (obs/probe (obs/resolve-target {:query-v [:s/a]}) h1)
+        (obs/probe (obs/resolve-target {:query-v [:s/b]}) h1)
+        (is (= 1 @parent-runs)
+            "WITHIN one slice the shared parent computes ONCE (memo hit)")
+        (is (some? (:memo @h1)) "the live slice retains its table")
+        ;; a NEW slice = a FRESH handle; the dead slice's memo is not reused
+        (let [h2 (obs/make-slice-memo)]
+          (obs/probe (obs/resolve-target {:query-v [:s/a]}) h2)
+          (obs/probe (obs/resolve-target {:query-v [:s/b]}) h2)
+          (is (= 2 @parent-runs)
+              "a FRESH slice recomputes the parent — the prior slice's memo did
+               NOT survive (dies with the slice; no retained memo)")
+          (is (not (identical? h1 h2)) "each slice owns a DISTINCT memo handle"))))))
 
 ;; ===========================================================================
 ;; Bounded invalidation evidence across a coalesced batch (rf2-vxgfnd.46)
