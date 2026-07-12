@@ -97,7 +97,10 @@ read surface. Text is therefore not a *queryable node*: selectors never match it
   px rule, values stringified verbatim **[S1-CONFIRM]**; keyword values → `name`;
   nil entries dropped.
 - keyword/symbol values (any attr) → `(name x)` (`:data-priority :high` → `"high"`
-  ); a namespaced keyword's namespace is ignored with a dev diagnostic.
+  ); a namespaced keyword's namespace is **silently ignored** — the shipped dynamic
+  path (`re-frame.ui.rules/attr-val-semantic`, `css-val->str`) applies `(name x)` with
+  no diagnostic (`:data-priority ::high` → `"high"`, the namespace dropped without a
+  warning).
 - numbers → **JS `ToString` semantics** — integral doubles render without a trailing
   `.0` (the JVM emitter must not leak `(str 1.0)` → `"1.0"`) **[S1-CONFIRM]** for the
   integral-double case; integer fixtures.
@@ -140,9 +143,12 @@ tree). Children of void elements are a compile error **[S1-CONFIRM]** (React thr
 render; we reject earlier).
 
 **Canonical uniqueness, stated once:** absent-when-empty for `:attrs`/`:events`/
-`:children`; no nil attr entries; `:ns` absent for HTML; text coalesced. One semantic
-tree has exactly one representation — this is what makes the tree a legitimate
-fingerprint input.
+`:children`; no nil attr entries; `:ns` absent for HTML; text coalesced. **One pinned
+exception:** a **fragment** node retains `:children []` when empty, because `:children`
+is its *required discriminator* (§Node schema) — an empty fragment is `{:children []}`,
+never `{}` (which is malformed). Element and view-boundary `:children`, being optional,
+are absent when empty as normal. One semantic tree has exactly one representation — this
+is what makes the tree a legitimate fingerprint input.
 
 ### Versioning
 
@@ -214,8 +220,10 @@ parsed into semantic nodes (the spike comparator is the reference).
 ## The DOM conversion table — normative rows
 
 One table, two consumers (the client emitter and the JVM serialiser), exactly as the
-spike validated. Provenance per row: = spike-exercised; **[S1-CONFIRM]** =
-written to React's published behaviour, unexercised — Stage 1 confirms.
+spike validated. Provenance per row: = exercised (the spike, or the **S1b/S1f
+react-dom 19.2.0 probes** — the latter noted inline where they *corrected* the
+pre-probe draft); **[S1-CONFIRM]** = written to React's published behaviour,
+unexercised — Stage 1 confirms.
 
 ### Namespaces
 
@@ -243,16 +251,16 @@ written to React's published behaviour, unexercised — Stage 1 confirms.
 
 | Row | Rule |
 |---|---|
-| boolean attrs | `true` → `checked=""` (empty-string presence), `false`/absent → omitted; the set is React's published HTML boolean-attribute list **[S1-CONFIRM]** |
-| enumerated exception | `hidden` accepts `"until-found"` as a string value in addition to boolean behaviour **[S1-CONFIRM]** |
-| booleanish strings | `:content-editable` / `:draggable` / `:spell-check`: `true`/`false` → `"true"`/`"false"`, never omitted **[S1-CONFIRM]** |
-| overloaded booleans | `:download`, `:capture`: `true` → bare presence, `false` → omitted, any other value → stringified value **[S1-CONFIRM]** |
+| boolean attrs | `true` → `checked=""` (empty-string presence), `false`/absent → omitted; the set is the react-dom/server 19.2.0 boolean-attribute list, probed row-by-row (S1b) — it includes `hidden`, `muted`, and `ismap` (React 19 dropped the camel `isMap` prop) |
+| `hidden` (probe-corrected) | a **pure boolean** attr, not an enumerated exception: `true`/`"until-found"`/any truthy → bare presence (`hidden=""`), `false`/absent → omitted. The pre-probe draft's `"until-found"` string-value carve-out was **falsified** — react-dom/server 19.2.0 renders `hidden="until-found"` as bare presence like any truthy value (S1b probe) |
+| booleanish strings | `:content-editable` / `:draggable` / `:spell-check`: `true`/`false` → `"true"`/`"false"`, never omitted (S1b probe: `contentEditable`/`draggable`/`spellCheck`) |
+| overloaded booleans | `:download`, `:capture`: `true` → bare presence, `false` → omitted, any other value → stringified value (S1b probe) |
 
 ### Property-only and form-control special forms
 
 | Row | Rule |
 |---|---|
-| property-only names | names React never serialises to markup (`:muted` is the known citizen) emit **nothing** on the JVM; the client emitter sets the DOM property **[S1-CONFIRM]** |
+| property-only names | names React never serialises to markup emit **nothing** on the JVM (the client emitter sets the DOM property). **Probe-corrected (S1b):** the pre-probe draft's `:muted` citizen was **falsified** — react-dom/server 19.2.0 *does* serialise `muted=""` on `<video>` (so `:muted` is a boolean attr, above); **no S1 member remains**, and the `property-only-attrs` set is kept **empty** as the named home for any future member the parity corpus finds |
 | `:value` on `:input` | serialises as the `value` attribute |
 | `:default-value` / `:default-checked` | serialise as `value` / `checked` attributes **[S1-CONFIRM]** |
 | `:value` on `:textarea` | serialises as the element's **text child**, not an attribute **[S1-CONFIRM]** |
@@ -290,7 +298,7 @@ written to React's published behaviour, unexercised — Stage 1 confirms.
 | Row | Rule |
 |---|---|
 | escaping | full 5-char escaping (`& < > " '`) in text and attribute values; `ui/html` is the single bypass |
-| void elements | the HTML void set (`area base br col embed hr img input link meta source track wbr`); self-closing normalized; children = compile error **[S1-CONFIRM]** |
+| void elements | the void set that self-closes and rejects children (compile error): `area base br col embed hr img input keygen link meta param source track wbr` — **15** tags, the S1b probe adding `param` + `keygen` to the pre-probe draft's 13 (react-dom/server 19.2.0 throws for children on both). `menuitem` **also rejects children** but is *not* self-closing, so it lives in the children-rejected set only (`children-rejected-tags` = void ∪ `{:menuitem}`). Self-closing normalized (S1b probe) |
 | numeric text | JS `ToString` (integral doubles without `.0`) **[S1-CONFIRM]** |
 | adjacent text | coalesced in the tree (canonical form); **the serialiser's hydration text-separator behaviour (`<!-- -->` between originally-distinct dynamic text runs) is an open 011-owned row** — React hydration distinguishes text-node boundaries, `renderToStaticMarkup` does not; a hydration fixture must settle what our emitter writes **[S1-CONFIRM]** |
 | no handler attributes | event data never serialises into HTML — no `onclick="…"`, ever |
@@ -333,7 +341,12 @@ shapes.
   `{:got … :supported #{1}}` — fail-loud at the boundary, matching the artifact's
   construction-time error posture (`:rf.error/ssr-missing-payload-policy` style).
   Malformed nodes past the version gate throw `:rf.error/ui-tree-malformed` (shared
-  with all tree consumers). Both ids need Spec 009 catalogue rows at promotion.
+  with all tree consumers). Spec 009 rows land with the stage that ships each id (004's
+  rows-land-with-stages rule): `:rf.error/ui-tree-malformed` **already has its catalogue
+  row** (landed with S1 — the shared tree-consumer id, which also carries the
+  semantic-`N` root-version-gate arm); `:rf.error/ssr-ui-tree-version-unsupported` is the
+  SSR-seam sibling whose row **lands with the S5 serialiser** that raises it — not yet
+  catalogued, by design.
 - The compiled root render pipeline (011's per-root flow) is: JVM emitter → tree →
   `emit-ui-tree`; the response accumulator, error projection, and payload machinery are
   unchanged `re-frame2-ssr` surfaces.
@@ -344,16 +357,23 @@ shapes.
 2. Namespace context rules: svg inheritance, `foreignObject` reversion, MathML,
    `annotation-xml` HTML island.
 3. `xlink:`/`xml:` attribute mapping.
-4. Boolean-attribute set completeness + `hidden="until-found"` enumerated exception.
-5. Booleanish strings (`content-editable`/`draggable`/`spell-check`).
-6. Overloaded booleans (`download`, `capture`).
-7. Property-only never-serialised names (`muted` et al.).
+4. Boolean-attribute set completeness — **DISCHARGED (S1b probe).** No
+   `hidden="until-found"` enumerated exception: `hidden` is a **pure boolean** (the
+   pre-probe string-value carve-out was falsified).
+5. Booleanish strings (`content-editable`/`draggable`/`spell-check`) — **DISCHARGED
+   (S1b probe).**
+6. Overloaded booleans (`download`, `capture`) — **DISCHARGED (S1b probe).**
+7. Property-only never-serialised names — **DISCHARGED (S1b probe):** `muted`
+   *does* serialise (`muted=""`); no S1 member remains, the set is kept empty.
 8. Form-control special forms (`textarea` value→child; `select` value→`selected`;
    `default-value`/`default-checked`→`value`/`checked`).
 9. Style unitless-set copy + custom-property (`--*`) rows.
 10. Integral-double text/attr values (JS `ToString`, no `.0`).
 11. Duplicate-key detection under React string coercion.
-12. Void-element set + children-rejection parity with React's throw list.
+12. Void-element set + children-rejection parity with React's throw list —
+    **DISCHARGED (S1b probe):** 15-tag void set (`param` + `keygen` added to the draft's
+    13); `menuitem` rejects children but is not self-closing, so it is children-rejected
+    only.
 13. Adjacent-text hydration separators (011-owned fixture).
 14. `:for` → `for`/`htmlFor` alias.
 15. Custom-element event-type registration (kebab tail verbatim) vs React 19.
