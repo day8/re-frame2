@@ -175,7 +175,20 @@
     ;; `re-frame.router/handle-depth-exceeded!`; this leg drives the category
     ;; through `dispatch-error-record!` (the `record-categories` branch below)
     ;; to prove the listener fan-out.
-    :rf.error/drain-depth-exceeded})
+    :rf.error/drain-depth-exceeded
+    ;; rf2-vxgfnd.7: the observation-port always-on pair (Spec 006 §The
+    ;; internal observation port; Spec 009 catalogue rows landed in the same
+    ;; PR). Both are THROWING port surfaces that fan the always-on record
+    ;; through `emit-error-both!` → `dispatch-on-error!` BEFORE the typed
+    ;; throw, so a boundary-swallowed throw still reaches off-box shippers:
+    ;; `read-after-release` is the substrate-bug read of a released lease
+    ;; (armed in production); `observation-port-version-mismatch` is the
+    ;; R-6 lockstep ABI boot guard (`assert-port-abi-version!`). The port's
+    ;; own suite (`observation_port_cljs_test.cljc`) pins the real emit
+    ;; sites; this leg drives the categories through the per-event axis
+    ;; (the `:else` branch) to prove the listener fan-out.
+    :rf.error/read-after-release
+    :rf.error/observation-port-version-mismatch})
 
 ;; The frame-teardown report is the ONE always-on category that rides the
 ;; bounded `dispatch-frame-teardown-report!` sibling (Spec 009: one record
