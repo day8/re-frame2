@@ -123,10 +123,8 @@ So you'll drive a real dispatch through a real [frame](../../core/glossary.md#fr
 
 ```clojure
 (deftest cold-boot-with-saved-token-lands-authed
-  ;; make-frame here takes a config map, so we call re-frame.frame/make-frame
-  ;; (the config-taking form) rather than the plain rf/make-frame used elsewhere.
-  ;; :preset :test is one of its config keys — see the bullets below.
-  (rf/with-new-frame [f (re-frame.frame/make-frame {:preset :test})]
+  ;; :preset :test is one of make-frame's config keys — see the bullets below.
+  (rf/with-new-frame [f (rf/make-frame {:preset :test})]
     (rf/with-managed-request-stubs
       {[:get "https://api.realworld.io/api/user"]          ;; the URL Part 3's restore requests
        {:reply {:ok {:user {:username "ada"
@@ -149,7 +147,7 @@ The unhappy path — the one your users will actually hit — is the same shape 
 
 ```clojure
 (deftest wrong-password-shows-the-error
-  (rf/with-new-frame [f (re-frame.frame/make-frame {:preset :test})]  ;; same config-taking make-frame as above
+  (rf/with-new-frame [f (rf/make-frame {:preset :test})]
     (rf/with-managed-request-stubs
       {[:post "https://api.realworld.io/api/users/login"]
        {:reply {:failure {:kind :rf.http/http-4xx :status 422}}}}
