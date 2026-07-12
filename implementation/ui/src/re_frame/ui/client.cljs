@@ -54,7 +54,8 @@
   (:require ["react-dom/client" :as rdc]
             [re-frame.error :as error]
             [re-frame.ui.frames :as frames]
-            [re-frame.ui.reactive :as reactive]))
+            [re-frame.ui.reactive :as reactive]
+            [re-frame.ui.viewcell :as viewcell]))
 
 ;; ---------------------------------------------------------------------------
 ;; The Root handle
@@ -214,15 +215,32 @@
 (defn register-live-root!
   "Register a claimed root (checks already passed) — before any render.
   The effective `:identifier-prefix` rides the entry so a later claim can
-  assert prefix uniqueness and release frees it by dissoc (rf2-ez3fqk)."
+  assert prefix uniqueness and release frees it by dissoc (rf2-ez3fqk).
+
+  MINTS the root's per-mount INCARNATION here (rf2-vxgfnd.85/.92) — a fresh
+  opaque token that scopes every ViewCell under this Root (provided via the
+  root-incarnation React context at render) and drives the incarnation-aware
+  root teardown reap at `unmount!*`. Stable for the Root's lifetime (registration
+  runs once per Root); a re-mount under the same root-id after `unmount!` mints a
+  DISTINCT incarnation, so a stale teardown can never reap the replacement's
+  cells."
   [{:keys [root-id provenance site descriptor identifier-prefix]} container root]
   (swap! live-roots assoc root-id {:root root
                                    :container container
                                    :provenance provenance
                                    :identifier-prefix identifier-prefix
                                    :site site
-                                   :descriptor descriptor})
+                                   :descriptor descriptor
+                                   :root-incarnation (reactive/make-root-incarnation)})
   nil)
+
+(defn- root-incarnation-of
+  "The per-mount root incarnation minted for live root `root-id` at
+  registration (rf2-vxgfnd.92), or nil if the id is not live. Read at every
+  render (to provide the root-incarnation context) and at `unmount!*` (to drive
+  the incarnation-aware root-teardown reap)."
+  [root-id]
+  (:root-incarnation (get @live-roots root-id)))
 
 (defn release-root!
   "Unregister `root-id` iff the entry still belongs to `root` (a stale
@@ -388,7 +406,9 @@
         ;; never commit, and `.render`ing the stale handle would write into a
         ;; root the replacement now owns. Mirrors the fresh-path re-check.
         (require-live-root! root 're-frame.ui/mount)
-        (.render (.-react-root root) (element-thunk))
+        (.render (.-react-root root)
+                 (viewcell/provide-root-incarnation
+                  (root-incarnation-of root-id) (element-thunk)))
         root)
       (do
         (check-root-claim! 're-frame.ui/mount info container)
@@ -413,10 +433,13 @@
         (check-root-claim! 're-frame.ui/mount info container)
         (let [react-root (rdc/createRoot container react-opts)
               root       (Root. react-root container root-id)]
-          ;; register BEFORE any render (contract §7 Layer 3)
+          ;; register BEFORE any render (contract §7 Layer 3) — this MINTS the
+          ;; root incarnation the provider below scopes every ViewCell to.
           (register-live-root! info container root)
           (try
-            (.render react-root (element-thunk))
+            (.render react-root
+                     (viewcell/provide-root-incarnation
+                      (root-incarnation-of root-id) (element-thunk)))
             root
             (catch :default e
               ;; TOTAL rollback of a failed FIRST mount — the element thunk
@@ -483,7 +506,9 @@
                                           :root-id rid
                                           :root-id-provenance (:provenance entry))))
                      m))))))
-    (.render (.-react-root root) (element-thunk))
+    (.render (.-react-root root)
+             (viewcell/provide-root-incarnation
+              (root-incarnation-of rid) (element-thunk)))
     root))
 
 (defn hydrate-root*
@@ -552,7 +577,12 @@
       ;; after React sweeps their effect cleanups (see the docstring LIFECYCLE
       ;; note). teardown-root! rethrows a throwing host `.unmount` unchanged, so
       ;; the catch/finally below keep the rf2-vxgfnd.53 ownership behaviour.
-      (reactive/teardown-root! (fn [] (.unmount (.-react-root root))))
+      ;; rf2-vxgfnd.85/.92 — pass this root's INCARNATION so a cell Activity-hidden
+      ;; BEFORE the unmount window (which the window can never capture) is still
+      ;; reaped through the root-incarnation ownership registry, even when the
+      ;; whole root was hidden and the window collects nothing.
+      (reactive/teardown-root! (root-incarnation-of (.-root-id root))
+                               (fn [] (.unmount (.-react-root root))))
       (catch :default e
         ;; rf2-vxgfnd.53 — React did NOT unmount, yet the `finally` below
         ;; still releases the claim (AC4). The live tree is now orphaned and
