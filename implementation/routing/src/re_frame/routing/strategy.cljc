@@ -60,7 +60,8 @@
   Internal namespace; the public facade is `re-frame.routing`, which
   re-exports the two shipped strategies."
   (:require [re-frame.error :as error]
-            [re-frame.frame :as frame]))
+            [re-frame.frame :as frame]
+            [re-frame.interop :as interop]))
 
 ;; ---- history strategy (default) ------------------------------------------
 ;; Path-form. `:encode` / `:decode` are identity over the app-relative URL —
@@ -346,10 +347,20 @@
 ;; value used to enter the frame registry VERBATIM and only fail later —
 ;; deep in a consult point — as a host-specific raw nil-function / TypeError
 ;; (`url-strategy-from-config` returned every truthy config value unchecked;
-;; rf2-j538f7.11). Validate the shape/callability at the RESOLUTION seam so a
-;; malformed adapter fails LOUD with a canonical structured error, at a stable
-;; boundary, BEFORE any lifecycle use (the listener install, the route-link
-;; href, the push/replace fxs all resolve through here).
+;; rf2-j538f7.11). `validate-url-strategy!` fails LOUD with a canonical
+;; structured error when the shape is wrong.
+;;
+;; THE VALIDATION SEAM IS FRAME CONSTRUCTION (rf2-ktmto9 / rf2-ecb4sx). The
+;; registration-time `preflight-frame-config!` runs this check at the sole
+;; frame-config commit chokepoint (`re-frame.frame/upsert-frame!`), BEFORE the
+;; strategy can ever enter the `frames` store the consult points read. Because
+;; that is the ONE config writer into the store (pinned by the store-invariant
+;; + no-bypass tests in `routing_url_strategy_test`), the four consult points
+;; are TRUSTED READS — they resolve an already-validated strategy VERBATIM and
+;; do NOT re-validate per consult (the ~90 ns/consult `route-link` used to pay
+;; per render; rf2-ecb4sx). `url-strategy-from-config` keeps only a dev-only
+;; (`interop/debug-enabled?`, DCE'd in production) tripwire so a future
+;; config-write bypass still fails loud in development.
 
 (def ^:private url-strategy-required-legs
   "The CALLABLE legs a custom `:url-strategy` must carry, per host. `:encode`
@@ -371,9 +382,12 @@
   missing/non-callable legs and the offending value — when the shape is wrong;
   returns `strategy` UNCHANGED on success so callers can thread it.
 
-  `where-sym` names the resolving surface for the diagnostic (`'rf/make-frame`:
-  the strategy is declared in the frame's `make-frame` config); `context`
-  merges call-site slots (e.g. a frame id) into the ex-data."
+  The fail-loud validation seam is frame construction: `preflight-frame-config!`
+  calls this at the registration chokepoint (rf2-ktmto9), and it also backs the
+  dev-only consult tripwire in `url-strategy-from-config` (rf2-ecb4sx).
+  `where-sym` names the surface for the diagnostic (`'rf/make-frame`: the
+  strategy is declared in the frame's `make-frame` config); `context` merges
+  call-site slots (e.g. a frame id) into the ex-data."
   [strategy where-sym context]
   (when-not (map? strategy)
     (throw (error/thrown-ex-info
@@ -434,26 +448,46 @@
   defaulting to `history-url-strategy` when unset (or when `config` is not
   a map). The default is the identity/path-form strategy.
 
-  An explicitly-declared custom `:url-strategy` is VALIDATED for
-  shape/callability (`validate-url-strategy!`, fail-loud
-  `:rf.error/invalid-url-strategy`) before it is returned — every strategy
-  consult point resolves through here, so a malformed adapter fails at this
-  resolution seam BEFORE any lifecycle use rather than as a raw
-  nil-function/TypeError at an arbitrary downstream call site (rf2-j538f7.11).
-  The unset/default branch skips validation: `history-url-strategy` is
-  known-good and sits on the hot render path."
+  TRUSTED READ (rf2-ecb4sx). This backs the strategy CONSULT points — the
+  `route-link` href render (per render), the `:rf.nav/push-url` /
+  `:rf.nav/replace-url` fxs, and the URL-change-listener install. It reads a
+  strategy that was ALREADY validated fail-loud at the sole frame-config
+  commit chokepoint (`preflight-frame-config!` at frame construction /
+  re-construction, rf2-ktmto9): the `frames` store is the one place a seated
+  `:url-strategy` lives, and `re-frame.frame/upsert-frame!` — its only config
+  writer — preflights BEFORE the store write, so no code path can seat an
+  unvalidated strategy (pinned by the store-invariant + no-bypass tests in
+  `routing_url_strategy_test`). The consult therefore returns the declared
+  strategy VERBATIM and pays NO per-render validation — a ~30x reduction of
+  the consult's cost (rf2-ecb4sx measured ~93.6 ns → ~3.1 ns per call on a
+  declared-strategy frame; the eliminated `validate-url-strategy!` was
+  ~90 ns/consult, dead work re-checking an immutable, already-validated map
+  on every render).
+
+  A dev-only tripwire (`interop/debug-enabled?` — `goog.DEBUG` on CLJS, the
+  `re-frame.debug` gate on the JVM) re-runs `validate-url-strategy!` on the
+  declared strategy so a config-write bypass introduced by a FUTURE refactor
+  still fails loud in development; it is dead-code-eliminated from production
+  CLJS bundles (`goog.DEBUG=false`), so the render hot path pays nothing. The
+  unset/default branch skips even that: `history-url-strategy` is known-good."
   [config]
-  (if-let [declared (when (map? config) (:url-strategy config))]
-    (validate-url-strategy! declared 'rf/make-frame nil)
-    history-url-strategy))
+  (let [declared (when (map? config) (:url-strategy config))]
+    (when (and interop/debug-enabled? (some? declared))
+      (validate-url-strategy! declared 'rf/make-frame nil))
+    (or declared history-url-strategy)))
 
 (defn url-strategy-for-frame-id
   "Resolve the `:url-strategy` for `frame-id` by reading its stored frame
   config off the frames store (`frame/frame-meta` — rf2-h1vqa4: frames have
   no registrar rows), defaulting to `history-url-strategy`. `nil` frame-id
   (or an unregistered / destroyed frame — `frame-meta` returns nil) resolves
-  to the history default. Used by the
-  `route-link` href render, which captures the render-time frame id."
+  to the history default. Used by the `route-link` href render (per render),
+  the `:rf.nav/push-url` / `:rf.nav/replace-url` fxs, and the URL-change
+  listener install — the strategy CONSULT points.
+
+  A TRUSTED READ (rf2-ecb4sx): the store only ever holds a strategy that
+  passed the registration-time preflight, so this returns it verbatim with no
+  per-consult validation. See `url-strategy-from-config`."
   [frame-id]
   (if (nil? frame-id)
     history-url-strategy
