@@ -1117,6 +1117,41 @@
   (let [now (frame/frame-incarnation-token frame-id)]
     (and (some? now) (identical? now incarnation))))
 
+(defn- throw-retry-exhausted!
+  "rf2-vxgfnd.79 — `acquire!`'s bounded live-cache-displacement retry
+  ([[max-displacement-retries]]) exhausted its budget while the targeted frame
+  incarnation stayed VERIFIABLY LIVE (`targeted-incarnation-still-live?` held on
+  every attempt): the sub-cache kept displacing the just-built canonical node — a
+  pathological-but-legal storm of HMR re-registrations / explicit cache clears —
+  winning every build→canonical-check window. That is an acquire-path LIVELOCK,
+  NOT a destruction: the code just PROVED the incarnation is alive, so the port
+  reports the TRUTHFUL always-on `:rf.error/observation-retry-exhausted` and
+  throws it (fanned before the throw so a boundary-swallowed throw still reaches
+  off-box shippers, like the sibling `:rf.error/frame-destroyed`), NEVER lying
+  `:rf.error/frame-destroyed` for a frame it knows is live. `attempts` is the
+  number of build attempts made (the budget + 1). The ViewCell maps the throw to
+  the view error boundary; the actionable recovery is to retry the commit once the
+  re-registration / cache-clear storm settles (a persistent storm is a
+  registration / tooling bug). Carries `:attempts` / `:max-retries` /
+  `:frame-incarnation :live` evidence alongside `:frame` / `:rf.sub/query-v`.
+  Never returns."
+  [frame-id query-v attempts]
+  (emit-and-throw!
+    :rf.error/observation-retry-exhausted
+    're-frame.substrate.observation/acquire!
+    frame-id query-v
+    (str "acquire! exhausted its live-cache displacement retry budget ("
+         max-displacement-retries " retries, " attempts " build attempts) for "
+         (pr-str (first query-v)) " while frame " frame-id "'s targeted "
+         "incarnation stayed live: the sub-cache kept displacing the just-built "
+         "canonical node (a rapid HMR re-registration / cache-clear storm) every "
+         "build->canonical-check window. The frame is NOT destroyed — retry the "
+         "commit once the storm settles; a persistent storm is a registration / "
+         "tooling bug to fix.")
+    {:attempts          attempts
+     :max-retries       max-displacement-retries
+     :frame-incarnation :live}))
+
 (defn acquire!
   "Commit-only: acquire ownership of `target`, returning a LEASE — the owner
   token (identity equality, never `=`).
@@ -1164,7 +1199,11 @@
   the build→canonical-check window — HMR re-registration or an explicit cache
   clear), NOT a teardown, so `acquire!` retargets to the current canonical node
   (bounded retry, gated on the incarnation staying live) instead of throwing
-  (rf2-vxgfnd.63). The static override lease and the public subscribe surface
+  (rf2-vxgfnd.63). If that bounded budget is EXHAUSTED while the incarnation is
+  still verifiably live (a pathological displacement storm winning every window),
+  `acquire!` throws the TRUTHFUL `:rf.error/observation-retry-exhausted` — a
+  livelock, never `:rf.error/frame-destroyed` for a frame it just proved alive
+  (rf2-vxgfnd.79). The static override lease and the public subscribe surface
   keep their recover-to-nil semantics."
   [target on-change]
   (assert-not-in-fan-out! 're-frame.substrate.observation/acquire!)
@@ -1213,13 +1252,18 @@
               ;; acquire-cache-reaction! against the now-current cache (the very
               ;; next build settles a canonical node), bounded by the retry budget
               ;; so a pathological displacer cannot spin acquire! forever. Only a
-              ;; nil/changed incarnation (verified destruction), a
+              ;; nil/changed incarnation (verified destruction) or a
               ;; non-displacement recovery (cycle / input-fn failure —
-              ;; deterministic, retry is futile), or an exhausted budget throws.
+              ;; deterministic, retry is futile) throws :frame-destroyed / the
+              ;; matching typed error; an EXHAUSTED budget over a still-LIVE
+              ;; incarnation throws the TRUTHFUL retry-exhausted livelock
+              ;; (rf2-vxgfnd.79), never :frame-destroyed for a frame just proved
+              ;; alive.
               (if (and (= :frame-destroyed (:recovery result))
-                       (targeted-incarnation-still-live? frame-id incarnation)
-                       (< attempt max-displacement-retries))
-                (recur (inc attempt))
+                       (targeted-incarnation-still-live? frame-id incarnation))
+                (if (< attempt max-displacement-retries)
+                  (recur (inc attempt))
+                  (throw-retry-exhausted! frame-id query (inc attempt)))
                 (throw-acquire-recovery! frame-id query result)))))))))
 
 ;; ---- current? -------------------------------------------------------------------
