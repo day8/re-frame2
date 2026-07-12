@@ -9,6 +9,7 @@
   namespace stays loadable everywhere."
   (:require [clojure.string :as str]
             #?@(:clj [[re-frame.ui.compiler.analyze :as ana]
+                      [re-frame.ui.compiler.build :as build]
                       [re-frame.ui.compiler.emit-cljs :as emit-cljs]
                       [re-frame.ui.compiler.emit-jvm :as emit-jvm]
                       [re-frame.ui.compiler.env :as env]
@@ -20,10 +21,21 @@
    (do
 
 (defonce ^{:doc "view-id -> [template-fingerprint hook-signature-hash],
-  accumulated at macro-expansion time; `current-build-digest` derives the
+  contributed at macro-expansion time through the build-scoped model
+  (`re-frame.ui.compiler.build`) so a recompiled / edited / renamed source
+  replaces its whole prior contribution; `current-build-digest` derives the
   bd1- digest (compile-order independent — the triples sort by view-id)."}
   build-views
   (atom {}))
+
+;; Enrol the two compiler-owned aggregates in the one build-scoped state
+;; model (rf2-vxgfnd.16): views live here; the compile-time custom-element
+;; declarations live in `re-frame.ui.rules/custom-elements` but are WRITTEN
+;; from this ns (macro expansion), so their build boundary is coordinated
+;; here too. The Layer-1 root/plan/descriptor registries enrol from
+;; `re-frame.ui.compiler.root`.
+(build/register! build/views build-views)
+(build/register! build/elements rules/custom-elements)
 
 (defn current-build-digest []
   (fingerprint/build-digest
@@ -174,10 +186,11 @@
         sites   @(:sites e)
         tf      (fingerprint/template-fingerprint ast)
         hs      (fingerprint/hook-signature-hash {:locals [] :effects []})
+        src     (source-coords form cljs?)
         manifest {:view-id view-id
                   :display-name display-name
                   :doc docstring
-                  :source (source-coords form cljs?)
+                  :source src
                   :prop-slots (into []
                                     (map-indexed
                                      (fn [i k]
@@ -204,7 +217,7 @@
                  :manifest manifest
                  :closed-keys closed-keys
                  :children? children?}]
-    (swap! build-views assoc view-id [tf hs])
+    (build/contribute! build/views (:file src) view-id [tf hs])
     (if cljs?
       (emit-cljs/emit-defview args)
       (emit-jvm/emit-defview args))))
@@ -218,7 +231,7 @@
             #(defview** form menv vname forms)))
 
 (defn- custom-element**
-  [tag opts]
+  [coords tag opts]
   (when-not (and (keyword? tag) (nil? (namespace tag))
                  (str/includes? (name tag) "-"))
     (fail :rf.ui.compile/bad-custom-element
@@ -249,9 +262,11 @@
                  "property); got " (pr-str props))
             {:tag tag :properties props}))
     ;; compile-time registration (this JVM performs macroexpansion for
-    ;; both hosts) + emitted runtime registration (ui/spread classifies
-    ;; at render via the same registry)
-    (rules/register-custom-element! tag {:properties props})
+    ;; both hosts) routed through the build-scoped model so a removed /
+    ;; renamed declaration drops its stale property classification with
+    ;; its file (rf2-vxgfnd.16) + emitted runtime registration (ui/spread
+    ;; classifies at render via the same registry, on the client).
+    (build/contribute! build/elements (:file coords) tag {:properties props})
     `(re-frame.ui.rules/register-custom-element! ~tag {:properties ~props})))
 
 (defn custom-element*
@@ -262,7 +277,8 @@
   not silent growth. `form` = &form, `menv` = &env — compile errors are
   anchored with the declaration form's source coordinates (S1e)."
   [form menv tag opts]
-  (anchored (source-coords form (some? (:ns menv)))
-            #(custom-element** tag opts)))
+  (let [coords (source-coords form (some? (:ns menv)))]
+    (anchored coords
+              #(custom-element** coords tag opts))))
 
 ))
