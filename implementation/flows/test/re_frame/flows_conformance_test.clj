@@ -121,13 +121,13 @@
 ;; flows/schemas + plain-atom adapter) is owned by
 ;; `make-reset-runtime-fixture`. Two fixture-specific choices:
 ;;
-;;   - `:ambient-frame nil` — the corpus's `run-fixture` calls `reg-frame`
+;;   - `:ambient-frame nil` — the corpus's `run-fixture` calls `make-frame`
 ;;     itself and needs NO in-flight ambient scope so a frame's
-;;     `:initial-events` cascade fires SYNCHRONOUSLY (Spec 002 §reg-frame
+;;     `:initial-events` cascade fires SYNCHRONOUSLY (Spec 002 §make-frame
 ;;     from inside a handler async-queues initial-events when
 ;;     `*current-frame*` is bound — EP-0002). The adapter install still
 ;;     ensures `:rf/default`; `run-fixture` pins the scope itself, after
-;;     `reg-frame`, around `realise-flows!` + the dispatch loop.
+;;     `make-frame`, around `realise-flows!` + the dispatch loop.
 ;;   - a small concern-specific fixture clears the always-on error-emit
 ;;     listener registry before each test (the standard reset clears trace
 ;;     and event listeners but not the error substrate), so an
@@ -544,7 +544,7 @@
           frame-config (or (:fixture/frame-config fixture) {})
           frames-spec  (:fixture/frames fixture)
           ;; `reset-runtime` already created :rf/default WITHOUT any
-          ;; :initial-events. `reg-frame` against an existing id is a
+          ;; :initial-events. `make-frame` against an existing id is a
           ;; surgical update that does NOT re-fire :initial-events (Spec 002).
           ;; Destroy first so the fixture's :initial-events cascade fires
           ;; under its declared config.
@@ -555,18 +555,18 @@
           ;; shape (`:fixture/frame-config` configures `:rf/default`).
           ;;
           ;; Order: event / sub / fx handlers must be registered BEFORE
-          ;; `reg-frame` fires the `:initial-events` cascade — `:initial-events`
+          ;; `make-frame` fires the `:initial-events` cascade — `:initial-events`
           ;; dispatch the fixture's seed event, which needs its handler
-          ;; resolved. Flow registration MUST come AFTER `reg-frame`: the
+          ;; resolved. Flow registration MUST come AFTER `make-frame`: the
           ;; destroy-frame! teardown hook clears any flows registered against
           ;; the frame being destroyed, so registering them before the destroy
           ;; would wipe them.
           _            (rf/destroy-frame! :rf/default)
           _            (realise-event-sub-fx-handlers fixture)
-          ;; reg-frame runs with NO in-flight scope so its `:initial-events`
-          ;; cascade fires SYNCHRONOUSLY (Spec 002 §reg-frame from inside a
+          ;; make-frame runs with NO in-flight scope so its `:initial-events`
+          ;; cascade fires SYNCHRONOUSLY (Spec 002 §make-frame from inside a
           ;; handler async-queues initial-events when `*current-frame*` is bound;
-          ;; EP-0002). The carried-invariant scope is pinned AFTER reg-frame,
+          ;; EP-0002). The carried-invariant scope is pinned AFTER make-frame,
           ;; around `realise-flows!` + the dispatch loop.
           _            (if (seq frames-spec)
                          (doseq [f frames-spec]

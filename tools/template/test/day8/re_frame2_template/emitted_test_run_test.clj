@@ -51,7 +51,7 @@
    The four substrate variants above materialise the GENERATOR template.
    The setup skill (`skills/re-frame2-setup/`) teaches a SECOND,
    genuinely different greenfield scaffold — a hand-written counter wired
-   with `:rf/default` + `reg-frame` + `with-frame` + `register-schema!` +
+   with `:rf/default` + `make-frame` + `with-frame` + `register-schema!` +
    `dispatch-sync` + `frame-provider {:frame …}`, extracted STRAIGHT FROM
    the skill's reference markdown. Because the skill ships its recipe as
    copyable fenced blocks (not as the generator's resource tree), no
@@ -695,7 +695,7 @@
 ;; source tree — for EACH documented manual route (Reagent / UIx / Helix),
 ;; each with exactly its documented direct day-one dependencies. The skill
 ;; ships its recipe as copyable fenced blocks with the current
-;; schema-bearing boot ceremony (`:rf/default` + `reg-frame` +
+;; schema-bearing boot ceremony (`:rf/default` + `make-frame` +
 ;; `with-frame` + `register-schema!` + `dispatch-sync` + `frame-provider
 ;; {:frame …}`), so no equivalence assertion against the generator template
 ;; can prove the skill path compiles — only a real compile can. Two things
@@ -1015,7 +1015,7 @@
                          "shared-dataflow.md + entry-namespace.md")
                        " + shadow-cljs.md) no longer compiles against the "
                        "in-repo re-frame2 source. Its schema-bearing boot "
-                       "ceremony (`reg-frame` → `with-frame` / "
+                       "ceremony (`make-frame` → `with-frame` / "
                        "`register-schema!` / `dispatch-sync` → scoped "
                        "`frame-provider {:frame …}` render) diverges from the "
                        "generator template, so the template variants above "

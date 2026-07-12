@@ -86,7 +86,7 @@
 ;; surface (the fixture's ambient `*current-frame* :rf/default` masks the
 ;; bare-call raise, so we strip it): (a) a bare reg under no scope fails
 ;; closed and installs nothing; (b) `(with-frame f (reg-http-interceptor …))`
-;; installs on f's chain even when f was never `reg-frame`d — the example
+;; installs on f's chain even when f was never `make-frame`d — the example
 ;; registers before the frame-provider ensures the frame.
 
 (deftest reg-http-interceptor-bare-fails-closed-with-frame-installs-rf2-9ynwvx
@@ -105,7 +105,7 @@
         (is (empty? (http-managed/interceptors-snapshot :realworld/app))
             "no slot landed on the app-frame chain"))
       ;; (b) the fix: with-frame supplies the frame context, so the reg lands
-      ;; on :realworld/app's chain even though it was never `reg-frame`d.
+      ;; on :realworld/app's chain even though it was never `make-frame`d.
       (rf/with-frame :realworld/app
         (rf/reg-http-interceptor :realworld/bearer-auth {:before (fn [c] c)}))
       (is (= [:realworld/bearer-auth]

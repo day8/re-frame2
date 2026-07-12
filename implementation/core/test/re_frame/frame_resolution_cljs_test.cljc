@@ -46,7 +46,7 @@
 ;;
 ;; EP-0024 (rf2-tu2vr7): `make-frame` returns a RUNNABLE image-loaded frame VALUE
 ;; — it creates its backing runnable record (app-db / queue / sub-cache) via
-;; `reg-frame`, which needs a substrate adapter — so the plain-atom adapter is
+;; `make-frame`, which needs a substrate adapter — so the plain-atom adapter is
 ;; installed. The resolved generation lives ON that record (the `:generation`
 ;; slot), read by id; the two-registry model collapsed to ONE, so the runtime
 ;; fixture's `(reset! frames {})` clears every record AND its generation — no

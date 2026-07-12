@@ -905,7 +905,7 @@
 ;; ---- on-frame-destroyed! (Spec 002 §Destroy / rf2-rbbmt) -----------------
 ;;
 ;; storage.cljc:361 drops a destroyed frame's schemas so a subsequent
-;; reg-frame of the same id starts with a clean slate (prevents spurious
+;; make-frame of the same id starts with a clean slate (prevents spurious
 ;; rollbacks against orphan paths — rf2-wkxng / rf2-6m0se). Previously
 ;; covered ONLY indirectly via the conformance runner's destroy cycle;
 ;; these are the direct slice-local pins for the dissoc + idempotent

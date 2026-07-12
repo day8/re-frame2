@@ -255,7 +255,7 @@ The rules:
    [spec/015 §Durable app-db — the four commit-plane effects](../../../spec/015-Data-Classification.md#durable-app-db--the-four-commit-plane-effects):
    a variant declares its sensitive / large paths from a handler body, as the
    `:sensitive` / `:large` commit-plane effects returned alongside the `:db`
-   write (not on the variant's `reg-frame` config — that route was retired). A
+   write (not on the variant's `make-frame` config — that route was retired). A
    `:rf.assert/path-equals [:auth :token] ...` lookup against a slot classified
    sensitive records `:actual :rf/redacted`, NOT the raw value. The
    `evaluate-path-equals` / `evaluate-sub-equals` evaluators project

@@ -900,7 +900,7 @@ _FIX_HINTS = {
         "RETIRED from the public facade by EP-0023 (image-loaded frames) and the "
         "realm machinery DELETED IN FULL by EP-0024 (unified frame identity). The "
         "public composition model is `rf/image` -> `rf/make-frame` / "
-        "`rf/reg-frame` -> `rf/reload-images!` / `rf/destroy-frame!`. Rewrite "
+        "`rf/make-frame` -> `rf/reload-images!` / `rf/destroy-frame!`. Rewrite "
         "the example onto that model. The retired vocabulary is allowed ONLY in "
         "the `docs/EP/**` historical record — nowhere else (see "
         "spec/Conventions.md §Retired composition vocabulary — the hard rule)."

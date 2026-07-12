@@ -88,7 +88,7 @@ or inline coordinate), surfaced per descriptor in the FRAMES section (§8), not
 projected off a module-owned `:registrations` table.
 
 **EP-0015 classification is frame-owned, not module-owned.** Durable data
-classification is declared on `reg-frame` / `make-frame` and installed by
+classification is declared on the `make-frame` config and installed by
 `re-frame.frame-classification` (Spec 015 §Frame-owned durable classification) —
 it was never a module fact. The classification dimension lives on the frame
 side; this tab shows the image (the instruction set), and frame state /
@@ -186,7 +186,7 @@ Xray's own reactivity out of the trace ring it inspects: `make-frame` is the
 EP-0023 OBJECT constructor and honours only the frame-creation opts (`:images` /
 `:id` / `:initial-events` / …), rejecting the record-config flag, so the gate is set
 directly through `re-frame.trace/set-frame-no-emit!` (the same canonical seam
-`reg-frame` routed it through) — asserted on every seat / re-seat. The seating is
+`make-frame` routed it through) — asserted on every seat / re-seat. The seating is
 idempotent: `make-frame {:id …}` on a duplicate live `:id` is idempotent
 replacement (EP-0024, rf2-tu2vr7), so a re-open / hot-reload / repeated testbed
 mount finds the frame already live (`xray-frame-seated?`) and skips the

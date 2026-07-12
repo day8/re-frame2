@@ -23,17 +23,17 @@
 
   `make-frame` returns a SINGLE runnable image-loaded frame VALUE: it
   creates/updates its backing runnable record (app-db / queue / sub-cache /
-  lifecycle, via `reg-frame`) keyed by the frame's runnable-id, and the resolved
+  lifecycle, via `make-frame`) keyed by the frame's runnable-id, and the resolved
   image GENERATION lives ON that record (the `:generation` slot), so an event
-  stream runs against an image with no separate `reg-frame` pairing. EP-0024
+  stream runs against an image with no separate `make-frame` pairing. EP-0024
   collapsed the two-registry model to ONE: dispatch / subscribe re-derive the
   generation from the record by id (a frame VALUE and its id resolve the same
-  generation). The cases below still call `reg-frame` first (harmless —
+  generation). The cases below still call `make-frame` first (harmless —
   `make-frame {:id :counter/main}` idempotently updates the same record); the
   router drains that record and `process-event!` derives the generation from the
   record of the same id. The `two-frames-from-one-image-keep-…` test exercises
   the collapse directly — two RUNNABLE values built from ONE image keep
-  INDEPENDENT app-db + sub-cache, no `reg-frame` in sight.
+  INDEPENDENT app-db + sub-cache, no `make-frame` in sight.
 
   Fixtures snapshot/restore the registrar via `make-reset-runtime-fixture`
   (NOT `registrar/clear-all!`, per the .9 isolation note) and clear the
@@ -246,12 +246,12 @@
 ;;    RUNNABLE objects built from ONE image keep INDEPENDENT app-db + sub-cache.
 ;;    This is the previously-impossible `.31 blocker-1` proof: before the
 ;;    collapse a `make-frame` object had NO runnable state, so it could not run
-;;    an event stream at all without a paired `reg-frame` record. Now ONE object
+;;    an event stream at all without a paired `make-frame` record. Now ONE object
 ;;    carries both the image generation AND its own runnable record.
 ;; ===========================================================================
 
 (deftest two-frames-from-one-image-keep-independent-state
-  (testing "two runnable frames built from the SAME image — NO reg-frame, NO
+  (testing "two runnable frames built from the SAME image — NO make-frame, NO
             shared id — maintain INDEPENDENT app-db and sub-cache: each frame's
             event stream mutates only its own state, and each frame's subscribe
             builds its own reaction (EP-0023 §Frame — the live frame object owns
@@ -259,7 +259,7 @@
             still have independent state)"
     ;; ONE image carries the runnable inc handler + the value sub. A GLOBAL
     ;; version of each exists only so we can prove the image's impl ran (not the
-    ;; global) — neither frame is paired with a reg-frame.
+    ;; global) — neither frame is paired with a make-frame.
     (rf/reg-event :counter/inc (fn [{:keys [db]} _] {:db (assoc db :n :global)}))
     (rf/reg-sub   :counter/value (fn [_db _] :global))
     (let [pool [(event-desc "ex.counter" :counter/inc
@@ -267,7 +267,7 @@
                 (sub-desc   "ex.counter" :counter/value (fn [db _] (:n db)))]
           img  (image/image {:id :ex/counter :select-ns {:include ["ex.counter"]}})
           ;; TWO direct (no-id) runnable objects from the SAME image, seeded with
-          ;; DIFFERENT initial-db. No reg-frame, no shared frame id.
+          ;; DIFFERENT initial-db. No make-frame, no shared frame id.
           fa   (lf/make-frame {:images [img] :initial-events [[:rf/set-db {:n 0}]]}   pool)
           fb   (lf/make-frame {:images [img] :initial-events [[:rf/set-db {:n 100}]]} pool)]
       ;; The objects are distinct runnable frames sharing one image generation.
@@ -304,14 +304,14 @@
 
 ;; ===========================================================================
 ;; 7. DIRECT-OBJECT RUNNABILITY (the spec harness form) — a no-id object is
-;;    runnable end-to-end without any reg-frame pairing (EP-0023 §Frame).
+;;    runnable end-to-end without any make-frame pairing (EP-0023 §Frame).
 ;; ===========================================================================
 
 (deftest direct-no-id-object-is-runnable-end-to-end
   (testing "the spec's local-harness form: a no-id frame OBJECT is dispatched +
             subscribed directly (object via the `{:frame …}` opt for both) and
             runs the image's handlers against the object's OWN runnable state —
-            NO reg-frame, NO frame id (EP-0023 §Frame — a direct object is a
+            NO make-frame, NO frame id (EP-0023 §Frame — a direct object is a
             local reference a harness uses directly)"
     (let [pool  [(event-desc "ex.counter" :counter/inc
                              (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))

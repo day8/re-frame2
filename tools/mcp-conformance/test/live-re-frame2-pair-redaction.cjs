@@ -313,7 +313,7 @@ const INNER_SENTINEL = 'rf2-ywn27-INNER-secret-do-not-leak-9b2e4d';
 // rollup TRUE — the OUTER whole-drop would then govern and this arm would
 // NOT isolate the inner layer. So the form FIRST clears the frame-owned
 // sensitive declaration (re-register the frame with NO `:sensitive`
-// block — `reg-frame`'s `install!` drops the prior `:source :frame`
+// block — `make-frame`'s `install!` drops the prior `:source :frame`
 // entries) AND dispatches the secret-write event that also dissocs any
 // prior declared key, guaranteeing no declared-sensitive leaf exists at
 // assembly time. The clear-declarations re-registration records nothing;

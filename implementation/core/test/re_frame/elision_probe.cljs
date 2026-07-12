@@ -510,7 +510,7 @@
     ;; ENGINE seat (frame/upsert-frame!, generation-less): this probe's
     ;; documented contract deliberately does NOT root the image-loading path
     ;; (make-frame / assemble) so the assembly fns stay DCE-able when unused
-    ;; (PROD_ABSENT_WHEN_UNUSED). rf2-h1vqa4: the retired reg-frame spelling
+    ;; (PROD_ABSENT_WHEN_UNUSED). rf2-h1vqa4: the retired make-frame spelling
     ;; WAS this engine; the probe keeps the engine seat, not the public
     ;; constructor.
     (frame/upsert-frame! :rf.probe/teardown-frame {:doc "throwing teardown hook"})
@@ -762,7 +762,7 @@
   ;; ENGINE seat (frame/upsert-frame!, generation-less): this probe's
   ;; documented contract deliberately does NOT root the image-loading path
   ;; (make-frame / assemble) so the assembly fns stay DCE-able when unused
-  ;; (PROD_ABSENT_WHEN_UNUSED). rf2-h1vqa4: the retired reg-frame spelling
+  ;; (PROD_ABSENT_WHEN_UNUSED). rf2-h1vqa4: the retired make-frame spelling
   ;; WAS this engine; the probe keeps the engine seat, not the public
   ;; constructor.
   (frame/upsert-frame! :rf.probe/drain-depth {:drain-depth 4})

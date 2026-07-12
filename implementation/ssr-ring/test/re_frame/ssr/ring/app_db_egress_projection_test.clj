@@ -33,7 +33,7 @@
   ;; returns alongside `:db` (EP-0025 §How it works / §Examples) — writing it
   ;; into the per-frame `[:rf.runtime/elision]` registry the
   ;; `:rf.egress/ssr-hydration` egress walk reads. Replaces the retired
-  ;; `reg-frame :sensitive {:app-db}` durable annotation (deleted by the
+  ;; retired frame-config `:sensitive {:app-db}` durable annotation (deleted by the
   ;; EP-0025 B1b purge). Value-independent — classified at init, read at egress.
   (rf/reg-event :rf.bt9kct/classify
     (fn [_ _] {:sensitive [[:session :token]]}))

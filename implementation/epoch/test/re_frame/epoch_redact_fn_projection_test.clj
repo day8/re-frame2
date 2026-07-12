@@ -62,7 +62,7 @@
 ;; classification effects. Seed sensitive declarations through
 ;; `elision/apply-classification-effects` (`:source :effect`) — the same
 ;; registry write a `reg-event` returning `:sensitive` performs. The frame
-;; container is reg-frame'd by each deftest before these run.
+;; container is make-frame'd by each deftest before these run.
 (defn- install-sensitive-schema!
   "Declare a `[:auth :password]` sensitive path against `frame-id`."
   [frame-id]

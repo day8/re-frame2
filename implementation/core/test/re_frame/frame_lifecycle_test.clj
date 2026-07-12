@@ -1,9 +1,9 @@
 (ns re-frame.frame-lifecycle-test
   "JVM lifecycle tests for re-frame.frame. The smoke suite covers the
   basics (frame-lifecycle, frame-multi-instance, destroy-frame-signals-
-  active-machines); this file exercises the edge cases of reg-frame,
+  active-machines); this file exercises the edge cases of make-frame,
   make-frame, destroy-frame!, ensure-default-frame!, and the surgical-
-  update path. Per Spec 002 §Frames, §Destroy, §reg-frame is atomic,
+  update path. Per Spec 002 §Frames, §Destroy, §make-frame is atomic,
   §Re-registration — surgical update, §Per-instance frames."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -35,7 +35,7 @@
 
 ;; ---- Spec 002 §Re-registration — surgical update -------------------------
 
-(deftest reg-frame-surgical-update-preserves-runtime-state
+(deftest make-frame-surgical-update-preserves-runtime-state
   (testing "re-registering a live frame replaces metadata but preserves app-db, sub-cache, and queue"
     ;; Set up a frame with live state.
     (rf/make-frame {:id :tenant :doc "v1 metadata" :preset :default})
@@ -354,17 +354,17 @@
         (is (empty? @calls-real)
             "the canonical :http handler was not invoked under either override")))))
 
-;; ---- Spec 002 §reg-frame is atomic — :initial-events runs synchronously --
+;; ---- Spec 002 §make-frame is atomic — :initial-events runs synchronously --
 
-(deftest reg-frame-initial-events-runs-synchronously
-  (testing ":initial-events completes inside reg-frame; app-db is fully populated by the time it returns (EP-0027)"
+(deftest make-frame-initial-events-runs-synchronously
+  (testing ":initial-events completes inside make-frame; app-db is fully populated by the time it returns (EP-0027)"
     (let [observed (atom nil)]
       (rf/reg-event :boot
         (fn [{:keys [db]} [_ payload]]
           {:db {:booted? true :payload payload :seq [:a :b :c]}}))
       ;; Hook a trace listener so we can assert the ordering between the
       ;; setup-step dispatch and :rf.frame/created emission. Per Spec 002
-      ;; §reg-frame is atomic — the setup runs first, then :rf.frame/created
+      ;; §make-frame is atomic — the setup runs first, then :rf.frame/created
       ;; is emitted (the frame becomes observable to listeners).
       (let [traces (atom [])]
         (rf/register-listener! :trace ::oc (fn [ev] (swap! traces conj ev)))
@@ -372,7 +372,7 @@
                         :initial-events [[:boot {:hello "world"}]]})
         (rf/unregister-listener! :trace ::oc)
 
-        ;; The moment reg-frame returned, app-db must already reflect
+        ;; The moment make-frame returned, app-db must already reflect
         ;; the setup event's commit.
         (reset! observed (rf/app-db-value :booted))
         (is (true? (:booted? @observed))
@@ -380,10 +380,10 @@
         (is (= {:hello "world"} (:payload @observed))
             ":initial-events payload landed in app-db")
         (is (= [:a :b :c] (:seq @observed))
-            "full setup handler body completed before reg-frame returned")
+            "full setup handler body completed before make-frame returned")
 
         ;; Ordering: the :rf.event/run-end for :boot precedes :rf.frame/created
-        ;; (reg-frame emits :rf.frame/created AFTER the setup dispatch-syncs).
+        ;; (make-frame emits :rf.frame/created AFTER the setup dispatch-syncs).
         (let [run-end-idx (->> @traces
                                (keep-indexed
                                  (fn [i ev]
@@ -567,8 +567,8 @@
 ;; does not bind it), so a genuine TOP-LEVEL construction still runs setup
 ;; synchronously.
 
-(deftest reg-frame-in-handler-fails-loud
-  (testing "reg-frame called inside a handler fails
+(deftest make-frame-in-handler-fails-loud
+  (testing "make-frame called inside a handler fails
             :rf.error/frame-construction-in-handler and leaves no half-registered
             child (EP-0027 §Construction)"
     ;; EP-0002 (rf2-9o48ih): the parent frame is the carried scope for the bare
@@ -590,13 +590,13 @@
           {:db db}))
       (rf/dispatch-sync [:parent/spawn-child] {:frame :rf/default})
       (is (= :rf.error/frame-construction-in-handler @caught)
-          "a handler-time reg-frame fails loud")
+          "a handler-time make-frame fails loud")
       (is (nil? (frame/frame :child))
           "the just-created child container was torn back down — no half-registered frame"))))
 
-(deftest reg-frame-construction-failure-leaves-no-registrar-or-trace-residue
-  (testing "rf2-hhlzky — a reg-frame whose frame CONSTRUCTION fails (no adapter
-            installed: reg-frame before rf/init!) leaves NO frames-store record
+(deftest make-frame-construction-failure-leaves-no-registrar-or-trace-residue
+  (testing "rf2-hhlzky — a make-frame whose frame CONSTRUCTION fails (no adapter
+            installed: make-frame before rf/init!) leaves NO frames-store record
             and NO trace-disabled residue. `new-frame-record` (which calls
             make-state-container) is built BEFORE the trace-
             suppression writes, so a construction throw escapes before any
@@ -604,7 +604,7 @@
     (let [fid :test/no-adapter-frame]
       ;; Cold-start the adapter lifecycle to the never-installed state so
       ;; make-state-container raises :rf.error/no-adapter-installed — the exact
-      ;; "reg-frame before rf/init!" scenario the bead names. The test frame
+      ;; "make-frame before rf/init!" scenario the bead names. The test frame
       ;; carries :rf.trace/frame-no-emit? true, whose set-frame-no-emit! write
       ;; is the trace residue we assert never lands.
       (adapter/reset-lifecycle-state-for-tests!)
@@ -663,8 +663,8 @@
       (is (= gen-before (source-store/store-generation))
           "destroy does not move the source-store generation either"))))
 
-(deftest top-level-reg-frame-initial-events-runs-synchronously
-  (testing "Top-level reg-frame (NOT inside a handler) runs :initial-events
+(deftest top-level-make-frame-initial-events-runs-synchronously
+  (testing "Top-level make-frame (NOT inside a handler) runs :initial-events
             synchronously — the fast path is preserved (EP-0027 §Construction)"
     (let [order (atom [])]
       (rf/reg-event :top/init
@@ -672,16 +672,16 @@
           (swap! order conj :top/init-ran)
           {:db {:initialised? true}}))
       ;; No in-flight handler; *current-frame* is nil. The setup must run
-      ;; synchronously, before reg-frame returns.
+      ;; synchronously, before make-frame returns.
       (rf/make-frame {:id :top :initial-events [[:top/init]]})
       (is (= [:top/init-ran] @order)
-          ":top/init ran inside reg-frame (synchronous top-level path)")
+          ":top/init ran inside make-frame (synchronous top-level path)")
       (is (true? (:initialised? (rf/app-db-value :top)))
-          "top-level app-db reflects the setup commit by reg-frame return"))))
+          "top-level app-db reflects the setup commit by make-frame return"))))
 
 (deftest make-frame-record-in-handler-fails-loud
   (testing "make-frame / make-anon-frame-record! from inside a handler also fails
-            loud — it shares the reg-frame construction guard (EP-0027)"
+            loud — it shares the make-frame construction guard (EP-0027)"
     (rf/make-frame {:id :rf/default})
     (let [caught   (atom nil)
           child-id (atom nil)]
@@ -1020,7 +1020,7 @@
              (:fx-overrides m))
           ":fx-overrides is at the top level of the flat shape")
       (is (number? (:created-at m))
-          ":created-at is the host clock at reg-frame time — flat, not nested
+          ":created-at is the host clock at make-frame time — flat, not nested
            under any :lifecycle sub-map")
       (is (false? (:destroyed? m))
           ":destroyed? is at the top level of the flat shape")
@@ -1060,11 +1060,11 @@
     (is (nil? (rf/frame-meta :short-lived))
         "frame-meta on a destroyed frame returns nil (no resurrection)")))
 
-;; ---- rf2-mwrh: full-reset (destroy-frame! + reg-frame) preservation contract
+;; ---- rf2-mwrh: full-reset (destroy-frame! + make-frame) preservation contract
 ;;
 ;; Per test-coverage-review-2026-05-12 P3-27 (originally pinning the now-
 ;; retired `rf/reset-frame!` — rf2-lxwpob deleted that verb since it was
-;; nothing but `destroy-frame! followed by reg-frame with the same config`,
+;; nothing but `destroy-frame! followed by make-frame with the same config`,
 ;; a composition with a single caller, not a surface): this test pins the
 ;; contract that flows from that composition:
 ;;   - app-db is reset (fresh container).
@@ -1075,7 +1075,7 @@
 ;;   - The frame is still queryable (not in the destroyed state).
 
 (deftest reset-frame-preserves-config-resets-app-db
-  (testing "destroy-frame! + re-reg-frame with the SAME config: app-db is reset,
+  (testing "destroy-frame! + re-make-frame with the SAME config: app-db is reset,
             config metadata is preserved, :initial-events re-runs, frame remains
             queryable (EP-0027)"
     (let [boot-count (atom 0)]
@@ -1088,7 +1088,7 @@
                     :fx-overrides {:custom :value}}]
         (rf/make-frame (assoc config :id :app/main))
         ;; First setup dispatch increments the counter.
-        (is (= 1 @boot-count) ":initial-events ran once at reg-frame time")
+        (is (= 1 @boot-count) ":initial-events ran once at make-frame time")
         (is (= {:booted? true :payload {:hello "world"} :extra :seeded}
                (rf/app-db-value :app/main))
             "app-db reflects the setup commit")
@@ -1105,7 +1105,7 @@
               orig-sub-cache (:sub-cache orig-record)
               orig-router    (:router orig-record)]
 
-          ;; Reset — destroy + re-reg-frame with the SAME config.
+          ;; Reset — destroy + re-make-frame with the SAME config.
           (rf/destroy-frame! :app/main)
           (rf/make-frame (assoc config :id :app/main))
 
@@ -1212,7 +1212,7 @@
       (is (some #(= :rf.frame/destroyed (:operation %)) @traces)
           ":rf.frame/destroyed trace was emitted — teardown continued past the throw"))))
 
-(deftest on-destroy-throw-then-fresh-reg-frame-clean
+(deftest on-destroy-throw-then-fresh-make-frame-clean
   (testing "after a throwy destroy, the same frame id can be re-registered
             cleanly — the in-flight guard is cleared even on the exception path"
     (rf/make-frame {:id :throwy/resurrected :on-destroy [:throwy/blow-up-2]})

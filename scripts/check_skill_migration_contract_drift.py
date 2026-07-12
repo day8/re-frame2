@@ -30,7 +30,7 @@ Two contract facts, each pinned against the shipped spec:
     error-handler` is dropped and has no app-steering recovery replacement;
     recovery is framework-owned (the typed per-category default). The per-frame
     `:on-error` recovery policy that earlier drafts named was REMOVED (spec/002-
-    Frames.md §reg-frame metadata grammar; spec/API.md §Error-emit; spec/009-
+    Frames.md §make-frame config grammar; spec/API.md §Error-emit; spec/009-
     Instrumentation.md §`:on-error` recovery policy — REMOVED). Error
     observability is `register-error-listener!` (always-on) / `register-listener!`
     (dev-only). The stale claim this gate kills: "`reg-event-error-handler` moved

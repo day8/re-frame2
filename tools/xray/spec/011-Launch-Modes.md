@@ -361,7 +361,7 @@ reset, column-width hydrate, mode hydrate, auto-open-watcher install)
 behind a `seeded-frame-ids` run-once guard keyed on `frame-id`: the
 FIRST call for a frame-id runs every hook; every subsequent call for
 that SAME frame-id is a no-op on the hook side (the frame
-(re-)registration itself stays idempotent via `reg-frame`'s surgical-
+(re-)registration itself stays idempotent via `make-frame`'s surgical-
 update-on-re-register semantics regardless). Without the guard, a
 pop-out re-ran `::seed-trace-and-target-frame`, which re-derives the
 seed frame from the CURRENT head focusable event-bundle and

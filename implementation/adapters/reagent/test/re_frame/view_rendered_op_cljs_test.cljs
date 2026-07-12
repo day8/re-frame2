@@ -189,7 +189,7 @@
       ;; via `elision/apply-classification-effects` — the same registry the
       ;; egress projection consults to elide the render arg at emit, and the
       ;; same write a `reg-event` returning `:sensitive` performs. The fixture
-      ;; reg-frames the ambient :rf/default the render lands in.
+      ;; make-frames the ambient :rf/default the render lands in.
       (frame/swap-runtime-db! :rf/default
         (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:auth :password]]})))
       (rf/reg-view ^{:rf/id :rf2-rpgq8/sensitive} sensitive-view [_props]

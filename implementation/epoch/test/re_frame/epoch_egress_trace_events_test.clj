@@ -76,7 +76,7 @@
 ;; classification effects. Seed the sensitive / large declarations through
 ;; `elision/apply-classification-effects` (`:source :effect`) — the same
 ;; registry write a `reg-event` returning `:sensitive` / `:large` performs.
-;; The frame container is reg-frame'd by each deftest before this runs.
+;; The frame container is make-frame'd by each deftest before this runs.
 (defn- install-sensitive-schema! [frame-id]
   (frame/swap-runtime-db! frame-id
     (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:auth :password]]})))

@@ -401,7 +401,7 @@
 ;; custom map (encode/decode only) is malformed HERE even though it passes
 ;; JVM validation — the host-specific half of the contract.
 
-(deftest reg-frame-rejects-cljs-incomplete-strategy-at-registration-ktmto9-cljs
+(deftest make-frame-rejects-cljs-incomplete-strategy-at-registration-ktmto9-cljs
   (testing "rf2-ktmto9: a custom strategy carrying only the two host-agnostic
             legs (JVM-shaped) is rejected at FIRST registration on CLJS — the
             browser legs :push! / :replace! / :install-listener! are
@@ -422,7 +422,7 @@
       (is (not (contains? (set (rf/frame-ids)) :ktmto9/cljs-legs))
           "no frame record was created"))))
 
-(deftest reg-frame-rejects-explicit-nil-strategy-ktmto9-cljs
+(deftest make-frame-rejects-explicit-nil-strategy-ktmto9-cljs
   (testing "rf2-ktmto9: an EXPLICIT nil :url-strategy is a PRESENT declaration
             and fails loud at registration — presence semantics; only OMISSION
             selects the default history strategy"
@@ -435,7 +435,7 @@
       (is (nil? (rf/frame-meta :ktmto9/nil-strat))
           "no frame config was seated"))))
 
-(deftest reg-frame-missing-routing-artefact-fails-loud-ktmto9-cljs
+(deftest make-frame-missing-routing-artefact-fails-loud-ktmto9-cljs
   (testing "rf2-ktmto9: declaring :url-strategy while the
             :routing/preflight-frame-config! hook is unpublished fails loud
             with :rf.error/routing-artefact-missing (no config commit); the

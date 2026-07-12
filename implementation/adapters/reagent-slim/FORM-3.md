@@ -200,7 +200,7 @@ initial value of `this`'s state atom. Two replacements:
       [:button {:on-click #(swap! count inc)} @count])))
 
 ;; :initial-events on the surrounding frame — for app-state init
-(rf/reg-frame :feature/counter {:initial-events [[:counter/initialise]]})
+(rf/make-frame {:id :feature/counter :initial-events [[:counter/initialise]]})
 ```
 
 The frame `:initial-events` path is preferred when the state belongs to app-db (the
@@ -486,7 +486,7 @@ dispatches events, etc.), put it on the surrounding frame, not in a Form-3
    :reagent-render      ...})
 
 ;; Right — frame-level init event
-(rf/reg-frame :counter-frame {:initial-events [[:counter/initialise]]})
+(rf/make-frame {:id :counter-frame :initial-events [[:counter/initialise]]})
 ```
 
 The frame event is named, registered, queryable, traceable in re-frame-10x,

@@ -55,7 +55,6 @@
              re-frame.core/reg-sub-raw
              re-frame.core/reg-fx
              re-frame.core/reg-cofx
-             re-frame.core/reg-frame
              re-frame.core/reg-flow
              re-frame.core/reg-route
              re-frame.core/reg-app-schema
@@ -92,7 +91,6 @@
   re-frame.core/reg-sub-raw         clojure.core/do
   re-frame.core/reg-fx              clojure.core/do
   re-frame.core/reg-cofx            clojure.core/do
-  re-frame.core/reg-frame           clojure.core/do
   re-frame.core/reg-flow            clojure.core/do
   re-frame.core/reg-route           clojure.core/do
   re-frame.core/reg-app-schema      clojure.core/do

@@ -177,7 +177,7 @@
 ;; ---- 1e. events-retained knob ------------------------------------------
 
 (deftest per-frame-events-retained-override
-  (testing ":rf.trace/events-retained on reg-frame applies per-frame"
+  (testing ":rf.trace/events-retained on make-frame applies per-frame"
     (rf/configure! {:trace-buffer {:events-retained 5}})
     (rf/make-frame {:id :tb/deep :rf.trace/events-retained 200
                     :doc "deep diagnostics"})
@@ -264,7 +264,7 @@
 ;; (rf2-va65k finding 2)
 
 (deftest per-frame-override-before-first-emit-does-not-crash
-  (testing "reg-frame with a low cap BEFORE first dispatch survives a cap-exceeding burst"
+  (testing "make-frame with a low cap BEFORE first dispatch survives a cap-exceeding burst"
     ;; Pre-fix: set-frame-events-retained! wrote a partial
     ;; {:events-retained N} map (no :run-order). push-to-ring!
     ;; started :run-order from nil → conj built a PersistentList →
@@ -618,7 +618,7 @@
         "tool-frame's ring stays empty")))
 
 (deftest destroy-clears-trace-disabled-flag
-  ;; rf2-zcl055: `reg-frame` adds a `:rf.trace/frame-no-emit? true` frame to
+  ;; rf2-zcl055: `make-frame` adds a `:rf.trace/frame-no-emit? true` frame to
   ;; the process-global trace-disabled set; `destroy-frame!` must remove it
   ;; (the teardown counterpart to `set-frame-no-emit!`, symmetric with the
   ;; per-frame trace-ring release). Without the fix the destroyed frame's id
@@ -627,7 +627,7 @@
   (testing "a destroyed trace-disabled frame leaves no entry in the trace-disabled set"
     (rf/make-frame {:id :tool/inspector :rf.trace/frame-no-emit? true})
     (is (trace/frame-trace-disabled? :tool/inspector)
-        "reg-frame marked the tool frame trace-disabled")
+        "make-frame marked the tool frame trace-disabled")
     (frame/destroy-frame! :tool/inspector)
     (is (not (trace/frame-trace-disabled? :tool/inspector))
         "destroy-frame! removed the frame id from trace-disabled-frames (no process-global leak)"))

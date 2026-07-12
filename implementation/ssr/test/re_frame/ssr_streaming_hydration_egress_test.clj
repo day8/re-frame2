@@ -36,7 +36,7 @@
   `:sensitive` effect returned by the frame's init event alongside `:db`
   (EP-0025 §How it works / §Examples). The effect writes the path into the
   per-frame `[:rf.runtime/elision]` registry the `:rf.egress/ssr-hydration`
-  egress walk reads, replacing the retired `reg-frame :sensitive {:app-db}`
+  egress walk reads, replacing the retired frame-config `:sensitive {:app-db}`
   durable annotation (deleted by the EP-0025 B1b purge)."
   [db]
   (rf/reg-event :rf.uc3cs4/seed

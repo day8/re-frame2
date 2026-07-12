@@ -455,7 +455,7 @@
     (register-routes!)
     ;; Single-non-default-owner setup (the step-deck shape): default opts
     ;; OUT, a non-default frame opts IN, so `url-owner-frame-id` resolves
-    ;; to the non-default owner — and `:sd/owner`'s reg-frame automatically
+    ;; to the non-default owner — and `:sd/owner`'s make-frame automatically
     ;; installs the listener for it (rf2-g8pbwg).
     (rf/make-frame {:id :rf/default :url-bound? false})
     (rf/make-frame {:id :sd/owner :url-bound? true})
@@ -856,8 +856,8 @@
       (finally
         (trace-tooling/unregister-listener! cb-key)))))
 
-(deftest first-registration-preflight-zero-residue-reg-frame-cljs-rf2-ktmto9
-  (testing "rf2-ktmto9: a URL owner's FIRST rf/reg-frame with a malformed
+(deftest first-registration-preflight-zero-residue-make-frame-cljs-rf2-ktmto9
+  (testing "rf2-ktmto9: a URL owner's FIRST rf/make-frame with a malformed
             custom :url-strategy fails at the registration-time preflight with
             ZERO residue — no container, no :initial-events run, no registrar
             row, no URL claim/listener, no trace-policy write, no trace event"
@@ -876,7 +876,7 @@
 (deftest first-registration-preflight-zero-residue-make-frame-cljs-rf2-ktmto9
   (testing "rf2-ktmto9: the same zero-residue invariant through the OTHER
             constructor spelling — rf/make-frame (the one public constructor
-            rf/reg-frame is sugar for) with a malformed custom :url-strategy"
+            rf/make-frame is sugar for) with a malformed custom :url-strategy"
     (rf/reg-route :hist/home {} "/")
     (let [probe (atom 0)]
       (rf/reg-event :ktmto9/probe2!
@@ -967,7 +967,7 @@
     (.pushState (.-history js/globalThis.window) nil "" "/articles/42")
     ;; Bind the URL owner (the fixture pre-created :rf/default WITHOUT the slot;
     ;; opting it in is a re-registration whose lifecycle hook runs the initial
-    ;; sync synchronously during reg-frame).
+    ;; sync synchronously during make-frame).
     (rf/make-frame {:id :rf/default :url-bound? true})
     (let [slice (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                         [:rf.runtime/routing :current])]

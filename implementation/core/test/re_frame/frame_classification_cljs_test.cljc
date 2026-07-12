@@ -1,6 +1,6 @@
 (ns re-frame.frame-classification-cljs-test
   "EP-0015 §9 (observability sink policy) — the surviving frame-owned policy
-  on `reg-frame`. EP-0025 REMOVED the durable `:sensitive` / `:large {:app-db
+  on `make-frame`. EP-0025 REMOVED the durable `:sensitive` / `:large {:app-db
   …}` app-db classification annotation (a frame is not app-db's definition
   site; durable app-db classification now rides the commit-plane
   classification effects — `re-frame.elision`, `:source :effect`) AND the
@@ -10,13 +10,13 @@
   still owns:
 
     (a) the retired `:sensitive` and `:large` frame keys FAIL LOUD with
-        `:rf.error/bad-frame-classification` at `reg-frame` time — the
+        `:rf.error/bad-frame-classification` at `make-frame` time — the
         clean-break guard against the removed annotations;
     (b) `:observability` sink policy validates (shape-only) and rides the
         frame's `:config` verbatim for the later observability slice;
     (c) fail-loud — unknown observability keys, malformed observability
         entries, and unknown egress profiles throw
-        `:rf.error/bad-frame-classification` at `reg-frame` time, before any
+        `:rf.error/bad-frame-classification` at `make-frame` time, before any
         state mutates / before `:initial-events`.
 
   HTTP carrier classification (the `:carriers` block on `:rf.http/managed`)
@@ -53,7 +53,7 @@
 
 (deftest retired-sensitive-frame-key-fails-loud
   (testing "EP-0025: the whole retired `:sensitive` frame key fails loud at
-            reg-frame — durable app-db classification moved to the
+            make-frame — durable app-db classification moved to the
             commit-plane classification effects AND the `:sensitive {:http …}`
             HTTP carrier block moved onto the `:rf.http/managed` `reg-fx`
             registration (`:carriers`). With no valid content left, a frame
@@ -77,7 +77,7 @@
 
 (deftest retired-large-frame-key-fails-loud
   (testing "EP-0025: the retired top-level `:large {:app-db …}` frame
-            annotation fails loud at reg-frame — durable app-db classification
+            annotation fails loud at make-frame — durable app-db classification
             moved to the commit-plane classification effects, so `:large` is
             no longer a frame key. This is the SYMMETRIC guard to the
             `:sensitive {:app-db …}` rejection: a frame carrying `:large` must
@@ -160,7 +160,7 @@
 (deftest fail-loud-on-unknown-observability-profile
   ;; rf2-t55hxg.13 — `:rf.egress/profile` is a member of the closed EP-0015
   ;; §10 profile enum. A typo'd / unknown profile must fail loudly at
-  ;; reg-frame (the seam that owns the policy), not silently install and
+  ;; make-frame (the seam that owns the policy), not silently install and
   ;; only blow up downstream when the sink first fires.
   (testing "an :observability entry naming an unknown :rf.egress/profile fails loudly"
     (let [data (bad-classification-ex
@@ -188,7 +188,7 @@
 
 (deftest fail-loud-on-bad-observability-opts
   ;; rf2-t55hxg.13 — `:opts`, when present, is the sink's option bag and
-  ;; must be a map (or nil). A non-map :opts is malformed — fail at reg-frame
+  ;; must be a map (or nil). A non-map :opts is malformed — fail at make-frame
   ;; rather than handing junk to the sink at fire time.
   (testing "an :observability entry with non-map :opts fails loudly"
     (let [data (bad-classification-ex

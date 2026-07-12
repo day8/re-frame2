@@ -29,7 +29,7 @@
   "Register Xray handlers + the :rf/xray frame, then re-run the
   filter hydration so the seed / localStorage value lifts into the
   slot. Production runs hydrate in `mount.cljs/ensure-xray-frame!`
-  after the same reg-frame; tests skip mount so we call hydrate
+  after the same make-frame; tests skip mount so we call hydrate
   directly."
   []
   (registry/register-xray-handlers!)

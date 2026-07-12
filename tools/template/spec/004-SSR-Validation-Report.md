@@ -136,7 +136,7 @@ Key shape decisions visible in the example:
   `:require` of `re-frame.ssr` is JVM-side only; `:require` of
   the substrate adapter (`reagent-slim-adapter`) is CLJS-side
   only. `reg-view` macros work identically across both.
-- **Per-request frame discipline.** `reg-frame` per request,
+- **Per-request frame discipline.** `make-frame` per request,
   `:initial-events [[:rf/server-init]]`, drain to fixed point, render via
   `(rf/view :app/root)` + `render-to-string`, destroy in `finally`.
   Demonstrated by `core.cljc`'s `:clj`-branch `handle-request`.
@@ -146,7 +146,7 @@ Key shape decisions visible in the example:
   a raw fn (Spec 011 §The override seam is id-based).
 - **Headless SSR test (`ssr-tests` in `test/ssr/core_test.clj`).**
   Runs end-to-end on the JVM with no React/JSDOM — boots
-  `ssr/adapter`, reg-frames with the `:fx-overrides` redirect,
+  `ssr/adapter`, make-frames with the `:fx-overrides` redirect,
   calls `render-to-string`, asserts HTML content +
   `data-rf-render-hash` marker. This is the gate shape a
   template-emitted SSR scaffold should ship.

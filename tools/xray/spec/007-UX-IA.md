@@ -1896,9 +1896,9 @@ Every `mount-<panel>!` fn:
    of every panel's subs / events / fxs. The orchestrator's
    `defonce`-guarded sentinel collapses repeat installs across
    panel mounts and shadow-cljs `:after-load` cycles.
-2. Calls `(rf/reg-frame :rf/xray {})` — idempotent register of
-   Xray's state-isolation frame. `reg-frame`'s surgical-update-on-
-   re-register semantics (per Spec 002 §reg-frame) keep this
+2. Calls `(rf/make-frame {:id :rf/xray})` — idempotent register of
+   Xray's state-isolation frame. `make-frame`'s surgical-update-on-
+   re-register semantics (per Spec 002 §make-frame) keep this
    idempotent.
 3. Wraps the panel's view in `[rf/frame-provider {:frame :rf/xray}
    [Panel]]` so descendant `subscribe` / `dispatch` re-anchor to
@@ -1958,7 +1958,7 @@ of them.
 
 `register-xray-handlers!` is `defonce`-guarded so shadow-cljs
 `:after-load` cycles do not re-register handlers (which would emit
-`:rf.warning/handler-replaced` traces on every reload). `reg-frame`
+`:rf.warning/handler-replaced` traces on every reload). `make-frame`
 is idempotent via surgical-update semantics. Mount fns can be called
 from a host's `init!` path at any frequency without risk.
 

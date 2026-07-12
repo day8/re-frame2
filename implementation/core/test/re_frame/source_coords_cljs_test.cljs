@@ -114,9 +114,9 @@
     (let [f (:file (rf/handler-meta :cofx :rf2-mdjp/reg-cofx-sample))]
       (is (not= "NO_SOURCE_PATH" f)))))
 
-;; reg-frame and reg-view exercise the same source-coords path; they
+;; make-frame and reg-view exercise the same source-coords path; they
 ;; require an adapter to be installed for the underlying registration
-;; (frame/reg-frame allocates substrate state, reg-view delegates to
+;; (frame/make-frame allocates substrate state, reg-view delegates to
 ;; the Reagent-aware impl). The JVM test ns covers those macros with
 ;; the plain-atom adapter installed in its fixture; the helper unit
 ;; tests below pin the actual rf2-mdjp invariant under CLJS so we

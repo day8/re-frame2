@@ -196,7 +196,7 @@ follows:
   [`spec/Managed-Effects.md`](../../../spec/Managed-Effects.md) §5);
 - **per-frame** — under the OBSERVED frame's own declared `:sensitive` /
   `:large` `:app-db` elision policy (`re-frame.elision`, sourced from
-  `reg-frame`), passed as the explicit `:frame` opt so the named frame's
+  `make-frame`), passed as the explicit `:frame` opt so the named frame's
   policy applies, never a borrowed or ambient one;
 - **fail-closed** — when the named frame is **not** a live frame (nil id, a
   destroyed / never-registered frame), the projection stamps a **dead-frame

@@ -16,7 +16,7 @@
   alongside `:db`; `re-frame.elision/apply-classification-effects`,
   `:source :effect`, exercised in the core/ssr suites). It is NOT installed
   by `re-frame.frame-classification` anymore — EP-0025 retired the durable
-  app-db classification install there (a `reg-frame` `:sensitive {:app-db …}`
+  app-db classification install there (a `make-frame` `:sensitive {:app-db …}`
   block / a `:large` frame key now fail loud with
   `:rf.error/bad-frame-classification`). Schema `:sensitive?` still drives
   THIS file's hot-reload-trace redaction

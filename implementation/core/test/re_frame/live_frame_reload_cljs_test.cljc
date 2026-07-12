@@ -11,7 +11,7 @@
     * re-`make-frame` swaps the generation but PRESERVES frame memory — EP-0024
       (rf2-tu2vr7): the generation lives on the frame record in the ONE
       `frame/frames` registry (the `:generation` slot), swapped by id via
-      `frame/set-generation!` (reached through `reg-frame`'s surgical-update
+      `frame/set-generation!` (reached through `make-frame`'s surgical-update
       path); app-db / durable state continue, the id keeps naming the same
       live context, and the returned frame VALUE names that id (compare by
       `frame/frame-value->id`, not `identical?`);
@@ -66,7 +66,7 @@
 ;; dissolved, so the runtime fixture's `(reset! frame/frames {})` clears every
 ;; record AND its generation — no separate live-frame index to clear
 ;; (rf2-ji3tvy). `make-frame` creates/updates a RUNNABLE record (app-db / queue /
-;; sub-cache) via `reg-frame`, which needs a substrate adapter — so the
+;; sub-cache) via `make-frame`, which needs a substrate adapter — so the
 ;; plain-atom adapter is installed via the runtime fixture. These cases assert
 ;; the reload/diff/reproject contract; the backing record is an allocation side
 ;; effect they do not otherwise inspect.
@@ -628,7 +628,7 @@
         ;; image frame exists). Record a descriptor in burst.feature FIRST so the
         ;; image's :include-ns selector matches (a zero-match is fail-loud at
         ;; image construction); construct the image AFTER. make-frame's own backing
-        ;; reg-frame fires the hook, so drain afterwards to start the burst from a
+        ;; make-frame fires the hook, so drain afterwards to start the burst from a
         ;; clean (un-pending) flag — the first burst reg-* is then the false→true edge.
         (source-store/record-descriptor!
           :event :burst/seed
@@ -685,7 +685,7 @@
 ;; ---- the HANG GUARD: a burst with NO live frame schedules ZERO flushes -----
 ;;
 ;; rf2-h4q6cy fix: the auto-reprojection hook fires on EVERY register! (the
-;; EP-0023 collapse made make-frame's backing reg-frame a register! too, so even
+;; EP-0023 collapse made make-frame's backing make-frame a register! too, so even
 ;; frame creation funnels through it). Marking dirty + scheduling a next-tick
 ;; flush on each — when there is NOTHING reprojectable (no PUBLIC-id live frame
 ;; exists) — floods the microtask queue with one no-op deferred flush per
@@ -732,7 +732,7 @@
 ;;
 ;; EP-0024 (rf2-tu2vr7) DISSOLVED the former `reprojecting?` re-entrancy guard.
 ;; It existed only because the EP-0023 two-registry `make-frame` created its
-;; backing record via `frame/reg-frame` (a `register!`), raising the defensive
+;; backing record via `frame/make-frame` (a `register!`), raising the defensive
 ;; worry that a reproject flush might provoke a registration and re-arm itself.
 ;; Under the unified model reprojection swaps the generation onto the ONE record
 ;; via `frame/set-generation!` — a plain `swap!`, NOT a `register!` — so the
@@ -846,7 +846,7 @@
 (deftest failed-re-construction-preserves-generation-provenance-rf2-ktmto9
   (testing "rf2-ktmto9 (failure-atomicity completion): a FAILED re-`make-frame`
             records NO new provenance — `record-frame-generation-pool!` now runs
-            AFTER the reg-frame engine commit returns, so the pool row written
+            AFTER the make-frame engine commit returns, so the pool row written
             by the successful creation survives and a later reprojection still
             resolves against the ORIGINAL pool. Pre-fix the record ran BEFORE
             the engine, so the failed re-make below (threading a DIFFERENT
@@ -987,7 +987,7 @@
               bad-img  (image/image {:id :rpf-bad/img  :select-ns {:include ["rpf-bad.provenance.ns"]}})
               tick     (atom nil)]
           ;; Capture (never run) every scheduled tick for the rest of the case
-          ;; — including the ones make-frame's own reg-frame calls arm — so no
+          ;; — including the ones make-frame's own make-frame calls arm — so no
           ;; real async tick can race this case's manual drive (the same
           ;; rf2-roou7s determinism idiom the auto-reprojection tests above
           ;; use). `frame/image-loaded-frame-ids` is ALSO fixed for the whole
@@ -1039,7 +1039,7 @@
 ;; must be visible to the very next SAME-TICK dispatch: the resolution seam
 ;; (`call-with-frame-resolution`) flushes the dirty projection synchronously
 ;; instead of racing the deferred `next-tick` sweep. This is the behavioral
-;; bridge that lets every former `reg-frame` caller (nil-generation → LIVE
+;; bridge that lets every former `make-frame` caller (nil-generation → LIVE
 ;; registrar fallback) converge on `make-frame` (sealed default generation)
 ;; without losing same-tick registration visibility.
 ;; ---------------------------------------------------------------------------

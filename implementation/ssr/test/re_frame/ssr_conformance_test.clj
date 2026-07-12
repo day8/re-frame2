@@ -625,7 +625,7 @@
           _            (realise-handlers fixture)
           frame-config (or (:fixture/frame-config fixture) {})
           ;; `reset-runtime` already created :rf/default WITHOUT any
-          ;; :initial-events. `reg-frame` against an existing id is a
+          ;; :initial-events. `make-frame` against an existing id is a
           ;; surgical update that does NOT re-fire :initial-events (Spec 002).
           ;; Destroy first so the fixture's :initial-events cascade fires
           ;; under its declared :platform / :ssr config.

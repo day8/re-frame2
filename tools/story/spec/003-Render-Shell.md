@@ -433,7 +433,7 @@ Each mount fn:
 
 1. Installs Xray's handler registry (idempotent).
 2. Ensures the `:rf/xray` frame exists (idempotent
-   `rf/reg-frame`).
+   `rf/make-frame`).
 3. Wraps the panel view in `[rf/frame-provider {:frame :rf/xray}
    [<Panel>]]` so the panel's `:rf.xray/*` subscribes resolve to
    Xray's state-isolation frame regardless of host React-context.

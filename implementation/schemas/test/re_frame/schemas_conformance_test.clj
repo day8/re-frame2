@@ -331,7 +331,7 @@
     ;; `realise-app-schemas` below. Per rf2-wkxng / rf2-6m0se,
     ;; `destroy-frame!` now drops the frame's app-db schemas
     ;; (parity with the machines / SSR / privacy destroy hooks), so
-    ;; schema registration must follow the runner's destroy+reg-frame
+    ;; schema registration must follow the runner's destroy+make-frame
     ;; cycle. Event / sub / cofx / fx registrations are global on
     ;; the registrar and survive destroy-frame!, so they continue to
     ;; live here so `:initial-events` can fire against them.
@@ -339,7 +339,7 @@
 
 (defn- realise-app-schemas
   "Register the fixture's app-db schemas. Called AFTER the runner's
-  destroy+reg-frame cycle so the new frame's slate carries exactly
+  destroy+make-frame cycle so the new frame's slate carries exactly
   the fixture's declarations and nothing else.
 
   Per rf2-wkxng / rf2-6m0se the destroy step now drops every schema
@@ -348,7 +348,7 @@
   registering app-schemas inside `realise-handlers` BEFORE
   `destroy-frame!` and counting on the schemas to survive. With the
   leak closed, app-schema registration is sequenced explicitly
-  after `reg-frame`."
+  after `make-frame`."
   [fixture]
   ;; Per rf2-cq1ak the fixture key is `:app-schemas` (plural) — app-db
   ;; schemas are NOT a registrar kind.
@@ -421,7 +421,7 @@
             _            (realise-handlers fixture)
             frame-config (or (:fixture/frame-config fixture) {})
             ;; `reset-runtime` already created :rf/default WITHOUT any
-            ;; :initial-events. `reg-frame` against an existing id is a
+            ;; :initial-events. `make-frame` against an existing id is a
             ;; surgical update that does NOT re-fire :initial-events (Spec 002).
             ;; Destroy first so the fixture's :initial-events cascade fires
             ;; under its declared frame config.
@@ -431,15 +431,15 @@
             ;; `:schemas/on-frame-destroyed!` hook drops the frame's
             ;; schemas on destroy, so registering them BEFORE the
             ;; destroy would leak them through). Schemas must also
-            ;; precede `reg-frame` so the :initial-events cascade fires
+            ;; precede `make-frame` so the :initial-events cascade fires
             ;; with the schemas in place — the initial-events' db commit
             ;; will trigger validate-app-schema! against the new slate.
             _            (realise-app-schemas fixture)
             ;; EP-0002 (rf2-5q7um6): the shared `tf/reset-runtime` pins
             ;; `*current-frame* :rf/default` for the body. Unbind it around
-            ;; `reg-frame` so the fixture's `:initial-events` cascade fires
-            ;; SYNCHRONOUSLY — `frame/reg-frame` async-queues initial-events when
-            ;; `*current-frame*` is bound (Spec 002 §reg-frame from inside a
+            ;; `make-frame` so the fixture's `:initial-events` cascade fires
+            ;; SYNCHRONOUSLY — the frame engine async-queues initial-events when
+            ;; `*current-frame*` is bound (Spec 002 §make-frame from inside a
             ;; handler), which would land the seed AFTER the first dispatch.
             _            (binding [frame/*current-frame* nil]
                            (rf/make-frame (assoc frame-config :id :rf/default)))

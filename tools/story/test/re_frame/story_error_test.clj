@@ -21,7 +21,7 @@
 ;; the `exception-record` projection is FRAME-SCOPED egress (EP-0015 issue 1,
 ;; rf2-t55hxg.18): the `:data` slot is walked against the record's frame and
 ;; FAILS CLOSED when that frame is unresolvable. Tests that need a live
-;; variant frame (`reg-frame`) require an installed adapter, so init the
+;; variant frame (`make-frame`) require an installed adapter, so init the
 ;; plain-atom adapter and clean frame state around each test.
 (use-fixtures :each
   (fn [test-fn]
@@ -96,7 +96,7 @@
     ;; a live frame for its (empty) policy to be consulted; an unresolvable
     ;; frame FAILS CLOSED and redacts the whole `ex-data` map. In the real
     ;; Story runtime the variant frame is always live when an error is
-    ;; recorded (`re-frame.story.frames` `reg-frame`s `variant-id` before
+    ;; recorded (`re-frame.story.frames` `make-frame`s `variant-id` before
     ;; the phases run), so register it here too — the public `{:k :v}` then
     ;; walks through verbatim under the empty policy. `throwable->error-map`
     ;; in the assertion below must be projected against the SAME live frame

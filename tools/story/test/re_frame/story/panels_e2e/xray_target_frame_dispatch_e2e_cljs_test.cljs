@@ -15,7 +15,7 @@
   `(rf/epoch-history variant-id)` in lockstep per the rf2-boyc2
   contract.
 
-  Pin: the variant-id IS the frame-id (Story `reg-frame`s each variant
+  Pin: the variant-id IS the frame-id (Story `make-frame`s each variant
   under its variant-id; see `re-frame.story.frames`).
 
   Sub-second per surface; no DOM / no React mount / no Playwright."

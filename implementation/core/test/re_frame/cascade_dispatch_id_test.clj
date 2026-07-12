@@ -187,7 +187,7 @@
 
 (deftest frame-lifecycle-emits-stay-uncorrelated-under-a-cascade-scope
   (testing "rf2-7eel71 — a frame-lifecycle emit (op-type :rf.frame) fired while a
-            cascade's *handler-scope* is bound (e.g. reg-frame re-registering a
+            cascade's *handler-scope* is bound (e.g. make-frame re-registering a
             SIBLING frame from inside a handler / fx) must NOT inherit the
             cascade's :rf.trace/dispatch-id. Stamping a foreign id there makes the
             epoch capture seam strand the marker in the sibling frame's buffer for

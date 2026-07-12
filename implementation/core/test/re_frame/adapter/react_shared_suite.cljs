@@ -1556,7 +1556,7 @@
       ;; effects; `elision/apply-classification-effects` writes a
       ;; `:source :effect` declaration (index-free :rf/path) the walker reads
       ;; — the same registry write a `reg-event` returning `:sensitive`
-      ;; performs. The fixture reg-frames the ambient :rf/default the render
+      ;; performs. The fixture make-frames the ambient :rf/default the render
       ;; lands in.
       (frame/swap-runtime-db! :rf/default
         (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:auth :password]]})))
@@ -1923,7 +1923,7 @@
           break-id (mint-kw substrate-kw "schema-reject-break")
           ok-id    (mint-kw substrate-kw "schema-reject-ok")
           runs     (atom 0)]
-      (rf/reg-frame fid {})
+      (rf/make-frame fid {})
       (rf/reg-app-schema [:n] {:frame fid} [:int])
       (rf/reg-event seed-id  (fn [_ _] {:db {:n 0}}))
       (rf/reg-event break-id (fn [{:keys [db]} _] {:db (assoc db :n "boom")}))
@@ -2716,7 +2716,7 @@
 ;; `defui`/`defnc` + `$` (and, for use-subscribe, the substrate's hooks).
 ;; The suite cannot mint those at runtime, so each entry file builds the
 ;; probe components + their observation atoms + a `:render-element` thunk
-;; (the substrate's `$`) and hands them in. The orchestration (reg-frame,
+;; (the substrate's `$`) and hands them in. The orchestration (make-frame,
 ;; dispatch, mount under act, assert) lives here as a single source — a
 ;; gap on one substrate is a gap on both by construction.
 ;;

@@ -10,14 +10,14 @@
   reentrantly), and `destroy-frame!` did not serialize its teardown with that
   helper — so a `destroy-frame!` completing in the window between the liveness
   check and the winning registry mutation left a GHOST flow row keyed by the
-  destroyed frame-id. A later `reg-frame` reusing that id could inherit and
+  destroyed frame-id. A later `make-frame` reusing that id could inherit and
   evaluate the stale flow.
 
   THE FIX (ONE frame-owned lifecycle gate — the frame's `:drain-lock`).
 
     - `reg-flow` PINS the incarnation it selected (`frame/frame-incarnation-
       token`, the frame record's `:drain-lock` atom — fresh per first-time
-      `reg-frame`, stable across in-place record swaps) and REVALIDATES that
+      `make-frame`, stable across in-place record swaps) and REVALIDATES that
       token INSIDE the serialized mutation, under the frame's `:drain-lock`.
 
     - `destroy-frame!` flips liveness (`mark-frame-destroyed!`) under the SAME

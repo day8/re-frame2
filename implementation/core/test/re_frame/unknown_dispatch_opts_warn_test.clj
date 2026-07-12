@@ -141,7 +141,7 @@
   (testing ":initial-events setup dispatches carry :step-index (a build-envelope-read internal opt) — no false unknown-opt warning"
     (rf/reg-event :seed/set (fn [{:keys [db]} [_ v]] {:db (assoc db :seed v)}))
     (let [recorded (record-traces! ::init-step)]
-      ;; `reg-frame` with `:initial-events` runs each setup step through
+      ;; `make-frame` with `:initial-events` runs each setup step through
       ;; `frame.cljc`'s `run-setup-events!`, which stamps `:step-index` into the
       ;; dispatch opts. `build-envelope` READS `:step-index` (carrying it onto
       ;; the dispatched trace as `:rf.frame/init-step-index`), so the key belongs

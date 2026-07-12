@@ -863,10 +863,10 @@
 ;;
 ;; Per rf2-in6l2 the `:rf/xray` frame is lazy-registered by `open!` —
 ;; the preload runs before `rf/init!` has installed a substrate adapter
-;; so `reg-frame` cannot run there (per rf2-e9s81). The first Ctrl+
+;; so `make-frame` cannot run there (per rf2-e9s81). The first Ctrl+
 ;; Shift+C keypress fires `open!` AFTER `rf/init!`, so that's the
 ;; canonical registration point. Subsequent toggles surgical-update
-;; (reg-frame's re-register semantics) — the frame's app-db and sub-
+;; (make-frame's re-register semantics) — the frame's app-db and sub-
 ;; cache are preserved across keypresses.
 
 (deftest first-open!-registers-xray-frame
@@ -1051,7 +1051,7 @@
 
 (deftest open!-is-idempotent-on-xray-frame-registration
   (testing "subsequent open!s after the frame is registered surgical-
-            update the frame's config (reg-frame contract per Spec 002
+            update the frame's config (make-frame contract per Spec 002
             §Re-registration) without re-allocating the app-db.
             Production toggle path: every Ctrl+Shift+C calls open!;
             the close path doesn't unmount, so re-registration is

@@ -132,7 +132,7 @@
   ;; `:rf/default` + pin it as the body's ambient scope (the carried-
   ;; invariant equivalent of `(with-frame :rf/default …)`); explicit
   ;; `{:frame …}` opts in the test bodies still win. A top-level
-  ;; `reg-frame …:initial-events` still drain synchronously — the lifecycle
+  ;; `make-frame …:initial-events` still drain synchronously — the lifecycle
   ;; async/sync split keys off `*handler-scope*` (a real cascade), not
   ;; this ambient scope.
   (rf/make-frame {:id :rf/default})
@@ -236,9 +236,9 @@
     ;; The example's `:rf/server-init` fires `:rf.http/managed`; redirect it
     ;; to the canned stub via the lexical-scope `with-fx-overrides` so the
     ;; per-request frame's `:initial-events` drain (which runs synchronously
-    ;; inside `reg-frame`, inside this dynamic scope) routes through the stub
+    ;; inside `make-frame`, inside this dynamic scope) routes through the stub
     ;; — no real network traffic. (The same seam the state-machine example
-    ;; test uses; we don't redefine the `reg-frame` macro.)
+    ;; test uses; we don't redefine the `make-frame` macro.)
     (let [handle-request (resolve 'ssr.core/handle-request)
           frames-before  (set (keys @frame/frames))
           resp           (rf/with-fx-overrides

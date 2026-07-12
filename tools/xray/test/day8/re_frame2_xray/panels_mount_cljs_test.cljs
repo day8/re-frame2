@@ -256,8 +256,8 @@
 
 ;; ---- contract — panel mount routes through mount/ensure-xray-frame! ---
 ;;
-;; Pre-fix `ensure-xray-handlers-installed!` did `(rf/reg-frame :rf/xray
-;; {})` directly. That registered the frame but bypassed the first-mount
+;; Pre-fix `ensure-xray-handlers-installed!` did `(rf/make-frame
+;; {:id :rf/xray})` directly. That registered the frame but bypassed the first-mount
 ;; hook table (rf2-y1saa) — including `::seed-trace-and-target-frame`,
 ;; the hook that lifts the pre-mount trace-bus buffer into Xray's
 ;; `:trace-buffer` slot AND seeds `:target-frame` + `:epoch-history` from
@@ -285,7 +285,7 @@
             still runs the first-mount hook table — so the trace-bus
             atom contents land in Xray's `:trace-buffer` slot and the
             panel renders against the host's pre-mount cascades. Pre-fix
-            the direct `(rf/reg-frame :rf/xray {})` bypassed the hook
+            the direct `(rf/make-frame {:id :rf/xray})` bypassed the hook
             table and the slot stayed empty."
     (let [[_capture _ render-stub] (make-render-stub)]
       (with-redefs [substrate-adapter/render render-stub
