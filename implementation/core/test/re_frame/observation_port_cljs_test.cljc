@@ -403,6 +403,47 @@
         (obs/release! lease2)
         (is (nil? (entry [:obs/items])))))))
 
+(deftest hmr-disposal-notification-carries-post-bump-registry-epoch
+  ;; rf2-vxgfnd.36(a): a re-registration-driven `:hmr` disposal notification must
+  ;; carry the SAME registry-epoch a probe issued right AFTER the re-registration
+  ;; reports — no PHANTOM movement. The epoch bump for a re-registration rides the
+  ;; replacement hook (which also drains `:hmr`) and fires BEFORE the drain, so the
+  ;; notification reads the post-bump epoch. Pre-fix the bump rode the registration
+  ;; hook (which registrar runs AFTER the replacement/drain phase), so the
+  ;; notification read the PRE-bump epoch while the next probe read the POST-bump
+  ;; one — a consumer diffing the two saw phantom registry movement for the very
+  ;; re-registration that caused the disposal.
+  (reg-items!)
+  (seed-items! [:a])
+  (let [target (items-target)
+        notes  (atom [])
+        _lease (obs/acquire! target (fn [n] (swap! notes conj n)))]
+    (reg-items!)                                   ;; the HMR re-registration
+    (is (= 1 (count @notes)))
+    (is (= :hmr (:cause (first @notes))))
+    (let [note-epoch  (:registry-epoch (first @notes))
+          probe-epoch (:registry-epoch (obs/probe target))]
+      (is (= note-epoch probe-epoch)
+          "the :hmr notification carries the post-bump registry-epoch — the value
+           the next probe reports — so no phantom movement is visible"))))
+
+(deftest malformed-target-kind-throws-typed-not-a-bare-host-error
+  ;; rf2-vxgfnd.36(b): the target-taking port ops' `(case (:kind target) …)` had
+  ;; NO default arm, so a target whose :kind is neither :subscription nor
+  ;; :story-override fell through to a BARE host error ("No matching clause"),
+  ;; violating Spec 006's "every port op throws typed". Both ops now throw the
+  ;; typed :rf.error/observation-malformed-target.
+  (reg-items!)
+  (testing "probe on a malformed :kind throws the typed error, not a bare host error"
+    (let [e (try (obs/probe {:kind :bogus :query [:obs/items]})
+                 (catch #?(:clj Throwable :cljs :default) e e))]
+      (is (= :rf.error/observation-malformed-target (error-id e)))
+      (is (= :bogus (:kind (ex-data e))) "the throw carries the malformed :kind")))
+  (testing "acquire! on a malformed :kind throws the same typed error"
+    (let [e (try (obs/acquire! {:kind :bogus :query [:obs/items]} (fn [_]))
+                 (catch #?(:clj Throwable :cljs :default) e e))]
+      (is (= :rf.error/observation-malformed-target (error-id e))))))
+
 ;; ===========================================================================
 ;; rf2-vxgfnd.32 — first-owner disposal-hook install races node disposal
 ;;
