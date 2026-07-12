@@ -126,6 +126,11 @@
              (peek (reactive/intervals cell)))
           "the immediate fact — not :unmounted, and the cell is NOT :dead"))
     (testing "a reveal reconnects and proves the prior interval an Activity hide"
+      ;; a GENUINE hide→reveal: the disconnect outlived its commit (settle models
+      ;; the host yield a real reveal spans; on CLJS a microtask does this). Only
+      ;; a SETTLED disconnect proves a hide — an unsettled same-commit reconnect
+      ;; is a StrictMode dev replay (rf2-vxgfnd.44).
+      (reactive/settle-disconnect! cell)
       (render+commit! cell fid [[:rt/a]])
       (is (= :connected (reactive/lifecycle cell)) "reconnected, never :dead")
       (is (= {:state :disconnected :reason :activity-hidden :proof :reconnect}
@@ -183,6 +188,10 @@
     (is (= :disconnected (reactive/lifecycle cell)) "hidden, not :dead")
     (is (= 1 (reactive/root-cell-count inc)) "still owned — reapable only by ITS root")
     (testing "a reveal reconnects and proves the interval an Activity hide"
+      ;; GENUINE hide→reveal — settle models the host yield a real reveal spans;
+      ;; an unsettled same-commit reconnect would be a StrictMode dev replay and
+      ;; must NOT be proven a hide (rf2-vxgfnd.44).
+      (reactive/settle-disconnect! cell)
       (render+commit! cell fid [[:rt/a]])
       (is (= :connected (reactive/lifecycle cell)))
       (is (= {:state :disconnected :reason :activity-hidden :proof :reconnect}

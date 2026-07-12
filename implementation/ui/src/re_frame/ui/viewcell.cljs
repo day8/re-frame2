@@ -16,7 +16,10 @@
     - render RESOLVES + PROBES without ownership (via `reactive/with-capture`
       → `sub` → the observation port's `resolve-target`/`probe`); the
       LAYOUT commit acquires the CAPTURED targets. Abandoned renders
-      (StrictMode double-render, time-sliced tear-off) retain nothing.
+      (StrictMode double-render, time-sliced tear-off) acquire no ownership;
+      they retain only their one `:latest-capture` of values until the next
+      render overwrites it (at most one, never accumulating — see
+      `reactive/with-capture`).
     - the reconcile layout effect runs after EVERY committed render and is
       idempotent (kept-check retains unchanged leases untouched); the
       lifecycle layout effect (empty deps) owns connect/disconnect, so
@@ -106,7 +109,12 @@
         ;; lifecycle — connect implicitly via the reconcile above; the cleanup
         ;; releases owners on React unmount AND Activity hide (indistinguishable
         ;; here — 03 §4). Reveal re-mounts this effect and the reconcile
-        ;; reacquires + corrects before paint. On mount the cell ENROLS under its
+        ;; reacquires + corrects before paint. In DEV, React StrictMode
+        ;; double-invokes this effect (mount→cleanup→remount in one commit), so
+        ;; every sub node churns through a zero-owner dispose/rebuild — an
+        ;; inherent dev cost, balanced by the idempotent reconcile; the
+        ;; same-commit reconnect is NOT a hide and `reactive/connect!` does not
+        ;; log an Activity-hide proof for it (rf2-vxgfnd.44). On mount the cell ENROLS under its
         ;; root incarnation (`attach-root!`, rf2-vxgfnd.85/.92) — an ownership that
         ;; SURVIVES the hide-cleanup, so root teardown reaps a cell hidden before
         ;; its unmount window. Keyed on the incarnation identity, so a re-mount

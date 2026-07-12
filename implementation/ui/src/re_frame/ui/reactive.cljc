@@ -30,9 +30,11 @@
   Render probes WITHOUT
   ownership (resolve-target + probe, no ref-count / watch / cache node);
   the layout commit acquires the CAPTURED targets. Abandoned renders
-  (StrictMode double-render, time-sliced tear-off) retain NOTHING because
-  render never acquires — the 10k-abandoned-renders-retain-zero property
-  is structural, mirroring the port's S-3 §5 cold-probe exit criterion.
+  (StrictMode double-render, time-sliced tear-off) acquire NO OWNERSHIP —
+  the 10k-abandoned-renders-retain-zero-OWNERSHIP property is structural,
+  mirroring the port's S-3 §5 cold-probe exit criterion. (They do retain
+  their single `:latest-capture` of values until the next render overwrites
+  it — at most one, never accumulating; see `with-capture`.)
 
   ## The render capture
 
@@ -347,6 +349,13 @@
   ;;                             ;   identity that SURVIVES an Activity hide, so
   ;;                             ;   root teardown reaps a cell hidden before its
   ;;                             ;   window (rf2-vxgfnd.85; see `root-cells`)
+  ;;    :disconnect-provisional? bool ; DEV-only (rf2-vxgfnd.44): a just-emitted
+  ;;                             ;   :disconnected interval that has NOT yet
+  ;;                             ;   settled past its synchronous commit. A
+  ;;                             ;   reconnect while still provisional is a
+  ;;                             ;   same-tick StrictMode dev replay (no hide);
+  ;;                             ;   `settle-disconnect!` clears it. false/absent
+  ;;                             ;   in production (no StrictMode double-invoke)
   ;;    :committed {tk -> lease} ; installed dependency set
   ;;    :values    {tk -> value} ; last published site values (stabilization
   ;;                             ;   + the revision snapshot's evidence)
@@ -378,6 +387,7 @@
             :generation     generation
             :lifecycle      :fresh
             :root           nil
+            :disconnect-provisional? false
             :committed      {}
             :values         {}
             :revision       0
@@ -422,10 +432,22 @@
       v)))
 
 (defn with-capture
-  "Run `thunk` (a compiled view body) under a fresh ambient capture, stash
-  the finished capture on `cell` as the commit input, and return the
-  thunk's value (the host element). Ownership-free: an abandoned render (a
-  thunk whose result the host discards) leaves only unreachable garbage."
+  "Run `thunk` (a compiled view body) under a fresh ambient capture, stash the
+  finished capture on `cell` as the layout commit's input, and return the
+  thunk's value (the host element).
+
+  Ownership-free: the render acquires NO ref-count, watch, or cache node, so an
+  abandoned render (a thunk whose result the host discards — StrictMode
+  double-render, time-sliced tear-off) leaks ZERO ownership. It does, however,
+  RETAIN its capture: the finished capture (its targets + probe evidence +
+  values, possibly a large probed collection) is stashed on the cell as
+  `:latest-capture` and stays there until the NEXT render overwrites it. The
+  honest bound is therefore AT MOST ONE capture retained per cell — never
+  accumulating, never ownership — not zero. That retention is REQUIRED, not a
+  leak: the layout commit reads `:latest-capture` in a later effect, and
+  StrictMode's effect mount→cleanup→remount re-commits the SAME capture with no
+  intervening render, so clearing it here would break the reacquire
+  (rf2-vxgfnd.44)."
   [^ViewCell cell thunk]
   (let [cap  (volatile! (fresh-capture (:generation @(state cell))))
         prev @ambient]
@@ -958,11 +980,21 @@
 ;; ---- lifecycle (03 §4) ------------------------------------------------------
 ;;
 ;; Three OBSERVABLE runtime states. The fact emitted at cleanup is always
-;; `:disconnected {:reason :unknown}` — the platform gives no
-;; hide-vs-unmount signal. Later evidence annotates the PRIOR interval,
-;; never the present: a reconnect proves an Activity hide
-;; (`:activity-hidden {:proof :reconnect}`); an explicit host/root teardown
-;; proves an unmount (`:unmounted {:proof :host-teardown}`).
+;; `:disconnected {:reason :unknown}` — the platform gives no hide-vs-unmount
+;; signal. Later evidence annotates the PRIOR interval, never the present: a
+;; SETTLED reconnect proves an Activity hide (`:activity-hidden {:proof
+;; :reconnect}`); an explicit host/root teardown proves an unmount (`:unmounted
+;; {:proof :host-teardown}`).
+;;
+;; The settle qualifier is the rf2-vxgfnd.44 honesty fix: a reconnect within the
+;; SAME synchronous commit as its disconnect is NOT a hide — it is React
+;; StrictMode's dev mount→cleanup→remount replay, and asserting `:activity-hidden`
+;; for it would fabricate a proof the runtime never observed. So `disconnect!`
+;; marks each cleanup PROVISIONAL and `settle-disconnect!` (a microtask on CLJS)
+;; clears it once the disconnect outlives its commit; only a disconnect that
+;; survived a host yield can then be proven a hide. DEV-only — production has no
+;; StrictMode double-invoke, so `:disconnect-provisional?` is never set and a
+;; reveal is proven exactly as before.
 
 (defn lifecycle
   "The cell's current runtime state keyword."
@@ -1071,14 +1103,55 @@
                    (assoc (peek ivs) :reason reason :proof proof))
              ivs))))
 
+(defn settle-disconnect!
+  "Settle `cell`'s open PROVISIONAL disconnect — mark it a disconnect that
+  outlived the synchronous commit that produced it, so a subsequent reconnect
+  honestly proves an Activity hide rather than a same-tick React StrictMode
+  replay (rf2-vxgfnd.44). No-op unless the cell is still `:disconnected` (a cell
+  already reconnected or torn down needs no settle). On CLJS `disconnect!` arms
+  this as a microtask — it fires after the synchronous commit unwinds and before
+  the next paint, so ONLY a same-commit StrictMode replay can reconnect ahead of
+  it; a genuine reveal (a later task) always finds the disconnect already
+  settled. A headless/JVM fixture calls this explicitly to model the host yield
+  of a real reveal. Returns nil."
+  [^ViewCell cell]
+  (let [st (state cell)]
+    (when (= :disconnected (:lifecycle @st))
+      (swap! st assoc :disconnect-provisional? false)))
+  nil)
+
+(defn- arm-disconnect-settle!
+  "Arm the settle of `cell`'s provisional disconnect. On CLJS a host microtask
+  (`queue-microtask!`) that runs after the current synchronous commit unwinds
+  and before the next paint — so React StrictMode's synchronous
+  mount→cleanup→remount reconnects BEFORE it (a replay, un-annotated), while a
+  genuine reveal (a later task) reconnects after it (proven a hide). No
+  auto-settle on the JVM headless host (no StrictMode, no async render loop); a
+  fixture there settles explicitly."
+  [^ViewCell cell]
+  #?(:cljs (queue-microtask! (fn [] (settle-disconnect! cell)))
+     :clj  nil))
+
 (defn- connect!
   "Commit-time lifecycle transition into `:connected`. A transition FROM
-  `:disconnected` is a reconnect — it retroactively proves the prior
-  interval was an Activity hide."
+  `:disconnected` is a reconnect. A reconnect proves an Activity hide ONLY when
+  the prior disconnect had SETTLED — i.e. it outlived the synchronous commit
+  that produced it. A SETTLED-then-reconnected interval is a genuine hide→reveal
+  and is annotated `:activity-hidden {:proof :reconnect}`. An UNSETTLED reconnect
+  is a React StrictMode dev replay — the same cell's effect
+  mount→cleanup→remount within ONE synchronous commit, where NO hide and NO
+  unmount happened — so it is NOT annotated: the runtime must not fabricate an
+  Activity-hide proof it never observed (rf2-vxgfnd.44). In production
+  `:disconnect-provisional?` is never set (no StrictMode double-invoke), so a
+  reveal is proven exactly as before."
   [^ViewCell cell]
   (let [st @(state cell)]
     (when (= :disconnected (:lifecycle st))
-      (annotate-open-disconnect! cell :activity-hidden :reconnect))
+      (if (:disconnect-provisional? st)
+        ;; same-tick StrictMode replay — the disconnect never settled; clear the
+        ;; provisional flag and DO NOT fabricate an Activity-hide proof.
+        (swap! (state cell) assoc :disconnect-provisional? false)
+        (annotate-open-disconnect! cell :activity-hidden :reconnect)))
     (swap! (state cell) assoc :lifecycle :connected)
     ;; Enrol in the live-cell registry (idempotent — a set) so a frame-destroy
     ;; sweep can find this cell while it observes a live committed dep set.
@@ -1111,6 +1184,14 @@
                   (-> m
                       (assoc :lifecycle :disconnected)
                       (update :intervals conj {:state :disconnected :reason :unknown}))))
+      ;; Same-tick StrictMode-replay guard (DEV-only — DCEs in production, which
+      ;; has no StrictMode double-invoke): mark this disconnect PROVISIONAL and
+      ;; arm its settle. A reconnect BEFORE the settle is a synchronous replay
+      ;; (mount→cleanup→remount in one commit — no hide); a reconnect AFTER it is
+      ;; a genuine reveal that `connect!` proves an Activity hide (rf2-vxgfnd.44).
+      (when interop/debug-enabled?
+        (swap! st assoc :disconnect-provisional? true)
+        (arm-disconnect-settle! cell))
       ;; Host/root teardown in flight: attribute this cell to it (03 §4).
       (when (some? @teardown-collector)
         (swap! teardown-collector conj cell)))
@@ -1557,6 +1638,14 @@
   "The installed lease for target key `tk` (tool/test read), or nil."
   [^ViewCell cell tk]
   (get (:committed @(state cell)) tk))
+
+(defn latest-capture
+  "The cell's last finished render capture — the layout commit's input, and the
+  single capture a cell retains between renders (tool/test read; nil before the
+  first render). See `with-capture`: a render retains AT MOST this one capture,
+  overwritten by the next render, never accumulating (rf2-vxgfnd.44)."
+  [^ViewCell cell]
+  (:latest-capture @(state cell)))
 
 (defn revision
   "The cell's current revision integer (tool/test read)."
