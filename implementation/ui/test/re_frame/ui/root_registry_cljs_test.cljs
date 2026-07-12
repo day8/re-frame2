@@ -5,7 +5,8 @@
   preflight seam, and the S1 hydrate fail-loud. No DOM — containers are
   plain JS objects (ownership is identity-based); the full React mount
   path is the browser smoke (`re-frame.ui.root-mount-dom-cljs-test`)."
-  (:require [cljs.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.string :as str]
+            [cljs.test :refer [deftest is testing use-fixtures]]
             [re-frame.error :as error]
             [re-frame.ui.client :as client]))
 
@@ -417,6 +418,77 @@
     (is (= #{:reg/id} (client/live-root-ids))
         "the newer claim survives")
     (is (identical? newer (:root (client/live-root-entry :reg/id))))))
+
+(defn- root-with-unmount-throws-once
+  "A Root whose host react-root's `.unmount` THROWS on its first call and
+  SUCCEEDS on every call after — models the concrete rf2-vxgfnd.53 case:
+  React refuses a synchronous unmount from inside a render pass, but the
+  SAME call succeeds once out of it. `calls` counts every `.unmount`."
+  [root-id container calls]
+  (let [rr (js-obj)]
+    (unchecked-set rr "unmount"
+                   (fn []
+                     (when (= 1 (swap! calls inc))
+                       (throw (js/Error. "unmount during render boom")))))
+    (client/->Root rr container root-id)))
+
+(deftest unmount-throw-aftermath-warns-and-names-the-escape
+  ;; rf2-vxgfnd.53 — the UNCOVERED aftermath of .18 AC4's release-on-throw
+  ;; (no test covered the React-didn't-unmount case). RULING (b): KEEP AC4
+  ;; (release the claim on a throwing host .unmount; a second unmount!* is a
+  ;; no-op; the host error propagates) — reversing it would contradict AC4's
+  ;; dedicated `unmount-releases-claim-even-when-host-teardown-throws` test —
+  ;; but make the ORPHANED-TREE aftermath non-silent with a dev diagnostic
+  ;; that names the manual escape, and prove the escape recovers the
+  ;; container so a subsequent mount does not double-root over a live tree.
+  (let [c        (js-obj)
+        calls    (atom 0)
+        root     (root-with-unmount-throws-once :reg/orphan c calls)
+        captured (atom [])
+        orig     (.-warn js/console)]
+    (client/register-live-root! {:root-id :reg/orphan :provenance :authored} c root)
+    (is (= #{:reg/orphan} (client/live-root-ids)))
+    ;; (1) AC4 preserved: the host error propagates, and a dev diagnostic
+    ;; fires on the throwing teardown (captured around this one call).
+    (try
+      (set! (.-warn js/console)
+            (fn [& args] (swap! captured conj (apply str args))))
+      (is (thrown-with-msg? js/Error #"unmount during render boom"
+                            (client/unmount!* root))
+          "the host teardown error still propagates (.18 AC4)")
+      (finally
+        (set! (.-warn js/console) orig)))
+    (is (= 1 @calls) "React's .unmount was reached exactly once (and it threw)")
+    (is (= #{} (client/live-root-ids))
+        "the exact claim is released despite the throw (.18 AC4, finally-shaped)")
+    (is (nil? (client/unmount!* root))
+        "a second unmount!* is a no-op — the framework cannot retry the host unmount")
+    (is (= 1 @calls)
+        "the no-op second unmount!* never reaches React's .unmount again")
+    ;; (2) rf2-vxgfnd.53: the aftermath is NON-SILENT — one dev diagnostic
+    ;; naming the manual escape VERBATIM + the double-root hazard.
+    (let [msg (str/join "\n" @captured)]
+      (is (seq @captured) "a dev diagnostic fired on the throwing unmount")
+      (is (str/includes? msg "(.unmount (.-react-root root))")
+          "the diagnostic names the manual escape verbatim")
+      (is (str/includes? msg "double-root")
+          "the diagnostic warns about the remount double-root hazard")
+      (is (str/includes? msg "orphaned")
+          "the diagnostic names the orphaned live tree"))
+    ;; (3) the documented ESCAPE WORKS: calling .unmount on the SAME handle
+    ;; now succeeds (out of the render pass), tearing the orphaned tree down.
+    (is (nil? (.unmount (.-react-root root)))
+        "the manual escape (.unmount (.-react-root root)) succeeds on retry")
+    (is (= 2 @calls) "the escape actually invoked React's .unmount again")
+    ;; (4) NO SILENT DOUBLE-ROOT: with the tree torn down (via the escape)
+    ;; AND the claim already released, a subsequent create-root* / mount
+    ;; re-claims the container cleanly — no createRoot over a live tree.
+    (client/check-root-claim! 're-frame.ui/mount
+                              {:root-id :reg/remount :provenance :authored} c)
+    (client/register-live-root! {:root-id :reg/remount :provenance :authored}
+                                c (fake-root :reg/remount))
+    (is (= #{:reg/remount} (client/live-root-ids))
+        "the container re-claims cleanly after the escape — no double-root")))
 
 ;; ---------------------------------------------------------------------------
 ;; React root options
