@@ -474,6 +474,21 @@
             (require-scope-frame! target 're-frame.ui/frame-provider)]
     (body-thunk)))
 
+(defn jvm-root-scope
+  "The emitted JVM half of a top-region `frame-root` (rf2-vxgfnd.25): BIND
+  the dynamic-tier ambient frame to the frame-root's literal `:id` around
+  the subtree's structural construction (`body-thunk` builds and returns the
+  children fragment). The JVM has no React context; the dynamic binding is
+  the same scope tier `rf/with-frame` uses, so ambient frame-scoped reads
+  inside the subtree resolve the frame-root's frame during a Tier-1
+  structural render — the JVM mirror of the CLJS `scope-element`. PURE scope:
+  ENSURE already ran at host preflight (03 §8), so — unlike the provider
+  half — no runtime target validation happens here; the frame-root OWNS/
+  ensured the frame it names. Returns the built subtree."
+  [frame-id body-thunk]
+  (binding [frame/*current-frame* frame-id]
+    (body-thunk)))
+
 ;; ---------------------------------------------------------------------------
 ;; Frame-destroy → ViewCell teardown wiring (03 §4; rf2-vxgfnd.42)
 ;; ---------------------------------------------------------------------------

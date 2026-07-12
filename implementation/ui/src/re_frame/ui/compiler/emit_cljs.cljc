@@ -256,15 +256,20 @@
        ~arr)))
 
 (defn- emit-frame-root
-  "A top-region `frame-root` renders TRANSPARENTLY — children under a
-  Fragment. Its ENSURE semantics ride the extracted static plan (the
-  descriptor `:frame-plans` + the client preflight, `re-frame.ui.frames`),
-  which runs at host preflight BEFORE any render — never the rendered
-  tree. The emitted component then only scopes the already-live frame."
+  "A top-region `frame-root` SCOPES its preflight-ensured frame to its
+  children through the shared React frame context (rf2-vxgfnd.25 —
+  `frames/scope-element`), so an ambient `(sub …)` in a descendant view
+  resolves the frame-root's frame (the compiled sub-read consults the
+  React-context tier via the rf2-vxgfnd.24 `:adapter/current-frame` reader).
+  Its ENSURE semantics ride the extracted static plan (the descriptor
+  `:frame-plans` + the client preflight, `re-frame.ui.frames`), which runs
+  at host preflight BEFORE any render — never the rendered tree; the emitted
+  Provider only SCOPES the already-live frame. Children stay in an array so
+  the Provider keys them (mirrors `emit-frame-provider`)."
   [node st inline?]
-  (jsx-call `re-frame.ui.runtime/Fragment []
-            (children-forms st (:children node) inline?)
-            {:present? false}))
+  `(re-frame.ui.frames/scope-element
+    ~(:frame-id node)
+    (cljs.core/array ~@(children-forms st (:children node) inline?))))
 
 (defn- emit-frame-provider
   "S2c: `frame-provider` scopes its children to an already-live frame
