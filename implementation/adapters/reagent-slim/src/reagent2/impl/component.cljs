@@ -384,11 +384,33 @@
   binding."
   [^js klass spec]
   (let [proto (.-prototype klass)]
-    (when-let [f (:component-did-mount spec)]
+    ;; componentDidMount: always installed (even without a user
+    ;; :component-did-mount) so a React.StrictMode simulated
+    ;; unmount→remount can re-establish the per-instance render Reaction
+    ;; (rf2-6b6pex). StrictMode's dev init sequence for a slim class is
+    ;; `render ×2 → componentDidMount → componentWillUnmount →
+    ;; componentDidMount`: the transient componentWillUnmount disposes +
+    ;; nils this instance's render Reaction (below), and React reuses the
+    ;; committed fiber on the remount — so the second componentDidMount
+    ;; fires with NO intervening render() to recreate it. Slim recreates
+    ;; the render Reaction only lazily inside render() (make-render-method),
+    ;; so the remounted instance would be left with `cljsRenderRea = nil`
+    ;; and no subscription watches: it renders once then ignores app-db
+    ;; changes (reactively dead). When the reattach marker the transient
+    ;; componentWillUnmount set is present, force a re-render:
+    ;; make-render-method then recreates the Reaction and re-subscribes its
+    ;; deref'd watches. The marker is set ONLY when a live render Reaction
+    ;; was disposed by an unmount, so a normal first mount (render() already
+    ;; ran, `cljsRenderRea` live, no marker) is a no-op here.
+    (let [user-fn (:component-did-mount spec)]
       (set! (.-componentDidMount proto)
             (fn []
-              (this-as this
-                (bind-and-call this #(f this))))))
+              (this-as ^js this
+                (when (.-cljsRemountReattach this)
+                  (set! (.-cljsRemountReattach this) false)
+                  (batching/queue-render! this))
+                (when user-fn
+                  (bind-and-call this #(user-fn this)))))))
 
     ;; componentWillUnmount: always installed (even without
     ;; :component-will-unmount) so the per-instance render Reaction
@@ -407,7 +429,15 @@
                 (batching/mark-rendered this)
                 (when-some [rea (.-cljsRenderRea this)]
                   (ratom/dispose! rea)
-                  (set! (.-cljsRenderRea this) nil))
+                  (set! (.-cljsRenderRea this) nil)
+                  ;; Mark for reattach on a StrictMode remount (rf2-6b6pex).
+                  ;; If React remounts THIS same instance (its dev
+                  ;; unmount→remount reuses the committed fiber and fires
+                  ;; componentDidMount with no intervening render()),
+                  ;; componentDidMount forces a re-render to re-establish the
+                  ;; render Reaction + its watches. A genuine unmount never
+                  ;; remounts, so the marker is discarded with the instance.
+                  (set! (.-cljsRemountReattach this) true))
                 (when user-fn
                   (bind-and-call this #(user-fn this)))))))
 
