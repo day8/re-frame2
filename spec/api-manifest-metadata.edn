@@ -430,7 +430,11 @@
   ;; spec/001-Registration §Interceptors; the by-reference chain grammar is
   ;; spec/002-Frames §Registered interceptors.
   ["re-frame.core" "reg-interceptor"]     {:tier :front-porch :owner "001" :status "EP-0022"}
-  ["re-frame.core" "reg-frame"]           {:tier :front-porch :owner "002" :status "v1"}
+  ;; rf2-h1vqa4: `reg-frame` is DELETED (no alias, no tombstone — never shipped
+  ;; in a release). A frame is a LIVE runtime object, not a program member, so
+  ;; the one reg-* that constructed instead of registered corrupted the
+  ;; registrar grammar. `make-frame` (below) is the ONE programmatic
+  ;; constructor; `frame-root` is the ENSURE mount recipe.
   ;; EP-0024 (rf2-tu2vr7): `make-frame` is the ONE frame constructor over the ONE
   ;; `frames` registry — it backs onto the unified `re-frame.live-frame/make-frame`,
   ;; RETURNS THE FRAME VALUE (the lifecycle token), and accepts BOTH
@@ -567,7 +571,7 @@
   ["re-frame.core" "destroy-frame!"]      {:tier :front-porch :owner "002" :status "v1"}
   ;; rf2-lxwpob (API-shrink #5, frame-lifecycle collapse, 2026-07-07): the
   ;; dedicated `reset-frame!` verb is DELETED — a full replace is reproducible
-  ;; by composition (`destroy-frame!` + `reg-frame`/`make-frame` with the
+  ;; by composition (`destroy-frame!` + `make-frame` with the
   ;; caller's own config). The facade name survives ONLY as a `^:no-doc`
   ;; throwing stub (`:rf.error/reset-frame-removed`) and so carries NO
   ;; manifest row (the manifest generator drops `^:no-doc` vars).
@@ -1080,7 +1084,7 @@
   ["re-frame.routing" "current-url"]            {:tier :advanced :owner "012" :status "v1"}
   ;; rf2-aerrz5: the two shipped frame-level `:url-strategy` maps —
   ;; `history-url-strategy` (default, path-form) + `hash-url-strategy`
-  ;; (`#`-prefixed). Declared on the URL-owning frame's `reg-frame` config so
+  ;; (`#`-prefixed). Declared on the URL-owning frame's `make-frame` config so
   ;; the router skins its path-form model onto the browser's chosen address-bar
   ;; form (Spec 012 §URL strategies). Routing-façade home (NOT re-frame.core) so
   ;; a non-routing app's production bundle carries no strategy code — the
