@@ -3029,24 +3029,32 @@
         ;;
         ;;  (1) TARGET ON THE ACTIVE PATH — `target-base` is a prefix of
         ;;      `src-path` (the target is the source itself, OR a proper
-        ;;      ANCESTOR of the source). Per the XState-v5 model
-        ;;      this is INTERNAL BY DEFAULT — the source neither exits nor
-        ;;      re-enters; the transition's `:action` fires and the
-        ;;      configuration is unchanged (same shape as a targetless
-        ;;      internal transition). Only when the transition opts in with
-        ;;      `:reenter? true` does the EXTERNAL restart geometry apply:
-        ;;      pull `lca-len` UP to the target's PARENT
-        ;;      (`(count target-base) - 1`) so the target lands in BOTH the
-        ;;      exit and entry cascades — it is exited (re-running its
-        ;;      `:exit`), the transition `:action` fires, the target is
+        ;;      ANCESTOR of the source). Per the XState-v5 internal-by-
+        ;;      default model the target NODE is not exited/re-entered — its
+        ;;      own `:exit`/`:entry` do NOT re-run — but its active
+        ;;      DESCENDANTS re-resolve: the children strictly below the
+        ;;      target exit and the target's `:initial` chain re-descends.
+        ;;      So `lca-len` = `(count target-base)` (the
+        ;;      `target-on-active-path?` arm below): everything strictly
+        ;;      below the target on the active path exits and the target's
+        ;;      `:initial` re-enters. This is NOT a configuration no-op —
+        ;;      only a TARGETLESS transition preserves the whole
+        ;;      configuration (active descendants included); the two coincide
+        ;;      ONLY when the target is a LEAF (no descendants left to
+        ;;      re-resolve). See Spec 005 §Self-transitions. Only when the
+        ;;      transition opts in with `:reenter? true` does the EXTERNAL
+        ;;      restart geometry apply: pull `lca-len` UP to the target's
+        ;;      PARENT (`(count target-base) - 1`) so the target ITSELF lands
+        ;;      in BOTH the exit and entry cascades — it is exited (re-running
+        ;;      its `:exit`), the transition `:action` fires, the target is
         ;;      re-entered (re-running its `:entry`) and its `:initial` chain
         ;;      re-descends (`target-leaf`). That is the RESTART-the-compound
         ;;      geometry XState v5 gives an external/`reenter:true` transition
         ;;      to self or an ancestor (and the v4/SCXML DEFAULT, which v5
-        ;;      flipped — see Spec 005 §Self-transitions). Without the pull-up
-        ;;      a re-entering active-path target would have its plain
-        ;;      common-prefix LCA equal the full target depth and the
-        ;;      transition would be a SILENT NO-OP. `max 0` keeps
+        ;;      flipped — see Spec 005 §Self-transitions). The pull-up is what
+        ;;      makes `:reenter?` restart the target NODE too; without it the
+        ;;      target node survives and only its descendants re-resolve —
+        ;;      exactly the internal-default case above. `max 0` keeps
         ;;      a root-level target (`target-base == []`) sane: with
         ;;      `:reenter?` the whole machine exits + re-enters from the root.
         ;;
@@ -3062,9 +3070,13 @@
         ;;      no-op here: the LCCA already lies above both, so exit/entry
         ;;      fire regardless.
         ;;
-        ;;  An INTERNAL transition (no `:target`, OR an active-path target
-        ;;  without `:reenter?`) is untouched — it never reaches the cascade
-        ;;  (`internal?` short-circuits exit/entry below).
+        ;;  Only a TARGETLESS transition is INTERNAL (`internal? =
+        ;;  targetless?` below): it is untouched — it never reaches the
+        ;;  cascade (`internal?` short-circuits exit/entry below). An
+        ;;  active-path target WITHOUT `:reenter?` is NOT internal — it
+        ;;  re-resolves the descendants below the target through the normal
+        ;;  exit/entry cascade (boundary = `(count target-base)`), even
+        ;;  though the target node itself is not exited or re-entered.
         ;;
         ;; `target-on-active-path?` is the GEOMETRIC predicate (the literal
         ;; target lands on the active path — `target-base` is a prefix of
