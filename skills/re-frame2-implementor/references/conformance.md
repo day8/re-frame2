@@ -60,7 +60,7 @@ Common ops (mirror [`spec/conformance/README.md` §Handler-body DSL ops](https:/
 - `[:fx [...]]` — return a literal `:fx` vector.
 - `[:throw "message"]`, `[:return-raw value]`, `[:noop]` — control/failure ops (`:return-raw` is the only op that can author a malformed effect-map).
 
-The complete operator set (incl. `:dispatch-sync`, `:reg-frame-capture`, `:reset-frame-capture`, and the reflection/value forms `[:event-arg …]` / `[:get-event-arg …]` / `[:fn …]`) is the table in `spec/conformance/README.md` §Handler-body DSL ops.
+The complete operator set (incl. `:dispatch-sync`, `:make-frame-capture`, and the reflection/value forms `[:event-arg …]` / `[:get-event-arg …]` / `[:fn …]`) is the table in `spec/conformance/README.md` §Handler-body DSL ops.
 
 The interpreter is ~50 lines per host. The CLJS reference's interpreter lives in `implementation/core/src/re_frame/conformance.cljc` (namespace `re-frame.conformance` — `realise-event-handler` / `realise-sub` / `realise-fx-handler`); copy the dispatch-style and adapt the literal-op handlers. It's a `.cljc`, so it is both JVM- and CLJS-runnable.
 

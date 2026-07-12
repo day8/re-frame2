@@ -67,7 +67,7 @@
   ;; NOT halt — handler-exception is per-event recovery, not a
   ;; drain-halt under the current runtime.
   ;; Three :ok records — :initial-events [[:counter/initialise]] fires a
-  ;; synchronous drain at reg-frame time (pos 0), then the fixture's
+  ;; synchronous drain at make-frame time (pos 0), then the fixture's
   ;; two dispatches (:will-throw, :should-not-fire) each run as
   ;; separate drains (positions 1 and 2). All three settle cleanly.
   :epoch-records

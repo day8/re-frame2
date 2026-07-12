@@ -67,7 +67,7 @@
   ;; (6) :rf.gen/requires (the third image-capability surface) is RETIRED — a
   ;; sealed generation carries NO :rf.gen/requires. (The :make-frame
   ;; :capabilities surface — the second — is no longer an image-selection key;
-  ;; it now flows to reg-frame as ordinary record-config.) A clean image
+  ;; it now flows to make-frame as ordinary record-config.) A clean image
   ;; assembles to a generation whose kinds are present but with no requires slot.
   {:call :assemble-image
    :pool [{:rf.provenance/ns "app.core" :kind :event :id :app/boot :handler-fn :boot}]

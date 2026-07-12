@@ -20,7 +20,7 @@
 ;; Both abort construction with `:rf.error/initial-events-step-failed`. A
 ;; well-formed control config (seed + a non-throwing step) is the must-NOT-throw
 ;; lane — proving the strictness rejects the FAILING steps specifically, not all
-;; construction. Mode-B `:reg-frame` call op (mirror of construction-shape-
+;; construction. Mode-B `:make-frame` call op (mirror of construction-shape-
 ;; validation): each call's `:expect-error` names the `:rf.error/id` the
 ;; construction must throw; the runner tears down any registered frame
 ;; afterward. The cross-host throw discriminator IS the teardown signal — the
@@ -32,7 +32,7 @@
 {:fixture/id           :construction/initial-events-strict-teardown
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/frame :core/error}
- :fixture/doc          "Per EP-0027 §Failure (rf2-vw5h1r, strict construction): an :initial-events setup step that fails in-band — a [:rf/set-db :not-a-map] bad-arg (raises :rf.error/set-db-bad-value from inside the handler → in-band :rf.error/handler-exception) or a plain handler-body throw — tears down the partial frame and aborts construction with :rf.error/initial-events-step-failed. A well-formed config is the must-not-throw control. Mode-B :reg-frame call op."
+ :fixture/doc          "Per EP-0027 §Failure (rf2-vw5h1r, strict construction): an :initial-events setup step that fails in-band — a [:rf/set-db :not-a-map] bad-arg (raises :rf.error/set-db-bad-value from inside the handler → in-band :rf.error/handler-exception) or a plain handler-body throw — tears down the partial frame and aborts construction with :rf.error/initial-events-step-failed. A well-formed config is the must-not-throw control. Mode-B :make-frame call op."
 
  :fixture/registry
  {:event {:ctor/seed {:doc "Seed step — succeeds, so a partial frame exists when the failing step runs."}
@@ -57,7 +57,7 @@
   ;; nil. Strict construction detects the captured error, tears down the partial
   ;; frame (the [:rf/set-db {}] seed before it succeeded, so a partial frame
   ;; exists), and raises :rf.error/initial-events-step-failed.
-  {:call         :reg-frame
+  {:call         :make-frame
    :frame-id     :ctor/set-db-bad
    :config       {:initial-events [[:rf/set-db {:n 0}]
                                    [:rf/set-db :not-a-map]
@@ -68,7 +68,7 @@
   ;; handler-body throw the chain catches in-band. Before the fix this was
   ;; TRACED-and-recovered and the frame LEFT ALIVE; strict construction now
   ;; tears it down and raises the same discriminator.
-  {:call         :reg-frame
+  {:call         :make-frame
    :frame-id     :ctor/handler-boom
    :config       {:initial-events [[:ctor/seed]
                                    [:ctor/boom]
@@ -78,7 +78,7 @@
   ;; (3) Control: a well-formed :initial-events config (seed + non-throwing
   ;; step) must construct silently (no :expect-error) — proving strictness
   ;; rejects the FAILING steps specifically, not all construction.
-  {:call     :reg-frame
+  {:call     :make-frame
    :frame-id :ctor/strict-ok
    :config   {:initial-events [[:ctor/seed]
                                [:ctor/inc]]}}]
