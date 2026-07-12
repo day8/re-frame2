@@ -454,10 +454,10 @@ The metadata map accepted by `reg-interceptor` ([EP-0022](../docs/EP/EP-0022-reg
 #### `:rf/view-meta`
 
 > **Layer:** Public
-> **Owner:** [004-Views §Shape](004-Views.md#shape)
+> **Owner:** [004-Views §Shape](004-Views.md#view-identity-and-the-instrumentation-surface)
 > **Status:** v1-required
 
-The metadata map accepted by `reg-view` / `reg-view*`. The `^{:rf/id ...}` symbol-meta override on the `reg-view` symbol surfaces in the stamped registry slot as `:rf/id` per [004 §Shape](004-Views.md#shape).
+The metadata map accepted by `reg-view` / `reg-view*`. The `^{:rf/id ...}` symbol-meta override on the `reg-view` symbol surfaces in the stamped registry slot as `:rf/id` per [004 §Shape](004-Views.md#view-identity-and-the-instrumentation-surface).
 
 ```clojure
 (def ViewMeta
@@ -471,7 +471,7 @@ The metadata map accepted by `reg-view` / `reg-view*`. The `^{:rf/id ...}` symbo
     ]])
 ```
 
-`:rf/args` / `:rf/form` are stamped by the `reg-view` macro at expansion time; `reg-view*` (the plain-fn surface) carries neither — programmatic registrations have no args-vector to capture (per [004 §`reg-view*` — the plain-fn escape hatch](004-Views.md#reg-view--the-plain-fn-escape-hatch)). `:rf/props` is an optional user-supplied props schema; in dynamic hosts the framework can validate props against it at render-time-boundary in dev builds (per [010](010-Schemas.md)).
+`:rf/args` / `:rf/form` are stamped by the `reg-view` macro at expansion time; `reg-view*` (the plain-fn surface) carries neither — programmatic registrations have no args-vector to capture (per [004 §`reg-view*` — the plain-fn escape hatch](004-Views.md#removed-forms--normative-absences)). `:rf/props` is an optional user-supplied props schema; in dynamic hosts the framework can validate props against it at render-time-boundary in dev builds (per [010](010-Schemas.md)).
 
 **Note — `:schema` is canonical.** Both Story and the framework read the `:schema` key (there is no `:spec` alias). See [MIGRATION §M-54](../migration/from-re-frame-v1/README.md#m-54-schema-vocabulary-unification--spec--schema) for the v1→v2 rename.
 

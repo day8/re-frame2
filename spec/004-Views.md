@@ -1,605 +1,739 @@
 # Spec 004 — Views
 
-> Status: Drafting. **v1-required.** A view is a pure function `(state, props) → render-tree`. A portable view has one deterministic, serialisable template representation consumed by each host emitter; emitted host values may be host-native and need not themselves be serialisable. In the CLJS reference the hiccup a view returns is that template representation — the client substrate and the JVM HTML emitter both consume it directly. The CLJS reference's `reg-view` is a **defn-shape macro** that auto-defs the symbol you supply, auto-derives the registered id from `(keyword *ns* sym)`, and lexically auto-injects frame-bound `dispatch`/`subscribe` — an ergonomic realisation of the explicit-frame contract. The plain-fn surface `reg-view*` is the runtime-callable escape hatch. Hiccup is the CLJS render-tree; other hosts use their own shape. SSR ([Spec 011](011-SSR.md)) renders the same views to a string on the server without React.
+> Status: Drafting. **v1-required.** A view is `ui/defview` — a pure function of **one
+> props map** to a **template**. Templates are Reagent-familiar hiccup with the
+> ambiguities removed; a compiler lowers every view to **one normalized, serialisable
+> template AST** consumed by two emitters — direct React code for the browser, a
+> structural render tree for the JVM. No interpreter ships. Event handlers are **data**
+> (event vectors) by default. Every view is memoized by default. The CLJS realisation is
+> **`re-frame.ui`** (artifact `day8/re-frame2-ui`, alias `ui/`); frames are created at
+> host preflight (per [002](002-Frames.md)), never from render. SSR
+> ([011](011-SSR.md)) renders the same views on the JVM without React.
 
 ## Abstract
 
-A view is a **pure function `(state, props) → render-tree`**. The pattern-level commitments:
+A view is a **pure function `(props) → template`**, authored with `ui/defview`. The
+pattern-level commitments:
 
-1. **Pure.** No render-time side-effects, no implicit reads from ambient state beyond what's declared in inputs.
-2. **Frame-explicit.** The view targets a specific frame; that frame is part of the render-time inputs (via parameter, closure, or implementation-specific injection that resolves to the same observable).
-3. **The template representation is serialisable data.** A portable view has one deterministic, serialisable template representation (hiccup, JSX-as-data, a compiled template AST — host choice) consumed by each host emitter — rendered to a string for SSR (per [011](011-SSR.md)) or to the client-side substrate. Emitted host values (React elements, DOM nodes) may be host-native and need not themselves be serialisable. Where a host consumes the template by interpreting the view's runtime render result (the CLJS reference's hiccup), that render result *is* the template representation and carries its serialisation obligations; where a host compiles the template ahead of time, the obligations attach to the compiled template AST, not to the emitted host values.
+1. **Pure and speculative-safe.** A render may run, restart, or be abandoned; it reads
+   values and builds a local capture. It MUST NOT dispatch, acquire ownership, mutate
+   committed state, publish debug state, or create/seed frames.
+2. **Frame-explicit, carried never guessed.** Resolution is explicit pin → dynamic
+   binding → React context → loud `:rf.error/no-frame-context`. There is no default
+   frame and no cross-frame read spelling. Frames are created at **host preflight**
+   ([002](002-Frames.md)); the view layer only *scopes* live frames.
+3. **The portability law.** A portable view has one deterministic, serialisable
+   **template representation** consumed by each host emitter. Emitted host values may be
+   host-native and need not themselves be serialisable. One normalized template AST
+   controls every emitter; parity between emitters is **normalized structural
+   equivalence** (fingerprinted), not byte-identical output.
+4. **Client markup is compiled, never interpreted.** Literal templates lower to
+   `jsx`/`jsxs` calls; conversion is compile-time; static subtrees hoist. No hiccup
+   walker, tag parser, camelizer, or component-shape detector ships in a browser
+   bundle.
+5. **Handlers observe committed values.** Event callbacks are per-site stable and read
+   committed slots + the committed frame; the canonical handler is an **event vector**
+   — data.
+6. **Memoized by default.** Every internal view is memoized on a generated
+   straight-line `rf=` comparator over its declared prop slots. There is no opt-out.
 
-These are pattern-level commitments; they hold across the eight in-scope JS-cross-compile-to-React+VDOM languages (per [000 §The pattern](000-Vision.md#the-pattern-js-cross-compile-language-agnostic) — ClojureScript, TypeScript, Melange / ReScript / Reason, Fable (F#), Squint, Scala.js, PureScript, Kotlin/JS).
+These are pattern-level commitments across the eight in-scope JS-cross-compile hosts
+(per [000 §The pattern](000-Vision.md#the-pattern-js-cross-compile-language-agnostic)).
+The CLJS reference realisation is `re-frame.ui`; its forms (`defview`, `sub`, `local`,
+`effect`, `lease`, and the `ui/*` interop surface) are ordinary namespace vars —
+`(:require [re-frame.ui :as ui :refer [defview sub]])` — referred bare in examples below
+for readability.
 
-The render-tree shape is specified in [§The render-tree shape](#the-render-tree-shape-pattern-level-contract). The CLJS realisation of the frame-explicit commitment — `reg-view` and the hiccup invocation forms — is specified in [§`reg-view` is the multi-frame contract](#reg-view-is-the-multi-frame-contract) and [§How registered views are used in hiccup](#how-registered-views-are-used-in-hiccup). The frame-routing mechanics that `reg-view` consumes (React-context resolution, `with-frame` scoping, the UI-owned `frame-provider` lifecycle boundary, `capture-frame` carry) live in [002-Frames.md §View ergonomics](002-Frames.md#view-ergonomics-the-hard-part) — Spec 004 owns the view-side API surface; 002 owns the frame-side mechanics.
+## The portability law and the template AST
 
-### What is server-renderable, what is client-only
+**A portable view has one deterministic, serialisable template representation consumed
+by each host emitter. Emitted host values may be host-native and need not themselves be
+serialisable.**
 
-Per [011](011-SSR.md):
+- **One AST.** `defview` is `.cljc`. The compiler normalizes the template — including
+  the control forms (§Template grammar) — into one closed-node-set AST. Every analyzer
+  and every emitter consumes that AST; no emitter consumes raw source or another
+  emitter's output.
+- **Two emitters.** The browser emitter generates direct React code (`jsx`/`jsxs`
+  calls, hoisted static subtrees, compile-time prop conversion). The JVM emitter
+  generates the canonical serialisable structural render tree consumed by the existing
+  `day8/re-frame2-ssr` artifact (per [011](011-SSR.md)) — no second server product.
+  That tree's **versioned public node schema** (v1: element / fragment / view-boundary /
+  trusted-HTML / text — a closed set of plain serialisable maps in canonical form), the
+  semantic normalization `N` that feeds parity and fingerprints, and the `emit-ui-tree`
+  SSR consumption boundary (version-gated) are owned by
+  [004B-UI-Tree-and-Conversion.md](004B-UI-Tree-and-Conversion.md) —
+  referenced here, never restated. The optimizer/compiler AST stays private; the public
+  contract is the tree plus the conversion table.
+- **Parity.** Equivalence between emitters is **normalized structural equivalence** over
+  semantic nodes — tag/ns, attribute names + values, child order, escaping, keyed order,
+  void/boolean handling, fragments, fallbacks — fingerprinted and generatively tested
+  (per [008](008-Testing.md)). Byte-identical HTML is NOT the contract.
+- **Serialisation boundary.** The template AST's structure — tags, nesting, non-function
+  attribute values, and literal event vectors — is fully serialisable and survives a
+  print/read round-trip; event vectors are retained *as data* in the compiler manifest
+  and the JVM tree. Non-serialisable sites (`ui/event`, `ui/handler`, bare fns,
+  `ui/raw-fn`, foreign values) are explicit spellings recorded in the manifest with a
+  `:serializable?`/`:dynamic` flag — escape hatches advertise their cost.
+- **Closed node set.** Escaping is structural: because the AST's node types are closed,
+  there is no unknown-node fallback arm in either emitter. Template-string DSLs remain
+  an invalid carrier — strings don't compose, don't diff, don't lint, don't round-trip.
+- **Non-React emitters** are preserved as an option by an AST-shape gate (the IR must
+  keep edit-list-sufficient information), not by a maintained implementation.
 
-- **Server-renderable:** the view function itself (pure `(state, props) → render-tree`); the template representation as a string (the pure template → string emitter is JVM-runnable; hiccup → string in the CLJS reference); the subscription computation (pure `state → value`); machine transitions (pure).
-- **Pure render-time input:** the frame's `app-db` value; the frame id; the props passed to the view.
-- **Client-only:** the React mount/commit lifecycle; reactive sub *tracking* (auto-subscribe-on-deref); the React-context-driven `frame-provider` machinery; DOM-mutation effects; browser APIs (clipboard, IndexedDB, etc.).
+## `ui/defview` — the one component form
 
-The view function's *body* — including `subscribe` calls that yield values, and `dispatch` calls that close over the frame — runs on the server given a frame and an `app-db`. The reactive *tracking* of subs (auto-rerender on change) is a client concern. SSR computes subs against a static `app-db`; hydration on the client wires up the reactive tracking.
+```clojure
+(ui/defview product-card
+  "One product tile."
+  {:props [:map
+           [:product [:map [:id :int] [:name :string] [:price :double]]]]}
+  [{:keys [product]}]
+  (let [{:keys [id name price]} product
+        in-cart? (sub [:cart/contains? id])]
+    [:div.card
+     [:h3 name]
+     [:span.price (format-price price)]
+     [:button {:on-click (if in-cart? [:cart/remove id] [:cart/add id])
+               :disabled (sub [:cart/locked?])}
+      (if in-cart? "Remove" "Add to cart")]]))
+```
 
-### The render-tree shape (pattern-level contract)
+- **Zero or one argument — semantically a props map.** Header destructuring (`:keys`,
+  namespaced `:x/keys`, `:or`, explicit bindings) lowers to direct property reads on the
+  host props object; no CLJS map is materialized at entry. `:as` opts into
+  materialization + generic comparison (a documented dev cost). **There are no
+  positional args.**
+- **Props ABI.** Each prop keyword maps to a deterministic quoted JS property name
+  preserving namespace + name; it cannot collide with React's `key`/`ref`/`children`
+  slots. **`:key` is reserved** (it feeds React's key slot) — an app prop literally
+  named `:key` is a compile error. Children arrive in the props map as `:children` and
+  compare as one slot. The compiler manifest maps compact production slot indexes back
+  to keywords.
+- **Options map (closed for v1):** `:props` (Malli — literal call sites checked at
+  compile time, dynamic values at dev runtime, elided in production), `:id` (registry
+  override), `:display-name`. Nothing else. The following were considered and are
+  deliberately absent: `:memo false` (no demonstrated consumer; mutable foreign values
+  belong at an explicit boundary); `:on-mount`/`:on-unmount` (domain events cannot ride
+  mechanical React lifecycle — StrictMode replay, Activity, HMR, and error recovery make
+  "once" semantics unrecoverable; domain visibility belongs to route/domain transitions,
+  host sync to `effect`); `:catch`/`:fallback` (error handling is the explicit
+  `ui/error-boundary` component).
+- **Registration.** `defview` defs a Var **and registers in the registrar** under the
+  `:view` kind: source metadata, template fingerprint, hook signature, capability bits.
+  Default id derivation follows the family rule `(keyword (str *ns*) (str sym))` per
+  [Conventions](Conventions.md); `:id` overrides. Story mounts scenes by view id;
+  render-keys are instance ids allocated at mount; the Pair hot-swaps a view like an
+  event handler (§Hot reload).
+- **Memo-by-default.** Every internal view is memoized on a generated straight-line
+  `rf=` comparator over its declared prop slots. Scope stated honestly: `rf=`-equal
+  props ⇒ no *prop-driven* repaint; subscription, local-state, and context changes still
+  render.
+  `rf=` is, per slot: `Object.is(a,b) OR (= a b)`.
+  CLJS data (anything with `IEquiv`, incl. records and js/Date) compares by value;
+  host/foreign values (plain JS objects, arrays, functions, React elements) fall
+  through to identity. Consequences pinned: fresh-but-equal CLJS literals ⇒ no repaint;
+  in-place-mutated host objects ⇒ no repaint (mutable foreign values belong at an
+  explicit boundary — consistent with the `:memo false` rejection); `##NaN` props are
+  repaint-stable via the `Object.is` branch; `-0`/`+0` compare *equal* via the `=`
+  branch (deliberate, harmless divergence from raw `Object.is`). Teach as "React.memo,
+  except CLJS data compares by value". The identity check doubles as the generated
+  fast path.
 
-Three things are specified separately to avoid conflating them: the **conceptual node shape** (the data model every host's template representation shares), the **carrier** (the host-language template form that holds the shape — consumed by the host's emitters either by runtime interpretation or by ahead-of-time compilation), and the **serialisation boundary** (which parts of the template representation survive a print/read round-trip).
+## Template grammar
 
-#### Conceptual node shape
+Reagent-familiar hiccup with the ambiguities removed. Control forms — `let` / `letfn` /
+`if` / `if-not` / `when` / `when-not` / `cond` / `case` / statically-pure `do` / `for` —
+normalize **into the AST**; all analyzers and both emitters see through branches.
 
-A render-tree node is conceptually one of:
+| Form | Meaning |
+|---|---|
+| `[:div.cls#id {…} …]` | DOM element; **literal head required** |
+| `[view-sym {…} & children]` | internal view (compile-resolved Var) |
+| `[ForeignComponent {…} …]` | foreign React component (open props; JS values pass through) |
+| `[:<> …]` | fragment |
+| `(for [x xs] [item {:key …}])` | keyed list → direct JS array; missing key = build failure |
+| `(ui/presence …)` | declarative enter/exit retention (§Presence) |
+| strings / numbers / `nil` / `false` | text / nothing |
 
-- A **literal value** — string, number, `nil` — rendered as text or empty.
-- A **structured node** carrying three slots:
-  - **`tag`** — either an *id* (resolves to a registered view; the host's identity primitive) **or** a *host-DOM tag* (`div`, `span`, etc., interpreted as raw DOM by the renderer).
-  - **`attrs`** — an open map of key-value pairs: DOM attributes, event handlers, style, props.
-  - **`children`** — zero or more child render-tree nodes.
+**Rejected at compile time** (didactic messages naming the escape): dynamic tag heads;
+markup-returning `map`; keywords in child position; raw lazy seqs; unkeyed list items;
+`sub`/`lease` in loops (extract a keyed child view — sites must be finite). A bare
+keyword head is a DOM/custom element, never a registry lookup (rf2-n82bbu; enforced at
+compile time).
 
-This conceptual shape is **host-independent** — it is what every conformant view contract's template representation encodes.
+**DOM prop spelling is pinned:** hyphenated lowercase words mirroring React's camelCase
+— `:on-click`, `:on-key-down`, `:on-input` (never `:on-keydown`). Handler-map options:
+`{:event […] :prevent-default true :stop-propagation true :capture true :passive true
+:once true}` — the DOM listener vocabulary is explicit, not implied.
 
-#### Carrier (host-specific)
+**Prop conversion is compile-time, contextual, and total:** DOM attribute casing,
+`:style` maps (keyword values stringify), `:class` string/vector/map-of-flags; component
+props pass through untouched. **One rule table** serves static props, the single
+dynamic-map conversion fn (`ui/spread`, v1), and both emitters — and that table now
+exists as normative rows (namespaces, attribute names, boolean/booleanish/overloaded
+sets, property-only + form-control forms, `:style` px/unitless/custom-property rules,
+`:class` composition + `.class#id` sugar precedence, children/escaping):
+[004B-UI-Tree-and-Conversion.md](004B-UI-Tree-and-Conversion.md) §The DOM
+conversion table is the owning contract. No `#js` on compiled
+DOM/internal paths (foreign React interop may hand raw JS values through — that is the
+boundary's job).
 
-The conceptual node shape is encoded into the host's idiomatic template form:
+**Custom elements** (tag contains `-`): a bounded classification rule — literal props
+compile to properties when the name matches a declared property (per an optional
+`ui/custom-element` declaration), else attributes; booleans/`:class`/`:style` follow DOM
+rules; native custom events ride the normal handler grammar. Never forced through
+`ui/raw`. Declaration grammar:
+`(ui/custom-element tag {:properties #{...}})` — top-level, compile-resolvable,
+registers like `defview`. The `:properties` set is the **entire v1 grammar** (options
+map closed, per the `defview` options-map discipline); future keys (`:events`, per-prop
+types, attribute reflection) are new rulings, not silent growth. Declared names →
+JS properties, kebab keyword mapped to the camelCase property (`:help-text` →
+`helpText`, mirroring the pinned DOM-spelling philosophy); undeclared names →
+attributes; undeclared *elements* need no declaration (all-attributes default). SSR/JVM
+emitter emits attributes only; property-props are applied at hydration. Rejected:
+Lit-style rich schema (no consumer — demand bar), React-19-style runtime `in` check
+(breaks compile-time totality + gives SSR no static answer), attribute-only-v1 deferral
+(makes property-accepting web components unusable, hollowing "never through
+`ui/raw`"). Ships with the S4 epic; `ui/custom-element` added to the 12 §2 freeze
+table as the delta protocol's first row-level delta.
 
-| Host | Carrier | Example |
+## Handlers are data — the callback law
+
+**Canonical: the event vector.** A vector in an `:on-*` position is the event intent,
+dispatched to the committed frame:
+
+```clojure
+[:button {:on-click [:cart/add id]} "Add"]
+[:input  {:on-input [:form/typed :email :rf.ui/value]}]
+[:input  {:type :checkbox :on-change [:prefs/set :dark :rf.ui/checked]}]
+```
+
+**Placeholder vocabulary (closed, v1, scalars only):** `:rf.ui/value`,
+`:rf.ui/checked`, `:rf.ui/key`. Placeholders splice at top-level positions of the vector
+at dispatch time. `:rf.ui/form-data` and `:rf.ui/event` do not exist — form payloads
+carry duplicate keys/files and are not EDN; a raw event is a host object; both cases
+belong to `ui/event`. Vectors with only literal/placeholder content are **data**:
+value-comparable, statically inspectable, JVM-testable, retained as data in the manifest
+and the JVM tree. On the client they lower to normal React handlers (per-site stable,
+committed-slot reading). No handler attributes are emitted into HTML and no resumability
+is claimed (research-tier per R-5; the serialisability *property* is kept, the platform
+built on it is not v1).
+
+### The decision table
+
+| Form | Invoker → phase | Identity | Sees | Serialisable | Use for |
+|---|---|---|---|---|---|
+| `[:event … :rf.ui/value]` | DOM → after commit | per-site stable | committed slots + frame | **yes** | intent (the 90%) |
+| `(ui/event [e] … [:vector …])` | DOM/foreign → after commit | per-site stable | committed slots + the live event | no | event mechanics, form/file payloads, filtering (`nil` ⇒ no dispatch) |
+| `(ui/handler [x] …)` | foreign → after commit | per-site stable | committed slots | no | imperative work, stable-identity change-callbacks |
+| `(ui/render-fn [x] …)` | foreign → **during its render** | none promised | current render | no | item-key/comparator/render props; pure — no dispatch/sub/lease/hooks |
+| bare `#(…)` in a **known native event property** (`:on-*` on DOM/custom elements) | DOM → after commit | per-site stable | its closure (committed render's values) | no | shorthand for `ui/handler` — legal because invoker + phase are known. **Only there**: not refs, not arbitrary fn-valued props |
+| bare fn at a **foreign-component** boundary | unknown | unknown | unknown | no | **compile error** — choose `ui/event`/`ui/handler`/`ui/render-fn`/`ui/raw-fn` |
+| `(ui/raw-fn f)` | foreign, identity-as-protocol | passed through | its closure | no | APIs that treat callback identity as data; also the callback-ref form |
+
+**The narrow bare-fn law (R-4).** Bare fns are legal **only** in known native
+event properties, where the invoker and phase are known. One callback never serves both
+phases. A day-one **strict lint** — `{:re-frame.ui/bare-handlers :warn}` (or `:error`) —
+lets a team adopt explicit-everywhere as policy without a language change; the language
+itself stays permissive (flipping it later would break source; the lint is the honest
+lever).
+
+**Refs.** `:ref` is a reserved React slot, never an event property — the bare-fn
+shorthand does NOT apply. Object refs are preferred. A callback ref MUST be explicit
+`(ui/raw-fn f)`: React invokes callback refs during commit *before* the owning view's
+layout publication, so no committed-slot promise can be made — the explicit form marks
+that. Internal views forward `:ref` only by declaring it; refs never appear in event
+vectors or SSR output.
+
+**Dynamic handler expressions.** Handler-position expressions are legal
+(`(if in-cart? [:a id] [:b id])`, a prop-forwarded event). Literal forms classify at
+compile time; non-literal values classify **at runtime by type** (vector → dispatch; map
+→ options form; compiled handler object → itself; fn → the boundary rules above; `nil` →
+no handler). Two consequences, stated honestly: **placeholders are compiled, so they are
+recognized in literal vectors only** — a placeholder keyword inside a runtime-forwarded
+vector dispatches as an ordinary keyword argument, and dev warns
+(`:rf.warning/placeholder-in-dynamic-vector`). And manifests mark value-classified sites
+`:dynamic` — the static interaction surface covers literal and normalized-branch sites
+and says "dynamic" for the rest.
+
+**Loops.** A capture-free literal vector handler in a `for` body is legal and shares one
+callback across rows. A vector that **captures the loop binding** is a compile error
+with the extract-a-keyed-child-view fix — per-row committed slots need per-row
+instances. The same rule covers `ui/event`/`ui/handler` in loops (they are sites too).
+Bare fns in loops get the same diagnostic as a dev *warning* (they work, at per-row
+closure cost, and defeat the data idiom — the nudge is deliberate).
+
+**Controlled inputs — the synchrony law.** Dispatches from
+`:on-input`/`:on-change`/`:on-before-input` sites on **controlled** DOM elements drain
+**synchronously within the DOM event** — event → drain → commit → snapshot advance
+before React's discrete-event re-render — so value round-trips cannot drop characters,
+jump the caret, or break IME composition. This is the one sanctioned synchronous door;
+everything else batches (one notification per cell per epoch, I-6). Caret/IME
+correctness gates first, latency second. **The trigger predicate (confirmed by the
+controlled-input door spike; the residual named gate is the G-8 real-browser input
+matrix, not the predicate):** the door applies where the compiler can *prove* the element
+controlled — a literal `:value`/`:checked` prop co-present on the element with the
+vector-handler site; dynamic props maps, `ui/spread`, and `ui/event`/bare-fn dispatches
+at such sites fall back to standard batching with a dev diagnostic naming the sync-door
+conditions.
+
+**Dev safety nets.** Data handlers with unregistered event ids warn at render with the
+element's coordinates (`:rf.warning/unregistered-event-id`). The registrar is
+process-global — frames isolate state, not behaviour — so a lazily-loaded module that
+registers later can produce a false positive; the warning names that possibility.
+
+## Reactive reads — `sub`
+
+`(sub [:query …])` returns the subscription's value — no deref, no manual memoization,
+no deps arrays. Each lexical `(sub …)` is a compile-indexed site; all of a view's sites
+share **one** React bridge (one `useSyncExternalStore`, one scalar revision snapshot,
+one notification per epoch — I-3/I-4/I-6). Conditional reads are legal; `sub` in loops
+is a compile error (sites must be finite — extract a keyed child view). Literal queries
+are module constants; parametric sites reuse the prior query object while args are
+`rf=`; sites return the prior exact value when the new read is `rf=`. The observation
+model — the **six-operation port** (`resolve-target` · `probe` · `acquire!` ·
+`current?` · `read` · `release!`) over the target/evidence/lease split, the staged
+transactional commit algorithm (acquire-before-release with rollback), and the
+**three-state lifecycle** (`:connected` / `:disconnected` / `:dead`; Activity-hide vs
+unmount are qualified retroactive annotations, never distinct runtime states) — is
+owned by [006](006-ReactiveSubstrate.md) (the R-2 observation port; shapes **final**
+per the rewritten amendment — the observation-port amendment merges with the S2 slice);
+this Spec owns only the call-site surface. `sub` never fetches (I-11).
+
+## Local state — `local` — and the placement rule (this Spec owns the rule)
+
+```clojure
+(let [[text set-text] (local "")] …)
+```
+
+`(local init)` → `[value set!]` — **host component-local state, deliberately outside
+re-frame2 epochs**: not observed by subs, not revertible by epoch restore, re-renders
+this view only. `set!` during render is a dev error
+(`:rf.warning/render-phase-set!`). There is no frame-resident variant and none is
+reserved — if frame-resident ephemera is ever built it will be a new name with its own
+semantics.
+
+**The placement rule (this Spec remains its sole owner; the narrow law — the earlier
+"forbidden if any handler ever reads it" strictness is superseded):**
+
+- **Default — `app-db`.** State with product meaning lives in `app-db`, written by
+  events, read by subs — observable, replayable, schema-checkable, headlessly testable.
+  When in doubt, `app-db`.
+- **The `local` tier (the narrow law).** `local` holds keystroke-latency view
+  ephemera — in-flight field text, uncommitted IME composition, transient focus/hover,
+  open/closed visual state. A local value **MAY be read by same-view committed
+  handlers**: handlers read committed slots, and committed slots include local
+  ephemera. The guide's search box — text held in `local`, submitted as
+  `[:search/run text]` from the button's handler — is **canonical and conforming**; the
+  seam where a local value crosses into an event vector is exactly where it becomes
+  product state. When the field's *every keystroke* is product state (live filtering
+  another view observes), dispatch placeholders (`:rf.ui/value`) instead of holding it
+  locally.
+- **The forbidden tier.** `local` is FORBIDDEN when the value needs **cross-view
+  observation, replay/persistence, schema or tool inspection, durable navigation
+  semantics, or subscription-derived computation** — those belong in `app-db`. Loading
+  flags are the classic example. The bias is deliberate: a value wrongly kept local is
+  invisible to tools and unrecoverable on replay; a value in `app-db` that turns out
+  never to be read is merely slightly verbose. Prefer the recoverable failure.
+
+## Effects and leases — the view-side surface
+
+```clojure
+(effect [node series] (draw! node series) #(destroy!))  ; rf= value deps; cleanup fn
+(effect :connect (subscribe-external!))                 ; runs at each connect; cleanup at disconnect
+(lease  {:resource :article/by-slug :params {:slug slug}})
+```
+
+- `(effect [deps…] body)` is a passive host effect; deps compare by `rf=` (documented
+  cost: broad values walk — keep deps narrow); the cleanup fn is honored on dep change,
+  disconnect, and unmount. StrictMode dev replay is expected and MUST be idempotent-safe
+  — that is what cleanup is for. `(effect :connect body)` runs at each connect, cleanup
+  at each disconnect; **there is deliberately no "once"/"mount" name** — React's
+  lifecycle has no "once", and pretending otherwise is the `:on-mount` bug. Effects
+  synchronize with the host world; app state goes through events.
+- Stateful imperative libraries that own their own DOM subtree (D3, Mapbox, CodeMirror,
+  animation libraries) attach/detach inside `effect` with a ref — never in the render
+  body (I-1). Host primitives the substrate does not wrap (`setTimeout`, `fetch`,
+  RAF loops, WebSocket listeners) remain registered fx per
+  [Pattern-AsyncEffect](Pattern-AsyncEffect.md) — unchanged dataflow doctrine.
+- `(ui/dispatch-fn)` is the stable committed-frame dispatcher for imperative callbacks;
+  it fails loudly in every non-connected state (`:rf.error/dispatch-disconnected`).
+- `(lease descriptor)` **declares** resource liveness; it is recorded at render and
+  reconciled by one aggregated passive effect after commit (ensure/release-owner per
+  [016](016-Resources.md)). Reads stay passive (`(sub [:rf/resource …])`); `lease` in
+  loops is rejected; routes/events/machines remain the preferred causal owners (I-11).
+
+## Loading state is explicit
+
+Loading state is data in `app-db` (canonically
+[Pattern-RemoteData](Pattern-RemoteData.md)'s `:status`); views read it and branch.
+`sub` never fetches; `lease` declares liveness and acts only after connected commit;
+routes, events, and machines are the preferred causal owners of fetching. **Suspense as
+loading state is a non-goal** — it hides loading in the substrate where tools cannot see
+it, SSR cannot replay it, and machines cannot govern it. Hiding a loading flag in
+`local` is the forbidden-tier violation above.
+
+## Presence — declarative enter/exit
+
+A *presence* primitive, deliberately bounded — not an animation system (anything beyond
+enter/exit retention is out of scope):
+
+```clojure
+(ui/presence {:timeout-ms 300}
+  (for [t toasts]
+    [toast-card {:key (:id t) :toast t}]))
+```
+
+- Keyed children pass `:mounting → :present → :unmounting`; an exiting child stays
+  mounted until its transition/animation completes, with `:timeout-ms` as the
+  **mandatory** safety bound (unit-suffixed); then cleanup is terminal and exactly-once
+  (all ownership released). Unkeyed children under a presence boundary are a build
+  failure.
+- `(presence-phase)` is the single phase read. Outside a presence boundary it returns
+  `:present`, so presence-aware children stay reusable anywhere.
+- Removal-then-reinsertion of a key has deterministic interruption/re-entry; exiting
+  children are `inert`/`aria-hidden` by default; reduced-motion takes the immediate
+  path; hydration does not fabricate enter transitions; tests advance transitions via
+  `ui.test/flush-presence!` (no wall-clock sleeps).
+- The JVM emitter renders `:present` and exposes presence metadata structurally.
+  Occurrence-paths (§View identity) identify retained exiting rows in tooling.
+
+## Interop and boundaries
+
+| Surface | Contract |
+|---|---|
+| `(ui/raw react-element)` | embed an existing React element (child position; SSR paths need a `client-only` sibling fallback) |
+| `[ForeignComponent {…}]` | foreign React head; open props, JS values pass through; callbacks per §The decision table |
+| `(ui/->react view)` | export a view as a React component — the outward migration bridge. **v1, lands S6** with the migration wave. Contract: the compat-boundary contract §3 (promotes as `spec/004A-Reagent-Compat.md` at the deletion wave) — memoised per view id (returns the stable shell), no new React root/manifest/preflight; the exported view scopes frames, never creates them |
+| `(ui/element type props & children)` | runtime-chosen element/component **[WAVE-2]** |
+| `(ui/view id)` | registry-addressed component; production use requires production registry entries (dev-only string ids cannot serve prod lookup) **[WAVE-2]** |
+| `(ui/spread base overrides)` | the one generic runtime prop-map conversion — **v1**; the conversion architecture's single dynamic-map path, driven by the owning rule table |
+| `(ui/portal node child)` | React portal; frame context passes through **[WAVE-2]** |
+| `(ui/client-only {:fallback tpl} client-tpl)` | browser-only subtree; the fallback is mandatory and MUST be capability-free (compiler-checked); the JVM and first hydration render the fallback, then one root phase-flip swaps all sites in a single update (per [011](011-SSR.md)) |
+| `(ui/html string)` | **trusted markup, low-friction.** Renders the string as HTML, explicitly. The spelling *is* the contract: the visible call marks the one place escaping is bypassed; manifests record the site; both emitters treat it identically. Strings anywhere else always escape. |
+| `(ui/error-boundary {:fallback view :reset-key val :on-error [:ev …]} child)` | the explicit error component. Catches render/lifecycle throws below it (React does not catch event-handler or async errors — those keep their own typed paths); `:on-error` dispatches **after** the failing commit through a captured live frame (never during render, I-1); the fallback renders with `:error` + declared props and cannot recursively dispatch; changing `:reset-key` clears the caught error (retry = a state change that changes the key); the JVM/SSR renders the child under the server failure policy (per [011](011-SSR.md)) — boundaries are a client recovery mechanism. |
+| `re-frame.ui.data` | the interpreter for genuinely runtime-authored UI (CMS trees) — a **separate artifact**, never in a compiled browser bundle by accident |
+
+Wave-2 rows ship only on the demand bar (a named consumer in the repo's examples,
+tools, or guide fixtures — guide examples authored by this project do not count as
+independent demand for platform-scale features).
+
+## Roots and mounting
+
+`(ui/mount root-form dom-node)` / `(ui/mount root-form dom-node opts)` is a **macro
+over a literal root form** — the compiler must see the root to keep the AST closed and
+to extract frame plans; a runtime-assembled vector is a compile error pointing at
+`ui/view`/`ui/element`. The opts map carries **root identity** — `:root-id` (authored
+wins; a qualified keyword or a qualified-keyword-plus-scalar vector), `:disambiguator`,
+`:identifier-prefix`, all compile-time literals — plus the host error callbacks
+(`:on-uncaught-error` / `:on-caught-error` / `:on-recoverable-error`). **Every root has
+a root-id:** authored, or derived from the mounted view's registered id (a single-root
+page needs nothing; the same view mounted twice needs `:disambiguator` or an authored
+id — anything else is a compile error). The compiler emits **Root Descriptor v1**
+(`:rf.root/schema-version 1`) per mount site — the named, versioned compile-time
+**subset of the Stage-5 Root Manifest** (strict superset the other way; readers ignore
+unknown keys; additive keys never bump the version). Hosts needing control use
+`create-root` / `render!` / `hydrate-root` / `unmount!`; **`hydrate-root` takes its
+identity from the manifest**, never from client opts (supplying identity opts there is
+`:rf.error/root-manifest-invalid`). The signature set, derivation + slug rules, element
+locators, three-layer fail-loud duplicate/conflict detection, and the accepted
+`ui.test/render` root forms are owned by
+[004C-Roots-and-Mount.md](004C-Roots-and-Mount.md).
+
+- **Frames are created at host preflight, never from render (I-1).** The compiler
+  extracts **unconditional `frame-root` plans** from the root form; before React (or the
+  JVM renderer) is invoked, the host ensures the frames and drains `:initial-events` —
+  exactly once, unaffected by abandoned renders, StrictMode replay, HMR, or error
+  recovery. The emitted `frame-root` component then only **scopes** the already-live
+  frame. `frame-root` sites MUST sit in the top region of the root form (unconditional,
+  compile-extractable); conditional, reactive, or list-generated sites are compile
+  errors ("create frames in boot/event infrastructure; scope with `frame-provider`").
+  Frame identity, ENSURE semantics, and `frame-provider` (SCOPE) are owned by
+  [002](002-Frames.md) (the R-7 staged frame chain).
+- **Roots ≠ frames.** A root is one React DOM render/hydration unit; a frame is one
+  re-frame2 state world; roots ↔ frames are many-to-many. The root manifest, hydration
+  contract, per-root failure isolation, and the static-root explicit policy are owned by
+  [011](011-SSR.md); Root Descriptor v1 (above) is this Spec's compile-time subset of
+  that manifest.
+- `ui.test/flush!` is the only test flush (per [008](008-Testing.md)).
+
+## View identity and the instrumentation surface
+
+Five identities, never conflated: **root-id** (owned by [011](011-SSR.md)), **frame-id**
+(owned by [002](002-Frames.md)), **render-key** (one committed view instance — owned
+here), **occurrence-path** (a keyed repetition inside one instance — owned here), and
+**observation-target** (owned by [006](006-ReactiveSubstrate.md)). Sites get
+compile-time indexes + source anchors; identity under HMR is source anchor + structural
+path + generation, released/remounted on ambiguity.
+
+- **Compiler manifest — what *can* happen.** Per view, dev: source coords, prop slots +
+  schema, template fingerprint, hook signature, capability bits, and every site (subs
+  with query shapes; events with event shapes + `:serializable?`/`:dynamic` flags;
+  leases; effects; presence sites; trusted-markup `ui/html` sites) with source +
+  template path. No runtime values;
+  useful before mount — consumed by Xray, Story, editors, and agents.
+- **Committed instance record — what *did* happen.** Published only at connected commit;
+  speculative renders publish nothing (I-1/I-2). It carries render-key,
+  parent-render-key (direct hierarchy — no Fiber or DOM walking), root-id, frame-id,
+  view-id, generation, connection state, observations, and the **`:rf.view/causes`
+  vector** (mount / subscription / story-override / prop / local-state / frame /
+  resource / hmr / hydration-correction / reconnect-correction / epoch-restore /
+  foreign-or-react) — attribution is emitted at the cause site, never reconstructed.
+  Every bounded buffer reports loss accounting (`total`/`retained`/`dropped`).
+- **One catalogue.** The evidence schemas, trace ops, and every error/warning id this
+  Spec names (`:rf.error/dispatch-disconnected`, `:rf.error/view-not-found`,
+  `:rf.error/frame-payload-invalid`, `:rf.error/flush-in-open-epoch`,
+  `:rf.error/jvm-host-op`, `:rf.warning/unregistered-event-id`,
+  `:rf.warning/placeholder-in-dynamic-vector`, `:rf.warning/cross-frame-carried-op`,
+  `:rf.warning/render-phase-dispatch` / `-set!`, and the compile-error roster) get
+  catalogue rows in [009](009-Instrumentation.md) (the one-catalogue rule, rf2-cs0kd1).
+- **Source ↔ DOM navigation.** Compile-time `data-rf2-source-coord` + render-key
+  (+ occurrence-path) annotation on compiler-owned host roots — today's attribute
+  vocabulary, so existing Xray click-to-source works day one. Dev-gated; production
+  builds carry none of it.
+- **Production erasure is a proof (I-12).** Compile-time defines + bundle-scan gates;
+  manifests, cause vectors, histories, warning text, and `data-rf2-*` strings are on the
+  scanned absence roster. The always-on Spec 009 error contracts remain.
+- **[TRANSITION]** The `[view-id instance-token]` `:render-key` wire shape and the
+  `[:rf.view/anonymous nil]` fallback for unregistered render fns remain emitted by the
+  UIx/Helix/slim adapters until the deletion wave, and by the frozen stock-Reagent
+  compatibility tier thereafter; the compiled substrate emits its own versioned evidence
+  schema (integer render-key + separate `:view-id` + `occurrence-path`) in the 009
+  catalogue.
+
+## The JVM structural subset
+
+`defview` is `.cljc`; the JVM emitter renders the defined structural subset. "If the
+browser renders it, the server renders it" is scoped to exactly this table:
+
+| Feature | JVM structural render |
+|---|---|
+| structure, props, subs, branches, lists, event intent, `ui/html` | full semantics (subs via the pure snapshot path — no ownership, no watches) |
+| `local` | contributes its **initial value**; the setter is absent — invoking it in a JVM test raises `:rf.error/jvm-host-op` |
+| `effect` | does not run; recorded as capability metadata |
+| refs | absent |
+| `portal` / `client-only` | explicit deterministic fallbacks |
+| `error-boundary` | server failure policy (project error / status per [011](011-SSR.md)), not client recovery |
+| `presence` | renders `:present`; phase metadata exposed structurally |
+
+The tree the JVM emitter returns is the **versioned public ABI** owned by
+[004B-UI-Tree-and-Conversion.md](004B-UI-Tree-and-Conversion.md): five closed
+node variants (element / fragment / view-boundary / trusted-HTML / text-as-string),
+plain serialisable maps in canonical form, rooted with `:rf.ui/tree-version 1`. **Node
+reading (ruled):** nodes are plain maps — *field* reads (`:tag`, `:attrs`, `:events`,
+`:children`, `:view-id`) are public ABI; *attribute* reads go through the merged
+projection `(ui.test/attrs node)` (attrs + events on elements, props on view-boundary
+nodes) — `(:on-click node)` is a field miss, never an attribute read. Event vectors are
+retained as data under `:events`. The node schema, canonical-form rules, semantic
+normalization `N` (the parity/fingerprint input), and the SSR consumption boundary
+(`emit-ui-tree` + the `:rf.error/ssr-ui-tree-version-unsupported` version gate) are that
+contract's — summarised here, owned there. Selector semantics over these trees are
+[004D-UI-Test-Selectors.md](004D-UI-Test-Selectors.md)'s: view-id selectors match
+the view-boundary node, so fragment-rooted and nil-rooted views are matchable.
+
+Host-bearing features (state transitions, effects, refs, focus, portals, presence
+timing, error recovery) require mounted (Tier-3) tests — the guide says this out loud.
+Headless (Tier-1) tests of structure, subs, branches, lists, and event intent run on the
+JVM against this subset via `ui.test` (per [008](008-Testing.md)); Tier-1 requires the
+events/subs a view touches to be `.cljc` — an authoring constraint the guide teaches.
+
+## Hot reload — the view-side contract
+
+HMR is a designed contract with fixtures, not a hope; the REPL path *is* the HMR path
+(`defview` re-evaluation re-registers and bumps the generation). The view-side surface:
+
+- **Stable shells.** `defview` exports a stable component shell keyed by view id; the
+  registry holds the current implementation descriptor. Re-evaluation replaces the
+  descriptor; the shell identity never changes, so React state, refs, and cell identity
+  survive.
+- **Hook-signature hash decides preserve vs remount.** Same signature: mounted cells
+  mark stale, the next render runs the new body, commit reconciles changed sites —
+  state preserved. Changed signature: the shell deliberately remounts — never a
+  corrupted hook order. Dev's fixed full hook skeleton exists precisely so adding your
+  first `sub` to a view is a same-signature edit (I-15).
+- **Frames are untouched by reload** — ENSURE ran at preflight; re-running the mount fn
+  finds the frames live and does not re-seed; `:initial-events` re-run only on a
+  genuinely new frame id.
+- **The Pair's hot-swap is this same mechanism** invoked over nREPL.
+
+Cell/ownership reconciliation under reload is owned by
+[006](006-ReactiveSubstrate.md); compile budgets (expansion p95, watch-loop rebuild)
+are gated per [008](008-Testing.md) G-14.
+
+## Removed forms — normative absences
+
+There is exactly **one** component form. The following do not exist in this contract:
+
+- **Form-1 / Form-2 / Form-3.** No closure-form components, no class components, no
+  outer/inner render split; the Forms live on only in the frozen stock-Reagent
+  compatibility tier (live normative home: the compatibility appendix
+  `spec/004A-Reagent-Compat.md`, per §8 of the compat-boundary contract), taught on one
+  migration page only. Form-2 local state is `local`;
+  Form-3 lifecycle work is
+  `effect` (+ refs) or a foreign-boundary component; setup-on-mount work is a frame's
+  `:initial-events` or a route/domain transition — never a render-phase or
+  mount-lifecycle dispatch.
+- **The `reg-view` family.** `reg-view`, `reg-view*`, the two registration lanes, and
+  the `(rf/view id)` runtime lookup are absent from this contract — the family freezes
+  with the stock-Reagent compatibility tier, and its **live contract moves to the
+  compatibility appendix `spec/004A-Reagent-Compat.md`** (lands with the S7 deletion
+  wave; the appendix retains the family's API/facade/Conventions rows under a
+  `v1 (frozen — compat tier)` status — **the exports relocate, they are not removed**;
+  §8 of the compat-boundary contract). `defview` is the one
+  registration surface;
+  the registrar `:view` kind persists as the tooling read surface (Story mounts by view
+  id; Xray lists by registry query). Runtime-chosen components are `ui/view` /
+  `ui/element` **[WAVE-2]**, demand-gated, with production registry entries required for
+  production lookup.
+- **Positional view args.** One props map. Call sites are `[view-sym {…}]`.
+- **Plain render fns as frame-aware views.** There is no frame injection into
+  unregistered fns, no `capture-frame` render affordance, and no
+  `[:rf.view/anonymous nil]` trace fallback — every traced view is a `defview`; foreign
+  React components are boundaries, not views.
+- **`:on-mount` / `:on-unmount`, `:memo false`, `:catch`/`:fallback` options;
+  `:rf.ui/form-data` / `:rf.ui/event` placeholders** — considered and rejected
+  (rationales in §`ui/defview` and §Handlers).
+- **The `h` macro; bare-keyword view heads.** Carried absences — no compile-time hiccup
+  walker rewriting keyword heads; a keyword head is always a DOM/custom element
+  (rf2-n82bbu: dynamic tag heads are compile errors and the registry is
+  never probed on the render path).
+- **A second state model.** No ratoms, cursors, reactions, signals, or query caches in
+  the view tier — one reactive grammar, subscriptions.
+- **Suspense-as-loading, RSC, `startTransition` over app-db, general animation
+  frameworks, resumability machinery** — non-goals (resumability is research-tier per
+  R-5).
+
+**[TRANSITION] Until the adapter deletion wave** (proof/default/soak gates per the
+08 §5 Adapters decision: RealWorld-resources green · Story + Xray green ·
+SSR/hydration + HMR matrices green · production-specialization + bundle-absence gates
+green · templates/docs/examples defaulted · zero repo-owned non-historical
+UIx/Helix/slim imports · two consecutive green nightlies + one week with no fallback),
+the UIx and Helix adapters (and reagent-slim) remain shipping surfaces governed by the
+carried pre-rewrite contract text under these [TRANSITION] markers — **the markers, not
+git history, are the live contract during the transition** (the git tag is provenance
+only, never a normative home). **The Reagent-tier forms — Form-1/2/3 and the `reg-view`
+family — are not deleted at the wave: they freeze into the stock-Reagent compatibility
+tier**, whose **live normative home is the compatibility appendix
+`spec/004A-Reagent-Compat.md`** (lands with the wave; carries the freeze rules, the
+preserved Form/`reg-view`/Reagent-adapter/frame-context sections as live text, the
+two-direction boundary contract, the retained API/facade rows, and the two-suite CI
+surface — §8 of the compat-boundary contract). Correct but
+frozen: contract suite + one smoke in CI; no new capabilities; taught on exactly one
+migration page; `ui/defview` is the only *taught* component form. Old and new trees
+co-mount at explicit boundaries during migration (per the migration guide); the
+dataflow layer is untouched throughout. After the wave: Spec 006's host-neutral
+contracts, the plain-atom substrate, and benchmark results + fixtures are kept, and a
+git tag of UIx/Helix/slim is kept **as provenance, not contract**; those adapters are
+not.
+
+**Transition annex — where the frozen family's live contract text is carried until S7.**
+The compatibility appendix `spec/004A-Reagent-Compat.md` lands with the deletion wave;
+until then the carried pre-rewrite contract text for the frozen Form/`reg-view` family
+lives in the committed homes that already hold it, and **these markers name those homes
+as the live carriers**: [002](002-Frames.md) (`reg-view` injection + view ergonomics +
+Form pointers), [Conventions](Conventions.md) (the auto-id derivation rule + the
+`*`-suffix pair), [API.md](API.md) (the `reg-view` / `reg-view*` / `view` rows with
+shape + semantics notes), [009](009-Instrumentation.md)
+(`:rf.registry/handler-replaced`), and [Spec-Schemas](Spec-Schemas.md) (the view
+registry-slot shape). Two governing sentences are carried here verbatim so the markers
+are the live contract: **the authoring-lane rule** — a state-touching view MUST be a
+registered view (`reg-view`), never a plain fn — governs the shipping adapters until the
+wave; and **`(rf/view id)` re-resolves the current registered implementation per call**,
+so a hot-reloaded view is picked up on the next render through the id handle.
+
+## Stage conformance profiles
+
+R-1's staged merge needs an implementable meaning for "conforming". This section is
+that definition. It merges **as part of the spec text** and is the device that keeps an
+intermediate checked-in spec honest: rows tagged above the current implementation stage
+are **declared, not yet asserted** — their contract text is final, their enforcement
+rides their stage's conformance slice, which lands atomically with that stage's spec
+edits (the 12 §2b spec-landing rule).
+
+**Definition.** Every normative section of this Spec is tagged with the stage (S1–S7)
+whose implementation slice first *asserts* it with conformance fixtures.
+**"Stage-N-conforming" = every row tagged ≤ N passes its named assertions.** A row with
+a "completes" note is asserted at its tagged stage to the tagged scope only; the
+completing stage extends the assertion. Stage assignments align with the authoritative
+surface matrix (12 §2b) and the stage contents (08 §2); a conflict is resolved in that
+order and is a defect in this table.
+
+| Normative section (this Spec) | Stage | What that stage's fixtures assert |
 |---|---|---|
-| ClojureScript (reference) / Squint | Hiccup vector — `[tag attrs? & children]` (attrs map is positional and optional) | `[:div {:class "x"} "hi"]` |
-| TypeScript | JSX (compiled to React `createElement`) or array form `[tag, attrs?, ...children]` or VDOM-object `{type, props, children}` — all valid | `<div className="x">hi</div>` / `['div', {className: 'x'}, 'hi']` |
-| Melange / ReScript / Reason | JSX (compiles to React `createElement`) | `<div className="x">{React.string("hi")}</div>` |
-| Fable (F#) | Feliz DSL or `Fable.React` `createElement` calls | `Html.div [ prop.className "x"; prop.text "hi" ]` |
-| Scala.js | Slinky / `scalajs-react` DSL trees | `div(cls := "x")("hi")` |
-| PureScript | `React.Basic.DOM` element constructors | `R.div [ R.className "x" ] [ R.text "hi" ]` |
-| Kotlin/JS | kotlin-react DSL trees | `div { className = ClassName("x"); +"hi" }` |
-
-The carrier is the host's choice; the conceptual shape is what every host's emitter consumes — walked at runtime or compiled ahead of time. **Template-string DSLs (Mustache, Jinja, etc.) are NOT a valid carrier** — strings don't compose, don't diff, don't lint, don't round-trip. The pattern requires structured data an emitter can consume.
-
-The pattern does NOT commit to:
-- A specific tag-name vocabulary for DOM (HTML elements vs custom).
-- A specific attrs spelling (`:on-click` vs `onClick` vs `on_click`).
-- A specific event-handler signature.
-- Whether `children` is variadic, positional, or wrapped in an array.
-
-These are carrier-level choices.
-
-#### Serialisation boundary
-
-The template representation's *structure* — the tags, the children nesting, and the **non-function values** inside `attrs` (strings, numbers, keywords, plain maps, vectors of the same) — is **fully serialisable** and survives a print/read round-trip. SSR ([011](011-SSR.md)) relies on this for the server-side render-to-string path. Emitted host values (the React elements a client emitter produces from the template) lie outside this boundary — they may be host-native and need not be serialisable.
-
-**Function values inside `attrs` (`:on-click` lambdas, `:ref` callbacks, custom prop closures) are NOT serialisable** and lie outside the serialisation boundary. SSR's discipline:
-
-- The server's render-to-string path walks the render-tree and emits HTML for the structure; it ignores function-valued attrs (they would not survive the wire and have no client-side meaning until hydration).
-- On the client, hydration re-renders the same view function under the same `app-db` value; the client-side render produces the function-valued attrs at render time and React/the substrate attaches them.
-
-The contract therefore: **template structure is serialisable; behaviour (functions) and emitted host values are not required to be**. This is consistent with the broader spec position that the wire carries data and behaviour is registered at runtime per host.
-
-### Render-tree primitives
-
-Render-tree activity surfaces in the trace stream via `:rf.view/render` events (the tuple rides under the `:rf.view/render-key` trace `:tags` key per [009 §`:op-type` vocabulary](009-Instrumentation.md#op-type-vocabulary)) and in `:rf/epoch-record`'s `:renders` projection (per [Spec-Schemas §`:rf/epoch-record`](Spec-Schemas.md#rfepoch-record)). The identity carried on each entry is the `:render-key` — the tuple shape every conformant view contract emits. The companion `:rf.view/rendered` event (emitted after the render-fn returns) additionally carries the view's positional render args/props under `:rf.view/render-args` — captured by the substrate-agnostic frame-aware-view wrapper, so it rides Reagent / UIx / Helix uniformly, and elided at emit time as arbitrary user data (see [009 §`:op-type` vocabulary](009-Instrumentation.md#op-type-vocabulary)). This makes the *props* re-render cause observable rather than merely inferred.
-
-#### `:render-key` is the tuple `[<view-id> <instance-token>]`
-
-A `:render-key` is a two-element vector:
-
-- **`view-id`** — the `reg-view` registry id (e.g. `:my-app.cart/row`, `:counter`). Names the *kind* of view. For renders that did not enter through `reg-view` / `reg-view*` (plain Reagent fns), the view-id slot is `:rf.view/anonymous` (see §Anonymous fallback below).
-- **`instance-token`** — an integer, minted at mount time from a process-wide counter. Disambiguates concurrently-mounted instances of the same view-id. Tokens are monotonic within a single process run; they carry **no cross-run correlation guarantee** and are not stable across hot-reloads, page refreshes, or replay/restore. Tools that want cross-run identity must derive it elsewhere (positional path, parent-aware keys); the instance-token is for in-run discrimination only.
-
-Tuple example:
-
-```clojure
-{:render-key   [:my-app.cart/row 1473]
- :triggered-by :sub.cart/items
- :elapsed-ms   1.2}
-```
-
-Two mounted instances of the same view-id share the view-id and differ in the instance-token:
-
-```clojure
-[:my-app.cart/row 1473]   ;; first row, mount-instance A
-[:my-app.cart/row 1474]   ;; second row, mount-instance B (same kind, different mount)
-```
-
-#### Token lifecycle
-
-- **Minted at mount.** The first render of a `reg-view`-registered component allocates one token from the runtime counter; subsequent re-renders of the same instance reuse it.
-- **Discarded on unmount.** No bookkeeping; the next mount of an equivalent component gets a fresh token.
-- **Process-scoped.** Counter resets when the process restarts. A token from one run never collides with a token from another run within the same run; across runs, equality is meaningless.
-- **Replay-aware.** Tool-Pair's epoch restore (per [Tool-Pair §Time-travel](Tool-Pair.md#time-travel-epoch-snapshots-and-undo)) does NOT preserve tokens — a fresh run mints fresh tokens. Restored `:db-after` is the contract; the `:renders` projection is a per-run derivation, not an identity continuation.
-
-#### Anonymous fallback for plain Reagent fns
-
-Plain Reagent fns (`(defn my-view [...] ...)`) do not enter through `reg-view`'s wrapper, so they do not bind `*render-key*`. When the trace recorder reads `:render-key` and finds the binding absent, it emits the documented fallback shape `[:rf.view/anonymous nil]`:
-
-- **`:rf.view/anonymous`** — the canonical anonymous-view-id keyword.
-- **`nil`** — the anonymous instance-token. Anonymous renders do not allocate per-instance tokens; tools that need to disambiguate anonymous renders must use other signals (call-site, parent context).
-
-If the runtime can derive a cheap function-name hint (e.g. via `(.-displayName fn)`) it MAY emit `[:rf.view/<name> nil]` for tooling-friendliness, but `[:rf.view/anonymous nil]` is the safe default and the canonical fallback. The CLJS reference today emits `[:rf.view/anonymous nil]` unconditionally; the per-name optimisation is reserved as a future addition.
-
-> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): the per-name render-key hint is a **post-v1, untracked note** — a design direction with no concrete tracking bead filed yet (so it does not qualify as `:post-v1 tracked`, which requires a `rf2-<id>`). **Fires-when trigger:** a tool needs to disambiguate anonymous render nodes by name (e.g. a story / xray view-tree wanting stable per-view labels for plain-Reagent fns). Until then it stays an untracked note, not committed work; a tracking bead is filed only when that trigger fires.
-
-#### Production elision
-
-The `:render-key` tuple is part of the trace surface; per [Spec 009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code), trace emission elides entirely under `^boolean ^:goog-define re-frame.interop.debug-enabled?`. The instance-token mint, the `*render-key*` binding, the `:rf.view/render` emission, and the `:rf.view/render-args` capture all sit behind that gate — production builds incur zero allocation, zero counter activity, zero binding-frame overhead, and (critically) no raw user render-args reach the production bundle.
-
-### Loading state is explicit, not implicit
-
-React Suspense lets a component "suspend" while async work runs; the framework shows a fallback; the component renders normally on resolve. Loading state is implicit, sitting inside the suspended-component machinery. **Re-frame2 takes the opposite approach: loading state is explicit data in `app-db`.** [Pattern-RemoteData](Pattern-RemoteData.md)'s `:status :loading` is the canonical place it lives; views read the state and branch on it. Developers arriving from React (and other Suspense-using frameworks) should note this: re-frame2 does not use the implicit Suspense form.
-
-#### Why explicit-loading-state wins for re-frame2
-
-The choice falls out of the Single Store invariant and substrate-agnosticism:
-
-1. **Single Store invariant.** Loading state IS state; it lives in `app-db` with everything else. [Goal 2 — Frame state revertibility](000-Vision.md#frame-state-revertibility) requires this — a frame is fully revertible only when all its state is in the value.
-2. **Substrate-agnostic.** Suspense is React-specific. Re-frame2 supports plain-atom (JVM / headless tests / SSR), Reagent (CLJS), and future substrates per [Spec 006](006-ReactiveSubstrate.md). A Suspense-based approach would couple the pattern to React.
-3. **Testability.** Headless tests of "what does this view render when loading?" are straightforward when loading is just data. Suspense requires a React-aware test renderer.
-4. **Inspectability.** Tools (10x, Tool-Pair, story tools) introspect `app-db` to see what is loading. Suspense state is not queryable from outside the React tree.
-5. **SSR symmetry.** Loading state during SSR is just `app-db` state, loaded synchronously on the server. Suspense streaming-SSR has complex boundary semantics that re-frame2 sidesteps.
-6. **AI-amenability.** "Is this view loading?" is a sub query an AI can reason about. Suspense's throws-promise machinery is harder to inspect, harder to mock, harder to scaffold from a construction prompt.
-7. **Cross-component coordination.** Sibling views can ask "is this data loaded?" via subs. With Suspense, sibling components don't naturally know about each other's suspended state.
-8. **Composes with state machines.** Loading is itself a state — a Pattern-RemoteData status; a state machine governs the transitions. Suspense doesn't compose with state machines; it's a parallel mechanism.
-
-#### Trade-offs to acknowledge
-
-- **Slightly more verbose at the call site.** A view reads the loading state and branches: `(if loading? [Loading-view] [Loaded-view ...])`. With Suspense the view code looks "synchronous"; the Suspense boundary handles the fallback elsewhere.
-- **The user must surface loading state in `app-db`.** Pattern-RemoteData provides the slice; users register the four standard events; AI scaffolding (CP-N for remote-data) makes this mechanical.
-
-These costs are small; the wins above justify them.
-
-#### Anti-patterns
-
-- **Hiding loading in component-local React state.** Defeats Single Store and inspectability; tools cannot see what is loading; SSR cannot replay it.
-- **Building a Suspense-equivalent in re-frame2** — e.g., events that "throw" until data arrives. Opposite of the spec; collides with run-to-completion drain semantics; collides with state machines.
-- **Forgetting to surface loading state at all.** Silent loading; users wait for "done" with no UI feedback; tests cannot assert the loading branch.
-
-#### What this composes with
-
-Pattern-RemoteData's `:status` field is the canonical home for loading state. Pattern-Boot makes the boot phase visible via `:rf/boot {:phase :authenticating}`. The Nine States example renders all loading states exhaustively. State machines naturally have `:loading` as a state with `:on` transitions to `:loaded` / `:error`. All of these compose cleanly because they share the explicit-state approach; a Suspense-based machinery would collide with all of them.
-
-## Where ephemeral view-state lives (this spec owns the placement rule)
-
-Loading state is one instance of a broader question every view raises: a text field's in-progress keystrokes, a checkbox's toggle, a modal's open flag, a hover highlight, an animation's interpolation — where does that value live? The answer is a single placement rule, and **this spec ([004](004-Views.md)) is its sole owner.** The [inside-out philosophy](../docs/core/explanation/inside-out.md) argues *why* app-db is the default; the [v1→v2 migration guide](../migration/from-re-frame-v1/README.md) mechanically rehomes v1 view-local state; both defer here for the *rule itself*. State the rule in one place, and the three surfaces agree.
-
-**Default — `app-db`.** Ephemeral view-state is state, and state lives in `app-db` with everything else. This is the recorded philosophy: a value in `app-db` is observable (tools see it), replayable (epoch restore reconstructs it), schema-checkable, and testable headlessly. A text input's current value, a selected tab, a "modal open?" flag, an accordion's expanded set, an in-progress form draft — all of these are ordinary `app-db` state, written by ordinary events, read by ordinary subs. The [Single Store invariant](000-Vision.md#frame-state-revertibility) requires this: a frame is fully revertible only when *all* its state is in the value. When in doubt, it goes in `app-db`.
-
-**The render-mechanical exception (tightly worded).** A small tier of values is *never* read by any handler, sub, schema, or tool — they exist only for the substrate to complete a render, and putting them in `app-db` would add allocation and trace noise for a value nothing observes. This tier is exactly:
-
-- **Uncommitted IME composition** — the transient pre-commit buffer while a CJK/accent input method is composing, before the committed keystrokes reach the change handler.
-- **Transient focus / hover / active state** the substrate already tracks — pointer-over highlight, `:active` press-down, focus ring — where no handler branches on it.
-- **Animation interpolation** — per-frame tween values a CSS transition or the substrate's animation engine owns (Regime A / C below); `app-db` holds the *target* state, not the interpolated frames.
-
-Such a value may live in substrate-local state (`use-state` / `use-ref` / a Form-2 local). The test is strict and single: **will any handler, sub, schema, or tool ever read it?** If yes, it is not in this tier — it belongs in `app-db`.
-
-**The forbidden tier (generalised).** Anything a handler, sub, schema, or tool reads MUST be in `app-db`. Loading flags are the classic example (see [§Loading state is explicit](#loading-state-is-explicit-not-implicit) above — hiding a loading flag in component-local state defeats Single Store, inspectability, SSR replay, and cross-component coordination), but the rule is general: form values that an event validates, a "selected id" a sub reads, a wizard step a schema constrains, any flag a tool must introspect — none of these may hide in substrate-local state. The moment a value crosses from "the substrate needs it to render" to "something in the pipeline reads it," it has left the exception tier.
-
-The boundary between the exception and the forbidden tier is the one question above — *does anything in the pipeline read it?* — and it is deliberately biased toward `app-db`: a value wrongly kept local is invisible to tools and unrecoverable on replay, whereas a value in `app-db` that turns out never to be read is merely slightly verbose. Prefer the recoverable failure.
-
-## Two registration lanes: app-facing and tooling/host
-
-View registration sorts into two lanes that should be documented separately because they serve different callers:
-
-- **App-facing view registration** — the surface application authors use to register and render their own views: the `reg-view` macro (Reagent's `defn`-shape sugar) plus Var-reference rendering. This is the canonical, 80%-case lane.
-- **Tooling / host view registration** — the surface tools, dynamic hosts, and library code use to register views from *computed* ids and render them by id at runtime: `reg-view*` plus `(rf/view id)`. This lane has real adoption (Story and Xray host registered views by id; see [Calling a registered view](#calling-a-registered-view) and [`view`](#view--the-canonical-post-registration-lookup)) and is **not** to be removed or folded into the app-facing lane — it is a distinct contract with distinct callers.
-
-Both lanes write into the same view registry; the split is about *who registers and how they address the view*, not about two registries. App-facing docs should teach the `reg-view` lane without the tooling internals (host panel components, by-id hosting) mixed in; tooling and adapter authors get the `reg-view*` / `view` lane documented on its own. The remainder of this section specifies both surfaces.
-
-### The authoring-lane rule (which lane an author picks per view)
-
-The two lanes above answer *who registers a view and how they address it*. A separate, more frequent question faces the application author at every component in a tree: `reg-view` or plain `defn`? This spec fixes a single rule, and **this spec ([004](004-Views.md)) is its owner** — the guide's [Views concept page](../docs/core/views.md) teaches it and the [TodoMVC example](../examples/core/todomvc/views.cljs) models it, both deferring here for the rule itself.
-
-> **A view that touches state — that `subscribe`s or `dispatch`es — MUST be authored as a `reg-view`. A plain `defn` view is reserved for a helper that takes *data + callbacks* only and reaches for no state of its own. `dispatch` / `subscribe` MUST NOT be threaded down to a sub-view as arguments.**
-
-The rationale is threefold, and each leg is a property the framework otherwise guarantees:
-
-- **Trace identity.** A `reg-view` renders under its registered id; an unregistered `defn` renders under the fallback key `[:rf.view/anonymous nil]` (see [009 §render trace](009-Instrumentation.md)). Threading `dispatch`/`subscribe` into a plain `defn` so it can touch state produces a component that *has* a name it could carry but doesn't — every such sub-view collapses into `:rf.view/anonymous`, and the trace can no longer distinguish them.
-- **Frame carriage.** The injected `dispatch`/`subscribe` a `reg-view` gets are already frame-bound at render time (see [§`reg-view` is the multi-frame contract](#reg-view-is-the-multi-frame-contract)). A view that subscribes to its own state gets that carriage for free; drilling the ops down as arguments is a hand-rolled substitute for a binding the macro already provides correctly.
-- **Legibility.** When state-touching views are `reg-view`s and helpers are plain fns, a component's *form* announces its kind — a reader tells the app's addressable views from throwaway presentational helpers at a glance. Drilling erases that signal: a plain `defn` that receives `dispatch`/`subscribe` is a state-touching view wearing a helper's clothes.
-
-The plain-`defn` lane remains first-class for a *genuine* helper: a controlled input taking `:value` + `on-change` as props, a formatter mapping a data record to hiccup, a presentational wrapper. The discriminant is single: **does the component reach for `subscribe` or `dispatch`?** If yes, it is a state-touching view and belongs in the `reg-view` lane; if everything it depends on is in its signature, it is a helper and stays a plain `defn`. On the hooks substrates (UIx / Helix) the same rule holds with the substrate's own idiom: a state-touching component reads state through the adapter hooks (`use-subscribe`, `use-current-frame`) itself rather than receiving those results as drilled props (see the [Views concept page](../docs/core/views.md)).
-
-## `reg-view` is the multi-frame contract
-
-`reg-view` is a **defn-shape macro**. It registers a render function under an auto-derived id, defs the symbol you supply to the wrapped (frame-aware) fn, and auto-injects two lexical bindings — `dispatch` and `subscribe` — at every call to the rendered fn. It is the **app-facing lane**.
-
-### Shape
-
-```clojure
-(reg-view sym [args] body+)
-(reg-view sym docstring [args] body+)
-(reg-view ^{:rf/id :explicit/id} sym [args] body+)
-```
-
-- **Auto-id derivation.** The registered id is `(keyword (str *ns*) (str sym))` — the same shape Clojure uses for `defn` Vars. Override by attaching `^{:rf/id :explicit/id}` metadata to the symbol.
-- **Auto-defs the symbol.** `reg-view` defs `sym` to the wrapped render fn. There is no separate `(def sym (reg-view …))` step. Hiccup heads can be Var references (`[sym args]`) or `(rf/view :id)` results — both resolve to the same wrapped fn.
-- **Auto-injects `dispatch` and `subscribe`.** Inside the body, `dispatch` and `subscribe` are lexical bindings, bound at render-time to the `:dispatch` / `:subscribe` ops of a single `capture-frame` (`(rf/capture-frame)`) capturing the surrounding frame. They pick up the active frame on every render — there is no render-time-binding-vs-callback-time problem; the `:on-click` lambda below closes over the local `dispatch` and carries the frame into the callback automatically. The macro also threads the view's definition-site source-coord into the handle (via `:dispatch-opts` / `:subscribe-call-site`) so a view's `#(dispatch [...])` classifies as `:source :ui` and carries the reg-view's `:rf.trace/call-site` for "go to code" — view-level precision, dev-only-elidable. See [009 §`:rf.trace/call-site`](009-Instrumentation.md#rftracecall-site--naming-the-invocation-line).
-
-```clojure
-(rf/reg-view counter [label]
-  (let [n @(subscribe [:count])]
-    [:button {:on-click #(dispatch [:inc])}
-     (str label ": " n)]))
-
-;; … and elsewhere in hiccup:
-[counter "Hello"]
-```
-
-### Compile-time error contract
-
-`reg-view` enforces the defn-shape at macroexpand time. The second argument (after an optional docstring) MUST be the args vector. Anything else throws with a stable error pointing the user at `re-frame.core/reg-view*`:
-
-| Bad call | Why it fails |
-|---|---|
-| `(reg-view foo my-render)` | `my-render` is a Var reference, not an args vector. |
-| `(reg-view foo (reagent.core/create-class {...}))` | Form-3 (a Reagent class component) is a list, not an args vector. Form-3 is out of scope for the macro per the Reagent-v2 directive. |
-| `(reg-view foo (some-fn-returning-a-fn))` | A computed body. |
-
-The error message names the kind of value supplied and points at `reg-view*` — the plain-fn surface for runtime registration with computed ids or non-defn-shape bodies.
-
-### `reg-view*` — the plain-fn escape hatch
-
-```clojure
-(re-frame.core/reg-view* id render-fn)
-(re-frame.core/reg-view* id metadata render-fn)
-```
-
-The **tooling/host lane**'s registration primitive: a plain function. No auto-def. No auto-inject. No compile-time check. This is the surface tools and library code register against (and the one app-facing exception, Reagent Form-3, falls through to). Use when:
-- The id is computed at runtime (dynamic dispatch).
-- The render fn is computed (a library that generates views from data).
-- The body is Reagent Form-3 (`reagent.core/create-class`) — out of scope for the macro.
-- The view is registered without a Var binding (e.g. a `defn` that registers as a side effect).
-
-Inside a `reg-view*` body the user must capture the frame explicitly via `(rf/capture-frame)` (and use its `:dispatch` / `:subscribe` ops) if they need frame-bound dispatch — the macro's auto-inject is exactly the convenience `reg-view*` does NOT provide.
-
-The `*` suffix is the standard Clojure idiom for the unsweetened, runtime-callable surface beneath a macro (`let` / `let*`, `fn` / `fn*`). Per [Conventions §`*`-suffix naming](Conventions.md), this convention applies wherever a macro has a fn partner; `reg-view` / `reg-view*` is the only such pair in v1.
-
-Both `reg-view` and `reg-view*` return the registered **id** per the family-wide [`reg-*` return-value convention](Conventions.md#reg--return-value-convention). For `reg-view`, the macro also defs the supplied symbol as a side effect (per §The canonical form below) — that's an additional behaviour, not a substitute for the return value. Programmatic callers that need both the id and the Var have the id via the return value and the Var via the auto-def.
-
-**Inside a `reg-view` body, the unqualified `dispatch`/`subscribe` always come from the surrounding frame** — the injected closures resolve to whatever frame the surrounding scope puts in context (a `with-frame` or a `frame-provider`). The underlying contract is explicit-frame addressing (per [002 §View ergonomics](002-Frames.md#view-ergonomics-the-hard-part) and OQ-F-12): views can also target a different frame via `(rf/dispatch event {:frame other})` / `(rf/subscribe query {:frame other})` — the qualified two-arg form bypasses the injection. The injected unqualified form is canonical; the explicit form is the escape hatch for cross-frame work (e.g. a story-tool variant that controls a sibling variant).
-
-The injection mechanism is detailed in [002-Frames.md §What `reg-view` injects](002-Frames.md#what-reg-view-injects).
-
-## Calling a registered view
-
-Render trees invoke a registered view by **Var-reference**: `[my-view args]`. This is the native Reagent component-call shape and the only supported render-time form. Keyword vectors at render time are HTML elements (Reagent's existing semantics) — the runtime does **not** intercept `:keyword` vectors and dispatch via the views registry.
-
-The keyword id assigned to a view by `reg-view` (or `reg-view*`) is reserved for **runtime lookup and introspection**: trace events, devtools, error frames, `(rf/view id)` lookups, registry-only views without a Var binding.
-
-This is the family-asymmetry rule applied to views: **render trees use Vars; runtime lookups use ids.** `reg-view` bridges them — auto-defs the symbol AND auto-derives the registry id. See [Conventions §`reg-view` auto-id derivation rule](Conventions.md#reg-view-auto-id-derivation-rule) and [Cross-Spec-Interactions §21](Cross-Spec-Interactions.md#21-family-asymmetry--only-reg-view-keeps-a--suffixed-fn-partner).
-
-```clojure
-(rf/reg-view counter [label] [:button label])
-
-;; render tree — Var reference (canonical)
-[counter "Hello"]
-
-;; runtime lookup — id
-(rf/view :my.ns/counter)             ;; → the wrapped (frame-aware) render fn — see §`view` below
-
-;; bare [:my.ns/counter "Hello"] in a render tree is NOT a view call —
-;; it renders as a custom HTML element <my.ns:counter>...</my.ns:counter>
-;; (or whatever Reagent's hiccup interpretation produces for that tag).
-```
-
-There is no `(rf/h ...)` macro in the v1 surface — no compile-time hiccup walker that rewrites namespaced-keyword heads into runtime view lookups. See [§`h` macro dropped](#h-macro-dropped) below — the Var idiom plus the function-position `[(rf/view :id) args]` form cover every use case.
-
-## How registered views are used in hiccup
-
-v1 ships three forms for invoking a registered view. To honour the principle of "one obvious way", one of them is **canonical** and the others are **alternatives** with documented use cases.
-
-### The canonical form: `reg-view` auto-defs the symbol
-
-```clojure
-(rf/reg-view counter [label] ...)
-;; ⇒ defs `counter` in the current namespace, bound to the wrapped
-;;    (frame-aware) fn. The id is auto-derived: (keyword *ns* "counter").
-
-;; ... elsewhere in hiccup
-[counter "Hello"]
-```
-
-`reg-view` *defs* the symbol you supply. There is no separate `(def counter (reg-view …))` step — the macro is the one form that registers + binds. The id is auto-derived from `*ns*` + symbol; override via `^{:rf/id :explicit/id}` metadata on the symbol.
-
-### `view` — the canonical post-registration lookup
-
-Whatever the call-site shape, `(rf/view :counter)` is the **canonical lookup** for a registered view's render-fn. It returns the **wrapped (frame-aware) fn that `reg-view` produced** — *not* the raw user fn the caller wrote. Specifically the wrapper carries the frame-injection, source-coord annotation (per [Spec 006 §Source-coord annotation](006-ReactiveSubstrate.md#source-coord-annotation-mandatory)), and the lexical `dispatch` / `subscribe` bindings described in [§Shape](#shape). The lookup is re-resolved on every call so hot-reload re-registration is picked up immediately — calling `(rf/view :counter)` twice after a swap returns the new wrapped fn the second time. The other call-site forms are sugar over `view`.
-
-```clojure
-(rf/view :counter)               ;; → wrapped (frame-aware) fn — observably equivalent to the Var bound by reg-view
-((rf/view :counter) "label")     ;; identical observably to: [counter "label"]
-```
-
-`view` returning `nil` for an unregistered keyword is a normal lookup miss (no error trace).
-
-### Alternative form (use only when the canonical form is awkward)
-
-```clojure
-;; Explicit function-position lookup. Use when:
-;;        - the view id is computed at runtime (dynamic dispatch);
-;;        - the calling code doesn't have access to the Var (e.g., across module boundaries
-;;          where the Var isn't exported but the registration is);
-;;        - hot-reload semantics matter — `view` re-resolves on every call, so
-;;          re-registration is picked up without re-evaluating the call site.
-[(rf/view :counter) "Hello"]
-```
-
-**Bare `[:counter "Hello"]` in raw hiccup** (where Reagent itself would have to interpret the keyword as a registered view) is **rejected** — not deferred. Registered views resolve by Var reference (the canonical `reg-view` form, [§above](#the-canonical-form-reg-view-auto-defs-the-symbol)) or by explicit `(rf/view id)` lookup ([§above](#view--the-canonical-post-registration-lookup)) only; a bare keyword tag in hiccup stays a plain substrate-owned HTML/custom element and is never resolved against the view registry. See [§Resolved decisions](#resolved-decisions) for the rationale.
-
-## Plain Reagent fns: no frame injection
-
-Plain Reagent fns (`(defn my-view [args] ...)`) continue to work in re-frame2. They are not registered, so they do not get frame-injection — they carry no `:contextType` wiring, so a plain fn **cannot read the surrounding frame scope from React context** (whether that scope was established by a `with-frame` or a `frame-provider`).
-
-Under the carried invariant ([002 §Frame target resolution](002-Frames.md#frame-target-resolution--the-carried-invariant)) there is **no `:rf/default` floor**. A plain fn that cannot read the context resolves to *nil*, and its `subscribe`/`dispatch` (qualified `rf/`, the ambient 1-arity form) raises `:rf.error/no-frame-context` — the operation **fails fast** rather than silently routing to a conventional default. A bare reagent fn that depends on the surrounding frame errors loudly at the call site rather than reading the wrong frame's app-db.
-
-A plain fn is therefore only safe when it establishes its own frame scope — inside an explicit `with-frame`, or by capturing a `(rf/capture-frame)` at render time and using its bound ops (see §Affordance for plain fns below). A single-frame app keeps working by establishing exactly **one** root `frame-provider` / `with-frame`; *inside that scope* registered views (`reg-view`) pick up the frame ergonomically.
-
-### A frame-dependent plain fn raises `:rf.error/no-frame-context`
-
-The error rides the always-on error axis (surface #4 per [009 §What IS available in production](009-Instrumentation.md#what-is-available-in-production)), so it is observable in production where dev traces are elided. A representative payload:
-
-```clojure
-{:rf.error/id :rf.error/no-frame-context
- :operation   :subscribe        ;; or :dispatch
- :where       :re-frame.subs/subscribe
- :event-id    :cart/total       ;; the query-id / event-id the op carried
- :recovery    :supply-frame}
-```
-
-> **Migration note.** There is no fall-through to `:rf/default` to warn about — only the loud no-frame-context error. Consumers (10x / pair) branch on `:rf.error/no-frame-context`.
-
-### Migration path
-
-For any plain Reagent fn that may render under a non-default frame, replace with `reg-view`:
-
-```clojure
-;; before
-(defn my-summary [label] ...)
-
-;; after — same body, registered, frame-aware
-(rf/reg-view ^{:doc "..."} my-summary [label] ...)
-```
-
-Plain fns are allowed indefinitely; the warning is a *quality-of-life* signal, not a deprecation.
-
-A future re-frame2.x or v2 may make `reg-view` mandatory if the ecosystem follows. Not in v1.
-
-### Affordance for plain fns: `(rf/capture-frame)`
-
-For users who want frame awareness in a plain fn without registering it, capture a `capture-frame` at render time and use its ops:
-
-```clojure
-(defn my-plain-view [label]
-  (let [{:keys [dispatch subscribe]} (rf/capture-frame)  ;; captures the render frame
-        n @(subscribe [:count])]
-    [:button {:on-click #(dispatch [:inc])}
-     (str label ": " n)]))
-```
-
-Same closure mechanic as `reg-view` (which is sugar over the same `capture-frame`), just opt-in per-call. Slightly more verbose; useful as an escape hatch. The handle is locked to the frame captured at render — its ops survive the `:on-click` callback's async boundary.
-
-## Form-1, Form-2, Form-3 components
-
-Form-1 is the **canonical** form. Form-2 and Form-3 exist for Reagent compatibility, but Form-2's outer-fn-side-effects pattern hides a mount-time side-effect that doesn't appear at the call site — Form-1 + an explicit setup event is preferred.
-
-### Form-1 (canonical — simple render fn)
-
-```clojure
-(rf/reg-view counter [label]
-  [:button (str label)])
-```
-
-Each render invocation runs the body fresh. No setup ceremony, no closure subtleties.
-
-For setup-on-mount work that *would* go in a Form-2 outer fn, use a separate event dispatched explicitly:
-
-```clojure
-;; preferred over Form-2
-(rf/reg-view counter [label]
-  [:button {:on-click #(dispatch [:counter/inc])}
-   (str label ": " @(subscribe [:count]))])
-
-;; setup happens via the frame's :initial-events, or a dedicated init event:
-(rf/make-frame {:id :counter-frame :initial-events [[:counter/initialise]]})
-```
-
-The setup event is named, registered, queryable — visible. The Form-2 outer-fn pattern hides setup behind a lambda that fires once per mount with no call-site indication.
-
-### Form-2 (closure — supported, prefer Form-1 + explicit setup event)
-
-A view body that yields a fn (Form-2) closes over the outer scope, so the injected `dispatch` / `subscribe` locals are captured by both inner-render invocations and any callbacks created in either form:
-
-```clojure
-(rf/reg-view counter-with-init [label]
-  (dispatch [:counter/initialise label])           ;; outer fires once on mount — hidden side-effect at call site
-  (fn render-counter-with-init [label]             ;; inner render fn, called on each render
-    (let [n @(subscribe [:count])]
-      [:button {:on-click #(dispatch [:inc])}
-       (str label ": " n)])))
-```
-
-The `dispatch` and `subscribe` in both the outer body and the inner fn refer to the same lexical bindings — Clojure lexical closure does the right thing.
-
-**Use Form-2 only when the setup work genuinely depends on per-mount props.** For stable setup, use Form-1 + the frame's `:initial-events`.
-
-### Form-3 (class — out of scope for the macro)
-
-Reagent Form-3 (`reagent.core/create-class`) is **not supported by the `reg-view` macro** in v1. The macro's compile-time check rejects calls whose body is a `(reagent.core/create-class …)` form; the error message points the user at `re-frame.core/reg-view*` — the plain-fn surface, where the body can be any callable.
-
-```clojure
-;; instead of (rf/reg-view my-view (reagent.core/create-class …)) — compile error,
-;; use:
-(re-frame.core/reg-view* :feature/my-view
-  (reagent.core/create-class
-    {:reagent-render        (fn [] ...)
-     :component-did-mount   (fn [] ...)
-     :component-will-unmount (fn [] ...)}))
-```
-
-The Reagent-v2 directive constrains the canonical surface to Form-1 + Form-2; Form-3 ships through the escape hatch.
-
-## View registry — tooling surface
-
-Registered views live in re-frame's handler registrar (kind `:view`). The public registrar query API ([002-Frames.md §The public registrar query API](002-Frames.md#the-public-registrar-query-api)) provides:
-
-- `(rf/registrations :view)` — map of view-id → metadata (`:doc`, `:ns`/`:line`/`:file`, args info, source).
-- `(rf/handler-meta :view :counter)` — single view's metadata.
-
-Tools (10x, story tools, agents) read these to render view inspectors, pick views for stories, generate documentation. Source coords let tools navigate to the view's source.
-
-### Source-coord
-
-Every `reg-view` call captures full source coordinates at macro-expansion time. The metadata stamped onto the registry slot includes `:ns` / `:file` / `:line` / `:column`:
-
-- `:ns` and `:file` come from the compile-time `*ns*` / `*file*` (captured by the macro and embedded as literals in the expansion — necessary for the CLJS path, where `cljs.core/*ns*` is nil at runtime).
-- `:line` and `:column` come from `(meta &form)`.
-
-The captured tuple is consumed by:
-
-- **Tools** that need to navigate from a view-id to source (re-frame-pair, re-frame-10x, IDE jump-to-source) via `(rf/handler-meta :view id)`.
-- **Substrate adapters** that inject the `data-rf2-source-coord="<ns>:<sym>:<line>:<col>"` attribute on the rendered root DOM element. Per [Spec 006 §Source-coord annotation](006-ReactiveSubstrate.md#source-coord-annotation-mandatory) this is **mandatory** for any substrate adapter whose host has a DOM-attribute concept (Reagent, UIx, Helix); CLJS-only and gated on `interop/debug-enabled?` so production builds elide the attribute.
-- **JVM SSR** the same way — see [Spec 011 §Source-coord annotation under SSR](011-SSR.md#source-coord-annotation-under-ssr).
-
-Pair-shaped consumers parse the attribute string as `<ns>:<sym>:<line>:<col>` (segments are `?` when a coord component was not captured — for example, programmatic `reg-view*` registrations that bypassed the macro path). The `<ns>:<sym>` portion mirrors the registry id's namespace + name, so parsing is the inverse of `(keyword ns sym)`.
-
-## Composing registered views
-
-Registered views referenced from hiccup inherit the surrounding frame from React context:
-
-```clojure
-(rf/reg-view outer []
-  [:div
-   [counter "Inner"]                  ;; or [(rf/view :counter) "Inner"] for late-binding by id
-   (rf/with-frame :other
-     [counter "Other-frame inner"])]) ;; nested scope re-points to an existing frame
-```
-
-To re-point children to an **already-existing** frame, scope them with `rf/with-frame` (lexical / non-React) or `rf/frame-provider {:frame existing-id}` (scope an existing frame into a React subtree; fails loud if the frame is absent). The deepest scope in context wins. (Its sibling component `rf/frame-root {:id …}` instead **ensures** a named frame — create-if-absent / reuse-no-reseed / provide id, no destroy-on-unmount — rather than scoping to an existing one; see [002 §`frame-root`](002-Frames.md#frame-root--the-ensure-component-cljs-reference).)
-
-## Reusable components
-
-Reusable-component concerns are addressed by:
-
-1. **Reusable widgets need to subscribe and dispatch** — `reg-view`'s frame-bound injection.
-2. **Reusable widgets need access to surrounding context** (theme, locale, router, frame) — the frame scope established by a `with-frame` or a [`frame-provider {:frame …}`](002-Frames.md#frame-provider--the-scope-only-component-cljs-reference) (scope an existing frame; its sibling [`frame-root {:id …}`](002-Frames.md#frame-root--the-ensure-component-cljs-reference) ensures a named one) plus user-defined React contexts for non-frame state.
-
-## View antipatterns
-
-Views are pure functions of state to a render-tree. The following are normative prohibitions — call sites that violate them lose the frame-explicit contract that the rest of the spec assumes.
-
-### Views MUST NOT dispatch from their render bodies
-
-A view's render body computes hiccup; it does not advance state. Dispatching during render couples reads to writes and (in Reagent's reactive case) loops the render — the dispatch invalidates a sub the view just deref'd, the view re-renders, dispatches again. Setup work that needs to fire once per mount belongs in the frame's `:initial-events` ([§Form-1](#form-1-canonical--simple-render-fn)) or, for per-mount setup that genuinely depends on props, in a Form-2 outer fn ([§Form-2](#form-2-closure--supported-prefer-form-1--explicit-setup-event)) — both of which name the dispatch site so the trace stream and tooling see it.
-
-### Views MUST NOT attach native DOM event listeners from render bodies
-
-Hiccup attrs like `:on-click`, `:on-change`, `:on-input` are the **substrate's synthetic-event surface**: the substrate adapter wraps each fn-valued attr at render time so the eventual callback closes over the frame in scope. This is what gives `(dispatch [:inc])` inside an `:on-click` lambda its frame-correctness (per [002 §View ergonomics](002-Frames.md#view-ergonomics-the-hard-part) and [006 §Frame-provider via React context](006-ReactiveSubstrate.md#frame-provider-via-react-context)).
-
-Native imperative attach — `(.addEventListener el "click" ...)`, `(js/setTimeout ...)`, raw `requestAnimationFrame` — bypasses that wrapper. The callback fires on a fresh stack with no `*current-frame*` binding and no React-context resolution path; a bare `(rf/dispatch [...])` from inside it carries no frame stamp and **fails loudly with `:rf.error/no-frame-context`** (the runtime never synthesises `:rf/default` from absence; per [002 §Frame target resolution](002-Frames.md#frame-target-resolution--the-carried-invariant)). The fix is to capture the frame as a value at render time and carry it into the callback.
-
-The right shapes:
-
-- **For DOM events the substrate already wraps** (`click`, `change`, `keydown`, drag/drop, pointer/touch, focus/blur), attach via the hiccup attr surface. The adapter handles the framing for you.
-- **For host primitives the substrate does not wrap** (`setTimeout`, `Promise.then`, `fetch`, `requestAnimationFrame`, WebSocket / SSE listeners, `IntersectionObserver`, `MutationObserver`, `ResizeObserver`, `animationend` / `transitionend` listeners attached to specific elements), model the work as a **registered fx** (per [Pattern-AsyncEffect](Pattern-AsyncEffect.md)). The fx captures the frame in a closure at registration ([002 §Async fx capture the frame in a closure](002-Frames.md)); the per-tick / per-event reply is a registered event the fx dispatches with `{:frame frame-id}` already resolved.
-
-### Views MUST NOT own imperative library lifecycles directly
-
-When a view wraps a stateful JS library that owns its own DOM subtree (D3 charts, Mapbox, CodeMirror, Three.js, Framer Motion, React-Spring, GSAP, AutoAnimate), the imperative attach / detach belongs in the substrate's Form-3-equivalent lifecycle hook — **not** in the render body. Per-adapter spelling:
-
-| Adapter | Escape-hatch surface |
-|---|---|
-| Reagent / Reagent-slim | `reagent.core/create-class` Form-3 via `reg-view*` ([§Form-3](#form-3-class--out-of-scope-for-the-macro)) |
-| UIx | `uix.core/use-effect` inside a `defui` |
-| Helix | `helix.hooks/use-effect` inside a `defnc` |
-
-The lifecycle hook runs after commit; cleanup is mandatory (the returned teardown fn). Inside the hook, the `capture-frame` was already built during render — its `:dispatch` / `:subscribe` ops (or one built via `(rf/capture-frame)` from the hook body) close over the captured frame at mount time and carry it correctly through any subsequent imperative callbacks the library registers.
-
-## Animations
-
-Animation is a view-layer concern, but views are derivative — they compute hiccup from state. The portable principle: **state is the truth; the view animates the transition; animation completion is silent unless explicitly modelled in state via fx-paced timing.** Three regimes cover the space; the regime is chosen by what the state actually needs to know.
-
-### Regime A — Transition animations (the 95% case)
-
-State changes; the view re-renders with a different `:class` or `:style`; CSS (or the substrate's animation engine) completes the visual transition silently. **No completion dispatch is needed** — by the time the animation kicks off, `app-db` has already moved on; the visual is catching up.
-
-Examples: opacity fades, slide-in / slide-out, accordion expand, list reorder, button press-down, modal scrim, route transitions. The state-shaped truth is "this card is :open"; the view renders `{:class (when open? "open")}`; CSS `transition` interpolates the property.
-
-Sequencing belongs in CSS (`animation-delay`, `:nth-child` selectors, parallel keyframes) or in a small `:dispatch-later` chain that advances a `:phase` key in state at known intervals. Either way, the visual catches up to state — the view never blocks on `transitionend`.
-
-### Regime B — Continuous animations (RAF loops, physics, games)
-
-Per-frame state mutation IS the truth. The right shape is a registered `reg-fx` (e.g. `:ui/raf-loop`) that owns the `requestAnimationFrame` cycle and dispatches a per-frame event carrying delta-time. The fx captures the frame at registration (per [Pattern-AsyncEffect](Pattern-AsyncEffect.md) + [002 §Async fx capture the frame in a closure](002-Frames.md)); the event handler updates state; the view renders the new state. Cancellation is a sibling fx that cancels the RAF handle.
-
-This is Pattern-AsyncEffect with `requestAnimationFrame` substituted for HTTP — same six-step shape, same frame-capture discipline, same `:dispatch` reply contract. Particle systems, infinite-scroll inertia, physics simulations, game loops all fit.
-
-### Regime C — Library-bridged animations (Framer Motion, React-Spring, GSAP, AutoAnimate)
-
-The animation library is component-shaped — it owns its own imperative timing inside its own component tree. The wrapping pattern is the **outer/inner split**: the outer is a registered view that reads subs and produces props; the inner is a Form-3 / `use-effect` wrapper that hands the library the state-derived props. The view layer never imperatively dispatches; the library's internal callbacks (e.g. Framer Motion's `onAnimationComplete`) are bridged at the inner boundary using the same lifecycle-hook discipline as [§Views MUST NOT own imperative library lifecycles directly](#views-must-not-own-imperative-library-lifecycles-directly).
-
-This regime subsumes into the general outer/inner pattern for wrapping stateful JS components (D3, Mapbox, CodeMirror also fit) — animation libraries are not a special case.
-
-### Choosing a regime
-
-Most animations are Regime A. Reach for B only when the state genuinely advances per-frame (games, physics, scroll-momentum). Reach for C only when a third-party library owns the timing. Genuine "completion-sensing" cases — "the state must wait for an exact `animationend`" — are rare, and usually signal that Regime A's "state is truth, visual catches up" approach was not fully exploited. When the case is genuine, the lifecycle hook (Form-3 / `use-effect`) is the escape hatch: it attaches `addEventListener "animationend"` after commit, cleans up on unmount, and carries the frame correctly because the `capture-frame` was built during render.
+| §The portability law and the template AST | **S1** | one AST → two emitters; normalized structural equivalence (parity corpus v0); serialisation boundary; closed node set; AST-shape gate |
+| §`ui/defview` — grammar, props ABI, options map, registration, `rf=` comparator | **S1** | declaration arities + diagnostics; props ABI encoding + `:key` reservation; registrar `:view` entries; the ruled `rf=` comparator emitted and asserted against prop-driven re-render (subscription/local interplay asserts S2/S3; stable-shell identity is S2 HMR work) |
+| §Template grammar — forms, control forms, rejection roster | **S1** | table forms lower; compile-error roster with didactic messages |
+| §Template grammar — prop conversion (the rule table; `ui/spread`) | **S1** | conversion-table fixtures consumed by both emitters (owning table: [004B-UI-Tree-and-Conversion.md](004B-UI-Tree-and-Conversion.md)); `spread` dynamic-map cases |
+| §Template grammar — custom elements (`ui/custom-element`, RULED grammar) | **S4** | property-vs-attribute classification; SSR attributes-only; W14 fixtures |
+| §Handlers — event vectors as structural data (manifest flags; JVM-tree `:events`) | **S1** | vectors/options-maps retained as data in tree + manifest; placeholder keywords retained as keywords |
+| §Handlers — committed behaviour (decision table, bare-fn law + lint, dynamic classification, loops, refs, the synchrony door) | **S3** | decision-table fixtures; sync-door fixture (input-door predicate; G-8 real-browser matrix is the residual named gate); loop/ref diagnostics |
+| §Reactive reads — `sub` | **S2** | one-ViewCell binding; stabilization; conditional reads (the loop *rejection* is a compile error from S1) |
+| §Local state + the placement rule | **S3** | `local` semantics; narrow-law fixtures (same-view handler read conforming; forbidden-tier diagnostics) |
+| §Effects and `ui/dispatch-fn` | **S3** | `rf=` deps + cleanup + StrictMode replay; `:connect` semantics; loud non-connected failure |
+| §Leases (view-side surface) | **S2** → confirms **S3** | owner-token semantics + transactional rollback with the observation work (S2); view-level resource-lease confirmation fixture (S3) |
+| §Loading state is explicit | **S2** | `sub` never fetches; `lease` acts only after connected commit |
+| §Presence | **S4** | enter/exit retention; `flush-presence!` fake-clock fixtures; JVM `:present` |
+| §Interop — `ui/raw` | **S1** → completes **S4** | compile form + opaque marker in the tree (S1); foreign-boundary corpus (S4) |
+| §Interop — `ui/html` | **S1** | dual-emitter agreement; the single escaping bypass; manifest site recording |
+| §Interop — `ui/error-boundary` | **S3** | phase semantics; `:reset-key`; server-policy contrast |
+| §Interop — `ui/client-only` | **S3** → completes **S5** | capability-free fallback check (S3); SSR phase flip (S5) |
+| §Interop — `ui/spread` | **S1** | with the conversion-table row above |
+| §Interop — `ui/->react` | **S6** | compat-boundary fixtures, both nesting directions (the compat-boundary contract) |
+| §Interop — `element` / `view` / `portal` / `re-frame.ui.data` | — | [WAVE-2]: no stage, no assertion, no v1 existence |
+| §Roots and mounting — mount grammar, root identity, Root Descriptor v1, client host fns, duplicate Layers 1+3, static frame-plan extraction | **S1** | the [004C-Roots-and-Mount.md](004C-Roots-and-Mount.md) §10 S1 row |
+| §Roots and mounting — frame preflight ENSURE (runtime) + `frame-root`/`frame-provider` scoping | **S2** | preflight-exactly-once, non-reseed, StrictMode/HMR-immune fixtures |
+| §Roots and mounting — hydration + Root Manifest v1 | **S5** | manifest extension keys; multi-root hydration + failed-root isolation |
+| `ui.test` surfaces this Spec references | **S1** core (render/find/find-all/query/text/attrs over Tier-1 trees) → **S2** flush semantics (`flush!`, `dispatch!`, `simulate!`) → **S4** `flush-presence!` | selector-grammar fixtures; JVM-subset enforcement |
+| §View identity and the instrumentation surface | **S3** → budget/absence gates complete **S6** | manifests, instance records, cause vectors, Xray consumption (compile-time site anchors exist from S1; the evidence schema asserts S3); production erasure G-7/G-11 |
+| §The JVM structural subset — structure/props/branches/lists/event intent/`ui/html` + `:rf.error/jvm-host-op` | **S1** | Tier-1 rendering against the tree contract |
+| §The JVM structural subset — subs via the pure snapshot path | **S2** | the Q32/Q22 answer: `sub` *grammar* compiles at S1, but no Stage-1 Tier-1 fixture exercises a sub read — a Tier-1 render through a sub site (frame or `:sub-overrides`) is an S2 assertion |
+| §Hot reload — the view-side contract | **S2** | the full HMR matrix (08 §2 places it with reactivity, deliberately early) |
+| §Removed forms — the absences | **S1** | absences are compile errors + export-surface checks from the first slice |
+| §Removed forms — [TRANSITION] freeze + the 004A appendix | **S7** | deletion-wave soak gates; `spec/004A-Reagent-Compat.md` lands |
+
+**The S1 profile — what the R-1 atomic merge requires:** the rows tagged S1 above —
+portability law + parity corpus v0 · `defview` grammar/props-ABI/registration/
+comparator · template grammar + compile-error roster · prop conversion + `spread` ·
+event vectors as structural data · `raw` and `html` compile forms · root identity +
+Root Descriptor v1 + client mounts · `ui.test` Tier-1 core · the JVM subset's
+non-reactive rows · the removed-forms absences. That set passing its named assertions
+**is** "the first conforming Stage-1 slice".
+
+**Ripple-row timing** (the atomic-merge sets for the inventory below): rows marked
+[TRANSITION] and every "moves to 004A" row land at **S7** with the appendix;
+identity/naming/reservation rows (Conventions reserved `:rf.ui/*` namespace + artifact
+registration + lint key, Ownership's new-surface rows, `spec/API.md`'s `re-frame.ui`
+additions, the 008 `ui.test`/selector rows) land at **S1** with this rewrite;
+behaviour rows land with the stage that asserts their subject (002 frame chain → S2,
+006 observation port → S2, 009 evidence schema + catalogue rows → their features'
+stages in small batches, 011 → S5).
 
 ## Resolved decisions
 
-### Bare `[:my-view "args"]` in raw hiccup is rejected
-
-> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): `:resolved` — rf2-n82bbu ruled **reject for the v-family**, superseding the earlier `:post-v1 tracked` deferral to Spec 006 (006 never carried the item; the pointer had gone stale).
-
-Bare `[:my-view "args"]` in raw hiccup — where the substrate itself would interpret a keyword tag as a registered view — is **rejected**, not deferred. Registered views resolve by Var reference (the canonical `reg-view` form, [§The canonical form](#the-canonical-form-reg-view-auto-defs-the-symbol)) or by explicit `(rf/view id)` lookup ([§`view`](#view--the-canonical-post-registration-lookup)) only; a bare keyword tag in hiccup stays a plain substrate-owned HTML/custom element and is never resolved against the view registry.
-
-**Why:** the two existing resolution mechanisms, across three call-site spellings, already cover every identified use case — including runtime-computed ids via `(rf/view id)`. No example, testbed, or consumer in the repo uses or requests a third (keyword-tag) form. The natural failure mode of adding it is worse than the status quo: either a typo'd keyword silently renders a bogus custom element, or every keyword-headed hiccup form pays a view-registry probe on the render hot path to guard against that — both fail the over-engineering bar. The feature is also adapter-lopsided: it is only meaningful for the Reagent / reagent-slim hiccup family, since UIx and Helix render via `$` / `defnc` macros rather than raw hiccup. Tested semantics already assert the rejection (the reagent-runtime `keyword-head-does-not-dispatch-to-registered-view` test; reagent-slim routing keyword/symbol/string heads through the native-element path), so adopting the form would change tested hot-path semantics rather than merely add an alias.
-
-This is fully reversible: a future consumer with genuine demand can file a new bead, and adding keyword-tag resolution later remains a non-breaking addition.
-
-### `reg-view` defs the Var by default
-
-`reg-view` is defn-shape: the symbol you supply IS the Var name; the id is auto-derived from `(keyword *ns* sym)`. No need to write `(def x (rf/reg-view :x ...))` — `(rf/reg-view x [args] body)` is enough; a Var named `x` is created in the surrounding namespace and registered under `(keyword *ns* "x")`.
-
-```clojure
-(rf/reg-view counter [label] [:button label])
-;; ⇒ defs `counter` in the current namespace, bound to the wrapped fn.
-;; ⇒ registers under (keyword *ns* "counter").
-;; You can now write [counter "Hi"] in hiccup directly.
-
-(rf/reg-view ^{:rf/id :cart.item/row} item-row [item] [:tr ...])
-;; ⇒ defs `item-row`; registers under the explicit override id :cart.item/row.
-;; Use the qualified namespace prefix when reading: [cart.item.row item]
-```
-
-This matches `defn`'s shape (registers + binds a Var) and removes a redundant naming step. Other registration kinds don't need this because their values aren't called as Reagent components in hiccup — only views are.
-
-For the rare case where the user wants no Var binding (e.g. views generated programmatically, or registered without a Var by a library), use `re-frame.core/reg-view*` directly — the plain-fn surface registers under the supplied id without defing anything.
-
-```clojure
-;; Programmatic registration — no Var, computed id.
-(doseq [variant [:summary :detail]]
-  (re-frame.core/reg-view*
-    (keyword "feature/article" (name variant))
-    (fn [_props] ...)))
-```
-
-### `h` macro dropped
-
-The v1 surface has no `h` macro that walks hiccup at compile time and rewrites namespaced-keyword heads (`[:my-app/widget args]`) into runtime `(rf/view :my-app/widget)` lookups. The Var idiom — `(reg-view counter [...] ...)` defs `counter`; users write `[counter "Hello"]` — is the canonical call-site form. For late-binding by id (cross-module reference, runtime-computed ids, hot-reload-sensitive call sites) the canonical handle is the explicit function-position form `[(rf/view :counter) "Hello"]`. Two surfaces, both data-friendly, no compile-time hiccup walker to learn or reason about.
-
-### Form-3 (`reagent.core/create-class`) — out of scope for the macro
-
-The `reg-view` macro rejects bodies whose top-level form is `(reagent.core/create-class …)` — Form-3 is the canonical escape-hatch case. Per the Reagent-v2 directive the canonical surface targets Form-1 + Form-2; Form-3 ships through `re-frame.core/reg-view*`:
-
-```clojure
-(re-frame.core/reg-view* :feature/widget
-  (reagent.core/create-class
-    {:reagent-render        (fn [props] ...)
-     :component-did-mount   (fn [this] ...)
-     :component-will-unmount (fn [this] ...)}))
-```
-
-Inside a Form-3 body, the user captures frame-bound dispatch/subscribe explicitly via `(rf/capture-frame)` (and its `:dispatch` / `:subscribe` ops) if needed — the macro's auto-inject is exactly the convenience `reg-view*` does NOT provide.
-
-### Hot-reload behaviour for re-registered views
-
-Re-registering a view replaces the registry entry; `(view :id)` re-resolves on every render, so mounted components pick up the new render fn on next render with no further action. Reagent's component cache keys on the wrapper fn the macro emits; because that wrapper delegates to `(view view-id)` on each call, the cache hit returns the *new* render fn body once the registry is updated. No explicit invalidation needed.
-
-The runtime emits `:rf.registry/handler-replaced` (per [009](009-Instrumentation.md)) when re-registration overwrites an existing view; tools branch on the trace event to refresh their UI.
+- **R-1 — staged merge.** The portability law merges immediately (the interim
+  amendment); this rewrite merges atomically with the first conforming Stage-1 slice —
+  "conforming" is profile-defined: the S1 rows of §Stage conformance profiles.
+- **R-2 — shapes final.** The observation port's six-operation target/evidence/lease
+  ABI is final (the observation-port amendment, merging with the S2 slice, is the sole
+  shape source; the rewritten 006 amendment carries it) — no provisional shapes remain
+  anywhere in this contract.
+- **R-3 — naming.** `re-frame.ui`, alias `ui`, artifact `day8/re-frame2-ui`; supporting
+  `re-frame.ui.test` / `.react` / (if earned) `.data`. Separate artifact on a lockstep
+  release train initially (R-6).
+- **R-4 — the narrow bare-fn law + strict lint** (§Handlers).
+- **Presence ruling** — wrapper form, no reserved nodes; `:timeout-ms` mandatory;
+  `presence-phase` returns `:present` outside a boundary (§Presence).
+- **Refs policy** — `:ref` reserved; object refs preferred; callback refs explicit
+  `ui/raw-fn` (§Handlers).
+- **`:on-mount`/`:on-unmount` rejected** — mechanical React lifecycle cannot carry
+  domain "once" semantics under StrictMode/Activity/HMR/error recovery; `effect
+  :connect` is named for what it actually does.
+- **Controlled-input synchrony door** — committed; the trigger predicate is confirmed by
+  the controlled-input door spike (the G-8 real-browser input matrix remains the
+  residual named gate) (§Handlers).
+- **Push ownership committed** (context for `sub`'s one-bridge contract — the pull
+  alternative survives only as a falsification benchmark).
+- **Carried from the checked-in 004:** bare-keyword heads never resolve against the view
+  registry (rf2-n82bbu); no `h` macro; the ephemeral-state placement rule and its
+  ownership by this Spec.
