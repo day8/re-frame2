@@ -51,10 +51,15 @@
       using it are untouched (06 §2 failure scoping). No first-wins
       silent merge, no last-wins overwrite.
 
-  A destroyed frame invalidates its install record: a later plan for the
-  same id is a genuinely new frame lifetime — created fresh,
-  `:initial-events` REPLAYED (the opt-in destroy-then-reseat composition,
-  rf2-lxwpob).
+  A destroyed frame invalidates its install record — the
+  `:ui/on-frame-destroyed!` hook PRUNES it (rf2-vxgfnd.30 (a)), so a boot
+  re-create of the same id can no longer resurrect a dead-lifetime record
+  as a false conflict. A later plan for the same id is a genuinely new
+  frame lifetime — created fresh, `:initial-events` REPLAYED (the opt-in
+  destroy-then-reseat composition, rf2-lxwpob). A plan that throws mid-run
+  tags the siblings it already installed `:mount-incomplete`
+  (rf2-vxgfnd.30 (b)), so a later conflict names an incomplete mount, not
+  a phantom completed owner.
 
   ## Atomicity posture (the rf2-ktmto9 mirror)
 
@@ -120,14 +125,18 @@
 
 (defonce ^:private installed-plans
   ;; frame-id -> {:config-fingerprint "cf1-…" :installed-by root-id}
-  ;; An entry is live only while its frame is (a destroyed frame's record
-  ;; is stale and replaced on the next install).
+  ;; A failed mount that installed earlier siblings tags their surviving
+  ;; records `:mount-incomplete true` (rf2-vxgfnd.30 (b)). Records are
+  ;; PRUNED on `frame/destroy-frame!` (rf2-vxgfnd.30 (a)) — the destroy hook
+  ;; dissocs the id, so a re-created same-id frame is a genuinely new
+  ;; lifetime rather than a resurrected dead-lifetime record.
   (atom {}))
 
 (defn installed-plan-entry
   "The recorded install for `frame-id` (tool/test read):
-  `{:config-fingerprint … :installed-by root-id}` or nil. nil when the
-  frame is no longer live (a stale record is not an install)."
+  `{:config-fingerprint … :installed-by root-id}` or nil. Records are pruned
+  on destroy; the extra live-guard keeps a never-hooked path from surfacing
+  a stale record as an install."
   [frame-id]
   (when (some? (frame/frame frame-id))
     (get @installed-plans frame-id)))
@@ -150,7 +159,12 @@
    (str "root " (pr-str root-id) " arrives with a frame plan for "
         (pr-str frame-id) " whose config fingerprint differs from the "
         "installed frame's recorded plan (installed by root "
-        (pr-str (:installed-by installed)) "). One frame, one plan: align "
+        (pr-str (:installed-by installed)) ")"
+        (when (:mount-incomplete installed)
+          (str ", whose mount did NOT complete — a later plan in that "
+               "root's run threw, so the frame is live only from its "
+               "already-fired :initial-events and no root actually scopes it"))
+        ". One frame, one plan: align "
         "the configs, or drop the duplicate frame-root. The installed "
         "frame and the roots already using it are untouched — this root "
         "failed before any install")
@@ -159,6 +173,31 @@
             :installed installed
             :arriving  {:config-fingerprint config-fingerprint
                         :root-id root-id}}}))
+
+(defn- mark-mount-incomplete!
+  "Tag the surviving install records `frame-ids` (siblings this run wrote
+  before a later plan threw) `:mount-incomplete true`, so a later conflict
+  never presents their root as a completed owner it never became."
+  [frame-ids]
+  (when (seq frame-ids)
+    (swap! installed-plans
+           (fn [m] (reduce (fn [m id]
+                             (cond-> m
+                               (contains? m id) (assoc-in [id :mount-incomplete] true)))
+                           m frame-ids)))))
+
+(defn- clear-mount-incomplete!
+  "A run completed: every frame it touched is backed by a completed mount,
+  so drop any stale `:mount-incomplete` tag left by an earlier failed run.
+  Only entries that carry the tag are rewritten (the found-live no-op path
+  stays write-free in the common, unmarked case)."
+  [frame-ids]
+  (swap! installed-plans
+         (fn [m] (reduce (fn [m id]
+                           (cond-> m
+                             (:mount-incomplete (get m id))
+                             (update id dissoc :mount-incomplete)))
+                         m frame-ids))))
 
 (defn execute-frame-plans!
   "Execute a root's static frame plans (the LIVE preflight ENSURE — see
@@ -173,7 +212,8 @@
   returning (EP-0027); a found-live same-fingerprint plan is a pure no-op
   (no re-seed — the HMR guarantee); a live plan-less (boot-created) frame
   is ADOPTED — its config/generation untouched, only the fingerprint
-  recorded (rf2-vxgfnd.26). Returns nil."
+  recorded (rf2-vxgfnd.26). A plan that throws mid-run tags the siblings it
+  already installed `:mount-incomplete` (rf2-vxgfnd.30 (b)). Returns nil."
   [root-id plans]
   (let [decided
         (mapv (fn [{:keys [frame-id config-fingerprint] :as plan}]
@@ -202,32 +242,49 @@
 
                     :else
                     (assoc plan ::action :install))))
-              plans)]
-    (doseq [{:keys [frame-id config config-fingerprint] :as plan} decided]
-      (case (::action plan)
-        ;; the ratified idempotent no-op: no re-seed, no record churn.
-        :found-live nil
+              plans)
+        ;; frame-ids whose record THIS run writes (install/refresh/adopt),
+        ;; accumulated in document order so a mid-run throw can tag the
+        ;; siblings already written (rf2-vxgfnd.30 (b)).
+        written (volatile! [])]
+    (try
+      (doseq [{:keys [frame-id config config-fingerprint] :as plan} decided]
+        (case (::action plan)
+          ;; the ratified idempotent no-op: no re-seed, no record churn.
+          :found-live nil
 
-        ;; a live plan-less (boot-created) frame: create-if-absent means
-        ;; create NOTHING. Record only the plan's fingerprint so a later
-        ;; cross-root arrival is conflict-scoped — the boot frame's
-        ;; config/generation/`:images` are left entirely untouched
-        ;; (rf2-vxgfnd.26: a config-carrying `make-frame` here clobbered
-        ;; them, masked by the durable app-db surviving).
-        :adopt (swap! installed-plans assoc frame-id
-                      {:config-fingerprint config-fingerprint
-                       :installed-by root-id})
+          ;; a live plan-less (boot-created) frame: create-if-absent means
+          ;; create NOTHING. Record only the plan's fingerprint so a later
+          ;; cross-root arrival is conflict-scoped — the boot frame's
+          ;; config/generation/`:images` are left entirely untouched
+          ;; (rf2-vxgfnd.26: a config-carrying `make-frame` here clobbered
+          ;; them, masked by the durable app-db surviving).
+          :adopt (do (swap! installed-plans assoc frame-id
+                            {:config-fingerprint config-fingerprint
+                             :installed-by root-id})
+                     (vswap! written conj frame-id))
 
-        ;; :install / :refresh — create-if-absent / surgical refresh;
-        ;; :initial-events drain synchronously inside the engine, in
-        ;; document order across plans. The record lands only AFTER a
-        ;; successful install, so a throwing plan leaves no install record
-        ;; (and the engine leaves no frame residue).
-        (do
-          (live-frame/make-frame (assoc (or config {}) :id frame-id))
-          (swap! installed-plans assoc frame-id
-                 {:config-fingerprint config-fingerprint
-                  :installed-by root-id}))))
+          ;; :install / :refresh — create-if-absent / surgical refresh;
+          ;; :initial-events drain synchronously inside the engine, in
+          ;; document order across plans. The record lands only AFTER a
+          ;; successful install, so a throwing plan leaves no install record
+          ;; (and the engine leaves no frame residue).
+          (do
+            (live-frame/make-frame (assoc (or config {}) :id frame-id))
+            (swap! installed-plans assoc frame-id
+                   {:config-fingerprint config-fingerprint
+                    :installed-by root-id})
+            (vswap! written conj frame-id))))
+      ;; the whole run completed — every touched frame is backed by a
+      ;; completed mount, so drop any stale mount-incomplete tag.
+      (clear-mount-incomplete! (map :frame-id decided))
+      (catch #?(:clj Throwable :cljs :default) e
+        ;; a plan threw mid-run: the siblings this run already installed stay
+        ;; live (irreversible :initial-events — the atomicity posture), but
+        ;; the mount did NOT complete. Tag their records so a later conflict
+        ;; names an incomplete mount, not a phantom completed owner.
+        (mark-mount-incomplete! @written)
+        (throw e)))
     nil))
 
 ;; ---------------------------------------------------------------------------
@@ -346,4 +403,14 @@
 ;; throwing `:rf.error/frame-destroyed` off the observation port. Late-bound so
 ;; core never statically requires this artefact — the hook is simply unbound
 ;; (a no-op) when day8/re-frame2-ui is absent from the classpath.
-(late-bind/set-fn! :ui/on-frame-destroyed! reactive/teardown-frame!)
+;;
+;; The hook ALSO prunes the destroyed id's install record (rf2-vxgfnd.30 (a)):
+;; `installed-plan-entry` only HID a dead record behind a liveness guard, so a
+;; boot re-create of the same id resurrected the stale record as a false
+;; `:rf.error/frame-payload-conflict` blaming the dead lifetime's installer.
+;; Pruning makes the invariant real — a destroyed frame invalidates its install
+;; record, so a later same-id plan is a genuinely new lifetime.
+(late-bind/set-fn! :ui/on-frame-destroyed!
+                   (fn [frame-id]
+                     (swap! installed-plans dissoc frame-id)
+                     (reactive/teardown-frame! frame-id)))
