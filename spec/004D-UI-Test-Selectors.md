@@ -27,12 +27,14 @@ selector := tag-kw        ; unqualified keyword — element tag
           | view-sel      ; qualified keyword (registered view id) or the defview Var
           | attr-map      ; map of attr-key → expected value, matched by rf=
           | pred-fn       ; (fn [node] boolean) — the escape
-          | [selector+]   ; path composition (descendant steps)
 ```
 
 No other form is a selector. Deliberately absent: sibling/nth/positional combinators,
 wildcard, text-content selectors, attribute-presence-without-value — no guide example or
-07 §3 fixture needs them; `pred-fn` covers the residue.
+07 §3 fixture needs them; `pred-fn` covers the residue. The path/vector form
+`[selector+]` is a **demand-bar-deferred item — not shipped at S1** (Stage 1 answered
+the demand bar; see [OPEN-2]); a vector selector raises `:rf.error/ui-test-bad-selector`
+naming the composed-`find` idiom `(find (find tree :form) :button)`.
 
 - **`tag-kw`** — an **unqualified** keyword matches a node whose element tag is that
   keyword, exactly (`:button` matches a `:button` element node; no substring, no
@@ -65,27 +67,20 @@ wildcard, text-content selectors, attribute-presence-without-value — no guide 
   hatch (escapes advertise their cost, I-14): reach for it only when the three data
   forms cannot express the match. *Consumer:* harness completeness; keeps the data
   grammar closed instead of growing combinators.
-- **`[selector+]`** — path composition: `[:form :button]` finds a `:button` **descendant**
-  of a `:form` match. Pure composition — zero new matcher semantics (see below).
-  *Consumer:* row-scoped assertions in keyed-list fixtures (Stage 1 "keyed lists" +
-  G-9-style Tier-1 intent checks: the button *inside* row 42's node). *(See [OPEN-2].)*
 
 ## Matching semantics
 
 - **Traversal order** is depth-first pre-order — document order — over the tree's
   **map nodes** (elements, fragments, view boundaries, trusted-HTML), descending
   through fragment and view-boundary children alike; trusted-HTML nodes are leaves
-  (their markup is unparsed) and text content is not visited. A single (non-vector)
-  selector is tested against the given node itself **and** its descendants, in that
-  order.
+  (their markup is unparsed) and text content is not visited. A selector is tested
+  against the given node itself **and** its descendants, in that order.
 - **`find`** returns the **first** match in document order, or misses (§Failure).
   **`find-all`** returns a vector of **all** matches in document order (possibly empty).
-- **Path steps** — for `[s1 s2 … sn]`: match `s1` per the rule above; each subsequent
-  step `sk+1` is matched against the **strict descendants** (excluding the step-`k` node
-  itself) of each step-`k` match. The result set is the union of final-step matches,
-  de-duplicated, in document order of the whole tree. Consequences: `[s]` ≡ `s`;
-  `[:form :form]` finds a *nested* form, never the same node twice; steps are the
-  descendant axis, not direct-child (no child combinator — unearned).
+- **Descendant-scoped assertions compose `find`** — a found node is itself a valid
+  `tree` argument, so `(find (find tree :form) :button)` finds a `:button` descendant of
+  the first `:form` match. This composition is the supported idiom; the sugar `[selector+]`
+  path form is demand-bar-deferred and not shipped (see [OPEN-2]).
 
 ## What `find` returns
 
@@ -95,7 +90,8 @@ field names (`:tag` / `:attrs` / `:events` / `:children` / `:view-id` / …) are
 contract's versioned public ABI. Its read surface:
 
 - **Queryable.** A node is itself a valid `tree` argument: `(find (find tree :form)
-  :button)` composes (this is what the vector form folds over).
+  :button)` composes — the supported idiom for descendant-scoped assertions (the
+  `[selector+]` path sugar that would fold over it is demand-bar-deferred; see [OPEN-2]).
 - **Keyword lookup reads the node's *fields*, never its attributes.** Attrs and events
   live under their own keys (`(:events node)`, `(:attrs node)`), so `(:on-click node)`
   is a field miss — the ruled node-reading contract (09 §codex2 row 2). The attribute
@@ -125,13 +121,15 @@ the tree contract, which this grammar consumes.
   `(ui.test/attrs nil)` is `nil` per the tree contract's projection rules — so
   assertions fail with `nil ≠ expected`.
 - **`find-all` → `[]`** on no match.
-- **`ui.test/find!`** — the strict variant: identical selector semantics; **throws** a
-  typed `ex-info` on zero matches, carrying the selector, the search root's tag/view-id,
-  and a bounded tree digest (the miss diagnostics `nil` cannot give). It does **not**
-  police uniqueness — first match wins even when several exist; a getBy-style
-  uniqueness-asserting variant is unearned (no consumer). Recommended error id:
-  `:rf.error/ui-test-find-miss` — needs its Spec 009 catalogue row and a 07 §2 contract
-  row on promotion. *(See [OPEN-3].)*
+- **`ui.test/find!`** — the recommended strict variant (demand-bar item OPEN-3, **not
+  shipped at S1**): identical selector semantics; it would **throw** a typed `ex-info` on
+  zero matches, carrying the selector, the search root's tag/view-id, and a bounded tree
+  digest (the miss diagnostics `nil` cannot give). It would **not** police uniqueness —
+  first match wins even when several exist; a getBy-style uniqueness-asserting variant is
+  unearned (no consumer). Recommended error id: `:rf.error/ui-test-find-miss` — its Spec
+  009 catalogue row and 07 §2 contract row land **with the feature** when it ships
+  (rows-land-with-features), not at S1 promotion. S1 promoted without `find!`, so
+  `:rf.error/ui-test-find-miss` is correctly **un-catalogued** today. *(See [OPEN-3].)*
 
 ## Tier-3 by contrast — `(ui.test/query root css-selector)`
 
@@ -163,13 +161,17 @@ only when a fixture does. `attrs`/`text` on a DOM element, or a CSS string hande
   view-id selector matches the boundary marker itself. Fragment-rooted and nil-rooted
   views **are matchable** — the boundary node exists (with several children, or none)
   even when no single root element does.
-- **[OPEN-2] Path-form demand.** The vector form's named consumer (row-scoped keyed-list
-  assertions) is projected from Stage-1 fixtures, not yet a written guide example. If no
-  Stage-1 fixture or guide example materialises the need, drop the form at the demand-bar
-  audit — it is pure sugar over node-composed `find`, so dropping it costs nothing.
-  *(Premise unchanged by the tree contract.)*
-- **[OPEN-3] `find!` inclusion.** Recommended in (miss diagnostics; every Tier-1 test is
-  the 08 §3 consumer for `ui.test/*`), but it is the one name here beyond 07 §2's table —
-  confirm at the demand-bar audit and add the 07 §2 row + 009 catalogue row together.
-  *(Premise unchanged; the "bounded tree digest" it carries can now be defined as a
-  truncated canonical-EDN print per the tree contract's canonical form.)*
+- ~~**[OPEN-2] Path-form demand.**~~ — **RESOLVED (2026-07-12): dropped.** No Stage-1
+  fixture or guide example materialised the need, so the vector/path form was **not
+  shipped** — `re-frame.ui.test` raises `:rf.error/ui-test-bad-selector` for any vector
+  selector, naming the composed-`find` idiom `(find (find tree :form) :button)`. The form
+  was pure sugar over node-composed `find`, so dropping it cost nothing; re-open only when
+  a fixture demands it.
+- **[OPEN-3] `find!` inclusion — deferred at the S1 demand-bar audit.** Recommended (miss
+  diagnostics; every Tier-1 test is the 08 §3 consumer for `ui.test/*`), but it is the one
+  name here beyond 07 §2's table and no Stage-1 fixture forced it — S1 shipped **without**
+  `find!` (`find` nil-punning + composed asserts covered the need). It remains a
+  recommended future addition: when it ships, add the 07 §2 row and the
+  `:rf.error/ui-test-find-miss` 009 catalogue row **together with the feature**. *(The
+  "bounded tree digest" it carries can now be defined as a truncated canonical-EDN print
+  per the tree contract's canonical form.)*
