@@ -22,7 +22,7 @@ Stories/variants/workspaces are downstream concerns. They are *enabled by* the f
 
 - Lets 002 and 004 stay focused on the foundation.
 - Lets the story-tool design evolve independently of foundation framework decisions.
-- `story/reg-story`/`story/reg-variant`/`story/reg-workspace` are sugar; everything is doable by hand with `reg-frame` + `reg-view` + `frame-provider {:frame …}`.
+- `story/reg-story`/`story/reg-variant`/`story/reg-workspace` are sugar; everything is doable by hand with `make-frame` + `reg-view` + `frame-provider {:frame …}`.
 
 ## Canonical id grammar
 
@@ -407,8 +407,8 @@ Stubbing HTTP (and similar effects) for stories uses **hooks for per-variant int
 
 The framework hooks (at the foundation level — see [002-Frames.md](002-Frames.md)):
 
-- `:initial-events` run at frame creation (the framework's declarative setup surface — see [002 §reg-frame](002-Frames.md#reg-frame--atomic-create-and-register-and-the-canonical-metadata-grammar)).
-- **Per-frame fx override** — a variant can declare fx replacements active for its frame's lifetime. Available via `reg-frame :fx-overrides` (see [002 §Per-frame and per-call overrides](002-Frames.md)).
+- `:initial-events` run at frame creation (the framework's declarative setup surface — see [002 §make-frame](002-Frames.md#make-frame--atomic-create-and-register-and-the-canonical-config-grammar)).
+- **Per-frame fx override** — a variant can declare fx replacements active for its frame's lifetime. Available via the frame config `:fx-overrides` (see [002 §Per-frame and per-call overrides](002-Frames.md)).
 - **Per-frame interceptor injection** — a variant can register interceptors that run only for its frame.
 
 Decorators expose these hooks as composable building blocks (`force-fx-stub`, `inject-interceptor`, etc.). Story authors compose decorators; they don't manually wire interceptors. The framework provides the hooks; the decorator library provides the ergonomics.
@@ -486,7 +486,7 @@ The 007-Stories contract has a deliberate two-tier shape — what a conformant p
 
 Pattern-level surfaces every conformant 007-Stories implementation MUST ship:
 
-- **Framework hooks** (already in 002, listed here for completeness): `make-frame` / `destroy-frame!` (a full reset composes `destroy-frame!` + re-`reg-frame`, not a dedicated verb); per-frame `:fx-overrides` / `:interceptor-overrides` / `:interceptors`; run-to-completion drain; the public registrar query API (`registrations` / `frame-meta` / `frame-ids` / `app-db-value` / `frame-state-value` / `sub-topology`); hot-reload notifications. These are 002's contract and 007 inherits them; a port that ships 002 ships them.
+- **Framework hooks** (already in 002, listed here for completeness): `make-frame` / `destroy-frame!` (a full reset composes `destroy-frame!` + re-`make-frame`, not a dedicated verb); per-frame `:fx-overrides` / `:interceptor-overrides` / `:interceptors`; run-to-completion drain; the public registrar query API (`registrations` / `frame-meta` / `frame-ids` / `app-db-value` / `frame-state-value` / `sub-topology`); hot-reload notifications. These are 002's contract and 007 inherits them; a port that ships 002 ships them.
 - **Story registry kinds.** The kinds `:story`, `:variant`, `:workspace`, `:story.decorator`, `:story.tag`, `:story.mode`, `:story-panel` (per [§Canonical id grammar](#canonical-id-grammar)) — registration shape, metadata grammar, the four-phase setup ordering (loaders → setup → render → script), and the `:variant *is* a frame` identity (per [§Relationship with frames](#relationship-with-frames)).
 - **Lifecycle event surface.** The trace events fired by variant setup, render, and play execution — the `:rf.story.lifecycle/*` family (the four-phase lifecycle machine) plus the `:rf.assert/*` play-phase family — are pattern contract so cross-tool consumers (Xray, snapshot harnesses, headless test runners) can attach uniformly. This bullet is the *pattern-contract requirement*, not the id roster: the canonical home for the `:rf.story.lifecycle/*` member set is the Story tool spec — the four-phase lifecycle machine in [`tools/story/spec/002-Runtime.md`](../tools/story/spec/002-Runtime.md#four-phase-lifecycle-with-loaders-complete-when) and the reserved-namespace carve-out in [`tools/story/spec/Conventions.md`](../tools/story/spec/Conventions.md#the-rfstory-framework-carve-out). [009-Instrumentation.md](009-Instrumentation.md) names `:rf.story.lifecycle/*` only as a reserved-`:rf/*` machine-no-op exemption, not as the enumerating SSOT. The `:rf.assert/*` roster is pinned at §Assertion vocabulary is registered and enumerable above.
 - **Programmatic execution + assertion surface.** `story/run-variant`, `story/reset-variant`, `story/variants-with-tags`, `story/snapshot-identity` — these are the API the [Story-as-test duality](#story-as-test-duality) leans on, and a port that omits them breaks the round-trip with `008-Testing`.
@@ -509,7 +509,7 @@ The test is "would this need re-defining for another port to interoperate?" — 
 
 ## Relationship with frames
 
-A variant *is* a frame, registered under its variant keyword. But variant `:setup` is NOT desugared to `reg-frame :initial-events` — Story keeps its own richer, tagged setup grammar (loaders, `:rf.story/*` phases) and neither couples to nor reuses `:initial-events` (per [EP-0027 §Out of scope](../docs/EP/EP-0027-frame-initial-events.md)), while variant `:setup` is an explicitly multi-phase precondition sequence (the whole point of stories is to express setup as a list of user-flavoured steps). The story library handles its own iteration, in the four-phase order locked above:
+A variant *is* a frame, registered under its variant keyword. But variant `:setup` is NOT desugared to the frame config's `:initial-events` — Story keeps its own richer, tagged setup grammar (loaders, `:rf.story/*` phases) and neither couples to nor reuses `:initial-events` (per [EP-0027 §Out of scope](../docs/EP/EP-0027-frame-initial-events.md)), while variant `:setup` is an explicitly multi-phase precondition sequence (the whole point of stories is to express setup as a list of user-flavoured steps). The story library handles its own iteration, in the four-phase order locked above:
 
 ```clojure
 ;; conceptual setup logic for story/reg-variant
@@ -517,7 +517,7 @@ A variant *is* a frame, registered under its variant keyword. But variant `:setu
   (let [{:keys [loaders setup]} (variant-meta variant-id)
         story-setup             (story-setup-for variant-id)
         all-setup               (concat story-setup setup)]
-    (rf/reg-frame variant-id {:doc ...})              ;; frame starts with app-db = {}
+    (rf/make-frame {:id variant-id :doc ...})         ;; frame starts with app-db = {}
     (doseq [step loaders]                             ;; phase 1 — async loaders
       (rf/dispatch-sync step {:frame variant-id})
       (await-loader-drain variant-id))
@@ -531,7 +531,7 @@ So the variant's *frame* is a normal frame (no `:initial-events`); the variant *
 
 Because a variant *is* a frame, it also carries the EP-0026 `:images` boundary ([002-Frames §Image resolution and composition](002-Frames.md#image-resolution-and-composition)). The Story runtime composes each variant frame's image generation **at allocation**, in image order (later image wins): `[<story-images…> <variant-images…> runtime-image]` — the parent story declares its app image once and every variant inherits it, a variant layers its own `:images` on top, and the canonical Story **runtime image** is composed **last** so the Story machinery (lifecycle machine, `:rf.assert/*` handlers, fx-stub redirects) is never shadowed out by an app image. With no app image the frame resolves the EP-0026 **default** whole-store projection. Story does not fork image validation — the normative contract lives in [`tools/story/spec/002-Runtime.md` §Image composition](../tools/story/spec/002-Runtime.md#image-composition--the-story-runtime-image-ep-0026).
 
-Workspaces are *not* frames (or not necessarily — they may be ordinary frames containing nested `frame-provider {:frame …}` scopes, one per included variant). Each variant's frame is **allocated by the variant machinery** (the `reg-frame` + setup phases above); a workspace cell then *scopes* that already-created variant frame into its React subtree with the merged `frame-provider {:frame …}` SCOPE-only shape (whose `:r>` interop head preserves the namespaced variant id across the React-context round trip), isolating each cell from its siblings. This falls out of 002's design without extra machinery.
+Workspaces are *not* frames (or not necessarily — they may be ordinary frames containing nested `frame-provider {:frame …}` scopes, one per included variant). Each variant's frame is **allocated by the variant machinery** (the `make-frame` + setup phases above); a workspace cell then *scopes* that already-created variant frame into its React subtree with the merged `frame-provider {:frame …}` SCOPE-only shape (whose `:r>` interop head preserves the namespaced variant id across the React-context round trip), isolating each cell from its siblings. This falls out of 002's design without extra machinery.
 
 ## Open questions
 

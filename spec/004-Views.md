@@ -399,7 +399,7 @@ For setup-on-mount work that *would* go in a Form-2 outer fn, use a separate eve
    (str label ": " @(subscribe [:count]))])
 
 ;; setup happens via the frame's :initial-events, or a dedicated init event:
-(rf/reg-frame :counter-frame {:initial-events [[:counter/initialise]]})
+(rf/make-frame {:id :counter-frame :initial-events [[:counter/initialise]]})
 ```
 
 The setup event is named, registered, queryable — visible. The Form-2 outer-fn pattern hides setup behind a lambda that fires once per mount with no call-site indication.

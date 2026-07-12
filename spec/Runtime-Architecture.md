@@ -89,7 +89,7 @@ Each section below states **inputs**, **outputs**, **invariants**, and **who cal
 
 **Role.** Hold every registered event handler (including machine handlers, which register as `:event` entries per [005](005-StateMachines.md)), sub, fx, cofx, interceptor, view, frame, route, app-schema, head, error-projector, and flow. Look-up is `(kind, id) → metadata-map`. The metadata map carries the handler fn under a closed key per [001 §Registration grammar](001-Registration.md#registration-grammar). Machine **guards and actions are machine-scoped** — declared in each machine's `:guards` / `:actions` map inside `make-machine-handler` — and are **not** registry kinds (per [001 §Registry model](001-Registration.md#registry-model--the-canonical-kind-keyword-set)).
 
-**Inputs.** Calls from `reg-event`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-interceptor` (the `:interceptor` kind), `reg-view` / `reg-view*`, `reg-machine` / `reg-machine*` (which register under `:event` with `:rf/machine? true` metadata), `reg-frame`, `reg-route`, `reg-app-schema`, `reg-head`, `reg-error-projector`, `reg-flow` — the closed registry-kind set in [001](001-Registration.md). Error observability is the always-on [`register-listener!` (`:errors` stream)](009-Instrumentation.md#what-is-available-in-production) surface; recovery is framework-owned (the per-category typed defaults), not an app-config policy.
+**Inputs.** Calls from `reg-event`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-interceptor` (the `:interceptor` kind), `reg-view` / `reg-view*`, `reg-machine` / `reg-machine*` (which register under `:event` with `:rf/machine? true` metadata), `reg-route`, `reg-app-schema`, `reg-head`, `reg-error-projector`, `reg-flow` — the closed registry-kind set in [001](001-Registration.md). (Frames are NOT registrar members — the `:frame` kind is reserved-empty; `make-frame` seats live frames in the frames store, rf2-h1vqa4.) Error observability is the always-on [`register-listener!` (`:errors` stream)](009-Instrumentation.md#what-is-available-in-production) surface; recovery is framework-owned (the per-category typed defaults), not an app-config policy.
 
 **Outputs.** Lookup returns the metadata map (or `nil`); query API returns id sets per [002 §The public registrar query API](002-Frames.md#the-public-registrar-query-api).
 
@@ -112,10 +112,10 @@ Each section below states **inputs**, **outputs**, **invariants**, and **who cal
  :router    {...}                    ;; FIFO queue + drain-state FSM
  :sub-cache {...}                    ;; signal-graph cache for this frame
  :lifecycle {:created-at <ts> :destroyed? false :listeners [...]}
- :config    {...}}                   ;; the metadata reg-frame was given (incl. :preset expansion)
+ :config    {...}}                   ;; the config make-frame was given (incl. :preset expansion)
 ```
 
-**Inputs.** `reg-frame` (atomic create-and-register — documented sugar for `make-frame`, rf2-lxwpob), `make-frame` (the one constructor; opts + optional descriptor pool), a full replace via `destroy-frame!` + re-`reg-frame` with the same config (opt-in, per [002 §Resetting a frame](002-Frames.md#resetting-a-frame--destroy--reg-frame) — no dedicated verb), `destroy-frame!` (lifecycle teardown).
+**Inputs.** `make-frame` (the one constructor — atomic create-and-register; opts + optional descriptor pool; rf2-h1vqa4 deleted the `reg-frame` sugar spelling), a full replace via `destroy-frame!` + re-`make-frame` with the same config (opt-in, per [002 §Resetting a frame](002-Frames.md#resetting-a-frame--destroy--make-frame) — no dedicated verb), `destroy-frame!` (lifecycle teardown).
 
 **Outputs.** Frame-keyword handles. Tools query via `frame-meta`, `frame-ids`.
 
@@ -230,9 +230,9 @@ Three lifecycles touch every component. Each is short. Putting them in one place
 
 1. Host starts. The interop layer (`re-frame.interop` in CLJS) is available — `next-tick`, `now-ms`, `after-render`.
 2. **Registrar** is created (empty maps for each `kind`). Reserved-namespace policy installed.
-3. User code runs `reg-*` calls — handlers, subs, fx, cofx, interceptors, views, machines, routes, frames. Each emits a `:rf.registry/handler-registered` trace event. Frames declared with `reg-frame` create their **frame container** (per-frame `app-db`, router, sub-cache, lifecycle).
+3. User code runs `reg-*` calls — handlers, subs, fx, cofx, interceptors, views, machines, routes. Each emits a `:rf.registry/handler-registered` trace event. Frames constructed with `make-frame` create their **frame container** (per-frame `app-db`, router, sub-cache, lifecycle).
 4. The **substrate adapter** initialises. CLJS reference: load Reagent, install the React-context shim used by `frame-provider` ([002 §View ergonomics](002-Frames.md#view-ergonomics-the-hard-part)).
-5. No frame is created by boot. The application registers its app frame explicitly with `reg-frame` (step 3) and establishes it at the root with a `frame-provider` / `with-frame`; the runtime never synthesises `:rf/default`.
+5. No frame is created by boot. The application mounts its app frame explicitly with `frame-root` (ENSURE) — or constructs it with `make-frame` (step 3) and scopes it with `frame-provider` / `with-frame`; the runtime never synthesises `:rf/default`.
 6. Each frame's `:initial-events` dispatch (per [Pattern-Boot](Pattern-Boot.md)). The drain loop runs them; views mount under their frame-provider; first render lands.
 
 ### Per-event drain

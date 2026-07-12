@@ -182,12 +182,12 @@ For each capability included in Part 1, the implementor makes the per-capability
 
 - **Why it matters.** Re-registration replaces; emits `:rf.registry/handler-replaced` (per [001 §Hot-reload semantics](001-Registration.md#hot-reload-semantics)). Pair-tool hot-swap depends on this.
 - **Options by host.** Every in-scope host has a working hot-reload story via its source-build pipeline; the registrar-update pattern is uniform.
-  - **CLJS** — figwheel/shadow-cljs reload; `reg-*` calls surgically update the registrar; frames preserve runtime state via `reg-frame`'s update path (per [002](002-Frames.md)).
+  - **CLJS** — figwheel/shadow-cljs reload; `reg-*` calls surgically update the registrar; frames preserve runtime state via `make-frame`'s surgical-update path (per [002](002-Frames.md)).
   - **TypeScript** — Vite HMR + module-replacement boundary; same registrar update pattern.
   - **Melange / ReScript / Reason / Fable / Scala.js / PureScript / Kotlin/JS** — Each has its own Vite-HMR-compatible source-build pipeline (`@melange/runtime`, `vite-plugin-fable`, `@scala-js/vite-plugin`, `purescript-vite`, `kotlin-react-vite`) that routes module-replacement notifications into the registrar.
   - **Squint** — Squint's `vite-squint` plugin gives the same dev experience as TypeScript; `reg-*` calls re-bind in the registrar atom on module replacement.
 - **Reference-impl picks.** CLJS uses figwheel/shadow-cljs.
-- **Trade-offs.** The registrar is a single mutable cell; replacing entries is atomic. Frame state is preserved across re-registration of `reg-frame` (per [002 §reg-frame is atomic](002-Frames.md#reg-frame--atomic-create-and-register-and-the-canonical-metadata-grammar)).
+- **Trade-offs.** The registrar is a single mutable cell; replacing entries is atomic. Frame state is preserved across re-construction via `make-frame` (per [002 §make-frame is atomic](002-Frames.md#make-frame--atomic-create-and-register-and-the-canonical-config-grammar)).
 
 ### State storage (always required)
 
