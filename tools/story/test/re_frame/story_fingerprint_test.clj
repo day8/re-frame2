@@ -580,6 +580,55 @@
     (is (= [fp/set-tag [:a :b :c]] (fp/canonical-form #{:c :a :b})))))
 
 ;; ===========================================================================
+;; MAP-KEY TIE ORDER — same-`pr-str` keys sort iteration-INDEPENDENTLY (rf2-8r5yzb)
+;; ===========================================================================
+;;
+;; `canon-map-entries` used to sort entries by the canon-KEY `pr-str` alone.
+;; Keys that canonicalise to the SAME `pr-str` — every fn folds to
+;; `:rf/opaque-fn`, every `##NaN` to `:rf/nan`, and `1.0` / `1` both to `1` —
+;; tied, and the bare sort fell back to Clojure's map ITERATION order. So two
+;; `=`-equal maps built in DIFFERENT insertion orders produced DIFFERENT
+;; canonical bytes → unequal hash, breaking the 'equivalent values hash equal'
+;; contract determinism + goldens rest on. The fix adds the canon-VALUE as a
+;; strictly SECONDARY sort key, iteration-independent for tied keys and inert
+;; for distinct ones (no golden rebase).
+
+(deftest canon-map-tied-keys-order-iteration-independently
+  (testing "rf2-8r5yzb — two =-equal maps whose keys canonicalise to the SAME
+            `pr-str` (distinct fns both fold to `:rf/opaque-fn`), built in
+            OPPOSITE insertion orders, canonical-hash EQUAL"
+    (let [f1 (fn [] :one)
+          f2 (fn [] :two)
+          ;; array-maps preserve insertion order, so the two literals seq in
+          ;; opposite orders — the exact iteration-order divergence 8r5yzb hit.
+          m-ab (array-map f1 :a f2 :b)
+          m-ba (array-map f2 :b f1 :a)]
+      (is (= m-ab m-ba) "precondition: the two maps are =-equal")
+      (is (= (fp/canonical-form m-ab) (fp/canonical-form m-ba))
+          "insertion/iteration order must not change the canonical form")
+      (is (= (fp/canonical-hash m-ab) (fp/canonical-hash m-ba))
+          "…so the canonical hashes are equal — the determinism floor")))
+  (testing "a GENUINE value difference under a tied key still SEPARATES — the
+            secondary key is a tiebreak, not a collapse"
+    (let [f1 (fn [] 1) f2 (fn [] 2)]
+      (is (not= (fp/canonical-hash (array-map f1 :a f2 :b))
+                (fp/canonical-hash (array-map f1 :a f2 :c)))
+          "{f1 :a f2 :b} and {f1 :a f2 :c} differ in a value → distinct hash")))
+  (testing "the number-folding tie (`1` and `1.0` both canon to `1`) is
+            likewise iteration-independent — the fix generalises past fn/NaN"
+    (let [m1 (array-map 1 :a 1.0 :b)
+          m2 (array-map 1.0 :b 1 :a)]
+      (is (and (= 2 (count m1)) (= 2 (count m2)))
+          "precondition: 1 and 1.0 are DISTINCT keys (Clojure `=` is category-sensitive)")
+      (is (= (fp/canonical-hash m1) (fp/canonical-hash m2))
+          "same-canon-key entries order by value, so the hashes are equal")))
+  (testing "ordinary distinct-`pr-str` map key order is UNCHANGED — the value
+            tiebreak never fires, so no golden rebase"
+    (is (= [fp/map-tag [:a 1 :b 2 :c 3]]
+           (fp/canonical-form (array-map :c 3 :a 1 :b 2)))
+        "distinct keys still sort by key alone — identical to the pre-fix bytes")))
+
+;; ===========================================================================
 ;; CANONICAL VERSION — the bumped tag is recorded (rf2-lvrqa)
 ;; ===========================================================================
 
