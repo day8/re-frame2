@@ -88,7 +88,16 @@
             ;; contains the prose and the production build (DEBUG=false) DCEs it —
             ;; the methodology now has teeth for the direct-call elision path.
             [re-frame.routing.classification :as routing-classification]
-            [re-frame.machines.lifecycle-fx.traces :as machines-traces]))
+            [re-frame.machines.lifecycle-fx.traces :as machines-traces]
+            ;; rf2-vxgfnd.21 — root the compiled-view Story `:sub-overrides`
+            ;; consult so its `interop/debug-enabled?`-gated body (the
+            ;; `*sub-overrides*` dynamic-var read, the schema validation, the
+            ;; opaque-token lowering) sits in the :advanced DCE reachability
+            ;; graph. Under goog.DEBUG=false the whole consult must fold away —
+            ;; the shared validator's " :sub-override value failed schema "
+            ;; reason string (reachable ONLY from the two gated override
+            ;; consults) must NOT survive.
+            [re-frame.ui.reactive :as ui-reactive]))
 
 ;; ---- trace listener API ---------------------------------------------------
 
@@ -770,9 +779,36 @@
     (fn [_ _] {:fx [[:dispatch [:rf.probe/loop-forever]]]}))
   (rf/dispatch-sync [:rf.probe/loop-forever] {:frame :rf.probe/drain-depth}))
 
+;; ---- rf2-vxgfnd.21: compiled-view Story `:sub-overrides` consult ----------
+;;
+;; The compiled-view substrate consults `:sub-overrides` for a Story render
+;; via `re-frame.ui.reactive/resolve-override` (reached from every `sub-read`).
+;; The WHOLE consult — the `*sub-overrides*` dynamic-var read, the schema
+;; validation via the shared `re-frame.subs.override-schema/validate-sub-override!`
+;; primitive, and the opaque-token lowering — sits inside
+;; `(when interop/debug-enabled? ...)`, so under :advanced + goog.DEBUG=false it
+;; DCEs: a production build carries ZERO per-sub branch, no dynamic-var read,
+;; and none of these bytes on the subscription render path.
+;;
+;; This touch roots `sub-read` (→ `resolve-override` → the shared validator) so
+;; the gated body is in the reachability graph: under DEBUG=true the shared
+;; validator's " :sub-override value failed schema " reason string is reachable
+;; through the UI consult; under DEBUG=false the gate folds and it must DCE.
+;; The `check-elision.cjs` sentinel pins that absence. Reachability only — the
+;; grep never runs this; the try/catch keeps a bundle-LOAD (which would run it)
+;; from throwing on the frameless probe read.
+
+(defn ^:export touch-ui-sub-overrides! []
+  (rf/reg-sub :rf.probe/ui-override (fn [db _q] (:ui-override db)))
+  (try
+    (binding [ui-reactive/*sub-overrides* {[:rf.probe/ui-override] :rf.probe/override-value}]
+      (ui-reactive/sub-read [:rf.probe/ui-override]))
+    (catch :default _ nil)))
+
 (defn ^:export run []
   (touch-direct-emit-diagnostics!)
   (touch-drain-depth!)
+  (touch-ui-sub-overrides!)
   (touch-trace!)
   (touch-schemas!)
   (touch-registrar!)

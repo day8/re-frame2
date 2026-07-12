@@ -587,7 +587,23 @@ const DEV_ONLY_SENTINELS = [
   // `touch-drain-depth!` triggers a real halt so the control build (DEBUG=true)
   // contains this prose and the production build (DEBUG=false) must elide it.
   { source: 're-frame.router/handle-depth-exceeded! (drain-depth :reason prose, always-on-promoted)',
-    sentinel: 'likely a dispatch loop. Cycle (last settled ids)' }
+    sentinel: 'likely a dispatch loop. Cycle (last settled ids)' },
+  // re-frame.subs.override-schema/validate-sub-override! — the Story
+  // `:sub-overrides` schema-failure reason string (rf2-vxgfnd.21). The ONE
+  // shared override validator is reached ONLY from the two override consults,
+  // and BOTH gate the whole consult on `interop/debug-enabled?`: the
+  // Reagent-family `re-frame.subs/resolve-sub-override` (inside subscribe's
+  // gate) and the compiled-view `re-frame.ui.reactive/resolve-override` (its
+  // whole body is `(when interop/debug-enabled? ...)`). Under :advanced +
+  // goog.DEBUG=false BOTH call sites DCE, dropping the validator's last
+  // referent so its reason-string literal must NOT survive. The elision-probe's
+  // `touch-ui-sub-overrides!` roots the COMPILED-VIEW consult (sub-read →
+  // resolve-override → validate-sub-override!) so a UI-side un-gating
+  // regression surfaces this string in production; the control build
+  // (DEBUG=true) contains it via that consult. The fragment is the distinctive
+  // middle of the reason string, unambiguous under a global grep.
+  { source: 're-frame.subs.override-schema/validate-sub-override! (:sub-override schema-failure reason)',
+    sentinel: ' :sub-override value failed schema ' }
   // Note (rf2-7yqn39): the :rf.warning/plain-fn-under-non-default-frame-
   // once warning + its emit helper were RETIRED (EP-0002; superseded by
   // the always-on :rf.error/no-frame-context). There is no longer any

@@ -460,8 +460,23 @@
                                         ;; (:rf.error/no-frame-context when
                                         ;; no scope is established)
      :override {:value v                ;; optional — the consumer's
-                :override-id o          ;; already-read Story override
-                :version n}}            ;; context HIT for this query
+                :override-id o          ;; already-read + already-VALIDATED
+                :version n}}            ;; Story HIT for this query
+
+  ## The override change token (OPAQUE to this port)
+
+  `:override-id` and `:version` are OPAQUE change tokens SUPPLIED by the
+  consumer (the compiled-view artefact's `re-frame.ui.reactive`). This port
+  never interprets them — it compares each by `=` only: `:override-id` is
+  the slot-identity token (the kept-check's `= :override-id`), `:version`
+  is the movement token (the kept-check's `= :version`, so a moved value
+  retargets). The consumer's LOWERING (which app-level value becomes the id
+  vs. the version) is recorded on the consumer side
+  (`re-frame.ui.reactive/*sub-overrides*`), NOT here — so the query-as-id /
+  value-as-version choice never leaks into this port's contract, and the
+  port stays correct whatever opaque tokens the consumer mints. Schema
+  validation + recover-to-nil happen ON the consumer side BEFORE the HIT
+  reaches here: `:value` is the ALREADY-VALIDATED value.
 
   An `:override` HIT resolves to `{:kind :story-override …}` — the pinned
   value rides the target because the value IS the resolution; there is no
@@ -778,7 +793,12 @@
   query. An unchanged live lease is retained untouched by the caller; a
   disposed node (HMR), a destroyed/swapped frame, a restabilized query, or a
   moved/removed override fails the check and classifies the site as
-  retargeted. Pure read; never throws."
+  retargeted. Pure read; never throws.
+
+  Static (override) leases compare the consumer's OPAQUE change token by
+  `=` only — `:override-id` (slot identity) and `:version` (movement) — so
+  an equal-value provider replacement retains and any value/schema move
+  retargets, without this port interpreting either token."
   [lease target]
   (let [st @(lease-state lease)]
     (case (:lease-kind st)
