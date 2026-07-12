@@ -62,7 +62,6 @@
             [re-frame.registrar :as registrar]
             [re-frame.router :as router]
             [re-frame.ui.eq :as eq]
-            [re-frame.ui.frames :as frames]
             [re-frame.ui.reactive :as reactive]
             #?@(:clj [[re-frame.ui.compiler.emit-jvm :as emit-jvm]
                       [re-frame.ui.compiler.env :as env]
@@ -656,40 +655,52 @@
 
 #?(:clj
    (defn- render-plan-bearing
-     "Runtime half of a PLAN-BEARING literal root form: run the root's static
-  frame plans through the S2c preflight ENSURE against FRESH test frames
-  (`re-frame.ui.frames/execute-frame-plans!` — the same executor `ui/mount`
-  drives), bind the resolved ambient frame (the innermost top-region
-  frame-root enclosing the mounted view) for the JVM structural render, and
-  tear down every frame THIS render created in a `finally`. Plan config
-  expressions evaluate exactly once, here at preflight, before any tree
-  traversal.
+     "Runtime half of a PLAN-BEARING literal root form: install the root's
+  static frame plans as FRESH ISOLATED test frames, bind the resolved ambient
+  frame (the innermost top-region frame-root enclosing the mounted view) for the
+  JVM structural render, and tear down every frame THIS render created in a
+  `finally`. Plan config expressions evaluate exactly once, at the top, before
+  any install or tree traversal.
 
-  ATOMIC, INCARNATION-OWNED acquisition (rf2-vxgfnd.64, strengthening the
-  rf2-vxgfnd.55 fresh-frame contract):
+  ATOMIC, REGISTRY-RESTED, INCARNATION-OWNED acquisition (rf2-vxgfnd.76,
+  strengthening rf2-vxgfnd.64 / .55). Correctness rests on the AUTHORITATIVE core
+  frame registry, not a parallel advisory atom:
 
-    - CLAIM (all-or-nothing): the declared plan ids are reserved together
-      (`claim-plan-frames!`). If ANY is already claimed by a concurrent render
-      or LIVE at the claim point, the render fails BEFORE installing any frame
-      or draining any initial event (production ENSURE would otherwise ADOPT a
-      live id and silently reuse ambient state instead of the fresh, seeded
-      frame the harness advertises). The claim linearizes concurrent same-id
-      renders through a single CAS — closing the stale-snapshot window where a
-      bare before/after id check let a concurrently-created frame slip through
-      and be adopted (then wrongly destroyed) by a losing render. A collision
-      on a later plan rejects the whole render (zero writes).
+    - CLAIM (render-vs-render fast path): the declared plan ids are reserved
+      together in `claimed-plan-ids` (`claim-plan-frames!`). Two `ui.test`
+      renders racing on the same id linearize through that single CAS — the
+      loser sees the id claimed (or already live) and is REJECTED before any
+      write, so render-vs-render losses are strictly ZERO-write.
 
-    - TEARDOWN (by incarnation, never by bare id): each installed frame's
-      incarnation token (`frame-incarnation-token`) is PINNED right after
-      install, and the `finally` destroys a frame ONLY while that exact token
-      is still the live one. A frame this render's id was destroyed and
-      RE-created under (a different incarnation, a later actor's frame) is left
-      untouched. A partial install — a later plan throws after earlier plans
-      installed — tears down the frames this render already created and
-      preserves the typed error (the Tier-1 no-residue guarantee).
+    - INSTALL (EXCLUSIVE mode — the registry IS the linearization authority):
+      each plan is installed by `make-frame` with `:rf.frame/must-create? true`,
+      so the FRESH-frame contract rests on core's own guarded-CAS decide→install
+      (frame.cljc `upsert-frame!`), NOT on the advisory claim atom. A raw actor
+      that creates a wanted id in the window between the claim CAS and this
+      install loses the guarded CAS inside `upsert-frame!` and throws typed
+      `:rf.error/frame-id-taken`: adopt/refresh (production ENSURE dispositions)
+      become COLLISIONS here — a plan NEVER silently adopts an ambient frame.
+
+    - TEARDOWN (exact incarnation tokens ONLY, never a bare id): each installed
+      frame's incarnation token is PINNED IMMEDIATELY after its own install, so
+      the `finally` (which serves both success and partial-failure) destroys a
+      frame ONLY while that EXACT pinned token is still the live one. A frame a
+      later actor destroyed + re-created under the same id (a distinct token) —
+      or the raw actor's colliding frame — is left UNTOUCHED. There is no bare-id
+      teardown on any path.
+
+  AC3 RELAXATION — a DOCUMENTED, NAMED RESIDUAL (rf2-vxgfnd.76 ruling): a
+  raw-actor collision introduced on plan N is detected at N's install, AFTER
+  plans 1..N-1 already installed and drained their (irreversible) `:initial-
+  events`. So on such a collision this render tears down its 1..N-1 incarnations
+  (exact tokens) and re-raises `:rf.error/frame-id-taken`, matching the
+  executor's existing partial-failure posture — NOT a strict zero-initial-events
+  rollback (which would require holding a lock across user construction code, a
+  contention shape no real workload reaches). Render-vs-render losses remain
+  strictly zero-write via the claim CAS above.
 
   Production `execute-frame-plans!` adoption/HMR semantics are deliberately
-  unchanged; this stronger rule is the test HOST's, not a `frame-root`
+  unchanged; this stronger exclusive rule is the test HOST's, not a `frame-root`
   behaviour."
      [opts thunk root-id plans-thunk ambient-frame-id]
      (let [plans  (plans-thunk)
@@ -700,37 +711,32 @@
        (let [run   (if (contains? opts :sub-overrides)
                      #(binding [reactive/*sub-overrides* (:sub-overrides opts)] (thunk))
                      thunk)
-             ;; frame-id -> the incarnation token THIS render installed, pinned
-             ;; after a successful install so teardown can prove it is
-             ;; destroying its OWN incarnation and not a later same-id frame.
-             owned (volatile! {})]
+             ;; [frame-id token] pairs THIS render installed, in document order.
+             ;; Each pair is conj'd IMMEDIATELY after its own must-create install
+             ;; so a partial failure (a later plan collides / throws) tears down
+             ;; exactly the frames already installed — and the exact-token guard
+             ;; means a bare id is never destroyed. Serves both the success-path
+             ;; and partial-failure teardown; there is no separate catch.
+             owned (volatile! [])]
          (try
-           (try
-             (frames/execute-frame-plans! root-id plans)
-             (catch Throwable e
-               ;; Partial install: a later plan threw after earlier plans
-               ;; installed. The claim is held and every id was confirmed
-               ;; absent at the claim point, so any now-live wanted id is THIS
-               ;; render's — tear it down (no residue) and re-raise the typed
-               ;; error unchanged.
-               (doseq [fid wanted]
-                 (when (some? (rframe/frame-incarnation-token fid))
-                   (rframe/destroy-frame! fid)))
-               (throw e)))
-           (vreset! owned
-                    (reduce (fn [m fid]
-                              (if-let [t (rframe/frame-incarnation-token fid)]
-                                (assoc m fid t)
-                                m))
-                            {} wanted))
+           ;; EXCLUSIVE install: every plan MUST create a fresh frame. The claim
+           ;; proved every id absent; must-create rests correctness on the core
+           ;; registry's guarded CAS — a raw-actor collision in the claim→install
+           ;; window throws `:rf.error/frame-id-taken` here, and the `finally`
+           ;; tears down the pinned prefix (AC3 residual documented above).
+           (doseq [{:keys [frame-id config]} plans]
+             (live-frame/make-frame (assoc (or config {}) :id frame-id
+                                           :rf.frame/must-create? true))
+             (vswap! owned conj [frame-id (rframe/frame-incarnation-token frame-id)]))
            (let [root (if (some? ambient-frame-id)
                         (binding [rframe/*current-frame* ambient-frame-id] (run))
                         (run))]
              (assoc root :rf.ui/tree-version tree/tree-version))
            (finally
-             ;; Incarnation-owned teardown: destroy each frame we installed
-             ;; ONLY while its pinned incarnation is still the live one. A
-             ;; destroy+recreate under the same id (a distinct token) survives.
+             ;; Incarnation-owned teardown: destroy each frame we installed ONLY
+             ;; while its pinned incarnation is still the live one. A
+             ;; destroy+recreate under the same id (a distinct token), or a
+             ;; colliding actor's frame, survives. Never a bare id.
              (doseq [[fid t] @owned]
                (when (identical? t (rframe/frame-incarnation-token fid))
                  (rframe/destroy-frame! fid)))

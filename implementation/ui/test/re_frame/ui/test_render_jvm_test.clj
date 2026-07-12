@@ -647,3 +647,83 @@
             (frame/destroy-frame! :test/incarn)
             (is (= before (set (keys @frame/frames)))
                 "no residue: the render left nothing, the actor's frame is cleaned")))))))
+
+;; ---------------------------------------------------------------------------
+;; Registry-rested EXCLUSIVE install (rf2-vxgfnd.76). The claim linearizes
+;; render-vs-render; correctness against a RAW actor (an ordinary core
+;; `make-frame`, which knows nothing of the private claim atom) rests on core's
+;; guarded-CAS `upsert-frame!` via `:rf.frame/must-create?`. The
+;; `frame/*upsert-decide-probe*` seam opens the claim→install window
+;; deterministically (no sleeps) — a raw actor acts INSIDE the plan install's
+;; decide→CAS window.
+;; ---------------------------------------------------------------------------
+
+(deftest plan-bearing-render-loses-must-create-race-in-the-claim-install-window
+  ;; The claim proved :test/mc absent, but a raw actor creates it in the window
+  ;; BETWEEN the claim CAS and the plan's guarded install. The plan installs in
+  ;; EXCLUSIVE mode (:rf.frame/must-create?), so the collision is a typed
+  ;; :rf.error/frame-id-taken — the render NEVER adopts the ambient frame, and
+  ;; its teardown destroys nothing it did not create.
+  (reg-greeting!)
+  (let [before (set (keys @frame/frames))
+        acted  (volatile! false)]
+    (binding [frame/*upsert-decide-probe*
+              (fn [id]
+                ;; Simulate the raw actor creating :test/mc INSIDE the plan's
+                ;; decide→install window (once, seeded with its OWN state).
+                (when (and (= id :test/mc) (not @acted))
+                  (vreset! acted true)
+                  (rf/make-frame {:id :test/mc
+                                  :initial-events [[:rf/set-db {:greeting "actor"}]]})))]
+      (let [result (err-id
+                    #(uit/render [ui/frame-root {:id :test/mc
+                                                 :initial-events [[:rf/set-db {:greeting "planned"}]]}
+                                  [greeting {}]]))]
+        (is (= :rf.error/frame-id-taken result)
+            "the exclusive plan install loses the guarded CAS to the raced-in actor
+             → typed collision, never a silent adoption")
+        (is (some? (frame/frame :test/mc)) "the actor's frame is untouched")
+        (is (= {:greeting "actor"} (frame/frame-app-db-value :test/mc))
+            "…and holds the ACTOR's seed, never the plan's — no adopt / reseed")
+        (frame/destroy-frame! :test/mc)
+        (is (= before (set (keys @frame/frames)))
+            "no residue once the actor's own frame is cleaned up")))))
+
+(deftest plan-bearing-partial-failure-teardown-is-incarnation-owned
+  ;; Multi-plan render: the OUTER plan (:pf/outer) installs; a concurrent actor
+  ;; destroys + RE-creates :pf/outer; then the INNER plan (:pf/inner) THROWS
+  ;; during its :initial-events. The partial-failure teardown destroys only the
+  ;; EXACT incarnations THIS render installed (pinned per-install), so the
+  ;; actor's :pf/outer replacement is left ALIVE and no bare id is destroyed.
+  ;; (AC3 residual: the outer plan's :initial-events already drained irreversibly
+  ;; before the inner throw — this is the executor's partial-failure posture.)
+  (reg-greeting!)
+  (rf/reg-event :pf/boom (fn [_ _] (throw (ex-info "boom" {}))))
+  (let [before      (set (keys @frame/frames))
+        acted       (volatile! false)
+        actor-token (volatile! nil)]
+    (binding [frame/*upsert-decide-probe*
+              (fn [id]
+                ;; When the INNER plan is about to install, the OUTER plan is
+                ;; already installed + pinned. Simulate the actor: destroy the
+                ;; render's :pf/outer incarnation and RE-create a fresh one.
+                (when (and (= id :pf/inner) (not @acted))
+                  (vreset! acted true)
+                  (frame/destroy-frame! :pf/outer)
+                  (rf/make-frame {:id :pf/outer})
+                  (vreset! actor-token (frame/frame-incarnation-token :pf/outer))))]
+      (let [threw (try (uit/render
+                        [ui/frame-root {:id :pf/outer}
+                         [ui/frame-root {:id :pf/inner :initial-events [[:pf/boom]]}
+                          [greeting {}]]])
+                       nil
+                       (catch Throwable _ ::threw))]
+        (is (= ::threw threw) "the render threw — the inner plan's :initial-events failed")
+        (is (some? (frame/frame :pf/outer))
+            "the ACTOR's :pf/outer replacement SURVIVES — teardown destroyed only
+             the render's OWN pinned incarnation, never a bare id")
+        (is (identical? @actor-token (frame/frame-incarnation-token :pf/outer))
+            "…and it is the ACTOR's EXACT incarnation, unchanged")
+        (frame/destroy-frame! :pf/outer)
+        (is (= before (set (keys @frame/frames)))
+            "no residue: the render's frames are gone, the actor's is cleaned")))))
