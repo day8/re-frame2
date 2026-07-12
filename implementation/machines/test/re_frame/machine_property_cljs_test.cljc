@@ -270,22 +270,28 @@
 
 ;; ---- independent-region parallel generator (for INVARIANT 8) ---------------
 ;;
-;; Per Spec 005 §Parallel regions / `parallel_test.clj` §6: shared `:data`
-;; flows SEQUENTIALLY through region actions in DECLARATION ORDER, and a
-;; region's guard reads that shared `:data`. So a region whose `:always`
-;; guard reads `:data` a SIBLING'S action mutates is LEGITIMATELY order-
-;; sensitive — reordering the regions changes what parity the reading
-;; guard sees, hence the selected leaf (verified against the live engine;
-;; this is documented, correct behaviour, NOT a bug). That coupling is
-;; tested separately (`parallel-shared-data-flows-through-regions`).
+;; Selection order-sensitivity after rf2-lq5yo3. The parallel broadcast now
+;; SELECTS every region's EVENT transition against ONE frozen pre-event view
+;; (incl. `:data`) before any region applies, so an `:on` GUARD reading shared
+;; `:data` is declaration-order-INDEPENDENT — it never sees a sibling's same-
+;; macrostep `:data` write. The ONE residual order-sensitive SELECTION is a
+;; guarded `:always` reading a sibling's same-macrostep `:data` write:
+;; `:always` microsteps run in the APPLY phase against the region's EVOLVING
+;; `:data` (Spec 005:1731 — the blessed per-region drain), so reordering the
+;; regions can change what a `:data`-reading `:always` guard sees, hence the
+;; selected leaf. That is documented, correct behaviour (NOT a bug); the
+;; shared-`:data` VALUE flow it rides on is tested separately
+;; (`parallel-shared-data-flows-through-regions`, parallel_test §6).
 ;;
 ;; The declaration-order-INDEPENDENCE invariant the bead names is about
 ;; SELECTION being set-like for INDEPENDENT regions. To test it without
-;; conflating the (separately-covered) shared-data-ordering semantics, this
-;; generator draws regions that are independent BY CONSTRUCTION: their
-;; `:always` guards are CONSTANT (`:g/true` / `:g/false`, not the
-;; `:data`-reading `:g/even?`) and their `:on` edges carry NO action (no
-;; shared-`:data` writes). Reordering such regions cannot change behaviour,
+;; conflating the residual `:always`-`:data` coupling OR the (separately-
+;; covered) shared-`:data` VALUE flow, this generator draws regions that are
+;; independent BY CONSTRUCTION: their `:always` guards are CONSTANT
+;; (`:g/true` / `:g/false`, never the `:data`-reading `:g/even?`) and their
+;; `:on` edges carry NO action (no shared-`:data` writes — so the committed
+;; `:data` VALUE, which still accumulates in declaration order, cannot feed a
+;; later event's frozen selection differently across orderings). Reordering such regions cannot change behaviour,
 ;; so any divergence is a genuine selection / broadcast bug.
 
 (defn- gen-independent-on-map

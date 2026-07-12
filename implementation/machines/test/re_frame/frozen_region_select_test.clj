@@ -50,37 +50,39 @@
 ;; does (assign :x inc) and goes :done; region b on :go has guard (pos? x);
 ;; x starts 0. Result a=:done, b=:idle, x=1 — b's guard saw x=0 (frozen).
 ;;
-;; NOTE on :data threading. re-frame2 deliberately accumulates `:data` in
-;; declaration order during the APPLY phase (matching XState `assign`). So
-;; region b's *guard* reads `:data` from the snapshot threaded into b's step
-;; — which, for a region declared AFTER a, carries a's `:data` write
-;; (`cur-data`). To get the xstate frozen-`:data`-during-selection result for
-;; a same-event read, the dependent region must be declared BEFORE the writer
-;; OR the read must go through the frozen cross-region channel (`:all-state` /
-;; `:tags`), which IS frozen. Fixture (1) declares b BEFORE a so b's guard
-;; sees the genuinely pre-event `:data` regardless; fixture (5) proves the
-;; cross-region (`:all-state`) read is order-independent.
+;; The reader region b is declared AFTER the writer a — the adversarial order.
+;; The SELECT/APPLY split (rf2-lq5yo3) resolves EVERY region's event guard in
+;; a SELECT pass against ONE frozen pre-event view (which now freezes `:data`
+;; alongside `:all-state` / `:tags`) BEFORE any region's action applies, so b's
+;; guard reads the pre-event `:x=0` regardless of declaration order. The one
+;; value that flows (`:data`) accumulates only in the APPLY phase, reaching a
+;; later region's ACTION — never an earlier-selected guard. (Pre-fix, this
+;; fixture leaked: with b declared after a, a's `:bump` had already threaded
+;; `cur-data {:x 1}` into b's guard, so b fired — the declaration-order-
+;; dependent footgun this split closes.)
 
 (deftest data-write-not-visible-to-same-event-guard
   (testing "region b's same-event guard reads the frozen pre-event :data — b
-            does NOT fire on the event a writes the value (xstate@5.32.0
-            a=:done, b=:idle, x=1)"
+            does NOT fire on the event a writes the value, even with b declared
+            AFTER the writer a (xstate@5.32.0 a=:done, b=:idle, x=1)"
     (let [m {:type    :parallel
              :data    {:x 0}
              :guards  {:x-pos? (fn [{:keys [data]}] (pos? (:x data)))}
              :actions {:bump  (fn [{:keys [data]}] {:data (update data :x inc)})}
              :regions
-             ;; b declared FIRST so its guard reads :data before a's apply.
-             {:b {:initial :idle
-                  :states  {:idle {:on {:go {:target :done :guard :x-pos?}}}
-                            :done {}}}
-              :a {:initial :idle
+             ;; a (the WRITER) declared FIRST; b (the reader) declared AFTER —
+             ;; the order an evolving-:data model would leak on. Frozen SELECT
+             ;; blocks the leak.
+             {:a {:initial :idle
                   :states  {:idle {:on {:go {:target :done :action :bump}}}
+                            :done {}}}
+              :b {:initial :idle
+                  :states  {:idle {:on {:go {:target :done :guard :x-pos?}}}
                             :done {}}}}}]
       (rf/reg-machine :frozen/data m)
       (rf/dispatch-sync [:frozen/data [:go]])
       (let [s (snapshot :frozen/data)]
-        (is (= {:b :idle :a :done} (:state s))
+        (is (= {:a :done :b :idle} (:state s))
             "a transitioned + bumped :x; b's guard saw frozen :x=0 → b stayed :idle")
         (is (= 1 (get-in s [:data :x]))
             ":x accumulated to 1 from a's :bump action"))
@@ -248,6 +250,27 @@
      :guards  {:a-done? (fn [{:keys [all-state]}] (= :done (:a all-state)))}
      :regions (into {} (map (fn [rn] [rn (get bodies rn)])) region-order)}))
 
+(defn- data-order-machine
+  "Like `order-machine` but the cross-region read is via shared `:data`, not
+  `:all-state`: region :a moves :idle → :done on :go and its `:bump` action
+  writes `:data :x`; region :b fires :idle → :fire on :go ONLY if its `:data`
+  GUARD reads `:x` positive. Under the frozen SELECT pass (rf2-lq5yo3) b's
+  guard reads the pre-event `:x=0` in BOTH declaration orders, so the selected
+  set is order-independent — the `:data`-guard analog of the `:all-state`
+  case. (Pre-fix, the a-then-b order leaked a's `:x=1` write into b's guard.)"
+  [region-order]
+  (let [bodies {:a {:initial :idle
+                    :states  {:idle {:on {:go {:target :done :action :bump}}}
+                              :done {}}}
+                :b {:initial :idle
+                    :states  {:idle {:on {:go {:target :fire :guard :x-pos?}}}
+                              :fire {}}}}]
+    {:type    :parallel
+     :data    {:x 0}
+     :guards  {:x-pos? (fn [{:keys [data]}] (pos? (:x data)))}
+     :actions {:bump   (fn [{:keys [data]}] {:data (update data :x inc)})}
+     :regions (into {} (map (fn [rn] [rn (get bodies rn)])) region-order)}))
+
 (deftest selection-declaration-order-independent
   (testing "reordering the regions (a-then-b vs b-then-a) yields the SAME
             selected set / SAME committed state — frozen selection is
@@ -279,4 +302,25 @@
       (is (= {:a :done :b :idle} (:state snap-ab)))
       (is (= {:a :done :b :idle} (:state snap-ba)))
       (is (= (:state snap-ab) (:state snap-ba))
-          "pure selection is identical across declaration orders"))))
+          "pure selection is identical across declaration orders")))
+
+  (testing ":data-guard selection is ALSO declaration-order-independent — a
+            region reading shared :data a SIBLING writes same-event sees the
+            frozen pre-event :data in BOTH orders → same committed state
+            (rf2-lq5yo3). Pre-fix, a-then-b leaked a's :x=1 into b's guard and
+            b fired → the two orders diverged."
+    (let [{snap-ab ::result/snap} (parallel/machine-transition
+                                    (data-order-machine [:a :b])
+                                    {:state {:a :idle :b :idle} :data {:x 0}} [:go])
+          {snap-ba ::result/snap} (parallel/machine-transition
+                                    (data-order-machine [:b :a])
+                                    {:state {:b :idle :a :idle} :data {:x 0}} [:go])]
+      (is (= {:a :done :b :idle} (:state snap-ab))
+          "a-then-b: b's :data guard saw frozen :x=0 → b blocked; a bumped :x")
+      (is (= {:a :done :b :idle} (:state snap-ba))
+          "b-then-a: same frozen selection → b blocked")
+      (is (= (:state snap-ab) (:state snap-ba))
+          ":data-guard selection is identical across declaration orders")
+      (is (= 1 (get-in snap-ab [:data :x]))
+          ":x accumulated to 1 from a's :bump — the value flows in APPLY, AFTER
+           every region's guard was already selected against the frozen view"))))

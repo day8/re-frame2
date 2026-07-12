@@ -1383,7 +1383,7 @@
           (when-let [hit (match-on-clause machine machine spawn-error-event-id event snapshot)]
             {:transition hit :decl-path []}))))))
 
-(defn- pick-transition
+(defn pick-transition
   "Walk path leaf→root looking for a transition that matches event-id and
   whose guard passes. Per Spec 005 §Transition resolution — deepest-wins
   with parent fallthrough (the rule named in `path-walk/walk-path-leaf-
@@ -4182,20 +4182,44 @@
   single-raise accumulates transitive depth against the SAME
   `:raise-depth-limit` rather than resetting per nested call.
   It seeds the settle loop below so raises emitted anywhere in this
-  macrostep continue counting from the inbound transitive depth."
+  macrostep continue counting from the inbound transitive depth.
+
+  **Pre-selected-match arity.** The 6-arity `[machine snapshot event
+  raise-depth defer-raises? match]` SKIPS the internal `pick-transition` and
+  applies the caller-supplied `match` (or nil no-op) directly. The 5-arity is
+  its select-then-apply shorthand (`match` = `pick-transition` against
+  `snapshot`). The parallel broadcast uses the 6-arity so every region's guard
+  is resolved once, in a SELECT pass, against a FROZEN pre-event view — the
+  APPLY then threads the evolving `:data` into each region's ACTION without
+  re-selecting (rf2-lq5yo3 / Spec 005 §Transition broadcast)."
   ([machine snapshot event]
    (machine-transition-single machine snapshot event 0 false))
   ([machine snapshot event raise-depth]
    (machine-transition-single machine snapshot event raise-depth false))
   ([machine snapshot event raise-depth defer-raises?]
+   ;; SELECT phase (flat / compound path): resolve the matching transition
+   ;; against `snapshot`, then delegate to the 6-arity APPLY below. The
+   ;; parallel broadcast (`re-frame.machines.parallel/broadcast-once`) does NOT
+   ;; route through here: it runs a dedicated SELECT pass resolving EVERY
+   ;; region's match against ONE frozen pre-event view (`:data` + `:all-state`
+   ;; + `:tags`) and feeds each pre-selected match straight to the 6-arity — so
+   ;; a later region's guard SELECTION never observes an earlier region's
+   ;; same-macrostep `:data` write (rf2-lq5yo3 / Spec 005 §Transition
+   ;; broadcast). Flat/compound machines and the flat raise-drain re-entry
+   ;; (`drain-to-fixed-point`) still select-then-apply in one call here.
+   (machine-transition-single
+     machine snapshot event raise-depth defer-raises?
+     (pick-transition machine (state-path (:state snapshot)) event snapshot)))
+  ([machine snapshot event raise-depth defer-raises? match]
   (let [;; A region of a parallel parent always defers (its raises lift to
         ;; the parent macrostep), even when reached via the bare public
         ;; arity — see the docstring's `defer-raises?` note. The depth
         ;; LIMITS themselves (`:always-depth-limit` / `:raise-depth-limit`)
-        ;; are read inside the shared `drain-to-fixed-point`.
+        ;; are read inside the shared `drain-to-fixed-point`. `match` is the
+        ;; PRE-RESOLVED transition (or nil) — the 5-arity computes it via
+        ;; `pick-transition`; the parallel SELECT pass supplies it directly so
+        ;; the guard was evaluated against the frozen pre-event view.
         defer?       (or defer-raises? (some? (:rf/region machine)))
-        path             (state-path (:state snapshot))
-        match            (pick-transition machine path event snapshot)
         ;; Per Spec 005 §Parallel regions (005:1168-1171): a region reports
         ;; whether the inbound event resolved to a real transition so the
         ;; parent can warn exactly once when EVERY region declines. A stale
