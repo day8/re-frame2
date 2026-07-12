@@ -266,6 +266,104 @@
             "the container owner survives — A never registered"))
       (finally (client/set-preflight-hook! nil)))))
 
+;; ---------------------------------------------------------------------------
+;; post-preflight ownership revalidation (rf2-vxgfnd.69)
+;; ---------------------------------------------------------------------------
+
+(deftest mount-fast-path-revalidates-after-preflight
+  ;; the same-root/same-container fast path runs side-effecting preflight
+  ;; (:initial-events drain) on a CAPTURED Root, then re-renders. A preflight
+  ;; that supersedes the captured root (mounts a replacement B under the same
+  ;; id/container) must be caught BEFORE the stale .render — the fast path
+  ;; revalidates ownership and fails loud, never .rendering the stale handle.
+  (let [c        (js-obj)
+        rendered (atom 0)
+        rr-a     (js-obj)
+        _        (unchecked-set rr-a "render" (fn [_] (swap! rendered inc)))
+        a        (client/->Root rr-a c :re/z)
+        b        (fake-root :re/z)
+        info     {:root-id :re/z :provenance :authored :identifier-prefix "p-"}
+        plans    (fn [] [{:frame-id :re/session :config-fingerprint "cf" :config {}}])]
+    (client/register-live-root! info c a)
+    ;; the preflight drain stands in for :initial-events app code that
+    ;; supersedes A with a replacement B under the SAME id/container (same
+    ;; prefix, so the .59 fast-path prefix guard passes cleanly)
+    (client/set-preflight-hook!
+     (fn [_ _]
+       (client/set-preflight-hook! nil)
+       (client/register-live-root! {:root-id :re/z :provenance :authored
+                                    :identifier-prefix "p-"} c b)))
+    (try
+      (let [{:keys [id data]}
+            (thrown-error #(client/mount* info c (fn [] nil) (js-obj) plans))]
+        (is (= :rf.error/root-not-live id)
+            "the captured root A was superseded during preflight — fail loud")
+        (is (= :re/z (:root-id data)))
+        (is (zero? @rendered)
+            "A.render is never called — no write into the superseded root")
+        (is (identical? b (:root (client/live-root-entry :re/z)))
+            "the replacement B survives untouched"))
+      (finally (client/set-preflight-hook! nil)))))
+
+(deftest render-revalidates-ownership-after-preflight
+  ;; render!* runs its pre-preflight stale guard, then side-effecting
+  ;; preflight, then (rf2-vxgfnd.69) REVALIDATES before the descriptor write
+  ;; and .render. A preflight that supersedes the captured root fails loud —
+  ;; no .render on the stale handle, and B's registry descriptor is untouched
+  ;; (the swap is identity-guarded to the exact Root, never merely the id).
+  (let [c         (js-obj)
+        rendered  (atom 0)
+        rr-a      (js-obj)
+        _         (unchecked-set rr-a "render" (fn [_] (swap! rendered inc)))
+        a         (client/->Root rr-a c :re/w)
+        b         (fake-root :re/w)
+        info      {:root-id :re/w :provenance :authored :identifier-prefix "p-"}
+        plans     (fn [] [{:frame-id :re/session :config-fingerprint "cf" :config {}}])
+        desc-base {:rf.root/schema-version 1 :view-id ::stale-a}]
+    (client/register-live-root! info c a)
+    (client/set-preflight-hook!
+     (fn [_ _]
+       (client/set-preflight-hook! nil)
+       ;; B replaces A mid-preflight, carrying its OWN descriptor
+       (client/register-live-root! {:root-id :re/w :provenance :authored
+                                    :identifier-prefix "p-"
+                                    :descriptor {:root-id :re/w :view-id ::real-b}}
+                                   c b)))
+    (try
+      (let [{:keys [id data]}
+            (thrown-error #(client/render!* a (fn [] nil) plans desc-base))]
+        (is (= :rf.error/root-not-live id)
+            "the captured root A was superseded during preflight — fail loud")
+        (is (= :re/w (:root-id data)))
+        (is (zero? @rendered)
+            "A.render is never called — no write into the superseded root")
+        (is (identical? b (:root (client/live-root-entry :re/w)))
+            "the replacement B survives")
+        (is (= ::real-b (get-in (client/live-root-entry :re/w) [:descriptor :view-id]))
+            "B's descriptor is untouched — A's descriptor-base is never written onto the id"))
+      (finally (client/set-preflight-hook! nil)))))
+
+(deftest render-happy-path-revalidation-does-not-overfire
+  ;; the matching case: no preflight movement — render!* revalidates (passes),
+  ;; runs preflight exactly once, and re-renders the captured Root. Proves the
+  ;; post-preflight revalidation does not over-fire on the normal path.
+  (let [c        (js-obj)
+        rendered (atom 0)
+        rr       (js-obj)
+        _        (unchecked-set rr "render" (fn [_] (swap! rendered inc)))
+        a        (client/->Root rr c :re/ok)
+        info     {:root-id :re/ok :provenance :authored :identifier-prefix "p-"}
+        plans    (fn [] [{:frame-id :re/session :config-fingerprint "cf" :config {}}])]
+    (client/register-live-root! info c a)
+    (let [preflight-calls (atom 0)]
+      (client/set-preflight-hook! (fn [_ _] (swap! preflight-calls inc)))
+      (try
+        (let [ret (client/render!* a (fn [] nil) plans nil)]
+          (is (identical? a ret) "the captured Root is returned")
+          (is (= 1 @preflight-calls) "preflight ran once")
+          (is (= 1 @rendered) "the Root re-rendered — revalidation passed"))
+        (finally (client/set-preflight-hook! nil))))))
+
 (deftest release-is-handle-guarded
   (let [c1 (js-obj)
         r1 (fake-root :page/shop)
