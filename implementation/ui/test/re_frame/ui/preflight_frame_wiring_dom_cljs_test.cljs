@@ -142,8 +142,51 @@
 
 ;; NOTE: the absent-frame fail-loud (`require-scope-frame!` throwing
 ;; `:rf.error/frame-provider-frame-absent`) is pinned synchronously in the
-;; node twin. In a mounted tree the same throw happens during React render,
-;; where React captures it via its error-boundary path (console-reported,
-;; not synchronously rethrown out of flushSync) — that is React's render-
-;; error handling, not a re-frame contract surface, so it is asserted at
-;; the unit level, not here.
+;; node twin. A NESTED provider (inside a view, like `scoping-view` above)
+;; throws during React render, where React captures it via its error-
+;; boundary path (console-reported, not synchronously rethrown out of
+;; flushSync) — React's render-error handling, not a re-frame contract
+;; surface, so it is asserted at the unit level, not here. A TOP-REGION
+;; provider is the distinct case (rf2-vxgfnd.34): the compiler emits
+;; `provider-scope-element` DIRECTLY into the element thunk, so the throw
+;; IS synchronous out of `(element-thunk)` — the fixture below pins that
+;; it rolls back cleanly inside mount*'s rf2-vxgfnd.18 boundary.
+
+;; ---------------------------------------------------------------------------
+;; top-region frame-provider with an absent frame — clean mount rollback
+;; (rf2-vxgfnd.34; VERDICT: already covered by rf2-vxgfnd.18's mount* boundary)
+;; ---------------------------------------------------------------------------
+
+(deftest top-region-provider-absent-frame-rolls-back-cleanly
+  ;; A TOP-REGION `frame-provider` naming an ABSENT frame: `emit-inline`
+  ;; lowers it to `provider-scope-element` directly in the element thunk
+  ;; (NOT deferred into a component render), so `require-scope-frame!`
+  ;; throws `:rf.error/frame-provider-frame-absent` SYNCHRONOUSLY when
+  ;; mount* calls `(element-thunk)` — inside the first-render rollback
+  ;; try/catch that rf2-vxgfnd.18 wraps around `(.render root (thunk))`.
+  ;; So .18 ALREADY covers this throw source: no phantom claimed React
+  ;; root, no lingering live-root registration, and a retry mounts clean.
+  (when (browser?)
+    (let [c (container)
+          mount-provider!
+          (fn []
+            (react-dom/flushSync
+             #(ui/mount [frame-provider {:frame :dom-absent/never}
+                         [mini {:label "scoped"}]]
+                        c {:root-id :dom-absent/root})))]
+      (is (= :rf.error/frame-provider-frame-absent (thrown-id mount-provider!))
+          "the absent-frame throw propagates synchronously out of mount")
+      (is (not (contains? (client/live-root-ids) :dom-absent/root))
+          "no phantom claimed live root remains — mount* rolled back (rf2-vxgfnd.18)")
+      (is (nil? (client/live-root-entry :dom-absent/root)))
+      (is (= "" (.-innerHTML c)) "nothing committed to the container")
+      ;; retry: create the frame, then the SAME mount succeeds cleanly —
+      ;; the freed root-id + container prove the rollback was total
+      (rf/make-frame {:id :dom-absent/never :doc "now live"})
+      (let [root (mount-provider!)]
+        (is (some? root))
+        (is (contains? (client/live-root-ids) :dom-absent/root)
+            "the freed root-id + container accept a clean retry")
+        (is (re-find #"<div class=\"mini\">scoped</div>" (.-innerHTML c))
+            "the provider scopes the now-live frame transparently")
+        (ui/unmount! root)))))
