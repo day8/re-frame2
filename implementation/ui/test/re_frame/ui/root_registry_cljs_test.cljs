@@ -78,6 +78,72 @@
       (is (= :page/shop (:owner-root-id data)))
       (is (= :page/cart (:root-id data))))))
 
+;; ---------------------------------------------------------------------------
+;; Re-entrant mount during preflight (rf2-vxgfnd.52)
+;; ---------------------------------------------------------------------------
+
+(deftest reentrant-claim-change-during-preflight-fails-loud
+  ;; mount* RE-CHECKS the claim AFTER preflight. run-preflight! drains
+  ;; :initial-events synchronously (arbitrary app code); here the preflight
+  ;; hook stands in for a boot handler that RE-ENTERS and mounts the SAME
+  ;; root-id into a DIFFERENT container — registering inner-root B while the
+  ;; outer mount A is still unregistered. Without the re-check, A would
+  ;; createRoot + unconditionally register, CLOBBERING B's entry; the
+  ;; re-check detects the ownership change and fails A loud BEFORE createRoot,
+  ;; so B's entry survives and no orphan is created. Node-level: the throw
+  ;; fires before createRoot, so no real DOM root is built (the container is
+  ;; a plain js-obj); the live end-to-end tree-survival fixture is the browser
+  ;; smoke (`re-frame.ui.root-mount-dom-cljs-test`).
+  (let [c-a  (js-obj)
+        c-b  (js-obj)
+        b    (fake-root :re/x)
+        info {:root-id :re/x :provenance :authored :identifier-prefix "rf2-re-x-"}
+        plans-thunk (fn [] [{:frame-id :re/session :config-fingerprint "cf" :config {}}])]
+    (client/set-preflight-hook!
+     (fn [_root-id _plans]
+       ;; the re-entrant inner mount B claims :re/x into c-b, mid-preflight
+       (client/set-preflight-hook! nil)
+       (client/register-live-root! {:root-id :re/x :provenance :authored
+                                    :identifier-prefix "rf2-re-x-"}
+                                   c-b b)))
+    (try
+      (let [{:keys [id data]}
+            (thrown-error #(client/mount* info c-a (fn [] nil) (js-obj) plans-thunk))]
+        (is (= :rf.error/duplicate-root-id id)
+            "the re-check after preflight detects B's re-entrant claim and fails A loud")
+        (is (= :re/x (:root-id data)))
+        (is (identical? b (:root (client/live-root-entry :re/x)))
+            "B's registry entry survives — not clobbered by A")
+        (is (identical? c-b (:container (client/live-root-entry :re/x)))
+            ":re/x still maps to B's container, never A's")
+        (is (= #{:re/x} (client/live-root-ids))
+            "A never registered — no phantom entry, no orphaned tree"))
+      (finally (client/set-preflight-hook! nil)))))
+
+(deftest reentrant-container-claim-during-preflight-fails-loud
+  ;; the sibling axis: the re-entrant inner mount claims A's CONTAINER under a
+  ;; DIFFERENT root-id. The re-check must surface :rf.error/root-container-in-use
+  ;; (not clobber the container owner).
+  (let [c    (js-obj)
+        y    (fake-root :re/y)
+        info {:root-id :re/x :provenance :authored :identifier-prefix "rf2-re-x-"}
+        plans-thunk (fn [] [{:frame-id :re/session :config-fingerprint "cf" :config {}}])]
+    (client/set-preflight-hook!
+     (fn [_root-id _plans]
+       (client/set-preflight-hook! nil)
+       (client/register-live-root! {:root-id :re/y :provenance :authored
+                                    :identifier-prefix "rf2-re-y-"}
+                                   c y)))
+    (try
+      (let [{:keys [id data]}
+            (thrown-error #(client/mount* info c (fn [] nil) (js-obj) plans-thunk))]
+        (is (= :rf.error/root-container-in-use id)
+            "the re-check detects the container was claimed during preflight")
+        (is (= :re/y (:owner-root-id data)))
+        (is (= #{:re/y} (client/live-root-ids))
+            "the container owner survives — A never registered"))
+      (finally (client/set-preflight-hook! nil)))))
+
 (deftest release-is-handle-guarded
   (let [c1 (js-obj)
         r1 (fake-root :page/shop)

@@ -263,6 +263,51 @@
             (client/set-preflight-hook! nil)))))))
 
 ;; ---------------------------------------------------------------------------
+;; re-entrant mount during preflight (rf2-vxgfnd.52)
+;; ---------------------------------------------------------------------------
+
+(deftest reentrant-mount-during-preflight-keeps-inner-tree-and-fails-outer
+  ;; End-to-end: outer mount A carries a frame-root, so its preflight runs.
+  ;; The preflight hook stands in for A's :initial-events boot code, which
+  ;; RE-ENTERS and mounts inner root B for the SAME root-id into a DIFFERENT
+  ;; container. B's live React tree must survive and A must fail loud with no
+  ;; orphan — the re-check (rf2-vxgfnd.52) fires before A createRoots/registers.
+  (when (browser?)
+    (let [c-a (container)
+          c-b (container)
+          b-root (atom nil)]
+      (client/set-preflight-hook!
+       (fn [_root-id _plans]
+         (client/set-preflight-hook! nil)
+         (reset! b-root (ui/mount [mini-app {:title "inner B"}] c-b
+                                  {:root-id :reentry/x}))))
+      (try
+        (let [{:keys [id msg]}
+              (thrown-error
+               #(react-dom/flushSync
+                 (fn []
+                   (ui/mount [frame-root {:id :reentry/session
+                                          :initial-events [[:boot 1]]}
+                              [mini-app {:title "outer A"}]]
+                             c-a {:root-id :reentry/x}))))]
+          (is (= :rf.error/duplicate-root-id id)
+              "outer A fails loud — the re-entrant inner claim is detected")
+          (is (error/message-has-id-token? msg)))
+        ;; flush B's scheduled render (mounted outside a flushSync)
+        (react-dom/flushSync (fn []))
+        (is (identical? @b-root (:root (client/live-root-entry :reentry/x)))
+            "the registry still points at inner root B — no clobber")
+        (is (re-find #"inner B" (.-innerHTML c-b))
+            "B's live React tree survives")
+        (is (= "" (.-innerHTML c-a))
+            "outer A created no React root — no orphan tree in its container")
+        (is (= #{:reentry/x} (client/live-root-ids))
+            "only B is live — A left no phantom entry")
+        (finally
+          (client/set-preflight-hook! nil)
+          (some-> @b-root ui/unmount!))))))
+
+;; ---------------------------------------------------------------------------
 ;; frame-root: transparent render + the preflight seam
 ;; ---------------------------------------------------------------------------
 
