@@ -99,7 +99,20 @@
   drain runs once the registry mutation + cache eviction completed, never
   mid-mutation), coalesced once per lease. Non-registrar disposal paths
   (frame-destroy, explicit cache clears) drain on the next tick with cause
-  `:disposed`."
+  `:disposed`.
+
+  The first owner's enrol + disposal-hook install is NOT one atomic step: the
+  node record advertises `:hooked?` as the lease enrols, before
+  `interop/add-on-dispose!` registers the callback. A disposal that linearizes
+  in that gap could fire no hook (the callback lands on an already-disposed
+  reaction and is silently lost — every substrate's `-dispose` clears its
+  callbacks first) or drain the owner set before a second owner enrolled. So
+  `acquire!` closes the handshake with a CANONICALITY RE-CHECK (rf2-vxgfnd.32):
+  because every disposal path evicts the cache entry before `interop/dispose!`,
+  a reaction that is no longer the frame's canonical node was disposed in the
+  window — the staged owners are self-drained and enqueued exactly once
+  (`take-owners!` is the single-drain point), so no acquired lease is ever left
+  behind an uninstalled/dead hook without its invalidation."
   (:refer-clojure :exclude [read])
   (:require [re-frame.error :as error]
             [re-frame.error-emit :as error-emit]
@@ -717,18 +730,45 @@
   (count #?(:clj  (locking node-records (:owners (.get node-records reaction)))
             :cljs (:owners (.get node-records reaction)))))
 
+(defn- drain-owners!
+  "Snapshot-and-clear `reaction`'s active owners and enqueue a former-owner
+  disposal notification for each still-live lease. `take-owners!` is the
+  SINGLE-DRAIN point (idempotent under the node-records lock), so whichever of
+  the node's disposal hook OR `acquire!`'s handshake re-check (rf2-vxgfnd.32)
+  reaches a disposed node first drains its owners; the other call finds an empty
+  set and no-ops — every active owner is enqueued exactly once. Delivery is
+  QUEUED (never a synchronous `on-change`) and rides the drain boundary (see the
+  ns docstring's HMR section)."
+  [reaction]
+  (doseq [lease (take-owners! reaction)]
+    (when (= :live (:status @(lease-state lease)))
+      (enqueue-disposal! lease)))
+  nil)
+
 (defn- node-disposed-hook
   "The ONE node-scoped on-dispose callback for `reaction` (installed exactly
-  once, on the first owner). On node disposal it snapshots-and-clears the
-  CURRENT active owners and enqueues a former-owner notification for each
-  still-live lease — coalesced once per lease at the drain boundary (see the ns
-  docstring's HMR section). It closes over the reaction only, never a lease, so
-  released owners (de-enrolled by `release!`) are unreachable from it."
+  once, on the first owner). On node disposal it drains the CURRENT active
+  owners and enqueues a former-owner notification for each still-live lease —
+  coalesced once per lease at the drain boundary (see the ns docstring's HMR
+  section). It closes over the reaction only, never a lease, so released owners
+  (de-enrolled by `release!`) are unreachable from it."
   [reaction]
   (fn observation-node-disposed []
-    (doseq [lease (take-owners! reaction)]
-      (when (= :live (:status @(lease-state lease)))
-        (enqueue-disposal! lease)))))
+    (drain-owners! reaction)))
+
+(defn- node-still-canonical?
+  "True when the lease's acquired reaction is still the frame's live cache node
+  for its query — i.e. not disposed, not evicted, not rebuilt. A false result
+  means a disposal / eviction / HMR-replacement has linearized: EVERY disposal
+  path in `re-frame.subs.cache` evicts the cache entry (a cache-atom swap/reset)
+  BEFORE it calls `interop/dispose!`, and the cache atom's volatile semantics
+  order that eviction before this read — so once a reaction has been disposed it
+  is no longer the entry's `:reaction`. This is the authority `acquire!`'s
+  first-owner handshake (rf2-vxgfnd.32) and the `current?` kept-check both read."
+  [{:keys [frame-id query-v reaction]}]
+  (boolean
+    (when-let [cache (:sub-cache (frame/frame frame-id))]
+      (identical? reaction (:reaction (get @cache query-v))))))
 
 ;; ---- acquire! -------------------------------------------------------------------
 
@@ -764,9 +804,13 @@
   callback registration: a unique change watch (on watchable hosts). The lease
   is also enrolled as an active owner behind the node's single, once-installed
   disposal hook; `release!` de-enrols it, so a released lease never leaks a
-  dormant closure (rf2-vxgfnd.15). `acquire!` never invokes `on-change`
-  synchronously — no fan-out during acquire (movement in the render→commit
-  gap is the commit evidence comparison's job, invariant 5).
+  dormant closure (rf2-vxgfnd.15). A disposal that races the first-owner
+  hook install is caught by a canonicality re-check that self-drains the
+  staged owners (rf2-vxgfnd.32 — see the ns docstring's HMR section), so no
+  acquired lease is left behind an uninstalled/dead hook without its
+  invalidation. `acquire!` never invokes `on-change` synchronously — no
+  fan-out during acquire (movement in the render→commit gap is the commit
+  evidence comparison's job, invariant 5).
 
   `on-change` MUST be constant-work (mark-dirty with the payload
   `{:cause :value|:hmr|:disposed :target … :node-key … :node-version …
@@ -837,6 +881,25 @@
             ;; O(current owners), never O(all owners ever acquired) (rf2-vxgfnd.15).
             (when (register-owner! reaction lease)
               (interop/add-on-dispose! reaction (node-disposed-hook reaction)))
+            ;; First-owner disposal-hook HANDSHAKE (rf2-vxgfnd.32). The record's
+            ;; :hooked? flag flips as the lease enrols, BEFORE add-on-dispose!
+            ;; actually registers the callback, so a disposal that linearizes in
+            ;; that gap can (a) fire NO hook — the callback lands on an
+            ;; already-disposed reaction and is lost (every substrate's -dispose
+            ;; snapshot-and-clears its callbacks, and the JVM Reaction's field is
+            ;; even unsynchronized, so an install racing -dispose can be dropped
+            ;; outright) — or (b) drain the owner set before this lease enrolled.
+            ;; Close the handshake with a canonicality re-check that EVERY owner
+            ;; (first or not) runs: since every disposal path evicts the cache
+            ;; entry BEFORE interop/dispose! (re-frame.subs.cache), a reaction
+            ;; that is no longer the frame's canonical node WAS disposed in the
+            ;; window. Self-drain the staged owners so each is enqueued exactly
+            ;; once (take-owners! is the single-drain point; the installed hook,
+            ;; if it did fire, already drained). No synchronous on-change: drain
+            ;; only ENQUEUES — delivery rides the next-tick / HMR drain boundary
+            ;; off the acquire stack, preserving acquire!'s no-fan-out guarantee.
+            (when-not (node-still-canonical? @state)
+              (drain-owners! reaction))
             lease)
           ;; NEVER-CACHED, zero-ref RECOVERY reaction (rf2-vxgfnd.27): a cyclic
           ;; entry sub, a parametric input-fn failure, or a frame destroyed
@@ -848,14 +911,6 @@
           (throw-acquire-recovery! frame-id query result))))))
 
 ;; ---- current? -------------------------------------------------------------------
-
-(defn- node-still-canonical?
-  "True when the lease's acquired reaction is still the frame's live cache
-  node for its query — i.e. not disposed, not evicted, not rebuilt."
-  [{:keys [frame-id query-v reaction]}]
-  (boolean
-    (when-let [cache (:sub-cache (frame/frame frame-id))]
-      (identical? reaction (:reaction (get @cache query-v))))))
 
 (defn current?
   "The commit kept-check, one predicate: `lease` still exactly covers

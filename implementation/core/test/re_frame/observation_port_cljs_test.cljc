@@ -19,6 +19,7 @@
             [re-frame.core                  :as rf]
             [re-frame.error-emit            :as error-emit]
             [re-frame.frame                 :as frame]
+            [re-frame.interop               :as interop]
             [re-frame.subs                  :as subs]
             [re-frame.substrate.observation :as obs]
             [re-frame.substrate.plain-atom  :as plain-atom]
@@ -391,6 +392,145 @@
           (is (= 1 (ref-count [:obs/items]))))
         (obs/release! lease2)
         (is (nil? (entry [:obs/items])))))))
+
+;; ===========================================================================
+;; rf2-vxgfnd.32 — first-owner disposal-hook install races node disposal
+;;
+;; PR #5710 enrols the first active owner (marking the node record :hooked?)
+;; and THEN, as a SEPARATE step, installs the one node-scoped disposal hook via
+;; interop/add-on-dispose!. A disposal that linearizes in that gap fires no hook
+;; (the callback lands on an already-disposed reaction and is silently lost —
+;; every substrate's -dispose snapshot-and-clears its callbacks first; the JVM
+;; Reaction's field is even unsynchronized). Pre-fix the acquired lease is left
+;; :hooked? with a dead callback and receives NO invalidation. The fix closes
+;; the handshake with a canonicality re-check in acquire! that self-drains the
+;; staged owners when the reaction is no longer the frame's live cache node.
+;;
+;; Deterministic race (no sleeps, both hosts): wrap interop/add-on-dispose! so
+;; the FIRST-owner hook install — the call that targets the already-CANONICAL
+;; cached reaction (the construction-time input-release closure is wired BEFORE
+;; the reaction is installed, so the entry does not yet hold it — the identity
+;; gate skips it) — first disposes+evicts the node, then registers the dead
+;; callback. This linearizes disposal EXACTLY in the enrol → hook-install gap.
+;; ===========================================================================
+
+(defn- force-dispose-node!
+  "Simulate a real disposal winning a race: evict the cache entry (as EVERY
+  real disposal path does — swap the cache atom BEFORE interop/dispose!), then
+  dispose the reaction. Bypasses the ref-count guard the way HMR re-registration
+  and frame-destroy eviction do."
+  [query-v]
+  (let [cache    (sub-cache)
+        reaction (:reaction (entry query-v))]
+    (swap! cache dissoc query-v)
+    (interop/dispose! reaction)))
+
+;; Delivery of the :disposed fallback is queued and rides interop/next-tick
+;; (an async executor on the JVM; an unfired-mid-run microtask on CLJS-node).
+;; Swallow next-tick so no async drain fires during the test, assert the
+;; handshake enqueued WITHOUT any synchronous fan-out, then drive the drain
+;; boundary deterministically via the port's own drain-pending-disposals!
+;; (its documented test seam) — no sleeps as the ordering mechanism, identical
+;; on both hosts.
+
+(deftest first-owner-hook-install-races-disposal-invalidation-still-delivered
+  (reg-items!)
+  (seed-items! [:a])
+  (let [target   (items-target)
+        notes    (atom [])
+        real-add interop/add-on-dispose!
+        raced?   (atom false)]
+    (with-redefs
+      [interop/next-tick (fn [_f] nil)
+       interop/add-on-dispose!
+       (fn [reaction f]
+         ;; Race ONLY the observation node-disposed hook install — it targets
+         ;; the reaction once it is the CANONICAL cached node. The
+         ;; construction-time input-release closure is wired before the entry
+         ;; holds the reaction, so this identity gate skips it.
+         (when (and (identical? reaction (:reaction (entry [:obs/items])))
+                    (compare-and-set! raced? false true))
+           (force-dispose-node! [:obs/items]))
+         (real-add reaction f))]
+      (let [lease (obs/acquire! target (fn [n] (swap! notes conj n)))]
+        (is (true? @raced?) "the race fired at the first-owner hook install")
+        (is (nil? (entry [:obs/items]))
+            "the racing disposal evicted the canonical node during the gap")
+        (testing "acquire! never invokes on-change synchronously — the
+                  handshake self-drain only ENQUEUES ([S2-CONFIRM]
+                  no-sync-fan-out)"
+          (is (empty? @notes) "no notification fired on the acquire stack"))
+        (testing "the lease is NOT current — the node was disposed under it"
+          (is (false? (obs/current? lease target))))
+        ;; Drive the queued drain boundary deterministically.
+        (obs/drain-pending-disposals! :disposed)
+        (testing "the invalidation is STILL delivered — never silently lost to
+                  a dead first-owner hook (rf2-vxgfnd.32)"
+          (is (= 1 (count @notes))
+              "the raced first owner received exactly one disposal notification")
+          (is (= :disposed (:cause (first @notes)))))
+        (testing "release! on the raced lease is a clean, identity-guarded no-op"
+          (obs/release! lease)
+          (is (nil? (entry [:obs/items]))))))))
+
+(deftest first-owner-hook-race-drains-every-staged-owner-exactly-once
+  ;; Two concurrent acquirers on ONE node: L2 enrols behind L1's :hooked? flag
+  ;; (a cache HIT — registers no hook of its own), and disposal wins the gap
+  ;; during L1's hook install. Neither may be left un-notified: acquire!'s
+  ;; re-check self-drains ALL current owners (take-owners! is the single-drain
+  ;; point), so L1 AND L2 each receive exactly one invalidation.
+  (reg-items!)
+  (seed-items! [:a])
+  (let [target   (items-target)
+        notes1   (atom [])
+        notes2   (atom [])
+        l2       (atom nil)
+        real-add interop/add-on-dispose!
+        raced?   (atom false)]
+    (with-redefs
+      [interop/next-tick (fn [_f] nil)
+       interop/add-on-dispose!
+       (fn [reaction f]
+         (when (and (identical? reaction (:reaction (entry [:obs/items])))
+                    (compare-and-set! raced? false true))
+           ;; A second owner stages behind the first owner's not-yet-installed
+           ;; hook, THEN disposal wins the gap.
+           (reset! l2 (obs/acquire! target (fn [n] (swap! notes2 conj n))))
+           (force-dispose-node! [:obs/items]))
+         (real-add reaction f))]
+      (let [l1 (obs/acquire! target (fn [n] (swap! notes1 conj n)))]
+        (is (true? @raced?))
+        (is (nil? (entry [:obs/items])) "the node was disposed during the gap")
+        (is (some? @l2) "the second owner staged during the race")
+        (testing "no synchronous fan-out from inside either acquire!"
+          (is (empty? @notes1))
+          (is (empty? @notes2)))
+        (obs/drain-pending-disposals! :disposed)
+        (testing "BOTH staged owners were notified exactly once — no owner is
+                  left behind an uninstalled hook (rf2-vxgfnd.32)"
+          (is (= 1 (count @notes1)) "first owner notified once")
+          (is (= 1 (count @notes2)) "second owner notified once"))
+        (obs/release! l1)
+        (obs/release! @l2)))))
+
+(deftest first-owner-non-raced-acquire-installs-live-hook-no-self-drain
+  ;; The common path must be untouched: with no racing disposal, acquire!'s
+  ;; handshake re-check finds the reaction canonical and does NOT self-drain;
+  ;; the installed hook remains the single delivery channel on real disposal.
+  (reg-items!)
+  (seed-items! [:a])
+  (let [target (items-target)
+        notes  (atom [])
+        lease  (obs/acquire! target (fn [n] (swap! notes conj n)))]
+    (testing "canonical acquire took one ref and enqueued nothing"
+      (is (= 1 (ref-count [:obs/items])))
+      (is (empty? @notes))
+      (is (true? (obs/current? lease target))))
+    (testing "a real HMR disposal delivers via the installed hook exactly once"
+      (reg-items!)
+      (is (= 1 (count @notes)))
+      (is (= :hmr (:cause (first @notes))))
+      (obs/release! lease))))
 
 (deftest reentrant-graph-op-is-dev-asserted-inside-the-fan-out
   (reg-items!)
