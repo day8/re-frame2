@@ -46,17 +46,44 @@
   (:require ["react" :as react]
             [re-frame.ui.reactive :as reactive]))
 
+;; ---------------------------------------------------------------------------
+;; Root-incarnation context (03 §4; rf2-vxgfnd.85/.92)
+;;
+;; The ROOT scoping for per-cell root-incarnation ownership. `client/mount!`
+;; mints ONE incarnation per Root (`reactive/make-root-incarnation`) and wraps
+;; the root element in this context's Provider, so EVERY ViewCell under a root —
+;; across the whole tree, however deeply nested — reads the SAME incarnation via
+;; `useContext` and enrols under it (`attach-root!`). That true root scope is why
+;; an entirely-hidden sibling subtree is still reaped at root unmount: the
+;; ownership follows the ROOT, not the topmost still-mounted subtree. nil above a
+;; root that supplies no provider (bare/test mounts) — `attach-root!` is skipped.
+;; ---------------------------------------------------------------------------
+
+(defonce root-incarnation-context
+  (react/createContext nil))
+
+(defn provide-root-incarnation
+  "Wrap `element` in the root-incarnation context Provider carrying
+  `incarnation` — the seam `client/mount!` (and `render!`) render through so
+  every ViewCell in the root's tree shares ONE incarnation (rf2-vxgfnd.92).
+  A nil `incarnation` still provides (a root with no reactive cells is inert)."
+  [incarnation element]
+  (react/createElement (.-Provider root-incarnation-context)
+                       #js {:value incarnation}
+                       element))
+
 (defn render
   "Wrap a compiled view's render `thunk` (a zero-arg fn returning the host
   element) in its ViewCell. Establishes the cell (stable per React
   instance), subscribes the component to the cell's revision, runs the body
-  under a fresh render capture, and wires the reconcile + lifecycle layout
-  commits. Returns the host element."
+  under a fresh render capture, reads its root incarnation from context, and
+  wires the reconcile + lifecycle layout commits. Returns the host element."
   [view-id thunk]
   (let [cell-ref (react/useRef nil)]
     (when (nil? (.-current cell-ref))
       (set! (.-current cell-ref) (reactive/make-cell view-id)))
-    (let [cell      (.-current cell-ref)
+    (let [cell             (.-current cell-ref)
+          root-incarnation (react/useContext root-incarnation-context)
           subscribe (react/useCallback
                       (fn [listener] (reactive/subscribe cell listener))
                       #js [cell])]
@@ -76,12 +103,20 @@
           (fn reconcile []
             (reactive/commit! cell)
             js/undefined))
-        ;; lifecycle — empty deps: connect implicitly via the reconcile
-        ;; above; the cleanup releases owners on React unmount AND Activity
-        ;; hide (indistinguishable here — 03 §4). Reveal re-mounts this
-        ;; effect and the reconcile reacquires + corrects before paint.
+        ;; lifecycle — connect implicitly via the reconcile above; the cleanup
+        ;; releases owners on React unmount AND Activity hide (indistinguishable
+        ;; here — 03 §4). Reveal re-mounts this effect and the reconcile
+        ;; reacquires + corrects before paint. On mount the cell ENROLS under its
+        ;; root incarnation (`attach-root!`, rf2-vxgfnd.85/.92) — an ownership that
+        ;; SURVIVES the hide-cleanup, so root teardown reaps a cell hidden before
+        ;; its unmount window. Keyed on the incarnation identity, so a re-mount
+        ;; under a fresh root re-enrols. `attach-root!` is idempotent; the cleanup
+        ;; NEVER detaches the root (that is `teardown!`'s job — the hide must stay
+        ;; reapable-by-its-root).
         (react/useLayoutEffect
           (fn lifecycle []
+            (when (some? root-incarnation)
+              (reactive/attach-root! cell root-incarnation))
             (fn cleanup [] (reactive/disconnect! cell)))
-          #js [])
+          #js [root-incarnation])
         element))))
