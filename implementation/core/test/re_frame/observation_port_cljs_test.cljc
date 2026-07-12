@@ -895,6 +895,63 @@
           (is (nil? (frame/frame race-fid))
               "the targeted incarnation is gone — nothing was leased"))))))
 
+;; ===========================================================================
+;; rf2-vxgfnd.79 — retry EXHAUSTION over a still-LIVE incarnation must not lie
+;; that the frame was destroyed.
+;;
+;; acquire!'s bounded live-cache-displacement retry (rf2-vxgfnd.63) distinguishes
+;; a displacement from a teardown by checking the frame incarnation. But when the
+;; retry budget is EXHAUSTED while the incarnation is STILL LIVE — a pathological-
+;; but-legal displacer winning every build→canonical-check window — the pre-fix
+;; code passed the unchanged {:recovery :frame-destroyed} to throw-acquire-
+;; recovery! and emitted :rf.error/frame-destroyed, telling an implementer / Xray
+;; user to recover a destroyed frame it had JUST PROVED alive. The fix reports the
+;; TRUTHFUL :rf.error/observation-retry-exhausted livelock instead — fanned on the
+;; always-on axis before the throw, carrying frame / query / same-incarnation
+;; evidence / attempt count.
+;; ===========================================================================
+
+(deftest acquire-retry-exhaustion-over-live-incarnation-is-not-frame-destroyed
+  (reg-items!)
+  (seed-items! [:a])
+  (let [target  (items-target)
+        real-cc @#'subs/compute-and-cache!
+        builds  (atom 0)]
+    (with-redefs
+      [subs/compute-and-cache!
+       (fn [frame-id query-v]
+         (let [reaction (real-cc frame-id query-v)]
+           (when (= query-v [:obs/items])
+             ;; Displace EVERY build in-window, leaving the frame (and its
+             ;; incarnation token) LIVE — the storm never settles, so the bounded
+             ;; retry exhausts its budget with the incarnation demonstrably alive.
+             (swap! builds inc)
+             (evict-node! [:obs/items]))
+           reaction))]
+      (let [[[outcome e] records] (with-error-records #(obs/acquire! target (fn [_])))]
+        (is (= :threw outcome) "the exhausted retry is fail-loud")
+        (is (some? (frame/frame fid))
+            "the frame stayed LIVE throughout — it was never destroyed")
+        (testing "the terminal condition is the TRUTHFUL retry-exhausted, NEVER frame-destroyed"
+          (is (= :rf.error/observation-retry-exhausted (error-id e))
+              "acquire! does not lie :frame-destroyed for a demonstrably live frame")
+          (is (empty? (filter #(= :rf.error/frame-destroyed (:error %)) records))
+              "no false always-on frame-destroyed record was fanned"))
+        (testing "the truthful condition reached the always-on axis with evidence"
+          (is (some #(= :rf.error/observation-retry-exhausted (:error %)) records)
+              "the retry-exhausted record fanned through surface #4 before the throw")
+          (let [d (ex-data e)]
+            (is (= [:obs/items] (:rf.sub/query-v d)) "reports the query")
+            (is (= fid (:frame d)) "reports the frame")
+            (is (= :live (:frame-incarnation d))
+                "reports same-incarnation-live evidence")
+            (is (int? (:attempts d)) "reports the attempt count it exhausted")))
+        (testing "the retry was BOUNDED — budget+1 build attempts, then the throw"
+          (is (= (inc @#'obs/max-displacement-retries) @builds)
+              "exactly budget+1 build attempts — it did not spin forever")
+          (is (= @builds (:attempts (ex-data e)))
+              ":attempts equals the build attempts made"))))))
+
 (deftest reentrant-graph-op-is-dev-asserted-inside-the-fan-out
   (reg-items!)
   (seed-items! [:a])

@@ -1208,6 +1208,18 @@ The port and the public read API split deliberately ⟨09 codex2 F1 — binding�
     nil/changed incarnation is the mid-build destroy race that fans + throws
     `:rf.error/frame-destroyed`. The retry preserves the no-synchronous-`on-change`
     acquisition rule (it re-runs the acquire, never a callback).
+  - **Retry exhaustion is a livelock, not a destruction (rf2-vxgfnd.79).** If the
+    bounded budget is **exhausted while the targeted incarnation is still
+    verifiably live** — a pathological-but-legal displacement storm (repeated HMR
+    re-registrations / cache clears) winning **every** build→check window — `acquire!`
+    MUST NOT reuse the `:frame-destroyed` classification: it has just PROVED the frame
+    alive, so emitting `:rf.error/frame-destroyed` would tell an implementer / Xray
+    user to recover a frame that was never destroyed. Instead it throws the distinct,
+    truthful `:rf.error/observation-retry-exhausted` ([009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)) — an acquire-path **livelock** carrying the
+    frame, query, same-incarnation-live evidence, and the attempt count, fanned on the
+    always-on axis before the throw (like `:rf.error/frame-destroyed`) and mapped by the
+    ViewCell to the view error boundary. `:rf.error/frame-destroyed` stays **reserved for a
+    verified destruction of the targeted incarnation** on every acquire path.
   - **This is the entry-node line, not the mid-graph line.** The bullet above governs a
     sub **body's** `:<-` reference to a failing/cyclic INPUT: that recovers to nil and
     the ENTRY node still caches normally, so `acquire!` takes ownership of the real

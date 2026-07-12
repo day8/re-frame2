@@ -187,8 +187,18 @@
     ;; own suite (`observation_port_cljs_test.cljc`) pins the real emit
     ;; sites; this leg drives the categories through the per-event axis
     ;; (the `:else` branch) to prove the listener fan-out.
+    ;;
+    ;; rf2-vxgfnd.79: `acquire!`'s retry-EXHAUSTED livelock — the bounded
+    ;; live-cache-displacement retry budget exhausted while the targeted frame
+    ;; incarnation stayed verifiably live. A THROWING acquire! surface that fans
+    ;; the always-on record via `emit-error-both!` BEFORE the typed throw
+    ;; (exactly like its sibling `:rf.error/frame-destroyed`), so an off-box
+    ;; shipper sees the livelock even when the ViewCell error boundary swallows
+    ;; the throw. It is the TRUTHFUL condition acquire! reports instead of lying
+    ;; `:rf.error/frame-destroyed` for a frame it just proved alive.
     :rf.error/read-after-release
-    :rf.error/observation-port-version-mismatch})
+    :rf.error/observation-port-version-mismatch
+    :rf.error/observation-retry-exhausted})
 
 ;; The frame-teardown report is the ONE always-on category that rides the
 ;; bounded `dispatch-frame-teardown-report!` sibling (Spec 009: one record
