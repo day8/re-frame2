@@ -41,11 +41,20 @@ so the single-root common case stays one-liner clean:
    ids derived from `:shop/app` — add `:disambiguator` or author `:root-id`"*. Stripped
    from shipped manifests.
 
-**Root-id slug** (one deterministic function, used by the identifier-prefix default and
-synthesised locators): keyword → `namespace "-" name` (namespace absent → name);
-vector → element slugs joined by `"--"`; any character outside `[A-Za-z0-9_-]`
-normalised to `-`. `:page/shop` → `"page-shop"`; `[:shop/app :left]` →
-`"shop-app--left"`.
+**Root-id slug** (one deterministic, **injective** function, used by the
+identifier-prefix default and synthesised locators — distinct valid root-ids ALWAYS
+yield distinct slugs). It is a decodable canonical form over the DOM-safe alphabet
+`[A-Za-z0-9_-]`: `_` is the sole metacharacter — every character outside `[A-Za-z0-9-]`
+(**including `_` itself**) is reversibly escaped `_<lowercase-hex-code-unit>_`, and each
+structural boundary carries an uppercase `_`-tag the escape never emits (`_S` keyword
+namespace/name separator; `_V` vector lead-in; `_K`/`_T`/`_I` a vector element's
+keyword/string/integer type). A keyword root encodes to `enc(namespace) _S enc(name)`
+(namespace absent → `enc(name)`); a vector root to `_V` followed by its type-tagged,
+escaped elements. `:page/shop` → `"page_Sshop"`; `[:shop/app :left]` →
+`"_V_Kshop_Sapp_Kleft"`. Because every boundary is *marked* rather than inferred from a
+data character, the mapping is losslessly decodable and thus injective — no two distinct
+root-ids can alias to one slug (the earlier lossy "normalise every disallowed char to
+`-`" transform could: `:a/b-c` and `:a-b/c` both flattened to `a-b-c`).
 
 ## 2. The Root Descriptor v1 — the named, versioned S1 subset
 
@@ -125,7 +134,7 @@ id" is closed here:
 |---|---|---|
 | `:root-id` | identity | authored root-id (§1.1); immutable for the root's lifetime |
 | `:disambiguator` | identity | scalar; only meaningful when `:root-id` is absent (§1.2) |
-| `:identifier-prefix` | rendering | string fed to React's `identifierPrefix` (`use-id`). Default: `"rf2-" + root-id-slug + "-"` (§1) — `:page/shop` → `"rf2-page-shop-"`. (06 §2's `"rf2-shop-"` example is an authored value, not the derived default.) |
+| `:identifier-prefix` | rendering | string fed to React's `identifierPrefix` (`use-id`). Default: `"rf2-" + root-id-slug + "-"` (§1) — `:page/shop` → `"rf2-page_Sshop-"`. (06 §2's `"rf2-shop-"` example is an authored value, not the derived default.) |
 | `:on-uncaught-error` `:on-caught-error` `:on-recoverable-error` | host | plain CLJS fns passed to the React root options. Host-tier option maps are **not** template positions — the §02 §3 handler boundary law does not apply here. Invoked by React outside the re-frame2 commit path; to dispatch they must go through a live frame handle. |
 
 Identity opts (`:root-id`, `:disambiguator`, `:identifier-prefix`) must be **compile-time
@@ -180,7 +189,9 @@ positional locators — an id is stable under fragment reordering, which is the 
   synthesised locator on a host-owned element.
 - **SSR, emitter-synthesised container** (the server emitter is asked to produce the
   container itself): id is generated deterministically as
-  `"rf2-root-" + root-id-slug` — unique because root-ids are unique per page (§7).
+  `"rf2-root-" + root-id-slug` — unique per page because the slug is **injective** (§1),
+  so distinct root-ids yield distinct slugs, and root-ids are unique per page (§7): two
+  synthesised locators can therefore never collide.
 - **Manifest placement:** the manifest rides a script element **adjacent** (immediately
   following sibling) to the root's container, EDN-safe-encoded per Spec 011.
   `hydrate-root` discovers the manifest *positionally* (adjacent to its `dom-node`) and
@@ -270,7 +281,10 @@ per Spec 011). This is the layer that catches **independently rendered page
 fragments** composed into one response — the case Layer 1 cannot see. The same
 registry asserts **identifier-prefix uniqueness** across the page's roots
 (`:rf.error/root-manifest-invalid`, data `{:conflict :identifier-prefix}`) — two roots
-sharing a prefix would collide `use-id` output.
+sharing a prefix would collide `use-id` output. The **default** prefix
+`"rf2-" + root-id-slug + "-"` is already collision-free for distinct root-ids because the
+slug is injective (§1); this check therefore backstops **authored** `:identifier-prefix`
+opts, which can still collide.
 
 **Layer 3 — client runtime (S1).** A per-document live-root registry: `create-root`,
 `hydrate-root`, and `mount` register their root-id before any render; `unmount!`
