@@ -1155,6 +1155,41 @@
       (is (= :fail (:type (last reports))))
       (is (re-find #"unconsumed failure" (:message (last reports)))))))
 
+(deftest result->reports-run-level-error-is-not-silent-green
+  (testing "rf2-f13zth — a run carrying :status :error with NO :error
+            assertion projects a FAILING run-level :error report, never [].
+            Before the fix the run-level cond had no :error branch, so
+            {:status :error :assertions []} fell through to [] → cljs.test
+            tallied zero → the MOST SEVERE verdict a run can carry read GREEN.
+            This is the public-projection path story/is drives for an
+            already-resolved result (story.cljc sync branch)."
+    (let [reports (result/result->reports {:status :error :assertions []})]
+      (is (seq reports)
+          "an :error run must NOT project to zero reports (that reads green)")
+      (is (= 1 (count reports)) "exactly one run-level error report")
+      (is (= :error (:type (first reports)))
+          "the report is an :error — cljs.test/clojure.test tallies it red")
+      (is (re-find #":error" (:message (first reports)))
+          "the message names the run-level error"))))
+
+(deftest result->reports-error-already-in-assertion-reports-once
+  (testing "rf2-f13zth — an :error run whose :error is ALREADY carried by a
+            per-assertion :error record reports EXACTLY once (no run-level
+            double) — the gate mirrors :cannot-run's 'no per-assertion report
+            already conveys it' guard"
+    (let [r       {:status :error
+                   :assertions [{:assertion :rf.assert/path-equals
+                                 :status :error :passed? false
+                                 :reason "handler threw"}]}
+          reports (result/result->reports r)
+          errors  (filterv #(= :error (:type %)) reports)]
+      (is (= 1 (count reports))
+          "no extra run-level report appended when an assertion carries the error")
+      (is (= 1 (count errors))
+          "exactly one :error report — the per-assertion one")
+      (is (= :error (:type (first reports)))
+          "the single report is the assertion's :error projection"))))
+
 (deftest passed?-only-pass
   (testing "result/passed? is true ONLY for :pass — :cannot-run is not a pass"
     (is (true?  (result/passed? {:status :pass})))

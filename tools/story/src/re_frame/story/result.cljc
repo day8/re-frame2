@@ -1001,7 +1001,18 @@
   therefore 'no per-assertion report already
   conveys the refusal' — `(not-any? #(= :fail (:type %)) per-assertion)` —
   so a mixed run (an unrelated passing assertion + a run-level refusal)
-  still gets the run-level `:cannot-run` report."
+  still gets the run-level `:cannot-run` report.
+
+  A run-level `:error` verdict is the same shape one status up: a
+  schema-conforming `{:status :error :assertions []}` (or an `:error` run
+  whose assertions carry no `:error` record) MUST project a failing
+  run-level `:error` report. Without it the `cond` fell through to `[]`,
+  `cljs.test`/`clojure.test` tallied zero, and the most SEVERE verdict a run
+  can carry read GREEN — exactly the silent-pass class this ns exists to
+  prevent. The gate mirrors `:cannot-run`'s: 'no per-assertion report
+  already conveys the error' — `(not-any? #(= :error (:type %))
+  per-assertion)` — so an `:error` already surfaced by an assertion record
+  reports exactly once (no run-level double)."
   [{:keys [status assertions schema-violations cannot-run] :as _result}]
   (let [per-assertion (mapv assertion->report assertions)
         worst         (requirements/aggregate-status assertions cannot-run)
@@ -1024,6 +1035,18 @@
             :message "run :cannot-run — the runner could not attempt this plan"
             :expected :rf.story/runnable
             :actual   :rf.story/cannot-run}]
+
+          ;; A run-level :error (the most SEVERE verdict) not already carried
+          ;; by an :error assertion record → emit a failing run-level :error
+          ;; report. Without this branch a schema-conforming
+          ;; {:status :error :assertions []} fell through to [] and the test
+          ;; runner tallied zero — a silent GREEN on an errored run (rf2-f13zth).
+          (and (= :error status)
+               (not-any? #(= :error (:type %)) per-assertion))
+          [{:type :error
+            :message "run :error — the runner errored"
+            :expected :rf.story/runnable
+            :actual   :rf.story/error}]
 
           (and (= :pass status) (empty? per-assertion))
           [{:type :pass

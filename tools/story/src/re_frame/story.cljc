@@ -1546,7 +1546,7 @@
   ordered vector of clojure.test report maps (`{:type :pass|:fail|:error
   …}`), one per assertion record plus a run-level report when the verdict
   is not covered by a single assertion (a tape-floor `:fail`, a run-level
-  `:cannot-run`, or a vacuous-green `:pass`). Pure data → data — the same
+  `:cannot-run` / `:error`, or a vacuous-green `:pass`). Pure data → data — the same
   projection `story/is` emits, exposed for tooling that wants the reports
   without firing `do-report`."
   [result]
@@ -1665,7 +1665,7 @@
   On the JVM (the canonical headless test gate) `is` runs the target,
   BLOCKS until it resolves, fires one `clojure.test` report per assertion
   (plus a run-level report for a tape-floor `:fail` / run-level
-  `:cannot-run` / vacuous-green `:pass`), and returns the unified
+  `:cannot-run` / `:error` / vacuous-green `:pass`), and returns the unified
   run-result. On CLJS — where the run is async and the caller cannot block
   — `is` returns the run promise; chain `then` (or use `cljs.test`'s async
   `(async done …)` form) and call `(story/report-result! result)` when it
