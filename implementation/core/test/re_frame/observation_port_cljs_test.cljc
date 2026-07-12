@@ -760,6 +760,115 @@
     (obs/release! lb)))
 
 ;; ===========================================================================
+;; rf2-6ui49w — an UNTYPED throwable escaping a former-owner on-change must
+;; SURFACE before the disposal boundary swallows it (containment preserved)
+;;
+;; #5766 (rf2-vxgfnd.28) contained a throwing owner per-lease and re-surfaced a
+;; TYPED escape on the always-on axis, but only when the throwable carried a
+;; catalogued :rf.error/id — an UNTYPED on-change bug (a raw TypeError /
+;; AssertionError / host RuntimeException, or a defect before any typed
+;; wrapping) was merely re-thrown after the drain, and BOTH real boundaries
+;; discard that rethrow (registrar's per-hook catch on :hmr; an unobserved
+;; next-tick Future on :disposed). So a genuine consumer-callback failure
+;; vanished silently. The fix wraps an untyped escape in the stable catalogued
+;; :rf.error/observation-on-change-failed and fans it on the always-on axis
+;; BEFORE the boundary drops the throw — a typed escape keeps its own id and is
+;; not double-reported. Proven swallowed pre-fix: with the untyped-surface
+;; branch reverted, both fixtures below fail on the wrapped-record assertion
+;; (count 0), while the sibling-containment assertion stays green (#5766 already
+;; contained the throw — this bead is about not LOSING it).
+;; ===========================================================================
+
+(deftest disposal-drain-surfaces-an-untyped-on-change-failure-at-the-hmr-boundary
+  (reg-items!)
+  (seed-items! [:a])
+  (let [target  (items-target)
+        notes-b (atom [])
+        ;; An UNTYPED throwable: its ex-data carries NO :rf.error/id, so it is a
+        ;; raw consumer-callback bug, not a typed re-frame condition.
+        boom    (ex-info "untyped on-change boom" {::boom true})
+        ;; Owner A: its on-change throws the raw untyped throwable, escaping the
+        ;; notification (it does NOT catch its own throw).
+        la      (obs/acquire! target (fn [_n] (throw boom)))
+        ;; Owner B: a well-behaved sibling that MUST still be notified.
+        lb      (obs/acquire! target (fn [n] (swap! notes-b conj n)))]
+    (is (nil? (error-id boom)) "the fixture throwable is genuinely UNTYPED")
+    (is (= 2 (obs/active-owner-count (:reaction (entry [:obs/items]))))
+        "both owners are enrolled on the shared node")
+    ;; The HMR re-registration disposes the shared node and drains BOTH former
+    ;; owners at the registrar replacement boundary — whose per-hook catch
+    ;; swallows the drain's rethrow, so the ALWAYS-ON fan is the only visibility.
+    (let [[[outcome _] records] (with-error-records #(reg-items!))]
+      (testing "containment preserved (#5766) — the untyped throw did NOT starve
+                its sibling; B notified exactly once"
+        (is (= 1 (count @notes-b)))
+        (is (= :hmr (:cause (first @notes-b)))))
+      (testing "the UNTYPED escape SURFACES on the always-on axis — wrapped in
+                the stable :rf.error/observation-on-change-failed, carrying the
+                ORIGINAL throwable as its cause (rf2-6ui49w)"
+        (let [wrapped (filter #(= :rf.error/observation-on-change-failed (:error %))
+                              records)]
+          (is (= 1 (count wrapped))
+              "exactly one always-on record for the untyped escape — no double-report")
+          (is (identical? boom (:exception (first wrapped)))
+              "the record carries the original untyped throwable as its cause")
+          (is (= :obs/items (:event-id (first wrapped)))
+              "the record is attributed to the failing owner's entry sub")
+          (is (= fid (:frame (first wrapped))))))
+      (testing "an untyped escape is NOT mislabelled as a typed re-frame error"
+        (is (empty? (filter #(= :rf.error/reentrant-graph-op (:error %)) records))))
+      (testing "reg-items! returned normally — the registrar isolates the hook,
+                so correctness never depended on that rethrow being observed"
+        (is (= :ok outcome))))
+    (obs/release! la)
+    (obs/release! lb)))
+
+(deftest disposal-drain-surfaces-an-untyped-on-change-failure-at-the-disposed-boundary
+  (reg-items!)
+  (seed-items! [:a])
+  (let [target  (items-target)
+        notes-b (atom [])
+        boom    (ex-info "untyped on-change boom" {::boom true})]
+    ;; Swallow next-tick so the :disposed fallback does not auto-drain — we drive
+    ;; the boundary deterministically, identical on both hosts (no sleeps).
+    (with-redefs [interop/next-tick (fn [_f] nil)]
+      (let [la (obs/acquire! target (fn [_n] (throw boom)))
+            lb (obs/acquire! target (fn [n] (swap! notes-b conj n)))]
+        (is (= 2 (obs/active-owner-count (:reaction (entry [:obs/items]))))
+            "both owners are enrolled on the shared node")
+        ;; A non-registrar disposal (the frame-destroy / cache-clear class) evicts
+        ;; + disposes the node, enqueuing both former owners with the intrinsic
+        ;; cause :disposed; next-tick is swallowed so they stay pending.
+        (force-dispose-node! [:obs/items])
+        (is (nil? (entry [:obs/items])) "the node was disposed")
+        (is (empty? @notes-b) "the disposal only ENQUEUED — no synchronous fan-out")
+        ;; Drive the :disposed fallback boundary directly. It re-throws the first
+        ;; (untyped) escape to its DIRECT caller — caught by with-error-records —
+        ;; but the always-on fan already surfaced it BEFORE the boundary.
+        (let [[[outcome thrown] records]
+              (with-error-records #(obs/drain-pending-disposals! :disposed))]
+          (testing "containment preserved (#5766) — B notified exactly once
+                    despite A's untyped throw"
+            (is (= 1 (count @notes-b)))
+            (is (= :disposed (:cause (first @notes-b)))))
+          (testing "the UNTYPED escape SURFACES on the always-on axis — wrapped in
+                    the stable id, carrying the original throwable (rf2-6ui49w)"
+            (let [wrapped (filter #(= :rf.error/observation-on-change-failed (:error %))
+                                  records)]
+              (is (= 1 (count wrapped))
+                  "exactly one always-on record for the untyped escape — no double-report")
+              (is (identical? boom (:exception (first wrapped))))
+              (is (= :obs/items (:event-id (first wrapped))))
+              (is (= fid (:frame (first wrapped))))))
+          (testing "the first escape is STILL re-thrown to the DIRECT caller
+                    (acceptance: direct callers may observe it), but correctness
+                    does not depend on the swallowing boundaries observing it"
+            (is (= :threw outcome))
+            (is (identical? boom thrown))))
+        (obs/release! la)
+        (obs/release! lb)))))
+
+;; ===========================================================================
 ;; rf2-vxgfnd.63 — a live-cache DISPLACEMENT must not be misclassified as frame
 ;; destruction during acquire!
 ;;

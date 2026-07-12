@@ -555,21 +555,39 @@
                    :registry-epoch @registry-epoch*})))))
 
 (defn- report-disposal-notify-escape!
-  "Fan a TYPED escaping former-owner `on-change` error onto the ALWAYS-ON
+  "Fan an escaping former-owner `on-change` failure onto the ALWAYS-ON
   error-emit axis (surface #4) so it is SEEN even when the drain boundary
   swallows the propagated throw. The `:hmr` drain runs INSIDE the registrar
   replacement hook, whose per-hook `try/catch` DROPS the throw (registrar
   isolates replacement-hook failures — `re-frame.registrar`), and the
   `:disposed` drain rides `interop/next-tick` (a JVM Future whose result is
   never inspected); either boundary would otherwise make the escape invisible
-  exactly where it matters. The dev `:rf.error/reentrant-graph-op` assert — an
-  `on-change` mutating graph ownership mid-notification — exists TO BE SEEN
-  (Spec 009); this puts it on the production-survivable axis regardless of the
-  boundary. Only TYPED re-frame errors are re-surfaced here (they carry a
-  catalogued `:rf.error/id`); an untyped `on-change` bug still propagates via
-  the drain's rethrow-after-drain."
-  [error-id lease exception]
-  (let [{:keys [frame-id query-v]} @(lease-state lease)]
+  exactly where it matters — so NEITHER a typed NOR an untyped `on-change`
+  failure may depend on the rethrow being observed.
+
+  BOTH escape kinds are surfaced, so a former-owner `on-change` bug is NEVER
+  silently lost at a disposal boundary (rf2-6ui49w) — only the catalogue id
+  differs:
+
+    - a TYPED re-frame escape (its `ex-data` carries a catalogued
+      `:rf.error/id`) is re-surfaced under its OWN id, so its identity is
+      preserved. The dev `:rf.error/reentrant-graph-op` assert — an `on-change`
+      mutating graph ownership mid-notification — is the motivating case: it is
+      a plain dev throw with no axis-1 fan of its own, so this IS its only
+      always-on appearance, and it exists TO BE SEEN (Spec 009).
+    - an UNTYPED escape (a raw consumer-callback bug from re-frame.ui's
+      `on-change` — a `TypeError` / `AssertionError` / host `RuntimeException`,
+      or a defect before any typed wrapping) is wrapped in the stable
+      catalogued `:rf.error/observation-on-change-failed`, carrying the original
+      throwable as the record's `:exception` cause.
+
+  Exactly ONE always-on record per escape: the typed-vs-untyped choice is the
+  SOLE id (a typed error is never ALSO fanned under the untyped wrapper), so
+  typed errors keep their catalogue identity and are not double-reported."
+  [lease exception]
+  (let [{:keys [frame-id query-v]} @(lease-state lease)
+        error-id (or (:rf.error/id (ex-data exception))
+                     :rf.error/observation-on-change-failed)]
     (error-emit/dispatch-on-error!
       error-id query-v (first query-v) frame-id exception 0 (interop/now-ms))))
 
@@ -592,11 +610,15 @@
   Each lease's notification is CONTAINED in its own `try/catch` so one owner's
   throwing `on-change` cannot starve its siblings (rf2-vxgfnd.28 — this was the
   one uncontained fan-out; it mirrors registrar's per-hook and subs.cache's
-  per-reaction dispose containment). Every sibling is notified; a TYPED escape
-  is ALSO fanned onto the always-on axis so it survives a swallowing boundary
-  (see [[report-disposal-notify-escape!]]); then the first escape is re-thrown
-  AFTER the whole drain so no failure is silently dropped — never silent, never
-  starving."
+  per-reaction dispose containment). Every sibling is notified; EVERY escape —
+  typed OR untyped — is fanned onto the always-on axis so it survives a
+  swallowing boundary (rf2-6ui49w: a typed escape keeps its catalogue id, an
+  untyped consumer-callback bug is wrapped in
+  `:rf.error/observation-on-change-failed`; see
+  [[report-disposal-notify-escape!]]); then the first escape is re-thrown AFTER
+  the whole drain for any DIRECT caller, but correctness never depends on the
+  registrar / next-tick boundary observing that rethrow — the always-on fan IS
+  the visibility. Never silent, never starving."
   [cause]
   (let [[old _new] (swap-vals! pending-disposals
                                (fn [pending]
@@ -611,8 +633,13 @@
                          (notify-disposal! lease cause)
                          acc
                          (catch #?(:clj Throwable :cljs :default) t
-                           (when-let [eid (:rf.error/id (ex-data t))]
-                             (report-disposal-notify-escape! eid lease t))
+                           ;; Surface EVERY escape on the always-on axis BEFORE
+                           ;; the boundary swallows the rethrow — typed under its
+                           ;; own catalogue id, untyped wrapped in
+                           ;; :rf.error/observation-on-change-failed — so an
+                           ;; untyped consumer on-change bug is never silently
+                           ;; lost at a disposal drain (rf2-6ui49w).
+                           (report-disposal-notify-escape! lease t)
                            (conj acc t))))
                      []
                      taken)]

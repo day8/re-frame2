@@ -196,9 +196,23 @@
     ;; shipper sees the livelock even when the ViewCell error boundary swallows
     ;; the throw. It is the TRUTHFUL condition acquire! reports instead of lying
     ;; `:rf.error/frame-destroyed` for a frame it just proved alive.
+    ;;
+    ;; rf2-6ui49w: an UNTYPED throwable escaping a former-owner `on-change`
+    ;; callback during the observation port's HMR / disposal notification drain
+    ;; (`drain-pending-disposals!`) was contained per-lease + re-thrown after the
+    ;; drain, but BOTH real boundaries discard that rethrow (registrar's per-hook
+    ;; catch on the `:hmr` path, an unobserved next-tick Future on `:disposed`),
+    ;; so an untyped consumer-callback bug vanished silently. The port now wraps
+    ;; it in the stable catalogued `:rf.error/observation-on-change-failed` and
+    ;; fans it on the always-on axis (surface #4) via `dispatch-on-error!` BEFORE
+    ;; the boundary swallows the throw — a typed escape keeps its own id and is
+    ;; not double-reported under the wrapper. The port's own suite pins the real
+    ;; emit site at both boundaries; this leg drives the category through the
+    ;; per-event axis (the `:else` branch) to prove the listener fan-out.
     :rf.error/read-after-release
     :rf.error/observation-port-version-mismatch
-    :rf.error/observation-retry-exhausted})
+    :rf.error/observation-retry-exhausted
+    :rf.error/observation-on-change-failed})
 
 ;; The frame-teardown report is the ONE always-on category that rides the
 ;; bounded `dispatch-frame-teardown-report!` sibling (Spec 009: one record
