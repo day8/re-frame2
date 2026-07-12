@@ -198,7 +198,7 @@ different policy on absence.
   wrong target writes silently, and the operation must replay. Absence is
   `:rf.error/no-frame-context`. The justification is **replay determinism +
   temporal non-locality**, not purity: a silently-defaulted frame poisons replay
-  (`restore-epoch!`, time-travel, Story / Causa determinism all become unsound), and
+  (`restore-epoch!`, time-travel, Story / Xray determinism all become unsound), and
   "sole live frame" is true only until a second frame appears — so an ambient floor
   would let adding Xray, Story, or an SSR frame silently change the meaning of
   distant, untouched application code.

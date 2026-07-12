@@ -6,8 +6,8 @@
 # silent until the workflow next fires. For cron-only workflows
 # (`expensive-tests.yml` runs at 15:17 UTC daily) that's up to 24h of
 # silent breakage. The rf2-mw1c0 incident burnt 5+ consecutive nights:
-# the Causa→Xray rename (PR #2067) mechanically renamed
-# `npm run test:causa` to `npm run test:xray` at expensive-tests.yml
+# the rf2-3pdp9 Xray rename (PR #2067; from the tool's pre-rename name) mechanically renamed
+# the tool's pre-rename npm test script to `npm run test:xray` at expensive-tests.yml
 # line 191, but the underlying npm script had already been deleted a
 # week earlier — and nobody noticed for 5 nights because nightly is the
 # only thing that runs it.

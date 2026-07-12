@@ -1168,7 +1168,7 @@ The `:variants` map desugars at macro-expansion time to N independent `reg-varia
 - **The component and every dispatched event are already registered** (`:view` / `:event` kinds). A story is a demonstration, not a place to define new app behaviour.
 - **Ids follow the library-owned prefixes** (`:story.*` / `:Workspace.*`); the hierarchy is recoverable from the id alone — no separate `:title` field.
 - **Args resolve by precedence:** global < story < variant (deep-merge). Declare shared args once on the story; override per-variant.
-- **A variant tagged `:test`** doubles as a headless fixture — drive it from a `cljs.test` deftest via `run-variant` (Story is Causa/Story CLJS-unit-first; a Playwright spec is the exception, not the default).
+- **A variant tagged `:test`** doubles as a headless fixture — drive it from a `cljs.test` deftest via `run-variant` (Story is Xray/Story CLJS-unit-first; a Playwright spec is the exception, not the default).
 
 **Smoke test (headless via `run-variant`, per [tools/story/spec/Tutorial-CLJS-Unit.md](../tools/story/spec/Tutorial-CLJS-Unit.md)):**
 

@@ -37,8 +37,8 @@
       rf2-l0us2).
 
   Asserting the projected ROWS / LABELS / records are unambiguous is the
-  testable proxy for 'the devtools render legibly' — this is a Causa/Story-
-  style CLJS unit test (per `feedback_causa_story_cljs_unit_tests_not_playwright`),
+  testable proxy for 'the devtools render legibly' — this is a Xray/Story-
+  style CLJS unit test (per the Xray/Story-as-CLJS-unit-test ruling),
   NOT a Playwright spec. The render facts are pinned against REALITY: drive
   the substrate, read what the projection produces.
 

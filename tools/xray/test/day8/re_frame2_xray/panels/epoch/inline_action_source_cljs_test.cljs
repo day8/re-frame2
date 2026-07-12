@@ -27,7 +27,7 @@
   substrate, projects the cascade Xray's Epoch panel reads, renders the
   HANDLER step, and asserts the inline action's source CODE renders (the
   `pr-str` of the fn body), NOT the `#object[Function]` token. This is a
-  Causa/Story-style CLJS unit test (NOT a Playwright spec)."
+  Xray/Story-style CLJS unit test (NOT a Playwright spec)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as string]
             [re-frame.core :as rf]

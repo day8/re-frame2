@@ -330,7 +330,7 @@ A path-filter that runs Playwright only when:
 - `testbeds/ssr_*/**` or `implementation/ssr/**` touched (SSR impact)
 - `tools/xray/spine/**` or `tools/story/render-shell/**` touched (chrome impact)
 
-Otherwise skip. This was the rf2-k9ekz sister bead — **now landed** (CLOSED, PR #1688: the Story/Causa browser Playwright trigger was tightened to fire only on `tools/{story,causa}/src/**` + the framework-testbeds split).
+Otherwise skip. This was the rf2-k9ekz sister bead — **now landed** (CLOSED, PR #1688: the Story/Xray browser Playwright trigger was tightened to fire only on the story + xray src trees (path spellings as they were pre-rename) + the framework-testbeds split).
 
 **Screenshot-baseline subset?** Not warranted yet. The palette-drift gate (rf2-z7ms8) already deterministically catches token/color regressions. A pixel-baseline subset adds Argos/Chromatic egress + flakiness risk for marginal coverage. Defer until a chrome regression slips through palette-drift in practice.
 

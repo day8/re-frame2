@@ -183,9 +183,9 @@ jobs:
 
       - name: Run MCP client conformance
         # rf2-mw1c0: previously had `npm run test:xray` here, a stale
-        # leftover from the rf2-3pdp9 Causa→Xray rename (PR #2067). The
-        # underlying `test:causa` npm script was deleted a week earlier
-        # in rf2-bu21t (the causa-mcp drop) so the rename mechanically
+        # leftover from the rf2-3pdp9 Xray rename (PR #2067; from the tool's pre-rename name). The
+        # underlying pre-rename npm test script was deleted a week earlier
+        # in rf2-bu21t (the tool-MCP drop) so the rename mechanically
         # produced a reference to a script that has never existed. The
         # Xray MCP server isn't built yet — there is nothing to invoke
         # here. Remove the line; revisit if/when an Xray MCP conformance

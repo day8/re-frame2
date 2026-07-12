@@ -233,7 +233,7 @@
 ;; NOT purity (per EP-0002 §Resolved Decisions R1-R7):
 ;;
 ;;   - A silently-defaulted frame poisons replay — `restore-epoch!`,
-;;     time-travel, and Story / Causa determinism all become unsound the
+;;     time-travel, and Story / Xray determinism all become unsound the
 ;;     moment an operation's target depends on which frame happened to be
 ;;     ambient rather than on a value carried in the token being replayed.
 ;;   - "sole live frame" is true only until a second frame appears, so an
