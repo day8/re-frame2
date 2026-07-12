@@ -232,6 +232,99 @@
           "always-on record fanned before the throw"))))
 
 ;; ===========================================================================
+;; acquire! on never-cached recovery reactions — rf2-vxgfnd.27
+;;
+;; `acquire!` IS the cache's ref-count attach. When the ENTRY node's OWN build
+;; cannot produce a canonical cache node — a cyclic entry sub, a parametric
+;; input-fn failure, or a frame destroyed mid-build — the build hands back a
+;; NON-NIL but NEVER-CACHED, zero-ref recovery reaction. The port MUST NOT lease
+;; it: a lying `owned?`-true lease is `current? false` from birth, so every
+;; commit retargets and rebuilds a fresh orphan + node record + disposal hook
+;; and re-emits — structural churn. The fix: the port classifies the recovery
+;; and throws the matching typed error (fail-loud → the ViewCell error boundary;
+;; the public subscribe surface keeps its recover-to-nil semantics).
+
+(defn- dispose-trace-counter
+  "Register a `:rf.sub/dispose` trace counter; returns `[count-atom unreg-fn]`."
+  []
+  (let [n (atom 0)]
+    (rf/register-listener! :trace ::vxgfnd27-dispose
+      (fn [ev] (when (= :rf.sub/dispose (:operation ev)) (swap! n inc))))
+    [n #(rf/unregister-listener! :trace ::vxgfnd27-dispose)]))
+
+(deftest acquire-on-cyclic-entry-sub-throws-sub-cycle-no-false-ownership
+  (rf/reg-sub :obs/cyc1 :<- [:obs/cyc2] (fn [v _] v))
+  (rf/reg-sub :obs/cyc2 :<- [:obs/cyc1] (fn [v _] v))
+  (let [target             (obs/resolve-target {:frame fid :query-v [:obs/cyc1]})
+        [disposals unreg]  (dispose-trace-counter)]
+    (try
+      (testing "acquire! fails loud with typed :rf.error/sub-cycle carrying the cycle path"
+        (let [[[outcome e] records] (with-error-records #(obs/acquire! target (fn [_])))]
+          (is (= :threw outcome) "acquire! did NOT return a (lying) lease")
+          (is (= :rf.error/sub-cycle (error-id e)))
+          (is (= [:obs/cyc1 :obs/cyc2 :obs/cyc1] (:cycle (ex-data e)))
+              "the throw carries the closing-repeat cycle path")
+          (is (empty? (filter #(= :rf.error/sub-cycle (:error %)) records))
+              "sub-cycle stays DIAGNOSTIC — the port throws the typed carrier but
+               does NOT promote it to the always-on axis")))
+      (testing "NO false ownership was taken: no cache entry, no orphan node built+disposed"
+        (is (nil? (entry [:obs/cyc1])) "the cyclic sub is NOT cached")
+        (is (nil? (entry [:obs/cyc2])))
+        (is (zero? @disposals) "no orphan node/hook was built and disposed"))
+      (testing "repeated acquires each throw once and NEVER accrete ownership churn"
+        (dotimes [_ 5]
+          (is (= :rf.error/sub-cycle
+                 (error-id (try (obs/acquire! target (fn [_]))
+                                (catch #?(:clj Throwable :cljs :default) e e))))))
+        (is (nil? (entry [:obs/cyc1])) "still no cache entry after repeated acquires")
+        (is (zero? @disposals) "still zero disposals — no orphan churn accrued"))
+      (finally (unreg)))))
+
+(deftest acquire-on-parametric-input-fn-failure-throws-typed-no-false-ownership
+  (testing "input-fn THROWS → :rf.error/sub-input-fn-exception; not cached; ONE always-on record"
+    (rf/reg-sub :obs/pthrow
+                (fn [_] (throw (ex-info "boom-input-fn" {})))
+                (fn [_v _] :unreachable))
+    (let [target (obs/resolve-target {:frame fid :query-v [:obs/pthrow]})
+          [[outcome e] records] (with-error-records #(obs/acquire! target (fn [_])))]
+      (is (= :threw outcome))
+      (is (= :rf.error/sub-input-fn-exception (error-id e)))
+      (is (nil? (entry [:obs/pthrow])) "the failed parametric node is NOT cached")
+      (is (= 1 (count (filter #(= :rf.error/sub-input-fn-exception (:error %)) records)))
+          "exactly ONE always-on record — the build's; the port re-throws the
+           same id WITHOUT a second fan (no duplicate)")))
+  (testing "input-fn RETURNS a bad shape → :rf.error/sub-input-fn-bad-return; not cached; ONE record"
+    (rf/reg-sub :obs/pbad
+                (fn [_] :not-a-vector-of-query-vectors)
+                (fn [_v _] :unreachable))
+    (let [target (obs/resolve-target {:frame fid :query-v [:obs/pbad]})
+          [[outcome e] records] (with-error-records #(obs/acquire! target (fn [_])))]
+      (is (= :threw outcome))
+      (is (= :rf.error/sub-input-fn-bad-return (error-id e)))
+      (is (nil? (entry [:obs/pbad])))
+      (is (= 1 (count (filter #(= :rf.error/sub-input-fn-bad-return (:error %)) records)))
+          "one always-on record, no duplicate fan from the port"))))
+
+(deftest acquire-on-frame-destroyed-mid-build-throws-frame-destroyed
+  ;; The JVM race: the frame's cache vanishes DURING the build (here an impure
+  ;; input-fn destroys the frame), so build-and-cache!* returns a never-cached
+  ;; reaction that used to bypass the caller's nil→frame-destroyed guard and be
+  ;; leased as canonical. The port now classifies it and throws typed.
+  (let [race-fid :obs/race-frame]
+    (rf/make-frame {:id race-fid :adapter plain-atom/adapter})
+    (rf/reg-sub :obs/race
+                (fn [_] (frame/destroy-frame! race-fid) [])  ;; kills the frame mid-materialize
+                (fn [_v _] :unreachable))
+    (let [target (obs/resolve-target {:frame race-fid :query-v [:obs/race]})
+          [[outcome e] records] (with-error-records #(obs/acquire! target (fn [_])))]
+      (is (= :threw outcome) "the mid-build destroy no longer slips through as a lease")
+      (is (= :rf.error/frame-destroyed (error-id e)))
+      (is (some #(= :rf.error/frame-destroyed (:error %)) records)
+          "the port fanned the always-on frame-destroyed record before throwing")
+      (is (nil? (:sub-cache (frame/frame race-fid)))
+          "the destroyed frame's cache is gone — nothing was cached under it"))))
+
+;; ===========================================================================
 ;; movement evidence — node version, frame epoch, registry epoch
 ;; ===========================================================================
 

@@ -305,6 +305,62 @@
     {:unresolved-input query-v
      :resolved-inputs  []}))
 
+(defn- throw-acquire-recovery!
+  "rf2-vxgfnd.27 — the ENTRY node's OWN build produced a NEVER-CACHED, zero-ref
+  recovery reaction instead of a canonical cache node: a cyclic entry sub, a
+  parametric `input-fn` failure, or a frame destroyed mid-build. `acquire!` IS
+  the cache's ref-count attach; there is no node to own, so the port is
+  fail-loud and throws the typed error mirroring the recovery taxonomy rather
+  than lease a lying `owned?`-true zero-ref reaction that re-churns every
+  commit. `result` is the `{:recovery kind …}` map from
+  `subs/acquire-cache-reaction!`. Never returns.
+
+  Emit discipline — exactly one always-on record, no duplicate:
+    - `:frame-destroyed` → fan the always-on record + throw via
+      `throw-frame-destroyed!` (the 009 frame-destroyed row already carries the
+      port's throwing surface; the build emitted nothing for the race). Also the
+      catch-all for any unexpected classification (safe fail-loud).
+    - `:input-fn-exception` / `:input-fn-bad-return` → throw the matching id;
+      the build ALREADY fanned the always-on `:rf.error/sub-input-fn-*` record,
+      so the port does NOT re-fan (one record, one throw).
+    - `:cycle` → throw the typed `:rf.error/sub-cycle` to the ViewCell error
+      boundary; it stays DIAGNOSTIC (009 catalogue) — already emitted on the
+      trace channel by the build — so the port does NOT promote it to the
+      always-on axis."
+  [frame-id query-v result]
+  (case (:recovery result)
+    :cycle
+    (error/throw-error!
+      :rf.error/sub-cycle
+      're-frame.substrate.observation/acquire!
+      (str "acquire! targeted subscription " (pr-str (first query-v))
+           " which sits on a :<- dependency cycle " (pr-str (:cycle result))
+           "; a cyclic sub has no cacheable node, so the observation port is "
+           "fail-loud (the public subscribe surface keeps its recover-to-nil "
+           "semantics). Break the cycle so no sub transitively lists itself "
+           "among its inputs.")
+      {:recovery :no-recovery
+       :extra    {:frame          frame-id
+                  :rf.sub/query-v query-v
+                  :cycle          (:cycle result)}})
+
+    (:input-fn-exception :input-fn-bad-return)
+    (error/throw-error!
+      (:error-kw result)
+      're-frame.substrate.observation/acquire!
+      (str "acquire! targeted parametric subscription " (pr-str (first query-v))
+           " whose input-fn failed at materialization, so there is no cacheable "
+           "node to own; the observation port is fail-loud (the public "
+           "subscribe surface keeps its recover-to-nil semantics). "
+           (:reason result))
+      {:recovery :no-recovery
+       :extra    {:frame          frame-id
+                  :rf.sub/query-v query-v}})
+
+    ;; :frame-destroyed and any unexpected classification — fan + throw typed.
+    (throw-frame-destroyed! 're-frame.substrate.observation/acquire!
+                            frame-id query-v)))
+
 ;; ---- the lease ---------------------------------------------------------------
 
 (deftype ObservationLease [state]
@@ -723,7 +779,15 @@
   retargets through the normal staged commit path.
 
   Fail-loud: `:rf.error/frame-destroyed`, `:rf.error/no-such-sub` (entry),
-  `:rf.error/reentrant-graph-op` (dev — called from inside the fan-out)."
+  `:rf.error/reentrant-graph-op` (dev — called from inside the fan-out). When
+  the entry node's OWN build cannot produce a canonical cache node — a cyclic
+  entry sub, a parametric `input-fn` failure, or a frame destroyed mid-build —
+  `acquire!` throws the matching typed error (`:rf.error/sub-cycle`,
+  `:rf.error/sub-input-fn-exception` / `:rf.error/sub-input-fn-bad-return`,
+  `:rf.error/frame-destroyed`) rather than lease a zero-ref recovery reaction
+  (rf2-vxgfnd.27): a lease MUST NOT report `owned?` without a real cache ref +
+  attach. The static override lease and the public subscribe surface keep their
+  recover-to-nil semantics."
   [target on-change]
   (assert-not-in-fan-out! 're-frame.substrate.observation/acquire!)
   (case (:kind target)
@@ -743,39 +807,45 @@
           (when (nil? (registrar/lookup :sub (first query)))
             (throw-no-such-sub! 're-frame.substrate.observation/acquire!
                                 frame-id query))))
-      (let [reaction (subs/acquire-cache-reaction! frame-id query)]
-        (when (nil? reaction)
-          ;; The frame's cache vanished in the check→acquire window.
-          (throw-frame-destroyed! 're-frame.substrate.observation/acquire!
-                                  frame-id query))
-        (let [state (atom {:lease-kind :node
-                           :target     target
-                           :frame-id   frame-id
-                           :query-v    query
-                           :reaction   reaction
-                           :on-change  on-change
-                           :status     :live})
-              lease (->ObservationLease state)]
-          ;; Watch BEFORE the baseline observe: a watched reaction is live
-          ;; on the reactive hosts, so the observe below reads through the
-          ;; activated node. `add-watch` never fires synchronously.
-          (when (watchable? reaction)
-            (let [wk (gensym "rf-obs-lease")]
-              (add-watch reaction wk (make-watch-handler state))
-              (swap! state assoc :watch-key wk)))
-          (let [[rec v] (observe-node! reaction)]
-            (swap! state assoc :last {:value    v
-                                      :version  (:version rec)
-                                      :node-key (:node-key rec)}))
-          ;; Node-disposed notification. Enrol this lease as an active owner
-          ;; and — only for the FIRST owner — install the node's single
-          ;; disposal hook (delivery is queued; see the ns docstring's HMR
-          ;; section). `release!` de-enrols the lease, so a released lease is no
-          ;; longer reachable from the live reaction: disposal work stays
-          ;; O(current owners), never O(all owners ever acquired) (rf2-vxgfnd.15).
-          (when (register-owner! reaction lease)
-            (interop/add-on-dispose! reaction (node-disposed-hook reaction)))
-          lease)))))
+      (let [result (subs/acquire-cache-reaction! frame-id query)]
+        (if-some [reaction (:reaction result)]
+          ;; Canonical cached node — the real ref-count attach. Take ownership.
+          (let [state (atom {:lease-kind :node
+                             :target     target
+                             :frame-id   frame-id
+                             :query-v    query
+                             :reaction   reaction
+                             :on-change  on-change
+                             :status     :live})
+                lease (->ObservationLease state)]
+            ;; Watch BEFORE the baseline observe: a watched reaction is live
+            ;; on the reactive hosts, so the observe below reads through the
+            ;; activated node. `add-watch` never fires synchronously.
+            (when (watchable? reaction)
+              (let [wk (gensym "rf-obs-lease")]
+                (add-watch reaction wk (make-watch-handler state))
+                (swap! state assoc :watch-key wk)))
+            (let [[rec v] (observe-node! reaction)]
+              (swap! state assoc :last {:value    v
+                                        :version  (:version rec)
+                                        :node-key (:node-key rec)}))
+            ;; Node-disposed notification. Enrol this lease as an active owner
+            ;; and — only for the FIRST owner — install the node's single
+            ;; disposal hook (delivery is queued; see the ns docstring's HMR
+            ;; section). `release!` de-enrols the lease, so a released lease is no
+            ;; longer reachable from the live reaction: disposal work stays
+            ;; O(current owners), never O(all owners ever acquired) (rf2-vxgfnd.15).
+            (when (register-owner! reaction lease)
+              (interop/add-on-dispose! reaction (node-disposed-hook reaction)))
+            lease)
+          ;; NEVER-CACHED, zero-ref RECOVERY reaction (rf2-vxgfnd.27): a cyclic
+          ;; entry sub, a parametric input-fn failure, or a frame destroyed
+          ;; mid-build. There is no cache node to attach to — `acquire!` is the
+          ;; ref-count attach — so the port is fail-loud and throws the matching
+          ;; typed error rather than lease an owned?-true reaction that owns
+          ;; nothing (no entry, no ref) and re-churns a fresh orphan + node
+          ;; record + disposal hook + re-emit on EVERY commit.
+          (throw-acquire-recovery! frame-id query result))))))
 
 ;; ---- current? -------------------------------------------------------------------
 
