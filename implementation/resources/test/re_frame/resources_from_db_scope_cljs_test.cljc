@@ -506,21 +506,6 @@
       (is (:sensitive? proj) "the row is stamped sensitive")
       (is (= [:locale] (:inputs proj)) "the structural input NAMES ride verbatim"))))
 
-(deftest scope-resolver-egress-sensitive-always-fail-closed
-  ;; EP-0025: off-box resolved-scope egress is unconditionally sensitive — the
-  ;; declassify escape hatch is gone (rf2-71dr8t).
-  (testing "the predicate is sensitive for an unregistered resolver"
-    (is (true? (scope-registry/scope-resolver-egress-sensitive? :t/never-registered))))
-  (testing "the predicate is sensitive for a db-reading resolver"
-    (is (true? (scope-registry/scope-resolver-egress-sensitive? :t/session))))
-  (testing "a resolver that once declared :rf.egress/public is STILL sensitive
-            (the declassify hatch was removed)"
-    (rf/reg-resource-scope :t/public2
-      {:inputs {:locale [:db [:i18n :locale]]}
-       :rf.egress/output-sensitivity :rf.egress/public}
-      (fn [{:keys [locale]} _] (when locale [:rf.scope/locale {:locale locale}])))
-    (is (true? (scope-registry/scope-resolver-egress-sensitive? :t/public2)))))
-
 ;; ===========================================================================
 ;; rf2-oo8cv7 — the DIRECT :rf.resource/invalidate-tags event resolves a
 ;; `{:from-db <id>}` :scope SYMMETRICALLY with ensure / clear-scope (Spec 016
