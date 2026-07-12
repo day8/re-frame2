@@ -327,10 +327,10 @@
   `:rf.error/duplicate-root-id` — thrown through the canonical builder,
   with the both-derived didactic fix per the contract."
   [where root-id provenance coords]
-  ;; Evict THIS source's prior root rows first (build-scoped replace), so a
-  ;; moved / renamed / deleted site never conflicts with its own ghost and
-  ;; a deleted site cannot fail a later file (rf2-vxgfnd.16).
-  (build/open-source! build/roots (:file coords))
+  ;; Open THIS source (cross-registry, once per pass): a moved / renamed /
+  ;; deleted site never conflicts with its own ghost, and a deleted site
+  ;; cannot fail a later file (rf2-vxgfnd.16).
+  (build/open-source! (:file coords))
   (let [existing (get @build-roots root-id)]
     (when (and existing
                (:file existing) (:file coords)
@@ -359,10 +359,10 @@
   re-registration replaces — watch tolerance; matching fingerprints are
   the ratified idempotent no-op)."
   [where {:keys [frame-id config-fingerprint]} coords]
-  ;; Evict THIS source's prior plan rows first (build-scoped replace) — a
-  ;; deleted / edited plan never conflicts with its own ghost, and a
-  ;; removed plan cannot fail a later file (rf2-vxgfnd.16).
-  (build/open-source! build/plans (:file coords))
+  ;; Open THIS source (cross-registry, once per pass) — a deleted / edited
+  ;; plan never conflicts with its own ghost, and a removed plan cannot fail
+  ;; a later file (rf2-vxgfnd.16).
+  (build/open-source! (:file coords))
   (let [existing (get @build-plans frame-id)]
     (when (and existing
                (not= (:config-fingerprint existing) config-fingerprint)

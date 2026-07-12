@@ -61,8 +61,20 @@
   check must read the aggregate AFTER the source's stale rows are evicted,
   so a source never conflicts with its own ghost).
 
+  ## One open per source, across every registry
+
+  A source's generation is tracked ONCE (globally), not per registry, and
+  `open-source!` fires exactly once per source per generation — at the
+  source's FIRST declaration of the pass — evicting that source's ENTIRE
+  prior contribution from EVERY registry before it re-accumulates. That
+  cross-registry sweep is what makes a deleted declaration disappear even
+  from a registry the recompiled source no longer touches at all (a file
+  that drops its only frame plan but keeps a root): the plan is gone the
+  moment the file re-declares anything, so it cannot fail a later file
+  with a false `:rf.error/frame-payload-conflict`.
+
   Compile-time state is mutated single-threaded (macro expansion), so the
-  two-atom (aggregate + ledger) updates need no coordination.")
+  aggregate + ledger updates need no coordination.")
 
 ;; ---------------------------------------------------------------------------
 ;; Registry ids (opaque keys naming the five build-scoped registries)
@@ -80,8 +92,8 @@
 
 (defonce ^{:private true
            :doc "Monotonic build-pass counter. `begin-build!` bumps it; a
-  source re-opens its contribution the first time it declares at a
-  generation newer than the one its ledger records."}
+  source re-opens (once, across every registry) the first time it declares
+  at a generation newer than the one it last opened at."}
   generation (atom 0))
 
 (defonce ^{:private true
@@ -90,10 +102,15 @@
   build-id (atom ::none))
 
 (defonce ^{:private true
+           :doc "source -> the generation it last opened at (tracked ONCE,
+  globally, so a source's cross-registry contribution is evicted together)."}
+  source-gen (atom {}))
+
+(defonce ^{:private true
            :doc "registry-id -> {:agg <aggregate atom>
-                                 :sources {source {:gen g :keys #{k}}}}.
-  `:agg` is the plain-map atom consumers read; `:sources` is the per-source
-  contribution ledger this model reconciles."}
+                                 :keys {source #{k}}}.
+  `:agg` is the plain-map atom consumers read; `:keys` records which keys
+  each source contributed, so a re-opening source's rows evict cleanly."}
   registries (atom {}))
 
 ;; ---------------------------------------------------------------------------
@@ -106,7 +123,7 @@
   so a hot ns reload never drops live contributions."
   [reg-id agg]
   (swap! registries update reg-id
-         (fn [r] (if r (assoc r :agg agg) {:agg agg :sources {}})))
+         (fn [r] (if r (assoc r :agg agg) {:agg agg :keys {}})))
   nil)
 
 ;; ---------------------------------------------------------------------------
@@ -114,26 +131,28 @@
 ;; ---------------------------------------------------------------------------
 
 (defn open-source!
-  "Ensure `source`'s contribution to `reg-id` is fresh for the current
-  build generation. On `source`'s FIRST declaration this generation, evict
-  its prior keys from the aggregate (the atomic per-source replace) and
-  reset its key set; idempotent for later same-generation declarations.
-  Call BEFORE reading the aggregate for a conflict check so a source never
-  conflicts with its own stale row."
-  [reg-id source]
-  (let [g @generation
-        r (get @registries reg-id)]
-    (when (and r (not= g (get-in r [:sources source :gen])))
-      (when-let [ks (seq (get-in r [:sources source :keys]))]
-        (apply swap! (:agg r) dissoc ks))
-      (swap! registries assoc-in [reg-id :sources source] {:gen g :keys #{}})))
+  "Open `source`'s contribution for the current build generation. On
+  `source`'s FIRST declaration this generation, evict its prior keys from
+  EVERY registry's aggregate (the atomic, cross-registry per-source
+  replace) and reset its key sets; idempotent for later same-generation
+  declarations. Call BEFORE reading any aggregate for a conflict check so a
+  source never conflicts with its own stale row (and a dropped declaration
+  is gone from registries the source no longer touches this pass)."
+  [source]
+  (let [g @generation]
+    (when (not= g (get @source-gen source))
+      (doseq [[reg-id r] @registries]
+        (when-let [ks (seq (get-in r [:keys source]))]
+          (apply swap! (:agg r) dissoc ks))
+        (swap! registries assoc-in [reg-id :keys source] #{}))
+      (swap! source-gen assoc source g)))
   nil)
 
 (defn note!
   "Record that `source` contributed key `k` to `reg-id` (after storing it
   in the aggregate). Pairs with `open-source!`."
   [reg-id source k]
-  (swap! registries update-in [reg-id :sources source :keys] (fnil conj #{}) k)
+  (swap! registries update-in [reg-id :keys source] (fnil conj #{}) k)
   nil)
 
 (defn contribute!
@@ -141,7 +160,7 @@
   aggregate, and note it. Registries with a pre-write conflict check use
   `open-source!` + `note!` around the check instead."
   [reg-id source k v]
-  (open-source! reg-id source)
+  (open-source! source)
   (swap! (:agg (get @registries reg-id)) assoc k v)
   (note! reg-id source k)
   nil)
@@ -159,7 +178,8 @@
   []
   (doseq [[reg-id r] @registries]
     (reset! (:agg r) {})
-    (swap! registries assoc-in [reg-id :sources] {}))
+    (swap! registries assoc-in [reg-id :keys] {}))
+  (reset! source-gen {})
   nil)
 
 (defn begin-build!
@@ -185,12 +205,14 @@
   WHOLE pass; an incremental pass that recompiles a subset must not call it
   (its untouched files keep their prior generation, which is correct)."
   []
-  (let [g @generation]
-    (doseq [[reg-id r] @registries
-            [source {sg :gen ks :keys}] (:sources r)
-            :when (not= sg g)]
-      (when (seq ks) (apply swap! (:agg r) dissoc ks))
-      (swap! registries update-in [reg-id :sources] dissoc source)))
+  (let [g @generation
+        stale (for [[source sg] @source-gen :when (not= sg g)] source)]
+    (doseq [source stale]
+      (doseq [[reg-id r] @registries]
+        (when-let [ks (seq (get-in r [:keys source]))]
+          (apply swap! (:agg r) dissoc ks))
+        (swap! registries update-in [reg-id :keys] dissoc source))
+      (swap! source-gen dissoc source)))
   nil)
 
 ;; ---------------------------------------------------------------------------
@@ -205,4 +227,4 @@
 (defn source-keys
   "The keys `source` currently contributes to `reg-id` (tests / tooling)."
   [reg-id source]
-  (get-in @registries [reg-id :sources source :keys] #{}))
+  (get-in @registries [reg-id :keys source] #{}))
