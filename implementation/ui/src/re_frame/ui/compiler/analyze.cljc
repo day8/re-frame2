@@ -19,9 +19,11 @@
   "The CLOSED op set — the AST-shape gate's vocabulary. `:frame-root` (S1c,
   rf2-vxgfnd.3) appears only inside the static top region of a ROOT form
   (`ui/mount` / `ui/render!` / `ui/hydrate-root`) — the analyzer rejects it
-  everywhere else, so defview-template ASTs never carry it."
+  everywhere else, so defview-template ASTs never carry it.
+  `:frame-provider` (S2c, rf2-vxgfnd.9) is the SCOPE form — legal anywhere,
+  scoping a subtree to an already-live frame."
   #{:text :nothing :expr :element :fragment :view :foreign
-    :if :let :letfn :case :for :raw :html :frame-root})
+    :if :let :letfn :case :for :raw :html :frame-root :frame-provider})
 
 (defn literal-scalar? [x]
   (or (string? x) (number? x) (keyword? x) (boolean? x) (nil? x)))
@@ -33,6 +35,7 @@
 (def ^:private sub-fqns       #{'re-frame.ui/sub})
 (def ^:private lease-fqns     #{'re-frame.ui/lease})
 (def ^:private frame-root-fqns #{'re-frame.ui/frame-root})
+(def ^:private frame-provider-fqns #{'re-frame.ui/frame-provider})
 
 (def markup-map-fqns
   "The map family — heads whose (f render-fn coll) idiom generates markup
@@ -738,6 +741,66 @@
          :static? false
          :path (:path e)}))))
 
+;; ---------------------------------------------------------------------------
+;; frame-provider (S2c, rf2-vxgfnd.9) — the SCOPE form
+;; ---------------------------------------------------------------------------
+;;
+;; frame-provider scopes a subtree to an ALREADY-LIVE frame through the
+;; shared React context — it is legal ANYWHERE a template form is (defview
+;; templates and root forms), unlike the static-top-region-only `frame-root`.
+;; Its `:frame` is a RUNTIME frame TARGET (a frame-id keyword OR a live frame
+;; value), so provider-scoped frames are not statically extractable and
+;; contribute NO plan to the Root Descriptor (root-identity contract §6). In
+;; a root form's top region the walk descends THROUGH a frame-provider (it
+;; preserves `:top-region?` for its children), so a nested `frame-root` plan
+;; is still extracted; the provider itself just scopes.
+
+(defn- frame-provider-head? [e head]
+  (and (symbol? head)
+       (not (contains? (:locals e) head))
+       (env/resolves-to? e head frame-provider-fqns)))
+
+(defn- analyze-frame-provider [e form]
+  (let [props (nth form 1 nil)]
+    (when-not (map? props)
+      (env/fail! e :rf.ui.compile/bad-frame-provider
+                 (str "frame-provider takes a literal props map: "
+                      "[frame-provider {:frame f} children...]")
+                 {:form form}))
+    (when (contains? props :id)
+      (env/fail! e :rf.ui.compile/bad-frame-provider
+                 (str "frame-provider SCOPES an already-live frame by :frame — "
+                      ":id is frame-root's ENSURE key (roots ensure, providers "
+                      "scope; the rf2-nyea0r split). Use frame-root {:id ...} to "
+                      "create-if-absent")
+                 {:form form}))
+    (when-not (contains? props :frame)
+      (env/fail! e :rf.ui.compile/bad-frame-provider
+                 (str "frame-provider requires :frame — the already-live frame "
+                      "target (a frame-id keyword or a live frame value) to "
+                      "scope the subtree to")
+                 {:form form}))
+    (let [extra (dissoc props :frame)]
+      (when (seq extra)
+        (env/fail! e :rf.ui.compile/bad-frame-provider
+                   (str "frame-provider takes only {:frame f}; got extra key"
+                        (when (next extra) "s") " "
+                        (str/join ", " (map pr-str (keys extra)))
+                        " — providers only scope (roots ensure)")
+                   {:form form})))
+    (let [target (:frame props)]
+      ;; the :frame target is a runtime expression — walk it for sub/lease
+      ;; site indexing (a sub in the target expression is still a site)
+      (when-not (literal-scalar? target) (walk-expr e target))
+      {:op :frame-provider
+       :frame target
+       ;; children keep whatever region flag `e` carries: preserved in a
+       ;; root form's top region (nested frame-root plans still extract),
+       ;; absent in a defview template
+       :children (analyze-children e (vec (drop 2 form)))
+       :static? false
+       :path (:path e)})))
+
 (defn- analyze-fragment [e form]
   (let [second*   (nth form 1 nil)
         has-props (map? second*)
@@ -1014,6 +1077,7 @@
         (= :<> head)     (analyze-fragment e form)
         (keyword? head)  (analyze-element e form)
         (frame-root-head? e head) (analyze-frame-root e form)
+        (frame-provider-head? e head) (analyze-frame-provider e form)
         (symbol? head)   (analyze-component e form)
         :else
         (env/fail! e :rf.ui.compile/dynamic-head

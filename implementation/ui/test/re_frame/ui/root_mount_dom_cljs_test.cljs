@@ -165,7 +165,10 @@
 (deftest frame-root-renders-transparently-and-plans-ride-preflight
   (when (browser?)
     (let [seen (atom nil)]
-      (client/set-preflight-hook! #(reset! seen %))
+      ;; a capture OVERRIDE observes plan threading without touching the
+      ;; frames registry (no adapter needed here — the live ENSURE path is
+      ;; pinned by the preflight-frame-wiring fixtures)
+      (client/set-preflight-hook! (fn [_root-id plans] (reset! seen plans)))
       (try
         (react-dom/flushSync #(mount-framed! (container) 42))
         (let [[plan :as plans] @seen]
@@ -181,17 +184,21 @@
         (finally
           (client/set-preflight-hook! nil))))))
 
-(deftest frame-root-config-never-evaluates-without-a-hook
+(deftest plans-thunk-absent-for-plan-free-root
+  ;; a root form with no frame-root plans threads a nil plans-thunk — the
+  ;; preflight is a no-op (nothing to ensure), so the override hook never
+  ;; fires even though one is installed.
   (when (browser?)
-    (let [evals (atom 0)
-          bump! (fn [] (swap! evals inc))]
-      (react-dom/flushSync
-       #(ui/mount [frame-root {:id :dom-lazy/f :on-boot (bump!)}
-                   [mini-app {:title "lazy"}]]
-                  (container)
-                  {:root-id :dom-lazy/root}))
-      (is (zero? @evals)
-          "no preflight hook (all of S1) -> plan config expressions never run"))))
+    (let [calls (atom 0)]
+      (client/set-preflight-hook! (fn [_ _] (swap! calls inc)))
+      (try
+        (react-dom/flushSync
+         #(ui/mount [mini-app {:title "plain"}] (container)
+                    {:root-id :dom-plain/root}))
+        (is (zero? @calls)
+            "no static plans -> nil plans-thunk -> preflight no-op")
+        (finally
+          (client/set-preflight-hook! nil))))))
 
 ;; ---------------------------------------------------------------------------
 ;; hydrate-root: S1 fails loud (manifests land S5)

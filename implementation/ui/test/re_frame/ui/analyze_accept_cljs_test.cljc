@@ -20,6 +20,7 @@
       html        {:fqn 're-frame.ui/html :meta {}}
       raw-fn      {:fqn 're-frame.ui/raw-fn :meta {}}
       spread      {:fqn 're-frame.ui/spread :meta {}}
+      frame-provider {:fqn 're-frame.ui/frame-provider :meta {}}
       child-view  {:fqn 'app.views/child-view
                    :meta {:rf.ui/view true :rf.ui/children? true}}
       leaf-view   {:fqn 'app.views/leaf-view
@@ -207,6 +208,26 @@
     [:div (spread b o)]
     (raw el)
     [:div.c (html "<hr/>")]]  )
+
+;; ---------------------------------------------------------------------------
+;; frame-provider (S2c) — the SCOPE form lowers to :frame-provider anywhere
+;; ---------------------------------------------------------------------------
+
+(deftest frame-provider-lowers
+  (let [a (ana* '[frame-provider {:frame :app/session} [:p "scoped"]])]
+    (is (= :frame-provider (:op a)))
+    (is (= :app/session (:frame a)) "the :frame target is carried as a runtime value")
+    (is (= [:element] (mapv :op (:children a))) "children analyze normally")
+    (is (false? (:static? a)) "a scope boundary is never static"))
+  (testing "the :frame target may be a runtime expression"
+    (let [a (ana* '[frame-provider {:frame (:id row)} [:span "x"]])]
+      (is (= :frame-provider (:op a)))
+      (is (= '(:id row) (:frame a)))))
+  (testing "a frame-provider indexes a sub site in its :frame expression"
+    (let [{:keys [ast sites]} (ana-full '[frame-provider {:frame (sub [:current-frame])}
+                                          [:p "x"]])]
+      (is (= :frame-provider (:op ast)))
+      (is (= 1 (count (:subs sites))) "the (sub ...) in the target is a finite site"))))
 
 (defn- ops-of [ast]
   (let [acc (atom #{})]

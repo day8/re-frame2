@@ -27,8 +27,12 @@
     unmount!         total teardown; unregisters the root-id
     frame-root       the static ENSURE-plan wrapper, legal only in a root
                      form's top region — plans compile into the Root
-                     Descriptor (:rf.root/schema-version 1); frame ENSURE
-                     semantics land with the S2 wiring
+                     Descriptor (:rf.root/schema-version 1); ENSURE runs
+                     at host preflight (S2c)
+    frame-provider   SCOPE-only: scope a subtree to an ALREADY-LIVE frame
+                     (`{:frame f}`, a runtime frame id / value) through
+                     the shared React context. Creates nothing (roots
+                     ensure, providers scope — the rf2-nyea0r split)
 
   Anything not exported here does not exist: no reg-view family, no
   Form-1/2/3, no positional view args, no ratoms/cursors/reactions —
@@ -181,8 +185,32 @@
    (str "(ui/frame-root {:id ...} children...) is a ROOT-FORM wrapper — "
         "the static ENSURE-plan position, legal only in the top region of "
         "a root form handed to ui/mount / ui/render! / ui/hydrate-root; "
-        "it compiles away and is never called. Inside defview templates "
-        "frames are ambient (frame scoping lands S2)")
+        "it compiles away and is never called. To SCOPE a subtree to an "
+        "already-live frame inside a view, use ui/frame-provider")
+   nil))
+
+(defn frame-provider
+  "(frame-provider {:frame f} children...) — SCOPE a subtree to an
+  ALREADY-LIVE frame through the shared React context. `:frame` is a
+  RUNTIME frame target (a frame-id keyword or a live frame value); the
+  provider creates / refreshes / destroys NOTHING (roots ensure,
+  providers scope — the rf2-nyea0r split). Legal anywhere a template
+  form is (defview templates and root forms). Descendant view boundaries
+  resolve this frame ambiently (explicit pin > dynamic binding > this
+  context > loud :rf.error/no-frame-context); sites in the SAME template
+  body read the OUTER scope (React context semantics). A `:frame` naming
+  no live frame fails loud (`:rf.error/frame-provider-frame-absent`).
+
+  This var exists for compile-time resolution; the form compiles into a
+  scope element and is never called — a direct call fails loud."
+  [& _args]
+  (error/throw-error!
+   :rf.error/ui-frame-provider-outside-template 're-frame.ui/frame-provider
+   (str "(ui/frame-provider {:frame f} children...) is a TEMPLATE form — "
+        "it scopes a subtree to an already-live frame through the shared "
+        "React context, and the compiler wires it into a scope element; "
+        "it is never called directly. To CREATE the frame if absent, use "
+        "ui/frame-root in a root form's top region")
    nil))
 
 ;; ---------------------------------------------------------------------------

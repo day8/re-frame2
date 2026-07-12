@@ -117,10 +117,14 @@
 
 (defn scan-root-ast
   "Walk an analyzed root-form AST through the top-region wrappers only
-  (element / fragment / frame-root children — the analyzer already
-  guarantees `:frame-root` nodes exist nowhere else) collecting, in
+  (element / fragment / frame-root / frame-provider children — the analyzer
+  already guarantees `:frame-root` nodes exist nowhere else) collecting, in
   document order: `:views` (top-region internal-view nodes) and `:plans`
-  (`{:frame-id :config :config-fingerprint}` per `frame-root`)."
+  (`{:frame-id :config :config-fingerprint}` per `frame-root`). A
+  `frame-provider` contributes NO plan (its frame is a runtime reference,
+  not statically extractable — root-identity contract §6) but the walk
+  descends THROUGH it, so a `frame-root` nested under a top-region
+  `frame-provider` is still extracted."
   [ast]
   (let [acc (volatile! {:views [] :plans []})]
     (letfn [(walk [n]
@@ -133,7 +137,7 @@
                                          (fingerprint/config-fingerprint
                                           (:frame-id n) (:config n))})
                                 (run! walk (:children n)))
-                (:element :fragment) (run! walk (:children n))
+                (:element :fragment :frame-provider) (run! walk (:children n))
                 nil))]
       (walk ast))
     @acc))
