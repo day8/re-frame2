@@ -2,7 +2,7 @@
 
 `re-frame.adapter.helix` binds re-frame2 to the Helix React substrate. It ships as its own artefact (`day8/re-frame2-helix`) and depends on `re-frame.core`, never the reverse. A Helix app requires this namespace and passes its `adapter` Var into `(rf/init! ...)`. It exposes:
 
-- the Helix-shaped hooks `use-subscribe`, `use-resource-lease`, and `use-current-frame`;
+- the Helix-shaped hooks `use-subscribe`, `use-frame`, `use-resource-lease`, and `use-current-frame`;
 - the `frame-provider` (SCOPE) + `frame-root` (ENSURE) components;
 - the `wrap-view` view-wrapping seam;
 - the `adapter` spec.
@@ -47,6 +47,28 @@ The substrate-agnostic carry and scoping primitives (`capture-frame`, `with-fram
 - **Description**: The hook-shaped equivalent of `subscribe` for Helix components. Returns the current sub value and re-renders the calling component when it changes.
   - The 1-arg form resolves the frame through the surrounding scope: dynamic-var first, then React context. It raises `:rf.error/no-frame-context` when no frame is in scope.
   - The 2-arg form pins an explicit frame id.
+
+### `use-frame`
+
+- **Kind**: Helix hook (function)
+- **Signature**:
+  ```clojure
+  (use-frame) → {:frame … :dispatch … :dispatch-sync … :subscribe …}
+  ```
+- **Description**: Returns the frame ops map for the ambient frame — exactly what `(rf/capture-frame)` returns (the frame-locked ops map), captured in hook position. This is how a Helix component gets hold of `dispatch` (and the other frame-locked ops) without auto-injection: destructure `dispatch` off it and close over that.
+
+  `capture-frame` is *the* hold primitive; `reg-view` injection (Reagent) and `use-frame` (UIx / Helix) are its two ergonomic spellings — one primitive, three faces.
+
+  - Frame resolution matches `use-subscribe`: dynamic-var scope first, then the surrounding `frame-provider` / `frame-root` via React context. It raises `:rf.error/no-frame-context` when neither is in scope.
+  - The returned map is reference-stable across re-renders for the same resolved frame (safe in effect deps and child props); a provider swap re-renders the caller and yields a map locked to the new frame.
+  - No options map, no variants — for an explicit frame, call `(rf/capture-frame frame-id)` directly.
+- **Example**:
+  ```clojure
+  (defnc counter-buttons []
+    (let [count              (helix-adapter/use-subscribe [:counter/value])
+          {:keys [dispatch]} (helix-adapter/use-frame)]
+      (d/button {:on-click #(dispatch [:counter/inc])} "+")))
+  ```
 
 ### `use-resource-lease`
 
