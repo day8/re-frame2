@@ -48,6 +48,7 @@
             [re-frame.machines.paths :as paths]
             [re-frame.machines.reply :as m-reply]
             [re-frame.machines.result :as result]
+            [re-frame.machines.spawn-order :as spawn-order]
             [re-frame.machines.timer :as timer]
             [re-frame.machines.transition :as transition]
             [re-frame.registrar :as registrar]
@@ -548,6 +549,19 @@
     ;; no-op, so the registry entry added at spawn dies with the instance (no
     ;; leak).
     (classification/drop-at-destroy! frame-id machine-id machine)
+    ;; Forget the finished actor from the per-frame spawn-order channel —
+    ;; the ONE synchronous teardown side-effect the `:final?`-auto-destroy
+    ;; path shares with `destroy/teardown-live-actor!` (destroy.cljc step 7).
+    ;; `spawn-order/frame-order` is `actor-live?`'s "most reliable
+    ;; alive-or-gone bit" (destroy.cljc:83); without this call a finished
+    ;; actor stays recorded → a later stale `[:rf.machine/destroy id]` sees
+    ;; it live → `teardown-live-actor!` RE-RUNS (phantom `:rf.machine/destroyed`
+    ;; trace + re-fired resource release, violating silent-idempotent destroy)
+    ;; and frame-destroy emits a phantom straggler destroy for it. Matches the
+    ;; exact `(frame-id actor-id)` args destroy.cljc uses, so the forget! runs
+    ;; atomically per finalize-machine — the invariant destroy.cljc:306-308
+    ;; already documents.
+    (spawn-order/forget! frame-id machine-id)
     (traces/emit-system-id-released! frame-id released-sid machine-id)
     (registrar/unregister! :event machine-id)
     ;; (7) Per Spec 005 §Final states §`:on-error`: when the child
