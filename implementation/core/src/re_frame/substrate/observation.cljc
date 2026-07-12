@@ -439,17 +439,56 @@
                    :frame-epoch    (frame/frame-commit-epoch frame-id)
                    :registry-epoch @registry-epoch*})))))
 
+(defn- report-disposal-notify-escape!
+  "Fan a TYPED escaping former-owner `on-change` error onto the ALWAYS-ON
+  error-emit axis (surface #4) so it is SEEN even when the drain boundary
+  swallows the propagated throw. The `:hmr` drain runs INSIDE the registrar
+  replacement hook, whose per-hook `try/catch` DROPS the throw (registrar
+  isolates replacement-hook failures — `re-frame.registrar`), and the
+  `:disposed` drain rides `interop/next-tick` (a JVM Future whose result is
+  never inspected); either boundary would otherwise make the escape invisible
+  exactly where it matters. The dev `:rf.error/reentrant-graph-op` assert — an
+  `on-change` mutating graph ownership mid-notification — exists TO BE SEEN
+  (Spec 009); this puts it on the production-survivable axis regardless of the
+  boundary. Only TYPED re-frame errors are re-surfaced here (they carry a
+  catalogued `:rf.error/id`); an untyped `on-change` bug still propagates via
+  the drain's rethrow-after-drain."
+  [error-id lease exception]
+  (let [{:keys [frame-id query-v]} @(lease-state lease)]
+    (error-emit/dispatch-on-error!
+      error-id query-v (first query-v) frame-id exception 0 (interop/now-ms))))
+
 (defn ^:no-doc drain-pending-disposals!
   "Drain the queued node-disposed notifications, coalesced once per lease
   (identity), delivering only to still-live leases. `cause` is `:hmr` when
   drained at the sub re-registration boundary (the registrar replacement
   hook below), `:disposed` on the next-tick fallback (frame-destroy /
   explicit cache clears). INTERNAL — exposed un-private only so the port's
-  own tests can drive the fallback boundary deterministically."
+  own tests can drive the fallback boundary deterministically.
+
+  Each lease's notification is CONTAINED in its own `try/catch` so one owner's
+  throwing `on-change` cannot starve its siblings (rf2-vxgfnd.28 — this was the
+  one uncontained fan-out; it mirrors registrar's per-hook and subs.cache's
+  per-reaction dispose containment). Every sibling is notified; a TYPED escape
+  is ALSO fanned onto the always-on axis so it survives a swallowing boundary
+  (see [[report-disposal-notify-escape!]]); then the first escape is re-thrown
+  AFTER the whole drain so no failure is silently dropped — never silent, never
+  starving."
   [cause]
-  (let [[pending _] (reset-vals! pending-disposals [])]
-    (doseq [lease (distinct pending)]
-      (notify-disposal! lease cause)))
+  (let [[pending _] (reset-vals! pending-disposals [])
+        escapes     (reduce
+                      (fn [acc lease]
+                        (try
+                          (notify-disposal! lease cause)
+                          acc
+                          (catch #?(:clj Throwable :cljs :default) t
+                            (when-let [eid (:rf.error/id (ex-data t))]
+                              (report-disposal-notify-escape! eid lease t))
+                            (conj acc t))))
+                      []
+                      (distinct pending))]
+    (when (seq escapes)
+      (throw (first escapes))))
   nil)
 
 (defn- enqueue-disposal!
