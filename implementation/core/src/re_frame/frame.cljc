@@ -22,7 +22,6 @@
             [re-frame.substrate.adapter :as adapter]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
-            [re-frame.source-coords :as source-coords]
             [re-frame.trace :as trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -1835,9 +1834,7 @@
   "PRIVATE frame ENGINE — atomic create-or-REFRESH (upsert) of the frame
   record for `id` (rf2-h1vqa4). Called by `re-frame.live-frame/make-frame`
   (the public constructor `rf/make-frame`) and tightly-scoped engine tests
-  ONLY; the public `rf/reg-frame` facade TEMPORARILY delegates here as
-  scaffolding while the reg-frame spelling is removed (rf2-h1vqa4 slices
-  2–3 — not a stable entry point).
+  ONLY — not a stable entry point.
 
   The name pins the REFRESH semantics — this engine upserts SEATED ids too.
   Per Spec 002 §Frame lifecycle:
@@ -1862,7 +1859,7 @@
   `frame-meta` / `frame-ids`, not the registrar query API."
   [id metadata]
   (let [;; The registry is keyed by the bare frame-id.
-        config (source-coords/merge-coords (expand-preset metadata))
+        config (expand-preset metadata)
         ;; EP-0027 PREFLIGHT (BEFORE any container / process-global write): reject
         ;; the retired `:on-create` / `:initial-db` keys fail-loud, and normalize
         ;; + validate `:initial-events` into a vector of setup steps. Both run
@@ -2028,27 +2025,12 @@
           ;; runtime tears down the partial frame inside the runner and rethrows.
           ;;
           ;; Each setup dispatch carries construction provenance: `:source
-          ;; :frame-init` + its step index (added by the runner), plus the
-          ;; `make-frame` call-site captured as `:rf.trace/call-site`
-          ;; here so the click-to-source affordance jumps to the
-          ;; `(rf/make-frame {… :initial-events […]})` declaration line. The
-          ;; macro form of the retired reg-frame spelling bound `*pending-coords*`, which
-          ;; `source-coords/merge-coords` merges into `config` as
-          ;; `:ns`/`:file`/`:line`/`:column` — so the call-site is already on the
-          ;; config map. Gated on `interop/debug-enabled?` (the OUTERMOST form, per
-          ;; Spec 009 §Production builds) so production CLJS builds DCE the
-          ;; call-site read and the keyword never leaks into the advanced bundle.
-          (let [base-opts (if interop/debug-enabled?
-                            (cond-> {}
-                              (or (:file config) (:line config))
-                              (assoc :rf.trace/call-site
-                                     (cond-> {}
-                                       (:ns     config) (assoc :ns     (:ns     config))
-                                       (:file   config) (assoc :file   (:file   config))
-                                       (:line   config) (assoc :line   (:line   config))
-                                       (:column config) (assoc :column (:column config)))))
-                            {})]
-            (run-setup-events! id setup-steps base-opts 'rf/make-frame))
+          ;; :frame-init` + its step index (added by the runner). Frame
+          ;; construction captures NO source coords (rf2-h1vqa4 — `make-frame`
+          ;; is a FN, and frames are live runtime objects, not click-to-source
+          ;; program members; live metadata lives in `frame-meta`), so no
+          ;; `:rf.trace/call-site` is stamped here.
+          (run-setup-events! id setup-steps {} 'rf/make-frame)
           (trace/emit! :rf.frame :rf.frame/created
                        {:frame id :config (dissoc config :rf.frame/generation
                                                   :rf.frame/initial-db)})
@@ -2093,15 +2075,6 @@
                        {:frame id :config stored-config})
           (fire-frame-registered-hook! id)
           id))))
-
-(def ^{:no-doc true
-       :doc "TEMPORARY SCAFFOLDING (rf2-h1vqa4 slice 1): the engine's former
-  name, kept ONLY so un-migrated in-tree `frame/reg-frame` call sites compile
-  while consumers converge on the public `rf/make-frame` (slice 2). New code
-  must not call this — the engine is `upsert-frame!`; this alias and the
-  public `rf/reg-frame` facade are deleted in slice 3."}
-  reg-frame
-  upsert-frame!)
 
 (defn make-anon-frame-record!
   "INTERNAL anonymous-instance creation (EP-0024): generate a
@@ -2841,9 +2814,9 @@
 ;; replace) was RETIRED in rf2-lxwpob (API-shrink #5, frame-lifecycle
 ;; collapse): one axis (create/refresh via `make-frame`, destroy
 ;; via `destroy-frame!`), not three verbs. A full replace is reproducible by
-;; composition — `(destroy-frame! id) (reg-frame id config)` (or `make-frame`
-;; for an image-loaded frame, re-supplying the SAME `:images` the caller
-;; already holds so the recreated frame keeps its resolved generation). There
+;; composition — `(destroy-frame! id) (make-frame config)`, re-supplying the
+;; SAME config (which carries `:id`, and `:images` for an image-loaded frame,
+;; so the recreated frame keeps its resolved generation). There
 ;; is no internal-only survivor: the mid-cascade atomicity guard this verb
 ;; offered (reject BEFORE any teardown) has no equivalent in the two-call
 ;; composition and is accepted as a retired guarantee — frame
@@ -2862,11 +2835,11 @@
 
 (defn ^:no-doc reset-frame!
   "REMOVED in rf2-lxwpob (no alias). The dedicated reset verb is retired — a
-  full replace is `(destroy-frame! id) (reg-frame id config)`, re-supplying
-  the SAME config (and `:images`, for an image-loaded frame) the caller
-  already holds. Calling `reset-frame!` is the hard error
+  full replace is `(destroy-frame! id) (make-frame config)`, re-supplying
+  the SAME config (which carries `:id`, and `:images` for an image-loaded
+  frame) the caller already holds. Calling `reset-frame!` is the hard error
   `:rf.error/reset-frame-removed`, naming that composition as the
-  replacement. See spec/002-Frames.md §Resetting a frame — destroy + reg-frame
+  replacement. See spec/002-Frames.md §Resetting a frame — destroy + make-frame
   and spec/API.md §Frame lifecycle."
   [& args]
   (error/throw-error!
@@ -2874,10 +2847,11 @@
     'rf/reset-frame!
     (str "`reset-frame!` is REMOVED (no alias, rf2-lxwpob) — a full frame "
          "reset is reproducible by composition: `(destroy-frame! id) "
-         "(reg-frame id config)`, re-supplying the SAME config (and "
-         "`:images`, for an image-loaded frame) you already hold. See "
-         "spec/002-Frames.md §Resetting a frame — destroy + reg-frame.")
-    {:recovery :destroy-frame-then-reg-frame-with-same-config
+         "(make-frame config)`, re-supplying the SAME config (which "
+         "carries `:id`, and `:images` for an image-loaded frame) you "
+         "already hold. See spec/002-Frames.md §Resetting a frame — "
+         "destroy + make-frame.")
+    {:recovery :destroy-frame-then-make-frame-with-same-config
      :extra    {:got args}}))
 
 ;; ---- :rf/default — TEST-ONLY fixture helper -------------------------------
