@@ -343,6 +343,106 @@
         "a completed run clears the stale :mount-incomplete tag")
     (is (= :root/a (:installed-by entry)) "the ownership record is intact")))
 
+;; ---- rf2-vxgfnd.72: a failed RE-preflight of an ALREADY-LIVE root --------
+;; `execute-frame-plans!` is ALSO the preflight for idempotent remount / HMR /
+;; `render!` on an already-live root. Per Q49 a failing re-preflight leaves the
+;; existing root AND its last committed render untouched. So a live root whose
+;; re-preflight throws on a LATER plan must NOT be tagged :mount-incomplete and
+;; the conflict diagnostic must NOT claim "no root scopes" — that is the fresh-
+;; mount case's truth, and a lie about a still-live root. The refresh/adopt of
+;; an already-live frame carries neutral :preflight-attempt-failed evidence.
+
+(deftest failed-re-preflight-of-a-live-root-keeps-live-state-not-mount-incomplete
+  (reg-events!)
+  ;; root A mounts :frame/live and COMPLETES — a genuinely live, scoped root.
+  (frames/execute-frame-plans!
+   :root/a [(plan :frame/live {:initial-events [[:test/set-db {:n 5}]]}
+                  "cf1-live1111111111")])
+  (is (some? (frame/frame :frame/live)) "the frame is live after the first mount")
+  (rf/dispatch-sync [:test/inc] {:frame :frame/live})
+  (is (= 6 (:n (rf/app-db-value :frame/live)))
+      "durable state = 6 (the last committed render's state)")
+  (is (nil? (:mount-incomplete (frames/installed-plan-entry :frame/live)))
+      "sanity: the completed first mount carries no incomplete tag")
+  ;; root A RE-PREFLIGHTS (an HMR / reload run): plan 1 REFRESHES :frame/live to
+  ;; a NEW config; plan 2 (:frame/bad) throws AFTER the refresh succeeds.
+  (let [id (err-id
+            #(frames/execute-frame-plans!
+              :root/a [(plan :frame/live {:initial-events [[:test/set-db {:n 999}]]}
+                             "cf1-live2222222222")
+                       (plan :frame/bad {:initial-events [:not-a-vector]}
+                             "cf1-bad11111111111")]))]
+    (is (some? id) "the later malformed plan throws — the re-preflight fails"))
+  ;; Q49: the pre-existing live root + its last committed render are UNTOUCHED.
+  (is (some? (frame/frame :frame/live)) "the pre-existing live root persists")
+  (is (= 6 (:n (rf/app-db-value :frame/live)))
+      "durable state is untouched — the refresh does not replay, the failure does not roll back")
+  (let [entry (frames/installed-plan-entry :frame/live)]
+    (is (= :root/a (:installed-by entry)) "root A still OWNS + scopes the frame")
+    (is (nil? (:mount-incomplete entry))
+        "the live root is NOT falsely tagged :mount-incomplete (rf2-vxgfnd.72)")
+    (is (true? (:preflight-attempt-failed entry))
+        "instead the record carries neutral failed-attempt evidence"))
+  ;; a later cross-root config conflict on :frame/live must NOT claim the frame
+  ;; is unmounted / unscoped — the live root persists.
+  (let [msg (try (frames/execute-frame-plans!
+                  :root/c [(plan :frame/live {:initial-events [[:test/set-db {:n 1}]]}
+                                 "cf1-ccc11111111111")])
+                 nil
+                 (catch cljs.core/ExceptionInfo e (ex-message e)))]
+    (is (some? msg) "the cross-root arrival still fails loud")
+    (is (nil? (re-find #"no root actually scopes it" msg))
+        "the diagnostic never says no root scopes the still-live frame")
+    (is (nil? (re-find #"live only from its already-fired" msg))
+        "nor that it is live only from its initial-events (the fresh-mount claim)")
+    (is (some? (re-find #"still LIVE and scoped by root" msg))
+        "instead it states the frame is still live + scoped; only the re-preflight attempt failed")))
+
+(deftest completed-retry-clears-the-preflight-attempt-failed-tag
+  (reg-events!)
+  ;; A mounts + completes, then a re-preflight refresh fails on a later plan.
+  (frames/execute-frame-plans!
+   :root/a [(plan :frame/live {:initial-events [[:test/set-db {:n 1}]]}
+                  "cf1-r1aaaaaaaaaaaa")])
+  (err-id #(frames/execute-frame-plans!
+            :root/a [(plan :frame/live {:initial-events [[:test/set-db {:n 2}]]}
+                           "cf1-r2bbbbbbbbbbbb")
+                     (plan :frame/bad {:initial-events [:not-a-vector]}
+                           "cf1-badrrrrrrrrrr")]))
+  (is (true? (:preflight-attempt-failed (frames/installed-plan-entry :frame/live)))
+      "sanity: the failed re-preflight tagged the live record")
+  ;; A retries WITHOUT the bad plan -> the run completes -> the tag clears.
+  (frames/execute-frame-plans!
+   :root/a [(plan :frame/live {:initial-events [[:test/set-db {:n 2}]]}
+                  "cf1-r2bbbbbbbbbbbb")])
+  (let [entry (frames/installed-plan-entry :frame/live)]
+    (is (nil? (:preflight-attempt-failed entry))
+        "a completed run clears the stale :preflight-attempt-failed tag")
+    (is (= :root/a (:installed-by entry)) "the ownership record is intact")))
+
+(deftest failed-run-after-adopt-marks-attempt-failed-not-mount-incomplete
+  (reg-events!)
+  ;; a boot rf/make-frame owns :app/boot (boot-authoritative, live).
+  (rf/make-frame {:id :app/boot :doc "boot"})
+  (rf/dispatch-sync [:test/set-db {:n 42}] {:frame :app/boot})
+  ;; root A ADOPTS it (config-less scope), then a later plan throws.
+  (let [id (err-id
+            #(frames/execute-frame-plans!
+              :root/a [(plan :app/boot {} "cf1-adopt1111111111")
+                       (plan :app/bad {:initial-events [:not-a-vector]}
+                             "cf1-badadoptttttt")]))]
+    (is (some? id) "the later malformed plan throws"))
+  ;; the boot frame is untouched + still authoritative (adopt creates nothing).
+  (is (some? (frame/frame :app/boot)) "the boot frame persists")
+  (is (= 42 (:n (rf/app-db-value :app/boot))) "the boot frame's state is untouched")
+  (is (= "boot" (:doc (frame/frame-meta :app/boot))) "the boot config stays authoritative")
+  (let [entry (frames/installed-plan-entry :app/boot)]
+    (is (true? (:adopted entry)) "the record stays an ADOPTED (non-owning) record")
+    (is (nil? (:mount-incomplete entry))
+        "an adopted boot frame is never falsely tagged :mount-incomplete")
+    (is (true? (:preflight-attempt-failed entry))
+        "it carries the same neutral failed-attempt evidence as a live refresh")))
+
 ;; ---- rf2-vxgfnd.56: adoption never grants installation authority ---------
 ;; A boot/external frame is boot-authoritative. A config-less [frame-root
 ;; {:id …}] may ADOPT (scope) it, but an adopted record must NEVER enter a
