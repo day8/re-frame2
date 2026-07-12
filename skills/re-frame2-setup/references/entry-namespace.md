@@ -149,18 +149,17 @@ This skill scaffolds against **Reagent** (the default reference substrate). For 
         ($ views/counter-app))))
   ```
   Every adapter's `frame-root` ensures + provides the app frame for its subtree; rendering without it raises `:rf.error/no-frame-context` on the first subscribe. Both entry namespaces match the generator template's `_uix/core.cljs` / `_helix/core.cljs`.
-- **views** — the substitution `first-counter.md` does **not** cover. Reagent's `reg-view` auto-injects `dispatch`/`subscribe`; UIx and Helix have **no auto-injection** — components read subs through the adapter's `use-subscribe` hook and dispatch through `(:dispatch (rf/capture-frame))`, captured once per render (the closed-over `dispatch` still targets that frame from an async callback). UIx uses `defui` + `$`; Helix uses `defnc` + `helix.dom`. Copy the matching `views.cljs` below verbatim (identical to the template's `_uix/views.cljs` / `_helix/views.cljs`, reproduced here so the recipe is self-contained):
+- **views** — the substitution `first-counter.md` does **not** cover. Reagent's `reg-view` auto-injects `dispatch`/`subscribe`; UIx and Helix have **no auto-injection** — components read subs through the adapter's `use-subscribe` hook and get `dispatch` off the adapter's `use-frame` hook (capture-frame in hook position), destructured once per render (the closed-over `dispatch` still targets that frame from an async callback). UIx uses `defui` + `$`; Helix uses `defnc` + `helix.dom`. Copy the matching `views.cljs` below verbatim (identical to the template's `_uix/views.cljs` / `_helix/views.cljs`, reproduced here so the recipe is self-contained):
 
   ```clojure
   ;; UIx — src/your_app/views.cljs
   (ns your-app.views
     (:require [uix.core             :refer [$ defui]]
-              [re-frame.core        :as rf]
               [re-frame.adapter.uix :as uix-adapter]))
 
   (defui counter-buttons []
-    (let [value    (uix-adapter/use-subscribe [:counter/value])
-          dispatch (:dispatch (rf/capture-frame))]
+    (let [value              (uix-adapter/use-subscribe [:counter/value])
+          {:keys [dispatch]} (uix-adapter/use-frame)]
       ($ :div
          ($ :button {:on-click #(dispatch [:counter/increment])} "+1")
          ($ :span {:style #js {:margin "0 1em"}} value))))
@@ -176,12 +175,11 @@ This skill scaffolds against **Reagent** (the default reference substrate). For 
   (ns your-app.views
     (:require [helix.core             :refer [$ defnc]]
               [helix.dom              :as d]
-              [re-frame.core          :as rf]
               [re-frame.adapter.helix :as helix-adapter]))
 
   (defnc counter-buttons []
-    (let [value    (helix-adapter/use-subscribe [:counter/value])
-          dispatch (:dispatch (rf/capture-frame))]
+    (let [value              (helix-adapter/use-subscribe [:counter/value])
+          {:keys [dispatch]} (helix-adapter/use-frame)]
       (d/div
         (d/button {:on-click #(dispatch [:counter/increment])} "+1")
         (d/span {:style {:margin "0 1em"}} value))))

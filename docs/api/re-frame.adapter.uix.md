@@ -2,12 +2,12 @@
 
 The UIx adapter connects re-frame2's substrate-agnostic core to UIx, a hooks-first React substrate. It exposes:
 
-- the hooks `use-subscribe`, `use-resource-lease`, and `use-current-frame`;
+- the hooks `use-subscribe`, `use-frame`, `use-resource-lease`, and `use-current-frame`;
 - the `frame-provider` (SCOPE) + `frame-root` (ENSURE) components;
 - the `adapter` spec map you pass to `init!`;
 - adapter seams for tests, SSR, and code-gen.
 
-It ships in the `day8/re-frame2-uix` artefact. The dependency direction is one-way: the adapter depends on `re-frame.core`, never the reverse. There is no auto-injection; UIx components call `use-subscribe` and `(rf/capture-frame)` directly.
+It ships in the `day8/re-frame2-uix` artefact. The dependency direction is one-way: the adapter depends on `re-frame.core`, never the reverse. There is no auto-injection; UIx components read subscriptions with `use-subscribe` and take their frame ops (`dispatch`) off the `use-frame` hook directly.
 
 ```clojure
 (:require [re-frame.adapter.uix :as uix-adapter])
@@ -77,6 +77,28 @@ For narrative coverage and the substrate decision set, see [Use UIx, Helix, or r
   (defui cart-total []
     (let [total (uix-adapter/use-subscribe [:cart/total])]
       ($ :span total)))
+  ```
+
+### `use-frame`
+
+- **Kind**: UIx hook (function)
+- **Signature**:
+  ```clojure
+  (use-frame) → {:frame … :dispatch … :dispatch-sync … :subscribe …}
+  ```
+- **Description**: Returns the frame ops map for the ambient frame — exactly what `(rf/capture-frame)` returns (the frame-locked ops map), captured in hook position. This is how a UIx component gets hold of `dispatch` (and the other frame-locked ops) without auto-injection: destructure `dispatch` off it and close over that.
+
+  `capture-frame` is *the* hold primitive; `reg-view` injection (Reagent) and `use-frame` (UIx / Helix) are its two ergonomic spellings — one primitive, three faces.
+
+  - Frame resolution matches `use-subscribe`: `with-frame` dynamic scope first, then the surrounding `frame-provider` / `frame-root` via React context. It raises `:rf.error/no-frame-context` when neither is in scope.
+  - The returned map is reference-stable across re-renders for the same resolved frame (safe in effect deps and child props); a provider swap re-renders the caller and yields a map locked to the new frame.
+  - No options map, no variants — for an explicit frame, call `(rf/capture-frame frame-id)` directly.
+- **Example**:
+  ```clojure
+  (defui counter-buttons []
+    (let [count              (uix-adapter/use-subscribe [:counter/value])
+          {:keys [dispatch]} (uix-adapter/use-frame)]
+      ($ :button {:on-click #(dispatch [:counter/inc])} "+")))
   ```
 
 ### `use-resource-lease`
