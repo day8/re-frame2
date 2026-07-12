@@ -191,24 +191,74 @@
 ;; The walk (steps 1-4, 6, 7)
 ;; ---------------------------------------------------------------------------
 
+(def ^:private node-discriminators
+  "The three PRIMARY structural discriminators of a map tree node
+  (jvm-tree contract §Node schema — the closed five-variant set). A
+  canonical map node carries EXACTLY ONE of these — `:tag` (element),
+  `:view-id` (view boundary), `:html` (trusted markup) — OR none, in
+  which case it is a FRAGMENT, discriminated by its (always-present,
+  possibly empty `[]`) `:children`. `:children` is NOT a co-equal
+  discriminator: element and view-boundary nodes carry it as content, so
+  it is only the fragment signal in the ABSENCE of the three primaries."
+  [:tag :view-id :html])
+
+(defn- malformed-node!
+  "Fail loud with the shared node-malformation id, naming the closed
+  variant set (the escape the emitter/author should honour)."
+  [reason extra]
+  (error/throw-error!
+   :rf.error/ui-tree-malformed 're-frame.ui.semantic/normalize
+   reason {:extra extra}))
+
 (defn- norm-node
-  "-> vector of semantic nodes/strings this tree node contributes."
+  "-> vector of semantic nodes/strings this tree node contributes.
+
+  Discrimination is CLOSED and UNAMBIGUOUS (jvm-tree contract §Node
+  discrimination): a map node carries exactly one of `node-
+  discriminators`, or none plus `:children` (a fragment). Zero
+  discriminators with no `:children`, or two-plus discriminators, is a
+  malformed node — it fails loud rather than being guessed by branch
+  order or silently dropped as `[]`."
   [node]
   (cond
     (string? node) [node]
     (map? node)
-    (cond
-      (contains? node :tag)     [(norm-element node)]
-      (contains? node :html)    [{:html (:html node)}]
-      ;; view boundaries + fragments SPLICE — children replace the node
-      (or (contains? node :view-id) (contains? node :children))
-      (norm-nodes* (:children node))
-      :else [])
+    (let [ds (filterv #(contains? node %) node-discriminators)]
+      (cond
+        (> (count ds) 1)
+        (malformed-node!
+         (str "a tree node carries multiple node discriminators "
+              (pr-str ds) " — every map node is EXACTLY ONE of :tag "
+              "(element), :view-id (view boundary), :html (trusted "
+              "markup), or a fragment (none of these, splicing its "
+              ":children); an ambiguous map must not be interpreted by "
+              "branch order: " (pr-str node))
+         {:value node :got ds})
+
+        (= 1 (count ds))
+        (case (first ds)
+          :tag     [(norm-element node)]
+          :html    [{:html (:html node)}]
+          ;; view boundaries SPLICE — children replace the node
+          :view-id (norm-nodes* (:children node)))
+
+        ;; no primary discriminator: a fragment (splices its children)
+        (contains? node :children)
+        (norm-nodes* (:children node))
+
+        ;; no discriminator AND no :children — not a renderable node; must
+        ;; not silently disappear as [] (a lost fragment / corrupt node)
+        :else
+        (malformed-node!
+         (str "a tree node carries no node discriminator — every map node "
+              "is an element (:tag), a view boundary (:view-id), trusted "
+              "markup (:html), or a fragment (:children); a map with none "
+              "is not a renderable tree node: " (pr-str node))
+         {:value node :got []})))
     :else
-    (error/throw-error!
-     :rf.error/ui-tree-malformed 're-frame.ui.semantic/normalize
+    (malformed-node!
      (str "malformed tree node in normalization N: " (pr-str node))
-     {:extra {:value node}})))
+     {:value node})))
 
 (defn- norm-nodes*
   [children]
@@ -226,8 +276,43 @@
                           [] vs)]
     (into [] (remove #(and (string? %) (= "" %))) coalesced)))
 
+(def ^:private supported-tree-versions
+  "The node-schema versions `normalize` (semantic projection N) accepts.
+  Bumping the tree-version integer (jvm-tree contract §Versioning — any
+  change to the variant set, discrimination, canonical-form rules, or
+  N's behaviour) edits this set DELIBERATELY, in lockstep with the walk
+  above. An unsupported version must never be reinterpreted under v1's
+  rules."
+  #{1})
+
+(defn- validate-tree-version!
+  "Root schema-version gate (jvm-tree contract §Versioning): the root of
+  a structural tree carries `:rf.ui/tree-version` (`re-frame.ui.tree/
+  render` stamps it). A missing, non-integer, or unsupported version is
+  NOT silently coerced to v1 — it fails loud at the N boundary BEFORE any
+  traversal, so a future-version or corrupt tree can never produce a
+  plausible semantic projection / fingerprint. (The S5 SSR serialiser
+  carries its own version-gate sibling
+  `:rf.error/ssr-ui-tree-version-unsupported`; this Tier-1 parity
+  boundary reuses the shared node-malformation id with the same
+  `{:got … :supported …}` ex-data.)"
+  [tree]
+  (let [v (:rf.ui/tree-version tree)]
+    (when-not (and (integer? v) (contains? supported-tree-versions v))
+      (error/throw-error!
+       :rf.error/ui-tree-malformed 're-frame.ui.semantic/normalize
+       (str "normalization N requires a root :rf.ui/tree-version in "
+            (pr-str supported-tree-versions) " — got " (pr-str v)
+            "; an absent or unsupported schema version is never coerced "
+            "to v1 (that would make the version field meaningless and let "
+            "a future-version tree be misread under today's rules)")
+       {:extra {:got v :supported supported-tree-versions}}))))
+
 (defn normalize
   "`N(tree)` — the semantic-node projection of a version-1 structural
-  tree. Returns the VECTOR of semantic roots in document order."
+  tree. Validates the root `:rf.ui/tree-version` FIRST (fail-loud on a
+  missing / non-integer / unsupported version), then returns the VECTOR
+  of semantic roots in document order."
   [tree]
+  (validate-tree-version! tree)
   (norm-nodes [tree]))
