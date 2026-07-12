@@ -333,48 +333,91 @@
                           {:malformed-value-type (pr-str (type parsed))})
         nil))))
 
-(defn- apply-ready-deltas!
-  "Apply + consume every `data-rf2-suspense-hydrate` delta `<script>` whose
-  boundary has already been swapped in (its id is in `seen`), independent of
-  whether the resolved `<template>` is still in the DOM. For each, read its
-  bare delta-map EDN, merge it into `frame-id`'s app-db, and drop the script
-  node. Matched by id attribute (not sibling position) — DOM order after a
-  swap is not guaranteed. A malformed delta (unparseable EDN, or parseable
-  but non-map) is skipped with a trace — a bad speculative chunk must not
-  break hydration (the final payload is the correctness lock), but it must
-  also not silently pass for a successful hydration.
+(defn- quarantined-failed-delta!
+  "Emit the `:rf.ssr/suspense-boundary-failed` / `:quarantined-delta` trace for
+  a hydrate-delta `<script>` whose boundary the server flagged FAILED. The
+  shipped server emits NO delta for a failed continuation (Spec 011 §Failure
+  semantics — inline fallback), so a delta matching a `:failed` boundary is a
+  contradictory / duplicated / reordered wire shape. We fail CLOSED: the delta
+  is consumed (its script dropped by the caller) but NEVER merged, so an
+  explicit failed continuation cannot inject speculative state — the final
+  `__rf_payload` `:rf/hydrate` stays the correctness lock. One bounded
+  diagnostic per contradictory script (the script is dropped, so no re-emit on
+  a later sweep). Reuses the catalogued `:rf.ssr/suspense-boundary-failed`
+  event with a distinct `:recovery :quarantined-delta` disposition — the
+  sibling of `malformed-delta!`'s `:skipped-delta` and the swap-time
+  `:inline-fallback`."
+  [frame-id id-str]
+  (trace/emit-error! :rf.ssr/suspense-boundary-failed
+                     {:id       (read-boundary-id id-str)
+                      :frame    frame-id
+                      :where    'rf.ssr/streaming-client
+                      :reason   (str "Hydration-delta script present for boundary " id-str
+                                      " which the server flagged FAILED; a failed continuation "
+                                      "carries no delta — quarantined without merging "
+                                      "(contradictory/reordered wire shape)")
+                      :recovery :quarantined-delta}))
 
-  This decouples delta application from the resolved-template's transient
+(defn- apply-ready-deltas!
+  "Apply, quarantine, or defer every `data-rf2-suspense-hydrate` delta
+  `<script>` by its boundary's recorded SWAP OUTCOME (`@seen` maps
+  `id-str → :resolved | :failed`), independent of whether the resolved
+  `<template>` is still in the DOM. Matched by id attribute (not sibling
+  position) — DOM order after a swap is not guaranteed.
+
+    - `:resolved` — a SUCCESSFUL swap authorizes the delta: read its bare
+      delta-map EDN and merge it into `frame-id`'s app-db, then drop the
+      script. A malformed delta (unparseable EDN, or parseable but non-map)
+      is skipped with a trace — a bad speculative chunk must not break
+      hydration (the final payload is the correctness lock), but it must also
+      not silently pass for a successful hydration.
+    - `:failed` — the server flagged this boundary FAILED and emits no delta
+      for it (Spec 011 §Failure semantics — inline fallback). A matching
+      delta is therefore a contradictory / duplicated / reordered stream:
+      QUARANTINE it (never merged) with one bounded diagnostic, then drop the
+      script. This is the fail-closed rule (rf2-x76af2.40) — #5728's
+      undifferentiated `seen` set would otherwise merge a failed boundary's
+      delta.
+    - not yet swapped (`nil` outcome) — a delta racing ahead of its template:
+      LEFT in the DOM (not consumed) for a future sweep to reclassify.
+
+  This decouples delta handling from the resolved-template's transient
   presence. The server flushes the resolved `<template>` and its delta
   `<script>` as TWO SEPARATE chunks — each `.flush`ed (see
   `re-frame.ssr.ring.streaming/write-chunk!`) — so the client's HTML parser
   can surface them in SEPARATE `MutationObserver` batches, in EITHER order:
 
-    - template first, delta later: the template is swapped + REMOVED + marked
-      `seen` in an earlier sweep; scanning the delta `<script>`s here (rather
-      than only as a side effect of processing the — now gone — template)
-      merges the delta when it lands in a later sweep. Without this scan the
-      delta is orphaned and its `(into existing delta)` merge is LOST until
-      the final `__rf_payload` self-heals it (rf2-x76af2.35).
+    - template first, delta later: the template is swapped + REMOVED + its
+      outcome recorded in an earlier sweep; scanning the delta `<script>`s
+      here (rather than only as a side effect of processing the — now gone —
+      template) resolves the delta when it lands in a later sweep. Without
+      this scan a successful boundary's delta is orphaned and its
+      `(into existing delta)` merge is LOST until the final `__rf_payload`
+      self-heals it (rf2-x76af2.35).
     - delta first, template later: a delta whose boundary has NOT swapped yet
-      (id not in `seen`) is LEFT in the DOM for a future sweep; a later
-      sweep's swap marks the id `seen`, and the delta then merges.
+      (no outcome) is LEFT in the DOM for a future sweep; a later sweep's swap
+      records the outcome, and the delta is then applied (`:resolved`) or
+      quarantined (`:failed`) accordingly — order-independent (rf2-x76af2.40).
 
-  Idempotent by script removal: a consumed delta `<script>` is dropped from
-  the DOM, so no later sweep can re-merge it — mirroring the swap's own
-  once-only-by-node-removal guarantee, so no separate `delta-applied` set is
-  needed."
+  Idempotent by script removal: a consumed (applied OR quarantined) delta
+  `<script>` is dropped from the DOM, so no later sweep can re-process it —
+  mirroring the swap's own once-only-by-node-removal guarantee, so no separate
+  `delta-applied` set is needed."
   [root frame-id seen]
   (doseq [script (query-by-attr root attr-suspense-hydrate)]
-    (let [id-str (.getAttribute script attr-suspense-hydrate)]
-      ;; Gate on the SWAP: apply a delta only for a boundary already swapped
-      ;; this-or-an-earlier sweep. A delta racing ahead of its template waits
-      ;; in the DOM (not consumed) until the swap marks its id `seen`.
-      (when (contains? @seen id-str)
-        (when-let [delta (read-delta frame-id id-str (.-textContent script))]
-          (merge-delta! frame-id delta))
-        ;; The delta is consumed (or skipped); drop the script node so the DOM
-        ;; is left in its final, script-free shape regardless of delta validity.
+    (let [id-str  (.getAttribute script attr-suspense-hydrate)
+          outcome (get @seen id-str)]
+      ;; `:resolved` and `:failed` both CONSUME the script (drop it) so it
+      ;; cannot be reconsidered on a later sweep; a nil outcome (boundary not
+      ;; swapped yet — a delta racing ahead of its template) leaves it for a
+      ;; future sweep to reclassify.
+      (when (some? outcome)
+        (case outcome
+          :resolved (when-let [delta (read-delta frame-id id-str (.-textContent script))]
+                      (merge-delta! frame-id delta))
+          :failed   (quarantined-failed-delta! frame-id id-str))
+        ;; The delta is consumed (merged, skipped, or quarantined); drop the
+        ;; script so the DOM is left in its final, script-free shape.
         (when-let [sp (.-parentNode script)]
           (.removeChild sp script))))))
 
@@ -391,10 +434,14 @@
   for observability without a 500 (Spec 011 §Failure semantics — inline
   fallback).
 
-  `seen` is an atom of the id-strings already SUCCESSFULLY processed so a
-  chunk is applied at most once even if the observer fires twice for the
-  same node (defensive — MutationObserver batching + the initial sweep
-  can both surface the same node). Idempotent.
+  `seen` is an atom MAP of `id-str → outcome` (`:resolved` for a successful
+  content swap, `:failed` for a failed-boundary fallback swap) recording every
+  boundary already processed, so a chunk is applied at most once even if the
+  observer fires twice for the same node (defensive — MutationObserver
+  batching + the initial sweep can both surface the same node). The outcome is
+  what lets `apply-ready-deltas!` authorize a delta only for a `:resolved`
+  boundary while quarantining one matching a `:failed` boundary
+  (rf2-x76af2.40). Idempotent.
 
   An id is marked `seen` only after a successful
   swap, and the swapped-in content is re-scanned for fallback templates
@@ -433,9 +480,12 @@
     (if (and id-str (not (contains? @seen id-str)))
       (let [swapped? (replace-mount-content! root id-str resolved-tmpl)]
         (when swapped?
-          ;; Mark seen ONLY on success — an unresolved mount is retryable
-          ;; on the next pass rather than permanently skipped (finding 4).
-          (swap! seen conj id-str)
+          ;; Record the OUTCOME ONLY on success — an unresolved mount is
+          ;; retryable on the next pass rather than permanently skipped
+          ;; (finding 4). The outcome (`:resolved` vs `:failed`) is what gates
+          ;; delta application: a `:failed` boundary's delta is quarantined,
+          ;; not merged (rf2-x76af2.40).
+          (swap! seen assoc id-str (if failed? :failed :resolved))
           ;; The just-swapped content may carry NESTED fallback templates
           ;; that were inert inside the resolved <template> and are now
           ;; live DOM. Materialise them so a nested resolved chunk found
@@ -620,7 +670,7 @@
      ;; → no-op stop fn. The runtime is a DOM consumer by definition.
      (if (or (nil? root) (not (exists? js/MutationObserver)))
        (fn no-op-stop! [])
-       (let [seen      (atom #{})
+       (let [seen      (atom {})   ;; id-str → :resolved | :failed (swap outcome)
              observer  (atom nil)
              stop!     (fn stop! []
                          (when-let [o @observer]
