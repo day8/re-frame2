@@ -606,6 +606,64 @@ Every helper in `re-frame.test-helpers` is JVM-runnable. The hiccup-walk core is
 
 This complements the JVM-runnable list in [§Normative surface §JVM-runnable boundary](#jvm-runnable-boundary-authoritative): hiccup-walk joins `render-to-string` as a JVM-runnable view-test path.
 
+## The `ui.test` contract — headless testing for compiled views
+
+`re-frame.ui.test` (alias `ui.test`) is the test surface for the compiled-view
+substrate `re-frame.ui` ([004-Views.md](004-Views.md)). It is the compiled-view
+counterpart of the legacy hiccup-walk `re-frame.test-helpers` above (which serves the
+frozen Reagent compatibility tier); the two do not mix. The hiccup-walk `test-helpers`
+are [TRANSITION] — they freeze with the stock-Reagent compatibility tier at the adapter
+deletion wave.
+
+**Two tiers.** A test runs at exactly one tier; a tier-mismatched call is a typed error
+(`:rf.error/ui-test-tier-mismatch`) pointing at the other tier's surface.
+
+| Tier | Input | Runs on | Selector | Reads |
+|---|---|---|---|---|
+| **Tier 1 — headless structural** | a structural tree (data) — the value `ui.test/render` returns | JVM + node, ms, no flake | the closed selector grammar ([004D-UI-Test-Selectors.md](004D-UI-Test-Selectors.md)) | `attrs` / `text` projections + node field reads; event vectors as data |
+| **Tier 3 — mounted** | a mounted root (`with-root`) | browser/jsdom CI | a native CSS selector string, verbatim | host interop (real listeners, `(.-value el)`) |
+
+**S1 core surface (Tier-1, `.cljc`):** `render` / `find` / `find-all` / `query` / `text`
+/ `attrs` / `frame`. `render` accepts a view reference or a literal root form (the same
+grammar `mount` takes), per [004C-Roots-and-Mount.md](004C-Roots-and-Mount.md) §9.
+`find`/`find-all` run the closed selector grammar over Tier-1 trees; `query` is the
+Tier-3 live-DOM counterpart (CSS). **Node reading is the ruled projection** — `attrs`
+merges attributes + events on elements and props on view-boundary nodes; `(:on-click
+node)` is a *field* miss, never an attribute read — owned by
+[004B-UI-Tree-and-Conversion.md](004B-UI-Tree-and-Conversion.md) §Projections and the
+selector grammar in 004D.
+
+**Flush semantics (staged).** `ui.test/flush!` is the **only** test flush for compiled
+views (it drains the frame and advances the epoch); `dispatch!` / `simulate!` land with
+the S2 reactivity slice, `flush-presence!` (fake-clock transition advance, no wall-clock
+sleeps) with the S4 presence slice. Flushing inside an open epoch is
+`:rf.error/flush-in-open-epoch`.
+
+**The `.cljc` authoring constraint.** A Tier-1 headless test renders on the JVM, so the
+events and subs the view under test touches **must be `.cljc`** (reader-conditional
+where they must be); host-bearing behaviour (state transitions, effects, refs, focus,
+portals, presence timing, error recovery) requires a Tier-3 mounted test. This is the
+same JVM-structural-subset boundary [004-Views.md §The JVM structural subset](004-Views.md#the-jvm-structural-subset)
+draws — Tier-1 is that subset's test surface.
+
+## Compiled-view gates — G-1, G-14, and the parity corpus
+
+The compiled-view substrate ships three CI gates that [004-Views.md](004-Views.md)
+references (portability-law parity, expansion budget); they are catalogued here as the
+owning testing surface.
+
+| Gate | Asserts | Where |
+|---|---|---|
+| **Parity corpus v0** | the generative corpus of template cases (statics, class forms, text edges, branches, keyed lists + escaping, fragments, booleans, form controls, SVG/MathML, custom elements, spread, trusted-HTML, handlers, `:as`, children-flow) each renders to a **versioned canonical JVM tree** and to browser output that is **normalized-structurally-equivalent** — the portability law's contract. Canonical-form + normalization-`N` invariants are asserted on the JVM tree ([004B-UI-Tree-and-Conversion.md](004B-UI-Tree-and-Conversion.md) §Semantic normalization). | the `jvm-ui` job (JVM tree + normalization) and the `cljs-ui-g1` job (browser half) |
+| **G-1 — direct-render parity** | compiled views (`:advanced` build) produce React output structurally equivalent to hand-written React over the corpus, with an **emitted-JS golden** so a codegen regression is visible. Byte-identical HTML is **not** the contract; normalized structural equivalence is. | `cljs-ui-g1` job (`npm run test:ui-g1`) |
+| **G-14 — compile budget** | `defview` **expansion p95** on the JVM (the shared analyzer + grammar + manifest + fingerprint + JVM-emitter pipeline that every REPL re-evaluation and watch-loop rebuild pays) stays within a generous absolute headroom (catches a pathological — e.g. accidentally quadratic — analyzer regression, not microseconds). The CLJS-emitter half and the watch-loop-rebuild delta ride later stages. | the `jvm-ui` job (G-14 compile-budget fixture) |
+
+Both `jvm-ui` and `cljs-ui-g1` are required jobs in the PR-gate aggregate; the parity
+corpus, node-schema, and conversion-table rows they exercise are owned by
+[004B-UI-Tree-and-Conversion.md](004B-UI-Tree-and-Conversion.md). Production-erasure
+gates (G-7/G-11) and the real-browser controlled-input matrix (G-8) land with their
+stages per [004-Views.md §Stage conformance profiles](004-Views.md#stage-conformance-profiles).
+
 ## Judgement — AI-first test-authoring guidance
 
 The mechanics above (fixture patterns, JVM-runnable surfaces, view-assertion helpers) describe *what is possible*. This section captures the **judgement** for choosing among them. Match the spec/Principles.md voice: terse, fact-dense, AI-first.
