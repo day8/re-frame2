@@ -41,7 +41,8 @@ real registrations, no React:
   there and silently misses.
 - Drive state with real events: `(ui.test/dispatch! frame [:cart/add 42])` — real
   dispatch plus a drain to fixed point — then re-render and assert the button now reads
-  "Remove". The whole loop, `sub` reads included, runs on main today. Loading and error
+  "Remove". The whole loop — the dispatch, the drain to fixed point, and the re-rendered
+  view's `sub` read of the moved app-db — runs on main today. Loading and error
   states are just app-db values you install or events you dispatch. Stubbing a sub is
   the explicit option:
   `(ui.test/render [view] {:frame frame :sub-overrides {[:cart/locked?] true}})`.
