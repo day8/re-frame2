@@ -185,6 +185,41 @@
     (is (= 1 (:n (rf/app-db-value :frame/session)))
         "new lifetime re-seeds from :initial-events")))
 
+(deftest self-destroying-initial-events-do-not-publish-a-dead-lifetime
+  ;; `make-frame` runs :initial-events synchronously before the plan executor
+  ;; publishes its install record. A handler may destroy its own frame and still
+  ;; return normally (run-to-completion), so publication must be conditional on
+  ;; that just-created lifetime still being live.
+  (rf/reg-event :test/destroy-self
+    (fn [_ _]
+      (frame/destroy-frame! :frame/self-destroy)
+      {}))
+  (frames/execute-frame-plans!
+   :root/a [(plan :frame/self-destroy
+                  {:initial-events [[:test/destroy-self]]}
+                  "cf1-dead111111111111")])
+  (is (nil? (frame/frame :frame/self-destroy))
+      "sanity: the setup handler destroyed the frame under construction")
+  (is (nil? (frames/installed-plan-entry :frame/self-destroy))
+      "the dead lifetime has no visible install record")
+
+  ;; Recreate the same id outside the plan registry. A stale record that was
+  ;; merely hidden by installed-plan-entry's liveness guard becomes visible now.
+  (rf/make-frame {:id :frame/self-destroy :doc "replacement lifetime"})
+  (is (nil? (frames/installed-plan-entry :frame/self-destroy))
+      "the replacement must not resurrect root A's dead-lifetime record")
+
+  ;; Root B can now adopt the replacement with a different fingerprint. Before
+  ;; the publication guard this threw a false frame-payload-conflict naming A.
+  (is (nil? (err-id
+             #(frames/execute-frame-plans!
+               :root/b [(plan :frame/self-destroy {}
+                              "cf1-live22222222222")])))
+      "a new root adopts the replacement without a dead-installer conflict")
+  (is (= :root/b
+         (:adopted-by (frames/installed-plan-entry :frame/self-destroy)))
+      "the surviving replacement is recorded under its real adopting root"))
+
 ;; ---- ADOPT — a live plan-less (boot-created) frame (rf2-vxgfnd.26) --------
 ;; ENSURE is create-if-absent (03 §8 / 004C §6): when a plan meets a frame that
 ;; is already LIVE but was never plan-installed (a boot `rf/make-frame`), the
