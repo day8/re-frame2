@@ -40,21 +40,22 @@
   ## The render capture
 
   A render pass records each executed site's resolved target + probe
-  evidence + value into a per-pass CAPTURE (ownership-free). Sites dedup by
-  target identity, so N reads of one query share one committed lease and a
-  shared node can never fall through its zero-owner disposal edge. The
-  latest finished capture is stashed on the cell; the layout commit
-  reconciles the committed dependency set against it — idempotently, so
-  StrictMode's mount→unmount→mount effect replay is naturally balanced.
+  evidence + value into a per-pass CAPTURE (ownership-free), keyed by the
+  compiler-issued lexical site id. Equal queries at distinct sites therefore
+  own distinct balanced leases while still sharing the subscription node.
+  The exact immutable capture travels beside its host element into the
+  selected layout/passive effect closure; it is never published speculatively
+  by render. Layout reconciles the committed dependency set against that
+  selected capture — idempotently, so StrictMode's mount→unmount→mount effect
+  replay is naturally balanced.
 
   ## `sub` value stabilization (03 §2, I-8)
 
-  A site returns the PRIOR EXACT value (identical reference) when the new
-  read is `rf=` to the last committed value for its target — so an
-  `rf=`-stable read does not repaint downstream. Stabilization here is
-  keyed by target identity `(frame, stabilized query)`; per-site query-
-  object reuse (the parametric-args case) needs compile-site identity and
-  lands with the HMR site-identity slice (S2e).
+  A site returns its PRIOR EXACT value (identical reference) when the new read
+  is `rf=` to that lexical site's last committed value — so an `rf=`-stable
+  read does not repaint downstream. Query-object reuse is likewise per-site:
+  a parametric read may retain its exact prior query object without collapsing
+  an equal query executed at another compiler-issued site.
 
   ## Drain coalescing + `flush!` scope (S2d — 03 §3 invariant 6; Spec 006
   §Epoch finalization)
@@ -865,15 +866,14 @@
 (defonce ^:private live-cells
   ;; The set of currently-CONNECTED ViewCells — the connected input to a
   ;; frame-destroy sweep (`teardown-frame!`). A cell enrols on `connect!`,
-  ;; when it starts observing a frame) and leaves on `disconnect!` (React
-  ;; unmount / Activity hide, when it releases its committed dependency set) or
-  ;; `teardown!` (it goes :dead). Membership therefore tracks EXACTLY the cells
-  ;; carrying a live committed dependency set, so a destroyed frame can find the
-  ;; connected cells observing it and transition them to :dead (03 §4) rather
-  ;; than leave them live to throw `:rf.error/frame-destroyed` on their next
-  ;; read. Because a disconnected cell leaves the set, an unmounted cell never
-  ;; lingers here (no retention leak). `defonce` (module-lived); tests clear it
-  ;; via `reset-scheduler!`.
+  ;; when it starts observing subscriptions and/or publishing resource-liveness
+  ;; pins, and leaves on `disconnect!` (React unmount / Activity hide, when both
+  ;; ownership families release) or `teardown!` (it goes :dead). The exact
+  ;; membership test remains family-specific: committed subscription leases
+  ;; define reactive observation/flush scope, while desired/reserved/held
+  ;; resource incarnation pins provide teardown discovery only. A disconnected
+  ;; cell leaves the set, so an unmounted cell never lingers here (no retention
+  ;; leak). `defonce` (module-lived); tests clear it via `reset-scheduler!`.
   (atom #{}))
 
 (defonce ^:private root-cells
@@ -895,7 +895,8 @@
   ;; teardown can never reap the cells of a replacement root mounted under the same
   ;; root-id. `defonce` (module-lived); `reset-scheduler!` clears it between
   ;; fixtures. Frame teardown also consults its still-disconnected members,
-  ;; whose retained `:values` keys name their last published frames.
+  ;; whose retained subscription targets and resource-incarnation pins name
+  ;; their last published frames.
   (atom {}))
 
 (defonce ^:private teardown-collector
@@ -1528,29 +1529,130 @@
           {:error nil :failed []}
           records))
 
+(defn- stage-resource-held!
+  "Make exactly one about-to-be-enqueued owner lifecycle-cleanup reachable.
+  The desired plan already indexes its exact frame pin, so this deliberately
+  updates held/order only (no whole-plan index rebuild per owner). Returns true
+  only while `cap` still owns connected reconciliation authority."
+  [st cap {:keys [owner] :as record}]
+  (swap! st
+         (fn [m]
+           (if (resource-capture-current? m cap)
+             (-> m
+                 (assoc-in [:resources :resource-held owner] record)
+                 (update-in [:resources :resource-held-order]
+                            (fn [order]
+                              (if (some #(= owner %) order)
+                                order
+                                (conj (vec order) owner)))))
+             m)))
+  (let [m @st]
+    (and (resource-capture-current? m cap)
+         (identical? record
+                     (get-in m [:resources :resource-held owner])))))
+
+(defn- forget-exact-held!
+  "Forget successfully released records only while the held owner still names
+  the exact record this reconciliation staged/read. A newer reentrant passive
+  may have installed a different record under the same reusable owner; that
+  newer authority is never overwritten. Rebuilds the canonical frame index
+  once after the batch."
+  [st records]
+  (when (seq records)
+    (swap! st
+           (fn [m]
+             (if-let [resources (:resources m)]
+               (let [[held removed]
+                     (reduce
+                      (fn [[held removed] {:keys [owner] :as record}]
+                        (if (identical? record (get held owner))
+                          [(dissoc held owner) (conj removed owner)]
+                          [held removed]))
+                      [(:resource-held resources) #{}]
+                      records)]
+                 (if (seq removed)
+                   (install-resource-state
+                    m
+                    (assoc resources
+                           :resource-held held
+                           :resource-held-order
+                           (into [] (remove removed)
+                                 (:resource-held-order resources))))
+                   m))
+               m))))
+  nil)
+
+(defn- compensate-resource-ensures!
+  "Conservatively release the ensures this reconciliation actually attempted
+  and still exactly owns. Future lexical candidates were never staged or
+  enqueued. A record whose held entry a reentrant authority (a newer passive
+  reconcile or a lifecycle cleanup) replaced or already released is skipped —
+  compensating it here would double-release an owner someone else now
+  accounts for. Successfully compensated exact records leave held state;
+  failed compensation stays cleanup-reachable."
+  [st records]
+  (let [held          (get-in @st [:resources :resource-held])
+        mine          (filterv #(identical? % (get held (:owner %))) records)
+        result        (attempt-resource-releases! mine)
+        failed-owners (into #{} (map :owner) (:failed result))
+        successful    (into [] (remove #(contains? failed-owners (:owner %)))
+                            mine)]
+    (forget-exact-held! st successful)
+    result))
+
 (defn- release-held-resources!
-  "Lifecycle cleanup: attempt every held release, then clear held ownership
-  regardless of a host/router escape. Reservations are retained only when
-  `retain-reservations?` (Activity/StrictMode disconnect). Returns the first
-  contained dispatch escape, if any."
+  "Lifecycle cleanup: park held ownership before attempting every release.
+  A disconnect also parks reusable reservations behind a unique cleanup token:
+  it restores them only if no synchronous release listener reconnected,
+  recommitted, or tore down the cell. Final teardown forgets reservations.
+  Returns the first contained dispatch escape, if any."
   [^ViewCell cell retain-reservations?]
   (let [st      (state cell)
         before @st
         resources (:resources before)
         held   (:resource-held resources)
         records (keep held (:resource-held-order resources))
-        result  (attempt-resource-releases! records)]
+        reservations (:resource-reservations resources)
+        cleanup-token (when retain-reservations?
+                        #?(:clj (Object.) :cljs (js-obj)))]
+    ;; Publish the complete cleanup state BEFORE dispatch: trace listeners run
+    ;; synchronously and may reconnect or teardown this cell. In particular,
+    ;; hide owner1's reservation so a reconnect during release(owner1) mints a
+    ;; distinct owner instead of ensuring owner1 immediately before the outer
+    ;; dispatch drops it.
     (swap! st (fn [m]
                 (install-resource-state
                  m
                  (cond-> (assoc (:resources m)
+                                :resource-reservations {}
                                 :resource-held {}
                                 :resource-held-order [])
+                   retain-reservations?
+                   (assoc :resource-disconnect-token cleanup-token)
+
                    (not retain-reservations?)
-                   (assoc :resource-desired {:order [] :by-site {}}
-                          :resource-capture nil
-                          :resource-reservations {})))))
-    (:error result)))
+                   (-> (assoc :resource-desired {:order [] :by-site {}}
+                              :resource-capture nil)
+                       (dissoc :resource-disconnect-token))))))
+    (let [result (attempt-resource-releases! records)]
+      (when retain-reservations?
+        ;; Normal StrictMode/Activity cleanup retains owner identity. Any
+        ;; synchronous reconnect/commit clears the token in
+        ;; `accept-resource-capture`, and teardown clears it above, so this
+        ;; conditional restore cannot overwrite newer/dead authority.
+        (swap! st
+               (fn [m]
+                 (let [current (:resources m)]
+                   (if (and (= :disconnected (:lifecycle m))
+                            (identical? cleanup-token
+                                        (:resource-disconnect-token current)))
+                     (install-resource-state
+                      m
+                      (-> current
+                          (assoc :resource-reservations reservations)
+                          (dissoc :resource-disconnect-token)))
+                     m)))))
+      (:error result))))
 
 (def ^:private resource-lifecycle-ops
   ;; This map and every function it reaches are referenced only by
@@ -1592,7 +1694,12 @@
   `capture`. Stale/abandoned effects are inert. The full desired set validates
   before owner mint or dispatch; same-site `rf=` descriptors on the same frame
   incarnation retain their exact owner. Every fresh ensure is queued in lexical
-  order before any old owner release is attempted."
+  order before any old owner release is attempted. Because dispatch trace
+  listeners run synchronously, each owner becomes cleanup-reachable immediately
+  before its own enqueue and exact capture/lifecycle authority is fenced after
+  every ensure and release. Future lexical owners are never staged early, and
+  final publication is conditional on the same accepted capture still owning a
+  connected cell."
   [^ViewCell cell cap]
   (let [st  (state cell)
         st0 @st
@@ -1639,70 +1746,131 @@
                                             (remove #(contains? desired-owners
                                                                 (:owner %))))
                                       prior-held-order)
-                staged-held     (reduce (fn [m record]
-                                          (assoc m (:owner record) record))
-                                        prior-held ensures)
-                staged-order    (into (vec prior-held-order)
-                                      (comp (map :owner)
-                                            (remove #(contains? prior-held %)))
-                                      ensures)
                 view-id         (:view-id @st)]
-            ;; Publish candidate cleanup reachability before the first enqueue.
-            (swap! st
-                   (fn [m]
-                     (install-resource-state
-                      m
-                      (assoc (:resources m)
-                             :resource-reservations reservations
-                             :resource-held staged-held
-                             :resource-held-order staged-order))))
-            (let [ensure-error
-                  (try
-                    (doseq [record ensures]
-                      (enqueue-ensure! view-id record))
-                    nil
-                    (catch #?(:clj Throwable :cljs :default) e e))]
-              (if ensure-error
-                (let [{failed-comp :failed}
-                      ;; Conservatively release every staged candidate. The
-                      ;; throwing dispatch may have enqueued before escaping;
-                      ;; release-owner is safe for a fresh owner that did not.
-                      (attempt-resource-releases! ensures)
-                      failed-by-owner
-                      (into {} (map (juxt :owner identity)) failed-comp)
-                      failed-order (mapv :owner failed-comp)]
-                  ;; Restore the prior authoritative state. A compensation
-                  ;; release that itself failed remains cleanup-reachable even
-                  ;; though its candidate reservation is abandoned.
-                  (swap! st
-                         (fn [m]
-                           (install-resource-state
-                            m
-                            (assoc (:resources m)
-                                   :resource-reservations prior-reservations
-                                   :resource-held (merge prior-held failed-by-owner)
-                                   :resource-held-order
-                                   (into (vec prior-held-order) failed-order)))))
-                  (throw ensure-error))
-                (let [release-result (attempt-resource-releases! releases)
-                      failed-release (:failed release-result)
-                      final-held (reduce (fn [m record]
-                                           (assoc m (:owner record) record))
-                                         (into {} (map (juxt :owner identity))
-                                               desired-records)
-                                         failed-release)
-                      final-order (into (mapv :owner desired-records)
-                                        (map :owner) failed-release)]
-                  (swap! st
-                         (fn [m]
-                           (install-resource-state
-                            m
-                            (assoc (:resources m)
-                                   :resource-reservations reservations
-                                   :resource-held final-held
-                                   :resource-held-order final-order))))
-                  (when-let [e (:error release-result)]
-                    (throw e))))))))))
+            ;; Candidate reservations remain LOCAL until every ensure succeeds.
+            ;; Stage only the owner whose dispatch is about to run, then fence
+            ;; the exact accepted capture immediately after the synchronous
+            ;; trace/listener surface returns.
+            (let [ensure-result
+                  (loop [remaining ensures
+                         attempted []]
+                    (if-some [record (first remaining)]
+                      (if-not (stage-resource-held! st cap record)
+                        {:status :lost :attempted attempted}
+                        (let [attempted' (conj attempted record)
+                              escape
+                              (try
+                                (enqueue-ensure! view-id record)
+                                nil
+                                (catch #?(:clj Throwable :cljs :default) e e))]
+                          (cond
+                            (not (resource-capture-current? @st cap))
+                            {:status :lost
+                             :attempted attempted'
+                             :error escape}
+
+                            escape
+                            {:status :error
+                             :attempted attempted'
+                             :error escape}
+
+                            :else
+                            (recur (next remaining) attempted'))))
+                      {:status :ok :attempted attempted}))]
+              (if-not (= :ok (:status ensure-result))
+                (let [compensation
+                      ;; A lifecycle transition published cleanup before its
+                      ;; resource dispatch and already released/cleared staged
+                      ;; owners. A connected capture supersession did not, so
+                      ;; compensate exactly the attempted prefix while preserving
+                      ;; all newer desired/capture authority.
+                      (when (= :connected (:lifecycle @st))
+                        (compensate-resource-ensures!
+                         st (:attempted ensure-result)))]
+                  (when-let [e (or (:error ensure-result)
+                                   (:error compensation))]
+                    (throw e)))
+                (let [release-result
+                      ;; Old releases retain their held records until enqueue
+                      ;; succeeds. Continue across ordinary release escapes for
+                      ;; total cleanup, but stop immediately when synchronous
+                      ;; reentrancy loses exact authority.
+                      (loop [remaining releases
+                             released  []
+                             failed    []
+                             error     nil]
+                        (if-some [record (first remaining)]
+                          (if-not (resource-capture-current? @st cap)
+                            {:status :lost
+                             :released released
+                             :failed failed
+                             :error error}
+                            (let [escape
+                                  (try
+                                    (enqueue-release! record)
+                                    nil
+                                    (catch #?(:clj Throwable :cljs :default) e e))
+                                  current? (resource-capture-current? @st cap)
+                                  released' (cond-> released (nil? escape)
+                                              (conj record))
+                                  failed'   (cond-> failed escape (conj record))
+                                  error'    (or error escape)]
+                              (if current?
+                                (recur (next remaining)
+                                       released' failed' error')
+                                {:status :lost
+                                 :released released'
+                                 :failed failed'
+                                 :error error'})))
+                          {:status :ok
+                           :released released
+                           :failed failed
+                           :error error}))]
+                  (if-not (= :ok (:status release-result))
+                    (let [compensation
+                          (when (= :connected (:lifecycle @st))
+                            (compensate-resource-ensures!
+                             st (:attempted ensure-result)))]
+                      (when (= :connected (:lifecycle @st))
+                        (forget-exact-held! st (:released release-result)))
+                      (when-let [e (or (:error release-result)
+                                       (:error compensation))]
+                        (throw e)))
+                    (let [failed-release (:failed release-result)
+                          final-held
+                          (reduce (fn [m record]
+                                    (assoc m (:owner record) record))
+                                  (into {} (map (juxt :owner identity))
+                                        desired-records)
+                                  failed-release)
+                          final-order
+                          (into (mapv :owner desired-records)
+                                (map :owner) failed-release)]
+                      ;; Never overwrite a dead/disconnected cell or a newer
+                      ;; selected capture. This swap has no user-code edge; the
+                      ;; post-check covers a concurrent authority loss as well.
+                      (swap! st
+                             (fn [m]
+                               (if (resource-capture-current? m cap)
+                                 (install-resource-state
+                                  m
+                                  (assoc (:resources m)
+                                         :resource-reservations reservations
+                                         :resource-held final-held
+                                         :resource-held-order final-order))
+                                 m)))
+                      (if (resource-capture-current? @st cap)
+                        (when-let [e (:error release-result)]
+                          (throw e))
+                        (let [compensation
+                              (when (= :connected (:lifecycle @st))
+                                (compensate-resource-ensures!
+                                 st (:attempted ensure-result)))]
+                          (when (= :connected (:lifecycle @st))
+                            (forget-exact-held! st (:released release-result)))
+                          (when-let [e (or (:error release-result)
+                                           (:error compensation))]
+                            (throw e))))))))))))))
   nil)
 
 (defn resource-reservations
@@ -1772,11 +1940,14 @@
   (let [desired {:order (or (:resource-order cap) [])
                  :by-site (or (:resource-by-site cap) {})}
         resources
-        (cond-> (assoc (:resources m)
-                       :resource-desired desired
-                       ;; Exact identity closes selected-layout A vs abandoned
-                       ;; passive B: only this accepted capture may reconcile.
-                       :resource-capture cap)
+        (cond-> (-> (:resources m)
+                    (assoc :resource-desired desired
+                           ;; Exact identity closes selected-layout A vs abandoned
+                           ;; passive B: only this accepted capture may reconcile.
+                           :resource-capture cap)
+                    ;; Reconnect/commit supersedes any in-flight disconnect
+                    ;; reservation-restore authority.
+                    (dissoc :resource-disconnect-token))
           interop/debug-enabled?
           (update :resource-commit (fnil inc 0)))]
     (install-resource-state m resources)))
@@ -1813,14 +1984,16 @@
 
 ;; ---- root-incarnation ownership (03 §4; rf2-vxgfnd.85) ----------------------
 ;;
-;; A ViewCell's committed dependency set (`live-cells`) is the discoverability
-;; surface a FRAME-destroy sweep consults, but it is dropped the instant the cell
-;; disconnects — so it cannot survive an Activity hide. Root teardown needs an
-;; ownership association that DOES survive a transient hide: the `root-cells`
-;; registry keyed by a per-mount root incarnation. `attach-root!` (the mount seam)
-;; enrols a cell under its root's incarnation; the cell stays enrolled across a
-;; hide and leaves only when it is proven dead (`detach-root!` from `teardown!`).
-;; `teardown-root!` reaps a root's already-hidden cells through this registry.
+;; `live-cells` is the connected discoverability surface a FRAME-destroy sweep
+;; consults: subscription leases contribute reactive-observation frames and
+;; resource desired/reserved/held records contribute exact teardown-only pins.
+;; The membership is dropped the instant the cell disconnects, so it cannot
+;; survive an Activity hide. Root teardown needs an ownership association that
+;; DOES survive a transient hide: the `root-cells` registry keyed by a per-mount
+;; root incarnation. `attach-root!` (the mount seam) enrols a cell under its
+;; root's incarnation; the cell stays enrolled across a hide and leaves only
+;; when it is proven dead (`detach-root!` from `teardown!`). `teardown-root!`
+;; reaps a root's already-hidden cells through this registry.
 
 (defn make-root-incarnation
   "Mint a FRESH, opaque root-incarnation token — a per-mount identity with no
@@ -1989,8 +2162,6 @@
   (let [st (state cell)]
     (when (contains? #{:fresh :connected} (:lifecycle @st))
       (release-committed! cell)
-      (when on-disconnect
-        (on-disconnect cell))
       (discard-pending! cell)
       ;; Leave the live-cell registry: a disconnected cell holds no committed
       ;; deps, so it observes no frame — and an unmounted cell must not linger.
@@ -2009,7 +2180,12 @@
         (arm-disconnect-settle! cell))
       ;; Host/root teardown in flight: attribute this cell to it (03 §4).
       (when (some? @teardown-collector)
-        (swap! teardown-collector conj cell)))
+        (swap! teardown-collector conj cell))
+      ;; Resource dispatch is deliberately LAST. Router trace listeners run
+      ;; synchronously; a listener may reconnect or teardown, and this outer
+      ;; disconnect must perform no stale lifecycle/registry write afterward.
+      (when on-disconnect
+        (on-disconnect cell)))
     cell))
 
 (defn disconnect!
@@ -2041,20 +2217,25 @@
         (swap! st update :intervals conj
                {:state :unmounted :reason :unmounted :proof :host-teardown}))
       (release-committed! cell)
-      ;; Final teardown drops both held ownership and reusable reservations.
-      ;; Dispatch escapes are contained here so one bad owner cannot prevent
-      ;; later cells or root-membership cleanup from becoming total.
-      (when-some [on-teardown (:on-teardown @st)]
-        (on-teardown cell))
-      (discard-pending! cell)
-      (swap! st assoc
-             :lifecycle :dead
-             :committed {})
-      (swap! st dissoc :on-teardown :extra-frame-incarnations)
-      (swap! live-cells disj cell)
-      ;; leave the root-incarnation registry — a dead cell is no longer
-      ;; retained, so it must not linger as reapable ownership (rf2-vxgfnd.85).
-      (detach-root! cell))
+      (let [on-teardown (:on-teardown @st)]
+        (discard-pending! cell)
+        ;; Terminalize and clear every generic registry BEFORE resource release
+        ;; dispatch. A synchronous trace listener that re-enters teardown now
+        ;; observes :dead and no-ops instead of recursively releasing forever.
+        (swap! st (fn [m]
+                    (-> m
+                        (assoc :lifecycle :dead :committed {})
+                        (dissoc :on-teardown :extra-frame-incarnations))))
+        (swap! live-cells disj cell)
+        ;; leave the root-incarnation registry — a dead cell is no longer
+        ;; retained, so it must not linger as reapable ownership (rf2-vxgfnd.85).
+        (detach-root! cell)
+        ;; Final teardown drops both held ownership and reusable reservations.
+        ;; Dispatch escapes are contained here so one bad owner cannot prevent
+        ;; later cells or root-membership cleanup from becoming total. This is
+        ;; the final reentrant step; no outer authoritative write follows it.
+        (when on-teardown
+          (on-teardown cell))))
     cell))
 
 (defn teardown-frame!
@@ -2069,12 +2250,14 @@
   `:ui/on-frame-destroyed!` late-bind hook wired in `re-frame.ui.frames`;
   the sweep runs while the frame is still live, so each cell releases its
   leases against the live sub-cache (symmetric with `disconnect!`). The
-  connected membership test rides the committed dependency set
-  (`cell-observes-frame?`). An Activity-hidden cell holds no committed deps, so
-  its bounded root ownership plus retained `:values` target keys supply the
-  corresponding discoverability without another global registry. Iterates
-  snapshots, so the per-cell `teardown!` de-enrol is safe. Returns the count
-  torn down."
+  connected membership test uses `cell-retained-frame?`: committed
+  subscription targets provide observation attribution, while resource
+  desired/reservation/held records contribute exact incarnation tokens through
+  `:extra-frame-incarnations`. An Activity-hidden cell holds no live
+  subscription/resource owners, so its bounded root ownership plus retained
+  subscription targets and resource reservations supply corresponding
+  discoverability without another global registry. Iterates snapshots, so the
+  per-cell `teardown!` de-enrol is safe. Returns the count torn down."
   [frame-id]
   (let [frame-token (frame/frame-incarnation-token frame-id)
         ;; Observation ownership retains its historical bare-id discovery;
