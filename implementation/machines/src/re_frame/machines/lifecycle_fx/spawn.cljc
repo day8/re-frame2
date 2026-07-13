@@ -271,11 +271,20 @@
   rejected actor leaves NO half-installed bookkeeping (no registered
   handler, no actor state, no phantom `(rf/machines)` entry).
 
-  Returns `false` for a no-schema / no-validator / conforming spawn."
-  [spec spawned-id initial-snap]
+  `continue?` is A's exact-frame-incarnation continuation predicate
+  (rf2-vxgfnd.153). The schema validator is application code that can destroy
+  A / publish same-id B; when it does, `validate-spawn-data!` returns
+  `:rf/stale-incarnation` (NOT a schema verdict), which is `(false? …)` → this
+  fn returns `false` (not a schema reject) and the ENCLOSING cascade fence in
+  `spawn-fx*` — gated on `(continue?)` — is what suppresses the install. Only a
+  literal `false` (a genuine schema violation while A still owns) is a reject.
+
+  Returns `false` for a no-schema / no-validator / conforming / owner-lost
+  spawn; `true` only on a genuine schema violation."
+  [spec spawned-id initial-snap continue?]
   (and (some? spec)
-       (not (data-validation/validate-spawn-data!
-              spawned-id spec initial-snap))))
+       (false? (data-validation/validate-spawn-data!
+                 spawned-id spec initial-snap continue?))))
 
 (defn- install-spawn!
   "Atomically install the spawned actor's `initial-snap` (with its
@@ -425,7 +434,22 @@
   through. `frame-id` is the resolved (non-nil-stamped) frame; `args` the
   spawn args. Returns the allocated `spawned-id`."
   [frame-id args]
-  (let [;; Prefer the pre-allocated id (declarative :spawn
+  (let [;; A's exact-frame-incarnation continuation predicate (rf2-vxgfnd.153).
+        ;; The `[:schemas :data]` spawn validator (`validate-spawn-data!`, run
+        ;; inside `spawn-rejected?` below) is APPLICATION code that can
+        ;; synchronously destroy this frame incarnation A and publish a same-id
+        ;; successor B before returning. Everything after that callback — the
+        ;; snapshot / system-id / spawn-slot install, per-instance
+        ;; classification lowering, the spawn-order record, the two spawned
+        ;; traces, and the `:start` (or synthetic) dispatch — is framework-owned
+        ;; tail computed from A's already-read runtime-db. Re-checking
+        ;; `(continue?)` at the cascade gate fences that whole tail so no
+        ;; A-derived allocation or bookkeeping lands on B (whose bare-id
+        ;; `swap-runtime-db!` would otherwise resolve to B). Built ONCE here and
+        ;; threaded into `spawn-rejected?` so the callback and the cascade fence
+        ;; against the SAME token.
+        continue?  (data-validation/owner-continuation frame-id)
+        ;; Prefer the pre-allocated id (declarative :spawn
         ;; routes through the transition reducer which bumps the parent
         ;; snapshot's `:rf/spawn-counter`). Hand-emitted spawn fxs carry
         ;; no pre-allocated id; the frame's runtime-db spawn-counter slot
@@ -483,19 +507,23 @@
         ;; nothing to runtime-db, so no liveness exists for the rejected actor
         ;; (the strongest form of atomicity: an actor's liveness IS its
         ;; snapshot, and the snapshot was never installed).
-        rejected?  (spawn-rejected? spec'' spawned-id initial-snap)]
+        rejected?  (spawn-rejected? spec'' spawned-id initial-snap continue?)]
     ;; Gate the ENTIRE accepted-spawn cascade — the
     ;; `:rf.machine.spawn/spawned` trace, the snapshot/system-id/spawn-slot
-    ;; install, AND the `:start` (or synthetic) dispatch — on BOTH the spawn
-    ;; being accepted (`not rejected?`) AND the frame being LIVE (`old-rt`).
-    ;; When the frame was destroyed / never existed, `old-rt` is nil and
-    ;; `spawned-id` is nil (the `:else` allocator branch above): firing the
-    ;; spawned trace and dispatching `[nil <start>]` for an actor that was
-    ;; NEVER installed would be an atomicity violation (a phantom spawn
-    ;; signal + a dispatch into the void). A destroyed-frame spawn is a clean
-    ;; no-op — no trace, no install, no dispatch — symmetric with the
-    ;; schema-reject path's atomicity.
-    (when (and (not rejected?) old-rt)
+    ;; install, AND the `:start` (or synthetic) dispatch — on THREE conditions:
+    ;;   (1) the spawn being accepted (`not rejected?` — no schema violation),
+    ;;   (2) the frame being LIVE at read time (`old-rt` non-nil — a
+    ;;       destroyed / never-created frame reads nil and allocates a nil
+    ;;       `spawned-id`; firing a phantom spawned trace + `[nil <start>]`
+    ;;       dispatch would be an atomicity violation), and
+    ;;   (3) the exact frame incarnation that owns the event STILL being live
+    ;;       AFTER the schema callback (`(continue?)` — rf2-vxgfnd.153). A
+    ;;       validator that destroyed A / published same-id B loses the token;
+    ;;       none of the A-derived install / classification / spawn-order /
+    ;;       trace / dispatch tail may land on B.
+    ;; A destroyed-frame or owner-lost spawn is a clean no-op — no trace, no
+    ;; install, no dispatch — symmetric with the schema-reject path's atomicity.
+    (when (and (not rejected?) old-rt (continue?))
       (trace/emit! :rf.machine :rf.machine.spawn/spawned
                    {:frame      frame-id
                     ;; `:machine-id` is the spec-time registered TYPE (xor
