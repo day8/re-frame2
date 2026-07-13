@@ -332,22 +332,30 @@
 
 (defn stale-join-child-reply
   "Build the `:status :stale` reply for a `:spawn-all` join-child
-  completion that arrived AFTER the join already resolved (the
-  post-resolution late-completion branch). Per Managed-Effects §Stale
-  suppression the late completion MUST NOT mutate the join (the join is
-  latched `:resolved?`); this reply carries NO `:value` and represents the
-  drop the reply-envelope way — `:rf.reply/stale-reason
-  :rf.machine.spawn-all/join-resolved`, `:rf.reply/work-status :suppressed`.
+  completion that the runtime SUPPRESSED. The 2-arity is the
+  post-resolution late-completion (`:rf.reply/stale-reason
+  :rf.machine.spawn-all/join-resolved` — the join is latched `:resolved?`);
+  the 3-arity threads an explicit `stale-reason` for the other suppression
+  classes (rf2-nvxehu): `:rf.machine.spawn-all/attempt-unverified` (a
+  completion carrier with no runtime attempt authentication),
+  `:rf.machine.spawn-all/attempt-superseded` (a carrier bound to a PRIOR
+  child attempt / wrong actor after respawn or re-entry), and
+  `:rf.machine.spawn-all/duplicate-completion` (an exact re-completion of an
+  already-folded child). Per Managed-Effects §Stale suppression the
+  suppressed completion MUST NOT mutate the join; this reply carries NO
+  `:value`, `:rf.reply/work-status :suppressed`.
 
-  Work-id matches `join-child-reply`'s so the suppressed late completion
-  joins the same uniform work/reply row as the child's earlier (decisive
-  or non-decisive) fold. `ctx` keys mirror `join-child-reply`'s; `kind`
+  Work-id matches `join-child-reply`'s so the suppressed completion joins
+  the same uniform work/reply row as the child's earlier (decisive or
+  non-decisive) fold. `ctx` keys mirror `join-child-reply`'s; `kind`
   (`:done` / `:failed`) rides under `:correlation` as the would-be fold
   kind. Optional facts omitted when absent."
-  [{:keys [parent-id invoke-id child-id spawned-id frame completed-at]} kind]
-  (cond-> {:status       :stale
+  ([ctx kind]
+   (stale-join-child-reply ctx kind :rf.machine.spawn-all/join-resolved))
+  ([{:keys [parent-id invoke-id child-id spawned-id frame completed-at]} kind stale-reason]
+   (cond-> {:status       :stale
            :stale?       true
-           :rf.reply/stale-reason :rf.machine.spawn-all/join-resolved
+           :rf.reply/stale-reason stale-reason
            :rf.reply/work-id      (spawn-work-id spawned-id invoke-id)
            :rf.reply/work-kind    :machine
            :rf.reply/work-status  :suppressed
@@ -357,8 +365,8 @@
                            (some? child-id)   (assoc :child-id child-id)
                            (some? spawned-id) (assoc :spawned-id spawned-id)
                            (some? kind)       (assoc :kind kind))}
-    (some? frame)        (assoc :rf.frame/id frame)
-    (some? completed-at) (assoc :completed-at completed-at)))
+     (some? frame)        (assoc :rf.frame/id frame)
+     (some? completed-at) (assoc :completed-at completed-at))))
 
 ;; ---------------------------------------------------------------------------
 ;; `:after` timer — the existing specialized stale-gated reply instance

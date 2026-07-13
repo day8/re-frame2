@@ -100,7 +100,7 @@
   trace fires — the fx refuses rather than silently choosing a semantic
   reason (rf2-3lyqzu).
 
-  Two `cause`s:
+  The closed `cause` vocabulary:
 
     - `:unverified-reap` — a `{:rf/reap true :rf/parent-id p :rf/invoke-id i
       :rf/child-id c}` reap request whose claim does NOT match the live join
@@ -111,13 +111,28 @@
       the named actor is the completed / failed child of the named join —
       an in-progress actor's teardown is always an `:explicit` cancellation.
 
+    - `:unresolved-join` — a reap whose terminal claim the join state DOES
+      substantiate, arriving AHEAD of the join attempt's `:resolved?` latch
+      (rf2-nvxehu). Reaping is a post-resolution act: a non-decisive
+      completed child of a still-waiting `:all` join cannot be reaped early
+      through the public reserved-fx boundary.
+
+    - `:slot-shape-mismatch` — a well-formed tracked / spawn-all form whose
+      addressed `[:spawned p i]` slot holds the OTHER form's shape
+      (rf2-3phait): the tracked single-`:spawn` form resolving a `:spawn-all`
+      join-state MAP (consuming it as an actor id would clear the join slot
+      and orphan every live child), or the spawn-all form resolving an
+      actor-id KEYWORD.
+
     - `:unknown-shape` — a map matching NONE of the known destroy shapes
       (the keyword `actor-id` form, the tracked `{:rf/parent-id :rf/invoke-id}`
       `:spawn` exit-cascade form, the `:rf/spawn-all` form, or the verified
       reap). Notably this is the pre-auth forgery
       `{:rf/actor-id … :rf/reason …}`, which used to mint a CALLER-chosen
       destroyed reason and thereby suppress the cancellation terminal of an
-      in-progress actor at the public reserved-fx boundary.
+      in-progress actor at the public reserved-fx boundary — and every
+      false-valued / wrong-typed discriminator, missing or wrongly-typed
+      coordinate, and overlapping discriminator set (rf2-3phait).
 
   Diagnostic channel (DCE'd in production), matching the sibling forgery
   guard `:rf.error/machine-spawn-all-bad-child-id`: the SAFE behaviour (no
