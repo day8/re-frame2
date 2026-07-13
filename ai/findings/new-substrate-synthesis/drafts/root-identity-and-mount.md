@@ -51,11 +51,18 @@ so the single-root common case stays one-liner clean:
    ids derived from `:shop/app` — add `:disambiguator` or author `:root-id`"*. Stripped
    from shipped manifests.
 
-**Root-id slug** (one deterministic function, used by the identifier-prefix default and
-synthesised locators): keyword → `namespace "-" name` (namespace absent → name);
-vector → element slugs joined by `"--"`; any character outside `[A-Za-z0-9_-]`
-normalised to `-`. `:page/shop` → `"page-shop"`; `[:shop/app :left]` →
-`"shop-app--left"`.
+**Root-id slug** (one deterministic, **injective** function, used by the
+identifier-prefix default and synthesised locators — distinct valid root-ids ALWAYS
+yield distinct slugs; the normative algorithm lives in `spec/004C-Roots-and-Mount.md`
+§1): a decodable canonical form over the DOM-safe alphabet `[A-Za-z0-9_-]`, in which
+`_` is the sole metacharacter — every character outside `[A-Za-z0-9-]` (including `_`
+itself) is reversibly escaped `_<lowercase-hex-code-unit>_`, and each structural
+boundary carries an uppercase `_`-tag the escape never emits (`_S` keyword
+namespace/name separator; `_V` vector lead-in; `_K`/`_T`/`_I` a vector element's
+keyword/string/integer type). `:page/shop` → `"page_Sshop"`; `[:shop/app :left]` →
+`"_V_Kshop_Sapp_Kleft"`. (The earlier lossy "normalise every disallowed character to
+`-`" rule aliased distinct root-ids — `:a/b-c` and `:a-b/c` both flattened to `a-b-c`
+— and is retired.)
 
 ## 2. The Root Descriptor v1 — the named, versioned S1 subset
 
@@ -139,7 +146,7 @@ id" is closed here:
 |---|---|---|
 | `:root-id` | identity | authored root-id (§1.1); immutable for the root's lifetime |
 | `:disambiguator` | identity | scalar; only meaningful when `:root-id` is absent (§1.2) |
-| `:identifier-prefix` | rendering | string fed to React's `identifierPrefix` (`use-id`). Default: `"rf2-" + root-id-slug + "-"` (§1) — `:page/shop` → `"rf2-page-shop-"`. (06 §2's `"rf2-shop-"` example is an authored value, not the derived default.) |
+| `:identifier-prefix` | rendering | string fed to React's `identifierPrefix` (`use-id`). Default: `"rf2-" + root-id-slug + "-"` (§1) — `:page/shop` → `"rf2-page_Sshop-"`. (06 §2's `"rf2-shop-"` example is an authored value, not the derived default.) |
 | `:on-uncaught-error` `:on-caught-error` `:on-recoverable-error` | host | plain CLJS fns passed to the React root options. Host-tier option maps are **not** template positions — the §02 §3 handler boundary law does not apply here. Invoked by React outside the re-frame2 commit path; to dispatch they must go through a live frame handle. |
 
 Identity opts (`:root-id`, `:disambiguator`, `:identifier-prefix`) must be **compile-time

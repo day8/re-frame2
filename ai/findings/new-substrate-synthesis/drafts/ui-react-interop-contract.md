@@ -147,7 +147,8 @@ foreign interop hands raw JS values through⟩.
 
 Wraps `useId`: a host-generated, tree-positional identifier token, prefixed by the
 root's `identifierPrefix`. Determinism under SSR rides the root contract: the prefix
-default is **`"rf2-" + root-id-slug + "-"`** (`:page/shop` → `"rf2-page-shop-"`), the
+default is **`"rf2-" + root-id-slug + "-"`** (`:page/shop` → `"rf2-page_Sshop-"`, the
+slug's injective typed escape), the
 per-page prefix-uniqueness check makes cross-root collision impossible, and hydrating
 roots MUST take the server's prefix from the manifest — client opts carrying
 `:identifier-prefix` into `hydrate-root` are an error precisely because a divergent
