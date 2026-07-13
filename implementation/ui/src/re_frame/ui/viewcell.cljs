@@ -46,6 +46,7 @@
   this layout effect (React's commit phase), correcting moved evidence
   before paint without any flush call."
   (:require ["react" :as react]
+            [re-frame.interop :as interop]
             [re-frame.ui.reactive :as reactive]
             [re-frame.ui.sub-overrides :as sub-overrides]))
 
@@ -118,7 +119,19 @@
       ;; exact value; speculative sibling renders cannot replace it. Story's
       ;; override door is scoped to THIS capture/body only.
       (let [[element capture]
-            (binding [reactive/*sub-overrides* overrides]
+            (if interop/debug-enabled?
+              ;; Binding is intentionally inside the constant DEBUG branch:
+              ;; advanced production output must contain no push/set/restore
+              ;; machinery for Story's override door.
+              (do
+                ;; Stable bundle sentinel: the advanced production gate
+                ;; asserts this whole debug branch is absent.
+                (when (and (some? overrides) (not (map? overrides)))
+                  (throw
+                   (js/Error.
+                    "rf-ui-mounted-override-binding expects a map")))
+                (binding [reactive/*sub-overrides* overrides]
+                  (reactive/with-capture cell thunk)))
               (reactive/with-capture cell thunk))]
         ;; reconcile — after EVERY committed render; no cleanup (leases are
         ;; owned by the cell and reconciled by the kept-check, never torn

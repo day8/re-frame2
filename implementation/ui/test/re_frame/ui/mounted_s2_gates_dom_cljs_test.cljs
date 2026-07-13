@@ -66,18 +66,43 @@
 
 (defn- retention-snapshot
   [frame-id]
-  {:live-roots    (client/live-root-ids)
-   :root-cells    (reactive/root-cell-count)
-   :live-cells    (count (reactive/current-live-cells))
-   :cache-entries (count @(:sub-cache (frame/frame frame-id)))
-   :cache-owners  (cache-owner-count frame-id)
-   :containers    (.-length
-                   (.querySelectorAll js/document "[data-rf-ui-test-root]"))
-   :pending-cells (reactive/pending-cell-count)
+  {:live-roots             (client/live-root-ids)
+   :root-cells             (reactive/root-cell-count)
+   :live-cells             (count (reactive/current-live-cells))
+   :cache-entries          (count @(:sub-cache (frame/frame frame-id)))
+   :cache-owners           (cache-owner-count frame-id)
+   :containers             (.-length
+                            (.querySelectorAll
+                             js/document "[data-rf-ui-test-root]"))
+   :pending-cells          (reactive/pending-cell-count)
    ;; Test-only read of the existing scheduler latch.  This adds no runtime
    ;; counter/API and catches the subtler "empty dirty set, armed microtask"
    ;; retention that pending-cell-count alone cannot see.
-   :flush-armed?  @@#'reactive/flush-scheduled?})
+   :flush-armed?           @@#'reactive/flush-scheduled?
+   ;; `ui/sub`'s slice memo and the observation port's node-disposal handoff
+   ;; both use next-tick work, independently of the dirty-cell microtask.
+   ;; A root can therefore look owner-clean while one of these retains the
+   ;; last slice/lease until the next host turn.  Exact baseline comparison
+   ;; includes both queue contents AND their scheduled latches.
+   :slice-memo-live?       (some? @@#'reactive/slice-memo*)
+   :pending-disposals      (count @@#'obs/pending-disposals)
+   :disposal-drain-armed?  @@#'obs/disposal-drain-scheduled?})
+
+(defn- host-turn!
+  []
+  (js/Promise.
+   (fn [resolve _reject]
+     (js/setTimeout #(resolve nil) 0))))
+
+(defn- settle-retention-schedulers!
+  "Cross the independent next-tick queues, then let React settle any dirty
+  cells they released.  A second host turn catches work enqueued by that
+  settle; no fixed sleep or private scheduler mutation is involved."
+  []
+  (-> (host-turn!)
+      (.then (fn [] (uit/flush!)))
+      (.then (fn [] (host-turn!)))
+      (.then (fn [] (uit/flush!)))))
 
 ;; ---------------------------------------------------------------------------
 ;; G-4 — equal recomputation is a complete mounted no-op
@@ -191,10 +216,15 @@
     (let [leaf-cell (cell-for retained-key)
           leaf-rx   (:reaction
                      (get @(:sub-cache (frame/frame frame-id))
-                          [::retained-value]))]
-      (swap! seen-reactions conj leaf-rx)
+                          [::retained-value]))
+          hidden-rx (:reaction
+                     (get @(:sub-cache (frame/frame frame-id))
+                          [::activity-hidden?]))]
+      (swap! seen-reactions into [leaf-rx hidden-rx])
       (is (= :connected (reactive/lifecycle leaf-cell)))
       (is (= 1 (obs/active-owner-count leaf-rx)))
+      (is (= 1 (obs/active-owner-count hidden-rx))
+          "the parent Activity controller has its own real owner")
       (is (= "7" (.-textContent
                    (uit/query root "[data-role='retained-leaf']"))))
       (-> (uit/flush! #(uit/dispatch! f [::hide-activity]))
@@ -208,6 +238,7 @@
                (is (some? (get @(:sub-cache (frame/frame frame-id))
                                [::activity-hidden?]))
                    "the visible owner remains reactive so reveal is reachable"))
+             (is (= 1 (obs/active-owner-count hidden-rx)))
              (uit/flush! #(uit/dispatch! f [::show-activity]))))
           (.then
            (fn []
@@ -226,11 +257,17 @@
                                  (= :reconnect (:proof %)))
                            (reactive/intervals leaf-cell)))
                  (is (= 1 (obs/active-owner-count revealed-rx)))
+                 (is (= 1 (obs/active-owner-count hidden-rx)))
                  (is (= "7" (.-textContent
                               (uit/query root "[data-role='retained-leaf']"))))
                  (is (contains? (reactive/committed-target-keys
                                  (cell-for hidden-key))
-                                hidden-key))))))))))
+                                hidden-key))))
+               ;; Exercise the observation port's independent disposal queue
+               ;; while both compiled owners are still real. with-root then
+               ;; releases their leases; the outer quiescence wait must drain
+               ;; the queued former-owner handoff before baseline comparison.
+               (rf/clear-sub-cache! frame-id)))))))
 
 (deftest bounded-strictmode-activity-cycles-return-every-owner-to-baseline
   (when (browser?)
@@ -244,29 +281,38 @@
           frame-id       (frame/frame-target->id f)
           retained-key   [:sub frame-id [::retained-value]]
           hidden-key     [:sub frame-id [::activity-hidden?]]
-          before         (retention-snapshot frame-id)
           seen-reactions (atom [])
           cycles         6]
       (async done
-        (-> (reduce
-             (fn [p cycle]
-               (.then p
-                      (fn []
-                        (-> (one-lifecycle-cycle!
-                             f frame-id retained-key hidden-key seen-reactions)
-                            (.then
-                             (fn []
-                               (is (= before (retention-snapshot frame-id))
-                                   (str "cycle " cycle
-                                        " restored roots/cells/cache/DOM/scheduler"))
-                               (is (every? #(zero? (obs/active-owner-count %))
-                                           @seen-reactions)
-                                   "historical reactions retain no owner token")))))))
-             (js/Promise.resolve nil)
-             (range cycles))
+        (-> (settle-retention-schedulers!)
+            (.then
+             (fn []
+               (let [before (retention-snapshot frame-id)]
+                 (reduce
+                  (fn [p cycle]
+                    (.then p
+                           (fn []
+                             (-> (one-lifecycle-cycle!
+                                  f frame-id retained-key hidden-key seen-reactions)
+                                 (.then
+                                  (fn [] (settle-retention-schedulers!)))
+                                 (.then
+                                  (fn []
+                                    (is (= before
+                                           (retention-snapshot frame-id))
+                                        (str "cycle " cycle
+                                             " restored roots/cells/cache/DOM/"
+                                             "all scheduler queues"))
+                                    (is (every?
+                                         #(zero? (obs/active-owner-count %))
+                                         @seen-reactions)
+                                        "historical reactions retain no owner token")))))))
+                  (js/Promise.resolve nil)
+                  (range cycles)))))
             (.then (fn []
                      (rf/destroy-frame! f)
-                     (done))
+                     (-> (settle-retention-schedulers!)
+                         (.then (fn [] (done)))))
                    (fn [e]
                      (rf/destroy-frame! f)
                      (reject-unexpectedly! done "mounted G-6 rejected" e))))))))
