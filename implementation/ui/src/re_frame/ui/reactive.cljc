@@ -746,6 +746,13 @@
     (swap! (state cell) assoc-in [:listeners k] listener)
     (fn unsubscribe [] (swap! (state cell) update :listeners dissoc k))))
 
+(defn listener-count
+  "The current host-subscriber count for `cell` (internal tool/test read).
+  Reads the existing listener map on demand; it adds no production counter or
+  notification-path work."
+  [^ViewCell cell]
+  (count (:listeners @(state cell))))
+
 (defn- notify-listeners!
   [^ViewCell cell]
   (doseq [f (vals (:listeners @(state cell)))]
