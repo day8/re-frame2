@@ -256,7 +256,7 @@ only *scopes* a frame someone else created; it creates nothing. Point
 created (nor ensured by a `frame-root`) and it throws
 `:rf.error/frame-provider-frame-absent`. When the subtree should bring its own
 frame into being, use the **ensure** component `frame-root {:id …}` instead —
-that's the whole difference between [the two shapes](#two-frame-shapes).
+that's the whole difference between [the two components](#two-frame-components).
 
 **You forgot to require a registration namespace.** A `reg-event` or `reg-sub`
 runs only when its namespace loads, so a missing `require` means the

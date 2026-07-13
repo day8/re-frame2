@@ -189,7 +189,8 @@ converts to `local` and prints the check with the forbidden-tier list. ⟨02 §5
 (inner fn closing over first-render args) cannot be expressed; and state with product
 meaning hiding in a ratom gets a named decision instead of silently surviving as
 invisible-to-tools state. Grammar note: `local` is S3 *behaviour*; the template
-analyzer already accepts the form (opaque expression), so W1 output compiles today
+analyzer already accepts the form (an ordinary call in expression position —
+value-opaque, lexically audited), so W1 output compiles today
 and animates when S3 lands — moot in practice, since the migrator itself is S6.
 
 ### R-C4 · `r/with-let` → `local` / `effect` split — GUIDED
@@ -220,8 +221,9 @@ across renders (→ `local`) and a `finally` cleanup (→ `effect` cleanup, or b
 
 Value bindings in the `with-let` vector become `local` tuples (per R-C3); the
 `finally` body becomes the effect's cleanup fn. Exact `effect` arity per the S3
-surface (Spec 004 rewrite §Effects); the analyzer treats the site as an opaque
-expression, so the form compiles from S1.
+surface (Spec 004 rewrite §Effects); the analyzer treats the site as an ordinary
+call in expression position (value-opaque, lexically audited), so the form
+compiles from S1.
 
 **Named human checks (two):**
 
@@ -442,8 +444,9 @@ migrator applies it:
 AUTO when the mapped fn is an inline literal `fn`/`#(…)` (its body inlines as the
 `for` body, then R-T3 keys it). GUIDED when the fn is a var or `comp`/`partial` value
 (the migrator inlines a call — `(for [x xs] [row-view {:key … :x x}])` — but the human
-confirms the var was a view, not a data transform). Seq heads stay legal in *opaque*
-positions (prop values, `for` collections, `if` tests) — only rendered-content
+confirms the var was a view, not a data transform). Seq heads stay legal in *expression*
+positions (prop values, `for` collections, `if` tests) — ordinary function calls
+are always accepted there; only rendered-content
 positions rewrite. Chained transforms move into the collection position:
 `(map f (filter p xs))` → `(for [x (filter p xs)] …)`. ⟨analyze markup-map/lazy-seq
 rosters, 02 §2⟩
@@ -832,8 +835,15 @@ positions carry over: conditional reads fine; the `for` **first-collection** pos
 fine (once per render); anywhere per-row is a compile error (`:rf.ui.compile/sub-in-loop`)
 whose fix is R-H7's keyed child view reading its own sub — the error message names
 it, and the migrator applies R-H7 in the same pass. Destructuring of sub values,
-`(or … "")` wrappers, threading — all untouched (opaque expressions). ⟨10 Tier M,
-02 §4, analyze `walk-expr`/`analyze-for`⟩
+`(or … "")` wrappers, threading — all carried over: destructuring, `or`/`and`/
+`when`/`cond`, and the `->`/`->>`/`some->`/`some->>`/`cond->`/`cond->>` family are
+inside the compiler's closed expression grammar (values stay ordinary Clojure;
+the lexical syntax is audited — rf2-vxgfnd.100). A **custom or unaudited macro**
+wrapper does NOT carry over: it is rejected at compile time
+(`:rf.ui.compile/unsupported-form`) because its expansion could hide a reactive
+call from site analysis — rewrite it with ordinary functions/core forms, or hoist
+the computation. ⟨10 Tier M,
+02 §4, analyze `walk-expr`/`analyze-for`, Spec 004 §Template grammar⟩
 
 **trap** — subs-in-loops was legal-but-quadratic in Reagent (N reactions re-derefed
 per render); the finite-sites law converts it to per-row views with per-row cache
