@@ -84,6 +84,9 @@
   (is (= :rf.ui.compile/unsupported-form
          (reject-id '(let [{:keys [x] :or {x (sub [:q])}} value] [:div x]))))
   (is (= :rf.ui.compile/unsupported-form
+         (reject-id '(let [{:keys [x] :or {x (-> [:q] sub)}} value]
+                       [:div x]))))
+  (is (= :rf.ui.compile/unsupported-form
          (reject-id '(for [{:keys [x] :or {x (sub [:q])}} xs]
                        [:div {:key x} x]))))
   (is (= :rf.ui.compile/unsupported-form

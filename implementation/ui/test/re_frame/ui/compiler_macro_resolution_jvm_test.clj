@@ -66,6 +66,11 @@
         (is (= :rf.ui.compile/unsupported-form
                (compile-error-id #(analyze/analyze e form)))
             (pr-str form)))
+      (is (= :rf.ui.compile/unsupported-form
+             (compile-error-id
+              #(analyze/reject-reactive-binding!
+                e '[{:keys [x] :or {x (-> [:q] sub)}}])))
+          "real CLJS macro resolution fences a manufactured default call")
       (doseq [form
               ['[:div {:title (ordinary-call (sub [:q]))}]
                '[:div {:title (or (sub [:q]) "")}]

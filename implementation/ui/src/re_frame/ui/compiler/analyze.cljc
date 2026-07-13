@@ -154,6 +154,8 @@
 (defn- map-path-token [x]
   (fingerprint/digest "ep1-" x))
 
+(declare reactive-macro-reference-kind)
+
 (defn- reactive-call-kind
   "Return :sub/:lease when `x` contains an unshadowed resolved reactive CALL.
   Quoted data is never executable. This scanner is deliberately about calls,
@@ -168,7 +170,12 @@
             (when (and (symbol? h) (not (contains? locals h)))
               (cond
                 (env/resolves-to? e* h sub-fqns) :sub
-                (env/resolves-to? e* h lease-fqns) :lease)))
+                (env/resolves-to? e* h lease-fqns) :lease
+                ;; A macro can manufacture a call from a bare reactive var
+                ;; (`(-> query sub)`). Binding/default forms never pass through
+                ;; the rewriter later, so fence that escape here too.
+                (true? (-> (env/resolve-sym e* h) :meta :macro))
+                (reactive-macro-reference-kind e (rest x) locals))))
           (some #(reactive-call-kind e % locals) (rest x)))
       (map? x) (or (some #(reactive-call-kind e % locals) (keys x))
                    (some #(reactive-call-kind e % locals) (vals x)))

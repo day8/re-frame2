@@ -61,6 +61,13 @@
              [{:keys [sub] :or {sub (re-frame.ui/sub [:fallback])}}]
              [:div sub])))
       "a header default cannot bypass site indexing and select sub-free render")
+  (is (= :rf.ui.compile/unsupported-form
+         (expand-error
+          '(re-frame.ui/defview threaded-reactive-header
+             [{:keys [x]
+               :or {x (-> [:fallback] re-frame.ui/sub)}}]
+             [:div x])))
+      "a header macro cannot manufacture a one-arity read after site analysis")
   (is (nil? (expand-error
              '(re-frame.ui/defview ordinary-header
                 [{:keys [x] :or {x (str "fallback")}}]
