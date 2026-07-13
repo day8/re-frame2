@@ -411,27 +411,86 @@
     {:unresolved-input query-v
      :resolved-inputs  []}))
 
+(defn- valid-query-v?
+  "The port's query-vector DOMAIN (rf2-vxgfnd.183): a non-empty vector whose
+  head is the sub-id keyword — exactly what `resolve-target` threads through as
+  `:query`. A non-vector (`42`), an empty vector (`[]`), or a non-keyword-headed
+  vector (`[42]`) is NOT a query, so a target carrying it is malformed and must
+  be rejected BEFORE `(first query)` reaches the registry / cache."
+  [q]
+  (and (vector? q)
+       (seq q)
+       (keyword? (first q))))
+
+(defn- valid-target?
+  "True iff `target` is EXACTLY one of the two complete shapes `resolve-target`
+  emits (rf2-vxgfnd.183) — the port's CLOSED target grammar. Structural, pure,
+  allocation-light: a STRICT key-set match per `:kind` (so BOTH a missing AND an
+  extra key fail, and a legitimately-nil override value/token stays a VALUE
+  because its KEY is present — presence, never `some?`), plus the field-domain
+  checks. A `:subscription` needs a present keyword `:frame-id` (frame ids are
+  registry-keyed keywords per `re-frame.frame`) and a non-empty keyword-headed
+  `:query`; a `:story-override` needs `:query`/`:value`/`:override-id`/`:version`
+  all present and the same query domain. A non-map, an unknown `:kind`, a
+  supported-kind-but-INCOMPLETE target (a bare `{:kind :story-override}`), a
+  wrong-domain field, or a malformed query all read false."
+  [target]
+  (and (map? target)
+       (case (:kind target)
+         :subscription
+         (and (= #{:kind :frame-id :query} (set (keys target)))
+              (keyword? (:frame-id target))
+              (valid-query-v? (:query target)))
+
+         :story-override
+         (and (= #{:kind :query :value :override-id :version} (set (keys target)))
+              (valid-query-v? (:query target)))
+
+         false)))
+
 (defn- throw-malformed-target!
-  "Default arm for the target-taking ops' `(case (:kind target) …)` dispatch: a
-  target whose `:kind` is neither `:subscription` nor `:story-override` is a
-  MALFORMED target — one that did not come from [[resolve-target]] (the ONLY
-  resolution point), a substrate/consumer bug. Per Spec 006 §Error contract every
-  port op throws TYPED; without this arm a bogus `:kind` would fall through `case`
-  to a BARE host error (\"No matching clause\"), which the ViewCell error boundary
-  cannot classify. Throws the typed `:rf.error/observation-malformed-target`. Pure
-  `throw-error!` (diagnostic channel) — a corrupted target is a programming defect,
-  unreachable in correct generated code, so it does NOT fan the always-on axis.
-  Never returns."
+  "Reject a target that violates the port's CLOSED target grammar
+  (rf2-vxgfnd.183): a non-map, an unknown `:kind`, missing/extra keys, a
+  wrong-domain frame identity, an empty/non-keyword-headed query, or a
+  supported-kind-but-INCOMPLETE target (a bare `{:kind :story-override}`) could
+  not have come from [[resolve-target]] (the port's ONLY resolution point) — it
+  is a substrate/consumer bug. Per Spec 006 §Error contract every port op throws
+  TYPED; without an up-front grammar gate the target-taking ops would reach
+  `(first query)` / a frame-registry op on a malformed value and leak a BARE host
+  error (a `case` \"No matching clause\", a `ClassCastException`, an NPE) the
+  ViewCell error boundary cannot classify. Throws the typed
+  `:rf.error/observation-malformed-target`. Pure `throw-error!` (diagnostic
+  channel) — a corrupted target is a programming defect, unreachable in correct
+  generated code, so it does NOT fan the always-on axis. Carries BOUNDED
+  STRUCTURAL evidence only — the `:kind` and the target's KEY-SET, never the
+  field VALUES (a `:story-override` embeds an app value under `:value`). Never
+  returns."
   [where target]
   (error/throw-error!
     :rf.error/observation-malformed-target
     where
-    (str where " received a malformed observation target: its :kind "
-         (pr-str (:kind target)) " is neither :subscription nor :story-override. "
-         "A target must come from resolve-target (the port's ONLY resolution "
-         "point); a hand-constructed or corrupted target is a substrate bug.")
+    (str where " received a malformed observation target (kind "
+         (pr-str (when (map? target) (:kind target))) ", keys "
+         (pr-str (when (map? target) (vec (keys target)))) "): it is not one of "
+         "the two closed shapes resolve-target emits — a :subscription with a "
+         "keyword :frame-id and a non-empty keyword-headed :query, or a "
+         ":story-override carrying :query/:value/:override-id/:version. A target "
+         "must come from resolve-target (the port's ONLY resolution point); a "
+         "hand-constructed, incomplete, or corrupted target is a substrate bug.")
     {:recovery :no-recovery
-     :extra    {:kind (:kind target)}}))
+     :extra    {:kind        (when (map? target) (:kind target))
+                :target-keys (when (map? target) (vec (keys target)))}}))
+
+(defn- validate-target!
+  "Grammar gate for the target-taking ops (`probe` / `acquire!`): throw the typed
+  `:rf.error/observation-malformed-target` when `target` is not EXACTLY one of
+  the two closed shapes resolve-target emits ([[valid-target?]]) — BEFORE any
+  host op (`(first query)`, a frame-registry lookup) can leak a bare host error
+  (rf2-vxgfnd.183). Returns `target` when valid."
+  [where target]
+  (if (valid-target? target)
+    target
+    (throw-malformed-target! where target)))
 
 (defn- throw-acquire-recovery!
   "rf2-vxgfnd.27 — the ENTRY node's OWN build produced a NEVER-CACHED, zero-ref
@@ -530,6 +589,45 @@
   honestly — a pinned value owns nothing."
   [lease]
   (= :node (:lease-kind @(lease-state lease))))
+
+(defn- throw-malformed-lease!
+  "Reject a value that is not a real [[ObservationLease]] at the shared lease
+  boundary (rf2-vxgfnd.183): `read` / `release!` field-access [[lease-state]]
+  and then DEREF the result, so a nil / a map / any arbitrary host object would
+  otherwise throw a raw `NullPointerException` (JVM) or an untyped host error
+  (CLJS) carrying no `:rf.error/id` the ViewCell error boundary can classify —
+  the half-hardened boundary this bead closes. Throws the typed
+  `:rf.error/observation-malformed-lease` — a distinct diagnostic in the same
+  `observation-malformed-*` family as the target category (a lease is not a
+  target, so it earns its own id, not a shared one). Pure `throw-error!`
+  (diagnostic channel) — a non-lease reaching a lease-taking op is a
+  substrate/consumer bug, unreachable in correct generated code, so it does NOT
+  fan the always-on axis. Carries BOUNDED structural evidence only — the
+  argument's host TYPE, never the value. Never returns."
+  [where lease]
+  (error/throw-error!
+    :rf.error/observation-malformed-lease
+    where
+    (str where " received a malformed observation lease (type "
+         (pr-str (type lease)) "): it is not an ObservationLease. A lease must "
+         "come from acquire!; nil, a map, or any other host object is a "
+         "substrate bug — read / release! deref the lease state, so an "
+         "unvalidated non-lease would leak a bare host NPE / TypeError the "
+         "ViewCell error boundary cannot classify.")
+    {:recovery :no-recovery
+     :extra    {:lease-type (pr-str (type lease))}}))
+
+(defn- validate-lease!
+  "Grammar gate for the lease-taking ops (`read` / `release!`): throw the typed
+  `:rf.error/observation-malformed-lease` when `lease` is not a real
+  [[ObservationLease]], BEFORE [[lease-state]] field-accesses + derefs it
+  (rf2-vxgfnd.183). Returns `lease` when valid. (`current?` does NOT route here —
+  it is a pure no-throw kept-check predicate and returns `false` for a non-lease
+  per its ruled contract.)"
+  [where lease]
+  (if (lease? lease)
+    lease
+    (throw-malformed-lease! where lease)))
 
 ;; ---- weak reaction reference (JVM WeakHashMap self-reference break) ----------
 ;;
@@ -937,6 +1035,10 @@
   for override sites rides the target's own id/version, not node evidence."
   ([target] (probe target nil))
   ([target slice-memo]
+   ;; Grammar gate FIRST (rf2-vxgfnd.183): reject a malformed target with the
+   ;; typed :rf.error/observation-malformed-target before `(first query)` / a
+   ;; frame-registry op can leak a bare host error the ViewCell cannot classify.
+   (validate-target! 're-frame.substrate.observation/probe target)
    (case (:kind target)
      :story-override
      {:value          (:value target)
@@ -1373,6 +1475,11 @@
   keep their recover-to-nil semantics."
   [target on-change]
   (assert-not-in-fan-out! 're-frame.substrate.observation/acquire!)
+  ;; Grammar gate FIRST (rf2-vxgfnd.183): reject a malformed target — including a
+  ;; supported-kind-but-INCOMPLETE {:kind :story-override} that would otherwise
+  ;; mint a nil-shaped static lease — with the typed
+  ;; :rf.error/observation-malformed-target before any ownership host op.
+  (validate-target! 're-frame.substrate.observation/acquire! target)
   (case (:kind target)
     :story-override
     (->ObservationLease (atom {:lease-kind :static
@@ -1450,23 +1557,28 @@
   retains, while any value/schema movement retargets, without this port
   interpreting either token."
   [lease target]
-  (let [st @(lease-state lease)]
-    (case (:lease-kind st)
-      :static
-      (let [lt (:target st)]
-        (and (= :story-override (:kind target))
-             (= (:override-id lt) (:override-id target))
-             (node-value= (:version lt) (:version target))
-             (= (:query lt) (:query target))))
+  ;; Pure no-throw predicate (rf2-vxgfnd.183): a non-lease reads FALSE rather
+  ;; than field-accessing lease-state and leaking a host error — current? is the
+  ;; commit kept-check, and a malformed value is simply "not current". `and`
+  ;; short-circuits before `@(lease-state lease)` so no raw NPE/TypeError escapes.
+  (and (lease? lease)
+       (let [st @(lease-state lease)]
+         (case (:lease-kind st)
+           :static
+           (let [lt (:target st)]
+             (and (= :story-override (:kind target))
+                  (= (:override-id lt) (:override-id target))
+                  (node-value= (:version lt) (:version target))
+                  (= (:query lt) (:query target))))
 
-      :node
-      (and (= :live (:status st))
-           (= :subscription (:kind target))
-           (= (:frame-id st) (:frame-id target))
-           (= (:query-v st) (:query target))
-           (node-still-canonical? st))
+           :node
+           (and (= :live (:status st))
+                (= :subscription (:kind target))
+                (= (:frame-id st) (:frame-id target))
+                (= (:query-v st) (:query target))
+                (node-still-canonical? st))
 
-      false)))
+           false))))
 
 ;; ---- read -----------------------------------------------------------------------
 
@@ -1497,6 +1609,10 @@
   committed observation rather than touching the disposed node — `current?`
   is the gate that routes such a site to retarget."
   [lease]
+  ;; Lease grammar gate FIRST (rf2-vxgfnd.183): reject a non-lease (nil / a map /
+  ;; any host object) with the typed :rf.error/observation-malformed-lease before
+  ;; lease-state field-accesses + derefs it and leaks a raw NPE / TypeError.
+  (validate-lease! 're-frame.substrate.observation/read lease)
   (let [st @(lease-state lease)]
     (case (:lease-kind st)
       :static
@@ -1574,6 +1690,10 @@
   nil."
   [lease]
   (assert-not-in-fan-out! 're-frame.substrate.observation/release!)
+  ;; Lease grammar gate (rf2-vxgfnd.183): reject a non-lease with the typed
+  ;; :rf.error/observation-malformed-lease before lease-state field-accesses it —
+  ;; (release! nil) must throw typed, never a raw NPE / untyped host error.
+  (validate-lease! 're-frame.substrate.observation/release! lease)
   (let [state (lease-state lease)
         [old _new] (swap-vals! state
                                (fn [st]
