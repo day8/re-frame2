@@ -46,13 +46,32 @@
 
   Observation stamping belongs to the caller: ordinary fan-out stamps before
   delivery; terminal destroy fan-out snapshots the silencing set and removes
-  the dying incarnation's observation state atomically before delivery."
+  the dying incarnation's observation state atomically before delivery.
+
+  `terminal?` marks the destroy fan-out of predecessor A's `:halted-destroy`
+  record. A's registry slot may already belong to a same-id successor B by the
+  time a listener throws (a terminal listener can itself install B), so A's
+  `:rf.epoch.cb/listener-exception` diagnostic is delivered STRUCTURALLY —
+  bypassing B's `:rf.trace/frame-no-emit?` policy and B's epoch capture — rather
+  than resolved through B's bare-id policy (rf2-vxgfnd.152). Ordinary
+  (non-terminal) fan-out keeps the live frame's no-emit policy."
   ([record listener-snapshot]
    ;; Terminal destroy delivery already removed observation ownership and must
    ;; not recreate it while fanning out the halted record.
-   (deliver-listener-snapshot! record listener-snapshot (constantly true) false))
+   (deliver-listener-snapshot! record listener-snapshot (constantly true) false true))
   ([record listener-snapshot continue? record-observation?]
-   (let [frame-id (:frame record)]
+   (deliver-listener-snapshot! record listener-snapshot continue? record-observation? false))
+  ([record listener-snapshot continue? record-observation? terminal?]
+   (let [frame-id (:frame record)
+         emit-listener-exception!
+         (fn [id ex]
+           (trace/emit-error! :rf.epoch.cb/listener-exception
+                              {:frame       frame-id
+                               :cb-id       id
+                               :rf.epoch/id (:epoch-id record)
+                               :message     #?(:clj  (.getMessage ^Throwable ex)
+                                               :cljs (.-message ex))
+                               :recovery    :no-recovery}))]
      (loop [entries (seq listener-snapshot)]
        (when (and entries (continue?))
           (let [[id {:keys [callback generation]}] (first entries)]
@@ -66,13 +85,13 @@
                ;; A callback that destroyed the exact owner has an inert throw;
                ;; never emit its failure diagnostic against same-id B.
                (when (continue?)
-                 (trace/emit-error! :rf.epoch.cb/listener-exception
-                                    {:frame       frame-id
-                                     :cb-id       id
-                                     :rf.epoch/id (:epoch-id record)
-                                     :message     #?(:clj  (.getMessage ^Throwable ex)
-                                                     :cljs (.-message ex))
-                                     :recovery    :no-recovery}))))
+                 (if terminal?
+                   ;; A's terminal callback fault is A's own diagnostic. A same-id
+                   ;; B that a listener just installed (possibly no-emit) must not
+                   ;; suppress or capture it (rf2-vxgfnd.152).
+                   (trace/call-with-structural-delivery
+                     #(emit-listener-exception! id ex))
+                   (emit-listener-exception! id ex)))))
            (recur (next entries))))))))
 
 (defn notify-listeners!

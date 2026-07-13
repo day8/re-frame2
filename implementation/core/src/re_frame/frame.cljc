@@ -3062,9 +3062,25 @@
 
   `terminal-evidence` is the bundle `snapshot-epoch-terminal-evidence!` captured
   BEFORE dissoc (rf2-vxgfnd.151) — the epoch surface publishes A's terminal
-  facts from it rather than re-reading the now-shared id-keyed stores."
+  facts from it rather than re-reading the now-shared id-keyed stores.
+
+  This is the ONLY teardown step that runs AFTER `dissoc-frame!`, so a same-id
+  successor B may already own the registry key when it fires. A throw here is
+  predecessor A's terminal diagnostic: it is recorded on both Spec 009 channels
+  like every other teardown step, but the dev-only
+  `:rf.warning/teardown-hook-exception` trace is delivered under STRUCTURAL
+  delivery so a same-id B's `:rf.trace/frame-no-emit?` policy can neither
+  suppress nor capture it (rf2-vxgfnd.152). Every PRE-dissoc teardown hook keeps
+  ordinary bare-id policy — no same-id B can exist before dissoc, so their
+  attribution is A's unambiguously."
   [id owner-token terminal-evidence]
-  (safe-call-hook! :epoch/on-frame-destroyed id owner-token terminal-evidence))
+  (when-let [f (late-bind/get-fn :epoch/on-frame-destroyed)]
+    (try
+      (f id owner-token terminal-evidence)
+      (catch #?(:clj Throwable :cljs :default) ex
+        (trace/call-with-structural-delivery
+          #(record-teardown-failure! :epoch/on-frame-destroyed
+                                     :safe-call-hook! ex))))))
 
 (defn- snapshot-epoch-terminal-evidence!
   "rf2-vxgfnd.151 — snapshot the destroyed incarnation's terminal halted-destroy

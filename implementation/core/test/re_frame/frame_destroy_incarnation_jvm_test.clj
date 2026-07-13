@@ -426,6 +426,156 @@
         (rf/unregister-listener! :trace ::halted-evidence-overlap)
         (late-bind/set-fn! :epoch/on-frame-destroyed original-epoch)))))
 
+;; ---- rf2-vxgfnd.152 — predecessor terminal diagnostics across B no-emit -----
+
+(defn- run-terminal-listener-exception-scenario
+  "Destroy A mid-drain and pause at its post-dissoc epoch hook; install same-id
+  B (with the given `no-emit?` policy) during the pause; on resume a terminal
+  epoch listener throws while receiving A's halted record. Returns the captured
+  `:rf.epoch.cb/listener-exception` traces plus B state. A's terminal
+  listener-exception must be delivered structurally regardless of B's policy
+  (rf2-vxgfnd.152).
+
+  B is installed on the main thread during the pause (not re-entrantly from the
+  listener) so a same-id B is unambiguously live when the diagnostic emits."
+  [id no-emit?]
+  (let [a-after-dissoc (CountDownLatch. 1)
+        release-a      (CountDownLatch. 1)
+        first-epoch?   (atom true)
+        exceptions     (atom [])
+        thrower        (keyword "rf2-152" (str "lx-thrower-" (name id)))
+        trace-key      (keyword "rf2-152" (str "lx-trace-" (name id)))
+        original-epoch (late-bind/get-fn :epoch/on-frame-destroyed)]
+    (rf/reg-event :rf2-152/lx-destroy-self
+      (fn [_ _] (frame/destroy-frame! id) {}))
+    (rf/make-frame {:id id})
+    ;; Terminal listener that throws while receiving A's halted record.
+    (rf/register-listener! :epoch thrower
+      (fn [r]
+        (when (= :halted-destroy (:outcome r))
+          (throw (ex-info "terminal listener blew" {})))))
+    (rf/register-listener! :trace trace-key
+      (fn [ev]
+        (when (and (= id (get-in ev [:tags :frame]))
+                   (= :rf.epoch.cb/listener-exception (:operation ev)))
+          (swap! exceptions conj ev))))
+    (try
+      (late-bind/set-fn! :epoch/on-frame-destroyed
+        (fn [& args]
+          (when (and (= id (first args))
+                     (compare-and-set! first-epoch? true false))
+            (.countDown a-after-dissoc)
+            (.await release-a 10 TimeUnit/SECONDS))
+          (when original-epoch (apply original-epoch args))))
+      (let [dispatch-a (future
+                         (rf/dispatch-sync [:rf2-152/lx-destroy-self] {:frame id}))]
+        (is (.await a-after-dissoc 10 TimeUnit/SECONDS)
+            "A paused at its post-dissoc epoch hook")
+        (rf/make-frame {:id id :rf.trace/frame-no-emit? no-emit?})
+        (let [token-b (frame/frame-incarnation-token id)]
+          (.countDown release-a)
+          (is (not= ::timeout (deref dispatch-a 5000 ::timeout))
+              "A's terminal recipe completes")
+          (executor-barrier!)
+          {:exceptions   @exceptions
+           :thrower      thrower
+           :b-token-ok?  (identical? token-b (frame/frame-incarnation-token id))
+           :b-buffer     (epoch-state/buffer-for id)
+           :b-history    (rf/epoch-history id)}))
+      (finally
+        (.countDown release-a)
+        (rf/unregister-listener! :epoch thrower)
+        (rf/unregister-listener! :trace trace-key)
+        (when (frame/frame id) (frame/destroy-frame! id))
+        (late-bind/set-fn! :epoch/on-frame-destroyed original-epoch)))))
+
+(deftest terminal-listener-exception-crosses-successor-no-emit
+  ;; rf2-vxgfnd.152 (red before fix). A terminal halted-destroy listener that
+  ;; throws while a same-id B is live must still yield exactly one A
+  ;; :rf.epoch.cb/listener-exception — whether or not B enabled no-emit — and
+  ;; that diagnostic must not enter B's epoch capture. Before the fix the
+  ;; diagnostic was resolved through B's bare-id policy, so a no-emit B
+  ;; suppressed it to zero.
+  (let [suppressed (run-terminal-listener-exception-scenario
+                     :rf2-152/lx-noemit true)
+        control    (run-terminal-listener-exception-scenario
+                     :rf2-152/lx-plain false)]
+    (is (= 1 (count (:exceptions suppressed)))
+        "A's terminal listener-exception is delivered despite same-id B no-emit")
+    (is (= (:thrower suppressed)
+           (get-in (first (:exceptions suppressed)) [:tags :cb-id]))
+        "the diagnostic names the failing terminal listener")
+    (is (= 1 (count (:exceptions control)))
+        "the control (B no-emit disabled) also yields exactly one diagnostic")
+    (is (true? (:b-token-ok? suppressed))
+        "same-id B remains the live incarnation through A's terminal fan-out")
+    (is (empty? (filter #(= :rf.epoch.cb/listener-exception (:operation %))
+                        (:b-buffer suppressed)))
+        "A's diagnostic never enters B's epoch capture buffer")
+    (is (empty? (:b-history suppressed))
+        "no A diagnostic is recorded into B's history")))
+
+(defn- run-terminal-teardown-hook-exception-scenario
+  "Destroy A; its post-dissoc epoch teardown hook installs same-id B (with the
+  given `no-emit?` policy) then throws. Returns the captured
+  `:rf.warning/teardown-hook-exception` traces plus B state. A's post-dissoc
+  teardown-hook warning must be delivered structurally regardless of B's policy
+  (rf2-vxgfnd.152)."
+  [id no-emit?]
+  (let [warnings    (atom [])
+        trace-key   (keyword "rf2-152" (str "tdtrace-" (name id)))
+        original-ep (late-bind/get-fn :epoch/on-frame-destroyed)]
+    (rf/make-frame {:id id})
+    (rf/register-listener! :trace trace-key
+      (fn [ev]
+        (when (and (= id (get-in ev [:tags :frame]))
+                   (= :rf.warning/teardown-hook-exception (:operation ev)))
+          (swap! warnings conj ev))))
+    (try
+      (late-bind/set-fn! :epoch/on-frame-destroyed
+        (fn [& args]
+          (if (= id (first args))
+            (do
+              ;; Install same-id B, then fail the post-dissoc epoch hook: B's
+              ;; no-emit policy must not suppress A's teardown-hook warning.
+              (rf/make-frame {:id id :rf.trace/frame-no-emit? no-emit?})
+              (throw (ex-info "epoch teardown blew" {})))
+            (when original-ep (apply original-ep args)))))
+      (frame/destroy-frame! id)
+      (executor-barrier!)
+      {:warnings  @warnings
+       :b-live?   (some? (frame/frame-incarnation-token id))
+       :b-buffer  (epoch-state/buffer-for id)}
+      (finally
+        ;; Restore the real hook BEFORE destroying B so B's teardown does not
+        ;; re-enter the throwing wrapper.
+        (late-bind/set-fn! :epoch/on-frame-destroyed original-ep)
+        (rf/unregister-listener! :trace trace-key)
+        (when (frame/frame id) (frame/destroy-frame! id))))))
+
+(deftest terminal-teardown-hook-exception-crosses-successor-no-emit
+  ;; rf2-vxgfnd.152 (red before fix). A throwing POST-DISSOC epoch teardown hook
+  ;; must still yield exactly one A :rf.warning/teardown-hook-exception — whether
+  ;; or not the same-id successor B enabled no-emit — and it must not enter B's
+  ;; epoch capture. Before the fix the warning went through the ordinary bare-id
+  ;; policy path, so a no-emit B suppressed it to zero.
+  (let [suppressed (run-terminal-teardown-hook-exception-scenario
+                     :rf2-152/td-noemit true)
+        control    (run-terminal-teardown-hook-exception-scenario
+                     :rf2-152/td-plain false)]
+    (is (= 1 (count (:warnings suppressed)))
+        "A's post-dissoc teardown-hook warning is delivered despite B no-emit")
+    (is (= :epoch/on-frame-destroyed
+           (get-in (first (:warnings suppressed)) [:tags :hook]))
+        "the warning names the failing epoch teardown hook")
+    (is (= 1 (count (:warnings control)))
+        "the control (B no-emit disabled) also yields exactly one warning")
+    (is (true? (:b-live? suppressed))
+        "same-id B remains live after A's teardown hook fails")
+    (is (empty? (filter #(= :rf.warning/teardown-hook-exception (:operation %))
+                        (:b-buffer suppressed)))
+        "A's teardown warning never enters B's epoch capture buffer")))
+
 (deftest owner-loss-unwinds-only-entered-authored-afters
   ;; Mutation tooth: removing execute-chain's continuation predicate would run
   ;; :never/before and the handler after :killer/before destroys A. Removing
