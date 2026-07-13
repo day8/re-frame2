@@ -297,7 +297,12 @@
   vacations, then rethrows. The router discards the pending db, preserving
   all-or-nothing event semantics."
   ([frame-id db runtime-db]
-   (run-flows-on-db* frame-id db runtime-db nil false))
+   ;; Preserve the established three-argument late-bind contract. Inside an
+   ;; event, core's private owner binding supplies the exact A token; direct
+   ;; callers have no token and retain the legacy frame-id-scoped behaviour.
+   (if-let [owner-token (frame/current-event-owner-token)]
+     (run-flows-on-db* frame-id db runtime-db owner-token true)
+     (run-flows-on-db* frame-id db runtime-db nil false)))
   ([frame-id db runtime-db {:keys [exact-owner-token]}]
    (run-flows-on-db* frame-id db runtime-db exact-owner-token true)))
 
