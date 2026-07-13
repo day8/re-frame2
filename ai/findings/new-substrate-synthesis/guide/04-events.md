@@ -34,8 +34,11 @@ splicing, the sync door, `ui/event`/`ui/handler` semantics — lands S3.)*
 [:div   {:on-key-down [:editor/key :rf.ui/key]}]        ; "Enter", "a", …
 ```
 
-`:rf.ui/value`, `:rf.ui/checked`, `:rf.ui/key` — that's the whole vocabulary, spliced at
-dispatch time. **Placeholders work in literal vectors only** (the compiler recognizes
+`:rf.ui/value`, `:rf.ui/checked`, `:rf.ui/key` — that's the whole vocabulary: a closed
+set of three scalars, spliced at dispatch time. There is deliberately no `:rf.ui/event`
+and no `:rf.ui/form-data` — a raw event is a host object and form payloads carry
+duplicate keys and files (not EDN); both cases are exactly what `ui/event` (below)
+exists for. **Placeholders work in literal vectors only** (the compiler recognizes
 them at the call site); a vector forwarded through props dispatches its contents as-is,
 and dev warns if it spots a placeholder keyword riding one.
 
