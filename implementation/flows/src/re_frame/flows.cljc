@@ -13,6 +13,7 @@
   through `re-frame.late-bind`."
   (:require [re-frame.elision :as elision]
             [re-frame.error :as error]
+            [re-frame.frame :as frame]
             [re-frame.flows.registry :as registry]
             [re-frame.flows.topo :as topo]
             [re-frame.interop :as interop]
@@ -21,6 +22,15 @@
             ;; Keep tooling unreachable from the CLJS facade so Closure can
             ;; remove it when no tool requires the sibling namespace.
             #?@(:clj [[re-frame.flows.tooling :as flows-tooling]])))
+
+(def ^:no-doc stale-incarnation
+  "Internal return marker: the exact frame owner vanished during a flow pass."
+  :rf.flow/stale-incarnation)
+
+(defn- owner-live?
+  [frame-id owner-token exact-owner?]
+  (or (not exact-owner?)
+      (frame/frame-incarnation-live? frame-id owner-token)))
 
 ;; ---- public-surface re-exports -------------------------------------------
 ;;
@@ -83,35 +93,53 @@
 
   Validation is diagnostic: it emits a schema failure but does not unwind the
   pending flow cascade. The caller invokes this only in debug builds."
-  [frame-id flow new-output]
-  (when-let [schema (:schema flow)]
-    (when-let [validate (late-bind/get-fn-cached :schemas/validate-with-registered-fn)]
-      (when-not (validate schema new-output)
-        (let [explain     (late-bind/get-fn-cached :schemas/explain-with-registered-fn)
-              explanation (when explain (explain schema new-output))
-              ;; Schema-aware redaction also covers values embedded in Malli's
-              ;; explanation, which path elision cannot inspect safely.
-              redact      (late-bind/get-fn-cached :schemas/redact-validation-tags)
-              tags        {:category   :rf.error/schema-validation-failure
-                           :where      :flow-output
-                           :rf.flow/id (:id flow)
-                           :failing-id (:id flow)
-                           :schema-id  (:id flow)
-                           :path       (:output-path flow)
-                           ;; Keep the value on the same elided path as the
-                           ;; successful `:rf.flow/computed` result.
-                           :value      (elision/elide-wire-value
-                                         new-output
-                                         {:frame frame-id :path (:output-path flow)})
-                           :explain    explanation
-                           :reason     (str "Flow " (:id flow)
-                                            " output failed schema "
-                                            (pr-str schema) ".")
-                           :recovery   :no-recovery
-                           :frame      frame-id}]
-          (trace/emit-error! :rf.error/schema-validation-failure
-                             (cond-> tags
-                               redact (->> (redact schema)))))))))
+  [frame-id owner-token exact-owner? flow new-output]
+  (let [live?  #(owner-live? frame-id owner-token exact-owner?)
+        schema (:schema flow)]
+    (cond
+      (not (live?)) false
+      (nil? schema) true
+      :else
+      (if-let [validate (late-bind/get-fn-cached
+                          :schemas/validate-with-registered-fn)]
+        (let [valid? (validate schema new-output)]
+          ;; Registered schema functions are authored callback boundaries.
+          ;; Once A is gone, their result and every later diagnostic are inert.
+          (cond
+            (not (live?)) false
+            valid? true
+            :else
+            (let [explain     (late-bind/get-fn-cached
+                                :schemas/explain-with-registered-fn)
+                  explanation (when explain (explain schema new-output))]
+              (if-not (live?)
+                false
+                (let [redact (late-bind/get-fn-cached
+                               :schemas/redact-validation-tags)
+                      tags   {:category   :rf.error/schema-validation-failure
+                              :where      :flow-output
+                              :rf.flow/id (:id flow)
+                              :failing-id (:id flow)
+                              :schema-id  (:id flow)
+                              :path       (:output-path flow)
+                              :value      (elision/elide-wire-value
+                                            new-output
+                                            {:frame frame-id
+                                             :path (:output-path flow)})
+                              :explain    explanation
+                              :reason     (str "Flow " (:id flow)
+                                               " output failed schema "
+                                               (pr-str schema) ".")
+                              :recovery   :no-recovery
+                              :frame      frame-id}
+                      tags   (if redact (redact schema tags) tags)]
+                  (if-not (live?)
+                    false
+                    (do
+                      (trace/emit-error!
+                        :rf.error/schema-validation-failure tags)
+                      (live?))))))))
+        true))))
 
 (defn- evaluate-flow!
   "Evaluate one flow against the pending frame-state.
@@ -122,80 +150,142 @@
 
   Trace payloads and their elision walks stay inside `debug-enabled?` branches
   so Closure removes them from production CLJS builds."
-  [frame-id db runtime-db flow]
-  (let [flow-id    (:id flow)
-        new-inputs (read-inputs db runtime-db flow)
-        ;; Dirty-check rows live in separate per-frame atoms.
-        old-inputs (registry/get-frame-flow-last-inputs frame-id flow-id)]
-    (if (= new-inputs old-inputs)
-      (do
-        ;; A skip means the flow was considered but its resolved inputs were
-        ;; value-equal to the previous run.
-        (when interop/debug-enabled?
-          (trace/emit! :flow :rf.flow/skip
-                       {:flow-id                flow-id
-                        :reason                 :inputs-value-equal
-                        :input-paths-unchanged  (:inputs flow)
-                        :frame                  frame-id}))
-        [db false])
-      (try
-        ;; Timing is trace-only and disappears with the surrounding debug
-        ;; branches in production builds.
-        (let [t0         (when interop/debug-enabled? (interop/now-ms))
-              new-output (apply (:derive flow) new-inputs)
-              flow-elapsed-ms (when interop/debug-enabled?
-                                (- (interop/now-ms) t0))
-              ;; Read from the cascade accumulator so `:before` describes the
-              ;; value this write replaces. Output-path overlap validation means
-              ;; another flow cannot have written the same slot.
-              old-output (when interop/debug-enabled?
-                           (get-in db (:output-path flow)))
-              new-db     (assoc-in db (:output-path flow) new-output)]
-          (registry/set-frame-flow-last-inputs! frame-id flow-id new-inputs)
-          ;; Inputs and both output values are wire-bearing trace data, so each
-          ;; is elided at the path whose declaration governs it.
+  [frame-id owner-token exact-owner? pass db runtime-db flow]
+  (if-not (owner-live? frame-id owner-token exact-owner?)
+    stale-incarnation
+    (let [flow-id    (:id flow)
+          new-inputs (read-inputs db runtime-db flow)
+          ;; Read and write the captured A-owned cell, never a bare-id lookup
+          ;; that could resolve to replacement B after a callback.
+          old-inputs (registry/pass-flow-last-inputs pass flow-id)]
+      (if (= new-inputs old-inputs)
+        (do
           (when interop/debug-enabled?
-            (trace/emit! :flow :rf.flow/computed
-                         {:flow-id      flow-id
-                          :input-values (elide-inputs frame-id flow new-inputs)
-                          :before       (elision/elide-wire-value
-                                          old-output
-                                          {:frame frame-id :path (:output-path flow)})
-                          :result       (elision/elide-wire-value
-                                          new-output
-                                          {:frame frame-id :path (:output-path flow)})
-                          :path         (:output-path flow)
-                          :elapsed-ms   flow-elapsed-ms
-                          :frame        frame-id})
-            ;; Validation is observational and follows the computed trace.
-            (validate-output! frame-id flow new-output))
-          [new-db true])
-        (catch #?(:clj Throwable :cljs :default) e
-          ;; Emit an EDN-safe summary rather than a host Throwable. Projection
-          ;; redacts author-controlled `:exception-data` when the frame carries
-          ;; sensitive declarations; the router's local error retains the cause.
-          (when interop/debug-enabled?
-            (trace/emit! :flow :rf.flow/failed
-                         {:flow-id           flow-id
-                          :exception-message #?(:clj (.getMessage ^Throwable e)
-                                                :cljs (.-message e))
-                          :exception-data    (ex-data e)
-                          :inputs            (elide-inputs frame-id flow new-inputs)
-                          :frame             frame-id}))
-          ;; Preserve flow attribution for the always-on router error, which is
-          ;; still emitted when the debug-only per-flow trace is absent.
-          (error/throw-error!
-            :rf.error/flow-eval-exception
-            'rf/run-flows-on-db
-            (str "a flow's :derive fn threw while recomputing flow "
-                 (pr-str flow-id)
-                 " during the drain; the event aborts before the :db install "
-                 "(no partial commit, app-db unchanged) and the flow "
-                 "re-attempts on the next drain. Fix the :derive fn so it "
-                 "does not throw on the inputs it is given.")
-            {:recovery :no-recovery
-             :extra    {:rf.flow/failed-id flow-id
-                        :cause             e}}))))))
+            (trace/emit! :flow :rf.flow/skip
+                         {:flow-id               flow-id
+                          :reason                :inputs-value-equal
+                          :input-paths-unchanged (:inputs flow)
+                          :frame                 frame-id}))
+          (if (owner-live? frame-id owner-token exact-owner?)
+            [db false]
+            stale-incarnation))
+        (try
+          (let [t0         (when interop/debug-enabled? (interop/now-ms))
+                new-output (apply (:derive flow) new-inputs)]
+            ;; `:derive` is the principal authored callback boundary.  Its
+            ;; value is inert once A loses ownership; no cache write, trace,
+            ;; validation or later flow may be attributed to B.
+            (if-not (owner-live? frame-id owner-token exact-owner?)
+              stale-incarnation
+              (let [flow-elapsed-ms (when interop/debug-enabled?
+                                      (- (interop/now-ms) t0))
+                    old-output (when interop/debug-enabled?
+                                 (get-in db (:output-path flow)))
+                    new-db     (assoc-in db (:output-path flow) new-output)]
+                (registry/pass-set-flow-last-inputs!
+                  pass flow-id new-inputs)
+                (when interop/debug-enabled?
+                  (trace/emit! :flow :rf.flow/computed
+                               {:flow-id      flow-id
+                                :input-values (elide-inputs frame-id flow new-inputs)
+                                :before       (elision/elide-wire-value
+                                                old-output
+                                                {:frame frame-id
+                                                 :path (:output-path flow)})
+                                :result       (elision/elide-wire-value
+                                                new-output
+                                                {:frame frame-id
+                                                 :path (:output-path flow)})
+                                :path         (:output-path flow)
+                                :elapsed-ms   flow-elapsed-ms
+                                :frame        frame-id}))
+                (if-not (owner-live? frame-id owner-token exact-owner?)
+                  stale-incarnation
+                  (if (or (not interop/debug-enabled?)
+                          (validate-output! frame-id owner-token exact-owner?
+                                            flow new-output))
+                    [new-db true]
+                    stale-incarnation)))))
+          (catch #?(:clj Throwable :cljs :default) e
+            ;; A callback may destroy A and then throw.  Terminal loss wins:
+            ;; the old callback's exception produces no B-attributed failure.
+            (if-not (owner-live? frame-id owner-token exact-owner?)
+              stale-incarnation
+              (do
+                (when interop/debug-enabled?
+                  (trace/emit! :flow :rf.flow/failed
+                               {:flow-id           flow-id
+                                :exception-message #?(:clj (.getMessage ^Throwable e)
+                                                      :cljs (.-message e))
+                                :exception-data    (ex-data e)
+                                :inputs            (elide-inputs frame-id flow new-inputs)
+                                :frame             frame-id}))
+                (if-not (owner-live? frame-id owner-token exact-owner?)
+                  stale-incarnation
+                  (error/throw-error!
+                    :rf.error/flow-eval-exception
+                    'rf/run-flows-on-db
+                    (str "a flow's :derive fn threw while recomputing flow "
+                         (pr-str flow-id)
+                         " during the drain; the event aborts before the :db install "
+                         "(no partial commit, app-db unchanged) and the flow "
+                         "re-attempts on the next drain. Fix the :derive fn so it "
+                         "does not throw on the inputs it is given.")
+                    {:recovery :no-recovery
+                     :extra    {:rf.flow/failed-id flow-id
+                                :cause             e}}))))))))))
+
+(defn- run-flows-on-db*
+  [frame-id db runtime-db owner-token exact-owner?]
+  (if-not (owner-live? frame-id owner-token exact-owner?)
+    stale-incarnation
+    (let [pass (if exact-owner?
+                 (registry/capture-flow-pass-state frame-id owner-token)
+                 (registry/legacy-flow-pass-state frame-id))]
+      (if-not pass
+        stale-incarnation
+        (let [flow-map          (:flow-map pass)
+              abandoned-before (registry/pass-abandoned-paths-snapshot pass)
+              abandoned-paths  (registry/pass-drain-abandoned-paths! pass)
+              db               (reduce registry/vacate-path-in-db
+                                       db abandoned-paths)]
+          (if-not (owner-live? frame-id owner-token exact-owner?)
+            stale-incarnation
+            (if-not (seq flow-map)
+              db
+              (let [ordered            (topo/topo-sort flow-map)
+                    last-inputs-before (registry/pass-last-inputs-snapshot pass)]
+                (try
+                  (loop [remaining ordered
+                         db        db]
+                    (cond
+                      (not (owner-live? frame-id owner-token exact-owner?))
+                      stale-incarnation
+
+                      (empty? remaining)
+                      db
+
+                      :else
+                      (let [flow   (flow-map (first remaining))
+                            result (evaluate-flow! frame-id owner-token
+                                                   exact-owner? pass db
+                                                   runtime-db flow)]
+                        (if (= stale-incarnation result)
+                          stale-incarnation
+                          (recur (rest remaining) (first result))))))
+                  (catch #?(:clj Throwable :cljs :default) e
+                    ;; Exact loss detached A's cells during destroy; restoring
+                    ;; through the bare id would corrupt B.  When A is still
+                    ;; live, restore the captured cells and preserve the
+                    ;; ordinary flow-throw contract.
+                    (if-not (owner-live? frame-id owner-token exact-owner?)
+                      stale-incarnation
+                      (do
+                        (registry/pass-reset-last-inputs!
+                          pass last-inputs-before)
+                        (registry/pass-restore-abandoned-paths!
+                          pass abandoned-before)
+                        (throw e)))))))))))))
 
 (defn run-flows-on-db
   "Transform a frame's pending app-db by evaluating its flows in dependency
@@ -206,36 +296,10 @@
   throws, this function restores the frame's dirty-check cache and pending path
   vacations, then rethrows. The router discards the pending db, preserving
   all-or-nothing event semantics."
-  [frame-id db runtime-db]
-  (let [flow-map (get (registry/flows-snapshot) frame-id)
-        ;; In-drain lifecycle changes cannot write app-db directly because the
-        ;; deferred commit would overwrite them. Apply their queued vacations
-        ;; to the pending db even when the last flow was just cleared.
-        abandoned-before (registry/abandoned-output-paths-snapshot frame-id)
-        abandoned-paths  (registry/drain-abandoned-output-paths! frame-id)
-        db (reduce registry/vacate-path-in-db db abandoned-paths)]
-    (if-not (seq flow-map)
-      db
-      (let [ordered (topo/topo-sort flow-map)
-            ;; Each frame owns a separate cache atom, so rollback cannot
-            ;; overwrite a sibling frame's concurrent advances.
-            last-inputs-before (registry/frame-last-inputs-snapshot frame-id)]
-        (try
-          ;; Left-fold app-db writes through the topological order. Every flow
-          ;; reads the same pending runtime-db snapshot.
-          (loop [remaining ordered
-                 db        db]
-            (if (empty? remaining)
-              db
-              (let [flow         (flow-map (first remaining))
-                    [new-db _]   (evaluate-flow! frame-id db runtime-db flow)]
-                (recur (rest remaining) new-db))))
-          (catch #?(:clj Throwable :cljs :default) e
-            ;; Match the router's discarded pending db by restoring every
-            ;; eager side effect owned by this flow pass.
-            (registry/reset-frame-last-inputs-to! frame-id last-inputs-before)
-            (registry/restore-abandoned-output-paths! frame-id abandoned-before)
-            (throw e)))))))
+  ([frame-id db runtime-db]
+   (run-flows-on-db* frame-id db runtime-db nil false))
+  ([frame-id db runtime-db {:keys [exact-owner-token]}]
+   (run-flows-on-db* frame-id db runtime-db exact-owner-token true)))
 
 ;; ---- late-bind hook registration ----------------------------------------
 ;;

@@ -1080,14 +1080,35 @@
                   "one pre-claim and one post-claim submit each scheduled a drain")
               (is (= 1 (count (:queue @(:router (get @frame/frames frame-id)))))
                   "the ordinary envelope was enqueued after the claim cutoff")
-              ;; Execute BOTH already-captured scheduler callbacks. Claim
-              ;; cleared :scheduled?, so the post-claim submit captured a
-              ;; second callback; both may independently enter the drain, but
-              ;; this exact router generation must report the combined drop
-              ;; evidence once.
-              (doseq [tick @captured-ticks]
-                (interop/next-tick tick))
-              (executor-barrier!)
+              ;; Execute BOTH already-captured scheduler callbacks separately.
+              ;; Claim cleared :scheduled?, so the post-claim submit captured a
+              ;; second callback. The first callback atomically consumes the
+              ;; claim-time count and compare-marks this router generation; the
+              ;; second still clears rejected work but cannot emit again. These
+              ;; internal-state assertions pin the algorithm shown in Spec 002
+              ;; §Drain-loop pseudocode, not merely its eventual trace count.
+              (let [[first-tick second-tick] @captured-ticks]
+                (interop/next-tick first-tick)
+                (executor-barrier!)
+                (let [router-state @(:router (get @frame/frames frame-id))
+                      interrupts   (filterv
+                                     #(= :rf.frame/drain-interrupted
+                                         (:operation %))
+                                     @traces)]
+                  (is (true? (:destroy-claim-report-emitted? router-state))
+                      "the first callback compare-marks this router generation")
+                  (is (not (contains? router-state
+                                      :destroy-claim-dropped-count))
+                      "the first callback atomically consumes claim-time evidence")
+                  (is (= 1 (count interrupts))
+                      "the compare/mark winner emits the one combined report"))
+                (interop/next-tick second-tick)
+                (executor-barrier!)
+                (is (= 1 (count (filter
+                                  #(= :rf.frame/drain-interrupted
+                                      (:operation %))
+                                  @traces)))
+                    "the second captured callback observes the mark and emits nothing"))
               (let [record (get @frame/frames frame-id)]
                 (reset! gap-observation
                         {:destroyed? (-> record :lifecycle :destroyed?)

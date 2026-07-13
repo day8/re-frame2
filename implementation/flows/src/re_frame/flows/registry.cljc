@@ -106,10 +106,13 @@
 ;;
 (defn ^:no-doc frame-last-inputs-snapshot
   "Return a frame's dirty-check rows as `{flow-id inputs}`."
-  [frame-id]
-  (if-let [a (get @frame-last-inputs frame-id)]
-    @a
-    {}))
+  ([frame-id]
+   (if-let [a (get @frame-last-inputs frame-id)]
+     @a
+     {}))
+  ([frame-id owner-token]
+   (when (frame/frame-incarnation-live? frame-id owner-token)
+     (frame-last-inputs-snapshot frame-id))))
 
 (defn ^:no-doc get-frame-flow-last-inputs
   "Return the cached inputs for a flow in a frame, or nil."
@@ -124,8 +127,12 @@
 
 (defn ^:no-doc reset-frame-last-inputs-to!
   "Restore one frame's dirty-check cache from a prior snapshot."
-  [frame-id prior]
-  (reset! (ensure-frame-last-inputs-atom! frame-id) prior))
+  ([frame-id prior]
+   (reset! (ensure-frame-last-inputs-atom! frame-id) prior))
+  ([frame-id owner-token prior]
+   (when (frame/frame-incarnation-live? frame-id owner-token)
+     (when-let [a (get @frame-last-inputs frame-id)]
+       (reset! a prior)))))
 
 ;; ---- pending abandoned output paths --------------------------------------
 ;;
@@ -158,10 +165,13 @@
 
 (defn ^:no-doc abandoned-output-paths-snapshot
   "Return a frame's pending output-path vacations as a set."
-  [frame-id]
-  (if-let [a (get @frame-abandoned-output-paths frame-id)]
-    @a
-    #{}))
+  ([frame-id]
+   (if-let [a (get @frame-abandoned-output-paths frame-id)]
+     @a
+     #{}))
+  ([frame-id owner-token]
+   (when (frame/frame-incarnation-live? frame-id owner-token)
+     (abandoned-output-paths-snapshot frame-id))))
 
 (defn ^:no-doc drain-abandoned-output-paths!
   "Atomically read-and-clear `frame-id`'s pending abandoned output paths,
@@ -179,8 +189,64 @@
 
 (defn ^:no-doc restore-abandoned-output-paths!
   "Restore one frame's pending output-path vacations from a prior snapshot."
-  [frame-id prior]
-  (reset! (ensure-frame-abandoned-paths-atom! frame-id) (set prior)))
+  ([frame-id prior]
+   (reset! (ensure-frame-abandoned-paths-atom! frame-id) (set prior)))
+  ([frame-id owner-token prior]
+   (when (frame/frame-incarnation-live? frame-id owner-token)
+     (when-let [a (get @frame-abandoned-output-paths frame-id)]
+       (reset! a (set prior))))))
+
+;; ---- exact-incarnation flow-pass ownership -------------------------------
+
+(defn ^:no-doc capture-flow-pass-state
+  "Capture the registry values and private cache cells owned by one flow pass.
+
+  The cells, not the bare frame id, are the mutation authority.  If a derive
+  callback destroys incarnation A, teardown dissociates these cells and a
+  same-id B creates fresh ones; the already-running A pass can therefore
+  neither advance nor restore B's dirty-check/vacation state.  Returns nil
+  when `owner-token` no longer names the live incarnation."
+  [frame-id owner-token]
+  (when (frame/frame-incarnation-live? frame-id owner-token)
+    (let [state {:flow-map        (get @flows frame-id)
+                 :last-inputs     (ensure-frame-last-inputs-atom! frame-id)
+                 :abandoned-paths (ensure-frame-abandoned-paths-atom! frame-id)}]
+      (when (frame/frame-incarnation-live? frame-id owner-token)
+        state))))
+
+(defn ^:no-doc legacy-flow-pass-state
+  "Capture flow-pass state without an exact-owner fence (legacy/test arity)."
+  [frame-id]
+  {:flow-map        (get @flows frame-id)
+   :last-inputs     (ensure-frame-last-inputs-atom! frame-id)
+   :abandoned-paths (ensure-frame-abandoned-paths-atom! frame-id)})
+
+(defn ^:no-doc pass-last-inputs-snapshot [pass]
+  @(get pass :last-inputs))
+
+(defn ^:no-doc pass-flow-last-inputs [pass flow-id]
+  (get @(get pass :last-inputs) flow-id))
+
+(defn ^:no-doc pass-set-flow-last-inputs! [pass flow-id inputs]
+  (swap! (get pass :last-inputs) assoc flow-id inputs))
+
+(defn ^:no-doc pass-reset-last-inputs! [pass prior]
+  (reset! (get pass :last-inputs) prior))
+
+(defn ^:no-doc pass-abandoned-paths-snapshot [pass]
+  @(get pass :abandoned-paths))
+
+(defn ^:no-doc pass-drain-abandoned-paths!
+  [pass]
+  (let [drained (volatile! #{})]
+    (swap! (get pass :abandoned-paths)
+           (fn [paths]
+             (vreset! drained paths)
+             #{}))
+    @drained))
+
+(defn ^:no-doc pass-restore-abandoned-paths! [pass prior]
+  (reset! (get pass :abandoned-paths) (set prior)))
 
 ;; ---- last-inputs row maintenance -----------------------------------------
 ;;

@@ -21,6 +21,7 @@
   artefact don't carry the trace strings or the handler for them."
   (:require [re-frame.registrar :as registrar]
             [re-frame.error :as error]
+            [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.reg-meta :as reg-meta]
@@ -795,22 +796,29 @@
   no `:rf.error/reserved-fx-override` is emitted. `frame-id` / `origin-event`
   carry cascade context for the emit; both read-only here. Public so the
   router can call it; not part of the user surface."
-  [overrides frame-id origin-event]
-  (if (and (map? overrides)
-           (some #(real-reject-override? overrides %) rejected-reserved-fx-ids))
-    (let [origin-event-id (when (vector? origin-event) (first origin-event))]
-      (reduce-kv
-        (fn [acc fx-id override-target]
-          (if (real-reject-override? overrides fx-id)
-            (do
-              (emit-reserved-fx-override! fx-id override-target frame-id
-                                          origin-event origin-event-id
-                                          :production-strip)
-              acc)
-            (assoc acc fx-id override-target)))
-        {}
-        overrides))
-    overrides))
+  ([overrides frame-id origin-event]
+   (strip-rejected-overrides overrides frame-id origin-event (constantly true)))
+  ([overrides frame-id origin-event continue?]
+   (if (and (map? overrides)
+            (some #(real-reject-override? overrides %) rejected-reserved-fx-ids))
+     (let [origin-event-id (when (vector? origin-event) (first origin-event))]
+       (reduce-kv
+         (fn [acc fx-id override-target]
+           (cond
+             (not (continue?)) (reduced acc)
+             (real-reject-override? overrides fx-id)
+             (do
+               (emit-reserved-fx-override! fx-id override-target frame-id
+                                           origin-event origin-event-id
+                                           :production-strip)
+               ;; A synchronous listener may destroy the exact owner. Stop
+               ;; stripping/emitting immediately; the router discards this
+               ;; partial map after its post-call incarnation check.
+               (if (continue?) acc (reduced acc)))
+             :else (assoc acc fx-id override-target)))
+         {}
+         overrides))
+     overrides)))
 
 (defn- resolve-fx-with-overrides
   "Apply fx-id overrides per Spec 002 §Per-frame and per-call overrides.
@@ -989,8 +997,24 @@
                 (cond-> {:rf.fx/id   fx-id
                          :rf.fx/args args
                          :frame      frame-id}
-                  (some? elapsed-ms) (assoc :rf.fx/elapsed-ms elapsed-ms)
-                  (some? from-id)    (assoc :rf.fx/from from-id)))))
+                   (some? elapsed-ms) (assoc :rf.fx/elapsed-ms elapsed-ms)
+                   (some? from-id)    (assoc :rf.fx/from from-id)))))
+
+(def ^:dynamic ^:private *exact-frame-owner-token*
+  "Exact dequeued-event owner while the router executes a `:fx` walk.
+
+  nil preserves the public/internal standalone `handle-one-fx` contract.  A
+  non-nil token turns every callback boundary into a terminal-incarnation
+  fence; the binding naturally propagates through wrapper fxs that re-enter
+  `handle-one-fx` (for example the navigation-token wrapper)."
+  nil)
+
+(def ^:private stale-incarnation ::stale-incarnation)
+
+(defn- exact-owner-live?
+  [frame-id]
+  (or (nil? *exact-frame-owner-token*)
+      (frame/frame-incarnation-live? frame-id *exact-frame-owner-token*)))
 
 (defn handle-one-fx
   "Process one [fx-id args] pair. Falls into one of three buckets:
@@ -1027,7 +1051,9 @@
   ([frame-id pair active-platform overrides origin-event]
    (handle-one-fx frame-id pair active-platform overrides origin-event nil))
   ([frame-id [original-fx-id args] active-platform overrides origin-event parent-envelope]
-  (let [origin-event-id (when (vector? origin-event) (first origin-event))
+   (if-not (exact-owner-live? frame-id)
+     stale-incarnation
+     (let [origin-event-id (when (vector? origin-event) (first origin-event))
         ;; rf2-snsup5: HARD-REJECT an `:fx-overrides` entry that targets a
         ;; reject-tier reserved fx-id (`rejected-reserved-fx-ids` — the
         ;; state-installing lifecycle fxs + the nav-token threader). Whether
@@ -1062,9 +1088,16 @@
         ;; body runs as if no override were present. The OVERRIDABLE-tier
         ;; entries are untouched.
         overrides (if reject-override? (dissoc overrides original-fx-id) overrides)
-        fx-id (resolve-fx-with-overrides original-fx-id overrides
-                                         frame-id origin-event origin-event-id)
-        resolved-meta (resolved-fx-meta original-fx-id fx-id overrides)
+        ;; The rejected-override diagnostic above and override resolution below
+        ;; both synchronously fan out to listeners. Fence between them: if the
+        ;; first emit destroys A, do not resolve/emit a second fact under B.
+        fx-id (when (exact-owner-live? frame-id)
+                (resolve-fx-with-overrides original-fx-id overrides
+                                           frame-id origin-event origin-event-id))
+        ;; `resolve-fx-with-overrides` itself may emit override-applied or
+        ;; fallthrough. Its result is inert after listener-induced owner loss.
+        resolved-meta (when (exact-owner-live? frame-id)
+                        (resolved-fx-meta original-fx-id fx-id overrides))
         ;; rf2-nrpj1: a function-value override (`{:dispatch (fn [m args] ...)}`)
         ;; must run IN PLACE OF the registered/reserved fx — per spec/002
         ;; §`:fx-overrides` the resolution model consults `:fx-overrides`
@@ -1105,8 +1138,10 @@
    ;; `:rf.fx/clear-flow`) — without that, an app whose handlers only
    ;; emit `:dispatch` produces zero `rf:fx:*` entries even with the perf
    ;; flag on.
-   (performance/mark-and-measure :fx fx-id
-    (if-let [reserved-body (and (not fn-value-override?)
+   (if-not (exact-owner-live? frame-id)
+     stale-incarnation
+     (performance/mark-and-measure :fx fx-id
+      (if-let [reserved-body (and (not fn-value-override?)
                                 (get reserved-fx-handlers fx-id))]
       ;; Reserved fx-id — dispatch through the table; one uniform
       ;; `:rf.fx/handled` emit follows. The `:rf.machine/spawn` and
@@ -1137,12 +1172,17 @@
         ;; brackets ride `interop/debug-enabled?` (nil in prod → DCE).
         (let [t0 (when interop/debug-enabled? (interop/now-ms))]
           (reserved-body frame-id parent-envelope args)
-          (emit-handled! fx-id args frame-id
-                         (when interop/debug-enabled? (- (interop/now-ms) t0))))
+          (if (exact-owner-live? frame-id)
+            (emit-handled! fx-id args frame-id
+                           (when interop/debug-enabled?
+                             (- (interop/now-ms) t0)))
+            stale-incarnation))
         (catch #?(:clj Throwable :cljs :default) e
-          (let [ex-data-map (ex-data e)
-                category    (:rf.error/id ex-data-map)]
-            (if (keyword? category)
+          (if-not (exact-owner-live? frame-id)
+            stale-incarnation
+            (let [ex-data-map (ex-data e)
+                  category    (:rf.error/id ex-data-map)]
+              (if (keyword? category)
               ;; rf2-vzrxp3: nil-safe (a thrown non-Error value has no message).
               (let [msg (error/ex-message-safe e)]
                 ;; Both channels via the shared `emit-fx-error!` helper
@@ -1170,7 +1210,7 @@
                                        (dissoc ex-data-map :rf.error/id))))
               ;; Untyped reserved-fx throw — preserve crash-loud
               ;; contract by re-throwing.
-              (throw e)))))
+                (throw e))))))
       ;; Default: user-registered fx — OR a synthesised meta carrying a
       ;; function-value override (per `resolved-fx-meta` above; the
       ;; spec/002 CLJS-reference convenience form). `resolved-meta` was
@@ -1206,13 +1246,19 @@
                                (validate-fx! fx-id origin-event-id args meta frame-id)
                                (catch #?(:clj Throwable :cljs :default) _ true))
                              true)]
-        (if-not fx-ok?
+        (cond
+          (not (exact-owner-live? frame-id))
+          stale-incarnation
+
+          (not fx-ok?)
           ;; Schema validation failed — the offending fx is skipped.
           ;; `validate-fx!` already emitted the structured error trace;
           ;; do NOT emit `:rf.fx/handled` (the fx did not run) and do
           ;; NOT emit a sibling warning (the schema-validation-failure
           ;; trace IS the warning, per Spec 010).
           nil
+
+          :else
           ;; Publish the fx handler's HandlerScope — `:trigger-handler`
           ;; for the fx handler's invocation AND the success-path
           ;; `:rf.fx/handled` emit; `:no-emit?` per Spec 009
@@ -1247,7 +1293,9 @@
             ;; so `:rf.fx/handled` carries `:rf.fx/elapsed-ms`. The
             ;; `now-ms` brackets ride `interop/debug-enabled?` (nil in
             ;; prod → DCE under :advanced).
-            (let [t0  (when interop/debug-enabled? (interop/now-ms))
+            (if-not (exact-owner-live? frame-id)
+              stale-incarnation
+              (let [t0  (when interop/debug-enabled? (interop/now-ms))
                   ok? (try
                         ;; Per Spec 002 §The binary fx-handler signature
                         ;; (line 603): the fx-handler ctx carries `:frame`
@@ -1264,7 +1312,9 @@
                         true
                         (catch #?(:clj Throwable :cljs :default) e
                           ;; rf2-vzrxp3: nil-safe (a thrown non-Error value has no message).
-                          (let [msg (error/ex-message-safe e)]
+                          (if-not (exact-owner-live? frame-id)
+                            stale-incarnation
+                            (let [msg (error/ex-message-safe e)]
                             ;; rf2-goum9x: a thrown registered fx is
                             ;; production-survivable (Spec 009/011) — fan it
                             ;; out through the always-on error-emit listener
@@ -1291,12 +1341,22 @@
                                 ;; always-on error trace too: the projector
                                 ;; must reach the ORIGINAL id's classification
                                 ;; when a redirected stub throws mid-args.
-                                redirected-from (assoc :rf.fx/from redirected-from))))
-                          false))]
-              (when ok?
-                (emit-handled! fx-id args frame-id
-                               (when interop/debug-enabled? (- (interop/now-ms) t0))
-                               redirected-from))))))
+                                 redirected-from (assoc :rf.fx/from redirected-from)))
+                              false))))]
+                (cond
+                  (= stale-incarnation ok?)
+                  stale-incarnation
+
+                  (not (exact-owner-live? frame-id))
+                  stale-incarnation
+
+                  ok?
+                  (emit-handled! fx-id args frame-id
+                                 (when interop/debug-enabled?
+                                   (- (interop/now-ms) t0))
+                                 redirected-from)
+
+                  :else nil))))))
         (trace/emit! :warning :rf.fx/skipped-on-platform
                      (cond-> {:rf.fx/id                   fx-id
                               :frame                      frame-id
@@ -1320,7 +1380,7 @@
                       {:rf.fx/id   fx-id
                        :rf.fx/args args
                        :frame      frame-id
-                       :recovery   :no-recovery})))))))
+                       :recovery   :no-recovery})))))))))
 
 (def framework-coeffect-keys
   "Coeffect keys populated by the runtime itself (not by user-registered
@@ -1548,6 +1608,12 @@
                       for `:dispatch` / `:dispatch-later` read it to
                       propagate inheritable keys onto the child dispatch
                       per §Cascade propagation.
+    :frame-incarnation-token
+                      the router's exact frame token for this dequeued event.
+                      Before every entry (and the terminal trace), the walk
+                      verifies that the token still names the live frame; if
+                      an earlier fx destroyed A, later entries cannot target a
+                      fresh same-id B. Omitted by non-router internal walks.
     :effects          the originating handler's full effects map (the
                       closed `{:db ... :fx ...}` shape). Used ONLY to
                       stamp shape info onto the terminating
@@ -1570,35 +1636,42 @@
   ([frame-id fx-vec active-platform]
    (do-fx frame-id fx-vec active-platform nil))
   ([frame-id fx-vec active-platform
-    {:keys [overrides origin-event parent-envelope effects]}]
-   (doseq [pair fx-vec]
-     ;; Per-entry shape policing (rf2-n6d3m): a non-nil/non-empty NON-vector
-     ;; entry (the forgot-the-inner-vector typo) emits
-     ;; :rf.error/effect-map-shape and is dropped; nil/empty stays the legal
-     ;; conditional-fx no-op; a well-shaped entry walks normally. Composes
-     ;; with rf2-24zly's whole-:fx-value check one level up (events.cljc).
-     (when (fx-entry-ok? pair frame-id origin-event)
-       (if-let [sink *effect-sink*]
-         ;; Dry-run (rf2-j538f7.39): RECORD the source-ordered `[fx-id args]`
-         ;; entry and SKIP execution ENTIRELY. Interception is HERE — the
-         ;; single universal effect executor, BEFORE `handle-one-fx`'s
-         ;; override resolution / reserved-fx dispatch / user-handler invoke —
-         ;; so a dry-run is structurally unable to execute ANY fx (reject-tier
-         ;; reserved fx, frame-image / inline fx, hot registrations, unknown
-         ;; ids) with no registrar enumeration. See `*effect-sink*`.
-         (swap! sink conj [(first pair) (second pair)])
-         (handle-one-fx frame-id pair active-platform (or overrides {})
-                        origin-event parent-envelope))))
-   ;; Per rf2-twt7m Change 2: stamp `:fx` + `:db-present?` onto the
-   ;; `:event/do-fx` marker's `:tags` when the caller supplied the
-   ;; effects map. The full `:db` VALUE is NOT stamped — slice
-   ;; changes already ride the App-db diff trace
-   ;; (`:event/db-changed`), and the value can be huge. Presence +
-   ;; shape is what consumers (Event lens, Xray) need to align
-   ;; cascade rows with handler returns. The tag-map is the third
-   ;; arg to `trace/emit!`; `trace/emit!` itself is DCE-gated, so
-   ;; prod builds elide both the construction and the emit.
-   (trace/emit! :rf.fx :rf.fx/do-fx
-                (cond-> {:frame frame-id}
-                  (some? effects)  (assoc :rf.event/fx          (:fx effects)
-                                          :rf.event/db-present? (contains? effects :db))))))
+    {:keys [overrides origin-event parent-envelope effects
+            frame-incarnation-token]}]
+   (binding [*exact-frame-owner-token* frame-incarnation-token]
+     (loop [pairs (seq fx-vec)]
+       (cond
+         (not (exact-owner-live? frame-id))
+         stale-incarnation
+
+         (nil? pairs)
+         (do
+           ;; Per rf2-twt7m Change 2: stamp `:fx` + `:db-present?` onto
+           ;; the terminal marker only while the exact owner remains live.
+           (trace/emit! :rf.fx :rf.fx/do-fx
+                        (cond-> {:frame frame-id}
+                          (some? effects)
+                          (assoc :rf.event/fx          (:fx effects)
+                                 :rf.event/db-present? (contains? effects :db))))
+           (if (exact-owner-live? frame-id) :ok stale-incarnation))
+
+         :else
+         (let [pair (first pairs)]
+           ;; Shape policing may emit through synchronous listeners, so its
+           ;; callback boundary is followed by the same exact-owner check.
+           (if-not (fx-entry-ok? pair frame-id origin-event)
+             (if (exact-owner-live? frame-id)
+               (recur (next pairs))
+               stale-incarnation)
+             (let [result
+                   (if-let [sink *effect-sink*]
+                     ;; Dry-run records but never executes the entry.
+                     (do (swap! sink conj [(first pair) (second pair)])
+                         :ok)
+                     (handle-one-fx frame-id pair active-platform
+                                    (or overrides {}) origin-event
+                                    parent-envelope))]
+               (if (or (= stale-incarnation result)
+                       (not (exact-owner-live? frame-id)))
+                 stale-incarnation
+                 (recur (next pairs)))))))))))

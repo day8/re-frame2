@@ -790,6 +790,26 @@
   (swap! capture-buffers dissoc frame-id)
   nil)
 
+(defn drop-dispatch-buffer-events!
+  "Drop only capture events owned by `dispatch-id` from `frame-id`'s buffer.
+
+  Used when a dequeued event's exact frame incarnation vanished before its
+  tail settled. A fresh same-id frame may already be capturing unrelated work,
+  so whole-buffer cleanup would be just as corrupting as committing the stale
+  event; this dispatch-id partition removes A's residue and preserves B."
+  [frame-id dispatch-id]
+  (when dispatch-id
+    (swap! capture-buffers
+           (fn [buffers]
+             (let [kept (filterv
+                          #(not= dispatch-id
+                                 (-> % :tags :rf.trace/dispatch-id))
+                          (get buffers frame-id []))]
+               (if (seq kept)
+                 (assoc buffers frame-id kept)
+                 (dissoc buffers frame-id))))))
+  nil)
+
 (defn reset-capture-buffers!
   "Wipe every in-flight capture buffer across all frames. Test fixtures
   use this in lockstep with `reset-histories!` so stale traces cannot be

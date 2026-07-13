@@ -768,7 +768,7 @@
    {:key         :epoch/settle!
     :producer-ns 're-frame.epoch
     :design-bead "rf2-nj6p7"
-    :description "Settle one DEQUEUED EVENT's epoch (commit to history). Per Spec 002 §Drain versus event the epoch boundary is the dequeued event, not the drain — the router calls this once per process-event! (incl. each :fx-dispatched child), harvesting that one event's cascade buffer. Skips an empty buffer (rejected/aborted dispatch)."}
+    :description "Settle one DEQUEUED EVENT's epoch (commit to history). Per Spec 002 §Drain versus event the epoch boundary is the dequeued event, not the drain — the router calls this once per process-event! (incl. each :fx-dispatched child), harvesting that one event's cascade buffer. The router's full arity carries the captured exact-owner token; if A vanished/reused before settle, only A's dispatch-id residue is dropped and no same-id B history is touched. Skips an empty buffer (rejected/aborted dispatch)."}
    {:key         :epoch/commit-halt-record!
     :producer-ns 're-frame.epoch
     :design-bead "rf2-nj6p7"

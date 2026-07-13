@@ -240,18 +240,29 @@
   ([frame-id frame-state-before frame-state-after committed-at outcome halt-reason]
    (settle! frame-id frame-state-before frame-state-after committed-at outcome halt-reason nil))
   ([frame-id frame-state-before frame-state-after committed-at outcome halt-reason settling-dispatch-id]
+   (settle! frame-id frame-state-before frame-state-after committed-at
+            outcome halt-reason settling-dispatch-id nil))
+  ([frame-id frame-state-before frame-state-after committed-at outcome halt-reason
+    settling-dispatch-id {:keys [exact-owner-token]}]
    (when interop/debug-enabled?
-     ;; Take only the settling event's traces, leaving a queued child's
-     ;; marker in the buffer for its own settle. The envelope id also scopes
-     ;; the no-run-start branch so a rejected or aborted dispatch's own
-     ;; error trace is dropped (not returned) rather than committed as a fake
-     ;; `:ok` epoch.
-     (let [events (state/harvest-buffer-for-event! frame-id settling-dispatch-id)]
-       ;; An empty capture has no event context. Rejected dispatches are
-       ;; suppressed here; never-run depth halts use `commit-halt-record!`.
-       (when (seq events)
-         (commit-record! frame-id frame-state-before frame-state-after events
-                         committed-at outcome halt-reason nil))))))
+     (if (and exact-owner-token
+              (not (frame/frame-incarnation-live?
+                     frame-id exact-owner-token)))
+       ;; A's run-start was already harvested by A's synchronous destroy hook;
+       ;; tail traces may now sit beside fresh same-id B work. Remove only A's
+       ;; dispatch-id evidence and never claim/commit B's epoch stores.
+       (state/drop-dispatch-buffer-events! frame-id settling-dispatch-id)
+       ;; Take only the settling event's traces, leaving a queued child's
+       ;; marker in the buffer for its own settle. The envelope id also scopes
+       ;; the no-run-start branch so a rejected or aborted dispatch's own
+       ;; error trace is dropped (not returned) rather than committed as a fake
+       ;; `:ok` epoch.
+       (let [events (state/harvest-buffer-for-event! frame-id settling-dispatch-id)]
+         ;; An empty capture has no event context. Rejected dispatches are
+         ;; suppressed here; never-run depth halts use `commit-halt-record!`.
+         (when (seq events)
+           (commit-record! frame-id frame-state-before frame-state-after events
+                           committed-at outcome halt-reason nil)))))))
 
 (defn- commit-halt-record!
   "Commit a halt record for an event that never ran.

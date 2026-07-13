@@ -453,26 +453,43 @@
   full `[id arg]` it came from — not merely its `:id`.
 
   Refs resolve through the active (realm-aware) registrar — see the ns docstring."
-  [chain]
-  (if-not (seq chain)
-    (vec chain)
-    (mapv (fn [entry]
-            (cond
-              ;; A reference — resolve it and stamp the AUTHORED ref so exact-
-              ;; reference override matching can key on the full `[id arg]`.
-              ;; (Checked FIRST: a ref is a keyword / [id arg] vector, never a
-              ;; map, so there is no ambiguity with an inline value.)
-              (interceptor-ref? entry)
-              (assoc (resolve-ref entry) authored-ref-key entry)
-              ;; The framework's own appended handler-wrapper (`:rf/default?
-              ;; true`) — framework machinery, not an authored chain entry;
-              ;; passes through untouched (the reference-only carve-out).
-              (interceptor/framework-default-interceptor? entry) entry
-              ;; An INLINE interceptor value — the reference-only grammar
-              ;; rejects it LOUD (EP-0022): register it + reference by id.
-              (interceptor-value? entry) (throw-inline-interceptor-removed! entry)
-              :else (throw-invalid-ref! entry)))
-          chain)))
+  ([chain]
+   (resolve-chain chain (constantly true)))
+  ([chain continue?]
+   ;; `continue?` is the router's exact-incarnation fence. Parameterized
+   ;; interceptor factories are authored callbacks; if factory N destroys the
+   ;; dequeued event's frame, factory N+1 must never run and N's returned
+   ;; interceptor is inert. The legacy arity supplies an always-true predicate.
+   (if-not (seq chain)
+     (vec chain)
+     (loop [entries (seq chain)
+            resolved []]
+       (cond
+         (not (continue?)) nil
+         (nil? entries) resolved
+         :else
+         (let [entry (first entries)
+               value (try
+                       (cond
+                         ;; A reference — resolve it and stamp the AUTHORED ref
+                         ;; so exact-reference override matching can key on the
+                         ;; full `[id arg]`.
+                         (interceptor-ref? entry)
+                         (assoc (resolve-ref entry) authored-ref-key entry)
+                         ;; The framework's own appended handler-wrapper.
+                         (interceptor/framework-default-interceptor? entry) entry
+                         ;; Inline values remain a hard reference-grammar error.
+                         (interceptor-value? entry)
+                         (throw-inline-interceptor-removed! entry)
+                         :else (throw-invalid-ref! entry))
+                       (catch #?(:clj Throwable :cljs :default) e
+                         ;; A factory may destroy its owner and then throw. Once
+                         ;; ownership is gone, even that returned failure is
+                         ;; inert; while live, preserve the existing hard error.
+                         (if (continue?) (throw e) nil)))]
+           (if (continue?)
+             (recur (next entries) (conj resolved value))
+             nil)))))))
 
 (defn chain-needs-resolution?
   "True when `chain` carries at least one entry `resolve-chain` must act on —

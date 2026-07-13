@@ -37,6 +37,7 @@
   validator fail-louds in prod as well as dev. The direct require is cycle-free.
   The dev-gated PROJECTION hook stays late-bound. No imperative stash."
   (:require [re-frame.interop :as interop]
+            [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
             [re-frame.image-assembly :as image-assembly]
             [re-frame.interceptor :as interceptor]
@@ -319,26 +320,34 @@
   for the every-key-walks-the-closed-set check is wasted work. Pre-check
   via `every?` (no allocation), and fall through to the doseq/vec build
   only when at least one key is offending."
-  [effects event]
-  (if (every? closed-effect-map-keys (keys effects))
-    nil
-    (let [event-id (when (vector? event) (first event))
-          offending (->> (keys effects)
-                         (remove closed-effect-map-keys)
-                         (vec))]
-      (doseq [k offending]
-        (let [v      (get effects k)
-              reason (str "Effect-map for `" event-id "` returned top-level key `" k
-                          "`; only `:db`, `:rf.db/runtime`, and `:fx` are allowed at the top level.")]
-          (trace/emit-error! :rf.error/effect-map-shape
-                             {:failing-id        event-id
-                              :rf.trace/event-id event-id
-                              :rf.event/v        event
-                              :offending-key     k
-                              :value             v
-                              :reason            reason
-                              :recovery          :logged-and-skipped})))
-      offending)))
+  ([effects event]
+   (police-effect-map-shape! effects event (constantly true)))
+  ([effects event continue?]
+   (if (every? closed-effect-map-keys (keys effects))
+     nil
+     (let [event-id (when (vector? event) (first event))
+           offending (->> (keys effects)
+                          (remove closed-effect-map-keys)
+                          (vec))]
+       ;; Error listeners are synchronous callback boundaries. If the first
+       ;; diagnostic destroys the exact event owner, no second diagnostic may
+       ;; be attributed to a same-id successor.
+       (loop [ks (seq offending)]
+         (when (and ks (continue?))
+           (let [k      (first ks)
+                 v      (get effects k)
+                 reason (str "Effect-map for `" event-id "` returned top-level key `" k
+                             "`; only `:db`, `:rf.db/runtime`, and `:fx` are allowed at the top level.")]
+             (trace/emit-error! :rf.error/effect-map-shape
+                                {:failing-id        event-id
+                                 :rf.trace/event-id event-id
+                                 :rf.event/v        event
+                                 :offending-key     k
+                                 :value             v
+                                 :reason            reason
+                                 :recovery          :logged-and-skipped})
+             (recur (next ks)))))
+       offending))))
 
 ;; ---- :fx VALUE-shape policing --------------------------------------------
 ;;
@@ -431,14 +440,16 @@
   `police-effect-map-shape!` allocates nothing and `fx-value-ok?` is a
   single `sequential?` check, so the map is returned unchanged with no
   reconstruction."
-  [effects event]
-  (if-not (map? effects)
-    effects
-    (let [offending (police-effect-map-shape! effects event)
-          cleaned   (if (seq offending) (apply dissoc effects offending) effects)]
-      (if (fx-value-ok? cleaned event)
-        cleaned
-        (dissoc cleaned :fx)))))
+  ([effects event]
+   (police-final-effects! effects event (constantly true)))
+  ([effects event continue?]
+   (if-not (map? effects)
+     effects
+     (let [offending (police-effect-map-shape! effects event continue?)
+           cleaned   (if (seq offending) (apply dissoc effects offending) effects)]
+       (if (or (not (continue?)) (fx-value-ok? cleaned event))
+         cleaned
+         (dissoc cleaned :fx))))))
 
 ;; ---- handler-as-interceptor wrapper ---------------------------------------
 ;;
@@ -589,47 +600,47 @@
   commit (scoping `:db` to app-db, installing the runtime-db / full-frame
   write as one atomic frame-state transition) happens downstream."
   [ctx event effects]
-  (cond
-    (nil? effects) ctx                       ;; documented legal no-op
-    (not (map? effects))
-    (do (trace/emit-error! :rf.error/effect-handler-bad-return
+  (let [frame-id (:rf.frame/id (:coeffects ctx))
+        live?    #(or (nil? (frame/current-event-owner-token))
+                      (frame/event-owner-live? frame-id))]
+    (cond
+      (nil? effects) ctx
+      (not (map? effects))
+      (do
+        (trace/emit-error! :rf.error/effect-handler-bad-return
                            {:event-id      (when (vector? event) (first event))
                             :event         event
                             :returned      effects
                             :returned-type (type effects)
                             :reason        "reg-event handler returned a non-map; expected {:db ... :fx [...]}."
                             :recovery      :no-recovery})
-        ctx)
-    :else
-    (do
-      (police-effect-map-shape! effects event)
-      (police-runtime-effect-authority! ctx event effects)
-      ;; EP-0025: the four commit-plane classification effects (`:sensitive` /
-      ;; `:large` / `:clear-sensitive` / `:clear-large`) are carried through the
-      ;; context here so the router applies them WITH the `:db` write at the
-      ;; atomic commit point (`commit-frame-effects!`) — a frame-state transform
-      ;; into the per-frame elision registry, NOT a post-commit `:fx`. Their
-      ;; FAIL-LOUD shape validation runs at the router's FINAL-effects boundary
-      ;; (`commit-and-flow!`), in-band like the legacy-runtime-root rejection, so
-      ;; a malformed payload (incl. one injected by an `:after` interceptor)
-      ;; aborts the event pre-commit with NO `:db` commit and emits
-      ;; `:rf.error/classification-effect-shape` without escaping the drain.
-      (cond-> ctx
-        (contains? effects :db) (interceptor/assoc-effect :db (:db effects))
-        ;; runtime-db partition effect (EP-0001). Carried through the
-        ;; context here; the partitioned/atomic commit path runs downstream.
-        ;; Reserved-by-convention — the authority diagnostic above has
-        ;; already fired for a non-framework writer; the effect is applied either way.
-        (contains? effects :rf.db/runtime) (interceptor/assoc-effect :rf.db/runtime (:rf.db/runtime effects))
-        (and (contains? effects :fx)
-             (fx-value-ok? effects event)) (interceptor/assoc-effect :fx (:fx effects))
-        ;; EP-0025 commit-plane classification effects — carry the (validated)
-        ;; payloads through the context so the router's atomic commit applies
-        ;; them WITH the `:db` write. Each is carried verbatim.
-        (contains? effects :sensitive)       (interceptor/assoc-effect :sensitive (:sensitive effects))
-        (contains? effects :large)           (interceptor/assoc-effect :large (:large effects))
-        (contains? effects :clear-sensitive) (interceptor/assoc-effect :clear-sensitive (:clear-sensitive effects))
-        (contains? effects :clear-large)     (interceptor/assoc-effect :clear-large (:clear-large effects))))))
+        (if (live?) ctx (assoc ctx :rf/stale-incarnation? true)))
+      :else
+      (do
+        (police-effect-map-shape! effects event live?)
+        (when (live?)
+          (police-runtime-effect-authority! ctx event effects))
+        (if-not (live?)
+          (assoc ctx :rf/stale-incarnation? true)
+          (let [fx-ok? (or (not (contains? effects :fx))
+                           (fx-value-ok? effects event))]
+            (if-not (live?)
+              (assoc ctx :rf/stale-incarnation? true)
+              (cond-> ctx
+                (contains? effects :db)
+                (interceptor/assoc-effect :db (:db effects))
+                (contains? effects :rf.db/runtime)
+                (interceptor/assoc-effect :rf.db/runtime (:rf.db/runtime effects))
+                (and (contains? effects :fx) fx-ok?)
+                (interceptor/assoc-effect :fx (:fx effects))
+                (contains? effects :sensitive)
+                (interceptor/assoc-effect :sensitive (:sensitive effects))
+                (contains? effects :large)
+                (interceptor/assoc-effect :large (:large effects))
+                (contains? effects :clear-sensitive)
+                (interceptor/assoc-effect :clear-sensitive (:clear-sensitive effects))
+                (contains? effects :clear-large)
+                (interceptor/assoc-effect :clear-large (:clear-large effects))))))))))
 
 (def event-handler-interceptor-id
   "The single `:id` the framework stamps on the handler-wrapping interceptor
@@ -663,15 +674,37 @@
     (fn [ctx]
       (if (:rf/skip-handler? ctx)
         ctx
-        (let [event   (interceptor/get-coeffect ctx :event)
-              new-ctx (commit-fx-effects ctx event
-                                         (handler-fn (interceptor/get-coeffect ctx) event))]
-          ;; EP-0001: a `:db` effect carrying the
-          ;; retired `:rf/runtime` app-db root is a HARD ERROR — reject it at
-          ;; the single post-commit chokepoint. No-op (cheap) when the legacy
-          ;; key is absent.
-          (reject-legacy-runtime-root! (interceptor/get-effect new-ctx :db) event)
-          new-ctx)))))
+        (let [event       (interceptor/get-coeffect ctx :event)
+              effects     (handler-fn (interceptor/get-coeffect ctx) event)
+              frame-id    (:rf.frame/id (:coeffects ctx))
+              ;; Authority is bound outside the authored context.  An
+              ;; interceptor may rebuild or tamper with `ctx`, but cannot forge
+              ;; ownership of a fresh same-id incarnation.
+              owner-token (frame/current-event-owner-token)]
+          ;; Option A terminal-incarnation law: the authored handler has
+          ;; already entered, so it is allowed to return.  But if it destroyed
+          ;; A (and perhaps installed a fresh same-id B), its returned value is
+          ;; inert.  In particular, do not run handler-return shape policing or
+          ;; legacy-root diagnostics against a value which can no longer have a
+          ;; commit target.  `execute-chain` still unwinds every already-entered
+          ;; authored `:after`; the framework-owned outer flows interceptor
+          ;; observes this marker and fences the remaining tail.
+          (if-not (frame/frame-incarnation-live? frame-id owner-token)
+            (assoc ctx :rf/stale-incarnation? true)
+            (let [new-ctx (commit-fx-effects ctx event effects)]
+              ;; A trace/error listener reached by handler-return policing can
+              ;; itself synchronously destroy A.  Recheck before the final
+              ;; legacy-root diagnostic; loss makes the partially-produced
+              ;; context inert just like direct loss in the handler body.
+              (if-not (frame/frame-incarnation-live? frame-id owner-token)
+                (assoc ctx :rf/stale-incarnation? true)
+                (do
+                  ;; EP-0001: a `:db` effect carrying the retired
+                  ;; `:rf/runtime` app-db root is a HARD ERROR — reject it at
+                  ;; the single post-commit chokepoint. No-op when absent.
+                  (reject-legacy-runtime-root!
+                    (interceptor/get-effect new-ctx :db) event)
+                  new-ctx)))))))))
 
 (defn event-handler-meta
   "Build the registrar-shaped handler-meta map for an event handler from a

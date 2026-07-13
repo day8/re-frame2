@@ -279,6 +279,14 @@
           (record-error context (error-record :after interceptor e)))))
     context))
 
+(defn- unwind-afters
+  [interceptors start-index context]
+  (loop [i   start-index
+         ctx context]
+    (if (neg? i)
+      ctx
+      (recur (dec i) (invoke-after ctx (nth interceptors i))))))
+
 (defn execute-chain
   "Run the interceptor chain. Returns the final context.
 
@@ -300,15 +308,31 @@
   runs in full so interceptors can do their cleanup. The drain loop
   reads :rf/interceptor-error after the chain ends and emits
   :rf.error/handler-exception (or similar)."
-  [interceptors initial-context]
-  ;; Apply :before stages in order (short-circuits on first error).
-  (let [ctx-after-befores (reduce invoke-before initial-context interceptors)]
-    ;; Apply :after stages in reverse order (always runs for teardown).
-    ;; Indexed-vec backward walk avoids the per-dispatch lazy-seq allocation
-    ;; `(reverse interceptors)` would produce. `interceptors` is the
-    ;; declaration-order vector built by the registration factories.
-    (loop [i   (dec (count interceptors))
-           ctx ctx-after-befores]
-      (if (neg? i)
-        ctx
-        (recur (dec i) (invoke-after ctx (nth interceptors i)))))))
+  ([interceptors initial-context]
+   (execute-chain interceptors initial-context nil))
+  ([interceptors initial-context {:keys [continue-before?]}]
+   ;; The ordinary path preserves the historical full-chain unwind after a
+   ;; captured exception.  The exact-incarnation path additionally stops
+   ;; BEFORE entering another authored callback once ownership is lost, then
+   ;; unwinds only the interceptors already entered (including the callback
+   ;; which caused loss).  Their `:after` cleanup still runs in reverse order;
+   ;; its returned context is inert to the router's out-of-band owner token.
+   (loop [i   0
+          ctx initial-context]
+     (cond
+       (:rf/interceptor-error ctx)
+       (unwind-afters interceptors (dec (count interceptors)) ctx)
+
+       (and continue-before? (not (continue-before?)))
+       (unwind-afters interceptors (dec i)
+                      (assoc ctx :rf/stale-incarnation? true))
+
+       (= i (count interceptors))
+       (unwind-afters interceptors (dec i) ctx)
+
+       :else
+       (let [next-ctx (invoke-before ctx (nth interceptors i))]
+         (if (and continue-before? (not (continue-before?)))
+           (unwind-afters interceptors i
+                          (assoc next-ctx :rf/stale-incarnation? true))
+           (recur (inc i) next-ctx)))))))

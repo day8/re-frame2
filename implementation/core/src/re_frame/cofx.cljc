@@ -788,20 +788,30 @@
   Returns the `[outcome value]` pair. `ok-keyword` is the success outcome head
   (`:generated` vs `:delivered`); `post-run!` is `(fn [outcome valued? arg
   elapsed-ms])`, run inside the scope binding after the try/catch."
-  [cofx-id meta supplier arg frame-id failing-id ok-keyword post-run!]
+  [cofx-id meta supplier arg frame-id failing-id ok-keyword post-run! continue?]
   (let [active-platform (active-platform-for-frame frame-id)]
     (if (cofx-runs-on-platform? meta active-platform)
       (trace/with-handler-scope
         (trace/handler-scope-from-meta :cofx cofx-id meta)
         (let [valued? (not (identical? arg no-arg))
               t0      (when interop/debug-enabled? (interop/now-ms))
-              outcome (try
-                        [ok-keyword (if valued? (supplier arg) (supplier))]
-                        (catch #?(:clj Throwable :cljs :default) t
-                          (emit-coeffect-exception! cofx-id failing-id frame-id t)
-                          [:threw nil]))
-              elapsed (when interop/debug-enabled? (- (interop/now-ms) t0))]
-          (post-run! outcome valued? arg elapsed)
+               outcome (try
+                         [ok-keyword (if valued? (supplier arg) (supplier))]
+                         (catch #?(:clj Throwable :cljs :default) t
+                           ;; Once the exact event owner is gone, the authored
+                           ;; supplier's throw is inert too: do not publish a
+                           ;; coeffect-exception against a same-id successor.
+                           (if (continue?)
+                             (do
+                               (emit-coeffect-exception! cofx-id failing-id frame-id t)
+                               [:threw nil])
+                             [:stale nil])))
+               elapsed (when interop/debug-enabled? (- (interop/now-ms) t0))]
+          ;; Supplier callbacks are an incarnation boundary. Their returned
+          ;; value and all framework-owned post-run validation/evidence become
+          ;; inert if the callback destroyed its owner.
+          (when (continue?)
+            (post-run! outcome valued? arg elapsed continue?))
           outcome))
       (do
         (trace/emit! :warning :rf.cofx/skipped-on-platform
@@ -834,10 +844,10 @@
   (`:rf.cofx/generated` vs `:rf.cofx/run`) because generation produces a
   RECORDED fact, not an ambient read; the generated op carries no
   `:rf.cofx/elapsed-ms` (the ambient stamps duration, the generator does not)."
-  [cofx-id meta supplier arg frame-id failing-id]
+  [cofx-id meta supplier arg frame-id failing-id continue?]
   (run-supplier-under-scope
     cofx-id meta supplier arg frame-id failing-id :generated
-    (fn [outcome valued? arg _elapsed]
+    (fn [outcome valued? arg _elapsed continue?]
       (when (= :generated (first outcome))
         ;; Validate the produced value against `:schema` (production hard
         ;; error) BEFORE emitting the dev `:rf.cofx/generated` trace. A
@@ -859,7 +869,8 @@
         ;; EDN-always check runs AFTER `:schema` so a declared `:schema`
         ;; mismatch — the prod contract — is reported first; rf2-rmroo4
         ;; slice B / rf2-uqz2ir.)
-        (validate-recordable-value! cofx-id (second outcome) meta failing-id frame-id)
+        (when (continue?)
+          (validate-recordable-value! cofx-id (second outcome) meta failing-id frame-id))
         ;; Structural EDN-always check of the GENERATED value (rf2-rmroo4
         ;; slice B, rf2-uqz2ir; production-hardened rf2-q34j26): a generator
         ;; that mints a host handle fails loudly HERE — at the source, before
@@ -869,7 +880,8 @@
         ;; declared `:schema` mismatch is reported first, and BEFORE the
         ;; `:rf.cofx/generated` emit (rf2-0mjgx6) so a non-EDN host handle
         ;; never ships on the dev trace either.
-        (validate-generated-recordable-value! cofx-id (second outcome) failing-id frame-id)
+        (when (continue?)
+          (validate-generated-recordable-value! cofx-id (second outcome) failing-id frame-id))
         ;; Dev-only `:rf.cofx/generated` — fact-name + supplier id (the
         ;; cofx id is both). Gated on `interop/debug-enabled?` so
         ;; production DCEs the tag-map + emit, exactly like
@@ -878,12 +890,13 @@
         ;; after both validations pass — a VALID generated value's
         ;; `:rf.cofx/value` is still projected through the marks chokepoint
         ;; (`project-cofx-run-tags`) for any explicit `:sensitive` reg-mark.
-        (when interop/debug-enabled?
+        (when (and (continue?) interop/debug-enabled?)
           (trace/emit! :rf.cofx :rf.cofx/generated
                        (cond-> {:rf.cofx/id    cofx-id
                                 :frame         frame-id
                                 :rf.cofx/value (second outcome)}
-                         valued? (assoc :rf.cofx/arg arg))))))))
+                         valued? (assoc :rf.cofx/arg arg))))))
+    continue?))
 
 (defn- run-ambient-supplier
   "Run an ambient supplier under its HandlerScope + platform gate, returning
@@ -895,10 +908,10 @@
   `run-supplier-under-scope` (rf2-snxp8i); the per-ambient post-run step below
   emits `:rf.cofx/run` carrying the supplier-invocation `:rf.cofx/elapsed-ms`
   (the generator omits this slot)."
-  [cofx-id meta supplier arg frame-id failing-id]
+  [cofx-id meta supplier arg frame-id failing-id continue?]
   (run-supplier-under-scope
     cofx-id meta supplier arg frame-id failing-id :delivered
-    (fn [outcome valued? arg elapsed]
+    (fn [outcome valued? arg elapsed continue?]
       ;; `:rf.cofx/value` carries the supplier's PRODUCED value — the
       ;; coeffect that actually egresses into `:coeffects` — so the
       ;; marks chokepoint (`marks/project-cofx-run-tags`, wired to
@@ -907,13 +920,14 @@
       ;; under the distinct `:rf.cofx/arg`, present only for a
       ;; parameterized `[id arg]` requirement (rf2-sepqgg). Both ride
       ;; under the `interop/debug-enabled?` gate so production DCEs them.
-      (when (and interop/debug-enabled? (= :delivered (first outcome)))
+      (when (and (continue?) interop/debug-enabled? (= :delivered (first outcome)))
         (trace/emit! :rf.cofx :rf.cofx/run
                      (cond-> {:rf.cofx/id    cofx-id
                               :frame         frame-id
                               :rf.cofx/value (second outcome)}
                        valued?           (assoc :rf.cofx/arg arg)
-                       (some? elapsed)   (assoc :rf.cofx/elapsed-ms elapsed)))))))
+                       (some? elapsed)   (assoc :rf.cofx/elapsed-ms elapsed)))))
+    continue?))
 
 (def default-mint-policy
   "The mint policy when no binding point selects one — the router's `:live`
@@ -986,7 +1000,7 @@
   value, write it back into `:rf.cofx` under `fact-id` (epoch captures it),
   deliver. Absent + `:strict` (replay / the `:test` preset) →
   `:rf.error/missing-required-cofx` (loud, never re-derived)."
-  [acc fact-id query-v failing-id frame-id mint-policy]
+  [acc fact-id query-v failing-id frame-id mint-policy continue?]
   (cond
     (contains? (:rf.cofx acc) fact-id)
     (assoc-in acc [:coeffects fact-id] (get (:rf.cofx acc) fact-id))
@@ -994,14 +1008,18 @@
     (mint-policy-generates? mint-policy)
     (if-let [eval-sub (late-bind/get-fn-cached :cofx/eval-recordable-sub)]
       (let [value (eval-sub query-v frame-id)]
+        (when-not (continue?)
+          nil)
         ;; The resolved value rides the durable causal record — structural
         ;; recordable-EDN check at write-back (a sub yielding a host handle is
         ;; `:rf.error/cofx-value-invalid`, dev AND production), reusing the
         ;; generated-value floor.
-        (validate-generated-recordable-value! fact-id value failing-id frame-id)
-        (-> acc
-            (assoc-in [:coeffects fact-id] value)
-            (assoc-in [:rf.cofx fact-id] value)))
+        (when (continue?)
+          (validate-generated-recordable-value! fact-id value failing-id frame-id))
+        (when (continue?)
+          (-> acc
+              (assoc-in [:coeffects fact-id] value)
+              (assoc-in [:rf.cofx fact-id] value))))
       ;; The machines evaluator is unbound (machines artefact not loaded). A
       ;; sub source can only be PARSED from a machine named entry, so this is
       ;; unreachable in practice; fail loud rather than silently deliver nil.
@@ -1062,15 +1080,21 @@
   ([coeffects requires recorded failing-id frame-id]
    (deliver-declared-cofx coeffects requires recorded failing-id frame-id default-mint-policy))
   ([coeffects requires recorded failing-id frame-id mint-policy]
+   (deliver-declared-cofx coeffects requires recorded failing-id frame-id
+                          mint-policy (constantly true)))
+  ([coeffects requires recorded failing-id frame-id mint-policy continue?]
    (reduce
      (fn [{:keys [coeffects] :as acc} {:keys [id arg] :as entry}]
-       (if (contains? entry :rf.cofx/sub)
+       (if-not (continue?)
+         (reduced nil)
+         (let [next-acc
+               (if (contains? entry :rf.cofx/sub)
          ;; A sub-valued recordable source (machines-only): `id` is the `:as`
          ;; fact-id, `:rf.cofx/sub` the query. It carries NO `reg-cofx`
          ;; registration — evaluate / re-present via `deliver-sub-source`,
          ;; NOT the registrar-lookup path below.
          (deliver-sub-source acc id (:rf.cofx/sub entry) failing-id frame-id
-                             mint-policy)
+                             mint-policy continue?)
          (let [meta (registrar/lookup :cofx id)]
            (cond
              ;; A declared id with NO registration is the typo case (the
@@ -1100,7 +1124,8 @@
                (generator-backed? meta)
                (if (mint-policy-generates? mint-policy)
                  (let [[outcome value]
-                       (run-generator id meta (:handler-fn meta) arg frame-id failing-id)]
+                       (run-generator id meta (:handler-fn meta) arg frame-id failing-id
+                                      continue?)]
                    (case outcome
                      :generated (-> acc
                                     (assoc-in [:coeffects id] value)
@@ -1118,11 +1143,14 @@
 
              :else                                   ;; ambient
              (let [[outcome value]
-                   (run-ambient-supplier id meta (:handler-fn meta) arg frame-id failing-id)]
+                    (run-ambient-supplier id meta (:handler-fn meta) arg frame-id failing-id
+                                          continue?)]
                (case outcome
                  :delivered (assoc-in acc [:coeffects id] value)
                  :skipped   acc
-                 :threw     (assoc acc :rf/skip-handler? true)))))))
+                 :threw     (assoc acc :rf/skip-handler? true)
+                 :stale     nil)))))]
+           (if (continue?) next-acc (reduced nil)))))
      {:coeffects coeffects :rf.cofx recorded :rf/skip-handler? false}
      requires)))
 
