@@ -10,6 +10,11 @@
 > the external repo is live and the in-monorepo `tools/template/` is
 > stubbed or deleted.
 
+**Sequencing prerequisite.** Execute this repo split only after Stage-6 W8 has
+collapsed the three substrate variants into one `re-frame.ui` scaffold
+(synthesis `11-adoption-workstreams.md` W8); the split itself runs in Stage 7
+after every alpha gate is green (synthesis `08-delivery.md` §2, Stage 7).
+
 ## §1 Why split
 
 The template's published invocation surface is `clojure -Tnew create
@@ -117,7 +122,7 @@ template-body path), so only the `resources/` body moves.
 external repo ships the `io/github/day8/…` body *only*. The local-dev
 `:local/root` smoke (§4) resolves that same single body **without**
 auto-clone by using deps-new's `repo%root%template-sym` override form
-(`day8/re-frame2-template%%io.github.day8/re-frame2-template`): the
+(`day8/re-frame2-template%io.github.day8/re-frame2-template`): the
 `day8/re-frame2-template` repo part bypasses `auto-git-url` (no
 `io.github.*` prefix → no clone, the `:local/root` override stands),
 while the `io.github.day8/re-frame2-template` template-sym part drives
@@ -304,7 +309,7 @@ updates to the override form:
 
 ```clojure
 ;; post-retarget run-template! opts
-{:template 'day8/re-frame2-template%%io.github.day8/re-frame2-template
+{:template 'day8/re-frame2-template%io.github.day8/re-frame2-template
  ...}
 ```
 
@@ -389,7 +394,7 @@ cd /path/to/consumer
 clojure -Sdeps '{:deps {day8/re-frame2-template
                         {:local/root "/path/to/re-frame2-template"}}}' \
         -Tnew create \
-        :template day8/re-frame2-template%%io.github.day8/re-frame2-template \
+        :template day8/re-frame2-template%io.github.day8/re-frame2-template \
         :name acme/my-app
 ```
 
@@ -397,7 +402,7 @@ clojure -Sdeps '{:deps {day8/re-frame2-template
 `io.github.day8/re-frame2-template` — bypasses auto-clone: the
 `io.github.*` prefix would trigger a git-clone before classpath
 lookup, losing the local override. The trailing
-`%%io.github.day8/re-frame2-template` template-sym part drives
+`%io.github.day8/re-frame2-template` template-sym part drives
 `find-root` to the single canonical `io/github/day8/…` body that the
 published coord also uses, so there is no second on-disk copy.)
 
