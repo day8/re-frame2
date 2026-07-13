@@ -943,7 +943,12 @@
   ;; incarnation is a FRESH per-mount identity (`make-root-incarnation`), NOT
   ;; the reusable root-id, so a stale teardown can never reap the cells of a
   ;; replacement root mounted under the same root-id. `defonce`
-  ;; (module-lived); `reset-scheduler!` clears it between fixtures. Frame
+  ;; (module-lived) — and because `defonce` carries the VALUE across a hot
+  ;; reload, a representation change must migrate the surviving state:
+  ;; `migrate-legacy-root-cells!` (invoked at namespace load, beside the
+  ;; weak helpers) rebuilds any pre-weak persistent-set entries into the
+  ;; current host weak sets (rf2-vxgfnd.168). `reset-scheduler!` clears the
+  ;; registry between fixtures. Frame
   ;; teardown also consults its still-disconnected members, whose retained
   ;; subscription targets and resource-incarnation pins name their last
   ;; published frames.
@@ -2201,6 +2206,75 @@
     0
     #?(:clj  (.size ^java.util.Set members)
        :cljs (count (weak-live members)))))
+
+;; ---- reload migration (rf2-vxgfnd.168) ---------------------------------------
+;;
+;; `root-cells` is `defonce`, so a hot reload (CLJS `:after-load`, JVM
+;; `require :reload`) PRESERVES the pre-weak value — `incarnation ->
+;; #{cell …}` persistent sets (pre-rf2-mc62sp) — while every reloaded
+;; operation assumes the host weak representation. Without migration the
+;; first post-reload root operation crashes mid-lifecycle: on the JVM,
+;; `weak-add!`/`weak-remove!` hit the persistent set's unsupported mutable
+;; ops (`UnsupportedOperationException` inside `teardown!`, AFTER the cell
+;; already went :dead); on CLJS the weak helpers read the missing
+;; `:refs`/`:by-cell` slots (`TypeError`), and the incarnation stays
+;; retained. The load-time call below converges any surviving legacy
+;; entries into the current representation before anything touches them.
+
+(defn migrate-legacy-root-cells!
+  "RELOAD MIGRATION (rf2-vxgfnd.168): rebuild every PRE-WEAK `root-cells`
+  entry — the persistent `#{cell …}` shape a pre-rf2-mc62sp namespace's
+  `defonce` hands a hot reload — into the current host weak membership
+  set. Runs once at namespace load (immediately below, after the weak
+  helpers/reaper exist); re-running is an idempotent no-op, so it is also
+  the tool/test re-run door.
+
+  Identity-preserving: every still-referenced member — INCLUDING an
+  Activity-hidden cell that must stay discoverable for root/frame
+  teardown — is re-enrolled under its incarnation (and, on CLJS,
+  re-registered with the finalization reaper via `weak-add!`). The
+  registry is never cleared: clearing would orphan hidden ownership and
+  leave teardown incomplete. Ordinary reconciliation-unmounted cells
+  become collectible exactly as the weak design intends — the fresh weak
+  set holds them no more strongly than any other member.
+
+  Mixed-state tolerant + convergent: only legacy persistent-set entries
+  convert (`set?` is false for BOTH host weak representations), each
+  entry swap is CAS-guarded on the exact legacy value so a concurrent
+  enrol/forget/migrate can never be clobbered, and the outer loop
+  re-checks until no legacy entry remains (new code never writes the
+  legacy shape, so the loop terminates). Fresh startup pays only the
+  bounded empty-registry check — no compatibility branch remains on the
+  hot read/write paths once migration completes. Returns nil."
+  []
+  (loop []
+    (let [legacy (filter (comp set? val) @root-cells)]
+      (when (seq legacy)
+        (doseq [[incarnation members] legacy]
+          (let [fresh (make-weak-member-set)]
+            (run! (fn [cell] (weak-add! fresh incarnation cell)) members)
+            (swap! root-cells
+                   (fn [m]
+                     (if (identical? (get m incarnation) members)
+                       (assoc m incarnation fresh)
+                       m)))))
+        (recur)))))
+
+(defn seed-legacy-root-cells!
+  "Test seam (rf2-vxgfnd.168): overwrite `incarnation`'s registry entry
+  with the PRE-WEAK persistent-set representation (`#{cell …}`) exactly
+  as a pre-rf2-mc62sp namespace's `defonce` leaves it across a hot
+  reload — the reload-simulation fixture seeds this, runs
+  `migrate-legacy-root-cells!`, and drives teardown/counting through the
+  reloaded code. Never called by production code. Returns nil."
+  [incarnation cells]
+  (swap! root-cells assoc incarnation (into #{} cells))
+  nil)
+
+;; The load-time hook: converge any `defonce`-surviving legacy entries
+;; BEFORE any post-reload root operation can reach them. On a fresh
+;; start `root-cells` is empty and this is one bounded no-op check.
+(migrate-legacy-root-cells!)
 
 (defn- forget-root-cell!
   "Remove `cell` from `incarnation`'s weak membership set, DROPPING the
