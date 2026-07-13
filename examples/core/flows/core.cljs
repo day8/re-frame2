@@ -62,7 +62,7 @@
 ;; flows!` wraps the registration and is called from `run`, right after
 ;; `rf/init!` and `rf/make-frame` have made `:rf/default` a real, live frame —
 ;; the same point every other example that constructs a frame outside a
-;; `frame-provider` uses (see e.g.
+;; `frame-root` uses (see e.g.
 ;; examples/patterns/nine_states/stories_host.cljs's `install-live-frame!`).
 ;; Every flow belongs to a frame, so `reg-flow` needs a frame in scope; the
 ;; toggleable `:cart/discount-rate` flow (further down) doesn't need this
@@ -290,7 +290,7 @@
 ;; the shared `#app`.
 (defonce react-root (atom nil))
 
-;; `frame-provider`'s ENSURE shape (`{:id …}`) would normally be where
+;; `frame-root` (ENSURE, `{:id …}`) would normally be where
 ;; `:rf/default` gets created — but by the time it mounts below, `run` has
 ;; already created the frame itself (`rf/make-frame`), registered the two
 ;; named flows against it (`install-flows!`), and dispatched the cart's seed
@@ -301,9 +301,9 @@
 (def app-frame :rf/default)
 
 ;; `mount!` is browser setup: create the root lazily, then render the view tree
-;; inside the frame-provider. `^:dev/after-load` is shadow's cue to re-run it on
+;; inside the frame-root. `^:dev/after-load` is shadow's cue to re-run it on
 ;; each reload so your edited views re-render into the same root and — since the
-;; ENSURE-shape provider reuses the frame `run` already created — the same frame.
+;; ENSURE root reuses the frame `run` already created — the same frame.
 ;; This is the canonical mount/boot shape, spelled the same in the counter and
 ;; todomvc examples. See `docs/core/how-to/boot-and-mount-an-app.md`.
 (defn ^:dev/after-load mount! []
@@ -322,9 +322,9 @@
   ;; would raise :rf.error/no-adapter-installed without this first.
   (rf/init! reagent-adapter/adapter)
   ;; Create the frame explicitly, here, rather than leaving it to
-  ;; `frame-provider` in `mount!`. `reg-flow` (inside `install-flows!`) needs a
+  ;; `frame-root` in `mount!`. `reg-flow` (inside `install-flows!`) needs a
   ;; LIVE frame to register against, and the render tree — where
-  ;; `frame-provider` would otherwise create one — doesn't exist yet at this
+  ;; `frame-root` would otherwise create one — doesn't exist yet at this
   ;; point in `run`.
   (rf/make-frame {:id app-frame :doc "Cart-with-flows demo frame."})
   (install-flows!)

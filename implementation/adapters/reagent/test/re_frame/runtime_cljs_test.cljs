@@ -839,7 +839,7 @@
 
 (deftest frame-provider-emits-provider-hiccup
   (testing "[rf/frame-provider {:frame :a} child] emits a Provider element with :a"
-    ;; The merged provider's SCOPE-only `{:frame …}` shape fails loud if the
+    ;; The SCOPE-only `frame-provider {:frame …}` fails loud if the
     ;; frame is absent, so register it live before scoping.
     (rf/make-frame {:id :a})
     (let [child       [:span "hi"]
@@ -932,8 +932,8 @@
     ;; build-frame-provider. Both are callable; both produce the same
     ;; final hiccup shape when invoked with a frame keyword.
     ;; rf2-4y60: build-frame-provider is 0-arity — the returned component
-    ;; takes the frame keyword at render time. The merged provider's SCOPE
-    ;; shape fails loud if absent, so register :hello live first.
+    ;; takes the frame keyword at render time. The SCOPE-only provider
+    ;; fails loud if the frame is absent, so register :hello live first.
     (rf/make-frame {:id :hello})
     (let [provider     (re-frame.views/build-frame-provider)
           substrate-tree (provider :hello [:span "x"])

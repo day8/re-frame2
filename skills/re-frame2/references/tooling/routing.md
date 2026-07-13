@@ -115,9 +115,9 @@ Distilled from `examples/capabilities/routing/routing/core.cljs`.
   ;; (rf/dispatch [:rf.route/handle-url-change ...]) would raise
   ;; :rf.error/no-frame-context — the no-ambient-frame contract (EP-0002).
   (render [rf/frame-root {:id app-frame
-                              :doc "Routing demo frame."
-                              :url-bound? true
-                              :initial-events [[:app/initialise]]}
+                          :doc "Routing demo frame."
+                          :url-bound? true
+                          :initial-events [[:app/initialise]]}
            [root-view]]))
 ```
 

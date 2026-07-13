@@ -142,9 +142,9 @@
       (reset! react-root (rdc/create-root el)))
     (rdc/render @react-root
                 [rf/frame-root {:id              :rf/default
-                                    :doc             "State-machines walkthrough demo frame."
-                                    :fx-overrides    {:rf.http/managed :walkthrough.login/canned-failure}
-                                    :initial-events  [[:walkthrough.login/initialise-form]]}
+                                :doc             "State-machines walkthrough demo frame."
+                                :fx-overrides    {:rf.http/managed :walkthrough.login/canned-failure}
+                                :initial-events  [[:walkthrough.login/initialise-form]]}
                  [root-view]])))
 
 (defn run []

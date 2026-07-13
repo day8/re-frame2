@@ -341,8 +341,8 @@ Illustrative shapes:
 
 ;; ENSURE a named frame for the subtree's mounted lifetime (no destroy-on-unmount)
 [rf/frame-root {:id :todo/left
-                    :images [todo-image]
-                    :initial-events [[:rf/set-db {}]]}
+                :images [todo-image]
+                :initial-events [[:rf/set-db {}]]}
  [todo-root]]
 ```
 

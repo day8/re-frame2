@@ -310,12 +310,12 @@
     ;; those reads on the way out.
     (rdc/render @react-root
                 [rf/frame-root {:id              app-frame
-                                    :doc             "RealWorld-on-resources demo frame."
-                                    :url-bound?      true
-                                    :url-strategy    routing/url-strategy
-                                    :interceptors    [:realworld-resources.routing/auth-guard]
-                                    :fx-overrides    {:rf.http/managed :realworld-resources.demo/http-stub}
-                                    :initial-events  [[:auth/classify-token]
+                                :doc             "RealWorld-on-resources demo frame."
+                                :url-bound?      true
+                                :url-strategy    routing/url-strategy
+                                :interceptors    [:realworld-resources.routing/auth-guard]
+                                :fx-overrides    {:rf.http/managed :realworld-resources.demo/http-stub}
+                                :initial-events  [[:auth/classify-token]
                                                       [:auth/initialise]
                                                       [:app/initialise]]}
                  [root-view]])
@@ -344,7 +344,7 @@
   ;; registration must name the frame it belongs to. A bare top-level
   ;; `reg-http-interceptor` under no frame scope raises the always-on
   ;; `:rf.error/no-frame-context` and installs nothing. We scope it to
-  ;; `app-frame` (the same id the `frame-provider` in `mount!` ensures) with
+  ;; `app-frame` (the same id the `frame-root` in `mount!` ensures) with
   ;; `with-frame`, so the interceptor lands on the chain this app's resources /
   ;; mutations actually lower onto. The frame need not exist yet — the chain is
   ;; keyed by frame-id and consulted when the first managed request fires. See

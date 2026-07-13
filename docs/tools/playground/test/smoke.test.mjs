@@ -234,11 +234,11 @@ const PAGE = `<!DOCTYPE html>
 [:div
  [:div#rf2-two-a
   [rf/frame-root {:id :rf2smoke/app-a
-                      :initial-events [[:rf2smoke.two/init 5] [:rf2smoke.two/inc]]}
+                  :initial-events [[:rf2smoke.two/init 5] [:rf2smoke.two/inc]]}
    [two-counter "yellow"]]]
  [:div#rf2-two-b
   [rf/frame-root {:id :rf2smoke/app-b
-                      :initial-events [[:rf2smoke.two/init 0]]}
+                  :initial-events [[:rf2smoke.two/init 0]]}
    [two-counter "green"]]]]</pre>
   <script src="/playground.js"></script>
 </body></html>`;

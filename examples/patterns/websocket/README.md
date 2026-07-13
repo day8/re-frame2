@@ -114,7 +114,7 @@ Everything below builds on those three. The rest is ordinary machine grammar —
 
 | File | Notes |
 |---|---|
-| `core.cljs` | Entry point — installs the adapter, mounts the React root under a `frame-provider` that creates the [frame](../../../docs/core/glossary.md#frame) and fires `:ws.app/initialise`. |
+| `core.cljs` | Entry point — installs the adapter, mounts the React root under a `frame-root` that creates the [frame](../../../docs/core/glossary.md#frame) and fires `:ws.app/initialise`. |
 | `connection.cljs` | The `:ws/connection` machine — the heart of the example. Read alongside `spec/Pattern-WebSocket.md` §Worked example — same state chart, but here the live socket id comes from the framework's `:rf/spawned` slot instead of the spec's hand-recorded `:socket-id`. |
 | `messages.cljs` | The `:websocket/socket` actor (the spawned child) + an in-process mock WebSocket server + `:ws/handle-message` + the app-level send/request/subscribe events. |
 | `views.cljs` | UI — status pill driven by tags, lifecycle buttons, send form, request/subscribe/server-push demo trio, inbox. |

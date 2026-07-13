@@ -54,10 +54,10 @@ In fact, to double the excitement, let's create two `frames` and have two instan
 This code block ends with some `hiccup` (a data structure representing DOM). In this in-browser dev environment, trailing hiccup gets rendered. That hiccup is:
 
   - a `[:div ...]`
-  - containing two child `frame-providers`
-  - each `frame-provider` wraps the previously registered view `counter`, like this: `[counter "a colour"]`
+  - containing two child `frame-root`s
+  - each `frame-root` wraps the previously registered view `counter`, like this: `[counter "a colour"]`
 
-When you see `frame-provider` think of **Provider** in the **React Context** sense. A `frame-provider` is like a view node which provides context to its child views — in this case a `frame` (an isolated execution context) is ambiently available to each of the two `counter` views which are in different branches of the DOM.
+When you see `frame-root` think of **Provider** in the **React Context** sense. A `frame-root` is like a view node which ensures its frame exists and provides it as context to its child views — in this case a `frame` (an isolated execution context) is ambiently available to each of the two `counter` views which are in different branches of the DOM.
 
 ## Isolated execution context
 

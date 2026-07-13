@@ -61,7 +61,7 @@
 
 ;; A schema belongs to a frame, so registering one has to say which frame.
 ;; `with-frame` is how we say it: `:rf/default`, the same frame the render-root
-;; `frame-provider` will create, and the one whose commits this schema then
+;; `frame-root` will create, and the one whose commits this schema then
 ;; checks. Note we register against the frame before it exists — the name is all
 ;; the machinery needs to hang the schema on.
 ;; See docs/core/how-to/validate-with-schemas.md.
@@ -239,7 +239,7 @@
 ;; From then on, every `dispatch` and `subscribe` in the tree below it lands in
 ;; that frame. Hot-reload is the nice part: the provider finds the frame already
 ;; there, reuses it, and skips the seed — so your list keeps its rows (and your
-;; edits) across a save. See docs/core/glossary.md#frame-provider.
+;; edits) across a save. See docs/core/glossary.md#frame-root.
 ;;
 ;; `app-frame` is just an id we picked. `:rf/default` sounds special but isn't —
 ;; it's an ordinary frame id with no privileges. The runtime never conjures a
@@ -247,7 +247,7 @@
 (def app-frame :rf/default)
 
 ;; `mount!` is browser setup: create the root lazily, then render the view tree
-;; inside the frame-provider. `^:dev/after-load` is shadow's cue to re-run it on
+;; inside the frame-root. `^:dev/after-load` is shadow's cue to re-run it on
 ;; each reload so your edited views re-render into the same root and same frame.
 ;; This is the canonical mount/boot shape, spelled the same in the counter and
 ;; todomvc examples. See `docs/core/how-to/boot-and-mount-an-app.md`.
@@ -258,7 +258,7 @@
       (reset! react-root (rdc/create-root el)))
     (rdc/render @react-root
                 [rf/frame-root {:id             app-frame
-                                    :initial-events [[:crud/initialise]]}
+                                :initial-events [[:crud/initialise]]}
                  [crud-view]])))
 
 (defn run []

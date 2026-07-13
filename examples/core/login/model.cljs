@@ -696,8 +696,8 @@
 ;; FRAME CONFIG  (substrate-free)
 ;; ============================================================================
 ;;
-;; The one piece of `frame-provider` config the three mounts share. Each
-;; substrate's `mount!` merges this into its provider props alongside a
+;; The one piece of `frame-root` config the three mounts share. Each
+;; substrate's `mount!` merges this into its root props alongside a
 ;; substrate-specific `:id` / `:doc`:
 ;;
 ;;   - `:fx-overrides` swaps in our fake backend: it points `:rf.http/managed` at

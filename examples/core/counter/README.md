@@ -66,13 +66,13 @@ changes. That seam is the whole point of the
 re-frame2 never creates a frame for you. An app must stand its frame up
 itself, and this counter is the smallest place to watch that happen end
 to end. Two steps — `run` installs the adapter, then calls `mount!`,
-which renders the tree inside the provider:
+which renders the tree inside the frame-root:
 
 ```clojure
 (rf/init! reagent-adapter/adapter)              ;; install the adapter (NOT a frame)
 (rdc/render @react-root
-  [rf/frame-root {:id app-frame             ;; stand the frame up: create + seed
-                      :initial-events [[:counter/initialise]]}
+  [rf/frame-root {:id app-frame                 ;; stand the frame up: create + seed
+                  :initial-events [[:counter/initialise]]}
    [counter-app]])
 ```
 
@@ -81,8 +81,8 @@ Each step does one job:
 - [`init!`](../../../docs/core/glossary.md#init) tells the runtime which
   [substrate](../../../docs/core/glossary.md#substrate) to render
   through, and nothing else. It does not create a frame.
-- [`frame-provider`](../../../docs/core/glossary.md#frame-provider) wraps
-  the view tree and stands the frame up. Given `:id`, it *ensures* a named
+- [`frame-root`](../../../docs/core/glossary.md#frame-root) wraps
+  the view tree and stands the frame up. Keyed by `:id`, it *ensures* a named
   frame — creating it on the first mount and reusing it untouched on a hot
   reload, never re-seeding — and runs `:initial-events` once on creation
   to seed `app-db` before the first render. The example names the frame

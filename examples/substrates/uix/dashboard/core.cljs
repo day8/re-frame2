@@ -343,10 +343,10 @@
 ;; Example mount-isolation convention).
 (defonce react-root (atom nil))
 
-;; The id of the frame this app lives in. The `frame-provider` down in `run`
+;; The id of the frame this app lives in. The `frame-root` down in `run`
 ;; creates it, seeds its app-db, and scopes it into React context — which is
 ;; how `use-subscribe` and the `use-frame` hook find it. The guide glossary
-;; covers frame-provider (../../../docs/core/glossary.md#frame-provider).
+;; covers frame-root (../../../docs/core/glossary.md#frame-root).
 (def app-frame :rf/default)
 
 ;; DOM setup lives in `mount!`, tagged `^:dev/after-load` so shadow-cljs re-runs

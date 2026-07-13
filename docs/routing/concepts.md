@@ -514,7 +514,7 @@ That one line is all it takes. `route-url` and `match-url` stay path-form — th
 
 Memory URLs need no third strategy: a frame that isn't `:url-bound?` is already URL-free, so a Story variant or a test frame is the "memory" case for free.
 
-Because `:url-bound? true` frame creation installs the listener automatically (the previous section), the strategy you declare is picked up at whatever moment the frame actually gets created — even *asynchronously*, e.g. by a `frame-provider` whose React effect registers it just after mount. There's no separate install call whose timing you have to worry about; declaring `:url-strategy` on the frame config is the whole story. The [TodoMVC example](https://github.com/day8/re-frame2/tree/main/examples/core/todomvc) is a hash app wired exactly this way.
+Because `:url-bound? true` frame creation installs the listener automatically (the previous section), the strategy you declare is picked up at whatever moment the frame actually gets created — even *asynchronously*, e.g. by a `frame-root` whose React commit effect registers it just after mount. There's no separate install call whose timing you have to worry about; declaring `:url-strategy` on the frame config is the whole story. The [TodoMVC example](https://github.com/day8/re-frame2/tree/main/examples/core/todomvc) is a hash app wired exactly this way.
 
 A third, orthogonal knob: **`with-base-path`** wraps either strategy for an app deployed under a sub-path — a host mounting several demos side by side, so an app that would otherwise own `/` instead lives at `/realworld/`:
 

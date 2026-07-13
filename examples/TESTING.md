@@ -45,7 +45,7 @@ spell out the shape to look for.
 ## Convention: example mount-isolation — defer DOM mount to `mount!`
 
 How an example *boots and mounts* — `boot!` installs the adapter, `mount!`
-creates the frame via the `frame-provider` ensure form, the `defonce` root plus
+creates the frame via the `frame-root` ensure component, the `defonce` root plus
 `^:dev/after-load` give hot reload — is the canonical app-startup shape, covered
 in [Boot and mount an app](../docs/core/how-to/boot-and-mount-an-app.md). The
 only part that's *test-specific* is this one rule:

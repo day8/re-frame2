@@ -2,7 +2,7 @@
   "Entry point for the boot example — mount, trigger, and the fake backend.
 
    `run` installs the Reagent adapter and renders the app under a
-   frame-provider (docs/core/glossary.md#frame-provider). The provider
+   frame-root (docs/core/glossary.md#frame-root). The root
    does two jobs: it points HTTP at a per-URL canned stub (so the example
    runs on its own, with no server behind it) and it seeds the boot
    machine on first mount. Until that machine reaches `:ready`, the root
@@ -130,7 +130,7 @@
 (defonce react-root (atom nil))
 
 ;; The app frame id. Every in-tree `dispatch`/`subscribe` resolves to this
-;; frame, which the frame-provider below stands up. An app always names its
+;; frame, which the frame-root below stands up. An app always names its
 ;; own frame — the runtime never conjures one for you.
 (def app-frame :rf/default)
 
@@ -141,7 +141,7 @@
                      (js/document.getElementById "app"))]
     (when-not @react-root
       (reset! react-root (rdc/create-root el)))
-    ;; One frame-provider does three things — create the frame, configure it,
+    ;; One frame-root does three things — create the frame, configure it,
     ;; seed it:
     ;;
     ;; - `:fx-overrides` swaps `:rf.http/managed` on this frame for the canned
@@ -152,9 +152,9 @@
     ;;   alone, so you don't re-run it on every save.
     (rdc/render @react-root
                 [rf/frame-root {:id             app-frame
-                                    :doc            "Boot example demo frame."
-                                    :fx-overrides   {:rf.http/managed :boot.demo/http-stub}
-                                    :initial-events [[:boot/initialise]]}
+                                :doc            "Boot example demo frame."
+                                :fx-overrides   {:rf.http/managed :boot.demo/http-stub}
+                                :initial-events [[:boot/initialise]]}
                  [boot.views/root-view]])))
 
 (defn run []

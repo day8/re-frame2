@@ -87,7 +87,7 @@
 ;; bare-call raise, so we strip it): (a) a bare reg under no scope fails
 ;; closed and installs nothing; (b) `(with-frame f (reg-http-interceptor …))`
 ;; installs on f's chain even when f was never `make-frame`d — the example
-;; registers before the frame-provider ensures the frame.
+;; registers before the frame-root ensures the frame.
 
 (deftest reg-http-interceptor-bare-fails-closed-with-frame-installs-rf2-9ynwvx
   (testing "rf2-9ynwvx — a bare reg under no ambient scope raises

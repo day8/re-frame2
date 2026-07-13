@@ -79,7 +79,7 @@
          feature's own initialiser so each slice gets seeded.
 
          Notice who's NOT in this list: `:auth/initialise`. It earns its own
-         entry in the frame-provider's `:initial-events` instead, because it
+         entry in the frame-root's `:initial-events` instead, because it
          consumes the recordable `:auth.session/token` coeffect — and the
          `:dispatch` fx doesn't forward `:rf.cofx`. Giving it a boot dispatch
          of its own is what lets the token it reads be recorded for replay."}
@@ -392,10 +392,10 @@
     ;; initial event is needed.
     (rdc/render @react-root
                 [rf/frame-root {:id              :rf/default
-                                    :doc             "Realworld demo frame."
-                                    :url-bound?      true
-                                    :url-strategy    routing/url-strategy
-                                    :initial-events  [[:auth/classify-token]
+                                :doc             "Realworld demo frame."
+                                :url-bound?      true
+                                :url-strategy    routing/url-strategy
+                                :initial-events  [[:auth/classify-token]
                                                       [:auth/initialise]
                                                       [:app/initialise]]
                                     :fx-overrides    {:rf.http/managed :realworld.demo/http-stub}}
@@ -416,7 +416,7 @@
   ;; registration has to name the frame it belongs to. A bare top-level
   ;; `reg-http-interceptor` under no frame scope raises the always-on
   ;; `:rf.error/no-frame-context` and installs nothing. We scope it to the app
-  ;; frame (`:rf/default` — the same id the `frame-provider` in `mount!` ensures)
+  ;; frame (`:rf/default` — the same id the `frame-root` in `mount!` ensures)
   ;; with `with-frame`, so the interceptor lands on the chain the app's managed
   ;; requests actually run under. The frame need not exist yet — the chain is
   ;; keyed by frame-id and consulted when the first request fires. See the auth

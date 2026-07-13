@@ -19,7 +19,7 @@
    state swaps the form for a dead-end locked-account panel.
 
    For the boundary mechanics — `use-subscribe`, `use-frame`,
-   `frame-provider`, and what stays put across React wrappers — see
+   `frame-root` / `frame-provider`, and what stays put across React wrappers — see
    docs/core/how-to/use-uix-helix-or-slim.md."
   (:require [uix.core :as uix :refer [$ defui]]
             [uix.dom  :as uix-dom]
@@ -124,7 +124,7 @@
                      (js/document.getElementById "app"))]
     (when-not @react-root
       (reset! react-root (uix-dom/create-root el)))
-    ;; Frame setup, all in one spot. The `frame-provider` at the render root
+    ;; Frame setup, all in one spot. The `frame-root` at the render root
     ;; owns the frame: on the first mount it creates the `:rf/default` frame,
     ;; applies the config (`model/frame-config` points `:rf.http/managed` at our
     ;; demo stub and seeds the slice via `:initial-events`), and runs those
@@ -152,6 +152,6 @@
 
 (defn run []
   ;; Tell the runtime to render through UIx. (This installs the adapter; it does
-  ;; not create a frame — the frame-provider below does that.)
+  ;; not create a frame — the frame-root below does that.)
   (rf/init! uix-adapter/adapter)
   (mount!))

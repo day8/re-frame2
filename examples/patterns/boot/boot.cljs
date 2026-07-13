@@ -377,7 +377,7 @@
   {:doc "The one button that starts everything. It fires the :app/boot
          machine's `:rf.machine/start` creation marker, which births the
          machine into `:configuring` and runs its `:spawn` cascade. The
-         frame-provider seeds this via `:initial-events` (see core.cljs),
+         frame-root seeds this via `:initial-events` (see core.cljs),
          so it runs exactly once, on first mount."}
   (fn handler-app-initialise [_ _]
     {:fx [[:dispatch [:app/boot [:rf.machine/start]]]]}))

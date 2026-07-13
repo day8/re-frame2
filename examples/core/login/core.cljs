@@ -122,7 +122,7 @@
 (defonce react-root (atom nil))
 
 ;; `mount!` is browser setup: create the root lazily, then render the view tree
-;; inside the frame-provider. `^:dev/after-load` is shadow's cue to re-run it on
+;; inside the frame-root. `^:dev/after-load` is shadow's cue to re-run it on
 ;; each reload so your edited views re-render into the same root and same frame.
 ;; This is the canonical mount/boot shape, spelled the same in the counter and
 ;; todomvc examples. See `docs/core/how-to/boot-and-mount-an-app.md`.
@@ -131,9 +131,9 @@
                      (js/document.getElementById "app"))]
     (when-not @react-root
       (reset! react-root (rdc/create-root el)))
-    ;; Frame setup, all in one breath. Handing `frame-provider` an `{:id …}`
-    ;; map is the "make sure this frame exists" shape: on first mount it
-    ;; creates `:rf/default`, applies the config below, runs `:initial-events`
+    ;; Frame setup, all in one breath. `frame-root {:id …}` is the "make sure
+    ;; this frame exists" shape (ENSURE): on first mount it creates
+    ;; `:rf/default` at commit, applies the config below, runs `:initial-events`
     ;; once, and scopes the frame into React. On hot reload it finds the frame
     ;; already there and leaves it alone — no double-seed. See docs/core/frames.md.
     ;;
@@ -141,14 +141,14 @@
     ;; `:fx-overrides` and the slice-seeding `:initial-events` shared by all
     ;; three login mounts — and we add the `:id` / `:doc` for this frame.
     ;;
-    ;; And the provider isn't optional scenery: its scope is the reason the
+    ;; And the root isn't optional scenery: its scope is the reason the
     ;; views' injected `dispatch`/`subscribe` (and the machine reads) know to
-    ;; talk to `:rf/default`. Render a `reg-view` outside any provider and it
+    ;; talk to `:rf/default`. Render a `reg-view` outside any frame scope and it
     ;; fails loud rather than guessing.
     (rdc/render @react-root
-                [rf/frame-provider (merge {:id  :rf/default
-                                           :doc "Login demo frame."}
-                                          model/frame-config)
+                [rf/frame-root (merge {:id  :rf/default
+                                       :doc "Login demo frame."}
+                                      model/frame-config)
                  [root-view]])))
 
 (defn run []

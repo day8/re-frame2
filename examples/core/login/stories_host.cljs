@@ -69,7 +69,7 @@
 ;;   input to an uncontrolled one, then logs the "changing an uncontrolled
 ;;   input to be controlled" warning on the first keystroke. The machine
 ;;   seeds itself; the slice is app-db, so it has to be seeded here — exactly
-;;   as `login.core/run`'s frame-provider does.
+;;   as `login.core/run`'s frame-root does.
 ;;
 ;; Since the host is running its own boot from top to bottom, it sets the
 ;; frame up itself here rather than calling `login.core/run` (which would

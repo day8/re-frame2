@@ -483,13 +483,13 @@
 ;; the same `#app` element. Once is plenty.
 (defonce react-root (atom nil))
 
-;; The frame's whole life happens in one place: the `frame-provider` down in
+;; The frame's whole life happens in one place: the `frame-root` down in
 ;; `mount!`. First mount creates the frame, applies its config, and fires
 ;; `:initial-events` once to seed app-db. After that every `dispatch` and
-;; `subscribe` in the tree finds *this* frame. On hot reload the provider reuses
+;; `subscribe` in the tree finds *this* frame. On hot reload the root reuses
 ;; the frame it already made and skips the seeding, so your grid keeps the
-;; values you typed. (`init!` below doesn't make the frame — the provider does.)
-;; The [frame-provider](../../../../docs/core/glossary.md#frame-provider)
+;; values you typed. (`init!` below doesn't make the frame — the root does.)
+;; The [frame-root](../../../../docs/core/glossary.md#frame-root)
 ;; glossary entry has the longer version.
 ;;
 ;; `app-frame` is just an id we chose. `:rf/default` is an ordinary frame id —
@@ -497,7 +497,7 @@
 (def app-frame :rf/default)
 
 ;; `mount!` is browser setup: create the root lazily, then render the view tree
-;; inside the frame-provider. `^:dev/after-load` is shadow's cue to re-run it on
+;; inside the frame-root. `^:dev/after-load` is shadow's cue to re-run it on
 ;; each reload so your edited views re-render into the same root and same frame.
 ;; This is the canonical mount/boot shape, spelled the same in the counter and
 ;; todomvc examples. See `docs/core/how-to/boot-and-mount-an-app.md`.
@@ -508,7 +508,7 @@
       (reset! react-root (rdc/create-root el)))
     (rdc/render @react-root
                 [rf/frame-root {:id app-frame
-                                    :initial-events [[:cells/initialise]]}
+                                :initial-events [[:cells/initialise]]}
                  [cells-grid]])))
 
 (defn run []

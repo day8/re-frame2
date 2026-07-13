@@ -521,7 +521,7 @@
 
 ;; The id this app's frame is created under. Despite the name, `:rf/default`
 ;; carries no special privilege — it's just an ordinary id. The URL ownership
-;; comes from `:url-bound? true` on the `frame-provider` below, never from what
+;; comes from `:url-bound? true` on the `frame-root` below, never from what
 ;; the frame happens to be called.
 (def app-frame :rf/default)
 
@@ -540,9 +540,9 @@
     ;; override is the right grain.
     (rdc/render @react-root
                 [rf/frame-root {:id           app-frame
-                                    :doc          "Resources demo frame."
-                                    :url-bound?   true
-                                    :fx-overrides {:rf.http/managed :resources.demo/http-stub}}
+                                :doc          "Resources demo frame."
+                                :url-bound?   true
+                                :fx-overrides {:rf.http/managed :resources.demo/http-stub}}
                  [root-view]])))
 
 (defn run []
