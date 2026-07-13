@@ -1166,9 +1166,9 @@ test('all-required-passed aggregator needs jvm-ui + cljs-ui-g1 (rf2-vxgfnd.6)', 
 // relevant browser test reported SKIPPED — a false-green hole. The gate
 // now fires cljs_browser for EVERY implementation/ui/** source or test
 // change (conservative: trigger the browser gate MORE, never less).
-// cljs_prod (elision) + bundle_isolation stay OFF — they gate the
-// PRODUCTION `:advanced` builds and no production build :requires
-// re-frame.ui.* yet.
+// rf2-vxgfnd.12.2 adds a mounted generated-view :advanced production control
+// for the override/provider carriage, so cljs_prod and bundle_isolation are now
+// part of every UI change's proof surface too.
 
 test('implementation/ui SOURCE change fires cljs_browser (transitive DOM-test coverage) (rf2-vxgfnd.90)', () => {
   const result = classify('implementation/ui/src/re_frame/ui/reactive.cljc');
@@ -1219,13 +1219,12 @@ test('an ordinary UI cljs test (non-DOM) also fires cljs_browser + node-test (rf
   assert.equal(result.cljs_node_test, 'true');
 });
 
-test('implementation/ui/* does NOT arm cljs_prod / bundle_isolation — no production surface yet (rf2-vxgfnd.90 scope)', () => {
-  // The browser-TEST surface is present (cljs_browser), but no PRODUCTION
-  // build :requires re-frame.ui.*, so the `:advanced` elision + bundle
-  // gates stay off until an S2+ slice gives it a production surface.
+test('implementation/ui/* arms mounted advanced-prod + bundle isolation (rf2-vxgfnd.12.2)', () => {
+  // The generated ViewCell/provider production control lives in the advanced
+  // prod build; a UI-only PR must never skip the only gate that runs it.
   const result = classify('implementation/ui/src/re_frame/ui/reactive.cljc');
-  assert.equal(result.cljs_prod, 'false');
-  assert.equal(result.bundle_isolation, 'false');
+  assert.equal(result.cljs_prod, 'true');
+  assert.equal(result.bundle_isolation, 'true');
 });
 
 test('a docs/spec-only change does NOT arm cljs_browser (negative — scope discipline) (rf2-vxgfnd.90)', () => {

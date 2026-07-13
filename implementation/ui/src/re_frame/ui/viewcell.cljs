@@ -46,7 +46,9 @@
   this layout effect (React's commit phase), correcting moved evidence
   before paint without any flush call."
   (:require ["react" :as react]
-            [re-frame.ui.reactive :as reactive]))
+            [re-frame.interop :as interop]
+            [re-frame.ui.reactive :as reactive]
+            [re-frame.ui.sub-overrides :as sub-overrides]))
 
 ;; ---------------------------------------------------------------------------
 ;; Root-incarnation context (03 §4; rf2-vxgfnd.85/.92)
@@ -90,6 +92,13 @@
             (reactive/make-cell view-id body-revision)))
     (let [cell             (.-current cell-ref)
           root-incarnation (react/useContext root-incarnation-context)
+          ;; Story's mounted override scope is React context, not a dynamic
+          ;; binding: descendants render after their provider's caller has
+          ;; returned.  Read it in THIS compiled view and bind the portable
+          ;; override door only around THIS view body.  `use-current` folds to
+          ;; nil/no-hook in production, alongside resolve-override's existing
+          ;; debug gate.
+          overrides        (sub-overrides/use-current)
           subscribe (react/useCallback
                       (fn [listener] (reactive/subscribe cell listener))
                       #js [cell])]
@@ -107,8 +116,23 @@
                                   (fn [] 0))
       ;; render-phase: resolve + probe every executed site into a fresh
       ;; ownership-free capture. The selected Fiber's effect closes over this
-      ;; exact value; speculative sibling renders cannot replace it.
-      (let [[element capture] (reactive/with-capture cell thunk)]
+      ;; exact value; speculative sibling renders cannot replace it. Story's
+      ;; override door is scoped to THIS capture/body only.
+      (let [[element capture]
+            (if interop/debug-enabled?
+              ;; Binding is intentionally inside the constant DEBUG branch:
+              ;; advanced production output must contain no push/set/restore
+              ;; machinery for Story's override door.
+              (do
+                ;; Stable bundle sentinel: the advanced production gate
+                ;; asserts this whole debug branch is absent.
+                (when (and (some? overrides) (not (map? overrides)))
+                  (throw
+                   (js/Error.
+                    "rf-ui-mounted-override-binding expects a map")))
+                (binding [reactive/*sub-overrides* overrides]
+                  (reactive/with-capture cell thunk)))
+              (reactive/with-capture cell thunk))]
         ;; reconcile — after EVERY committed render; no cleanup (leases are
         ;; owned by the cell and reconciled by the kept-check, never torn
         ;; down between renders — that would churn shared nodes).

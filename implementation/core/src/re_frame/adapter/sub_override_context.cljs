@@ -34,10 +34,11 @@
 
   The override map is consulted in `re-frame.subs/subscribe` ONLY inside
   the existing `(when interop/debug-enabled? ...)` envelope, so the whole
-  seam DCEs under `:advanced` + `goog.DEBUG=false`. This context object
-  is constructed at module-init regardless (a single
-  `React.createContext` call, like `frame-context`), but it is never
-  READ on the production path because the consult is elided.
+  seam DCEs under `:advanced` + `goog.DEBUG=false`.  The Context construction
+  is behind that SAME compile-time gate: production initializes this var to
+  nil and performs no `React.createContext` call.  That matters now the
+  first-party compiled ViewCell requires this carriage namespace — merely
+  loading re-frame.ui must not leave a production provider/context residue.
 
   ## Honesty boundary
 
@@ -48,11 +49,11 @@
             [re-frame.interop :as interop]))
 
 (defonce override-context
-  ;; Default `nil` — no overrides in scope. A descendant `subscribe`
-  ;; consult against an unwrapped tree reads `nil` and misses, so the
-  ;; view reads its real subscription. Mirrors `frame-context`'s
-  ;; `:rf/default` defaulting (here the "no Provider" value is nil).
-  (.createContext React nil))
+  ;; Dev/tool builds get the shared Context whose DEFAULT value is nil (no
+  ;; overrides in scope).  Production gets nil WITHOUT invoking createContext;
+  ;; every read/provider call site folds away under the same goog.DEBUG gate.
+  (when interop/debug-enabled?
+    (.createContext React nil)))
 
 ;; rf2-fa4ly parity: stamp a human-readable `displayName` so React
 ;; DevTools' Context inspector labels the entry `rf2-sub-overrides`
@@ -73,4 +74,5 @@
   `_currentValue` read; no coercion is needed because the value is a
   plain CLJS map (or nil), never a prop-stringified keyword."
   []
-  (.-_currentValue ^js override-context))
+  (when interop/debug-enabled?
+    (.-_currentValue ^js override-context)))
