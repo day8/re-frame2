@@ -603,7 +603,7 @@
   ([db event-id frame-id]
    (if-let [owner-token (frame/current-event-owner-token)]
      (validate-app-schema! db event-id frame-id
-                           #(frame/frame-incarnation-live? frame-id owner-token))
+                           #(frame/event-continuation-live? frame-id owner-token))
      (validate-app-schema! db event-id frame-id (constantly true))))
   ([db event-id frame-id continue?]
    ;; Per Spec 009 §Production builds the entire body lives inside a
@@ -713,8 +713,10 @@
                  ;; perform the actual container restoration.
                  ;; Explainer failure is diagnostic only and cannot change the
                  ;; false verdict contributed by this entry.
-                 (let [explanation (safe-explain schema reg-slice)
-                       in-path     (failing-in-path explanation)
+                  (let [explanation (safe-explain schema reg-slice)]
+                    (if-not (continue?)
+                      :rf/stale-incarnation
+                      (let [in-path     (failing-in-path explanation)
                        leaf-value  (if in-path
                                      (get-in reg-slice in-path)
                                      reg-slice)
@@ -806,16 +808,18 @@
                        path-in     (if (and in-path leaf-sensitive?)
                                      (walker/sanitize-sensitive-path schema in-path)
                                      in-path)
-                       leaf-path   (if path-in
-                                     (vec (concat reg-path path-in))
-                                     reg-path)
+                        leaf-path   (if path-in
+                                      (vec (concat reg-path path-in))
+                                      reg-path)]
                        ;; Humanize from the raw
                        ;; explanation, before redaction, so the
                        ;; `:explain-humanized` slot is scrubbed
                        ;; symmetrically with `:explain` on sensitive
                        ;; app-db failures (sentinel present, not omitted).
-                       humanized   (humanize-explain explanation)
-                       base-tags   (cond-> {:where           :app-db
+                    (let [humanized (humanize-explain explanation)]
+                      (if-not (continue?)
+                        :rf/stale-incarnation
+                        (let [base-tags   (cond-> {:where           :app-db
                                             :path            leaf-path
                                             :registered-path reg-path
                                             :value           leaf-value
@@ -838,18 +842,18 @@
                        ;; marker (built from the whole `reg-slice`) — sensitive
                        ;; wins, so this arm only fires when neither the leaf nor
                        ;; the whole-payload decision redacted.
-                       tags        (cond-> (redact-tags-per-slot base-tags
+                              tags        (cond-> (redact-tags-per-slot base-tags
                                                                  whole-sensitive?
                                                                  leaf-sensitive?
                                                                  app-db-narrowed-slots)
-                                     whole-large? (elide-large-slots reg-slice))]
-                   (if-not (continue?)
-                     :rf/stale-incarnation
-                     (do
-                       (emit-validation-failure! tags)
-                       (if (continue?)
-                         (recur (next entries) false)
-                         :rf/stale-incarnation)))))))
+                                           whole-large? (elide-large-slots reg-slice))]
+                          (if-not (continue?)
+                            :rf/stale-incarnation
+                            (do
+                              (emit-validation-failure! tags)
+                              (if (continue?)
+                                (recur (next entries) false)
+                                :rf/stale-incarnation))))))))))))
             ok?)))
         true)
       true)))

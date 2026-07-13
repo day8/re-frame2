@@ -60,7 +60,8 @@
   `(when interop/debug-enabled? ...)` so `:advanced` +
   `goog.DEBUG=false` DCE-elides every literal reason string,
   keyword, validator deref, and trace call."
-  (:require [re-frame.interop :as interop]
+  (:require [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.machines.paths :as paths]
             [re-frame.trace :as trace]))
@@ -258,7 +259,7 @@
   ([runtime-db event-id frame-id]
    (if-let [owner-token (frame/current-event-owner-token)]
      (validate-machine-data! runtime-db event-id frame-id
-                             #(frame/frame-incarnation-live? frame-id owner-token))
+                             #(frame/event-continuation-live? frame-id owner-token))
      (validate-machine-data! runtime-db event-id frame-id (constantly true))))
   ([runtime-db _event-id _frame-id continue?]
   ;; `event-id` and `frame-id` are accepted but unused at this boundary

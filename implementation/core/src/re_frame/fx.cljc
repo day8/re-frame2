@@ -1014,7 +1014,20 @@
 (defn- exact-owner-live?
   [frame-id]
   (or (nil? *exact-frame-owner-token*)
-      (frame/frame-incarnation-live? frame-id *exact-frame-owner-token*)))
+      (frame/event-continuation-live? frame-id *exact-frame-owner-token*)))
+
+(defn- call-while-exact-owner
+  "Fence a registrar/generation callback against exact event-owner loss."
+  [frame-id f]
+  (if-not (exact-owner-live? frame-id)
+    stale-incarnation
+    (try
+      (let [result (f)]
+        (if (exact-owner-live? frame-id) result stale-incarnation))
+      (catch #?(:clj Throwable :cljs :default) e
+        (if (exact-owner-live? frame-id)
+          (throw e)
+          stale-incarnation)))))
 
 (defn handle-one-fx
   "Process one [fx-id args] pair. Falls into one of three buckets:
@@ -1091,13 +1104,15 @@
         ;; The rejected-override diagnostic above and override resolution below
         ;; both synchronously fan out to listeners. Fence between them: if the
         ;; first emit destroys A, do not resolve/emit a second fact under B.
-        fx-id (when (exact-owner-live? frame-id)
-                (resolve-fx-with-overrides original-fx-id overrides
-                                           frame-id origin-event origin-event-id))
+        fx-id (call-while-exact-owner
+                frame-id
+                #(resolve-fx-with-overrides original-fx-id overrides
+                                            frame-id origin-event origin-event-id))
         ;; `resolve-fx-with-overrides` itself may emit override-applied or
         ;; fallthrough. Its result is inert after listener-induced owner loss.
-        resolved-meta (when (exact-owner-live? frame-id)
-                        (resolved-fx-meta original-fx-id fx-id overrides))
+        resolved-meta (call-while-exact-owner
+                        frame-id
+                        #(resolved-fx-meta original-fx-id fx-id overrides))
         ;; rf2-nrpj1: a function-value override (`{:dispatch (fn [m args] ...)}`)
         ;; must run IN PLACE OF the registered/reserved fx — per spec/002
         ;; §`:fx-overrides` the resolution model consults `:fx-overrides`
@@ -1243,8 +1258,12 @@
                                ;; epoch `:trace-events` (epoch capture buffers
                                ;; only frame-tagged traces). Mirrors the
                                ;; `:where :app-db` / `:where :event` traces.
-                               (validate-fx! fx-id origin-event-id args meta frame-id)
-                               (catch #?(:clj Throwable :cljs :default) _ true))
+                               (validate-fx! fx-id origin-event-id args meta frame-id
+                                             #(exact-owner-live? frame-id))
+                               (catch #?(:clj Throwable :cljs :default) _
+                                 (if (exact-owner-live? frame-id)
+                                   true
+                                   stale-incarnation)))
                              true)]
         (cond
           (not (exact-owner-live? frame-id))

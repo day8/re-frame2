@@ -129,10 +129,18 @@
   hook (e.g. an embedding host that ships no schema layer). Per Spec 010
   §Per-frame schemas the digest is frame-scoped — restore-mismatch
   reasoning runs against the frame the epoch belongs to."
-  [frame-id]
-  (when-let [digest (late-bind/get-fn :schemas/app-schemas-digest)]
-    (try (digest frame-id)
-         (catch #?(:clj Throwable :cljs :default) _ nil))))
+  ([frame-id]
+   (current-schema-digest frame-id (constantly true)))
+  ([frame-id continue?]
+   (when (continue?)
+     (when-let [digest (late-bind/get-fn :schemas/app-schemas-digest)]
+       (try
+         (digest frame-id)
+         (catch #?(:clj Throwable :cljs :default) _
+           ;; Optional diagnostic enrichment retains nil-on-failure. The
+           ;; caller's post-callback exact check decides whether even that nil
+           ;; result remains usable.
+           nil))))))
 
 ;; ---- sensitive rollup -----------------------------------------------------
 ;;
@@ -271,6 +279,10 @@
   ([frame-id frame-state-before frame-state-after events committed-at]
    (build-record frame-id frame-state-before frame-state-after events committed-at :ok nil))
   ([frame-id frame-state-before frame-state-after events committed-at outcome halt-reason]
+   (build-record frame-id frame-state-before frame-state-after events committed-at
+                 outcome halt-reason (current-schema-digest frame-id)))
+  ([frame-id frame-state-before frame-state-after events committed-at outcome halt-reason
+    schema-digest]
    ;; The canonical snapshot is the whole frame state: both partitions.
    ;; `restore-epoch!` rewinds to `:frame-state-after`, reviving machines /
    ;; routes / elision / SSR runtime-db state, not just app-db. The
@@ -342,7 +354,7 @@
               ;; Optional per
               ;; Spec-Schemas §:rf/epoch-record (a host without a schema layer
               ;; produces nil; consumers tolerate the absent slot).
-              :schema-digest      (current-schema-digest frame-id)
+              :schema-digest      schema-digest
               :rf.epoch/sensitive? sensitive?
               :rf.epoch/redacted-modified-paths-count redacted-modified-count
               :trace-events       events

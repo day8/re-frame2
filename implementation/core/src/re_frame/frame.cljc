@@ -643,6 +643,8 @@
   (and (some? token)
        (identical? token (frame-incarnation-token id))))
 
+(declare event-continuation-live?)
+
 (defn frame-disposed-for-drain?
   "Per Spec 002 §Frame disposal mid-drain: predicate used by the
   router's drain loop to interrupt a pass once destruction owns the current
@@ -1059,6 +1061,29 @@
   [id]
   (get @frame-commit-epochs id 0))
 
+(def ^:private stale-exact-callback ::stale-exact-callback)
+
+(defn- call-exact-frame-callback
+  "Run adapter callback `f` for an exact event-owned incarnation.
+
+  The tagged pair distinguishes a legitimate nil callback result from owner
+  loss.  A destroy+throw is inert; a throw while the exact owner remains live
+  preserves the adapter's existing failure contract."
+  [id owner-token exact-owner? f]
+  (if-not exact-owner?
+    [::ok (f)]
+    (if-not (event-continuation-live? id owner-token)
+      stale-exact-callback
+      (try
+        (let [result (f)]
+          (if (event-continuation-live? id owner-token)
+            [::ok result]
+            stale-exact-callback))
+        (catch #?(:clj Throwable :cljs :default) e
+          (if (event-continuation-live? id owner-token)
+            (throw e)
+            stale-exact-callback))))))
+
 (defn- commit-frame-record-transition!
   "Install `partitions` into an already-resolved live frame record.
 
@@ -1068,7 +1093,11 @@
   same-id record."
   [id frame-record partitions owner-token exact-owner?]
   (let [container  (:frame-state frame-record)
-        current    (adapter/read-container container)
+        read-result (call-exact-frame-callback
+                      id owner-token exact-owner?
+                      #(adapter/read-container container))]
+    (when-not (= stale-exact-callback read-result)
+      (let [current    (second read-result)
         app-given? (contains? partitions app-partition-key)
         rt-given?  (contains? partitions runtime-partition-key)
         next-app   (if app-given? (get partitions app-partition-key)
@@ -1092,20 +1121,22 @@
     ;; halted-destroy snapshot), but no id-keyed commit epoch or later trace may
     ;; be attributed to B.
     (when (or (not exact-owner?)
-              (frame-incarnation-live? id owner-token))
+              (event-continuation-live? id owner-token))
       ;; ONE atomic frame-state install — both partitions in one write, per
       ;; Spec 006 §Commit boundary.
       (when-not (and (identical? next-app (get current app-partition-key))
                      (identical? next-rt  (get current runtime-partition-key)))
-        (adapter/replace-container! container next-fs)
-        (when (or (not exact-owner?)
-                  (frame-incarnation-live? id owner-token))
-          (bump-commit-epoch! id)))
+        (let [replace-result
+              (call-exact-frame-callback
+                id owner-token exact-owner?
+                #(adapter/replace-container! container next-fs))]
+          (when-not (= stale-exact-callback replace-result)
+            (bump-commit-epoch! id))))
       ;; nil is the exact path's terminal-loss marker.  The router suppresses
       ;; commit traces, fx, trailers and normal epoch settlement in that case.
       (when (or (not exact-owner?)
-                (frame-incarnation-live? id owner-token))
-        changed))))
+                (event-continuation-live? id owner-token))
+        changed))))))
 
 (defn commit-frame-transition!
   "Atomically install a frame transition into the ONE physical frame-state
@@ -1417,7 +1448,7 @@
                               (boolean (and pending? (not closing?)))))]
               (when strand?
                 (when-let [reschedule! (late-bind/get-fn :router/reschedule-drain!)]
-                  (reschedule! frame-id))))))))
+                  (reschedule! frame-id frame-record))))))))
     (f)))
 
 ;; ---- frame presets (Spec 002 §Frame presets) ------------------------------
@@ -2474,7 +2505,7 @@
 ;; `:halted-destroy` record, so the slot is moot there).
 (def ^:dynamic *run-frame-state-before* nil)
 
-(def ^:dynamic ^:private *event-owner-token*
+(def ^:dynamic ^:private *event-owner*
   "Unforgeable exact-incarnation authority for the currently dequeued event.
 
   The router binds this outside the authored interceptor context.  Application
@@ -2489,19 +2520,48 @@
   replace the framework's binding after creating a same-id successor. This
   narrow runner is the only binding seam; a nested authored call cannot change
   the outer event pipeline's authority once it returns."
-  [token f]
-  (binding [*event-owner-token* token]
-    (f)))
+  ([frame-id token f]
+   (call-with-event-owner-token frame-id token false f))
+  ([frame-id token allow-closing? f]
+   (binding [*event-owner* {:frame          frame-id
+                            :token          token
+                            :allow-closing? allow-closing?}]
+     (f))))
 
 (defn ^:no-doc current-event-owner-token
   "Return the router-bound event owner token to framework internals."
   []
-  *event-owner-token*)
+  (:token *event-owner*))
+
+(defn ^:no-doc current-event-owner-frame-id
+  "Return the unforgeable dequeue-time owner frame id. Unlike ambient frame
+  scope, this is unaffected by nested `with-frame` rebinding in authored code."
+  []
+  (:frame *event-owner*))
+
+(defn ^:no-doc current-event-owner-allows-closing?
+  "True only inside the router's exact-token private teardown cascade."
+  []
+  (true? (:allow-closing? *event-owner*)))
 
 (defn ^:no-doc event-owner-live?
   "True when the router-bound event owner still names frame `id`."
   [id]
-  (frame-incarnation-live? id *event-owner-token*))
+  (and (= id (:frame *event-owner*))
+       (event-continuation-live? id (:token *event-owner*))))
+
+(defn ^:no-doc event-continuation-live?
+  "True while ordinary framework-owned event continuation may proceed.
+
+  A destroy claim is the terminal cutoff even before lifecycle-dead. The sole
+  exemption is the router's unforgeable exact-token private teardown cascade,
+  whose owner binding carries `:allow-closing? true`."
+  [id token]
+  (and (frame-incarnation-live? id token)
+       (or (not (frame-incarnation-closing? id token))
+           (and (:allow-closing? *event-owner*)
+                (= id (:frame *event-owner*))
+                (identical? token (:token *event-owner*))))))
 
 ;; SENSE (rf2-p4cd9c): event-pipeline-run — the run's causal time, bound
 ;; alongside `*run-frame-state-before*`. Renamed cascade->run per glw1bh.
@@ -2854,8 +2914,7 @@
         (when (identical? expected-token candidate-token)
           (when *destroy-claim-probe*
             (*destroy-claim-probe* id candidate-token))
-          (let [interrupt-report (volatile! nil)
-                claimed
+          (let [claimed
                 (call-serialized-with-drain!
                   id
                   (fn []
@@ -2879,41 +2938,28 @@
                             (locking router
                               (swap! destroying-frames assoc id
                                      {:token candidate-token})
-                              (swap! router
-                                     (fn [{:keys [queue scheduled? in-drain?
-                                                 destroy-claim-dropped-count]
-                                           :as state}]
-                                       (let [dropped (+ (count queue)
-                                                        (or destroy-claim-dropped-count 0))
-                                             ;; A live drainer needs terminal
-                                             ;; evidence even with an empty
-                                             ;; queue; a scheduled queue is an
-                                             ;; interrupted drain before entry.
-                                             interrupt? (or (some? in-drain?)
-                                                            scheduled?
-                                                            (pos? dropped))]
-                                         (when interrupt?
-                                           (vreset! interrupt-report dropped))
-                                         (cond-> (-> state
-                                                     (assoc :queue interop/empty-queue
-                                                            :scheduled? false)
-                                                     (dissoc :destroy-claim-dropped-count
-                                                             :destroy-claim-report-emitted?))
-                                           interrupt?
-                                           (assoc :destroy-claim-report-emitted? true)))))
-                              current)))))))]
+                               (swap! router
+                                      (fn [{:keys [queue destroy-claim-dropped-count]
+                                            :as state}]
+                                        (let [dropped (+ (count queue)
+                                                         (or destroy-claim-dropped-count 0))]
+                                          ;; Preserve the claim-time count until
+                                          ;; an actual drain observes the claim.
+                                          ;; A public post-claim/pre-dead arrival
+                                          ;; may enqueue, but that exact drain
+                                          ;; drops it before invocation and
+                                          ;; atomically combines both counts in
+                                          ;; one interruption report.
+                                          (cond-> (-> state
+                                                      (assoc :queue interop/empty-queue
+                                                             :scheduled? false)
+                                                      (dissoc :destroy-claim-report-emitted?))
+                                            (pos? dropped)
+                                            (assoc :destroy-claim-dropped-count dropped)))))
+                               current)))))))]
             (if (= ::retry-destroy-claim claimed)
               (recur)
-              (do
-                ;; Linearize A's interruption evidence while A still owns the
-                ;; registry key. The stale drainer's return seam must neither
-                ;; claim nor attribute this trace to a same-id B (nor recreate
-                ;; an absent A epoch buffer).
-                (when-some [dropped @interrupt-report]
-                  (trace/emit! :rf.frame :rf.frame/drain-interrupted
-                               {:frame         id
-                                :dropped-count dropped}))
-                claimed))))))))
+              claimed)))))))
 
 (defn- release-frame-destroy-claim!
   "Compare-remove only `expected-token`'s claim. A stale incarnation A's
@@ -3119,11 +3165,13 @@
                                       (and their :db-* app-db projections) per
                                       Spec-Schemas §:rf/epoch-record §Outcomes.
 
-  Ordinary dispatch after the claim is rejected, including during the
-  claim-to-lifecycle-dead window; only the token-scoped private cleanup
-  cascade is admitted. Dispatch / subscribe against the dead or absent frame
-  recovers (dispatch no-ops, subscribe returns nil) and emits the always-on
-  :rf.error/frame-destroyed diagnostic.
+  An external ordinary dispatch that linearizes while the claimed incarnation
+  remains lifecycle-live may enter its real queue. The next exact-incarnation
+  drain check removes it before handler, effects, or child dispatch and combines
+  it with claim-time removals in the one interruption report. Only the exact-
+  token private cleanup cascade may execute after claim. Dispatch / subscribe
+  against the dead or absent frame recovers (dispatch no-ops, subscribe returns
+  nil) and emits the always-on :rf.error/frame-destroyed diagnostic.
 
   Re-entrancy: if `destroy-frame!` is called for `id` while
   an outer `destroy-frame!` for the same `id` is still on the stack
@@ -3202,7 +3250,21 @@
             hook-failures     (atom [])]
        (binding [*destroying-frame-id*    id
                  *teardown-hook-failures* hook-failures]
-        (try
+         ;; The exact-token destroy recipe is the sole framework-owned action
+         ;; authorised after the claim. Replace the now-false authored-event
+         ;; trace predicate for the whole recipe (including the post-dissoc
+         ;; epoch hook and teardown-failure flush), then restore it on return.
+         (trace/call-with-terminal-continuation-predicate
+           ;; `claim-frame-destroy!` already granted this exact recipe local
+           ;; terminal authority. After A's dissoc, an independent B destroy
+           ;; may replace the bare-id marker with token B; that must not
+           ;; retroactively cancel A's already-acquired terminal publications.
+           ;; Every id-keyed teardown mutation keeps its own exact-token guard;
+           ;; this predicate governs only continuation through this local
+           ;; recipe and its corpus/structural observations.
+           (constantly true)
+           (fn []
+         (try
         (fire-on-destroy-event! id expected-incarnation-token f)
         ;; Step 3 rides the SAME best-effort boundary as the later
         ;; `safe-call-hook!` steps (rf2-jt47s0). `notify-machine-destruction!`'s
@@ -3390,12 +3452,15 @@
               (when-let [emit-report (late-bind/get-fn
                                        :error-emit/dispatch-frame-teardown-report)]
                 (try
-                  (emit-report id failures (interop/now-ms))
+                  ;; A was dissociated before this finally boundary. Preserve
+                  ;; the corpus-wide terminal report, but do not resolve its
+                  ;; bare id through a same-id B's frame-owned error sinks.
+                  (emit-report id failures (interop/now-ms) false)
                   (catch #?(:clj Throwable :cljs :default) _ nil)))))
           ;; Compare-remove only this incarnation's in-flight marker. A fresh
           ;; same-id incarnation may have replaced it after `dissoc-frame!`;
           ;; stale A's finally must never erase B's claim.
-          (release-frame-destroy-claim! id expected-incarnation-token)))))))))
+          (release-frame-destroy-claim! id expected-incarnation-token)))))))))))
 
 ;; ---- reset-frame! — RETIRED (rf2-lxwpob) -----------------------------------
 ;;

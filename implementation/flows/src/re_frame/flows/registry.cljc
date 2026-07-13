@@ -111,7 +111,7 @@
      @a
      {}))
   ([frame-id owner-token]
-   (when (frame/frame-incarnation-live? frame-id owner-token)
+   (when (frame/event-continuation-live? frame-id owner-token)
      (frame-last-inputs-snapshot frame-id))))
 
 (defn ^:no-doc get-frame-flow-last-inputs
@@ -130,7 +130,7 @@
   ([frame-id prior]
    (reset! (ensure-frame-last-inputs-atom! frame-id) prior))
   ([frame-id owner-token prior]
-   (when (frame/frame-incarnation-live? frame-id owner-token)
+   (when (frame/event-continuation-live? frame-id owner-token)
      (when-let [a (get @frame-last-inputs frame-id)]
        (reset! a prior)))))
 
@@ -170,7 +170,7 @@
      @a
      #{}))
   ([frame-id owner-token]
-   (when (frame/frame-incarnation-live? frame-id owner-token)
+   (when (frame/event-continuation-live? frame-id owner-token)
      (abandoned-output-paths-snapshot frame-id))))
 
 (defn ^:no-doc drain-abandoned-output-paths!
@@ -192,7 +192,7 @@
   ([frame-id prior]
    (reset! (ensure-frame-abandoned-paths-atom! frame-id) (set prior)))
   ([frame-id owner-token prior]
-   (when (frame/frame-incarnation-live? frame-id owner-token)
+   (when (frame/event-continuation-live? frame-id owner-token)
      (when-let [a (get @frame-abandoned-output-paths frame-id)]
        (reset! a (set prior))))))
 
@@ -207,11 +207,11 @@
   neither advance nor restore B's dirty-check/vacation state.  Returns nil
   when `owner-token` no longer names the live incarnation."
   [frame-id owner-token]
-  (when (frame/frame-incarnation-live? frame-id owner-token)
+  (when (frame/event-continuation-live? frame-id owner-token)
     (let [state {:flow-map        (get @flows frame-id)
                  :last-inputs     (ensure-frame-last-inputs-atom! frame-id)
                  :abandoned-paths (ensure-frame-abandoned-paths-atom! frame-id)}]
-      (when (frame/frame-incarnation-live? frame-id owner-token)
+      (when (frame/event-continuation-live? frame-id owner-token)
         state))))
 
 (defn ^:no-doc legacy-flow-pass-state

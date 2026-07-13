@@ -24,7 +24,7 @@
      :register  (fn [id f] ...)        ;; returns id
      :unregister (fn [id] ...)         ;; returns nil
      :clear     (fn [] ...)            ;; returns nil
-     :fan-out   (fn [record] ...)}     ;; returns nil
+     :fan-out   (fn [record continue?] ...)} ;; returns nil
 
   Caller MUST hold the returned `:listeners` atom in a `defonce` (or
   equivalent) so that hot reload of the consuming namespace does not
@@ -34,8 +34,9 @@
 
   `fan-out` short-circuits to nil when the registry is empty so the
   per-emit hot-path cost reduces to one deref + an `empty?` check.
-  Listener exceptions are caught — the cascade does NOT abort and
-  sibling listeners still run."
+  Listener exceptions are caught. `continue?` is checked before and after
+  every snapshotted listener; exact-owner loss stops later framework-owned
+  sibling callbacks while ordinary callers pass `(constantly true)`."
   [{:keys [listeners]}]
   (let [reg (or listeners (atom {}))]
     {:listeners  reg
@@ -48,11 +49,17 @@
      :clear      (fn clear []
                    (reset! reg {})
                    nil)
-     :fan-out    (fn fan-out [record]
-                   (let [snap @reg]
-                     (when (seq snap)
-                       (doseq [[_id f] snap]
-                         (try
-                           (f record)
-                           (catch #?(:clj Throwable :cljs :default) _ nil)))))
-                   nil)}))
+     :fan-out    (fn fan-out
+                   ([record] (fan-out record (constantly true)))
+                   ([record continue?]
+                    (let [snap @reg]
+                      (when (seq snap)
+                        (loop [entries (seq snap)]
+                          (when (and entries (continue?))
+                            (let [[_id f] (first entries)]
+                              (try
+                                (f record)
+                                (catch #?(:clj Throwable :cljs :default) _ nil))
+                              (when (continue?)
+                                (recur (next entries))))))))
+                    nil))}))

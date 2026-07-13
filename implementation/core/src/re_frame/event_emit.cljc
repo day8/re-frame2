@@ -96,17 +96,29 @@
   under the late-bind key `:event-emit/dispatch-on-event` so the
   router does NOT statically `:require` this namespace."
   [event event-id frame time outcome elapsed-ms]
-  (when (seq @listeners)
-    (let [handler-meta (registrar/lookup :event event-id)]
-      (when-not (trace/no-emit?-from-meta handler-meta)
-        (let [elided-event (elision/elide-wire-value event {:frame frame})
-              record       {:event      elided-event
-                            :event-id   event-id
-                            :frame      frame
-                            :time       time
-                            :outcome    outcome
-                            :elapsed-ms elapsed-ms}]
-          ((:fan-out registry) record)))))
+  (when (and (trace/continuation-live?) (seq @listeners))
+    (let [handler-meta (try
+                         (registrar/lookup :event event-id)
+                         (catch #?(:clj Throwable :cljs :default) e
+                           (when (trace/continuation-live?) (throw e))))]
+      ;; Handler resolution may execute a generation resolver.
+      (when (and (trace/continuation-live?)
+                 (not (trace/no-emit?-from-meta handler-meta)))
+        (let [elided-event (try
+                             (elision/elide-wire-value event {:frame frame})
+                             (catch #?(:clj Throwable :cljs :default) e
+                               (when (trace/continuation-live?) (throw e))))]
+          ;; Elision/classification is callback-bearing. Listener sibling fanout
+          ;; is one already-linearized publication and remains failure-isolated.
+          (when (trace/continuation-live?)
+            ((:fan-out registry)
+             {:event      elided-event
+              :event-id   event-id
+              :frame      frame
+              :time       time
+              :outcome    outcome
+              :elapsed-ms elapsed-ms}
+             trace/continuation-live?))))))
   nil)
 
 ;; ---- late-bind hook registration ------------------------------------------

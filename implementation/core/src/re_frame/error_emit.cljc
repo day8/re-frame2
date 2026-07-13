@@ -205,72 +205,80 @@
   ([error-kw event event-id frame-id exception elapsed-ms time]
    (dispatch-on-error! error-kw event event-id frame-id exception elapsed-ms time nil))
   ([error-kw event event-id frame-id exception elapsed-ms time attrs]
-  (let [;; Always-on error-coord registry: source-coords
-        ;; for the failing handler/sub ride the always-on parallel
-        ;; registry (NOT the public registry-meta — which is stripped of
-        ;; coord-keys under CLJS `:advanced + goog.DEBUG=false`). The
-        ;; lookup here surfaces `{:ns :file :line}` for Sentry-style
-        ;; shippers in BOTH dev AND production. Returns nil for
-        ;; programmatic registrations that bypassed the macro path —
-        ;; that's fine; the slot is absent from the record rather than nil.
-        ;;
-        ;; The lookup is KIND-AWARE: the registry is keyed
-        ;; by `[registry-kind id]`, so a sub-id (`:rf.error/sub-*`
-        ;; categories) must resolve under `[:sub …]`, not the hardcoded
-        ;; `[:event …]`. See [[error-source-coord]] / [[sub-error-categories]].
-        source-coord (error-source-coord error-kw event-id)
-        ;; Per-path wire-walker: paths flagged `:sensitive?` / `:large?`
-        ;; via the per-frame `:rf.runtime/elision` registry get their
-        ;; per-path substitutions.
-        elided-event (elision/elide-wire-value event {:frame frame-id})
-        ;; Lift the component-attributed slots into the always-on
-        ;; record so an off-box shipper sees WHICH interceptor / cofx failed in
-        ;; production (the `:event-id` slot carries the EVENT id for these
-        ;; categories; the failing component id would otherwise ride only the
-        ;; DCE'd dev-trace tags). `cond->`'d in — absent when nil/blank, so the
-        ;; tight record shape is unchanged for categories that pass no `attrs`
-        ;; (or whose failing id already equals `:event-id`).
-        ;; Attribution slots the caller lifts onto the always-on record — the
-        ;; component ids / discriminators the failing category promises:
-        ;; `:failing-id` / `:reason` for the interceptor / cofx categories, and
-        ;; `:flow-id` + `:where :flow-eval` for the flow-eval category so its
-        ;; attribution SURVIVES an egress profile that drops `:exception`
-        ;; (rf2-z1332c — Spec 009 §Error event catalogue / Spec 013 §Trace
-        ;; stream ordering; previously the failing flow id rode ONLY the thrown
-        ;; ex-data). Merged UNDER the base observability fields, which always
-        ;; win; nil-valued slots are dropped so the tight record shape is
-        ;; unchanged for categories that pass none. Callers keep these to tight
-        ;; identifiers — this record is production-surviving and NOT
-        ;; privacy-gated.
-        attribution  (into {} (remove (comp nil? val)) attrs)
-        record       (cond-> (merge attribution
-                                    {:error      error-kw
-                                     :event      elided-event
-                                     :event-id   event-id
-                                     :frame      frame-id
-                                     :time       time
-                                     :exception  exception
-                                     :elapsed-ms elapsed-ms})
-                       source-coord (assoc :source-coord source-coord))]
-    ;; Corpus-wide listeners fan out (the ADVANCED integration registry).
-    ((:fan-out registry) record)
-    ;; EP-0015 §9: the frame-owned observability sink route —
-    ;; the NORMAL production error-observation surface (Spec 015 §Frame-owned
-    ;; observability sink policy). Parallel to the corpus-wide listener
-    ;; fan-out above: routes the error record to THIS frame's declared
-    ;; `:observability :errors` sinks, projected under the frame's
-    ;; classification + the sink's egress profile (the `:event` tree slot
-    ;; redacts; `:exception` drops under `:rf.egress/public-error`). Passes
-    ;; the RAW `event` (not the listener-elided one) so the projector applies
-    ;; the frame's policy at the sink's profile rather than double-eliding.
-    ;; Late-bound: a static `error-emit` → `observability` → `projection` →
-    ;; `elision` require would re-enter this ns's own require graph; the hook
-    ;; is nil (no-op) until `re-frame.observability` loads. Fail-closed +
-    ;; sibling-isolated inside `route-error!`. Always-on.
-    (when-let [route-error! (late-bind/get-fn-cached :observability/route-error)]
-      (route-error! error-kw event event-id frame-id exception elapsed-ms
-                    time nil))
-   nil)))
+   (when (trace/continuation-live?)
+     (let [;; Always-on error-coord registry: source-coords
+           ;; for the failing handler/sub ride the always-on parallel
+           ;; registry (NOT the public registry-meta — which is stripped of
+           ;; coord-keys under CLJS `:advanced + goog.DEBUG=false`). The
+           ;; lookup here surfaces `{:ns :file :line}` for Sentry-style
+           ;; shippers in BOTH dev AND production. Returns nil for
+           ;; programmatic registrations that bypassed the macro path —
+           ;; that's fine; the slot is absent from the record rather than nil.
+           ;;
+           ;; The lookup is KIND-AWARE: the registry is keyed
+           ;; by `[registry-kind id]`, so a sub-id (`:rf.error/sub-*`
+           ;; categories) must resolve under `[:sub …]`, not the hardcoded
+           ;; `[:event …]`. See [[error-source-coord]] / [[sub-error-categories]].
+           source-coord (try
+                          (error-source-coord error-kw event-id)
+                          (catch #?(:clj Throwable :cljs :default) e
+                            (when (trace/continuation-live?)
+                              (throw e))))]
+       ;; Generation/source resolution is a callback-bearing stage.
+       (when (trace/continuation-live?)
+         (let [;; Per-path wire-walker: paths flagged `:sensitive?` / `:large?`
+               ;; via the per-frame `:rf.runtime/elision` registry get their
+               ;; per-path substitutions.
+               elided-event (try
+                              (elision/elide-wire-value event {:frame frame-id})
+                              (catch #?(:clj Throwable :cljs :default) e
+                                (when (trace/continuation-live?)
+                                  (throw e))))
+               ;; Lift the component-attributed slots into the always-on
+               ;; record so an off-box shipper sees WHICH interceptor / cofx
+               ;; failed in production (the `:event-id` slot carries the EVENT
+               ;; id for these categories; the failing component id would
+               ;; otherwise ride only the DCE'd dev-trace tags). `cond->`'d in
+               ;; — absent when nil/blank, so the tight record shape is
+               ;; unchanged for categories that pass no `attrs` (or whose
+               ;; failing id already equals `:event-id`).
+               ;; Attribution slots the caller lifts onto the always-on record
+               ;; are the component ids / discriminators the category promises:
+               ;; `:failing-id` / `:reason` for interceptor / cofx categories,
+               ;; and `:flow-id` + `:where :flow-eval` for flow-eval so its
+               ;; attribution SURVIVES an egress profile that drops
+               ;; `:exception` (rf2-z1332c — Spec 009 §Error event catalogue /
+               ;; Spec 013 §Trace stream ordering). Merged UNDER the base
+               ;; observability fields, which always win; nil-valued slots are
+               ;; dropped. Callers keep these to tight identifiers — this
+               ;; record is production-surviving and NOT privacy-gated.
+               attribution (into {} (remove (comp nil? val)) attrs)
+               record      (cond-> (merge attribution
+                                           {:error      error-kw
+                                            :event      elided-event
+                                            :event-id   event-id
+                                            :frame      frame-id
+                                            :time       time
+                                            :exception  exception
+                                            :elapsed-ms elapsed-ms})
+                               source-coord (assoc :source-coord source-coord))]
+           ;; Elision is callback-bearing. Corpus sibling fanout is one
+           ;; already-linearized publication; frame routing is a later one.
+           (when (trace/continuation-live?)
+             ((:fan-out registry) record trace/continuation-live?)
+             ;; EP-0015 §9: frame-owned observability sink route. Pass the RAW
+             ;; event so the sink projects under its own egress profile rather
+             ;; than double-eliding. Late-bound to avoid a require cycle.
+             (when (trace/continuation-live?)
+               (when-let [route-error! (late-bind/get-fn-cached
+                                         :observability/route-error)]
+                 (try
+                   (route-error! error-kw event event-id frame-id exception
+                                 elapsed-ms time nil)
+                   (catch #?(:clj Throwable :cljs :default) e
+                     (when (trace/continuation-live?)
+                       (throw e)))))))))))
+   nil))
 
 ;; ---- the two-channel fan-out helper ---------------------------------------
 ;;
@@ -348,7 +356,8 @@
                          attrs))
    ;; Axis 2 — dev-only trace surface; DCEs under `:advanced` + `goog.DEBUG=false`
    ;; (the `interop/debug-enabled?` gate lives inside `trace/emit-error!`).
-   (trace/emit-error! category trace-tags)
+   (when (trace/continuation-live?)
+     (trace/emit-error! category trace-tags))
    nil))
 
 ;; ---- general non-event always-on record (EP-0008 union shape) -------------
@@ -394,6 +403,24 @@
 ;; its existing `trace/emit-error!` for dev richness; this is the
 ;; production-survivable sibling.
 
+(defn- dispatch-error-record*
+  "Internal union-record fan-out with explicit frame-route authority.
+
+  `route-frame?` is false only for an exact-incarnation teardown report emitted
+  after that incarnation has been dissociated. Its corpus-wide fact survives,
+  but the bare frame id can no longer name A's sink policy and must not resolve
+  to a same-id successor B."
+  [record route-frame?]
+  ((:fan-out registry) record trace/continuation-live?)
+  (when (and route-frame? (trace/continuation-live?))
+    (when-let [route-error-record! (late-bind/get-fn-cached
+                                     :observability/route-error-record)]
+      (try
+        (route-error-record! record)
+        (catch #?(:clj Throwable :cljs :default) e
+          (when (trace/continuation-live?) (throw e))))))
+  nil)
+
 (defn dispatch-error-record!
   "Fan a PRE-BUILT always-on error record out through the corpus-wide
   error-emit listener registry (surface #4). The general, non-event
@@ -422,7 +449,7 @@
   ;; surface is the off-box-shipper API (Sentry / Datadog need the host
   ;; exception / stack), NOT privacy-gated like the dev trace; the caller is
   ;; contracted to keep identifiers tight and carry no raw app-db slice.
-  ((:fan-out registry) record)
+  (dispatch-error-record* record true)
   ;; EP-0015 §9 / Spec 015 §Frame-owned observability sink policy:
   ;; the frame-owned `:observability :errors` sink route — the
   ;; NORMAL production error-observation surface. Parallel to the corpus-wide
@@ -437,9 +464,6 @@
   ;; `re-frame.observability` loads. Fail-closed + sibling-isolated inside
   ;; `route-error-record!` (a frameless `:frame nil` record routes nothing —
   ;; no frame-owned policy exists). Always-on.
-  (when-let [route-error-record! (late-bind/get-fn-cached
-                                   :observability/route-error-record)]
-    (route-error-record! record))
   nil)
 
 ;; ---- frame-teardown report (EP-0008 promotion criterion) ------------------
@@ -485,23 +509,28 @@
   entries — one per failed hook, accumulated during the teardown walk.
   Returns nil; a no-op when `hook-failures` is empty (no failures, no
   report)."
-  [frame-id hook-failures time]
-  (when (seq hook-failures)
-    ;; The bounded report is itself a non-event union record — fan it out
-    ;; through the shared general helper so the teardown report and the
-    ;; EP-0008 SSR promotions ride ONE fan-out path / ONE record shape.
-    (dispatch-error-record!
-      {:error          :rf.error/frame-teardown-failed
-       :frame          frame-id
-       :hook-failures  (vec hook-failures)
-       :recovery       :ignored
-       :reason         (str (count hook-failures)
-                            " frame-teardown cleanup hook(s) threw"
-                            " during destroy; teardown continued"
-                            " best-effort (skipped cleanup may have"
-                            " leaked resources)")
-       :time           time}))
-  nil)
+  ([frame-id hook-failures time]
+   (dispatch-frame-teardown-report! frame-id hook-failures time true))
+  ([frame-id hook-failures time route-frame?]
+   (when (seq hook-failures)
+     ;; The bounded report is itself a non-event union record. The actual
+     ;; destroy recipe passes `route-frame? false`: by its finally boundary A
+     ;; has been dissociated, so the bare id can no longer authorise A's
+     ;; frame-owned sink and must not redirect the report into same-id B.
+     ;; The 3-arity preserves direct/live-frame callers' established route.
+     (dispatch-error-record*
+       {:error          :rf.error/frame-teardown-failed
+        :frame          frame-id
+        :hook-failures  (vec hook-failures)
+        :recovery       :ignored
+        :reason         (str (count hook-failures)
+                             " frame-teardown cleanup hook(s) threw"
+                             " during destroy; teardown continued"
+                             " best-effort (skipped cleanup may have"
+                             " leaked resources)")
+        :time           time}
+       route-frame?))
+   nil))
 
 ;; ---- late-bind hook registration ------------------------------------------
 ;;

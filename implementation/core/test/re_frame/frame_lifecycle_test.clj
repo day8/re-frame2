@@ -421,14 +421,16 @@
 ;; ordinary drain checks destruction ownership before each dequeue; the exact
 ;; incarnation claim is the cutoff, lifecycle-dead may publish later. On detect
 ;; it stops and emits one `:rf.frame/drain-interrupted` whose dropped count
-;; combines claim-time and check-time removals. In-flight events finish.
+;; combines claim-time and check-time removals. An authored callback already on
+;; the stack may return and entered authored afters may unwind, but its returned
+;; framework tail is inert.
 
 (deftest destroy-from-handler-interrupts-drain-and-emits-interrupted
   (testing "a handler that destroys its own frame mid-drain stops the
             drain, drops the remaining queue, and emits exactly one
             :rf.frame/drain-interrupted carrying the dropped count.
-            The just-completed event runs to completion (run-to-
-            completion); only later queued events are dropped"
+            The authored self-destruct callback may return, but its returned
+            framework tail is inert and later queued events are dropped"
     (rf/make-frame {:id :drain-int/worker :doc "rf2-68kok drain-interrupt frame"})
     (let [ran           (atom [])
           traces        (atom [])
@@ -504,18 +506,17 @@
           (is (= 4 (:dropped-count (:tags ev)))
               ":dropped-count reflects the 4 trailing ticks left in the queue"))))))
 
-(deftest destroy-from-handler-in-flight-event-still-completes
-  (testing "the in-flight event finishes (run-to-completion) — destroy
-            interrupts AFTER the current handler returns, not in
-            the middle of it"
+(deftest destroy-from-handler-allows-authored-callback-return
+  (testing "destroy does not forcibly interrupt authored code already on the
+            stack, but the returned framework tail is inert"
     (rf/make-frame {:id :rtc/worker})
     (let [completed (atom false)]
       ;; This handler:
       ;;   (a) destroys the frame partway through
       ;;   (b) keeps running — does more work after the destroy call
       ;;   (c) sets the completion flag at the very end
-      ;; Per run-to-completion, ALL of (a)-(c) must observe in order;
-      ;; the drain interrupt only fires AFTER this handler returns.
+      ;; Authored code already on the stack may return. The exact-incarnation
+      ;; fence governs the framework-owned work after that return.
       (rf/reg-event :rtc/work-then-destroy
         (fn [_ _]
           (frame/destroy-frame! :rtc/worker)
@@ -524,7 +525,7 @@
           {}))
       (rf/dispatch-sync [:rtc/work-then-destroy] {:frame :rtc/worker})
       (is (true? @completed)
-          "handler ran to completion AFTER calling destroy-frame!"))))
+          "authored handler code returned after calling destroy-frame!"))))
 
 (deftest destroy-from-different-thread-also-interrupts-drain-on-next-pass
   (testing "if another thread (or the same thread between passes)
@@ -1024,8 +1025,8 @@
       (is (nil? (frame/frame frame-id))
           "destroy still completes after the claim-window barrier"))))
 
-(deftest post-claim-dispatch-is-rejected-before-lifecycle-dead-publication
-  (testing "ordinary work submitted after claim cannot run in the claim-to-dead gap"
+(deftest post-claim-dispatch-enters-real-queue-but-never-executes
+  (testing "ordinary work submitted after claim may queue but cannot run in the claim-to-dead gap"
     (let [frame-id        :destroy-claim/post-claim-dispatch
           parent-runs     (atom 0)
           child-runs      (atom 0)
@@ -1121,9 +1122,9 @@
       (is (zero? @parent-runs)
           "the post-claim ordinary handler never runs")
       (is (zero? @user-effects)
-          "a rejected post-claim handler cannot emit user effects")
+          "a drain-dropped post-claim handler cannot emit user effects")
       (is (zero? @child-runs)
-          "a rejected post-claim handler cannot enqueue or run children")
+          "a drain-dropped post-claim handler cannot enqueue or run children")
       (is (= {:destroyed? false :queued 0} @gap-observation)
           "the claim predicate emptied the real queue while lifecycle was still live")
       (let [interrupts (filterv #(= :rf.frame/drain-interrupted (:operation %))

@@ -262,28 +262,32 @@
   id-keyed stores. Repeated destroys are idempotent."
   [frame-id owner-token fs-before fs-after committed-at]
   (when interop/debug-enabled?
-    (when-let [{:keys [record listener-snapshot silenced-cbs]}
-               (state/cleanup-frame-owner!
-                 frame-id owner-token
-                 (fn []
-                   ;; Snapshot all terminal evidence and remove every id-keyed
-                   ;; side table under the exact-owner serialization. External
-                   ;; callbacks run only after the lock is released, so a
-                   ;; callback may safely create and publish same-id B.
-                   (let [buffered-events  (state/buffer-for frame-id)
-                         record           (when (capture/in-flight-cascade? frame-id)
-                                            (assembly/build-record
-                                              frame-id fs-before fs-after
-                                              buffered-events committed-at
-                                              :halted-destroy
-                                              {:operation :rf.frame/destroyed-mid-drain}))
-                         listener-snapshot (if record
-                                             (state/listeners-snapshot)
-                                             {})
-                         ;; A terminal partial record is observed by every
-                         ;; listener generation in its delivery snapshot.
-                         silenced-cbs     (into (set (state/cbs-observing-frame frame-id))
-                                                (keys listener-snapshot))]
+    ;; Snapshot and assemble terminal evidence BEFORE entering the exact-owner
+    ;; cleanup transaction. In particular, schema digesting is late-bound and
+    ;; callback-bearing; running it under the re-entrant owner monitor allowed
+    ;; the callback to publish same-id B and then let stale A erase B's stores.
+    (let [buffered-events   (state/buffer-for frame-id)
+          in-flight?       (some #(= :rf.event/run-start (:operation %))
+                                 buffered-events)
+          record           (when in-flight?
+                             (assembly/build-record
+                               frame-id fs-before fs-after buffered-events
+                               committed-at :halted-destroy
+                               {:operation :rf.frame/destroyed-mid-drain}
+                               ;; A's schemas were already torn down before the
+                               ;; terminal epoch hook. A bare-id digest here
+                               ;; could only resolve absent state or same-id B;
+                               ;; terminal partial records therefore omit it.
+                               nil))
+          listener-snapshot (if record (state/listeners-snapshot) {})
+          silenced-cbs      (into (set (state/cbs-observing-frame frame-id))
+                                  (keys listener-snapshot))]
+      (when-let [{:keys [record listener-snapshot silenced-cbs]}
+                 (state/cleanup-frame-owner!
+                   frame-id owner-token
+                   (fn []
+                     ;; Data-only exact-owner transaction: no external callback
+                     ;; may run between owner comparison and the complete drop.
                      (state/drop-frame-observation! frame-id)
                      (state/drop-frame-history! frame-id)
                      (state/drop-frame-buffer! frame-id)
@@ -291,13 +295,20 @@
                      (state/drop-frame-mount-attribution! frame-id)
                      {:record            record
                       :listener-snapshot listener-snapshot
-                      :silenced-cbs      silenced-cbs})))]
+                      :silenced-cbs      silenced-cbs}))]
       (when record
         ;; Use the same detailed/coarse trailer pair as normal commits. These
         ;; terminal emits are explicitly excluded from capture ownership.
-        (assembly/emit-snapshotted+outcome! frame-id (:epoch-id record)
-                                            (:event-id record) :halted-destroy)
+        ;; A has already been dissociated, so a same-id B may now own the
+        ;; registry key. Deliver A's terminal facts without consulting B's
+        ;; frame-no-emit policy or entering B's epoch capture buffer.
+        (trace/call-with-structural-delivery
+          #(assembly/emit-snapshotted+outcome! frame-id (:epoch-id record)
+                                               (:event-id record) :halted-destroy))
         (deliver-listener-snapshot! record listener-snapshot))
       (doseq [cb-id silenced-cbs]
-        (trace/emit! :rf.epoch.cb :rf.epoch.cb/silenced-on-frame-destroy
-                     {:frame frame-id :cb-id cb-id})))))
+        ;; The silencing fact belongs to destroyed A too; never let a same-id
+        ;; successor's trace policy suppress or capture it.
+        (trace/call-with-structural-delivery
+          #(trace/emit! :rf.epoch.cb :rf.epoch.cb/silenced-on-frame-destroy
+                        {:frame frame-id :cb-id cb-id})))))))

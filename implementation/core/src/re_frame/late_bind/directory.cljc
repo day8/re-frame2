@@ -110,7 +110,7 @@
    {:key         :router/reschedule-drain!
     :producer-ns 're-frame.router
     :design-bead "rf2-x76af2.22"
-    :description "Re-kick a fresh async drain for a frame. Called by frame/call-serialized-with-drain!'s cold-section release when the queue is non-empty (a dispatch! that arrived during the hold scheduled a drain-try! that CAS-lost to the cold holder and gave up), so the stranded events drain."}
+    :description "Re-kick a fresh async drain for an exact captured frame record. Called by frame/call-serialized-with-drain!'s cold-section release when that record's queue is non-empty (a dispatch! that arrived during the hold scheduled a drain-try! that CAS-lost to the cold holder and gave up). The record/token is carried across the late-bind seam so an obsolete A callback can never re-resolve and drain same-id B."}
 
    ;; ---- EP-0023 inline-registration lowering -------------------------------
    ;; `re-frame.image-assembly` lowers an image's inline `:registrations` fn
@@ -1036,7 +1036,7 @@
    {:key         :trace.tooling/deliver!
     :producer-ns 're-frame.trace.tooling
     :design-bead "rf2-qwm0a"
-    :description "Per-event buffer-push + listener fan-out invoked by trace.cljc's `deliver!`."}
+    :description "Per-event buffer-push + listener fan-out invoked by trace.cljc's `deliver!`. Receives the active continuation predicate and checks it around every snapshotted listener so exact-owner loss stops later sibling callbacks."}
    {:key         :trace.tooling/configure-trace-buffer!
     :producer-ns 're-frame.trace.tooling
     :design-bead "rf2-qwm0a"

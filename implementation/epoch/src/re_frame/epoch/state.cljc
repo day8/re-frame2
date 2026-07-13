@@ -1038,22 +1038,43 @@
   token is a no-op. A fresh token first clears any stale predecessor state,
   then publishes itself under the same serialization final teardown uses.
   Returns true when a non-nil token owns the stores, false otherwise."
-  [frame-id owner-token]
-  (boolean
-    (when (and frame-id owner-token)
+  ([frame-id owner-token]
+   (claim-frame-owner! frame-id owner-token (constantly true)))
+  ([frame-id owner-token continue?]
+   (boolean
+    (when (and frame-id owner-token (continue?))
       ;; The common path is a re-claim by the current incarnation. Avoid the
       ;; global debug-only serialization on every captured trace; the locked
       ;; path rechecks before replacing so this fast read cannot weaken the
       ;; same-id hand-off.
       (if (identical? (get @frame-owner-tokens frame-id) owner-token)
-        true
+        (continue?)
         (with-frame-owner-lock
           (fn []
-            (let [current (get @frame-owner-tokens frame-id)]
-              (when-not (identical? current owner-token)
-                (drop-frame-epoch-state! frame-id)
-                (swap! frame-owner-tokens assoc frame-id owner-token)))
-            true))))))
+            ;; Recheck exact frame liveness INSIDE the same serialization that
+            ;; terminal cleanup uses. Cleanup-before-claim rejects; claim-before-
+            ;; cleanup is subsequently cleared by the waiting destroy.
+            (when (continue?)
+              (let [current (get @frame-owner-tokens frame-id)]
+                (when-not (identical? current owner-token)
+                  (drop-frame-epoch-state! frame-id)
+                  (swap! frame-owner-tokens assoc frame-id owner-token)))
+              true))))))))
+
+(defn commit-frame-owner-record!
+  "Atomically publish `record` and its last-settled anchor only while
+  `owner-token` still owns the frame's epoch stores. Shares the exact owner
+  serialization with claim and terminal cleanup: commit-before-cleanup is
+  erased, cleanup-before-commit rejects, and B-before-commit rejects. No
+  callback runs inside this transaction."
+  [frame-id owner-token record]
+  (boolean
+    (with-frame-owner-lock
+      (fn []
+        (when (identical? (get @frame-owner-tokens frame-id) owner-token)
+          (record! record)
+          (set-last-settled-epoch! frame-id (:epoch-id record))
+          true)))))
 
 (defn cleanup-frame-owner!
   "Run `cleanup-fn` only when `owner-token` still owns `frame-id`'s epoch
