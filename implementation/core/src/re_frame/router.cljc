@@ -5,9 +5,11 @@
   The router maintains a per-frame FIFO queue. Dispatch appends to the
   back; the drain loop dequeues, runs the handler, applies effects, and
   loops until the queue empties. Run-to-completion is locked: every event
-  dispatched synchronously during a drain settles to fixed point before
-  any further external event is processed for that frame, and before any
-  view re-renders."
+  dispatched synchronously during a drain normally settles to fixed point
+  before any further external event is processed for that frame, and before
+  any view re-renders. A depth halt or successful exact-incarnation destroy
+  claim is terminal: the already-dequeued event finishes, no later ordinary
+  event begins, and no intermediate render is inserted."
   (:require [re-frame.frame :as frame]
             [re-frame.elision :as elision]
             [re-frame.live-frame :as live-frame]
@@ -2912,8 +2914,9 @@
 
   In-flight events are not affected — they have already been dequeued
   and `process-event!` ran them to completion before this check fires
-  (run-to-completion per Spec 002 §Rules rule 1). Only events still
-  in the queue at the moment of the check are dropped.
+  (run-to-completion per Spec 002 §Rules rule 1). `:dropped-count` combines
+  events removed atomically at claim time with any ordinary events found at
+  this later check; the destroy-owned private cleanup queue is excluded.
 
   The check fires AFTER `process-event!` returns and BEFORE the next
   `take-event!` — same seam as `handle-depth-exceeded!`.
@@ -2955,8 +2958,8 @@
 
   Per rf2-68kok / Spec 002 §Frame disposal mid-drain: the destruction-
   ownership check fires BEFORE each dequeue, so an in-flight event runs to
-  completion (run-to-completion per Spec 002 §Rules rule 1) but events
-  still in the queue at the check point are dropped, with one
+  completion (run-to-completion per Spec 002 §Rules rule 1) but no later
+  ordinary event begins. One
   `:rf.frame/drain-interrupted` lifecycle trace emitted carrying the
   dropped count.
 
@@ -3449,8 +3452,9 @@
 
 (defn dispatch!
   "Append the event to the target frame's router queue. Per Spec 002:
-  FIFO at the runtime layer. The drain loop picks it up in this same
-  drain cycle (run-to-completion).
+  FIFO at the runtime layer. The drain loop normally picks it up in this same
+  drain cycle (run-to-completion); a successful exact-incarnation destroy
+  claim is a terminal cutoff for ordinary work.
 
   Per rf2-j20a7 / Spec 005 §Level 4: the single exception to FIFO is a
   machine-internal continuation event (a dispatch emitted from a
@@ -3508,8 +3512,9 @@
 
 (defn dispatch-sync!
   "Bypass the queue scheduler and process this single event end-to-end
-  immediately, then drain any synchronously-enqueued events to fixed
-  point. Per Spec 002 §dispatch-sync: this is for outside-the-runtime
+  immediately, then normally drain synchronously-enqueued events to fixed
+  point. A depth halt or exact-incarnation destroy claim terminates that
+  ordinary drain without inserting a render. Per Spec 002 §dispatch-sync: this is for outside-the-runtime
   callers (test setup, REPL). Calling from inside a handler raises
   :rf.error/dispatch-sync-in-handler — handler bodies should use
   dispatch (the queued form) instead.

@@ -676,7 +676,7 @@ There is no dedicated "reset" function; `reset-frame!` was retired (rf2-lxwpob).
   ```clojure
   (destroy-frame! frame-id)
   ```
-- **Description**: The normative teardown boundary. Per-feature artefacts (flows, machines, schemas, SSR, epoch) hang their frame-scoped cleanup off this single call.
+- **Description**: The normative teardown boundary. It claims the exact installed incarnation and atomically cuts ordinary queued work; the already-dequeued event may finish, but no later ordinary event begins. A configured `:on-destroy` seed and its same-frame descendants run on a private token-scoped cleanup queue before lifecycle-dead is published. Teardown then releases every frame-scoped feature artefact (flows, machines, schemas, SSR, epoch), clears the sub-cache, and removes the frame. Post-claim ordinary dispatch is rejected; dead/absent dispatch and subscribe recover while emitting `:rf.error/frame-destroyed`.
 - **Example**:
   ```clojure
   ;; SSR per-request frame — torn down in a finally, success or exception.

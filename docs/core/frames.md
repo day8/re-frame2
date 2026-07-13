@@ -124,7 +124,7 @@ Day to day, `:initial-events` is the key you reach for. But the frame config —
    :doc            "The shopping-cart frame."
    :initial-events [[:rf/set-db {:items []}]       ;; ordered setup steps, dispatched synchronously
                     [:cart/restore-session]]
-   :on-destroy     [:cart/cleanup]                 ;; single event dispatched before teardown
+   :on-destroy     [:cart/cleanup]                 ;; one private cleanup seed after destruction claims the frame
    :fx-overrides   {:my-app/http http-stub-fn}     ;; per-frame fx replacements (test doubles)
    :interceptors   [:my-app/recorder]              ;; interceptor REFS prepended to every event in this frame
    :drain-depth    100                             ;; run-to-completion drain depth limit
@@ -133,7 +133,7 @@ Day to day, `:initial-events` is the key you reach for. But the frame config —
 
 Notes:
 
-1. **`:on-destroy`** is a *single* event fired once, just before teardown.
+1. **`:on-destroy`** is one cleanup seed fired once after destruction claims the exact frame incarnation and cuts ordinary queued work. Its same-frame descendants run on the same private cleanup cascade before lifecycle-dead is published.
 2. **`:fx-overrides`** swaps registered [effect handlers](glossary.md#effect-handler) by id — the test-double mechanism (stub `:my-app/http` so a frame never hits the network).
 3. **`:interceptors`** prepends [interceptor](glossary.md#interceptor) *refs* (registered ids, never inline interceptor values) to every event in the frame — "global within this frame." (Interceptors get [their own page](interceptors.md) later.)
 4. **`:drain-depth`** caps the run-to-completion drain.
@@ -353,7 +353,7 @@ Most frames live for the whole program and you never tear them down — a UI-own
 (rf/make-frame config)           ;; the SAME config (it carries :id :pane/left)
 ```
 
-**`destroy-frame!`** drops the frame from the registry, disposes its sub-cache (so nothing leaks reactive listeners), stops its router (the machinery that drains its event queue), and — if you declared one — fires its `:on-destroy` event first. It accepts the frame id or the frame value. After destruction, a dispatch or subscribe still aimed at that frame doesn't throw — it **recovers**: `dispatch` quietly no-ops, `subscribe` returns `nil`, and a `:rf.error/frame-destroyed` record is emitted on the always-on [error stream](glossary.md#error-record). Recovery rather than a throw is deliberate: the runtime can't tell a benign teardown/hot-reload *race* from a real use-after-destroy bug, so it stays race-safe while still surfacing the diagnostic where your error monitor will see it.
+**`destroy-frame!`** first claims the exact installed frame incarnation and atomically cuts its ordinary event queue. The event already running may finish, but no later ordinary event begins. If you declared `:on-destroy`, its seed and same-frame descendants then run on a private, token-scoped cleanup queue; ordinary dispatches cannot join that cascade. Only after cleanup does teardown publish lifecycle-dead, dispose the sub-cache, release feature resources, and remove the frame from the registry. It accepts the frame id or the frame value. An ordinary dispatch in the claim-to-dead window is already rejected; after destruction, dispatch and subscribe still aimed at the frame also **recover** rather than throw: `dispatch` quietly no-ops, `subscribe` returns `nil`, and a `:rf.error/frame-destroyed` record is emitted on the always-on [error stream](glossary.md#error-record). The private cleanup authority is the sole exception. Recovery is deliberate: the runtime can't tell a benign teardown/hot-reload *race* from a real use-after-destroy bug, so it stays race-safe while still surfacing the diagnostic where your error monitor will see it.
 
 **A full reset** is "I want this back to how it started." Compose `destroy-frame!` with a fresh `make-frame` using the SAME config: `app-db` resets to `{}`, the sub-cache and router queue clear, and the recorded `:initial-events` re-run synchronously. Tests use this between cases; Story "reset" buttons use it. For an image-loaded frame, re-supply the same `:images` too, or the recreated frame loses its resolved composition. (For an `app-db`-only reset that *keeps* live runtime state, there's a lighter `(rf/replace-frame-state! frame-id {:rf.db/app {}})` — but the destroy+make-frame composition is the whole-world one.) Unlike a single dedicated verb, this composition has no joint atomicity across the two calls — run it outside any handler, same as construction.
 
@@ -387,7 +387,7 @@ Two corners you can ignore until a multi-frame app makes you reach for them. Bot
 
 ### Run-to-completion is per-frame
 
-[Run-to-completion](glossary.md#drain--run-to-completion) — the runtime drains the whole event queue to a fixed point before anything renders — is scoped to *one frame*. Each frame has its own queue and its own drain loop; frame A's drain carries A's queue to settled, frame B's carries B's, and the two never merge. That's the dispatch-level expression of isolation: a settled, between-event state of *one* frame is the snapshot boundary [time-travel](glossary.md#time-travel) restores, and no other frame's drain can leave that value inconsistent with its handlers.
+[Run-to-completion](glossary.md#drain--run-to-completion) — the runtime normally drains the whole event queue to a fixed point before anything renders — is scoped to *one frame*. Each frame has its own queue and its own drain loop; frame A's drain carries A's queue to settled, frame B's carries B's, and the two never merge. A depth-limit halt or a successful exact-incarnation destruction claim is terminal: the already-dequeued event finishes, later ordinary work does not begin, and no render is inserted between those writes. That's the dispatch-level expression of isolation: a settled, between-event state of *one* frame is the snapshot boundary [time-travel](glossary.md#time-travel) restores, and no other frame's drain can leave that value inconsistent with its handlers.
 
 So "one event, one run, one [epoch](glossary.md#epoch)" is a per-frame statement. N frames mid-flight are N independent run-to-completion loops, each rewindable on its own.
 

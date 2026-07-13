@@ -2896,8 +2896,8 @@
                   event's run began), recovered from the router-bound
                   `*run-frame-state-before*` dynamic var. nil outside a drain.
     `fs-after`  — the state at destroy-time: the live frame-state value read
-                  at the TOP of `destroy-frame!`, before any teardown step
-                  mutated or removed the container. The partial run's
+                  immediately after the exact-incarnation claim and ordinary-
+                  queue cutoff, before cleanup or lifecycle mutation. The partial run's
                   already-committed writes survive in this value; once
                   teardown runs the live container can no longer be read
                   (`frame-state-value` returns nil for a destroyed frame).
@@ -2918,8 +2918,14 @@
 (defn destroy-frame!
   "Tear down a frame. Per Spec 002 §Destroy, the ordered steps are:
 
-    1. fire-on-destroy-event!       — run user :on-destroy while frame
-                                      is still alive.
+    0. claim-frame-destroy!         — claim the exact incarnation under its
+                                      drain serialization, atomically cut the
+                                      ordinary queue, and publish the cutoff
+                                      before lifecycle-dead.
+    1. fire-on-destroy-event!       — run user :on-destroy and its same-frame
+                                      descendants on the destroy-owned private
+                                      queue while the claimed frame is still
+                                      available to cleanup code.
     2. notify-machine-destruction!  — per Spec 005 §Cross-Spec Interactions §1:
                                       delegates to the machines artefact's
                                       `:machines/teardown-on-frame-destroy!`
@@ -3004,8 +3010,11 @@
                                       (and their :db-* app-db projections) per
                                       Spec-Schemas §:rf/epoch-record §Outcomes.
 
-  Subsequent dispatch / subscribe against a destroyed frame raises
-  :rf.error/frame-destroyed.
+  Ordinary dispatch after the claim is rejected, including during the
+  claim-to-lifecycle-dead window; only the token-scoped private cleanup
+  cascade is admitted. Dispatch / subscribe against the dead or absent frame
+  recovers (dispatch no-ops, subscribe returns nil) and emits the always-on
+  :rf.error/frame-destroyed diagnostic.
 
   Re-entrancy: if `destroy-frame!` is called for `id` while
   an outer `destroy-frame!` for the same `id` is still on the stack
@@ -3056,8 +3065,9 @@
       ;; under the reused id before this destroy's `finally` clears the marker
       ;; (rf2-vxgfnd.94). `contains?`/keys keep the bare-id semantics the
       ;; re-entrant guard + `frame-closing?` rely on.
-      ;; Capture the DESTROY-TIME frame-state value BEFORE any teardown step
-      ;; runs. After `mark-frame-destroyed!` (step 3) flips :destroyed?,
+      ;; Capture the DESTROY-TIME frame-state value AFTER the exact-incarnation
+      ;; claim / ordinary-queue cutoff and BEFORE cleanup or lifecycle mutation.
+      ;; After `mark-frame-destroyed!` (step 3) flips :destroyed?,
       ;; `frame-state-value` returns nil; after `dissoc-frame!` (step 6)
       ;; the container is gone entirely. Reading it here yields the state
       ;; the partial run left the frame in at the moment destroy was

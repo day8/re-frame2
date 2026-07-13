@@ -550,7 +550,7 @@ This section is the **canonical grammar** for the frame config map. Subsequent s
   {:id           :todo                          ;; the frame id (registers in the one frame registry)
    :doc          "..."
    :initial-events [[:todo/initialise]]         ;; ordered setup events dispatched synchronously after creation
-   :on-destroy   [:todo/cleanup]                ;; single event dispatched before teardown
+   :on-destroy   [:todo/cleanup]                ;; one private cleanup seed after destroy claims the frame
    :fx-overrides {:my-app/http http-stub-fn}    ;; per-frame fx replacements
    :interceptors [:my-app/recorder              ;; interceptor REFS prepended to every event in this frame
                   :my-app/validator]            ;;   (refs, never inline interceptor values — EP-0022)
@@ -588,7 +588,11 @@ If the frame's initialisation needs to fire multiple events, list them as separa
           [:dispatch [:todo/load-preferences]]]}))
 ```
 
-`:on-destroy` remains a **single** event dispatched before teardown.
+`:on-destroy` remains a **single** cleanup event. Destruction first claims the exact
+frame incarnation and cuts off its ordinary queue; the event and its synchronous
+same-frame descendants then run through the private, token-scoped cleanup cascade while
+the frame is still lifecycle-live. It is not an ordinary event inserted into the dying
+frame's router queue.
 
 The framework stamps each setup dispatch with the frame's id automatically — the user doesn't write `dispatch` or specify `:frame`. If a setup handler needs the frame-id at runtime, it reads `(:rf.frame/id m)` from its context — a setup handler is an ordinary event handler, so it reads the event-context spelling of the frame stamp, not a bare `:frame` coeffect (per [§One carrier, one name](#one-carrier-one-name--the-frame-stamp)). Each setup step carries construction provenance (`:source :frame-init` plus its step index) so the trace and tools can tell frame-init events apart from ordinary runtime events.
 
@@ -605,26 +609,74 @@ The framework stamps each setup dispatch with the frame's id automatically — t
 
 **One ownership path (EP-0024).** `destroy-frame!` removes the **one unified frame value** from the **one** live registry and runs per-subsystem teardown exactly once. Because a live frame is a single value (not an image-loaded object paired with a separate backing record), there is **no second public registry whose cleanup can succeed or fail independently** — teardown walks one structure. Teardown remains best-effort where individual cleanup hooks are host-transient, but the ownership path is one path (per [EP-0024 §Teardown](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md#teardown)).
 
-- Drops the frame from the registry.
+- Claims the exact frame incarnation and atomically cuts off its ordinary router queue.
+- Runs the optional `:on-destroy` cleanup cascade against the still-live frame.
 - Disposes the sub-cache (each cached reactive is torn down so nothing leaks listeners).
-- Stops the router.
-- Fires `:on-destroy` events before teardown if specified.
+- Drops the frame from the one live-frame registry after every frame-owned subsystem is released.
 - **Releases every per-feature artefact's frame-scoped state.** `destroy-frame!` is the single normative teardown boundary every per-feature artefact (flows, machines, schemas, SSR side-channels, epoch history, …) MUST hang its frame-scoped cleanup off. Each artefact publishes a teardown hook the core invokes during destroy; an artefact that holds frame-scoped state without publishing such a hook leaks definitions and cached state on every `destroy-frame!`. Per-artefact contracts: flows tear down per [013 §Frame-destroy teardown](013-Flows.md#frame-destroy-teardown); machines tear down per [005 §Cross-Spec Interactions §1](005-StateMachines.md); schemas, SSR, and epoch tear down per their respective specs.
 - Subsequent `(dispatch [...] {:frame :todo})` / `(subscribe [...] {:frame :todo})` to a destroyed frame **recovers** — `dispatch` / `dispatch-sync` no-op (the event is not enqueued), `subscribe` returns `nil` — **and emits a production-survivable `:rf.error/frame-destroyed`** through the always-on error-emit listener (surface #4 per [009-Instrumentation §What IS available in production](009-Instrumentation.md#what-is-available-in-production)). The record carries `{:error :rf.error/frame-destroyed :frame :todo :event <attempted-vector> :event-id <head> …}`. Recovery (rather than throwing) is the framework default: the runtime cannot distinguish a benign teardown / hot-reload **race** from a real use-after-destroy bug, so it recovers (race-safe) while keeping the diagnostic observable on the production-watched stream — a real bug surfaces in your error monitor rather than going silent. Recovery here is the framework's typed default (no-op); there is no app-steering recovery policy.
 
-**Teardown invocation order — normative.** `destroy-frame!` invokes the per-feature teardown hooks in the strict order below. The ordering is pattern contract — a conformant port MUST mirror it. Re-ordering breaks composition: machine `:exit` cascades emit `:fx` that runs through `do-fx`, so machines MUST tear down **before** the sub-cache disposes (a disposed sub-cache cannot service a sub a final `:exit` action reads); SSR / schemas / flows hold registry slots a re-registered frame must start clean, so they tear down **before** the `:rf.frame/destroyed` trace fires (tools listening for the trace see a fully-cleaned frame); registrar-dissoc happens **after** the trace so the trace itself carries the frame's still-resolvable metadata; epoch notification fires **last** so 10x / re-frame-pair listeners receive `:rf.epoch.cb/silenced-on-frame-destroy` against an already-vanished frame and silence their event buffers in one pass.
+**Teardown invocation order — normative.** `destroy-frame!` uses the exact-incarnation
+claim as its linearization point, then invokes the per-feature teardown hooks in the
+strict order below. The ordering is pattern contract — a conformant port MUST mirror it.
+An ordinary event that was already dequeued is not aborted in the middle of its pipeline
+run; it may finish. The claim governs every ordinary envelope that had not yet been
+dequeued.
 
-1. **Fire user `:on-destroy`** event (if any) — runs against the still-live frame. Throws are caught and converted to `:rf.error/on-destroy-handler-exception` traces (per the throw-semantics note below); teardown continues.
-2. **Machines teardown** via `:machines/teardown-on-frame-destroy!` — walks active machines in reverse-creation order, runs each `:exit` cascade against a still-live container, applies the unified teardown projection (snapshot + `:rf/system-ids` + spawn-slot prune), unregisters the per-actor handlers, and emits `:rf.machine.lifecycle/destroyed` per actor with `:reason :parent-frame-destroyed`. Per [005 §Cross-Spec Interactions §1](005-StateMachines.md) + [Cross-Spec-Interactions §1](Cross-Spec-Interactions.md).
-3. **Mark frame `:destroyed?`** — flips the lifecycle flag. Subsequent dispatch / subscribe against the frame now recovers (dispatch no-ops, subscribe returns nil) and emits a production-survivable `:rf.error/frame-destroyed` (see the destroy-contract bullet above).
-4. **Sub-cache disposal** — every cached reactive's `dispose!` (or substrate-equivalent) fires; listeners detach.
-5. **Auxiliary cleanup hooks**, in declaration order: SSR (`:ssr/on-frame-destroyed` — clears per-request side-channels; chains `:ssr.head/on-frame-destroyed`), machines `:after` timer-table (`:machines/on-frame-destroyed!`), routing (`:routing/on-frame-destroyed!` — clears the host-side scroll-position cache + nav-token / pending-nav counters; the durable route slice rides the frame value and needs no separate pass), schemas (`:schemas/on-frame-destroyed!` — drops every schema registered against the destroyed frame), flows (`:flows/teardown-on-frame-destroy!` — drops flow registry slots + `last-inputs` rows + dead `:flow` registrar entries), and — when the optional Resources artefact is loaded — resources (`:resources/on-frame-destroyed!` — cancels resource/mutation timers and clears the `[frame-id work-id]` host-handle side tables). Plus per-feature warn-cache resets (privacy-suppression, elision) which are observability-only and ordering-insensitive.
-6. **Emit `:rf.frame/destroyed` trace** — the canonical observability signal that teardown is complete. Fires AFTER every cleanup hook so listeners see a fully-cleaned frame.
-7. **Dissoc the frame** from the frames map.
-8. **Unregister** from the registrar.
-9. **Notify epoch listeners** — fires the `:rf.epoch.cb/silenced-on-frame-destroy` hook so tools (10x, re-frame-pair) silence their per-frame event buffers in one pass.
+1. **Claim the exact incarnation and cut its ordinary queue.** Under that incarnation's
+   drain lock, publish a token-scoped destroy claim and atomically remove every waiting
+   ordinary envelope from the real router queue. Record their count for disposal
+   evidence. A stale claim for incarnation A does not fence a fresh same-id incarnation B.
+2. **Run the user `:on-destroy` cleanup cascade** (if configured) — seed a private,
+   token-scoped router and drain the seed plus its synchronous same-frame descendants to
+   fixed point while the frame remains lifecycle-live. Ordinary pre-claim work and
+   post-claim arrivals cannot join this queue. Authority requires the exact claim token,
+   target frame, and actual host thread; conveyed JVM dynamic bindings do not grant it.
+   Throws are caught and converted to `:rf.error/on-destroy-handler-exception` traces;
+   teardown continues.
+3. **Machines teardown** via `:machines/teardown-on-frame-destroy!` — walk active machines
+   in reverse-creation order, run each `:exit` cascade against the live container, apply
+   the unified teardown projection, unregister per-actor handlers, and emit
+   `:rf.machine.lifecycle/destroyed` with `:reason :parent-frame-destroyed`.
+4. **Compiled-view observer teardown** via `:ui/on-frame-destroyed!` — when
+   `day8/re-frame2-ui` is present, transition connected ViewCells observing this exact
+   frame to dead and release their leases while the sub-cache is still live.
+5. **Publish lifecycle-dead.** CAS-flip `:destroyed?` only while the claimed incarnation
+   token still matches. From this point public dispatch recovers as a no-op, public
+   subscribe recovers to `nil`, and both emit the production-survivable
+   `:rf.error/frame-destroyed` diagnostic described above.
+6. **Dispose reactive state.** Dispose the sub-cache first, then the app-db/runtime-db
+   partition projections whose source watches the cache reactions used.
+7. **Run auxiliary cleanup hooks**, in order: elision warning cache; SSR side-channels;
+   machine `:after` timers; schemas; flows; routing host caches and URL ownership;
+   Resources work handles; plain managed HTTP; and `:dispatch-later` host timers.
+8. **Emit `:rf.frame/destroyed`.** Every application/feature cleanup hook has completed;
+   listeners can still resolve the dying frame's metadata at this point.
+9. **Release trace policy state.** Clear the per-frame trace ring and frame-no-emit flag
+   after the destroyed trace has flowed.
+10. **Dissoc the frame from the one frames registry.** This is the whole forget; frames
+    have no second registrar row to unregister.
+11. **Notify epoch listeners** — fire `:rf.epoch.cb/silenced-on-frame-destroy` after the
+    live frame has vanished so tools silence their per-frame event buffers in one pass.
 
-Hooks 2 / 5's per-artefact entries are **best-effort**: an artefact whose hook is not registered (e.g. a build that omits `re-frame.flows`) silently no-ops at that step; the rest of the recipe runs unchanged. The ordering between the registered hooks holds regardless of which subset is present.
+Steps 3, 4, 7, 9, and 11's optional/per-artefact calls are **best-effort**: an unbound
+hook silently no-ops and the rest of the recipe continues. The relative order between
+registered hooks does not change.
+
+**The claim-to-dead dispatch window is distinct from dispatch after death.** A racing
+ordinary dispatch that linearizes after the claim but before lifecycle-dead may still
+append to the real router queue; the next ordinary drain check drops it before handler,
+effect, or child-dispatch execution. It does not gain private cleanup authority and it
+does not yet use the post-death `:rf.error/frame-destroyed` dispatch surface. Once
+lifecycle-dead is published (and after registry dissoc), a new dispatch is rejected at
+the public boundary without enqueue and emits `:rf.error/frame-destroyed`.
+
+When an ordinary drain observes destruction ownership it emits one
+`:rf.frame/drain-interrupted`. Its `:dropped-count` is the sum of envelopes removed at
+claim time and envelopes removed from the real queue at that later check. If no drain
+observes the cutoff before the frame is dissociated (for example, a captured scheduled
+tick fires only after destroy returns), no interrupt trace is fabricated; the queued
+work is still discarded.
 - Tool-Pair surfaces against the destroyed frame route off their own contract (read returns empty / `nil`; mutate raises `:rf.error/no-such-handler` (kind `:frame`); listener silencing emits a one-shot trace) — see [Tool-Pair §Surface behaviour against destroyed frames](Tool-Pair.md#surface-behaviour-against-destroyed-frames).
 
 <a id="two-destroy-hook-verbs"></a>
@@ -1638,13 +1690,19 @@ re-frame2 dispatches **run to completion**: when an external event is processed,
 
 This is the dispatch semantics, not a mode. There is no opt-out. The guarantee gives actor-style machine composition determinism for free ([Spec 005](005-StateMachines.md), when drafted) and removes a class of "flash" intermediate renders that today's async dispatch can cause. It is also load-bearing for [Goal 2 — Frame state revertibility](000-Vision.md#frame-state-revertibility): every settled, between-event state of a frame is a snapshottable boundary, and no async mutation escapes the dispatch loop to leave the frame's value inconsistent with its registered handlers.
 
+**Two terminal halts bound “to fixed point.”** The depth limit below drops work after its
+event boundary, and an exact-incarnation destroy claim is the ordinary-queue cutoff from
+[§Destroy](#destroy): an already-dequeued event may finish, but not-yet-dequeued ordinary
+work is discarded and no render is inserted into the interrupted drain. These are
+terminal lifecycle/safety boundaries, not opt-outs that allow an intermediate render.
+
 ### Drain versus event — the epoch unit
 
 > **Vocabulary.** This section and the two below define the **drain / dispatch** half of the [event-pipeline vocabulary](Conventions.md#event-pipeline-vocabulary--the-terms-one-event-traverses) (the authoritative home). One dequeued event is one **pipeline run** — a single traversal of the fixed stage sequence **assemble → transform → commit → perform** (write side, per event) then, at drain settle, **derive → render** (read side, once per drain). A **pipeline run** is the formal term for a single event's traversal (retiring "event cascade" in the event-traversal sense); a **drain** is the run-to-fixed-point family of such runs. The "six dominoes" framing survives as a **first-contact mnemonic** only, never as formal vocabulary.
 
 A **drain** and an **event** are distinct units, and the distinction is normative:
 
-- A **drain** is one turn of the outer loop (`drain!`). It may dequeue and process *several* events back-to-back — the originating event plus every event its handlers `:fx`-dispatch, and so on, until the queue is empty. A drain is a *scheduling* unit: it bounds when the host event loop gets time back and when the read side runs (**derive → render**, once, at settle).
+- A **drain** is one turn of the outer loop (`drain!`). It may dequeue and process *several* events back-to-back — the originating event plus every event its handlers `:fx`-dispatch, and so on, until the queue is empty or a terminal depth/destroy boundary halts it. A drain is a *scheduling* unit: it bounds when the host event loop gets time back and when the read side runs (**derive → render**, once, at settle).
 - An **event** is one dequeued envelope. Each dequeued event runs its **own full pipeline run** — its write side (**assemble → transform → commit → perform**) end-to-end before the next event is dequeued — and **yields its own epoch**: one [`:rf/epoch-record`](Spec-Schemas.md#rfepoch-record) per dequeued event. (First-contact mnemonic: the run's write side is the "six dominoes" — event → effects → dispatch → handler → effects → view.)
 
 **One epoch per dequeued event — every origin.** The epoch boundary is *per top-level dequeue*, irrespective of how the event arrived in the queue: a UI `(rf/dispatch …)`, an `:fx [[:dispatch …]]` child queued by another handler, or a frame-creation setup step (an `:initial-events` element, dispatch-synced at construction — see [§make-frame is atomic](#make-frame--atomic-create-and-register-and-the-canonical-config-grammar)). Each of these is its own dequeued event, so each is its own epoch with its own **pipeline run** and its own trace. A drain that processes a parent event and the child it `:fx`-dispatched therefore produces **two** epoch records, not one — even though both settled inside the same drain.
@@ -1674,7 +1732,7 @@ The distinction is documentary and conceptual, not technical. One **event pipeli
 
 ### Single-drainer invariant (concurrent hosts)
 
-The drain operates under a **single-drainer invariant**: only one thread executes `drain!` at a time. Concurrent dispatch attempts enqueue and wake the executor, which no-ops if a drain is already running — the active drainer picks up newly-queued envelopes before returning.
+The drain operates under a **single-drainer invariant**: only one thread executes `drain!` at a time. Concurrent dispatch attempts enqueue and wake the executor, which no-ops if a drain is already running — the active drainer picks up newly-queued envelopes before returning, unless the exact-incarnation destroy claim has become the ordinary-queue cutoff. In that terminal case the drainer drops rather than invokes them (per [§Destroy](#destroy)).
 
 On single-threaded hosts (CLJS) this is trivially true. On the JVM the runtime's `interop/next-tick` executor can fire its callback concurrently with the calling thread (typically `dispatch-sync` on the main thread), so the implementation must CAS-acquire a per-frame drain-lock at every `drain!` entry; the loser of the CAS returns without touching the queue. `dispatch-sync` spin-waits for the lock and performs its seed-push under the lock so the prepend does not interleave with another drainer's `peek+pop`. The release of the drain-lock and the clearing of the per-router `:scheduled?` flag happen under the same `locking` block that the submit path uses for its scheduling check — that single seam closes the orphan-envelope window (an envelope queued between the inner empty-check and the lock release would otherwise be visible to neither the outgoing drainer's loop nor the next submitter's scheduling decision).
 
@@ -1686,7 +1744,7 @@ On single-threaded hosts (CLJS) this is trivially true. On the JVM the runtime's
 
 ### Drain scheduling — microtask, not timer
 
-A drain runs to **fixed point** in one go: once engaged, the outer loop dequeues and processes every synchronously-dispatched event (the originating event plus every event its handlers `:fx`-dispatch, transitively) until the queue is empty, *then* yields. This is the run-to-completion guarantee above expressed as a scheduling property — one drain, one settle.
+A drain runs to **fixed point** in one go: once engaged, the outer loop dequeues and processes every synchronously-dispatched event (the originating event plus every event its handlers `:fx`-dispatch, transitively) until the queue is empty or a terminal depth/destroy boundary halts it, *then* yields. This is the run-to-completion guarantee above expressed as a scheduling property — one drain, one settle; never a mid-drain paint.
 
 **Drains are scheduled on the microtask queue.** When a `dispatch` lands on an empty queue, the runtime schedules the drain via the interop layer's `next-tick` — `goog.async.nextTick` in the CLJS reference, **a microtask**, *not* `setTimeout` and *not* `requestAnimationFrame`. (See the [§Drain-loop pseudocode](#drain-loop-pseudocode) `dispatch` / `interop/next-tick` seam, and [Runtime-Architecture §Router](Runtime-Architecture.md).) Microtask scheduling gives the drain the earliest possible turn after the current synchronous stack unwinds, with no minimum-delay clamp.
 
@@ -1779,12 +1837,15 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
 (defn drain! [frame]
   (try
     (loop [depth 0]
-      ;; Destroyed-frame check fires BEFORE dequeue (per Edge cases #4 below):
-      ;; on detect, drop the remaining queue, emit `:rf.frame/drain-interrupted`
-      ;; with the dropped count, and stop. In-flight events finish
-      ;; (run-to-completion); only events not yet dequeued are dropped.
-      (when (:destroyed? (:lifecycle frame))
-        (let [dropped (count @(:queue (:router frame)))]
+      ;; Destruction-ownership check fires BEFORE dequeue (Edge case #4):
+      ;; exact-incarnation claim, lifecycle-dead, or absent all halt an
+      ;; ordinary drain. The private on-destroy driver passes the exact claim
+      ;; token and drains an isolated queue; ordinary drains have no exemption.
+      ;; Claim-time removals are retained for this one evidence record.
+      (when (frame-disposed-for-drain? (:id frame))
+        (let [dropped (+ (or (:destroy-claim-dropped-count
+                              @(:router frame)) 0)
+                         (count @(:queue (:router frame))))]
           (reset! (:queue (:router frame)) (clojure.lang.PersistentQueue/EMPTY))
           (trace! :rf.frame/drain-interrupted
                   {:frame (:id frame) :dropped dropped}))
@@ -2090,7 +2151,17 @@ This per-event drain is the canonical place every other piece of the runtime hoo
 1. **`:raise` inside an `:always` action.** The microstep that fires the action accumulates its `:fx` (including `:raise`) into the same Level-3 accumulator; the next iteration of the cascade drains the new raise-queue before re-checking `:always`. Same loop, no special case. Tracked via the same depth limits.
 2. **Re-entrant dispatch from a render.** A view fn calling `(rf/dispatch ...)` during render lands in the router queue. The current drain has already settled before render started (run-to-completion); the dispatched event is processed in the *next* drain cycle, after the host gives time back to the JS event loop. Calling `dispatch-sync` from inside any handler raises `:rf.error/dispatch-sync-in-handler` (per [§dispatch-sync](#dispatch-sync)).
 3. **`:dispatch` to self in a handler.** Round-trips the runtime queue as a **separate dequeued event** (its own epoch), running against the *post-commit* snapshot — from a plain handler it lands at the back (FIFO); from a *machine* handler it leap-frogs to the front (per [005 §Level 4](005-StateMachines.md#level-4--across-the-runtime)). Either way it is **different** from `:raise`, which runs pre-commit, FIFO, inside the same macrostep/epoch. The two are not interchangeable — see [005 §Drain semantics gotchas](005-StateMachines.md#drain-semantics-gotchas).
-4. **Frame disposal mid-drain.** The drain loop checks `(:destroyed? (:lifecycle frame))` before each dequeue; on detect, it stops, drops the remaining queue, and emits `:rf.frame/drain-interrupted` with the dropped count. In-flight events finish (run-to-completion); only events not yet dequeued are dropped.
+4. **Frame disposal mid-drain.** The exact-incarnation destroy claim is the
+   ordinary-queue cutoff, earlier than lifecycle-dead publication. Work already dequeued
+   may finish. At claim, every waiting ordinary envelope is atomically removed; an
+   ordinary arrival in the claim-to-dead window may enqueue but is dropped by the next
+   pre-dequeue ownership check before handler, effects, or child dispatch. Only the
+   private token/frame/host-thread-scoped `:on-destroy` cascade may execute after claim
+   while lifecycle remains live. When an ordinary drain observes the cutoff it emits one
+   `:rf.frame/drain-interrupted`; `:dropped-count` combines claim-time and check-time
+   removals. Dispatch after lifecycle-dead/absence is a different outcome: it never
+   enqueues and uses the public `:rf.error/frame-destroyed` recovery surface. A stale
+   incarnation A's claim cannot cut off a fresh same-id incarnation B.
 5. **Effect handler kicks off async work and returns.** Handler returns synchronously; the async work runs against future ticks; its eventual reply is a fresh `dispatch` per [Pattern-AsyncEffect](Pattern-AsyncEffect.md). The drain loop is non-blocking — `:fx` "complete" means the fx-handler fn has returned, not that its observable side effects have settled.
 
 ## Per-frame and per-call overrides
