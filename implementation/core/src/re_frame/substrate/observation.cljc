@@ -652,15 +652,56 @@
       application ex-info must not SPOOF a canonical framework category) —
       is wrapped exactly once in the stable catalogued
       `:rf.error/observation-on-change-failed`, carrying the original
-      throwable as the record's `:exception` cause."
-  [lease exception]
+      throwable as the record's `:exception` cause.
+
+  When the drain owns the first emission it rides the shared TWO-CHANNEL
+  fan-out (`error-emit/emit-error-both!`, rf2-q3fmqm): the always-on record
+  for off-box shippers PLUS the dev diagnostic-trace event Xray's
+  trace-tooling listener consumes — the registrar/next-tick boundaries
+  swallow the rethrow, so without the trace leg a real HMR/disposed callback
+  failure was invisible in the primary debugging surface. The
+  category-specific trace tags carry the disposal `cause` (`:hmr` /
+  `:disposed`), the former owner's entry-sub coordinates
+  (`:rf.sub/id` / `:rf.sub/query-v`), and the original throwable. In
+  advanced production the trace leg is DCE'd inside `trace/emit-error!`
+  while the always-on record survives. The record's `:event-id` carries the
+  ENTRY SUB id, and `error-emit` classifies the wrapper category
+  subscription-owned, so `:source-coord` resolves under `[:sub id]` — a
+  macro-registered sub yields its exact coordinate, a programmatic one
+  omits the slot, and a same-id event registration cannot steal
+  attribution."
+  [lease cause exception]
   (when-not (error-emit/fanned-at-source? exception)
     (let [{:keys [frame-id query-v]} @(lease-state lease)
-          error-id (if (error-emit/canonical-typed-error? exception)
+          sub-id   (first query-v)
+          typed?   (error-emit/canonical-typed-error? exception)
+          error-id (if typed?
                      (:rf.error/id (ex-data exception))
                      :rf.error/observation-on-change-failed)]
-      (error-emit/dispatch-on-error!
-        error-id query-v (first query-v) frame-id exception 0 (interop/now-ms)))))
+      (error-emit/emit-error-both!
+        error-id query-v sub-id frame-id exception 0 (interop/now-ms)
+        {:rf.sub/id         sub-id
+         :rf.sub/query-v    query-v
+         :where             're-frame.substrate.observation/drain-pending-disposals!
+         :frame             frame-id
+         :cause             cause
+         :exception         exception
+         :exception-message (error/ex-message-safe exception)
+         :reason            (if typed?
+                              (str "a former-owner on-change callback for "
+                                   (pr-str sub-id) " escaped with the typed "
+                                   (pr-str error-id) " during the " cause
+                                   " disposal-notification drain; surfaced here "
+                                   "exactly once because the drain boundary "
+                                   "swallows the rethrow.")
+                              (str "a former-owner on-change callback for "
+                                   (pr-str sub-id) " threw during the " cause
+                                   " disposal-notification drain; the escape is "
+                                   "contained (siblings still notified) and "
+                                   "surfaced here before the boundary swallows "
+                                   "the rethrow — the underlying on-change "
+                                   "consumer bug is a re-frame.ui defect to fix."))
+         :recovery          :no-recovery}))))
 
 (defn ^:no-doc drain-pending-disposals!
   "Drain the queued node-disposed notifications whose INTRINSIC cause is
@@ -707,13 +748,15 @@
                          (notify-disposal! lease cause)
                          acc
                          (catch #?(:clj Throwable :cljs :default) t
-                           ;; Surface EVERY escape on the always-on axis BEFORE
-                           ;; the boundary swallows the rethrow — typed under its
-                           ;; own catalogue id, untyped wrapped in
-                           ;; :rf.error/observation-on-change-failed — so an
-                           ;; untyped consumer on-change bug is never silently
-                           ;; lost at a disposal drain (rf2-6ui49w).
-                           (report-disposal-notify-escape! lease t)
+                           ;; Surface EVERY escape EXACTLY ONCE before the
+                           ;; boundary swallows the rethrow (rf2-6ui49w +
+                           ;; rf2-wbkjk9): an already-fanned typed escape keeps
+                           ;; its source's emission; a drain-owned first
+                           ;; emission rides the two-channel fan-out
+                           ;; (rf2-q3fmqm) — typed under its own catalogue id,
+                           ;; untyped/malformed/non-catalogued wrapped in
+                           ;; :rf.error/observation-on-change-failed.
+                           (report-disposal-notify-escape! lease cause t)
                            (conj acc t))))
                      []
                      taken)]
