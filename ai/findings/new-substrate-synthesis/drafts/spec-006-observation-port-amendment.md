@@ -364,8 +364,8 @@ run-to-completion drain may settle several queued events, each committing its ow
 record after settling derivations (Phases 1–2) and marking dirty cells (Phase 3). Once
 the drain reaches quiescence, each dirty ViewCell is flushed **once** into the host
 scheduler and React performs one read/render batch for the drain. Drain→React scheduling
-is microtask-aligned. `flush-render!` (and the test flush built on it) settles the drain
-**before** React renders; a re-entrant `flushSync`-style forcing into an open drain is a
+is microtask-aligned. `flush-render!` and the test-only `ui.test/flush!` both settle the
+drain **before** React renders; a re-entrant `flushSync`-style forcing into an open drain is a
 dev error carrying epoch evidence
 (`:rf.error/flush-in-open-epoch`, dev tier — catalogue row required per
 [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) on
