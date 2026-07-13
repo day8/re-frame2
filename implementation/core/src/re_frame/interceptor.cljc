@@ -320,12 +320,12 @@
    (loop [i   0
           ctx initial-context]
      (cond
-       (:rf/interceptor-error ctx)
-       (unwind-afters interceptors (dec (count interceptors)) ctx)
-
        (and continue-before? (not (continue-before?)))
        (unwind-afters interceptors (dec i)
-                      (assoc ctx :rf/stale-incarnation? true))
+                       (assoc ctx :rf/stale-incarnation? true))
+
+       (:rf/interceptor-error ctx)
+       (unwind-afters interceptors (dec (count interceptors)) ctx)
 
        (= i (count interceptors))
        (unwind-afters interceptors (dec i) ctx)

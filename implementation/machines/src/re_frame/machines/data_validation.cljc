@@ -121,25 +121,37 @@
   registered (validation ran), and the schemas artefact owns the validator
   that ran it, so the hook is bound whenever a failure can fire; the
   `(or redact ...)` fallthrough is belt-and-braces."
-  [machine-id where phase value schema explanation rollback? reason]
-  (let [explain-fn (late-bind/get-fn-cached :schemas/explain-with-registered-fn)
-        explanation (or explanation
-                        (when explain-fn (explain-fn schema value)))
-        redact     (late-bind/get-fn-cached :schemas/redact-validation-tags)
-        tags       {:where      where
-                    :failing-id machine-id
-                    :machine-id machine-id
-                    :phase      phase
-                    :value      value
-                    :received   value
-                    :schema     schema
-                    :explain    explanation
-                    :rollback?  rollback?
-                    :recovery   :no-recovery
-                    :reason     reason}]
-    (trace/emit-error! :rf.error/schema-validation-failure
-                       (cond-> tags
-                         redact (->> (redact schema))))))
+  ([machine-id where phase value schema explanation rollback? reason]
+   (emit-failure! machine-id where phase value schema explanation rollback?
+                  reason (constantly true)))
+  ([machine-id where phase value schema explanation rollback? reason continue?]
+   (let [explain-fn (late-bind/get-fn-cached :schemas/explain-with-registered-fn)
+         explanation (or explanation
+                         (when (and (continue?) explain-fn)
+                           (try
+                             (explain-fn schema value)
+                             (catch #?(:clj Throwable :cljs :default) e
+                               (if (continue?) (throw e) nil)))))
+         redact     (late-bind/get-fn-cached :schemas/redact-validation-tags)
+         tags       {:where      where
+                     :failing-id machine-id
+                     :machine-id machine-id
+                     :phase      phase
+                     :value      value
+                     :received   value
+                     :schema     schema
+                     :explain    explanation
+                     :rollback?  rollback?
+                     :recovery   :no-recovery
+                     :reason     reason}
+         tags       (if (and (continue?) redact)
+                      (try
+                        (redact schema tags)
+                        (catch #?(:clj Throwable :cljs :default) e
+                          (if (continue?) (throw e) nil)))
+                      tags)]
+     (when (continue?)
+       (trace/emit-error! :rf.error/schema-validation-failure tags)))))
 
 (defn validate-snapshot-data!
   "Validate a single machine snapshot's `:data` against the registered
@@ -159,19 +171,29 @@
     - `:phase :update-snapshot` → rollback? false (the escape-hatch fx
       validates the would-be-merged snapshot and skips the
       `swap-runtime-db!` write on false; nothing was committed)."
-  [machine-id snapshot schema phase]
-  (if-let [validate-fn (late-bind/get-fn-cached
-                         :schemas/validate-with-registered-fn)]
-    (let [data (:data snapshot)]
-      (if (validate-fn schema data)
-        true
-        (do (emit-failure! machine-id :machine-data phase data schema nil
-                           (not (contains? local-skip-phases phase))
-                           (str "Machine " machine-id
-                                " :data failed schema at boundary :where "
-                                ":machine-data (phase " phase ")."))
-            false)))
-    true))
+  ([machine-id snapshot schema phase]
+   (validate-snapshot-data! machine-id snapshot schema phase (constantly true)))
+  ([machine-id snapshot schema phase continue?]
+   (if-let [validate-fn (late-bind/get-fn-cached
+                          :schemas/validate-with-registered-fn)]
+     (let [data   (:data snapshot)
+           result (try
+                    (validate-fn schema data)
+                    (catch #?(:clj Throwable :cljs :default) e
+                      (if (continue?) (throw e) nil)))]
+       (cond
+         (not (continue?)) :rf/stale-incarnation
+         result true
+         :else
+         (do
+           (emit-failure! machine-id :machine-data phase data schema nil
+                          (not (contains? local-skip-phases phase))
+                          (str "Machine " machine-id
+                               " :data failed schema at boundary :where "
+                               ":machine-data (phase " phase ").")
+                          continue?)
+           (if (continue?) false :rf/stale-incarnation))))
+     true)))
 
 (defn- resolve-data-schema
   "Resolve the `[:schemas :data]` schema for `machine-id` whose live snapshot
@@ -188,13 +210,25 @@
   hooks (cannot happen on the live fx / router path — the validator is
   invoked FROM the loaded facade) the resolver short-circuits to nil = no
   validation."
-  [machine-id snapshot]
-  (or (some-> (when-let [meta-fn (late-bind/get-fn-cached :machines/machine-meta)]
-                (meta-fn machine-id))
-              (get-in [:schemas :data]))
-      (some-> (when-let [spec-fn (late-bind/get-fn-cached :machines/spec-from-snapshot)]
-                (spec-fn snapshot))
-              (get-in [:schemas :data]))))
+  ([machine-id snapshot]
+   (resolve-data-schema machine-id snapshot (constantly true)))
+  ([machine-id snapshot continue?]
+   (let [meta-schema
+         (when (continue?)
+           (some-> (when-let [meta-fn (late-bind/get-fn-cached :machines/machine-meta)]
+                     (try
+                       (meta-fn machine-id)
+                       (catch #?(:clj Throwable :cljs :default) e
+                         (if (continue?) (throw e) nil))))
+                   (get-in [:schemas :data])))]
+     (or meta-schema
+         (when (continue?)
+           (some-> (when-let [spec-fn (late-bind/get-fn-cached :machines/spec-from-snapshot)]
+                     (try
+                       (spec-fn snapshot)
+                       (catch #?(:clj Throwable :cljs :default) e
+                         (if (continue?) (throw e) nil))))
+                   (get-in [:schemas :data])))))))
 
 (defn validate-machine-data!
   "Walk every snapshot under `[:rf.runtime/machines :snapshots]` in
@@ -221,7 +255,12 @@
   Per Spec 009 §Production builds the body lives inside a
   `(when interop/debug-enabled? ...)` gate so production builds
   return `true` unconditionally."
-  [runtime-db _event-id _frame-id]
+  ([runtime-db event-id frame-id]
+   (if-let [owner-token (frame/current-event-owner-token)]
+     (validate-machine-data! runtime-db event-id frame-id
+                             #(frame/frame-incarnation-live? frame-id owner-token))
+     (validate-machine-data! runtime-db event-id frame-id (constantly true))))
+  ([runtime-db _event-id _frame-id continue?]
   ;; `event-id` and `frame-id` are accepted but unused at this boundary
   ;; (the per-snapshot emit already names the machine); the arity matches
   ;; `validate-app-schema!` so the late-bind hook the router consumes can
@@ -234,15 +273,23 @@
     ;; deterministically. A snapshot whose machine declares no `[:schemas
     ;; :data]` (or whose spec resolves to nil for both a singleton AND a
     ;; spawned actor) conforms vacuously.
-    (reduce-kv
-      (fn [ok? machine-id snapshot]
-        (and (if-let [schema (resolve-data-schema machine-id snapshot)]
-               (validate-snapshot-data! machine-id snapshot schema :macrostep)
-               true)
-             ok?))
-      true
-      (get-in runtime-db (paths/snapshot-path)))
-    true))
+    (loop [entries (seq (get-in runtime-db (paths/snapshot-path)))
+           ok?     true]
+      (cond
+        (not (continue?)) :rf/stale-incarnation
+        (nil? entries) ok?
+        :else
+        (let [[machine-id snapshot] (first entries)
+              schema (resolve-data-schema machine-id snapshot continue?)
+              result (if (and (continue?) schema)
+                       (validate-snapshot-data!
+                         machine-id snapshot schema :macrostep continue?)
+                       true)]
+          (if (or (= :rf/stale-incarnation result)
+                  (not (continue?)))
+            :rf/stale-incarnation
+            (recur (next entries) (and result ok?))))))
+    true)))
 
 (defn validate-spawn-data!
   "Sibling of `validate-machine-data!` for the `:rf.machine/spawn` install

@@ -126,7 +126,7 @@
       ;; Stub the schema-validate hook to reject every candidate, driving
       ;; commit-frame-effects! down its rejection branch.
       (late-bind/set-fn! :schemas/validate-app-schema!
-                         (fn [_db-after _event-id _frame] false))
+                         (fn [_db-after _event-id _frame _continue?] false))
       (rf/register-listener! :events
         :test/recorder
         (fn [record] (swap! seen conj record)))
@@ -157,7 +157,7 @@
       ;; attribution — there is no partial-db (no partial commit per the
       ;; atomicity contract).
       (late-bind/set-fn! :flows/run-flows-on-db
-                         (fn [_frame _db _runtime-db]
+                         (fn [_frame _db _runtime-db _exact-owner]
                            (throw (ex-info "flow output blew up"
                                            {:rf.flow/failed-id :flow/derived}))))
       (rf/register-listener! :events
@@ -183,9 +183,9 @@
             the success path."
     (let [seen (atom [])]
       (late-bind/set-fn! :schemas/validate-app-schema!
-                         (fn [_db-after _event-id _frame] true))
+                         (fn [_db-after _event-id _frame _continue?] true))
       (late-bind/set-fn! :flows/run-flows-on-db
-                         (fn [_frame db _runtime-db] db))
+                         (fn [_frame db _runtime-db _exact-owner] db))
       (rf/register-listener! :events
         :test/recorder
         (fn [record] (swap! seen conj record)))

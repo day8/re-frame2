@@ -2854,7 +2854,8 @@
         (when (identical? expected-token candidate-token)
           (when *destroy-claim-probe*
             (*destroy-claim-probe* id candidate-token))
-          (let [claimed
+          (let [interrupt-report (volatile! nil)
+                claimed
                 (call-serialized-with-drain!
                   id
                   (fn []
@@ -2879,19 +2880,40 @@
                               (swap! destroying-frames assoc id
                                      {:token candidate-token})
                               (swap! router
-                                     (fn [{:keys [queue] :as state}]
-                                       (let [dropped (count queue)]
+                                     (fn [{:keys [queue scheduled? in-drain?
+                                                 destroy-claim-dropped-count]
+                                           :as state}]
+                                       (let [dropped (+ (count queue)
+                                                        (or destroy-claim-dropped-count 0))
+                                             ;; A live drainer needs terminal
+                                             ;; evidence even with an empty
+                                             ;; queue; a scheduled queue is an
+                                             ;; interrupted drain before entry.
+                                             interrupt? (or (some? in-drain?)
+                                                            scheduled?
+                                                            (pos? dropped))]
+                                         (when interrupt?
+                                           (vreset! interrupt-report dropped))
                                          (cond-> (-> state
                                                      (assoc :queue interop/empty-queue
                                                             :scheduled? false)
-                                                     (dissoc :destroy-claim-report-emitted?))
-                                           (pos? dropped)
-                                           (update :destroy-claim-dropped-count
-                                                   (fnil + 0) dropped)))))
+                                                     (dissoc :destroy-claim-dropped-count
+                                                             :destroy-claim-report-emitted?))
+                                           interrupt?
+                                           (assoc :destroy-claim-report-emitted? true)))))
                               current)))))))]
             (if (= ::retry-destroy-claim claimed)
               (recur)
-              claimed)))))))
+              (do
+                ;; Linearize A's interruption evidence while A still owns the
+                ;; registry key. The stale drainer's return seam must neither
+                ;; claim nor attribute this trace to a same-id B (nor recreate
+                ;; an absent A epoch buffer).
+                (when-some [dropped @interrupt-report]
+                  (trace/emit! :rf.frame :rf.frame/drain-interrupted
+                               {:frame         id
+                                :dropped-count dropped}))
+                claimed))))))))
 
 (defn- release-frame-destroy-claim!
   "Compare-remove only `expected-token`'s claim. A stale incarnation A's

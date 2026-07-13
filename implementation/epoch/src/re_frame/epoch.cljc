@@ -190,12 +190,21 @@
   Raw storage is required for replay. Projection, including the configured
   `:redact-fn`, happens only at off-box egress. `committed-at` is the causal
   token's `:rf/time-ms`, not an assembly-time clock read."
-  [frame-id frame-state-before frame-state-after events committed-at outcome halt-reason trigger-event]
-  (when-let [owner-token (frame/frame-incarnation-token frame-id)]
-    (state/claim-frame-owner! frame-id owner-token))
-  ;; Whole-frame snapshots are restore units; app-db slots are projections.
-  (let [base   (assembly/build-record frame-id frame-state-before frame-state-after
-                                      events committed-at outcome halt-reason)
+  [frame-id frame-state-before frame-state-after events committed-at outcome
+   halt-reason trigger-event exact-owner-token]
+  (let [owner-token (or exact-owner-token
+                        (frame/frame-incarnation-token frame-id))
+        continue?  #(or (nil? exact-owner-token)
+                        (frame/frame-incarnation-live?
+                          frame-id exact-owner-token))]
+    (when (and owner-token (continue?))
+      ;; Normal exact settlement claims A's supplied token. It must never
+      ;; re-resolve/claim same-id B after A was destroyed during harvest.
+      (state/claim-frame-owner! frame-id owner-token))
+    ;; Whole-frame snapshots are restore units; app-db slots are projections.
+    (when (continue?)
+      (let [base   (assembly/build-record frame-id frame-state-before frame-state-after
+                                          events committed-at outcome halt-reason)
         ;; Pin the explicit trigger only when the buffer did not resolve one.
         ;; already resolve one (the halting event never ran, so no
         ;; `:event/run-start` was buffered). Omit rather than store nil.
@@ -203,21 +212,23 @@
                  (and trigger-event (not (:event-id base)))
                  (assoc :event-id      (first trigger-event)
                         :trigger-event trigger-event))]
-    (state/record! record)
-    ;; Async render/sub emits use this anchor after the event has settled.
-    ;; Set it after storage so back-fill can find the record immediately.
-    (state/set-last-settled-epoch! frame-id (:epoch-id record))
-    ;; The optional cascade aggregator applies its own focus predicate.
-    (when-let [capture (late-bind/get-fn-cached
-                         :trace.cascade/capture-for-epoch!)]
-      (try
-        (capture frame-id (:epoch-id record) (:event-id record) events)
-        (catch #?(:clj Throwable :cljs :default) _ nil)))
-    ;; Emit both the detailed close cause and its consumer-facing tier.
-    (assembly/emit-snapshotted+outcome! frame-id (:epoch-id record)
-                                        (:event-id record) outcome)
-    (listeners/notify-listeners! record)
-    record))
+        (state/record! record)
+        ;; Async render/sub emits use this anchor after the event has settled.
+        (state/set-last-settled-epoch! frame-id (:epoch-id record))
+        ;; The optional cascade aggregator is callback-bearing. Its result and
+        ;; every later trailer are inert after exact owner loss.
+        (when (continue?)
+          (when-let [capture (late-bind/get-fn-cached
+                               :trace.cascade/capture-for-epoch!)]
+            (try
+              (capture frame-id (:epoch-id record) (:event-id record) events)
+              (catch #?(:clj Throwable :cljs :default) _ nil))))
+        (when (continue?)
+          (assembly/emit-snapshotted+outcome!
+            frame-id (:epoch-id record) (:event-id record) outcome continue?))
+        (when (continue?)
+          (listeners/notify-listeners! record continue?))
+        (when (continue?) record)))))
 
 (defn settle!
   "Settle one dequeued event, not an entire drain.
@@ -262,7 +273,8 @@
          ;; suppressed here; never-run depth halts use `commit-halt-record!`.
          (when (seq events)
            (commit-record! frame-id frame-state-before frame-state-after events
-                           committed-at outcome halt-reason nil)))))))
+                           committed-at outcome halt-reason nil
+                           exact-owner-token)))))))
 
 (defn- commit-halt-record!
   "Commit a halt record for an event that never ran.
@@ -289,7 +301,7 @@
                         (:frame-state-after last-record)
                         frame-state-after)]
       (commit-record! frame-id fs fs events
-                      committed-at outcome halt-reason trigger-event))))
+                      committed-at outcome halt-reason trigger-event nil))))
 
 ;; ---- restore --------------------------------------------------------------
 ;;

@@ -610,7 +610,7 @@
   registered), so the hook is bound whenever a sensitive failure can fire; the
   `(when redact-fn …)` guard is belt-and-braces (no schemas artefact ⇒ no
   schema to redact against)."
-  [cofx-id value explanation schema failing-id frame-id]
+  [cofx-id value explanation schema failing-id frame-id continue?]
   (let [redact-fn (late-bind/get-fn-cached :schemas/redact-validation-tags)
         ;; The off-box slots shared by the trace and the throw's ex-data.
         ;; Redaction scrubs `:value` / `:explain` and stamps `:sensitive?`
@@ -618,32 +618,39 @@
         leak-slots (cond-> {:value value}
                      (some? explanation) (assoc :explain explanation))
         redacted   (if (and redact-fn (some? schema))
-                     (redact-fn schema leak-slots)
+                     (try
+                       (redact-fn schema leak-slots)
+                       (catch #?(:clj Throwable :cljs :default) e
+                         (if (continue?) (throw e) nil)))
                      leak-slots)]
-    (let [reason (str "Recordable coeffect `" cofx-id "` (supplied, replayed, or "
+    (when (continue?)
+      (let [reason (str "Recordable coeffect `" cofx-id "` (supplied, replayed, or "
                       "generated) failed its `reg-cofx` `:schema`. An "
                       "out-of-contract recordable value is corrupt durable state "
                       "— it folds into the epoch ledger and replays verbatim — so "
                       "this is a hard error in dev AND production. Fix the value "
                       "to satisfy the declared `:schema` (or correct the schema). "
                       "See `:explain` for the validation detail.")]
-      (when-let [emit-error-both! (late-bind/get-fn-cached :error-emit/emit-error-both)]
-        (emit-error-both! :rf.error/cofx-value-invalid nil failing-id frame-id nil 0 (interop/now-ms)
-                          (cond-> {:rf.cofx/id        cofx-id
-                                   :failing-id        failing-id
-                                   :rf.trace/event-id failing-id
-                                   :value             (:value redacted)
-                                   :reason            reason
-                                   :recovery          :no-recovery}
-                            (contains? redacted :explain) (assoc :explain (:explain redacted))
-                            (:sensitive? redacted)        (assoc :sensitive? true)
-                            frame-id                      (assoc :frame frame-id))))
-      (error/throw-error! :rf.error/cofx-value-invalid 'rf/reg-cofx reason
-                          {:extra (cond-> {:rf.cofx/id cofx-id
-                                           :failing-id failing-id
-                                           :value      (:value redacted)
-                                           :explain    (:explain redacted)}
-                                    (:sensitive? redacted) (assoc :sensitive? true))}))))
+        (when-let [emit-error-both! (late-bind/get-fn-cached :error-emit/emit-error-both)]
+          (emit-error-both! :rf.error/cofx-value-invalid nil failing-id frame-id nil 0 (interop/now-ms)
+                            (cond-> {:rf.cofx/id        cofx-id
+                                     :failing-id        failing-id
+                                     :rf.trace/event-id failing-id
+                                     :value             (:value redacted)
+                                     :reason            reason
+                                     :recovery          :no-recovery}
+                              (contains? redacted :explain) (assoc :explain (:explain redacted))
+                              (:sensitive? redacted)        (assoc :sensitive? true)
+                              frame-id                      (assoc :frame frame-id))))
+        ;; The always-on error listener is synchronous. If it destroys A, the
+        ;; framework-owned throw is inert too.
+        (when (continue?)
+          (error/throw-error! :rf.error/cofx-value-invalid 'rf/reg-cofx reason
+                              {:extra (cond-> {:rf.cofx/id cofx-id
+                                               :failing-id failing-id
+                                               :value      (:value redacted)
+                                               :explain    (:explain redacted)}
+                                        (:sensitive? redacted) (assoc :sensitive? true))}))))))
 
 (defn- validate-recordable-value!
   "Validate a recordable `value` for `cofx-id` against its registration's
@@ -659,8 +666,10 @@
   escapes its isolation) — coercing the throw to a PASS would fold an
   unvalidated value into the durable ledger, the exact fail-OPEN class this
   check exists to close. Returns `value` on success."
-  [cofx-id value meta failing-id frame-id]
-  (if-let [schema (:schema meta)]
+  [cofx-id value meta failing-id frame-id continue?]
+  (if-not (continue?)
+    nil
+    (if-let [schema (:schema meta)]
     (let [validate-fn (late-bind/get-fn-cached :schemas/validate-with-registered-fn)]
       (if (nil? validate-fn)
         ;; No validator registered (schemas artefact absent, or
@@ -668,18 +677,25 @@
         ;; passes"; the check is a no-op (Spec 010 §Non-Malli validators).
         value
         (let [ok? (try (validate-fn schema value)
-                       (catch #?(:clj Throwable :cljs :default) _ false))]
-          (if ok?
+                       (catch #?(:clj Throwable :cljs :default) e
+                         (if (continue?) false nil)))]
+          (cond
+            (not (continue?)) nil
+            ok?
             value
+            :else
             (let [explain-fn  (late-bind/get-fn-cached :schemas/explain-with-registered-fn)
-                  explanation (when explain-fn
+                  explanation (when (and (continue?) explain-fn)
                                 (try (explain-fn schema value)
-                                     (catch #?(:clj Throwable :cljs :default) _ nil)))]
+                                     (catch #?(:clj Throwable :cljs :default) e
+                                       (if (continue?) nil nil))))]
               ;; Pass `schema` so the emit redacts the value-bearing slots
               ;; (trace tags AND thrown ex-data) when the schema marks any
               ;; slot `:sensitive?` — fail-closed off-box (rf2-hdi6wr).
-              (emit-cofx-value-invalid! cofx-id value explanation schema failing-id frame-id))))))
-    value))
+              (when (continue?)
+                (emit-cofx-value-invalid! cofx-id value explanation schema failing-id frame-id
+                                          continue?)))))))
+      value)))
 
 ;; ---- structural-EDN check of GENERATED recordable values ------------------
 ;;    (EP-0017 erratum rf2-rmroo4 slice B — rf2-uqz2ir)
@@ -870,7 +886,8 @@
         ;; mismatch — the prod contract — is reported first; rf2-rmroo4
         ;; slice B / rf2-uqz2ir.)
         (when (continue?)
-          (validate-recordable-value! cofx-id (second outcome) meta failing-id frame-id))
+          (validate-recordable-value! cofx-id (second outcome) meta failing-id frame-id
+                                      continue?))
         ;; Structural EDN-always check of the GENERATED value (rf2-rmroo4
         ;; slice B, rf2-uqz2ir; production-hardened rf2-q34j26): a generator
         ;; that mints a host handle fails loudly HERE — at the source, before
@@ -881,7 +898,10 @@
         ;; `:rf.cofx/generated` emit (rf2-0mjgx6) so a non-EDN host handle
         ;; never ships on the dev trace either.
         (when (continue?)
-          (validate-generated-recordable-value! cofx-id (second outcome) failing-id frame-id))
+          (try
+            (validate-generated-recordable-value! cofx-id (second outcome) failing-id frame-id)
+            (catch #?(:clj Throwable :cljs :default) e
+              (when (continue?) (throw e)))))
         ;; Dev-only `:rf.cofx/generated` — fact-name + supplier id (the
         ;; cofx id is both). Gated on `interop/debug-enabled?` so
         ;; production DCEs the tag-map + emit, exactly like
@@ -1007,15 +1027,21 @@
 
     (mint-policy-generates? mint-policy)
     (if-let [eval-sub (late-bind/get-fn-cached :cofx/eval-recordable-sub)]
-      (let [value (eval-sub query-v frame-id)]
-        (when-not (continue?)
-          nil)
+      (let [value (try
+                    (eval-sub query-v frame-id)
+                    (catch #?(:clj Throwable :cljs :default) e
+                      ;; A destroy+throw from the authored evaluator is inert;
+                      ;; otherwise preserve the existing hard failure.
+                      (if (continue?) (throw e) nil)))]
         ;; The resolved value rides the durable causal record — structural
         ;; recordable-EDN check at write-back (a sub yielding a host handle is
         ;; `:rf.error/cofx-value-invalid`, dev AND production), reusing the
         ;; generated-value floor.
         (when (continue?)
-          (validate-generated-recordable-value! fact-id value failing-id frame-id))
+          (try
+            (validate-generated-recordable-value! fact-id value failing-id frame-id)
+            (catch #?(:clj Throwable :cljs :default) e
+              (when (continue?) (throw e)))))
         (when (continue?)
           (-> acc
               (assoc-in [:coeffects fact-id] value)
@@ -1087,8 +1113,9 @@
      (fn [{:keys [coeffects] :as acc} {:keys [id arg] :as entry}]
        (if-not (continue?)
          (reduced nil)
-         (let [next-acc
-               (if (contains? entry :rf.cofx/sub)
+          (let [next-acc
+                (try
+                  (if (contains? entry :rf.cofx/sub)
          ;; A sub-valued recordable source (machines-only): `id` is the `:as`
          ;; fact-id, `:rf.cofx/sub` the query. It carries NO `reg-cofx`
          ;; registration — evaluate / re-present via `deliver-sub-source`,
@@ -1112,8 +1139,10 @@
                ;; value into the ledger is corrupt durable state.
                (contains? (:rf.cofx acc) id)
                (let [value (get (:rf.cofx acc) id)]
-                 (validate-recordable-value! id value meta failing-id frame-id)
-                 (assoc-in acc [:coeffects id] value))
+                 (validate-recordable-value! id value meta failing-id frame-id
+                                             continue?)
+                 (when (continue?)
+                   (assoc-in acc [:coeffects id] value)))
 
                ;; Absent + generator-backed → consult the mint policy. `:live` /
                ;; `:explicit-live` run the generator at processing-start, write
@@ -1133,8 +1162,10 @@
                      ;; Platform-skipped generator → the fact is not produced;
                      ;; treat it as missing-required (a half-skipped generated
                      ;; fact must not surface as a silent nil).
-                     :skipped   (emit-missing-required-cofx! id failing-id frame-id)
-                     :threw     (assoc acc :rf/skip-handler? true)))
+                      :skipped   (when (continue?)
+                                   (emit-missing-required-cofx! id failing-id frame-id))
+                      :threw     (assoc acc :rf/skip-handler? true)
+                      :stale     nil))
                  (emit-missing-required-cofx! id failing-id frame-id))
 
                ;; Absent + provided (no generator) → missing-required, every mode.
@@ -1148,8 +1179,13 @@
                (case outcome
                  :delivered (assoc-in acc [:coeffects id] value)
                  :skipped   acc
-                 :threw     (assoc acc :rf/skip-handler? true)
-                 :stale     nil)))))]
+                  :threw     (assoc acc :rf/skip-handler? true)
+                  :stale     nil)))))
+                  (catch #?(:clj Throwable :cljs :default) e
+                    ;; All hard-error helpers emit synchronously and then
+                    ;; throw. If that emit destroyed A, suppress the now-inert
+                    ;; throw; while live, preserve the established contract.
+                    (if (continue?) (throw e) nil)))]
            (if (continue?) next-acc (reduced nil)))))
      {:coeffects coeffects :rf.cofx recorded :rf/skip-handler? false}
      requires)))

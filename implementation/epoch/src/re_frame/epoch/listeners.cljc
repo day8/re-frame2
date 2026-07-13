@@ -37,19 +37,33 @@
   Observation stamping belongs to the caller: ordinary fan-out stamps before
   delivery; terminal destroy fan-out snapshots the silencing set and removes
   the dying incarnation's observation state atomically before delivery."
-  [record listener-snapshot]
-  (let [frame-id (:frame record)]
-    (doseq [[id {:keys [callback]}] listener-snapshot]
-      (try
-        (callback record)
-        (catch #?(:clj Throwable :cljs :default) ex
-          (trace/emit-error! :rf.epoch.cb/listener-exception
-                             {:frame       frame-id
-                              :cb-id       id
-                              :rf.epoch/id (:epoch-id record)
-                              :message     #?(:clj  (.getMessage ^Throwable ex)
-                                              :cljs (.-message ex))
-                              :recovery    :no-recovery}))))))
+  ([record listener-snapshot]
+   ;; Terminal destroy delivery already removed observation ownership and must
+   ;; not recreate it while fanning out the halted record.
+   (deliver-listener-snapshot! record listener-snapshot (constantly true) false))
+  ([record listener-snapshot continue? record-observation?]
+   (let [frame-id (:frame record)]
+     (loop [entries (seq listener-snapshot)]
+       (when (and entries (continue?))
+          (let [[id {:keys [callback generation]}] (first entries)]
+            ;; Stamp only the callback that is actually about to run. A later
+            ;; listener suppressed by owner loss must not be reported observed.
+            (when record-observation?
+              (state/record-observation! id generation frame-id))
+           (try
+             (callback record)
+             (catch #?(:clj Throwable :cljs :default) ex
+               ;; A callback that destroyed the exact owner has an inert throw;
+               ;; never emit its failure diagnostic against same-id B.
+               (when (continue?)
+                 (trace/emit-error! :rf.epoch.cb/listener-exception
+                                    {:frame       frame-id
+                                     :cb-id       id
+                                     :rf.epoch/id (:epoch-id record)
+                                     :message     #?(:clj  (.getMessage ^Throwable ex)
+                                                     :cljs (.-message ex))
+                                     :recovery    :no-recovery}))))
+           (recur (next entries))))))))
 
 (defn notify-listeners!
   "Fan `record` out to every registered `:rf/epoch-record` listener.
@@ -67,15 +81,13 @@
   shape — the listener's invocation is over; the next cascade
   re-invokes the same fn afresh, no automatic remediation happens
   between now and then."
-  [record]
-  (let [frame-id          (:frame record)
-        listener-snapshot (state/listeners-snapshot)]
-    (doseq [[id {:keys [generation]}] listener-snapshot]
-      ;; Stamp the observation against the EXACT generation being invoked, so a
-      ;; concurrent same-id replacement can neither erase this observation nor
-      ;; inherit it (rf2-j538f7.5).
-      (state/record-observation! id generation frame-id))
-    (deliver-listener-snapshot! record listener-snapshot)))
+  ([record]
+   (notify-listeners! record (constantly true)))
+  ([record continue?]
+   (let [frame-id          (:frame record)
+         listener-snapshot (state/listeners-snapshot)]
+     (when (continue?)
+       (deliver-listener-snapshot! record listener-snapshot continue? true)))))
 
 ;; ---- post-settle render back-fill -----------------------------------------
 

@@ -70,17 +70,24 @@
   trailer tag lands on both surfaces at once. Both ops are catalogued in
   `re-frame.epoch.capture/skip-ops` (they fire after the buffer is
   harvested, outside any cascade)."
-  [frame-id epoch-id event-id outcome]
-  (trace/emit! :rf.epoch :rf.epoch/snapshotted
-               {:frame             frame-id
-                :rf.epoch/id       epoch-id
-                :rf.trace/event-id event-id
-                :outcome           outcome})
-  (trace/emit! :rf.epoch :rf.epoch/outcome
-               {:frame             frame-id
-                :rf.epoch/id       epoch-id
-                :rf.trace/event-id event-id
-                :outcome           (outcome->consumer-facing outcome)}))
+  ([frame-id epoch-id event-id outcome]
+   (emit-snapshotted+outcome! frame-id epoch-id event-id outcome
+                              (constantly true)))
+  ([frame-id epoch-id event-id outcome continue?]
+   (when (continue?)
+     (trace/emit! :rf.epoch :rf.epoch/snapshotted
+                  {:frame             frame-id
+                   :rf.epoch/id       epoch-id
+                   :rf.trace/event-id event-id
+                   :outcome           outcome}))
+   ;; Trace listeners are synchronous. A snapshotted listener may destroy the
+   ;; exact frame owner, in which case the paired outcome fact is suppressed.
+   (when (continue?)
+     (trace/emit! :rf.epoch :rf.epoch/outcome
+                  {:frame             frame-id
+                   :rf.epoch/id       epoch-id
+                   :rf.trace/event-id event-id
+                   :outcome           (outcome->consumer-facing outcome)}))))
 
 ;; ---- projection-side redaction override ----------------------------------
 
