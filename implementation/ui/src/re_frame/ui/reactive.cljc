@@ -996,7 +996,12 @@
   intended `re-frame.ui.tool`/Xray projection point; the flush's call is gated
   on `interop/debug-enabled?`, so it is a no-op in production. A THROWING sink
   is contained by the flush (see `flush-one!` / `report-sink-escape!`) and can
-  never strand a cell or abort the render batch. Returns nil."
+  never strand a cell or abort the render batch. Returns nil.
+
+  This is the RAW last-write-wins slot (the test seam). First-party tools
+  install through the identity-owned, HMR-safe lifecycle over it —
+  `re-frame.ui.tool.evidence/install!` / `uninstall!` (rf2-vxgfnd.75) — which
+  rejects a second owner instead of silently clearing the first."
   [f]
   (reset! evidence-sink f)
   nil)
@@ -2070,6 +2075,13 @@
   "The cell's current revision integer (tool/test read)."
   [^ViewCell cell]
   (:revision @(state cell)))
+
+(defn cell-view-id
+  "The view id `cell` was minted for (tool/test read) — the stable authoring
+  identity axis the `re-frame.ui.tool.evidence` projection keys a
+  developer-facing row on, alongside the owning root (rf2-vxgfnd.75)."
+  [^ViewCell cell]
+  (:view-id @(state cell)))
 
 (defn current-live-cells
   "The set of currently-CONNECTED ViewCells (tool/test read) — the live-cell
