@@ -1,7 +1,10 @@
 (ns re-frame.ui.lease-compiler-jvm-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing]]
             [re-frame.registrar :as registrar]
             [re-frame.ui :as ui :refer [defview]]
+            [re-frame.ui.compiler.emit-cljs :as emit-cljs]
+            [re-frame.ui.compiler.header :as header]
             [re-frame.ui.tree :as tree]))
 
 (def descriptor* (atom {:resource :feed/items}))
@@ -78,3 +81,34 @@
           (ex-data
            (try (ui/lease {:resource :feed/items})
                 (catch clojure.lang.ExceptionInfo ex ex)))))))
+
+(defn- emitted-capability-shape [vname subs leases]
+  (pr-str
+   (emit-cljs/emit-defview
+    {:vname vname
+     :view-id (keyword "lease.matrix" (name vname))
+     :display-name (str "lease.matrix/" vname)
+     :header (header/parse-header [])
+     :slots []
+     :ast {:op :text :value "x"}
+     :lease-declarations leases
+     :manifest {:view-id (keyword "lease.matrix" (name vname))
+                :hook-signature "hs1-fixed"
+                :sites {:subs subs :leases leases}}
+     :children? false})))
+
+(deftest cljs-production-wrapper-is-specialized-by-capability
+  (let [lease-row {:sid "lease-site" :descriptor {:resource :feed/items}}
+        neither (emitted-capability-shape 'neither [] [])
+        subs    (emitted-capability-shape 'subs [{:sid "sub-site"}] [])
+        leases  (emitted-capability-shape 'leases [] [lease-row])
+        both    (emitted-capability-shape 'both [{:sid "sub-site"}] [lease-row])]
+    (is (not (str/includes? neither "re-frame.ui.viewcell/render-"))
+        "neither capability is direct React.memo with no ViewCell")
+    (is (str/includes? subs "re-frame.ui.viewcell/render-subs"))
+    (is (not (str/includes? subs "render-subs-and-leases")))
+    (is (str/includes? leases "re-frame.ui.viewcell/render-leases"))
+    (is (not (str/includes? leases "render-subs-and-leases")))
+    (is (str/includes? both "re-frame.ui.viewcell/render-subs-and-leases"))
+    (is (= 1 (count (re-seq #"re-frame.ui.reactive/lease-site" leases)))
+        "one declaration lowers to one compact render capture call")))
