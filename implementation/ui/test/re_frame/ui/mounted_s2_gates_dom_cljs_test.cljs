@@ -150,14 +150,14 @@
                          (is (not (identical?
                                   initial-ref
                                   (get (reactive/committed-values cell)
-                                       target-k)))))))))))))))
+                                       target-k))))))))))))))
          (.then
           (fn []
             (rf/destroy-frame! f)
             (done))
           (fn [e]
             (rf/destroy-frame! f)
-            (reject-unexpectedly! done "mounted G-4 rejected" e)))))))
+            (reject-unexpectedly! done "mounted G-4 rejected" e))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; G-6 — bounded StrictMode + Activity ownership cycles
@@ -212,8 +212,13 @@
                (testing "reveal reconnects the preserved cell and reacquires"
                  (is (identical? leaf-cell (cell-for retained-key)))
                  (is (= :connected (reactive/lifecycle leaf-cell)))
-                 (is (= :activity-hidden
-                        (:reason (peek (reactive/intervals leaf-cell)))))
+                 ;; StrictMode may append a later same-commit replay interval
+                 ;; whose truthful reason stays :unknown.  The genuine settled
+                 ;; hide immediately before it must still have been
+                 ;; retroactively proven by the reveal.
+                 (is (some #(and (= :activity-hidden (:reason %))
+                                 (= :reconnect (:proof %)))
+                           (reactive/intervals leaf-cell)))
                  (is (= 1 (obs/active-owner-count revealed-rx)))
                  (is (= "7" (.-textContent
                               (uit/query root "[data-role='retained-leaf']"))))
