@@ -456,6 +456,64 @@
 ;; REMOVED — classification no longer propagates input → output, so there is no
 ;; `:rf.egress/output-sensitivity :rf.egress/public` declassify claim to surface.
 
+;; ---- ViewCell invalidation evidence (rf2-vxgfnd.146) --------------------
+
+(defn- causes-label
+  [causes]
+  (when (seq causes)
+    (string/join "/" (map name (sort-by name causes)))))
+
+(defn- evidence-tag
+  "One muted trailing summary per evidence row: occurrences · batches ·
+  epoch span · causes · shown targets · HONEST loss (`≥` when the
+  distinct-omission account saturated — never understated silently)."
+  [{:keys [first-epoch latest-epoch causes targets
+           dropped-count dropped-exact?] :as row}]
+  (let [n (:count row)
+        b (:batches row)]
+    (str n " invalidation" (when (not= 1 n) "s")
+         " · " b " batch" (when (not= 1 b) "es")
+         (when (some? first-epoch)
+           (str " · epochs " first-epoch "→" latest-epoch))
+         (when-some [c (causes-label causes)] (str " · " c))
+         (when (seq targets) (str " · " (count targets) " targets"))
+         (when (pos? (or dropped-count 0))
+           (str " · " (if dropped-exact? "" "≥") dropped-count " dropped")))))
+
+(defn- viewcell-evidence-section
+  "The CUMULATIVE ViewCell invalidation-evidence section — Xray's render
+  path over its owned `re-frame.ui.tool.evidence` projection
+  (rf2-vxgfnd.146). One row per live ViewCell instance, keyed by the
+  stable projection ordinal; unlike the epoch-scoped sections above,
+  the accumulators span the cell's whole observed life (dead cells are
+  pruned by the projection itself). Empty on hosts not running the
+  re-frame.ui substrate."
+  []
+  (let [rows @(rf/subscribe [:rf.xray/viewcell-evidence])]
+    [:section {:data-testid "rf-xray-reactive-viewcell-evidence-section"
+               :style section-margin-top-style}
+     (section-label "viewcell-evidence" "ViewCell Invalidation Evidence")
+     (if (seq rows)
+       (into [:div {:data-testid "rf-xray-reactive-viewcell-evidence-list"
+                    :style list-card-style}]
+             (for [{:keys [cell-id view-id root-id] :as row} rows]
+               ^{:key (str cell-id)}
+               [list-row {:testid (str "rf-xray-reactive-viewcell-evidence-row-"
+                                       cell-id)
+                          :swatch-token :accent
+                          :primary (str (format-id view-id) " · cell #" cell-id
+                                        (when root-id
+                                          (str " · " (format-id root-id))))
+                          :tag (evidence-tag row)}]))
+       [:div {:data-testid "rf-xray-reactive-viewcell-evidence-empty"
+              :style empty-placeholder-style}
+        "(no ViewCell evidence — the host is not running the re-frame.ui
+         substrate, or no invalidations have flushed yet)"])
+     [:p {:data-testid "rf-xray-reactive-viewcell-evidence-caption"
+          :style destroyed-caption-style}
+      "Cumulative per-cell invalidation evidence from the re-frame.ui
+       scheduler (bounded: capped target sample, honest drop account)"]]))
+
 ;; ---- legend ------------------------------------------------------------
 
 (def ^:private legend-swatch-wrapper-style
@@ -532,7 +590,12 @@
       (if (not (:has-event-bundle? data))
         [:div {:data-testid "rf-xray-reactive-pipeline-empty"
                :style {:padding "16px"}}
-         (empty-state data)]
+         (empty-state data)
+         ;; The evidence section is CUMULATIVE (not epoch-scoped), so it
+         ;; renders with or without a focused event-bundle. Plain
+         ;; function call — the subscribe must run inside THIS render's
+         ;; carried :rf/xray frame scope (the panel's delegation idiom).
+         (viewcell-evidence-section)]
         [:div {:data-testid "rf-xray-reactive-pipeline"
                :style {:padding "16px"}}
          [:section {:data-testid "rf-xray-reactive-flow-section"}
@@ -540,4 +603,5 @@
           (flow-graph data)]
          (unmounted-views-section data)
          (destroyed-subs-section data)
+         (viewcell-evidence-section)
          (legend)])]]))
