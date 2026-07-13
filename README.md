@@ -10,15 +10,15 @@ re-frame2 is the same axe as [before](https://github.com/day8/re-frame), but mad
 
 re-frame2 is an architectural pattern for building single-page apps that target a virtual-DOM substrate — React, in practice.
 
-## What's novel and interesting?
-
-Five things:
+## What's interesting?
 
 ### **1. The spec is the artefact. The code is downstream.**
 
-Historically, here's how every other framework works: somebody writes the implementation, the implementation is the thing, and the documentation heroically tries — usually incompletely — to describe what the implementation does.
+Historically, here's how every other framework works: somebody writes the implementation, the implementation is the thing, and the documentation heroically tries to describe what the implementation does, usually failing to a greater or lesser extent.
 
-re-frame2 inverts that. The pattern is defined by its [specification](spec/). The [ClojureScript reference implementation](implementation/) is a consequence of the spec, not the source of truth. And the spec is complete enough — this is the part I find genuinely strange to type — that a sufficiently capable AI can one-shot a working implementation from it. In ClojureScript, which is what ships here. But also, in principle, in TypeScript, Melange/ReScript, Fable, PureScript, Scala.js, Kotlin/JS, Squint — any language that cross-compiles to JavaScript and reaches React.
+re-frame2 inverts that. The pattern is defined by its [specification](spec/), and the [ClojureScript reference implementation](implementation/) is a consequence of the spec, not the source of truth.
+
+The goal: the spec is complete enough that a sufficiently capable AI can one-shot a working implementation from it. In ClojureScript, which is what ships here. But also, in principle, in TypeScript, Melange/ReScript, Fable, PureScript, Scala.js, Kotlin/JS, Squint — any language that cross-compiles to JavaScript and reaches React.
 
 The implication, which I'd like you to sit with for a moment, is this: if you don't like this specification, change it, and one-shot your own framework. **Roll your own** with whatever fork of the spec pleases you. Value has moved up the chain. Code is trending toward $0 and disposable. The spec is the valuable, durable thing.
 
@@ -26,13 +26,13 @@ Yes, I know how that sounds. Don't shoot the messenger. Let's keep going.
 
 ### **2. Views are derivative, not causal.**
 
-Humans have a cognitive bias: "What is focal is perceived as causal." The React team seems to have a triple dose of this bias.
+Humans have a cognitive bias: "What is focal is perceived as causal" — the thing you are looking at right now is often conferred with undue importance — and the React ecosystem seems to have a double dose of it.
 
-In the beginning, React embraced `v = f(s)` and it was beautiful. And Redux was clunky and incomplete, sure, but it was directionally right. And, unfortunately, it's all been downhill since. Views have been made more and more causal. Components own state via hooks. Components fetch data. Components route. Components subscribe to stores via a useFoo hook that some library or other plumbed in. Effects are colocated with the view tree. What a Turing-complete mess they have become.
+Components have become more and more causal. They own state via hooks. Components fetch data. Components route. Components subscribe to stores via a useFoo hook that some library or other plumbed in. Effects are colocated with the view tree. And, what a Turing-complete mess they have become.
 
-re-frame rejects all that. Views are not causal, they are simple and derivative.
+Of course, it wasn't always this way. Back in 2014, React embraced `v = f(s)` and it was beautiful. And Redux might have been clunky and incomplete, but it was directionally right.
 
-**A re-frame2 frame is, quite literally, a small virtual machine.** Registered handlers are loaded into a `frame`, and those handlers are like the instruction set. Events — coming from user actions, and other sources — are the instructions, and a `frame` processes them as an event stream, every event running the same six-step pipeline, no exceptions, no escape hatches. We call one turn of that pipeline an **epoch**. The stream of events is the program running on the machine you create via your registered handlers.
+re-frame is retro, or maybe it's classic or something. Views are not causal, they are simple and derivative.
 
 > *Your language of choice should be Turing complete; your architecture shouldn't be.*
 >
@@ -42,19 +42,21 @@ re-frame rejects all that. Views are not causal, they are simple and derivative.
 >
 > — Alan Perlis, apparently equally furious
 
+**A re-frame2 frame is, quite literally, a small virtual machine.** Registered handlers are loaded into a `frame`, and those handlers are like the instruction set. Events — coming from user actions, and other sources — are the instructions, and a `frame` processes them as an event stream, every event running the same pipeline, no exceptions, no escape hatches. We call one turn of that pipeline an **epoch**. The stream of events is the program running on the machine you create via your registered handlers.
+
 ### **3. Tooling is first-class.**
 
 re-frame2's predictable computational pipeline has a single, deeply integrated trace bus.
 
 Result: your application is the ultimate surveillance state. With the ClojureScript implementation, you can even get trace form-by-form (think statement-by-statement), but not by default.
 
-Every tool attaches to that trace bus and gets the whole picture for free. Source-coord stamping on every registration and DOM element means click-to-source from any panel — a trace event, an epoch row, a story preview, whatever — lands you on the line in your editor where the handler was registered. Every event leaves an epoch you can scrub forwards and backwards through. Pair-programmer AI tooling can interact with your running system. Same with tests, stories. They all consume the same surface.
+Tools can attach to this trace bus and see deep into a running program. Every event leaves an epoch you can scrub through forwards and backwards. Pair-programmer AI tooling can interact with your running system. Same with tests, stories.
 
 And, yes, you can set policies to elide sensitive things, like auth tokens, as well as too-large binary blobs.
 
 ### **4. Managed external effects.**
 
-Your app talks async with the outside world — HTTP, websockets, postMessage, socket.io, IPC, push notifications, background workers, server-side fetches during SSR. Every framework lets you do this, but treats each as its own integration story: different retry shape, different abort dance, different error taxonomy, different (or no) privacy-redaction story. The integrations don't compose. The bugs don't transfer.
+Your app likely talks async with the outside world A LOT — HTTP, websockets, postMessage, socket.io, IPC, push notifications, background workers, server-side fetches during SSR. Every framework lets you do this, but treats each as its own integration story: different retry shape, different abort dance, different error taxonomy, different (or no) privacy-redaction story. The integrations don't compose. The bugs don't transfer.
 
 re-frame2 has the **managed external effect** — one primitive shape every outbound conforms to. Effects are data, returned from handlers, not invoked as callbacks. The framework owns retry, abort, fan-out, in-flight registry, teardown, observable trace events, `:sensitive?` + `:large?` elision composition, and a structured failure taxonomy under each surface's `:rf.<surface>/*` namespace.
 
@@ -74,31 +76,19 @@ Not interested? Okay, fine, you can still roll your own version of re-frame2 in 
 
 Who cares about novelty? I just want a feature-rich, excellent, productive framework!
 
-Well, beyond the novel parts, re-frame2 is state-of-the-art in various dimensions:
+Well, beyond the novel parts, re-frame2 comes with SOTA batteries in various dimensions:
 
   - **[Xray](https://day8.github.io/re-frame2/xray/)** — the human-facing devtools panel, mounted in-app and preloaded into dev builds. Thirteen tightly-integrated panels — event detail, causality graph, time-travel scrubber, app-DB diff, subscriptions with TanStack-style freshness badges, machine inspector, schema-violation timeline, hydration debugger, an AI co-pilot rail, and more. Claude described it to me as a masterpiece, and who am I to argue.
   - **[re-frame2-pair](skills/re-frame2-pair/)** — a Claude skill that pair-programs against your *running* application via nREPL + MCP. The trace bus gives the AI deep insight; it dispatches events, scrubs epochs, hot-swaps handlers, and reads your DOM tree (every element is tagged with source coordinates). If something breaks, the AI can do a full retrospective on the cascade leading up to the failure, patch the code in place, scrub back, and try the revision for you. There's even a meta-skill that watches your pair sessions and surfaces improvements to the pair tool itself — AI improving AI tooling.
   - **[Story](https://day8.github.io/re-frame2/story/)** — a Storybook-class component playground. Parity with [Storybook 9](https://storybook.js.org/), [Histoire](https://histoire.dev/), and [Ladle](https://ladle.dev/) on the chrome shape, *plus* differentiators those tools can't easily reach: EDN-first variants (round-trip through MCP and visual-regression services), schema-derived controls (Malli walks generate the args editor automatically), per-variant frame isolation (no state leaks between scenarios), machine-state visualisation, a time-travel scrubber linked to the trace stream, and Test Codegen (record canvas interactions as a `:play` body — Storybook 9's killer feature, with Story's EDN-first form making the captured output cleaner).
   - **[Routing](https://day8.github.io/re-frame2/guide/19-routing/)** — URL-driven navigation with frame-aware semantics. Routes are registry entries; navigation is an event; `:route` is a sub. Per-pane routes are possible because frames are a thing. Same handler runs server- and client-side.
   - **[SSR](https://day8.github.io/re-frame2/guide/20-server-side/)** — server-side rendering and hydration that doesn't require a different mental model. Pure hiccup → HTML emitter, JVM-runnable (no React-on-the-server needed). Per-request frame lifecycle. Hydration-mismatch detection with structured error projection. `:rf/hydrate` is an event like any other.
-  - **[State Machines](https://day8.github.io/re-frame2/guide/12-machines/)** — near-parity with [XState](https://stately.ai/) (a wonderful library we've learned much from), and improved by deep integration into the framework rather than living as a sidecar. Machines are event-handlers; their transitions ride the same six-step pipeline every other event does; snapshots are values you can scrub, restore, and observe through the trace bus. Hierarchical states, parallel regions, history states (shallow / deep / default-target), `:after`, `:always`, declarative `:spawn`, spawn-and-join, actor model, `:tags` query layer. History states ride the revertible snapshot — the recording is part of the value, so restore-epoch and SSR hydration get it for free, with no parallel side-table.
+  - **[State Machines](https://day8.github.io/re-frame2/guide/12-machines/)** — near-parity with [XState v6](https://stately.ai/) (a wonderful library we've learned much from), and improved by deep integration into the framework rather than living as a sidecar. Machines are event-handlers; their transitions ride the same event pipeline every other event does; snapshots are values you can scrub, restore, and observe through the trace bus. Hierarchical states, parallel regions, history states (shallow / deep / default-target), `:after`, `:always`, declarative `:spawn`, spawn-and-join, actor model, `:tags` query layer. History states ride the revertible snapshot — the recording is part of the value, so restore-epoch and SSR hydration get it for free, with no parallel side-table.
   - **[Flows](https://day8.github.io/re-frame2/guide/25-from-re-frame-v1/#on-changes-becomes-flows)** — registered, runtime-toggleable derived-computation declarations that recompute only when inputs change. Reactive without the framework gymnastics. The v2 incarnation of v1's `on-changes` interceptor, but registered globally and toggleable as data rather than scattered across event handlers.
   - **[Schemas](https://day8.github.io/re-frame2/guide/08-schemas/)** — Malli-backed boundary validation, opt-in, production-elidable via Closure dead-code elimination. Validate at every documented boundary — event vector, sub return, cofx, app-db slice. Pay for exactly what you turn on; production builds carry zero overhead.
   - **[Security](https://day8.github.io/re-frame2/guide/how-to/keep-secrets-out-of-traces/)** — auth tokens shouldn't be leaked in logs or sent to tools. re-frame2 has first-class mechanisms to help here: you classify data once at its owner, the framework projects it at every trust boundary under a named egress profile, and sinks consume records that are already safe. There is also a spec-level [Security Contract](spec/Security.md).
   - **[Large Things](https://day8.github.io/re-frame2/guide/how-to/keep-secrets-out-of-traces/)** — PDF blobs and other large things shouldn't accidentally get logged to Datadog. The same owner-declared classification keeps them off the observability wire too.
   - **MCP servers** — two Model Context Protocol servers ([re-frame2-pair-mcp](tools/re-frame2-pair-mcp/) and [story-mcp](tools/story-mcp/)) that expose the running app and the story playground to AI clients. Shared `:rf.mcp/*` wire vocabulary; cross-server vocabulary conformance is gated in CI.
-
-## The Reference Implementation
-
-The repo ships a working **ClojureScript reference implementation, with tooling** that validates the spec end-to-end.
-
-This implementation includes all of the above, plus:
-  - **view substrate adaptors** for three popular CLJS-flavoured libraries and one new one:
-    - **Reagent** — canonical.
-    - **UIx** — modern hooks-based React layer.
-    - **Helix** — minimal React wrapper.
-    - **Reagent-slim** — a re-frame2-optimised Reagent rewrite with a reduced API surface. React 19 native.
-  - **[Migration tooling](migration/from-re-frame-v1/README.md)** — re-frame v1.x → re-frame2 shipped via the `re-frame-migration` Claude skill.
 
 ## Status
 
@@ -113,37 +103,15 @@ You should absolutely not use it yet — there could be dragons and there is sti
 
 re-frame2 is AI-first, and that decision permeates every other decision in the project.
 
-If the artisanal craftsman in you finds this offensive — and look, the artisanal craftsman in me finds it offensive, I have spent forty years agonising over the human ergonomics of code and UIs and I do not part with that disposition lightly — I get it. But the world has changed, and AI ergonomics is now as important as human ergonomics. The good news, which I think is genuinely good news, is that AI ergonomics and good architecture tend to converge. They both reward predictability, explicit data flow, observable runtimes, and small computational models. The things that make a codebase pleasant for an AI to reason about are, very largely, the things that made it pleasant for humans to reason about in the first place. We were just bad at insisting on them.
+If the artisanal craftsman in you finds this offensive — and look, the artisanal craftsman in me finds it offensive, I have spent forty years agonising over the human ergonomics of code and UIs and I do not part with those skills lightly — I get it. But the world has changed, and AI ergonomics is now as important as human ergonomics. The good news, which I think is genuinely good news, is that AI ergonomics and good architecture tend to converge. They both reward predictability, explicit data flow, observable runtimes, and small computational models. The things that make a codebase pleasant for an AI to reason about are, very largely, the things that made it pleasant for humans to reason about in the first place. We were just bad at insisting on them.
 
-Here's how AI-first shows up in practice:
+Here are examples of how AI-first shows up in practice:
 
 1. **The pattern is one-shot-able.** The spec in this repo is complete enough that an AI can one-shot the implementation. The corollary is that the spec is the durable artefact; the implementation is downstream and replaceable. Don't like the spec? Fork it, change it, generate your own framework. That's a real workflow now, and I think it's going to be more important than people realise.
 
 2. Apps built on re-frame2 are **AI-pair-programmable at runtime**. The runtime exposes deep trace and integration surfaces specifically so an AI can interact with the dynamics of your running app, not just stare at static source. The thing your AI pair is looking at is the actual state, the actual event stream, the actual subscription graph — not a static file from yesterday. The successor to v1's nREPL-attached `re-frame-pair` ships in this repo as the `re-frame2-pair` Claude skill, with an MCP companion (`re-frame2-pair-mcp`) on the runtime side.
 
 3. **Migration is AI-driven**. re-frame2 contains breaking changes from v1. I am not happy about this. To soften the blow, the repo ships a complete migration prompt for an AI — currently 40+ rules, mechanical where the rewrite can be mechanical, flagged-for-human-review in the rare cases where the rewrite depends on intent. And to the Clojurists reading: I apologise for the breakage. It hurts my soul too. Please, please don't tell Mr Hickey.
-
-## Reading paths
-
-The repo has two audiences and they each get their own docs.
-
-### For humans
-
-It is worth acknowledging that this repo is not really for humans. AIs get priority. But look, you aren't completely useless yet, so we made some effort. Kidding.
-
-[The guide](docs/core/) is written for human consumption. It builds the argument in narrative form, walks a counter end-to-end, and gives you a feel for the pattern before you go anywhere near the contract.
-
-After that, consider browsing:
-  - [The Pattern's Principles](spec/Principles.md) — which is part of the pattern's specification
-  - Pattern docs such as:
-    - [How to do Async](spec/Pattern-AsyncEffect.md)
-    - [How to do WebSockets](spec/Pattern-WebSocket.md)
-  - [The examples](examples/README.md).
-  - Maybe then glance at the rest of [the Pattern Specification](spec/README.md). But remember it's dry and AI-oriented, not human-oriented.
-
-### For AIs
-
-Because re-frame2 is AI-oriented, **the main body of the repo's documentation is the [specification](spec/)**.
 
 ## Project layout
 
