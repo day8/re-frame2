@@ -78,13 +78,13 @@ frame out of the tree:
 `(ui/dispatch-fn)` is one stable function per view instance, bound to the committed frame.
 It fails loudly if called after the view disconnects — which turns a leaked foreign
 listener into an error you see, instead of a dispatch into the void. The fuller ops map is
-`(ui/frame)` (`:frame`, `:dispatch`, `:dispatch-sync`, `:subscribe` — the standard
+`(frame)` (`:frame`, `:dispatch`, `:dispatch-sync`, `:subscribe` — the standard
 `capture-frame` bundle) when you need more than dispatch — say, a bridge that must
 *name* its frame in the payload it sends out of the tree:
 
 ```clojure
 (ui/defview error-reporter []
-  (let [{:keys [frame dispatch]} (ui/frame)]
+  (let [{:keys [frame dispatch]} (frame)]
     (effect :connect
       (let [handler #(dispatch [:errors/reported frame (.-message %)])]
         (js/window.addEventListener "error" handler)
