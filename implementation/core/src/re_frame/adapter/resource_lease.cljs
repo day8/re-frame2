@@ -61,6 +61,7 @@
     settles to exactly one held lease, matching the committed instance."
   (:require ["react" :as React]
             [re-frame.frame  :as frame]
+            [re-frame.resource-lease-owner :as lease-owner]
             [re-frame.router :as router]))
 
 ;; ============================================================================
@@ -80,23 +81,16 @@
 ;; family's still-live resource. A single source of owner identity removes the
 ;; collision by construction.
 
-(defonce ^:private lease-owner-counter
-  ;; Monotone per-runtime counter minting a globally-unique lease token — the
-  ;; SOLE lease-owner counter in the framework (mirrors the spine's
-  ;; `unmount-instance-counter`). Two components leasing the same resource+scope
-  ;; hold INDEPENDENT leases (releasing one never drops the other), AND two
-  ;; components from DIFFERENT adapter families can never collide on one owner.
-  (atom 0))
-
 (defn mint-lease-owner!
   "Mint a fresh, process-unique resource-lease OWNER in the framework-canonical
   `[:lease <n>]` shape (Spec 016 §Active owners). THE single owner mint for
   every adapter family (rf2-qdkt8y): two owners minted anywhere in one process
   are always distinct, so a mixed-adapter process can never collide two
   families' leases on one owner. Framework-internal — not part of the public
-  adapter surface."
+  adapter surface. Kept as the legacy helper's internal seam; the neutral mint
+  is owned by `re-frame.resource-lease-owner`."
   []
-  [:lease (swap! lease-owner-counter inc)])
+  (lease-owner/mint!))
 
 ;; ============================================================================
 ;; Shared ensure / release dispatch (one implementation, all families)
