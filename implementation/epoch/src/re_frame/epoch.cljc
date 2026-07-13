@@ -555,6 +555,11 @@
    ;; capture seam. Back-fills it into the causing (most-recently-settled)
    ;; epoch's `:trace-events`, where Xray's VIEWS step surfaces it.
    :epoch/record-unmount!     listeners/record-unmount!
+   ;; rf2-vxgfnd.151: `destroy-frame!` fires this BEFORE dissoc to bind the
+   ;; dying incarnation's terminal halted-destroy evidence to a bundle while it
+   ;; still solely owns its id-keyed epoch stores; the bundle is threaded to the
+   ;; post-dissoc `:epoch/on-frame-destroyed` hook.
+   :epoch/snapshot-frame-destroyed listeners/snapshot-terminal-destroy-evidence!
    :epoch/on-frame-destroyed  listeners/on-frame-destroyed!
 
    ;; ---- introspection + Tool-Pair write surface --------------------
