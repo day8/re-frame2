@@ -63,4 +63,30 @@ for (const forbidden of [
   }
 }
 
+/*
+ * rf2-vxgfnd.75 — the tool-tier invalidation-evidence projection.
+ *
+ * The elision companion test requires re-frame.ui.tool.evidence into this
+ * exact bundle, so these are positive proofs of erasure (the namespace is
+ * present; its debug-gated projection is not), not absence-by-omission.
+ * Source positive controls first: the sentinels still name the debug-only
+ * accumulation (`:dropped-exact?` — the rf2-vxgfnd.74 honest-loss keyword,
+ * minted only inside debug-gated folds in reactive.cljc + the projection)
+ * and the projection's rejected-install diagnostic string.
+ */
+const TOOL_SOURCE = path.join(ROOT, 'ui', 'src', 're_frame', 'ui', 'tool',
+                              'evidence.cljc');
+const toolSource = fs.readFileSync(TOOL_SOURCE, 'utf8');
+for (const expected of ['dropped-exact', 'invalidation-evidence projection']) {
+  if (!toolSource.includes(expected)) {
+    fail(`tool-evidence source positive-control sentinel is absent: ${expected}`);
+  }
+}
+
+for (const forbidden of ['dropped-exact', 'invalidation-evidence projection']) {
+  if (bundle.includes(forbidden)) {
+    fail(`invalidation-evidence projection survived advanced output: ${forbidden}`);
+  }
+}
+
 process.stdout.write('ui mounted production elision: PASS\n');
