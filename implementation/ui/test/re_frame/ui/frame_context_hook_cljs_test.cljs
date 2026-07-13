@@ -42,7 +42,8 @@
 ;; frame/require-current-frame! → the :adapter/current-frame hook), recorded
 ;; into a live cell's capture. NOT a direct sub-read.
 (defn- render-cell! [cell queries]
-  (reactive/with-capture cell (fn [] (mapv reactive/sub-read queries))))
+  (first (reactive/with-capture
+          cell (fn [] (mapv reactive/sub-read queries)))))
 
 (deftest reader-is-published-under-plain-atom
   (is (some? (late-bind/get-fn :adapter/current-frame))

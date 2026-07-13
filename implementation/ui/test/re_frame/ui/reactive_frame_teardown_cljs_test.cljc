@@ -45,9 +45,10 @@
   (:ref-count (get @(:sub-cache (frame/frame fid)) q)))
 
 (defn- render+commit! [cell fid queries]
-  (rf/with-frame fid
-    (reactive/with-capture cell (fn [] (mapv reactive/sub-read queries))))
-  (reactive/commit! cell)
+  (let [[_ capture] (rf/with-frame fid
+                      (reactive/with-capture
+                       cell (fn [] (mapv reactive/sub-read queries))))]
+    (reactive/commit! cell capture))
   cell)
 
 (defn- throws-id [thunk]
@@ -179,9 +180,10 @@
               being caught in that throw"
       (is (= :dead (reactive/lifecycle cell))))
     (testing "a :dead cell still fails loudly on re-commit — no resume (03 §4)"
-      (rf/with-frame fid
-        (reactive/with-capture cell (fn [] nil)))
-      (is (= :rf.error/frame-destroyed (throws-id #(reactive/commit! cell)))))))
+      (let [[_ capture] (rf/with-frame fid
+                          (reactive/with-capture cell (fn [] nil)))]
+        (is (= :rf.error/frame-destroyed
+               (throws-id #(reactive/commit! cell capture))))))))
 
 ;; ===========================================================================
 ;; The sweep is frame-scoped — a sibling frame's cells are untouched
@@ -204,6 +206,6 @@
           "the sibling frame's lease is neither released nor churned")
       (is (reactive/cell-observes-frame? cell-b fb)))
     (testing "the sibling frame still reads live"
-      (is (= 2 (rf/with-frame fb
-                 (reactive/with-capture cell-b
-                   (fn [] (reactive/sub-read [:td/a])))))))))
+      (is (= 2 (first (rf/with-frame fb
+                        (reactive/with-capture cell-b
+                          (fn [] (reactive/sub-read [:td/a]))))))))))

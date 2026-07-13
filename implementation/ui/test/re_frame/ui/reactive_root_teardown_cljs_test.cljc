@@ -48,9 +48,10 @@
   (:ref-count (get @(:sub-cache (frame/frame fid)) q)))
 
 (defn- render+commit! [cell fid queries]
-  (rf/with-frame fid
-    (reactive/with-capture cell (fn [] (mapv reactive/sub-read queries))))
-  (reactive/commit! cell)
+  (let [[_ capture] (rf/with-frame fid
+                      (reactive/with-capture
+                       cell (fn [] (mapv reactive/sub-read queries))))]
+    (reactive/commit! cell capture))
   cell)
 
 (defn- mount!
@@ -107,9 +108,11 @@
     (is (= :dead (reactive/lifecycle cell)))
     (testing "a retained handle recommit fails through the dead-cell lifecycle,
               not by probing a torn-down context (03 §4; commit! step 2)"
-      (rf/with-frame fid
-        (reactive/with-capture cell (fn [] (reactive/sub-read [:rt/a]))))
-      (is (= :rf.error/frame-destroyed (throws-id #(reactive/commit! cell)))))))
+      (let [[_ capture] (rf/with-frame fid
+                          (reactive/with-capture
+                           cell (fn [] (reactive/sub-read [:rt/a]))))]
+        (is (= :rf.error/frame-destroyed
+               (throws-id #(reactive/commit! cell capture))))))))
 
 ;; ===========================================================================
 ;; The Activity-hide transient path is untouched — a hide never goes :dead
@@ -171,10 +174,12 @@
       (is (= 0 (reactive/root-cell-count inc)) "no membership lingers for the incarnation")
       (is (= 0 (reactive/root-cell-count)) "no historical incarnation retained"))
     (testing "the reaped cell fails a recommit through the dead-cell lifecycle"
-      (rf/with-frame fid
-        (reactive/with-capture cell (fn [] (reactive/sub-read [:rt/a]))))
-      (is (= :rf.error/frame-destroyed (throws-id #(reactive/commit! cell)))
-          "a retained handle cannot reconnect after its root is gone"))))
+      (let [[_ capture] (rf/with-frame fid
+                          (reactive/with-capture
+                           cell (fn [] (reactive/sub-read [:rt/a]))))]
+        (is (= :rf.error/frame-destroyed
+               (throws-id #(reactive/commit! cell capture)))
+            "a retained handle cannot reconnect after its root is gone")))))
 
 (deftest a-hide-without-root-teardown-stays-reconnectable
   ;; The discriminator: an Activity hide with NO root teardown must stay
@@ -281,9 +286,9 @@
       (is (= 1 (ref-count fid [:rt/a]))
           "the sibling's lease is neither released nor churned"))
     (testing "the sibling cell still reads live"
-      (is (= 1 (rf/with-frame fid
-                 (reactive/with-capture cell-b
-                   (fn [] (reactive/sub-read [:rt/a])))))))))
+      (is (= 1 (first (rf/with-frame fid
+                        (reactive/with-capture cell-b
+                          (fn [] (reactive/sub-read [:rt/a]))))))))))
 
 ;; ===========================================================================
 ;; A throwing host `.unmount` — generation evidence governs the fail-closed reap

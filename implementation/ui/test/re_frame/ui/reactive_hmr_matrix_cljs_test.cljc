@@ -68,12 +68,11 @@
 
 (defn- render! [cell queries]
   (rf/with-frame fid
-    (reactive/with-capture cell (fn [] (mapv reactive/sub-read queries))))
-  cell)
+    (reactive/with-capture cell (fn [] (mapv reactive/sub-read queries)))))
 
 (defn- render+commit! [cell queries]
-  (render! cell queries)
-  (reactive/commit! cell)
+  (let [[_ capture] (render! cell queries)]
+    (reactive/commit! cell capture))
   cell)
 
 ;; ===========================================================================
@@ -145,7 +144,7 @@
           "the remounted shell is a FRESH cell — no committed deps (fresh state)"))))
 
 ;; ===========================================================================
-;; Cell 2 — stale-cell rejection at commit (step 1): the same-shell reload
+;; Cell 2 — stale-capture rejection at commit (step 1): generation remount seam
 ;; ===========================================================================
 
 (deftest stale-generation-capture-rejected-at-commit-step-1
@@ -154,21 +153,20 @@
   (let [cell (render+commit! (reactive/make-cell ::v 0) [[:r/a]])
         lease0 (reactive/committed-lease cell (tk [:r/a]))]
     (is (= 1 (ref-count [:r/a])) "precondition: committed at generation 0")
-    (testing "a reload BUMPS the live cell's body generation; its in-flight
+    (testing "a changed-signature remount BUMPS the cell generation; its in-flight
               capture (rendered under the prior body) is now stale"
-      (render! cell [[:r/a]])                       ; capture at generation 0
-      (reactive/advance-generation! cell 1)         ; the same-shell reload bump
-      (is (= 1 (reactive/generation cell)))
-      (is (= :stale (reactive/commit! cell))
-          "commit step 1 REJECTS the stale-generation capture (the host re-renders)"))
+      (let [[_ capture] (render! cell [[:r/a]])]    ; capture at generation 0
+        (reactive/advance-generation! cell 1)       ; changed-signature remount
+        (is (= 1 (reactive/generation cell)))
+        (is (= :stale (reactive/commit! cell capture))
+            "commit step 1 REJECTS the stale-generation capture (the host re-renders)")))
     (testing "no ownership was touched — the prior committed set stays installed"
       (is (identical? lease0 (reactive/committed-lease cell (tk [:r/a]))))
       (is (= 1 (ref-count [:r/a])) "no acquire, no release on a stale rejection"))
-    (testing "the re-render under the new body commits normally — state preserved"
+    (testing "a fresh render under the new generation commits normally"
       (render+commit! cell [[:r/a]])
       (is (identical? lease0 (reactive/committed-lease cell (tk [:r/a])))
-          "the same lease is retained across the reload — the committed dep set
-           is carried forward (a same-signature preserve)"))))
+          "the same live target retains its lease across the explicit generation seam"))))
 
 (deftest advance-generation-is-monotone
   (let [cell (reactive/make-cell ::v 2)]
@@ -176,6 +174,24 @@
     (is (= 2 (reactive/generation cell)) "a lower generation never regresses a cell")
     (reactive/advance-generation! cell 5)
     (is (= 5 (reactive/generation cell)))))
+
+(deftest same-generation-selected-capture-survives-later-abandoned-capture
+  (rf/reg-sub :r/a (fn [db _] (:a db)))
+  (rf/reg-sub :r/b (fn [db _] (:b db)))
+  (seed! {:a 1 :b 2})
+  (let [cell (render+commit! (reactive/make-cell ::v 0) [[:r/a]])
+        lease-a (reactive/committed-lease cell (tk [:r/a]))
+        [_ cap-a] (render! cell [[:r/a]])
+        [_ cap-b] (render! cell [[:r/b]])]
+    (is (= 0 (:generation cap-a) (:generation cap-b))
+        "same-signature/same-generation work needs no generation fence")
+    ;; Model React selecting A while the later B Fiber is abandoned. The exact
+    ;; effect closure commits A; B cannot redirect the same-generation commit.
+    (reactive/commit! cell cap-a)
+    (is (= #{(tk [:r/a])} (reactive/committed-target-keys cell)))
+    (is (identical? lease-a (reactive/committed-lease cell (tk [:r/a])))
+        "same-signature A preserves the exact live lease")
+    (is (nil? (entry [:r/b])) "abandoned B owns and materialises nothing")))
 
 ;; ===========================================================================
 ;; Cell 3 — site identity survives edits (target identity, not position)
