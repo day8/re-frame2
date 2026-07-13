@@ -293,11 +293,25 @@
 
 (defonce ^:private node-key-counter (atom 0))
 
+(defn- node-value=
+  "The observation-node spelling of the UI substrate's ruled `rf=` equality,
+  kept core-local so core does not depend on the UI artefact: identity or `=`,
+  plus numeric equality on the JVM and NaN self-equality on both hosts."
+  [a b]
+  (or (identical? a b)
+      (= a b)
+      (and (number? a)
+           (number? b)
+           #?(:clj  (or (== (double a) (double b))
+                         (and (Double/isNaN (double a))
+                              (Double/isNaN (double b))))
+              :cljs (and (js/isNaN a) (js/isNaN b))))))
+
 (defn- advance-node-record!
   "Record that value `v` was OBSERVED on `reaction`: mint the node record on
   first observation (a fresh process-unique `:node-key`), advance `:version`
-  when `v` differs from the last observed value by `rf=` (`=` on the CLJS
-  reference), else leave the record untouched. Returns the (post) record.
+  when `v` differs from the last observed value by the core-local `rf=`
+  spelling, else leave the record untouched. Returns the (post) record.
   Constant work — one compare + one small map write on movement."
   [reaction v]
   #?(:clj
@@ -307,7 +321,7 @@
                     (nil? rec)
                     {:node-key (swap! node-key-counter inc) :version 0 :value v}
 
-                    (not= (:value rec) v)
+                    (not (node-value= (:value rec) v))
                     (assoc rec :version (inc (:version rec)) :value v)
 
                     :else rec)]
@@ -320,7 +334,7 @@
                   (nil? rec)
                   {:node-key (swap! node-key-counter inc) :version 0 :value v}
 
-                  (not= (:value rec) v)
+                  (not (node-value= (:value rec) v))
                   (assoc rec :version (inc (:version rec)) :value v)
 
                   :else rec)]
@@ -1046,15 +1060,18 @@
   order that eviction before this read — so once a reaction has been disposed it
   is no longer the entry's `:reaction`. This is the authority `acquire!`'s
   first-owner handshake (rf2-vxgfnd.32) and the `current?` kept-check both read."
-  [{:keys [frame-id query-v] :as state}]
-  (boolean
-    ;; Derive the strong reaction (held WEAKLY in the state on the JVM —
-    ;; rf2-vxgfnd.37). A collected reaction is nil and can never be the live
-    ;; canonical node, so the `when-let` short-circuits — never falling into the
-    ;; `(identical? nil (:reaction absent-entry))` ≡ `(identical? nil nil)` trap.
-    (when-let [rx (lease-reaction state)]
-      (when-let [cache (:sub-cache (frame/frame frame-id))]
-        (identical? rx (:reaction (get @cache query-v)))))))
+  ([state]
+   ;; Derive the strong reaction (held WEAKLY in the state on the JVM —
+   ;; rf2-vxgfnd.37). A collected reaction is nil and can never be the live
+   ;; canonical node, so the `when-let` short-circuits — never falling into the
+   ;; `(identical? nil (:reaction absent-entry))` ≡ `(identical? nil nil)` trap.
+   (boolean
+     (when-let [rx (lease-reaction state)]
+       (node-still-canonical? state rx))))
+  ([{:keys [frame-id query-v]} rx]
+   (boolean
+     (when-let [cache (:sub-cache (frame/frame frame-id))]
+       (identical? rx (:reaction (get @cache query-v)))))))
 
 ;; ---- acquire! -------------------------------------------------------------------
 
@@ -1432,24 +1449,26 @@
               reason
               {:extra {:frame          (:frame-id st)
                        :rf.sub/query-v (:query-v st)}})))
-        (if (node-still-canonical? st)
-          ;; Canonical ⟹ the cache holds this reaction strongly, so the weakly
-          ;; held `lease-reaction` resolves (rf2-vxgfnd.37).
-          (let [[rec v] (observe-node! (lease-reaction st))]
-            (swap! (lease-state lease) assoc
-                   :last {:value v :version (:version rec)
-                          :node-key (:node-key rec)})
-            {:value          v
-             :version        (:version rec)
-             :node-key       (:node-key rec)
-             :frame-epoch    (frame/frame-commit-epoch (:frame-id st))
-             :registry-epoch @registry-epoch*})
-          (let [{:keys [value version node-key]} (:last st)]
-            {:value          value
-             :version        version
-             :node-key       node-key
-             :frame-epoch    (frame/frame-commit-epoch (:frame-id st))
-             :registry-epoch @registry-epoch*}))))))
+        ;; Resolve the JVM WeakReference ONCE and hold the result strongly across
+        ;; the canonicality check + deref. A GC between two lookups could clear
+        ;; the second lookup even after the first proved the node canonical.
+        (let [rx (lease-reaction st)]
+          (if (and (some? rx) (node-still-canonical? st rx))
+            (let [[rec v] (observe-node! rx)]
+              (swap! (lease-state lease) assoc
+                     :last {:value v :version (:version rec)
+                            :node-key (:node-key rec)})
+              {:value          v
+               :version        (:version rec)
+               :node-key       (:node-key rec)
+               :frame-epoch    (frame/frame-commit-epoch (:frame-id st))
+               :registry-epoch @registry-epoch*})
+            (let [{:keys [value version node-key]} (:last st)]
+              {:value          value
+               :version        version
+               :node-key       node-key
+               :frame-epoch    (frame/frame-commit-epoch (:frame-id st))
+               :registry-epoch @registry-epoch*})))))))
 
 ;; ---- release! -------------------------------------------------------------------
 

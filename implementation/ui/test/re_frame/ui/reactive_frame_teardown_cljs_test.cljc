@@ -96,6 +96,47 @@
           "the destroyed frame's cell followed the dead-cell lifecycle (03 §4)
            — NOT left live to throw :rf.error/frame-destroyed on next read"))))
 
+(deftest frame-destroy-reaps-an-activity-hidden-cell
+  (rf/reg-sub :td/a (fn [db _] (:a db)))
+  (let [fid  (make-frame! :td/hidden-frame {:a 1})
+        root (reactive/make-root-incarnation)
+        cell (reactive/attach-root! (reactive/make-cell ::hidden) root)]
+    (render+commit! cell fid [[:td/a]])
+    (reactive/disconnect! cell)
+    (testing "precondition — Activity cleanup released live deps but retained ownership"
+      (is (= :disconnected (reactive/lifecycle cell)))
+      (is (false? (reactive/cell-observes-frame? cell fid)))
+      (is (= 1 (reactive/root-cell-count root))))
+    (testing "destroying its last published frame follows the clean dead lifecycle"
+      (frame/destroy-frame! fid)
+      (is (= :dead (reactive/lifecycle cell))
+          "a later Activity reveal cannot read through a destroyed frame")
+      (is (= {:state :disconnected :reason :unmounted :proof :host-teardown}
+             (peek (reactive/intervals cell))))
+      (is (= 0 (reactive/root-cell-count root))
+          "final teardown drops the retained root membership"))))
+
+(deftest frame-destroy-leaves-another-frames-activity-hidden-cell-reconnectable
+  (rf/reg-sub :td/a (fn [db _] (:a db)))
+  (let [destroyed-fid (make-frame! :td/destroyed-hidden-frame {:a 1})
+        sibling-fid   (make-frame! :td/sibling-hidden-frame {:a 2})
+        destroyed     (reactive/attach-root! (reactive/make-cell ::destroyed)
+                                             (reactive/make-root-incarnation))
+        sibling       (reactive/attach-root! (reactive/make-cell ::sibling)
+                                             (reactive/make-root-incarnation))]
+    (render+commit! destroyed destroyed-fid [[:td/a]])
+    (render+commit! sibling sibling-fid [[:td/a]])
+    (reactive/disconnect! destroyed)
+    (reactive/disconnect! sibling)
+    (frame/destroy-frame! destroyed-fid)
+    (is (= :dead (reactive/lifecycle destroyed)))
+    (is (= :disconnected (reactive/lifecycle sibling))
+        "retained target keys scope the hidden-cell sweep to the destroyed frame")
+    (reactive/settle-disconnect! sibling)
+    (render+commit! sibling sibling-fid [[:td/a]])
+    (is (= :connected (reactive/lifecycle sibling))
+        "the other frame's hidden cell remains revealable")))
+
 (deftest frame-destroy-emits-the-unmount-fact
   (rf/reg-sub :td/a (fn [db _] (:a db)))
   (let [fid  (make-frame! :td/frame {:a 1})

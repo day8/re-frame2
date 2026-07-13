@@ -358,7 +358,9 @@
   ;;                             ;   in production (no StrictMode double-invoke)
   ;;    :committed {tk -> lease} ; installed dependency set
   ;;    :values    {tk -> value} ; last published site values (stabilization
-  ;;                             ;   + the revision snapshot's evidence)
+  ;;                             ;   + revision evidence); retained across a
+  ;;                             ;   disconnect, so frame teardown can identify
+  ;;                             ;   an Activity-hidden cell's last frames
   ;;    :revision  int           ; get-snapshot returns this (useSyncExternalStore)
   ;;    :dirty?    bool          ; pending-notification flag (drain coalescing)
   ;;    :evidence  ev|nil        ; DEBUG-only bounded causal evidence for the
@@ -595,17 +597,17 @@
 (defonce ^:private flush-scheduled? (atom false))
 
 (defonce ^:private live-cells
-  ;; The set of currently-CONNECTED ViewCells — the input to a frame-destroy
-  ;; sweep (`teardown-frame!`). A cell enrols on `connect!` (its first commit,
+  ;; The set of currently-CONNECTED ViewCells — the connected input to a
+  ;; frame-destroy sweep (`teardown-frame!`). A cell enrols on `connect!`,
   ;; when it starts observing a frame) and leaves on `disconnect!` (React
   ;; unmount / Activity hide, when it releases its committed dependency set) or
   ;; `teardown!` (it goes :dead). Membership therefore tracks EXACTLY the cells
   ;; carrying a live committed dependency set, so a destroyed frame can find the
-  ;; cells observing it and transition them to :dead (03 §4) rather than leave
-  ;; them live to throw `:rf.error/frame-destroyed` on their next read. Because
-  ;; a disconnected cell leaves the set, an unmounted cell never lingers here
-  ;; (no retention leak). `defonce` (module-lived); tests clear it via
-  ;; `reset-scheduler!`.
+  ;; connected cells observing it and transition them to :dead (03 §4) rather
+  ;; than leave them live to throw `:rf.error/frame-destroyed` on their next
+  ;; read. Because a disconnected cell leaves the set, an unmounted cell never
+  ;; lingers here (no retention leak). `defonce` (module-lived); tests clear it
+  ;; via `reset-scheduler!`.
   (atom #{}))
 
 (defonce ^:private root-cells
@@ -626,7 +628,8 @@
   ;; identity (`make-root-incarnation`), NOT the reusable root-id, so a stale
   ;; teardown can never reap the cells of a replacement root mounted under the same
   ;; root-id. `defonce` (module-lived); `reset-scheduler!` clears it between
-  ;; fixtures.
+  ;; fixtures. Frame teardown also consults its still-disconnected members,
+  ;; whose retained `:values` keys name their last published frames.
   (atom {}))
 
 (defonce ^:private teardown-collector
@@ -1002,6 +1005,17 @@
   [^ViewCell cell frame-id]
   (contains? (cell-frames cell) frame-id))
 
+(defn- cell-retained-frame?
+  "True when `cell`'s last published site values name `frame-id`. Unlike the
+  live committed set, `:values` survives an Activity disconnect for value
+  stabilization, so this is the bounded history a frame-destroy sweep uses for
+  still-disconnected, root-owned cells."
+  [^ViewCell cell frame-id]
+  (boolean
+    (some (fn [tk]
+            (and (= :sub (nth tk 0)) (= frame-id (nth tk 1))))
+          (keys (:values @(state cell))))))
+
 (defn flush-frame!
   "The FRAME arity of `flush!` — flush every pending cell observing frame
   `frame-id` (every root that observes that frame). Cells scoped to other
@@ -1349,8 +1363,9 @@
     cell))
 
 (defn teardown-frame!
-  "Frame-destroy sweep: transition every currently-connected ViewCell
-  observing frame `frame-id` to `:dead` (03 §4 dead-cell lifecycle). Each
+  "Frame-destroy sweep: transition every currently-connected ViewCell observing
+  frame `frame-id`, plus every still-disconnected root-owned ViewCell whose last
+  published site values name it, to `:dead` (03 §4 dead-cell lifecycle). Each
   matched cell's leases are detached, its pending notification dropped, and
   its retained interval proven an unmount (`:unmounted {:proof
   :host-teardown}`) — so a subsequent read/probe on such a cell follows the
@@ -1359,12 +1374,20 @@
   `:ui/on-frame-destroyed!` late-bind hook wired in `re-frame.ui.frames`;
   the sweep runs while the frame is still live, so each cell releases its
   leases against the live sub-cache (symmetric with `disconnect!`). The
-  membership test rides the cell's committed dependency set
-  (`cell-observes-frame?`); a disconnected cell holds none and is therefore
-  never a target. Iterates a snapshot, so the per-cell `teardown!` de-enrol
-  is safe. Returns the count torn down."
+  connected membership test rides the committed dependency set
+  (`cell-observes-frame?`). An Activity-hidden cell holds no committed deps, so
+  its bounded root ownership plus retained `:values` target keys supply the
+  corresponding discoverability without another global registry. Iterates
+  snapshots, so the per-cell `teardown!` de-enrol is safe. Returns the count
+  torn down."
   [frame-id]
-  (let [victims (filterv #(cell-observes-frame? % frame-id) @live-cells)]
+  (let [connected (filter #(cell-observes-frame? % frame-id) @live-cells)
+        hidden    (into #{}
+                        (comp (mapcat val)
+                              (filter #(= :disconnected (lifecycle %)))
+                              (filter #(cell-retained-frame? % frame-id)))
+                        @root-cells)
+        victims   (into hidden connected)]
     (doseq [cell victims]
       (teardown! cell))
     (count victims)))
