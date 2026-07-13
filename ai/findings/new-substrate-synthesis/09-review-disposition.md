@@ -112,10 +112,12 @@ named artifact or an explicitly-filed S1/S2 contract item.
   refs explicit `ui/raw-fn`; guide 03 corrected).
 - ~~Presence syntax~~ — **resolved by ratification** (wrapper; `:timeout-ms`;
   phase-outside-boundary `:present`).
-- The `ui.test/find`/`query` selector language still needs its one page before Stage 1
-  (fable2 F2-5 added `query` to the contract; the selector grammar itself is unspecified).
-- G-10's relative bundle baselines need the reproducible shared-chunk methodology
-  written down before they can gate.
+- ~~The `ui.test/find`/`query` selector language still needs its one page before Stage 1~~
+  — **resolved**: the selector grammar is now specified in `spec/004D-UI-Test-Selectors.md`
+  (with `query` carried in the contract per fable2 F2-5).
+- ~~G-10's relative bundle baselines need the reproducible shared-chunk methodology
+  written down before they can gate~~ — **resolved**: the reproducible shared-chunk
+  methodology is written down in `drafts/g10-bundle-baseline-methodology.md`.
 - ~~Controlled-input trigger predicate and probe-memo lifetime~~ — **confirmed by
   S-5/S-3** (2026-07-11): the predicate is sufficient as specified; the probe-memo
   lifetime is slice-scoped. No longer provisional. The remaining gates are the real
