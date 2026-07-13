@@ -577,12 +577,22 @@
   this fn is a hard no-op for every schema in the frame.
 
   Arities:
-    (validate-app-schema! db)                       ;; current frame
-    (validate-app-schema! db event-id)              ;; current frame, named handler
-    (validate-app-schema! db event-id frame-id)     ;; explicit frame
+    (validate-app-schema! db)                            ;; current frame
+    (validate-app-schema! db event-id)                   ;; current frame, named handler
+    (validate-app-schema! db event-id frame-id)          ;; explicit frame
+    (validate-app-schema! db event-id frame-id continue?) ;; explicit owner fence
 
   event-id (optional) names the handler whose commit prompted the
   failure — surfaced as :failing-id in the error tags.
+
+  continue? (the 4-arity, and the shape the router's late-bind call uses —
+  it invokes the hook as `(validate db-after event-id frame continue?)`) is
+  the exact-owner continuation predicate: between entries and around every
+  authored validator callback it is consulted, and once it reports false the
+  walk stops and returns :rf/stale-incarnation — the dequeued event lost its
+  exact frame incarnation, so its validation verdict is inert. The 3-arity
+  derives it from the current event-owner token (or `(constantly true)`
+  outside any owned event).
 
   Returns:
     true   — every registered schema conformed (or no validator /
