@@ -448,10 +448,13 @@
 
 (defn emit-defview
   [{:keys [vname view-id display-name docstring header slots ast manifest
-           closed-keys children?]}]
+           closed-keys children? lease-declarations]}]
   (let [st         (new-state vname)
         body       (->> (emit-node ast st false)
                         (hoist-literal-sub-queries st))
+        leases     (mapv #(update % :descriptor
+                                  (partial hoist-literal-sub-queries st))
+                          lease-declarations)
         binds      (vec (header-bindings header))
         render-sym (symbol (str (name vname) "$render"))
         host-render-sym (symbol (str (name vname) "$host_render"))
@@ -461,7 +464,22 @@
         ;; view uses the host wrapper below; a sub-free view goes straight from
         ;; React.memo to the raw body with zero ViewCell hooks.
         has-subs?  (boolean (seq (:subs (:sites manifest))))
-        inner      (if (seq binds) `(let [~@binds] ~body) body)
+        has-leases? (boolean (seq leases))
+        lease-binds (vec
+                     (mapcat (fn [{:keys [sid descriptor]}]
+                               [(gensym "lease")
+                                `(re-frame.ui.reactive/lease-site
+                                  ~sid ~descriptor)])
+                             leases))
+        rendered   (if (seq lease-binds)
+                     `(let [~@lease-binds] ~body)
+                     body)
+        inner      (if (seq binds) `(let [~@binds] ~rendered) rendered)
+        host-render (cond
+                      (and has-subs? has-leases?)
+                      're-frame.ui.viewcell/render-subs-and-leases
+                      has-subs? 're-frame.ui.viewcell/render-subs
+                      has-leases? 're-frame.ui.viewcell/render-leases)
         var-meta   (cond-> {:rf.ui/view true
                             :rf.ui/view-id view-id
                             :rf.ui/children? children?}
@@ -471,9 +489,9 @@
        ~@(:defs @st)
        (defn ~render-sym [~props-sym]
          ~inner)
-       ~@(when has-subs?
+       ~@(when host-render
            [`(defn ~host-render-sym [~props-sym]
-               (re-frame.ui.viewcell/render
+               (~host-render
                 ~view-id (fn [] (~render-sym ~props-sym))))])
        (def ~(vary-meta vname merge var-meta)
          (let [compare# ~(comparator-form header slots)]
@@ -484,6 +502,6 @@
              ;; folds away the sibling registration arm and with it every HMR
              ;; slot/listener/dynamic-lookup/extra-Fiber helper.
              (re-frame.ui.runtime/memo-view
-              ~(if has-subs? host-render-sym render-sym)
+              ~(if host-render host-render-sym render-sym)
               compare# ~display-name))))
        ~vname)))
