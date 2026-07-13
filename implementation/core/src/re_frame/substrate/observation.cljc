@@ -791,11 +791,11 @@
 
   `:override-id` and `:version` are OPAQUE change tokens SUPPLIED by the
   consumer (the compiled-view artefact's `re-frame.ui.reactive`). This port
-  never interprets them — it compares each by `=` only: `:override-id` is
-  the slot-identity token (the kept-check's `= :override-id`), `:version`
-  is the movement token (the kept-check's `= :version`, so a moved value
-  retargets). The consumer's LOWERING (which app-level value becomes the id
-  vs. the version) is recorded on the consumer side
+  never interprets them: `:override-id` is the slot-identity token (compared
+  by `=`), while `:version` is the movement token (compared by the core-local
+  spelling of the frozen `rf=` law, so an `rf=`-equal version keeps and a
+  moved version retargets). The consumer's LOWERING (which app-level value
+  becomes the id vs. the version) is recorded on the consumer side
   (`re-frame.ui.reactive/*sub-overrides*`), NOT here — so the query-as-id /
   value-as-version choice never leaks into this port's contract, and the
   port stays correct whatever opaque tokens the consumer mints. Schema
@@ -1368,10 +1368,11 @@
   moved/removed override fails the check and classifies the site as
   retargeted. Pure read; never throws.
 
-  Static (override) leases compare the consumer's OPAQUE change token by
-  `=` only — `:override-id` (slot identity) and `:version` (movement) — so
-  an equal-value provider replacement retains and any value/schema move
-  retargets, without this port interpreting either token."
+  Static (override) leases compare the consumer's OPAQUE slot identity by
+  `=` and its OPAQUE movement token by the core-local spelling of the frozen
+  `rf=` law. Thus an `rf=`-equal provider replacement (including NaN→NaN)
+  retains, while any value/schema movement retargets, without this port
+  interpreting either token."
   [lease target]
   (let [st @(lease-state lease)]
     (case (:lease-kind st)
@@ -1379,7 +1380,7 @@
       (let [lt (:target st)]
         (and (= :story-override (:kind target))
              (= (:override-id lt) (:override-id target))
-             (= (:version lt) (:version target))
+             (node-value= (:version lt) (:version target))
              (= (:query lt) (:query target))))
 
       :node

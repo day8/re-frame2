@@ -1380,6 +1380,14 @@
     (testing "release! is a no-op; read still serves the pinned value"
       (obs/release! lease)
       (is (= {:value 99 :version 7} (obs/read lease)))))
+  (testing "static version currency follows the complete frozen rf= law"
+    (let [target {:kind :story-override :query [:obs/items]
+                  :value ##NaN :override-id :o1 :version ##NaN}
+          lease  (obs/acquire! target (fn [_] (throw (ex-info "never" {}))))]
+      (is (true? (obs/current? lease (assoc target
+                                            :value ##NaN
+                                            :version ##NaN)))
+          "NaN→NaN is stable even though plain = rejects the movement token")))
   (testing "probe on an override target is cold-shaped pinned evidence"
     (let [ev (obs/probe {:kind :story-override :query [:obs/items]
                          :value 42 :override-id :o2 :version 1})]
