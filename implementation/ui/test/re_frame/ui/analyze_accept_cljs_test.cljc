@@ -7,7 +7,8 @@
   (:require [clojure.test :refer [deftest is testing]]
             #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])
             [re-frame.ui.compiler.analyze :as ana]
-            [re-frame.ui.compiler.env :as env]))
+            [re-frame.ui.compiler.env :as env]
+            [re-frame.ui.fingerprint :as fingerprint]))
 
 (def resolver
   "Injected Q5 resolution stub — fqn + var meta per symbol."
@@ -20,6 +21,8 @@
       html        {:fqn 're-frame.ui/html :meta {}}
       raw-fn      {:fqn 're-frame.ui/raw-fn :meta {}}
       spread      {:fqn 're-frame.ui/spread :meta {}}
+      if-let      {:fqn 'clojure.core/if-let :meta {:macro true}}
+      ->          {:fqn 'clojure.core/-> :meta {:macro true}}
       frame-provider {:fqn 're-frame.ui/frame-provider :meta {}}
       child-view  {:fqn 'app.views/child-view
                    :meta {:rf.ui/view true :rf.ui/children? true}}
@@ -49,6 +52,21 @@
   (let [e (mk-env)
         ast (ana/analyze e form)]
     {:ast ast :warnings @(:warnings e) :sites @(:sites e)}))
+
+(defn- analyze-site-fixture [host source template]
+  (let [e (-> (env/make-env {:host host :ns-sym 'app.test
+                              :self 'self-view :self-id :app.test/self-view
+                              :source source
+                              :template-anchor
+                              (fingerprint/digest "sta1-" template)
+                              :resolver resolver})
+              (assoc :self-children? false :self-closed-keys nil))
+        ast (ana/analyze e template)]
+    {:ast ast :sites @(:sites e)}))
+
+(defn- located-sub [line column query]
+  (with-meta (list 'sub query)
+    {:line line :column column :end-line (+ line 10) :end-column 99}))
 
 ;; ---------------------------------------------------------------------------
 ;; Scalars + basics
@@ -155,7 +173,12 @@
     (is (= :fn (:classification (first (get-in el [:props :events]))))
         "bare fns are legal in known native event properties"))
   (let [el (ana* '[:button {:on-click (if a [:x/a] [:x/b])} "x"])]
-    (is (= :dynamic (:classification (first (get-in el [:props :events])))))))
+    (is (= :dynamic (:classification (first (get-in el [:props :events]))))))
+  (let [{:keys [ast sites]}
+        (ana-full '[:button {:on-click (if (sub [:enabled?]) [:x/go] nil)} "x"])]
+    (is (= :dynamic (:classification (first (get-in ast [:props :events])))))
+    (is (= 1 (count (:subs sites)))
+        "dynamic handler classification runs at render, so its sub is finite")))
 
 (deftest event-sites-index-into-the-manifest
   (let [{:keys [sites]} (ana-full '[:div
@@ -173,6 +196,66 @@
                                     [:p {:data-n (sub [:count])} "x"]])]
     (is (= 2 (count (:subs sites))))
     (is (= [[:title]] (map :query (take 1 (:subs sites)))))))
+
+(deftest lexical-site-id-is-portable-stable-and-query-independent
+  (let [template-a [:div (located-sub 102 8 [:item/by-id 'id])]
+        template-b [:div (located-sub 202 8 [:item/by-id 'id])]
+        clj-a (analyze-site-fixture :clj {:line 100 :column 1} template-a)
+        cljs-a (analyze-site-fixture :cljs {:line 100 :column 1} template-a)
+        moved (analyze-site-fixture :clj {:line 200 :column 1} template-b)
+        changed-query
+        (analyze-site-fixture
+         :clj {:line 100 :column 1}
+         [:div (located-sub 102 8 [:item/by-id 'other-id])])
+        sid #(get-in % [:sites :subs 0 :sid])]
+    (is (= (sid clj-a) (sid cljs-a))
+        "host is not part of lexical identity")
+    (is (= (sid clj-a) (sid moved))
+        "moving the whole declaration preserves relative source identity")
+    (is (= (sid clj-a) (sid changed-query))
+        "the query value is destination data, never ownership identity")
+    (is (= (fingerprint/template-fingerprint
+            (ana/template-fingerprint-projection (:ast clj-a)))
+           (fingerprint/template-fingerprint
+            (ana/template-fingerprint-projection (:ast moved))))
+        "source/site movement does not perturb semantic template identity")
+    (is (not=
+         (fingerprint/template-fingerprint
+          (ana/template-fingerprint-projection (:ast clj-a)))
+         (fingerprint/template-fingerprint
+          (ana/template-fingerprint-projection (:ast changed-query))))
+        "site id is projected out, but the semantic query remains")))
+
+(deftest metadata-loss-reacquires-safely-instead-of-transferring-an-ordinal
+  (let [old (analyze-site-fixture :clj {:line 1} '[:div (sub [:a])])
+        edited (analyze-site-fixture
+                :clj {:line 1} '[:div (sub [:b]) (sub [:a])])
+        old-sid (get-in old [:sites :subs 0 :sid])
+        new-sids (mapv :sid (get-in edited [:sites :subs]))]
+    (is (= 2 (count (distinct new-sids)))
+        "equal/different destinations never collapse distinct lexical paths")
+    (is (not (some #{old-sid} new-sids))
+        "without reader anchors the whole-template fallback changes all ids;
+         no bare preorder ordinal can transfer A's ownership to inserted B")))
+
+(deftest lexical-shadowing-never-mints-a-reactive-site
+  (testing "a local named sub is an ordinary call, not re-frame.ui/sub"
+    (let [{:keys [ast sites]}
+          (ana-full '[:div {:title (let [sub identity] (sub query))}])]
+      (is (empty? (:subs sites)))
+      (is (= '(let [sub identity] (sub query))
+             (get-in ast [:props :attrs 0 :value])))))
+  (testing "catch bindings receive the same lexical-shadow treatment"
+    (let [{:keys [sites]}
+          (ana-full '[:div {:title (try value
+                                    (catch Exception sub (sub query)))}])]
+      (is (empty? (:subs sites))))))
+
+(deftest ordinary-destructuring-defaults-remain-legal
+  (let [{:keys [sites]}
+        (ana-full '(let [{:keys [x] :or {x (str "fallback")}} value]
+                     [:div x]))]
+    (is (empty? (:subs sites)))))
 
 (deftest html-sites-index
   (testing "ui/html records a manifest site — the profile row's 'manifest

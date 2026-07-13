@@ -16,6 +16,7 @@
   This namespace only RUNS on the JVM (macro expansion) but is .cljc so
   both hosts' test suites can golden the emission as data."
   (:require [clojure.string :as str]
+            [clojure.walk :as walk]
             [re-frame.ui.compiler.analyze :as ana]
             [re-frame.ui.rules :as rules]))
 
@@ -23,13 +24,42 @@
 (def ^:private event-sym 'rf-ui-evt)
 
 (defn- new-state [view-name]
-  (atom {:defs [] :n 0 :handlers {} :view-name (name view-name)}))
+  (atom {:defs [] :n 0 :handlers {} :sub-queries {}
+         :view-name (name view-name)}))
 
 (defn- hoist! [st kind form]
   (let [{:keys [n view-name]} @st
         sym (symbol (str view-name "$" (name kind) "$" n))]
     (swap! st #(-> % (update :n inc) (update :defs conj `(def ~sym ~form))))
     sym))
+
+(defn- literal-data?
+  "True for self-evaluating/collection data that CLJS would otherwise rebuild
+  inside the render function. Lists and symbols remain runtime expressions."
+  [x]
+  (cond
+    (ana/literal-scalar? x) true
+    (vector? x) (every? literal-data? x)
+    (map? x) (every? (fn [[k v]] (and (literal-data? k) (literal-data? v))) x)
+    (set? x) (every? literal-data? x)
+    :else false))
+
+(defn- hoist-literal-sub-queries
+  [st form]
+  (walk/postwalk
+   (fn [x]
+     (if (ana/runtime-sub-form? x)
+       (let [[runtime sid query] x]
+         (if (literal-data? query)
+           (let [query-sym
+                 (or (get-in @st [:sub-queries query])
+                     (let [sym (hoist! st :query query)]
+                       (swap! st assoc-in [:sub-queries query] sym)
+                       sym))]
+             (with-meta (list runtime sid query-sym) (meta x)))
+           x))
+       x))
+   form))
 
 ;; ---------------------------------------------------------------------------
 ;; Handlers
@@ -420,7 +450,8 @@
   [{:keys [vname view-id display-name docstring header slots ast manifest
            closed-keys children?]}]
   (let [st         (new-state vname)
-        body       (emit-node ast st false)
+        body       (->> (emit-node ast st false)
+                        (hoist-literal-sub-queries st))
         binds      (vec (header-bindings header))
         render-sym (symbol (str (name vname) "$render"))
         host-render-sym (symbol (str (name vname) "$host_render"))

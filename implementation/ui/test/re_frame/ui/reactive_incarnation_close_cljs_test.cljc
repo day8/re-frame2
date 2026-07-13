@@ -59,6 +59,39 @@
 ;; Failure-1: an old-incarnation commit must NOT survive on the replacement id
 ;; ===========================================================================
 
+(deftest acquire-before-incarnation-snapshot-cannot-pair-a-lease-from-a-with-token-b
+  (rf/reg-sub :ic/a (fn [db _] (:a db)))
+  (let [fid     :ic/acquire-snapshot
+        _       (make-frame! fid {:a 1})
+        token-a (frame/frame-incarnation-token fid)
+        cell    (reactive/make-cell ::acquire-snapshot)
+        [_ capture] (rf/with-frame fid
+                      (reactive/with-capture
+                       cell (fn [] (reactive/sub-read ::site [:ic/a]))))]
+    (binding [reactive/*commit-barrier*
+              (fn [phase _]
+                (when (= :post-stage-acquire phase)
+                  ;; The lease now belongs to A, but the subsequent frame-id
+                  ;; lookup would see B. `current?` must reject that pairing.
+                  (frame/destroy-frame! fid)
+                  (make-frame! fid {:a 99})))]
+      (reactive/commit! cell capture))
+    (is (not (identical? token-a (frame/frame-incarnation-token fid))))
+    (is (= :fresh (reactive/lifecycle cell))
+        "a rejected candidate never publishes/connects")
+    (is (empty? (reactive/committed-sites cell)))
+    (is (= 1 (reactive/revision cell))
+        "the host is synchronously invalidated to probe B before paint")
+    (is (nil? (get @(:sub-cache (frame/frame fid)) [:ic/a]))
+        "rolling back A cannot materialize or decrement B's cache")
+    (reactive/reset-scheduler!)
+    (let [[_ capture-b] (rf/with-frame fid
+                          (reactive/with-capture
+                           cell (fn [] (reactive/sub-read ::site [:ic/a]))))]
+      (reactive/commit! cell capture-b))
+    (is (= :connected (reactive/lifecycle cell)))
+    (is (= 99 (:value (reactive/committed-site cell ::site))))))
+
 (deftest commit-of-a-superseded-incarnation-joins-its-teardown-not-the-replacement
   (rf/reg-sub :ic/a (fn [db _] (:a db)))
   (let [fid     :ic/frame
@@ -68,7 +101,7 @@
     ;; render probes incarnation A (ownership-free)
     (let [[_ capture] (rf/with-frame fid
                         (reactive/with-capture
-                         cell (fn [] (reactive/sub-read [:ic/a]))))]
+                         cell (fn [] (reactive/sub-read ::site [:ic/a]))))]
     ;; commit: step 4 acquires A's lease + step 5 reads it (A still live), THEN
     ;; the :post-acquire seam fully destroys A and recreates B under the same id
     ;; BEFORE the publish. The incarnation-safe revalidation must join THIS commit
@@ -99,7 +132,7 @@
       (let [cell-b (reactive/make-cell ::b)]
         (let [[_ capture] (rf/with-frame fid
                             (reactive/with-capture
-                             cell-b (fn [] (reactive/sub-read [:ic/a]))))]
+                             cell-b (fn [] (reactive/sub-read ::site [:ic/a]))))]
           (reactive/commit! cell-b capture))
         (is (= :connected (reactive/lifecycle cell-b)) "B's own cell connects")
         (is (= #{(tk fid [:ic/a])} (reactive/committed-target-keys cell-b))
@@ -122,7 +155,7 @@
         cell (reactive/make-cell ::v)]
     (let [[_ capture] (rf/with-frame fid
                         (reactive/with-capture
-                         cell (fn [] (reactive/sub-read [:ic/a]))))]
+                         cell (fn [] (reactive/sub-read ::site [:ic/a]))))]
       (reactive/commit! cell capture))
     (is (= :connected (reactive/lifecycle cell))
         "no supersede, no close ⇒ ordinary connected commit (incarnation check is false)")

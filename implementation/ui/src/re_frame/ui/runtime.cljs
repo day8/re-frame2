@@ -94,8 +94,10 @@
   Descriptor/revisions are PREPARED before registrar publication so the
   registrar's synchronous hooks can never observe a new manifest paired with
   an old (or nil) render/comparator. Mounted shells are notified only after
-  registrar success. A registrar throw rolls the prepared slot back, advancing
-  neither body revision nor remount generation."
+  registrar success. A registrar throw compensates monotonically: the prior
+  descriptor (or an unavailable first-load tombstone) is republished at a fresh
+  revision and mounted shells are notified once, so no provisional render can
+  commit or strand a cell on a revision that moved backwards."
   [id render-fn compare-fn display-name manifest]
   (let [{:keys [outer inner]}
         (reactive/ensure-view-shells! id #(make-view-shells id))
@@ -121,9 +123,12 @@
         (reactive/commit-view-descriptor! publication)
         outer
         (catch :default e
-          (reactive/rollback-view-descriptor! publication)
-          (set! (.-displayName inner) old-inner-name)
-          (set! (.-displayName outer) old-outer-name)
+          ;; A registrar hook may have synchronously published a newer winner.
+          ;; Restore diagnostic names only when this transaction also restored
+          ;; its descriptor; a stale failure must not clobber the winner.
+          (when (reactive/rollback-view-descriptor! publication)
+            (set! (.-displayName inner) old-inner-name)
+            (set! (.-displayName outer) old-outer-name))
           (throw e))))))
 
 ;; ---------------------------------------------------------------------------

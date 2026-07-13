@@ -55,10 +55,24 @@
   the ambient frame. Returns `[render-value immutable-capture]`."
   [cell queries]
   (rf/with-frame fid
-    (reactive/with-capture cell (fn [] (mapv reactive/sub-read queries)))))
+    (reactive/with-capture cell
+      (fn [] (mapv (fn [i q]
+                     (reactive/sub-read [:reconcile/site i] q))
+                   (range) queries)))))
 
 (defn- render+commit! [cell queries]
   (let [[_ capture] (render! cell queries)]
+    (reactive/commit! cell capture))
+  cell)
+
+(defn- render-sites! [cell sites]
+  (rf/with-frame fid
+    (reactive/with-capture
+     cell
+     (fn [] (mapv (fn [[sid q]] (reactive/sub-read sid q)) sites)))))
+
+(defn- render-sites+commit! [cell sites]
+  (let [[_ capture] (render-sites! cell sites)]
     (reactive/commit! cell capture))
   cell)
 
@@ -86,6 +100,26 @@
       (is (nil? (entry [:r/b]))
           "the 10k-abandoned-renders-retain-zero property holds at the cell"))))
 
+(deftest missing-or-duplicate-compiler-site-identity-fails-loudly
+  (rf/reg-sub :r/a (fn [db _] (:a db)))
+  (rf/reg-sub :r/b (fn [db _] (:b db)))
+  (seed! {:a 1 :b 2})
+  (let [cell (reactive/make-cell ::site-contract)]
+    (is (= :rf.error/ui-tree-malformed
+           (throws-id #(reactive/with-capture
+                         cell
+                         (fn [] (reactive/sub-read nil [:r/a])))))
+        "the explicit two-arity path cannot smuggle a missing sid")
+    (is (= :rf.error/ui-tree-malformed
+           (throws-id #(reactive/with-capture
+                         cell
+                         (fn [] [(reactive/sub-read ::same-site [:r/a])
+                                 (reactive/sub-read ::same-site [:r/b])]))))
+        "a colliding sid never renders one target while committing another")
+    (is (empty? (reactive/committed-sites cell)))
+    (is (nil? (entry [:r/a])))
+    (is (nil? (entry [:r/b])))))
+
 (deftest commit-is-bound-to-the-exact-render-capture
   ;; rf2-vxgfnd.105 — React retains the selected render's effect closure. A
   ;; later speculative render of the same cell must not replace that closure's
@@ -98,9 +132,10 @@
           [b-value cap-b] (render! cell [[:r/b]])]
       (is (= [1] a-value))
       (is (= [2] b-value))
-      (is (= [(tk [:r/a])] (:order cap-a))
+      (is (= [[:reconcile/site 0]] (:order cap-a))
           "A remains immutable after the later speculative B capture")
-      (is (= [(tk [:r/b])] (:order cap-b)))
+      (is (= [[:reconcile/site 0]] (:order cap-b))
+          "the same lexical site may carry a different query in a later capture")
       ;; Model React selecting A and abandoning B: only A's effect closure runs.
       (reactive/commit! cell cap-a)
       (is (= #{(tk [:r/a])} (reactive/committed-target-keys cell))
@@ -120,6 +155,87 @@
     (is (= #{(tk [:r/a])} (reactive/committed-target-keys cell)))
     (is (= 1 (ref-count [:r/a])) "one owner installed at commit")
     (is (= {(tk [:r/a]) 1} (reactive/committed-values cell)))))
+
+(deftest same-site-rf-equal-query-preserves-exact-object-before-resolution
+  (rf/reg-sub :r/p (fn [db [_ k]] (get db k)))
+  (seed! {:x 10})
+  (let [sid ::parametric-site
+        q1  (mapv identity [:r/p :x])
+        q2  (mapv identity [:r/p :x])
+        cell (render-sites+commit! (reactive/make-cell ::parametric)
+                                   [[sid q1]])
+        lease1 (:lease (reactive/committed-site cell sid))
+        resolve* obs/resolve-target
+        resolved-query (atom nil)
+        [_ capture]
+        (with-redefs [obs/resolve-target
+                      (fn [site-ctx]
+                        (reset! resolved-query (:query-v site-ctx))
+                        (resolve* site-ctx))]
+          (render-sites! cell [[sid q2]]))]
+    (is (= q1 q2))
+    (is (not (identical? q1 q2)) "the rerender really rebuilt the query")
+    (is (identical? q1 @resolved-query)
+        "stabilization happens before override/target resolution")
+    (is (identical? q1 (get-in (reactive/site-records capture) [sid :query])))
+    (reactive/commit! cell capture)
+    (is (identical? q1 (:query (reactive/committed-site cell sid))))
+    (is (identical? lease1 (:lease (reactive/committed-site cell sid)))
+        "rf=-equal rerender neither retargets nor churns ownership")
+    (dotimes [_ 10000]
+      (render-sites! cell [[sid (mapv identity [:r/p :x])]]))
+    (is (identical? q1 (:query (reactive/committed-site cell sid)))
+        "abandoned candidates never become the published preservation object")))
+
+(deftest equal-query-lexical-sites-are-distinct-owners
+  (rf/reg-sub :r/a (fn [db _] (:a db)))
+  (seed! {:a 1})
+  (let [q1 (mapv identity [:r/a])
+        q2 (mapv identity [:r/a])
+        cell (render-sites+commit! (reactive/make-cell ::equal-sites)
+                                   [[::site-a q1] [::site-b q2]])
+        a (reactive/committed-site cell ::site-a)
+        b (reactive/committed-site cell ::site-b)]
+    (is (= #{::site-a ::site-b} (set (keys (reactive/committed-sites cell)))))
+    (is (not (identical? (:lease a) (:lease b)))
+        "target equality never collapses lexical owner tokens")
+    (is (identical? q1 (:query a)))
+    (is (identical? q2 (:query b)))
+    (is (= 2 (ref-count [:r/a]))
+        "the shared cache node has one reference per lexical owner")
+    (let [lease-b (:lease b)
+          q2-next (mapv identity [:r/a])]
+      (render-sites+commit! cell [[::site-b q2-next]])
+      (is (= #{::site-b} (set (keys (reactive/committed-sites cell))))
+          "conditional disappearance removes only the absent sid")
+      (is (identical? lease-b
+                      (:lease (reactive/committed-site cell ::site-b))))
+      (is (identical? q2 (:query (reactive/committed-site cell ::site-b))))
+      (is (= 1 (ref-count [:r/a]))))))
+
+(deftest changed-query-at-one-site-acquires-before-releasing
+  (rf/reg-sub :r/p (fn [db [_ k]] (get db k)))
+  (seed! {:x 10 :y 20})
+  (let [sid ::retarget-site
+        cell (render-sites+commit! (reactive/make-cell ::retarget)
+                                   [[sid [:r/p :x]]])
+        acquire* obs/acquire!
+        release* obs/release!
+        operations (atom [])]
+    (with-redefs [obs/acquire!
+                  (fn [target on-change]
+                    (swap! operations conj [:acquire (:query target)])
+                    (acquire* target on-change))
+                  obs/release!
+                  (fn [lease]
+                    (swap! operations conj [:release])
+                    (release* lease))]
+      (render-sites+commit! cell [[sid [:r/p :y]]]))
+    (is (= [[:acquire [:r/p :y]] [:release]] @operations)
+        "retarget stages the new owner before dropping the prior owner")
+    (is (= [:r/p :y] (:query (reactive/committed-site cell sid))))
+    (is (nil? (entry [:r/p :x])))
+    (is (= 1 (ref-count [:r/p :y])))))
 
 (deftest recommit-retains-lease-untouched
   (rf/reg-sub :r/a (fn [db _] (:a db)))
@@ -268,7 +384,7 @@
     (subs/subscribe [:re/v] {:frame :re/frame})
     (let [[_ capture] (rf/with-frame :re/frame
                         (reactive/with-capture
-                         cell (fn [] (reactive/sub-read [:re/v]))))]
+                         cell (fn [] (reactive/sub-read ::site [:re/v]))))]
       (is (= 0 (reactive/revision cell)) "precondition: no revision yet")
       ;; reincarnate in the gap: identical construction + a single replace-app-db!
       ;; makes node-version + frame/registry epochs COINCIDE with the destroyed
@@ -299,7 +415,7 @@
     (subs/subscribe [:re/v] {:frame :re/frame2})   ;; a live canonical node
     (let [[_ capture] (rf/with-frame :re/frame2
                         (reactive/with-capture
-                         cell (fn [] (reactive/sub-read [:re/v]))))]
+                         cell (fn [] (reactive/sub-read ::site [:re/v]))))]
       (reactive/commit! cell capture))               ;; same live node at commit
     (is (= 0 (reactive/revision cell))
         "an unchanged live node reads the same node-key — no false movement")
@@ -455,7 +571,7 @@
     (seed! {:coll [1 2 3]})    ;; equal value, different object identity
     (let [[ret _] (rf/with-frame fid
                     (reactive/with-capture
-                     cell (fn [] (reactive/sub-read [:r/coll]))))]
+                     cell (fn [] (reactive/sub-read ::site [:r/coll]))))]
       (is (identical? committed ret)
           "an rf=-stable read returns the prior exact value (stabilized identity)"))))
 

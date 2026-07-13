@@ -265,7 +265,7 @@
 
 (defn- fresh-capture
   [generation]
-  {:generation generation :order [] :by-key {}})
+  {:generation generation :order [] :by-site {}})
 
 (defn- target-key
   [target]
@@ -274,14 +274,32 @@
     :story-override [:override (:override-id target)]))
 
 (defn- record-site
-  "Add a site's observation to `cap`, deduped by target identity (the first
-  observation of a target within a pass fixes its order + evidence)."
-  [cap tk target ev value]
-  (if (contains? (:by-key cap) tk)
-    cap
+  "Add one compiler-indexed lexical site to `cap`. Site identity—not target
+  equality—is the ownership key, so two equal queries remain two owners. A
+  repeated execution of one sid in a render is a compiler-contract violation
+  and fails loudly: rendering a later value while committing the first target
+  would otherwise create an incoherent dependency."
+  [cap sid query target ev value]
+  (if (contains? (:by-site cap) sid)
+    (error/throw-error!
+      :rf.error/ui-tree-malformed
+      're-frame.ui.reactive/sub-read
+      (str "compiler lexical site id " (pr-str sid)
+           " executed more than once in one render capture — each finite "
+           "reactive occurrence must have a distinct stable id")
+      {:extra {:site-id sid :query query}})
     (-> cap
-        (update :order conj tk)
-        (assoc-in [:by-key tk] {:target target :evidence ev :value value}))))
+        (update :order conj sid)
+        (assoc-in [:by-site sid] {:query query
+                                  :target target
+                                  :evidence ev
+                                  :value value}))))
+
+(defn site-records
+  "The immutable `{sid -> render observation}` in capture `cap` (internal
+  compiler/runtime/test seam)."
+  [cap]
+  (:by-site cap))
 
 ;; ---------------------------------------------------------------------------
 ;; The slice-scoped probe memo (S2d item 3; 03 §3)
@@ -344,11 +362,12 @@
   ;;                             ;   same-tick StrictMode dev replay (no hide);
   ;;                             ;   `settle-disconnect!` clears it. false/absent
   ;;                             ;   in production (no StrictMode double-invoke)
-  ;;    :committed {tk -> lease} ; installed dependency set
-  ;;    :values    {tk -> value} ; last published site values (stabilization
-  ;;                             ;   + revision evidence); retained across a
-  ;;                             ;   disconnect, so frame teardown can identify
-  ;;                             ;   an Activity-hidden cell's last frames
+  ;;    :committed {sid -> {:query exact-query :target target :value value
+  ;;                        :lease lease|nil}}
+  ;;                             ; lexical site records. `:lease nil` survives
+  ;;                             ; disconnect for exact query/value reuse and
+  ;;                             ; hidden-cell frame attribution; absence means
+  ;;                             ; the site was conditional/dropped
   ;;    :revision  int           ; get-snapshot returns this (useSyncExternalStore)
   ;;    :dirty?    bool          ; pending-notification flag (drain coalescing)
   ;;    :evidence  ev|nil        ; DEBUG-only bounded causal evidence for the
@@ -378,7 +397,6 @@
             :root           nil
             :disconnect-provisional? false
             :committed      {}
-            :values         {}
             :revision       0
             :dirty?         false
             :evidence       nil
@@ -501,20 +519,50 @@
   "Roll back a prepared descriptor after registrar failure.
 
   Rollback is conditional on transaction identity, so it cannot overwrite a
-  newer re-entrant registration. Listener subscriptions made while the
-  registrar call was in flight are retained; descriptor/revision/remount state
-  returns to the exact prior publication. Returns the current slot snapshot."
+  newer re-entrant registration. Revisions are globally monotone even across
+  failure: restore the prior descriptor at a fresh body revision and notify
+  once, making every render of the provisional descriptor stale. If the failed
+  candidate exposed a different hook shape, restoration advances remount
+  generation again. A failed first registration becomes an unavailable
+  tombstone at a fresh revision. Listener subscriptions made in flight are
+  retained. Returns true only when this publication performed the compensation;
+  a stale publication returns false."
   [{:keys [view-id publication-token before]}]
-  (let [slots
-        (swap! view-generations update view-id
-               (fn [slot]
-                 (if (identical? publication-token
-                                 (:hmr-publication-token slot))
-                   (assoc (or before {})
-                          :hmr-listeners
-                          (:hmr-listeners slot {}))
-                   slot)))]
-    (get slots view-id)))
+  (let [[old-slots slots]
+        (swap-vals!
+         view-generations update view-id
+         (fn [slot]
+           (if (identical? publication-token
+                           (:hmr-publication-token slot))
+             (let [prior (or before {})
+                   prior-registered? (boolean (:hmr-registered? prior))
+                   shape-observed?
+                   (or (not prior-registered?)
+                       (not= (:hmr-hook-signature prior)
+                             (:hmr-hook-signature slot)))
+                   restored
+                   (-> prior
+                       (assoc :hmr-listeners (:hmr-listeners slot {})
+                              :hmr-body-revision
+                              (inc (:hmr-body-revision slot))
+                              :hmr-remount-generation
+                              (cond-> (:hmr-remount-generation slot)
+                                shape-observed? inc)))]
+               (if prior-registered?
+                 restored
+                 (assoc restored
+                        :hmr-registered? false
+                        :hmr-hook-signature nil
+                        :hmr-descriptor nil)))
+             slot)))
+        current-before (get old-slots view-id)
+        rolled-back? (identical? publication-token
+                                  (:hmr-publication-token current-before))
+        restored (get slots view-id)]
+    (when rolled-back?
+      (doseq [listener (vals (:hmr-listeners restored))]
+        (listener)))
+    rolled-back?))
 
 (defn register-view-descriptor!
   "Publish one descriptor directly through the same prepare/commit path used
@@ -600,36 +648,63 @@
 ;; ---- read + query stabilization ---------------------------------------------
 
 (defn sub-read
-  "The one bridge `(sub query)` lowers to on both hosts. Resolves the
-  site's target (override door → ambient frame), probes ownership-free, and
-  returns the value:
+  "The one bridge `(sub query)` lowers to on both hosts. The compiler calls
+  `(sub-read sid query)`; `sid` is the stable lexical ownership key. Resolves
+  the site's target (override door → ambient frame), probes ownership-free,
+  and returns the value:
 
     - Inside a live cell render (ambient capture present), RECORDS the site
-      (target + evidence) into the capture and returns the `rf=`-stabilized
-      value (the prior committed reference when the read is `rf=`).
-    - Outside a cell (the JVM `ui.test/render` one-shot headless read, or a
-      defensive direct call), returns the freshly probed value — no
-      ownership, no capture.
+      by sid. A fresh candidate query that is `rf=` to that same site's prior
+      query is replaced by the PRIOR EXACT query object BEFORE override/target
+      resolution. The value is then stabilized against the same site's prior
+      exact value.
+    - Outside a cell, either arity is a one-shot headless read: freshly probe,
+      with no ownership/capture. The legacy one-argument arity is deliberately
+      illegal under an ambient capture so a compiler/test cannot silently lose
+      lexical identity.
 
   Fail-loud rides the port: `:rf.error/no-such-sub` on an unknown entry
   sub, `:rf.error/frame-destroyed` against a destroyed frame."
-  [query]
-  (let [override (resolve-override query)
-        site-ctx (cond-> {:query-v query}
-                   (some? override) (assoc :override override))
-        target   (obs/resolve-target site-ctx)
-        ev       (obs/probe target (current-slice-memo))
-        v        (:value ev)
-        {:keys [cell capture]} @ambient]
-    (if (some? cell)
-      (let [tk    (target-key target)
-            prior (get (:values @(state cell)) tk ::none)
-            v*    (if (and (not (identical? ::none prior)) (eq/rf= v prior))
-                    prior
-                    v)]
-        (vswap! capture record-site tk target ev v*)
-        v*)
-      v)))
+  ([query]
+   (if (some? (:cell @ambient))
+     (error/throw-error!
+       :rf.error/ui-tree-malformed
+       're-frame.ui.reactive/sub-read
+       (str "one-argument sub-read reached an active ViewCell capture — "
+            "compiled render reads must carry their lexical site id")
+       {:extra {:query query}})
+     (sub-read nil query)))
+  ([sid query]
+   (let [{:keys [cell capture]} @ambient
+         _ (when (and (some? cell) (nil? sid))
+             (error/throw-error!
+               :rf.error/ui-tree-malformed
+               're-frame.ui.reactive/sub-read
+               (str "nil lexical site id reached an active ViewCell capture — "
+                    "compiled render reads must carry a non-nil site id")
+               {:extra {:query query}}))
+         prior-record (when (some? cell)
+                        (get (:committed @(state cell)) sid))
+         prior-query  (:query prior-record)
+         query*       (if (and prior-record (eq/rf= query prior-query))
+                        prior-query
+                        query)
+         ;; Query stabilization MUST precede both the override door and target
+         ;; resolution: adapters may key their caches by exact query identity.
+         override     (resolve-override query*)
+         site-ctx     (cond-> {:query-v query*}
+                        (some? override) (assoc :override override))
+         target       (obs/resolve-target site-ctx)
+         ev           (obs/probe target (current-slice-memo))
+         v            (:value ev)]
+     (if (some? cell)
+       (let [prior-value (:value prior-record)
+             v*          (if (and prior-record (eq/rf= v prior-value))
+                           prior-value
+                           v)]
+         (vswap! capture record-site sid query* target ev v*)
+         v*)
+       v))))
 
 (defn with-capture
   "Run `thunk` (a compiled view body) under a fresh ambient capture and return
@@ -1100,8 +1175,8 @@
 (defn- cell-frames
   "The set of frame-ids `cell`'s committed subscription sites observe.
 
-  Keyed on `:sub` target keys ONLY. A static Story-override site commits an
-  `[:override id]` key that names NO frame (the pinned value IS the
+  Only records with a live lease are currently observed. A static Story-
+  override target names NO frame (the pinned value IS the
   resolution — there is no node and no observed frame), so an OVERRIDE-ONLY
   cell observes no frame and this returns `#{}`. The frame-scope membership
   test (`cell-observes-frame?`) is therefore false for such a cell against
@@ -1110,8 +1185,10 @@
   mixing `sub` and override sites observes exactly its `sub` sites' frames."
   [^ViewCell cell]
   (into #{}
-        (keep (fn [tk] (when (= :sub (nth tk 0)) (nth tk 1))))
-        (keys (:committed @(state cell)))))
+        (keep (fn [{:keys [target lease]}]
+                (when (and lease (= :subscription (:kind target)))
+                  (:frame-id target))))
+        (vals (:committed @(state cell)))))
 
 (defn cell-observes-frame?
   "True when `cell`'s committed dependency set includes a site in frame
@@ -1120,15 +1197,15 @@
   (contains? (cell-frames cell) frame-id))
 
 (defn- cell-retained-frame?
-  "True when `cell`'s last published site values name `frame-id`. Unlike the
-  live committed set, `:values` survives an Activity disconnect for value
-  stabilization, so this is the bounded history a frame-destroy sweep uses for
-  still-disconnected, root-owned cells."
+  "True when `cell`'s last published lexical site records name `frame-id`.
+  Records survive an Activity disconnect with `:lease nil`, providing bounded
+  exact query/value history plus frame attribution for hidden root-owned cells."
   [^ViewCell cell frame-id]
   (boolean
-    (some (fn [tk]
-            (and (= :sub (nth tk 0)) (= frame-id (nth tk 1))))
-          (keys (:values @(state cell))))))
+    (some (fn [{:keys [target]}]
+            (and (= :subscription (:kind target))
+                 (= frame-id (:frame-id target))))
+          (vals (:committed @(state cell))))))
 
 (defn flush-frame!
   "The FRAME arity of `flush!` — flush every pending cell observing frame
@@ -1340,14 +1417,19 @@
   ([incarnation] (count (get @root-cells incarnation))))
 
 (defn- release-committed!
-  "Release every lease in the committed dependency set and clear it —
-  acquire-before-release is not needed here (this is a full teardown, not a
-  reconcile). Idempotent via the port's own release! idempotence."
+  "Release every live lexical-site lease and retain each exact query/target/
+  value record with `:lease nil`. A disconnect therefore owns nothing while a
+  reconnect can still stabilize exact objects per site. Idempotent."
   [^ViewCell cell]
   (let [st (state cell)]
-    (doseq [lease (vals (:committed @st))]
-      (obs/release! lease))
-    (swap! st assoc :committed {})))
+    (doseq [{:keys [lease]} (vals (:committed @st))]
+      (when lease (obs/release! lease)))
+    (swap! st update :committed
+           (fn [sites]
+             (reduce-kv (fn [out sid record]
+                          (assoc out sid (assoc record :lease nil)))
+                        (empty sites)
+                        sites)))))
 
 (defn- annotate-open-disconnect!
   "Upgrade the still-open `:disconnected {:reason :unknown}` interval's
@@ -1472,7 +1554,7 @@
                {:state :unmounted :reason :unmounted :proof :host-teardown}))
       (release-committed! cell)
       (discard-pending! cell)
-      (swap! st assoc :lifecycle :dead)
+      (swap! st assoc :lifecycle :dead :committed {})
       (swap! live-cells disj cell)
       ;; leave the root-incarnation registry — a dead cell is no longer
       ;; retained, so it must not linger as reapable ownership (rf2-vxgfnd.85).
@@ -1651,18 +1733,21 @@
 ;; token unchanged — the marker is the only signal there).
 
 (defn- committed-frame-incarnations
-  "Snapshot `{frame-id -> incarnation-token}` for every frame the committed map
-  `committed` observes — captured at ACQUIRE time so the frame-close revalidation
-  compares each frame's LIVE incarnation against the one this commit acquired from
-  (rf2-vxgfnd.88). A frame absent/destroyed reads nil. O(observed frames)."
+  "Post-acquire snapshot `{frame-id -> incarnation-token}` for every frame the
+  candidate committed map observes. `commit!` immediately validates every
+  candidate lease with `current?`; together those operations close the window
+  in which a lease acquired from A could otherwise be paired with a snapshot
+  of a replacement same-id incarnation B. A frame absent/destroyed reads nil.
+  O(observed frames)."
   [committed]
   (persistent!
-    (reduce (fn [acc tk]
-              (if (= :sub (nth tk 0))
-                (assoc! acc (nth tk 1) (frame/frame-incarnation-token (nth tk 1)))
+    (reduce (fn [acc {:keys [target lease]}]
+              (if (and lease (= :subscription (:kind target)))
+                (let [fid (:frame-id target)]
+                  (assoc! acc fid (frame/frame-incarnation-token fid)))
                 acc))
             (transient {})
-            (keys committed))))
+            (vals committed))))
 
 (defn- incarnation-superseded?
   "True when ANY frame in the acquire-time `incarnations` snapshot is no longer
@@ -1690,7 +1775,9 @@
                      commit ACQUIRE the FRESH incarnation while the render probed
                      the destroyed one — the `:node-key` reincarnation
                      `evidence-moved?` must correct before paint (rf2-vxgfnd.93).
-    :post-acquire  — after stage-acquire + the evidence read, BEFORE the publish.
+    :post-stage-acquire — after leases are acquired, BEFORE the incarnation
+                     snapshot/current validation.
+    :post-acquire  — after validation + the evidence read, BEFORE the publish.
                      A full destroy of the ACQUIRED incarnation + a fresh same-id
                      incarnation here proves the frame-close revalidation joins the
                      commit to the acquired incarnation's teardown, not the
@@ -1760,25 +1847,33 @@
         ;; render→commit gap here so the stage-acquire below binds the FRESH
         ;; incarnation while the render probed the destroyed one (rf2-vxgfnd.93).
         (when-some [barrier *commit-barrier*] (barrier :pre-acquire cell))
-        (let [committed  (:committed st0)          ;; tk -> lease
-              new-order  (:order cap)              ;; tk, render order
-              new-by     (:by-key cap)
+        (let [committed  (:committed st0)          ;; sid -> site record
+              new-order  (:order cap)              ;; sid, render order
+              new-by     (:by-site cap)
               new-set    (set new-order)
               ;; step 3 — kept-check
               retained   (persistent!
                            (reduce
-                             (fn [acc [tk lease]]
-                               (if (and (contains? new-set tk)
-                                        (obs/current? lease (:target (new-by tk))))
-                                 (assoc! acc tk lease)
-                                 acc))
+                             (fn [acc [sid prior]]
+                               (let [lease (:lease prior)]
+                                 (if (and lease
+                                          (contains? new-set sid)
+                                          (obs/current? lease
+                                                        (:target (new-by sid))))
+                                   (assoc! acc sid
+                                           (assoc (select-keys (new-by sid)
+                                                               [:query :target :value])
+                                                  :lease lease))
+                                 acc)))
                              (transient {})
                              committed))
-              retained?  (fn [tk] (contains? retained tk))
+              retained?  (fn [sid] (contains? retained sid))
               to-release (persistent!
                            (reduce
-                             (fn [acc [tk lease]]
-                               (if (retained? tk) acc (assoc! acc tk lease)))
+                             (fn [acc [sid record]]
+                               (if (or (retained? sid) (nil? (:lease record)))
+                                 acc
+                                 (assoc! acc sid record)))
                              (transient {})
                              committed))
               to-acquire (into [] (remove retained?) new-order)
@@ -1788,8 +1883,8 @@
                                 acc    []]
                            (if (empty? ks)
                              acc
-                             (let [tk     (first ks)
-                                   target (:target (new-by tk))
+                             (let [sid    (first ks)
+                                   target (:target (new-by sid))
                                    lease  (try
                                             (obs/acquire! target on-change)
                                             (catch #?(:clj Throwable :cljs :default) e
@@ -1797,16 +1892,37 @@
                                               ;; REVERSE acquisition order; the
                                               ;; prior committed set stays
                                               ;; installed; propagate the throw.
-                                              (doseq [[_ l] (rseq acc)]
-                                                (obs/release! l))
+                                              (doseq [[_ record] (rseq acc)]
+                                                (obs/release! (:lease record)))
                                               (throw e)))]
-                               (recur (rest ks) (conj acc [tk lease])))))
+                               (recur (rest ks)
+                                      (conj acc
+                                            [sid (assoc (select-keys (new-by sid)
+                                                                     [:query :target :value])
+                                                        :lease lease)])))))
               staged-map (into {} staged)
-              ;; ACQUIRE-time incarnation snapshot for the frame-close
-              ;; revalidation (rf2-vxgfnd.88): the exact incarnation each lease
-              ;; was acquired from, so a same-id reincarnation before publish is
-              ;; caught by token identity, not merely the reused frame-id.
-              incarnations (committed-frame-incarnations (merge retained staged-map))
+              candidate (merge retained staged-map)
+              ;; A JVM fixture can destroy/recreate the just-acquired frame in
+              ;; the formerly-uncovered acquire→snapshot window.
+              _ (when-some [barrier *commit-barrier*]
+                  (barrier :post-stage-acquire cell))
+              incarnations (committed-frame-incarnations candidate)
+              candidate-current?
+              (every? (fn [[sid record]]
+                        (obs/current? (:lease record) (:target (new-by sid))))
+                      candidate)]
+          (if-not candidate-current?
+            (do
+              ;; One of the acquired/retained leases belonged to an incarnation
+              ;; that vanished before a trustworthy snapshot could be paired
+              ;; with it. Roll back only newly staged ownership, preserve the
+              ;; prior committed set, and synchronously invalidate so the host
+              ;; re-probes the current incarnation before paint.
+              (doseq [[_ record] (rseq staged)]
+                (obs/release! (:lease record)))
+              (advance-revision! cell)
+              cell)
+            (let [
               ;; step 5 — evidence comparison: read EACH acquired node (staged AND
               ;; retained) against the render's probe evidence, so movement in the
               ;; render→commit gap is caught before paint (invariant 5).
@@ -1825,28 +1941,22 @@
               ;; `read` recomputes the plain-atom node on deref, so a headless move
               ;; is observed here; the two catches are kept distinct because the
               ;; step-8 advance treats them differently (see below).
-              moved-in? (fn [[tk lease]]
-                          (evidence-moved? (obs/read lease)
-                                           (:evidence (new-by tk))))
+              moved-in? (fn [[sid record]]
+                          (evidence-moved? (obs/read (:lease record))
+                                           (:evidence (new-by sid))))
               staged-moved?   (boolean (some moved-in? staged))
               retained-moved? (boolean (some moved-in? retained))
-              new-values (persistent!
-                           (reduce (fn [acc tk]
-                                     (assoc! acc tk (:value (new-by tk))))
-                                   (transient {})
-                                   new-order))]
+              new-committed candidate]
           ;; :post-acquire test seam — a fixture may destroy the ACQUIRED
           ;; incarnation + recreate the id here to prove the revalidation below
           ;; joins this commit to the acquired incarnation's teardown, not the
           ;; replacement id (rf2-vxgfnd.88).
           (when-some [barrier *commit-barrier*] (barrier :post-acquire cell))
-          ;; step 6 — publish (committed values + dependency set)
-          (swap! st assoc
-                 :committed (merge retained staged-map)
-                 :values    new-values)
+          ;; step 6 — publish exact per-site query/value + dependency set
+          (swap! st assoc :committed new-committed)
           ;; step 7 — release dropped + retargeted prior leases
-          (doseq [[_ lease] to-release]
-            (obs/release! lease))
+          (doseq [[_ record] to-release]
+            (obs/release! (:lease record)))
           ;; lifecycle: connect (reconnect annotation when re-committing a
           ;; hidden cell). This ENROLS the cell into the live-cell registry —
           ;; the discoverability publish a frame-destroy sweep consults.
@@ -1906,24 +2016,48 @@
             (when (or staged-moved?
                       (and retained-moved? (not (dirty? cell))))
               (advance-revision! cell)))
-          cell)))))
+              cell)))))))
 
 ;; ---- test/inspection reads --------------------------------------------------
 
 (defn committed-target-keys
-  "The target keys of the cell's installed dependency set (tool/test read)."
+  "Legacy target projection of the cell's LIVE installed dependency set.
+  Equal-query lexical sites intentionally collapse in this compatibility view;
+  use `committed-sites` to inspect ownership identity."
   [^ViewCell cell]
-  (set (keys (:committed @(state cell)))))
+  (into #{}
+        (comp (filter :lease) (map (comp target-key :target)))
+        (vals (:committed @(state cell)))))
 
 (defn committed-values
-  "The cell's last-published site values, keyed by target (tool/test read)."
+  "Legacy target-keyed value projection. Equal targets collapse here by
+  definition; canonical state is `committed-sites`."
   [^ViewCell cell]
-  (:values @(state cell)))
+  (persistent!
+    (reduce (fn [out {:keys [target value]}]
+              (assoc! out (target-key target) value))
+            (transient {})
+            (vals (:committed @(state cell))))))
 
 (defn committed-lease
-  "The installed lease for target key `tk` (tool/test read), or nil."
+  "Legacy target-keyed installed lease projection, or nil. If two sites share
+  a target this returns one of their distinct leases; use `committed-site`."
   [^ViewCell cell tk]
-  (get (:committed @(state cell)) tk))
+  (some (fn [{:keys [target lease]}]
+          (when (= tk (target-key target)) lease))
+        (vals (:committed @(state cell)))))
+
+(defn committed-sites
+  "The canonical `{sid -> {:query :target :value :lease}}` lexical ownership
+  map for `cell` (internal tool/test seam). Disconnected records remain with
+  `:lease nil`; conditionally absent sites are not present."
+  [^ViewCell cell]
+  (:committed @(state cell)))
+
+(defn committed-site
+  "The canonical committed record for lexical `sid`, or nil."
+  [^ViewCell cell sid]
+  (get (:committed @(state cell)) sid))
 
 (defn revision
   "The cell's current revision integer (tool/test read)."

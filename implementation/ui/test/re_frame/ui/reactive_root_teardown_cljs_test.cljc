@@ -50,7 +50,9 @@
 (defn- render+commit! [cell fid queries]
   (let [[_ capture] (rf/with-frame fid
                       (reactive/with-capture
-                       cell (fn [] (mapv reactive/sub-read queries))))]
+                       cell (fn [] (mapv (fn [i q]
+                                          (reactive/sub-read [:root/site i] q))
+                                        (range) queries))))]
     (reactive/commit! cell capture))
   cell)
 
@@ -110,7 +112,7 @@
               not by probing a torn-down context (03 §4; commit! step 2)"
       (let [[_ capture] (rf/with-frame fid
                           (reactive/with-capture
-                           cell (fn [] (reactive/sub-read [:rt/a]))))]
+                           cell (fn [] (reactive/sub-read ::site [:rt/a]))))]
         (is (= :rf.error/frame-destroyed
                (throws-id #(reactive/commit! cell capture))))))))
 
@@ -176,7 +178,7 @@
     (testing "the reaped cell fails a recommit through the dead-cell lifecycle"
       (let [[_ capture] (rf/with-frame fid
                           (reactive/with-capture
-                           cell (fn [] (reactive/sub-read [:rt/a]))))]
+                           cell (fn [] (reactive/sub-read ::site [:rt/a]))))]
         (is (= :rf.error/frame-destroyed
                (throws-id #(reactive/commit! cell capture)))
             "a retained handle cannot reconnect after its root is gone")))))
@@ -288,7 +290,7 @@
     (testing "the sibling cell still reads live"
       (is (= 1 (first (rf/with-frame fid
                         (reactive/with-capture cell-b
-                          (fn [] (reactive/sub-read [:rt/a]))))))))))
+                          (fn [] (reactive/sub-read ::site [:rt/a]))))))))))
 
 ;; ===========================================================================
 ;; A throwing host `.unmount` — generation evidence governs the fail-closed reap

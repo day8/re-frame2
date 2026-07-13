@@ -47,6 +47,12 @@
           :msg (ex-message e)
           :data (ex-data e)})))
 
+(deftest reactive-sites-are-rejected-at-a-root-expression
+  (is (= :rf.ui.compile/sub-in-loop
+         (compile-error-id
+          #(analyze-root* '[:div {:title (sub [:root/query])}])))
+      "a mount/root has no ViewCell and therefore cannot own a sub site"))
+
 ;; ---------------------------------------------------------------------------
 ;; Root-id: authored shapes + derivation + slug + prefix (contract §1, §3)
 ;; ---------------------------------------------------------------------------

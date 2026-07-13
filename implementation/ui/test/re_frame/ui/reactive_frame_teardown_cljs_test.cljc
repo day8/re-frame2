@@ -47,7 +47,9 @@
 (defn- render+commit! [cell fid queries]
   (let [[_ capture] (rf/with-frame fid
                       (reactive/with-capture
-                       cell (fn [] (mapv reactive/sub-read queries))))]
+                       cell (fn [] (mapv (fn [i q]
+                                          (reactive/sub-read [:teardown/site i] q))
+                                        (range) queries))))]
     (reactive/commit! cell capture))
   cell)
 
@@ -208,4 +210,4 @@
     (testing "the sibling frame still reads live"
       (is (= 2 (first (rf/with-frame fb
                         (reactive/with-capture cell-b
-                          (fn [] (reactive/sub-read [:td/a]))))))))))
+                          (fn [] (reactive/sub-read ::site [:td/a]))))))))))
