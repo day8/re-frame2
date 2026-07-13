@@ -2903,8 +2903,9 @@
 
 (defn- handle-drain-interrupted!
   "Per rf2-68kok / Spec 002 §Edge cases worth pinning §Frame disposal
-  mid-drain: the drain-loop detected the frame was destroyed before
-  the next dequeue. Drop the remaining queue ONCE, clear `:scheduled?`,
+  mid-drain: the drain-loop detected that destruction owns the frame before
+  the next dequeue (claim is the cutoff; lifecycle-dead may publish later).
+  Drop the remaining queue ONCE, clear `:scheduled?`,
   and emit a single `:rf.frame/drain-interrupted` lifecycle trace
   carrying `:dropped-count` (per Spec 009 §`:rf.frame/drain-interrupted`
   and Spec-Schemas §DrainInterruptedTags).
@@ -2941,12 +2942,12 @@
 (defn- run-one-pass!
   "Process events from the queue to fixed point or until `drain-depth` is
   exceeded. Returns `::settled` when the queue empties cleanly or
-  `::halt` when the depth limit is reached OR the frame was destroyed
+  `::halt` when the depth limit is reached OR destruction owns the frame
   mid-pass (the depth-exceeded / drain-interrupted handler has already
   cleared the queue and the `:scheduled?` flag in either halt case).
 
-  Per rf2-68kok / Spec 002 §Frame disposal mid-drain: the destroyed-
-  frame check fires BEFORE each dequeue, so an in-flight event runs to
+  Per rf2-68kok / Spec 002 §Frame disposal mid-drain: the destruction-
+  ownership check fires BEFORE each dequeue, so an in-flight event runs to
   completion (run-to-completion per Spec 002 §Rules rule 1) but events
   still in the queue at the check point are dropped, with one
   `:rf.frame/drain-interrupted` lifecycle trace emitted carrying the
@@ -2979,7 +2980,7 @@
       (do (handle-depth-exceeded! frame-id router depth last-event tail-ring)
           ::halt)
 
-      ;; Per rf2-68kok: destroyed-frame check fires BEFORE the next
+      ;; Per rf2-68kok: destruction-ownership check fires BEFORE the next
       ;; dequeue. A handler in the just-completed event may have
       ;; called `destroy-frame!` on its own frame; the spec calls for
       ;; interrupting the drain at this exact seam — drop the

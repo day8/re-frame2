@@ -9,13 +9,15 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
+            [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
             [re-frame.source-store :as source-store]
             [re-frame.flows :as flows]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]))
+            [re-frame.trace :as trace])
+  (:import [java.util.concurrent CountDownLatch TimeUnit]))
 
 (defn reset-runtime [test-fn]
   (registrar/clear-all!)
@@ -32,6 +34,15 @@
   (test-fn))
 
 (use-fixtures :each reset-runtime)
+
+(defn- executor-barrier!
+  "Wait until work already submitted through `interop/next-tick` has run.
+  The JVM executor is single-threaded FIFO; the timeout is only a hang guard."
+  []
+  (let [latch (CountDownLatch. 1)]
+    (interop/next-tick #(.countDown latch))
+    (is (.await latch 5 TimeUnit/SECONDS)
+        "the executor reached the deterministic barrier")))
 
 ;; ---- Spec 002 §Re-registration — surgical update -------------------------
 
@@ -934,6 +945,84 @@
       ;; (e) Frame stays gone.
       (is (nil? (frame/frame :rf2-dpny/worker))
           "the frame did not somehow re-materialise from the post-destroy drain"))))
+
+(deftest destroy-claim-prevents-cold-release-from-running-queued-handlers
+  (testing "the destroy claim is the queued-work cutoff, before lifecycle-dead publication"
+    (let [frame-id       :destroy-claim/cold-release
+          parent-runs    (atom 0)
+          child-runs     (atom 0)
+          user-effects   (atom 0)
+          captured-ticks (atom [])
+          gap-observation (atom nil)
+          original-hook  (late-bind/get-fn :ui/on-frame-destroyed!)]
+      (rf/make-frame {:id frame-id})
+      (rf/reg-fx :destroy-claim/effect
+        (fn [_ _] (swap! user-effects inc)))
+      (rf/reg-event :destroy-claim/child
+        (fn [{:keys [db]} _]
+          (swap! child-runs inc)
+          {:db (assoc db :child-ran? true)}))
+      (rf/reg-event :destroy-claim/queued
+        (fn [{:keys [db]} _]
+          (swap! parent-runs inc)
+          {:db (assoc db :queued-handler-ran? true)
+           :fx [[:destroy-claim/effect :payload]
+                [:dispatch [:destroy-claim/child]]]}))
+
+      ;; Queue two events while suppressing their first scheduled drain. The
+      ;; destroy claim must both suppress a replacement kick from its COLD
+      ;; serialized release and fence this not-yet-fired original attempt.
+      (with-redefs [interop/next-tick
+                    (fn [f]
+                      (swap! captured-ticks conj f)
+                      nil)]
+        (rf/dispatch [:destroy-claim/queued] {:frame frame-id})
+        (rf/dispatch [:destroy-claim/queued] {:frame frame-id}))
+      (is (= 1 (count @captured-ticks))
+          "the initial dispatch pair scheduled one drain attempt")
+      (is (= 2 (count (:queue @(:router (frame/frame frame-id)))))
+          "both events are queued before destroy starts")
+
+      ;; `:ui/on-frame-destroyed!` runs after claim-frame-destroy! has returned
+      ;; (and therefore after the cold lock release) but before
+      ;; mark-frame-destroyed!. Its FIFO executor barrier forces the captured
+      ;; drain to finish inside that exact claim -> lifecycle-dead window.
+      (try
+        (late-bind/set-fn!
+          :ui/on-frame-destroyed!
+          (fn [id]
+            (when original-hook
+              (original-hook id))
+            (when (= frame-id id)
+              ;; Submit the drain attempt captured at enqueue time only AFTER
+              ;; claim-frame-destroy! has released the cold lock. This covers
+              ;; the path where that attempt had not yet CAS-lost when claim
+              ;; completed; the claim predicate, not scheduling luck, must
+              ;; prevent it from invoking either queued handler.
+              ;; `next-tick` deliberately conveys dynamic bindings through
+              ;; `bound-fn`. Scheduling from this teardown hook therefore also
+              ;; proves that owner privilege is ACTUAL host-thread identity,
+              ;; not the conveyed `*destroying-frame-id*` value.
+              (interop/next-tick (first @captured-ticks))
+              (executor-barrier!)
+              (let [record (get @frame/frames frame-id)]
+                (reset! gap-observation
+                        {:destroyed? (-> record :lifecycle :destroyed?)
+                         :queued     (count (:queue @(:router record)))})))))
+        (rf/destroy-frame! frame-id)
+        (finally
+          (late-bind/set-fn! :ui/on-frame-destroyed! original-hook)))
+
+      (is (= 0 @parent-runs)
+          "queued handlers are no-op as soon as this incarnation's destroy is claimed")
+      (is (= 0 @user-effects)
+          "a dropped queued handler cannot emit user effects")
+      (is (= 0 @child-runs)
+          "a dropped queued handler cannot enqueue or run child dispatches")
+      (is (= {:destroyed? false :queued 0} @gap-observation)
+          "the queued drain was disposed while the frame was claimed but still lifecycle-live")
+      (is (nil? (frame/frame frame-id))
+          "destroy still completes after the claim-window barrier"))))
 
 (deftest replace-container-on-destroyed-frame-does-not-npe
   ;; Tighter reproducer that hits the adapter guard directly via the

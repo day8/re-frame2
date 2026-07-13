@@ -15,8 +15,10 @@
          throwing hook is swallowed (try/catch) so a buggy listener
          can't block the registration.
 
-    G5 — `frame/frame-disposed-for-drain?` (frame.cljc) three branches:
-         destroyed-but-present → true, absent → true, live → false.
+    G5 — `frame/frame-disposed-for-drain?` (frame.cljc) record-state branches:
+         destroyed-but-present → true, absent → true, live → false. The fourth,
+         incarnation-scoped destroy-claim cutoff is exercised with real
+         serialization barriers in `frame-lifecycle-test`.
 
     G6 — `subs/reg-sub` malformed-form throw `:rf.error/reg-sub-bad-args`
          (subs.cljc). reg-event / reg-view bad-args are pinned elsewhere;
@@ -149,10 +151,10 @@
           "the new slot is in place"))))
 
 ;; =============================================================================
-;; G5 — frame/frame-disposed-for-drain? three branches
+;; G5 — frame/frame-disposed-for-drain? record-state branches
 ;; =============================================================================
 
-(deftest frame-disposed-for-drain?-distinguishes-the-three-branches
+(deftest frame-disposed-for-drain?-distinguishes-record-state-branches
   (testing "live frame → false; destroyed-but-present → true; absent → true"
     (reset! frame/frames
             {:f/live      {:lifecycle {:destroyed? false}}
