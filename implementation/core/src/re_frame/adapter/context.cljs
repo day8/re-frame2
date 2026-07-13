@@ -65,9 +65,9 @@
 (defn provider-element
   "Build a React element for the frame-context Provider with `frame-kw`
   as its value and `children` as its child elements. Substrate-agnostic
-  — both the Reagent adapter (via `:>` interop) and the UIx adapter
-  (via `$`) can wrap the appropriate hiccup/expression form around this
-  primitive.
+  — the Reagent adapter (via `:>` interop), the UIx/Helix adapters (via
+  `$`), and the first-party re-frame.ui substrate's provider component
+  all wrap their element idiom around this primitive.
 
   Returns a raw React element so callers don't pay for an extra
   reagent.core/as-element walk."
@@ -91,9 +91,10 @@
   positional args, not a single array child.
 
   Shared by `re-frame.substrate.spine/build-frame-provider-element` (the
-  scope-only `frame-provider` core) and `re-frame.views.frame-boundary`'s
+  scope-only `frame-provider` core), `re-frame.views.frame-boundary`'s
   `frame-root-fc` / `frame-root-react-element` (the ENSURE `frame-root`
-  cores) so the three element builders normalise children one identical
+  cores), and `re-frame.ui.substrate`'s `:register-context-provider`
+  component so the four element builders normalise children one identical
   way — `(apply provider-element frame-kw (normalize-children children))`."
   [children]
   (cond
