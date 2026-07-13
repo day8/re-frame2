@@ -451,8 +451,11 @@ server in sight (guide 01):
    `{:props p}`. Frames ride `{:frame f}` XOR `{:app-db v}` (test frame minted); with
    neither, structural rendering proceeds and any `sub` raises
    `:rf.error/no-frame-context` — honest, not defaulted.
-2. **A literal root form** — the same grammar `mount` takes, top-region wrappers
-   included. Then:
+2. **A literal root form** — the same literal top-region grammar `mount` takes,
+   wrappers included, tightened to exactly **one mounted view** per test root
+   (§1.1's authored-`:root-id` multi-view allowance does not apply here; two views →
+   `:rf.ui.compile/bad-test-root`, remedy: wrap the composition in one `defview`).
+   Then:
    - `{:props p}` is **rejected** (didactic: props live in the form);
    - the form's `frame-root` plans run preflight ENSURE against the test registrar,
      minting fresh test frames from the plans;

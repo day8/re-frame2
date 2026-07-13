@@ -45,7 +45,12 @@ real registrations, no React:
   states are just app-db values you install or events you dispatch. Stubbing a sub is
   the explicit option:
   `(ui.test/render [view] {:frame frame :sub-overrides {[:cart/locked?] true}})`.
-- `render` also takes a **literal root form** — the same grammar `mount` accepts:
+- `render` also takes a **literal root form** — the same literal top-region grammar
+  `mount` accepts, deliberately tightened in one way: a test root mounts exactly *one*
+  view, because root identity is that view's id. `mount` will take a multi-view form
+  when you author a `:root-id`; `ui.test/render` won't — a two-view root fails at
+  expansion with `:rf.ui.compile/bad-test-root`. Need a multi-view composition under
+  test? Wrap it in one `defview` and render that.
   `(ui.test/render [ui/frame-root {:id :shop :initial-events [[:shop/boot]]} [app]] {})`
   runs the form's frame plans as preflight ENSURE against the test registrar, minting
   the frames it declares. With a plan-bearing root form, `{:frame …}`/`{:app-db …}` are
