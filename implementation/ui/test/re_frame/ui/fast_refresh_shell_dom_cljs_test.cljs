@@ -53,7 +53,7 @@
           token (React/useRef (js-obj))
           prop-v (unchecked-get props "value")
           sub-v  (when read-sub?
-                   (reactive/sub-read [::preserve-value]))]
+                   (reactive/sub-read ::preserve-site [::preserve-value]))]
       (swap! probe assoc :parent-n n :set-parent set-n
              :parent-token (.-current token))
       (React/createElement
@@ -275,9 +275,9 @@
             render-v2 (fn [_props]
                         (React/createElement
                          "output" #js {:data-hmr-stale "v2"}
-                         (str (reactive/sub-read [::value]))))
+                         (str (reactive/sub-read ::value-site [::value]))))
             render-v1 (fn [_props]
-                        (let [v (reactive/sub-read [::value])]
+                        (let [v (reactive/sub-read ::value-site [::value])]
                           ;; Move the authoritative body revision after capture
                           ;; began but before this render's layout commit.
                           ;; Dependencies remain exactly equal.

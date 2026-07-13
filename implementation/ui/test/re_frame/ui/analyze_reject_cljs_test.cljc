@@ -60,7 +60,32 @@
   (is (= :rf.ui.compile/sub-in-loop
          (reject-id '(for [x xs :let [v (sub [:q x])]] [:li {:key x} v]))))
   (is (= :rf.ui.compile/lease-in-loop
-         (reject-id '(for [x xs] [:li {:key x} (str (lease {:resource x}))])))))
+         (reject-id '(for [x xs] [:li {:key x} (str (lease {:resource x}))]))))
+  (is (= :rf.ui.compile/sub-in-loop
+         (reject-id '[:button {:on-click [::open (sub [:q])]} "x"])))
+  (is (= :rf.ui.compile/sub-in-loop
+         (reject-id '[:button {:on-click {:event [::open (sub [:q])]}} "x"])))
+  (is (= :rf.ui.compile/sub-in-loop
+         (reject-id '[:button {:on-click (fn [_] (sub [:q]))} "x"])))
+  (is (= :rf.ui.compile/sub-in-loop
+         (reject-id '[:div {:ref (raw-fn (fn [_] (sub [:q])))}])))
+  (is (= :rf.ui.compile/sub-in-loop
+         (reject-id '[:div {:title (mapv (fn [x] (sub [:q x])) xs)}])))
+  (is (= :rf.ui.compile/sub-in-loop
+         (reject-id '[:div {:title (loop [x 0] (sub [:q x]))}])))
+  (is (= :rf.ui.compile/lease-in-loop
+         (reject-id '[:button {:on-click (fn [_] (lease {:resource :x}))} "x"])))
+  (is (= :rf.ui.compile/unsupported-form
+         (reject-id '[:div {:title (if-let [x maybe] (sub [:q x]) nil)}]))
+      "opaque binder macros fail loudly instead of receiving an unsound rewrite")
+  (is (= :rf.ui.compile/unsupported-form
+         (reject-id '[:div {:title (sub)}])))
+  (is (= :rf.ui.compile/unsupported-form
+         (reject-id '[:div {:title (sub [:a] [:b])}])))
+  (is (= :rf.ui.compile/unsupported-form
+         (reject-id '[:div {:title (lease)}])))
+  (is (= :rf.ui.compile/unsupported-form
+         (reject-id '[:div {:title (lease {:a 1} {:b 2})}]))))
 
 (deftest loop-captured-handlers
   (is (= :rf.ui.compile/loop-capturing-handler

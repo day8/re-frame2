@@ -68,7 +68,7 @@
     ;; render probes incarnation A (ownership-free)
     (let [[_ capture] (rf/with-frame fid
                         (reactive/with-capture
-                         cell (fn [] (reactive/sub-read [:ic/a]))))]
+                         cell (fn [] (reactive/sub-read ::site [:ic/a]))))]
     ;; commit: step 4 acquires A's lease + step 5 reads it (A still live), THEN
     ;; the :post-acquire seam fully destroys A and recreates B under the same id
     ;; BEFORE the publish. The incarnation-safe revalidation must join THIS commit
@@ -99,7 +99,7 @@
       (let [cell-b (reactive/make-cell ::b)]
         (let [[_ capture] (rf/with-frame fid
                             (reactive/with-capture
-                             cell-b (fn [] (reactive/sub-read [:ic/a]))))]
+                             cell-b (fn [] (reactive/sub-read ::site [:ic/a]))))]
           (reactive/commit! cell-b capture))
         (is (= :connected (reactive/lifecycle cell-b)) "B's own cell connects")
         (is (= #{(tk fid [:ic/a])} (reactive/committed-target-keys cell-b))
@@ -122,7 +122,7 @@
         cell (reactive/make-cell ::v)]
     (let [[_ capture] (rf/with-frame fid
                         (reactive/with-capture
-                         cell (fn [] (reactive/sub-read [:ic/a]))))]
+                         cell (fn [] (reactive/sub-read ::site [:ic/a]))))]
       (reactive/commit! cell capture))
     (is (= :connected (reactive/lifecycle cell))
         "no supersede, no close ⇒ ordinary connected commit (incarnation check is false)")

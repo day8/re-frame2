@@ -99,7 +99,7 @@
         (try
           (let [[_ capture] (rf/with-frame fid
                               (reactive/with-capture
-                               b-cell (fn [] (reactive/sub-read [:ic/a]))))]
+                               b-cell (fn [] (reactive/sub-read ::site [:ic/a]))))]
             (reactive/commit! b-cell capture))
           (catch Throwable e (reset! b-error e)))
         (.countDown b-done)

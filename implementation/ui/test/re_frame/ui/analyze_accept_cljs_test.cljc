@@ -20,6 +20,7 @@
       html        {:fqn 're-frame.ui/html :meta {}}
       raw-fn      {:fqn 're-frame.ui/raw-fn :meta {}}
       spread      {:fqn 're-frame.ui/spread :meta {}}
+      if-let      {:fqn 'clojure.core/if-let :meta {:macro true}}
       frame-provider {:fqn 're-frame.ui/frame-provider :meta {}}
       child-view  {:fqn 'app.views/child-view
                    :meta {:rf.ui/view true :rf.ui/children? true}}
@@ -173,6 +174,19 @@
                                     [:p {:data-n (sub [:count])} "x"]])]
     (is (= 2 (count (:subs sites))))
     (is (= [[:title]] (map :query (take 1 (:subs sites)))))))
+
+(deftest lexical-shadowing-never-mints-a-reactive-site
+  (testing "a local named sub is an ordinary call, not re-frame.ui/sub"
+    (let [{:keys [ast sites]}
+          (ana-full '[:div {:title (let [sub identity] (sub query))}])]
+      (is (empty? (:subs sites)))
+      (is (= '(let [sub identity] (sub query))
+             (get-in ast [:props :attrs 0 :value])))))
+  (testing "catch bindings receive the same lexical-shadow treatment"
+    (let [{:keys [sites]}
+          (ana-full '[:div {:title (try value
+                                    (catch Exception sub (sub query)))}])]
+      (is (empty? (:subs sites))))))
 
 (deftest html-sites-index
   (testing "ui/html records a manifest site — the profile row's 'manifest

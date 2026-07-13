@@ -32,7 +32,9 @@
   (let [cell (reactive/make-cell ::v)]
     (let [[_ capture] (rf/with-frame fid
                         (reactive/with-capture
-                         cell (fn [] (mapv reactive/sub-read queries))))]
+                         cell (fn [] (mapv (fn [i q]
+                                            (reactive/sub-read [:wiring/site i] q))
+                                          (range) queries))))]
       (reactive/commit! cell capture))
     cell))
 

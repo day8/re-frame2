@@ -58,7 +58,9 @@
     (reactive/attach-root! cell (root-incarnation root-id))
     (let [[_ capture] (rf/with-frame fid
                         (reactive/with-capture
-                         cell (fn [] (mapv reactive/sub-read queries))))]
+                         cell (fn [] (mapv (fn [i q]
+                                            (reactive/sub-read [:incarnation/site i] q))
+                                          (range) queries))))]
       (reactive/commit! cell capture))
     cell))
 
@@ -112,7 +114,7 @@
       (reactive/settle-disconnect! cell)
       (let [[_ capture] (rf/with-frame :ri/frame
                           (reactive/with-capture
-                           cell (fn [] (reactive/sub-read [:ri/a]))))]
+                           cell (fn [] (reactive/sub-read ::site [:ri/a]))))]
         (reactive/commit! cell capture))
       (is (= :connected (reactive/lifecycle cell)))
       (is (= {:state :disconnected :reason :activity-hidden :proof :reconnect}

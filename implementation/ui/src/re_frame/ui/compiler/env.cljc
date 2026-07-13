@@ -33,13 +33,19 @@
   self = the view symbol being compiled (nil outside defview);
   self-id = its view id. `resolver` (tests only) overrides host
   resolution: (fn [sym]) -> {:fqn sym :meta {..}} | nil."
-  [{:keys [host cljs-env ns-sym self self-id resolver]}]
+  [{:keys [host cljs-env ns-sym self self-id resolver source template-anchor]}]
   {:host      host
    :cljs-env  cljs-env
    :ns        ns-sym
    :self      self
    :self-id   self-id
    :resolver  resolver
+   ;; Compiler-owned lexical-site identity inputs. `source` is the defview
+   ;; declaration anchor (only relative line/column deltas are consumed) and
+   ;; `template-anchor` is a semantic whole-template fallback for reader forms
+   ;; that carry no usable source metadata. Neither reaches emitted code.
+   :source    source
+   :template-anchor template-anchor
    :locals    #{}
    :loop-syms #{}
    :in-loop?  false

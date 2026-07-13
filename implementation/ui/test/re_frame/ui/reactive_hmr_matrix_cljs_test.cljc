@@ -17,8 +17,8 @@
     2. STALE-CELL REJECTION AT COMMIT (step 1). A live cell whose generation
        advanced past its in-flight capture is stale-rejected (`:stale`) with no
        ownership touched — the same-shell reload's mark-stale-then-re-render.
-    3. SITE IDENTITY survives edits. Sites are keyed by target IDENTITY
-       `(frame, query)`: a sibling site added above a lease never retargets it;
+    3. SITE IDENTITY survives edits. Sites are keyed by compiler-minted lexical
+       identity: a sibling site added above a lease never retargets it;
        a site whose query moves retargets (kept-check fails → release + acquire)
        and a shared node never churns.
     4. SUB REPLACEMENT via lease `current?`. A committed ViewCell lease whose
@@ -67,10 +67,21 @@
 
 (defn- render! [cell queries]
   (rf/with-frame fid
-    (reactive/with-capture cell (fn [] (mapv reactive/sub-read queries)))))
+    (reactive/with-capture cell
+      (fn [] (mapv (fn [i q]
+                     (reactive/sub-read [:hmr/site i] q))
+                   (range) queries)))))
 
 (defn- render+commit! [cell queries]
   (let [[_ capture] (render! cell queries)]
+    (reactive/commit! cell capture))
+  cell)
+
+(defn- render-sites+commit! [cell sites]
+  (let [[_ capture]
+        (rf/with-frame fid
+          (reactive/with-capture cell
+            (fn [] (mapv (fn [[sid q]] (reactive/sub-read sid q)) sites))))]
     (reactive/commit! cell capture))
   cell)
 
@@ -203,18 +214,21 @@
     (is (nil? (entry [:r/b])) "abandoned B owns and materialises nothing")))
 
 ;; ===========================================================================
-;; Cell 3 — site identity survives edits (target identity, not position)
+;; Cell 3 — compiler site identity survives edits (not query or position)
 ;; ===========================================================================
 
 (deftest sibling-site-added-above-never-retargets-an-existing-lease
   (rf/reg-sub :r/a (fn [db _] (:a db)))
   (rf/reg-sub :r/b (fn [db _] (:b db)))
   (seed! {:a 1 :b 2})
-  (let [cell   (render+commit! (reactive/make-cell ::v) [[:r/a]])
+  (let [site-a ::site-a
+        site-b ::site-b
+        cell   (render-sites+commit! (reactive/make-cell ::v)
+                                     [[site-a [:r/a]]])
         lease-a (reactive/committed-lease cell (tk [:r/a]))]
-    (testing "an edit inserts a NEW sibling site ABOVE :a; :a's lease is keyed by
-              target identity (frame,query), never by position"
-      (render+commit! cell [[:r/b] [:r/a]])
+    (testing "an edit inserts a NEW compiler site ABOVE :a; :a keeps its
+              lexical identity even though its traversal position moved"
+      (render-sites+commit! cell [[site-b [:r/b]] [site-a [:r/a]]])
       (is (identical? lease-a (reactive/committed-lease cell (tk [:r/a])))
           ":a keeps the SAME lease — the prepended :b did not shift its owner")
       (is (= #{(tk [:r/a]) (tk [:r/b])} (reactive/committed-target-keys cell)))

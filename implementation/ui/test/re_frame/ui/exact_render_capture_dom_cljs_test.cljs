@@ -42,7 +42,7 @@
     (viewcell/render
      ::observed
      (fn []
-       (let [value (reactive/sub-read [::a])]
+       (let [value (reactive/sub-read ::site [::a])]
          (swap! renders inc)
          (React/createElement "output" #js {:data-capture "a"}
                               (str value)))))))
@@ -53,7 +53,7 @@
     ;; This is a complete ownership-free render B on A's exact cell. It runs
     ;; after observed-component captured A, then the stable Promise abandons B.
     ;; The returned [element capture] pair is deliberately unreachable.
-    (reactive/with-capture cell #(reactive/sub-read [::b]))
+    (reactive/with-capture cell #(reactive/sub-read ::site [::b]))
     (throw blocker)))
 
 (defn- hostile-tree [props]

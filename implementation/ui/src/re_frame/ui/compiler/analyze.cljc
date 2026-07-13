@@ -14,6 +14,7 @@
   (:require [clojure.string :as str]
             [re-frame.ui.compiler.build :as build]
             [re-frame.ui.compiler.env :as env]
+            [re-frame.ui.fingerprint :as fingerprint]
             [re-frame.ui.rules :as rules]))
 
 (def node-ops
@@ -78,66 +79,328 @@
 (defn- spread-form? [e f] (and (seq? f) (symbol? (first f)) (env/resolves-to? e (first f) ui-spread-fqns)))
 
 ;; ---------------------------------------------------------------------------
-;; Expression walking — sub/lease site indexing + loop finiteness
+;; Expression rewriting — lexical site indexing + loop finiteness
 ;; ---------------------------------------------------------------------------
 
-(defn walk-expr
-  "Walk an opaque expression: index (sub ...)/(lease ...) sites and
-  enforce the finite-sites law — a sub/lease site anywhere it may
-  evaluate more than once per render (`:in-loop?`) is a compile error."
-  [e form]
-  (letfn [(walk [f locals]
+(def ^:private runtime-sub-fqn 're-frame.ui.reactive/sub-read)
+(def ^:private deferred-scope ::deferred-scope)
+
+(defn- deferred-expr-root?
+  "Expression roots whose value is evaluated by a later host callback, not by
+  the view's render capture. `sub`/`lease` below these roots would be
+  phase-divergent between the JVM data host and React."
+  [expr-root]
+  (or (= :handler (first expr-root))
+      (some #{:raw-fn} expr-root)))
+
+(defn runtime-sub-form?
+  "True for the compiler's serialized internal lowering of a lexical sub.
+  Public only within the compiler family (fingerprint/emitter tests use it)."
+  [x]
+  (and (seq? x) (= runtime-sub-fqn (first x)) (= 3 (count x))))
+
+(defn template-fingerprint-projection
+  "Remove compiler-owned lexical site ids from an analyzed AST while retaining
+  the semantic sub query. This makes source-anchor/path movement irrelevant to
+  template/build identity without making the query invisible."
+  [ast]
+  (letfn [(project [x]
             (cond
-              (and (seq? f) (= 'quote (first f))) nil
+              (runtime-sub-form? x)
+              (with-meta (list 're-frame.ui/sub (project (nth x 2))) (meta x))
 
-              (seq? f)
-              (let [head (first f)]
-                (when (and (symbol? head) (not (contains? locals head)))
-                  (let [e* (update e :locals into locals)]
-                    (cond
-                      (env/resolves-to? e* head sub-fqns)
-                      (do (when (:in-loop? e)
-                            (env/fail! e :rf.ui.compile/sub-in-loop
-                                       (str "(sub ...) inside a loop — subscription sites "
-                                            "must be finite. Extract a keyed child view and "
-                                            "read the sub there")
-                                       {:form f}))
-                          (env/add-site! e :subs {:query (second f) :path (:path e)}))
+              (map? x)
+              (with-meta (into (empty x) (map (fn [[k v]] [(project k) (project v)])) x)
+                         (meta x))
 
-                      (env/resolves-to? e* head lease-fqns)
-                      (do (when (:in-loop? e)
-                            (env/fail! e :rf.ui.compile/lease-in-loop
-                                       (str "(lease ...) inside a loop — lease sites must "
-                                            "be finite. Extract a keyed child view")
-                                       {:form f}))
-                          (env/add-site! e :leases {:descriptor (second f) :path (:path e)}))
-                      :else nil)))
-                ;; collect locals introduced by fn*/let* inside opaque exprs
-                ;; (best-effort shadow tracking)
-                (let [locals' (cond
-                                (fn-form? f)
-                                (into locals (mapcat env/binding-syms
-                                                     (filter vector? (flatten1-argvs f))))
-                                (and (contains? #{'let 'let* 'loop 'loop*} head)
-                                     (vector? (second f)))
-                                (into locals (mapcat env/binding-syms
-                                                     (take-nth 2 (second f))))
-                                :else locals)]
-                  (doseq [x (rest f)] (walk x locals'))))
+              (vector? x) (with-meta (mapv project x) (meta x))
+              (set? x)    (with-meta (into (empty x) (map project) x) (meta x))
+              (seq? x)    (with-meta (apply list (map project x)) (meta x))
+              :else x))]
+    (project ast)))
 
-              (coll? f)
-              (doseq [x f] (walk x locals))
+(defn- relative-source-anchor
+  [e form]
+  (let [m    (meta form)
+        base (:source e)
+        line (:line m)
+        col  (:column m)]
+    (if (and (integer? line) (integer? (:line base)))
+      ;; Reader end coordinates are not host-common (and have changed across
+      ;; reader versions). Start coordinates are the portable lexical anchor.
+      [:relative (- line (:line base)) (or col 0)]
+      ;; No reader anchor means no attempt to history-match sites. The whole
+      ;; template anchor changes all such ids on an edit: safe reacquisition,
+      ;; never ordinal transfer to a different lexical site.
+      [:template (or (:template-anchor e)
+                     (fingerprint/digest "sta1-" form))])))
 
-              :else nil))
-          (flatten1-argvs [f]
-            ;; fn forms: (fn name? [args] ...) or (fn ([a] ..) ([a b] ..))
-            (let [tail (drop 1 f)
-                  tail (if (symbol? (first tail)) (rest tail) tail)]
-              (if (vector? (first tail))
-                [(first tail)]
-                (map first (filter seq? tail)))))]
-    (walk form #{})
-    form))
+(defn- lexical-site-id
+  [e kind form expr-path]
+  (fingerprint/digest
+   "sid1-"
+   [1 (:self-id e) kind (relative-source-anchor e form)
+    (:path e) (vec expr-path)]))
+
+(defn- map-path-token [x]
+  (fingerprint/digest "ep1-" x))
+
+(defn rewrite-expr
+  "Rewrite an opaque expression, lowering resolved unshadowed `(sub q)` calls
+  to the serialized two-argument runtime shape and recording stable lexical
+  sub/lease ids. The returned form MUST be threaded into the AST.
+
+  `expr-root` names the containing AST slot; recursive paths then distinguish
+  every nested expression without a fragile global/preorder ordinal. Binding
+  scopes follow evaluation order for fn/let/loop/letfn and all metadata and
+  collection kinds are preserved."
+  ([e form] (rewrite-expr e [:expr] form))
+  ([e expr-root form]
+   (letfn [(with-same-meta [old x]
+              (with-meta x (meta old)))
+           (rw-fn-arity [arity locals p]
+             (let [[argv & body] arity
+                   body-locals (-> locals
+                                   (into (env/binding-syms argv))
+                                   (conj deferred-scope))]
+               (with-same-meta
+                 arity
+                 (apply list argv
+                        (map-indexed #(rw %2 body-locals (conj p :body %1)) body)))))
+           (rw-fn [f locals p]
+             (let [head (first f)
+                   tail (rest f)
+                   named? (symbol? (first tail))
+                   fname (when named? (first tail))
+                   tail (if named? (rest tail) tail)
+                   locals* (cond-> locals fname (conj fname))
+                   rewritten
+                   (if (vector? (first tail))
+                     (let [[argv & body] tail
+                            body-locals (-> locals*
+                                            (into (env/binding-syms argv))
+                                            (conj deferred-scope))]
+                       (concat [head] (when fname [fname]) [argv]
+                               (map-indexed #(rw %2 body-locals (conj p :body %1)) body)))
+                     (concat [head] (when fname [fname])
+                             (map-indexed #(rw-fn-arity %2 locals* (conj p :arity %1))
+                                          tail)))]
+               (with-same-meta f (apply list rewritten))))
+           (rw-let [f locals p]
+             (let [head (first f)
+                   bindings (second f)]
+               (if-not (vector? bindings)
+                 (with-same-meta f
+                   (apply list (map-indexed #(rw %2 locals (conj p %1)) f)))
+                 (let [[bindings* locals*]
+                       (loop [pairs (partition 2 bindings)
+                              i 0
+                              out []
+                              scope locals]
+                         (if-let [[pat init] (first pairs)]
+                           (recur (rest pairs) (inc i)
+                                  (conj out pat (rw init scope (conj p :binding i)))
+                                  (into scope (env/binding-syms pat)))
+                           [(with-same-meta bindings (vec out)) scope]))]
+                   (with-same-meta
+                     f
+                     (apply list head bindings*
+                             (map-indexed #(rw %2 (cond-> locals*
+                                                   (contains? #{'loop 'loop*} head)
+                                                   (conj deferred-scope))
+                                               (conj p :body %1))
+                                          (drop 2 f))))))))
+           (rw-letfn [f locals p]
+             (let [specs (second f)]
+               (if-not (vector? specs)
+                 (with-same-meta f
+                   (apply list (map-indexed #(rw %2 locals (conj p %1)) f)))
+                 (let [names (into #{} (keep #(when (seq? %) (first %))) specs)
+                       scope (into locals names)
+                       specs* (with-same-meta
+                                specs
+                                (mapv (fn [i spec]
+                                        (if (and (seq? spec) (symbol? (first spec)))
+                                          (let [[name & arities] spec
+                                                fake (with-meta (apply list 'fn name arities)
+                                                                (meta spec))
+                                                [_ _ & rewritten] (rw-fn fake scope
+                                                                          (conj p :spec i))]
+                                            (with-same-meta spec (apply list name rewritten)))
+                                          (rw spec scope (conj p :spec i))))
+                                      (range) specs))]
+                   (with-same-meta
+                     f
+                     (apply list (first f) specs*
+                            (map-indexed #(rw %2 scope (conj p :body %1))
+                                         (drop 2 f))))))))
+           (rw-try [f locals p]
+             ;; `catch` introduces a local, so it cannot go through generic
+             ;; traversal. `finally` does not. Preserve the marker/type slots
+             ;; verbatim and rewrite only evaluated bodies.
+             (with-same-meta
+               f
+               (apply list
+                      (first f)
+                      (map-indexed
+                       (fn [i clause]
+                         (cond
+                           (and (seq? clause) (= 'catch (first clause))
+                                (symbol? (nth clause 2 nil)))
+                           (let [[marker type binding & body] clause]
+                             (with-same-meta
+                               clause
+                               (apply list marker type binding
+                                      (map-indexed
+                                       #(rw %2 (conj locals binding)
+                                            (conj p :catch i :body %1))
+                                       body))))
+
+                           (and (seq? clause) (= 'finally (first clause)))
+                           (with-same-meta
+                             clause
+                             (apply list 'finally
+                                    (map-indexed
+                                     #(rw %2 locals (conj p :finally :body %1))
+                                     (rest clause))))
+
+                           :else (rw clause locals (conj p :body i))))
+                       (rest f)))))
+           (rw-map [m locals p]
+             (with-same-meta
+               m
+               (reduce-kv (fn [out k v]
+                            (let [t (map-path-token k)]
+                              (assoc out
+                                     (rw k locals (conj p :map-key t))
+                                     (rw v locals (conj p :map-value t)))))
+                          (empty m)
+                          m)))
+           (contains-reactive-call? [x locals]
+             ;; An unresolved/unknown binder macro cannot be traversed safely.
+             ;; This conservative scan deliberately treats a macro-local name
+             ;; that shadows `sub` as reactive: only macro expansion could
+             ;; prove the shadow, so failing is preferable to mis-lowering it.
+             (let [e* (update e :locals into locals)]
+               (cond
+                 (and (seq? x) (= 'quote (first x))) false
+                 (seq? x)
+                 (or (let [h (first x)]
+                       (and (symbol? h)
+                            (not (contains? locals h))
+                            (or (env/resolves-to? e* h sub-fqns)
+                                (env/resolves-to? e* h lease-fqns))))
+                     (some #(contains-reactive-call? % locals) (rest x)))
+                 (map? x) (or (some #(contains-reactive-call? % locals) (keys x))
+                              (some #(contains-reactive-call? % locals) (vals x)))
+                 (coll? x) (some #(contains-reactive-call? % locals) x)
+                 :else false)))
+           (macro-call? [e* head locals]
+             (and (symbol? head)
+                  (not (contains? locals head))
+                  (true? (-> (env/resolve-sym e* head) :meta :macro))))
+           (rw [f locals p]
+             (cond
+               (and (seq? f) (= 'quote (first f))) f
+
+               (seq? f)
+               (let [head (first f)
+                     e*   (update e :locals into locals)]
+                 (cond
+                    (and (symbol? head) (not (contains? locals head))
+                         (env/resolves-to? e* head sub-fqns))
+                    (do
+                      (when-not (= 2 (count f))
+                        (env/fail! e :rf.ui.compile/unsupported-form
+                                   "(sub query) takes exactly one query argument"
+                                   {:form f}))
+                      (when (or (nil? (:self-id e))
+                                (:in-loop? e)
+                                (contains? locals deferred-scope))
+                        (env/fail! e :rf.ui.compile/sub-in-loop
+                                   (str "(sub ...) must be a finite render-time site in a "
+                                        "defview — it cannot run in a loop, deferred "
+                                        "callback, raw-fn/ref body, or root expression. "
+                                        "Hoist the read into the view body and let the "
+                                        "callback capture its committed value; for rows, "
+                                        "extract a keyed child view")
+                                   {:form f}))
+                     (let [sid   (lexical-site-id e :sub f p)
+                           query (rw (second f) locals (conj p :query))]
+                       (env/add-site! e :subs {:sid sid :query (second f)
+                                               :path (:path e) :expr-path (vec p)})
+                       (with-same-meta f (list runtime-sub-fqn sid query))))
+
+                    (and (symbol? head) (not (contains? locals head))
+                         (env/resolves-to? e* head lease-fqns))
+                    (do
+                      (when-not (= 2 (count f))
+                        (env/fail! e :rf.ui.compile/unsupported-form
+                                   "(lease descriptor) takes exactly one descriptor argument"
+                                   {:form f}))
+                      (when (or (nil? (:self-id e))
+                                (:in-loop? e)
+                                (contains? locals deferred-scope))
+                        (env/fail! e :rf.ui.compile/lease-in-loop
+                                   (str "(lease ...) must be a finite render-time site in "
+                                        "a defview — it cannot run in a loop, deferred "
+                                        "callback, raw-fn/ref body, or root expression. "
+                                        "Hoist the lease into the view body; for rows, "
+                                        "extract a keyed child view")
+                                   {:form f}))
+                     (let [sid (lexical-site-id e :lease f p)]
+                       (env/add-site! e :leases {:sid sid :descriptor (second f)
+                                                 :path (:path e) :expr-path (vec p)})
+                       ;; Runtime lease lowering belongs to .106. Rebuild now so
+                       ;; sub sites nested in its descriptor still lower.
+                       (with-same-meta
+                         f
+                          (apply list head
+                                 (map-indexed #(rw %2 locals (conj p (inc %1)))
+                                             (rest f))))))
+
+                   (fn-form? f) (rw-fn f locals p)
+                   (contains? #{'let 'let* 'loop 'loop*} head) (rw-let f locals p)
+                   (contains? #{'letfn 'letfn*} head) (rw-letfn f locals p)
+                   (= 'try head) (rw-try f locals p)
+
+                   (macro-call? e* head locals)
+                   (if (contains-reactive-call? (rest f) locals)
+                     (env/fail! e :rf.ui.compile/unsupported-form
+                                (str "(sub ...)/(lease ...) below macro " head
+                                     " cannot be assigned a sound lexical site "
+                                     "before macro expansion. Hoist the read into "
+                                     "a surrounding let, then pass the value to "
+                                     "the macro expression")
+                                {:form f :macro head})
+                     f)
+
+                   :else
+                   (with-same-meta
+                     f
+                     ;; The call head is not an evaluated argument and cannot
+                     ;; itself contain a reactive site. Preserve it verbatim.
+                     (apply list head
+                            (map-indexed #(rw %2 locals (conj p (inc %1)))
+                                         (rest f))))))
+
+               (map? f) (rw-map f locals p)
+               (vector? f)
+               (with-same-meta f (mapv #(rw %2 locals (conj p %1)) (range) f))
+               (set? f)
+               (with-same-meta
+                 f
+                 (into (empty f)
+                       (map #(rw % locals (conj p :set (map-path-token %))))
+                       f))
+               :else f))]
+     (rw form (cond-> #{}
+                (deferred-expr-root? expr-root) (conj deferred-scope))
+         (vec expr-root)))))
+
+;; Transitional internal name used throughout the analyzer. Unlike its former
+;; side-effect-only implementation it returns the rewritten expression.
+(def walk-expr rewrite-expr)
 
 ;; ---------------------------------------------------------------------------
 ;; Tag sugar — :div.cls#id / :div#id.cls (both orders)
@@ -213,7 +476,12 @@
                {:prop k :form form}))
   (check-loop-capture! e (str "event vector " (pr-str form) " at " k) form)
   (check-placeholders! e form)
-  (doseq [x (rest form)] (walk-expr e x)))
+  (with-meta
+    (into [(first form)]
+          (map-indexed (fn [i x]
+                         (walk-expr e [:handler k :event-arg i] x)))
+          (rest form))
+    (meta form)))
 
 (defn analyze-handler
   "Classify one :on-* entry. -> {:k kw :name str :classification
@@ -223,11 +491,11 @@
   (let [nm (name k)]
     (cond
       (vector? form)
-      (do (analyze-event-vector! e k form)
-          (env/add-site! e :events {:prop k :handler form :path (:path e)
+      (let [form* (analyze-event-vector! e k form)]
+          (env/add-site! e :events {:prop k :handler form* :path (:path e)
                                     :classification :vector :serializable? true})
-          {:k k :name nm :classification :vector :form form :capture? false
-           :hoistable? (every? #(or (literal-scalar? %) (contains? rules/placeholders %)) form)
+          {:k k :name nm :classification :vector :form form* :capture? false
+           :hoistable? (every? #(or (literal-scalar? %) (contains? rules/placeholders %)) form*)
            :serializable? true})
 
       (map? form)
@@ -260,14 +528,16 @@
                           "them as element props; S1 rejects rather than "
                           "silently dropping them. Remove the option for now")
                      {:prop k :form form}))
-        (analyze-event-vector! e k (:event form))
-        (env/add-site! e :events {:prop k :handler form :path (:path e)
-                                  :classification :options :serializable? true})
-        {:k k :name nm :classification :options :form form
-         :capture? (boolean (:capture form))
-         :hoistable? (every? #(or (literal-scalar? %) (contains? rules/placeholders %))
-                             (:event form))
-         :serializable? true})
+        (let [event* (analyze-event-vector! e k (:event form))
+              form*  (assoc form :event event*)]
+          (env/add-site! e :events {:prop k :handler form* :path (:path e)
+                                    :classification :options :serializable? true})
+          {:k k :name nm :classification :options :form form*
+           :capture? (boolean (:capture form))
+           :hoistable? (every? #(or (literal-scalar? %)
+                                     (contains? rules/placeholders %))
+                                event*)
+           :serializable? true}))
 
       (fn-form? form)
       (do (when (:in-loop? e)
@@ -277,19 +547,19 @@
                                     "the data idiom; prefer an event vector or a "
                                     "keyed child view")
                           :form form}))
-          (walk-expr e form)
-          (env/add-site! e :events {:prop k :handler :opaque :path (:path e)
-                                    :classification :fn :serializable? false})
-          {:k k :name nm :classification :fn :form form :capture? false
-           :hoistable? false :serializable? false})
+          (let [form* (walk-expr e [:handler k :fn] form)]
+            (env/add-site! e :events {:prop k :handler :opaque :path (:path e)
+                                      :classification :fn :serializable? false})
+            {:k k :name nm :classification :fn :form form* :capture? false
+             :hoistable? false :serializable? false}))
 
       :else
-      (do (walk-expr e form)
-          (check-loop-capture! e (str "dynamic handler at " k) form)
-          (env/add-site! e :events {:prop k :handler :opaque :path (:path e)
-                                    :classification :dynamic :serializable? false})
-          {:k k :name nm :classification :dynamic :form form :capture? false
-           :hoistable? false :serializable? false}))))
+      (let [form* (walk-expr e [:handler k :dynamic] form)]
+        (check-loop-capture! e (str "dynamic handler at " k) form)
+        (env/add-site! e :events {:prop k :handler :opaque :path (:path e)
+                                  :classification :dynamic :serializable? false})
+        {:k k :name nm :classification :dynamic :form form* :capture? false
+         :hoistable? false :serializable? false}))))
 
 ;; ---------------------------------------------------------------------------
 ;; :class / :style
@@ -326,21 +596,28 @@
                                 (->> consts
                                      (keep (fn [[k v]] (when v (if (keyword? k) (name k) k))))
                                      sort))
-              flags (->> exprs
-                         (map (fn [[k v]] [(if (keyword? k) (name k) k) v]))
-                         (sort-by first)
-                         vec)]
-          (doseq [[_ v] flags] (walk-expr e v))
+               flags (->> exprs
+                          (map (fn [[k v]]
+                                 [(if (keyword? k) (name k) k)
+                                  (walk-expr e [:class :flag k] v)]))
+                          (sort-by first)
+                          vec)]
           {:base-str (str/join " " const-names) :flags flags :dyn nil
            :static? (empty? flags)}))
 
       (vector? form) ; mixed literal/expr vector — runtime join in vector order
-      (do (doseq [x form] (when-not (literal-scalar? x) (walk-expr e x)))
-          {:base-str (str/join " " base) :flags [] :dyn form :static? false})
+      (let [form* (with-meta
+                    (mapv (fn [i x]
+                            (if (literal-scalar? x)
+                              x
+                              (walk-expr e [:class :vector i] x)))
+                          (range) form)
+                    (meta form))]
+        {:base-str (str/join " " base) :flags [] :dyn form* :static? false})
 
       :else
-      (do (walk-expr e form)
-          {:base-str (str/join " " base) :flags [] :dyn form :static? false}))))
+      {:base-str (str/join " " base) :flags []
+       :dyn (walk-expr e [:class :dynamic] form) :static? false})))
 
 (defn analyze-style
   "-> {:entries [{:css-name str :value form :literal? bool}] :static? bool}
@@ -356,14 +633,16 @@
                                             "pass the whole :style value as "
                                             "one dynamic expression")
                                        {:key k :form form}))
-                          (when-not (literal-scalar? v) (walk-expr e v))
-                          {:css-name (name k) :value v :literal? (literal-scalar? v)})
-                        form)]
+                           {:css-name (name k)
+                            :value (if (literal-scalar? v)
+                                     v
+                                     (walk-expr e [:style k] v))
+                            :literal? (literal-scalar? v)})
+                         form)]
       {:entries entries :static? (every? :literal? entries)})
 
     :else
-    (do (walk-expr e form)
-        {:dyn form :static? false})))
+    {:dyn (walk-expr e [:style :dynamic] form) :static? false}))
 
 ;; ---------------------------------------------------------------------------
 ;; Element props
@@ -387,9 +666,9 @@
                       "be explicit: (ui/raw-fn f); object refs are preferred")
                  {:form form})
       (raw-fn-form? e form)
-      {:form (second form) :raw-fn? true}
+      {:form (walk-expr e [:ref :raw-fn] (second form)) :raw-fn? true}
       :else
-      (do (walk-expr e form) {:form form :raw-fn? false}))
+      {:form (walk-expr e [:ref :element] form) :raw-fn? false})
     :view
     (env/fail! e :rf.ui.compile/ref-on-view-s1
                (str ":ref at an internal-view call site — internal views "
@@ -397,7 +676,7 @@
                     "forwarding lands S3. (Conservative S1 pin.)")
                {:form form})
     :foreign
-    (do (walk-expr e form) {:form form :raw-fn? false})))
+    {:form (walk-expr e [:ref :foreign] form) :raw-fn? false}))
 
 (defn analyze-element-props
   "Analyze a DOM/custom element's props position (literal map or
@@ -426,12 +705,13 @@
           (env/fail! e :rf.ui.compile/bad-spread
                      "(ui/spread base) or (ui/spread base overrides)"
                      {:form props-form}))
-        (walk-expr e base)
-        (when overrides (walk-expr e overrides))
+        (let [base*      (walk-expr e [:spread :base] base)
+              overrides* (when overrides
+                           (walk-expr e [:spread :overrides] overrides))]
         {:key {:present? false} :class (analyze-class e (:classes tag-info) nil)
          :style nil :attrs [] :events []
-         :spread {:base base :overrides overrides}
-         :ref nil :property-props #{} :static? false})
+         :spread {:base base* :overrides overrides*}
+         :ref nil :property-props #{} :static? false}))
       (let [m (or props-form {})]
         (doseq [k (keys m)]
           (when-not (keyword? k)
@@ -453,11 +733,12 @@
               attr-ks    (remove on? (keys m*))
               events     (mapv #(analyze-handler e % (get m* %)) handler-ks)
               attrs      (mapv (fn [k]
-                                 (let [v (get m* k)
-                                       n (name k)
-                                       property? (boolean (and properties (properties k)))]
-                                   (when-not (literal-scalar? v)
-                                     (walk-expr e v))
+                                  (let [v (get m* k)
+                                        n (name k)
+                                        property? (boolean (and properties (properties k)))
+                                        v* (if (literal-scalar? v)
+                                             v
+                                             (walk-expr e [:prop k] v))]
                                    ;; literal collection VALUES only — seq forms
                                    ;; are dynamic expressions (runtime-normalized)
                                    (when (and (or (vector? v) (map? v) (set? v))
@@ -482,8 +763,8 @@
                                                   (rules/custom-element-property-name n)
                                                   (rules/react-prop-name n))
                                     :kind (if property? :property :attr)
-                                    :value v
-                                    :literal? (literal-scalar? v)}))
+                                     :value v*
+                                     :literal? (literal-scalar? v)}))
                                attr-ks)
               sugar-id   (:id tag-info)
               attrs      (into (if sugar-id
@@ -495,9 +776,12 @@
                            (analyze-class e (:classes tag-info) (get m :class)))
               style-a    (when (contains? m :style)
                            (analyze-style e (get m :style)))
-              ref-a      (when (contains? m :ref) (analyze-ref e ref-form :element))]
-          (when-not (literal-scalar? key-form) (when (contains? m :key) (walk-expr e key-form)))
-          {:key   {:present? (contains? m :key) :expr key-form
+               ref-a      (when (contains? m :ref) (analyze-ref e ref-form :element))
+               key-form*  (if (and (contains? m :key)
+                                    (not (literal-scalar? key-form)))
+                            (walk-expr e [:key] key-form)
+                            key-form)]
+          {:key   {:present? (contains? m :key) :expr key-form*
                    :literal? (literal-scalar? key-form)}
            :class class-a
            :style style-a
@@ -560,18 +844,20 @@
                          (env/fail! e :rf.ui.compile/bad-html
                                     "(ui/html x) requires a string"
                                     {:form (first child-fs)}))
-                       (when-not (string? s) (walk-expr e s))
+                       (let [s* (if (string? s)
+                                  s
+                                  (walk-expr e [:html] s))]
                        ;; Record the trusted-markup site in the compiler
                        ;; manifest (profile row `ui/html` — "manifest site
                        ;; recording"): the visible bypass carries source/
                        ;; template path so tools can list every place escaping
                        ;; is bypassed. `:serializable?` is false for a dynamic
                        ;; string expression, true for a literal.
-                       (env/add-site! e :htmls {:form s
+                       (env/add-site! e :htmls {:form s*
                                                 :static? (string? s)
                                                 :serializable? (string? s)
                                                 :path (:path e)})
-                       {:op :html :form s :static? (string? s)}))]
+                       {:op :html :form s* :static? (string? s)})))]
       {:op :element
        :tag tag
        :custom? custom?
@@ -632,21 +918,28 @@
                            ;; passing row data into a keyed child view is exactly
                            ;; the extract-a-keyed-child-view fix; only HANDLER
                            ;; sites are capture-checked.
-                           (let [raw?    (raw-form? e v)
-                                 raw-fn? (raw-fn-form? e v)]
-                             (when-not (literal-scalar? v) (walk-expr e v))
-                             {:k k
-                              :slot (if-let [ns* (namespace k)] (str ns* "/" (name k)) (name k))
-                              :value (cond raw? (second v) raw-fn? (second v) :else v)
-                              :marker (cond raw? :foreign raw-fn? :ui/raw-fn :else nil)
-                              :literal? (literal-scalar? v)}))
-                         m*)]
-      (when (and (contains? m :key) (not (literal-scalar? key-form)))
-        (walk-expr e key-form))
-      {:key {:present? (contains? m :key) :expr key-form
+                            (let [raw?    (raw-form? e v)
+                                  raw-fn? (raw-fn-form? e v)
+                                  v*      (cond
+                                            raw? (walk-expr e [:component-prop k :raw]
+                                                            (second v))
+                                            raw-fn? (walk-expr e [:component-prop k :raw-fn]
+                                                               (second v))
+                                            (literal-scalar? v) v
+                                            :else (walk-expr e [:component-prop k] v))]
+                              {:k k
+                               :slot (if-let [ns* (namespace k)] (str ns* "/" (name k)) (name k))
+                               :value v*
+                               :marker (cond raw? :foreign raw-fn? :ui/raw-fn :else nil)
+                               :literal? (literal-scalar? v)}))
+                          m*)]
+      (let [key-form* (if (and (contains? m :key) (not (literal-scalar? key-form)))
+                        (walk-expr e [:component-key] key-form)
+                        key-form)]
+      {:key {:present? (contains? m :key) :expr key-form*
              :literal? (literal-scalar? key-form)}
        :entries entries
-       :ref ref-a})))
+       :ref ref-a}))))
 
 (defn- analyze-component [e form]
   (let [head      (nth form 0)
@@ -747,13 +1040,19 @@
                         "keyword — plans are static identity; got "
                         (pr-str id))
                    {:form form :id id}))
-      (let [config (not-empty (dissoc props :id))]
+      (let [config (not-empty (dissoc props :id))
+            config* (when config
+                      (with-meta
+                        (into (empty config)
+                              (map (fn [[k v]]
+                                     [k (walk-expr e [:frame-root :config k] v)]))
+                              config)
+                        (meta config)))]
         ;; config values are opaque runtime expressions (evaluated at
         ;; preflight) — walk them for sub/lease site indexing only
-        (doseq [[_k v] config] (walk-expr e v))
         {:op :frame-root
          :frame-id id
-         :config config
+         :config config*
          :children (analyze-children e (vec (drop 2 form)))
          :static? false
          :path (:path e)}))))
@@ -805,12 +1104,14 @@
                         (str/join ", " (map pr-str (keys extra)))
                         " — providers only scope (roots ensure)")
                    {:form form})))
-    (let [target (:frame props)]
+    (let [target (:frame props)
+          target* (if (literal-scalar? target)
+                    target
+                    (walk-expr e [:frame-provider :frame] target))]
       ;; the :frame target is a runtime expression — walk it for sub/lease
       ;; site indexing (a sub in the target expression is still a site)
-      (when-not (literal-scalar? target) (walk-expr e target))
       {:op :frame-provider
-       :frame target
+       :frame target*
        ;; children keep whatever region flag `e` carries: preserved in a
        ;; root form's top region (nested frame-root plans still extract),
        ;; absent in a defview template
@@ -829,10 +1130,12 @@
                                         (str/join ", " (map pr-str (keys extra))))
                                    {:form form}))))
         key-form  (when has-props (get second* :key))
+        key-form* (if (and has-props (not (literal-scalar? key-form)))
+                    (walk-expr e [:fragment :key] key-form)
+                    key-form)
         children  (analyze-children e (vec (if has-props (drop 2 form) (drop 1 form))))]
-    (when (and has-props (not (literal-scalar? key-form))) (walk-expr e key-form))
     {:op :fragment
-     :key {:present? has-props :expr key-form :literal? (literal-scalar? key-form)}
+     :key {:present? has-props :expr key-form* :literal? (literal-scalar? key-form)}
      :children children
      :static? (and (not has-props) (every? node-static? children))
      :path (:path e)}))
@@ -851,8 +1154,7 @@
   (first body))
 
 (defn- analyze-if [e test then else form]
-  (walk-expr e test)
-  {:op :if :test test
+  {:op :if :test (walk-expr e [:if :test] test)
    :then (analyze (update e :path conj :then) then)
    :else (if (some? else)
            (analyze (update e :path conj :else) else)
@@ -875,12 +1177,11 @@
 
 (defn- analyze-case [e form]
   (let [[_ expr & clauses] form]
-    (walk-expr e expr)
     (let [default? (odd? (count clauses))
           pairs    (partition 2 (if default? (butlast clauses) clauses))
           default  (when default? (last clauses))]
       {:op :case
-       :expr expr
+       :expr (walk-expr e [:case :expr] expr)
        :clauses (into []
                       (map-indexed (fn [i [test branch]]
                                      [test (analyze (update e :path conj [:case i]) branch)]))
@@ -897,12 +1198,16 @@
       (env/fail! e :rf.ui.compile/bad-let
                  (str head " needs an even bindings vector") {:form form}))
     (let [pairs (partition 2 bindings)
-          e*    (reduce (fn [acc [pat init]]
-                          (walk-expr acc init)
-                          (env/with-locals acc (env/binding-syms pat)))
-                        e pairs)
+          [e* rewritten]
+          (reduce (fn [[acc out] [i [pat init]]]
+                    [(env/with-locals acc (env/binding-syms pat))
+                     (conj out pat
+                           (walk-expr acc [:let :binding i] init))])
+                  [e []]
+                  (map-indexed vector pairs))
+          bindings* (with-meta (vec rewritten) (meta bindings))
           body-form (single-body! e (str head) body form)]
-      {:op :let :bindings bindings
+      {:op :let :bindings bindings*
        :body (analyze (update e* :path conj :body) body-form)
        :static? false :path (:path e)})))
 
@@ -911,10 +1216,14 @@
     (when-not (vector? fnspecs)
       (env/fail! e :rf.ui.compile/bad-let "letfn needs a fnspecs vector" {:form form}))
     (let [names (map first fnspecs)
-          e*    (env/with-locals e names)]
-      (doseq [spec fnspecs] (walk-expr e* spec))
+          e*    (env/with-locals e names)
+          ;; Reuse the opaque rewriter's exact letfn scoping (all names in
+          ;; scope for every body; each argv shadows vars within its arity).
+          fnspecs* (second
+                     (walk-expr e [:letfn :bindings]
+                                (list 'letfn fnspecs nil)))]
       (let [body-form (single-body! e "letfn" body form)]
-        {:op :letfn :fnspecs fnspecs
+        {:op :letfn :fnspecs fnspecs*
          :body (analyze (update e* :path conj :body) body-form)
          :static? false :path (:path e)}))))
 
@@ -928,43 +1237,55 @@
       (when (keyword? (ffirst pairs))
         (env/fail! e :rf.ui.compile/bad-for
                    "for needs a binding pair before modifiers" {:form form}))
-      ;; walk seq-exprs: first coll evaluates once per render (sub legal
-      ;; there); every later coll/modifier expr is per-row (in-loop)
-      (loop [e* e, first-coll? true, ps pairs, bound []]
-        (when-let [[l r] (first ps)]
-          (cond
-            (= :let l)
-            (do (when-not (vector? r)
-                  (env/fail! e :rf.ui.compile/bad-for ":let modifier needs a bindings vector"
-                             {:form form}))
-                (doseq [[_pat init] (partition 2 r)]
-                  (walk-expr (assoc e* :in-loop? true) init))
-                (recur (env/with-loop e* (mapcat env/binding-syms (take-nth 2 r)))
-                       false (rest ps) bound))
+      ;; Rewrite in evaluation order. The first collection evaluates once per
+      ;; view render; after its binding every later collection/modifier is
+      ;; row-scoped and therefore rejects sub/lease sites.
+      (let [[e-final rewritten]
+            (loop [scope e
+                   first-coll? true
+                   ps (seq (map-indexed vector pairs))
+                   out []]
+              (if-let [[i [l r]] (first ps)]
+                (cond
+                  (= :let l)
+                  (do
+                    (when-not (and (vector? r) (even? (count r)))
+                      (env/fail! e :rf.ui.compile/bad-for
+                                 ":let modifier needs an even bindings vector"
+                                 {:form form}))
+                    (let [[scope* binds*]
+                          (reduce (fn [[s xs] [j [pat init]]]
+                                    [(env/with-loop s (env/binding-syms pat))
+                                     (conj xs pat
+                                           (walk-expr (assoc s :in-loop? true)
+                                                      [:for i :let j] init))])
+                                  [scope []]
+                                  (map-indexed vector (partition 2 r)))]
+                      (recur scope* false (next ps)
+                             (conj out l (with-meta (vec binds*) (meta r))))))
 
-            (contains? #{:when :while} l)
-            (do (walk-expr (assoc e* :in-loop? true) r)
-                (recur e* false (rest ps) bound))
+                  (contains? #{:when :while} l)
+                  (recur scope false (next ps)
+                         (conj out l
+                               (walk-expr (assoc scope :in-loop? true)
+                                          [:for i l] r)))
 
-            (keyword? l)
-            (env/fail! e :rf.ui.compile/bad-for
-                       (str "unknown for modifier " l " — the subgrammar is "
-                            ":let / :when / :while (Q6 pin)")
-                       {:form form})
+                  (keyword? l)
+                  (env/fail! e :rf.ui.compile/bad-for
+                             (str "unknown for modifier " l " — the subgrammar is "
+                                  ":let / :when / :while (Q6 pin)")
+                             {:form form})
 
-            :else
-            (do (walk-expr (if first-coll? e* (assoc e* :in-loop? true)) r)
-                (recur (env/with-loop e* (env/binding-syms l))
-                       false (rest ps) bound)))))
-      (let [all-bound (into []
-                            (comp (partition-all 2)
-                                  (mapcat (fn [[l r]]
-                                            (cond
-                                              (= :let l) (mapcat env/binding-syms (take-nth 2 r))
-                                              (keyword? l) []
-                                              :else (env/binding-syms l)))))
-                            seq-exprs)
-            e-body    (update (env/with-loop e all-bound) :path conj :for)
+                  :else
+                  (let [r* (walk-expr (if first-coll?
+                                        scope
+                                        (assoc scope :in-loop? true))
+                                      [:for i :collection] r)]
+                    (recur (env/with-loop scope (env/binding-syms l))
+                           false (next ps) (conj out l r*))))
+                [scope out]))
+            seq-exprs* (with-meta (vec rewritten) (meta seq-exprs))
+            e-body    (update e-final :path conj :for)
             body-form (single-body! e "for" (vec body) form)
             _         (when (and (seq? body-form) (= 'for (first body-form)))
                         (env/fail! e :rf.ui.compile/nested-for-body
@@ -994,7 +1315,7 @@
                             "duplicates). Key on row data: {:key (:id x)}")
                        {:form form})))
         {:op :for
-         :seq-exprs seq-exprs
+         :seq-exprs seq-exprs*
          :body body-ast
          :static? false
          :path (:path e)}))))
@@ -1033,8 +1354,8 @@
           (when (or (nil? x) (seq extra))
             (env/fail! e :rf.ui.compile/bad-raw "(ui/raw react-element) takes one argument"
                        {:form form}))
-          (walk-expr e x)
-          {:op :raw :form x :static? false :path (:path e)})
+          {:op :raw :form (walk-expr e [:raw] x)
+           :static? false :path (:path e)})
 
         (html-form? e form)
         (env/fail! e :rf.ui.compile/html-not-sole-child
@@ -1072,8 +1393,8 @@
                    {:form form})
 
         :else
-        (do (walk-expr e form)
-            {:op :expr :form form :static? false :path (:path e)})))))
+        {:op :expr :form (walk-expr e [:expr] form)
+         :static? false :path (:path e)}))))
 
 (defn analyze
   "Template form -> AST node."
@@ -1105,8 +1426,8 @@
                    {:form form})))
     ;; a control form / opaque expression ends the static top region (S1c)
     (seq? form)     (analyze-list (dissoc e :top-region?) form)
-    (symbol? form)  (do (walk-expr e form)
-                        {:op :expr :form form :static? false :path (:path e)})
+    (symbol? form)  {:op :expr :form (walk-expr e [:expr] form)
+                     :static? false :path (:path e)}
     :else
     (env/fail! e :rf.ui.compile/unsupported-form
                (str "unsupported template form " (pr-str form) " of type "

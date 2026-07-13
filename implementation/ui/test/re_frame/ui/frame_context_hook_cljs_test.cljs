@@ -43,7 +43,9 @@
 ;; into a live cell's capture. NOT a direct sub-read.
 (defn- render-cell! [cell queries]
   (first (reactive/with-capture
-          cell (fn [] (mapv reactive/sub-read queries)))))
+          cell (fn [] (mapv (fn [i q]
+                              (reactive/sub-read [:context/site i] q))
+                            (range) queries)))))
 
 (deftest reader-is-published-under-plain-atom
   (is (some? (late-bind/get-fn :adapter/current-frame))

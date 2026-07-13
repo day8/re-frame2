@@ -50,7 +50,9 @@
 (defn- render+commit! [cell fid queries]
   (let [[_ capture] (rf/with-frame fid
                       (reactive/with-capture
-                       cell (fn [] (mapv reactive/sub-read queries))))]
+                       cell (fn [] (mapv (fn [i q]
+                                          (reactive/sub-read [:race/site i] q))
+                                        (range) queries))))]
     (reactive/commit! cell capture))
   cell)
 
@@ -87,7 +89,7 @@
                    ;; AFTER the sweep already snapshotted.
                    (let [[_ capture] (rf/with-frame fid
                                        (reactive/with-capture new-cell
-                                         (fn [] (reactive/sub-read [:race/a]))))]
+                                         (fn [] (reactive/sub-read ::site [:race/a]))))]
                      (reactive/commit! new-cell capture))
                    (.countDown committed))]
         ;; Drive the destroy on this thread — it blocks in the wrapped hook
@@ -137,7 +139,7 @@
                    ;; A commit onto the UNRELATED live frame B, mid-destroy of A.
                    (let [[_ capture] (rf/with-frame fb
                                        (reactive/with-capture cell-b
-                                         (fn [] (reactive/sub-read [:race/a]))))]
+                                         (fn [] (reactive/sub-read ::site [:race/a]))))]
                      (reactive/commit! cell-b capture))
                    (.countDown committed))]
         (frame/destroy-frame! fa)
@@ -149,7 +151,7 @@
         (is (reactive/cell-observes-frame? cell-b fb))
         (is (= 2 (first (rf/with-frame fb
                           (reactive/with-capture cell-b
-                            (fn [] (reactive/sub-read [:race/a]))))))
+                            (fn [] (reactive/sub-read ::site [:race/a]))))))
             "frame B reads live after A was destroyed"))
       (testing "frame A's own cell died with A"
         (is (= :dead (reactive/lifecycle cell-a))))

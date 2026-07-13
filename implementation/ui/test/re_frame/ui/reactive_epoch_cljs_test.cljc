@@ -70,7 +70,9 @@
   [cell id queries]
   (let [[_ capture] (rf/with-frame id
                       (reactive/with-capture
-                       cell (fn [] (mapv reactive/sub-read queries))))]
+                       cell (fn [] (mapv (fn [i q]
+                                          (reactive/sub-read [:epoch/site i] q))
+                                        (range) queries))))]
     (reactive/commit! cell capture))
   cell)
 
@@ -177,7 +179,9 @@
                            cell
                            (fn []
                              (swap! body-runs inc)
-                             (mapv reactive/sub-read queries))))]
+                             (mapv (fn [i q]
+                                     (reactive/sub-read [:epoch/site i] q))
+                                   (range) queries))))]
         (reactive/commit! cell capture))
       (is (= 1 @body-runs)
           (str n " sites → ONE body invocation (one shared ViewCell, not " n ")"))
@@ -376,8 +380,8 @@
     (let [cell (reactive/make-cell ::v)
           out  (rf/with-frame fid
                  (reactive/with-capture cell
-                   (fn [] [(reactive/sub-read [:s/a])
-                           (reactive/sub-read [:s/b])])))]
+                   (fn [] [(reactive/sub-read ::site-a [:s/a])
+                           (reactive/sub-read ::site-b [:s/b])])))]
       (is (= [[:a 5] [:b 5]] (first out)))
       (is (= 1 @parent-runs)
           "sibling cold probes in ONE render compute the shared parent ONCE

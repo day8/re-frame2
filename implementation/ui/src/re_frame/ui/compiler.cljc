@@ -178,11 +178,21 @@
         header-syms (into (set (mapcat env/binding-syms
                                        (keep :pattern (:entries hdr))))
                           (when (:as-sym hdr) [(:as-sym hdr)]))
+        src     (source-coords form cljs?)
         e       (-> (env/make-env {:host (if cljs? :cljs :clj)
-                                   :cljs-env menv
-                                   :ns-sym ns-sym
-                                   :self vname
-                                   :self-id view-id})
+                                    :cljs-env menv
+                                    :ns-sym ns-sym
+                                    :self vname
+                                    :self-id view-id
+                                    :source src
+                                    ;; Reader metadata is not guaranteed (macro-
+                                    ;; generated templates). In that case every
+                                    ;; site incorporates this whole-template
+                                    ;; semantic anchor, so an edit safely
+                                    ;; reacquires instead of transferring an
+                                    ;; ordinal to another lexical site.
+                                    :template-anchor
+                                    (fingerprint/digest "sta1-" template)})
                     (assoc :self-children? children?
                            :self-closed-keys closed-keys)
                     (env/with-locals header-syms))
@@ -192,9 +202,9 @@
                     (println (str "WARNING re-frame.ui [" view-id "] "
                                   (:id w) ": " (:msg w)))))
         sites   @(:sites e)
-        tf      (fingerprint/template-fingerprint ast)
+        tf      (fingerprint/template-fingerprint
+                 (ana/template-fingerprint-projection ast))
         hs      (fingerprint/hook-signature-hash {:locals [] :effects []})
-        src     (source-coords form cljs?)
         manifest {:view-id view-id
                   :display-name display-name
                   :doc docstring

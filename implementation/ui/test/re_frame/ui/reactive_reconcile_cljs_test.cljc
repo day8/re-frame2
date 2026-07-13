@@ -55,7 +55,10 @@
   the ambient frame. Returns `[render-value immutable-capture]`."
   [cell queries]
   (rf/with-frame fid
-    (reactive/with-capture cell (fn [] (mapv reactive/sub-read queries)))))
+    (reactive/with-capture cell
+      (fn [] (mapv (fn [i q]
+                     (reactive/sub-read [:reconcile/site i] q))
+                   (range) queries)))))
 
 (defn- render+commit! [cell queries]
   (let [[_ capture] (render! cell queries)]
@@ -98,9 +101,10 @@
           [b-value cap-b] (render! cell [[:r/b]])]
       (is (= [1] a-value))
       (is (= [2] b-value))
-      (is (= [(tk [:r/a])] (:order cap-a))
+      (is (= [[:reconcile/site 0]] (:order cap-a))
           "A remains immutable after the later speculative B capture")
-      (is (= [(tk [:r/b])] (:order cap-b)))
+      (is (= [[:reconcile/site 0]] (:order cap-b))
+          "the same lexical site may carry a different query in a later capture")
       ;; Model React selecting A and abandoning B: only A's effect closure runs.
       (reactive/commit! cell cap-a)
       (is (= #{(tk [:r/a])} (reactive/committed-target-keys cell))
@@ -268,7 +272,7 @@
     (subs/subscribe [:re/v] {:frame :re/frame})
     (let [[_ capture] (rf/with-frame :re/frame
                         (reactive/with-capture
-                         cell (fn [] (reactive/sub-read [:re/v]))))]
+                         cell (fn [] (reactive/sub-read ::site [:re/v]))))]
       (is (= 0 (reactive/revision cell)) "precondition: no revision yet")
       ;; reincarnate in the gap: identical construction + a single replace-app-db!
       ;; makes node-version + frame/registry epochs COINCIDE with the destroyed
@@ -299,7 +303,7 @@
     (subs/subscribe [:re/v] {:frame :re/frame2})   ;; a live canonical node
     (let [[_ capture] (rf/with-frame :re/frame2
                         (reactive/with-capture
-                         cell (fn [] (reactive/sub-read [:re/v]))))]
+                         cell (fn [] (reactive/sub-read ::site [:re/v]))))]
       (reactive/commit! cell capture))               ;; same live node at commit
     (is (= 0 (reactive/revision cell))
         "an unchanged live node reads the same node-key — no false movement")
@@ -455,7 +459,7 @@
     (seed! {:coll [1 2 3]})    ;; equal value, different object identity
     (let [[ret _] (rf/with-frame fid
                     (reactive/with-capture
-                     cell (fn [] (reactive/sub-read [:r/coll]))))]
+                     cell (fn [] (reactive/sub-read ::site [:r/coll]))))]
       (is (identical? committed ret)
           "an rf=-stable read returns the prior exact value (stabilized identity)"))))
 
