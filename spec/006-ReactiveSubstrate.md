@@ -286,19 +286,21 @@ Called by the core when the runtime shuts down (process exit, test-frame teardow
 Adapter destruction is a **one-way terminal lifecycle boundary**, not a
 transaction. The core claims one opaque installed-generation token before invoking
 `:dispose-adapter!`, preventing re-entrant destruction from running that generation's
-cleanup twice. In a `finally` boundary the core clears only the claimed generation and
-sets `adapter-disposed?` true. Cleanup failure therefore cannot leave a half-live
-adapter seated, and stale finalization can never clear a replacement generation. On
-failure the adapter attempts all remaining cleanup, preserves and rethrows the first
-failure, and attaches or reports later failures as secondary diagnostic evidence. A
-fresh adapter may install after destruction returns or throws; that install clears the
-disposed breadcrumb.
+cleanup twice. That claim atomically makes `adapter-disposed?` true and closes runtime
+delegation; no new work can enter the partly torn-down generation. In a `finally`
+boundary the core clears only the claimed generation. Cleanup failure therefore cannot
+leave a half-live adapter seated, and stale finalization can never clear a replacement
+generation. On failure the adapter attempts all remaining cleanup, preserves and
+rethrows the first failure, and attaches or reports later failures as secondary
+diagnostic evidence. A fresh adapter may install after destruction returns or throws;
+that install clears the disposed breadcrumb.
 
 For the first-party `re-frame.ui/adapter`, host resources include **every public
 compiled Root** in `re-frame.ui`'s client registry, not only Roots created by the
-generic React spine. Disposal fences new public Root creation, snapshots one exact
-generation, and attempts every Root in that snapshot even if a sibling throws. It never
-refreshes the snapshot or chases a same-id replacement it did not acquire. Each exact
+generic React spine. Disposal fences new public Root creation across the complete
+two-phase lifecycle (public-root snapshot drain **and** generic-spine cleanup), snapshots
+one exact generation, and attempts every Root in that snapshot even if a sibling throws.
+It never refreshes the snapshot or chases a same-id replacement it did not acquire. Each exact
 incarnation releases its registry claim, ViewCells, and observation leases; a throwing
 host unmount remains observable but cannot strand siblings. If React consumed a
 throwing Root handle before clearing its container, the adapter clears the remaining
@@ -1965,7 +1967,7 @@ Runtime delegation calls (`make-state-container`, `read-container`, `replace-con
 - **`:rf.error/no-adapter-installed`** — fresh process, no `(rf/init! …)` has fired yet. Recovery: install an adapter.
 - **`:rf.error/adapter-disposed`** — an adapter was previously installed and torn down by `(rf/destroy-adapter!)` without a subsequent install. Recovery: install a fresh adapter. Common in test fixtures and hot-reload flows.
 
-A disposed-breadcrumb (boolean) is set when `destroy-adapter!` terminally finalizes an
+A disposed-breadcrumb (boolean) is set when `destroy-adapter!` terminally claims an
 installed generation and is cleared atomically by the next successful `install-adapter!`. It
 describes the terminal lifecycle/slot state, not whether host cleanup succeeded. The
 claimed generation is cleared in a finally boundary even when cleanup throws, so after

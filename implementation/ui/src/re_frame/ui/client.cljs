@@ -55,6 +55,7 @@
             [clojure.string :as str]
             [re-frame.error :as error]
             [re-frame.ui.digest-carrier :as digest-carrier]
+            [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.ui.frames :as frames]
             [re-frame.ui.reactive :as reactive]
             [re-frame.ui.viewcell :as viewcell]))
@@ -82,10 +83,10 @@
   (atom {}))
 
 (defonce ^:private disposing-live-roots?
-  ;; Adapter teardown snapshots one exact generation of Root handles. While
-  ;; that generation drains, public mount/create-root calls fail before any
-  ;; preflight or host allocation; otherwise effect cleanup could install a
-  ;; later same-id incarnation that stale disposal must never chase and kill.
+  ;; Adapter teardown snapshots one exact generation of Root handles, then
+  ;; tears down the generic React spine. Root admission stays closed across
+  ;; BOTH phases: an effect cleanup from either registry must not install a
+  ;; later incarnation that the already-taken snapshot cannot own.
   (atom false))
 
 (defn live-root-ids
@@ -109,12 +110,13 @@
 
 (defn- require-root-creation-open!
   [where]
-  (when @disposing-live-roots?
+  (when (or @disposing-live-roots?
+            (substrate-adapter/adapter-disposed?))
     (error/throw-error!
      :rf.error/adapter-disposed where
-     (str "the re-frame.ui adapter is tearing down its current compiled Root "
-          "generation — no new root may be created until destroy-adapter! "
-          "finishes and a fresh adapter is installed")
+     (str "the re-frame.ui adapter's current generation is tearing down or "
+          "has been destroyed — no public compiled Root may be created until "
+          "destroy-adapter! finishes and a fresh adapter is installed")
      {:recovery :install-a-fresh-adapter})))
 
 ;; ---------------------------------------------------------------------------
@@ -731,42 +733,59 @@
     (when @failure (throw @failure))
     nil))
 
-(defn dispose-live-roots!
-  "Adapter-internal total teardown for every public compiled client Root.
+(defn with-root-admission-closed!
+  "Run `f` while public compiled Root creation is fenced. Idempotent under a
+  concurrent/re-entrant close: only the caller that flips the fence executes
+  `f`; the owner always reopens the local fence in `finally`. The core's
+  terminal adapter breadcrumb remains the post-destroy admission guard until a
+  fresh install. Adapter-internal; injected into `re-frame.ui.substrate` so the
+  fence spans BOTH public-root and generic-spine cleanup."
+  [f]
+  (when (compare-and-set! disposing-live-roots? false true)
+    (try
+      (f)
+      (finally
+        (reset! disposing-live-roots? false)))))
 
-  The first-party `ui/adapter` calls this before disposing its generic React
-  spine. One invocation snapshots ONE exact Root generation. Public root
-  creation is rejected while that generation drains, and `unmount!*`'s
-  identity guard means a stale handle can never evict a later same-id
-  incarnation. The snapshot is never refreshed: stale disposal does not own a
-  replacement that appeared through an internal/test bypass.
+(defn drain-live-roots!
+  "Drain one exact snapshot of every public compiled client Root.
+
+  The caller owns the surrounding root-admission fence. `unmount!*`'s identity
+  guard means a stale handle can never evict a later same-id incarnation. The
+  snapshot is never refreshed: stale disposal does not own a replacement that
+  appeared through an internal/test bypass.
 
   Every root is attempted even when one host cleanup throws. The first error
   is rethrown after the whole snapshot drains; later failures are retained on
   its `rfUiAdapterCleanupErrors` diagnostic array because one teardown failure
   must neither strand siblings nor erase their evidence."
   []
-  (when (compare-and-set! disposing-live-roots? false true)
-    (let [roots  (mapv :root (vals @live-roots))
-          errors (volatile! [])]
+  (let [roots  (mapv :root (vals @live-roots))
+        errors (volatile! [])]
+    (doseq [root roots]
       (try
-        (doseq [root roots]
+        (unmount!* root)
+        (catch :default e
+          (vswap! errors conj e)
           (try
-            (unmount!* root)
-            (catch :default e
-              (vswap! errors conj e)
-              (try
-                (reclaim-consumed-container! root)
-                (catch :default recovery-error
-                  (vswap! errors conj recovery-error))))))
-        (finally
-          (reset! disposing-live-roots? false)))
-      (when-let [primary (first @errors)]
-        (when (< 1 (count @errors))
-          (try
-            (js/Object.defineProperty
-             primary "rfUiAdapterCleanupErrors"
-             #js {:value (to-array (rest @errors)) :configurable true})
-            (catch :default _ nil)))
-        (throw primary))))
+            (reclaim-consumed-container! root)
+            (catch :default recovery-error
+              (vswap! errors conj recovery-error))))))
+    (when-let [primary (first @errors)]
+      (when (< 1 (count @errors))
+        (try
+          (js/Object.defineProperty
+           primary "rfUiAdapterCleanupErrors"
+           #js {:value (to-array (rest @errors)) :configurable true})
+          (catch :default _ nil)))
+      (throw primary)))
+  nil)
+
+(defn dispose-live-roots!
+  "Standalone adapter-internal teardown of the public compiled Root registry.
+  The first-party composed adapter uses `with-root-admission-closed!` around
+  this drain AND its generic-spine tail; this zero-arity helper preserves the
+  direct/test seam with the same one-owner fencing law."
+  []
+  (with-root-admission-closed! drain-live-roots!)
   nil)

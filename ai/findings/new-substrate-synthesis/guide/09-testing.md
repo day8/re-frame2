@@ -53,11 +53,9 @@ real registrations, no React:
 - These run in your JVM watch loop in milliseconds and never flake on timing. They're
   also exactly how the library tests itself, so the shapes are first-class.
 - *(Stage note: the Tier-1 core — `render`, `find`, `find-all`, `text`, `attrs`,
-  `frame`, `dispatch!` — is Stage 1, shipped. `query` exists today only as the enforced
-  Tier-3 counterpart — every call raises the typed tier error until mounted roots
-  arrive. A Tier-1 render that crosses a `sub` site rides S2's snapshot path; the
-  Tier-3 mount surface — `with-root`, `query`, and `flush!` — lands S2;
-  `flush-presence!` lands S4.)*
+  `frame`, `dispatch!` — shipped at Stage 1. Tier-1 `sub` snapshots and the mounted
+  Tier-3 `with-root` / native-CSS `query` / Promise-backed `flush!` surface shipped at
+  Stage 2. `flush-presence!` lands at Stage 4.)*
 
 ## Tier 2 — dataflow tests (unchanged re-frame2)
 
@@ -66,8 +64,8 @@ The view tier above assumes this tier exists — don't test business logic throu
 
 ## Tier 3 — mounted tests, when the DOM is the point
 
-For focus, IME, foreign widgets — the things only a real mount exercises *(this mounted
-surface — `with-root`, `query`, and `flush!` — lands S2)*:
+For focus, IME, foreign widgets — the things only a real mount exercises — use the
+Stage-2 mounted surface, `with-root`, `query`, and `flush!`:
 
 ```clojure
 (deftest search-commits-the-latest-query

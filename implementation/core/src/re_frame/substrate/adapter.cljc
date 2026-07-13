@@ -46,8 +46,8 @@
 ;; lifecycle state atomically:
 ;;
 ;;   `:installed` — nil, or the exact generation token + adapter spec map.
-;;   `:disposed?` — the dispose breadcrumb. `true` after terminal finalization
-;;                  of an installed generation until a fresh install.
+;;   `:disposed?` — the dispose breadcrumb. `true` from the exact generation's
+;;                  terminal claim until a fresh install.
 ;;
 ;; The breadcrumb distinguishes:
 ;;   (a) `no adapter installed yet` — fresh process, init! never ran;
@@ -106,8 +106,9 @@
   checks across install/dispose), use `current-adapter-spec`."
   []
   (let [entry (:installed @adapter-lifecycle-state)]
-    (when-let [a (:adapter entry)]
-      (:kind a :custom))))
+    (when-not (:disposing? entry)
+      (when-let [a (:adapter entry)]
+        (:kind a :custom)))))
 
 (defn current-adapter-spec
   "Return the installed adapter spec map, or nil if none. The map carries
@@ -120,13 +121,16 @@
   human-readable discriminator (predicate / branch code), use
   `current-adapter`."
   []
-  (get-in @adapter-lifecycle-state [:installed :adapter]))
+  (let [entry (:installed @adapter-lifecycle-state)]
+    (when-not (:disposing? entry)
+      (:adapter entry))))
 
 (defn- claim-installed-for-dispose!
   "Atomically claim the current generation for one terminal teardown. Returns
   its entry, or nil when the slot is empty/already being destroyed. Claiming
-  prevents a re-entrant destroy from invoking cleanup twice; the exact slot and
-  disposed breadcrumb finalize together after adapter-owned cleanup."
+  prevents a re-entrant destroy from invoking cleanup twice and atomically
+  closes public delegation through the disposed breadcrumb. The exact internal
+  slot remains claimed until adapter-owned cleanup reaches its finally boundary."
   []
   (loop []
     (let [{:keys [installed] :as before} @adapter-lifecycle-state]
@@ -134,7 +138,9 @@
         (or (nil? installed) (:disposing? installed)) nil
         (compare-and-set! adapter-lifecycle-state
                           before
-                          (assoc-in before [:installed :disposing?] true))
+                          (-> before
+                              (assoc-in [:installed :disposing?] true)
+                              (assoc :disposed? true)))
         installed
         :else (recur)))))
 
@@ -237,7 +243,7 @@
   Reads the process-global adapter SELECTION."
   [where-sym]
   (let [{:keys [installed disposed?]} @adapter-lifecycle-state]
-    (or (:adapter installed)
+    (or (when-not (:disposing? installed) (:adapter installed))
       (if disposed?
         (error/throw-error!
           :rf.error/adapter-disposed
@@ -246,7 +252,8 @@
                " (rf/destroy-adapter!); the previously"
                " installed adapter was torn down."
                " Install a fresh adapter via"
-               " (rf/init! <adapter>) before calling."))
+               " (rf/init! <adapter>) before calling.")
+          {:recovery :install-a-fresh-adapter})
         (error/throw-error!
           :rf.error/no-adapter-installed
           where-sym

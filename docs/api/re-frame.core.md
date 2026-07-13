@@ -852,7 +852,7 @@ The surfaces that bring a re-frame2 process up and take it down. The one-line bo
   ```clojure
   (adapter-disposed?) → boolean
   ```
-- **Description**: Returns `true` iff terminal teardown of the most recent installed adapter generation reached finalization and no subsequent `install-adapter!` has fired. Cleanup success is not implied: it remains true when destruction rethrows a cleanup failure. `false` for never-installed (fresh process) AND after a fresh install. Read-only. Use to distinguish `:rf.error/no-adapter-installed` (fresh process) from `:rf.error/adapter-disposed` (torn down).
+- **Description**: Returns `true` iff terminal teardown of the most recent installed adapter generation has been claimed and no subsequent `install-adapter!` has fired. Cleanup success is not implied: it remains true when destruction rethrows a cleanup failure. `false` for never-installed (fresh process) AND after a fresh install. Read-only. Use to distinguish `:rf.error/no-adapter-installed` (fresh process) from `:rf.error/adapter-disposed` (torn down).
 - **Example**:
   ```clojure
   (rf/adapter-disposed?)               ;; => false  (fresh process — never installed)

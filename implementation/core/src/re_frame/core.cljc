@@ -2512,11 +2512,11 @@
   current-adapter-spec adapter/current-adapter-spec)
 
 (def ^{:doc "Return `true` iff teardown of the most recent installed
-  adapter generation reached terminal finalization and no fresh
+  adapter generation has been terminally claimed and no fresh
   `install-adapter!` has fired since. Cleanup success is not implied:
-  finalization is terminal even when the primary cleanup failure is
-  rethrown. False for a never-installed process and after a fresh
-  install. Per Spec 006 §Adapter lifecycle."}
+  the claim remains terminal when the primary cleanup failure is rethrown.
+  False for a never-installed process and after a fresh install. Per
+  Spec 006 §Adapter lifecycle."}
   adapter-disposed?    adapter/adapter-disposed?)
 
 (defn- bad-init-arg!

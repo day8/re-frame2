@@ -81,7 +81,8 @@
   survives adapter disposal."
   #?(:clj  (assoc plain-atom/adapter :kind :rf.adapter/ui)
      :cljs (ui-substrate/adapter-with-client-roots
-            client/dispose-live-roots!)))
+            client/with-root-admission-closed!
+            client/drain-live-roots!)))
 
 ;; ---------------------------------------------------------------------------
 ;; The component form

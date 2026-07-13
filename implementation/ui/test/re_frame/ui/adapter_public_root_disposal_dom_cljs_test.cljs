@@ -42,6 +42,30 @@
     [:output {:data-root label}
      label ":" (ui/sub [::adapter-value])]))
 
+(defview admission-probe []
+  [:span {:data-admission "open"} "admitted"])
+
+(defn- mount-phase-two-root! [container]
+  (ui/mount [admission-probe] container
+            {:root-id :adapter-public/phase-two-attempt}))
+
+(defn- mount-post-destroy-root! [container]
+  (ui/mount [admission-probe] container
+            {:root-id :adapter-public/post-destroy-mount}))
+
+(defn- phase-two-cleanup-probe [props]
+  (let [target (unchecked-get props "target")
+        errors (unchecked-get props "errors")]
+    (React/useEffect
+     (fn []
+       (fn []
+         (try
+           (mount-phase-two-root! target)
+           (catch :default e
+             (swap! errors conj e)))))
+     #js [])
+    (React/createElement "span" nil "generic-spine-owner")))
+
 (defn- mount-observed!
   [container root-id label renders]
   (case root-id
@@ -165,3 +189,73 @@
             (.then (fn [] (done))
                    (fn [e]
                      (unexpected! done "throwing-root recovery rejected" e))))))))
+
+(deftest adapter-destroy-closes-root-admission-through-the-generic-spine-tail
+  (when (browser?)
+    (async done
+      (let [generic-container (js/document.createElement "div")
+            attempted-root    (js/document.createElement "div")
+            post-destroy      (js/document.createElement "div")
+            cleanup-errors    (atom [])]
+        (-> (act-promise
+             #((:render ui/adapter)
+               (React/createElement
+                phase-two-cleanup-probe
+                #js {:target attempted-root :errors cleanup-errors})
+               generic-container
+               {}))
+            (.then
+             (fn []
+               (is (= "generic-spine-owner"
+                      (.-textContent generic-container)))
+               ;; The component's effect cleanup runs in phase two: AFTER the
+               ;; public-root snapshot drained, while the generic spine root
+               ;; unmounts. Its attempted public mount must still be fenced.
+               (act-promise rf/destroy-adapter!)))
+            (.then
+             (fn []
+               (let [cleanup-error (first @cleanup-errors)]
+                 (is (= 1 (count @cleanup-errors))
+                     "the generic-spine cleanup attempted exactly one public remount")
+                 (is (= :rf.error/adapter-disposed
+                        (:rf.error/id (ex-data cleanup-error)))
+                     "phase-two root creation sees terminal adapter disposal")
+                 (is (= :install-a-fresh-adapter
+                        (:recovery (ex-data cleanup-error)))))
+               (is (= "" (.-textContent attempted-root)))
+               (is (= #{} (client/live-root-ids)))
+
+               ;; The local drain fence has reopened, but the process-level
+               ;; terminal breadcrumb must keep BOTH public creation spellings
+               ;; closed until a fresh adapter generation installs.
+               (let [create-error
+                     (try
+                       (ui/create-root post-destroy
+                                       {:root-id :adapter-public/post-destroy-create})
+                       nil
+                       (catch :default e e))
+                     mount-error
+                     (try
+                       (mount-post-destroy-root! post-destroy)
+                       nil
+                       (catch :default e e))]
+                 (is (= [:rf.error/adapter-disposed
+                         :rf.error/adapter-disposed]
+                        (mapv #(-> % ex-data :rf.error/id)
+                              [create-error mount-error])))
+                 (is (every? #(= :install-a-fresh-adapter
+                                  (:recovery (ex-data %)))
+                             [create-error mount-error])))
+               (is (= "" (.-textContent post-destroy)))
+               (is (= #{} (client/live-root-ids)))
+
+               (rf/init! ui/adapter)
+               (act-promise #(mount-post-destroy-root! post-destroy))))
+            (.then
+             (fn []
+               (is (= "admitted" (.-textContent post-destroy))
+                   "a fresh generation atomically reopens public root admission")
+               (act-promise rf/destroy-adapter!)))
+            (.then (fn [] (done))
+                   (fn [e]
+                     (unexpected! done "root-admission lifecycle rejected" e))))))))

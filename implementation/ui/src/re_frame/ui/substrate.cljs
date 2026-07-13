@@ -118,30 +118,35 @@
 (defn- dispose-adapter!
   "Dispose public compiled roots first, then the generic React spine. Both
   halves are attempted. A public-root teardown failure stays primary while a
-  spine failure is retained on `rfUiAdapterCleanupError`."
-  [dispose-live-roots!]
-  (let [root-error  (volatile! nil)
-        spine-error (volatile! nil)]
-    (try
-      (dispose-live-roots!)
-      (catch :default e
-        (vreset! root-error e)))
-    (try
-      ((:dispose-adapter! spine-adapter))
-      (catch :default e
-        (vreset! spine-error e)))
-    (cond
-      @root-error
-      (throw (attach-secondary-cleanup! @root-error @spine-error))
+  spine failure is retained on `rfUiAdapterCleanupError`. Public Root admission
+  stays closed around the complete two-phase lifecycle, not merely the first
+  snapshot drain."
+  [with-root-admission-closed! drain-live-roots!]
+  (with-root-admission-closed!
+   (fn []
+     (let [root-error  (volatile! nil)
+           spine-error (volatile! nil)]
+       (try
+         (drain-live-roots!)
+         (catch :default e
+           (vreset! root-error e)))
+       (try
+         ((:dispose-adapter! spine-adapter))
+         (catch :default e
+           (vreset! spine-error e)))
+       (cond
+         @root-error
+         (throw (attach-secondary-cleanup! @root-error @spine-error))
 
-      @spine-error (throw @spine-error)
-      :else nil)))
+         @spine-error (throw @spine-error)
+         :else nil)))))
 
 (defn adapter-with-client-roots
   "Build the retained first-party adapter around the client kernel's
-  all-public-roots teardown fn. The injection keeps this namespace below the
-  client/frames layer and avoids a substrate → client → frames → substrate
-  dependency cycle."
-  [dispose-live-roots!]
+  all-public-roots admission fence + exact-snapshot drain. The injections keep
+  this namespace below the client/frames layer and avoid a substrate → client →
+  frames → substrate dependency cycle."
+  [with-root-admission-closed! drain-live-roots!]
   (assoc spine-adapter
-         :dispose-adapter! #(dispose-adapter! dispose-live-roots!)))
+         :dispose-adapter!
+         #(dispose-adapter! with-root-admission-closed! drain-live-roots!)))
