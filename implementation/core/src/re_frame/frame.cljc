@@ -1989,11 +1989,17 @@
      (defn- call-with-frame-trace-policy-lock [f]
        (locking frame-trace-policy-lock (f)))))
 
+(defn- serialize-frame-trace-policy!
+  "Run one auxiliary trace-policy publication/clear section. JVM callers
+  serialize across both stores; CLJS is single-threaded."
+  [f]
+  #?(:clj  (call-with-frame-trace-policy-lock f)
+     :cljs (f)))
+
 (defn- publish-trace-policy!
   [id publish!]
   (when-let [probe *upsert-policy-probe*] (probe id))
-  #?(:clj  (call-with-frame-trace-policy-lock publish!)
-     :cljs (publish!)))
+  (serialize-frame-trace-policy! publish!))
 
 (defn- try-install-new-frame!
   "Install a freshly allocated record iff `id` is still absent.
@@ -2151,7 +2157,7 @@
         policy-token   (fresh-trace-policy-token)
         policy-current?
         (fn []
-          (identical? policy-token (:trace-policy-token (get @frames id))))
+          (identical? policy-token (:trace-policy-token (frame id))))
         ;; rf2-umsyo9: the frame-scoped TRACE POLICY writes (the suppression flag
         ;; + the `:rf.trace/events-retained` retention override) are process-global
         ;; stores SEPARATE from the `frames` registry, so the registry commit
@@ -3162,19 +3168,25 @@
         ;; itself (which is frameless and bypasses the ring anyway)
         ;; still flows through the live stream cleanly. Routed via
         ;; late-bind so production CLJS bundles (no trace.tooling) no-op.
-        (safe-call-hook! :trace.tooling/release-frame-ring! id)
-        ;; rf2-zcl055: release the destroyed frame's trace-emission gate
-        ;; flag — the teardown counterpart to construction's
-        ;; `trace/set-frame-no-emit!`. A tool / inspector frame registered
-        ;; with `:rf.trace/frame-no-emit? true` (e.g. `:rf/xray`) otherwise
-        ;; leaves a permanent entry in trace.cljc's process-global
-        ;; `trace-disabled-frames` set (the ring IS freed above; the flag
-        ;; was not — a teardown asymmetry). Called directly (not via a
-        ;; tooling hook) because `trace.cljc` is always loaded — the set +
-        ;; predicate live on the core trace surface, same as the construction
-        ;; registration call. Idempotent no-op for application frames (the
-        ;; common case, where the id was never added).
-        (trace/clear-frame-no-emit-for! id)
+        ;; Serialize teardown's two clears with successful upsert publication.
+        ;; The frame is already lifecycle-dead, so a delayed publisher that
+        ;; enters afterwards fails its live-token predicate; a publisher that
+        ;; entered before the flip completes first and these clears win last.
+        ;; No interleaving can repopulate either auxiliary store after cleanup.
+        (serialize-frame-trace-policy!
+         (fn []
+           (safe-call-hook! :trace.tooling/release-frame-ring! id)
+           ;; rf2-zcl055: release the destroyed frame's trace-emission gate
+           ;; flag — the teardown counterpart to construction's
+           ;; `trace/set-frame-no-emit!`. A tool / inspector frame registered
+           ;; with `:rf.trace/frame-no-emit? true` (e.g. `:rf/xray`) otherwise
+           ;; leaves a permanent entry in trace.cljc's process-global
+           ;; `trace-disabled-frames` set (the ring IS freed above; the flag
+           ;; was not — a teardown asymmetry). Called directly (not via a
+           ;; tooling hook) because `trace.cljc` is always loaded — the set +
+           ;; predicate live on the core trace surface, same as construction.
+           ;; Idempotent no-op for application frames (the common case).
+           (trace/clear-frame-no-emit-for! id)))
         ;; EP-0024: there is ONE `frames` registry, and `dissoc-frame!` below IS
         ;; the forget. The frame's resolved generation rides the record's
         ;; `:generation` slot, so dropping the record drops it too — no separate

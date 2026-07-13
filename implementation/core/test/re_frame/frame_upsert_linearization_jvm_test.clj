@@ -323,6 +323,50 @@
     (is (= 99 (retained-cap :tp/successful))
         "the retention auxiliary store remains B — stale A was rejected")))
 
+(deftest destroyed-frame-rejects-delayed-successful-policy-publication
+  ;; A successfully commits config, then pauses before publishing its auxiliary
+  ;; policy. B destroys that SAME incarnation and pauses after BOTH policy stores
+  ;; have been cleared (ring release precedes no-emit clear) but before the frame
+  ;; record is dissociated. A must not treat the destroyed raw record's matching
+  ;; token as live authority and repopulate either store.
+  (frame/upsert-frame! :tp/destroy-race
+                       {:rf.trace/frame-no-emit? false
+                        :rf.trace/events-retained 5})
+  (let [policy-reached   (CountDownLatch. 1)
+        release-policy   (CountDownLatch. 1)
+        teardown-cleared (CountDownLatch. 1)
+        release-teardown (CountDownLatch. 1)
+        original-clear   trace/clear-frame-no-emit-for!]
+    (with-redefs [trace/clear-frame-no-emit-for!
+                  (fn [frame-id]
+                    (original-clear frame-id)
+                    (when (= :tp/destroy-race frame-id)
+                      (.countDown teardown-cleared)
+                      (.await release-teardown 10 TimeUnit/SECONDS)))]
+      (let [a (binding [frame/*upsert-policy-probe*
+                        (window-probe :tp/destroy-race
+                                      policy-reached release-policy)]
+                (future
+                  (frame/upsert-frame! :tp/destroy-race
+                                       {:rf.trace/frame-no-emit? true
+                                        :rf.trace/events-retained 77})))]
+        (is (.await policy-reached 10 TimeUnit/SECONDS)
+            "A committed config and paused before policy publication")
+        (let [b (future (frame/destroy-frame! :tp/destroy-race))]
+          (is (.await teardown-cleared 10 TimeUnit/SECONDS)
+              "B cleared the ring and no-emit store, then paused before dissoc")
+          (is (nil? (frame/frame :tp/destroy-race))
+              "the matching raw record is already lifecycle-dead")
+          (.countDown release-policy)
+          (.countDown release-teardown)
+          (is (= :tp/destroy-race @a) "A's earlier config commit still returns")
+          (is (nil? @b) "B completes teardown")
+          (is (nil? (frame/frame :tp/destroy-race)) "the frame stays absent")
+          (is (false? (trace/frame-trace-disabled? :tp/destroy-race))
+              "delayed A cannot repopulate no-emit after B cleared it")
+          (is (nil? (retained-cap :tp/destroy-race))
+              "delayed A cannot recreate a ring override after B released it"))))))
+
 (deftest omitting-retention-on-reregistration-clears-frame-override
   (rf/configure! {:trace-buffer {:events-retained 7}})
   (frame/upsert-frame! :tp/inherit {:rf.trace/events-retained 99})
