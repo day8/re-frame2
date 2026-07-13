@@ -43,12 +43,13 @@
       - `day8.re-frame2-xray.runtime` — the discovery sentinel + safe-egress
         entry points.
   - `re-frame.ui` (rf2-qz1h5d; rf2-vxgfnd.83 + rf2-vxgfnd.103) — the Spec-004
-    compiled-view substrate. FULLY-ROWED (both directions): all sixteen blessed
+    compiled-view substrate. FULLY-ROWED (both directions): all seventeen blessed
     exports are rowed — the S1 set, the namespace-specific `frame-root` row
     (rf2-vxgfnd.71), `frame-provider`, the S2 SCOPE form (rf2-vxgfnd.83,
-    rowed once rf2-vxgfnd.24 blessed it as the native SCOPE grammar), and
+    rowed once rf2-vxgfnd.24 blessed it as the native SCOPE grammar),
     `adapter`, the first-party `:rf.adapter/ui` boot adapter Var
-    (rf2-vxgfnd.103 / PR #5809). A row
+    (rf2-vxgfnd.103 / PR #5809), and `frame`, the S2 ops-bundle body form
+    (rf2-vxgfnd.184). A row
     removed / renamed in source → RED (direction 1); a NEW public Var added to
     this closed compiler grammar without a row → RED (direction 2), so an
     accidental public export cannot accumulate silently.
@@ -125,10 +126,11 @@
    "day8.re-frame2-xray.open-in-editor"              (emit-ns-publics day8.re-frame2-xray.open-in-editor)
    "day8.re-frame2-xray.runtime"                     (emit-ns-publics day8.re-frame2-xray.runtime)
    ;; rf2-qz1h5d + rf2-vxgfnd.83 + rf2-vxgfnd.103 — re-frame.ui compiled-view
-   ;; substrate. FULLY-ROWED now: all sixteen blessed exports are rowed (the
+   ;; substrate. FULLY-ROWED now: all seventeen blessed exports are rowed (the
    ;; S1 set, the namespace-specific `frame-root` row rf2-vxgfnd.71, the S2
    ;; SCOPE form `frame-provider` rf2-vxgfnd.83 — rowed once rf2-vxgfnd.24
-   ;; blessed it — and the first-party `adapter` Var rf2-vxgfnd.103), so
+   ;; blessed it — the first-party `adapter` Var rf2-vxgfnd.103, and the `frame`
+   ;; ops-bundle body form rf2-vxgfnd.184), so
    ;; re-frame.ui is in `fully-rowed` below (both directions checked).
    "re-frame.ui"                                     (emit-ns-publics re-frame.ui)})
 
@@ -138,7 +140,7 @@
    adapter API — and `re-frame.ui`, the Spec-004 compiled-view substrate:
    with `frame-provider` rowed (rf2-vxgfnd.83, once rf2-vxgfnd.24 blessed it
    as the native SCOPE form) and the first-party `adapter` Var rowed
-   (rf2-vxgfnd.103), all sixteen blessed exports are rowed, so a NEW
+   (rf2-vxgfnd.103) and `frame` (rf2-vxgfnd.184), all seventeen blessed exports are rowed, so a NEW
    accidental public Var added to this first-party closed compiler grammar
    fails direction-2 completeness. The Xray mount surface stays a curated
    subset (direction 1 only), so it is deliberately absent here."
