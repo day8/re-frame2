@@ -4,10 +4,14 @@ re-frame2 UI is the view layer for re-frame2: views are hiccup, handlers are eve
 vectors, and the compiler ships code with no interpreter, no hooks ceremony, and no manual
 memoization. This guide teaches the library as a user; design rationale lives one
 directory up. The examples are written to run as CI fixtures, and coverage grows with
-the stages. Today one chapter is covered: guide 09's Tier-1 examples run in the
-library's JVM suite as `implementation/ui/test/re_frame/ui/test_guide09_fixture_jvm_test.clj`;
-the remaining chapters are lifted as their stages land, per the fixture-pipeline draft
-one directory up (`drafts/guide-fixture-pipeline.md`). A fence that is deliberately
+the stages. Today one chapter is partly covered: guide 09's Tier-1 code block and the
+dispatch → sub → re-render loop it teaches run as fixtures in the library's JVM suite
+(`implementation/ui/test/re_frame/ui/test_guide09_fixture_jvm_test.clj`) — the verbatim
+render, the intent-through-attrs respelling, the genuine dispatch → sub → re-render
+toggle (membership read through the compiled `sub` path), a seeded-state render, and the
+sub-override door. The chapter's selector-grammar and literal-root fences are not enrolled
+yet, and the remaining chapters are lifted as their stages land, per the fixture-pipeline
+draft one directory up (`drafts/guide-fixture-pipeline.md`). A fence that is deliberately
 schematic — an elided fragment, or a wave-2 surface — says so in a `;; guide:no-fixture`
 comment on the fence itself. The bar does not move with the coverage: if a guide example
 needs internals explained, that's an API bug, not a documentation problem.
