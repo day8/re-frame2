@@ -2682,10 +2682,64 @@
                       :reason     :parent-frame-destroyed})))))
 
 (defn- mark-frame-destroyed!
-  ;; The `frames` registry is keyed by the bare frame-id, so flip `:destroyed?`
-  ;; on that record.
-  [id]
-  (swap! frames update id assoc-in [:lifecycle :destroyed?] true))
+  "CAS-flip `:destroyed?` only while `id` still names `expected-token`'s
+  incarnation. The caller holds that incarnation's `:drain-lock`; the registry
+  CAS is still required because unrelated frame ids share the `frames` atom.
+  Returns true on the flip, false when the expected incarnation is no longer
+  live."
+  [id expected-token]
+  (loop []
+    (let [registry @frames
+          f        (get registry id)]
+      (if (and f
+               (not (-> f :lifecycle :destroyed?))
+               (identical? expected-token (:drain-lock f)))
+        (if (compare-and-set! frames registry
+                              (assoc-in registry [id :lifecycle :destroyed?] true))
+          true
+          (recur))
+        false))))
+
+(def ^:private ^:dynamic *destroy-claim-probe*
+  "JVM concurrency-test seam fired after `destroy-frame!` captures the candidate
+  incarnation and before it enters drain serialization. nil in production."
+  nil)
+
+(defn- claim-frame-destroy!
+  "Claim teardown authority for `expected-token`'s live incarnation of `id`.
+
+  The token check and `destroying-frames` publication run under the candidate
+  incarnation's drain lock. `call-serialized-with-drain!` may have captured A's
+  frame record before blocking and wake after A was replaced by B, so the thunk
+  revalidates the registry token after acquisition and retries against the
+  current record. A stale expected token therefore never claims B while holding
+  A's obsolete lock. Returns the claimed frame record, or nil."
+  [id expected-token]
+  (loop []
+    (when-let [candidate (frame id)]
+      (let [candidate-token (:drain-lock candidate)]
+        (when (identical? expected-token candidate-token)
+          (when *destroy-claim-probe*
+            (*destroy-claim-probe* id candidate-token))
+          (let [claimed
+                (call-serialized-with-drain!
+                  id
+                  (fn []
+                    (when-let [current (frame id)]
+                      (cond
+                        (not (identical? candidate-token (:drain-lock current)))
+                        ::retry-destroy-claim
+
+                        (contains? @destroying-frames id)
+                        nil
+
+                        :else
+                        (do
+                          (swap! destroying-frames assoc id candidate-token)
+                          current)))))]
+            (if (= ::retry-destroy-claim claimed)
+              (recur)
+              claimed)))))))
 
 (defn- tear-down-sub-cache!
   "Dispose every cached subscription reaction for the destroyed frame.
@@ -2804,7 +2858,10 @@
                                       lifecycle rather than throwing
                                       :rf.error/frame-destroyed. No-op when
                                       the artefact is absent (rf2-vxgfnd.42).
-    3. mark-frame-destroyed!        — flip :lifecycle :destroyed?.
+    3. mark-frame-destroyed!        — CAS-flip :lifecycle :destroyed? only
+                                      while the claimed incarnation token still
+                                      matches, under that incarnation's
+                                      :drain-lock.
     4. tear-down-sub-cache!         — dispose every cached reaction
                                       via the sub-cache-owned
                                       `:subs.cache/dispose-all-for-
@@ -2878,8 +2935,20 @@
   (`rf/make-frame`'s return token). A value is normalized to its id via
   `frame-target->id` so the whole recipe keys the ONE registry's record
   unchanged; `dissoc-frame!` IS the forget (the resolved generation rides the
-  record, dropped with it — one registry, no separate forget hook)."
-  [target]
+  record, dropped with it — one registry, no separate forget hook).
+
+  The two-argument arity is incarnation-owned teardown: it is a silent no-op
+  unless `expected-incarnation-token` is still the live frame's identity token.
+  The check is revalidated after acquiring that incarnation's `:drain-lock`,
+  and the liveness flip CAS-checks the same token under the same lifecycle gate,
+  so a stale teardown can never destroy a fresh same-id incarnation. The
+  one-argument arity preserves ordinary destroy semantics by pinning the live
+  token at invocation and delegating to the incarnation-owned arity."
+  ([target]
+   (let [id (frame-target->id target)]
+     (when-let [expected-token (frame-incarnation-token id)]
+       (destroy-frame! target expected-token))))
+  ([target expected-incarnation-token]
   ;; Accept a frame VALUE or a frame-id keyword. Normalize a value to its id so
   ;; every keyed teardown step below targets the record; a keyword passes
   ;; through unchanged.
@@ -2890,15 +2959,14 @@
   ;; The registry is keyed by the bare frame-id, so every keyed teardown step
   ;; (the in-flight guard, `mark-frame-destroyed!`, `dissoc-frame!`)
   ;; targets the frame-id-keyed record directly.
-  (when-let [f (frame id)]
-      (when-not (contains? @destroying-frames id)
-      ;; Record the DESTROYING incarnation's token (the live record's
-      ;; `:drain-lock`) so `frame-incarnation-closing?` can tell this
-      ;; incarnation's teardown apart from a fresh same-id replacement that goes
-      ;; live under the reused id before this destroy's `finally` clears the
-      ;; marker (rf2-vxgfnd.94). `contains?`/keys keep the bare-id semantics the
+  (when-let [f (claim-frame-destroy! id expected-incarnation-token)]
+      ;; `claim-frame-destroy!` records the DESTROYING incarnation's token (the
+      ;; live record's `:drain-lock`) under that SAME lock, after revalidating
+      ;; the expected token. `frame-incarnation-closing?` can therefore tell
+      ;; this teardown apart from a fresh same-id replacement that goes live
+      ;; under the reused id before this destroy's `finally` clears the marker
+      ;; (rf2-vxgfnd.94). `contains?`/keys keep the bare-id semantics the
       ;; re-entrant guard + `frame-closing?` rely on.
-      (swap! destroying-frames assoc id (:drain-lock f))
       ;; Capture the DESTROY-TIME frame-state value BEFORE any teardown step
       ;; runs. After `mark-frame-destroyed!` (step 3) flips :destroyed?,
       ;; `frame-state-value` returns nil; after `dissoc-frame!` (step 6)
@@ -2970,7 +3038,10 @@
         ;; op's `:serialized-holder` — either way the flip runs directly rather
         ;; than self-deadlocking, and the `frame-disposed-for-drain?` interrupt
         ;; seam is unchanged.
-        (call-serialized-with-drain! id (fn [] (mark-frame-destroyed! id)))
+        (when (call-serialized-with-drain!
+                id
+                (fn []
+                  (mark-frame-destroyed! id expected-incarnation-token)))
         (tear-down-sub-cache! id f)
         ;; Dispose the app-db / runtime-db projection reactions
         ;; AFTER the sub-cache (the sub-cache's layer-1 reactions watch the
@@ -3083,7 +3154,7 @@
         ;; forget hook is needed.
         (dissoc-frame! id)
         (notify-epoch-listeners! id run-fs-before fs-at-destroy run-time-ms)
-        nil
+        nil)
         (finally
           ;; EP-0008 R1 — FINALLY-shaped flush of the always-on
           ;; teardown report. If any cleanup hook threw (entries accumulated

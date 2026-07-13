@@ -611,42 +611,52 @@
             "zero residue once the actor's own frame is cleaned up")))))
 
 (deftest plan-bearing-teardown-is-incarnation-owned
-  ;; Destroy/recreate-before-cleanup: teardown must destroy the EXACT
-  ;; incarnation this render created — not whatever frame later occupies the id.
-  ;; The render is held open (mid-render, between install and teardown) while a
-  ;; concurrent actor destroys the render's incarnation and RE-creates a fresh
-  ;; one under the same id; the render's teardown must leave that NEW
-  ;; incarnation alive. (#5732's bare-id teardown destroyed it.)
-  (let [installed (CountDownLatch. 1)   ; render installed + is rendering
-        swapped   (CountDownLatch. 1)   ; actor destroyed + re-created the id
-        before    (set (keys @frame/frames))]
-    (binding [*render-gate* (fn []
-                              (.countDown installed)
-                              (.await swapped 10 TimeUnit/SECONDS))]
-      (let [render  (future
-                      (uit/render [ui/frame-root {:id :test/incarn
-                                                  :initial-events [[:rf/set-db {:n 1}]]}
-                                   [gated {}]]))]
-        (.await installed 10 TimeUnit/SECONDS)
+  ;; Deterministically open the OLD check-to-act window: the render has decided
+  ;; to destroy its frame and entered `destroy-frame!`, but the actual destroy is
+  ;; held while another actor replaces the id. The render must carry its pinned
+  ;; token INTO core so the resumed destroy cannot tear down the replacement.
+  (let [teardown-entered (CountDownLatch. 1)
+        swapped          (CountDownLatch. 1)
+        render-thread    (atom nil)
+        original-destroy frame/destroy-frame!
+        before           (set (keys @frame/frames))
+        gate-render-destroy
+        (fn [destroy]
+          (if (identical? @render-thread (Thread/currentThread))
+            (do
+              (.countDown teardown-entered)
+              (.await swapped 10 TimeUnit/SECONDS)
+              (destroy))
+            (destroy)))]
+    (with-redefs [frame/destroy-frame!
+                  (fn
+                    ([target]
+                     (gate-render-destroy #(original-destroy target)))
+                    ([target expected-token]
+                     (gate-render-destroy
+                       #(original-destroy target expected-token))))]
+      (let [render (future
+                     (reset! render-thread (Thread/currentThread))
+                     (uit/render [ui/frame-root {:id :test/incarn
+                                                 :initial-events [[:rf/set-db {:n 1}]]}
+                                  [gated {}]]))]
+        (is (.await teardown-entered 10 TimeUnit/SECONDS)
+            "the render reached its teardown decision barrier")
         (let [token-a (frame/frame-incarnation-token :test/incarn)]
-          (is (some? token-a) "the render installed its own incarnation of :test/incarn")
-          ;; actor destroys the render's incarnation and re-creates a FRESH one.
-          (frame/destroy-frame! :test/incarn)
-          (rf/make-frame {:id :test/incarn :initial-events [[:rf/set-db {:n 2}]]})
+          (is (some? token-a) "the render installed its own incarnation")
+          (original-destroy :test/incarn)
+          (rf/make-frame {:id :test/incarn
+                          :initial-events [[:rf/set-db {:n 2}]]})
           (let [token-b (frame/frame-incarnation-token :test/incarn)]
             (is (and (some? token-b) (not (identical? token-a token-b)))
-                "the actor's re-created frame is a DISTINCT incarnation")
-            (.countDown swapped)          ; release the render → it tears down
-            (is (map? @render) "the held render completes and returns its tree")
-            (is (some? (frame/frame :test/incarn))
-                "the actor's re-created incarnation SURVIVES — teardown is
-                 incarnation-owned, not by bare id")
+                "the actor installed a distinct replacement incarnation")
+            (.countDown swapped)
+            (is (map? @render) "the held render completes")
             (is (identical? token-b (frame/frame-incarnation-token :test/incarn))
-                "…and it is unchanged — the render tore down only ITS incarnation")
-            ;; clean up the actor-owned frame; then no residue.
-            (frame/destroy-frame! :test/incarn)
+                "the replacement survives the stale render teardown unchanged")
+            (original-destroy :test/incarn)
             (is (= before (set (keys @frame/frames)))
-                "no residue: the render left nothing, the actor's frame is cleaned")))))))
+                "no residue after the actor cleans up its replacement")))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Registry-rested EXCLUSIVE install (rf2-vxgfnd.76). The claim linearizes
