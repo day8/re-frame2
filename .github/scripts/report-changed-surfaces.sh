@@ -435,6 +435,17 @@ else
         reagent_slim_bundle=true
         ui_gates=true
         ;;
+      implementation/scripts/run-ui-g13.cjs)
+        # rf2-vxgfnd.12.3 — this is the complete G-13 compile/serve/browser/
+        # advanced-elision orchestrator. A launcher-only change must run the
+        # ui_gates job it owns; retain the generic scripts fan-out too.
+        cljs_node_test=true
+        cljs_browser=true
+        cljs_prod=true
+        bundle_isolation=true
+        reagent_slim_bundle=true
+        ui_gates=true
+        ;;
       implementation/scripts/check-ui-adapter-isolation.cjs)
         # The checker IS the focused re-frame.ui dependency-closure gate.
         # A checker-only PR must start the consolidated CLJS job that owns

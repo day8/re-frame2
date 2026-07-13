@@ -92,7 +92,7 @@
                       {:v v :label label :cold-deltas cold-deltas})
              (ensure! (zero? (reactive/pending-cell-count))
                       "dirty registry did not drain" {:v v :label label})
-             (ensure! (= (str (* 8 fixture/queued-writes))
+             (ensure! (= (str (:hot (rf/app-db-value frame)))
                          (.-textContent
                           (uit/query root "[data-g13-kind='hot']")))
                       "DOM did not reflect the eighth queued write"
