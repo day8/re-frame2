@@ -32,7 +32,7 @@ W11 refuses to re-own it:
 |---|---|
 | Bundle bytes, scaling slope, absolute size budgets | G-10 ⟨drafts/g10-bundle-baseline-methodology.md⟩ — the same one-time trio table on the bytes axis; W11 and G-10 share the S6 archive tag |
 | Server-render throughput (per-render µs vs hand-written JSX CLJS) | G-1 — shipped and CI-gated (`npm run test:ui-g1`) ⟨implementation/scripts/run-ui-bench.cjs; 07 §5 G-1⟩ |
-| The CI-gated push-economics falsification bench (fixed affected-cell count C while mounted V varies, plus a multi-write single-drain arm; own-substrate) | G-13, built by the S2 gate work as the S-2 spike's permanent successor ⟨07 §5 G-13; 08 §1 S-2⟩. Exact validity counts are C ViewCell enroll/advances + C component-body renders + one root commit batch per drain. W11 runs that count shape comparatively (§4 R-E); any sustained one-delta timing arm is a distinct W11 extension, not the exact G-13 fixture |
+| The CI-gated push-economics falsification bench (fixed affected-cell count C while mounted V varies, plus a multi-write single-drain arm; own-substrate headless Chromium via Playwright) | G-13, built by the S2 gate work as the S-2 spike's permanent successor ⟨07 §5 G-13; 08 §1 S-2⟩. Exact validity counts are C ViewCell enroll/advances + C component-body renders + one root commit batch per drain. W11 runs that count shape comparatively (§4 R-E); any sustained one-delta timing arm is a distinct W11 extension, not the exact G-13 fixture |
 | Input **correctness** — caret stability, IME, one-commit-per-input, the real-browser Chromium/WebKit matrix | G-8 ⟨07 §5 G-8⟩. W11 measures input *latency* comparatively (§4 R-C) and defers every correctness assertion to G-8 |
 | Update-parity micro-gates vs hand-written React (`useSyncExternalStore` baselines, multi-read scaling, equality no-ops, epoch fan-in, keyed-list work counts) | G-2 / G-3 / G-4 / G-5 / G-9 ⟨07 §5⟩ — parity/work gates against *hand-written React*, not the trio; W11's scenarios are macro-composites of these micro-claims |
 | Memory / retention / disposal | G-6 ⟨07 §5⟩. W11 notes heap flatness as a cross-check only |
@@ -218,8 +218,9 @@ baselined; the trio variants written once at S6 and archived.
   precheck is exact: C cell enroll/advances, C component-body renders, and one root
   commit batch per drain on every substrate. A run with different counts is invalid
   until fixed or documented as idiom-inherent.
-- **Environment**: real Chromium primary for the reported table; the node arm *is*
-  the G-13 CI gate and stays own-substrate-only.
+- **Environment**: headless real Chromium through the repo's Playwright harness for
+  both the own-substrate G-13 CI gate and W11's comparative arms. G-13 has no
+  node/jsdom arm; only the W11 trio variants are absent from the recurring gate.
 - **Metric**: exact cell-advance/body-render/root-commit counts for the G-13 arms;
   p50/p95 µs per measured one-event drain and dropped-frame rate only for the distinct
   sustained-load extension (the S-2 table's timing lineage ⟨s3 report §3⟩).
@@ -246,7 +247,7 @@ loading two frameworks.
 | R-B list churn | none | **only** | layout/paint dominated; jsdom underprices it ⟨s3 §3⟩ |
 | R-C input latency | none | **only**, + CPU throttle | no paint in jsdom ⟨s3 §4⟩ |
 | R-D mount storms | cross-check (acquire/release counts) | **primary** | commit + paint |
-| R-E throughput | the G-13 CI gate itself (own-substrate) | **primary** for the comparative table | browser widens the push margin ⟨s3 §6.6⟩ |
+| R-E push counts + sustained extension | none — G-13 itself is own-substrate headless Chromium via Playwright | **G-13 exact count arms** for the own substrate; **primary** for W11's comparative trio table and sustained extension | real browser exercises the actual React commit path; browser was predicted to widen the push margin ⟨s3 §6.6⟩ |
 
 W11 numbers are **Chromium-only** (the CPU-throttle CDP call is Chromium-only anyway);
 cross-engine input behaviour belongs to G-8's Chromium/WebKit matrix ⟨07 §5 G-8⟩.
@@ -423,8 +424,9 @@ remainder)"⟩ — and given what already recurs:
 - **The single scenario recommended for recurring status: R-B keyed-list churn**, as a
   **nightly** (not per-PR) self-baseline tripwire — because R-B is the only scenario
   whose dominant cost (real-DOM reconcile + paint on a hot list) no existing gate
-  measures as wall time in a real browser: G-9 asserts render counts and retained
-  structures, G-13's gate arm is node-hosted. Form: new-substrate-only, candidate vs
+  measures as gated wall time: G-9 asserts render counts and retained structures;
+  G-13 runs in headless Chromium but gates narrow-view push work counts, not keyed-list
+  reconcile/paint latency. Form: new-substrate-only, candidate vs
   the checked-in baseline EDN, ratio + absolute floor in the G-10 §8.1 style but with
   deliberately **wide pathology thresholds** (starting point: fail only when a per-op
   p50 regresses ≥ 1.5× on two consecutive nightlies on the pinned runner class), and
@@ -447,9 +449,10 @@ react-peer ruling jointly with the G-10 bead — one ruling, both tables); none 
 another venue.
 
 1. **S2 reactivity shipped** — ViewCell, `sub`, drain-quiescence batching, commit
-   reconciliation ⟨12 §3 S2 epic⟩: prerequisite for R-A, R-D, R-E (and R-C's epoch
-   half). Specifically the **S2 G-13 bench harness** (the S-2 spike's permanent
-   successor): fixed C while V varies, plus the multi-write/single-drain arm, with C
+   reconciliation ⟨12 §3 S2 epic⟩: prerequisite for R-A, R-D, R-E (and R-C's
+   drain-quiescence/reactive-commit half). Specifically the **S2 G-13 bench harness**
+   (the S-2 spike's permanent successor): fixed C while V varies, plus the
+   multi-write/single-drain arm, with C
    cell enroll/advances + C component bodies + one root commit batch expected. R-E
    extends those exact arms with trio view layers rather than inventing a parallel
    fixture; its sustained one-delta timing run is explicitly separate.
