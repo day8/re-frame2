@@ -29,7 +29,13 @@
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
-   {:adapter ui/adapter :ambient-frame nil :async? true}))
+   {:adapter ui/adapter
+    :ambient-frame nil
+    :async? true
+    ;; The mounted retention gate compares against an intentional clean
+    ;; scheduler baseline, never whatever a preceding namespace happened to
+    ;; leave in these module-scoped test-support holders.
+    :init-fn reactive/reset-scheduler!}))
 
 (defn root-profiler [^js props]
   ;; React.Profiler's public onRender callback fires ONCE for this profiled
