@@ -154,11 +154,20 @@
 ;; N lexical (sub …) sites in a view share ONE ViewCell (one
 ;; useSyncExternalStore hook). The render body runs ONCE for all N sites, the
 ;; commit acquires N REAL leases (deduped by target identity), and when all N
-;; sites move in ONE drain the cell coalesces to ONE notification — the
+;; sites fan in during ONE drain the cell coalesces to ONE notification — the
 ;; notification count per drain is INVARIANT to the site count. Fully against
-;; the real port + plain-atom cache: the one-drain fan-in is a REAL app-db move
-;; caught at the headless commit evidence comparison (step 5/8), which advances
-;; the cell's revision AT MOST ONCE per commit — no scheduler seam, no mock.
+;; the real port + plain-atom cache — no scheduler seam, no mock — but be
+;; honest about WHICH invalidation channel drives the fan-in: each sub is
+;; RE-REGISTERED (reg-sub again), so the port disposes its canonical node and
+;; fires every committed lease's REAL :hmr-cause on-change, caught at
+;; mark-dirty! (constant-work enrolment) and advanced once by the coalesced
+;; flush. This is NOT the app-db value-movement channel: on plain-atom a
+;; value move has no watch and is caught at the commit evidence comparison
+;; (step 5/8) — that path is pinned by the reconcile suite's moved-evidence
+;; fixtures (re-frame.ui.reactive-reconcile-cljs-test), and the end-to-end
+;; app-db-movement G-3 proof on the watchable adapter is the MOUNTED
+;; counterpart (re-frame.ui.mounted-g3-cardinality-dom-cljs-test) — do not
+;; deprioritise it on the strength of this headless gate.
 
 (defn- g3-scaling-case
   "One G-3 case at `n` sites: render a cell with n distinct sub sites, commit,
