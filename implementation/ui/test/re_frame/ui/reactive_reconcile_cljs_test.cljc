@@ -631,3 +631,83 @@
         (render+commit! cell [[:r/nan]]))
       (is (= 0 (reactive/revision cell))
           "stable NaN evidence causes zero corrective revisions"))))
+
+;; ===========================================================================
+;; Concurrent JVM Tier-1 renders own DISJOINT ambient captures (rf2-1llvoh)
+;; ===========================================================================
+;;
+;; The ambient render-capture slot is a DYNAMIC var (thread-local under
+;; `binding`), matching every neighbouring render-path scope. These fixtures
+;; force the adversarial cross-thread interleave A-enter → B-enter → A-read →
+;; B-read → B-exit → A-exit and prove each render's returned capture contains
+;; EXACTLY its own sites — with a module-global slot, A's read lands in B's
+;; still-open capture (silent wrong ownership) or false-throws the
+;; duplicate-sid guard on an sid collision. JVM-only: CLJS is single-threaded
+;; and `binding` compiles to the same save/restore the slot always had.
+
+#?(:clj
+   (defn- interleaved-renders!
+     "Run two concurrent Tier-1 renders with a latch-forced interleave: A is
+     mid-capture when B enters and reads. Returns
+     {:a {:value v :sites by-site} :b {...}}; rethrows a thread's escape."
+     [sid-a q-a sid-b q-b]
+     (let [a-entered   (promise)
+           b-entered   (promise)
+           a-read-done (promise)
+           b-read-done (promise)
+           fut-a (future
+                   (rf/with-frame fid
+                     (reactive/with-capture (reactive/make-cell ::amb-a)
+                       (fn []
+                         (deliver a-entered true)
+                         (deref b-entered 5000 ::timeout)
+                         (let [v (reactive/sub-read sid-a q-a)]
+                           (deliver a-read-done true)
+                           ;; hold A's capture OPEN until B has read, so the
+                           ;; interleave is deterministic in both directions
+                           (deref b-read-done 5000 ::timeout)
+                           v)))))
+           fut-b (future
+                   (deref a-entered 5000 ::timeout)
+                   (rf/with-frame fid
+                     (reactive/with-capture (reactive/make-cell ::amb-b)
+                       (fn []
+                         (deliver b-entered true)
+                         (deref a-read-done 5000 ::timeout)
+                         (let [v (reactive/sub-read sid-b q-b)]
+                           (deliver b-read-done true)
+                           v)))))
+           [va cap-a] @fut-a
+           [vb cap-b] @fut-b]
+       {:a {:value va :sites (reactive/site-records cap-a)}
+        :b {:value vb :sites (reactive/site-records cap-b)}})))
+
+#?(:clj
+   (deftest concurrent-renders-record-only-their-own-sites
+     (rf/reg-sub :amb/a (fn [db _] (:a db)))
+     (rf/reg-sub :amb/b (fn [db _] (:b db)))
+     (seed! {:a :va :b :vb})
+     (let [{:keys [a b]} (interleaved-renders!
+                          [:amb :site-a] [:amb/a]
+                          [:amb :site-b] [:amb/b])]
+       (testing "each thread's capture holds EXACTLY its own site + value"
+         (is (= #{[:amb :site-a]} (set (keys (:sites a))))
+             "A's capture records A's site — not lost to B's open capture")
+         (is (= #{[:amb :site-b]} (set (keys (:sites b))))
+             "B's capture records B's site only — no cross-thread pollution")
+         (is (= :va (:value a) (get-in a [:sites [:amb :site-a] :value])))
+         (is (= :vb (:value b) (get-in b [:sites [:amb :site-b] :value])))))))
+
+#?(:clj
+   (deftest concurrent-renders-share-an-sid-without-false-duplicate-throw
+     ;; Site ids are per-CAPTURE ownership keys; the same compiler sid on two
+     ;; concurrent threads is two different renders, never a duplicate site.
+     (rf/reg-sub :amb/a (fn [db _] (:a db)))
+     (rf/reg-sub :amb/b (fn [db _] (:b db)))
+     (seed! {:a :va :b :vb})
+     (let [{:keys [a b]} (interleaved-renders!
+                          [:amb :shared] [:amb/a]
+                          [:amb :shared] [:amb/b])]
+       (testing "no false :rf.error/ui-tree-malformed; each side owns its record"
+         (is (= :va (get-in a [:sites [:amb :shared] :value])))
+         (is (= :vb (get-in b [:sites [:amb :shared] :value])))))))

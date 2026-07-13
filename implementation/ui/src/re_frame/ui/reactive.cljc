@@ -260,13 +260,19 @@
 ;; ---------------------------------------------------------------------------
 ;; Ambient render capture
 ;;
-;; Single-threaded on both hosts within one synchronous render; a compiled
+;; Single-threaded on both hosts WITHIN one synchronous render; a compiled
 ;; view's children are ELEMENTS (rendered later by the host), never
-;; synchronously nested calls, so renders never nest — a save/restore cell
-;; is sufficient and re-entrancy-robust.
+;; synchronously nested calls, so renders never nest on one thread. ACROSS
+;; threads the JVM Tier-1 host gives no such guarantee (parallel test
+;; runners, fixture futures), so the slot is a DYNAMIC var — thread-local
+;; under `binding`, exactly like every neighbouring render-path scope
+;; (`*sub-overrides*`, `frame/*current-frame*`) — and two concurrent renders
+;; can neither cross-record sites into each other's captures nor false-throw
+;; the duplicate-sid guard (rf2-1llvoh). On single-threaded CLJS `binding`
+;; compiles to the same save/restore the old atom hand-rolled.
 ;; ---------------------------------------------------------------------------
 
-(def ^:private ambient (atom nil)) ;; {:cell <cell> :capture <volatile>} | nil
+(def ^:private ^:dynamic *ambient* nil) ;; {:cell <cell> :capture <volatile>} | nil
 
 (defn- fresh-capture
   [generation]
@@ -681,7 +687,7 @@
   Fail-loud rides the port: `:rf.error/no-such-sub` on an unknown entry
   sub, `:rf.error/frame-destroyed` against a destroyed frame."
   ([query]
-   (if (some? (:cell @ambient))
+   (if (some? (:cell *ambient*))
      (error/throw-error!
        :rf.error/ui-tree-malformed
        're-frame.ui.reactive/sub-read
@@ -690,7 +696,7 @@
        {:extra {:query query}})
      (sub-read nil query)))
   ([sid query]
-   (let [{:keys [cell capture]} @ambient
+   (let [{:keys [cell capture]} *ambient*
          _ (when (and (some? cell) (nil? sid))
              (error/throw-error!
                :rf.error/ui-tree-malformed
@@ -751,7 +757,7 @@
   capture, and the later passive resource reconciler alone changes ownership."
   [sid descriptor]
   (let [descriptor (ui-lease/validate-descriptor! descriptor)
-        {:keys [cell capture]} @ambient]
+        {:keys [cell capture]} *ambient*]
     (when (or (nil? cell) (nil? capture) (nil? sid))
       (error/throw-error!
        :rf.error/ui-tree-malformed
@@ -789,16 +795,16 @@
   speculative render therefore cannot replace the input of an earlier render
   that React actually commits. StrictMode's effect mount→cleanup→remount reuses
   the selected effect closure, so both mounts reconcile the same immutable
-  capture without a shared slot."
+  capture without a shared slot.
+
+  The ambient slot is a dynamic var: `binding` gives the save/restore for
+  free on single-threaded CLJS and THREAD-LOCAL isolation on the JVM, so two
+  concurrent Tier-1 renders own disjoint captures (rf2-1llvoh)."
   [^ViewCell cell thunk]
-  (let [cap  (volatile! (fresh-capture (:generation @(state cell))))
-        prev @ambient]
-    (reset! ambient {:cell cell :capture cap})
-    (try
+  (let [cap (volatile! (fresh-capture (:generation @(state cell))))]
+    (binding [*ambient* {:cell cell :capture cap}]
       (let [el (thunk)]
-        [el @cap])
-      (finally
-        (reset! ambient prev)))))
+        [el @cap]))))
 
 ;; ---- useSyncExternalStore contract ------------------------------------------
 
