@@ -831,9 +831,22 @@
   (count (:listeners @(state cell))))
 
 (defn- notify-listeners!
+  "Deliver the revision notification to EVERY listener of `cell`. Each
+  listener is contained in its own try/catch so one throwing consumer cannot
+  starve its sibling listeners on the same cell (mirroring the observation
+  port's per-lease disposal containment); the FIRST escape is rethrown AFTER
+  every listener has been delivered — surfaced, never starving (rf2-owwbyl)."
   [^ViewCell cell]
-  (doseq [f (vals (:listeners @(state cell)))]
-    (f)))
+  (let [escape (reduce (fn [acc f]
+                         (try
+                           (f)
+                           acc
+                           (catch #?(:clj Throwable :cljs :default) e
+                             (or acc e))))
+                       nil
+                       (vals (:listeners @(state cell))))]
+    (when (some? escape)
+      (throw escape))))
 
 (defn- advance-revision!
   "Advance the cell's revision and notify subscribers — the host re-reads
@@ -1181,24 +1194,44 @@
   listener fires synchronously within this flush) and, in DEV, hand the captured
   `ev` to the installed `evidence-sink` (Xray; rf2-vxgfnd.46) inside a guard.
 
-  A THROWING sink is a broken DEBUG tool, never an authority over the render
-  correction: its throw is CONTAINED here (caught and returned to the batch core
-  for one bounded diagnostic) so it can neither strand a cell nor abort the
-  batch's remaining cells (rf2-vxgfnd.73). Because completion already finished for
-  the whole batch, a re-entrant sink/listener that re-marks this (or ANY) cell
-  enrols a FRESH pending window rather than losing the notification. The sink
-  still receives the exact pre-clear bounded summary once per flushed cell.
-  Returns `{:cell cell :error e}` on a contained sink escape (DEV only), else nil;
-  the whole evidence/containment path DCEs under `goog.DEBUG=false`."
+  BOTH consumer families are contained here, because neither is an authority
+  over the render correction (the rf2-vxgfnd.73 doctrine):
+
+    - a THROWING LISTENER (the PRODUCTION surface — rf2-owwbyl) is caught and
+      returned to the batch core, so it can neither strand this cell nor abort
+      the batch's remaining cells' deliveries: phase 1 already cleared every
+      drained cell's dirty flag and registry membership, so an aborted phase 2
+      would LOSE the undelivered sibling notifications outright — stale UI
+      until unrelated movement re-marks them. The batch core rethrows the
+      FIRST listener escape AFTER the whole batch has delivered — surfaced,
+      never silent, never starving (the same drain-then-rethrow shape as the
+      observation port's `drain-pending-disposals!`).
+    - a THROWING sink is a broken DEBUG tool: contained exactly as before
+      (rf2-vxgfnd.73) and reported via ONE bounded diagnostic (never rethrown,
+      never through the sink). The sink still receives the exact pre-clear
+      bounded summary once per flushed cell.
+
+  Because completion already finished for the whole batch, a re-entrant
+  sink/listener that re-marks this (or ANY) cell enrols a FRESH pending window
+  rather than losing the notification. Returns nil, or a map carrying the
+  contained `:listener` and/or `:sink` escape as `{:cell cell :error e}`; the
+  evidence/sink half DCEs under `goog.DEBUG=false`."
   [^ViewCell cell ev]
-  (notify-listeners! cell)
-  (when interop/debug-enabled?
-    (when-some [sink @evidence-sink]
-      (try
-        (sink cell ev)
-        nil
-        (catch #?(:clj Throwable :cljs :default) e
-          {:cell cell :error e})))))
+  (let [listener-escape (try
+                          (notify-listeners! cell)
+                          nil
+                          (catch #?(:clj Throwable :cljs :default) e
+                            {:cell cell :error e}))
+        sink-escape     (when interop/debug-enabled?
+                          (when-some [sink @evidence-sink]
+                            (try
+                              (sink cell ev)
+                              nil
+                              (catch #?(:clj Throwable :cljs :default) e
+                                {:cell cell :error e}))))]
+    (cond-> nil
+      (some? listener-escape) (assoc :listener listener-escape)
+      (some? sink-escape)     (assoc :sink sink-escape))))
 
 (defn- run-flush-batch!
   "The two-phase batch-flush CORE over an explicit ordered `cells` seq
@@ -1206,26 +1239,35 @@
   scheduler state — with no user code — so the whole batch is complete before
   PHASE 2 (`deliver-flush!`) runs any listener or evidence-sink. A re-entrant
   re-mark in phase 2 therefore always sees a fully-completed batch and opens the
-  NEXT window, regardless of iteration order. Preserves the DEV containment:
-  each `deliver-flush!` contains a throwing sink, the batch captures the FIRST
-  escape and emits ONE bounded diagnostic (never through the sink), and the whole
-  DEBUG branch DCEs under `goog.DEBUG=false`. Returns the count actually flushed."
+  NEXT window, regardless of iteration order.
+
+  Phase 2 delivers EVERY cell regardless of consumer behaviour — each
+  `deliver-flush!` contains its cell's throwing listener AND (in DEV) a
+  throwing sink per-cell, so neither can abort the remaining cells' deliveries
+  (rf2-owwbyl / rf2-vxgfnd.73). Evaluate the delivery FIRST (never inside a
+  short-circuiting form), keep the FIRST escape of each family across the
+  batch, then: emit ONE bounded sink diagnostic (never through the sink; the
+  sink half DCEs under `goog.DEBUG=false`) and RETHROW the first listener
+  escape AFTER the whole batch delivered — a production consumer bug is
+  surfaced to the flush caller, never silent, and never costs a sibling cell
+  its notification. Returns the count actually flushed."
   [cells]
-  (let [completed (into [] (keep complete-flush!) cells)]
-    (if interop/debug-enabled?
-      ;; deliver EVERY cell regardless of tool behaviour — a throwing sink is
-      ;; contained per-cell (returns the escape, never propagates). Evaluate the
-      ;; delivery FIRST (never inside `or`, which would short-circuit the rest of
-      ;; the batch after the first escape), keep the FIRST escape, emit ONE
-      ;; bounded diagnostic — never through the sink.
-      (let [escape (reduce (fn [acc [cell ev]]
-                             (let [e (deliver-flush! cell ev)] (or acc e)))
-                           nil
-                           completed)]
-        (when (some? escape)
-          (report-sink-escape! escape)))
-      (doseq [[cell _] completed]
-        (deliver-flush! cell nil)))
+  (let [completed (into [] (keep complete-flush!) cells)
+        escapes   (reduce (fn [acc [cell ev]]
+                            (let [e (deliver-flush! cell ev)]
+                              (cond-> acc
+                                (and (:listener e) (nil? (:listener acc)))
+                                (assoc :listener (:listener e))
+
+                                (and (:sink e) (nil? (:sink acc)))
+                                (assoc :sink (:sink e)))))
+                          {}
+                          completed)]
+    (when interop/debug-enabled?
+      (when-some [se (:sink escapes)]
+        (report-sink-escape! se)))
+    (when-some [le (:listener escapes)]
+      (throw (:error le)))
     (count completed)))
 
 (defn flush-scope!

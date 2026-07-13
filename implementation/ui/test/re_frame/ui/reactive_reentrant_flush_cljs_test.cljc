@@ -189,3 +189,86 @@
       (is (= 55 (:b-epoch fwd)))
       (is (= 1 (:pending-count fwd)))
       (is (true? (:escape-a? fwd)) "the escape names the offending cell — not silent"))))
+
+;; ===========================================================================
+;; A THROWING LISTENER must not strand completed sibling deliveries
+;; (rf2-owwbyl — the rf2-vxgfnd.73 bug class one layer down, on the
+;; PRODUCTION notification path)
+;; ===========================================================================
+;;
+;; Phase 1 clears every drained cell's dirty flag + registry membership BEFORE
+;; phase 2 runs any listener. An uncontained listener throw therefore did not
+;; defer the sibling notifications — it LOST them: the sibling was no longer
+;; dirty, no longer registered, its listeners never invoked — stale UI until
+;; unrelated movement. The fix contains per listener AND per cell, completes
+;; the whole batch, then rethrows the FIRST escape so the bug is surfaced.
+
+(defn- run-throwing-listener-scenario
+  "Batch {A,B}; A's first listener throws; A carries a second listener and B
+  carries one. Flush in `order-fn`'s order; capture the surfaced escape.
+  Returns the full observable outcome."
+  [order-fn]
+  (reactive/reset-scheduler!)
+  (let [ha2    (atom 0)
+        hb     (atom 0)
+        cell-a (reactive/make-cell ::a)
+        cell-b (reactive/make-cell ::b)]
+    (reactive/subscribe cell-a (fn [] (throw (ex-info "listener boom" {:cell :a}))))
+    (reactive/subscribe cell-a (fn [] (swap! ha2 inc)))
+    (reactive/subscribe cell-b (fn [] (swap! hb inc)))
+    (reactive/mark-dirty! cell-a 1)
+    (reactive/mark-dirty! cell-b 2)
+    (let [escape (try
+                   (reactive/flush-batch-in-order! (order-fn [cell-a cell-b]))
+                   nil
+                   (catch #?(:clj Throwable :cljs :default) e e))]
+      {:escape-msg    (some-> escape ex-message)
+       :rev-a         (reactive/revision cell-a)
+       :rev-b         (reactive/revision cell-b)
+       :hits-a2       @ha2
+       :hits-b        @hb
+       :a-dirty?      (reactive/dirty? cell-a)
+       :b-dirty?      (reactive/dirty? cell-b)
+       :pending-count (reactive/pending-cell-count)})))
+
+(deftest throwing-listener-cannot-strand-sibling-cells-either-order
+  (let [fwd (run-throwing-listener-scenario identity)              ;; A then B
+        rev (run-throwing-listener-scenario (fn [[a b]] [b a]))]   ;; B then A
+    (testing "both iteration orders yield the IDENTICAL contained outcome"
+      (is (= fwd rev)))
+    (testing "cells 2..N still deliver — the sibling's notification is not lost"
+      (is (= 1 (:hits-b fwd))
+          "B's listener fired despite A's listener throwing (the rf2-owwbyl
+           regression: B was permanently stranded — cleared but undelivered)")
+      (is (= 1 (:hits-a2 fwd))
+          "A's OWN second listener fired too — containment is per listener")
+      (is (= 1 (:rev-a fwd)) "A completed")
+      (is (= 1 (:rev-b fwd)) "B completed")
+      (is (false? (:a-dirty? fwd)))
+      (is (false? (:b-dirty? fwd)))
+      (is (= 0 (:pending-count fwd)) "nothing lingers in the registry"))
+    (testing "the escape is SURFACED to the flush caller — never silent"
+      (is (= "listener boom" (:escape-msg fwd))
+          "the first listener escape is rethrown after the batch delivered"))))
+
+(deftest throwing-listener-through-the-real-flush-pending-primitive
+  (reactive/reset-scheduler!)
+  (let [hb     (atom 0)
+        cell-a (reactive/make-cell ::a)
+        cell-b (reactive/make-cell ::b)]
+    (reactive/subscribe cell-a (fn [] (throw (ex-info "listener boom" {}))))
+    (reactive/subscribe cell-b (fn [] (swap! hb inc)))
+    (reactive/mark-dirty! cell-a 1)
+    (reactive/mark-dirty! cell-b 2)
+    (let [escape (try (reactive/flush-pending!) nil
+                      (catch #?(:clj Throwable :cljs :default) e e))]
+      (is (some? escape) "the escape surfaces through flush-scope! too")
+      (is (= 1 @hb) "…after the whole drained batch delivered"))
+    (testing "the scheduler is fully settled — a later movement flows normally"
+      (is (= 0 (reactive/pending-cell-count)))
+      (reactive/mark-dirty! cell-b 3)
+      (is (= 1 (try (reactive/flush-pending!)
+                    (catch #?(:clj Throwable :cljs :default) _ ::rethrew))
+          )
+          "the next drain flushes B cleanly (A has no pending window)")
+      (is (= 2 @hb)))))
