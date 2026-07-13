@@ -74,7 +74,8 @@ author identity the moment a page outgrows that:
   caught at runtime *before any render* — the already-live root is untouched.
 - Identity opts (`:root-id`, `:disambiguator`, `:identifier-prefix`) are compile-time
   literals. `:identifier-prefix` seeds React's generated ids and defaults to
-  `rf2-<root-id-slug>-` (`:page/shop` → `"rf2-page-shop-"`) — author it only when two
+  `rf2-<root-id-slug>-` (`:page/shop` → `"rf2-page_Sshop-"` — the slug escapes the `/`
+  as `_S`, so distinct root-ids can never share a prefix) — author it only when two
   independently built roots could collide.
 - The opts map also carries the host error callbacks (`:on-uncaught-error`,
   `:on-caught-error`, `:on-recoverable-error`) — plain fns handed to the React root,
