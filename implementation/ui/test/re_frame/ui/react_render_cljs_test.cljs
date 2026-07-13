@@ -357,8 +357,13 @@
   ;; emitted code calls and assert the entry shape. That defview EMITS
   ;; this call under the goog.DEBUG gate is pinned as an emission-form
   ;; test on the JVM (defview-grammar-jvm-test), where it is order-free.
-  (rt/register-view! ::probe-view todo-list
-                     {:view-id ::probe-view :doc "probe"})
+  (rt/register-view! ::probe-view
+                     (fn [_props] nil)
+                     (fn [_prev _next] true)
+                     "probe-view"
+                     {:view-id ::probe-view
+                      :hook-signature "hs1-probe"
+                      :doc "probe"})
   (let [meta* (registrar/handler-meta :view ::probe-view)]
     (is (some? meta*) "register-view! writes the registrar :view kind")
     (is (true? (:rf.ui/compiled? meta*)))

@@ -40,7 +40,8 @@
 
 (defn memo-view
   "React.memo over the compiled render fn with the generated `rf=`
-  comparator; displayName in dev."
+  comparator. This is the direct production path: no shell, slot, listener,
+  dynamic render lookup, or extra Fiber."
   [render-fn compare-fn display-name]
   (let [c (react/memo render-fn compare-fn)]
     (when ^boolean js/goog.DEBUG
@@ -48,23 +49,55 @@
       (set! (.-displayName c) display-name))
     c))
 
-(defn register-view!
-  "Registrar `:view` entry for a compiled view (dev builds; the emitted
-  call is goog.DEBUG-gated so production carries no manifests — I-12).
+(defn- make-view-shells
+  "Create the two stable DEV component identities for `id`.
 
-  Also feeds the HMR view-body generation registry (03 §10): a re-registration
-  (shadow hot reload OR REPL re-eval — one path, 02 §8) consults the manifest's
-  hook-signature hash and keeps the generation on a same-signature edit (mounted
-  cells preserve state) or bumps it on a changed signature (the shell remounts).
-  Runs at (re-)registration time, not per render — off the hot path."
-  [id component manifest]
-  (registrar/register! :view id (cond-> {:rf/id id
-                                         :handler-fn component
+  Outer owns the minimal body-revision useSyncExternalStore subscription and
+  delegates prop comparison to the currently-published descriptor. Inner calls
+  the current render function as an ORDINARY function, keeping authored hooks
+  on Inner's stable Fiber. Only its key changes on hook-signature
+  incompatibility."
+  [id]
+  (let [subscribe (fn [listener]
+                    (reactive/subscribe-view! id listener))
+        snapshot  (fn [] (reactive/view-generation id))
+        inner     (fn stable-view-body [props]
+                    (let [render-fn (:render-fn (reactive/view-descriptor id))]
+                      (render-fn props)))
+        outer-fn  (fn stable-view-shell [props]
+                    (react/useSyncExternalStore subscribe snapshot snapshot)
+                    (jsx3 inner props (reactive/view-remount-generation id)))
+        compare   (fn [prev next]
+                    (let [compare-fn (:compare-fn
+                                      (reactive/view-descriptor id))]
+                      (compare-fn prev next)))
+        outer     (react/memo outer-fn compare)]
+    {:outer outer :inner inner}))
+
+(defn register-view!
+  "Register a compiled view in DEV and return its stable public shell.
+
+  Registrar success happens before the one HMR slot publishes the new
+  descriptor. Therefore a failed registration advances neither body revision
+  nor remount generation. Successful publication is atomic; mounted shells are
+  notified only after render/comparator/manifest and both revisions agree."
+  [id render-fn compare-fn display-name manifest]
+  (let [{:rf.ui.hmr/keys [outer inner]}
+        (reactive/ensure-view-shells! id #(make-view-shells id))]
+    (set! (.-displayName render-fn) display-name)
+    (set! (.-displayName inner) (str display-name "$Body"))
+    (set! (.-displayName outer) display-name)
+    (registrar/register! :view id (cond-> {:rf/id id
+                                           :handler-fn outer
                                          :rf.ui/compiled? true
                                          :rf.ui/manifest manifest}
-                                  (:doc manifest) (assoc :doc (:doc manifest))))
-  (reactive/register-view-generation! id (:hook-signature manifest))
-  component)
+                                    (:doc manifest) (assoc :doc (:doc manifest))))
+    (reactive/register-view-descriptor!
+     id (:hook-signature manifest)
+     {:render-fn render-fn
+      :compare-fn compare-fn
+      :manifest manifest})
+    outer))
 
 ;; ---------------------------------------------------------------------------
 ;; Dispatch — the S1 seam

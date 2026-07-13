@@ -444,10 +444,13 @@
        (defn ~render-sym [~props-sym]
          ~render-body)
        (def ~(vary-meta vname merge var-meta)
-         (re-frame.ui.runtime/memo-view
-          ~render-sym
-          ~(comparator-form header slots)
-          ~display-name))
-       (when ~(with-meta 'js/goog.DEBUG {:tag 'boolean})
-         (re-frame.ui.runtime/register-view! ~view-id ~vname (quote ~manifest)))
+         (let [compare# ~(comparator-form header slots)]
+           (if ~(with-meta 'js/goog.DEBUG {:tag 'boolean})
+             (re-frame.ui.runtime/register-view!
+              ~view-id ~render-sym compare# ~display-name (quote ~manifest))
+             ;; The production arm is deliberately direct React.memo. Closure
+             ;; folds away the sibling registration arm and with it every HMR
+             ;; slot/listener/dynamic-lookup/extra-Fiber helper.
+             (re-frame.ui.runtime/memo-view
+              ~render-sym compare# ~display-name))))
        ~vname)))

@@ -386,72 +386,145 @@
             :intervals      []}))))
 
 ;; ---------------------------------------------------------------------------
-;; View-body generation — the HMR hook-signature → preserve/remount decision
-;; (03 §10)
+;; Dev-only view slots — stable shell + exact body revision (03 §10)
 ;; ---------------------------------------------------------------------------
 ;;
-;; The "stable shell + hook-signature hash" contract, realized as a per-view-id
-;; BODY GENERATION. A view re-registration — shadow hot reload OR REPL re-eval,
-;; ONE path (02 §8) — consults the ordered user-hook-site signature hash
-;; (`re-frame.ui.fingerprint/hook-signature-hash`, shipped since S1b — consumed
-;; here, never rebuilt). An UNCHANGED signature KEEPS the generation: mounted
-;; cells preserve their state — their committed captures stay current, the next
-;; render runs the NEW body, and the commit reconciles the changed `sub` sites
-;; (`sub`/`lease`/event sites are EXCLUDED from the signature by the
-;; fingerprint's own contract, so a template edit — or adding your first `sub`
-;; under the dev fixed full hook skeleton, I-15 — is a same-signature edit). A
-;; CHANGED signature BUMPS the generation: the shell deliberately remounts a
-;; fresh cell at the new generation, never a corrupted hook order.
+;; ONE per-view slot is the whole HMR authority.  It owns the stable component
+;; identities, current implementation descriptor, revision store/listeners, and
+;; the hook-signature → remount decision.  There is deliberately no parallel
+;; registrar cache or render-time var lookup.
 ;;
-;; The registry is the ONE authority the runtime's `register-view!` feeds and a
-;; freshly-mounted ViewCell mints against (`view-generation`); a LIVE cell whose
-;; view generation advanced is stale-rejected at its next commit (step 1) via
-;; `advance-generation!`. Host-agnostic, so the decision is graft-checked on both
-;; hosts.
+;; Every successful registration advances BODY REVISION, including a
+;; same-signature edit.  Only a changed hook signature advances REMOUNT
+;; GENERATION.  The stable outer shell observes body revision; its stable inner
+;; body is keyed by remount generation.  Thus a same-signature update runs the
+;; new body on the existing Fiber, while an incompatible hook edit remounts that
+;; Fiber exactly once without changing the public shell identity.
+;;
+;; The slot is dev-only in the CLJS emitter: production takes a literal
+;; `goog.DEBUG=false` branch directly to `React.memo`, leaving this registry and
+;; all listener/dynamic-descriptor machinery unreachable to Closure DCE.
 
 (defonce ^:private view-generations
-  ;; view-id -> {:hook-signature hs :generation g}. `defonce` (module-lived);
-  ;; `reset-scheduler!` clears it between fixtures.
+  ;; view-id -> one atomic :rf.ui.hmr/* slot. `defonce` survives namespace
+  ;; reload; `reset-scheduler!` clears it between fixtures.
   (atom {}))
 
+(defn ensure-view-shells!
+  "Return the stable shell pair for `view-id`, creating it once with
+  `make-shells` when absent. `make-shells` returns `{:outer x :inner y}`.
+
+  The winning pair is published in the SAME per-view slot later used for the
+  descriptor/revisions/listeners. A losing speculative pair is unreachable
+  garbage (possible only under a concurrent JVM test; the CLJS host is
+  single-threaded)."
+  [view-id make-shells]
+  (let [slots (swap! view-generations update view-id
+                     (fn [slot]
+                       (if (:rf.ui.hmr/outer slot)
+                         slot
+                         (let [{:keys [outer inner]} (make-shells)]
+                           (merge {:rf.ui.hmr/registered?       false
+                                   :rf.ui.hmr/body-revision     -1
+                                   :rf.ui.hmr/remount-generation 0
+                                   :rf.ui.hmr/listeners         {}}
+                                  slot
+                                  {:rf.ui.hmr/outer outer
+                                   :rf.ui.hmr/inner inner})))))]
+    (select-keys (get slots view-id)
+                 [:rf.ui.hmr/outer :rf.ui.hmr/inner])))
+
+(defn register-view-descriptor!
+  "Atomically publish one successful dev registration and notify its mounted
+  shells AFTER publication. `descriptor` is the current render/comparator/
+  manifest record.
+
+  Body revision advances on every call. Remount generation advances only when
+  an already-registered slot changes hook signature. Returns the complete
+  published slot snapshot."
+  [view-id hook-signature descriptor]
+  (let [[_ slots]
+        (swap-vals! view-generations update view-id
+                    (fn [slot]
+                      (let [registered? (boolean (:rf.ui.hmr/registered? slot))
+                            changed?    (and registered?
+                                             (not= hook-signature
+                                                   (:rf.ui.hmr/hook-signature slot)))]
+                        (-> (merge {:rf.ui.hmr/body-revision      -1
+                                    :rf.ui.hmr/remount-generation 0
+                                    :rf.ui.hmr/listeners          {}}
+                                   slot)
+                            (assoc :rf.ui.hmr/registered? true
+                                   :rf.ui.hmr/hook-signature hook-signature
+                                   :rf.ui.hmr/descriptor descriptor)
+                            (update :rf.ui.hmr/body-revision inc)
+                            (cond-> changed?
+                              (update :rf.ui.hmr/remount-generation inc))))))
+        published (get slots view-id)]
+    (doseq [listener (vals (:rf.ui.hmr/listeners published))]
+      (listener))
+    published))
+
 (defn register-view-generation!
-  "Consume a view's `hook-signature` at (re-)registration and return its current
-  BODY GENERATION (03 §10). The first registration seeds generation 0. A
-  re-registration carrying the SAME `hook-signature` KEEPS the generation
-  (mounted cells preserve — a template-only edit changes the template
-  fingerprint, never the hook signature); a DIFFERENT `hook-signature` BUMPS it
-  (the shell remounts cleanly). One decision for shadow reload and REPL re-eval
-  (02 §8), so both converge on the same generation. A nil `hook-signature` is a
-  value like any other (a sub/effect-free view never changes signature). Returns
-  the (possibly bumped) generation."
+  "Headless test/JVM seam for the same registration decision as
+  `register-view-descriptor!`. Returns BODY REVISION. It never creates a second
+  authority: the existing descriptor (if any) is republished in the one slot."
   [view-id hook-signature]
-  (-> (swap! view-generations update view-id
-             (fn [prev]
-               (cond
-                 (nil? prev)
-                 {:hook-signature hook-signature :generation 0}
-                 (= hook-signature (:hook-signature prev))
-                 prev
-                 :else
-                 {:hook-signature hook-signature
-                  :generation     (inc (:generation prev))})))
-      (get view-id)
-      :generation))
+  (:rf.ui.hmr/body-revision
+   (register-view-descriptor!
+    view-id hook-signature
+    (get-in @view-generations [view-id :rf.ui.hmr/descriptor]))))
 
 (defn view-generation
-  "The current body generation for `view-id` (0 when never registered) — the
-  generation a freshly-mounted ViewCell for this view is minted at (tool/test
-  read)."
+  "The current BODY REVISION for `view-id` (0 when never registered). Kept
+  under the historical internal name while callers migrate; this is no longer
+  the remount key."
   [view-id]
-  (get-in @view-generations [view-id :generation] 0))
+  (max 0 (get-in @view-generations
+                 [view-id :rf.ui.hmr/body-revision]
+                 0)))
+
+(defn registered-view-revision
+  "The authoritative body revision for a successfully registered `view-id`, or
+  nil when the test/direct-call path has no registered slot."
+  [view-id]
+  (let [slot (get @view-generations view-id)]
+    (when (:rf.ui.hmr/registered? slot)
+      (:rf.ui.hmr/body-revision slot))))
+
+(defn view-remount-generation
+  "The current hook-incompatibility remount key for `view-id` (tool/test read)."
+  [view-id]
+  (get-in @view-generations [view-id :rf.ui.hmr/remount-generation] 0))
+
+(defn view-descriptor
+  "The current implementation descriptor for `view-id` (dev render path)."
+  [view-id]
+  (get-in @view-generations [view-id :rf.ui.hmr/descriptor]))
+
+(defn view-shells
+  "The stable `{:outer :inner}` identities for `view-id` (tool/test read)."
+  [view-id]
+  (let [slot (get @view-generations view-id)]
+    {:outer (:rf.ui.hmr/outer slot)
+     :inner (:rf.ui.hmr/inner slot)}))
+
+(defn subscribe-view!
+  "Subscribe `listener` to successful body publications for `view-id`; return
+  an idempotent unsubscribe thunk. This is the stable shell's minimal
+  useSyncExternalStore store."
+  [view-id listener]
+  (let [k (gensym "rf-ui-hmr-listener")]
+    (swap! view-generations assoc-in
+           [view-id :rf.ui.hmr/listeners k] listener)
+    (fn unsubscribe []
+      (swap! view-generations update-in
+             [view-id :rf.ui.hmr/listeners] dissoc k))))
 
 (defn advance-generation!
-  "Advance a LIVE `cell`'s view-body generation to `generation` — the
-  changed-signature HMR/remount seam (03 §10). A generation bump makes any
-  in-flight capture rendered under the PRIOR body stale at the next commit
-  (step 1). Same-signature reloads preserve the generation and never call this
-  seam. Monotone: a no-op unless
-  `generation` exceeds the cell's current generation. Returns the cell."
+  "Advance a LIVE `cell` to a newer BODY REVISION before capture. A revision
+  bump makes an in-flight capture from the prior body stale at commit step 1.
+  Monotone: a no-op unless `generation` exceeds the cell's current revision."
   [^ViewCell cell generation]
   (let [st (state cell)]
     (when (> generation (:generation @st))
@@ -1595,8 +1668,14 @@
   (let [st  (state cell)
         st0 @st]
     (cond
-      ;; step 1 — stale generation
-      (not= (:generation cap) (:generation st0))
+      ;; step 1 — stale body revision. The cell-local comparison catches an
+      ;; explicit sync/remount. The authoritative slot comparison closes the
+      ;; harder render(old) → registration(new) → layout(old) window even when
+      ;; the cell has not rendered again yet. Direct/headless callers with no
+      ;; registered slot retain the cell-local contract.
+      (or (not= (:generation cap) (:generation st0))
+          (when-some [current (registered-view-revision (:view-id st0))]
+            (not= (:generation cap) current)))
       :stale
 
       :else

@@ -157,7 +157,11 @@
     (is (str/includes? text "re-frame.ui.runtime/register-view!")
         "defview emits the registrar :view registration")
     (is (str/includes? text "js/goog.DEBUG")
-        "the registration/manifest emission is dev-gated (I-12)")
+        "the stable-shell registration/manifest emission is dev-gated (I-12)")
+    (is (re-find #"\(if js/goog.DEBUG \(re-frame.ui.runtime/register-view!.*\(re-frame.ui.runtime/memo-view"
+                 text)
+        "golden: DEV registers the stable shell while the sibling production
+         arm is the direct React.memo path — no unconditional HMR residue")
     (is (not (str/includes? text "bd1-"))
         "no-pass REPL expansion may replace the body but never publishes build identity")
     (let [def-sym (some #(when (and (seq? %) (= 'def (first %))

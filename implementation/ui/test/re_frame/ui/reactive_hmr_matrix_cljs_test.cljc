@@ -8,11 +8,10 @@
 
   Every cell exercises the actual substrate primitive — no proxy:
 
-    1. HOOK-SIGNATURE DECIDES PRESERVE vs REMOUNT. `hook-signature-hash`
-       (shipped since S1b, consumed here) keyed through the view-body
-       GENERATION registry: a template edit (same hook signature, moved
-       template fingerprint) KEEPS the generation → mounted cells preserve; a
-       hook edit (moved signature) BUMPS it → the shell remounts a fresh cell.
+    1. HOOK-SIGNATURE DECIDES PRESERVE vs REMOUNT. Every successful
+       registration advances BODY REVISION so mounted shells see the new body.
+       A template edit (same hook signature) KEEPS REMOUNT GENERATION; a hook
+       edit advances it so the stable shell remounts its stable inner Fiber.
        `sub`/`lease`/event sites are excluded from the signature, so adding your
        first `sub` is a same-signature edit.
     2. STALE-CELL REJECTION AT COMMIT (step 1). A live cell whose generation
@@ -104,31 +103,35 @@
               (fp/hook-signature-hash {:locals ['b 'a] :effects []}))
         "hook ORDER is part of the signature (React hook-order safety)")))
 
-(deftest same-signature-reload-keeps-the-view-generation
+(deftest same-signature-reload-advances-body-but-keeps-remount-generation
   (let [vid ::preserve-view
         hs0 (fp/hook-signature-hash {:locals [] :effects []})]
     (is (= 0 (reactive/register-view-generation! vid hs0))
-        "first registration seeds generation 0")
-    (testing "a template-only reload (same hook signature) KEEPS the generation
-              → mounted cells preserve state"
-      (is (= 0 (reactive/register-view-generation! vid hs0)))
-      (is (= 0 (reactive/register-view-generation! vid hs0)))
-      (is (= 0 (reactive/view-generation vid))))))
+        "first successful registration seeds body revision 0")
+    (testing "a template-only reload advances body freshness but never the
+              remount key → mounted state is preserved"
+      (is (= 1 (reactive/register-view-generation! vid hs0)))
+      (is (= 2 (reactive/register-view-generation! vid hs0)))
+      (is (= 2 (reactive/view-generation vid)))
+      (is (= 0 (reactive/view-remount-generation vid))))))
 
-(deftest changed-signature-reload-bumps-the-view-generation
+(deftest changed-signature-reload-bumps-only-the-remount-generation
   (let [vid ::remount-view
         hs0 (fp/hook-signature-hash {:locals [] :effects []})
         hs1 (fp/hook-signature-hash {:locals ['draft] :effects []})
         hs2 (fp/hook-signature-hash {:locals ['draft] :effects ['sync]})]
     (is (= 0 (reactive/register-view-generation! vid hs0)))
-    (testing "a hook edit (moved signature) BUMPS the generation → the shell
-              remounts cleanly"
+    (testing "every registration advances body revision; only hook edits bump
+              the remount key"
       (is (= 1 (reactive/register-view-generation! vid hs1)))
       (is (= 1 (reactive/view-generation vid)))
+      (is (= 1 (reactive/view-remount-generation vid)))
       (is (= 2 (reactive/register-view-generation! vid hs2))
-          "each distinct signature bumps once")
-      (testing "reverting to a prior signature is itself a change (monotone gen)"
-        (is (= 3 (reactive/register-view-generation! vid hs0)))))))
+          "body revision advances once per successful publication")
+      (is (= 2 (reactive/view-remount-generation vid)))
+      (testing "reverting to a prior signature is itself an incompatibility"
+        (is (= 3 (reactive/register-view-generation! vid hs0)))
+        (is (= 3 (reactive/view-remount-generation vid)))))))
 
 (deftest freshly-mounted-cell-mints-at-the-view-generation
   (let [vid ::mint-view
@@ -137,6 +140,7 @@
     (reactive/register-view-generation! vid hs0)
     (reactive/register-view-generation! vid hs1)  ; a changed-signature reload
     (is (= 1 (reactive/view-generation vid)))
+    (is (= 1 (reactive/view-remount-generation vid)))
     (let [cell (reactive/make-cell vid (reactive/view-generation vid))]
       (is (= 1 (reactive/generation cell))
           "a cell mounted after a remount starts at the current view generation")
@@ -147,23 +151,27 @@
 ;; Cell 2 — stale-capture rejection at commit (step 1): generation remount seam
 ;; ===========================================================================
 
-(deftest stale-generation-capture-rejected-at-commit-step-1
+(deftest stale-authoritative-body-revision-rejected-at-commit-step-1
   (rf/reg-sub :r/a (fn [db _] (:a db)))
   (seed! {:a 1})
-  (let [cell (render+commit! (reactive/make-cell ::v 0) [[:r/a]])
+  (let [hs   (fp/hook-signature-hash {:locals [] :effects []})
+        _    (reactive/register-view-generation! ::v hs)
+        cell (render+commit! (reactive/make-cell ::v 0) [[:r/a]])
         lease0 (reactive/committed-lease cell (tk [:r/a]))]
     (is (= 1 (ref-count [:r/a])) "precondition: committed at generation 0")
-    (testing "a changed-signature remount BUMPS the cell generation; its in-flight
-              capture (rendered under the prior body) is now stale"
+    (testing "registration lands after render but before layout: the slot moved
+              while the cell-local revision did not"
       (let [[_ capture] (render! cell [[:r/a]])]    ; capture at generation 0
-        (reactive/advance-generation! cell 1)       ; changed-signature remount
-        (is (= 1 (reactive/generation cell)))
+        (reactive/register-view-generation! ::v hs) ; same-sig body revision 1
+        (is (= 0 (reactive/generation cell))
+            "mutation tooth: cell-local-only checking would accept this capture")
         (is (= :stale (reactive/commit! cell capture))
-            "commit step 1 REJECTS the stale-generation capture (the host re-renders)")))
+            "commit step 1 consults the authoritative slot revision")))
     (testing "no ownership was touched — the prior committed set stays installed"
       (is (identical? lease0 (reactive/committed-lease cell (tk [:r/a]))))
       (is (= 1 (ref-count [:r/a])) "no acquire, no release on a stale rejection"))
     (testing "a fresh render under the new generation commits normally"
+      (reactive/advance-generation! cell (reactive/view-generation ::v))
       (render+commit! cell [[:r/a]])
       (is (identical? lease0 (reactive/committed-lease cell (tk [:r/a])))
           "the same live target retains its lease across the explicit generation seam"))))
@@ -292,11 +300,13 @@
         hs1 (fp/hook-signature-hash {:locals ['n] :effects []})
         run (fn [view-id]
               (reactive/register-view-generation! view-id hs0)   ; initial reg
-              [(reactive/register-view-generation! view-id hs0)   ; same-sig reload
-               (reactive/register-view-generation! view-id hs1)   ; changed-sig reload
-               (reactive/register-view-generation! view-id hs0)]) ; changed again
+              {:body [(reactive/register-view-generation! view-id hs0)
+                      (reactive/register-view-generation! view-id hs1)
+                      (reactive/register-view-generation! view-id hs0)]
+               :remount (reactive/view-remount-generation view-id)})
         file-save (run ::via-file-save)
         repl      (run ::via-repl)]
-    (is (= [0 1 2] file-save) "same-sig keeps, each change bumps once")
+    (is (= {:body [1 2 3] :remount 2} file-save)
+        "every body publishes; only the two incompatible transitions remount")
     (is (= file-save repl)
         "a REPL re-eval and a file-save reload take the IDENTICAL generation path")))

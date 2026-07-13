@@ -81,14 +81,24 @@
   under a fresh render capture, reads its root incarnation from context, and
   wires the reconcile + lifecycle layout commits. Returns the host element."
   [view-id thunk]
-  (let [cell-ref (react/useRef nil)]
+  (let [body-revision (if ^boolean js/goog.DEBUG
+                        (reactive/view-generation view-id)
+                        0)
+        cell-ref (react/useRef nil)]
     (when (nil? (.-current cell-ref))
-      (set! (.-current cell-ref) (reactive/make-cell view-id)))
+      (set! (.-current cell-ref)
+            (reactive/make-cell view-id body-revision)))
     (let [cell             (.-current cell-ref)
           root-incarnation (react/useContext root-incarnation-context)
           subscribe (react/useCallback
                       (fn [listener] (reactive/subscribe cell listener))
                       #js [cell])]
+      ;; Same-signature Fast Refresh keeps this Fiber/ViewCell but advances the
+      ;; body revision. Sync BEFORE capture so the selected render records the
+      ;; exact descriptor revision it executed. Production folds this branch
+      ;; away with the entire HMR slot.
+      (when ^boolean js/goog.DEBUG
+        (reactive/advance-generation! cell body-revision))
       ;; ONE useSyncExternalStore — the cell's scalar revision drives
       ;; sub-invalidation repaints (getServerSnapshot = 0: SSR reads are
       ;; one-shot, no reactive loop).
