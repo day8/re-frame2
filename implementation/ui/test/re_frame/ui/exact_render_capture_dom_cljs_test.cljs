@@ -114,10 +114,17 @@
             (.then
              (fn []
                (let [cells (set (remove cells-base
-                                        (reactive/current-live-cells)))]
-                 (is (= 1 (count cells))
-                     "the mounted observed component owns one live ViewCell")
-                 (reset! mounted (first cells))
+                                        (reactive/current-live-cells)))
+                     owners (filter #(= #{(target-key [::a])}
+                                         (reactive/committed-target-keys %))
+                                    cells)]
+                 ;; DEV's HMR-safe fixed hook skeleton gives every defview a
+                 ;; ViewCell, including the sub-free hostile-root shell. Select
+                 ;; the exact observed cell by committed ownership rather than
+                 ;; assuming there are no empty shell cells in the tree.
+                 (is (= 1 (count owners))
+                     "exactly one mounted cell owns the observed dependency")
+                 (reset! mounted (first owners))
                  (is (= "1" (.-textContent
                               (.querySelector container "[data-capture=a]"))))
                  ;; Update order is A first, then B+throw. Suspense commits the
