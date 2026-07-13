@@ -18,6 +18,7 @@
             [re-frame.trace.tooling :as trace-tooling]
             [re-frame.ui :as ui :refer [defview]]
             [re-frame.ui.client :as client]
+            [re-frame.ui.eq :as eq]
             [re-frame.ui.reactive :as reactive]
             [re-frame.ui.runtime :as runtime]
             [re-frame.ui.sub-overrides :as sub-overrides]
@@ -78,7 +79,7 @@
   (let [state (lease-state* lease)]
     (is (false? (obs/owned? lease))
         "a Story pin reports no subscription ownership")
-    (is (= expected-value (:value (obs/read lease))))
+    (is (eq/rf= expected-value (:value (obs/read lease))))
     (is (= :static (:lease-kind state)))
     (is (= :live (:status state)))
     (is (= #{:lease-kind :target :status} (set (keys state)))
@@ -166,7 +167,8 @@
                           :adapter ui/adapter
                           :images [(image-with-schema
                                     ::image-v1
-                                    [:or :int [:map [:label :string]]]
+                                    [:or :int :double
+                                     [:map [:label :string]]]
                                     ordinary-v1)]})
           before        (mounted-snapshot)
           seen          (atom {})]
@@ -221,6 +223,40 @@
                      (is (= revision (reactive/revision current-cell)))
                      (is (= "inner" (.-textContent
                                      (uit/query root "[data-role='target']")))))
+                   (uit/flush!
+                    #(@control {[::image-value] js/NaN})))))
+              (.then
+               (fn []
+                 (let [{:keys [cell sid lease]} @seen
+                       site       (reactive/committed-site cell sid)
+                       nan-lease  (:lease site)
+                       nan-target (:target (lease-state* nan-lease))]
+                   (testing "moving from a map to NaN retargets exactly once"
+                     (is (js/Number.isNaN (:value site)))
+                     (is (not (identical? lease nan-lease)))
+                     (assert-static-lease! nan-lease js/NaN)
+                     (is (= "NaN" (.-textContent
+                                    (uit/query root "[data-role='target']")))))
+                   (swap! seen assoc :lease nan-lease
+                                     :target nan-target
+                                     :revision (reactive/revision cell))
+                   (uit/flush! #(@control {[::image-value] js/NaN})))))
+              (.then
+               (fn []
+                 (let [{:keys [cell sid query lease target revision]} @seen
+                       site  (reactive/committed-site cell sid)
+                       state (lease-state* (:lease site))]
+                   (testing "NaN→NaN provider replacement is an exact rf= keep"
+                     (is (identical? lease (:lease site)))
+                     (is (identical? target (:target state))
+                         "the retained lease keeps its exact captured target")
+                     (is (obs/current? lease (:target site))
+                         "the prior target covers the freshly captured NaN target")
+                     (is (identical? query (:query site)))
+                     (is (js/Object.is js/NaN (:value site)))
+                     (is (= revision (reactive/revision cell)))
+                     (is (= "NaN" (.-textContent
+                                    (uit/query root "[data-role='target']")))))
                    (uit/flush!
                     #(@control {[::image-value] changed-value})))))
               (.then
@@ -281,7 +317,8 @@
                      :adapter ui/adapter
                      :images [(image-with-schema
                                ::image-v2
-                               [:or :int [:map [:label :string]]]
+                               [:or :int :double
+                                [:map [:label :string]]]
                                ordinary-v2)]})
                    (testing "image movement alone cannot wake a static lease"
                      (is (identical?
