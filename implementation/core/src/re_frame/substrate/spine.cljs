@@ -310,9 +310,10 @@
   + `re-frame.subs`, `source-containers` is a vector) so the recompute
   closure pays no per-tick `count`.
 
-  Single source of truth: the Reagent, reagent-slim, UIx, and Helix
-  adapters all build their recompute closure through this fn — one
-  implementation, four adapters, zero drift. The arity-spec lifted
+  Single source of truth: the first-party re-frame.ui, Reagent,
+  reagent-slim, UIx, and Helix adapters all build their recompute
+  closure through this fn — one implementation, five adapters, zero
+  drift. The arity-spec lifted
   into the spine matches the `make-dispose-adapter!` shape
   (rf2-jcjul); sourced from the rf2-fzrav perf-sweep findings."
   [source-containers compute-fn]
@@ -797,10 +798,10 @@
   still gets disposed and cleared. Per-entry throws are swallowed.
 
   Used by every React-shaped adapter's `dispose-adapter!` — wired into
-  the `make-dispose-adapter!` factory for UIx / Helix and called
-  directly from the Reagent / reagent-slim adapters' dispose paths.
-  Centralising the walk here is the rf2-jcjul lockstep: one
-  implementation, three adapters, zero drift.
+  the `make-dispose-adapter!` factory for the first-party re-frame.ui
+  adapter plus UIx / Helix, and called directly from the Reagent /
+  reagent-slim adapters' dispose paths. Centralising the walk here is
+  the rf2-jcjul lockstep: one implementation, five adapters, zero drift.
 
   The one-arg form is the adapter-cleanup path: `dispose-reaction!` is the
   exact claimed generation's substrate disposer, captured before terminal
@@ -1965,7 +1966,7 @@
      ;; this via substrate-adapter/route-hook!.
      :after-render-hook           after-render-hook}))
 
-;; ---- React-hook adapter assembly (UIx + Helix) ----------------------------
+;; ---- React-hook adapter assembly (re-frame.ui + UIx + Helix) --------------
 ;;
 ;; rf2-ee38b.1 / rf2-ee38b.13 / rf2-ee38b.14. `make-react-spine` already
 ;; eliminated the substrate LOGIC drift (one factory, N adapters). The
@@ -2015,8 +2016,9 @@
 ;;     elided via `interop/debug-enabled?` per Spec 009 §Production builds.
 
 (defn make-react-adapter
-  "Assemble a React-hook adapter (UIx / Helix) from a `make-react-spine`
-  result map plus the substrate's config:
+  "Assemble a React-hook adapter (the first-party re-frame.ui substrate,
+  UIx, or Helix) from a `make-react-spine` result map plus the
+  substrate's config:
 
       :kind           — the adapter's `:kind` discriminator keyword
       :frame-provider — the substrate's NATIVE frame-provider component
@@ -2042,11 +2044,12 @@
   evaluates `(make-react-adapter spine-fns {:kind :rf.adapter/uix
   :frame-provider …})` at load), exactly as the hand-written wiring did.
 
-  Single source of truth (rf2-ee38b.1): UIx and Helix call this with the
-  same shape — the only inputs are their already-substrate-specific
+  Single source of truth (rf2-ee38b.1): the first-party re-frame.ui
+  substrate, UIx, and Helix all call this with the same shape — the
+  only inputs are their already-substrate-specific
   `spine-fns` map, `:kind`, and native `:frame-provider`. The former
   hand-copied route-hook block + chained installs (byte-identical across
-  the twins) now live once."
+  the UIx/Helix twins) now live once."
   [spine-fns {:keys [kind frame-provider]}]
   (let [adapter {:kind                      kind
                  :make-state-container      (:make-state-container      spine-fns)
@@ -2104,8 +2107,8 @@
 ;; different reactive-atom impl (stock `reagent.*` vs the `reagent2.*`
 ;; rewrite). `make-ratom-spine` factors the shared container quartet,
 ;; React-root renderer, and dispose body exactly as `make-react-spine`
-;; factors the UIx/Helix hook family — one implementation, two adapters,
-;; zero drift.
+;; factors the React-hook family (re-frame.ui / UIx / Helix) — one
+;; implementation, two adapters, zero drift.
 ;;
 ;; CRITICAL — slim bundle isolation (IMPL-SPEC §1.8 / the
 ;; `test:reagent-slim:bundle-isolation` gate). This helper lives in

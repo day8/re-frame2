@@ -42,11 +42,13 @@
       - `day8.re-frame2-xray.open-in-editor` — the editor-URI chip.
       - `day8.re-frame2-xray.runtime` — the discovery sentinel + safe-egress
         entry points.
-  - `re-frame.ui` (rf2-qz1h5d; completed rf2-vxgfnd.83) — the Spec-004
-    compiled-view substrate. FULLY-ROWED (both directions): all fifteen blessed
+  - `re-frame.ui` (rf2-qz1h5d; rf2-vxgfnd.83 + rf2-vxgfnd.103) — the Spec-004
+    compiled-view substrate. FULLY-ROWED (both directions): all sixteen blessed
     exports are rowed — the S1 set, the namespace-specific `frame-root` row
-    (rf2-vxgfnd.71), and `frame-provider`, the S2 SCOPE form (rf2-vxgfnd.83,
-    rowed once rf2-vxgfnd.24 blessed it as the native SCOPE grammar). A row
+    (rf2-vxgfnd.71), `frame-provider`, the S2 SCOPE form (rf2-vxgfnd.83,
+    rowed once rf2-vxgfnd.24 blessed it as the native SCOPE grammar), and
+    `adapter`, the first-party `:rf.adapter/ui` boot adapter Var
+    (rf2-vxgfnd.103 / PR #5809). A row
     removed / renamed in source → RED (direction 1); a NEW public Var added to
     this closed compiler grammar without a row → RED (direction 2), so an
     accidental public export cannot accumulate silently.
@@ -90,8 +92,8 @@
             ;; rf2-qz1h5d — the Spec-004 compiled-view substrate. A `.cljc`
             ;; namespace already on the consolidated :node-test classpath
             ;; (ui/src); the require forces its analysis so `emit-ns-publics`
-            ;; reads the live CLJS publics. Curated subset (direction-1 only —
-            ;; see the Coverage note), so NOT in `fully-rowed`.
+            ;; reads the live CLJS publics. Fully-rowed, BOTH directions
+            ;; checked — see the Coverage note and `fully-rowed` below.
             [re-frame.ui]))
 
 ;; ---------------------------------------------------------------------------
@@ -122,10 +124,11 @@
    "day8.re-frame2-xray.config"                      (emit-ns-publics day8.re-frame2-xray.config)
    "day8.re-frame2-xray.open-in-editor"              (emit-ns-publics day8.re-frame2-xray.open-in-editor)
    "day8.re-frame2-xray.runtime"                     (emit-ns-publics day8.re-frame2-xray.runtime)
-   ;; rf2-qz1h5d + rf2-vxgfnd.83 — re-frame.ui compiled-view substrate.
-   ;; FULLY-ROWED now: all fifteen blessed exports are rowed (the S1 set, the
-   ;; namespace-specific `frame-root` row rf2-vxgfnd.71, and the S2 SCOPE form
-   ;; `frame-provider` rf2-vxgfnd.83 — rowed once rf2-vxgfnd.24 blessed it), so
+   ;; rf2-qz1h5d + rf2-vxgfnd.83 + rf2-vxgfnd.103 — re-frame.ui compiled-view
+   ;; substrate. FULLY-ROWED now: all sixteen blessed exports are rowed (the
+   ;; S1 set, the namespace-specific `frame-root` row rf2-vxgfnd.71, the S2
+   ;; SCOPE form `frame-provider` rf2-vxgfnd.83 — rowed once rf2-vxgfnd.24
+   ;; blessed it — and the first-party `adapter` Var rf2-vxgfnd.103), so
    ;; re-frame.ui is in `fully-rowed` below (both directions checked).
    "re-frame.ui"                                     (emit-ns-publics re-frame.ui)})
 
@@ -133,9 +136,10 @@
   "Namespaces whose ENTIRE public surface must be rowed (direction 2).
    The three adapter namespaces — their public surface IS the documented
    adapter API — and `re-frame.ui`, the Spec-004 compiled-view substrate:
-   with `frame-provider` now rowed (rf2-vxgfnd.83, once rf2-vxgfnd.24 blessed
-   it as the native SCOPE form), all fifteen blessed exports are rowed, so a
-   NEW accidental public Var added to this first-party closed compiler grammar
+   with `frame-provider` rowed (rf2-vxgfnd.83, once rf2-vxgfnd.24 blessed it
+   as the native SCOPE form) and the first-party `adapter` Var rowed
+   (rf2-vxgfnd.103), all sixteen blessed exports are rowed, so a NEW
+   accidental public Var added to this first-party closed compiler grammar
    fails direction-2 completeness. The Xray mount surface stays a curated
    subset (direction 1 only), so it is deliberately absent here."
   #{"re-frame.adapter.reagent"
