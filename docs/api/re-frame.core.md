@@ -812,7 +812,7 @@ The surfaces that bring a re-frame2 process up and take it down. The one-line bo
   ```clojure
   (destroy-adapter!)
   ```
-- **Description**: Tear down the installed adapter. Calls the adapter spec's `:dispose-adapter!` fn (if present), clears the install slot so a new adapter can install, and flips the `adapter-disposed?` breadcrumb. Symmetric with `install-adapter!` and with `destroy-frame!`.
+- **Description**: Tear down the exact installed adapter generation. This is a one-way terminal boundary: it attempts all adapter-owned cleanup, preserves and rethrows the primary failure with later failures retained as diagnostic evidence, and finally clears only the generation it claimed. `adapter-disposed?` remains true even when cleanup throws. A fresh adapter may install afterward; stale finalization never clears a replacement. Symmetric with `install-adapter!` and with `destroy-frame!`.
 - **Example**:
   ```clojure
   (rf/destroy-adapter!)                 ;; tear down the current substrate, clear the install slot
@@ -852,7 +852,7 @@ The surfaces that bring a re-frame2 process up and take it down. The one-line bo
   ```clojure
   (adapter-disposed?) → boolean
   ```
-- **Description**: Returns `true` iff the most recent lifecycle event was a successful `destroy-adapter!` and no subsequent `install-adapter!` has fired. `false` for never-installed (fresh process) AND after a fresh install. Read-only. Use to distinguish `:rf.error/no-adapter-installed` (fresh process) from `:rf.error/adapter-disposed` (torn down).
+- **Description**: Returns `true` iff terminal teardown of the most recent installed adapter generation reached finalization and no subsequent `install-adapter!` has fired. Cleanup success is not implied: it remains true when destruction rethrows a cleanup failure. `false` for never-installed (fresh process) AND after a fresh install. Read-only. Use to distinguish `:rf.error/no-adapter-installed` (fresh process) from `:rf.error/adapter-disposed` (torn down).
 - **Example**:
   ```clojure
   (rf/adapter-disposed?)               ;; => false  (fresh process — never installed)

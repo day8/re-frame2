@@ -278,10 +278,21 @@ Every adapter exposes:
 
 Called by the core when the runtime shuts down (process exit, test-frame teardown, or explicit `(rf/shutdown-runtime!)`). The adapter must:
 
-1. Cancel all in-flight reactive subscriptions.
-2. Release any host-specific resources (DOM event listeners, websocket subscribers, timers).
-3. Discard internal caches.
+1. Attempt cancellation of all in-flight reactive subscriptions.
+2. Attempt release of every host-specific resource (DOM event listeners, websocket subscribers, timers), even when a sibling cleanup fails.
+3. Discard internal caches and ownership claims in a finally-shaped boundary.
 4. Make subsequent calls to other adapter functions return `:rf.error/adapter-disposed` (or throw, host-dependent).
+
+Adapter destruction is a **one-way terminal lifecycle boundary**, not a
+transaction. The core claims one opaque installed-generation token before invoking
+`:dispose-adapter!`, preventing re-entrant destruction from running that generation's
+cleanup twice. In a `finally` boundary the core clears only the claimed generation and
+sets `adapter-disposed?` true. Cleanup failure therefore cannot leave a half-live
+adapter seated, and stale finalization can never clear a replacement generation. On
+failure the adapter attempts all remaining cleanup, preserves and rethrows the first
+failure, and attaches or reports later failures as secondary diagnostic evidence. A
+fresh adapter may install after destruction returns or throws; that install clears the
+disposed breadcrumb.
 
 For the first-party `re-frame.ui/adapter`, host resources include **every public
 compiled Root** in `re-frame.ui`'s client registry, not only Roots created by the
@@ -1954,7 +1965,13 @@ Runtime delegation calls (`make-state-container`, `read-container`, `replace-con
 - **`:rf.error/no-adapter-installed`** — fresh process, no `(rf/init! …)` has fired yet. Recovery: install an adapter.
 - **`:rf.error/adapter-disposed`** — an adapter was previously installed and torn down by `(rf/destroy-adapter!)` without a subsequent install. Recovery: install a fresh adapter. Common in test fixtures and hot-reload flows.
 
-A disposed-breadcrumb (boolean) is set by `destroy-adapter!` and cleared by the next successful `install-adapter!`. Both states leave the install slot empty so a fresh adapter can install without a slot collision.
+A disposed-breadcrumb (boolean) is set when `destroy-adapter!` terminally finalizes an
+installed generation and is cleared atomically by the next successful `install-adapter!`. It
+describes the terminal lifecycle/slot state, not whether host cleanup succeeded. The
+claimed generation is cleared in a finally boundary even when cleanup throws, so after
+destruction settles the slot is empty and a fresh adapter can install without a
+collision. Exact-generation comparison prevents a stale finalizer from clearing a
+replacement installation.
 
 `(rf/adapter-disposed?)` returns the breadcrumb's value as a read-only predicate for tools and test harnesses that want to assert the lifecycle state without provoking a throw.
 

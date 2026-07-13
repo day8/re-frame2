@@ -1302,7 +1302,7 @@ Tears down something with **identity and a creation moment** — a frame, an ada
 
 ### `destroy-adapter!` sits on this axis
 
-Adapter teardown is `destroy-adapter!`: adapter installation is a lifecycle boundary, symmetric with `destroy-frame!`. There is no `dispose-*` verb on the public surface and no alias; stale `dispose-adapter!` call sites raise an unresolved-symbol at compile time. Per the [Migration corpus M-53](../migration/from-re-frame-v1/README.md#m-53-tear-down-verb-rename--dispose-adapter--destroy-adapter) for the v1→v2 mapping. (The adapter-spec map key `:dispose-adapter!` is an internal contract slot and is unchanged — only the public wrapper name moves.)
+Adapter teardown is `destroy-adapter!`: adapter installation is a lifecycle boundary, symmetric with `destroy-frame!`. Destruction is one-way and terminal for the exact installed generation even when owned cleanup throws; the first failure remains observable, but a half-torn-down adapter is never restored to the live slot and stale finalization never clears a replacement generation. There is no `dispose-*` verb on the public surface and no alias; stale `dispose-adapter!` call sites raise an unresolved-symbol at compile time. Per the [Migration corpus M-53](../migration/from-re-frame-v1/README.md#m-53-tear-down-verb-rename--dispose-adapter--destroy-adapter) for the v1→v2 mapping. (The adapter-spec map key `:dispose-adapter!` is an internal contract slot and is unchanged — only the public wrapper name moves.)
 
 ### Carve-out: `unsubscribe`
 

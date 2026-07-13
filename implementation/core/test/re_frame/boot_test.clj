@@ -173,9 +173,50 @@
         "a cleanup throw cannot leave the one-adapter install slot seated")
     (is (true? (adapter/adapter-disposed?))
         "the lifecycle breadcrumb records the attempted installed teardown")
+    (is (= :rf.error/adapter-disposed
+           (:rf.error/id
+            (ex-data
+             (try
+               (adapter/make-state-container {})
+               nil
+               (catch clojure.lang.ExceptionInfo e e)))))
+        "delegation after a throwing cleanup sees terminal disposal, not a half-live adapter")
     (is (identical? plain-atom/adapter
                     (adapter/install-adapter! plain-atom/adapter))
         "a fresh adapter can install immediately after the failed cleanup")))
+
+(deftest adapter-cleanup-claim-is-one-way-and-generation-safe
+  (testing "a re-entrant destroy cannot invoke one generation's cleanup twice"
+    (let [calls (atom 0)
+          old   (assoc plain-atom/adapter
+                       :dispose-adapter!
+                       (fn []
+                         (swap! calls inc)
+                         (adapter/dispose-adapter!)))]
+      (adapter/install-adapter! old)
+      (adapter/dispose-adapter!)
+      (is (= 1 @calls)
+          "the terminal claim makes a nested destroy an idempotent no-op")
+      (is (true? (adapter/adapter-disposed?)))))
+  (testing "a stale finalizer never clears a replacement generation"
+    (let [replacement (assoc plain-atom/adapter :kind ::replacement)
+          old         (assoc plain-atom/adapter
+                             :dispose-adapter!
+                             (fn []
+                               ;; Adversarial test bypass: simulate a replacement
+                               ;; generation appearing before the old cleanup's
+                               ;; finally boundary. Public install cannot race into
+                               ;; an occupied slot; this seam proves the stale
+                               ;; generation guard itself rather than timing.
+                               (adapter/reset-lifecycle-state-for-tests!)
+                               (adapter/install-adapter! replacement)))]
+      (adapter/install-adapter! old)
+      (adapter/dispose-adapter!)
+      (is (identical? replacement (adapter/current-adapter-spec))
+          "the old generation's finally leaves the replacement seated")
+      (is (= ::replacement (adapter/current-adapter)))
+      (is (false? (adapter/adapter-disposed?))
+          "the replacement generation's successful install owns the breadcrumb"))))
 
 (deftest ensure-default-frame-is-idempotent
   (testing "ensure-default-frame! creates :rf/default if absent; no-op if present"
