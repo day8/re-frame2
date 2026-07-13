@@ -407,7 +407,8 @@
 
 (defonce ^:private view-generations
   ;; view-id -> one atomic :rf.ui.hmr/* slot. `defonce` survives namespace
-  ;; reload; `reset-scheduler!` clears it between fixtures.
+  ;; reload. `reset-scheduler!` deliberately NEVER clears it: already-exported
+  ;; stable shells retain this slot as their live render authority.
   (atom {}))
 
 (defn ensure-view-shells!
@@ -434,16 +435,21 @@
     (select-keys (get slots view-id)
                  [:rf.ui.hmr/outer :rf.ui.hmr/inner])))
 
-(defn register-view-descriptor!
-  "Atomically publish one successful dev registration and notify its mounted
-  shells AFTER publication. `descriptor` is the current render/comparator/
-  manifest record.
+(defn prepare-view-descriptor!
+  "Prepare a descriptor/revision publication without notifying mounted shells.
 
-  Body revision advances on every call. Remount generation advances only when
-  an already-registered slot changes hook signature. Returns the complete
-  published slot snapshot."
+  This is the first half of the DEV view-registration transaction. It makes
+  the new descriptor and revisions visible BEFORE `registrar/register!` fires
+  its synchronous registration/replacement hooks, so no hook can observe a new
+  manifest paired with an old (or nil) render/comparator. `publication-token`
+  is private transaction identity; listeners may still subscribe while the
+  registrar call is in progress without invalidating the transaction.
+
+  Call `commit-view-descriptor!` after registrar success or
+  `rollback-view-descriptor!` if it throws."
   [view-id hook-signature descriptor]
-  (let [[_ slots]
+  (let [publication-token (atom nil)
+        [old-slots slots]
         (swap-vals! view-generations update view-id
                     (fn [slot]
                       (let [registered? (boolean (:rf.ui.hmr/registered? slot))
@@ -456,14 +462,68 @@
                                    slot)
                             (assoc :rf.ui.hmr/registered? true
                                    :rf.ui.hmr/hook-signature hook-signature
-                                   :rf.ui.hmr/descriptor descriptor)
+                                   :rf.ui.hmr/descriptor descriptor
+                                   :rf.ui.hmr/publication-token publication-token)
                             (update :rf.ui.hmr/body-revision inc)
                             (cond-> changed?
                               (update :rf.ui.hmr/remount-generation inc))))))
+        prepared (get slots view-id)]
+    {:view-id view-id
+     :publication-token publication-token
+     :before (get old-slots view-id)
+     :prepared prepared}))
+
+(defn commit-view-descriptor!
+  "Commit a prepared view publication and notify mounted shells exactly once.
+
+  A re-entrant registration for the same id supersedes an older transaction;
+  only the transaction whose token is still current may notify. Returns the
+  complete current slot snapshot."
+  [{:keys [view-id publication-token]}]
+  (let [[old-slots slots]
+        (swap-vals! view-generations update view-id
+                    (fn [slot]
+                      (if (identical? publication-token
+                                      (:rf.ui.hmr/publication-token slot))
+                        (dissoc slot :rf.ui.hmr/publication-token)
+                        slot)))
+        current-before (get old-slots view-id)
+        committed? (identical? publication-token
+                                (:rf.ui.hmr/publication-token current-before))
         published (get slots view-id)]
-    (doseq [listener (vals (:rf.ui.hmr/listeners published))]
-      (listener))
+    (when committed?
+      (doseq [listener (vals (:rf.ui.hmr/listeners published))]
+        (listener)))
     published))
+
+(defn rollback-view-descriptor!
+  "Roll back a prepared descriptor after registrar failure.
+
+  Rollback is conditional on transaction identity, so it cannot overwrite a
+  newer re-entrant registration. Listener subscriptions made while the
+  registrar call was in flight are retained; descriptor/revision/remount state
+  returns to the exact prior publication. Returns the current slot snapshot."
+  [{:keys [view-id publication-token before]}]
+  (let [slots
+        (swap! view-generations update view-id
+               (fn [slot]
+                 (if (identical? publication-token
+                                 (:rf.ui.hmr/publication-token slot))
+                   (assoc (or before {})
+                          :rf.ui.hmr/listeners
+                          (:rf.ui.hmr/listeners slot {}))
+                   slot)))]
+    (get slots view-id)))
+
+(defn register-view-descriptor!
+  "Publish one descriptor directly through the same prepare/commit path used
+  by the client registrar transaction. This is the headless/JVM test seam.
+
+  Body revision advances on every call. Remount generation advances only when
+  an already-registered slot changes hook signature."
+  [view-id hook-signature descriptor]
+  (-> (prepare-view-descriptor! view-id hook-signature descriptor)
+      (commit-view-descriptor!)))
 
 (defn register-view-generation!
   "Headless test/JVM seam for the same registration decision as

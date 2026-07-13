@@ -17,7 +17,8 @@
             [re-frame.registrar :as registrar]
             [re-frame.ui.eq :as eq]
             [re-frame.ui.reactive :as reactive]
-            [re-frame.ui.rules :as rules]))
+            [re-frame.ui.rules :as rules]
+            [re-frame.ui.viewcell :as viewcell]))
 
 ;; ---------------------------------------------------------------------------
 ;; jsx binding.  Generated templates invoke `.jsx` / `.jsxs` on this module
@@ -62,8 +63,17 @@
                     (reactive/subscribe-view! id listener))
         snapshot  (fn [] (reactive/view-generation id))
         inner     (fn stable-view-body [props]
-                    (let [render-fn (:render-fn (reactive/view-descriptor id))]
-                      (render-fn props)))
+                    ;; The DEV fixed hook skeleton is present from the first
+                    ;; render, even while the body has no sub sites. Adding the
+                    ;; first `sub` is therefore a same-signature body edit, not
+                    ;; a hook-order change. Production specializes sub-free
+                    ;; views to the raw render fn in the emitter.
+                    (viewcell/render
+                     id
+                     (fn []
+                       (let [render-fn (:render-fn
+                                       (reactive/view-descriptor id))]
+                         (render-fn props)))))
         outer-fn  (fn stable-view-shell [props]
                     (react/useSyncExternalStore subscribe snapshot snapshot)
                     ;; React dev freezes the received props object. jsxDEV adds
@@ -81,27 +91,40 @@
 (defn register-view!
   "Register a compiled view in DEV and return its stable public shell.
 
-  Registrar success happens before the one HMR slot publishes the new
-  descriptor. Therefore a failed registration advances neither body revision
-  nor remount generation. Successful publication is atomic; mounted shells are
-  notified only after render/comparator/manifest and both revisions agree."
+  Descriptor/revisions are PREPARED before registrar publication so the
+  registrar's synchronous hooks can never observe a new manifest paired with
+  an old (or nil) render/comparator. Mounted shells are notified only after
+  registrar success. A registrar throw rolls the prepared slot back, advancing
+  neither body revision nor remount generation."
   [id render-fn compare-fn display-name manifest]
   (let [{:rf.ui.hmr/keys [outer inner]}
-        (reactive/ensure-view-shells! id #(make-view-shells id))]
+        (reactive/ensure-view-shells! id #(make-view-shells id))
+        descriptor {:render-fn render-fn
+                    :compare-fn compare-fn
+                    :manifest manifest}
+        old-inner-name (.-displayName inner)
+        old-outer-name (.-displayName outer)]
     (set! (.-displayName render-fn) display-name)
     (set! (.-displayName inner) (str display-name "$Body"))
     (set! (.-displayName outer) display-name)
-    (registrar/register! :view id (cond-> {:rf/id id
-                                           :handler-fn outer
-                                         :rf.ui/compiled? true
-                                         :rf.ui/manifest manifest}
-                                    (:doc manifest) (assoc :doc (:doc manifest))))
-    (reactive/register-view-descriptor!
-     id (:hook-signature manifest)
-     {:render-fn render-fn
-      :compare-fn compare-fn
-      :manifest manifest})
-    outer))
+    (let [publication
+          (reactive/prepare-view-descriptor!
+           id (:hook-signature manifest) descriptor)]
+      (try
+        (registrar/register!
+         :view id
+         (cond-> {:rf/id id
+                  :handler-fn outer
+                  :rf.ui/compiled? true
+                  :rf.ui/manifest manifest}
+           (:doc manifest) (assoc :doc (:doc manifest))))
+        (reactive/commit-view-descriptor! publication)
+        outer
+        (catch :default e
+          (reactive/rollback-view-descriptor! publication)
+          (set! (.-displayName inner) old-inner-name)
+          (set! (.-displayName outer) old-outer-name)
+          (throw e))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Dispatch — the S1 seam

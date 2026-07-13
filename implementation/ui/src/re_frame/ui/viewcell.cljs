@@ -2,10 +2,10 @@
   "React glue for the S2b reactive core — the thin `useRef` /
   `useSyncExternalStore` / `useLayoutEffect` layer that drives
   `re-frame.ui.reactive`'s host-agnostic ViewCell + commit reconciler.
-  The compiled CLJS emitter wraps a sub-bearing view's render body in
-  `render`; sub-free views are never wrapped (no per-view hook overhead,
-  no behaviour change — the dev fixed-hook-skeleton of I-15 is an HMR
-  refinement that lands with S2e).
+  The compiled CLJS emitter wraps a sub-bearing PRODUCTION view's render body
+  in `render`; sub-free production views are never wrapped. In DEV the stable
+  Fast Refresh Inner always calls `render`, providing the fixed hook skeleton
+  before a view gains its first sub site without charging production for it.
 
   The contract, per 03 §3:
 

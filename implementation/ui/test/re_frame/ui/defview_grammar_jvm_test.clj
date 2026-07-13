@@ -4,10 +4,11 @@
   check. Macro-level, so JVM-hosted — the macro code is host-shared, so
   these pins hold for the CLJS expansion path too."
   (:require [clojure.string :as str]
-            [clojure.test :refer [deftest is]]
+            [clojure.test :refer [deftest is testing]]
             [re-frame.ui :as ui :refer [defview]]
             [re-frame.ui.compiler :as compiler]
             [re-frame.ui.compiler.build :as build]
+            [re-frame.ui.compiler.emit-cljs :as emit-cljs]
             [re-frame.ui.compiler.header :as header]))
 
 (defn- expand-error
@@ -171,6 +172,40 @@
       (is (true? (:rf.ui/view (meta def-sym)))
           "the public var carries the Q5 discrimination meta")
       (is (= :app.probe/probe (:rf.ui/view-id (meta def-sym)))))))
+
+(deftest cljs-emission-keeps-dev-hooks-fixed-and-production-specialized
+  (let [args        (fn [vname subs]
+                      {:vname vname
+                       :view-id (keyword "app.probe" (name vname))
+                       :display-name (str "app.probe/" vname)
+                       :docstring nil
+                       :header (header/parse-header [])
+                       :slots []
+                       :ast {:op :text :value "x"}
+                       :manifest {:view-id (keyword "app.probe" (name vname))
+                                  :hook-signature "hs1-fixed"
+                                  :sites {:subs subs}}
+                       :closed-keys nil
+                       :children? false})
+        plain-forms (emit-cljs/emit-defview (args 'plain []))
+        sub-forms   (emit-cljs/emit-defview
+                     (args 'observed [{:query [:value]}]))
+        plain-text  (pr-str plain-forms)
+        sub-text    (pr-str sub-forms)]
+    (testing "sub-free production stays on the raw memo path"
+      (is (not (str/includes? plain-text "re-frame.ui.viewcell/render")))
+      (is (not (str/includes? plain-text "plain$host_render")))
+      (is (re-find #"re-frame.ui.runtime/memo-view plain\$render"
+                   plain-text)))
+    (testing "sub-bearing production gets the ViewCell host wrapper"
+      (is (str/includes? sub-text "observed$host_render"))
+      (is (str/includes? sub-text "re-frame.ui.viewcell/render"))
+      (is (re-find #"re-frame.ui.runtime/register-view! :app.probe/observed observed\$render"
+                   sub-text)
+          "DEV publishes the raw body; stable Inner supplies the invariant skeleton")
+      (is (re-find #"re-frame.ui.runtime/memo-view observed\$host_render"
+                   sub-text)
+          "production memoizes the specialized ViewCell host wrapper"))))
 
 (deftest file-pass-registration-does-not-embed-a-per-view-digest
   (build/begin-build! ::file '#{app.file})
