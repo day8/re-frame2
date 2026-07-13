@@ -31,6 +31,26 @@
             [re-frame.interop :as interop]
             [re-frame.trace :as trace]))
 
+(defn- deliver-listener-snapshot!
+  "Deliver `record` to an already-snapshotted listener generation.
+
+  Observation stamping belongs to the caller: ordinary fan-out stamps before
+  delivery; terminal destroy fan-out snapshots the silencing set and removes
+  the dying incarnation's observation state atomically before delivery."
+  [record listener-snapshot]
+  (let [frame-id (:frame record)]
+    (doseq [[id {:keys [callback]}] listener-snapshot]
+      (try
+        (callback record)
+        (catch #?(:clj Throwable :cljs :default) ex
+          (trace/emit-error! :rf.epoch.cb/listener-exception
+                             {:frame       frame-id
+                              :cb-id       id
+                              :rf.epoch/id (:epoch-id record)
+                              :message     #?(:clj  (.getMessage ^Throwable ex)
+                                              :cljs (.-message ex))
+                              :recovery    :no-recovery}))))))
+
 (defn notify-listeners!
   "Fan `record` out to every registered `:rf/epoch-record` listener.
 
@@ -48,23 +68,14 @@
   re-invokes the same fn afresh, no automatic remediation happens
   between now and then."
   [record]
-  (let [frame-id (:frame record)]
-    (doseq [[id {:keys [generation callback]}] (state/listeners-snapshot)]
+  (let [frame-id          (:frame record)
+        listener-snapshot (state/listeners-snapshot)]
+    (doseq [[id {:keys [generation]}] listener-snapshot]
       ;; Stamp the observation against the EXACT generation being invoked, so a
       ;; concurrent same-id replacement can neither erase this observation nor
       ;; inherit it (rf2-j538f7.5).
-      (state/record-observation! id generation frame-id)
-      (try
-        (callback record)
-        (catch #?(:clj Throwable :cljs :default) ex
-          ;; Trace identity is qualified; the source record field is bare.
-          (trace/emit-error! :rf.epoch.cb/listener-exception
-                             {:frame       frame-id
-                              :cb-id       id
-                              :rf.epoch/id (:epoch-id record)
-                              :message     #?(:clj  (.getMessage ^Throwable ex)
-                                              :cljs (.-message ex))
-                              :recovery    :no-recovery}))))))
+      (state/record-observation! id generation frame-id))
+    (deliver-listener-snapshot! record listener-snapshot)))
 
 ;; ---- post-settle render back-fill -----------------------------------------
 
@@ -228,38 +239,53 @@
   destroyed frames have empty history, so listener delivery is the only channel
   for this terminal partial record.
 
-  Each listener whose CURRENT generation observed the frame receives one
+  `owner-token` is the destroyed frame's stable incarnation token. Each
+  listener whose CURRENT generation observed the frame receives one
   silencing trace (a stale observation from a since-replaced same-id generation
   is skipped — `state/cbs-observing-frame` scopes the fan to the live
   generation). The observation, history, capture, last-settled, and
   mount-attribution entries are then removed so a same-keyed replacement frame
-  starts clean. Repeated destroys are idempotent."
-  [frame-id fs-before fs-after committed-at]
+  starts clean. Owner comparison and cleanup are serialised with fresh
+  same-id epoch publication: stale A cleanup no-ops after B has claimed these
+  id-keyed stores. Repeated destroys are idempotent."
+  [frame-id owner-token fs-before fs-after committed-at]
   (when interop/debug-enabled?
-    ;; A run-start distinguishes a real in-flight event from unrelated
-    ;; frame-tagged emits. The partial record goes to listeners only.
-    (let [buffered-events (state/buffer-for frame-id)]
-      (when (capture/in-flight-cascade? frame-id)
-        ;; Listener delivery is raw; off-box forwarders project at egress.
-        (let [record (assembly/build-record frame-id fs-before fs-after buffered-events
-                                            committed-at
-                                            :halted-destroy
-                                            {:operation :rf.frame/destroyed-mid-drain})]
-          ;; Use the same detailed/coarse trailer pair as normal commits.
-          (assembly/emit-snapshotted+outcome! frame-id (:epoch-id record)
-                                              (:event-id record) :halted-destroy)
-          (notify-listeners! record))))
-    (let [silenced-cbs (state/cbs-observing-frame frame-id)]
+    (when-let [{:keys [record listener-snapshot silenced-cbs]}
+               (state/cleanup-frame-owner!
+                 frame-id owner-token
+                 (fn []
+                   ;; Snapshot all terminal evidence and remove every id-keyed
+                   ;; side table under the exact-owner serialization. External
+                   ;; callbacks run only after the lock is released, so a
+                   ;; callback may safely create and publish same-id B.
+                   (let [buffered-events  (state/buffer-for frame-id)
+                         record           (when (capture/in-flight-cascade? frame-id)
+                                            (assembly/build-record
+                                              frame-id fs-before fs-after
+                                              buffered-events committed-at
+                                              :halted-destroy
+                                              {:operation :rf.frame/destroyed-mid-drain}))
+                         listener-snapshot (if record
+                                             (state/listeners-snapshot)
+                                             {})
+                         ;; A terminal partial record is observed by every
+                         ;; listener generation in its delivery snapshot.
+                         silenced-cbs     (into (set (state/cbs-observing-frame frame-id))
+                                                (keys listener-snapshot))]
+                     (state/drop-frame-observation! frame-id)
+                     (state/drop-frame-history! frame-id)
+                     (state/drop-frame-buffer! frame-id)
+                     (state/drop-last-settled-epoch! frame-id)
+                     (state/drop-frame-mount-attribution! frame-id)
+                     {:record            record
+                      :listener-snapshot listener-snapshot
+                      :silenced-cbs      silenced-cbs})))]
+      (when record
+        ;; Use the same detailed/coarse trailer pair as normal commits. These
+        ;; terminal emits are explicitly excluded from capture ownership.
+        (assembly/emit-snapshotted+outcome! frame-id (:epoch-id record)
+                                            (:event-id record) :halted-destroy)
+        (deliver-listener-snapshot! record listener-snapshot))
       (doseq [cb-id silenced-cbs]
         (trace/emit! :rf.epoch.cb :rf.epoch.cb/silenced-on-frame-destroy
-                     {:frame  frame-id
-                      :cb-id  cb-id})))
-    (state/drop-frame-observation! frame-id)
-    ;; A destroyed frame reads as empty history; a replacement starts clean.
-    (state/drop-frame-history! frame-id)
-    ;; Drop in-flight capture so a same-keyed replacement cannot inherit it.
-    (state/drop-frame-buffer! frame-id)
-    ;; Forget attribution anchors so teardown emits cannot back-fill old state.
-    (state/drop-last-settled-epoch! frame-id)
-    ;; Mount anchors and learned read sets are frame-lifetime state.
-    (state/drop-frame-mount-attribution! frame-id)))
+                     {:frame frame-id :cb-id cb-id})))))

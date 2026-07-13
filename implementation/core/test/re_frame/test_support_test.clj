@@ -352,7 +352,8 @@
   (testing "cleanup hooks that take the destroyed frame's id receive it
             correctly — :ssr / :machines / :epoch all pass the id"
     ;; :ssr / :machines take the destroyed id. :epoch/on-frame-destroyed
-    ;; takes (id db-before db-after committed-at) since rf2-9neiq (the two
+    ;; takes (id owner-token db-before db-after committed-at): exact frame
+    ;; ownership plus rf2-9neiq's two
     ;; snapshots for the :halted-destroy record) + rf2-bh56rc (the
     ;; destroying event's causal :time-ms). Pin each arg shape so a future
     ;; refactor that swaps positional → varargs (or drops the id) breaks
@@ -364,14 +365,15 @@
                    :machines/on-frame-destroyed!]]
           (late-bind/set-fn! k (fn [id]
                                  (swap! captured-args assoc k id))))
-        ;; rf2-9neiq / rf2-bh56rc: the epoch hook's four-arg shape — record
-        ;; the id AND that the snapshot args + committed-at arrive (all nil
+        ;; The epoch hook's five-arg shape — record the id, exact incarnation
+        ;; owner, and that the snapshot args + committed-at arrive (all nil
         ;; here: an out-of-cascade destroy carries no pre-cascade snapshot
         ;; and no in-flight causal token).
         (late-bind/set-fn! :epoch/on-frame-destroyed
-                           (fn [id db-before db-after committed-at]
+                           (fn [id owner-token db-before db-after committed-at]
                              (swap! captured-args assoc
                                     :epoch/on-frame-destroyed id
+                                    :epoch/owner-token owner-token
                                     :epoch/snapshot-args [db-before db-after]
                                     :epoch/committed-at committed-at)))
         (rf/make-frame {:id :rf2-j9phb/arg-target})
@@ -386,6 +388,8 @@
         (is (= :rf2-j9phb/arg-target
                (get @captured-args :epoch/on-frame-destroyed))
             "epoch hook receives the destroyed frame id")
+        (is (some? (get @captured-args :epoch/owner-token))
+            "epoch hook receives the destroyed incarnation's stable owner token")
         ;; rf2-9neiq / rf2-3aizt1: for this OUT-OF-RUN destroy, fs-before
         ;; (the pre-run snapshot from frame/*run-frame-state-before*)
         ;; is nil (no in-flight run), while fs-after is the live
@@ -404,7 +408,7 @@
         ;; on this path, so the value is moot — the assertion pins the arg
         ;; shape, not a committed timestamp.)
         (is (contains? @captured-args :epoch/committed-at)
-            "epoch hook receives a fourth committed-at arg (rf2-bh56rc)")
+            "epoch hook receives the terminal committed-at arg (rf2-bh56rc)")
         (is (nil? (get @captured-args :epoch/committed-at))
             "committed-at is nil for an out-of-cascade destroy (no token)")
         (finally

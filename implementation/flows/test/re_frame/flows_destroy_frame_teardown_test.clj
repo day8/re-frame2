@@ -188,7 +188,7 @@
 ;; call that scrub — and deliberately so: the elision registry lives in the
 ;; frame's runtime-db partition (`[:rf.runtime/elision]`) INSIDE the one
 ;; physical `:frame-state` container held under the frame record, and
-;; `destroy-frame!` step 6 (`dissoc-frame!`) drops that whole record. These
+;; `destroy-frame!` step 10 (`dissoc-frame!`) drops that whole record. These
 ;; tests pin the chosen contract: a destroyed frame cannot observe its
 ;; flow-sourced declarations, and a reused frame-id starts with NONE.
 

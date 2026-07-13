@@ -866,11 +866,14 @@
 
 (def ^{:doc "Tear down `frame-id` — the normative teardown boundary. Claims
   the exact incarnation and atomically cuts ordinary queued work, runs the
-  user `:on-destroy` cascade on a private cleanup queue, then publishes dead,
-  releases per-feature resources (flows, machines, schemas, SSR, epoch),
-  clears the sub-cache, and removes the frame from the registry. Post-claim
-  ordinary dispatch is rejected; dead/absent operations recover and emit the
-  always-on frame-destroyed diagnostic. Idempotent. Per Spec 002 §Destroy."}
+  user `:on-destroy` cascade on a private cleanup queue, tears down machines
+  and compiled-view observers while live, then publishes dead. It next disposes
+  the sub-cache and partition projections, runs post-dead feature cleanup,
+  emits/releases trace state, removes the frame from the registry, and finally
+  compare-cleans epoch state with the exact incarnation token. A post-claim,
+  pre-dead ordinary dispatch may enqueue, but the drain rejects it before any
+  handler/effect/child runs; dead/absent operations no-op and emit the always-on
+  frame-destroyed diagnostic. Idempotent. Per Spec 002 §Destroy."}
   destroy-frame! frame/destroy-frame!)
 
 ;; `frame-value->id` is REMOVED from the facade (API-shrink #1, rf2-csbbwu).

@@ -644,8 +644,8 @@
         than executes it. The intentional `:on-destroy` event uses a separate,
         token-scoped internal cascade; ordinary drains have no exemption.
     (b) The frame record still exists but `:destroyed?` is flipped
-        (post-step-3 of `destroy-frame!`, before step-6 dissoc), OR
-    (c) The frame record is absent from the `frames` atom (post-step-6
+        (post-step-5 of `destroy-frame!`, before step-10 dissoc), OR
+    (c) The frame record is absent from the `frames` atom (post-step-10
         of `destroy-frame!` — the dissoc step has run).
 
   The claim test is INCARNATION-SCOPED: a stale destroy marker for incarnation A
@@ -715,7 +715,7 @@
   by identity.
 
   This is what closes rf2-vxgfnd.88's reciprocal Failure-2 (rf2-vxgfnd.94): in the
-  JVM window between `destroy-frame!`'s step-6 `dissoc-frame!` and its terminal
+  JVM window between `destroy-frame!`'s step-10 `dissoc-frame!` and its terminal
   `finally`, incarnation A's marker is still set while a fresh same-id incarnation
   B is already live under the reused id. A ViewCell commit that ACQUIRED B (its
   captured token is B's) reads false here (B's token ≠ A's marker token), so B's
@@ -2807,9 +2807,10 @@
                               (swap! router
                                      (fn [{:keys [queue] :as state}]
                                        (let [dropped (count queue)]
-                                         (cond-> (assoc state
-                                                        :queue interop/empty-queue
-                                                        :scheduled? false)
+                                         (cond-> (-> state
+                                                     (assoc :queue interop/empty-queue
+                                                            :scheduled? false)
+                                                     (dissoc :destroy-claim-report-emitted?))
                                            (pos? dropped)
                                            (update :destroy-claim-dropped-count
                                                    (fnil + 0) dropped)))))
@@ -2911,9 +2912,14 @@
   (the router-bound `*run-time-ms*`), threaded so the `:halted-destroy`
   record's `:committed-at` is replayable per EP-0010 §Time rather than an
   ambient host-clock read. nil outside a drain (the moot out-of-run
-  destroy commits no record)."
-  [id fs-before fs-after committed-at]
-  (safe-call-hook! :epoch/on-frame-destroyed id fs-before fs-after committed-at))
+  destroy commits no record).
+
+  `owner-token` is the destroyed frame's stable incarnation identity. The epoch
+  artefact uses it to compare-clean only this incarnation's id-keyed state if a
+  fresh same-id frame has already published between registry dissoc and step 11."
+  [id owner-token fs-before fs-after committed-at]
+  (safe-call-hook! :epoch/on-frame-destroyed
+                   id owner-token fs-before fs-after committed-at))
 
 (defn destroy-frame!
   "Tear down a frame. Per Spec 002 §Destroy, the ordered steps are:
@@ -3265,7 +3271,8 @@
         ;; `:generation` slot, so dropping the record drops it too — no separate
         ;; forget hook is needed.
         (dissoc-frame! id)
-        (notify-epoch-listeners! id run-fs-before fs-at-destroy run-time-ms)
+        (notify-epoch-listeners! id expected-incarnation-token
+                                 run-fs-before fs-at-destroy run-time-ms)
         nil)
         (finally
           ;; EP-0008 R1 — FINALLY-shaped flush of the always-on

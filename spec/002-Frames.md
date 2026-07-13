@@ -650,14 +650,18 @@ dequeued.
 7. **Run auxiliary cleanup hooks**, in order: elision warning cache; SSR side-channels;
    machine `:after` timers; schemas; flows; routing host caches and URL ownership;
    Resources work handles; plain managed HTTP; and `:dispatch-later` host timers.
-8. **Emit `:rf.frame/destroyed`.** Every application/feature cleanup hook has completed;
-   listeners can still resolve the dying frame's metadata at this point.
+8. **Emit `:rf.frame/destroyed`.** Every application/feature cleanup hook has completed.
+   Lifecycle-dead is already published, so public metadata lookup does not resolve the
+   frame; the trace is self-contained and carries the dying frame id in `:tags :frame`.
 9. **Release trace policy state.** Clear the per-frame trace ring and frame-no-emit flag
    after the destroyed trace has flowed.
 10. **Dissoc the frame from the one frames registry.** This is the whole forget; frames
     have no second registrar row to unregister.
 11. **Notify epoch listeners** — fire `:rf.epoch.cb/silenced-on-frame-destroy` after the
     live frame has vanished so tools silence their per-frame event buffers in one pass.
+    The internal hook carries the destroyed incarnation token and compare-cleans only
+    that owner: if a fresh same-id incarnation has already published epoch state, stale
+    cleanup is a no-op for the replacement.
 
 Steps 3, 4, 7, 9, and 11's optional/per-artefact calls are **best-effort**: an unbound
 hook silently no-ops and the rest of the recipe continues. The relative order between
@@ -671,7 +675,8 @@ does not yet use the post-death `:rf.error/frame-destroyed` dispatch surface. On
 lifecycle-dead is published (and after registry dissoc), a new dispatch is rejected at
 the public boundary without enqueue and emits `:rf.error/frame-destroyed`.
 
-When an ordinary drain observes destruction ownership it emits one
+When an ordinary drain observes destruction ownership, that exact router generation emits
+at most one
 `:rf.frame/drain-interrupted`. Its `:dropped-count` is the sum of envelopes removed at
 claim time and envelopes removed from the real queue at that later check. If no drain
 observes the cutoff before the frame is dissociated (for example, a captured scheduled
@@ -684,10 +689,10 @@ work is still discarded.
 
 The per-artefact destroy hooks above carry **two distinct verb forms**, and the distinction is **semantic, not stylistic** — they name two different kinds of work, so an artefact may legitimately publish both (the machines artefact does):
 
-- **`<feature>/on-frame-destroyed!`** — a **destroyed-frame cleanup callback**. It drops host-transient side-table entries keyed to the now-gone frame (timer registries, nav/scroll caches, validator caches, SSR side-channels). It is fired in step 5's auxiliary-cleanup pass, runs against an already-marked-`:destroyed?` frame, and is pure side-table bookkeeping.
-- **`<feature>/teardown-on-frame-destroy!`** — an **artefact-owned teardown recipe** with lifecycle/registrar-consistency invariants. It runs an ordered teardown (a reverse-order machine `:exit` cascade against a still-live container; a re-point of `:flow` registrar slots to a surviving owner) that MUST execute before the frame is marked destroyed (step 2) so the cascade's effects resolve coherently. It is not a side-table sweep — it preserves a cross-frame registrar invariant.
+- **`<feature>/on-frame-destroyed!`** — a **destroyed-frame cleanup callback**. It drops host-transient side-table entries keyed to the now-gone frame (timer registries, nav/scroll caches, validator caches, SSR side-channels). These callbacks run in step 7's auxiliary-cleanup pass against an already-marked-`:destroyed?` frame and are pure side-table bookkeeping.
+- **`<feature>/teardown-on-frame-destroy!`** — an **artefact-owned teardown recipe** with lifecycle/registrar-consistency invariants rather than a simple side-table sweep. Its exact position follows what the recipe needs: machines run in step 3 before lifecycle-dead because their reverse-order `:exit` cascades require the live container; flows run in step 7 after lifecycle-dead and re-point `:flow` registrar ownership without executing a live-frame cascade.
 
-So **machines publishes both**: `:machines/teardown-on-frame-destroy!` (step 2) runs the actor `:exit` cascade and unregisters per-actor handlers; `:machines/on-frame-destroyed!` (step 5) cancels the per-frame `:after` timer registry and epoch counters. The two names are distinct teardown kinds. Flows' `:flows/teardown-on-frame-destroy!` uses the recipe verb (its `:flow` registrar re-point is a cross-frame invariant, not a side-table sweep); schemas / routing / SSR / resources use the callback verb because their cleanup is side-table-only.
+So **machines publishes both**: `:machines/teardown-on-frame-destroy!` (step 3) runs the actor `:exit` cascade and unregisters per-actor handlers; `:machines/on-frame-destroyed!` (step 7) cancels the per-frame `:after` timer registry and epoch counters. The two names are distinct teardown kinds. Flows' step-7 `:flows/teardown-on-frame-destroy!` uses the recipe verb because its `:flow` registrar re-point preserves a cross-frame invariant even though it runs after lifecycle-dead; schemas / routing / SSR / resources use the callback verb because their cleanup is side-table-only.
 
 **`:on-destroy` handler throw semantics — trace-and-continue.** A throw from the user-supplied `:on-destroy` event handler (or any handler in its dispatch drain) MUST NOT abort teardown. The runtime catches the throw, emits a `:rf.error/on-destroy-handler-exception` error trace (`:tags` `{:frame <id> :rf.event/v <on-destroy-event-vector> :exception <ex> :where :fire-on-destroy-event!}`, `:op-type :error`), and continues with every downstream teardown step — machine cascade, sub-cache disposal, cleanup hooks, `:rf.frame/destroyed` emission, registry dissoc, registrar unregister, epoch notification. A frame that began destruction MUST end fully destroyed; throw-propagation was never a "abort teardown" signal (a half-torn-down frame leaks reactions and registrar entries and is the worse failure mode by far). User code that needs to react to the exception consumes the error trace; user code that wants to *prevent* destruction must guard the caller of `destroy-frame!`, not throw from inside `:on-destroy`.
 

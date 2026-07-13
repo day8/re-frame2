@@ -3439,7 +3439,7 @@
             ":rf.epoch/restore-unknown-epoch does not leak from a prior failed restore")))))
 
 (deftest skip-ops-catalogue-pins-every-rf-epoch-op
-  (testing "skip-ops covers every :rf.epoch/* + :rf.warning/* op this
+  (testing "skip-ops covers every :rf.epoch/* + :rf.epoch.cb/* + :rf.warning/* op this
             namespace emits with a :frame tag OUTSIDE a cascade — the
             out-of-cascade op set is DERIVED from the emit sites (source
             reality), NOT a hand-literal compared against another
@@ -3448,8 +3448,8 @@
             literal==literal shape was false-green: it missed
             :rf.epoch/replace-history-disabled from BOTH literals)"
     ;; --- (a) derive the emitted out-of-cascade op set from reality ------
-    ;; The epoch artefact emits an :rf.epoch/* | :rf.warning/* OPERATION
-    ;; through exactly two syntactic seams, both scanned here:
+    ;; The epoch artefact emits an :rf.epoch/* | :rf.epoch.cb/* |
+    ;; :rf.warning/* OPERATION through three syntactic seams, all scanned here:
     ;;   (trace/emit! <op-type> :rf.epoch/OP ...)   — the success emits
     ;;                                                 (snapshotted / outcome
     ;;                                                 / restored / db-replaced
@@ -3458,6 +3458,8 @@
     ;;                                                 results, emitted by
     ;;                                                 `emit-precondition-failure!`
     ;;                                                 via `trace/emit-error!`.
+    ;;   (trace/emit-error! :rf.epoch.cb/OP ...)      — listener failure
+    ;;                                                 isolation.
     ;; Tag KEYS that share the :rf.epoch/ prefix (:rf.epoch/id,
     ;; :rf.epoch/sensitive?, :rf.epoch/redacted-modified-paths-count) sit
     ;; in map-KEY position, never after `emit!`/`:op`, so they are not
@@ -3465,12 +3467,15 @@
     (let [src            (apply str (map slurp (epoch-source-files)))
           hits->kws      (fn [hits] (into #{} (map #(keyword (subs % 1))) hits))
           emit-ops       (hits->kws (map second
-                                         (re-seq #"emit!\s+:[A-Za-z.]+\s+(:rf\.(?:epoch|warning)/[a-z][a-z0-9-]*)"
+                                         (re-seq #"emit!\s+:[A-Za-z.]+\s+(:rf\.(?:epoch(?:\.cb)?|warning)/[a-z][a-z0-9-]*)"
                                                  src)))
           fail-ops       (hits->kws (map second
-                                         (re-seq #":op\s+(:rf\.(?:epoch|warning)/[a-z][a-z0-9-]*)"
+                                         (re-seq #":op\s+(:rf\.(?:epoch(?:\.cb)?|warning)/[a-z][a-z0-9-]*)"
                                                  src)))
-          derived        (into emit-ops fail-ops)
+          error-ops      (hits->kws (map second
+                                         (re-seq #"emit-error!\s+(:rf\.(?:epoch(?:\.cb)?|warning)/[a-z][a-z0-9-]*)"
+                                                 src)))
+          derived        (into emit-ops (concat fail-ops error-ops))
           ;; Every :rf.epoch/* op the artefact emits today fires OUTSIDE a
           ;; cascade — the deliberate-enumeration design (capture.cljc
           ;; §skip-ops catalogue). If a FUTURE in-cascade :rf.epoch/* op is
@@ -3484,9 +3489,6 @@
           ;; This catalogue is ASSERTED equal to the scanned set below, so
           ;; it can no longer silently drift (the rf2-gba3ou defect). Update
           ;; it AND `skip-ops` when adding/removing an emitted op.
-          ;; (`:rf.epoch.cb/silenced-on-frame-destroy` is op-type :rf.epoch.cb,
-          ;; not :rf.epoch — and it emits AFTER the frame's ring buffer has
-          ;; been dropped so it can't race a future cascade. Not in skip-ops.)
           expected       #{:rf.epoch/snapshotted
                            :rf.epoch/outcome                  ;; rf2-18g1w
                            :rf.epoch/restored
@@ -3500,11 +3502,16 @@
                            :rf.epoch/replace-during-drain
                            :rf.epoch/replace-history-disabled ;; rf2-gba3ou / rf2-unpldn
                            :rf.epoch/replace-schema-mismatch
+                           ;; Terminal exact-owner cleanup evidence: never
+                           ;; input to a later incarnation's cascade.
+                           :rf.epoch.cb/silenced-on-frame-destroy
+                           :rf.epoch.cb/listener-exception
                            ;; rf2-wp70d: redact-fn exception warning emits
                            ;; AFTER `harvest-buffer!` has emptied this
                            ;; frame's cascade buffer, so it must be skipped
                            ;; lest it accrete into the next cascade's record.
-                           :rf.warning/epoch-redact-fn-exception}
+                           :rf.warning/epoch-redact-fn-exception
+                           :rf.warning/restore-quiesce-hook-exception}
           skip-ops       @#'capture/skip-ops]
       ;; Anti-vacuity guard: an empty scanned set would make the SUPERSET
       ;; assertion trivially true (the exact trap the old test fell into).
@@ -3518,7 +3525,7 @@
       ;; op. An op added to an emit site but forgotten in skip-ops fails
       ;; HERE (this is what missed :rf.epoch/replace-history-disabled).
       (is (set/subset? out-of-cascade skip-ops)
-          "skip-ops covers every out-of-cascade :rf.epoch/* + :rf.warning/* op the namespace emits")
+          "skip-ops covers every out-of-cascade epoch/epoch-cb/warning op the namespace emits")
       ;; No stale entry: every skipped op is one the namespace actually
       ;; emits out-of-cascade (a removed emit left in skip-ops fails here).
       (is (set/subset? skip-ops out-of-cascade)
@@ -3908,10 +3915,12 @@
     ;; Call on-frame-destroyed! DIRECTLY — without going through
     ;; frame/destroy-frame!. The frame record still exists in
     ;; frames-atom; only the epoch ring is dropped. (rf2-9neiq: the
-    ;; hook takes (frame-id db-before db-after committed-at) — rf2-bh56rc
+    ;; hook takes (frame-id owner-token db-before db-after committed-at) —
+    ;; exact incarnation ownership plus rf2-bh56rc
     ;; added the causal :time-ms; this seam tests the ring-drop with no
     ;; in-flight cascade, so nil snapshots + nil committed-at apply.)
-    (epoch.listeners/on-frame-destroyed! :test/other nil nil nil)
+    (epoch.listeners/on-frame-destroyed!
+      :test/other (frame/frame-incarnation-token :test/other) nil nil nil)
 
     ;; The frame's ring is gone.
     (is (= [] (rf/epoch-history :test/other))
@@ -3931,13 +3940,14 @@
     (is (= 1 (count (rf/epoch-history :test/repeat))))
 
     ;; First call — clears the buffer. (rf2-9neiq / rf2-bh56rc: hook arity
-    ;; is (frame-id db-before db-after committed-at); nil snapshots + nil
+    ;; is (frame-id owner-token db-before db-after committed-at); nil snapshots + nil
     ;; committed-at for this ring-drop pin.)
-    (epoch.listeners/on-frame-destroyed! :test/repeat nil nil nil)
+    (let [owner-token (frame/frame-incarnation-token :test/repeat)]
+      (epoch.listeners/on-frame-destroyed! :test/repeat owner-token nil nil nil)
     (is (= [] (rf/epoch-history :test/repeat)))
 
     ;; Second call — no-op.
-    (epoch.listeners/on-frame-destroyed! :test/repeat nil nil nil)
+      (epoch.listeners/on-frame-destroyed! :test/repeat owner-token nil nil nil))
     (is (= [] (rf/epoch-history :test/repeat))
         "ring stays empty across repeated calls")))
 
@@ -3949,7 +3959,7 @@
     ;; The observable contract is "no throw, no side effects on
     ;; unrelated state".
     (let [traces (record-trace!)]
-      (epoch.listeners/on-frame-destroyed! :test/no-such-frame nil nil nil)
+      (epoch.listeners/on-frame-destroyed! :test/no-such-frame nil nil nil nil)
       (is (empty? @traces)
           "no traces emitted — nothing observed to silence"))))
 
@@ -4049,13 +4059,15 @@
           "sanity: the synthetic capture-buffer entry is present pre-destroy")
 
       ;; rf2-9neiq / rf2-bh56rc: on-frame-destroyed! takes (frame-id
-      ;; db-before db-after committed-at) — the two snapshots destroy-frame!
+      ;; owner-token db-before db-after committed-at) — exact ownership plus
+      ;; the two snapshots destroy-frame!
       ;; threads plus the destroying event's causal :time-ms. This test
       ;; exercises the buffer-drop (step 4), so nil snapshots + nil
       ;; committed-at are fine (the synthetic run-start carries no
       ;; :event-id, so no halted record commits — and this test does not
       ;; assert one).
-      (epoch.listeners/on-frame-destroyed! :test/main nil nil nil)
+      (epoch.listeners/on-frame-destroyed!
+        :test/main (frame/frame-incarnation-token :test/main) nil nil nil)
 
       (is (nil? (get @buffers-atom :test/main))
           "the capture-buffer entry was dropped on destroy — no

@@ -2937,18 +2937,30 @@
   listeners. The drain-loop's responsibility is the lifecycle trace + queue
   drop; the epoch record is the destroy hook's."
   [frame-id router]
-  (let [{:keys [queue destroy-claim-dropped-count]} @router
-        ;; `claim-frame-destroy!` atomically cuts off the pre-claim queue
-        ;; before `:on-destroy` runs. Preserve that count here so the one
-        ;; interrupted-drain record still reports every discarded envelope,
-        ;; including work removed at the earlier linearization point.
-        dropped (+ (count queue) (or destroy-claim-dropped-count 0))]
-    (swap! router #(-> %
-                       (assoc :queue interop/empty-queue :scheduled? false)
-                       (dissoc :destroy-claim-dropped-count)))
-    (trace/emit! :rf.frame :rf.frame/drain-interrupted
-                 {:frame         frame-id
-                  :dropped-count dropped})))
+  (let [report (volatile! nil)]
+    ;; Claim can leave more than one already-captured scheduler callback, and a
+    ;; post-claim submit may capture another after claim clears `:scheduled?`.
+    ;; Compare/mark inside the router swap so all callbacks for this exact
+    ;; router generation still clear rejected work, but only the first winner
+    ;; consumes the combined evidence and emits.
+    (swap! router
+           (fn [{:keys [queue destroy-claim-dropped-count
+                        destroy-claim-report-emitted?]
+                 :as state}]
+             (let [dropped (+ (count queue)
+                              (or destroy-claim-dropped-count 0))]
+               (when-not destroy-claim-report-emitted?
+                 (vreset! report dropped))
+               (cond-> (-> state
+                           (assoc :queue interop/empty-queue
+                                  :scheduled? false)
+                           (dissoc :destroy-claim-dropped-count))
+                 (not destroy-claim-report-emitted?)
+                 (assoc :destroy-claim-report-emitted? true)))))
+    (when-some [dropped @report]
+      (trace/emit! :rf.frame :rf.frame/drain-interrupted
+                   {:frame         frame-id
+                    :dropped-count dropped}))))
 
 (defn- run-one-pass!
   "Process events from the queue to fixed point or until `drain-depth` is

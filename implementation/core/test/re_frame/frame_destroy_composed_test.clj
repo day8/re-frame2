@@ -177,11 +177,12 @@
                            (fn [_id]
                              (swap! other-hooks-called conj :flows-ran)))
         ;; rf2-9neiq: the :epoch/on-frame-destroyed hook takes
-        ;; (frame-id db-before db-after committed-at) — the two snapshots
+        ;; (frame-id owner-token db-before db-after committed-at) — exact
+        ;; incarnation ownership plus the two snapshots
         ;; destroy-frame! threads for the :halted-destroy record plus the
         ;; destroying event's causal :time-ms (rf2-bh56rc).
         (late-bind/set-fn! :epoch/on-frame-destroyed
-                           (fn [_id _db-before _db-after _committed-at]
+                           (fn [_id _owner-token _db-before _db-after _committed-at]
                              (swap! other-hooks-called conj :epoch-ran)))
 
         ;; Destroy must not re-throw.

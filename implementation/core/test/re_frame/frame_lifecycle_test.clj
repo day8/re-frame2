@@ -1080,7 +1080,13 @@
                   "one pre-claim and one post-claim submit each scheduled a drain")
               (is (= 1 (count (:queue @(:router (get @frame/frames frame-id)))))
                   "the ordinary envelope was enqueued after the claim cutoff")
-              (interop/next-tick (last @captured-ticks))
+              ;; Execute BOTH already-captured scheduler callbacks. Claim
+              ;; cleared :scheduled?, so the post-claim submit captured a
+              ;; second callback; both may independently enter the drain, but
+              ;; this exact router generation must report the combined drop
+              ;; evidence once.
+              (doseq [tick @captured-ticks]
+                (interop/next-tick tick))
               (executor-barrier!)
               (let [record (get @frame/frames frame-id)]
                 (reset! gap-observation
