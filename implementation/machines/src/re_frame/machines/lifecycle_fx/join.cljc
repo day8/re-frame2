@@ -20,7 +20,11 @@
       child id, exact current actor id, and exact attempt token. Unstamped
       / superseded / duplicate carriers are suppressed stale
       (`:rf.machine.spawn-all/stale-completion`) with zero mutation.
-   4. Adds `<child-id>` to `:done` or `:failed`.
+   4. Adds `<child-id>` to `:done` or `:failed`. A NON-DECISIVE fold (the
+      join does not resolve on it) publishes the child's canonical work
+      terminal at fold time via `:rf.machine.spawn-all/child-completed`
+      (rf2-ir4t5v); the DECISIVE fold's terminal rides the resolution
+      trace instead — one terminal authority per child.
    5. If `:resolved?` is already true, this is a post-resolution
       late-completion (it fires NO further parent event — the
       `:resolved?` latch already flipped). Surviving siblings are
@@ -365,17 +369,22 @@
      :resolution-event resolution-event
      :join-event-kw    join-event-kw}))
 
-(defn- decisive-child-reply-facts
-  "Build the reply-envelope facts for the DECISIVE child completion that
-  drove a `:spawn-all` join resolution, ready to ride
-  ADDITIVELY on the resolution trace (Managed-Effects §Tracing /
-  §Status taxonomy). The decisive child's completion IS the managed-async
-  completion that resolved the join, so it lowers through the shared
-  `join-child-reply` (`:status :ok` for the `:done`-side resolutions,
-  `:status :error` for the `:on-any-failed` resolution) — the same uniform
-  vocabulary the single-`:spawn` `:rf.machine/done` reply carries. Returns
-  a tag-map fragment `{:rf.reply/work-id … :rf.reply/status … …}` to merge into the
-  resolution trace, or `{}` when no decisive child is resolvable.
+(defn- child-completion-reply-facts
+  "Build the reply-envelope facts for ONE accepted child completion —
+  the canonical `:completed` / `:failed` terminal for that child's work
+  attempt, lowered through the shared `join-child-reply` (`:status :ok`
+  for a `:done` fold, `:status :error` for a `:failed` fold) — the same
+  uniform vocabulary the single-`:spawn` `:rf.machine/done` reply carries.
+  Returns a tag-map fragment `{:rf.reply/work-id … :rf.reply/status … …}`.
+
+  ONE AUTHORITY PER CHILD (rf2-ir4t5v): these facts ride EXACTLY ONE trace
+  per accepted fold — the `:rf.machine.spawn-all/child-completed` fold
+  trace for a NON-DECISIVE fold (the join did not resolve), or ADDITIVELY
+  on the resolution trace for the DECISIVE fold (the join resolved). The
+  two emits sit on opposite arms of the fold's `(:resolved? resolution)`
+  split (`intercept-fold`), so a child attempt can never publish its
+  terminal twice; duplicate pre-resolution signals are suppressed upstream
+  by the exact-authority gate, and post-resolution arrivals stay `:stale`.
 
   `kind` is the arriving child's fold kind (`:done` / `:failed`);
   `child-extra` is its forwarded payload (the `:value` for a `:done`,
@@ -398,6 +407,39 @@
              :rf.reply/correlation (:correlation summary)}
       (some? (:completed-at summary))
       (assoc :rf.reply/completed-at (:completed-at summary)))))
+
+(defn- emit-child-fold-terminal!
+  "Fire the `:rf.machine.spawn-all/child-completed` trace for a
+  NON-DECISIVE accepted fold (rf2-ir4t5v) — the canonical `:completed` /
+  `:failed` work terminal for a child whose first valid completion folded
+  into a join that did NOT resolve on it. Without this, a non-decisive
+  child's work attempt ended with NO terminal status at all: the join
+  machinery published terminals only through the final resolution trace,
+  so in an `:all` join every child but the decisive one was folded
+  silently, then reaped without cancellation — stranding
+  work-ledger/Xray projections on an open attempt.
+
+  The DECISIVE fold's terminal rides the resolution trace instead
+  (`emit-resolution-traces!`); the two emits sit on opposite arms of the
+  fold's `(:resolved? resolution)` split, so each child attempt has
+  exactly ONE terminal authority. Duplicate pre-resolution signals never
+  reach here (suppressed by the exact-authority gate) and post-resolution
+  arrivals stay `:stale` — one terminal per work attempt, closed."
+  [frame-id parent-id invoke-id join-state'' child-id kind child-extra
+   completed-at]
+  (let [spawned-id (get-in join-state'' [:children child-id])]
+    (trace/emit! :rf.machine :rf.machine.spawn-all/child-completed
+                 (merge {:actor-id   parent-id
+                         :invoke-id  invoke-id
+                         :child-id   child-id
+                         :spawned-id spawned-id
+                         :kind       kind
+                         :done       (:done   join-state'')
+                         :failed     (:failed join-state'')
+                         :frame      frame-id}
+                        (child-completion-reply-facts
+                          frame-id parent-id invoke-id join-state''
+                          child-id kind child-extra completed-at)))))
 
 (defn- emit-resolution-traces!
   "Fire the post-resolution observability traces in order: any-failed,
@@ -428,11 +470,11 @@
                          :failed     (:failed join-state'')
                          :done       (:done   join-state'')
                          :frame      frame-id}
-                        (decisive-child-reply-facts
+                        (child-completion-reply-facts
                           frame-id parent-id invoke-id join-state''
                           child-id :failed child-extra completed-at))))
   (when success-fired?
-    (let [reply-facts (decisive-child-reply-facts
+    (let [reply-facts (child-completion-reply-facts
                         frame-id parent-id invoke-id join-state''
                         child-id :done child-extra completed-at)]
       (if (= :all (:join spec :all))
@@ -789,8 +831,14 @@
                                     "and no :on-any-failed transition is declared, "
                                     "so the join will hang forever. Declare "
                                     ":on-any-failed to handle child failures.")}))
-    (emit-resolution-traces! frame-id parent-id invoke-id spec join-state''
-                             child-id child-extra completed-at resolution)
+    ;; ONE terminal authority per child (rf2-ir4t5v): a DECISIVE fold's
+    ;; terminal rides the resolution trace; a NON-DECISIVE fold publishes
+    ;; its canonical terminal HERE, at first valid fold — never both.
+    (if (:resolved? resolution)
+      (emit-resolution-traces! frame-id parent-id invoke-id spec join-state''
+                               child-id child-extra completed-at resolution)
+      (emit-child-fold-terminal! frame-id parent-id invoke-id join-state''
+                                 child-id kind child-extra completed-at))
     (let [fx (build-resolution-fx frame-id parent-id invoke-id spec join-state''
                                   child-id child-extra resolution)]
       {:rf.db/runtime (assoc-in runtime-db (paths/spawned-path parent-id invoke-id) join-state'')
