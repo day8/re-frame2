@@ -7,9 +7,10 @@
   optional Resources artefact.")
 
 (defonce ^:private owner-counter
-  ;; One monotone source for the whole CLJS runtime. The canonical vector is
+  ;; One monotone source for the whole runtime process. The canonical vector is
   ;; public protocol data (Spec 016); the counter and this namespace are not a
-  ;; public application API.
+  ;; public application API. A .cljc home lets the host-agnostic ViewCell
+  ;; reconciler prove the same ownership protocol headlessly on the JVM.
   (atom 0))
 
 (defn mint!
