@@ -5,8 +5,10 @@ meticulous React engineer writes by hand — every view, every time.
 
 *(Stage note: the compiled output and memo comparators are Stage 1, and the reactive
 economics below ride the S2 core — both on main today, with the push-economics gate
-(G-13) already wired. The CI gates that prove the production claims — bundle absence,
-size budget, output shape — wire in across S3–S6.)*
+(G-13) already wired. Three surfaces named below land S3 — `effect` dependency
+semantics, the Xray heatmap, and the causes timeline — each marked where it appears.
+The CI gates that prove the production claims — bundle absence, size budget, output
+shape — wire in across S3–S6.)*
 
 ## What you never write
 
@@ -14,7 +16,7 @@ size budget, output shape — wire in across S3–S6.)*
 |---|---|
 | `React.memo` / sCU | every view memoized on value-equal props, always |
 | `useCallback` / stable-handler dances | handlers are vectors — values, stable by nature |
-| `useMemo` / deps arrays | `effect` deps are values; templates are compiled; nothing else memoizes |
+| `useMemo` / deps arrays | `effect` *(lands S3)* deps are values; templates are compiled; nothing else memoizes |
 | "hoist this constant JSX" | static subtrees become module constants automatically |
 | interpreter-cost worries | there is no interpreter in your bundle |
 | per-subscription hook budgeting | a view has **one** React bridge no matter how many `sub`s |
@@ -43,8 +45,8 @@ exists to confirm this, not to negotiate with it.
 3. **Fn props defeat memo — and so do freshly-built children.** A raw fn compares by
    identity, and a parent that rebuilds child elements each render defeats the child's
    memo the same way (inherent to React; hand-written code pays it too). In hot lists,
-   prefer data handlers, hoist fns, narrow what the parent rebuilds. The heatmap makes
-   offenders visible.
+   prefer data handlers, hoist fns, narrow what the parent rebuilds. The heatmap
+   *(lands S3)* makes offenders visible.
 4. **Broad values walk.** `rf=` short-circuits identity, so structurally-shared values are
    cheap — but a subscription that *rebuilds* a large equal collection forces walks
    downstream. Fix the producing sub (stabilize it); don't sprinkle comparators. Dev flags
@@ -63,8 +65,8 @@ diff — not intentions.
 
 ## Measuring
 
-Dev: the Xray heatmap and causes timeline beat flame graphs for "why is this slow" —
-counts, causes, and epochs, per view. Production: the React Profiler works normally (real
-component names, real memo boundaries), and renders should look like the model above —
-sparse, shallow, value-justified. If they don't, the timeline's cause column names the
-culprit before you reach for the profiler.
+Dev: the Xray heatmap and causes timeline *(lands S3)* beat flame graphs for "why is
+this slow" — counts, causes, and epochs, per view. Production: the React Profiler works
+normally (real component names, real memo boundaries), and renders should look like the
+model above — sparse, shallow, value-justified. If they don't, the timeline's cause
+column *(lands S3)* names the culprit before you reach for the profiler.
