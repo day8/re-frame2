@@ -162,6 +162,57 @@ markup-returning `map`; keywords in child position; raw lazy seqs; unkeyed list 
 keyword head is a DOM/custom element, never a registry lookup (rf2-n82bbu; enforced at
 compile time).
 
+**Expression positions are value-opaque but lexically audited — the closed macro
+grammar (rf2-vxgfnd.100).** Property values, condition tests, `for` collections,
+handler-position expressions, and wrapper expressions hold ordinary Clojure **values**:
+the compiler never interprets an expression's *value* as markup — opacity is with
+respect to DOM/template interpretation, so a seq-producing call like `(map f xs)` in a
+prop value or a `for` collection is just a value. The expression's lexical **syntax**,
+however, is analyzed for finite reactive ownership: every `(sub …)` / `(lease …)` is a
+compile-indexed lexical site, the manifest declares a view's sites, and optimized
+production elides the ViewCell for a genuinely sub-free view — so the analysis must be
+able to *see* every reactive call. An unaudited macro breaks that soundness: it can
+inject, duplicate, or defer a `ui/sub` / `ui/lease` with **no reactive token in the
+authored invocation** — the manifest would falsely declare a sub-free view, production
+would elide its ViewCell, and the hidden read would go stale or escape ownership. The
+expression grammar is therefore **closed**:
+
+- **Special / binder forms**, handled structurally with binder-aware traversal:
+  `quote` (never traversed — quoted data is not executable), `fn`/`fn*`, `let`/`let*`,
+  `loop`/`loop*`, `letfn`/`letfn*`, `try`. Binding patterns and destructuring `:or`
+  defaults may contain neither reactive calls nor unaudited macros — those positions
+  are consumed by the host compiler, not expression rewriting, so they cannot own a
+  lexical render site (hoist the read into the view body and bind its value).
+- **The audited transparent macro set** — position-aware `clojure.core` / `cljs.core`
+  macros whose arguments are host-independent expression slots with no user-authored
+  binders: `or`, `and`, `when`, `when-not`, `cond`, `->`, `->>`, `some->`, `some->>`,
+  `cond->`, `cond->>`. Their spelling is preserved while their arguments are
+  recursively analyzed — a `(sub …)` nested under `(or … "")` still lowers to its
+  indexed site. A **bare** `sub`/`lease` **reference** below one is rejected: a
+  threading step such as `(-> query sub)` would become an unindexed reactive call only
+  after expansion, so the explicit `(sub query)` call is required.
+- **Ordinary function calls** — any function. The call head is not an evaluated
+  argument and cannot itself contain a reactive site, so it is preserved verbatim and
+  the arguments are analyzed. Helpers stay helpers: pass reactive **values** in.
+- **Every other macro is rejected at compile time** — `:rf.ui.compile/unsupported-form`,
+  didactically: *macro X is outside the compiler's audited expression set and could
+  inject, duplicate, or defer a reactive call after lexical site analysis; rewrite it
+  with ordinary functions/control forms, or hoist the computation around the view
+  template.* This covers core macros outside the set (`if-let`, `when-let`, `case`,
+  `doto`, `for` in expression position, …) and every user/library macro — macro
+  authority is the host analyzer's own flag, not a name heuristic. Recovery paths, in
+  preference order: use a supported core form; move the pure computation into an
+  ordinary function and call it; pass reactive values into the helper (read `sub` in
+  the view body, hand the value down); or make the reactive boundary a `defview` of
+  its own.
+
+There is deliberately **no** generic double macroexpansion, no macro interpreter, no
+runtime dynamic reactive site, no ViewCell overhead for sub-free views, and no
+compatibility fallback. The set grows only by ruling, and any future addition requires
+lexical-scope plus hidden-reactive-injection counterfixtures (the rf2-vxgfnd.100
+hidden-sub / helper / binder-macro proofs in
+`re-frame.ui.compiler-macro-resolution-jvm-test` are the template).
+
 **DOM prop spelling is pinned:** hyphenated lowercase words mirroring React's camelCase
 — `:on-click`, `:on-key-down`, `:on-input` (never `:on-keydown`). Handler-map options:
 `{:event […] :prevent-default true :stop-propagation true :capture true :passive true
@@ -295,7 +346,11 @@ registers later can produce a false positive; the warning names that possibility
 no deps arrays. Each lexical `(sub …)` is a compile-indexed site; all of a view's sites
 share **one** React bridge (one `useSyncExternalStore`, one scalar revision snapshot,
 one notification per render batch — I-3/I-4/I-6). Conditional reads are legal; `sub` in loops
-is a compile error (sites must be finite — extract a keyed child view). Literal queries
+is a compile error (sites must be finite — extract a keyed child view). Site indexing
+is why expression positions carry a **closed macro grammar** (see [§Template
+grammar](#template-grammar) — expression positions): an unaudited macro could hide a
+`sub` from the lexical analysis, so only the audited transparent set, special/binder
+forms, and ordinary function calls are accepted around reactive reads. Literal queries
 are module constants; parametric sites reuse the prior query object while args are
 `rf=`; sites return the prior exact value when the new read is `rf=`. The observation
 model — the **six-operation port** (`resolve-target` · `probe` · `acquire!` ·
@@ -672,6 +727,7 @@ order and is a defect in this table.
 | §The portability law and the template AST | **S1** | one AST → two emitters; normalized structural equivalence (parity corpus v0); serialisation boundary; closed node set; AST-shape gate |
 | §`ui/defview` — grammar, props ABI, options map, registration, `rf=` comparator | **S1** | declaration arities + diagnostics; props ABI encoding + `:key` reservation; registrar `:view` entries; the ruled `rf=` comparator emitted and asserted against prop-driven re-render (subscription/local interplay asserts S2/S3; stable-shell identity is S2 HMR work) |
 | §Template grammar — forms, control forms, rejection roster | **S1** | table forms lower; compile-error roster with didactic messages |
+| §Template grammar — expression positions (the closed macro grammar) | **S2** | audited transparent set lowers with sites indexed below it; unaudited core/user macros rejected with the didactic escape (real-host-analyzer macro authority); bare `sub`/`lease` reference below a transparent macro rejected; binding-pattern/`:or` fences — the rf2-vxgfnd.100 hidden-sub/helper/binder-macro fixtures |
 | §Template grammar — prop conversion (the rule table; `ui/spread`) | **S1** | conversion-table fixtures consumed by both emitters (owning table: [004B-UI-Tree-and-Conversion.md](004B-UI-Tree-and-Conversion.md)); `spread` dynamic-map cases |
 | §Template grammar — custom elements (`ui/custom-element`, RULED grammar) | **S4** | property-vs-attribute classification; SSR attributes-only; W14 fixtures |
 | §Handlers — event vectors as structural data (manifest flags; JVM-tree `:events`) | **S1** | vectors/options-maps retained as data in tree + manifest; placeholder keywords retained as keywords |
