@@ -39,6 +39,18 @@ const TAGS = [
   'input', 'span', 'section', 'strong', 'hr',
 ];
 
+// Test-only identifiers whose presence proves that the mounted-test namespace
+// (and therefore its direct React `act` boundary) entered a production build.
+// These are deliberately stable string literals, so the check survives Closure
+// renaming while avoiding false hits on React's own public export table.
+const TEST_ONLY_MARKERS = [
+  'rfUiTestCleanupError',
+  'ui-test-overlapping-act',
+  'await-the-prior-operation',
+  'a previous ui.test React act operation',
+  'IS_REACT_ACT_ENVIRONMENT',
+];
+
 function run(cmd, args, opts = {}) {
   const r = spawnSync(cmd, args, {
     cwd: IMPL,
@@ -98,7 +110,6 @@ function emittedJsGolden() {
     );
     process.exit(1);
   }
-
   const forbiddenDigestFragments = [
     '__RF2_UI_DIGEST_XX__',
     'bd1-',
@@ -115,6 +126,18 @@ function emittedJsGolden() {
     );
     process.exit(1);
   }
+
+  const testResidue = TEST_ONLY_MARKERS.filter((marker) => src.includes(marker));
+  if (testResidue.length !== 0) {
+    console.error(
+      'FAIL: re-frame.ui.test / React-act residue entered the :advanced ' +
+        `production bundle: ${testResidue.join(', ')}`,
+    );
+    process.exit(1);
+  }
+  console.log(
+    `production test isolation: PASS (${TEST_ONLY_MARKERS.length} forbidden markers absent)`,
+  );
   console.log('emitted-JS golden: PASS');
 }
 
