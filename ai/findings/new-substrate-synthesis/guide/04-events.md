@@ -130,7 +130,8 @@ testable:
            (-> tree (ui.test/find :select) ui.test/attrs :on-change)))))
 ```
 
-*(This test runs on main today — Tier-1 renders resolve `sub` sites against the frame.)*
+*(This test runs on main today — a Tier-1 render resolves its `sub` sites against the
+frame you minted.)*
 
 **When the door applies — honestly.** The compiler proves an element controlled by
 seeing a literal `:value`/`:checked` prop co-present with the vector-handler site —
