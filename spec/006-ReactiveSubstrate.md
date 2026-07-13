@@ -1105,13 +1105,17 @@ commit path with honest ownership reporting ⟨S-3 §5; 09 codex2 F1⟩:
 - `read` returns the pinned value and the override's version;
 - `release!` is a no-op; **no callback is registered** (a pinned value never
   invalidates);
-- `current?` holds while the site's captured override id/version still match, and fails
-  when the override changed or was removed — retargeting through the normal staged
-  commit path, exactly like a real node.
+- `current?` holds while the site's captured override tokens still match under the
+  **split equality law**, and fails when the override changed or was removed —
+  retargeting through the normal staged commit path, exactly like a real node. The two
+  opaque tokens are compared differently: `:override-id` is slot identity, compared by
+  plain `=`; `:version` is the movement token, compared by the frozen `rf=` law (the
+  port's core-local `node-value=` spelling). NaN-to-NaN therefore **retains** — the
+  observable counterexample that makes the split load-bearing: a plain-`=` version
+  compare would retarget a NaN-valued override on every commit, forever.
 
-*(Shape ruled and final; its Tier-3 Story-context fixture remains a named Stage-2
-obligation for the ViewCell layer — the lease semantics themselves are pinned by the
-port's own fixtures.)*
+*(Shape ruled and final; the lease semantics are pinned by the port's own fixtures, and
+the Tier-3 mounted Story-context fixture landed with the ViewCell layer.)*
 
 ### Transactional multi-acquire — staging and rollback
 

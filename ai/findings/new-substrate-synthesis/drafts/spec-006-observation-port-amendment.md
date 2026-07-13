@@ -240,9 +240,11 @@ commit path with honest ownership reporting ⟨S-3 §5; 09 codex2 F1⟩:
 - `read` returns the pinned value and the override's version;
 - `release!` is a no-op; **no callback is registered** (a pinned value never
   invalidates);
-- `current?` holds while the site's captured override id/version still match, and fails
-  when the override changed or was removed — retargeting through the normal staged
-  commit path, exactly like a real node.
+- `current?` holds while the site's captured override tokens still match under the
+  **split equality law** — `:override-id` (slot identity) by plain `=`, `:version` (the
+  movement token) by the frozen `rf=` law (core-local `node-value=`), so NaN-to-NaN
+  retains — and fails when the override changed or was removed — retargeting through
+  the normal staged commit path, exactly like a real node.
 
 *(Shape ruled and final; unprototyped in S-3 — no Story context existed in the harness.
 Its Tier-3 fixture is a named Stage-2 obligation.)*

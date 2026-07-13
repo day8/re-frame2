@@ -172,10 +172,11 @@
 ;; `resolve-target` consumes a Story-override HIT off the site-ctx. On the
 ;; JVM there is no React context: `ui.test/render` binds this door
 ;; explicitly (`{:sub-overrides {query value}}`) — "one honest option, not
-;; a pretended same mechanism" (07 §2). On CLJS the dev/full Story skeleton
-;; will seed the same door from the public override context with ordinary
-;; `useContext` (that React-context wiring is S2f; the static-override LEASE
-;; path below is landed + fixtured here so S2f does not duplicate it).
+;; a pretended same mechanism" (07 §2). On CLJS the landed React-context
+;; carriage seeds the same door from the mounted override Provider:
+;; `re-frame.ui.sub-overrides/use-current` reads the nearest Provider map
+;; with ordinary `useContext`, and `re-frame.ui.viewcell` binds it around
+;; each compiled body.
 ;; ---------------------------------------------------------------------------
 
 (def ^:dynamic *sub-overrides*
@@ -183,31 +184,41 @@
   resolves the site to a `:story-override` target — the pinned value IS the
   resolution (no node), and commit acquires a STATIC lease
   (`:owned? false`, callback-free). Seeded by the JVM `ui.test/render`
-  door (an explicit `binding`) and, on CLJS, by the Story skeleton off the
-  public override context (that React-context→var seeding is S2f).
+  door (an explicit `binding`) and, on CLJS, by the landed React-context
+  carriage — `re-frame.ui.sub-overrides` reads the nearest mounted override
+  Provider and `re-frame.ui.viewcell` binds this var around each compiled
+  body.
 
   ## The change token (opaque to the observation port — the target ABI)
 
   `resolve-override` LOWERS a HIT to the port's opaque
-  `{:override-id :version}` change token (see
-  `re-frame.substrate.observation`, which compares both by `=` only and
-  never interprets them). This artefact's private lowering:
+  `{:override-id :version}` change token. The port
+  (`re-frame.substrate.observation`) never interprets either token, but the
+  two obey a SPLIT equality law: `:override-id` is slot identity, compared
+  by plain `=`; `:version` is the movement token, compared by the frozen
+  `rf=` law (the port's core-local `node-value=` spelling), under which
+  NaN-to-NaN RETAINS — the observable counterexample plain `=` gets wrong
+  (an `=`-compared NaN version would retarget forever). This artefact's
+  private lowering:
 
-    - `:override-id` ← the QUERY — the override's stable slot identity, so
-      two overrides never collide and a site dedups by its slot.
+    - `:override-id` ← the QUERY — the override's stable slot identity
+      (an `=` compare), so two overrides never collide and a site dedups
+      by its slot.
     - `:version`     ← the VALIDATED value — the movement token, so
-      `current?` (a `=` on version) retargets EXACTLY when the surfaced
-      value moves.
+      `current?` (frozen `rf=` on version) retargets EXACTLY when the
+      surfaced value MOVES under `rf=`, and retains when it does not
+      (including a NaN replaced by NaN).
 
   Because `resolve-override` re-runs (and re-validates) every render, the
   semantics fall out of the token:
 
-    - equal-value provider replacement → same validated value → version
-      unchanged → the kept-check retains the static lease (no retarget).
+    - `rf=`-equal provider replacement (same validated value, NaN-to-NaN
+      included) → version unchanged under the movement law → the
+      kept-check retains the static lease (no retarget).
     - nested providers → the CLOSEST enclosing override wins (the innermost
       `*sub-overrides*` binding / React-context map) → its value is the token.
-    - value change → version differs → the site retargets to a fresh
-      static lease carrying the new value.
+    - value movement under `rf=` → version differs → the site retargets to
+      a fresh static lease carrying the new value.
     - HMR / schema change → the override is re-validated against the
       CURRENT registration each render; a schema that now rejects a
       previously-valid value flips the surfaced value to nil, moving the
