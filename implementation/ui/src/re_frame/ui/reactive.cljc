@@ -525,7 +525,8 @@
   candidate exposed a different hook shape, restoration advances remount
   generation again. A failed first registration becomes an unavailable
   tombstone at a fresh revision. Listener subscriptions made in flight are
-  retained. Returns the current slot snapshot."
+  retained. Returns true only when this publication performed the compensation;
+  a stale publication returns false."
   [{:keys [view-id publication-token before]}]
   (let [[old-slots slots]
         (swap-vals!
@@ -561,7 +562,7 @@
     (when rolled-back?
       (doseq [listener (vals (:hmr-listeners restored))]
         (listener)))
-    restored))
+    rolled-back?))
 
 (defn register-view-descriptor!
   "Publish one descriptor directly through the same prepare/commit path used

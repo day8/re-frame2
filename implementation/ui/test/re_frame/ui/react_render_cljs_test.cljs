@@ -545,6 +545,41 @@
       (is (= 2 (reactive/generation cell))
           "the restored descriptor advances and commits; the cell is not stuck"))))
 
+(deftest stale-failure-cannot-clobber-a-reentrant-winners-debug-name
+  (let [id       ::reentrant-name-winner
+        shell    (rt/register-view! id (fn [_props] :v1) (fn [_ _] true)
+                                    "NameV1"
+                                    {:view-id id
+                                     :hook-signature "hs-name"
+                                     :version 1})
+        reentered? (atom false)
+        result   (try
+                   (with-redefs [registrar/register!
+                                 (fn [& _]
+                                   (when (compare-and-set! reentered? false true)
+                                     (rt/register-view!
+                                      id (fn [_props] :v3) (fn [_ _] false)
+                                      "NameV3"
+                                      {:view-id id
+                                       :hook-signature "hs-name"
+                                       :version 3})
+                                     (throw (js/Error. "stale v2 failure"))))]
+                     (rt/register-view! id (fn [_props] :v2) (fn [_ _] false)
+                                        "NameV2"
+                                        {:view-id id
+                                         :hook-signature "hs-name"
+                                         :version 2}))
+                   :unexpected-success
+                   (catch :default _ :thrown))]
+    (is (= :thrown result))
+    (is (= 3 (get-in (reactive/view-descriptor id) [:manifest :version]))
+        "the reentrant registration remains the descriptor authority")
+    (is (= "NameV3" (.-displayName shell))
+        "the stale outer failure cannot restore its pre-publication name")
+    (is (= "NameV3$Body"
+           (.-displayName (:inner (reactive/view-shells id))))
+        "the winning inner shell name is fenced by the same publication token")))
+
 (deftest rollback-same-hook-shape-advances-body-only-and-stale-token-is-a-no-op
   (let [id ::rollback-same-shape
         descriptor {:render-fn identity :compare-fn =

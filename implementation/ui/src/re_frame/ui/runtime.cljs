@@ -123,9 +123,12 @@
         (reactive/commit-view-descriptor! publication)
         outer
         (catch :default e
-          (reactive/rollback-view-descriptor! publication)
-          (set! (.-displayName inner) old-inner-name)
-          (set! (.-displayName outer) old-outer-name)
+          ;; A registrar hook may have synchronously published a newer winner.
+          ;; Restore diagnostic names only when this transaction also restored
+          ;; its descriptor; a stale failure must not clobber the winner.
+          (when (reactive/rollback-view-descriptor! publication)
+            (set! (.-displayName inner) old-inner-name)
+            (set! (.-displayName outer) old-outer-name))
           (throw e))))))
 
 ;; ---------------------------------------------------------------------------
