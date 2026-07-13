@@ -441,9 +441,10 @@
      stamps the last known-good digest, never a partial mid-pass identity
      (rf2-vxgfnd.68). This is the compiler projection; its CLIENT counterpart
      is `re-frame.ui.client/descriptor-index`, which projects the SAME
-     `:build-digest` (byte-identical — same `fingerprint/build-digest`
-     algorithm over the same per-view triples) onto the live-root static
-     cores. Compile-order independent + incremental==clean by construction."
+     byte-identical compiler value from the compile-finish-patched O(1) carrier
+     onto the live-root static cores — the client never recomputes identity from
+     loaded runtime modules. Compile-order independent + incremental==clean by
+     construction."
      []
      (let [bd (compiler/current-build-digest)]
        (into {}

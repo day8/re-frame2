@@ -85,7 +85,8 @@
 
   Every check-then-act (the Layer-1 duplicate/conflict indexes) runs INSIDE
   one `swap!` via `contribute-checked!`, so parallel namespace compilation
-  can never expose an evict-then-readd gap or a check-then-assoc race.")
+  can never expose an evict-then-readd gap or a check-then-assoc race."
+  (:require [re-frame.ui.fingerprint :as fingerprint]))
 
 ;; ---------------------------------------------------------------------------
 ;; Registry ids (opaque keys naming the five build-scoped registries)
@@ -425,6 +426,54 @@
   (update slice :committed
           (fn [committed]
             (select-keys committed (filter keep? (keys committed))))))
+
+(defn- digest-for-slice
+  "Pure whole-build digest of one finalized slice's committed view rows."
+  [slice]
+  (fingerprint/build-digest
+   (mapv (fn [[id [tf hs]]] [id tf hs])
+         (reduce-kv (fn [m _src regs] (merge m (get regs views)))
+                    {} (:committed slice)))))
+
+(defn finalized-build-digest
+  "The compiler-authoritative whole-build digest for `build-id`'s committed
+  last-known-good slice. This is the value a successful finish candidate
+  publishes into the dev client carrier."
+  ([] (finalized-build-digest (current-build-id)))
+  ([build-id]
+   (digest-for-slice (get @state build-id empty-slice))))
+
+(defn finish-candidate
+  "Purely derive `build-id`'s successful whole-build finish without publishing
+  it. Returns an opaque candidate containing the observed slice, finalized
+  slice and its compiler-owned whole-build digest. The Shadow hook must first
+  project that digest into exactly one carrier output; only then may it call
+  `commit-finish-candidate!`."
+  [build-id members]
+  (let [before (get @state build-id empty-slice)
+        after  (-> before commit-slice (keep-members (set members)))]
+    {:build-id build-id
+     :before before
+     :after after
+     :digest (digest-for-slice after)}))
+
+(defn commit-finish-candidate!
+  "Publish a previously derived finish candidate iff its build slice has not
+  changed. A projection failure never calls this function, so compiler state
+  remains last-known-good. Unrelated build ids may advance concurrently; the
+  compare is scoped to this candidate's explicit build id."
+  [{:keys [build-id before after]}]
+  (swap! state
+         (fn [all]
+           (let [current (get all build-id empty-slice)]
+             (when-not (= before current)
+               (throw
+                (ex-info
+                 "re-frame.ui finish candidate became stale before commit"
+                 {::error ::stale-finish-candidate
+                  :build-id build-id})))
+             (assoc all build-id after))))
+  nil)
 
 (defn reconcile!
   "Whole-build finalize for `build-id`: commit the open pass, THEN drop every

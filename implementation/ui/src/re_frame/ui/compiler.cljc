@@ -55,8 +55,7 @@
   by view-id) and per-build-id isolated. This is the ONE build identity the
   descriptor read-time projection publishes."
   []
-  (fingerprint/build-digest
-   (mapv (fn [[id [tf hs]]] [id tf hs]) (build/committed-aggregate build/views))))
+  (build/finalized-build-digest))
 
 (def ^:private defview-option-keys #{:props :id :display-name})
 
@@ -249,7 +248,13 @@
              :declaration [ns-sym vname]
              :existing-declaration conflict}))
     (if cljs?
-      (emit-cljs/emit-defview args)
+      (emit-cljs/emit-defview
+       (assoc args :registration-build-digest
+              ;; Shadow's ordinary file/watch pass is finalized by the build
+              ;; hook, which patches the carrier once for the whole build. A
+              ;; no-pass REPL eval commits this declaration immediately; its
+              ;; emitted dev registration installs that finalized digest.
+              (when-not (build/pass-open?) (current-build-digest))))
       (emit-jvm/emit-defview args))))
 
 (defn defview*

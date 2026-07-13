@@ -10,6 +10,7 @@
             [re-frame.error :as error]
             [re-frame.registrar :as registrar]
             [re-frame.ui.client :as client]
+            [re-frame.ui.digest-carrier :as digest-carrier]
             [re-frame.ui.fingerprint :as fingerprint]
             [re-frame.ui.runtime :as runtime]))
 
@@ -568,15 +569,19 @@
 ;; The COMPLETE Root Descriptor v1 — client read-time :build-digest projection
 ;; (rf2-vxgfnd.68). Spec 004C §2.1: the static core rides the entry's
 ;; :descriptor with NO digest; `client/descriptor` / `descriptor-index` project
-;; the whole-build :build-digest at read from the registered view manifests —
-;; byte-identical to the compiler's digest (the same fingerprint/build-digest
-;; over the same [view-id template-fingerprint hook-signature] triples) and
-;; non-stale under a view-only re-register.
+;; the whole-build :build-digest at read from the compiler-patched O(1)
+;; carrier. Runtime registrar membership is deliberately not an identity
+;; authority.
 ;; ---------------------------------------------------------------------------
 
-(defn- reg-view! [id tf hs]
-  (runtime/register-view! id (fn [_])
-                          {:template-fingerprint tf :hook-signature hs}))
+(defn- reg-view!
+  ([id tf hs]
+   (runtime/register-view! id (fn [_])
+                           {:template-fingerprint tf :hook-signature hs}))
+  ([id tf hs repl-digest]
+   (runtime/register-view! id (fn [_])
+                           {:template-fingerprint tf :hook-signature hs}
+                           repl-digest)))
 
 (defn- expected-digest []
   (fingerprint/build-digest
@@ -586,51 +591,66 @@
         (registrar/registrations :view))))
 
 (deftest client-descriptor-projects-the-build-digest
-  (reg-view! ::a "tf1-aaaaaaaaaaaaaaaa" "hs1-0000000000000000")
-  (reg-view! ::b "tf1-bbbbbbbbbbbbbbbb" "hs1-0000000000000000")
-  (try
-    (let [core {:rf.root/schema-version 1 :root-id :page/shop :view-id ::a
-                :props-shape :dynamic}]
-      (client/register-live-root!
-       {:root-id :page/shop :provenance :authored :descriptor core}
-       (js-obj) (fake-root :page/shop))
-      (testing "the static core on the entry carries NO :build-digest (§2.1)"
-        (is (not (contains? (:descriptor (client/live-root-entry :page/shop))
-                            :build-digest))))
-      (testing "the complete descriptor = static core + the projected digest"
-        (let [complete (client/descriptor :page/shop)]
-          (is (= core (dissoc complete :build-digest))
-              "the static core is unchanged; the digest is the only addition")
-          (is (str/starts-with? (:build-digest complete) "bd1-"))
-          (is (= (client/current-build-digest) (:build-digest complete)))
-          (is (= (expected-digest) (:build-digest complete))
-              "byte-identical to fingerprint/build-digest over the view triples — the compiler's algorithm")))
-      (testing "descriptor-index projects the SAME digest onto every live root"
-        (let [idx (client/descriptor-index)]
-          (is (= core (dissoc (get idx :page/shop) :build-digest)))
-          (is (= (client/current-build-digest)
-                 (:build-digest (get idx :page/shop)))))))
-    (finally
-      (registrar/unregister! :view ::a)
-      (registrar/unregister! :view ::b))))
+  (let [prior (client/current-build-digest)]
+    (reg-view! ::a "tf1-aaaaaaaaaaaaaaaa" "hs1-0000000000000000")
+    (reg-view! ::b "tf1-bbbbbbbbbbbbbbbb" "hs1-0000000000000000")
+    ;; Represent compile-finish's output projection directly in this client-
+    ;; only suite. The JVM hook suite proves the actual Shadow state rewrite.
+    (digest-carrier/install! (expected-digest))
+    (try
+      (let [core {:rf.root/schema-version 1 :root-id :page/shop :view-id ::a
+                  :props-shape :dynamic}]
+        (client/register-live-root!
+         {:root-id :page/shop :provenance :authored :descriptor core}
+         (js-obj) (fake-root :page/shop))
+        (testing "the static core on the entry carries NO :build-digest (§2.1)"
+          (is (not (contains? (:descriptor (client/live-root-entry :page/shop))
+                              :build-digest))))
+        (testing "the complete descriptor = static core + the projected digest"
+          (let [complete (client/descriptor :page/shop)]
+            (is (= core (dissoc complete :build-digest))
+                "the static core is unchanged; the digest is the only addition")
+            (is (str/starts-with? (:build-digest complete) "bd1-"))
+            (is (= (client/current-build-digest) (:build-digest complete)))
+            (is (= (expected-digest) (:build-digest complete))
+                "byte-identical to the compiler-published digest")))
+        (testing "descriptor-index projects the SAME digest onto every live root"
+          (let [idx (client/descriptor-index)]
+            (is (= core (dissoc (get idx :page/shop) :build-digest)))
+            (is (= (client/current-build-digest)
+                   (:build-digest (get idx :page/shop)))))))
+      (finally
+        (digest-carrier/install! prior)
+        (registrar/unregister! :view ::a)
+        (registrar/unregister! :view ::b)))))
 
-(deftest client-digest-tracks-a-view-only-re-register
-  ;; rf2-vxgfnd.68 acceptance: a view-only HMR edit that re-runs register-view!
-  ;; refreshes the digest an already-mounted root observes — WITHOUT the mount
-  ;; site re-expanding (the static core is untouched).
-  (reg-view! ::v "tf1-1111111111111111" "hs1-0000000000000000")
-  (try
-    (let [core {:rf.root/schema-version 1 :root-id :page/v :view-id ::v}]
-      (client/register-live-root!
-       {:root-id :page/v :provenance :authored :descriptor core}
-       (js-obj) (fake-root :page/v))
-      (let [d1 (:build-digest (client/descriptor :page/v))]
-        ;; the view file recompiles with a new template — re-register only.
-        (reg-view! ::v "tf1-2222222222222222" "hs1-0000000000000000")
-        (let [d2 (:build-digest (client/descriptor :page/v))]
-          (is (not= d1 d2)
-              "the view-only re-register changed the whole-build digest")
-          (is (= core (:descriptor (client/live-root-entry :page/v)))
-              "the mount site never re-expanded — the static core is untouched"))))
-    (finally
-      (registrar/unregister! :view ::v))))
+(deftest no-pass-repl-registration-advances-carrier-without-mount-reexpansion
+  ;; File/watch HMR is patched at compile-finish (the JVM hook suite). A no-pass
+  ;; REPL eval has no hook, so its emitted registration carries the compiler's
+  ;; immediately committed digest and installs it here.
+  (let [prior (client/current-build-digest)
+        d1 (fingerprint/build-digest
+            [[::v "tf1-1111111111111111" "hs1-0000000000000000"]])]
+    (reg-view! ::v "tf1-1111111111111111" "hs1-0000000000000000" d1)
+    (try
+      (let [core {:rf.root/schema-version 1 :root-id :page/v :view-id ::v}]
+        (client/register-live-root!
+         {:root-id :page/v :provenance :authored :descriptor core}
+         (js-obj) (fake-root :page/v))
+        (let [observed-1 (:build-digest (client/descriptor :page/v))
+              next-digest
+              (fingerprint/build-digest
+               [[::v "tf1-2222222222222222" "hs1-0000000000000000"]])]
+          ;; The REPL re-evaluates the view only; the mount site does not run.
+          (reg-view! ::v "tf1-2222222222222222" "hs1-0000000000000000"
+                     next-digest)
+          (let [observed-2 (:build-digest (client/descriptor :page/v))]
+            (is (= d1 observed-1))
+            (is (= next-digest observed-2))
+            (is (not= observed-1 observed-2)
+                "the emitted REPL registration installed the new compiler digest")
+            (is (= core (:descriptor (client/live-root-entry :page/v)))
+                "the mount site never re-expanded — the static core is untouched"))))
+      (finally
+        (digest-carrier/install! prior)
+        (registrar/unregister! :view ::v)))))

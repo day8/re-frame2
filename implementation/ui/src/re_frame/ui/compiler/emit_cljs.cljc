@@ -376,7 +376,7 @@
 
 (defn emit-defview
   [{:keys [vname view-id display-name docstring header slots ast manifest
-           closed-keys children?]}]
+           closed-keys children? registration-build-digest]}]
   (let [st         (new-state vname)
         body       (emit-node ast st false)
         binds      (vec (header-bindings header))
@@ -407,5 +407,6 @@
           ~(comparator-form header slots)
           ~display-name))
        (when ~(with-meta 'js/goog.DEBUG {:tag 'boolean})
-         (re-frame.ui.runtime/register-view! ~view-id ~vname (quote ~manifest)))
+         (re-frame.ui.runtime/register-view! ~view-id ~vname (quote ~manifest)
+                                             ~registration-build-digest))
        ~vname)))

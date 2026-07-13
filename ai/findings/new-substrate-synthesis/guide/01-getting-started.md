@@ -11,6 +11,24 @@
 `package.json` carries `react` and `react-dom` (19.2.4+) — nothing else. No Reagent, no
 UIx, no Helix.
 
+The compiler owns one whole-build view digest. For Shadow 3.4.10, configure its two
+load-bearing build defaults once (not once per build):
+
+```clojure
+;; shadow-cljs.edn
+{:build-defaults
+ {:cache-blockers #{re-frame.ui}
+  :build-hooks [(re-frame.ui.compiler.build-hook/hook)]}
+ ;; :builds ...
+ }
+```
+
+The cache blocker re-expands view macros on a warm daemon start; the hook publishes the
+successfully finalized whole-build digest to the dev client at `:compile-finish`. Omitting
+either can produce an incomplete compiler view of the build, so a hookless dev bundle
+fails loudly instead of hydrating or debugging against a false identity. Both mechanisms
+are compiler/dev machinery and disappear from advanced production output.
+
 ## The whole app
 
 ```clojure

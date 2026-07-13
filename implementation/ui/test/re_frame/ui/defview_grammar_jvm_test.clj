@@ -7,6 +7,7 @@
             [clojure.test :refer [deftest is]]
             [re-frame.ui :as ui :refer [defview]]
             [re-frame.ui.compiler :as compiler]
+            [re-frame.ui.compiler.build :as build]
             [re-frame.ui.compiler.header :as header]))
 
 (defn- expand-error
@@ -157,6 +158,8 @@
         "defview emits the registrar :view registration")
     (is (str/includes? text "js/goog.DEBUG")
         "the registration/manifest emission is dev-gated (I-12)")
+    (is (str/includes? text "bd1-")
+        "a successful no-pass REPL expansion emits its committed compiler digest for runtime installation")
     (let [def-sym (some #(when (and (seq? %) (= 'def (first %))
                                     (= 'probe (second %)))
                            (second %))
@@ -164,6 +167,21 @@
       (is (true? (:rf.ui/view (meta def-sym)))
           "the public var carries the Q5 discrimination meta")
       (is (= :app.probe/probe (:rf.ui/view-id (meta def-sym)))))))
+
+(deftest file-pass-registration-does-not-embed-a-stale-digest
+  (build/begin-build! ::file '#{app.file})
+  (try
+    (let [forms (binding [build/*build-id* ::file]
+                  (compiler/defview* '(defview file-probe [] [:div "x"])
+                                     {:ns {:name 'app.file}}
+                                     'file-probe
+                                     '([] [:div "x"])))
+          text (pr-str forms)]
+      (is (str/includes? text "re-frame.ui.runtime/register-view!"))
+      (is (not (str/includes? text "bd1-"))
+          "ordinary file/watch output is finalized once by the carrier hook; each view registration carries nil"))
+    (finally
+      (build/abort-build! ::file))))
 
 ;; ---------------------------------------------------------------------------
 ;; Build digest

@@ -392,7 +392,14 @@
  ;; warm-cache start). Cost: defview/mount-consuming namespaces recompile on
  ;; daemon start; warm-watch incrementals are unaffected. (Follow-up: move the
  ;; contributions into cacheable analyzer data to recover caching.)
- :build-defaults {:cache-blockers #{re-frame.ui}}
+ ;; Option-A whole-build digest publication (rf2-n7ff9f): both settings are
+ ;; load-bearing and apply once to every configured build. The cache-blocker
+ ;; re-expands namespaces whose macros populate compiler authority on warm
+ ;; daemon starts. The compile-finish hook finalizes that explicit build-id's
+ ;; candidate and patches its one dev-only digest carrier output before
+ ;; committing; builds that do not contain re-frame.ui are unchanged.
+ :build-defaults {:cache-blockers #{re-frame.ui}
+                  :build-hooks [(re-frame.ui.compiler.build-hook/hook)]}
 
  ;; Top-level dev-http servers (rf2-aqcix). shadow-cljs's `:dev-http`
  ;; map binds a port to a list of file roots; the dev server cascades
@@ -563,18 +570,8 @@
   {:target    :node-test
    :output-to "out/node-test.js"
    :ns-regexp "cljs-test$"
-   ;; rf2-phlhfd — the re-frame.ui compiler pass-boundary adapter. The
-   ;; hook marks `begin-build!` at :compile-prepare and `finish-build!`
-   ;; (commit + authoritative-membership eviction against :build-sources)
-   ;; at :compile-finish, so a source deleted between reloads in a WATCH
-   ;; daemon gets its compile-time registrations EVICTED (df9873 delivered
-   ;; the primitives + multi-build isolation; this only adds incremental
-   ;; deletion detection). Harmless on a one-shot compile: a clean pass
-   ;; commits the identical state the no-pass upsert posture would. The
-   ;; hook is a JVM-side `.clj` (shadow build hooks run on the JVM); the
-   ;; bundle-isolation contract is unaffected — build.cljc/build_hook.clj
-   ;; are compile-time authority, never in a client bundle.
-   :build-hooks [(re-frame.ui.compiler.build-hook/hook)]
+   ;; The compiler pass-boundary + digest-publication hook is inherited once
+   ;; from :build-defaults (rf2-n7ff9f); do not duplicate it per build.
    ;; rf2-try1x — silent-on-success reporter. Custom runner installs
    ;; the cljs.test/report defmethod overrides before discovery. Source
    ;; ns lives at
@@ -729,10 +726,7 @@
    :output-to "out/node-test-ui.js"
    :ns-regexp "^re-frame\\.ui\\..+-cljs-test$"
    :main      re-frame.test-quiet.shadow-node/main
-   ;; rf2-phlhfd — the focused re-frame.ui watch target: the pass-boundary
-   ;; adapter's primary home (deleted-source eviction on `shadow-cljs watch
-   ;; node-test-ui`). See the :node-test entry above for the full rationale.
-   :build-hooks [(re-frame.ui.compiler.build-hook/hook)]
+   ;; The load-bearing watch/digest hook is inherited from :build-defaults.
    :compiler-options {:warnings      {:redef false}
                       :infer-externs false}}
 
@@ -750,11 +744,7 @@
   {:target    :node-script
    :main      re-frame.ui.bench.main/-main
    :output-to "out/ui-bench.js"
-   ;; rf2-phlhfd — pass-boundary adapter (see :node-test above). A one-shot
-   ;; :advanced compile: begin at :compile-prepare, finish (commit, evict
-   ;; none — every bench source is a member) at :compile-finish, committing
-   ;; the identical registry state a hook-less clean build would.
-   :build-hooks [(re-frame.ui.compiler.build-hook/hook)]
+   ;; The load-bearing pass/digest hook is inherited from :build-defaults.
    :compiler-options {:optimizations :advanced
                       :infer-externs :auto}}
 

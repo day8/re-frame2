@@ -15,6 +15,7 @@
             [clojure.string :as str]
             [re-frame.error :as error]
             [re-frame.registrar :as registrar]
+            [re-frame.ui.digest-carrier :as digest-carrier]
             [re-frame.ui.eq :as eq]
             [re-frame.ui.reactive :as reactive]
             [re-frame.ui.rules :as rules]))
@@ -56,14 +57,23 @@
   hook-signature hash and keeps the generation on a same-signature edit (mounted
   cells preserve state) or bumps it on a changed signature (the shell remounts).
   Runs at (re-)registration time, not per render — off the hot path."
-  [id component manifest]
-  (registrar/register! :view id (cond-> {:rf/id id
-                                         :handler-fn component
-                                         :rf.ui/compiled? true
-                                         :rf.ui/manifest manifest}
-                                  (:doc manifest) (assoc :doc (:doc manifest))))
-  (reactive/register-view-generation! id (:hook-signature manifest))
-  component)
+  ([id component manifest]
+   (register-view! id component manifest nil))
+  ([id component manifest repl-build-digest]
+   ;; A file/watch pass gets its digest from compile-finish's carrier output
+   ;; projection. A successful no-pass REPL expansion commits immediately and
+   ;; emits that committed digest here, advancing the same O(1) carrier.
+   (registrar/register! :view id (cond-> {:rf/id id
+                                          :handler-fn component
+                                          :rf.ui/compiled? true
+                                          :rf.ui/manifest manifest}
+                                   (:doc manifest) (assoc :doc (:doc manifest))))
+   (reactive/register-view-generation! id (:hook-signature manifest))
+   ;; Publish only after the registration/generation side effects succeeded:
+   ;; a failed REPL evaluation must retain the last-known-good carrier value.
+   (when repl-build-digest
+     (digest-carrier/install! repl-build-digest))
+   component))
 
 ;; ---------------------------------------------------------------------------
 ;; Dispatch — the S1 seam
