@@ -64,23 +64,26 @@
       (is (= #{} (client/live-root-ids))))))
 
 (deftest a-throwing-host-unmount-still-releases-the-claim-and-rethrows
-  ;; rf2-vxgfnd.53 aftermath, preserved through the new teardown wiring: React
-  ;; refused to unmount, no cleanup ran, no cell was collected, the claim is
-  ;; still released, and the original host error propagates.
+  ;; React can consume its Root handle before a synchronous unmount flush
+  ;; throws. The public claim is released and the exact incarnation's framework
+  ;; ownership is force-dead before the original host error propagates.
   (rf/reg-sub :rtw/a (fn [db _] (:a db)))
   (live-frame/make-frame {:id :rtw/frame})
   (frame/replace-app-db! :rtw/frame {:a 1})
   (let [cell (connected-cell! :rtw/frame [[:rtw/a]])
         boom (ex-info "React refused synchronous unmount" {:host :react})
-        root (register! :rtw/root (fn [] (throw boom)))]
+        root (register! :rtw/root (fn [] (throw boom)))
+        inc  (:root-incarnation (client/live-root-entry :rtw/root))]
+    (reactive/attach-root! cell inc)
     (is (identical? boom
                     (try (client/unmount!* root) nil
                          (catch :default e e)))
         "the original host error propagates, never masked")
     (testing "the claim is released despite the throw (AC4)"
       (is (= #{} (client/live-root-ids))))
-    (testing "the orphaned tree's cell stays live — not falsely killed"
-      (is (= :connected (reactive/lifecycle cell))))))
+    (testing "the consumed root generation retains no framework owner"
+      (is (= :dead (reactive/lifecycle cell)))
+      (is (zero? (reactive/root-cell-count inc))))))
 
 (deftest unmount-on-a-stale-root-is-a-noop
   ;; A superseded/already-torn-down handle must not run the teardown window at

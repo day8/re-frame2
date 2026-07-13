@@ -286,10 +286,10 @@
                    (fn [] (reactive/sub-read [:rt/a])))))))))
 
 ;; ===========================================================================
-;; A throwing host `.unmount` — nothing torn down, original error preserved
+;; A throwing host `.unmount` — generation evidence governs the fail-closed reap
 ;; ===========================================================================
 
-(deftest throwing-host-unmount-tears-down-nothing-and-rethrows
+(deftest throwing-host-unmount-without-generation-rethrows-without-guessing
   (rf/reg-sub :rt/a (fn [db _] (:a db)))
   (let [fid  (make-frame! :rt/frame {:a 1})
         cell (render+commit! (reactive/make-cell ::v) fid [[:rt/a]])
@@ -303,6 +303,25 @@
     (testing "the orphaned tree's cell stays live — never falsely killed"
       (is (= :connected (reactive/lifecycle cell)))
       (is (= 1 (ref-count fid [:rt/a]))))))
+
+(deftest throwing-host-unmount-force-deads-the-explicit-root-generation
+  (rf/reg-sub :rt/a (fn [db _] (:a db)))
+  (let [fid  (make-frame! :rt/frame {:a 1})
+        inc  (reactive/make-root-incarnation)
+        cell (doto (render+commit! (reactive/make-cell ::v) fid [[:rt/a]])
+               (reactive/attach-root! inc))
+        boom (ex-info "host Root handle was consumed" {:host :react})]
+    (is (identical? boom
+                    (try (reactive/teardown-root! inc (fn [] (throw boom)))
+                         nil
+                         (catch #?(:clj Throwable :cljs :default) e e)))
+        "the original host error remains primary")
+    (is (= :dead (reactive/lifecycle cell))
+        "the exact consumed Root generation cannot retain a connected cell")
+    (is (nil? (ref-count fid [:rt/a]))
+        "force-dead releases and disposes the unreachable observation owner")
+    (is (zero? (reactive/root-cell-count inc))
+        "the consumed incarnation is removed from root ownership")))
 
 ;; ===========================================================================
 ;; Re-entrancy — a nested teardown does not corrupt the outer window

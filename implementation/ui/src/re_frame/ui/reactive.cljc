@@ -1426,26 +1426,35 @@
   per-mount identity, so a replacement root under the same root-id is untouched.
 
   Ordering-robust and re-entrancy-safe by save/restore. If `unmount-thunk`
-  THROWS (React refused to unmount — it did NOT tear the tree down, so no
-  cleanup ran and nothing was collected), the window is restored and the throw
-  propagates WITHOUT tearing any cell down: the orphaned tree's cells stay live,
-  and the original host error is never masked (the ruled host-teardown
-  behaviour, rf2-vxgfnd.53). A throwing thunk reaps NOTHING — including the
-  registry sweep — because the root was not actually torn down. Returns the count
-  of cells torn down.
+  THROWS, the original host error still propagates, but an EXPLICIT
+  `root-incarnation` is a framework ownership token: every cell belonging to
+  that exact generation is force-dead and its leases are released before the
+  throw escapes. React may have consumed the host Root handle even though its
+  synchronous flush refused; retaining connected observations after the client
+  releases that handle would create unreachable framework ownership. The fresh
+  incarnation token keeps this fail-closed reap isolated from a later same-id
+  replacement. The one-arity form has no generation evidence and therefore can
+  reap only cells actually captured by the teardown window. Returns the count of
+  cells torn down on success; a host failure rethrows after the targeted reap.
 
   Two arities: `[unmount-thunk]` (no explicit incarnation — window + captured-cell
   incarnations only, the current `client/unmount!*` call) and
   `[root-incarnation unmount-thunk]` (the incarnation-aware path)."
   ([unmount-thunk] (teardown-root! nil unmount-thunk))
   ([root-incarnation unmount-thunk]
-   (let [prev      @teardown-collector
-         collected (do (reset! teardown-collector #{})
-                       (try
-                         (unmount-thunk)
-                         @teardown-collector
-                         (finally
-                           (reset! teardown-collector prev))))
+   (let [prev       @teardown-collector
+         host-error (volatile! nil)
+         captured   (volatile! #{})
+         _          (do
+                      (reset! teardown-collector #{})
+                      (try
+                        (unmount-thunk)
+                        (catch #?(:clj Throwable :cljs :default) e
+                          (vreset! host-error e))
+                        (finally
+                          (vreset! captured @teardown-collector)
+                          (reset! teardown-collector prev))))
+         collected  @captured
          ;; the incarnations whose hidden cells this teardown owns: the explicit
          ;; one plus every window-captured cell's own incarnation.
          incs      (cond-> (into #{} (keep cell-root) collected)
@@ -1456,10 +1465,17 @@
                          (comp (mapcat #(get @root-cells %))
                                (filter #(= :disconnected (lifecycle %))))
                          incs)
-         victims   (into collected hidden)]
+         victims   (if (and @host-error (some? root-incarnation))
+                     ;; The host handle is consumed/released even on this path.
+                     ;; Fail closed over the EXACT root generation, including
+                     ;; cells still connected because React ran no cleanup.
+                     (into collected (get @root-cells root-incarnation))
+                     (into collected hidden))]
      (doseq [cell victims]
        (teardown! cell))
-     (count victims))))
+     (if @host-error
+       (throw @host-error)
+       (count victims)))))
 
 ;; ---------------------------------------------------------------------------
 ;; The 8-step layout-commit reconciler (03 §3)

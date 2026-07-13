@@ -52,6 +52,7 @@
   manifests, I-12); root-id and container ownership are load-bearing
   identity and stay in production."
   (:require ["react-dom/client" :as rdc]
+            [clojure.string :as str]
             [re-frame.error :as error]
             [re-frame.ui.digest-carrier :as digest-carrier]
             [re-frame.ui.frames :as frames]
@@ -80,6 +81,13 @@
   ;; (rf2-ez3fqk) reads it and release frees it by dissoc — no side index.
   (atom {}))
 
+(defonce ^:private disposing-live-roots?
+  ;; Adapter teardown snapshots one exact generation of Root handles. While
+  ;; that generation drains, public mount/create-root calls fail before any
+  ;; preflight or host allocation; otherwise effect cleanup could install a
+  ;; later same-id incarnation that stale disposal must never chase and kill.
+  (atom false))
+
 (defn live-root-ids
   "The set of root-ids currently live in this document (tool/test read)."
   []
@@ -96,7 +104,18 @@
   roots — unmount! them first (or use fresh containers per test)."
   []
   (reset! live-roots {})
+  (reset! disposing-live-roots? false)
   nil)
+
+(defn- require-root-creation-open!
+  [where]
+  (when @disposing-live-roots?
+    (error/throw-error!
+     :rf.error/adapter-disposed where
+     (str "the re-frame.ui adapter is tearing down its current compiled Root "
+          "generation — no new root may be created until destroy-adapter! "
+          "finishes and a fresh adapter is installed")
+     {:recovery :install-a-fresh-adapter})))
 
 ;; ---------------------------------------------------------------------------
 ;; The COMPLETE Root Descriptor v1 — the client read-time projection (dev only)
@@ -440,6 +459,7 @@
   root stays registered with its last committed render intact (Q49).
   Returns the Root."
   [{:keys [root-id] :as info} container element-thunk react-opts plans-thunk]
+  (require-root-creation-open! 're-frame.ui/mount)
   (require-container! 're-frame.ui/mount root-id container)
   (let [existing (get @live-roots root-id)]
     (if (and existing (identical? (:container existing) container))
@@ -514,6 +534,7 @@
   build the React root; no render (preflight runs before the first
   `render!`). Returns the Root."
   [{:keys [root-id] :as info} container react-opts]
+  (require-root-creation-open! 're-frame.ui/create-root)
   (check-root-claim! 're-frame.ui/create-root info container)
   (let [react-root (rdc/createRoot container react-opts)
         root       (Root. react-root container root-id)]
@@ -574,6 +595,7 @@
   all land S5. At S1 no manifest can exist, so every hydrate fails loud
   (`:rf.error/root-manifest-invalid`) rather than guessing identity."
   [_container _element-thunk _plans-thunk _react-opts]
+  (require-root-creation-open! 're-frame.ui/hydrate-root)
   (error/throw-error!
    :rf.error/root-manifest-invalid 're-frame.ui/hydrate-root
    (str "no root manifest is discoverable — hydrating mounts take root-id "
@@ -602,8 +624,10 @@
   nested-portal roots are untouched) are retroactively proven `:unmounted
   {:proof :host-teardown}` → `:dead`, so a real root unmount no longer leaves an
   `:unknown` disconnect forever and a retained handle can never reconnect after
-  its root is gone. A throwing `.unmount` (React refused) collected nothing and
-  tears no cell down — the orphaned tree's cells stay live (see below).
+  its root is gone. If `.unmount` throws after React consumes its host handle,
+  the explicit root-incarnation token force-deads every cell in that exact
+  generation and releases its observation owners before the error escapes;
+  a later same-id incarnation is a distinct token and remains untouched.
 
   AFTERMATH of a THROWING host `.unmount` (rf2-vxgfnd.53, diagnostic
   corrected by rf2-vxgfnd.84). The concrete case is React 18/19 refusing to
@@ -625,14 +649,12 @@
       \"stuck host root\" is mostly moot, not the common outcome.
 
   So this is NOT silent, and now HONEST: in a dev build a throwing `.unmount`
-  emits a console diagnostic stating the handle is consumed (no manual
-  escape) and — should a container genuinely be left with a stuck tree —
-  names the only real recovery: clear the container directly (its
-  `innerHTML`) or mount into a FRESH container, never reuse the consumed
-  handle. The diagnostic is goog.DEBUG-gated (Closure-DCE'd from production —
-  I-12). This corrects the diagnostic's GUIDANCE only; the .53 release-on-
-  throw contract itself (release the claim, rethrow the host error) is
-  unchanged. Returns nil."
+  emits a console diagnostic stating the handle is consumed (no manual escape)
+  and names direct container clearing as the host fallback. The adapter-wide
+  destroy path performs that fallback itself (including the pinned React root
+  marker) so the same container can be reused after re-init; an isolated public
+  `unmount!` still leaves host recovery to its caller. The diagnostic is
+  goog.DEBUG-gated (Closure-DCE'd from production — I-12). Returns nil."
   [^Root root]
   (when (and (some? root)
              (identical? (:root (get @live-roots (.-root-id root))) root))
@@ -679,4 +701,72 @@
         (throw e))
       (finally
         (release-root! (.-root-id root) root))))
+  nil)
+
+(defn- reclaim-consumed-container!
+  "Adapter-disposal fallback after a public Root's host unmount threw.
+
+  React 19 can consume the Root handle and throw before it clears either DOM
+  children or its private `__reactContainer$…` ownership marker. There is no
+  supported retry through the consumed handle. The adapter owns the terminal
+  process teardown, so it clears both pieces against the PINNED React host;
+  this makes DOM-empty + same-container re-init deterministic. Any fallback
+  failure propagates as secondary cleanup evidence, never over the host error."
+  [^Root root]
+  (let [container (.-container root)
+        failure   (volatile! nil)]
+    (when container
+      (try
+        (if (fn? (.-replaceChildren container))
+          (.replaceChildren container)
+          (set! (.-innerHTML container) ""))
+        (catch :default e
+          (vreset! failure e)))
+      (try
+        (doseq [k (array-seq (js/Object.getOwnPropertyNames container))]
+          (when (str/starts-with? k "__reactContainer$")
+            (js/Reflect.deleteProperty container k)))
+        (catch :default e
+          (when-not @failure (vreset! failure e)))))
+    (when @failure (throw @failure))
+    nil))
+
+(defn dispose-live-roots!
+  "Adapter-internal total teardown for every public compiled client Root.
+
+  The first-party `ui/adapter` calls this before disposing its generic React
+  spine. One invocation snapshots ONE exact Root generation. Public root
+  creation is rejected while that generation drains, and `unmount!*`'s
+  identity guard means a stale handle can never evict a later same-id
+  incarnation. The snapshot is never refreshed: stale disposal does not own a
+  replacement that appeared through an internal/test bypass.
+
+  Every root is attempted even when one host cleanup throws. The first error
+  is rethrown after the whole snapshot drains; later failures are retained on
+  its `rfUiAdapterCleanupErrors` diagnostic array because one teardown failure
+  must neither strand siblings nor erase their evidence."
+  []
+  (when (compare-and-set! disposing-live-roots? false true)
+    (let [roots  (mapv :root (vals @live-roots))
+          errors (volatile! [])]
+      (try
+        (doseq [root roots]
+          (try
+            (unmount!* root)
+            (catch :default e
+              (vswap! errors conj e)
+              (try
+                (reclaim-consumed-container! root)
+                (catch :default recovery-error
+                  (vswap! errors conj recovery-error))))))
+        (finally
+          (reset! disposing-live-roots? false)))
+      (when-let [primary (first @errors)]
+        (when (< 1 (count @errors))
+          (try
+            (js/Object.defineProperty
+             primary "rfUiAdapterCleanupErrors"
+             #js {:value (to-array (rest @errors)) :configurable true})
+            (catch :default _ nil)))
+        (throw primary))))
   nil)

@@ -76,9 +76,12 @@
   `IWatchable` derived values), so observation-port movements drive ViewCells
   without Reagent, UIx, or Helix. JVM uses the headless atom realization of
   the same closed adapter contract. Both report the canonical discriminator
-  `:rf.adapter/ui`."
+  `:rf.adapter/ui`. Destroying it first tears down every public compiled Root
+  and then the generic React spine, so no DOM/ViewCell/observation ownership
+  survives adapter disposal."
   #?(:clj  (assoc plain-atom/adapter :kind :rf.adapter/ui)
-     :cljs ui-substrate/adapter))
+     :cljs (ui-substrate/adapter-with-client-roots
+            client/dispose-live-roots!)))
 
 ;; ---------------------------------------------------------------------------
 ;; The component form
