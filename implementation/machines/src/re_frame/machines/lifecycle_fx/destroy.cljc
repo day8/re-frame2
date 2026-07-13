@@ -39,9 +39,20 @@
   is AUTHENTICATED against the live join state before being honoured — the
   reason and the reaped actor-id are runtime-derived from durable join state,
   never caller-supplied, so the form cannot be forged at the public
-  reserved-fx boundary (rf2-3lyqzu). See `destroy-join-reap!`. Any map that
-  matches none of these shapes fails loud with
-  `:rf.error/machine-destroy-bad-arg` and performs no teardown.
+  reserved-fx boundary (rf2-3lyqzu). See `destroy-join-reap!`.
+
+  The map grammar is a CLOSED discriminated union (rf2-3phait). PRESENCE of
+  a discriminator key (`:rf/reap` / `:rf/spawn-all`) SELECTS that shape —
+  never its truthiness — and the selected shape then requires the
+  discriminator's value to be exactly `true` plus the exact coordinate
+  key-set and types (`:rf/parent-id` keyword, `:rf/invoke-id` path vector,
+  `:rf/child-id` keyword). The tracked single-`:spawn` form is admitted only
+  for its exact two-key shape, and only when the resolved slot is an actor-id
+  KEYWORD — never a `:spawn-all` join-state map. Every malformed, overlapping,
+  or unknown shape fails loud with `:rf.error/machine-destroy-bad-arg` and
+  performs ZERO mutation — no slot, actor, child, trace, terminal-reply, or
+  ownership change. There is no permissive coercion, no truthy alias, and no
+  compatibility fallback.
 
   The actor-teardown runtime-db dance lives in
   `re-frame.machines.lifecycle-fx.teardown` — one helper, three
@@ -63,7 +74,8 @@
 
 (defn- actor-live?
   "The silent-idempotent liveness probe, shared by the
-  keyword/tracked `destroy-single!` path and the per-actor
+  keyword/tracked destroy paths (`destroy-machine-fx` /
+  `destroy-tracked!`) and the per-actor
   `destroy-single-actor!` path. An actor with a resolved
   `actor-id` is live iff ANY of the following survive:
 
@@ -82,11 +94,11 @@
 
   A truly-already-destroyed actor has all three gone — the unified
   teardown projection, registrar cleanup, and `spawn-order/forget!`
-  run atomically per `destroy-single-actor!` / `destroy-single!` /
+  run atomically per `destroy-single-actor!` / `destroy-resolved!` /
   `finalize-machine`. See Spec 005 §Destroy is silent-idempotent
   for the normative paragraph.
 
-  The tracked-slot signal `destroy-single!` additionally consults is
+  The tracked-slot signal the tracked form additionally consults is
   resolved-actor-id agnostic and so stays local to that call site."
   [frame-id actor-id runtime-db]
   (and actor-id
@@ -98,7 +110,7 @@
 (defn- teardown-live-actor!
   "The shared ordered teardown pipeline for a LIVE actor (the caller has
   already confirmed liveness). Both destroy entry-points — the per-actor
-  `destroy-single-actor!` and the keyword/tracked `destroy-single!` — run
+  `destroy-single-actor!` and the keyword/tracked `destroy-resolved!` — run
   this IDENTICAL ordered sequence; they differ only in actor-id resolution
   (done in the caller) and whether they emit the `:rf.machine/destroyed`
   trace (passed as `emit-destroyed!-fn`).
@@ -121,7 +133,7 @@
        projection prunes (`{:actor-id …}` for the per-actor form; the
        tracked map adds `:parent-id` / `:invoke-id`);
     6. emit `:rf.machine/destroyed` via the optional `emit-destroyed!-fn`
-       (called with the released sid) — `destroy-single!` emits here so the
+       (called with the released sid) — `destroy-resolved!` emits here so the
        trace lands after `:exit`; `destroy-single-actor!`'s
        callers own the emit, so they pass nil;
     7. forget the actor from the per-frame spawn-order channel
@@ -137,7 +149,7 @@
        refetching/polling) past the actor's death. Fired LAST, once the actor
        is gone; guarded on resources being loaded (machines never depends on
        resources), so a no-resources app is a clean no-op. Runs on BOTH explicit
-       destroy (`destroy-single!`) and the frame-destroy cascade
+       destroy (`destroy-resolved!`) and the frame-destroy cascade
        (`destroy-single-actor!`) since both route through here.
 
   Returns the `db-swapped?` flag from the teardown projection."
@@ -195,7 +207,7 @@
   `:rf.http/managed` requests, emit the
   `:system-id-released` trace, clear any registrar entry, and
   forget the actor from the per-frame spawn-order channel.
-  The ordered teardown pipeline is shared with `destroy-single!` via
+  The ordered teardown pipeline is shared with `destroy-resolved!` via
   `teardown-live-actor!`.
 
   Used by `destroy-machine-fx` for the keyword-form imperative
@@ -214,7 +226,7 @@
   can gate their `:rf.machine/destroyed` emit on the truthy live-and-torn-down
   return, preventing a double-destroyed trace for join-cancelled survivors
   the resolution cascade already tore down. Mirrors the `live?` gate
-  `destroy-single!` carries."
+  `destroy-resolved!` carries."
   [frame-id actor-id]
   (when (actor-live? frame-id actor-id (frame/frame-runtime-db-value frame-id))
     ;; This site does NOT emit `:rf.machine/destroyed` — its callers
@@ -228,16 +240,34 @@
     ;; an already-destroyed actor (silent no-op).
     true))
 
+(declare destroy-spawn-all-children!*)
+
 (defn- destroy-spawn-all-children!
   "The declarative-`:spawn-all` exit-cascade form.
   Resolves the children map from `[:rf.runtime/machines :spawned parent-id invoke-id]`,
   tears each child down via `destroy-single-actor!`, then clears the
   join-state slot via the unified teardown projection (slot-prune only:
-  nil actor-id)."
-  [frame-id parent-id invoke-id]
+  nil actor-id).
+
+  Slot-shape fence (rf2-3phait, the mirror of the tracked-form fence): the
+  addressed slot must hold a `:spawn-all` JOIN-STATE MAP (or nothing — a
+  repeat exit against an already-cleared slot is a silent no-op). A slot
+  holding a single-`:spawn` actor-id KEYWORD means the spawn-all form was
+  mis-addressed; clearing it would orphan the live tracked child without
+  teardown, so the form fails loud (`:cause :slot-shape-mismatch`) and
+  mutates nothing."
+  [frame-id parent-id invoke-id args]
   (let [join-state (get-in (frame/frame-runtime-db-value frame-id)
-                           (paths/spawned-path parent-id invoke-id))
-        children   (when (map? join-state) (:children join-state))]
+                           (paths/spawned-path parent-id invoke-id))]
+    (if-not (or (nil? join-state) (map? join-state))
+      (traces/emit-destroy-bad-arg! frame-id :slot-shape-mismatch args)
+      (destroy-spawn-all-children!* frame-id parent-id invoke-id join-state))))
+
+(defn- destroy-spawn-all-children!*
+  "The verified body of `destroy-spawn-all-children!` — `join-state` is
+  known to be a join-state map (or nil, the repeat-exit no-op)."
+  [frame-id parent-id invoke-id join-state]
+  (let [children (when (map? join-state) (:children join-state))]
     (doseq [[child-id spawned-id] children]
       ;; `destroy-single-actor!` runs the child's `:exit`
       ;; cascade before teardown; we fire `:rf.machine/destroyed` AFTER it
@@ -273,7 +303,8 @@
     nil))
 
 (defn- destroy-resolved!
-  "Shared tail of every `destroy-single!` shape: run the liveness-gated
+  "Shared tail of the keyword / tracked-`:spawn` / verified-reap shapes:
+  run the liveness-gated
   ordered teardown for an ALREADY-RESOLVED `actor-id` and emit its
   `:rf.machine/destroyed` trace with `reason`. The keyword / tracked-`:spawn`
   / verified-reap shapes differ ONLY in how they resolve `actor-id` +
@@ -403,64 +434,122 @@
                          nil nil old-db false)
       (traces/emit-destroy-bad-arg! frame-id :unverified-reap args))))
 
-(defn- destroy-single!
-  "Dispatch the single-actor `:rf.machine/destroy` shapes to the shared
-  teardown tail (`destroy-resolved!`), resolving `actor-id` + `reason` per
-  shape. See the ns docstring for the form grammar.
+;; ---- the closed map-form grammar (rf2-3phait) ------------------------------
+;;
+;; Each map shape is admitted by its EXACT key-set — presence of a
+;; discriminator key selects the shape (never its truthiness), and the
+;; selected shape then requires the discriminator value to be exactly `true`
+;; plus exact coordinate types. Anything else fails loud with
+;; `:rf.error/machine-destroy-bad-arg` and performs zero mutation. No
+;; permissive coercion, no truthy aliases, no compatibility fallback.
 
-    - Keyword (imperative) form `[:rf.machine/destroy actor-id]` — the actor-id
-      IS the arg; a live in-progress teardown is ALWAYS an `:explicit`
-      cancellation.
-    - VERIFIED reap form `{:rf/reap true …}` — the sole selector of
-      `:rf.machine/join-reaped`, authenticated against live join state by
-      `destroy-join-reap!`.
-    - Tracked single-`:spawn` exit-cascade form `{:rf/parent-id p
-      :rf/invoke-id i}` — resolve actor-id from the `[:spawned p i]` slot;
-      the teardown is `:explicit`.
-    - UNKNOWN / malformed map shape — e.g. the pre-auth forgery
-      `{:rf/actor-id … :rf/reason …}` — fails loud
-      (`:rf.error/machine-destroy-bad-arg`, `:cause :unknown-shape`) with no
-      teardown, so an app action can never mint a caller-chosen destroyed
-      reason at the public reserved-fx boundary (rf2-3lyqzu).
+(def ^:private reap-form-keys
+  "The VERIFIED reap shape's exact key-set."
+  #{:rf/reap :rf/parent-id :rf/invoke-id :rf/child-id})
 
-  (The `:rf/spawn-all` form is routed to `destroy-spawn-all-children!` by
-  `destroy-machine-fx` before this fn is reached.)"
-  [frame-id args]
-  (let [old-db (frame/frame-runtime-db-value frame-id)]
+(def ^:private spawn-all-form-keys
+  "The declarative-`:spawn-all` exit-cascade shape's exact key-set."
+  #{:rf/spawn-all :rf/parent-id :rf/invoke-id})
+
+(def ^:private tracked-form-keys
+  "The tracked single-`:spawn` exit-cascade shape's exact key-set."
+  #{:rf/parent-id :rf/invoke-id})
+
+(defn- join-coordinates-ok?
+  "Exact coordinate types shared by every map form: `:rf/parent-id` is an
+  actor-id keyword; `:rf/invoke-id` is the declaring-path vector the
+  transition reducer stamps (`(vec prefix)`)."
+  [args]
+  (and (keyword? (:rf/parent-id args))
+       (vector?  (:rf/invoke-id args))))
+
+(defn- destroy-tracked!
+  "The tracked single-`:spawn` exit-cascade form `{:rf/parent-id p
+  :rf/invoke-id i}` (already shape-validated by `destroy-machine-fx`).
+  Resolves the actor id from the `[:spawned p i]` slot; the teardown is
+  `:explicit`.
+
+  Slot-shape fence (rf2-3phait): the tracked form is admitted only when the
+  resolved slot is an actor-id KEYWORD. A `:spawn-all` join-state MAP at the
+  slot means the tracked form was mis-addressed — consuming it as an actor id
+  would clear the join slot and orphan every live child — so it fails loud
+  (`:cause :slot-shape-mismatch`) with zero mutation. A nil slot (already
+  cleared — a repeat exit) stays a silent no-op."
+  [frame-id args old-db]
+  (let [parent-id (:rf/parent-id args)
+        invoke-id (:rf/invoke-id args)
+        slot-id   (when old-db (get-in old-db (paths/spawned-path parent-id invoke-id)))]
     (cond
-      (not (map? args))
-      (destroy-resolved! frame-id args :explicit nil nil old-db false)
+      (nil? slot-id)
+      nil
 
-      (:rf/reap args)
-      (destroy-join-reap! frame-id args old-db)
-
-      (and (contains? args :rf/parent-id) (contains? args :rf/invoke-id))
-      (let [parent-id (:rf/parent-id args)
-            invoke-id (:rf/invoke-id args)
-            slot-id   (when old-db (get-in old-db (paths/spawned-path parent-id invoke-id)))]
-        (destroy-resolved! frame-id slot-id :explicit parent-id invoke-id old-db
-                           (some? slot-id)))
+      (keyword? slot-id)
+      (destroy-resolved! frame-id slot-id :explicit parent-id invoke-id old-db
+                         true)
 
       :else
-      (traces/emit-destroy-bad-arg! frame-id :unknown-shape args))))
+      (traces/emit-destroy-bad-arg! frame-id :slot-shape-mismatch args))))
 
 (defn destroy-machine-fx
-  "fx handler for `:rf.machine/destroy`. Dispatches to the keyword-form
-  / single-`:spawn` teardown (`destroy-single!`) or the
-  `:spawn-all` children-iteration teardown
-  (`destroy-spawn-all-children!`) per the `args` shape. See the ns
-  docstring for the form semantics."
+  "fx handler for `:rf.machine/destroy`. Parses the CLOSED destroy grammar
+  (see the ns docstring, rf2-3phait) and dispatches:
+
+    - keyword `actor-id` — the imperative form (`:explicit` cancellation);
+    - `{:rf/reap true :rf/parent-id p :rf/invoke-id i :rf/child-id c}` —
+      the VERIFIED reap, authenticated against live join state by
+      `destroy-join-reap!`;
+    - `{:rf/spawn-all true :rf/parent-id p :rf/invoke-id i}` — the
+      `:spawn-all` children-iteration teardown;
+    - `{:rf/parent-id p :rf/invoke-id i}` — the tracked single-`:spawn`
+      exit-cascade teardown;
+    - anything else — `:rf.error/machine-destroy-bad-arg` (`:cause
+      :unknown-shape`) with ZERO mutation. Notably the pre-auth forgery
+      `{:rf/actor-id … :rf/reason …}` (rf2-3lyqzu), false-valued / wrong-typed
+      discriminators, missing or wrongly-typed coordinates, and overlapping
+      discriminator sets (rf2-3phait)."
   [{frame-id :frame} args]
   (let [;; EP-0002 carried invariant — the cascade envelope frame is the
         ;; fx-context `:frame`; a nil stamp is an invariant failure
         ;; (`:rf.error/no-frame-context`), never a synthesised `:rf/default`.
-        frame-id   (frame/require-frame-stamp!
-                     frame-id :rf.machine/destroy
-                     {:where 'rf.machine/destroy
-                      :event-id (when (map? args) (:rf/parent-id args))})
-        spawn-all? (and (map? args) (true? (:rf/spawn-all args)))]
-    (if spawn-all?
-      (destroy-spawn-all-children! frame-id
-                                   (:rf/parent-id args)
-                                   (:rf/invoke-id args))
-      (destroy-single! frame-id args))))
+        frame-id (frame/require-frame-stamp!
+                   frame-id :rf.machine/destroy
+                   {:where 'rf.machine/destroy
+                    :event-id (when (map? args) (:rf/parent-id args))})
+        old-db   (frame/frame-runtime-db-value frame-id)]
+    (cond
+      ;; Imperative form — the actor-id IS the arg; a live in-progress
+      ;; teardown is ALWAYS an `:explicit` cancellation.
+      (keyword? args)
+      (destroy-resolved! frame-id args :explicit nil nil old-db false)
+
+      (map? args)
+      (let [shape (set (keys args))]
+        (cond
+          (contains? args :rf/reap)
+          (if (and (= shape reap-form-keys)
+                   (true? (:rf/reap args))
+                   (join-coordinates-ok? args)
+                   (keyword? (:rf/child-id args)))
+            (destroy-join-reap! frame-id args old-db)
+            (traces/emit-destroy-bad-arg! frame-id :unknown-shape args))
+
+          (contains? args :rf/spawn-all)
+          (if (and (= shape spawn-all-form-keys)
+                   (true? (:rf/spawn-all args))
+                   (join-coordinates-ok? args))
+            (destroy-spawn-all-children! frame-id
+                                         (:rf/parent-id args)
+                                         (:rf/invoke-id args)
+                                         args)
+            (traces/emit-destroy-bad-arg! frame-id :unknown-shape args))
+
+          (= shape tracked-form-keys)
+          (if (join-coordinates-ok? args)
+            (destroy-tracked! frame-id args old-db)
+            (traces/emit-destroy-bad-arg! frame-id :unknown-shape args))
+
+          :else
+          (traces/emit-destroy-bad-arg! frame-id :unknown-shape args)))
+
+      :else
+      (traces/emit-destroy-bad-arg! frame-id :unknown-shape args))))
