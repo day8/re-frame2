@@ -68,7 +68,7 @@
                     ;; first `sub` is therefore a same-signature body edit, not
                     ;; a hook-order change. Production specializes sub-free
                     ;; views to the raw render fn in the emitter.
-                    (viewcell/render
+                    (viewcell/render-dev
                      id
                      (fn []
                        (let [render-fn (:render-fn
@@ -198,19 +198,6 @@
      (str "a dynamic handler expression produced " (pr-str v) " — handlers "
           "classify by type: event vector, options map, handler fn, or nil")
      {:extra {:value v}})))
-
-;; ---------------------------------------------------------------------------
-;; lease — S2 declaration surface stub (grammar compiles; leases land with
-;; the resource-lease slice — 03 §7's aggregated post-commit effect)
-;; ---------------------------------------------------------------------------
-
-(defn lease*
-  [descriptor]
-  (error/throw-error!
-   :rf.error/ui-lease-unavailable 're-frame.ui/lease
-   (str "(lease " (pr-str descriptor) ") — leases land with the S2 "
-        "observation slice")
-   {:extra {:descriptor descriptor}}))
 
 ;; ---------------------------------------------------------------------------
 ;; Dev checks (goog.DEBUG-stripped in production)

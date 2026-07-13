@@ -232,9 +232,19 @@
 ;; ---------------------------------------------------------------------------
 
 (defn emit-defview
-  [{:keys [vname view-id docstring header ast manifest closed-keys children?]}]
+  [{:keys [vname view-id docstring header ast manifest closed-keys children?
+           lease-declarations]}]
   (let [body     (emit-node ast)
         bind     (:binding-form header)
+        lease-binds
+        (vec
+         (mapcat (fn [{:keys [descriptor]}]
+                   [(gensym "lease")
+                    `(re-frame.ui.lease/validate-descriptor! ~descriptor)])
+                 lease-declarations))
+        rendered (if (seq lease-binds)
+                   `(let [~@lease-binds] ~body)
+                   body)
         var-meta (cond-> {:rf.ui/view true
                           :rf.ui/view-id view-id
                           :rf.ui/children? children?}
@@ -245,6 +255,6 @@
          (re-frame.ui.tree/view-boundary
           ~view-id
           ~props-sym
-          ~(if bind `(let [~bind ~props-sym] ~body) body)))
+          ~(if bind `(let [~bind ~props-sym] ~rendered) rendered)))
        (re-frame.ui.tree/register-view! ~view-id ~vname (quote ~manifest))
        (var ~vname))))

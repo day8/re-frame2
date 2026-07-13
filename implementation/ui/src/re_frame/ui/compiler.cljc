@@ -56,7 +56,8 @@
   ([id msg data] (throw (env/compile-error id msg data))))
 
 (defn- parse-defview-forms
-  "[docstring? opts-map? argv template] with exactly one template form."
+  "Parse `[docstring? opts-map? argv & body]`. The body is partitioned after
+  symbol resolution into a leading lease-declaration prefix plus one template."
   [vname forms]
   (let [[docstring forms] (if (string? (first forms))
                             [(first forms) (rest forms)]
@@ -78,13 +79,6 @@
                  "template, but the argument vector is missing — write "
                  "(defview " vname " [] " (pr-str argv) ") for a zero-prop view")
             {:view vname}))
-    (when (not= 1 (count body))
-      (fail :rf.ui.compile/multi-form-body
-            (str "defview " vname ": the body is exactly ONE template form "
-                 "(got " (count body) ") — a view is a pure (props) -> "
-                 "template; siblings wrap in [:<> ...], computation goes in "
-                 "(let ...)")
-            {:view vname}))
     (let [unknown (remove defview-option-keys (keys opts))]
       (when (seq unknown)
         (fail :rf.ui.compile/unknown-option
@@ -102,7 +96,37 @@
               (str "defview " vname ": :id override must be a qualified "
                    "keyword; got " (pr-str id))
               {:view vname :id id})))
-    {:docstring docstring :opts opts :argv argv :template (first body)}))
+    {:docstring docstring :opts opts :argv argv :body body}))
+
+(defn- split-defview-body
+  "Return `[lease-forms template]` for the closed v1 body grammar:
+
+      direct-resolved-lease* final-template
+
+  A conditional lease keeps the declaration direct and makes its descriptor
+  conditional. No arbitrary statement body is opened."
+  [e vname body]
+  (loop [leases [] forms (seq body)]
+    (cond
+      (nil? forms)
+      (fail :rf.ui.compile/multi-form-body
+            (str "defview " vname ": leading lease declarations must be "
+                 "followed by exactly ONE template form")
+            {:view vname})
+
+      (ana/lease-declaration-form? e (first forms))
+      (recur (conj leases (first forms)) (next forms))
+
+      (next forms)
+      (fail :rf.ui.compile/multi-form-body
+            (str "defview " vname ": after zero or more direct leading "
+                 "(lease descriptor) declarations, the body has exactly ONE "
+                 "template form (got " (count forms) " remaining). Conditional "
+                 "liveness is (lease (when p descriptor)); siblings wrap in "
+                 "[:<> ...], computation goes in (let ...)")
+            {:view vname})
+
+      :else [leases (first forms)])))
 
 (defn- capabilities [ast]
   (let [caps (volatile! #{})]
@@ -157,7 +181,7 @@
           {:view vname}))
   (let [cljs?   (some? (:ns menv))
         ns-sym  (if cljs? (-> menv :ns :name) (ns-name *ns*))
-        {:keys [docstring opts argv template]} (parse-defview-forms vname forms)
+        {:keys [docstring opts argv body]} (parse-defview-forms vname forms)
         view-id (or (:id opts) (keyword (str ns-sym) (str vname)))
         hdr     (header/parse-header argv)
         schema-keys (header/props-schema-keys (:props opts))
@@ -192,19 +216,29 @@
                                     ;; reacquires instead of transferring an
                                     ;; ordinal to another lexical site.
                                     :template-anchor
-                                    (fingerprint/digest "sta1-" template)})
+                                    (fingerprint/digest "sta1-" body)})
                     (assoc :self-children? children?
                            :self-closed-keys closed-keys))
         _       (ana/reject-reactive-binding! e0 argv)
         e       (env/with-locals e0 header-syms)
+        [lease-forms template] (split-defview-body e vname body)
+        lease-declarations
+        (mapv #(ana/analyze-lease-declaration e %1 %2)
+              (range) lease-forms)
         ast     (ana/analyze e template)
         _       (doseq [w @(:warnings e)]
                   (binding [*out* *err*]
                     (println (str "WARNING re-frame.ui [" view-id "] "
                                   (:id w) ": " (:msg w)))))
         sites   @(:sites e)
+        ast-projection (ana/template-fingerprint-projection ast)
         tf      (fingerprint/template-fingerprint
-                 (ana/template-fingerprint-projection ast))
+                 (if (seq lease-declarations)
+                   {:leases (mapv (comp ana/template-fingerprint-projection
+                                        :descriptor)
+                                  lease-declarations)
+                    :template ast-projection}
+                   ast-projection))
         hs      (fingerprint/hook-signature-hash {:locals [] :effects []})
         manifest {:view-id view-id
                   :display-name display-name
@@ -224,7 +258,8 @@
                   :as? (= :as (:mode hdr))
                   :template-fingerprint tf
                   :hook-signature hs
-                  :capabilities (capabilities ast)
+                  :capabilities (cond-> (capabilities ast)
+                                  (seq lease-declarations) (conj :lease))
                   :sites sites}
         args    {:vname vname
                  :view-id view-id
@@ -232,6 +267,7 @@
                  :docstring docstring
                  :header hdr
                  :slots slots
+                 :lease-declarations lease-declarations
                  :ast ast
                  :manifest manifest
                  :closed-keys closed-keys

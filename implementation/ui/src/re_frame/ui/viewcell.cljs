@@ -2,10 +2,11 @@
   "React glue for the S2b reactive core — the thin `useRef` /
   `useSyncExternalStore` / `useLayoutEffect` layer that drives
   `re-frame.ui.reactive`'s host-agnostic ViewCell + commit reconciler.
-  The compiled CLJS emitter wraps a sub-bearing PRODUCTION view's render body
-  in `render`; sub-free production views are never wrapped. In DEV the stable
-  Fast Refresh Inner always calls `render`, providing the fixed hook skeleton
-  before a view gains its first sub site without charging production for it.
+  The compiled CLJS emitter selects one exact PRODUCTION wrapper:
+  `render-subs`, `render-leases`, or `render-subs-and-leases`; a view with
+  neither capability is not wrapped. In DEV the stable Fast Refresh Inner
+  always calls `render-dev`, providing the fixed superset hook skeleton before
+  a view gains or loses either capability without charging production for it.
 
   The contract, per 03 §3:
 
@@ -76,13 +77,13 @@
                        #js {:value incarnation}
                        element))
 
-(defn render
-  "Wrap a compiled view's render `thunk` (a zero-arg fn returning the host
-  element) in its ViewCell. Establishes the cell (stable per React
-  instance), subscribes the component to the cell's revision, runs the body
-  under a fresh render capture, reads its root incarnation from context, and
-  wires the reconcile + lifecycle layout commits. Returns the host element."
-  [view-id thunk]
+(defn- use-cell
+  "Create/read this component instance's ViewCell and root-incarnation.
+
+  This is the common two-hook prefix shared by every wrapped production shape
+  and the stable dev shell.  Keeping the capability-specific hooks out of this
+  helper makes their absence structural in advanced output."
+  [view-id]
   (let [body-revision (if ^boolean js/goog.DEBUG
                         (reactive/view-generation view-id)
                         0)
@@ -91,74 +92,118 @@
       (set! (.-current cell-ref)
             (reactive/make-cell view-id body-revision)))
     (let [cell             (.-current cell-ref)
-          root-incarnation (react/useContext root-incarnation-context)
-          ;; Story's mounted override scope is React context, not a dynamic
-          ;; binding: descendants render after their provider's caller has
-          ;; returned.  Read it in THIS compiled view and bind the portable
-          ;; override door only around THIS view body.  `use-current` folds to
-          ;; nil/no-hook in production, alongside resolve-override's existing
-          ;; debug gate.
-          overrides        (sub-overrides/use-current)
-          subscribe (react/useCallback
-                      (fn [listener] (reactive/subscribe cell listener))
-                      #js [cell])]
+          root-incarnation (react/useContext root-incarnation-context)]
       ;; Same-signature Fast Refresh keeps this Fiber/ViewCell but advances the
       ;; body revision. Sync BEFORE capture so the selected render records the
       ;; exact descriptor revision it executed. Production folds this branch
       ;; away with the entire HMR slot.
       (when ^boolean js/goog.DEBUG
         (reactive/advance-generation! cell body-revision))
-      ;; ONE useSyncExternalStore — the cell's scalar revision drives
-      ;; sub-invalidation repaints (getServerSnapshot = 0: SSR reads are
-      ;; one-shot, no reactive loop).
-      (react/useSyncExternalStore subscribe
-                                  (fn [] (reactive/get-snapshot cell))
-                                  (fn [] 0))
-      ;; render-phase: resolve + probe every executed site into a fresh
-      ;; ownership-free capture. The selected Fiber's effect closes over this
-      ;; exact value; speculative sibling renders cannot replace it. Story's
-      ;; override door is scoped to THIS capture/body only.
-      (let [[element capture]
-            (if interop/debug-enabled?
-              ;; Binding is intentionally inside the constant DEBUG branch:
-              ;; advanced production output must contain no push/set/restore
-              ;; machinery for Story's override door.
-              (do
-                ;; Stable bundle sentinel: the advanced production gate
-                ;; asserts this whole debug branch is absent.
-                (when (and (some? overrides) (not (map? overrides)))
-                  (throw
-                   (js/Error.
-                    "rf-ui-mounted-override-binding expects a map")))
-                (binding [reactive/*sub-overrides* overrides]
-                  (reactive/with-capture cell thunk)))
-              (reactive/with-capture cell thunk))]
-        ;; reconcile — after EVERY committed render; no cleanup (leases are
-        ;; owned by the cell and reconciled by the kept-check, never torn
-        ;; down between renders — that would churn shared nodes).
-        (react/useLayoutEffect
-          (fn reconcile []
-            (reactive/commit! cell capture)
-            js/undefined))
-        ;; lifecycle — connect implicitly via the reconcile above; the cleanup
-        ;; releases owners on React unmount AND Activity hide (indistinguishable
-        ;; here — 03 §4). Reveal re-mounts this effect and the reconcile
-        ;; reacquires + corrects before paint. In DEV, React StrictMode
-        ;; double-invokes this effect (mount→cleanup→remount in one commit), so
-        ;; every sub node churns through a zero-owner dispose/rebuild — an
-        ;; inherent dev cost, balanced by the idempotent reconcile; the
-        ;; same-commit reconnect is NOT a hide and `reactive/connect!` does not
-        ;; log an Activity-hide proof for it (rf2-vxgfnd.44). On mount the cell ENROLS under its
-        ;; root incarnation (`attach-root!`, rf2-vxgfnd.85/.92) — an ownership that
-        ;; SURVIVES the hide-cleanup, so root teardown reaps a cell hidden before
-        ;; its unmount window. Keyed on the incarnation identity, so a re-mount
-        ;; under a fresh root re-enrols. `attach-root!` is idempotent; the cleanup
-        ;; NEVER detaches the root (that is `teardown!`'s job — the hide must stay
-        ;; reapable-by-its-root).
-        (react/useLayoutEffect
-          (fn lifecycle []
-            (when (some? root-incarnation)
-              (reactive/attach-root! cell root-incarnation))
-            (fn cleanup [] (reactive/disconnect! cell)))
-          #js [root-incarnation])
-        element))))
+      [cell root-incarnation])))
+
+(defn- use-sub-revision!
+  "Install the one aggregated subscription hook and return Story overrides."
+  [cell]
+  (let [overrides (sub-overrides/use-current)
+        subscribe (react/useCallback
+                    (fn [listener] (reactive/subscribe cell listener))
+                    #js [cell])]
+    (react/useSyncExternalStore subscribe
+                                (fn [] (reactive/get-snapshot cell))
+                                (fn [] 0))
+    overrides))
+
+(defn- capture-plain
+  [cell thunk]
+  (reactive/with-capture cell thunk))
+
+(defn- capture-with-overrides
+  "Capture a sub-bearing body under Story's dev-only mounted override door."
+  [cell overrides thunk]
+  (if interop/debug-enabled?
+    (do
+      ;; Stable bundle sentinel: the advanced production gate asserts this
+      ;; whole debug branch is absent.
+      (when (and (some? overrides) (not (map? overrides)))
+        (throw
+         (js/Error. "rf-ui-mounted-override-binding expects a map")))
+      (binding [reactive/*sub-overrides* overrides]
+        (reactive/with-capture cell thunk)))
+    (reactive/with-capture cell thunk)))
+
+(defn- use-commit-and-lifecycle!
+  "Publish the selected render capture and own React visibility lifecycle."
+  [cell root-incarnation capture]
+  ;; Reconcile after every committed render. There is deliberately no cleanup:
+  ;; retained observation/resource owners live on the cell, not on a render.
+  (react/useLayoutEffect
+    (fn reconcile []
+      (reactive/commit! cell capture)
+      js/undefined))
+  ;; Connect via commit above; cleanup releases ownership on both unmount and
+  ;; Activity hide. Root enrolment deliberately survives hide so root teardown
+  ;; can reap an entirely-hidden subtree.
+  (react/useLayoutEffect
+    (fn lifecycle []
+      (when (some? root-incarnation)
+        (reactive/attach-root! cell root-incarnation))
+      (fn cleanup [] (reactive/disconnect! cell)))
+    #js [root-incarnation]))
+
+(defn- use-resource-reconcile!
+  "Reconcile resource ownership after the layout commit accepted `capture`.
+
+  This is a passive effect: render and layout publish only an ownership-free
+  desired plan; queued ensure/release events are write-side work for the next
+  drain.  A stale/abandoned capture is rejected by `reactive`."
+  [cell capture]
+  (react/useEffect
+    (fn reconcile-resources []
+      (reactive/reconcile-resource-leases! cell capture)
+      js/undefined)))
+
+(defn render-subs
+  "Production wrapper for a view with sub sites and no resource leases."
+  [view-id thunk]
+  (let [[cell root-incarnation] (use-cell view-id)
+        overrides              (use-sub-revision! cell)
+        [element capture]      (capture-with-overrides cell overrides thunk)]
+    (use-commit-and-lifecycle! cell root-incarnation capture)
+    element))
+
+(defn render-leases
+  "Production wrapper for a view with resource leases and no sub sites.
+
+  Structurally contains zero `useSyncExternalStore` calls."
+  [view-id thunk]
+  (let [[cell root-incarnation] (use-cell view-id)
+        [element capture]      (capture-plain cell thunk)]
+    (use-commit-and-lifecycle! cell root-incarnation capture)
+    (use-resource-reconcile! cell capture)
+    element))
+
+(defn render-subs-and-leases
+  "Production wrapper for a view containing both sub and resource sites."
+  [view-id thunk]
+  (let [[cell root-incarnation] (use-cell view-id)
+        overrides              (use-sub-revision! cell)
+        [element capture]      (capture-with-overrides cell overrides thunk)]
+    (use-commit-and-lifecycle! cell root-incarnation capture)
+    (use-resource-reconcile! cell capture)
+    element))
+
+(defn render-dev
+  "Stable Fast Refresh wrapper: the full hook superset regardless of the
+  currently-compiled body capabilities."
+  [view-id thunk]
+  (let [[cell root-incarnation] (use-cell view-id)
+        overrides              (use-sub-revision! cell)
+        [element capture]      (capture-with-overrides cell overrides thunk)]
+    (use-commit-and-lifecycle! cell root-incarnation capture)
+    (use-resource-reconcile! cell capture)
+    element))
+
+(def render
+  "Internal compatibility alias for pre-S2b direct-render fixtures. New
+  compiled output names its exact capability wrapper."
+  render-subs)

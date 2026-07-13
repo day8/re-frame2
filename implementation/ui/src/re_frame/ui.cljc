@@ -51,6 +51,7 @@
   #?(:cljs (:require-macros [re-frame.ui]))
   (:refer-clojure :exclude [spread])
   (:require [re-frame.error :as error]
+            [re-frame.ui.lease]
             [re-frame.ui.reactive :as reactive]
             #?@(:clj  [[re-frame.ui.compiler :as compiler]
                        [re-frame.ui.compiler.root :as root]
@@ -264,15 +265,21 @@
    {:extra {:query query}}))
 
 (defn lease
-  "(lease descriptor) — declares resource liveness at a view site.
-  Grammar-only at S1; lands with the S2 observation slice."
+  "Compiler-owned `(lease descriptor)` authoring form.
+
+  Accepted direct leading declarations in `defview` lower to a compact
+  site-bearing internal capture on CLJS and pure descriptor validation on the
+  JVM. This var exists for symbol resolution only. A direct call—including a
+  helper or macro-hidden call the view compiler cannot index—fails loudly; the
+  runtime never invents an invisible dynamic ownership site."
   [descriptor]
-  #?(:clj  (error/throw-error!
-            :rf.error/ui-lease-unavailable 're-frame.ui/lease
-            (str "(lease " (pr-str descriptor) ") — leases land with the S2 "
-                 "observation slice")
-            {:extra {:descriptor descriptor}})
-     :cljs (runtime/lease* descriptor)))
+  (error/throw-error!
+   :rf.error/ui-tree-malformed 're-frame.ui/lease
+   (str "(ui/lease " (pr-str descriptor)
+        ") executed outside compiler lowering — ui/lease is a lexical "
+        "defview declaration, not a callable ownership helper. Put the direct "
+        "lease form before the view's final template")
+   {:extra {:descriptor descriptor :recovery :use-leading-lease-declaration}}))
 
 ;; ---------------------------------------------------------------------------
 ;; Interop compile forms — recognized by the analyzer in templates; the
