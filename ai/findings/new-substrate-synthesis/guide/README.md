@@ -31,6 +31,11 @@ contract either way. *(lands S2)* now marks only the S2 remainder still to land 
 `lease` and the `(frame)` ops map. Wave-2 names (`ui/element`, `ui/view`, `ui/portal`,
 `re-frame.ui.data/render`) are not v1 and only ever appear with that qualifier.
 
+**Reading the examples.** Code on these pages assumes
+`(:require [re-frame.core :as rf] [re-frame.ui :as ui :refer [defview sub]])`, with the
+other body forms (`local`, `effect`, `lease`, `frame`, `presence-phase`) referred bare
+the same way — one convention, every chapter.
+
 **Coming from Reagent?** Your hiccup transfers whole. Reads are `(sub [:q])` — a value,
 nothing to deref. Handlers are usually vectors, not closures. One component form, no
 ratoms: app state lives in app-db, keystroke ephemera in `local`.
