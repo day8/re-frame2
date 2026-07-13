@@ -5,7 +5,9 @@
   the constant-elements plugin). Semantics must match the compiled
   views byte-for-byte on renderToStaticMarkup output; the bench runner
   asserts that before measuring."
-  (:require ["react/jsx-runtime" :as jsx]))
+  (:require ["react" :as react]
+            ["react/jsx-runtime" :as jsx]
+            [re-frame.ui.eq :as eq]))
 
 (defonce ^:private sink (volatile! nil))
 
@@ -89,6 +91,18 @@
                           (jsx/jsx "span" #js {:className "flag" :children "HIGH"})
                           nil)]})))
 
+;; `defview` memoizes every compiled view. Match that policy in the G-1
+;; denominator so the keyed-list gate measures lowering overhead, not the
+;; cost of crossing a React.memo boundary during an initial server render.
+;; The generated todo-row comparator has exactly one slot (`todo`) and uses
+;; rf=; keep this spelling visibly parallel to emit-cljs/comparator-form.
+(def todo-row*-memo
+  (react/memo
+   todo-row*
+   (fn [^js prev ^js next]
+     (eq/rf= (unchecked-get prev "todo")
+             (unchecked-get next "todo")))))
+
 (defn todo-list* [^js props]
   (let [title (unchecked-get props "title")
         todos (unchecked-get props "todos")]
@@ -105,6 +119,37 @@
                                         arr)})
                         (jsx/jsxs "p" #js {:className "count"
                                            :children #js [(count todos) " items"]})]})))
+
+(defn todo-list*-memo$render [^js props]
+  ;; Deliberately duplicate the tiny list body: sharing a helper would add a
+  ;; call to both hand baselines that the compiled view does not perform.
+  (let [title (unchecked-get props "title")
+        todos (unchecked-get props "todos")]
+    (jsx/jsxs "section"
+              #js {:className "todos"
+                   :children
+                   #js [(jsx/jsx "h2" #js {:children title})
+                        (jsx/jsx "ul"
+                                 #js {:className "todo-ul"
+                                      :children
+                                      (let [arr #js []]
+                                        (doseq [t todos]
+                                          (.push arr (jsx/jsx todo-row*-memo #js {:todo t} (:id t))))
+                                        arr)})
+                        (jsx/jsxs "p" #js {:className "count"
+                                           :children #js [(count todos) " items"]})]})))
+
+(def todo-list*-memo
+  ;; The compiled parent is also a defview. Match its two-slot comparator as
+  ;; well as its memoized row boundary; otherwise the denominator still omits
+  ;; one of the component boundaries whose lowering it is meant to isolate.
+  (react/memo
+   todo-list*-memo$render
+   (fn [^js prev ^js next]
+     (and (eq/rf= (unchecked-get prev "title")
+                  (unchecked-get next "title"))
+          (eq/rf= (unchecked-get prev "todos")
+                  (unchecked-get next "todos"))))))
 
 (defn status-panel* [^js props]
   (let [state   (unchecked-get props "state")

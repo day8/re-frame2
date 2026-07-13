@@ -116,6 +116,15 @@
   [{:keys [l]}]
   [:div [plain-fc {:label l}]])
 
+;; `__proto__` is the one string key with prototype-setter grammar in a JS
+;; object literal. Keep one dynamic fixture for each props surface so the
+;; generated config object can be captured before React transforms it.
+(defview proto-child [] [:span])
+(defview proto-dom [{:keys [v]}] [:div {:__proto__ v}])
+(defview proto-custom [{:keys [v]}] [:fancy-input {:__proto__ v}])
+(defview proto-view [{:keys [v]}] [proto-child {:__proto__ v}])
+(defview proto-foreign [{:keys [v]}] [plain-fc {:__proto__ v}])
+
 ;; ---------------------------------------------------------------------------
 ;; Renders
 ;; ---------------------------------------------------------------------------
@@ -216,6 +225,40 @@
 (deftest foreign-component-renders
   (is (= "<div><b>L</b></div>"
          (render (rt/jsx2 uses-foreign (js-obj "l" "L"))))))
+
+(defn- has-own? [o k]
+  (.call (.-hasOwnProperty (.-prototype js/Object)) o k))
+
+(defn- captured-jsx-props [view value]
+  (let [module   rt/jsx-runtime
+        original (.-jsx module)
+        captured (atom nil)]
+    (try
+      (set! (.-jsx module)
+            (fn [_type props & _]
+              (reset! captured props)
+              #js {}))
+      ((.-type view) (js-obj "v" value))
+      @captured
+      (finally
+        (set! (.-jsx module) original)))))
+
+(deftest prototype-setter-key-remains-an-own-prop-on-every-jsx-surface
+  (doseq [[surface view]
+          [[:dom proto-dom]
+           [:custom-element proto-custom]
+           [:view proto-view]
+           [:foreign proto-foreign]]]
+    (let [value (js-obj "surface" (name surface))
+          props (captured-jsx-props view value)]
+      (is (some? props) (name surface))
+      (is (has-own? props "__proto__")
+          (str (name surface) " has an own __proto__ data property"))
+      (is (identical? value (unchecked-get props "__proto__"))
+          (str (name surface) " retains the exact authored value"))
+      (is (identical? (js/Object.getPrototypeOf props)
+                      (.-prototype js/Object))
+          (str (name surface) " keeps Object.prototype unchanged")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Handlers — compile-time placeholder splice + dispatch hook
