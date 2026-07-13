@@ -418,10 +418,10 @@
 ;; ---- rf2-68kok — destroy-frame! interrupts active drain on next dequeue --
 ;;
 ;; Per Spec 002 §Edge cases worth pinning §Frame disposal mid-drain: the
-;; drain loop checks `(:destroyed? (:lifecycle frame))` before each
-;; dequeue; on detect it stops, drops the remaining queue, and emits one
-;; `:rf.frame/drain-interrupted` with the dropped count. In-flight events
-;; finish (run-to-completion); only events not yet dequeued are dropped.
+;; ordinary drain checks destruction ownership before each dequeue; the exact
+;; incarnation claim is the cutoff, lifecycle-dead may publish later. On detect
+;; it stops and emits one `:rf.frame/drain-interrupted` whose dropped count
+;; combines claim-time and check-time removals. In-flight events finish.
 
 (deftest destroy-from-handler-interrupts-drain-and-emits-interrupted
   (testing "a handler that destroys its own frame mid-drain stops the
@@ -868,15 +868,15 @@
 ;; Per rf2-dpny: the PR #327 fix is correct but fragile. If someone
 ;; later removes the `with-redefs [interop/next-tick ...]` thinking it's
 ;; redundant, the flake returns. This test pins the CONTRACT —
-;; "draining onto a destroyed frame is a no-op + trace per event" — by
+;; "draining onto a destroyed frame is a quiet no-op" — by
 ;; capturing next-tick, dispatching events, destroying the frame, and
-;; THEN running the captured tick. The drain must not throw, must not
-;; mutate state, and must emit `:rf.error/frame-destroyed` per pending
-;; event.
+;; THEN running the captured tick. The drain must not throw or mutate state;
+;; queued events cut by destruction are quiet drops rather than one error per
+;; envelope.
 
 (deftest destroy-frame-pending-drain-pins-no-op-contract
   (testing "queued events that drain AFTER destroy do not mutate state,
-            do not throw, and trace :rf.error/frame-destroyed per event"
+            do not throw, and are dropped quietly"
     (rf/make-frame {:id :rf2-dpny/worker :doc "rf2-dpny race-pin frame"})
     (let [side-effects (atom 0)
           traces       (atom [])
@@ -1031,6 +1031,7 @@
           child-runs      (atom 0)
           user-effects    (atom 0)
           captured-ticks  (atom [])
+          traces          (atom [])
           gap-observation (atom nil)
           original-hook   (late-bind/get-fn :ui/on-frame-destroyed!)]
       (rf/make-frame {:id frame-id})
@@ -1046,6 +1047,16 @@
           {:db (assoc db :post-claim-parent-ran? true)
            :fx [[:destroy-claim/post-claim-effect :payload]
                 [:dispatch [:destroy-claim/post-claim-child]]]}))
+
+      (rf/register-listener! :trace ::post-claim-combined-count
+                             (fn [ev] (swap! traces conj ev)))
+      ;; One ordinary envelope exists before the claim. Capturing its scheduled
+      ;; drain keeps it pending until `claim-frame-destroy!` atomically cuts it.
+      (with-redefs [interop/next-tick
+                    (fn [f]
+                      (swap! captured-ticks conj f)
+                      nil)]
+        (rf/dispatch [:destroy-claim/post-claim-parent] {:frame frame-id}))
 
       (try
         (late-bind/set-fn!
@@ -1065,11 +1076,11 @@
                               nil)]
                 (rf/dispatch [:destroy-claim/post-claim-parent]
                              {:frame frame-id}))
-              (is (= 1 (count @captured-ticks))
-                  "the post-claim submit schedules one real-router drain")
+              (is (= 2 (count @captured-ticks))
+                  "one pre-claim and one post-claim submit each scheduled a drain")
               (is (= 1 (count (:queue @(:router (get @frame/frames frame-id)))))
                   "the ordinary envelope was enqueued after the claim cutoff")
-              (interop/next-tick (first @captured-ticks))
+              (interop/next-tick (last @captured-ticks))
               (executor-barrier!)
               (let [record (get @frame/frames frame-id)]
                 (reset! gap-observation
@@ -1077,7 +1088,8 @@
                          :queued     (count (:queue @(:router record)))})))))
         (rf/destroy-frame! frame-id)
         (finally
-          (late-bind/set-fn! :ui/on-frame-destroyed! original-hook)))
+          (late-bind/set-fn! :ui/on-frame-destroyed! original-hook)
+          (rf/unregister-listener! :trace ::post-claim-combined-count)))
 
       (is (zero? @parent-runs)
           "the post-claim ordinary handler never runs")
@@ -1087,6 +1099,12 @@
           "a rejected post-claim handler cannot enqueue or run children")
       (is (= {:destroyed? false :queued 0} @gap-observation)
           "the claim predicate emptied the real queue while lifecycle was still live")
+      (let [interrupts (filterv #(= :rf.frame/drain-interrupted (:operation %))
+                                @traces)]
+        (is (= 1 (count interrupts))
+            "the observing drain emits exactly one interruption trace")
+        (is (= 2 (get-in (first interrupts) [:tags :dropped-count]))
+            "dropped-count combines one claim-time and one check-time removal"))
       (is (nil? (frame/frame frame-id)) "destroy completes after the gap proof"))))
 
 (deftest on-destroy-cascade-is-isolated-from-preclaim-and-bound-work

@@ -533,7 +533,7 @@ Related: [event](#event), [event envelope](#event-envelope), [event pipeline](#e
 
 ### **dispatch-sync**
 
-Like [`dispatch`](#dispatch), but it runs the [event](#event) and drains the whole queue to completion *before returning*, instead of queuing for the next tick. The right call at boot, in tests, and at the REPL — never from inside a running handler (which raises `:rf.error/dispatch-sync-in-handler`).
+Like [`dispatch`](#dispatch), but it runs the [event](#event) and normally drains the whole queue to completion *before returning*, instead of queuing for the next tick. A drain-depth halt or successful exact-incarnation destruction claim is terminal: the already-dequeued event finishes and later ordinary events do not begin. The right call at boot, in tests, and at the REPL — never from inside a running handler (which raises `:rf.error/dispatch-sync-in-handler`).
 
 ```clojure
 (rf/dispatch-sync [:app/initialise])   ;; app-db is committed before the next line
@@ -543,7 +543,7 @@ Related: [Introduction](introduction.md).
 
 ### **drain / run-to-completion**
 
-The runtime drains the *whole* event queue to a fixed point — running the [write side](#write-side) of every queued [event](#event) to completion — before the [read side](#read-side) runs. So the write side runs *per event*, the read side runs *once per drain* at settle, and the UI updates once, from a settled state, never mid-flight. A drain is many [pipeline runs](#event-pipeline) sharing one read side.
+The runtime normally drains the *whole* event queue to a fixed point — running the [write side](#write-side) of every queued [event](#event) to completion — before the [read side](#read-side) runs. So the write side runs *per event*, the read side runs *once per drain* at settle, and the UI updates once, from a settled state, never mid-flight. A drain-depth halt or successful exact-incarnation destruction claim is terminal: already-accepted write-side work finishes, later ordinary events do not begin, and no read side interleaves. A drain is many [pipeline runs](#event-pipeline) sharing one read side.
 
 ```clojure
 ;; every queued event's write side runs, THEN — once — subs recompute and views render

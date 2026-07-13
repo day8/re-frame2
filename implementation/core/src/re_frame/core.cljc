@@ -864,10 +864,13 @@
   spec/002-Frames.md §Resetting a frame — destroy + make-frame."}
   reset-frame!   frame/reset-frame!)
 
-(def ^{:doc "Tear down `frame-id` — the normative teardown boundary. Runs
-  the user `:on-destroy`, releases per-feature resources (flows,
-  machines, schemas, SSR, epoch), clears the sub-cache, and removes the
-  frame from the registry. Idempotent. Per Spec 002 §Destroy."}
+(def ^{:doc "Tear down `frame-id` — the normative teardown boundary. Claims
+  the exact incarnation and atomically cuts ordinary queued work, runs the
+  user `:on-destroy` cascade on a private cleanup queue, then publishes dead,
+  releases per-feature resources (flows, machines, schemas, SSR, epoch),
+  clears the sub-cache, and removes the frame from the registry. Post-claim
+  ordinary dispatch is rejected; dead/absent operations recover and emit the
+  always-on frame-destroyed diagnostic. Idempotent. Per Spec 002 §Destroy."}
   destroy-frame! frame/destroy-frame!)
 
 ;; `frame-value->id` is REMOVED from the facade (API-shrink #1, rf2-csbbwu).

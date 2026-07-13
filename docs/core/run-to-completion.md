@@ -2,7 +2,7 @@
 
 Every dispatch you've made so far queued an event and walked away, and the pipeline caught up moments later. "Moments later" has been doing quiet work all along: hiding inside it is the one guarantee about *when* things run, and the whole rendering story leans on it. This page pins it down.
 
-Most frameworks let renders interleave with event processing, which is why this rule deserves a hard stop. When the runtime starts processing events, it [**drains the queue to completion**](glossary.md#drain--run-to-completion) before any view re-renders. The dequeued event runs its full write side. Then any events its handler `:fx`-dispatched run theirs. Boom, boom, boom, until the queue is empty. Only then does the read side run — once — and the render boundary arrives: the single point in the cycle where the settled state reaches the screen.
+Most frameworks let renders interleave with event processing, which is why this rule deserves a hard stop. When the runtime starts processing events, it [**drains the queue to completion**](glossary.md#drain--run-to-completion) before any view re-renders. The dequeued event runs its full write side. Then any events its handler `:fx`-dispatched run theirs. Boom, boom, boom, until the queue is empty. Only then does the read side run — once — and the render boundary arrives: the single point in the cycle where the settled state reaches the screen. The only terminal boundaries are the drain-depth guard and a successful exact-incarnation `destroy-frame!` claim; either stops later ordinary events without inserting a render between the writes that already ran.
 
 So the write side runs *per event*; the read side runs *once per drain*, at settle. That's the sentence to keep; the rest of this page is it, illustrated. And it is the dispatch semantics, not a mode; there is no opt-out.
 
@@ -57,6 +57,7 @@ Notes, both visible in Xray:
 
 1. **Each dequeued event is its own [epoch](glossary.md#epoch).** A parent event and the child it `:fx`-dispatched are *two* rows in the record, each with its own handler run and its own before/after state — even though they settled inside one drain and produced one paint. The record stays per-event; the rendering stays per-drain.
 2. **Async effects are not drained.** An HTTP request fired during the drain doesn't hold anything open; its reply arrives later as a fresh event and starts a fresh drain. "Run to completion" bounds the synchronous run, not the outside world.
+3. **Destroy is a terminal cutoff, not another queued event.** A successful `destroy-frame!` claim lets the event already dequeued finish, atomically discards pending ordinary work, and rejects later ordinary dispatches. A configured `:on-destroy` seed and its descendants run on a private cleanup queue. No read/render phase is inserted between the accepted write-side events.
 
 Now, a confession — I haven't been entirely straight with you. I've been saying *the* queue all page, as if there's exactly one. Strictly, the drain is per [**frame**](glossary.md#frame) — a running [world](glossary.md#world) with its own app-db and its own queue — and an app can run several ([Frames](frames.md)). But with one frame, which is every app until it isn't, "per frame" and "per app" say the same thing.
 
@@ -70,7 +71,7 @@ Now, a confession — I haven't been entirely straight with you. I've been sayin
 
 ### When the drain won't stop
 
-Run-to-completion is unconditional, which raises the question you're already asking: what if a handler dispatches an event whose handler dispatches the first one again? Stagehands queueing up stagehands, forever — a curtain that never rises. The runtime won't let it. Each frame carries a **`:drain-depth`** — the maximum number of events one drain may process (default `100`). When a drain reaches it, the runtime stops with a loud, machine-readable [error record](glossary.md#error-record):
+Run-to-completion is the normal dispatch law, which raises the question you're already asking: what if a handler dispatches an event whose handler dispatches the first one again? Stagehands queueing up stagehands, forever — a curtain that never rises. The runtime won't let it. Each frame carries a **`:drain-depth`** — the maximum number of events one drain may process (default `100`). When a drain reaches it, the runtime stops with a loud, machine-readable [error record](glossary.md#error-record):
 
 ```clojure
 {:operation :rf.error/drain-depth-exceeded
