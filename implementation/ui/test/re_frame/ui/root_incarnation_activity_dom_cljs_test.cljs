@@ -23,7 +23,6 @@
             ["react" :as react]
             ["react-dom" :as react-dom]
             [re-frame.core :as rf]
-            [re-frame.adapter.uix :as uix-adapter]
             [re-frame.test-support :as test-support]
             [re-frame.ui :as ui :refer [defview frame-provider sub]]
             [re-frame.ui.client :as client]
@@ -54,12 +53,12 @@
   (when (exists? js/globalThis)
     (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) @prior-act-env)))
 
-;; A WATCHABLE substrate (UIx spine) so a sub move fires the port's on-change
-;; watch that drives the Activity-mode re-render; `:ambient-frame nil` so views
-;; resolve their frame ONLY from the enclosing frame-provider.
+;; The WATCHABLE first-party adapter makes a sub move fire the port's on-change
+;; watch that drives the Activity-mode re-render; `:ambient-frame nil` keeps
+;; frame resolution on the enclosing frame-provider.
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
-   {:adapter uix-adapter/adapter :ambient-frame nil :async? true})
+   {:adapter ui/adapter :ambient-frame nil :async? true})
   {:before #(do (disable-act-env!) (reactive/reset-scheduler!) (client/reset-live-roots!))
    :after  #(do (reactive/reset-scheduler!) (client/reset-live-roots!) (restore-act-env!))})
 
