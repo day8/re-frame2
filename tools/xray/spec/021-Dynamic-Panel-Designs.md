@@ -568,6 +568,13 @@ diff chrome in cascade context, so the Reactive tab's value-listing is duplicate
   sub-id + `no readers remaining` tag; a small `unchanged`/`dim`-tinted swatch). Caption below:
   "Subscriptions cleaned up when their last reader unmounted."
 
+Below the teardown lists sits the **VIEWCELL INVALIDATION EVIDENCE** section (§3.4.1 —
+rf2-vxgfnd.146): the CUMULATIVE per-cell view over the `re-frame.ui` scheduler's bounded
+invalidation-evidence projection. Deliberately NOT epoch-scoped (the one exception on this
+panel): the accumulators span each ViewCell's whole observed life, so the section renders with
+or without a focused event-bundle, and renders its empty placeholder on hosts not running the
+re-frame.ui substrate.
+
 A legend closes the panel ("Views (right) are the focus — each: re-rendered + why (reactive vs
 parent re-render)") with three swatches: `changed (propagates downstream)` · `no change
 (short-circuits)` · `unmounted / destroyed`.
@@ -663,6 +670,58 @@ Rationale: unchanged subs are coverage signal, not signal-of-the-moment.
 Hiding by default keeps the dense view scannable; the toggle preserves
 the "I want to see what DIDN'T fire" affordance.
 
+### §3.4.1 ViewCell invalidation evidence (re-frame.ui substrate · rf2-vxgfnd.146)
+
+Xray is the OWNING native consumer of the `re-frame.ui.tool.evidence`
+projection (framework rf2-vxgfnd.75/.74/.46 — the bounded per-ViewCell
+invalidation-evidence accumulators the reactive scheduler's evidence-sink
+seam was built for). The Views panel renders it as the **VIEWCELL
+INVALIDATION EVIDENCE** section below the teardown lists.
+
+**Ownership + lifecycle.** The preload boot block claims the projection
+under the stable owner identity `:rf.xray/viewcell-evidence`
+(`day8.re-frame2-xray.viewcell-evidence/install!`). A shadow-cljs
+`:after-load` re-runs the same call as the evidence tier's idempotent
+same-owner re-arm — accumulated evidence survives (the HMR path). A
+foreign owner already holding the projection is NEVER clobbered: Xray's
+install is rejected and the section simply projects zero rows.
+`viewcell-evidence/uninstall!` releases exactly Xray's registration —
+generation-fenced downstream (rf2-vxgfnd.147), so an in-flight delivery
+cannot repopulate the released projection and a stale release cannot
+touch a successor owner. A successful install mirrors onto the
+`__day8_re_frame2_xray_viewcell_evidence` global sentinel (the browser
+feature-gate's wiring probe; withdrawn on uninstall).
+
+**Query path.** `:rf.xray/viewcell-evidence` (registered by
+`reactive-panel-subs/install!`) → `viewcell-evidence/rows`: one row per
+live ViewCell instance in stable `:cell-id` order —
+
+    {:cell-id ord :view-id vid :root-id rid|nil
+     :first-epoch e0 :latest-epoch eN :count n :batches b
+     :causes #{:value :hmr :disposed} :targets [tk …]
+     :dropped-count d :dropped-exact? bool}
+
+`:targets` is the bounded shown sample; `:dropped-count` /
+`:dropped-exact?` is the HONEST loss account (`false` ⇒ the count is a
+floor, rendered `≥N dropped`). Dead cells are pruned by the projection
+itself. Freshness rides the `:rf.xray/epoch-history` input (the standing
+epoch-pump axis): the ViewCell flush runs a microtask after drain-settle,
+so a same-epoch read may trail by one pump — the cumulative accumulators
+catch up, never lose.
+
+**Render.** One `list-row` per cell under
+`rf-xray-reactive-viewcell-evidence-section` (rows
+`…-row-<cell-id>`, empty state `…-empty`, caption `…-caption`):
+primary = view name · `cell #<ordinal>` · root-id (when under a live
+client root); trailing tag = occurrences · batches · epoch span
+`e0→eN` · cause union · shown-target count · `[≥]N dropped`.
+
+**Boundary.** tools/xray depends on the ui artefact's tool tier
+(`day8/re-frame2-ui` in deps.edn); `re-frame.ui` never depends on Xray;
+production applications pull neither (the tools/README bundle-isolation
+contract + the debug evidence plane's production elision). Tool absence
+stays zero-cost.
+
 ### §3.5 Queries
 
 | From | Reads |
@@ -670,6 +729,7 @@ the "I want to see what DIDN'T fire" affordance.
 | Focused epoch record | `:rf.sub/run`, `:rf.sub/skipped` (new — §11), `:rf.view/render` / `:rf.view/rendered` — read from the focused epoch record's `:trace-events` (rf2-rly4a — same `focus.epoch-id` scope as Trace, so Reactive + Trace stay correlated) |
 | Registries | Sub metadata (input-paths, signal-fn), view metadata (file:line) |
 | App-db | Seed-path resolution from the epoch's diff (§4) |
+| re-frame.ui evidence projection | `:rf.xray/viewcell-evidence` → `viewcell-evidence/rows` — the CUMULATIVE bounded per-ViewCell invalidation accumulators Xray owns via `re-frame.ui.tool.evidence` (§3.4.1; NOT epoch-scoped) |
 
 Recompute edges resolve from `:rf.sub/run`: **`:rf.sub/cause-sub`** is the sub→sub edge
 (nil ⇒ Level-1, non-nil ⇒ Level-2) and **`:rf.sub/reader-render-key`** is the sub→view edge;

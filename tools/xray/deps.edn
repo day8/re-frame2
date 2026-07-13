@@ -41,6 +41,15 @@
          ;; projections; the Machine Inspector reads the runtime slice.
          day8/re-frame2-machines {:local/root "../../implementation/machines"}
 
+         ;; The Views panel's ViewCell Invalidation Evidence section
+         ;; consumes the ui artefact's TOOL tier
+         ;; (`re-frame.ui.tool.evidence` — rf2-vxgfnd.146). The
+         ;; dependency points THIS way only: re-frame.ui never depends
+         ;; on Xray, and production applications never pull Xray
+         ;; (bundle-isolation contract), so the ui artefact reaches
+         ;; production apps solely on its own terms.
+         day8/re-frame2-ui {:local/root "../../implementation/ui"}
+
          ;; Machine charts are owned by machines-viz and embedded here;
          ;; Xray does not maintain a second chart implementation.
          day8/re-frame2-machines-viz {:local/root "../machines-viz"}

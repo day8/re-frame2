@@ -472,7 +472,11 @@
    ;; PRs #1728 + #1729 (`:rf.view/rendered`, `:rf.sub/skipped`,
    ;; `:rf.cascade/captured`).
    :rf.xray/reactive-data
-   :rf.xray/reactive-show-unchanged?))
+   :rf.xray/reactive-show-unchanged?
+   ;; rf2-vxgfnd.146 — the ViewCell Invalidation Evidence section's query
+   ;; over Xray's OWNED `re-frame.ui.tool.evidence` projection
+   ;; (spec/021 §3.4.1); registered by `reactive-panel-subs/install!`.
+   :rf.xray/viewcell-evidence))
 
 (def ^:private all-event-names
   "Every Xray-namespaced event registered by `register-xray-handlers!`.

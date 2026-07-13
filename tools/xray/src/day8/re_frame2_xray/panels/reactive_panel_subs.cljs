@@ -104,7 +104,8 @@
   disclosure-toggle state slot. Idempotent."
   (:require [re-frame.core :as rf]
             [re-frame.subs.tooling :as subs-tooling]
-            [day8.re-frame2-xray.panels.shared.focus-resolver :as focus]))
+            [day8.re-frame2-xray.panels.shared.focus-resolver :as focus]
+            [day8.re-frame2-xray.viewcell-evidence :as viewcell-evidence]))
 
 ;; ---- pure helpers (exposed for test) ------------------------------------
 
@@ -565,5 +566,22 @@
                 :triggered-by (when record (triggered-by record))
                 :seed-paths   (when record (seed-paths record))
                 :has-event-bundle? (some? record)}))))
+
+  ;; -- the ViewCell invalidation-evidence query (rf2-vxgfnd.146) ------
+  ;;
+  ;; The developer-facing query surface over Xray's OWNED
+  ;; `re-frame.ui.tool.evidence` projection (see
+  ;; `day8.re-frame2-xray.viewcell-evidence`). The accumulators are
+  ;; CUMULATIVE per cell (accretion since install), read live at compute
+  ;; time; the `:rf.xray/epoch-history` input is the panel's standing
+  ;; freshness axis — each epoch pump recomputes the read, so newly
+  ;; delivered batches surface on the next recorded epoch (the ViewCell
+  ;; flush runs a microtask AFTER the drain settles, so a same-epoch
+  ;; read may trail by one pump — cumulative rows catch up, never lose).
+  ;; Hosts not running the re-frame.ui substrate project zero rows.
+  (rf/reg-sub :rf.xray/viewcell-evidence
+    :<- [:rf.xray/epoch-history]
+    (fn [_history _query]
+      (viewcell-evidence/rows)))
 
   nil)
