@@ -118,8 +118,8 @@
 ;; - The slot count is bounded by `:events-retained` (default 50) — one
 ;;   slot per EVENT (one dequeued event / pipeline run), regardless of how
 ;;   many trace events that run emitted.
-;; - `:override?` true iff the cap is an explicit per-frame override
-;;   (`set-frame-events-retained!`); false for an inherited default.
+;; - `:override?` true iff the cap is an explicit per-frame override;
+;;   false for an inherited default.
 ;;   `configure-trace-buffer!` retunes inherited rings, skips overrides.
 ;; - Frames lazily allocate slots on first emit. Apps with one frame
 ;;   pay one slot of ring overhead.
@@ -160,56 +160,58 @@
   (or (get-in rings [frame-id :events-retained])
       @process-events-retained))
 
-(defn set-frame-events-retained!
-  "Apply a per-frame `:rf.trace/events-retained` override (called
-  from `frame.cljc`'s engine when the config carries the key).
-  The retained unit is one slot per EVENT (one dequeued event / pipeline
-  run), regardless of how many trace events that run emitted. Trims
-  existing slots if the new value is lower than current occupancy;
-  raising keeps existing slots and grows the slot cap.
+(defn- resize-ring
+  "Return `existing` resized to `retained`, preserving the newest slots and
+  stamping whether the cap is a frame override or the inherited process
+  default. Always returns a complete ring."
+  [existing retained override?]
+  (let [order (or (:run-order existing) [])
+        runs  (or (:runs existing) {})]
+    (cond
+      (zero? retained)
+      (empty-ring 0 override?)
 
-  Always writes a COMPLETE ring (`:run-order` + `:runs` present)
-  and stamps `:override? true`. Registering a per-frame cap BEFORE the
-  frame's first emit therefore leaves a valid (empty) ring rather than a
-  partial `{:events-retained N}` map — a partial map would later make
-  `push-to-ring!` start `:run-order` from nil, `conj` a list, and
-  crash `subvec` once the cap was exceeded (rf2-va65k finding 2).
+      (> (count order) retained)
+      (let [drop-n     (- (count order) retained)
+            evicted    (subvec order 0 drop-n)
+            kept-order (subvec order drop-n)]
+        {:events-retained retained
+         :override?      override?
+         :run-order      kept-order
+         :runs           (apply dissoc runs evicted)})
 
-  Per Spec 009 §Lowering events-retained on a populated ring."
-  [frame-id retained]
-  (when (and interop/debug-enabled? (number? retained) (not (neg? retained)))
+      :else
+      {:events-retained retained
+       :override?      override?
+       :run-order      order
+       :runs           runs})))
+
+(defn apply-frame-events-retained-policy!
+  "Publish one frame config's retention policy when `current?` still says that
+  config owns the authoritative frame record.
+
+  `override? true` applies `retained` as the explicit
+  `:rf.trace/events-retained` cap. `override? false` removes any prior override,
+  resizes the existing ring to the live process default, and marks it inherited
+  so later process-default changes continue to reach it. The liveness predicate
+  runs INSIDE the trace-ring atom update; the frame engine serializes auxiliary
+  publication around it. This makes the store respect the frame registry's
+  winner without a second ownership registry."
+  [frame-id override? retained current?]
+  (when (and interop/debug-enabled?
+             (or (not override?)
+                 (and (number? retained) (not (neg? retained)))))
     (swap! trace-rings
            (fn [rings]
-             (let [existing (get rings frame-id)
-                   order    (or (:run-order existing) [])
-                   runs (or (:runs existing) {})]
-               (cond
-                 ;; retained = 0: drop everything; slot persists with depth 0
-                 ;; so reads return [] cleanly.
-                 (zero? retained)
+             (if-not (current?)
+               rings
+               (if override?
                  (assoc rings frame-id
-                        (empty-ring 0 true))
-
-                 ;; Trim if existing order exceeds the new cap.
-                 (> (count order) retained)
-                 (let [drop-n     (- (count order) retained)
-                       evicted    (subvec order 0 drop-n)
-                       kept-order (subvec order drop-n)]
+                        (resize-ring (get rings frame-id) retained true))
+                 (if-let [existing (get rings frame-id)]
                    (assoc rings frame-id
-                          {:events-retained retained
-                           :override?         true
-                           :run-order     kept-order
-                           :runs          (apply dissoc runs evicted)}))
-
-                 ;; New cap fits the current occupancy: keep the slots,
-                 ;; write a full ring (a never-emitted frame gets a valid
-                 ;; empty ring instead of a partial map — finding 2).
-                 :else
-                 (assoc rings frame-id
-                        {:events-retained retained
-                         :override?         true
-                         :run-order     order
-                         :runs          runs}))))))
+                          (resize-ring existing @process-events-retained false))
+                   rings))))))
   nil)
 
 (defn release-frame-ring!
@@ -723,8 +725,8 @@
 (late-bind/set-fn! :trace.tooling/dedup-allow?        dedup-allow?)
 (late-bind/set-fn! :trace.tooling/clear-dedup-table!  clear-dedup-table!)
 (late-bind/set-fn! :trace.tooling/release-frame-ring! release-frame-ring!)
-(late-bind/set-fn! :trace.tooling/set-frame-events-retained!
-                   set-frame-events-retained!)
+(late-bind/set-fn! :trace.tooling/apply-frame-events-retained-policy!
+                   apply-frame-events-retained-policy!)
 
 ;; ---- bundle-isolation sentinel ------------------------------------------
 ;;

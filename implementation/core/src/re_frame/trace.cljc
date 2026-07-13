@@ -205,10 +205,22 @@
   the frame is added to the trace-disabled set; otherwise it is removed.
   `emit!` / `emit-error!` short-circuit for any event whose `:frame` tag
   is in the set. Idempotent. Per Spec 009 §Trace-emission opt-out
-  (frame-level) and rf2-2qaqh."
-  [frame-id no-emit?]
-  (swap! trace-disabled-frames (if no-emit? conj disj) frame-id)
-  nil)
+  (frame-level) and rf2-2qaqh.
+
+  The three-argument engine arity performs the liveness predicate INSIDE the
+  atom update. The frame engine serializes auxiliary publication and supplies
+  the committed config's owner predicate, so a superseded config is rejected
+  before this store changes. The two-argument arity remains the direct
+  teardown/test primitive."
+  ([frame-id no-emit?]
+   (set-frame-no-emit! frame-id no-emit? (constantly true)))
+  ([frame-id no-emit? current?]
+   (swap! trace-disabled-frames
+          (fn [disabled]
+            (if (current?)
+              ((if no-emit? conj disj) disabled frame-id)
+              disabled)))
+   nil))
 
 (defn frame-trace-disabled?
   "Canonical predicate: true iff `frame-id` is currently registered

@@ -1951,16 +1951,71 @@
 (def ^:dynamic ^:no-doc *upsert-decide-probe*
   "JVM linearization TEST SEAM — `nil` in production (one `nil` check per
   construction, zero further cost). When bound to a 1-arg fn, `upsert-frame!`
-  calls `(*upsert-decide-probe* id)` exactly ONCE, AFTER it snapshots the
-  `frames` registry for `id` and BEFORE its guarded-CAS decide→install loop —
-  i.e. INSIDE the read→CAS window the A-prime retry loop closes (rf2-vxgfnd.76).
+  calls `(*upsert-decide-probe* id)` exactly ONCE immediately BEFORE the
+  authoritative registry decision/install path.
   A concurrency fixture binds it (conveyed into the racing thread by `future`'s
-  binding-conveyance) to pause one actor precisely in that window while another
-  installs or destroys the same id, then releases it — proving the guarded CAS
-  linearizes create/create, re-register/destroy, and must-create collisions with
-  no clobber, no zombie resurrection, and no lost update. NEVER bound off the JVM
-  test path."
+  binding-conveyance) to pause one actor while another installs or destroys the
+  same id, then releases it — proving serialized create and guarded
+  re-register/destroy decisions produce no clobber, zombie resurrection, or
+  lost update. NEVER bound off the JVM test path."
   nil)
+
+(defn- fresh-trace-policy-token
+  "Return an identity token for one attempted frame-config commit. A successful
+  registry mutation stores it on the frame record; auxiliary trace-policy
+  writers publish only while that exact token remains current."
+  []
+  #?(:clj (Object.) :cljs (js-obj)))
+
+#?(:clj
+   (do
+     (defonce ^:private frame-create-lock
+       ;; JVM-only serialization for the cold absent-id allocation path.
+       (Object.))
+     (defn- call-with-frame-create-lock [f]
+       (locking frame-create-lock (f)))))
+
+(def ^:dynamic ^:no-doc *upsert-policy-probe*
+  "JVM test seam fired after a successful frame-registry commit and immediately
+  before its auxiliary trace policy enters publication serialization."
+  nil)
+
+#?(:clj
+   (do
+     (defonce ^:private frame-trace-policy-lock
+       ;; Auxiliary policy lives in two independent atoms. Serialize the
+       ;; tiny/cold publication section on the concurrent host.
+       (Object.))
+     (defn- call-with-frame-trace-policy-lock [f]
+       (locking frame-trace-policy-lock (f)))))
+
+(defn- publish-trace-policy!
+  [id publish!]
+  (when-let [probe *upsert-policy-probe*] (probe id))
+  #?(:clj  (call-with-frame-trace-policy-lock publish!)
+     :cljs (publish!)))
+
+(defn- try-install-new-frame!
+  "Install a freshly allocated record iff `id` is still absent.
+
+  JVM creators are serialized around the authoritative absence recheck,
+  container allocation, and registry install. A losing creator therefore
+  allocates nothing: every state container returned by the adapter is installed
+  as an owned frame record. This avoids inventing a disposal-free adapter
+  contract for abandoned speculative containers. Returns true on install."
+  [id config policy-token]
+  (letfn [(install! []
+            (if (contains? @frames id)
+              false
+              (let [f (assoc (new-frame-record id config)
+                             :trace-policy-token policy-token)]
+                ;; `upsert-frame!` is the sole creator. Under `frame-create-lock`
+                ;; no other JVM creator can seat this id between the absence
+                ;; recheck and assoc; CLJS runs the block synchronously.
+                (swap! frames assoc id f)
+                true)))]
+    #?(:clj  (call-with-frame-create-lock install!)
+       :cljs (install!))))
 
 (defn- throw-frame-id-taken!
   "Throw the typed `:rf.error/frame-id-taken` collision (rf2-vxgfnd.76) — the
@@ -2089,43 +2144,19 @@
                                   "boot, BEFORE the frame is constructed, so the "
                                   "strategy can be validated at registration time.")
                              {:extra {:frame id}})))
-        ;; rf2-vxgfnd.76: a SPECULATIVE first snapshot. The authoritative decide
-        ;; happens inside the guarded-CAS loop below (which re-reads under the
-        ;; CAS); this read only lets `new-frame-record` (with its adapter
-        ;; `make-state-container` call) be built ONCE, ABOVE the loop, so a
-        ;; no-adapter construction throw escapes before the decide probe, the
-        ;; guarded CAS, and the winner's trace-policy writes (rf2-hhlzky preserved
-        ;; — and strengthened by rf2-umsyo9, which moved those policy writes BELOW
-        ;; the CAS into the winning branch). The loop reuses this record when it
-        ;; wins a create and rebuilds only in the rare decide-changed-to-create
-        ;; recur.
-        existing0      (get @frames id)
-        ;; rf2-hhlzky: construct the frame record BEFORE any process-global write.
-        ;; `new-frame-record` calls `adapter/make-state-container`, which THROWS
-        ;; (`:rf.error/no-adapter-installed` / `:rf.error/adapter-disposed`) when
-        ;; no adapter is installed — a construction issued before `rf/init!` or
-        ;; after `destroy-adapter!`. Building the record here means such a failure
-        ;; escapes this `let` BEFORE any process-global write, so a frame that
-        ;; never came into existence leaves NO residue to unwind.
-        ;;
-        ;; rf2-umsyo9 (speculative-allocation lifecycle): on a create/create loss
-        ;; the guarded CAS installs nothing and this speculatively-built record is
-        ;; ABANDONED. That needs no explicit disposal — DISPOSAL-FREE ALLOCATION
-        ;; CONTRACT: `new-frame-record` produces only an atom-backed state
-        ;; container (`make-state-container` → a plain / substrate atom) plus its
-        ;; two derived-value projections and a handful of atoms, ALL mutually
-        ;; referenced WITHIN the record. It opens no OS / host resource and
-        ;; performs no adapter-side or registry-side registration (the sole
-        ;; install is the `frames` assoc the loser never made), so an abandoned
-        ;; record is a self-contained GC island collected with the lost `let`
-        ;; value. This is the DEFER form of the rollback the bead calls for —
-        ;; nothing installed, nothing to unwind. Re-registration is a surgical
-        ;; update (no container is built), so `new-record` is nil there.
-        new-record     (when (nil? existing0) (new-frame-record id config))
+        ;; One identity token per attempted config commit. Only a successful
+        ;; create/re-register installs it. Auxiliary policy stores consult the
+        ;; installed token inside their own atomic updates, so publication from
+        ;; an older successful actor is rejected after a newer actor commits.
+        policy-token   (fresh-trace-policy-token)
+        policy-current?
+        (fn []
+          (identical? policy-token (:trace-policy-token (get @frames id))))
         ;; rf2-umsyo9: the frame-scoped TRACE POLICY writes (the suppression flag
         ;; + the `:rf.trace/events-retained` retention override) are process-global
-        ;; stores SEPARATE from the `frames` registry, so the guarded CAS below
-        ;; does NOT linearize them. PR #5776 ran them speculatively ABOVE the CAS,
+        ;; stores SEPARATE from the `frames` registry, so the registry commit
+        ;; alone does NOT linearize them. PR #5776 ran them speculatively before
+        ;; the commit,
         ;; which let a must-create LOSER — or a create/create loser — overwrite
         ;; the WINNER's trace policy for this id even though the loser installed
         ;; nothing, corrupting the live winner's tracing. They now ride the WINNING
@@ -2145,16 +2176,20 @@
           ;; shared trace ring it inspects. The flag is the frame-scoped sibling
           ;; of the handler-scoped `:rf.trace/no-emit?` (Spec 009 §Trace-emission
           ;; opt-out); `trace.cljc` owns the canonical set + predicate.
-          (trace/set-frame-no-emit! id (true? (:rf.trace/frame-no-emit? config)))
+          (trace/set-frame-no-emit! id
+                                    (true? (:rf.trace/frame-no-emit? config))
+                                    policy-current?)
           ;; Per Spec 009 §Retention contract: apply the per-frame
           ;; `:rf.trace/events-retained` override. When the key is absent the
           ;; frame inherits the process-default. Routed via late-bind so
           ;; production CLJS bundles (where trace.tooling is not loaded)
           ;; short-circuit cleanly — the trace-ring machinery is dev-only.
-          (when (contains? config :rf.trace/events-retained)
-            (when-let [set-retained! (late-bind/get-fn-cached
-                                      :trace.tooling/set-frame-events-retained!)]
-              (set-retained! id (:rf.trace/events-retained config)))))]
+          (when-let [apply-retention! (late-bind/get-fn-cached
+                                       :trace.tooling/apply-frame-events-retained-policy!)]
+            (apply-retention! id
+                              (contains? config :rf.trace/events-retained)
+                              (:rf.trace/events-retained config)
+                              policy-current?)))]
     ;; SUBSTRATE OWNERSHIP (rf2-h1vqa4): deliberately NO `registrar/register!`
     ;; here. A seated frame lives in the `frames` registry alone. The former
     ;; `:frame` registrar row leaked into the registration SOURCE STORE
@@ -2165,37 +2200,27 @@
     ;; Routing (the one former consumer) reads frame config via
     ;; `frame-meta` / `frame-ids`; the registrar `:frame` kind is reserved with
     ;; an intentionally EMPTY slot (the `:flow` precedent, rf2-en00bk).
-    ;; A-prime linearization (rf2-vxgfnd.76): the DECIDE (existing?) + INSTALL
-    ;; (the `frames` swap) run as a guarded-CAS RETRY loop through the `frames`
-    ;; atom ITSELF — the `set-generation!` discipline — so a create linearizes
-    ;; against a concurrent create/destroy with NO last-writer clobber and NO
-    ;; zombie-resurrection of a dissoc'd record. Only the pure, side-effect-free
-    ;; preflight validation ran ONCE above the loop; the frame-scoped TRACE
-    ;; POLICY writes now ride the WINNING branch (`apply-trace-policy!`,
-    ;; rf2-umsyo9) so an exclusive / CAS LOSER never mutates the winner's policy.
+    ;; A-prime linearization (rf2-vxgfnd.76): create rechecks absence + allocates
+    ;; + installs under the cold JVM create lock (CLJS is single-threaded), so a
+    ;; losing creator allocates nothing; re-registration remains a guarded-CAS
+    ;; retry through `frames`, closing concurrent destroy resurrection. The
+    ;; frame-scoped TRACE POLICY writes run only after a successful registry
+    ;; commit, serialize across the two auxiliary atoms, and are guarded there
+    ;; by the installed `:trace-policy-token`. A superseded successful actor
+    ;; therefore cannot publish after the newer record, while an exclusive
+    ;; loser writes nothing.
     ;; `run-setup-events!` runs EXACTLY ONCE, in the won-create branch (EP-0027:
     ;; setup drains before the constructor returns — preserved because only
     ;; decide + install + the winner's writes are inside the loop). The one-shot
-    ;; decide→install-window test probe fires HERE — after the decide snapshot
-    ;; but BEFORE any side effect (the CAS AND the winner's trace-policy writes),
-    ;; so the concurrency seam opens the actual PRE-SIDE-EFFECT race window
-    ;; (rf2-umsyo9).
+    ;; decision-window test probe fires HERE, before the authoritative registry
+    ;; path and before any side effect.
     (when-let [probe *upsert-decide-probe*] (probe id))
     (loop []
       (let [existing (get @frames id)]
         (cond
           ;; ---- CREATE: install the record iff the id is STILL absent ---------
           (nil? existing)
-          (let [f (or new-record (new-frame-record id config))
-                ;; Guarded CAS: assoc our record ONLY when the id is absent in
-                ;; the winning snapshot. `swap-vals!` returns [old new]; we WON
-                ;; the create iff `id` was absent in `old` (our assoc actually
-                ;; ran). A concurrent installer between the decide read and here
-                ;; leaves `id` present in `old` → we lost, and `f` was NEVER
-                ;; installed (the guard returned `m` unchanged), so nothing to
-                ;; unwind.
-                [old _] (swap-vals! frames (fn [m] (if (contains? m id) m (assoc m id f))))]
-            (if (contains? old id)
+          (if-not (try-install-new-frame! id config policy-token)
               (if must-create?
                 ;; Exclusive mode (ui.test): a taken id is a hard COLLISION, not
                 ;; an adoption — throw the typed error (nothing was installed).
@@ -2233,25 +2258,25 @@
                     {:recovery :construct-frames-in-view-or-top-level
                      :extra    {:frame id}}))
                 ;; rf2-umsyo9: apply the winning config's frame-scoped trace
-                ;; policy now that this create WON the guarded CAS and passed the
+                ;; policy now that this create WON installation and passed the
                 ;; handler-time guard — BEFORE `run-setup-events!` so a
                 ;; trace-disabled tool frame's init cascade stays redacted, and
                 ;; BEFORE the `:rf.frame/created` emit so that emit is suppressed
                 ;; for a no-emit frame. A create that LOST the CAS never reaches
                 ;; here, so it leaves the winner's policy untouched.
-                (apply-trace-policy!)
+                (publish-trace-policy! id apply-trace-policy!)
                 ;; Run the :initial-events setup steps synchronously, in order,
                 ;; BEFORE emitting :frame/created (Spec 002 §Frame creation;
                 ;; EP-0027 §Construction). `setup-steps` was PREFLIGHT-validated
                 ;; at the top of the engine. A step that throws at runtime tears
                 ;; down the partial frame inside the runner and rethrows. Runs
-                ;; ONCE — only on the WON install, never on a CAS-loss recur.
+                ;; ONCE — only on the WON install, never on a lost-create recur.
                 (run-setup-events! id setup-steps {} 'rf/make-frame)
                 (trace/emit! :rf.frame :rf.frame/created
                              {:frame id :config (dissoc config :rf.frame/generation
                                                         :rf.frame/initial-db)})
                 (fire-frame-registered-hook! id)
-                id)))
+                id))
 
           ;; ---- must-create met a LIVE frame at the decide read → COLLISION ---
           ;; Exclusive mode never adopts or surgically refreshes; a present id is
@@ -2277,8 +2302,10 @@
                 ;; state container and no `:drain-lock`).
                 [old _] (swap-vals! frames
                           (fn [m] (if (contains? m id)
-                                    (update m id assoc :config stored-config
-                                            :generation (get config :rf.frame/generation))
+                                    (update m id assoc
+                                            :config stored-config
+                                            :generation (get config :rf.frame/generation)
+                                            :trace-policy-token policy-token)
                                     m)))]
             (if (contains? old id)
               (do
@@ -2288,7 +2315,7 @@
                 ;; frame to no-emit suppresses its own re-registration trace. A
                 ;; re-registration that LOST (the id vanished under a concurrent
                 ;; destroy) recurs into a create and never reaches here.
-                (apply-trace-policy!)
+                (publish-trace-policy! id apply-trace-policy!)
                 (trace/emit! :rf.frame :rf.frame/re-registered
                              {:frame id :config stored-config})
                 (fire-frame-registered-hook! id)
