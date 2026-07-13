@@ -80,6 +80,46 @@
 ;; vocabulary).
 (def ^:private local-skip-phases #{:spawn :update-snapshot})
 
+;; ---- exact-frame-incarnation continuation ---------------------------------
+;;
+;; A machine schema validator is APPLICATION code (the late-bound
+;; `:schemas/validate-with-registered-fn` adapter running an app-declared
+;; schema). Per the incarnation-fencing family (destroy contract #5818) it can
+;; synchronously destroy the frame incarnation (A) that owns the in-flight
+;; event and publish a same-id successor (B) before returning. Every machine
+;; lifecycle validator therefore threads the router's dequeue-time event-owner
+;; continuation predicate: it is checked AFTER each application callback and
+;; before any subsequent framework-owned write / diagnostic, so a callback
+;; resolved under A can never fire an install, bookkeeping mutation, or trace
+;; against successor B (or a dead frame).
+
+(defn owner-continuation
+  "Build the exact-frame-incarnation continuation predicate for `frame-id`
+  from the router's dequeue-time event-owner binding (`*event-owner*`). Returns
+  a 0-arity predicate: true while `frame-id`'s incarnation that owns the
+  in-flight event may still run framework-owned continuation, false once a
+  synchronous callback has destroyed A / published same-id B. When no event
+  owner is bound (a non-router internal call — e.g. a standalone validator
+  invoke), the predicate is `(constantly true)`, preserving the standalone
+  contract. Shared with `lifecycle-fx.spawn` so the spawn cascade and its
+  `validate-spawn-data!` callback fence against the SAME token."
+  [frame-id]
+  (if-let [owner-token (frame/current-event-owner-token)]
+    #(frame/event-continuation-live? frame-id owner-token)
+    (constantly true)))
+
+(defn- current-owner-continuation
+  "Like `owner-continuation` but derives the frame from the event-owner
+  binding itself — for validators (`validate-update-snapshot-data!`,
+  `validate-completion-output!`) that don't carry the frame-id explicitly:
+  they run inside the owning event's fx drain / finalize cascade, so the
+  dequeue-time event owner IS their frame."
+  []
+  (if-let [owner-token (frame/current-event-owner-token)]
+    (let [owner-frame (frame/current-event-owner-frame-id)]
+      #(frame/event-continuation-live? owner-frame owner-token))
+    (constantly true)))
+
 (defn- emit-failure!
   "Emit `:rf.error/schema-validation-failure` at a machine schema boundary
   (`:where :machine-data` or `:where :machine-output`). `where` names the
@@ -257,10 +297,8 @@
   `(when interop/debug-enabled? ...)` gate so production builds
   return `true` unconditionally."
   ([runtime-db event-id frame-id]
-   (if-let [owner-token (frame/current-event-owner-token)]
-     (validate-machine-data! runtime-db event-id frame-id
-                             #(frame/event-continuation-live? frame-id owner-token))
-     (validate-machine-data! runtime-db event-id frame-id (constantly true))))
+   (validate-machine-data! runtime-db event-id frame-id
+                           (owner-continuation frame-id)))
   ([runtime-db _event-id _frame-id continue?]
   ;; `event-id` and `frame-id` are accepted but unused at this boundary
   ;; (the per-snapshot emit already names the machine); the arity matches
@@ -303,16 +341,31 @@
   there is nothing to roll back — `:phase :spawn` emits with
   `:rollback? false`.
 
+  The application schema validator is fenced to the exact frame incarnation
+  via `continue?` (rf2-vxgfnd.153): a validator that destroys the owning frame
+  A and publishes same-id B returns `:rf/stale-incarnation` (via
+  `validate-snapshot-data!`) rather than a schema verdict, and suppresses the
+  failure trace — so the spawn caller (`lifecycle-fx.spawn`) skips the whole
+  install cascade rather than landing A-derived allocation on B. The 3-arity
+  derives the continuation from the router's event-owner binding
+  (`current-owner-continuation`); the spawn caller passes the SAME predicate it
+  fences its post-callback cascade with so both agree on the token.
+
   Per Spec 009 §Production builds the body lives inside a
   `(when interop/debug-enabled? ...)` gate so production builds
   return `true` unconditionally — the install proceeds unvalidated
   under `:advanced` + `goog.DEBUG=false`."
-  [spawned-id spec snapshot]
-  (if interop/debug-enabled?
-    (if-let [schema (get-in spec [:schemas :data])]
-      (validate-snapshot-data! spawned-id snapshot schema :spawn)
-      true)
-    true))
+  ([spawned-id spec snapshot]
+   (validate-spawn-data! spawned-id spec snapshot (current-owner-continuation)))
+  ([spawned-id spec snapshot continue?]
+   (if interop/debug-enabled?
+     (if-let [schema (get-in spec [:schemas :data])]
+       ;; Returns true (conform) / false (schema violation, A still owns) /
+       ;; :rf/stale-incarnation (the validator callback lost A). The no-schema
+       ;; branch runs NO callback, so A cannot be lost here — `true`.
+       (validate-snapshot-data! spawned-id snapshot schema :spawn continue?)
+       true)
+     true)))
 
 (defn validate-update-snapshot-data!
   "Sibling validator for the `:rf.machine/update-snapshot` escape-hatch fx.
@@ -333,6 +386,15 @@
   (`machine-meta`) and a spawned actor (`spec-from-snapshot`) so the
   escape hatch is covered uniformly across actor kinds.
 
+  The application schema validator is fenced to the exact frame incarnation
+  (rf2-vxgfnd.153): a validator that destroys the owning frame A and publishes
+  same-id B returns `:rf/stale-incarnation` from `validate-snapshot-data!`,
+  which this fn TRANSLATES to `false` so the escape-hatch fx's
+  `(when (validate-update-snapshot-data! ...) (write))` SKIPS the A-derived
+  merge onto B. The merge is the only post-callback framework action on this
+  path, so skipping it fully fences the escape hatch. The failure trace is
+  suppressed too (the callback lost A), so no diagnostic is attributed to B.
+
   Per Spec 009 §Production builds the body lives inside a
   `(when interop/debug-enabled? ...)` gate so production builds
   return `true` unconditionally — the merge proceeds unvalidated under
@@ -340,9 +402,14 @@
   boundaries."
   [machine-id merged-snapshot]
   (if interop/debug-enabled?
-    (if-let [schema (resolve-data-schema machine-id merged-snapshot)]
-      (validate-snapshot-data! machine-id merged-snapshot schema :update-snapshot)
-      true)
+    (let [continue? (current-owner-continuation)]
+      (if-let [schema (resolve-data-schema machine-id merged-snapshot continue?)]
+        (let [result (validate-snapshot-data! machine-id merged-snapshot schema
+                                              :update-snapshot continue?)]
+          ;; Owner-loss (:rf/stale-incarnation) is truthy — collapse it to
+          ;; `false` so the caller's `(when validator (write))` skips the write.
+          (if (= :rf/stale-incarnation result) false result))
+        true))
     true))
 
 (defn validate-completion-output!
@@ -374,6 +441,14 @@
   :machine-data` boundary uses), so an app with no schema adapter pays zero
   cost.
 
+  The application output validator is fenced to the exact frame incarnation
+  (rf2-vxgfnd.153): if the validator callback destroys the owning frame A and
+  publishes same-id B, neither the `:machine-output` failure trace nor the
+  `:rf.error/malformed-schema` trace is emitted — the diagnostic would
+  otherwise be attributed to B, a frame that never ran this completion. The
+  completion still flows (best-effort); only the now-stale diagnostic is
+  suppressed.
+
   Per Spec 009 §Production builds the body lives inside a
   `(when interop/debug-enabled? ...)` gate so production builds return `true`
   unconditionally — the completion proceeds unvalidated under `:advanced` +
@@ -393,27 +468,38 @@
         ;; `:rf.error/malformed-schema :where :machine-output` trace and
         ;; PROCEED (return true), so a schema typo surfaces loudly yet never
         ;; deadlocks a finishing machine.
-        (try
-          (if (validate-fn schema result)
-            true
-            (do (emit-failure! machine-id :machine-output :completion result
-                               schema nil false
-                               (str "Machine " machine-id
-                                    " completion output (the :output-key payload) "
-                                    "failed schema at boundary :where "
-                                    ":machine-output (phase :completion)."))
-                false))
-          (catch #?(:clj Throwable :cljs :default) e
-            (trace/emit-error! :rf.error/malformed-schema
-                               {:where    :machine-output
-                                :reason   (str "Machine " machine-id
-                                               "'s [:schemas :output] schema is malformed — "
-                                               "the registered validator threw: "
-                                               #?(:clj (.getMessage e) :cljs (ex-message e))
-                                               ". The completion proceeds (best-effort).")
-                                :schema   schema
-                                :rollback? false})
-            true))
+        (let [continue? (current-owner-continuation)]
+          (try
+            (let [conforms? (validate-fn schema result)]
+              (cond
+                ;; The validator callback destroyed A / published same-id B —
+                ;; suppress the (now-stale) diagnostic; do not attribute it to B.
+                (not (continue?)) :rf/stale-incarnation
+                conforms?         true
+                :else
+                (do (emit-failure! machine-id :machine-output :completion result
+                                   schema nil false
+                                   (str "Machine " machine-id
+                                        " completion output (the :output-key payload) "
+                                        "failed schema at boundary :where "
+                                        ":machine-output (phase :completion).")
+                                   continue?)
+                    false)))
+            (catch #?(:clj Throwable :cljs :default) e
+              ;; Owner still live → a genuine malformed-schema diagnostic.
+              ;; Owner lost (the callback threw AND destroyed A) → suppress it.
+              (if (continue?)
+                (do (trace/emit-error! :rf.error/malformed-schema
+                                       {:where    :machine-output
+                                        :reason   (str "Machine " machine-id
+                                                       "'s [:schemas :output] schema is malformed — "
+                                                       "the registered validator threw: "
+                                                       #?(:clj (.getMessage e) :cljs (ex-message e))
+                                                       ". The completion proceeds (best-effort).")
+                                        :schema   schema
+                                        :rollback? false})
+                    true)
+                :rf/stale-incarnation))))
         true)
       true)
     true))
