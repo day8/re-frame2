@@ -15,7 +15,7 @@ Each implementing PR pastes **only its own batch** (rows + that batch's amendmen
 
 Verified by grep against checked-in `spec/009-Instrumentation.md` 2026-07-12. **No future PR may re-add any of these as a new row** — the S5-arm ones take the amendments in §2.4 instead.
 
-### 1a. ui-program rows (16), all Channel `diagnostic`, contiguous block at catalogue rows 2279–2294
+### 1a. ui-program rows (17), all Channel `diagnostic`, in the compiled-ui catalogue block
 
 | Id | Landed via | Note |
 |---|---|---|
@@ -28,6 +28,7 @@ Verified by grep against checked-in `spec/009-Instrumentation.md` 2026-07-12. **
 | `:rf.error/ui-spread-outside-template` | S1 | — |
 | `:rf.error/ui-test-tier-mismatch` | S1d | — |
 | `:rf.error/ui-test-bad-selector` | S1d | — |
+| `:rf.error/ui-test-overlapping-act` | S2 Tier-3 Promise contract | forgotten-await guard; public overlap fails before a second React `act` or `with-root` allocation |
 | `:rf.error/ui-test-bad-opts` | S1d | — |
 | `:rf.error/ui-frame-root-outside-root-form` | S1c | — |
 | `:rf.error/duplicate-root-id` | S1c (build + client tiers) | Layer-2 server tier lands S5 — clause amendment §2.4 |
@@ -102,11 +103,12 @@ Amended trigger cell (append the bolded sentence block; the final emit sentence 
 
 Pastes with the ViewCell/commit-reconciler + epoch-close/flush slice and the S2 frame-chain slice. Source: [spec-006-observation-port-amendment.md](spec-006-observation-port-amendment.md) §Epoch finalization; 03 §3/§8/§11.
 
-**New rows (2):**
+**New rows (3):**
 
 | `:operation` | `:op-type` | Channel | Trigger / meaning | Default `:recovery` | `:tags` |
 |---|---| --- |---|---|---|
 | `:rf.error/flush-in-open-epoch` | `:error` | diagnostic | `ui.test/flush!` was called re-entrantly while a frame's run-to-completion event drain was still open. Rendering there could expose a partially settled queued write side. The call throws before draining ViewCell notifications or entering React `act`; dev/test only. Per [006 §Epoch finalization — the adapter-internal final phase](006-ReactiveSubstrate.md#the-internal-observation-port-adapter-internal) | `:no-recovery` — let the event drain reach quiescence, then flush once | `:frame`, `:frame-epoch`, `:recovery` |
+| `:rf.error/ui-test-overlapping-act` | `:error` | diagnostic | A public CLJS `with-root`/`flush!` operation began while a prior Promise-backed React `act` was pending — normally a forgotten await. Throws synchronously before a second `act`; `with-root` checks before allocation. Private teardown remains serialized so the misuse cannot strand an owner | `:await-the-prior-operation` — await every mounted-test Promise before asserting or starting another operation | `:active-where`, `:recovery` |
 | `:rf.warning/cross-frame-carried-op` | `:warning` | diagnostic | A CARRIED frame ops map's `subscribe` ran under a DIFFERENT ambient frame than the one it was captured from — the `(frame)` hold's honesty rule (03 §8): a carried ops map *can* be used under a foreign frame's subtree, so the frames-are-isolated doctrine is held by this diagnostic, by teaching subtree scoping, and by the absence of any cross-frame read *spelling* — never by a false impossibility claim. Per the Spec 004 rewrite §Roots and mounting + [002 §Frame target resolution](002-Frames.md#frame-target-resolution--the-carried-invariant) `[CONFIRM-AT-LANDING — final cross-ref anchor once the rewrite merges]` | `:warned-and-continued` — the op proceeds against the CAPTURED (origin) frame; advisory only. Restructure with `frame-provider` subtree scoping, or pass values not ops `[CONFIRM-AT-LANDING — recovery keyword]` | `:origin-frame`, `:ambient-frame`, `:rf.sub/query-v` `[CONFIRM-AT-LANDING]` |
 
 **Batch housekeeping:** `:rf.error/ui-dispatch-unwired` retires when committed-frame dispatch lands ("Replaced by committed-frame dispatch at S2/S3" — its own row text). If dispatch wiring rides the S3 slice instead, the retirement moves to the §2.3 paste; whichever PR deletes the stub carries the retirement. Same strikethrough mechanics as §2.1.
@@ -211,7 +213,7 @@ Pastes with the S6 migration-wave slice (`ui/->react`). Source: [reagent-compat-
 
 Grep run 2026-07-12 09:19 AUSEST against checked-in `spec/009-Instrumentation.md` (row-start pattern `^\| \`:<id>`):
 
-- **Zero occurrences (safe to add as new rows):** `read-after-release`, `reentrant-graph-op`, `observation-port-version-mismatch`, `flush-in-open-epoch`, `dispatch-disconnected`, `view-not-found`, `frame-payload-invalid`, `root-hydration-mismatch`, `root-render-failed`, `ssr-static-root-requires-runtime`, `compat-camelised-prop`, `unregistered-event-id`, `placeholder-in-dynamic-vector`, `cross-frame-carried-op`, `render-phase-dispatch`, `render-phase-set!` (the two S5 SSR spellings re-verified 2026-07-12, completeness pass: 0 occurrences each in checked-in 009; `:rf.ssr/suspense-boundary-failed` row at line 1911 is the channel/shape precedent for `root-render-failed`).
+- **Zero occurrences at draft time (safe to add as new rows):** `read-after-release`, `reentrant-graph-op`, `observation-port-version-mismatch`, `flush-in-open-epoch`, `ui-test-overlapping-act`, `dispatch-disconnected`, `view-not-found`, `frame-payload-invalid`, `root-hydration-mismatch`, `root-render-failed`, `ssr-static-root-requires-runtime`, `compat-camelised-prop`, `unregistered-event-id`, `placeholder-in-dynamic-vector`, `cross-frame-carried-op`, `render-phase-dispatch`, `render-phase-set!` (the two S5 SSR spellings re-verified 2026-07-12, completeness pass: 0 occurrences each in checked-in 009; `:rf.ssr/suspense-boundary-failed` row at line 1911 is the channel/shape precedent for `root-render-failed`). `flush-in-open-epoch` and `ui-test-overlapping-act` have since landed in the checked-in S2 catalogue.
 - **Mentioned in prose, no row (safe to add):** `ssr-ui-tree-version-unsupported` (1 mention, inside the `ui-tree-malformed` row).
 - **Exactly one row each (amend, never re-add):** the eight register entries above.
 - **`:rf.ui.compile/*`:** 2 prose mentions, 0 rows — the compile-error-ids-are-not-catalogue-rows precedent (§2.3 note).

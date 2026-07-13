@@ -462,7 +462,8 @@ locators, three-layer fail-loud duplicate/conflict detection, and the accepted
   contract, per-root failure isolation, and the static-root explicit policy are owned by
   [011](011-SSR.md); Root Descriptor v1 (above) is this Spec's compile-time subset of
   that manifest.
-- `ui.test/flush!` is the only test flush (per [008](008-Testing.md)).
+- `ui.test/flush!` is the only test flush (per [008](008-Testing.md)); on CLJS its
+  zero/thunk arities and `with-root` are Promise boundaries and must be awaited.
 
 ## View identity and the instrumentation surface
 
@@ -490,6 +491,7 @@ path + generation, released/remounted on ambiguity.
 - **One catalogue.** The evidence schemas, trace ops, and every error/warning id this
   Spec names (`:rf.error/dispatch-disconnected`, `:rf.error/view-not-found`,
   `:rf.error/frame-payload-invalid`, `:rf.error/flush-in-open-epoch`,
+  `:rf.error/ui-test-overlapping-act`,
   `:rf.error/jvm-host-op`, `:rf.warning/unregistered-event-id`,
   `:rf.warning/placeholder-in-dynamic-vector`, `:rf.warning/cross-frame-carried-op`,
   `:rf.warning/render-phase-dispatch` / `-set!`, and the compile-error roster) get
@@ -691,7 +693,7 @@ order and is a defect in this table.
 | §Roots and mounting — mount grammar, root identity, Root Descriptor v1, client host fns, duplicate Layers 1+3, static frame-plan extraction | **S1** | the [004C-Roots-and-Mount.md](004C-Roots-and-Mount.md) §10 S1 row |
 | §Roots and mounting — frame preflight ENSURE (runtime) + `frame-root`/`frame-provider` scoping | **S2** | preflight-exactly-once, non-reseed, StrictMode/HMR-immune fixtures |
 | §Roots and mounting — hydration + Root Manifest v1 | **S5** | manifest extension keys; multi-root hydration + failed-root isolation |
-| `ui.test` surfaces this Spec references | **S1** core (render/find/find-all/text/attrs/frame over Tier-1 trees; `query` enforces the tier split) → **S2** mounted semantics (`dispatch!`, `with-root`, native-CSS `query`, sole test `flush!`; platform APIs for already-host-owned DOM mechanics, no gesture DSL) → **S4** `flush-presence!` | selector-grammar fixtures; JVM-subset enforcement; real React mount/query/total-teardown/open-drain/fixed-point fixtures. Compiled event-vector delivery through native events rides the S3 handler row, not the S2 mount surface |
+| `ui.test` surfaces this Spec references | **S1** core (render/find/find-all/text/attrs/frame over Tier-1 trees; `query` enforces the tier split) → **S2** mounted semantics (`dispatch!`; Promise-backed `with-root`; native-CSS `query`; Promise-backed zero/thunk `flush!` on CLJS, synchronous nil on JVM; platform APIs for already-host-owned DOM mechanics, no gesture DSL) → **S4** `flush-presence!` | selector-grammar fixtures; JVM-subset enforcement; real React mount/query/total-teardown/open-drain/forgotten-await/fixed-point fixtures. Compiled event-vector delivery through native events rides the S3 handler row, not the S2 mount surface |
 | §View identity and the instrumentation surface | **S3** → budget/absence gates complete **S6** | manifests, instance records, cause vectors, Xray consumption (compile-time site anchors exist from S1; the evidence schema asserts S3); production erasure G-7/G-11 |
 | §The JVM structural subset — structure/props/branches/lists/event intent/`ui/html` + `:rf.error/jvm-host-op` | **S1** | Tier-1 rendering against the tree contract |
 | §The JVM structural subset — subs via the pure snapshot path | **S2** | the Q32/Q22 answer: `sub` *grammar* compiles at S1, but no Stage-1 Tier-1 fixture exercises a sub read — a Tier-1 render through a sub site (frame or `:sub-overrides`) is an S2 assertion |

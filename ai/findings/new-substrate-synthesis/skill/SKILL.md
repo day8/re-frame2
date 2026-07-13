@@ -424,10 +424,16 @@ Props compare by value (`rf=`, per slot) to decide re-renders:
   (itself queryable) or `nil` — a miss threads through to a clean
   `nil ≠ expected` failure.
 - `dispatch!` drives Tier-1 state: real dispatch + drain to fixed point —
-  re-render and assert; no flush call needed. `flush!` (act + epoch drain +
-  commit; this global spelling is test-only) belongs to the Tier-3 mounted
-  vocabulary with `with-root` + `query` (native CSS) + ordinary DOM
-  `dispatchEvent` calls;
+  re-render and assert; no flush call needed. On CLJS, Tier-3 `with-root`
+  and both `(flush!)` / `(flush! thunk)` return Promises. `with-root` awaits
+  initial mount, the body value/Promise, and total teardown; prefer the thunk
+  flush so the write runs inside direct React 19 `act`, then await the one
+  Promise through the framework/React fixed point. In `cljs.test`, use
+  `async done` and explicit `.then` success + rejection callbacks — never a
+  bare returned Promise. Await before asserting or beginning another mounted
+  operation; otherwise `:rf.error/ui-test-overlapping-act` fails loudly.
+  JVM `flush!` is synchronous and returns nil. Tier-3 also carries `query`
+  (native CSS) + ordinary DOM `dispatchEvent` calls;
   `flush-presence!` advances presence ⏳S4. Reach for Tier-3 only when DOM
   mechanics are the subject.
 - **The `.cljc` law:** Tier-1 requires the events/subs a view touches to be
@@ -444,7 +450,8 @@ Props compare by value (`rf=`, per slot) to decide re-renders:
   path IS the REPL path — no frame re-seeding, stable shells.
 - The compiler and runtime throw **named, catalogued, didactic** errors
   (`:rf.error/ui-tree-malformed`, `ui-duplicate-key`, `ui-test-bad-selector`,
-  `frame-payload-conflict`, `no-frame-context`, …). The error text teaches
+  `ui-test-overlapping-act`, `frame-payload-conflict`, `no-frame-context`, …).
+  The error text teaches
   the fix — read it, fix the shape it names, never wrap around it.
 
 ## Staged-surface ledger (strip tags at promotion)

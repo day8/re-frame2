@@ -241,7 +241,12 @@ Optional. **Synchronously** commits the substrate's pending renders to the surfa
 
 **Why this is a contract fn, not a test helper.** The reference substrates schedule re-renders through a `requestAnimationFrame`-style tick that fires *after* an evaluated `dispatch` returns and is throttled to ~never in a backgrounded / unfocused tab. A tool that drives `dispatch` and then wants to observe the *rendered* result therefore cannot rely on the scheduled commit ever arriving. `flush-render!` runs through the host's **synchronous-commit** API (it is NOT rAF-scheduled), so it fires even headless and even when the tab is backgrounded — letting headless tooling drive a `dispatch → flush-render! → observe-settled-DOM` loop deterministically. This is the framework capability the Tool-Pair headless view-lifecycle driving depends on (see [Tool-Pair §Driving the render](Tool-Pair.md), consumed by the pair MCP's *dispatch-and-settle* op).
 
-This is **distinct** from a test-only flush. The CLJS reference also ships `flush-views!` on every React-substrate adapter (Reagent, reagent-slim, UIx, Helix) — a wrapper around React's `act()` intended for test code; `flush-render!` is the production-grade contract surface every adapter implements, callable from app or tooling code with no `act()` test-environment opt-in.
+This is **distinct** from a test-only flush. The compatibility React adapters (Reagent,
+reagent-slim, UIx, Helix) ship their own `flush-views!` wrappers. The first-party
+compiled substrate deliberately does not put a test helper on `re-frame.ui/adapter`:
+`re-frame.ui.test/flush!` is the dev/test-scoped Promise boundary around direct React 19
+`act`. `flush-render!` remains the production-grade adapter-contract surface, callable
+from app or tooling code with no `act()` test-environment opt-in.
 
 `flush-render!` must be **no-op-safe**: calling it when nothing is pending does no harm and returns `nil`. An adapter that renders without a live host commit (the plain-atom / SSR adapters render to a string, never to a live surface) ships no `flush-render!` at all; the core's delegation then no-ops.
 
@@ -277,6 +282,18 @@ Called by the core when the runtime shuts down (process exit, test-frame teardow
 2. Release any host-specific resources (DOM event listeners, websocket subscribers, timers).
 3. Discard internal caches.
 4. Make subsequent calls to other adapter functions return `:rf.error/adapter-disposed` (or throw, host-dependent).
+
+For the first-party `re-frame.ui/adapter`, host resources include **every public
+compiled Root** in `re-frame.ui`'s client registry, not only Roots created by the
+generic React spine. Disposal fences new public Root creation, snapshots one exact
+generation, and attempts every Root in that snapshot even if a sibling throws. It never
+refreshes the snapshot or chases a same-id replacement it did not acquire. Each exact
+incarnation releases its registry claim, ViewCells, and observation leases; a throwing
+host unmount remains observable but cannot strand siblings. If React consumed a
+throwing Root handle before clearing its container, the adapter clears the remaining
+DOM and the pinned React container-ownership marker so a subsequent `rf/init!` can
+mount the same root-id into the same container. The first cleanup error stays primary;
+later cleanup failures remain attached as diagnostic evidence.
 
 The adapter is single-use after disposal; restart requires `(install-adapter!)` again.
 
@@ -1298,12 +1315,13 @@ mark of the drain, cannot run until the synchronous drain unwinds, so it fires s
 **after** drain quiescence — at the event loop's microtask checkpoint, which runs
 **before** the next paint — never between two queued events of the same drain, and always
 before a torn frame can show (rf2-vxgfnd.40). The headless (JVM/SSR) host has no async
-render loop and drains through the explicit test flush. `ui.test/flush!` drains the
-framework registry to quiescence under React `act`, then lets React settle the one
-read/render batch; it is the sole public test flush and has no public `re-frame.ui`
-twin. A call while an event drain is still open throws
-`:rf.error/flush-in-open-epoch` before notifications or host work, carrying the active
-`:frame` and `:frame-epoch` (per
+render loop and drains through the explicit test flush. On CLJS,
+`ui.test/flush!` returns a Promise; its optional thunk runs inside direct React 19
+`act`, then framework drains and React commits alternate until both are quiescent. On
+the JVM the zero-arity flush is synchronous and returns nil. It is the sole public test
+flush and has no public `re-frame.ui` twin. A call while an event drain is still open
+throws `:rf.error/flush-in-open-epoch` synchronously before Promise construction,
+notifications, or host work, carrying the active `:frame` and `:frame-epoch` (per
 [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)). The
 adapter's distinct production/tooling `flush-render!` contract is unchanged.
 
