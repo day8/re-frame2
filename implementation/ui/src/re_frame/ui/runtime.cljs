@@ -97,7 +97,7 @@
   registrar success. A registrar throw rolls the prepared slot back, advancing
   neither body revision nor remount generation."
   [id render-fn compare-fn display-name manifest]
-  (let [{:rf.ui.hmr/keys [outer inner]}
+  (let [{:keys [outer inner]}
         (reactive/ensure-view-shells! id #(make-view-shells id))
         descriptor {:render-fn render-fn
                     :compare-fn compare-fn

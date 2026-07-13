@@ -610,13 +610,13 @@ const DEV_ONLY_SENTINELS = [
   // graph unreachable: revision/remount store, listeners, dynamic descriptor
   // lookup, and the keyed inner Fiber disappear together.
   { source: 're-frame.ui Fast Refresh slot (body revision/listener store)',
-    sentinel: 'rf.ui.hmr/body-revision' },
+    sentinel: 'hmr-body-revision' },
   { source: 're-frame.ui Fast Refresh slot (hook-incompatibility remount key)',
-    sentinel: 'rf.ui.hmr/remount-generation' },
+    sentinel: 'hmr-remount-generation' },
   { source: 're-frame.ui Fast Refresh slot (dynamic descriptor lookup)',
-    sentinel: 'rf.ui.hmr/descriptor' },
+    sentinel: 'hmr-descriptor' },
   { source: 're-frame.ui Fast Refresh slot (stable inner extra Fiber)',
-    sentinel: 'rf.ui.hmr/inner' }
+    sentinel: 'hmr-inner' }
   // Note (rf2-7yqn39): the :rf.warning/plain-fn-under-non-default-frame-
   // once warning + its emit helper were RETIRED (EP-0002; superseded by
   // the always-on :rf.error/no-frame-context). There is no longer any

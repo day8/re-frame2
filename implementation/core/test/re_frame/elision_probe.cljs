@@ -811,7 +811,7 @@
 ;;
 ;; This actual defview roots both emitter arms in the DEBUG=true control build.
 ;; In production the explicit goog.DEBUG branch must collapse to the direct
-;; React.memo arm. The `:rf.ui.hmr/*` slot keys are therefore absent only when
+;; React.memo arm. The private HMR slot keys are therefore absent only when
 ;; the slot, listener store, dynamic descriptor lookup, and extra inner Fiber
 ;; machinery all became unreachable together.
 

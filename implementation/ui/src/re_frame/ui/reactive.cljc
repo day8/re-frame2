@@ -406,7 +406,7 @@
 ;; all listener/dynamic-descriptor machinery unreachable to Closure DCE.
 
 (defonce ^:private view-generations
-  ;; view-id -> one atomic :rf.ui.hmr/* slot. `defonce` survives namespace
+  ;; view-id -> one atomic private HMR slot. `defonce` survives namespace
   ;; reload. `reset-scheduler!` deliberately NEVER clears it: already-exported
   ;; stable shells retain this slot as their live render authority.
   (atom {}))
@@ -422,18 +422,19 @@
   [view-id make-shells]
   (let [slots (swap! view-generations update view-id
                      (fn [slot]
-                       (if (:rf.ui.hmr/outer slot)
+                       (if (:hmr-outer slot)
                          slot
                          (let [{:keys [outer inner]} (make-shells)]
-                           (merge {:rf.ui.hmr/registered?       false
-                                   :rf.ui.hmr/body-revision     -1
-                                   :rf.ui.hmr/remount-generation 0
-                                   :rf.ui.hmr/listeners         {}}
+                           (merge {:hmr-registered?       false
+                                   :hmr-body-revision     -1
+                                   :hmr-remount-generation 0
+                                   :hmr-listeners         {}}
                                   slot
-                                  {:rf.ui.hmr/outer outer
-                                   :rf.ui.hmr/inner inner})))))]
-    (select-keys (get slots view-id)
-                 [:rf.ui.hmr/outer :rf.ui.hmr/inner])))
+                                  {:hmr-outer outer
+                                   :hmr-inner inner})))))]
+    (let [slot (get slots view-id)]
+      {:outer (:hmr-outer slot)
+       :inner (:hmr-inner slot)})))
 
 (defn prepare-view-descriptor!
   "Prepare a descriptor/revision publication without notifying mounted shells.
@@ -452,21 +453,21 @@
         [old-slots slots]
         (swap-vals! view-generations update view-id
                     (fn [slot]
-                      (let [registered? (boolean (:rf.ui.hmr/registered? slot))
+                      (let [registered? (boolean (:hmr-registered? slot))
                             changed?    (and registered?
                                              (not= hook-signature
-                                                   (:rf.ui.hmr/hook-signature slot)))]
-                        (-> (merge {:rf.ui.hmr/body-revision      -1
-                                    :rf.ui.hmr/remount-generation 0
-                                    :rf.ui.hmr/listeners          {}}
+                                                   (:hmr-hook-signature slot)))]
+                        (-> (merge {:hmr-body-revision      -1
+                                    :hmr-remount-generation 0
+                                    :hmr-listeners          {}}
                                    slot)
-                            (assoc :rf.ui.hmr/registered? true
-                                   :rf.ui.hmr/hook-signature hook-signature
-                                   :rf.ui.hmr/descriptor descriptor
-                                   :rf.ui.hmr/publication-token publication-token)
-                            (update :rf.ui.hmr/body-revision inc)
+                            (assoc :hmr-registered? true
+                                   :hmr-hook-signature hook-signature
+                                   :hmr-descriptor descriptor
+                                   :hmr-publication-token publication-token)
+                            (update :hmr-body-revision inc)
                             (cond-> changed?
-                              (update :rf.ui.hmr/remount-generation inc))))))
+                              (update :hmr-remount-generation inc))))))
         prepared (get slots view-id)]
     {:view-id view-id
      :publication-token publication-token
@@ -484,15 +485,15 @@
         (swap-vals! view-generations update view-id
                     (fn [slot]
                       (if (identical? publication-token
-                                      (:rf.ui.hmr/publication-token slot))
-                        (dissoc slot :rf.ui.hmr/publication-token)
+                                      (:hmr-publication-token slot))
+                        (dissoc slot :hmr-publication-token)
                         slot)))
         current-before (get old-slots view-id)
         committed? (identical? publication-token
-                                (:rf.ui.hmr/publication-token current-before))
+                                (:hmr-publication-token current-before))
         published (get slots view-id)]
     (when committed?
-      (doseq [listener (vals (:rf.ui.hmr/listeners published))]
+      (doseq [listener (vals (:hmr-listeners published))]
         (listener)))
     published))
 
@@ -508,10 +509,10 @@
         (swap! view-generations update view-id
                (fn [slot]
                  (if (identical? publication-token
-                                 (:rf.ui.hmr/publication-token slot))
+                                 (:hmr-publication-token slot))
                    (assoc (or before {})
-                          :rf.ui.hmr/listeners
-                          (:rf.ui.hmr/listeners slot {}))
+                          :hmr-listeners
+                          (:hmr-listeners slot {}))
                    slot)))]
     (get slots view-id)))
 
@@ -530,10 +531,10 @@
   `register-view-descriptor!`. Returns BODY REVISION. It never creates a second
   authority: the existing descriptor (if any) is republished in the one slot."
   [view-id hook-signature]
-  (:rf.ui.hmr/body-revision
+  (:hmr-body-revision
    (register-view-descriptor!
     view-id hook-signature
-    (get-in @view-generations [view-id :rf.ui.hmr/descriptor]))))
+    (get-in @view-generations [view-id :hmr-descriptor]))))
 
 (defn view-generation
   "The current BODY REVISION for `view-id` (0 when never registered). Kept
@@ -541,7 +542,7 @@
   the remount key."
   [view-id]
   (max 0 (get-in @view-generations
-                 [view-id :rf.ui.hmr/body-revision]
+                 [view-id :hmr-body-revision]
                  0)))
 
 (defn registered-view-revision
@@ -549,25 +550,25 @@
   nil when the test/direct-call path has no registered slot."
   [view-id]
   (let [slot (get @view-generations view-id)]
-    (when (:rf.ui.hmr/registered? slot)
-      (:rf.ui.hmr/body-revision slot))))
+    (when (:hmr-registered? slot)
+      (:hmr-body-revision slot))))
 
 (defn view-remount-generation
   "The current hook-incompatibility remount key for `view-id` (tool/test read)."
   [view-id]
-  (get-in @view-generations [view-id :rf.ui.hmr/remount-generation] 0))
+  (get-in @view-generations [view-id :hmr-remount-generation] 0))
 
 (defn view-descriptor
   "The current implementation descriptor for `view-id` (dev render path)."
   [view-id]
-  (get-in @view-generations [view-id :rf.ui.hmr/descriptor]))
+  (get-in @view-generations [view-id :hmr-descriptor]))
 
 (defn view-shells
   "The stable `{:outer :inner}` identities for `view-id` (tool/test read)."
   [view-id]
   (let [slot (get @view-generations view-id)]
-    {:outer (:rf.ui.hmr/outer slot)
-     :inner (:rf.ui.hmr/inner slot)}))
+    {:outer (:hmr-outer slot)
+     :inner (:hmr-inner slot)}))
 
 (defn subscribe-view!
   "Subscribe `listener` to successful body publications for `view-id`; return
@@ -576,10 +577,10 @@
   [view-id listener]
   (let [k (gensym "rf-ui-hmr-listener")]
     (swap! view-generations assoc-in
-           [view-id :rf.ui.hmr/listeners k] listener)
+           [view-id :hmr-listeners k] listener)
     (fn unsubscribe []
       (swap! view-generations update-in
-             [view-id :rf.ui.hmr/listeners] dissoc k))))
+             [view-id :hmr-listeners] dissoc k))))
 
 (defn advance-generation!
   "Advance a LIVE `cell` to a newer BODY REVISION before capture. A revision
