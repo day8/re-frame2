@@ -12,22 +12,27 @@
 UIx, no Helix.
 
 The compiler owns one whole-build view digest. For Shadow 3.4.10, configure its two
-load-bearing build defaults once (not once per build):
+load-bearing settings once (not once per build):
 
 ```clojure
 ;; shadow-cljs.edn
-{:build-defaults
- {:cache-blockers #{re-frame.ui}
-  :build-hooks [(re-frame.ui.compiler.build-hook/hook)]}
+{:cache-blockers #{re-frame.ui}
+ :build-defaults
+ {:build-hooks [(re-frame.ui.compiler.build-hook/hook)]}
  ;; :builds ...
  }
 ```
 
-The cache blocker re-expands view macros on a warm daemon start; the hook publishes the
-successfully finalized whole-build digest to the dev client at `:compile-finish`. Omitting
-either can produce an incomplete compiler view of the build, so a hookless dev bundle
-fails loudly instead of hydrating or debugging against a false identity. Both mechanisms
-are compiler/dev machinery and disappear from advanced production output.
+On a daemon's version-zero pass, the hook clears retained output for UI macro consumers;
+the cache blocker then prevents a stale disk-cache reload, so those macros reconstruct the
+accepted registry. Later output-present cache hits stay warm. The hook carries a candidate
+digest in Shadow's returned functional build-state and patches the dev client carrier;
+Shadow accepts both only when the complete configured build/watch pass succeeds. Omitting
+either can produce an incomplete compiler view of the build, so a misconfigured dev bundle
+fails loudly instead of hydrating or debugging against a false identity. Direct
+unsaved REPL evaluation may replace a view body but does not change the build digest until
+the source is saved and the next pass completes. All of this machinery disappears from
+advanced production output.
 
 ## The whole app
 

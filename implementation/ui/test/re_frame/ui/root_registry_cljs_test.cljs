@@ -10,8 +10,6 @@
             [re-frame.error :as error]
             [re-frame.registrar :as registrar]
             [re-frame.ui.client :as client]
-            [re-frame.ui.digest-carrier :as digest-carrier]
-            [re-frame.ui.fingerprint :as fingerprint]
             [re-frame.ui.runtime :as runtime]))
 
 (use-fixtures :each
@@ -574,29 +572,14 @@
 ;; authority.
 ;; ---------------------------------------------------------------------------
 
-(defn- reg-view!
-  ([id tf hs]
-   (runtime/register-view! id (fn [_])
-                           {:template-fingerprint tf :hook-signature hs}))
-  ([id tf hs repl-digest]
-   (runtime/register-view! id (fn [_])
-                           {:template-fingerprint tf :hook-signature hs}
-                           repl-digest)))
-
-(defn- expected-digest []
-  (fingerprint/build-digest
-   (map (fn [[id meta]]
-          (let [m (:rf.ui/manifest meta)]
-            [id (:template-fingerprint m) (:hook-signature m)]))
-        (registrar/registrations :view))))
+(defn- reg-view! [id tf hs]
+  (runtime/register-view! id (fn [_])
+                          {:template-fingerprint tf :hook-signature hs}))
 
 (deftest client-descriptor-projects-the-build-digest
-  (let [prior (client/current-build-digest)]
+  (let [published (client/current-build-digest)]
     (reg-view! ::a "tf1-aaaaaaaaaaaaaaaa" "hs1-0000000000000000")
     (reg-view! ::b "tf1-bbbbbbbbbbbbbbbb" "hs1-0000000000000000")
-    ;; Represent compile-finish's output projection directly in this client-
-    ;; only suite. The JVM hook suite proves the actual Shadow state rewrite.
-    (digest-carrier/install! (expected-digest))
     (try
       (let [core {:rf.root/schema-version 1 :root-id :page/shop :view-id ::a
                   :props-shape :dynamic}]
@@ -612,45 +595,34 @@
                 "the static core is unchanged; the digest is the only addition")
             (is (str/starts-with? (:build-digest complete) "bd1-"))
             (is (= (client/current-build-digest) (:build-digest complete)))
-            (is (= (expected-digest) (:build-digest complete))
-                "byte-identical to the compiler-published digest")))
+            (is (= published (:build-digest complete))
+                "runtime registrar membership cannot change compiler identity")))
         (testing "descriptor-index projects the SAME digest onto every live root"
           (let [idx (client/descriptor-index)]
             (is (= core (dissoc (get idx :page/shop) :build-digest)))
             (is (= (client/current-build-digest)
                    (:build-digest (get idx :page/shop)))))))
       (finally
-        (digest-carrier/install! prior)
         (registrar/unregister! :view ::a)
         (registrar/unregister! :view ::b)))))
 
-(deftest no-pass-repl-registration-advances-carrier-without-mount-reexpansion
-  ;; File/watch HMR is patched at compile-finish (the JVM hook suite). A no-pass
-  ;; REPL eval has no hook, so its emitted registration carries the compiler's
-  ;; immediately committed digest and installs it here.
-  (let [prior (client/current-build-digest)
-        d1 (fingerprint/build-digest
-            [[::v "tf1-1111111111111111" "hs1-0000000000000000"]])]
-    (reg-view! ::v "tf1-1111111111111111" "hs1-0000000000000000" d1)
+(deftest no-pass-repl-registration-does-not-advance-build-digest
+  ;; Option C: direct REPL evaluation may replace the live view body, but only
+  ;; the next successful configured file/watch pass may publish build identity.
+  (let [published (client/current-build-digest)]
+    (reg-view! ::v "tf1-1111111111111111" "hs1-0000000000000000")
     (try
       (let [core {:rf.root/schema-version 1 :root-id :page/v :view-id ::v}]
         (client/register-live-root!
          {:root-id :page/v :provenance :authored :descriptor core}
          (js-obj) (fake-root :page/v))
-        (let [observed-1 (:build-digest (client/descriptor :page/v))
-              next-digest
-              (fingerprint/build-digest
-               [[::v "tf1-2222222222222222" "hs1-0000000000000000"]])]
+        (let [observed-1 (:build-digest (client/descriptor :page/v))]
           ;; The REPL re-evaluates the view only; the mount site does not run.
-          (reg-view! ::v "tf1-2222222222222222" "hs1-0000000000000000"
-                     next-digest)
+          (reg-view! ::v "tf1-2222222222222222" "hs1-0000000000000000")
           (let [observed-2 (:build-digest (client/descriptor :page/v))]
-            (is (= d1 observed-1))
-            (is (= next-digest observed-2))
-            (is (not= observed-1 observed-2)
-                "the emitted REPL registration installed the new compiler digest")
+            (is (= published observed-1 observed-2)
+                "unsaved REPL registration never mutates the carrier")
             (is (= core (:descriptor (client/live-root-entry :page/v)))
                 "the mount site never re-expanded — the static core is untouched"))))
       (finally
-        (digest-carrier/install! prior)
         (registrar/unregister! :view ::v)))))

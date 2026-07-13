@@ -2,10 +2,10 @@
   "The dev-only client carrier for the compiler-owned whole-build digest.
 
   The Shadow build hook replaces the one fixed-width sentinel in this
-  namespace's compiled `[:output resource-id :js]` at `:compile-finish`, before
-  compiler state commits. Runtime readers are O(1): they read this single slot
-  and never walk the registrar. A no-pass REPL defview evaluation installs its
-  newly committed compiler digest through `install!`.
+  namespace's compiled `[:output resource-id :js]` at `:compile-finish`, then
+  the candidate snapshot is carried in the returned functional build-state.
+  Runtime readers are O(1): they read this single slot and never walk the
+  registrar. Direct no-pass REPL evaluation never mutates this slot.
 
   Every operation is goog.DEBUG-gated. Closure removes the slot, sentinel,
   validation and accessors from advanced production output."
@@ -18,15 +18,6 @@
 (def ^:private state
   (when ^boolean js/goog.DEBUG
     #js {:digest "__RF2_UI_DIGEST_XX__"}))
-
-(defn install!
-  "Install compiler-finalized `digest` after a successful no-pass REPL defview
-  evaluation. Ordinary file/watch builds receive their digest by output
-  projection and never call this path. Dev-only; a production no-op."
-  [digest]
-  (when ^boolean js/goog.DEBUG
-    (set! (.-digest state) digest))
-  nil)
 
 (defn current
   "Return the compiler-published whole-build digest in dev, nil in production.

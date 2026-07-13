@@ -1,40 +1,21 @@
 (ns re-frame.ui.compiler.build
-  "The ONE build-scoped compiler-state authority, keyed PER shadow build id
-  (rf2-vxgfnd.16 → rf2-df9873).
+  "The build-scoped compiler registries and Option-C acceptance transaction.
 
-  The S1 compiler runs inside a long-lived JVM (the shadow-cljs daemon, a
-  REPL, a whole test run). Its build registries — view digests, the
-  Layer-1 root-site and frame-plan indexes, the Root Descriptor index,
-  the compile-time custom-element declarations — MUST be a pure function
-  of the CURRENT build inputs, never of process history. Recompiling,
-  editing, renaming, or deleting a source has to leave those registries
-  exactly as a clean process would: the process lifetime is NOT the build
-  lifetime.
+  A real Shadow build carries its own state. Its retained `:compiler-env`
+  contains one accepted `{build-id registries digest version}` snapshot and,
+  only while compiling, disposable scratch. Macro expansion mutates scratch
+  through the bound `cljs.env/*compiler*` atom. Compile finish returns a new
+  build-state containing the candidate snapshot; Shadow retaining that value
+  after the entire configured pipeline succeeds IS the commit. A later
+  optimize/check/flush/watch failure discards it. There is no process-global
+  latest-build atom and no private completion callback.
 
-  One daemon compiles `re-frame.ui` for MULTIPLE builds at once
-  (`:node-test`, `:node-test-ui`, `:ui-bench`, browser builds). The prior
-  model held a single GLOBAL build-id and WIPED on switch, so two builds
-  compiling the same namespaces wiped each other's registries — regressing
-  cross-file duplicate detection. This model keys everything PER build id,
-  so independent builds are isolated by construction and never cross-
-  contribute.
+  One daemon can compile many build ids concurrently because each build's
+  functional state and compiler-env are independent. JVM tooling outside a
+  compiler binding must pass the explicit retained build-state it wants to
+  read (`accepted-snapshot`, `accepted-aggregate`, `accepted-build-digest`).
 
-  ## Build identity comes from the compiler env, not a hook
-
-  A contribution's owning build is read AMBIENTLY from the per-thread CLJS
-  compiler env (`cljs.env/*compiler*` -> `:shadow.build.cljs-bridge/state`
-  -> `:shadow.build/build-id`) — correct even under shadow's default
-  PARALLEL compile, where each build's analysis threads carry that build's
-  compiler env. Lifecycle hooks own ONLY pass BOUNDARIES (begin / commit /
-  abort); they never assign identity. Outside a real compile (a REPL, the
-  plain-JVM `clojure -M:test` path) identity falls back to the id the most
-  recent `begin-build!` opened, then to `::default`; tests/REPL can pin it
-  with the `*build-id*` dynamic.
-
-  ## The one atom + pure transitions
-
-  ONE atom holds `{build-id -> slice}`; every mutation is a single `swap!`
-  with a PURE transition. A slice:
+  A compile slice has the shape:
 
     {:pass-open? bool
      :authoritative-members #{ns ...} | nil
@@ -47,45 +28,20 @@
   only, so a REPL pseudo-file never forges a false duplicate and Windows
   path normalization is a non-issue).
 
-  A registry's OBSERVABLE aggregate (`aggregate`) is the EFFECTIVE view:
-  committed rows of sources NOT touched this pass, PLUS the staged rows of
-  the sources that re-ran. So a source's whole prior contribution is
-  superseded ATOMICALLY the moment it re-declares (touched → its committed
-  rows drop out of the effective view), and a pass that ABORTS discards its
-  staging and republishes the committed last-known-good untouched.
+  The effective aggregate is accepted rows of untouched sources plus staged
+  rows for sources recompiled in this pass. Source replacement and every
+  collision check happen inside one compiler-env `swap!`, so parallel macro
+  expansion cannot create an evict/re-add gap or check/write race. Finish
+  commits touched rows and evicts sources absent from Shadow's authoritative
+  `:build-sources` graph; cache silence is never treated as deletion.
 
-  ## Pass boundaries (last-known-good publication)
+  Direct no-pass REPL contributions use a separate overlay seeded from the
+  accepted snapshot. They support immediate body/HMR diagnostics but never
+  change accepted registries or the digest; the next prepare clears the
+  overlay and seeds fresh scratch from accepted state.
 
-    (begin-build! [id ms]) a compile pass starts: open the pass, capture the
-                           optional authoritative member set, and DISCARD any
-                           staging a failed prior pass left (a successful pass
-                           committed at its close, so there is none).
-    (commit-build! [id])  the pass succeeded: every touched source REPLACES
-                          its committed contribution with what it staged
-                          (or is evicted if it staged nothing — a dropped
-                          declaration); untouched sources are kept.
-    (reconcile! [id])     a WHOLE-build pass ended: commit, THEN drop every
-                          committed source that did not re-declare (a
-                          deleted / renamed FILE). Sound only after a full
-                          pass; an incremental pass recompiles a SUBSET.
-    (finish-build! id ms) whole-build finalize against an AUTHORITATIVE
-                          member set (the shadow hook's `:build-sources`):
-                          commit, then drop committed sources absent from
-                          `ms`. Safe on EVERY pass — macro silence is never
-                          the deletion signal.
-    (abort-build! [id])   the pass failed: discard staging, keep committed.
-    (reset-build!)        hard-clear every slice — the clean-build /
-                          test-isolation boundary.
-
-  With NO pass open (a REPL form eval; the plain-JVM test path) a
-  contribution UPSERTS per-key straight into committed (no begin/commit
-  cycle, no sibling eviction) — the RULED REPL posture. A deletion made by
-  a bare REPL re-eval converges at the next watch pass; no design can
-  observe an unsaved deletion.
-
-  Every check-then-act (the Layer-1 duplicate/conflict indexes) runs INSIDE
-  one `swap!` via `contribute-checked!`, so parallel namespace compilation
-  can never expose an evict-then-readd gap or a check-then-assoc race."
+  `state` plus begin/commit/abort below remain only as a plain-JVM/test harness
+  for the same pure slice transitions. They are not Shadow build authority."
   (:require [re-frame.ui.fingerprint :as fingerprint]))
 
 ;; ---------------------------------------------------------------------------
@@ -113,8 +69,9 @@
    :touched #{}})
 
 (defonce ^{:private true
-           :doc "The ONE authority: build-id -> slice. Every registry, every
-  build, one atom, pure transitions."}
+           :doc "Plain-JVM/test fallback state only. Real Shadow builds keep
+  their accepted snapshot and disposable pass scratch in Shadow's functional
+  compiler-env; no successful-build authority lives in this process atom."}
   state (atom {}))
 
 (defonce ^{:private true
@@ -128,6 +85,63 @@
   "Explicit identity override (tests / REPL). Wins over the compiler env and
   the session fallback; bind it per-thread to drive interleaved builds."
   nil)
+
+;; These keys live in Shadow's retained `:compiler-env`. They are deliberately
+;; namespaced and data-only: Shadow's returned build-state is the transaction.
+;; A failed downstream optimize/check/flush/watch step discards that state, so
+;; an external last-known-good commit or private Shadow completion callback is
+;; neither needed nor permitted.
+(def accepted-snapshot-key ::accepted-snapshot)
+(def scratch-key ::scratch)
+(def repl-overlay-key ::repl-overlay)
+
+(defn- empty-snapshot [build-id]
+  {:build-id build-id
+   :registries {}
+   :digest (fingerprint/build-digest [])
+   :version 0})
+
+#?(:clj
+   (defn- compiler-env-atom []
+     (when-let [compiler-var (resolve 'cljs.env/*compiler*)]
+       (let [v @compiler-var]
+         (when (instance? clojure.lang.IAtom v) v)))))
+
+#?(:clj
+   (defn- shadow-compiler-state []
+     (when-let [a (compiler-env-atom)]
+       (let [s @a]
+         (when (contains? s :shadow.build.cljs-bridge/state) s)))))
+
+(defn accepted-snapshot
+  "Return the accepted re-frame.ui snapshot carried by an explicit Shadow
+  build-state/compiler-env. This is the only JVM read of a real build's
+  finalized registries and digest; callers must name the build-state they mean.
+  Returns an empty version-0 snapshot when the build has not yet succeeded."
+  [build-state-or-compiler-env]
+  (let [compiler-env (or (:compiler-env build-state-or-compiler-env)
+                         build-state-or-compiler-env)
+        build-id (or (get-in compiler-env [accepted-snapshot-key :build-id])
+                     (:shadow.build/build-id build-state-or-compiler-env)
+                     (get-in compiler-env
+                             [:shadow.build.cljs-bridge/state
+                              :shadow.build/build-id])
+                     ::default)]
+    (or (get compiler-env accepted-snapshot-key)
+        (empty-snapshot build-id))))
+
+(defn accepted-build-digest
+  "Digest of an explicit accepted Shadow build-state/compiler-env."
+  [build-state-or-compiler-env]
+  (:digest (accepted-snapshot build-state-or-compiler-env)))
+
+(defn accepted-aggregate
+  "Registry aggregate from an explicit accepted Shadow build-state/compiler-env.
+  Scratch and no-pass REPL overlay are intentionally invisible."
+  [reg-id build-state-or-compiler-env]
+  (reduce-kv (fn [m _src regs] (merge m (get regs reg-id)))
+             {}
+             (:registries (accepted-snapshot build-state-or-compiler-env))))
 
 ;; ---------------------------------------------------------------------------
 ;; Ambient build identity
@@ -204,12 +218,34 @@
      (fn [m src regs] (if (= src exclude) m (merge m (get regs reg-id))))
      committed (:staged slice))))
 
+#?(:clj
+   (defn- ambient-shadow-slice
+     "Effective disposable slice for the currently bound Shadow compiler.
+     During a file/watch pass this is `scratch`; during no-pass REPL work it is
+     an isolated overlay seeded from the accepted snapshot. Neither is an
+     accepted successful-build authority."
+     []
+     (when-let [compiler-state (shadow-compiler-state)]
+       (or (get compiler-state scratch-key)
+           (get compiler-state repl-overlay-key)
+           (assoc empty-slice
+                  :committed (:registries (accepted-snapshot compiler-state)))))))
+
+#?(:clj
+   (defn- ambient-accepted-slice []
+     (when-let [compiler-state (shadow-compiler-state)]
+       (assoc empty-slice
+              :committed (:registries (accepted-snapshot compiler-state))))))
+
 (defn aggregate
   "The ambient (or given) build's current aggregate for `reg-id` — the
   effective view (committed last-known-good for untouched sources plus the
   open pass's staged rows). A pure function of the current build inputs; the
   read every consumer uses in place of a bare atom deref."
-  ([reg-id] (aggregate reg-id (current-build-id)))
+  ([reg-id]
+   (if-let [slice #?(:clj (ambient-shadow-slice) :cljs nil)]
+     (effective slice reg-id ::none)
+     (aggregate reg-id (current-build-id))))
   ([reg-id build-id]
    (effective (get @state build-id empty-slice) reg-id ::none)))
 
@@ -225,7 +261,11 @@
   construction. Per-build-id like `aggregate`; on the no-pass REPL / plain-JVM
   path a contribution upserts straight into committed, so this reader sees it
   immediately. Pure."
-  ([reg-id] (committed-aggregate reg-id (current-build-id)))
+  ([reg-id]
+   (if-let [slice #?(:clj (ambient-accepted-slice) :cljs nil)]
+     (reduce-kv (fn [m _src regs] (merge m (get regs reg-id)))
+                {} (:committed slice))
+     (committed-aggregate reg-id (current-build-id))))
   ([reg-id build-id]
    (reduce-kv (fn [m _src regs] (merge m (get regs reg-id)))
               {} (:committed (get @state build-id empty-slice)))))
@@ -238,13 +278,16 @@
   (the SAME `current-build-id` mechanism every other registry read uses), so
   one daemon's parallel builds never cross-classify; NEVER a process-global
   last-writer-wins mirror. Empty set when `tag` is undeclared in this build."
-  ([tag] (element-properties tag (current-build-id)))
+  ([tag] (get-in (aggregate elements) [tag :properties] #{}))
   ([tag build-id] (get-in (aggregate elements build-id) [tag :properties] #{})))
 
 (defn pass-open?
   "Whether a compile pass is currently open for the ambient (or given)
   build (tests / tooling)."
-  ([] (pass-open? (current-build-id)))
+  ([]
+   (if-let [slice #?(:clj (ambient-shadow-slice) :cljs nil)]
+     (:pass-open? slice false)
+     (pass-open? (current-build-id))))
   ([build-id] (:pass-open? (get @state build-id empty-slice) false)))
 
 ;; ---------------------------------------------------------------------------
@@ -263,13 +306,62 @@
         (assoc-in [:staged source reg-id k] v))
     (assoc-in slice [:committed source reg-id k] v)))
 
+(defn- update-current-slice!
+  "Atomically apply `f` to the current compilation slice. A real Shadow pass
+  mutates only compiler-env scratch. A no-pass Shadow REPL form mutates only a
+  disposable overlay seeded from the accepted snapshot. Plain JVM/tests use
+  the legacy fallback atom. Returns the updated slice."
+  [f]
+  #?(:clj
+     (if-let [compiler-atom (when-not *build-id* (compiler-env-atom))]
+       (if (contains? @compiler-atom :shadow.build.cljs-bridge/state)
+         (let [updated (atom nil)]
+           (swap! compiler-atom
+                  (fn [compiler-state]
+                    (let [k (if (contains? compiler-state scratch-key)
+                              scratch-key
+                              repl-overlay-key)
+                          seed (or (get compiler-state k)
+                                   (assoc empty-slice
+                                          :committed
+                                          (:registries
+                                           (accepted-snapshot compiler-state))))
+                          next (f seed)]
+                      (reset! updated next)
+                      (assoc compiler-state k next))))
+           @updated)
+         (let [build-id (current-build-id)
+               updated (atom nil)]
+           (swap! state update build-id
+                  (fn [slice]
+                    (let [next (f (or slice empty-slice))]
+                      (reset! updated next)
+                      next)))
+           @updated))
+       (let [build-id (current-build-id)
+             updated (atom nil)]
+         (swap! state update build-id
+                (fn [slice]
+                  (let [next (f (or slice empty-slice))]
+                    (reset! updated next)
+                    next)))
+         @updated))
+     :cljs
+     (let [build-id (current-build-id)
+           updated (atom nil)]
+       (swap! state update build-id
+              (fn [slice]
+                (let [next (f (or slice empty-slice))]
+                  (reset! updated next)
+                  next)))
+       @updated)))
+
 (defn contribute!
   "Contribute `source`'s `k`->`v` to the plain registry `reg-id` in the
   ambient build — one `swap!`, pure. Collision-sensitive registries use
   `contribute-checked!` for their pre-write conflict check."
   [reg-id source k v]
-  (swap! state update (current-build-id)
-         (fnil write-slice empty-slice) reg-id source k v)
+  (update-current-slice! #(write-slice % reg-id source k v))
   nil)
 
 (defn contribute-checked!
@@ -284,15 +376,14 @@
   race) nor miss a genuine duplicate."
   [reg-id source k v conflict-fn]
   (let [outcome (atom nil)]             ; call-local — only this call's retries touch it
-    (swap! state update (current-build-id)
-           (fn [slice]
-             (let [slice    (or slice empty-slice)
-                   existing (get (effective slice reg-id source) k)
-                   conflict (conflict-fn existing)]
-               (if conflict
-                 (do (reset! outcome {:conflict conflict}) slice)
-                 (do (reset! outcome nil)
-                     (write-slice slice reg-id source k v))))))
+    (update-current-slice!
+     (fn [slice]
+       (let [existing (get (effective slice reg-id source) k)
+             conflict (conflict-fn existing)]
+         (if conflict
+           (do (reset! outcome {:conflict conflict}) slice)
+           (do (reset! outcome nil)
+               (write-slice slice reg-id source k v))))))
     @outcome))
 
 (defn contribute-view-checked!
@@ -316,10 +407,9 @@
   `{:conflict <existing-declaration>}` without writing on conflict."
   [source declaration view-id digest]
   (let [outcome (atom nil)]
-    (swap! state update (current-build-id)
-           (fn [slice]
-             (let [slice          (or slice empty-slice)
-                   other-views    (effective slice views source)
+    (update-current-slice!
+     (fn [slice]
+             (let [other-views    (effective slice views source)
                    other-owner    (get (effective slice view-declarations source)
                                        view-id)
                    source-owner   (if (:pass-open? slice)
@@ -436,12 +526,70 @@
                     {} (:committed slice)))))
 
 (defn finalized-build-digest
-  "The compiler-authoritative whole-build digest for `build-id`'s committed
-  last-known-good slice. This is the value a successful finish candidate
-  publishes into the dev client carrier."
-  ([] (finalized-build-digest (current-build-id)))
+  "The accepted whole-build digest in the ambient compiler context, or the
+  plain-JVM fallback build's committed digest. Real Shadow tooling should use
+  `accepted-build-digest` with an explicit retained build-state."
+  ([]
+   (if-let [compiler-state #?(:clj (shadow-compiler-state) :cljs nil)]
+     (:digest (accepted-snapshot compiler-state))
+     (finalized-build-digest (current-build-id))))
   ([build-id]
    (digest-for-slice (get @state build-id empty-slice))))
+
+(defn prepare-shadow-build
+  "Purely open a disposable pass in `build-state` from its incoming accepted
+  snapshot. Dirty scratch from an abandoned compile and every no-pass REPL
+  overlay are overwritten/cleared. `recompiled-members` is Shadow's exact
+  compile schedule at `:compile-prepare`: those sources are pre-touched so a
+  successful recompile which removes its final re-frame.ui declaration evicts
+  the accepted row even though no registry macro runs. Output-present cache
+  hits are not pre-touched and retain their accepted rows. The returned
+  build-state is the sole place this pass exists; no external last-known-good
+  state changes."
+  [build-state build-id members recompiled-members]
+  (let [accepted (accepted-snapshot build-state)
+        scratch (assoc empty-slice
+                       :pass-open? true
+                       :authoritative-members (set members)
+                       :committed (:registries accepted)
+                       :touched (set recompiled-members))]
+    (-> build-state
+        (assoc-in [:compiler-env accepted-snapshot-key]
+                  (assoc accepted :build-id build-id))
+        (assoc-in [:compiler-env scratch-key] scratch)
+        (update :compiler-env dissoc repl-overlay-key))))
+
+(defn shadow-finish-candidate
+  "Derive, but do not externally publish, the successful compiler candidate
+  from `build-state`'s disposable scratch. The snapshot version advances once
+  per finalized pass and its digest is computed exactly once."
+  [build-state build-id members]
+  (let [accepted (accepted-snapshot build-state)
+        scratch (get-in build-state [:compiler-env scratch-key])]
+    (when-not (and scratch (:pass-open? scratch))
+      (throw
+       (ex-info
+        "re-frame.ui compile-finish had no matching compiler-env scratch"
+        {::error ::missing-shadow-scratch
+         :build-id build-id
+         :recovery :configure-ui-build-hook-once})))
+    (let [after (-> scratch commit-slice (keep-members (set members)))
+          digest (digest-for-slice after)
+          snapshot {:build-id build-id
+                    :registries (:committed after)
+                    :digest digest
+                    :version (inc (long (or (:version accepted) 0)))}]
+      {:snapshot snapshot
+       :digest digest})))
+
+(defn carry-shadow-candidate
+  "Purely associate `candidate` into the returned Shadow build-state and drop
+  disposable scratch/REPL overlay. Shadow retaining this returned state after
+  all later stages is the commit; a downstream failure discards it."
+  [build-state {:keys [snapshot]}]
+  (-> build-state
+      (assoc-in [:compiler-env accepted-snapshot-key] snapshot)
+      (update :compiler-env dissoc scratch-key repl-overlay-key)))
 
 (defn finish-candidate
   "Purely derive `build-id`'s successful whole-build finish without publishing

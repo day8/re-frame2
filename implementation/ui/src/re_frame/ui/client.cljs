@@ -113,10 +113,11 @@
 ;; they stamp the SAME compiler-finalized `:build-digest` onto the live-root
 ;; static cores. The client does NOT derive identity from the set of modules
 ;; currently loaded: compile-finish patches one dev-only carrier from the
-;; compiler's authoritative whole-build candidate, and client reads are O(1).
-;; Thus lazy/multi-entry loading cannot change build identity and view-only HMR
-;; advances the carrier without re-expanding a mount site. The whole carrier
-;; and these reads are goog.DEBUG-elided from production (I-12).
+;; candidate whole-build snapshot; Shadow activates it only on successful
+;; build/watch completion, and client reads are O(1). Thus lazy/multi-entry
+;; loading cannot change identity, view-only HMR refreshes it without
+;; re-expanding a mount site, and unsaved no-pass REPL evaluation cannot mutate
+;; it. The whole carrier and these reads are goog.DEBUG-elided from production.
 
 (defn current-build-digest
   "The client's whole-build view-identity digest (dev): the SAME compiler-

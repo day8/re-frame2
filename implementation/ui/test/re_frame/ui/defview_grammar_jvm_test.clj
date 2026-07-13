@@ -158,8 +158,8 @@
         "defview emits the registrar :view registration")
     (is (str/includes? text "js/goog.DEBUG")
         "the registration/manifest emission is dev-gated (I-12)")
-    (is (str/includes? text "bd1-")
-        "a successful no-pass REPL expansion emits its committed compiler digest for runtime installation")
+    (is (not (str/includes? text "bd1-"))
+        "no-pass REPL expansion may replace the body but never publishes build identity")
     (let [def-sym (some #(when (and (seq? %) (= 'def (first %))
                                     (= 'probe (second %)))
                            (second %))
@@ -168,7 +168,7 @@
           "the public var carries the Q5 discrimination meta")
       (is (= :app.probe/probe (:rf.ui/view-id (meta def-sym)))))))
 
-(deftest file-pass-registration-does-not-embed-a-stale-digest
+(deftest file-pass-registration-does-not-embed-a-per-view-digest
   (build/begin-build! ::file '#{app.file})
   (try
     (let [forms (binding [build/*build-id* ::file]
@@ -179,7 +179,7 @@
           text (pr-str forms)]
       (is (str/includes? text "re-frame.ui.runtime/register-view!"))
       (is (not (str/includes? text "bd1-"))
-          "ordinary file/watch output is finalized once by the carrier hook; each view registration carries nil"))
+          "ordinary file/watch output is finalized once by the carrier hook; registrations carry no scalar"))
     (finally
       (build/abort-build! ::file))))
 

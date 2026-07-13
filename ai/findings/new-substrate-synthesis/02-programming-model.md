@@ -275,3 +275,9 @@ Replicant-equivalent capability, React-ownership terms, deliberately bounded —
 stale; hook-signature change remounts) — the HMR path *is* the REPL path. Compile budget
 is gated (07 §5 G-14): `defview` expansion p95 and watch-loop rebuild on the dashboard
 fixture — the guide-examples-as-fixtures policy must not make iteration slow.
+
+The live body and build identity deliberately have different commit boundaries. An
+unsaved direct REPL evaluation may replace the body immediately, but the whole-build
+`:build-digest` remains the last successfully completed configured build/watch pass.
+Saving and rebuilding publishes the next scalar. Macroexpand-only, never-evaluated, and
+failed REPL forms therefore cannot become digest members.

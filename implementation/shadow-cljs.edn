@@ -392,14 +392,16 @@
  ;; warm-cache start). Cost: defview/mount-consuming namespaces recompile on
  ;; daemon start; warm-watch incrementals are unaffected. (Follow-up: move the
  ;; contributions into cacheable analyzer data to recover caching.)
- ;; Option-A whole-build digest publication (rf2-n7ff9f): both settings are
- ;; load-bearing and apply once to every configured build. The cache-blocker
- ;; re-expands namespaces whose macros populate compiler authority on warm
- ;; daemon starts. The compile-finish hook finalizes that explicit build-id's
- ;; candidate and patches its one dev-only digest carrier output before
- ;; committing; builds that do not contain re-frame.ui are unchanged.
- :build-defaults {:cache-blockers #{re-frame.ui}
-                  :build-hooks [(re-frame.ui.compiler.build-hook/hook)]}
+ ;; Whole-build digest publication: both settings are load-bearing and apply
+ ;; once to every configured build. Shadow reads :cache-blockers from the
+ ;; top-level config (and unions it into each build's build-options); the
+ ;; blocker prevents stale disk-cache reload after the hook invalidates
+ ;; retained UI-consumer output on a version-zero daemon pass. The hook seeds
+ ;; scratch from the incoming accepted functional build-state, carries
+ ;; the finalized candidate in the returned state, and patches the one dev-only
+ ;; digest carrier. A later Shadow failure discards the returned candidate.
+ :cache-blockers #{re-frame.ui}
+ :build-defaults {:build-hooks [(re-frame.ui.compiler.build-hook/hook)]}
 
  ;; Top-level dev-http servers (rf2-aqcix). shadow-cljs's `:dev-http`
  ;; map binds a port to a list of file roots; the dev server cascades
@@ -728,7 +730,26 @@
    :main      re-frame.test-quiet.shadow-node/main
    ;; The load-bearing watch/digest hook is inherited from :build-defaults.
    :compiler-options {:warnings      {:redef false}
-                      :infer-externs false}}
+                       :infer-externs false}}
+
+  ;; Real Option-C transaction proof: a base module reads the compiler-patched
+  ;; carrier while a view declaration lives in an unexecuted lazy module. The
+  ;; runner keeps one watch daemon and browser alive across good / downstream-
+  ;; failed / good passes, proving warm recompilation and active-runtime LKG.
+  :ui-digest-probe-lazy
+  {:target :browser
+   :output-dir "out/ui-digest-probe-lazy"
+   :asset-path "."
+   :modules
+   {:base {:entries [re-frame.ui.digest-probe.base]
+           :init-fn re-frame.ui.digest-probe.base/init}
+    :lazy {:entries [re-frame.ui.digest-probe.lazy]
+           :depends-on #{:base}}}
+   :devtools {:http-root "out/ui-digest-probe-lazy"
+              :http-port 8059}
+   ;; Deep-merged after the load-bearing build-default hook, so this test hook
+   ;; runs at :flush after target output and can inject a true downstream fail.
+   :build-hooks [(re-frame.ui.digest-probe.build-hook/hook)]}
 
   ;; rf2-vxgfnd.6 — the G-1 direct-render parity gate (07 §5) for the
   ;; re-frame.ui compiled-view substrate. A :node-script RELEASE build
