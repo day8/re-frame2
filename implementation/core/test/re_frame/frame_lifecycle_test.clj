@@ -1024,6 +1024,71 @@
       (is (nil? (frame/frame frame-id))
           "destroy still completes after the claim-window barrier"))))
 
+(deftest post-claim-dispatch-is-rejected-before-lifecycle-dead-publication
+  (testing "ordinary work submitted after claim cannot run in the claim-to-dead gap"
+    (let [frame-id        :destroy-claim/post-claim-dispatch
+          parent-runs     (atom 0)
+          child-runs      (atom 0)
+          user-effects    (atom 0)
+          captured-ticks  (atom [])
+          gap-observation (atom nil)
+          original-hook   (late-bind/get-fn :ui/on-frame-destroyed!)]
+      (rf/make-frame {:id frame-id})
+      (rf/reg-fx :destroy-claim/post-claim-effect
+        (fn [_ _] (swap! user-effects inc)))
+      (rf/reg-event :destroy-claim/post-claim-child
+        (fn [{:keys [db]} _]
+          (swap! child-runs inc)
+          {:db (assoc db :post-claim-child-ran? true)}))
+      (rf/reg-event :destroy-claim/post-claim-parent
+        (fn [{:keys [db]} _]
+          (swap! parent-runs inc)
+          {:db (assoc db :post-claim-parent-ran? true)
+           :fx [[:destroy-claim/post-claim-effect :payload]
+                [:dispatch [:destroy-claim/post-claim-child]]]}))
+
+      (try
+        (late-bind/set-fn!
+          :ui/on-frame-destroyed!
+          (fn [id]
+            (when original-hook
+              (original-hook id))
+            (when (= frame-id id)
+              ;; This hook runs strictly AFTER `claim-frame-destroy!` returns
+              ;; and BEFORE `mark-frame-destroyed!` flips lifecycle liveness.
+              ;; Submit genuinely NEW ordinary work here, capture its scheduled
+              ;; drain, then force that drain through the real bound-fn executor
+              ;; before allowing teardown to advance.
+              (with-redefs [interop/next-tick
+                            (fn [f]
+                              (swap! captured-ticks conj f)
+                              nil)]
+                (rf/dispatch [:destroy-claim/post-claim-parent]
+                             {:frame frame-id}))
+              (is (= 1 (count @captured-ticks))
+                  "the post-claim submit schedules one real-router drain")
+              (is (= 1 (count (:queue @(:router (get @frame/frames frame-id)))))
+                  "the ordinary envelope was enqueued after the claim cutoff")
+              (interop/next-tick (first @captured-ticks))
+              (executor-barrier!)
+              (let [record (get @frame/frames frame-id)]
+                (reset! gap-observation
+                        {:destroyed? (-> record :lifecycle :destroyed?)
+                         :queued     (count (:queue @(:router record)))})))))
+        (rf/destroy-frame! frame-id)
+        (finally
+          (late-bind/set-fn! :ui/on-frame-destroyed! original-hook)))
+
+      (is (zero? @parent-runs)
+          "the post-claim ordinary handler never runs")
+      (is (zero? @user-effects)
+          "a rejected post-claim handler cannot emit user effects")
+      (is (zero? @child-runs)
+          "a rejected post-claim handler cannot enqueue or run children")
+      (is (= {:destroyed? false :queued 0} @gap-observation)
+          "the claim predicate emptied the real queue while lifecycle was still live")
+      (is (nil? (frame/frame frame-id)) "destroy completes after the gap proof"))))
+
 (deftest on-destroy-cascade-is-isolated-from-preclaim-and-bound-work
   (testing "only the cleanup seed and its queued descendants run after claim"
     (let [frame-id        :destroy-claim/isolated-cleanup
