@@ -2174,16 +2174,17 @@
 (defn lower-inline-sub
   "Lower an inline `:reg-sub` descriptor's raw computation fn into the runnable
   layer-1 (`:input-kind :db`) sub slots `reg-sub` installs (`:handler-fn` +
-  `:input-kind :db` + empty `:input-signals`). `_meta` is the inline entry's
-  metadata map (unused — the descriptor already carries the inline `:metadata`,
-  and an inline tuple cannot express the `:<-` chain that would change the
-  input kind); `impl` is the raw `(fn [db query-v] …)` computation. Returns
-  ONLY the runnable slots so image-assembly merges them onto the descriptor,
-  preserving `:impl` + provenance."
-  [_meta impl]
-  {:handler-fn    impl
-   :input-kind    :db
-   :input-signals []})
+  `:input-kind :db` + empty `:input-signals`). `metadata` is also projected
+  onto the runnable descriptor's top level, matching the shape `reg-sub`
+  installs and making runtime consumers such as return-schema validation read
+  the same slots regardless of registration path. Image assembly still keeps
+  the original nested `:metadata` plus `:impl` and provenance for inspection.
+  Runtime-owned runnable slots win over metadata."
+  [metadata impl]
+  (assoc metadata
+         :handler-fn    impl
+         :input-kind    :db
+         :input-signals []))
 
 (late-bind/set-fn! :image/lower-inline-sub lower-inline-sub)
 

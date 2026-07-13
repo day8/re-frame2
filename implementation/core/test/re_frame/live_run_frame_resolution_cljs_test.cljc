@@ -46,8 +46,10 @@
             [re-frame.image          :as image]
             [re-frame.registrar      :as registrar]
             [re-frame.live-frame     :as lf]
+            [re-frame.schemas        :as schemas]
             [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support   :as test-support]))
+            [re-frame.test-support   :as test-support]
+            [re-frame.trace.tooling  :as trace-tooling]))
 
 ;; ---------------------------------------------------------------------------
 ;; Fixture: install the plain-atom adapter (so frames are runnable), opt OUT of
@@ -95,6 +97,37 @@
    :id               id
    :input-kind       :db
    :handler-fn       compute-fn})
+
+(defn- with-inline-sub-schema-port
+  "Install a deterministic schema port for one body and restore the process
+  bundle afterwards. The two deliberately conflicting schema ids make it
+  observable whether a frame resolved the image or global registration."
+  [calls body]
+  (let [snapshot (schemas/snapshot-schema-fns)]
+    (schemas/set-schema-fns!
+      {:validate (fn [schema value]
+                   (swap! calls conj [schema value])
+                   (case schema
+                     :image/int     (int? value)
+                     :global/string (string? value)
+                     true))
+       :explain  (fn [schema value]
+                   {:schema schema :value value})})
+    (try (body)
+         (finally (schemas/restore-schema-fns! snapshot)))))
+
+(defn- collect-error-events
+  "Run `body` while collecting typed error trace events."
+  [body]
+  (let [seen (atom [])
+        id   ::inline-sub-schema-errors]
+    (trace-tooling/register-listener! id
+      (fn [event]
+        (when (= :error (:op-type event))
+          (swap! seen conj event))))
+    (try (body)
+         (finally (trace-tooling/unregister-listener! id)))
+    @seen))
 
 ;; ===========================================================================
 ;; 1. THE ACCEPTANCE — a REAL frame-targeted dispatch resolves the event
@@ -455,6 +488,59 @@
            global sub")
       (is (nil? registrar/*generation*)
           "the generation binding did NOT leak past the build"))))
+
+(deftest inline-sub-schema-is-authoritative-for-ordinary-subscribe
+  (testing "a real inline image sub validates its return with the image schema,
+            not a conflicting global registration's schema"
+    (let [invalid-q :inline.schema/invalid
+          valid-q   :inline.schema/valid
+          calls     (atom [])]
+      ;; If generation resolution or metadata lowering is wrong, these global
+      ;; schemas produce the exact opposite outcome from the image schemas.
+      (rf/reg-sub invalid-q {:schema :global/string} (fn [_ _] ::global))
+      (rf/reg-sub valid-q   {:schema :global/string} (fn [_ _] ::global))
+      (let [img (image/image
+                  {:id :inline/schema
+                   :registrations
+                   {:reg-sub
+                    [[invalid-q {:schema :image/int}
+                      (fn [_ _] "accepted-only-by-global")]
+                     [valid-q {:schema :image/int}
+                      (fn [_ _] 7)]]}})
+            _   (lf/make-frame {:id :inline/schema-frame :images [img]} [])
+            result (atom ::unset)
+            errors (with-inline-sub-schema-port calls
+                     #(collect-error-events
+                        (fn []
+                          (reset! result
+                            [(rf/subscribe-once [invalid-q]
+                               {:frame :inline/schema-frame})
+                             (rf/subscribe-once [valid-q]
+                               {:frame :inline/schema-frame})]))))
+            failure (first
+                      (filter #(= :rf.error/schema-validation-failure
+                                  (:operation %))
+                              errors))]
+        (is (= [nil 7] @result)
+            "invalid image return recovers to nil; valid image return survives")
+        (is (= [[:image/int "accepted-only-by-global"]
+                [:image/int 7]]
+               @calls)
+            "both reads consult the image schema and never the global schema")
+        (is (some? failure) "invalid image return emits typed failure evidence")
+        (is (= :sub-return (-> failure :tags :where)))
+        (is (= :inline/schema-frame (-> failure :tags :frame)))
+        (is (= invalid-q (-> failure :tags :rf.sub/id)))
+        (is (= invalid-q (-> failure :tags :failing-id)))
+        (is (= [invalid-q] (-> failure :tags :rf.sub/query-v)))
+        (is (= invalid-q (-> failure :tags :schema-id)))
+        (is (= "accepted-only-by-global" (-> failure :tags :received)))
+        (is (= "accepted-only-by-global" (-> failure :tags :value)))
+        (is (= {:schema :image/int :value "accepted-only-by-global"}
+               (-> failure :tags :explain)))
+        (is (and (string? (-> failure :tags :reason))
+                 (re-find #":image/int" (-> failure :tags :reason)))
+            "failure reason names the authoritative image schema")))))
 
 (deftest inline-registrations-fx-fn-body-runs-through-pipeline
   (testing "an image built from INLINE :registrations with a REAL fx fn body

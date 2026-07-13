@@ -35,11 +35,21 @@
   Saves + restores the prior hook so the consolidated node-test bundle's real
   Malli validator is untouched for sibling tests."
   [test-fn]
-  (let [prior (late-bind/get-fn :schemas/validate-with-registered-fn)]
+  (let [prior-validator (late-bind/get-fn :schemas/validate-with-registered-fn)
+        prior-explainer (late-bind/get-fn :schemas/explain-with-registered-fn)]
     (late-bind/set-fn! :schemas/validate-with-registered-fn
-      (fn [schema value] (if (= schema :int) (int? value) true)))
+      (fn [schema value]
+        (case schema
+          :int           (int? value)
+          :image/int     (int? value)
+          :global/string (string? value)
+          true)))
+    (late-bind/set-fn! :schemas/explain-with-registered-fn
+      (fn [schema value] {:schema schema :value value}))
     (try (test-fn)
-         (finally (late-bind/set-fn! :schemas/validate-with-registered-fn prior)))))
+         (finally
+           (late-bind/set-fn! :schemas/validate-with-registered-fn prior-validator)
+           (late-bind/set-fn! :schemas/explain-with-registered-fn prior-explainer)))))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter})
@@ -49,10 +59,12 @@
   "Read `query` as a compiled-view site with `overrides` bound (the explicit
   override door). Outside a ViewCell, `sub-read` returns the freshly resolved
   value — for a HIT, the schema-validated pinned value."
-  [overrides query]
-  (rf/with-frame fid
-    (binding [reactive/*sub-overrides* overrides]
-      (reactive/sub-read query))))
+  ([overrides query]
+   (read-override fid overrides query))
+  ([frame-id overrides query]
+   (rf/with-frame frame-id
+     (binding [reactive/*sub-overrides* overrides]
+       (reactive/sub-read query)))))
 
 (defn- collect-errors
   "Run `thunk` capturing every `:rf.error/*` trace event. Returns the vector
@@ -115,6 +127,55 @@
           "any value surfaces when the sub declares no schema")
       (is (not-any? #(= :rf.error/schema-validation-failure (:operation %)) errors)
           "no validation runs when the sub has no :schema"))))
+
+(deftest inline-image-schema-is-authoritative-for-overrides
+  (testing "compiled-view overrides resolve schema metadata from the target
+            frame's real inline image, not a conflicting global registration"
+    (let [frame-id  :inline.schema/ui-frame
+          invalid-q :inline.schema/override-invalid
+          valid-q   :inline.schema/override-valid]
+      ;; These schemas deliberately produce the opposite answers. A global
+      ;; lookup would accept the string and reject the integer.
+      (rf/reg-sub invalid-q {:schema :global/string} (fn [_ _] ::global))
+      (rf/reg-sub valid-q   {:schema :global/string} (fn [_ _] ::global))
+      (rf/make-frame
+        {:id frame-id
+         :images
+         [(rf/image
+            {:id :inline.schema/ui-image
+             :registrations
+             {:reg-sub
+              [[invalid-q {:schema :image/int} (fn [_ _] 1)]
+               [valid-q   {:schema :image/int} (fn [_ _] 2)]]}})]})
+      (let [result (atom ::unset)
+            errors (collect-errors
+                     (fn []
+                       (reset! result
+                         [(read-override frame-id
+                            {[invalid-q] "accepted-only-by-global"}
+                            [invalid-q])
+                          (read-override frame-id {[valid-q] 7} [valid-q])])))]
+        (is (= [nil 7] @result)
+            "image-invalid override recovers to nil; image-valid override survives")
+        (let [failures (filter #(= :rf.error/schema-validation-failure
+                                   (:operation %))
+                               errors)
+              failure  (first failures)]
+          (is (= 1 (count failures))
+              "only the image-invalid override emits a failure")
+          (is (= :sub-override (-> failure :tags :where)))
+          (is (= frame-id (-> failure :tags :frame)))
+          (is (= invalid-q (-> failure :tags :rf.sub/id)))
+          (is (= invalid-q (-> failure :tags :failing-id)))
+          (is (= [invalid-q] (-> failure :tags :rf.sub/query-v)))
+          (is (= invalid-q (-> failure :tags :schema-id)))
+          (is (= "accepted-only-by-global" (-> failure :tags :received)))
+          (is (= "accepted-only-by-global" (-> failure :tags :value)))
+          (is (= {:schema :image/int :value "accepted-only-by-global"}
+                 (-> failure :tags :explain)))
+          (is (and (string? (-> failure :tags :reason))
+                   (re-find #":image/int" (-> failure :tags :reason)))
+              "typed failure evidence names the authoritative image schema"))))))
 
 ;; ---- HIT vs MISS distinction ---------------------------------------------
 
