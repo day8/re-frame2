@@ -28,6 +28,7 @@ lives in app-db where events, time-travel, Story, and Xray can see it.
 - **Conditional reads are legal.** `sub` is not a hook:
 
 ```clojure
+;; guide:no-fixture — illustrative fragment
 (let [details (when expanded? (sub [:orders/details id]))] …)   ; ✓
 ```
 

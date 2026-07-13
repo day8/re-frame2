@@ -42,16 +42,19 @@ Mixing them up fails loudly with a did-you-mean: `frame-root` given `:frame`, or
 Frames are **isolated**. A page can mount several:
 
 ```clojure
-[:body
- [ui/frame-root {:id :shop   :initial-events [[:shop/init]]}   [shop-app]]
- [ui/frame-root {:id :assist :initial-events [[:assist/init]]} [assistant]]]
+(ui/mount [:div.page
+           [ui/frame-root {:id :shop   :initial-events [[:shop/init]]}   [shop-app]]
+           [ui/frame-root {:id :assist :initial-events [[:assist/init]]} [assistant]]]
+          page-el
+          {:root-id :page/home})
 ```
 
 Each subtree's `sub` and handlers bind to *its* frame and only its frame — there is no
 spelling for a cross-frame read in application code. Events in `:shop` cannot re-render
 `:assist`. (One detail worth knowing: a root form that mounts two views, as this one
 does, must author its `:root-id` — the derived default only exists when there is
-exactly one mounted view. [08](08-ssr.md) has the full identity story.) Frames also pair naturally with server rendering — a page is N hydration
+exactly one mounted view, which is why the mount above spells out `:page/home`.
+[08](08-ssr.md) has the full identity story.) Frames also pair naturally with server rendering — a page is N hydration
 *roots* referencing whichever frames they need, several roots can share one frame, and
 each root fails or hydrates independently ([08](08-ssr.md)). And you can mount one app N
 times side-by-side (each instance its own frame universe) for comparison demos and tests.
@@ -63,6 +66,7 @@ imperative need — an effect that dispatches later, an interop callback that mu
 frame out of the tree:
 
 ```clojure
+;; guide:no-fixture — illustrative fragment, elided body
 (ui/defview media-bridge [{:keys [stream-id]}]
   (let [dispatch! (ui/dispatch-fn)]
     (effect [stream-id]

@@ -3,13 +3,17 @@
 ## Install
 
 ```clojure
+;; guide:no-fixture — install stub, elided coordinates
 ;; deps.edn
 {:deps {day8/re-frame2    {…}
         day8/re-frame2-ui {…}}}
 ```
 
-`package.json` carries `react` and `react-dom` (19.2.4+) — nothing else. No Reagent, no
-UIx, no Helix.
+`package.json` carries `react` and `react-dom` — nothing else. No Reagent, no UIx, no
+Helix. The published artifact's peer floor is planned as React 19.2.4+; the reference
+implementation today builds and tests against a 19.2.0 pin
+(`implementation/package.json`), and the floor takes effect when the artifact's peer
+contract ships with it.
 
 The compiler owns one whole-build view digest. For Shadow 3.4.10, configure its two
 load-bearing settings once (not once per build):

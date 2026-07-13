@@ -1,8 +1,11 @@
 # DRAFT — The guide-fixture pipeline (making the README promise real at scale)
 
-> **Status: DRAFT · 2026-07-12.** Design for the promise in ⟨guide/README ¶1⟩: *"Every
-> example on these pages compiles and runs as a CI fixture — if a guide example needs
-> internals explained, that's an API bug."* The normative sources are
+> **Status: DRAFT · 2026-07-12 · re-based 2026-07-13** to two changed facts: the
+> synthesis tree (guide pages included) has been **force-tracked in git since #5800**,
+> so "CI cannot read the pages" is no longer true; and ⟨guide/README ¶1⟩ now states
+> *exact* fixture coverage (guide 09 Tier-1 today, growing with the stages) rather
+> than a universal claim. The universal every-example-runs promise is this pipeline's
+> **target**, not the current state. The normative sources are
 > ⟨07-testing §7 — the guide as a test surface⟩ and the G-14 honest remainder
 > (⟨implementation/ui/test/re_frame/ui/g14_compile_budget_jvm_test.clj docstring⟩:
 > *"guide-fixtures CI cost needs the guide-examples corpus (08 §3)"*, landed via #5703).
@@ -18,12 +21,16 @@
 Three facts shape everything below; any model that ignores one of them is wrong for
 this repo.
 
-1. **The guide is gitignored until S6.** It lives under `ai/findings/…/guide/` — the
-   local-only `ai/` tree ⟨CLAUDE.md §Local working files⟩ — until the S6 docs
-   workstream (W2/W3) moves it into the repo ⟨12 §3 S6 epic⟩. **No CI job can read the
-   pages before then.** Any pipeline that *derives* fixtures from the pages cannot be a
-   CI gate until S6. Whatever runs in CI during S2–S5 must be checked-in test source
-   that CI can see without the pages.
+1. **The guide is tracked working material, not yet docs.** It lives under
+   `ai/findings/…/guide/`, and since #5800 that synthesis subtree is **force-tracked in
+   git** (⟨.gitignore⟩ carries the temporary exception; the surrounding `ai/` tree
+   stays local-only ⟨CLAUDE.md §Local working files⟩), so CI *can* read the pages
+   today. What has not happened is the S6 docs move (W2/W3) ⟨12 §3 S6 epic⟩: the pages
+   are a working artefact that dissolves into `docs/` at S6 and no extractor exists —
+   building one before S6 is speculative machinery the program has declined. So during
+   S2–S5, what runs in CI stays checked-in test source; the tracked pages are available
+   to any local script (and to a future gate) but nothing derives fixtures from them
+   yet.
 2. **Fences come in dialects.** Census (originally 52/51 on 2026-07-12; re-censused
    after the guide completeness pass the same day and re-verified by the correctness
    pass — the elided and wave-2 sets below unchanged): **51 fences across the 11
@@ -34,7 +41,9 @@ this repo.
    08's `render-static` call (`{…}`) — and one (guide 02's `data/render`) names a
    **wave-2** artefact that does not exist in v1 ⟨12 §2 blessed table⟩. "Every example
    compiles" cannot naively mean "every fence compiles"; the contract must make the
-   exceptions *visible on the page* or the promise rots silently.
+   exceptions *visible on the page* or the promise rots silently. (As of 2026-07-13
+   those five fences carry their `;; guide:no-fixture` markers on the page — the §2
+   mandatory set, added ahead of the S6 move.)
 3. **Stage markers are load-bearing.** The README's stage-honesty convention —
    unmarked = Stage 1, `*(lands S2 — reactive subs)*` etc. — annotates whole chapters
    (stage notes), sections (header markers), and single bullets ⟨guide/README §Stage
@@ -52,9 +61,9 @@ Three candidate models, one recommendation.
 
 | Model | Mechanism | Strengths | Why it fails as the *whole* answer here |
 |---|---|---|---|
-| **(A) Literate extraction** | a script parses guide `.md` fences into generated test namespaces | single source of truth; page↔fixture drift impossible by construction | cannot run in CI until the guide enters the repo at S6 (constraint 1); a bare fence lacks everything the S1d worker had to invent — ns preamble, requires, the fixture app surface (`fixture-catalog`, event registrations, the reset-runtime fixture), and assertions for non-test fences — so "parse fences" alone under-specifies the pipeline |
-| **(B) Mirrored fixtures** | hand-maintained fixture files 1:1 with chapters, drift-checked against the page | works **today**, on gitignored pages, with human judgment for stage adaptation — this is exactly the S1d precedent | at guide scale (51 fences and growing) hand-mirroring is a standing tax; the drift gate is structurally weak while adaptations are legitimate (an adapted fixture *should* differ from its fence, so byte-comparison either fails spuriously or gets normalised into meaninglessness); and CI can't compare against a page it can't read anyway |
-| **(C) Annotation-driven extraction** | fence-level markers (eligibility, stage, target, fixture id) drive a generator; per-chapter scaffolds supply context; assertions live in companion files | keeps the page the source of truth **and** makes the exceptions visible in the page source; stage markers become machine-readable; the manifest falls out for free | still gated on the guide entering the repo (constraint 1); needs marker + scaffold conventions defined up front or the completeness pass authors fences the extractor can't consume |
+| **(A) Literate extraction** | a script parses guide `.md` fences into generated test namespaces | single source of truth; page↔fixture drift impossible by construction | the extractor is S6 work by plan (constraint 1 — the pages are CI-readable, but no extractor exists before the docs move); a bare fence lacks everything the S1d worker had to invent — ns preamble, requires, the fixture app surface (`fixture-catalog`, event registrations, the reset-runtime fixture), and assertions for non-test fences — so "parse fences" alone under-specifies the pipeline |
+| **(B) Mirrored fixtures** | hand-maintained fixture files 1:1 with chapters, drift-checked against the page | works **today**, needing nothing beyond the tracked pages, with human judgment for stage adaptation — this is exactly the S1d precedent | at guide scale (51 fences and growing) hand-mirroring is a standing tax; the drift gate is structurally weak while adaptations are legitimate (an adapted fixture *should* differ from its fence, so byte-comparison either fails spuriously or gets normalised into meaninglessness); and no comparison harness exists before S6 to make the check mechanical |
+| **(C) Annotation-driven extraction** | fence-level markers (eligibility, stage, target, fixture id) drive a generator; per-chapter scaffolds supply context; assertions live in companion files | keeps the page the source of truth **and** makes the exceptions visible in the page source; stage markers become machine-readable; the manifest falls out for free | still lands at S6 with the docs move (constraint 1); needs marker + scaffold conventions defined up front or the completeness pass authors fences the extractor can't consume |
 
 **Recommendation: (C) annotation-driven extraction is the pipeline, landing at S6 with
 W2/W3 — with (B) hand-mirrored fixtures as the S2–S5 bridge, per the S1d precedent.**
@@ -71,10 +80,11 @@ at gate time — there is no second copy to drift (§5) — and the standing mir
 disappears exactly when the guide's growth rate is highest (post-completeness-pass,
 post-adoption).
 
-Why the bridge must exist at all: constraint 1. The alternative — hold all guide
-fixtures until S6 — breaks the per-stage proof column of ⟨12 §2b⟩ (surface rows name
-guide-shaped fixtures as their stage proof) and abandons the S1d precedent that already
-ships. The bridge fixtures are the stage proofs; the S6 pipeline is the scale answer.
+Why the bridge must exist at all: constraint 1 — the extractor is S6 work, and the
+alternative of holding all guide fixtures until S6 breaks the per-stage proof column of
+⟨12 §2b⟩ (surface rows name guide-shaped fixtures as their stage proof) and abandons
+the S1d precedent that already ships. The bridge fixtures are the stage proofs; the S6
+pipeline is the scale answer.
 
 **Authoring rule for the completeness pass, effective now:** write new fences as if the
 extractor already existed — complete forms, marker comments where §2 requires them,
@@ -124,10 +134,12 @@ bridge fixtures may keep doing so — but they are not counted, not manifest row
 their absence is not a promise violation. Trying to extract inline spans is how
 literate pipelines drown.
 
-**README amendment at S6** (one sentence, honesty): the promise gains "— except the
-handful marked `guide:no-fixture` on the page, each with its reason", plus the marker
-convention in the stage-honesty paragraph. Until then the bridge-era promise is carried
-by the manifest (§3), which counts waived fences per chapter.
+**README amendment at S6** (one sentence, honesty): once every chapter is active, the
+README's exact-coverage statement (re-based 2026-07-13 — it names guide 09's fixture as
+the only one live today) becomes the full promise, gaining "— except the handful marked
+`guide:no-fixture` on the page, each with its reason", plus the marker convention in
+the stage-honesty paragraph. Until then coverage is stated exactly on the README and
+counted per chapter by the manifest (§3).
 
 ## 3. Stage gating: activate with the stage, park loudly before it
 
@@ -167,9 +179,9 @@ cognitect runner — zero new CI wiring) asserts:
    guide 09 is `:active` at S1 but its two adaptations park on S2);
 4. every guide chapter has a row (the completeness pass adds chapters; a chapter with
    no row is red). Bridge-era source for "every chapter": the manifest itself carries
-   the chapter list — CI cannot see the gitignored pages, so during S2–S5 the list is
-   maintained by hand and verified against the pages by the local drift script (§5);
-   from S6 the extractor generates it.
+   the chapter list — the tracked pages are CI-readable, but with no extractor before
+   S6 the list is maintained by hand and verified against the pages by the local drift
+   script (§5); from S6 the extractor generates it.
 
 **Skipped-not-silent under the quiet-tests policy.** Green output stays quiet
 ⟨docs/quiet-tests.md via TESTING.md⟩, so the "N fixtures parked per stage" report is
@@ -250,8 +262,10 @@ Residual drift surfaces and their gates:
    Token-level or whitespace-insensitive comparison is rejected — it licenses cosmetic
    divergence, and cosmetic divergence is how "the page is the contract" dies.
 
-**Bridge era (S2–S5): procedural + local-script, honestly not a CI gate.** CI cannot
-read the pages (constraint 1), so page↔fixture comparison cannot gate a PR. Instead:
+**Bridge era (S2–S5): procedural + local-script, honestly not a CI gate.** The tracked
+pages are CI-readable, but no extraction/comparison harness exists before S6
+(constraint 1), so page↔fixture comparison does not gate a PR during the bridge — the
+check stays procedural. Instead:
 
 - every bridge fixture carries the `guide:begin/end` delimiters and the manifest's
   `:lifted` date + `:adapted` ledger from day one (S1d's docstring, promoted to the
