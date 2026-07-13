@@ -316,8 +316,9 @@ never from render.
   `:dispatch-sync` `:subscribe`) for bridges that must name their frame.
   Dispatching *during render* is a dev warning.
 - Until S3 lands in the consumer's version: keep ALL state in app-db
-  (`local`/`effect` do not exist yet). `lease` executes from S2 — on a
-  pre-S2 version it raises `:rf.error/ui-lease-unavailable`.
+  (`local`/`effect` do not exist yet). `lease` executes from S2; a malformed
+  descriptor fails loudly before capture (`:rf.error/ui-tree-malformed`,
+  lease-descriptor arm).
 - Foreign-React boundaries that genuinely need a hook get `re-frame.ui.react`
   (`use-ref`, `use-effect`, `use-layout-effect`, `use-effect-event`,
   `use-context`, `use-id`, `lazy`) ⏳S3. Inside ordinary views you never
