@@ -632,6 +632,17 @@
   [id]
   (some-> (frame id) :drain-lock))
 
+(defn frame-incarnation-live?
+  "True when `token` still identifies `id`'s currently-live frame.
+
+  Internal event-tail fence: a dequeued event captures this token before its
+  handler runs. If that handler destroys A and a fresh same-id B appears before
+  the returned transition/effects settle, the identity comparison is false, so
+  A's tail can neither commit nor dispatch into B."
+  [id token]
+  (and (some? token)
+       (identical? token (frame-incarnation-token id))))
+
 (defn frame-disposed-for-drain?
   "Per Spec 002 §Frame disposal mid-drain: predicate used by the
   router's drain loop to interrupt a pass once destruction owns the current
@@ -988,6 +999,17 @@
   [id]
   (frame-slot-value id :frame-state))
 
+(defn ^:no-doc frame-record-state-value
+  "Read the coherent frame-state value from an already-resolved frame record.
+
+  Exact-incarnation event preparation uses this instead of resolving the bare
+  frame id again: a synchronous adapter read can invalidate the captured
+  incarnation, but it can never redirect the read into a fresh same-id frame.
+  The caller must recheck its owner token after this callback boundary."
+  [frame-record]
+  (when-let [container (:frame-state frame-record)]
+    (adapter/read-container container)))
+
 ;; ---- EP-0001 partition commit + write helpers -----------------------------
 ;;
 ;; The frame-state container is the ONE physical write target. Every durable
@@ -1037,6 +1059,54 @@
   [id]
   (get @frame-commit-epochs id 0))
 
+(defn- commit-frame-record-transition!
+  "Install `partitions` into an already-resolved live frame record.
+
+  Keeping the record/container together is load-bearing for exact-incarnation
+  callers: after resolution, a concurrent registry replacement can at worst
+  make this container detached; it can never redirect the write into a fresh
+  same-id record."
+  [id frame-record partitions owner-token exact-owner?]
+  (let [container  (:frame-state frame-record)
+        current    (adapter/read-container container)
+        app-given? (contains? partitions app-partition-key)
+        rt-given?  (contains? partitions runtime-partition-key)
+        next-app   (if app-given? (get partitions app-partition-key)
+                       (get current app-partition-key))
+        next-rt    (if rt-given? (get partitions runtime-partition-key)
+                       (get current runtime-partition-key))
+        next-fs    {app-partition-key     next-app
+                    runtime-partition-key next-rt}
+        changed    (cond-> #{}
+                     (and app-given?
+                          (not= next-app (get current app-partition-key)))
+                     (conj app-partition-key)
+                     (and rt-given?
+                          (not= next-rt (get current runtime-partition-key)))
+                     (conj runtime-partition-key))]
+    ;; `read-container` and `replace-container!` are host-adapter callback
+    ;; boundaries.  The exact-owner path rechecks after each: a synchronous
+    ;; container watch may destroy A and publish same-id B while A's physical
+    ;; install is notifying observers.  That install has already linearized in
+    ;; A's captured container (and therefore legitimately appears in A's
+    ;; halted-destroy snapshot), but no id-keyed commit epoch or later trace may
+    ;; be attributed to B.
+    (when (or (not exact-owner?)
+              (frame-incarnation-live? id owner-token))
+      ;; ONE atomic frame-state install — both partitions in one write, per
+      ;; Spec 006 §Commit boundary.
+      (when-not (and (identical? next-app (get current app-partition-key))
+                     (identical? next-rt  (get current runtime-partition-key)))
+        (adapter/replace-container! container next-fs)
+        (when (or (not exact-owner?)
+                  (frame-incarnation-live? id owner-token))
+          (bump-commit-epoch! id)))
+      ;; nil is the exact path's terminal-loss marker.  The router suppresses
+      ;; commit traces, fx, trailers and normal epoch settlement in that case.
+      (when (or (not exact-owner?)
+                (frame-incarnation-live? id owner-token))
+        changed))))
+
 (defn commit-frame-transition!
   "Atomically install a frame transition into the ONE physical frame-state
   container (Spec 002 §Drain-loop pseudocode §commit; Spec 006 §Commit
@@ -1065,44 +1135,19 @@
   NOTE the `partitions` map keys are the frame-state partition keys
   (`:rf.db/app` / `:rf.db/runtime`), NOT the effect keys (`:db` /
   `:rf.db/runtime`) — the router maps `:db` effect → `:rf.db/app` partition
-  before calling this."
-  [id partitions]
-  (when-let [container (frame-state-container id)]
-    (let [current   (adapter/read-container container)
-          app-given? (contains? partitions app-partition-key)
-          rt-given?  (contains? partitions runtime-partition-key)
-          next-app  (if app-given? (get partitions app-partition-key)
-                        (get current app-partition-key))
-          next-rt   (if rt-given? (get partitions runtime-partition-key)
-                        (get current runtime-partition-key))
-          next-fs   {app-partition-key     next-app
-                     runtime-partition-key next-rt}
-          changed   (cond-> #{}
-                      (and app-given?
-                           (not= next-app (get current app-partition-key)))
-                      (conj app-partition-key)
-                      (and rt-given?
-                           (not= next-rt (get current runtime-partition-key)))
-                      (conj runtime-partition-key))]
-      ;; ONE atomic frame-state install — both partitions in one write, per
-      ;; Spec 006 §Commit boundary.
-      ;;
-      ;; identical?-noop short-circuit: when the next frame-state
-      ;; would carry forward each partition's CURRENT OBJECT unchanged
-      ;; (`identical?`, not merely `=`), the install is a genuine no-op — the
-      ;; common `(if cond (assoc db …) db)` else-arm returns the same object —
-      ;; so skip the `replace-container!` write entirely rather than re-install
-      ;; an equal value. `=` stays the deeper change-DETECTION above (a
-      ;; different-object-but-equal-value commit still writes, so the install
-      ;; honours value equality and downstream `=`-memoisation collapses it).
-      ;; The cheap fast-path is reference identity; deeper equality is `=`.
-      (when-not (and (identical? next-app (get current app-partition-key))
-                     (identical? next-rt  (get current runtime-partition-key)))
-        (adapter/replace-container! container next-fs)
-        ;; Observation-port evidence counter (Spec 006 §The internal
-        ;; observation port): one bump per physical frame-state install.
-        (bump-commit-epoch! id))
-      changed)))
+  before calling this.
+
+  The 3-arity is the router's exact-incarnation commit. It returns nil unless
+  `owner-token` still names the live record, and writes through that resolved
+  record's own container so a same-id replacement cannot redirect the write."
+  ([id partitions]
+   (when-let [frame-record (frame id)]
+     (commit-frame-record-transition! id frame-record partitions nil false)))
+  ([id owner-token partitions]
+   (when-let [frame-record (frame id)]
+     (when (identical? owner-token (:drain-lock frame-record))
+       (commit-frame-record-transition!
+         id frame-record partitions owner-token true)))))
 
 (defn replace-app-db!
   "Replace ONLY the app-db partition of `id`'s frame-state, leaving
@@ -2428,6 +2473,35 @@
 ;; destroy + re-`make-frame` reset composition, REPL — commits no
 ;; `:halted-destroy` record, so the slot is moot there).
 (def ^:dynamic *run-frame-state-before* nil)
+
+(def ^:dynamic ^:private *event-owner-token*
+  "Unforgeable exact-incarnation authority for the currently dequeued event.
+
+  The router binds this outside the authored interceptor context.  Application
+  interceptors may freely replace/rebuild the context map without being able to
+  forge ownership of a fresh same-id incarnation."
+  nil)
+
+(defn ^:no-doc call-with-event-owner-token
+  "Run `f` with the exact-incarnation authority captured by the router.
+
+  The raw dynamic var is private so authored handlers/interceptors cannot
+  replace the framework's binding after creating a same-id successor. This
+  narrow runner is the only binding seam; a nested authored call cannot change
+  the outer event pipeline's authority once it returns."
+  [token f]
+  (binding [*event-owner-token* token]
+    (f)))
+
+(defn ^:no-doc current-event-owner-token
+  "Return the router-bound event owner token to framework internals."
+  []
+  *event-owner-token*)
+
+(defn ^:no-doc event-owner-live?
+  "True when the router-bound event owner still names frame `id`."
+  [id]
+  (frame-incarnation-live? id *event-owner-token*))
 
 ;; SENSE (rf2-p4cd9c): event-pipeline-run — the run's causal time, bound
 ;; alongside `*run-frame-state-before*`. Renamed cascade->run per glw1bh.

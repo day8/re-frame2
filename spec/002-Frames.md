@@ -1846,14 +1846,29 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
       ;; exact-incarnation claim, lifecycle-dead, or absent all halt an
       ;; ordinary drain. The private on-destroy driver passes the exact claim
       ;; token and drains an isolated queue; ordinary drains have no exemption.
-      ;; Claim-time removals are retained for this one evidence record.
+      ;; Claim-time removals are retained for this one evidence record. More
+      ;; than one scheduler callback may already hold this router generation,
+      ;; so consume the count + compare/mark inside ONE router swap. Every
+      ;; callback clears rejected work; only the compare/mark winner reports.
       (when (frame-disposed-for-drain? (:id frame))
-        (let [dropped (+ (or (:destroy-claim-dropped-count
-                              @(:router frame)) 0)
-                         (count @(:queue (:router frame))))]
-          (reset! (:queue (:router frame)) (clojure.lang.PersistentQueue/EMPTY))
-          (trace! :rf.frame/drain-interrupted
-                  {:frame (:id frame) :dropped-count dropped}))
+        (let [router (:router frame)
+              report (volatile! nil)]
+          (swap! router
+                 (fn [{:keys [queue destroy-claim-dropped-count
+                              destroy-claim-report-emitted?]
+                       :as state}]
+                   (let [dropped (+ (count queue)
+                                    (or destroy-claim-dropped-count 0))]
+                     (when-not destroy-claim-report-emitted?
+                       (vreset! report dropped))
+                     (cond-> (-> state
+                                 (assoc :queue empty-queue :scheduled? false)
+                                 (dissoc :destroy-claim-dropped-count))
+                       (not destroy-claim-report-emitted?)
+                       (assoc :destroy-claim-report-emitted? true)))))
+          (when-some [dropped @report]
+            (trace! :rf.frame/drain-interrupted
+                    {:frame (:id frame) :dropped-count dropped})))
         (throw ::halt))
       ;; `>=` not `>`: `:drain-depth` is the MAX number of events a single
       ;; drain processes. The loop enters with `depth` = the

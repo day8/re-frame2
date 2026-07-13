@@ -5,6 +5,7 @@
             [re-frame.epoch]
             [re-frame.epoch.state :as epoch-state]
             [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support])
@@ -12,6 +13,14 @@
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+
+(defn- executor-barrier!
+  "Wait until work already submitted through `interop/next-tick` has run."
+  []
+  (let [latch (CountDownLatch. 1)]
+    (interop/next-tick #(.countDown latch))
+    (is (.await latch 5 TimeUnit/SECONDS)
+        "the executor reached the deterministic barrier")))
 
 (deftest expected-incarnation-token-controls-destroy-authority
   (rf/make-frame {:id :destroy/token})
@@ -208,3 +217,64 @@
         (epoch-state/drop-listener! b-observer)
         (late-bind/set-fn! :epoch/on-frame-destroyed original-epoch)
         (late-bind/set-fn! :ui/on-frame-destroyed! original-ui)))))
+
+(deftest destroyed-incarnation-cannot-commit-its-returned-tail-into-replacement
+  ;; A handler destroys its own incarnation and pauses after the registry
+  ;; dissoc. Install same-id B while that handler is still on the stack, then
+  ;; let A return a db effect and a child dispatch. Every part of that returned
+  ;; tail belongs to A and must be discarded rather than redirected into B.
+  (let [id             :destroy/event-tail-overlap
+        a-after-dissoc (CountDownLatch. 1)
+        release-a      (CountDownLatch. 1)
+        first-epoch?   (atom true)
+        child-runs     (atom 0)
+        original-epoch (late-bind/get-fn :epoch/on-frame-destroyed)]
+    (rf/reg-event :destroy/event-tail-child
+      (fn [{:keys [db]} _]
+        (swap! child-runs inc)
+        {:db (assoc db :child :from-a)}))
+    (rf/reg-event :destroy/event-tail-a
+      (fn [_ _]
+        (frame/destroy-frame! id)
+        {:db {:owner :a-tail}
+         :fx [[:dispatch [:destroy/event-tail-child]]]}))
+    (rf/reg-event :destroy/event-tail-b
+      (fn [_ _]
+        {:db {:owner :b}}))
+    (rf/make-frame {:id id})
+    (try
+      (late-bind/set-fn!
+        :epoch/on-frame-destroyed
+        (fn [& args]
+          (when (and (= id (first args))
+                     (compare-and-set! first-epoch? true false))
+            (.countDown a-after-dissoc)
+            (.await release-a 10 TimeUnit/SECONDS))
+          (when original-epoch
+            (apply original-epoch args))))
+      (let [dispatch-a (future
+                         (rf/dispatch-sync [:destroy/event-tail-a]
+                                           {:frame id}))]
+        (is (.await a-after-dissoc 10 TimeUnit/SECONDS)
+            "A is paused post-dissoc before its handler returns")
+        (rf/make-frame {:id id})
+        (rf/dispatch-sync [:destroy/event-tail-b] {:frame id})
+        (let [token-b   (frame/frame-incarnation-token id)
+              history-b (rf/epoch-history id)]
+          (.countDown release-a)
+          (is (not= ::timeout (deref dispatch-a 5000 ::timeout))
+              "A's already-dequeued handler is allowed to return")
+          (executor-barrier!)
+          (is (identical? token-b (frame/frame-incarnation-token id))
+              "the replacement incarnation remains current")
+          (is (= {:owner :b} (frame/frame-app-db-value id))
+              "A's returned db effect cannot mutate B")
+          (is (zero? @child-runs)
+              "A's returned child dispatch is not scheduled against B")
+          (is (= history-b (rf/epoch-history id))
+              "A's stale tail cannot append or settle into B's history")
+          (is (empty? (epoch-state/buffer-for id))
+              "A's dispatch-scoped capture leaves no residue in B's buffer")))
+      (finally
+        (.countDown release-a)
+        (late-bind/set-fn! :epoch/on-frame-destroyed original-epoch)))))
