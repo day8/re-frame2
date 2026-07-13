@@ -23,9 +23,9 @@
     (3) an ACTION's `:all-state` / `:tags` ALSO reflect the frozen
         pre-broadcast snapshot (not an evolving rebuild), while `:data`
         accumulation across co-selected regions in declaration order holds.
-    (4) CONVERGENCE — same-event cross-region coordination expressed via
-        `:raise` / guarded `:always` settles on the NEXT microstep (B fires
-        next microstep, not never), bounded by the always/raise depth limit.
+    (4) CONVERGENCE — guarded `:always` settles in parent-owned rounds after
+        the complete event set applies; raised events remain FIFO behind the
+        eventless fixed point.
     (5) parallel SELECTION is DECLARATION-ORDER-INDEPENDENT — the same
         machine with regions declared a-then-b vs b-then-a yields the same
         selected set / same committed state."
@@ -177,16 +177,11 @@
         (is (= [:a] (get-in b-ev [:data-seen :log]))
             "b's action saw a's :data write (the one value that flows)")))))
 
-;; ---- (4) CONVERGENCE — next-microstep coordination via :raise / :always ----
+;; ---- (4) CONVERGENCE — parent eventless rounds + raised FIFO ---------------
 
-(deftest convergence-via-always-next-event
-  (testing "a guarded :always reading a SIBLING's state converges on the NEXT
-            EVENT (a re-broadcast re-selects it against the committed config) —
-            it fires, NOT never. A plain sibling transition does NOT itself
-            trigger an in-macrostep cross-region re-broadcast (only :raise
-            does — see the next testing block), so same-event convergence via
-            :always is one event late; this is the engine's documented
-            convergence boundary for the :always coordination path."
+(deftest convergence-via-parent-always-round
+  (testing "a guarded :always reading a sibling's state converges in the SAME
+            macrostep, after the complete selected event set has applied"
     (let [m {:type    :parallel
              :data    {}
              :guards  {:a-done? (fn [{:keys [all-state]}]
@@ -200,19 +195,10 @@
                   :states  {:waiting {:always {:target :ready :guard :a-done?}}
                             :ready   {}}}}}]
       (rf/reg-machine :frozen/converge m)
-      ;; :go moves :a → :done; b's :always saw frozen :a=:idle this macrostep
-      ;; (a plain :a transition triggers no cross-region re-broadcast), so b
-      ;; does NOT fire yet — the FROZEN selection boundary.
       (rf/dispatch-sync [:frozen/converge [:go]])
-      (is (= {:a :done :b :waiting} (:state (snapshot :frozen/converge)))
-          "b's :always saw frozen :a=:idle → b stayed :waiting (no same-event
-           same-macrostep cross-region :always re-fire)")
-      ;; The NEXT event re-broadcasts; b's :always now re-selects against the
-      ;; COMMITTED :a=:done and fires — convergent, not never.
-      (rf/dispatch-sync [:frozen/converge [:poke]])
       (is (= {:a :done :b :ready} (:state (snapshot :frozen/converge)))
-          "the next event re-selected b's :always against committed :a=:done →
-           b fired (convergent next-event, bounded by :always-depth-limit)")))
+          "event actions completed, then the frozen parent :always round saw
+           :a=:done and moved b before the one macrostep committed")))
 
   (testing "same-event coordination via :raise settles same-macrostep, next
             microstep — the IN-MACROSTEP convergence path"

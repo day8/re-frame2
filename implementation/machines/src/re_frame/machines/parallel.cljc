@@ -14,9 +14,9 @@
   single-machine spec (`region-machine`) whose `:states` / `:initial`
   come from the region body, sharing `:guards` / `:actions` /
   `:on-spawn-actions` / `:rf/parent-id` / `:rf/platform` / `:rf/frame`
-  with the parent. The standard `machine-transition-single` (in
-  `re-frame.machines.transition`) is invoked against each region's
-  slice; results are merged. Spawn / destroy / after-schedule /
+  with the parent. The parent selects complete regional sets, invokes the
+  single-transition APPLY seam against each slice, and merges results. Spawn /
+  destroy / after-schedule /
   after-cancel fxs emitted by a region are post-processed to prefix
   the region name onto their `:rf/invoke-id` so per-region :spawn /
   :after slots scope correctly — one region's timer doesn't fire
@@ -28,15 +28,11 @@
 
   `:raise` semantics (XState v5 / SCXML). A flat / compound machine drains its own `:raise` queue FIFO
   inside `re-frame.machines.transition`. A PARALLEL machine owns the
-  macrostep's single internal-event queue HERE: each region DEFERS its
-  raises (its `machine-transition-single` settles `:always` locally but
-  leaves `:raise` fx un-drained — `transition/drain-to-fixed-point` in
-  `defer?` mode), and `parallel-machine-transition` re-broadcasts each
-  surfaced raise across EVERY region, FIFO, until the queue settles — then
-  commits once. Each re-broadcast is its own microstep: it
-  re-selects against the config as of THAT microstep's start (a FRESH
-  frozen `:all-state` / `:tags` view, reflecting prior-microstep region
-  moves) while the in-flight `:data` flows through.
+  macrostep's single internal-event queue HERE. Event and eventless sets are
+  selected against frozen whole-machine snapshots and applied in canonical
+  order without local regional settling. `parallel-machine-transition`
+  re-broadcasts surfaced raises across every region FIFO, preferring complete
+  eventless rounds before each dequeue, then commits once.
   A region's `:raise` is therefore NOT region-local; it re-enters the
   parent macrostep, matching what a self-`[:dispatch [<self-id> …]]` would
   broadcast (pre-commit, in one macrostep)."
@@ -539,19 +535,11 @@
   (`{:state ... :data ... :all-state ... :tags ... ?:rf/spawn-counter ...}`)
   and returns a `re-frame.machines.result/Result`.
 
-  Two callers, both APPLY-only:
-   - `broadcast-once` (the event path) runs its own SELECT pass FIRST —
-     resolving every region's match against a frozen pre-event view (incl.
-     `:data`) — then feeds each PRE-SELECTED match to `apply-region-transition`
-     here, so a region's EVENT guard is never re-selected against the evolving
-     `:data` this fold threads (rf2-lq5yo3). The threaded `:data` reaches only
-     the region ACTIONS + the region's own `:always` drain.
-   - `settle-birth` / `root-fallback-seed` run `settle-region-birth` here,
-     which has NO event-selection phase — it only drains each region's
-     `:always` against the threaded (evolving) `:data`. Birth deliberately
-     stays data-threading: there is no event guard to freeze, and freezing
-     would retime data-coupled birth convergence to the next event (Spec
-     005:1731).
+  Transition callers are APPLY-only: `broadcast-once` and
+  `apply-always-round` select complete regional sets against one frozen view
+  before entering this fold. Initial-entry and lifecycle cascades have no
+  transition-selection phase but retain the same deterministic action/fx
+  ordering and shared-data threading.
 
   Returns a `result/ok` Result carrying the merged snapshot (post-
   `commit-tags-parallel`) + accumulated fx, or the first region's
@@ -584,9 +572,8 @@
         ;; evolving `new-states`. Statechart atomicity: the configuration
         ;; changes atomically old->new, so there is no intermediate
         ;; configuration some transitions observe and others do not. The frozen
-        ;; view reaches the ACTION ctx AND any step-fn-internal selection (a
-        ;; region's own `:always` guards, a birth `:always` drain) — a region's
-        ;; own `:state` is `(get state-map rn)`, already pre-event.
+        ;; view reaches every ACTION ctx. Transition selection never occurs in
+        ;; this fold; event and eventless callers preselect the complete set.
         ;;
         ;; `:data` is the ONE value that flows: it is threaded (evolving) so a
         ;; region's ACTION accumulates in declaration order. Note the EVENT-
@@ -596,8 +583,8 @@
         ;; event guard never sees an earlier region's same-macrostep `:data`
         ;; write; this fold only APPLIES the pre-selected transitions
         ;; (rf2-lq5yo3). `commit-snapshot` preserves the `:all-state` / `:tags`
-        ;; slots through a region's own `:always` microstep loop, so the
-        ;; region's internal cascade reads the frozen sibling view too.
+        ;; slots through each preselected transition's cascade, so actions read
+        ;; one frozen sibling view while shared `:data` accumulates.
         ;;
         ;; A region guard / action reads a
         ;; sibling's state via `:all-state` (precise) and `:tags` (coarse
@@ -638,8 +625,8 @@
           ;; Per Spec 005 §Parallel regions (005:1168-1171): carry the
           ;; aggregate handled flag (true iff at least one region resolved
           ;; the event) so `parallel-machine-transition` warns exactly once
-          ;; only when EVERY region declined. Per §Trace events the
-          ;; macrostep `:microsteps` count is the sum across regions. The
+          ;; only when EVERY region declined. The caller owns parent-round
+          ;; accounting; this generic fold merely combines any step counts. The
           ;; structured `::cascade` is the per-region step
           ;; sequences concatenated in declaration order — each step
           ;; already carries `:region` (stamped by the single-machine
@@ -820,13 +807,11 @@
 ;; regions against the FULL EVOLVING snapshot (so a sibling region's guard
 ;; sees the raise; the originating region also re-sees it).
 ;;
-;; Mechanism: each per-region step DEFERS its raises (the region's
-;; `machine-transition-single` settles `:always` locally but leaves `:raise`
-;; fx un-drained — see `transition/drain-to-fixed-point` in `defer?` mode).
-;; `parallel-machine-transition`
-;; harvests those surfaced raises off the merged broadcast result, splits
-;; them from the real (do-fx-bound) fx, and feeds them — FIFO — back through
-;; another full broadcast. The loop terminates at the parent
+;; Mechanism: regional transitions apply without local draining, leaving
+;; `:raise` as fx for `parallel-machine-transition` to harvest. The parent
+;; first runs frozen eventless select/apply rounds; only at quiescence does it
+;; feed the queue front FIFO through another full broadcast. The loop
+;; terminates at the parent
 ;; `:raise-depth-limit` (default 16, same constant as the flat drain), and
 ;; on exceed rolls the WHOLE macrostep back atomically (original snapshot,
 ;; no fx) exactly like the single-machine drain.
@@ -848,24 +833,21 @@
           fx))
 
 (defn- apply-region-transition
-  "APPLY phase of a broadcast pass for ONE region: run `region-spec`'s
+  "APPLY phase for ONE region: run `region-spec`'s
   PRE-SELECTED `match` (resolved in `broadcast-once`'s SELECT pass against the
   FROZEN pre-event view) against `region-snap`, whose `:data` has ACCUMULATED
   earlier regions' same-macrostep writes in declaration order — so the
   transition's ACTION sees the evolving `:data` while its GUARD selection was
-  already frozen (rf2-lq5yo3). Regions always DEFER their raises
-  (`region-spec` carries `:rf/region`), so the 6-arity's `defer?` is true.
+  already frozen (rf2-lq5yo3).
 
-  Mirrors `machine-transition`'s guard-throw→`result/fail` wrapper: the region
-  never re-selects the EVENT guard here (that ran in SELECT), but its own
-  `:always` drain DOES evaluate guards, and an `:always` guard body may throw —
-  which must roll the macrostep back through the same failure surface a thrown
-  action / bounded-depth abort takes. Region-specs are pre-desugared at
-  `build-region-machine`, so no per-call desugar / region-order normalise is
-  needed (they are no-ops for a flat/compound region body)."
-  [region-spec region-snap event match]
+  Crucially this applies ONE transition WITHOUT a region-local `:always`
+  drain. The parallel parent owns eventless select-then-apply rounds across
+  the complete configuration; raises remain ordinary fx for that parent to
+  harvest."
+  [region-spec region-snap event match phase]
   (try
-    (transition/machine-transition-single region-spec region-snap event 0 false match)
+    (transition/apply-preselected-transition
+      region-spec region-snap event match phase)
     (catch #?(:clj Throwable :cljs :default) e
       (if (transition/guard-threw-signal? e)
         (result/fail (transition/guard-threw->fail-info e))
@@ -887,10 +869,9 @@
 
     APPLY — `reduce-regions` runs each region's PRE-SELECTED transition in
     declaration order, threading `:data` so a region's ACTION sees the values
-    earlier regions wrote (the one value that flows). Each region's OWN
-    `:always` drain then settles against that region's EVOLVING `:data`
-    (region-internal microsteps stay data-evolving — the blessed residual;
-    Spec 005:1731).
+    earlier regions wrote (the one value that flows). No region settles
+    `:always` here; `drain-parent-queue` selects the complete eventless set
+    from the fully-applied broadcast result.
 
   Regions DEFER their raises, so the returned Result's `fx` may carry surfaced
   `[:raise …]` entries for the parent loop to harvest. Returns the merged
@@ -940,7 +921,83 @@
                     (fn [region-spec region-snap]
                       (apply-region-transition
                         region-spec region-snap event
-                        (get matches (:rf/region region-spec)))))))
+                        (get matches (:rf/region region-spec)) nil)))))
+
+(defn- select-always-matches
+  "SELECT one eventless round for every active region against the SAME frozen
+  whole-machine snapshot. Returns a region-name -> match map containing only
+  enabled matches. No action runs here; in particular, no later region can
+  observe an earlier region's writes while choosing this round."
+  [machine snapshot]
+  (let [state-map        (:state snapshot)
+        frozen-data      (:data snapshot)
+        frozen-all-state state-map
+        frozen-tags      (compute-tags-parallel machine state-map)
+        sc               (:rf/spawn-counter snapshot)
+        hist             (:rf/history snapshot)]
+    (persistent!
+      (reduce
+        (fn [acc rn]
+          (let [region-spec (region-spec-overlaid machine rn)
+                region-snap (cond-> {:state     (get state-map rn)
+                                     :data      frozen-data
+                                     :all-state frozen-all-state
+                                     :tags      frozen-tags}
+                              (some? sc)   (assoc :rf/spawn-counter sc)
+                              (some? hist) (assoc :rf/history hist))
+                match       (transition/pick-always-transition
+                              region-spec
+                              (transition/state-path (get state-map rn))
+                              region-snap)]
+            (cond-> acc match (assoc! rn match))))
+        (transient {})
+        (filterv #(contains? state-map %) (region-order machine))))))
+
+(defn- apply-always-round
+  "APPLY one preselected cross-region eventless round. Matches were selected
+  by `select-always-matches` against one frozen snapshot; actions now run in
+  canonical declaration order with `:data` accumulation. No region drains a
+  local `:always` tail.
+
+  Every taken regional transition gets its own trace/cascade row, but all
+  co-selected transitions share `round-index`; the returned Result counts the
+  SET as exactly one `::microsteps` round."
+  [machine snapshot matches round-index]
+  (let [round-r
+        (reduce-regions
+          machine snapshot
+          (fn [region-spec region-snap]
+            (let [rn    (:rf/region region-spec)
+                  match (get matches rn)
+                  from  (:state region-snap)
+                  step  (apply-region-transition
+                          region-spec region-snap nil match :always)]
+              (if (or (nil? match) (result/fail? step))
+                step
+                (result/with-ok [snap2 _] step
+                  (trace/emit! :rf.machine :rf.machine.microstep/transition
+                               {:actor-id        (or (:rf/parent-id region-spec)
+                                                     (:id region-spec))
+                                :from            from
+                                :to              (:state snap2)
+                                :region          rn
+                                :microstep-index round-index
+                                :source          :always
+                                :frame           (:rf/frame region-spec)})
+                  (-> step
+                      ;; The parent owns the count. `reduce-regions` must not
+                      ;; sum one per selected region.
+                      (result/with-microsteps 0)
+                      (result/with-cascade
+                        [{:kind            :microstep
+                          :region          rn
+                          :microstep-index round-index
+                          :from            from
+                          :to              (:state snap2)
+                          :steps           (result/cascade step)}])))))))]
+    (if (result/fail? round-r)
+      round-r
+      (result/with-microsteps round-r 1))))
 
 ;; ---- root parallel `:on` — the ancestor fallback --------------------------
 ;;
@@ -1095,13 +1152,15 @@
                   (result/with-handled true)))))))))
 
 (defn- drain-parent-queue
-  "Drain the parent's single internal-event queue (region-surfaced
-  `:raise`s, re-broadcast FIFO across all regions) to a fixed point,
+  "Stabilize a parallel macrostep under the parent's unified eventless /
+  internal-event loop. Enabled regional `:always` transitions are selected as
+  one frozen set and applied as one round before the next region-surfaced
+  `:raise` is re-broadcast FIFO across all regions,
   starting from the seed broadcast `first-r`, and return the merged
   Result. Shared by the parallel event MACROSTEP (`parallel-machine-
   transition`, seed = the external event's first broadcast) and the
   parallel BIRTH settle (`settle-birth`, seed = the post-initial-cascade
-  per-region `:always` settle) — both reuse the identical queue drain.
+  configuration) — both reuse the identical parent loop.
 
   `acc-fx` accumulates only the real (non-`:raise`) fx; `acc-micro` /
   `acc-cascade` roll up the totals across every (re-)broadcast.
@@ -1118,8 +1177,10 @@
   Returns a `result/ok` (snapshot + fx, with `::handled?` / `::microsteps`
   / `::cascade`) or the first region's `result/fail`."
   [machine snapshot event first-r]
-  (let [raise-limit (get machine :raise-depth-limit
-                         transition/raise-depth-limit-default)]
+  (let [raise-limit  (get machine :raise-depth-limit
+                          transition/raise-depth-limit-default)
+        always-limit (get machine :always-depth-limit
+                          transition/always-depth-limit-default)]
     (if (result/fail? first-r)
       first-r
       (result/with-ok [snap0 fx0] first-r
@@ -1140,9 +1201,39 @@
                  ;; and bounded by the SAME limit / `>=` boundary.
                  depth      0
                  acc-micro  (result/microsteps first-r)
-                 acc-casc   (result/cascade first-r)]
-            (cond
-              (empty? pending)
+                 acc-casc   (result/cascade first-r)
+                 visited    [(:state snap0)]]
+            (let [always-matches (select-always-matches m cur-snap)]
+             (cond
+               ;; Eventless transitions always win over the internal-event
+               ;; queue. SELECT the complete enabled regional set against one
+               ;; frozen snapshot, then APPLY it as one parent microstep.
+               (seq always-matches)
+               (if (>= acc-micro always-limit)
+                 (let [info {:error-id :rf.error/machine-always-depth-exceeded
+                             :actor-id (or (:rf/parent-id m) (:id m))
+                             :depth acc-micro
+                             :path visited
+                             :frame (:rf/frame m)
+                             :recovery :no-recovery}]
+                   (trace/emit-error! :rf.error/machine-always-depth-exceeded info)
+                   (result/depth-abort info))
+                 (let [round-r (apply-always-round
+                                 m cur-snap always-matches acc-micro)]
+                   (if (result/fail? round-r)
+                     round-r
+                     (result/with-ok [snap2 fx2] round-r
+                       (let [[new-raises real-fx] (split-raises fx2)]
+                         (recur snap2
+                                m
+                                (into pending new-raises)
+                                (into acc-fx real-fx)
+                                depth
+                                (inc acc-micro)
+                                (into acc-casc (result/cascade round-r))
+                                (conj visited (:state snap2))))))))
+
+               (empty? pending)
               (let [result (-> (result/ok cur-snap acc-fx)
                                (result/with-handled external-handled?)
                                (result/with-microsteps acc-micro)
@@ -1229,9 +1320,9 @@
                     ;; region handled it (atomic ancestor suppression), when the
                     ;; root declares no matching `:on`, or for reserved `:rf/*`
                     ;; framework traffic; when the root fires it applies the
-                    ;; transition, settles the moved region(s)' `:always`, and
-                    ;; defers any surfaced raises back through `split-raises`
-                    ;; below — so they drain FIFO through this same queue
+                    ;; transition without local settling. The next parent-loop
+                    ;; iteration selects `:always` across the complete moved
+                    ;; configuration before any surfaced raises drain FIFO
                     ;; (rf2-x76af2.8). A `result/fail` short-circuits.
                     step  (if (result/fail? bstep)
                             bstep
@@ -1249,7 +1340,8 @@
                              (into acc-fx real-fx)
                              (inc depth)
                              (+ acc-micro (result/microsteps step))
-                             (into acc-casc (result/cascade step))))))))))))))
+                             (into acc-casc (result/cascade step))
+                             (conj visited (:state snap2)))))))))))))))
 
 ;; ---- parallel done-state / `:on-done` signal ------------------------------
 ;;
@@ -1332,8 +1424,6 @@
                     (result/with-microsteps (result/microsteps result))
                     (result/with-cascade (result/cascade result)))))))))))
 
-(declare settle-region-birth)
-
 (defn- root-fallback-seed
   "Per Spec 005 §Transition broadcast §Root parallel `:on`: when
   NO region handled `event` (the first broadcast `first-r` is not handled),
@@ -1344,43 +1434,22 @@
   reserved `:rf/*` framework lifecycle traffic is NOT a candidate; its
   done / error / timer routing already runs through the region resolvers).
 
-  Returns the SEED Result the macrostep should drain from:
-   - the applied + `:always`-settled root-transition Result (handled, region
-     targets moved, root `:action` run once) when the root `:on` matches; or
+  Returns the SEED Result the macrostep should settle from:
+   - the applied root-transition Result (handled, region targets moved, root
+     `:action` run once) when the root `:on` matches; or
    - `first-r` UNCHANGED when no region handled the event and the root has no
      matching `:on` (the existing all-regions-declined no-op path then runs).
 
-  When the root transition fires, the moved regions' `:always` is settled here
-  (per-region, deferring raises — `settle-region-birth`) and the root + region
-  fx is folded in FRONT of the settle fx, so the caller's `drain-parent-queue`
-  re-broadcasts any surfaced `:raise`s FIFO and a moved region's eventless
-  `:always` continues the macrostep — exactly the settle `settle-birth` runs.
-  A `result/fail` from the root action / a region cascade / an `:always`
-  short-circuits."
+  Eventless stabilization is deliberately NOT run here. The parent loop sees
+  the complete post-root configuration and owns the same frozen
+  select-then-apply rounds used after regional events and at birth."
   [machine snapshot event first-r]
   (if (or (result/fail? first-r)
           (result/handled? first-r)
           (not (transition/unhandled-event-no-op? event)))
     first-r
     (if-let [t (transition/root-on-match machine event snapshot)]
-      (let [root-r (apply-root-parallel-transition machine snapshot event t)]
-        (if (result/fail? root-r)
-          root-r
-          (result/with-ok [root-snap root-fx] root-r
-            ;; Settle the moved regions' `:always` (deferring raises) against
-            ;; the post-root snapshot, then fold the root + region-target fx in
-            ;; FRONT of the per-region settle fx so `drain-parent-queue`'s
-            ;; `split-raises` harvests any `:raise`s and the non-raise root fx
-            ;; keep their position ahead of `:always` fx — mirroring
-            ;; `settle-birth`'s parallel branch.
-            (let [always-r (reduce-regions machine root-snap settle-region-birth)]
-              (if (result/fail? always-r)
-                always-r
-                (result/with-ok [snap0 settle-fx0] always-r
-                  (-> (result/ok snap0 (into (vec root-fx) settle-fx0))
-                      (result/with-handled true)
-                      (result/with-microsteps (result/microsteps always-r))
-                      (result/with-cascade (result/cascade always-r)))))))))
+      (apply-root-parallel-transition machine snapshot event t)
       first-r)))
 
 (defn- root-after-seed
@@ -1403,9 +1472,8 @@
    - a no-op `(ok snapshot [])` on a stale / guard-suppressed timer (the
      transition does not fire — matching the single-machine `:after` drop).
 
-  The moved regions' `:always` is settled exactly as `root-fallback-seed`
-  does for the root `:on`, so a moved region's eventless `:always` / `:raise`
-  continue the macrostep through the parent queue."
+  The returned seed is stabilized by the same parent-owned eventless/raise
+  loop as every other parallel transition."
   [machine snapshot event]
   (let [match (transition/root-after-match machine event snapshot)]
     ;; Trace the firing / staleness / guard-suppression BEFORE applying, so
@@ -1421,25 +1489,14 @@
       (result/ok snapshot [])
 
       :else
-      (let [root-r (apply-root-parallel-transition machine snapshot event
-                                                    (:transition match))]
-        (if (result/fail? root-r)
-          root-r
-          (result/with-ok [root-snap root-fx] root-r
-            (let [always-r (reduce-regions machine root-snap settle-region-birth)]
-              (if (result/fail? always-r)
-                always-r
-                (result/with-ok [snap0 settle-fx0] always-r
-                  (-> (result/ok snap0 (into (vec root-fx) settle-fx0))
-                      (result/with-handled true)
-                      (result/with-microsteps (result/microsteps always-r))
-                      (result/with-cascade (result/cascade always-r))))))))))))
+      (apply-root-parallel-transition machine snapshot event
+                                      (:transition match)))))
 
 (defn- parallel-machine-transition
   "Pure function. Given a parallel-region machine, current snapshot, and
   event, run the parallel MACROSTEP — broadcast the event to every region,
-  then drain the parent's single internal-event queue (region-surfaced
-  `:raise`s, re-broadcast FIFO across all regions) to a fixed point, and
+  then run the parent's eventless-round / internal-event loop (region-
+  surfaced `:raise`s re-broadcast FIFO across all regions) to a fixed point, and
   return the merged result. Returns a `result/ok` Result on success or a
   `result/fail` Result if any region's action threw.
 
@@ -1451,8 +1508,8 @@
   fallback — `root-fallback-seed` keys off `first-r`'s `::handled?`). When the
   root transition fires it runs its `:action` once and atomically moves one or
   more region-qualified targets, leaving untargeted regions unchanged; the
-  moved regions then settle their `:always` + raises through the same parent
-  internal-event queue. The root transition's GUARD is selected against the
+  complete moved configuration then settles through the same parent loop. The
+  root transition's GUARD is selected against the
   frozen pre-event snapshot (frozen-selection coordination).
 
   Per Spec 005 §Transition broadcast (select-then-apply): each
@@ -1462,7 +1519,9 @@
   region-declaration order; resolved regions transition, undeclined regions
   stay put. Declaration order governs only the deterministic apply (action /
   fx order + `:data` accumulation), NEVER which sibling transitions are
-  selected. The `:data` slot is the one value that flows — each region's
+  selected. After the complete event set applies, parent-owned `:always`
+  rounds repeat that frozen SELECT / ordered APPLY law to quiescence. The
+  `:data` slot is the one value that flows — each region's
   actions see the prior region's `:data` writes in declaration order; the
   cross-region `:all-state` / `:tags` a guard OR action reads stay frozen
   (statechart atomicity). The broadcast invariant lives in
@@ -1473,13 +1532,13 @@
   this macrostep's internal-event queue and is re-broadcast across EVERY
   region — exactly what an equivalent self-`[:dispatch [<self-id> …]]` would
   broadcast, but pre-commit and inside the one macrostep. Each re-broadcast
-  is its own microstep: it re-selects against the config as of
-  that microstep's start (a fresh frozen `:all-state` / `:tags` view that
-  reflects prior-microstep region moves) while the in-flight `:data` flows. Raises are drained FIFO: a raise
+  re-selects against the config as of that queue step's start (a fresh frozen
+  `:all-state` / `:tags` view that reflects prior work) while the in-flight
+  `:data` flows. Eventless rounds run before the next dequeue. Raises are drained FIFO: a raise
   surfaced earlier is re-broadcast before one surfaced later, and a raise
   emitted *while handling* a re-broadcast goes to the BACK of the queue.
   The whole macrostep — external event + every re-broadcast internal event
-  + every region's `:always` microsteps — commits ONCE, atomically.
+  + every parent-owned `:always` round — commits ONCE, atomically.
   Bounded by the parent `:raise-depth-limit` (default 16); on exceed the
   macrostep rolls back wholesale (original snapshot, no fx) and emits
   `:rf.error/machine-raise-depth-exceeded`, matching the single-machine
@@ -1610,21 +1669,6 @@
 ;; uses, immediately after the entry cascade and BEFORE the birth commit,
 ;; for BOTH birth paths (eager `[:rf.machine/start]` + lazy first-event).
 
-(defn- settle-region-birth
-  "Per-region birth settle step for `reduce-regions`: feed the region's
-  post-cascade snapshot through the single-machine `drain-to-fixed-point`
-  with an EMPTY seed cascade (the entry cascade was already captured by
-  `run-initial-cascade`; this phase contributes only the `:always`
-  microsteps). The region DEFERS its raises (`region-spec` carries
-  `:rf/region`, so `drain-to-fixed-point`'s `defer?` is true) — they
-  surface back to the parent queue, which `settle-birth` re-broadcasts."
-  [region-spec region-snap]
-  (transition/drain-to-fixed-point
-    region-spec
-    (result/ok region-snap [])
-    0                                   ; raise-depth seed
-    true))                              ; defer raises to the parent queue
-
 (defn- settle-birth
   "Run the birth-time settle — raise drain + `:always` fixed-point loop —
   against the POST-initial-cascade Result, BEFORE the machine is committed.
@@ -1644,15 +1688,12 @@
   `transition/drain-to-fixed-point` directly with `entry-r` (its boot
   snapshot + entry fx).
 
-  For parallel-region machines, each region first settles its OWN `:always`
-  (deferring raises) via `settle-region-birth` against the post-cascade
-  snapshot, then `drain-parent-queue` re-broadcasts every region-surfaced
-  raise — INCLUDING the initial-`:entry` raises harvested off the merged
-  entry fx — FIFO across all regions to a fixed point (the same parent queue
-  the event macrostep uses), seeded with `event nil` so the all-regions-
-  declined no-op never fires on birth. The entry fx is folded into the seed
-  Result so its raises enter the parent queue alongside the per-region
-  `:always` raises (preserving entry-fx order ahead of settle fx).
+  For parallel-region machines, `drain-parent-queue` starts directly from the
+  complete post-entry configuration. It runs the identical parent-owned
+  eventless select-then-apply loop used after an event: every enabled region
+  is selected against one frozen whole-machine snapshot, the set applies in
+  declaration order, and the loop repeats before any queued initial-entry
+  raise is dequeued.
 
   Returns a `result/ok` carrying the settled snapshot + fx (with
   `::microsteps` = the count of `:always` iterations and `::cascade` = the
@@ -1664,26 +1705,12 @@
   [machine entry-r]
   (result/with-ok [boot-snapshot entry-fx] entry-r
     (if (parallel? machine)
-      (let [;; Per-region `:always` settle (deferring raises) against the
-            ;; post-cascade snapshot. Its `acc-fx` is empty (regions seed with
-            ;; `[]`); the entry-fx is folded into the seed BELOW so the
-            ;; entry-`:entry` raises + per-region `:always` raises share the
-            ;; one parent queue, with entry fx ordered ahead of settle fx.
-            always-r (reduce-regions machine boot-snapshot settle-region-birth)
-            ;; Fold the merged entry fx in FRONT of the per-region settle fx so
-            ;; `drain-parent-queue`'s `split-raises` harvests every initial-
-            ;; `:entry` `[:raise ...]` (bz0ox.1) — the non-raise entry fx keep
-            ;; their position ahead of the `:always` fx.
-            first-r  (if (result/fail? always-r)
-                       always-r
-                       (result/with-ok [snap0 settle-fx0] always-r
-                         (result/with-handled
-                           (result/with-microsteps
-                             (result/with-cascade
-                               (result/ok snap0 (into (vec entry-fx) settle-fx0))
-                               (result/cascade always-r))
-                             (result/microsteps always-r))
-                           (result/handled? always-r))))]
+      (let [;; The entry cascade is prepended by the caller. Seed this settle
+            ;; with only its snapshot/fx so it contributes eventless rows once.
+            first-r (-> (result/ok boot-snapshot (vec entry-fx))
+                        (result/with-handled false)
+                        (result/with-microsteps 0)
+                        (result/with-cascade []))]
         ;; A parallel machine BORN all-regions-final (each
         ;; region's initial+`:always` settles onto a `:final?` leaf) fires the
         ;; parallel root's `:on-done` on birth too — same transitionable signal
