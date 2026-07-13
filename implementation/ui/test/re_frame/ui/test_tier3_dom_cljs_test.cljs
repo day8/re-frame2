@@ -3,7 +3,6 @@
   native scoped CSS queries, deterministic flush, and total teardown."
   (:require [cljs.test :refer [deftest is testing use-fixtures]]
             ["react" :as React]
-            [re-frame.adapter.uix :as uix-adapter]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.test-support :as test-support]
@@ -15,7 +14,7 @@
 (defn- browser? [] (exists? js/document))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter uix-adapter/adapter
+  (test-support/make-reset-runtime-fixture {:adapter ui/adapter
                                             :ambient-frame nil}))
 
 (defview query-fixture []

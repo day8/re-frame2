@@ -31,9 +31,10 @@ suite + one smoke** (08 §5 Adapters) — two named suites, not one.
 | `(flush!)` | drain framework work to quiescence under React `act`, then settle the commit — the sole public test flush. It is global across test roots; there is no public production `ui/flush!`. `flush!` during an open event drain is the typed dev/test error `:rf.error/flush-in-open-epoch` |
 | `(flush-presence!)` | advance presence transitions without wall-clock (02 §7) |
 
-Tier-3 events use the platform directly: set DOM properties and call
-`dispatchEvent` with the native event type/options the behavior needs. No gesture DSL
-sits between a test and the browser.
+At S2, Tier-3 tests drive framework state with `dispatch!`. DOM mechanics already owned
+by the host or a foreign component use platform properties and native events directly;
+compiled event-vector delivery through `dispatchEvent` becomes live with S3's committed
+handlers. No gesture DSL sits between a test and the browser.
 
 Naming is uniform everywhere. **The `.cljc` constraint is stated:** Tier-1 requires the
 events/subs a view touches to be `.cljc` — an authoring constraint the guide teaches,

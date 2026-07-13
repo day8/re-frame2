@@ -635,8 +635,10 @@ selector grammar in 004D.
 
 **Mounted semantics.** `with-root` owns a real React root in a connected test container
 and tears down the root and container on every exit. `query` delegates a native CSS
-string to that container's `querySelector`. Tests drive DOM mechanics with ordinary DOM
-properties and `dispatchEvent`; there is no gesture DSL.
+string to that container's `querySelector`. At S2, `ui.test/dispatch!` drives framework
+state programmatically; ordinary DOM properties and native events exercise mechanics
+already owned by the host or a foreign component. Compiled event-vector delivery through
+native events rides the S3 committed-handler contract. There is no gesture DSL.
 
 `ui.test/flush!` is the **only** public test flush for compiled views. It drains all
 pending framework work to quiescence under React `act`, allowing each drain's complete

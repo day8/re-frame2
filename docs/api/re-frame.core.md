@@ -826,7 +826,7 @@ The surfaces that bring a re-frame2 process up and take it down. The one-line bo
   ```clojure
   (current-adapter) → discriminator keyword
   ```
-- **Description**: Which substrate is installed. Answers `:rf.adapter/reagent` / `:rf.adapter/reagent-slim` / `:rf.adapter/uix` / `:rf.adapter/helix` / `:rf.adapter/plain-atom` / `:rf.adapter/ssr` / `:custom` — or `nil` when no adapter is installed. For predicate / branch code.
+- **Description**: Which substrate is installed. Answers `:rf.adapter/reagent` / `:rf.adapter/reagent-slim` / `:rf.adapter/ui` / `:rf.adapter/uix` / `:rf.adapter/helix` / `:rf.adapter/plain-atom` / `:rf.adapter/ssr` / `:custom` — or `nil` when no adapter is installed. For predicate / branch code.
 - **Example**:
   ```clojure
   (rf/current-adapter)   ;; => :rf.adapter/reagent   (nil when no adapter is installed)
