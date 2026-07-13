@@ -14,4 +14,3 @@
                [fixture/app {:v 100}]]
               host
               {:root-id :g13/advanced-companion})))
-
