@@ -60,7 +60,7 @@ thin, declarative front door, nothing more.
 
 ## Goals
 
-- Add `:initial-events` to `reg-frame`, `make-frame`, and owned `frame-provider`.
+- Add `:initial-events` to `reg-frame`, `make-frame`, and the view-tree ENSURE boundary (today `frame-root` — the rf2-nyea0r split).
 - Retire `:on-create` and `:initial-db`; provide `[:rf/set-db {…}]` for app-db seeding.
 - One unambiguous vector shape; an optional per-step `:rf.cofx` for test determinism.
 - Run setup synchronously at construction, behaving like the hand-written loop.
@@ -146,7 +146,7 @@ the hand-written loop would. By the time `make-frame` returns, the synchronous s
 settled. Asynchronous effects started by setup are not awaited.
 
 Construction runs at **top level** (tests, boot, SSR per request — see §Out of scope) or
-in the **view tree** (`frame-provider`). Constructing a frame **inside an event handler
+in the **view tree** (`frame-root`). Constructing a frame **inside an event handler
 is not supported** — frame creation is a view / top-level concern (a handler changes
 app-db; the view materializes frames from it) — and fails loudly
 (`:rf.error/frame-construction-in-handler`).
@@ -226,18 +226,22 @@ re-construction would then hit the construction-in-handler guard, leaving the fr
 destroyed-and-not-recreated and signalled by an error naming the wrong cause. The up-front
 rejection is atomic: the frame is left untouched.)
 
-### Frame provider
+### Frame root — the view-tree ENSURE boundary
 
-Owned `frame-provider` accepts `:initial-events` alongside `:id` / `:images` and runs it
-on the **first creation of a frame id** only. On a genuine **remount / re-acquire** under
-the same id (React StrictMode, a true unmount→mount, Story re-eval) the setup is re-recorded
-but **not** replayed, and durable state is preserved (idempotent re-registration); an
-ordinary prop-change re-render does not re-call `make-frame` at all, so it neither
-re-records nor replays. A step that throws during acquire **destroys the just-created frame,
-then rethrows**. Because provider setup
-runs during React render, keep it **effect-light** (seed app-db, light init), and drive
-heavier side-effecting init from app-db state via the view. (Render-abort-after-acquire
-remains a known pre-existing provider edge; it is not solved here.)
+`frame-root {:id …}` (the ENSURE component the rf2-nyea0r split carved out of the
+pre-split provider) accepts `:initial-events` alongside `:id` / `:images` and runs it on
+the **first creation of a frame id** only. The boundary is **commit-owned and two-pass**:
+the frame is created — and its setup run — in a client `useLayoutEffect` at commit, never
+during render. A render React discards before commit creates and seeds **nothing** (no
+ghost frame), and children render only **after** the frame is live. On a genuine
+**remount / re-acquire** under the same id (React StrictMode, a true unmount→mount, Story
+re-eval) the setup is re-recorded but **not** replayed, and durable state is preserved
+(idempotent re-registration); an ordinary prop-change re-render does not re-call
+`make-frame` at all, so it neither re-records nor replays. A step that throws during the
+commit-effect ENSURE **rolls the just-created frame back (destroys it), then rethrows** —
+a failed new creation leaves nothing live. Setup runs synchronously inside the commit
+effect, so keep it **effect-light** (seed app-db, light init) and drive heavier
+side-effecting init from app-db state via the view.
 
 ### Diagnostics
 
@@ -317,7 +321,7 @@ still supplies either fails loudly.
 
 Update the surfaces that teach `:initial-db` / `:on-create`: `spec/002-Frames.md`,
 `spec/007-Stories.md`, `spec/API.md`, `spec/008-Testing.md`, the guide (frame / app-db
-docs), the `frame-provider` docs, examples, skills, and conformance / schema fixtures.
+docs), the `frame-root` docs, examples, skills, and conformance / schema fixtures.
 
 ## Reference implementation — work items (beads)
 
@@ -361,7 +365,7 @@ records below are the design rationale for each slice.
 
 ## Acceptance criteria
 
-- `:initial-events` works for `reg-frame`, `make-frame`, and `frame-provider`, dispatching
+- `:initial-events` works for `reg-frame`, `make-frame`, and `frame-root`, dispatching
   each step synchronously in order; `:on-create` and `:initial-db` are rejected.
 - `:rf/set-db` is public, registered as a framework standard (regular registrar + image
   standard registry), replaces app-db only, rejects a missing / `nil` / non-map argument,
@@ -373,8 +377,8 @@ records below are the design rationale for each slice.
   partial frame and names the step.
 - `reset-frame!` re-dispatches the recorded `:initial-events`; the other app-db reset
   verbs are unchanged.
-- `frame-provider` runs setup once per frame lifetime; a setup throw destroys the
-  just-created frame, then rethrows.
+- `frame-root` runs setup once per committed frame-id lifetime; a setup throw destroys
+  the just-created frame, then rethrows.
 - Specs, API, guide, provider docs, examples, skills, and conformance no longer teach
   `:on-create` / `:initial-db`.
 

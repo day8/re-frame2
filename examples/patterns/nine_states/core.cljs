@@ -843,9 +843,9 @@
       (reset! react-root (rdc/create-root el)))
     (rdc/render @react-root
                 [rf/frame-root {:id             :rf/default
-                                    :doc            "Nine-states demo frame."
-                                    :fx-overrides   {:rf.http/managed :nine-states.http/managed-demo}
-                                    :initial-events [[:nine-states.app/initialise]]}
+                                :doc            "Nine-states demo frame."
+                                :fx-overrides   {:rf.http/managed :nine-states.http/managed-demo}
+                                :initial-events [[:nine-states.app/initialise]]}
                  [root-view]])))
 
 (defn run []

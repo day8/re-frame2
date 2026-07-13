@@ -96,9 +96,9 @@
 
 (defonce react-root (atom nil))
 
-;; One place owns the frame: the `frame-provider` at the render root.
+;; One place owns the frame: the `frame-root` at the render root.
 ;; `run` installs the adapter, then renders `[frame-root {:id ...}
-;; ...]`. Pass the provider an `{:id}` and it does the whole dance for
+;; ...]`. Give the root an `{:id}` and it does the whole dance for
 ;; you — on first mount it creates the frame, applies its config, and
 ;; fires the `:initial-events` seed once; on a hot reload it finds the
 ;; existing frame and skips the seed. Create, seed, and scope-into-React,
@@ -118,7 +118,7 @@
       (reset! react-root (rdc/create-root el)))
     (rdc/render @react-root
                 [rf/frame-root {:id app-frame
-                                    :initial-events [[:ws.app/initialise]]}
+                                :initial-events [[:ws.app/initialise]]}
                  [views/root-view]])))
 
 (defn run []

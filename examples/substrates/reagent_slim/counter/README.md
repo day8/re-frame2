@@ -17,7 +17,7 @@ You wire a substrate to re-frame2 with an [adapter](../../../../docs/core/how-to
 1. **The mount import points at `reagent2.dom.client`** instead of stock `reagent.dom.client`, so the React root comes from the slim substrate.
 2. **`(rf/init!)` gets the slim adapter Var** instead of the stock one.
 
-The dataflow is character-for-character the canonical counter — `:counter/initialise`, `:counter/inc`, `:counter/dec`, the `:counter/value` subscription, and the two views. The mount keeps the same lazy shape under a `frame-provider`, folded into a single `boot!` that the gate files below also call. The same event pipeline runs through a different substrate, and nothing downstream can tell. That's the demonstration.
+The dataflow is character-for-character the canonical counter — `:counter/initialise`, `:counter/inc`, `:counter/dec`, the `:counter/value` subscription, and the two views. The mount keeps the same lazy shape under a `frame-root`, folded into a single `boot!` that the gate files below also call. The same event pipeline runs through a different substrate, and nothing downstream can tell. That's the demonstration.
 
 Read [`core.cljs`](core.cljs) as the example. It's plain, idiomatic re-frame2.
 

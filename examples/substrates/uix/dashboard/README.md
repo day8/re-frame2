@@ -101,13 +101,13 @@ the dataflow stays the star.
 The mount is the ordinary re-frame2 boot.
 [`init!`](../../../../docs/core/glossary.md#init) installs the UIx adapter.
 Then the tree renders inside a
-[`frame-provider`](../../../../docs/core/glossary.md#frame-provider) given
+[`frame-root`](../../../../docs/core/glossary.md#frame-root) given
 `{:id app-frame :initial-events [[:dashboard/initialise]]}`: the `:id`
 stands the app [frame](../../../../docs/core/glossary.md#frame) up —
 creating it on the first mount, reusing it untouched on a hot reload — and
 `:initial-events` fires once on creation to seed the
 [app-db](../../../../docs/core/glossary.md#app-db) before the first paint.
-With the tree inside the provider, every `use-subscribe` and
+With the tree inside the root, every `use-subscribe` and
 `use-frame` resolves to that frame through React context; render with
 *no* provider and the hooks raise `:rf.error/no-frame-context` —
 [identity is carried, not

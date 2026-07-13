@@ -50,7 +50,7 @@ This page makes the initial value **explicit** through an `:initialise` event, t
    [:button {:on-click #(dispatch [:step-size/set {:step-size 10}])} "10"]])
 
 [rf/frame-root {:id :app
-                    :initial-events [[:initialise]]}
+                :initial-events [[:initialise]]}
  [stepping-counter]]
 ```
 
@@ -71,7 +71,7 @@ No second store. The events produce a sequence of complete map values:
 
 The seed is not a lone `{:value 0}` that later grows a second key by accident. Both facts begin in the initial map; later events return replacements for that whole value.
 
-That is a **complete live counter**: [registrations](glossary.md#register), a [frame-provider](glossary.md#frame-provider) that creates and scopes the frame and runs the seed, and a view. (The playground mounts the trailing hiccup; a real app still needs boot wiring — [counter example](../../examples/core/counter) or [Boot and mount an app](how-to/boot-and-mount-an-app.md).) The rest of the guide grows this same counter one concept at a time.
+That is a **complete live counter**: [registrations](glossary.md#register), a [frame-root](glossary.md#frame-root) that creates and scopes the frame and runs the seed, and a view. (The playground mounts the trailing hiccup; a real app still needs boot wiring — [counter example](../../examples/core/counter) or [Boot and mount an app](how-to/boot-and-mount-an-app.md).) The rest of the guide grows this same counter one concept at a time.
 
 ## One map, one write path
 
@@ -115,7 +115,7 @@ A handler may return no `:db` key (only `:fx`, say) and leave app-db alone, or r
 
 ## Initial state is an event
 
-A frame's event fold starts with `app-db = {}`. There is no `:db` config slot to seed it. Seeding is itself an event — the same pipeline as every later change — listed as `:initial-events` on the frame (or `frame-provider`).
+A frame's event fold starts with `app-db = {}`. There is no `:db` config slot to seed it. Seeding is itself an event — the same pipeline as every later change — listed as `:initial-events` on the frame (or `frame-root`).
 
 The counter already did this with `:initialise`. A larger app is the same idea: a domain handler that returns the first map, then any follow-ups you need:
 
@@ -126,7 +126,7 @@ The counter already did this with `:initialise`. A larger app is the same idea: 
           :ui {:route :home}}}))
 
 [rf/frame-root {:id :app
-                    :initial-events [[:initialise]
+                :initial-events [[:initialise]
                                      [:session/restore]]}
  [root-view]]
 ```

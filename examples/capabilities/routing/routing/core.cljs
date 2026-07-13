@@ -202,9 +202,9 @@
     ;; stacks up duplicate listeners.
     (rdc/render @react-root
                 [rf/frame-root {:id app-frame
-                                    :doc "Routing demo frame."
-                                    :url-bound? true
-                                    :initial-events [[:routing.app/initialise]]}
+                                :doc "Routing demo frame."
+                                :url-bound? true
+                                :initial-events [[:routing.app/initialise]]}
                  [root-view]])))
 
 (defn run []

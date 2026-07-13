@@ -50,7 +50,7 @@
 
 ;; A schema belongs to a frame, so we need a frame in scope to register it.
 ;; `with-frame` names one. We use `:rf/default` — the same id the render root's
-;; `frame-provider` picks (see `run`) — so the schema guards the very frame
+;; `frame-root` picks (see `run`) — so the schema guards the very frame
 ;; whose commits it's meant to validate. If you want the why and the how of
 ;; schemas, that's docs/core/how-to/validate-with-schemas.md.
 (rf/with-frame :rf/default
@@ -201,7 +201,7 @@
 ;; element, and exactly one of them would win. Lazy keeps that drama away.
 (defonce react-root (atom nil))
 
-;; All the frame's lifecycle happens in one spot — the `frame-provider` in
+;; All the frame's lifecycle happens in one spot — the `frame-root` in
 ;; `mount!` below. On first mount it creates the frame, applies its config, and fires
 ;; `:initial-events` once to seed app-db. After that, every `dispatch` and
 ;; `subscribe` in the tree resolves to this frame. On hot reload it reuses the
@@ -213,7 +213,7 @@
 (def app-frame :rf/default)
 
 ;; `mount!` is browser setup: create the root lazily, then render the view tree
-;; inside the frame-provider. `^:dev/after-load` is shadow's cue to re-run it on
+;; inside the frame-root. `^:dev/after-load` is shadow's cue to re-run it on
 ;; each reload so your edited views re-render into the same root and same frame.
 ;; This is the canonical mount/boot shape, spelled the same in the counter and
 ;; todomvc examples. See `docs/core/how-to/boot-and-mount-an-app.md`.
@@ -224,11 +224,11 @@
       (reset! react-root (rdc/create-root el)))
     (rdc/render @react-root
                 [rf/frame-root {:id app-frame
-                                    :initial-events [[:timer/initialise]]}
+                                :initial-events [[:timer/initialise]]}
                  [timer-view]])))
 
 (defn run []
   ;; `init!` tells the runtime to render through the Reagent adapter. That's all
-  ;; it does — it does *not* create a frame. The `frame-provider` in `mount!` does that.
+  ;; it does — it does *not* create a frame. The `frame-root` in `mount!` does that.
   (rf/init! reagent-adapter/adapter)
   (mount!))

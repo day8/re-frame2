@@ -303,7 +303,7 @@
                  (let [rt (rdc/create-root target-el)]
                    (swap! roots assoc target-el rt)
                    rt))]
-    ;; Mount under the merged `rf/frame-provider {:frame …}` SCOPE-only shape
+    ;; Mount under the SCOPE-only `rf/frame-provider {:frame …}`
     ;; (scopes any `reg-view`'d descendant the cell author writes to the
     ;; ALREADY-CREATED `app-frame`) AND frame-bind the cell's own component fn
     ;; so a render-time `subscribe` inside a PLAIN fn resolves `:rf/default`

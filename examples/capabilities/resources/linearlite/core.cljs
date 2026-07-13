@@ -623,9 +623,9 @@
     ;; `app-frame` and applies the config; hot reload reuses it.
     (rdc/render @react-root
                 [rf/frame-root {:id           app-frame
-                                    :doc          "Linearlite optimistic-board demo frame."
-                                    :url-bound?   true
-                                    :fx-overrides {:rf.http/managed :linearlite.demo/http-stub}}
+                                :doc          "Linearlite optimistic-board demo frame."
+                                :url-bound?   true
+                                :fx-overrides {:rf.http/managed :linearlite.demo/http-stub}}
                  [root-view]])))
 
 (defn run []

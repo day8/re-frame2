@@ -77,7 +77,7 @@
 ;; via `:process-monitor/stop`. Re-mount and it re-arms cleanly. Unmount and no
 ;; chain is left dispatching into a frame nobody is looking at.
 ;;
-;; This is the ONE arming site. The `frame-provider` call in `run` (see MOUNT,
+;; This is the ONE arming site. The `frame-root` call in `run` (see MOUNT,
 ;; below) deliberately carries no `:initial-events` — if it also dispatched
 ;; `:process-monitor/initialise`, boot would arm two overlapping chains (the
 ;; generation guard above would mask it, quietly dropping the older one, but
@@ -341,7 +341,7 @@
 ;; by side they don't all race to call `createRoot` on the shared `#app`.
 (defonce react-root (atom nil))
 
-;; The frame this app runs under. The `frame-provider` in `run` is the single
+;; The frame this app runs under. The `frame-root` in `run` is the single
 ;; place it's set up — it creates the frame and threads it into React context.
 ;; Everything downstream (`use-subscribe`, the `use-frame` capture in
 ;; `monitor`) finds this frame through that context. It carries no
@@ -356,7 +356,7 @@
                      (js/document.getElementById "app"))]
     (when-not @react-root
       (reset! react-root (react-dom-client/createRoot el)))
-    ;; `frame-provider` creates the app frame on first mount; a hot reload
+    ;; `frame-root` creates the app frame on first mount; a hot reload
     ;; reuses the existing frame. From here on the `monitor` component owns
     ;; both the seed and the loop (see its `use-effect`) — mount dispatches
     ;; `:process-monitor/initialise`, which seeds app-db AND arms the tick

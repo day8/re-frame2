@@ -833,7 +833,7 @@
 ;; ---- reload-images! / reset-frame! — RETIRED (rf2-lxwpob) ------------------
 ;;
 ;; API-shrink #5 (frame-lifecycle collapse, rf2-lxwpob): the lifecycle
-;; vocabulary is `make-frame` + `destroy-frame!` (+ `frame-provider` /
+;; vocabulary is `make-frame` + `destroy-frame!` (+ `frame-root` /
 ;; `with-new-frame` sugar), not five verbs across three return types.
 ;;   * `reload-images!` is FOLDED into re-construction — re-call `make-frame`
 ;;     against the SAME `:id` with a NEW `:images` vector; it swaps the

@@ -344,7 +344,7 @@
 ;; tree resolves to it. Hot reload? It reuses the same frame. And there's no
 ;; boot seed to write: route entry's `:resources` plan ensures page 0, so the
 ;; frame carries no `:initial-events`.
-;; See docs/core/glossary.md#frame-provider.
+;; See docs/core/glossary.md#frame-root.
 
 (defonce react-root (atom nil))
 
@@ -362,9 +362,9 @@
     ;; for `:initial-events`.
     (rdc/render @react-root
                 [rf/frame-root {:id           app-frame
-                                    :doc          "Infinite-feed demo frame."
-                                    :url-bound?   true
-                                    :fx-overrides {:rf.http/managed :infinite-feed.demo/http-stub}}
+                                :doc          "Infinite-feed demo frame."
+                                :url-bound?   true
+                                :fx-overrides {:rf.http/managed :infinite-feed.demo/http-stub}}
                  [root-view]])))
 
 (defn run []

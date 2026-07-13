@@ -96,7 +96,7 @@
       (reset! react-root (rdc/create-root el)))
     (rdc/render @react-root
                 [rf/frame-root {:id app-frame
-                                    :initial-events [[:counter/initialise]]}
+                                :initial-events [[:counter/initialise]]}
                  [counter-app]])))
 
 (defn boot!

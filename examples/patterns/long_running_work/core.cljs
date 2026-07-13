@@ -112,7 +112,7 @@
       (reset! react-root (rdc/create-root el)))
     (rdc/render @react-root
                 [rf/frame-root {:id app-frame
-                                    :initial-events [[:app/initialise]]}
+                                :initial-events [[:app/initialise]]}
                  [views/root-view]])))
 
 (defn run []

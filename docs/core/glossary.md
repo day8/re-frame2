@@ -287,7 +287,13 @@ Related: [Frames](frames.md).
 
 ### **frame-provider**
 
-The React component that scopes a [frame](#frame) to a view subtree, so `dispatch`/`subscribe` inside resolve to it. One component, two config shapes chosen by the prop map: `{:frame existing-id}` *scopes* an already-created frame's id down (creating and destroying nothing; fails loud if the frame is absent), while `{:id …}` *ensures* a named frame — creating it if absent, reusing it without re-seeding if present, with no destroy-on-unmount. (The everyday expression of [frame identity is carried, not found](#frame-identity-is-carried-not-found).)
+The React component that *scopes* an existing [frame](#frame) to a view subtree, so `dispatch`/`subscribe` inside resolve to it. SCOPE-only — **roots ensure; providers scope**: `{:frame existing-id}` provides an already-created frame's id down through React context, creating and destroying nothing, and fails loud if the frame is absent. Given an `:id` (the ENSURE key) it fails loud naming its sibling [`frame-root`](#frame-root). (The everyday expression of [frame identity is carried, not found](#frame-identity-is-carried-not-found).)
+
+Related: [Frames](frames.md).
+
+### **frame-root**
+
+The React component that *ensures* a named [frame](#frame) for a view subtree's mounted lifetime — the ENSURE sibling of [`frame-provider`](#frame-provider). Keyed by `{:id …}` (plus any `make-frame` opts), it creates the frame if absent — at commit, in a client layout effect, so a render React discards creates nothing — reuses it without re-seeding if present (hot reload and StrictMode remounts preserve app-db and never replay `:initial-events`), and provides its id to descendants. It never destroys the frame on unmount; true ownership is explicit `make-frame` + `destroy-frame!`. Given a `:frame` it fails loud naming `frame-provider`.
 
 Related: [Frames](frames.md).
 

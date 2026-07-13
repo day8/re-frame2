@@ -187,7 +187,7 @@ Back in Step 1, the mount had one routing flag you took on faith. Time to cash t
   (rf/init! reagent-adapter/adapter)
   (rdc/render (rdc/create-root (js/document.getElementById "app"))
               [rf/frame-root {:id         :rf/default
-                                  :url-bound? true}  ;; ← this frame owns the address bar
+                              :url-bound? true}  ;; ← this frame owns the address bar
                [root-view]]))
 ```
 

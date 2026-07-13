@@ -137,7 +137,7 @@
                      (js/document.getElementById "app"))]
     (when-not @react-root
       (reset! react-root (react-dom-client/createRoot el)))
-    ;; Frame setup in one spot. The `frame-provider`'s `{:id …}` shape creates
+    ;; Frame setup in one spot. The `frame-root`'s `{:id …}` ENSURE creates
     ;; the `:rf/default` frame on first mount and applies the config
     ;; (`:doc`, plus the `model/frame-config` spread below). On hot reload it
     ;; reuses the existing frame and its state, so the demo survives a reload.

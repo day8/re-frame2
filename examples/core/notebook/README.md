@@ -134,7 +134,7 @@ That keeps the trio on the reference substrate for each adapter.
 The mount is the ordinary re-frame2 boot, in two steps.
 [`init!`](../../../docs/core/glossary.md#init) installs the Reagent
 [adapter](../../../docs/core/glossary.md#adapter). Then the tree renders
-inside a [`frame-provider`](../../../docs/core/glossary.md#frame-provider)
+inside a [`frame-root`](../../../docs/core/glossary.md#frame-root)
 given `{:id app-frame :initial-events [[:notebook/initialise]]}`: the
 `:id` stands the app [frame](../../../docs/core/glossary.md#frame) up —
 creating it on the first mount, reusing it untouched on a hot reload — and

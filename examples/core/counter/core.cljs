@@ -9,7 +9,7 @@
    every bigger app is this same shape with more parts bolted on. The guide
    walks it slowly in `docs/core/run-to-completion.md`.
 
-   The frame is stood up in exactly one place: the `frame-provider` at the
+   The frame is stood up in exactly one place: the `frame-root` at the
    render root in `run` below. It names the frame and seeds it once.
 
    On the menu: `reg-event`, `reg-sub`, and `reg-view` with its frame-bound
@@ -65,7 +65,7 @@
 
 ;; The root view does nothing but render `counter-buttons`. A touch
 ;; ceremonial for one child, but it gives `run` a single tree to wrap in
-;; the `frame-provider` that stands up the frame.
+;; the `frame-root` that stands up the frame.
 
 (rf/reg-view counter-app []
   [counter-buttons])
@@ -98,7 +98,7 @@
 (def app-frame :rf/default)
 
 ;; `mount!` is browser setup: create the root lazily, then render the view tree
-;; inside the frame-provider. `^:dev/after-load` is shadow's cue to re-run it on
+;; inside the frame-root. `^:dev/after-load` is shadow's cue to re-run it on
 ;; each reload so your edited views re-render into the same root and same frame.
 ;; This is the canonical mount/boot shape, spelled the same in the quickstart,
 ;; the boot-and-mount how-to, and the todomvc example. See
@@ -110,7 +110,7 @@
       (reset! react-root (rdc/create-root el)))
     (rdc/render @react-root
                 [rf/frame-root {:id             app-frame
-                                    :initial-events [[:counter/initialise]]}
+                                :initial-events [[:counter/initialise]]}
                  [counter-app]])))
 
 (defn run []

@@ -955,7 +955,7 @@
   runtime_cljs_test; pinned here so a regression in the provider
   shape surfaces alongside this suite's failures, not three suites
   away."
-  ;; The merged provider's SCOPE-only `{:frame …}` shape fails loud if the
+  ;; The SCOPE-only `frame-provider {:frame …}` fails loud if the
   ;; frame is absent, so register it live before composing the element.
   (rf/make-frame {:id :rf-22ds-sanity-x})
   (let [child       [:span "x"]

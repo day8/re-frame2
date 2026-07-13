@@ -51,7 +51,7 @@ model drives a different renderer.
   convenience, so Helix users write `defnc` and take their frame ops off
   the hook.
 - **The shared frame-context** — the render is wrapped in
-  `frame-provider`, the same React Context machinery the Reagent
+  `frame-root`, the same React Context machinery the Reagent
   and UIx adapters use. The substrate boundary is real, but it lives in one
   shared runtime, not in three separate copies.
 

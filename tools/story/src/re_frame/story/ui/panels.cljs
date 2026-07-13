@@ -251,8 +251,8 @@
            [:span {:style {:color (:text-tertiary colors/tokens)}} (str pid)]]
           (if view-fn
             ;; rf2-zme7: scope the panel view's subscribe / dispatch to
-            ;; the active variant's frame. The merged `rf/frame-provider
-            ;; {:frame …}` shape keeps the `:story.x/y`-shaped variant-id
+            ;; the active variant's frame. The SCOPE-only `rf/frame-provider
+            ;; {:frame …}` keeps the `:story.x/y`-shaped variant-id
             ;; intact across the React context boundary (it routes through
             ;; Reagent's `:r>` interop head, rf2-c5jz).
             [rf/frame-provider {:frame variant-id}

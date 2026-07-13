@@ -614,7 +614,7 @@ The framework reserves a few `:fx` entries and one standard interceptor referenc
 
 ## Frames
 
-A frame is the scoping unit for `app-db`, the event queue, and the pipeline. Most apps have exactly one frame, established at the root with `rf/frame-provider`. `init!` does **not** create one for you: frame identity is carried, not synthesised from absence (see [Frame identity is carried, not found](../core/glossary.md#frame-identity-is-carried-not-found)). Apps that need isolation between subsystems register additional frames and dispatch / subscribe against them via `{:frame :other}`.
+A frame is the scoping unit for `app-db`, the event queue, and the pipeline. Most apps have exactly one frame, established at the root with `rf/frame-root`. `init!` does **not** create one for you: frame identity is carried, not synthesised from absence (see [Frame identity is carried, not found](../core/glossary.md#frame-identity-is-carried-not-found)). Apps that need isolation between subsystems register additional frames and dispatch / subscribe against them via `{:frame :other}`.
 
 ### `make-frame`
 

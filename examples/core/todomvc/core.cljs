@@ -60,10 +60,10 @@
                 ;; dispatches `:rf.route/handle-url-change` for us — see the
                 ;; boot! comment below.
                 [rf/frame-root {:id             app-frame
-                                    :doc            "TodoMVC demo frame."
-                                    :url-bound?     true
-                                    :url-strategy   routing/hash-url-strategy
-                                    :initial-events [[:todo/initialise]]}
+                                :doc            "TodoMVC demo frame."
+                                :url-bound?     true
+                                :url-strategy   routing/hash-url-strategy
+                                :initial-events [[:todo/initialise]]}
                  [views/root-view]])))
 
 ;; ---- Boot ------------------------------------------------------------------
@@ -73,7 +73,7 @@
 ;;
 ;; Wiring up the URL-change listener is NOT a separate step — it's part of
 ;; the `:url-bound? true` declaration above. The frame's creation (whenever
-;; the `frame-provider`'s React effect actually runs it, even after `mount!`
+;; the `frame-root`'s React effect actually runs it, even after `mount!`
 ;; returns) installs the matching browser listener (`hashchange` for this
 ;; hash app; `popstate` for a history app, per `:url-strategy`), decodes each
 ;; change to a path, and dispatches `:rf.route/handle-url-change` to the

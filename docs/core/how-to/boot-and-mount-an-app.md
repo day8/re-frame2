@@ -12,7 +12,7 @@ One division of labour catches nearly everyone, so hear it before the code:
 `rf/init!` does not create a frame. It only installs the
 [adapter](../glossary.md#adapter) for your React substrate, such as Reagent, UIx,
 or Helix. The frame is created later by the rendered
-[frame-provider](../glossary.md#frame-provider).
+[frame-root](../glossary.md#frame-root).
 
 The whole recipe serves two moments. First page load should create and seed the
 app. Hot reload should re-render changed views without losing app-db.
@@ -44,7 +44,7 @@ function. Keep the process setup inline in `run`, and put the DOM work in `mount
       (reset! react-root (rdc/create-root el)))
     (rdc/render @react-root
                 [rf/frame-root {:id             app-frame
-                                    :initial-events [[:counter/initialise]]}
+                                :initial-events [[:counter/initialise]]}
                  [counter-app]])))
 
 (defn run []
@@ -67,17 +67,17 @@ real app's entry/boot namespace usually requires every namespace whose
 top-level registrations must exist before the app runs: events, effects,
 coeffects, subscriptions, views, routes, resources, machines, and schemas.
 
-## What the provider does
+## What the root does
 
 This form:
 
 ```clojure
 [rf/frame-root {:id             app-frame
-                    :initial-events [[:counter/initialise]]}
+                :initial-events [[:counter/initialise]]}
  [counter-app]]
 ```
 
-uses the **ensure** shape of `frame-provider`.
+is `frame-root`, the **ensure** component — *roots ensure; providers scope*.
 
 On the first mount it:
 
@@ -169,25 +169,26 @@ reload reinstalls listeners and renders once.
 For history routing, prefer the routing helper where it fits. It already owns
 this same hot-reload-safe listener pattern.
 
-## Two frame shapes
+## Two frame components
 
-`frame-provider` has two useful shapes, and the difference fits in one
-question: does the subtree *bring* its frame, or *borrow* it?
+There are two frame-boundary components — **roots ensure; providers scope** —
+and the difference fits in one question: does the subtree *bring* its frame,
+or *borrow* it?
 
-Use `{:id ...}` when the rendered subtree should ensure its own frame exists —
-it brings one:
+Use `frame-root {:id ...}` when the rendered subtree should ensure its own
+frame exists — it brings one:
 
 ```clojure
 [rf/frame-root {:id             :counter/widget
-                    :initial-events [[:counter/initialise]]}
+                :initial-events [[:counter/initialise]]}
  [counter-app]]
 ```
 
 This creates the frame if absent, reuses it if present, and scopes descendants to
 it.
 
-Use `{:frame ...}` when the frame was already created somewhere else — it
-borrows:
+Use `frame-provider {:frame ...}` when the frame was already created somewhere
+else — it borrows:
 
 ```clojure
 (rf/make-frame {:id :checkout :initial-events [[:checkout/initialise]]})
@@ -196,7 +197,7 @@ borrows:
  [checkout-app]]
 ```
 
-This shape only scopes an existing frame into the React subtree. It creates
+This component only scopes an existing frame into the React subtree. It creates
 nothing and destroys nothing. Use it when boot, tests, SSR/request setup, or a
 tooling harness needs to create the frame before rendering.
 
