@@ -52,6 +52,7 @@
     :rf.ui.compile/bad-for
     :rf.ui.compile/sub-in-loop
     :rf.ui.compile/lease-in-loop
+    :rf.ui.compile/frame-in-loop
     ;; handlers
     :rf.ui.compile/loop-capturing-handler
     :rf.ui.compile/bad-event-vector
@@ -170,6 +171,7 @@
     (case sym
       sub         {:fqn 're-frame.ui/sub :meta {}}
       lease       {:fqn 're-frame.ui/lease :meta {}}
+      frame       {:fqn 're-frame.ui/frame :meta {}}
       raw         {:fqn 're-frame.ui/raw :meta {}}
       html        {:fqn 're-frame.ui/html :meta {}}
       raw-fn      {:fqn 're-frame.ui/raw-fn :meta {}}
@@ -242,6 +244,12 @@
    [:rf.ui.compile/bad-for '(for [] [:li {:key 1} "x"]) ["seq-exprs"]]
    [:rf.ui.compile/sub-in-loop '(for [x xs] [:li {:key x} (sub [:q x])]) ["keyed child view"]]
    [:rf.ui.compile/lease-in-loop '(for [x xs] [:li {:key x} (str (lease {:r x}))]) ["keyed child view"]]
+   [:rf.ui.compile/frame-in-loop
+    '(for [x xs] [:li {:key x} (:frame (frame))])
+    ["Hoist the read into the view body"]]
+   [:rf.ui.compile/frame-in-loop
+    '[:button {:on-click (fn [_] (do-send! (:dispatch (frame))))} "x"]
+    ["finite render-time site"]]
    ;; handlers
    [:rf.ui.compile/loop-capturing-handler
     '(for [t ts] [:li {:key (:id t) :on-click [::open (:id t)]} "x"])

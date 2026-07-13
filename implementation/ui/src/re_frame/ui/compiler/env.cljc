@@ -51,7 +51,7 @@
    :in-loop?  false
    :path      []
    :warnings  (atom [])
-   :sites     (atom {:events [] :subs [] :leases [] :htmls []})})
+   :sites     (atom {:events [] :subs [] :leases [] :htmls [] :frame-ops []})})
 
 (defn warn! [env w]
   (swap! (:warnings env) conj w)

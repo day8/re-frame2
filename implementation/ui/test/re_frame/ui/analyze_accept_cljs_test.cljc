@@ -17,6 +17,7 @@
       map         {:fqn 'clojure.core/map :meta {}}
       sub         {:fqn 're-frame.ui/sub :meta {}}
       lease       {:fqn 're-frame.ui/lease :meta {}}
+      frame       {:fqn 're-frame.ui/frame :meta {}}
       raw         {:fqn 're-frame.ui/raw :meta {}}
       html        {:fqn 're-frame.ui/html :meta {}}
       raw-fn      {:fqn 're-frame.ui/raw-fn :meta {}}
@@ -256,6 +257,48 @@
         (ana-full '(let [{:keys [x] :or {x (str "fallback")}} value]
                      [:div x]))]
     (is (empty? (:subs sites)))))
+
+;; ---------------------------------------------------------------------------
+;; (frame) — the compiled operation-bundle body form (rf2-vxgfnd.184)
+;; ---------------------------------------------------------------------------
+
+(deftest frame-form-lowers-to-the-runtime-bridge
+  (testing "the exact Guide 05 spelling: a let-bound destructured bundle"
+    (let [{:keys [ast sites]}
+          (ana-full '(let [{:keys [frame dispatch]} (frame)]
+                       [:div.bridge (str frame)]))]
+      (is (= :let (:op ast)))
+      (is (= '(re-frame.ui.frames/frame-ops)
+             (second (:bindings ast)))
+          "the zero-arg call lowers to the internal frame-ops bridge")
+      (is (= 1 (count (:frame-ops sites)))
+          "the site is recorded in the compiler manifest")
+      (is (some? (:sid (first (:frame-ops sites)))))
+      (is (vector? (:expr-path (first (:frame-ops sites)))))))
+  (testing "an expression-position read lowers too"
+    (let [{:keys [ast sites]}
+          (ana-full '[:div {:data-frame (:frame (frame))} "x"])]
+      (is (= '(:frame (re-frame.ui.frames/frame-ops))
+             (get-in ast [:props :attrs 0 :value])))
+      (is (= 1 (count (:frame-ops sites))))))
+  (testing "two sites are two manifest rows with distinct sids"
+    (let [{:keys [sites]}
+          (ana-full '(let [a (frame) b (frame)] [:div (str a b)]))]
+      (is (= 2 (count (:frame-ops sites))))
+      (is (= 2 (count (distinct (map :sid (:frame-ops sites)))))))))
+
+(deftest frame-shadowing-never-mints-a-frame-site
+  (testing "a local named frame is an ordinary call, not re-frame.ui/frame"
+    (let [{:keys [ast sites]}
+          (ana-full '[:div {:title (let [frame identity] (frame))}])]
+      (is (empty? (:frame-ops sites)))
+      (is (= '(let [frame identity] (frame))
+             (get-in ast [:props :attrs 0 :value])))))
+  (testing "the bundle's own destructured :frame key shadows the form after binding"
+    (let [{:keys [sites]}
+          (ana-full '(let [{:keys [frame]} (frame)] [:div (str frame)]))]
+      (is (= 1 (count (:frame-ops sites)))
+          "exactly the init call is a site; the bound local is a plain symbol"))))
 
 (deftest html-sites-index
   (testing "ui/html records a manifest site — the profile row's 'manifest
