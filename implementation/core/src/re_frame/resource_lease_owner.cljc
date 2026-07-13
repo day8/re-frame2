@@ -13,7 +13,18 @@
   ;; reconciler prove the same ownership protocol headlessly on the JVM.
   (atom 0))
 
+(def ^:private mint-provenance
+  "RF2_RESOURCE_LEASE_OWNER_MINT_SENTINEL")
+
 (defn mint!
   "Mint a fresh process-unique framework resource owner `[:lease n]`."
   []
-  [:lease (swap! owner-counter inc)])
+  (let [n (swap! owner-counter inc)]
+    #?(:cljs
+       (when-not (and (pos? n) (js/Number.isSafeInteger n))
+         ;; Preserve the protocol's process-unique guarantee instead of
+         ;; silently minting duplicate IEEE-754 integers after precision loss.
+         ;; The stable message is also the compiled-positive/DCE provenance
+         ;; control for the lease-free advanced companion.
+         (throw (js/Error. mint-provenance))))
+    [:lease n]))

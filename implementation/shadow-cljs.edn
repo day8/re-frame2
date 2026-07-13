@@ -796,6 +796,21 @@
     :closure-defines {goog.DEBUG false
                       re-frame.ui.g13.fixture/instrumentation? false}}}
 
+  ;; Compiled non-vacuity control for G-13's neutral owner-mint DCE proof.
+  ;; It uses the exact advanced options above but directly invokes mint!, so
+  ;; the scanner first proves the retained implementation's stable provenance
+  ;; sentinel before requiring it absent from the lease-free companion.
+  :ui-g13-mint-control
+  {:target :browser
+   :output-dir "out/ui-g13-mint-control"
+   :asset-path "."
+   :modules {:main {:entries [re-frame.resource-lease-owner]
+                    :init-fn re-frame.resource-lease-owner/mint!}}
+   :compiler-options
+   {:optimizations :advanced
+    :infer-externs :auto
+    :closure-defines {goog.DEBUG false}}}
+
   ;; rf2-2hrj8 — `:browser-test` is narrowed to DOM-dependent tests only.
   ;; The ns-regexp `-dom-cljs-test$` matches files whose namespace ends in
   ;; `-dom-cljs-test` (i.e. files named `*_dom_cljs_test.cljs`). The

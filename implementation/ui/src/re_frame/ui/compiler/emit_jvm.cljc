@@ -240,7 +240,7 @@
         (vec
          (mapcat (fn [{:keys [descriptor]}]
                    [(gensym "lease")
-                    `(re-frame.ui.lease/validate-descriptor! ~descriptor)])
+                    `(re-frame.ui.lease-descriptor/validate-descriptor! ~descriptor)])
                  lease-declarations))
         rendered (if (seq lease-binds)
                    `(let [~@lease-binds] ~body)

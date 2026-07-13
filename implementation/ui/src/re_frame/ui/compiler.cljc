@@ -258,8 +258,7 @@
                   :as? (= :as (:mode hdr))
                   :template-fingerprint tf
                   :hook-signature hs
-                  :capabilities (cond-> (capabilities ast)
-                                  (seq lease-declarations) (conj :lease))
+                  :capabilities (capabilities ast)
                   :sites sites}
         args    {:vname vname
                  :view-id view-id

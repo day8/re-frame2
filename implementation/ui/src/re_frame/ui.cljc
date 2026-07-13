@@ -51,7 +51,7 @@
   #?(:cljs (:require-macros [re-frame.ui]))
   (:refer-clojure :exclude [spread])
   (:require [re-frame.error :as error]
-            [re-frame.ui.lease]
+            [re-frame.ui.lease-descriptor]
             [re-frame.ui.reactive :as reactive]
             #?@(:clj  [[re-frame.ui.compiler :as compiler]
                        [re-frame.ui.compiler.root :as root]
@@ -275,11 +275,11 @@
   [descriptor]
   (error/throw-error!
    :rf.error/ui-tree-malformed 're-frame.ui/lease
-   (str "(ui/lease " (pr-str descriptor)
-        ") executed outside compiler lowering — ui/lease is a lexical "
+   (str "ui/lease executed outside compiler lowering — it is a lexical "
         "defview declaration, not a callable ownership helper. Put the direct "
         "lease form before the view's final template")
-   {:extra {:descriptor descriptor :recovery :use-leading-lease-declaration}}))
+   {:recovery :use-leading-lease-declaration
+    :extra {:descriptor-summary (error/diag-value-summary descriptor)}}))
 
 ;; ---------------------------------------------------------------------------
 ;; Interop compile forms — recognized by the analyzer in templates; the
