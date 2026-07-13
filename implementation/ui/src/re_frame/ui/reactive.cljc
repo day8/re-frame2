@@ -896,26 +896,46 @@
   (atom #{}))
 
 (defonce ^:private root-cells
-  ;; ROOT-INCARNATION OWNERSHIP: `incarnation -> #{owned cells}`. Every ViewCell
-  ;; attached to a root (`attach-root!`, the mount seam) enrols here under its
-  ;; root's incarnation and STAYS enrolled across a transient Activity hide — a
-  ;; hide removes the cell from `live-cells` (it holds no committed deps) but NOT
-  ;; from its root membership. This is the piece `teardown-collector` alone cannot
-  ;; supply: a cell hidden by React Activity BEFORE the root's teardown window is
-  ;; armed already left `:fresh`/`:connected`, so its cleanup can never enrol it in
-  ;; the window, and it would otherwise linger `:disconnected {:reason :unknown}`
-  ;; and RECONNECTABLE after its root is gone (rf2-vxgfnd.85). `teardown-root!`
-  ;; consults this registry to reap those already-hidden cells alongside the ones
-  ;; the window captures. Membership is bounded to CURRENTLY-retained cells: a cell
-  ;; leaves on final `teardown!` (`detach-root!`), and an incarnation's entry is
-  ;; dropped the moment its last cell leaves — so repeated mount/hide/unmount
-  ;; cycles never grow a historical registry. The incarnation is a FRESH per-mount
-  ;; identity (`make-root-incarnation`), NOT the reusable root-id, so a stale
-  ;; teardown can never reap the cells of a replacement root mounted under the same
-  ;; root-id. `defonce` (module-lived); `reset-scheduler!` clears it between
-  ;; fixtures. Frame teardown also consults its still-disconnected members,
-  ;; whose retained subscription targets and resource-incarnation pins name
-  ;; their last published frames.
+  ;; ROOT-INCARNATION OWNERSHIP: `incarnation -> <weak membership set>`. Every
+  ;; ViewCell attached to a root (`attach-root!`, the mount seam) enrols here
+  ;; under its root's incarnation and STAYS enrolled across a transient Activity
+  ;; hide — a hide removes the cell from `live-cells` (it holds no committed
+  ;; deps) but NOT from its root membership. This is the piece
+  ;; `teardown-collector` alone cannot supply: a cell hidden by React Activity
+  ;; BEFORE the root's teardown window is armed already left
+  ;; `:fresh`/`:connected`, so its cleanup can never enrol it in the window, and
+  ;; it would otherwise linger `:disconnected {:reason :unknown}` and
+  ;; RECONNECTABLE after its root is gone (rf2-vxgfnd.85). `teardown-root!`
+  ;; consults this registry to reap those already-hidden cells alongside the
+  ;; ones the window captures.
+  ;;
+  ;; Membership is WEAK (rf2-mc62sp): an ordinary React reconciliation unmount
+  ;; (conditional subtree, route change, keyed-list eviction) runs only the
+  ;; effect cleanup → `disconnect!`, which deliberately never detaches (hide vs
+  ;; unmount are indistinguishable there — 03 §4), so a STRONG registry would
+  ;; pin every ordinarily-unmounted cell — with its retained committed site
+  ;; values — for the root's whole lifetime: unbounded production memory growth
+  ;; per UI churn. Weak membership keeps both consumers exactly correct: a
+  ;; genuinely HIDDEN cell is strongly reachable from React's retained fiber
+  ;; (the `useRef` in `use-cell`), so its entry lives precisely as long as
+  ;; Activity retention and stays discoverable for `teardown-root!` /
+  ;; `teardown-frame!`; a reconciliation-unmounted cell becomes unreachable
+  ;; (its leases were already released at `disconnect!`, and nothing can ever
+  ;; reconnect a cell nothing references), so it collects and its entry clears
+  ;; — the teardown scans lose nothing, per 03 §4 "the cell is garbage". The
+  ;; per-host weak plumbing (`make-weak-member-set` etc.) lives beside
+  ;; `attach-root!`; `detach-root!` on final `teardown!` stays the
+  ;; DETERMINISTIC fast path, and an incarnation's entry is dropped the moment
+  ;; its last cell deterministically leaves (or, on CLJS, when the
+  ;; finalization reaper clears the last collected member) — repeated
+  ;; mount/hide/unmount cycles never grow a historical registry. The
+  ;; incarnation is a FRESH per-mount identity (`make-root-incarnation`), NOT
+  ;; the reusable root-id, so a stale teardown can never reap the cells of a
+  ;; replacement root mounted under the same root-id. `defonce`
+  ;; (module-lived); `reset-scheduler!` clears it between fixtures. Frame
+  ;; teardown also consults its still-disconnected members, whose retained
+  ;; subscription targets and resource-incarnation pins name their last
+  ;; published frames.
   (atom {}))
 
 (defonce ^:private teardown-collector
@@ -2044,9 +2064,11 @@
 ;; survive an Activity hide. Root teardown needs an ownership association that
 ;; DOES survive a transient hide: the `root-cells` registry keyed by a per-mount
 ;; root incarnation. `attach-root!` (the mount seam) enrols a cell under its
-;; root's incarnation; the cell stays enrolled across a hide and leaves only
-;; when it is proven dead (`detach-root!` from `teardown!`). `teardown-root!`
-;; reaps a root's already-hidden cells through this registry.
+;; root's incarnation; the cell stays enrolled across a hide and leaves
+;; deterministically when it is proven dead (`detach-root!` from `teardown!`) —
+;; or, because membership is WEAK (rf2-mc62sp), simply by being collected after
+;; an ordinary reconciliation unmount dropped the last strong reference.
+;; `teardown-root!` reaps a root's already-hidden cells through this registry.
 
 (defn make-root-incarnation
   "Mint a FRESH, opaque root-incarnation token — a per-mount identity with no
@@ -2058,26 +2080,153 @@
   []
   #?(:clj (Object.) :cljs (js-obj)))
 
-(defn- forget-root-cell!
-  "Remove `cell` from `incarnation`'s membership set, DROPPING the incarnation
-  entry entirely when its last cell leaves — so repeated mount/hide/unmount
-  cycles never grow a historical registry (rf2-vxgfnd.85 AC5)."
-  [^ViewCell cell incarnation]
-  (when (some? incarnation)
+;; ---- weak root membership (rf2-mc62sp) --------------------------------------
+;;
+;; The registry must survive an Activity hide (React gives no hide-vs-unmount
+;; signal at cleanup), yet an ordinary reconciliation unmount runs ONLY that
+;; same cleanup — so a strong set would pin every ordinarily-unmounted cell
+;; (with its retained committed site values) until the whole root tears down.
+;; Membership is therefore WEAK, per host idiom (mirroring the observation
+;; port's weak node-record table): a hidden cell is strongly reachable from
+;; React's retained fiber, so its entry lives exactly as long as Activity
+;; retention; an unmounted cell becomes unreachable — nothing can ever
+;; reconnect it — collects, and its entry clears with it.
+;;
+;;   - JVM: a synchronized `WeakHashMap`-backed keyset (the
+;;     `re-frame.interop` weak-registry idiom) — stale entries expunge on
+;;     every access, iteration under the wrapper's own lock.
+;;   - CLJS: a `js/Set` of `js/WeakRef` plus an ephemeron `js/WeakMap`
+;;     (cell -> its ref) for O(1) removal; a module `FinalizationRegistry`
+;;     reaper prunes a collected cell's ref and drops the incarnation entry
+;;     when its last member clears (where the host lacks the registry, husks
+;;     are compacted opportunistically on iteration instead).
+
+(defn- make-weak-member-set
+  []
+  #?(:clj  (java.util.Collections/synchronizedSet
+            (java.util.Collections/newSetFromMap (java.util.WeakHashMap.)))
+     :cljs {:refs (js/Set.) :by-cell (js/WeakMap.)}))
+
+(defn- weak-empty?
+  [members]
+  #?(:clj  (.isEmpty ^java.util.Set members)
+     :cljs (zero? (.-size ^js (:refs members)))))
+
+(defn- drop-root-entry-if-empty!
+  "Drop `incarnation`'s registry entry when its membership set has emptied —
+  guarded so a concurrent re-attach (which installs or repopulates the entry)
+  is never clobbered. Retry-safe inside `swap!`: the emptiness read is
+  idempotent."
+  [incarnation members]
+  (when (weak-empty? members)
     (swap! root-cells
            (fn [m]
-             (let [s (disj (get m incarnation #{}) cell)]
-               (if (empty? s) (dissoc m incarnation) (assoc m incarnation s)))))))
+             (let [s (get m incarnation)]
+               (if (and (identical? s members) (weak-empty? s))
+                 (dissoc m incarnation)
+                 m))))))
+
+#?(:cljs
+   (defonce ^:private root-cells-reaper
+     ;; Finalization hook: when a member cell is collected, remove its cleared
+     ;; WeakRef husk from its incarnation's set and drop the entry when that
+     ;; was the last member — so GC-driven departure is as bounded as the
+     ;; deterministic `detach-root!` path. Guarded: an exotic host without
+     ;; FinalizationRegistry just leaves husks to iteration-time compaction.
+     (when (exists? js/FinalizationRegistry)
+       (js/FinalizationRegistry.
+        (fn [held]
+          (let [{:keys [incarnation ref]} held
+                members (get @root-cells incarnation)]
+            (when (some? members)
+              (.delete ^js (:refs members) ref)
+              (drop-root-entry-if-empty! incarnation members))))))))
+
+(defn- weak-add!
+  [members incarnation ^ViewCell cell]
+  #?(:clj  (.add ^java.util.Set members cell)
+     :cljs (let [by-cell ^js (:by-cell members)]
+             (when-not (.has by-cell cell)
+               (let [ref (js/WeakRef. cell)]
+                 (.set by-cell cell ref)
+                 (.add ^js (:refs members) ref)
+                 (when (some? root-cells-reaper)
+                   (.register root-cells-reaper cell
+                              {:incarnation incarnation :ref ref}
+                              ref)))))))
+
+(defn- weak-remove!
+  [members ^ViewCell cell]
+  #?(:clj  (.remove ^java.util.Set members cell)
+     :cljs (let [by-cell ^js (:by-cell members)]
+             (when-some [ref (.get by-cell cell)]
+               (.delete by-cell cell)
+               (.delete ^js (:refs members) ref)
+               (when (some? root-cells-reaper)
+                 (.unregister root-cells-reaper ref))))))
+
+(defn- weak-live
+  "Snapshot the still-LIVE cells of one incarnation's weak membership set
+  (nil-safe — an absent entry is no members). The teardown-discovery read:
+  a cleared ref is a collected — therefore unreachable, therefore never
+  reconnectable — cell with nothing left to reap; on CLJS its husk is
+  compacted away as it is encountered."
+  [members]
+  (if (nil? members)
+    []
+    #?(:clj  (locking members (into [] members))
+       :cljs (let [refs ^js (:refs members)
+                   out  (array)]
+               (.forEach refs
+                         (fn [ref _ _]
+                           (if-some [cell (.deref ^js ref)]
+                             (.push out cell)
+                             (.delete refs ref))))
+               (vec out)))))
+
+(defn- weak-live-count
+  [members]
+  (if (nil? members)
+    0
+    #?(:clj  (.size ^java.util.Set members)
+       :cljs (count (weak-live members)))))
+
+(defn- forget-root-cell!
+  "Remove `cell` from `incarnation`'s weak membership set, DROPPING the
+  incarnation entry entirely when its last cell leaves — so repeated
+  mount/hide/unmount cycles never grow a historical registry
+  (rf2-vxgfnd.85 AC5)."
+  [^ViewCell cell incarnation]
+  (when (some? incarnation)
+    (when-some [members (get @root-cells incarnation)]
+      (weak-remove! members cell)
+      (drop-root-entry-if-empty! incarnation members))))
+
+(defn- enrol-root-cell!
+  "Add `cell` to `incarnation`'s WEAK membership set, installing the set on
+  first use. Loops to self-heal the (concurrent-JVM, test-shaped) race where
+  a simultaneous last-member removal drops the incarnation entry between the
+  install and the add — the re-check guarantees the added cell is reachable
+  through the CURRENT registry entry."
+  [^ViewCell cell incarnation]
+  (let [members (or (get @root-cells incarnation)
+                    (let [fresh (make-weak-member-set)]
+                      (-> (swap! root-cells update incarnation #(or % fresh))
+                          (get incarnation))))]
+    (weak-add! members incarnation cell)
+    (when-not (identical? members (get @root-cells incarnation))
+      (recur cell incarnation))))
 
 (defn attach-root!
   "Mount seam: associate `cell` with root `incarnation` — the per-mount ownership
   token (`make-root-incarnation`) that SURVIVES a transient Activity disconnect
   and lets `teardown-root!` reap a cell already Activity-hidden BEFORE the host
   unmount window (rf2-vxgfnd.85). Enrols the cell in `root-cells` under
-  `incarnation` (idempotent — a set); re-attaching to a DIFFERENT incarnation
-  first drops the old membership, so a cell can never straddle two roots. An
-  Activity hide (which removes the cell from `live-cells`) does NOT drop this
-  membership — that is the whole point. Returns the cell."
+  `incarnation` (idempotent, and WEAK — membership never keeps an unmounted
+  cell alive, rf2-mc62sp); re-attaching to a DIFFERENT incarnation first drops
+  the old membership, so a cell can never straddle two roots. An Activity hide
+  (which removes the cell from `live-cells`) does NOT drop this membership —
+  that is the whole point. Returns the cell."
   [^ViewCell cell incarnation]
   (let [st  (state cell)
         old (:root @st)]
@@ -2088,13 +2237,14 @@
       (when (and (some? old) (not (identical? old incarnation)))
         (forget-root-cell! cell old))
       (swap! st assoc :root incarnation)
-      (swap! root-cells update incarnation (fnil conj #{}) cell)))
+      (enrol-root-cell! cell incarnation)))
   cell)
 
 (defn- detach-root!
   "Drop `cell`'s root-incarnation membership on FINAL teardown — the cell is
-  proven dead, so it leaves the registry (membership is bounded to
-  currently-retained cells). Idempotent; a no-op when the cell owns no root."
+  proven dead, so it leaves the registry deterministically (the fast path;
+  weak membership is the backstop for cells that were never proven dead).
+  Idempotent; a no-op when the cell owns no root."
   [^ViewCell cell]
   (let [st  (state cell)
         inc (:root @st)]
@@ -2109,11 +2259,12 @@
 
 (defn root-cell-count
   "The number of root incarnations currently tracked, or — with `incarnation` —
-  the number of cells owned by it (tool/test read). Proves the ownership registry
-  is bounded to retained/mounted cells and drops empty incarnations on final
-  teardown (rf2-vxgfnd.85 AC5)."
+  the number of LIVE cells its weak membership currently retains (tool/test
+  read). Proves the ownership registry is bounded to retained/mounted cells:
+  empty incarnations drop on final teardown (rf2-vxgfnd.85 AC5), and a
+  collected member simply stops counting (rf2-mc62sp)."
   ([] (count @root-cells))
-  ([incarnation] (count (get @root-cells incarnation))))
+  ([incarnation] (weak-live-count (get @root-cells incarnation))))
 
 (defn- release-committed!
   "Release every live lexical-site lease and retain each exact query/target/
@@ -2319,7 +2470,7 @@
         connected (filter #(cell-retained-frame? % frame-id frame-token)
                           @live-cells)
         hidden    (into #{}
-                        (comp (mapcat val)
+                        (comp (mapcat (comp weak-live val))
                               (filter #(= :disconnected (lifecycle %)))
                               (filter #(cell-retained-frame?
                                         % frame-id frame-token)))
@@ -2410,16 +2561,19 @@
          incs      (cond-> (into #{} (keep cell-root) collected)
                      (some? root-incarnation) (conj root-incarnation))
          ;; already-Activity-hidden owned cells the window could NOT capture —
-         ;; still `:disconnected`, belonging to a torn-down incarnation.
+         ;; still `:disconnected`, belonging to a torn-down incarnation. A
+         ;; hidden-but-alive cell is pinned by React's retained fiber, so weak
+         ;; membership still discovers it; only collected (unreachable, never
+         ;; reconnectable) cells are absent — nothing to reap (rf2-mc62sp).
          hidden    (into #{}
-                         (comp (mapcat #(get @root-cells %))
+                         (comp (mapcat #(weak-live (get @root-cells %)))
                                (filter #(= :disconnected (lifecycle %))))
                          incs)
          victims   (if (and @host-error (some? root-incarnation))
                      ;; The host handle is consumed/released even on this path.
                      ;; Fail closed over the EXACT root generation, including
                      ;; cells still connected because React ran no cleanup.
-                     (into collected (get @root-cells root-incarnation))
+                     (into collected (weak-live (get @root-cells root-incarnation)))
                      (into collected hidden))]
      (doseq [cell victims]
        (teardown! cell))
