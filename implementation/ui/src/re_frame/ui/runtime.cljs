@@ -20,13 +20,14 @@
             [re-frame.ui.rules :as rules]))
 
 ;; ---------------------------------------------------------------------------
-;; jsx bindings — fixed-arity defns, NOT var-bound imports: a CLJS var
-;; bound to an imported JS value forces IFn-protocol dispatch at every
-;; call site under :advanced; fixed-arity defns compile to direct static
-;; calls Closure inlines to direct shim.jsx(...) calls (spike-measured
-;; ~5% on a 20-row list render).
+;; jsx binding.  Generated templates invoke `.jsx` / `.jsxs` on this module
+;; object directly.  Binding the imported FUNCTIONS as CLJS vars would force
+;; IFn-protocol dispatch; retaining the module object lets the emitter invoke
+;; the property unbound with React's exact 2/3-argument shape.
+;; The fixed-arity helpers remain for handwritten/runtime call sites.
 ;; ---------------------------------------------------------------------------
 
+(def ^js jsx-runtime jsxrt)
 (defn jsx2  [t p]   (jsxrt/jsx t p))
 (defn jsx3  [t p k] (jsxrt/jsx t p k))
 (defn jsxs2 [t p]   (jsxrt/jsxs t p))

@@ -13,10 +13,11 @@
 //          literal-tag jsx calls (`X.jsx("div", ...)` / aliased
 //          `Y("div", {...})` still matches via the `("tag"` shape on
 //          the known bench tag set);
-//      (b) trap absence — zero occurrences of the IFn fallback shape
-//          on a literal tag (`.call(null,"div"` / Closure-minified
-//          `.call(null,"x"` over the bench tag set).
-//      (c) digest-carrier elision — the dev sentinel, bd1 literal and carrier
+//      (b) compiler-direct presence — generated sites carry the unbound
+//          module-property form `(0,X.jsx)("div", ...)`; wrapper bodies and
+//          the hand baseline cannot satisfy this assertion;
+//      (c) IFn-trap absence — zero `.call(null,"div",...)` shapes.
+//      (d) digest-carrier elision — the dev sentinel, bd1 literal and carrier
 //          namespace are all absent from the :advanced production bundle.
 // 3. Run the bundle under NODE_ENV=production — the estimator +
 //    byte-equality precheck + budget enforcement live in CLJS
@@ -70,17 +71,42 @@ function emittedJsGolden() {
     new RegExp(`[$\\w]+(?:\\.[$\\w]+)*\\("(?:${tagAlt})"\\s*,`, 'g'),
   );
 
-  // (b) the IFn-dispatch fallback on a literal tag. The trap emits
-  //   f.cljs$core$IFn$_invoke$arity$2 ? f.cljs...(t,p) : f.call(null,t,p)
-  // and `.call(null,` survives every renaming pass.
+  // (b) compiler-authored direct module-property calls. The `(0, property)`
+  // spelling explicitly discards the receiver (jsx/jsxs do not use `this`)
+  // and therefore cannot degrade to Closure's `f.call(module, ...)` alias.
+  const compilerDirect = countMatches(
+    src,
+    new RegExp(
+      `\\(0,[$\\w]+(?:\\.[$\\w]+)*\\)\\("(?:${tagAlt})"\\s*,`,
+      'g',
+    ),
+  );
+
+  // (c) the CLJS-var IFn fallback on a literal tag.
   const trap = countMatches(
     src,
     new RegExp(`\\.call\\(null,\\s*"(?:${tagAlt})"`, 'g'),
   );
 
+  // The measured keyed row is the compile-known literal-props case. Pin the
+  // exact advanced call site so a generic `js-obj` assignment IIFE cannot
+  // return unnoticed while calls elsewhere continue to satisfy the counts.
+  const todoLiteralProps = countMatches(
+    src,
+    /\(0,[$\w]+(?:\.[$\w]+)*\.jsxs\)\("li",\{className:"todo-item"/g,
+  );
+  const todoPropsIife = countMatches(
+    src,
+    /function\(\)\{return\{className:"todo-item"/g,
+  );
+
   const MIN_DIRECT = 10;
+  const MIN_COMPILER_DIRECT = 20;
   console.log(
-    `emitted-JS golden: ${direct} direct literal-tag jsx calls, ${trap} IFn-fallback call sites`,
+    `emitted-JS golden: ${direct} direct literal-tag jsx calls, ` +
+      `${compilerDirect} compiler-direct module-property calls, ` +
+      `${trap} IFn-fallback call sites, ` +
+      `${todoLiteralProps} direct todo literal / ${todoPropsIife} todo props IIFEs`,
   );
   if (direct < MIN_DIRECT) {
     console.error(
@@ -90,11 +116,25 @@ function emittedJsGolden() {
     );
     process.exit(1);
   }
+  if (compilerDirect < MIN_COMPILER_DIRECT) {
+    console.error(
+      `FAIL: expected >= ${MIN_COMPILER_DIRECT} compiler-authored direct ` +
+        'jsx-runtime module-property calls; wrapper bodies and hand JSX do ' +
+        'not carry the `(0,module.jsx)("tag",...)` signature.',
+    );
+    process.exit(1);
+  }
   if (trap !== 0) {
     console.error(
       'FAIL: IFn-protocol dispatch fallback found on the jsx path — a ' +
-        'var-bound jsx fn reintroduced dynamic dispatch under :advanced ' +
-        '(S-1 landmine; ~5-8% silent regression).',
+        'var-bound jsx fn reintroduced dynamic dispatch under :advanced.',
+    );
+    process.exit(1);
+  }
+  if (todoLiteralProps < 1 || todoPropsIife !== 0) {
+    console.error(
+      'FAIL: the compiled todo row is not passing its compile-known props as ' +
+        'one ordered object literal directly to jsxs.',
     );
     process.exit(1);
   }

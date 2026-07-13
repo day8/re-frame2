@@ -161,6 +161,39 @@
 (defn- children-forms [st nodes inline?]
   (into [] (keep #(emit-node % st inline?)) nodes))
 
+(defn- ordered-literal-object
+  "Emit an object literal for compile-known string keys. `js-obj` preserves
+  dynamic value order through an IIFE; here the literal's own left-to-right
+  property evaluation provides that guarantee without the per-render call.
+  Keys remain string expressions, so :advanced cannot rename React/custom
+  property spelling."
+  [pairs]
+  (let [pairs (vec pairs)]
+    (list* 'js*
+           (str "({" (str/join "," (repeat (count pairs) "~{}:~{}")) "})")
+           (mapcat identity pairs))))
+
+(defn- jsx-runtime-call [multi? tag-form props-form key-info]
+  ;; Invoke the imported JS MODULE PROPERTY, not a CLJS var holding the
+  ;; imported function and not a forwarding wrapper. `js*` is intentional at
+  ;; this emitter boundary: a CLJS property-read invocation is otherwise
+  ;; treated as IFn (or as a receiver-preserving method call), while the JS
+  ;; module alias that makes `(jsxrt/jsx ...)` direct exists only in runtime's
+  ;; namespace. These four closed templates emit exactly the same plain JS
+  ;; call shape as a caller-local `react/jsx-runtime` alias.
+  ;; `:present?` deliberately selects React's 3-argument API even when the
+  ;; authored key expression is nil or false.
+  (list* 'js*
+         (case [multi? (boolean (:present? key-info))]
+           [false false] "(0,~{}.jsx)(~{},~{})"
+           [false true]  "(0,~{}.jsx)(~{},~{},~{})"
+           [true false]  "(0,~{}.jsxs)(~{},~{})"
+           [true true]   "(0,~{}.jsxs)(~{},~{},~{})")
+         're-frame.ui.runtime/jsx-runtime
+         tag-form
+         props-form
+         (when (:present? key-info) [(:expr key-info)])))
+
 (defn- jsx-call [tag-form pairs children-forms key-info]
   (let [nch           (count children-forms)
         multi?        (> nch 1)
@@ -168,15 +201,11 @@
                         (zero? nch) nil
                         (= 1 nch)   (first children-forms)
                         :else       `(cljs.core/array ~@children-forms))
-        props-form    `(cljs.core/js-obj
-                        ~@(mapcat (fn [{:keys [name form]}] [name form]) pairs)
-                        ~@(when (some? children-form) ["children" children-form]))
-        has-key?      (:present? key-info)]
-    (if has-key?
-      (list (if multi? `re-frame.ui.runtime/jsxs3 `re-frame.ui.runtime/jsx3)
-            tag-form props-form (:expr key-info))
-      (list (if multi? `re-frame.ui.runtime/jsxs2 `re-frame.ui.runtime/jsx2)
-            tag-form props-form))))
+        props-form    (ordered-literal-object
+                       (concat (map (fn [{:keys [name form]}] [name form]) pairs)
+                               (when (some? children-form)
+                                 [["children" children-form]])))]
+    (jsx-runtime-call multi? tag-form props-form key-info)))
 
 (defn- emit-element [node st inline?]
   (let [static?       (:static? node)
@@ -225,17 +254,14 @@
                         :else       `(cljs.core/array ~@chs))
         entries  (get-in node [:props :entries])
         ref-a    (get-in node [:props :ref])
-        props-form `(cljs.core/js-obj
-                     ~@(mapcat (fn [{:keys [slot value]}] [slot value]) entries)
-                     ~@(when (and ref-a (= :foreign (:op node)))
-                         ["ref" (:form ref-a)])
-                     ~@(when (some? children-form) ["children" children-form]))
+        props-form (ordered-literal-object
+                    (concat (map (fn [{:keys [slot value]}] [slot value]) entries)
+                            (when (and ref-a (= :foreign (:op node)))
+                              [["ref" (:form ref-a)]])
+                            (when (some? children-form)
+                              [["children" children-form]])))
         multi?   (> nch 1)]
-    (if (:present? key-info)
-      (list (if multi? `re-frame.ui.runtime/jsxs3 `re-frame.ui.runtime/jsx3)
-            (:sym node) props-form (:expr key-info))
-      (list (if multi? `re-frame.ui.runtime/jsxs2 `re-frame.ui.runtime/jsx2)
-            (:sym node) props-form))))
+    (jsx-runtime-call multi? (:sym node) props-form key-info)))
 
 (defn- row-key-expr [body]
   (or (get-in body [:props :key :expr]) (get-in body [:key :expr])))
