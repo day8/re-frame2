@@ -175,6 +175,24 @@
     (reactive/advance-generation! cell 5)
     (is (= 5 (reactive/generation cell)))))
 
+(deftest same-generation-selected-capture-survives-later-abandoned-capture
+  (rf/reg-sub :r/a (fn [db _] (:a db)))
+  (rf/reg-sub :r/b (fn [db _] (:b db)))
+  (seed! {:a 1 :b 2})
+  (let [cell (render+commit! (reactive/make-cell ::v 0) [[:r/a]])
+        lease-a (reactive/committed-lease cell (tk [:r/a]))
+        [_ cap-a] (render! cell [[:r/a]])
+        [_ cap-b] (render! cell [[:r/b]])]
+    (is (= 0 (:generation cap-a) (:generation cap-b))
+        "same-signature/same-generation work needs no generation fence")
+    ;; Model React selecting A while the later B Fiber is abandoned. The exact
+    ;; effect closure commits A; B cannot redirect the same-generation commit.
+    (reactive/commit! cell cap-a)
+    (is (= #{(tk [:r/a])} (reactive/committed-target-keys cell)))
+    (is (identical? lease-a (reactive/committed-lease cell (tk [:r/a])))
+        "same-signature A preserves the exact live lease")
+    (is (nil? (entry [:r/b])) "abandoned B owns and materialises nothing")))
+
 ;; ===========================================================================
 ;; Cell 3 — site identity survives edits (target identity, not position)
 ;; ===========================================================================
