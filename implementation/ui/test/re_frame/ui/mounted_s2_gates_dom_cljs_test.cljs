@@ -31,12 +31,18 @@
   (test-support/make-reset-runtime-fixture
    {:adapter ui/adapter :ambient-frame nil :async? true}))
 
-(defn commit-probe [^js props]
-  (React/useLayoutEffect
-   (fn []
-     (swap! (.-evidence props) update :commits inc)
-     js/undefined))
-  nil)
+(defn root-profiler [^js props]
+  ;; React.Profiler's public onRender callback fires ONCE for this profiled
+  ;; subtree in every commit containing work in it.  The Profiler wraps the
+  ;; frame provider and the complete G-4 tree, so this measures the root commit
+  ;; batch rather than inferring it from a probe nested inside the affected
+  ;; view (which could only prove that component's layout effect ran).
+  (React/createElement
+   (.-Profiler React)
+   #js {:id "mounted-g4-root"
+        :onRender (fn [& _]
+                    (swap! (.-evidence props) update :root-commits inc))}
+   (.-children props)))
 
 (defn- reject-unexpectedly!
   [done label e]
@@ -83,8 +89,7 @@
   (let [_ (swap! evidence update :bodies inc)
         v (ui/sub [::equal-projection])]
     [:output {:data-role "equal-value"}
-     (str (:value v))
-     (ui/raw (React/createElement commit-probe #js {:evidence evidence}))]))
+     (str (:value v))]))
 
 (deftest mounted-rf-equal-recomputation-moves-no-read-side-surface
   (when (browser?)
@@ -105,11 +110,12 @@
     (let [f        (uit/frame {:app-db {:value 1 :noise 0}})
           frame-id (frame/frame-target->id f)
           target-k [:sub frame-id [::equal-projection]]
-          evidence (atom {:bodies 0 :commits 0})]
+          evidence (atom {:bodies 0 :root-commits 0})]
       (async done
         (->
-         (uit/with-root [root [ui/frame-provider {:frame f}
-                               [equality-view {:evidence evidence}]]]
+         (uit/with-root [root [root-profiler {:evidence evidence}
+                               [ui/frame-provider {:frame f}
+                                [equality-view {:evidence evidence}]]]]
            (let [cell             (cell-for target-k)
                  lease            (reactive/committed-lease cell target-k)
                  initial-version  (:version (obs/read lease))
@@ -118,7 +124,7 @@
                  initial-computes @equality-computes]
              (is (some? cell))
              (is (obs/owned? lease) "the control runs through a real node lease")
-             (reset! evidence {:bodies 0 :commits 0})
+             (reset! evidence {:bodies 0 :root-commits 0})
              (->
               (uit/flush! #(uit/dispatch! f [::equal-noop]))
               (.then
@@ -130,7 +136,7 @@
                                 (uit/query root "[data-role='equal-value']"))))
                    (is (= initial-version (:version (obs/read lease))))
                    (is (= initial-revision (reactive/revision cell)))
-                   (is (= {:bodies 0 :commits 0} @evidence))
+                   (is (= {:bodies 0 :root-commits 0} @evidence))
                    (is (identical?
                         initial-ref
                         (get (reactive/committed-values cell) target-k))))
@@ -146,7 +152,7 @@
                                 (:version (obs/read lease))))
                          (is (= (inc initial-revision)
                                 (reactive/revision cell)))
-                         (is (= {:bodies 1 :commits 1} @evidence))
+                         (is (= {:bodies 1 :root-commits 1} @evidence))
                          (is (not (identical?
                                   initial-ref
                                   (get (reactive/committed-values cell)

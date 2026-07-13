@@ -409,15 +409,21 @@ else
         # for EVERY implementation/ui/** source or test change — UI runtime
         # changes affect those DOM tests transitively, and the conservative
         # direction is to trigger the gate MORE (worst case: slower CI),
-        # never to skip it (worst case: a false-green). cljs_prod
-        # (elision probe) and bundle_isolation stay OFF: they gate the
-        # PRODUCTION `:advanced` builds, and no production build :requires
-        # re-frame.ui.* yet — widen them when the S2+ slices give it a
-        # production surface.
+        # never to skip it (worst case: a false-green).
+        #
+        # rf2-vxgfnd.12.2 — the mounted ViewCell now consumes the Story
+        # override React carriage, and its zero-production-residue contract is
+        # exercised by a generated/mounted `:advanced` prod-elision test.
+        # re-frame.ui therefore HAS a release-probe-covered production surface:
+        # every UI change must run cljs_prod.  It also ships as its own artifact,
+        # so keep the generic bundle-boundary checks armed alongside the focused
+        # ui adapter isolation step.
         implementation_jvm=true
         cljs_node_test=true
         ui_gates=true
         cljs_browser=true
+        cljs_prod=true
+        bundle_isolation=true
         ;;
       implementation/scripts/run-ui-bench.cjs)
         # rf2-vxgfnd.6 — false-green fix, mirroring the launcher cases
