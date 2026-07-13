@@ -47,8 +47,8 @@
 ;;
 ;;   `installed-adapter` — the live adapter spec map, or nil when none is seated.
 ;;   `adapter-disposed?` — the dispose breadcrumb. `true` iff the most recent
-;;                         lifecycle event was a successful `dispose-adapter!`
-;;                         with no subsequent install.
+;;                         lifecycle event was an attempted `dispose-adapter!`
+;;                         of an installed adapter, with no subsequent install.
 ;;
 ;; The breadcrumb distinguishes:
 ;;   (a) `no adapter installed yet` — fresh process, init! never ran;
@@ -68,8 +68,8 @@
 
 (defonce
   ^{:doc "The adapter dispose breadcrumb. `true` iff the most recent lifecycle
-  event was a successful `dispose-adapter!` with no subsequent install — false
-  for a never-installed process and after a fresh install. Owned by the
+  event was an attempted `dispose-adapter!` of an installed adapter with no
+  subsequent install — false for a never-installed process and after a fresh install. Owned by the
   `install-adapter!` / `dispose-adapter!` pair."}
   adapter-disposed?-state
   (atom false))
@@ -121,24 +121,32 @@
 
 (defn dispose-adapter!
   "Tear down the installed adapter. Calls the adapter's :dispose-adapter!
-  fn (if present), clears the install slot so a new adapter can install,
-  and sets the disposed breadcrumb so subsequent delegation calls raise
+  fn (if present), then ALWAYS clears the install slot and sets the disposed
+  breadcrumb so a new adapter can install and subsequent delegation calls raise
   `:rf.error/adapter-disposed` instead of `:rf.error/no-adapter-installed`
-  (rf2-6wxys). Calling dispose with no adapter installed leaves the
-  breadcrumb untouched — it doesn't pretend a never-installed adapter
-  was disposed."
+  (rf2-6wxys). A throwing adapter cleanup is rethrown unchanged only AFTER
+  this process-owned lifecycle reaches its terminal state; one failed host
+  cleanup cannot leave the single-use install slot half seated. Calling dispose
+  with no adapter installed leaves the breadcrumb untouched — it doesn't
+  pretend a never-installed adapter was disposed."
   []
   (when-let [adapter @installed-adapter]
-    (when-let [f (:dispose-adapter! adapter)]
-      (f))
-    (reset! installed-adapter nil)
-    (reset! adapter-disposed?-state true))
+    (try
+      (when-let [f (:dispose-adapter! adapter)]
+        (f))
+      (finally
+        ;; Lifecycle finalization is process ownership, not adapter-owned
+        ;; cleanup. It must happen even when the host teardown reports failure.
+        (reset! installed-adapter nil)
+        (reset! adapter-disposed?-state true))))
   nil)
 
 (defn adapter-disposed?
-  "Return true iff the most recent lifecycle event was a successful
-  `dispose-adapter!` and no `install-adapter!` has fired since. False
-  for `never installed` (fresh process) and after a fresh install.
+  "Return true iff the most recent lifecycle event was an attempted
+  `dispose-adapter!` of an installed adapter and no `install-adapter!` has
+  fired since. This remains true when adapter-owned cleanup threw: the
+  process slot still reached its terminal state. False for `never installed`
+  (fresh process) and after a fresh install.
   Read-only — the breadcrumb is owned by the install / dispose pair."
   []
   @adapter-disposed?-state)

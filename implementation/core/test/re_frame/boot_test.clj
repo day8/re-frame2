@@ -160,6 +160,23 @@
       (is (nil? (adapter/current-adapter))
           "the slot is cleared even when the callback runs"))))
 
+(deftest throwing-adapter-cleanup-still-finalizes-the-process-lifecycle
+  (let [boom (ex-info "adapter host cleanup failed" {:kind ::cleanup-failed})
+        bad  (assoc plain-atom/adapter
+                    :dispose-adapter! (fn [] (throw boom)))]
+    (adapter/install-adapter! bad)
+    (is (identical? boom
+                    (try (adapter/dispose-adapter!) nil
+                         (catch clojure.lang.ExceptionInfo e e)))
+        "the adapter cleanup error remains the primary throw")
+    (is (nil? (adapter/current-adapter-spec))
+        "a cleanup throw cannot leave the one-adapter install slot seated")
+    (is (true? (adapter/adapter-disposed?))
+        "the lifecycle breadcrumb records the attempted installed teardown")
+    (is (identical? plain-atom/adapter
+                    (adapter/install-adapter! plain-atom/adapter))
+        "a fresh adapter can install immediately after the failed cleanup")))
+
 (deftest ensure-default-frame-is-idempotent
   (testing "ensure-default-frame! creates :rf/default if absent; no-op if present"
     ;; Frame creation needs an adapter to allocate the app-db container.
