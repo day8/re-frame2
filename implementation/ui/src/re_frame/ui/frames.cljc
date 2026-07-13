@@ -101,6 +101,20 @@
   multi-plan rollback by destroying seeded frames would not un-fire their
   effects.
 
+  On the JVM, whole runs are additionally SERIALIZED under one process-wide
+  monitor (rf2-vxgfnd.35): phase 1 decides against `installed-plans` and
+  phase 2 records into it, so two concurrent `execute-frame-plans!` calls
+  could otherwise BOTH decide `:install` for one frame-id — the second
+  `make-frame` would surgically overwrite the first and the last record
+  would win, silently missing the cross-root conflict this table exists to
+  catch (or misreading a half-installed frame as boot-authoritative). The
+  monitor makes each decide+record run atomic with respect to other runs.
+  It is the OUTERMOST lock — taken at host preflight, before `make-frame`'s
+  synchronous drain or any per-frame drain serialization; nothing below this
+  entry point acquires it — and JVM monitors are reentrant, so a nested
+  same-thread preflight still enters. CLJS is single-threaded: no lock
+  exists there and the call is direct.
+
   ## Q49 RULING (ENSURE retry-after-preflight-failure; pinned here)
 
   A preflight failure FAILS THE MOUNT LOUDLY; the container is untouched
@@ -349,27 +363,9 @@
                                        :preflight-attempt-failed))))
                          m frame-ids))))
 
-(defn execute-frame-plans!
-  "Execute a root's static frame plans (the LIVE preflight ENSURE — see
-  the ns docstring for the full disposition table and the Q49 ruling).
-  `plans` are the evaluated `[{:frame-id … :config-fingerprint …
-  :config {…}} …]` in document order; `root-id` is the arriving root.
-
-  Phase 1 VALIDATES every plan (pure — cross-root fingerprint conflicts
-  AND config-bearing-vs-boot-authority conflicts throw
-  `:rf.error/frame-payload-conflict` before ANY install). Phase 2
-  installs/adopts/refreshes in document order: `make-frame` creates the
-  frame if absent and drains `:initial-events` synchronously before
-  returning (EP-0027); its install record is published only if that
-  incarnation remains live; a found-live same-fingerprint plan is a pure no-op
-  (no re-seed — the HMR guarantee); a live plan-less (boot-created) frame
-  met by a CONFIG-LESS plan is ADOPTED under a non-owning record — its
-  config/generation untouched, only the fingerprint recorded
-  (rf2-vxgfnd.26, rf2-vxgfnd.56). A plan that throws mid-run labels the
-  siblings it already wrote by provenance: a FRESH install →
-  `:mount-incomplete`; an ALREADY-LIVE refresh/adopt →
-  `:preflight-attempt-failed` (the live root persists, Q49 — rf2-vxgfnd.30
-  (b), rf2-vxgfnd.72). Returns nil."
+(defn- execute-frame-plans*
+  "The unserialized decide+record run behind [[execute-frame-plans!]] — see
+  that docstring. JVM callers MUST hold `preflight-run-lock` (rf2-vxgfnd.35)."
   [root-id plans]
   (let [decided
         (mapv (fn [{:keys [frame-id config config-fingerprint] :as plan}]
@@ -479,6 +475,50 @@
            (into [] (comp (filter #(= :live (second %))) (map first)) w)))
         (throw e)))
     nil))
+
+#?(:clj
+   (defonce ^:private preflight-run-lock
+     ;; rf2-vxgfnd.35: the ONE process-wide monitor `execute-frame-plans!`
+     ;; serializes under on the JVM — see the ns docstring (§Atomicity
+     ;; posture) for the decide/record race it closes. OUTERMOST in the lock
+     ;; order (taken at host preflight, before any per-frame drain
+     ;; serialization) and reentrant, so a nested same-thread preflight (an
+     ;; `:initial-events` handler that mounts) still enters.
+     (Object.)))
+
+(defn execute-frame-plans!
+  "Execute a root's static frame plans (the LIVE preflight ENSURE — see
+  the ns docstring for the full disposition table and the Q49 ruling).
+  `plans` are the evaluated `[{:frame-id … :config-fingerprint …
+  :config {…}} …]` in document order; `root-id` is the arriving root.
+
+  Phase 1 VALIDATES every plan (pure — cross-root fingerprint conflicts
+  AND config-bearing-vs-boot-authority conflicts throw
+  `:rf.error/frame-payload-conflict` before ANY install). Phase 2
+  installs/adopts/refreshes in document order: `make-frame` creates the
+  frame if absent and drains `:initial-events` synchronously before
+  returning (EP-0027); its install record is published only if that
+  incarnation remains live; a found-live same-fingerprint plan is a pure no-op
+  (no re-seed — the HMR guarantee); a live plan-less (boot-created) frame
+  met by a CONFIG-LESS plan is ADOPTED under a non-owning record — its
+  config/generation untouched, only the fingerprint recorded
+  (rf2-vxgfnd.26, rf2-vxgfnd.56). A plan that throws mid-run labels the
+  siblings it already wrote by provenance: a FRESH install →
+  `:mount-incomplete`; an ALREADY-LIVE refresh/adopt →
+  `:preflight-attempt-failed` (the live root persists, Q49 — rf2-vxgfnd.30
+  (b), rf2-vxgfnd.72). Returns nil.
+
+  Concurrency (rf2-vxgfnd.35): on the JVM the whole decide+record run is
+  serialized under one process-wide monitor, so two concurrent callers can
+  never both decide `:install` for one frame-id (the silent
+  last-record-wins overwrite); the loser instead observes the winner's
+  completed record and surfaces the ratified
+  `:rf.error/frame-payload-conflict`. CLJS is single-threaded — the call
+  is direct and lock-free (see the ns docstring §Atomicity posture)."
+  [root-id plans]
+  #?(:clj  (locking preflight-run-lock
+             (execute-frame-plans* root-id plans))
+     :cljs (execute-frame-plans* root-id plans)))
 
 ;; ---------------------------------------------------------------------------
 ;; frame-provider scope validation (shared by both hosts)
