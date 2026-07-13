@@ -103,6 +103,7 @@ function expectedProjection() {
     advances: 8,
     'revision-delta': 8,
     'hot-renders': 8,
+    'hot-renders-by-index': [1, 1, 1, 1, 1, 1, 1, 1],
     'cold-renders': 0,
     'root-commits': 1,
     'hot-base': 8,
@@ -171,6 +172,9 @@ function assertMutationTeeth(result) {
     ['V-wide enrollment', (r) => { r.results[0].cold.projection.enrolled = 100; }],
     ['stable-parent fan-out', (r) => { r.results[0].cold.projection['cold-leaf'] = 92; }],
     ['multiple root commits', (r) => { r.results[0].cold.projection['root-commits'] = 8; }],
+    ['same-total uneven hot distribution', (r) => {
+      r.results[0].cold.projection['hot-renders-by-index'] = [2, 0, 1, 1, 1, 1, 1, 1];
+    }],
   ];
   const red = mutations.map(([label, mutate]) => {
     const changed = JSON.parse(JSON.stringify(result));

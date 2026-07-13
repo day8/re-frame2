@@ -19,6 +19,7 @@
                     :stable-parent 0
                     :cold-leaf 0
                     :hot-body 0
+                    :hot-body-by-index (vec (repeat hot-count 0))
                     :cold-body 0
                     :commits 0}))
 
@@ -62,7 +63,9 @@
    :cold (mapv #(str "cold-" %) (range v))})
 
 (defview hot-row [{:keys [index]}]
-  (let [_ (count! :hot-body)]
+  (let [_ (count! :hot-body)
+        _ (when instrumentation?
+            (swap! counters update-in [:hot-body-by-index index] inc))]
     [:output {:data-g13-kind "hot" :data-g13-index index}
      (str (ui/sub [::hot]))]))
 

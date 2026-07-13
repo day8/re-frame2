@@ -69,19 +69,23 @@
                               :advances (count (filter #(= 1 %) hot-deltas))
                               :revision-delta (reduce + (deltas all before))
                               :hot-renders (:hot-body counters)
+                              :hot-renders-by-index (:hot-body-by-index counters)
                               :cold-renders (:cold-body counters)
                               :root-commits (:commits counters)
                               :hot-base (:hot-base counters)
                               :stable-parent (:stable-parent counters)
                               :cold-leaf (:cold-leaf counters)}
                  expected    {:enrolled 8 :advances 8 :revision-delta 8
-                              :hot-renders 8 :cold-renders 0 :root-commits 1
+                              :hot-renders 8
+                              :hot-renders-by-index (vec (repeat 8 1))
+                              :cold-renders 0 :root-commits 1
                               :hot-base 8 :stable-parent 8 :cold-leaf 0}]
              (ensure! (= {:pending 8 :hot-dirty 8 :cold-dirty 0
                           :revision-delta 0
                           :evidence-counts (vec (repeat 8 8))
                           :counters {:writes 8 :hot-base 8 :stable-parent 8
                                      :cold-leaf 0 :hot-body 0 :cold-body 0
+                                     :hot-body-by-index (vec (repeat 8 0))
                                      :commits 0}}
                          @pre)
                       "write side did not coalesce before the read side"
@@ -92,11 +96,16 @@
                       {:v v :label label :cold-deltas cold-deltas})
              (ensure! (zero? (reactive/pending-cell-count))
                       "dirty registry did not drain" {:v v :label label})
-             (ensure! (= (str (:hot (rf/app-db-value frame)))
-                         (.-textContent
-                          (uit/query root "[data-g13-kind='hot']")))
-                      "DOM did not reflect the eighth queued write"
-                      {:v v :label label})
+             (let [published (str (:hot (rf/app-db-value frame)))]
+               (doseq [i (range fixture/hot-count)]
+                 (ensure! (= published
+                             (.-textContent
+                              (uit/query
+                               root
+                               (str "[data-g13-kind='hot'][data-g13-index='"
+                                    i "']"))))
+                          "a hot DOM row did not publish the eighth queued write"
+                          {:v v :label label :index i :expected published})))
              (ensure! (= (str "cold-" (dec v))
                          (.-textContent
                           (uit/query root (str "[data-g13-index='" (dec v) "']"))))
