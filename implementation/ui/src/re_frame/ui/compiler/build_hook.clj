@@ -1,82 +1,54 @@
 (ns re-frame.ui.compiler.build-hook
-  "The thin shadow-cljs `:build-hooks` ADAPTER for the re-frame.ui
-  compiler-state authority (rf2-df9873 → rf2-phlhfd).
+  "The Shadow 3.4.10 build-lifecycle adapter for re-frame.ui compiler state.
 
-  df9873 delivered the authority itself: per-build-id keyed registries,
-  ambient build identity read from the compiler env, and the
-  `begin-build!` / `finish-build!` / `abort-build!` pass-boundary
-  primitives (all implemented + test-driven). Multi-build ISOLATION and
-  warm-cache-start COMPLETENESS already hold with no hook — isolation
-  comes from the ambient per-thread identity, completeness from the
-  `:cache-blockers` re-macroexpansion. This adapter adds the ONE thing a
-  hook is needed for: INCREMENTAL DELETED-SOURCE EVICTION in a live watch
-  daemon. A namespace that declared a root / view / custom-element in one
-  pass and whose FILE is then deleted between reloads drops out of the
-  build graph; this hook evicts its stale registrations at the next
-  `:compile-finish`.
+  Shadow's retained functional build-state is the successful-build authority.
+  `:compile-prepare` seeds disposable compiler-env scratch from the incoming
+  accepted snapshot, captures authoritative namespace membership, and
+  pre-touches exactly the CLJS sources Shadow scheduled to compile. That last
+  step makes removing a source's final declaration observable even though no
+  registry macro then runs, while output-present cache hits remain accepted.
+  Macro contributions write only that scratch. `:compile-finish`:
 
-  ## The one seam shadow gives us: build-lifecycle stage boundaries
+  1. derive the candidate finalized slice (commit staged sources, evict sources
+     absent from authoritative membership) and its whole-build digest;
+  2. purely validate and project that digest into exactly one compiled
+     re-frame.ui.digest-carrier `[:output resource-id :js]` string;
+  3. carries `{registries,digest,version}` in the RETURNED compiler-env.
 
-  A `:build-hooks` fn is called by `shadow.build/process-stage` at the
-  stages named in its `:shadow.build/stages` metadata, with the whole
-  build-state, and MUST return a build-state. shadow's REPL eval path
-  compiles through `shadow.build.api/compile-sources` DIRECTLY and never
-  runs `shadow.build/compile` — so build hooks NEVER fire on a REPL form
-  eval. That is what keeps the RULED REPL posture intact: with no hook
-  firing, no pass opens, and a REPL contribution UPSERTS per-key straight
-  into committed (no sibling eviction, no wipe). See build.cljc.
+  There is deliberately no external last-known-good commit. Shadow retains the
+  returned state only after the complete optimize/check/flush/watch pipeline
+  succeeds; any later failure discards the candidate. The next prepare therefore
+  starts from the prior accepted snapshot and overwrites all dirty scratch.
+  Missing/duplicate carrier output fails before a candidate is returned. The
+  equal-width replacement preserves source-map offsets.
 
-    :compile-prepare  ->  begin-build!  — open the pass BEFORE the
-                          (possibly parallel) source compilation stages;
-                          capture the AUTHORITATIVE member set from the
-                          already-resolved `:build-sources` graph so a deleted
-                          namespace's committed declaration cannot deadlock an
-                          id transfer before finish evicts it;
-                          contributions made during the pass STAGE rather
-                          than upsert. begin-build! also DISCARDS any
-                          staging a prior FAILED pass left open — which is
-                          the abort/failure recovery in a live daemon (see
-                          below), so a doomed compile never half-commits.
+  Shadow's no-pass REPL path runs no build hook. Its macro bookkeeping lives in
+  an isolated compiler-env overlay and never changes the accepted snapshot or
+  carrier; saving and completing a real build publishes the next digest.
 
-    :compile-finish   ->  finish-build! against the AUTHORITATIVE member
-                          set (the build graph's `:build-sources`). Commit
-                          the pass, then evict every committed source
-                          ABSENT from the current graph — a deleted FILE.
-                          `:build-sources` is the WHOLE resolved graph on
-                          every pass (incrementals included), so macro
-                          silence from a cache hit is never mistaken for a
-                          deletion: authoritative membership drives
-                          eviction, not `touched`. Guarded by `pass-open?`
-                          so a stray finish with no matching prepare can
-                          never commit/evict (belt-and-suspenders REPL /
-                          partial-state safety).
+  The hook and `:cache-blockers #{re-frame.ui}` are both load-bearing. On the
+  version-0 pass the hook clears any retained output for blocker-covered UI
+  consumers; the blocker then prevents a stale disk-cache reload, forcing the
+  registry macros to reconstruct the accepted snapshot. Later output-present
+  cache hits remain untouched. The hook also supplies pass boundaries,
+  deletion eviction and client publication.
 
-  ## Why no `:flush` / failure stage is wired
+  Transaction boundary: the accepted build-state and active HMR runtime are
+  last-known-good. Shadow may have partially rewritten its raw output directory
+  before a late failure; re-frame.ui does not claim filesystem rollback."
+  (:require [clojure.string :as str]
+            [re-frame.ui.compiler.build :as build]))
 
-  shadow's build-hook pipeline exposes NO failure stage: when
-  `compile-sources` throws, the exception propagates before
-  `:compile-finish` runs, and `:flush` (the SUCCESS terminus, after
-  `:compile-finish` has already committed and closed the pass) never runs
-  on failure. So there is no stage at which an explicit `abort-build!`
-  would be both reachable and non-redundant. The abort semantics an
-  aborted pass needs — keep last-known-good, don't half-commit — are
-  delivered instead by begin-build!'s discard-on-open at the NEXT
-  `:compile-prepare`: the doomed pass's partial staging is dropped before
-  any macro of the retry pass can read it, and the committed
-  last-known-good is republished untouched. `abort-build!` remains the
-  primitive an out-of-band failure handler would call; this adapter does
-  not need a stage for it."
-  (:require [re-frame.ui.compiler.build :as build]))
+(def digest-sentinel
+  "The unique fixed-width literal emitted by re-frame.ui.digest-carrier.
+  Exactly the same width as a bd1- + 16-hex digest. Internal build-tool
+  contract, not a library API."
+  "__RF2_UI_DIGEST_XX__")
+
+(def ^:private carrier-ns 're-frame.ui.digest-carrier)
 
 (defn- member-nss
-  "The authoritative member set for the current pass: the declaring
-  namespace symbols provided by every source in the resolved build graph.
-  `:build-sources` is a vector of resource-ids into `:sources`; a source's
-  `:provides` (falling back to its `:ns`) are the namespace symbols that
-  key the compiler registries (build.cljc keys per declaring ns). A
-  deleted FILE is absent from `:build-sources`, so its ns drops out of
-  this set. Prepare captures that absence for declaration conflict checks;
-  `finish-build!` performs the actual registration eviction."
+  "Authoritative declaring namespaces from Shadow's resolved build graph."
   [{:keys [build-sources sources]}]
   (reduce
    (fn [acc resource-id]
@@ -86,26 +58,171 @@
    #{}
    build-sources))
 
+(defn- recompiled-member-nss
+  "Declaring namespaces whose CLJS source Shadow 3.4.10 will actually compile.
+
+  At `:compile-prepare`, watch reset has already removed output for modified
+  and affected sources. Parallel compilation schedules precisely sources with
+  no retained output map; sequential compilation calls
+  `generate-output-for-source`, which also recompiles retained outputs carrying
+  warnings. Mirror those two Shadow branches rather than treating every graph
+  member as dirty: warm cache-hit silence must preserve accepted registry rows."
+  [{:keys [build-sources sources output executor] :as build-state}]
+  (let [parallel? (and executor
+                       (not (false? (get-in build-state
+                                           [:compiler-options
+                                            :parallel-build]))))]
+    (reduce
+     (fn [acc resource-id]
+       (let [{:keys [type ns provides]} (get sources resource-id)
+             prior-output (get output resource-id)
+             scheduled? (if parallel?
+                          (not (map? prior-output))
+                          (or (nil? prior-output)
+                              (seq (:warnings prior-output))))]
+         (if (and (= :cljs type) scheduled?)
+           (into acc (or provides (when ns #{ns})))
+           acc)))
+     #{}
+     build-sources)))
+
+(defn- marker-count [^String s ^String marker]
+  (loop [from 0 n 0]
+    (let [i (.indexOf s marker (int from))]
+      (if (neg? i)
+        n
+        (recur (+ i (count marker)) (inc n))))))
+
+(defn- carrier-resource-ids
+  [{:keys [build-sources sources]}]
+  (into []
+        (filter (fn [rid]
+                  (let [{:keys [ns provides]} (get sources rid)]
+                    (or (= carrier-ns ns)
+                        (contains? (set provides) carrier-ns)))))
+        build-sources))
+
+(defn- ui-client-build?
+  [build-state]
+  (boolean (some (member-nss build-state)
+                 '#{re-frame.ui.client
+                    re-frame.ui.runtime
+                    re-frame.ui.digest-carrier})))
+
+(defn- validate-ui-cache-blocker!
+  "Fail a dev UI build before opening scratch unless the cache blocker which
+  makes registry macros authoritative on warm daemon startup is configured."
+  [build-state]
+  (when (ui-client-build? build-state)
+    (let [blockers (get-in build-state [:build-options :cache-blockers])]
+      (when-not (and (set? blockers) (contains? blockers 're-frame.ui))
+        (throw
+         (ex-info
+          (str "re-frame.ui dev builds require "
+               ":cache-blockers #{re-frame.ui}; refusing a plausible but "
+               "incomplete warm-cache digest")
+          {::error ::cache-blocker-missing
+           :configured blockers
+           :expected '#{re-frame.ui}
+           :recovery :configure-ui-build-hook-and-cache-blocker}))))))
+
+(defn- ui-cache-blocked-source?
+  "Shadow's `is-cache-blocked?` predicate specialized to re-frame.ui."
+  [{:keys [type ns requires macro-requires]}]
+  (and (= :cljs type)
+       (or (= 're-frame.ui ns)
+           (contains? (set requires) 're-frame.ui)
+           (contains? (set macro-requires) 're-frame.ui))))
+
+(defn- reset-cold-ui-consumer-output
+  "On the first accepted pass of a daemon, remove retained build output for
+  every source Shadow's re-frame.ui cache blocker covers.
+
+  `:cache-blockers` prevents loading a macro-side-effecting source FROM the
+  disk cache, but Shadow may enter compile-prepare with an output map retained
+  by its wider build cache. Removing those maps here closes that earlier skip
+  path. Compile then macroexpands the sources (the validated blocker prevents
+  a stale disk reload), reconstructing the version-0 accepted registries."
+  [build-state]
+  (if (and (ui-client-build? build-state)
+           (zero? (long (:version (build/accepted-snapshot build-state)))))
+    (reduce (fn [state resource-id]
+              (if (ui-cache-blocked-source?
+                   (get-in state [:sources resource-id]))
+                (update state :output dissoc resource-id)
+                state))
+            build-state
+            (:build-sources build-state))
+    build-state))
+
+(defn- fail-carrier! [message data]
+  (throw
+   (ex-info message
+            (merge {::error ::carrier-output-invalid
+                    :recovery :configure-ui-build-hook-and-cache-blocker}
+                   data))))
+
+(defn project-build-digest
+  "Pure Shadow-3.4.10 output projection. If the build has no UI client/runtime,
+  return it unchanged. Otherwise require exactly one carrier resource and one
+  sentinel in its compiled `[:output rid :js]`, then replace it with the equal-
+  length compiler digest. Cached outputs, multi-entry/lazy module maps and every
+  non-carrier byte are retained. Throws before candidate carriage on drift."
+  [build-state digest]
+  (let [ui-client? (ui-client-build? build-state)
+        rids (carrier-resource-ids build-state)]
+    (cond
+      (and (not ui-client?) (empty? rids))
+      build-state
+
+      (not= 1 (count rids))
+      (fail-carrier!
+       "re-frame.ui expected exactly one compiled digest carrier output"
+       {:carrier-resource-ids rids :count (count rids)})
+
+      (or (not (string? digest))
+          (not (str/starts-with? digest "bd1-"))
+          (not= (count digest-sentinel) (count digest)))
+      (fail-carrier!
+       "re-frame.ui compiler produced an invalid fixed-width build digest"
+       {:digest digest :expected-width (count digest-sentinel)})
+
+      :else
+      (let [rid (first rids)
+            js  (get-in build-state [:output rid :js])
+            n   (if (string? js) (marker-count js digest-sentinel) 0)]
+        (when-not (= 1 n)
+          (fail-carrier!
+           "re-frame.ui digest carrier output must contain exactly one sentinel"
+           {:carrier-resource-id rid :sentinel-count n :js-string? (string? js)}))
+        (assoc-in build-state [:output rid :js]
+                  (str/replace js digest-sentinel digest))))))
+
 (defn hook
-  "shadow-cljs `:build-hooks` adapter — wire as
-  `:build-hooks [(re-frame.ui.compiler.build-hook/hook)]` on the
-  re-frame.ui-consuming builds. Marks the re-frame.ui compiler's pass
-  boundaries so a live watch daemon evicts a deleted source's stale
-  registrations. Pure dispatch over the stage; side-effects into the
-  build.cljc authority and returns the build-state unchanged."
+  "Shadow build hook. Configure once in `:build-defaults` as
+  `:build-hooks [(re-frame.ui.compiler.build-hook/hook)]`."
   {:shadow.build/stages #{:compile-prepare :compile-finish}}
   [{build-id :shadow.build/build-id
     stage    :shadow.build/stage
     :as      build-state}]
   (case stage
     :compile-prepare
-    (build/begin-build! build-id (member-nss build-state))
+    (do
+      (validate-ui-cache-blocker! build-state)
+      (let [build-state (reset-cold-ui-consumer-output build-state)]
+        (build/prepare-shadow-build build-state
+                                    build-id
+                                    (member-nss build-state)
+                                    (recompiled-member-nss build-state))))
 
     :compile-finish
-    ;; Only finalize a pass THIS hook opened — a finish with no matching
-    ;; prepare (a stray/partial invocation) must never commit or evict.
-    (when (build/pass-open? build-id)
-      (build/finish-build! build-id (member-nss build-state)))
+    ;; Projection and candidate carriage are pure build-state transforms. A
+    ;; later Shadow failure discards the returned state transactionally.
+    (let [candidate (build/shadow-finish-candidate
+                     build-state build-id (member-nss build-state))
+          projected (if (ui-client-build? build-state)
+                      (project-build-digest build-state (:digest candidate))
+                      build-state)]
+      (build/carry-shadow-candidate projected candidate))
 
-    nil)
-  build-state)
+    build-state))

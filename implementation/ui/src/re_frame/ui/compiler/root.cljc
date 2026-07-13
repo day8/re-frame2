@@ -359,12 +359,11 @@
   expanded before the rest of the build's views compiled froze the digest over
   only the views seen so far — and (b) stale under an incremental view edit —
   recompiling a view's file without re-expanding the mount site left the
-  descriptor carrying the old digest. df9873's per-build authority does not
-  change that: `finish-build!` finalizes the digest at `:compile-finish`,
-  strictly AFTER every mount-site macroexpansion, so no expansion-time value
-  can be the finalized identity. Projecting it at read — over the finalized,
-  sorted, host-stable view triples — is compile-order independent and never
-  stale on either host (rf2-vxgfnd.47, rf2-vxgfnd.68)."
+  descriptor carrying the old digest. The functional build-state authority
+  does not change that: compile-finish derives the candidate strictly AFTER
+  every mount-site macroexpansion, and Shadow accepts it only when the complete
+  pipeline succeeds. Projecting the accepted scalar at read is compile-order
+  independent and never exposes scratch."
   [{:keys [root-id provenance views plans ast]}]
   (let [view (when (= 1 (count views)) (first views))]
     (cond-> {:rf.root/schema-version 1
@@ -394,24 +393,24 @@
   {:file :line :provenance}. Cross-NAMESPACE duplicates fail the build;
   same-namespace re-registration replaces (watch-mode re-expansion tolerance
   — Layer 3 backstops same-namespace duplicates at runtime)."
-  []
-  (build/aggregate build/roots))
+  ([] (build/aggregate build/roots))
+  ([build-state] (build/accepted-aggregate build/roots build-state)))
 
 (defn build-plans
   "The ambient build's Layer-1 frame-plan index: frame-id ->
   {:config-fingerprint :file :line}. Two plans for one frame-id with
   differing fingerprints from different namespaces fail the build
   (:rf.error/frame-payload-conflict)."
-  []
-  (build/aggregate build/plans))
+  ([] (build/aggregate build/plans))
+  ([build-state] (build/accepted-aggregate build/plans build-state)))
 
 (defn build-descriptors
   "The ambient build's compile-emitted Root Descriptor index: root-id ->
   descriptor — the build-artefact side of \"S1 emits descriptors\" (S5
   tooling / Xray read compile output through here; the runtime copy rides the
   live-root registry, dev-only)."
-  []
-  (build/aggregate build/descriptors))
+  ([] (build/aggregate build/descriptors))
+  ([build-state] (build/accepted-aggregate build/descriptors build-state)))
 
 (defn reset-build-registries!
   "Hard-clear every build-scoped compiler registry (views, the Layer-1
@@ -435,20 +434,27 @@
      compiled before that mount site (compile-order dependent) and go stale
      when a view recompiled without re-expanding the mount site
      (rf2-vxgfnd.47). The value is
-     `re-frame.ui.compiler/current-build-digest`, which reads the COMMITTED
-     (last-known-good) view aggregate — finalized at df9873's successful
-     commit boundary, so a read during an open / failed / interleaved pass
-     stamps the last known-good digest, never a partial mid-pass identity
-     (rf2-vxgfnd.68). This is the compiler projection; its CLIENT counterpart
-     is `re-frame.ui.client/descriptor-index`, which projects the SAME
-     `:build-digest` (byte-identical — same `fingerprint/build-digest`
-     algorithm over the same per-view triples) onto the live-root static
-     cores. Compile-order independent + incremental==clean by construction."
-     []
-     (let [bd (compiler/current-build-digest)]
-       (into {}
-             (map (fn [[rid desc]] [rid (assoc desc :build-digest bd)]))
-             (build-descriptors)))))
+     `re-frame.ui.compiler/current-build-digest`. Outside a compiler binding,
+     callers pass the explicit retained Shadow build-state; no global latest
+     build exists. This is the compiler projection; its CLIENT counterpart is
+     `re-frame.ui.client/descriptor-index`, which projects the SAME
+     byte-identical compiler value from the compile-finish-patched O(1) carrier
+     onto the live-root static cores — the client never recomputes identity from
+     loaded runtime modules. Compile-order independent + incremental==clean by
+     construction."
+     ([]
+       (let [bd (compiler/current-build-digest)]
+         (into {}
+               (map (fn [[rid desc]] [rid (assoc desc :build-digest bd)]))
+               ;; COMPLETE reads must not mix effective open-pass descriptor
+               ;; rows with the accepted digest. Compiler diagnostics may use
+               ;; `build-descriptors`; tooling sees one coherent snapshot.
+               (build/committed-aggregate build/descriptors))))
+     ([build-state]
+      (let [bd (compiler/current-build-digest build-state)]
+        (into {}
+              (map (fn [[rid desc]] [rid (assoc desc :build-digest bd)]))
+              (build-descriptors build-state))))))
 
 (defn- site-str [{:keys [file line]}]
   (str (or file "<unknown-file>") (when line (str ":" line))))

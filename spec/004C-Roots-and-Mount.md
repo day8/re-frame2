@@ -128,9 +128,10 @@ moment a `ui/mount` / `ui/render!` / `ui/hydrate-root` form macroexpands, the bu
 still compiling and only the views seen so far are known — baking the digest there makes
 it *compile-order dependent*, and it goes *stale* the instant a view's file recompiles
 without the mount site re-expanding (an ordinary view-only hot-reload edit). The per-build
-compiler-state authority does not change this: the build's digest is finalized at its
-**successful build boundary** (`:compile-finish`), strictly *after* every mount-site
-macroexpansion, so no expansion-time value can ever be the finalized identity.
+compiler-state authority does not change this: the candidate digest is finalized only
+after every source has compiled, strictly *after* every mount-site macroexpansion, so no
+expansion-time value can ever be the finalized identity. The candidate becomes accepted
+only when the configured build/watch pipeline succeeds (§2.1.1).
 
 Root Descriptor v1 is therefore realised as **two named shapes, one contract:**
 
@@ -143,27 +144,68 @@ Root Descriptor v1 is therefore realised as **two named shapes, one contract:**
   assembled by a **read-time projection** at each consumer. Any value handed out *as* a
   complete "Root Descriptor v1 / Root Manifest v1" carries the digest.
 
-The digest is projected — never baked — at read on **both hosts**, from the **same input
-via the same algorithm**, so the two projections **agree byte-for-byte** for a given build:
+The digest is projected — never baked — at read on **both hosts**, from the **same accepted
+compiler snapshot**, so the two projections **agree byte-for-byte** for a given build:
 
-- **Compiler / JVM** — `re-frame.ui.compiler.root/descriptor-index` stamps the digest over
-  the **last-successfully-committed** view triples (`[view-id template-fingerprint
-  hook-signature]`), so a read during an open, failed, or interleaved build returns the
-  last **known-good** identity, never a partial mid-pass one. This is the `ui.test` / Xray
-  / S5-tooling read of compile output.
+- **Compiler / JVM** — the retained build-state carries one accepted
+  `{registries,digest,version}` snapshot per build-id. JVM tooling passes that explicit
+  build-state/compiler-env to `re-frame.ui.compiler.root/descriptor-index`; there is no
+  process-global "latest build". The projection stamps the snapshot's already-computed
+  digest. An open, failed, or interleaved build cannot change the retained snapshot.
 - **Client / dev runtime** — `re-frame.ui.client/descriptor-index` (and per-root
-  `re-frame.ui.client/descriptor`) stamps the digest computed from the **registered view
-  manifests** (the same `template-fingerprint` / `hook-signature` the compiler recorded).
-  Because it recomputes over the live view registry, a **view-only hot-reload** that
-  re-registers a view **refreshes the digest an already-mounted root observes without
-  re-expanding its mount site** — the requirement baking could not meet.
+  `re-frame.ui.client/descriptor`) reads one compiler-projected scalar from a dev-only
+  carrier in O(1). It **never recomputes identity from runtime-registered or currently
+  loaded views**. The compiler includes every build member, including an unexecuted lazy
+  module, so runtime module-loading order cannot change identity. A successful view-only
+  hot reload evaluates the refreshed carrier and updates what already-mounted roots read
+  without re-expanding their mount sites.
 
 **Home of the build identity, made explicit:** the finalized whole-build `:build-digest`
-lives in the **read-time projection**, not in the static core. Both projections are pure
-functions of the finalized per-build view set, so clean, incremental, watch, and REPL
-paths converge on the same digest through real consumers. Dev-only: view manifests and the
-descriptor/digest projections are elided from production builds (goog.DEBUG-gated), so a
-production client carries no descriptor or digest cost.
+lives in the **accepted build snapshot plus its read-time projections**, not in the static
+core or runtime registrar. Clean, incremental and watch paths converge on the same scalar.
+Direct unsaved no-pass REPL evaluation may replace a live view body and exercise the same
+generation/remount machinery as HMR, but it **does not change `:build-digest`**. Saving the
+source and completing the next configured build/watch pass publishes the new identity.
+Macroexpand-only, never-evaluated and runtime-failed REPL forms therefore cannot become
+digest members or pollute a later build.
+
+#### 2.1.1 The accepted-build transaction
+
+The build adapter uses the build tool's retained **functional build-state** as the
+transaction boundary:
+
+1. At compile prepare, disposable scratch is seeded from the incoming accepted snapshot;
+   isolated no-pass REPL bookkeeping and abandoned scratch are cleared. On a version-zero
+   daemon pass, retained output for every `re-frame.ui` cache-blocker-covered CLJS source is
+   removed before scheduling, so current registry macros reconstruct the initial accepted
+   snapshot instead of silently inheriting output whose macro side effects did not run.
+   Every source the build tool will actually compile is pre-touched: removing a source's
+   final UI declaration therefore evicts its prior rows even though no registry macro runs,
+   while output-present warm cache hits retain their accepted rows.
+2. Macro expansion writes scratch only. At compile finish, the adapter reconciles scratch
+   against the authoritative whole build graph, computes the digest once, validates and
+   patches exactly one fixed-width dev carrier in the returned output state, and carries
+   the candidate snapshot in the returned compiler-env.
+3. The build tool retains that returned state only if all later configured
+   optimize/check/flush/watch work succeeds. A downstream failure discards the candidate;
+   the next attempt seeds from the prior accepted snapshot. No external commit/rollback
+   atom and no private build-tool completion callback are part of the contract.
+
+The accepted build-state and the active HMR runtime are last-known-good. A build tool may
+have partially rewritten its raw output directory before reporting a late failure; this
+contract does not claim filesystem rollback for that directory. Consumers activate only
+successful build output.
+
+For Shadow 3.4.10 the build hook and top-level
+`:cache-blockers #{re-frame.ui}` are load-bearing: the hook supplies the transaction,
+version-zero retained-output invalidation and carrier projection; the blocker prevents
+those invalidated sources from being reloaded from stale disk cache. Together they ensure
+all macro-contributed members are present after a warm daemon start. A configured dev build
+without either fails loudly rather than publishing a plausible partial identity.
+
+Dev-only: the carrier, sentinel, digest literal, view manifests and descriptor/digest
+projections are `goog.DEBUG`-guarded and absent from advanced production output, so the
+mechanism adds no production bytes or runtime work.
 
 ## 3. The mount grammar and the host signature set
 

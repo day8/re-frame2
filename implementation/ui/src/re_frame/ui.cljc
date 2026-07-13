@@ -49,6 +49,7 @@
   structural tree + the DOM conversion table
   (jvm-tree-and-conversion-contract.md)."
   #?(:cljs (:require-macros [re-frame.ui]))
+  (:refer-clojure :exclude [spread])
   (:require [re-frame.error :as error]
             [re-frame.ui.reactive :as reactive]
             #?@(:clj  [[re-frame.ui.compiler :as compiler]

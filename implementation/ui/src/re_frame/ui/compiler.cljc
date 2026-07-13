@@ -19,17 +19,12 @@
 #?(:clj
    (do
 
-;; The view digest is keyed PER build id in the one build-scoped authority
-;; (`re-frame.ui.compiler.build`, rf2-df9873): a recompiled / edited /
-;; renamed source replaces its whole prior contribution, and the independent
-;; builds one daemon compiles never share rows. Distinct defview declarations
-;; with equal view ids are rejected atomically rather than merged (including
-;; two vars in one namespace), while the exact same var retains ordinary HMR
-;; replacement. Thus no compile order can choose a digest row or runtime
-;; registrar winner. `current-build-digest` reads the ambient build's COMMITTED
-;; (last-known-good) view aggregate, so the whole-build identity is finalized
-;; at df9873's successful commit / finish boundary and never a partial mid-pass
-;; value (compile-order independent — the triples sort by view-id).
+;; Each Shadow build carries accepted registries plus disposable compiler-env
+;; scratch. A recompiled / edited / renamed source replaces its prior rows and
+;; independent builds never share state. Distinct declarations with equal ids
+;; fail atomically; the same var remains the HMR replacement path. The digest is
+;; computed once from the finalized candidate and becomes accepted only when
+;; Shadow retains the returned build-state after the complete pipeline.
 ;;
 ;; The compile-time custom-element declarations are a build-scoped registry
 ;; like the other four: WRITTEN here (macro expansion → `build/contribute!
@@ -44,19 +39,15 @@
 ;; it is separate from this compile registry.
 
 (defn current-build-digest
-  "The FINALIZED whole-build view-identity digest for the ambient build:
-  `fingerprint/build-digest` over the `[view-id template-fingerprint
-  hook-signature]` triples of the LAST SUCCESSFULLY COMMITTED views
-  (`build/committed-aggregate` — the committed layer, not the open pass's
-  effective/staged view). It therefore changes ONLY at a successful commit /
-  finish boundary (df9873's `finish-build!`): a read during an open, failed,
-  or interleaved pass returns the last known-good digest, never a partial
-  mid-pass identity (rf2-vxgfnd.68). Compile-order independent (triples sort
-  by view-id) and per-build-id isolated. This is the ONE build identity the
-  descriptor read-time projection publishes."
-  []
-  (fingerprint/build-digest
-   (mapv (fn [[id [tf hs]]] [id tf hs]) (build/committed-aggregate build/views))))
+  "The deterministic whole-build digest (`bd1-...`) of an accepted build.
+
+  With no argument this reads the currently bound compiler-env (or the
+  plain-JVM test fallback). JVM tooling outside compilation must pass the
+  explicit retained Shadow build-state/compiler-env; there is no process-global
+  'latest build' authority."
+  ([] (build/finalized-build-digest))
+  ([build-state-or-compiler-env]
+   (build/accepted-build-digest build-state-or-compiler-env)))
 
 (def ^:private defview-option-keys #{:props :id :display-name})
 
@@ -249,6 +240,9 @@
              :declaration [ns-sym vname]
              :existing-declaration conflict}))
     (if cljs?
+      ;; Direct no-pass REPL evaluation may replace the runtime view body, but
+      ;; carries no digest assignment. Only a successful configured file/watch
+      ;; pass patches the whole-build carrier (Option C).
       (emit-cljs/emit-defview args)
       (emit-jvm/emit-defview args))))
 

@@ -16,6 +16,8 @@
 //      (b) trap absence — zero occurrences of the IFn fallback shape
 //          on a literal tag (`.call(null,"div"` / Closure-minified
 //          `.call(null,"x"` over the bench tag set).
+//      (c) digest-carrier elision — the dev sentinel, bd1 literal and carrier
+//          namespace are all absent from the :advanced production bundle.
 // 3. Run the bundle under NODE_ENV=production — the estimator +
 //    byte-equality precheck + budget enforcement live in CLJS
 //    (re-frame.ui.bench.main); its exit code is the gate.
@@ -93,6 +95,23 @@ function emittedJsGolden() {
       'FAIL: IFn-protocol dispatch fallback found on the jsx path — a ' +
         'var-bound jsx fn reintroduced dynamic dispatch under :advanced ' +
         '(S-1 landmine; ~5-8% silent regression).',
+    );
+    process.exit(1);
+  }
+
+  const forbiddenDigestFragments = [
+    '__RF2_UI_DIGEST_XX__',
+    'bd1-',
+    'digest_carrier',
+  ];
+  const retained = forbiddenDigestFragments.filter((fragment) =>
+    src.includes(fragment),
+  );
+  if (retained.length !== 0) {
+    console.error(
+      'FAIL: dev-only whole-build digest machinery survived :advanced: ' +
+        retained.join(', ') +
+        '. The carrier/sentinel/bd1 path must cost zero production bytes.',
     );
     process.exit(1);
   }

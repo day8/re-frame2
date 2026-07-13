@@ -53,8 +53,7 @@
   identity and stay in production."
   (:require ["react-dom/client" :as rdc]
             [re-frame.error :as error]
-            [re-frame.registrar :as registrar]
-            [re-frame.ui.fingerprint :as fingerprint]
+            [re-frame.ui.digest-carrier :as digest-carrier]
             [re-frame.ui.frames :as frames]
             [re-frame.ui.reactive :as reactive]
             [re-frame.ui.viewcell :as viewcell]))
@@ -111,34 +110,23 @@
 ;; at expansion — compile-order dependent AND stale under a view-only HMR edit
 ;; (see `re-frame.ui.compiler.root/root-descriptor`). These fns are the CLIENT
 ;; counterpart of the compiler's `re-frame.ui.compiler.root/descriptor-index`:
-;; they stamp the SAME `:build-digest` — byte-identical, because both hosts run
-;; the SAME `fingerprint/build-digest` algorithm over the SAME `[view-id
-;; template-fingerprint hook-signature]` per-view triples (the compiler feeds
-;; them from `build/committed-aggregate build/views`; the client reads the
-;; equal `tf`/`hs` the registrar `:view` manifests carry) — onto the live-root
-;; static cores. Recomputing over the live `:view` registry keeps it NON-STALE:
-;; a view-only HMR edit that re-runs `register-view!` refreshes the digest an
-;; already-mounted root observes WITHOUT the mount site re-expanding
-;; (rf2-vxgfnd.68). Dev only: `register-view!` is goog.DEBUG-gated, so the
-;; `:view` registry — and every projection over it — is absent from production
-;; (I-12); these reads return nil / {} under goog.DEBUG=false.
+;; they stamp the SAME compiler-finalized `:build-digest` onto the live-root
+;; static cores. The client does NOT derive identity from the set of modules
+;; currently loaded: compile-finish patches one dev-only carrier from the
+;; candidate whole-build snapshot; Shadow activates it only on successful
+;; build/watch completion, and client reads are O(1). Thus lazy/multi-entry
+;; loading cannot change identity, view-only HMR refreshes it without
+;; re-expanding a mount site, and unsaved no-pass REPL evaluation cannot mutate
+;; it. The whole carrier and these reads are goog.DEBUG-elided from production.
 
 (defn current-build-digest
-  "The client's whole-build view-identity digest (dev): the SAME
-  `re-frame.ui.fingerprint/build-digest` the compiler computes, over the
-  `[view-id template-fingerprint hook-signature]` triples of every registered
-  compiled view (the registrar `:view` manifests). Byte-identical to the JVM
-  compiler's `current-build-digest` for the same build — same algorithm, same
-  per-view triples — so the compiler and client projections AGREE. Recomputed
-  over the live registry, so a view-only HMR re-register refreshes it. nil in
-  production (goog.DEBUG=false — no view manifests ship)."
+  "The client's whole-build view-identity digest (dev): the SAME compiler-
+  finalized digest. The compiler is the sole authority and publishes it into a
+  tiny dev-only carrier at the successful build boundary; this is an O(1)
+  read, independent of loaded modules and runtime registrar contents. nil in
+  production (goog.DEBUG=false)."
   []
-  (when ^boolean js/goog.DEBUG
-    (fingerprint/build-digest
-     (map (fn [[id meta]]
-            (let [m (:rf.ui/manifest meta)]
-              [id (:template-fingerprint m) (:hook-signature m)]))
-          (registrar/registrations :view)))))
+  (digest-carrier/current))
 
 (defn descriptor
   "The COMPLETE Root Descriptor v1 for live root `root-id` (dev): its static

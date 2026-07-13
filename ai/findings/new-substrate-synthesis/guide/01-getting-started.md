@@ -11,6 +11,29 @@
 `package.json` carries `react` and `react-dom` (19.2.4+) — nothing else. No Reagent, no
 UIx, no Helix.
 
+The compiler owns one whole-build view digest. For Shadow 3.4.10, configure its two
+load-bearing settings once (not once per build):
+
+```clojure
+;; shadow-cljs.edn
+{:cache-blockers #{re-frame.ui}
+ :build-defaults
+ {:build-hooks [(re-frame.ui.compiler.build-hook/hook)]}
+ ;; :builds ...
+ }
+```
+
+On a daemon's version-zero pass, the hook clears retained output for UI macro consumers;
+the cache blocker then prevents a stale disk-cache reload, so those macros reconstruct the
+accepted registry. Later output-present cache hits stay warm. The hook carries a candidate
+digest in Shadow's returned functional build-state and patches the dev client carrier;
+Shadow accepts both only when the complete configured build/watch pass succeeds. Omitting
+either can produce an incomplete compiler view of the build, so a misconfigured dev bundle
+fails loudly instead of hydrating or debugging against a false identity. Direct
+unsaved REPL evaluation may replace a view body but does not change the build digest until
+the source is saved and the next pass completes. All of this machinery disappears from
+advanced production output.
+
 ## The whole app
 
 ```clojure
