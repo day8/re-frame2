@@ -89,18 +89,19 @@ Reagent users: home, minus the traps.
 
 When state says an element is gone, React removes it instantly — but toasts slide out,
 modals fade, rows collapse. `ui/presence` owns the gap between *no longer true* and
-*no longer visible*:
+*no longer visible*. Each card reads where it is in that lifetime with `presence-phase`;
+the tray wraps the list in the presence boundary:
 
 ```clojure
-(ui/defview toast-tray []
-  (ui/presence {:timeout-ms 300}
-    (for [t (sub [:toasts/visible])]
-      [toast-card {:key (:id t) :toast t}])))
-
 (ui/defview toast-card [{:keys [toast]}]
   (let [phase (presence-phase)]          ; :mounting | :present | :unmounting
     [:div.toast {:class (name phase)}    ; your CSS does the animating
      (:message toast)]))
+
+(ui/defview toast-tray []
+  (ui/presence {:timeout-ms 300}
+    (for [t (sub [:toasts/visible])]
+      [toast-card {:key (:id t) :toast t}])))
 ```
 
 A child removed from the list keeps rendering as `:unmounting` until its transition ends
