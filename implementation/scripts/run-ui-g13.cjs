@@ -124,6 +124,9 @@ function assertDevResult(result) {
   if (result['queued-writes'] !== 8 || result['affected-viewcells'] !== 8) {
     fail('Q/C cardinalities are not 8/8');
   }
+  if (result['fixed-shell-idle-cells'] !== 2) {
+    fail('fixed HMR shell cardinality is not exactly two ownership-empty cells');
+  }
   if (result['timing-posture'] !== 'evidence-only; no threshold') {
     fail('timing evidence grew a threshold posture');
   }
@@ -133,6 +136,9 @@ function assertDevResult(result) {
     if (![100, 500].includes(size.v)) fail(`unexpected V=${size.v}`);
     if (!sameJson(size.cold.projection, expected)) {
       fail(`cold projection drift at V=${size.v}: ${JSON.stringify(size.cold.projection)}`);
+    }
+    if (size.cold['fixed-shell-idle-cells'] !== 2) {
+      fail(`cold sample at V=${size.v} lost the two ownership-empty HMR shells`);
     }
     if (!Array.isArray(size.samples) || size.samples.length !== 9) {
       fail(`V=${size.v} did not retain exactly nine warm samples`);
@@ -148,6 +154,9 @@ function assertDevResult(result) {
     for (const sample of size.samples) {
       if (!sameJson(sample.projection, expected)) {
         fail(`warm projection drift at V=${size.v}/${sample.label}`);
+      }
+      if (sample['fixed-shell-idle-cells'] !== 2) {
+        fail(`warm sample at V=${size.v}/${sample.label} lost the empty HMR shells`);
       }
     }
     projections.push(size.cold.projection);

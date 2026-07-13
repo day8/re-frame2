@@ -28,21 +28,30 @@
         hot   (filterv #(= [::fixture/hot] (cell-query %)) cells)
         cold  (filterv #(let [q (cell-query %)]
                           (and (vector? q) (= ::fixture/cold (first q))))
-                       cells)]
-    (ensure! (= v (count cells)) "mounted ViewCell cardinality drift"
-             {:v v :cells (count cells)})
+                       cells)
+        idle  (filterv #(empty? (reactive/committed-target-keys %)) cells)
+        owning (into [] (concat hot cold))]
+    (ensure! (= v (count owning)) "ownership-bearing ViewCell cardinality drift"
+             {:v v :owning (count owning) :cells (count cells)})
     (ensure! (= fixture/hot-count (count hot)) "hot ViewCell cardinality drift"
              {:v v :hot (count hot)})
     (ensure! (= (- v fixture/hot-count) (count cold))
              "cold ViewCell cardinality drift"
              {:v v :cold (count cold)})
-    {:all cells :hot hot :cold cold}))
+    (ensure! (= fixture/idle-shell-count (count idle))
+             "fixed-shell empty ViewCell cardinality drift"
+             {:v v :expected fixture/idle-shell-count :idle (count idle)})
+    (ensure! (= (set cells) (set (concat owning idle)))
+             "a mounted ViewCell was neither an owner nor an empty shell"
+             {:v v :cells (count cells) :owning (count owning)
+              :idle (count idle)})
+    {:all cells :owning owning :hot hot :cold cold :idle idle}))
 
 (defn- deltas [cells before]
   (mapv #(- (reactive/revision %) (get before %)) cells))
 
 (defn- sample! [root frame v label]
-  (let [{:keys [all hot cold]} (split-cells v)
+  (let [{:keys [all hot cold idle]} (split-cells v)
         before (into {} (map (juxt identity reactive/revision)) all)
         pre    (atom nil)]
     (fixture/reset-counters!)
@@ -56,6 +65,7 @@
                      {:pending (reactive/pending-cell-count)
                       :hot-dirty (count (filter reactive/dirty? hot))
                       :cold-dirty (count (filter reactive/dirty? cold))
+                      :idle-dirty (count (filter reactive/dirty? idle))
                       :revision-delta (reduce + (deltas all before))
                       :evidence-counts
                       (mapv #(get (reactive/pending-evidence %) :count) hot)
@@ -64,6 +74,7 @@
            (fn []
              (let [hot-deltas  (deltas hot before)
                  cold-deltas (deltas cold before)
+                 idle-deltas (deltas idle before)
                  counters    (fixture/counter-snapshot)
                  projection  {:enrolled (:pending @pre)
                               :advances (count (filter #(= 1 %) hot-deltas))
@@ -80,7 +91,7 @@
                               :hot-renders-by-index (vec (repeat 8 1))
                               :cold-renders 0 :root-commits 1
                               :hot-base 8 :stable-parent 8 :cold-leaf 0}]
-             (ensure! (= {:pending 8 :hot-dirty 8 :cold-dirty 0
+             (ensure! (= {:pending 8 :hot-dirty 8 :cold-dirty 0 :idle-dirty 0
                           :revision-delta 0
                           :evidence-counts (vec (repeat 8 8))
                           :counters {:writes 8 :hot-base 8 :stable-parent 8
@@ -94,6 +105,9 @@
                       {:v v :label label :expected expected :actual projection})
              (ensure! (every? zero? cold-deltas) "a cold ViewCell advanced"
                       {:v v :label label :cold-deltas cold-deltas})
+             (ensure! (every? zero? idle-deltas)
+                      "an ownership-empty fixed-shell ViewCell advanced"
+                      {:v v :label label :idle-deltas idle-deltas})
              (ensure! (zero? (reactive/pending-cell-count))
                       "dirty registry did not drain" {:v v :label label})
              (let [published (str (:hot (rf/app-db-value frame)))]
@@ -113,6 +127,7 @@
                       {:v v :label label})
              {:label label
               :elapsed-ms (- (js/performance.now) started)
+              :fixed-shell-idle-cells (count idle)
               :projection projection})))))))
 
 (defn- percentile [xs p]
@@ -177,6 +192,7 @@
             :sizes sizes
             :queued-writes fixture/queued-writes
             :affected-viewcells fixture/hot-count
+            :fixed-shell-idle-cells fixture/idle-shell-count
             :timing-posture "evidence-only; no threshold"
             :results results})))))
 

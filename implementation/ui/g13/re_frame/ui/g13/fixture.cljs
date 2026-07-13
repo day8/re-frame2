@@ -11,6 +11,9 @@
 
 (def hot-count 8)
 (def queued-writes 8)
+;; `table` + `app` are intentionally sub-free defviews. DEV gives each the
+;; fixed HMR-safe ViewCell skeleton; they must stay live but ownership-empty.
+(def idle-shell-count 2)
 (def counters (atom {}))
 
 (defn reset-counters! []
