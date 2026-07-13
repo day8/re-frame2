@@ -784,11 +784,9 @@
   Per-entry contract. For every `[k entry]` in every live frame's
   `:sub-cache` atom:
 
-    1. Dispose the cached `:reaction` via `interop/dispose!`. This
-       routes through `:adapter/dispose!`, which is still wired at
-       this point in the teardown sequence (the substrate-adapter
-       clears the install slot AFTER calling the adapter's
-       `dispose-adapter!`).
+    1. Dispose the cached `:reaction` through the supplied disposer.
+       Adapter teardown supplies the exact claimed generation's disposer;
+       the direct/test arity routes through `interop/dispose!`.
     2. After draining each frame's entries, `reset!` its sub-cache
        atom to `{}`.
 
@@ -802,15 +800,23 @@
   the `make-dispose-adapter!` factory for UIx / Helix and called
   directly from the Reagent / reagent-slim adapters' dispose paths.
   Centralising the walk here is the rf2-jcjul lockstep: one
-  implementation, three adapters, zero drift."
-  []
-  (doseq [[_ frame-record] @frame/frames]
-    (when-let [cache (:sub-cache frame-record)]
-      (doseq [[_k entry] @cache]
-        (when-let [r (:reaction entry)]
-          (try (interop/dispose! r)
-               (catch :default _ nil))))
-      (reset! cache {}))))
+  implementation, three adapters, zero drift.
+
+  The one-arg form is the adapter-cleanup path: `dispose-reaction!` is the
+  exact claimed generation's substrate disposer, captured before terminal
+  teardown hides that generation from every public/routed lookup. The zero-arg
+  form remains the direct/test seam and routes through `interop/dispose!` while
+  an adapter is publicly live."
+  ([]
+   (dispose-frame-sub-caches! interop/dispose!))
+  ([dispose-reaction!]
+   (doseq [[_ frame-record] @frame/frames]
+     (when-let [cache (:sub-cache frame-record)]
+       (doseq [[_k entry] @cache]
+         (when-let [r (:reaction entry)]
+           (try (dispose-reaction! r)
+                (catch :default _ nil))))
+       (reset! cache {})))))
 
 (defn dispose-active-roots-and-caches!
   "Core dispose-drain shared by BOTH spines' `dispose-adapter!`
@@ -831,8 +837,8 @@
   layers its extra teardown (warn-cache + after-render driver-root +
   set-tick slot) AFTER calling this; the ratom family's dispose IS exactly
   this subset (no warn-cache, no driver-root)."
-  [unmount-op active-roots-cell emitter-cell]
-  (dispose-frame-sub-caches!)
+  [dispose-reaction! unmount-op active-roots-cell emitter-cell]
+  (dispose-frame-sub-caches! dispose-reaction!)
   (doseq [root @active-roots-cell]
     (try (unmount-op root)
          (catch :default _ nil)))
@@ -874,7 +880,8 @@
     ;; rf2-w1g0d2: the substrate-common subset (sub-cache walk + active-roots
     ;; drain-with-swallow + emitter clear) is the shared core; the React-hook
     ;; spine layers warn-cache + driver-root + set-tick teardown on top.
-    (dispose-active-roots-and-caches! (fn [r] (.unmount r))
+    (dispose-active-roots-and-caches! rf-disposable/-dispose
+                                      (fn [r] (.unmount r))
                                       active-roots-cell emitter-cell)
     (when warn-cache (reset! warn-cache #{}))
     (when after-render-driver-root-cell
@@ -2120,6 +2127,18 @@
 ;; `reagent2.*`), a "keep two maps in lockstep" hazard. The keyword-key
 ;; shape now lives ONCE here; each adapter passes ~7 bare fns.
 
+(defn- make-ratom-dispose-dispatch
+  "Build the exact-generation disposer shared by ratom adapter cleanup and
+  its public routed `:adapter/dispose!` hook. A ratom generation may own both
+  re-frame spine values and its substrate's native reactions, so the dispatch
+  preserves that dual-protocol order without consulting global adapter state."
+  [disposable? dispose!]
+  (fn dispose!-dispatch [a]
+    (cond
+      (satisfies? rf-disposable/IDisposable a) (rf-disposable/-dispose a)
+      (disposable? a)                          (dispose! a)
+      :else                                    nil)))
+
 (defn make-ratom-spine
   "Build the per-substrate ratom-family substrate surfaces given the
   substrate's gensym prefix and a FLAT set of injected reactive-atom BARE
@@ -2138,6 +2157,8 @@
                        bare `.render`)
       :hydrate-root  — (fn [mount-point tree]) → React root
       :unmount-root  — (fn [root]) → unmount the root
+      :disposable?   — (fn [x]) → boolean for the substrate's IDisposable
+      :dispose!      — (fn [x]) → dispose a substrate-native reaction
       :flush-render! — (fn [f]) → run `f` then SYNCHRONOUSLY commit the
                        substrate's pending renders to the DOM (rf2-40a84;
                        stock Reagent passes `(fn [f] (f) (reagent.core/
@@ -2185,10 +2206,15 @@
   (`dispose-frame-sub-caches!` + active-roots drain w/ per-root throw-
   swallow + emitter clear)."
   [{:keys [gensym-prefix-sub r-atom make-reaction create-root render-root
-           hydrate-root unmount-root]
+           hydrate-root unmount-root disposable? dispose!]
     flush-render-op :flush-render!}]
   (let [active-roots-cell (make-active-roots-cell)
         emitter-cell      (make-hiccup-emitter-cell)
+        ;; Terminal cleanup cannot route through `interop/dispose!`: the
+        ;; process lifecycle deliberately hides the claimed generation before
+        ;; invoking its cleanup. Capture this generation's dual-protocol
+        ;; disposer in the adapter closure instead.
+        dispose-reaction! (make-ratom-dispose-dispatch disposable? dispose!)
         ;; rf2-w1g0d2: reuse the shared container helpers where the ratom +
         ;; React-hook semantics are genuinely identical. `make-state-container`
         ;; differs ONLY in the ctor (substrate `r-atom` vs plain `atom`), so
@@ -2257,7 +2283,7 @@
         ;; nothing on top.
         dispose-adapter!
         (fn dispose-adapter! []
-          (dispose-active-roots-and-caches! unmount-root
+          (dispose-active-roots-and-caches! dispose-reaction! unmount-root
                                             active-roots-cell emitter-cell))
         ;; rf2-40a84 — production synchronous render-flush. Delegates to the
         ;; injected `:rdc/flush-render!` op (stock `reagent.core/flush` /
@@ -2409,7 +2435,8 @@
   [spine-fns {:keys [kind register-context-provider
                      current-frame current-component atom ratom? make-reaction
                      disposable? add-on-dispose! dispose! reactive? after-render]}]
-  (let [adapter {:kind                      kind
+  (let [dispose-dispatch (make-ratom-dispose-dispatch disposable? dispose!)
+        adapter {:kind                      kind
                  :make-state-container      (:make-state-container spine-fns)
                  :read-container            (:read-container       spine-fns)
                  :replace-container!        (:replace-container!   spine-fns)
@@ -2467,12 +2494,7 @@
           (satisfies? rf-disposable/IDisposable a) (rf-disposable/-add-on-dispose a f)
           (disposable? a)                          (add-on-dispose! a f)
           :else                                    nil)))
-    (substrate-adapter/route-hook! adapter :adapter/dispose!
-      (fn dispose!-dispatch [a]
-        (cond
-          (satisfies? rf-disposable/IDisposable a) (rf-disposable/-dispose a)
-          (disposable? a)                          (dispose! a)
-          :else                                    nil)))
+    (substrate-adapter/route-hook! adapter :adapter/dispose! dispose-dispatch)
     (substrate-adapter/route-hook! adapter :adapter/reactive?
       reactive?
       (constantly false))

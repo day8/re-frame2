@@ -160,6 +160,120 @@
       (is (nil? (adapter/current-adapter))
           "the slot is cleared even when the callback runs"))))
 
+(deftest throwing-adapter-cleanup-still-finalizes-the-process-lifecycle
+  (let [boom (ex-info "adapter host cleanup failed" {:kind ::cleanup-failed})
+        bad  (assoc plain-atom/adapter
+                    :dispose-adapter! (fn [] (throw boom)))]
+    (adapter/install-adapter! bad)
+    (is (identical? boom
+                    (try (adapter/dispose-adapter!) nil
+                         (catch clojure.lang.ExceptionInfo e e)))
+        "the adapter cleanup error remains the primary throw")
+    (is (nil? (adapter/current-adapter-spec))
+        "a cleanup throw cannot leave the one-adapter install slot seated")
+    (is (true? (adapter/adapter-disposed?))
+        "the lifecycle breadcrumb records the attempted installed teardown")
+    (is (= :rf.error/adapter-disposed
+           (:rf.error/id
+            (ex-data
+             (try
+               (adapter/make-state-container {})
+               nil
+               (catch clojure.lang.ExceptionInfo e e)))))
+        "delegation after a throwing cleanup sees terminal disposal, not a half-live adapter")
+    (is (identical? plain-atom/adapter
+                    (adapter/install-adapter! plain-atom/adapter))
+        "a fresh adapter can install immediately after the failed cleanup")))
+
+(deftest adapter-cleanup-claim-is-one-way-and-generation-safe
+  (testing "a re-entrant destroy cannot invoke one generation's cleanup twice"
+    (let [calls (atom 0)
+          old   (assoc plain-atom/adapter
+                       :dispose-adapter!
+                       (fn []
+                         (swap! calls inc)
+                         (adapter/dispose-adapter!)))]
+      (adapter/install-adapter! old)
+      (adapter/dispose-adapter!)
+      (is (= 1 @calls)
+          "the terminal claim makes a nested destroy an idempotent no-op")
+      (is (true? (adapter/adapter-disposed?)))))
+  (testing "a stale finalizer never clears a replacement generation"
+    (let [replacement (assoc plain-atom/adapter :kind ::replacement)
+          old         (assoc plain-atom/adapter
+                             :dispose-adapter!
+                             (fn []
+                               ;; Adversarial test bypass: simulate a replacement
+                               ;; generation appearing before the old cleanup's
+                               ;; finally boundary. Public install cannot race into
+                               ;; an occupied slot; this seam proves the stale
+                               ;; generation guard itself rather than timing.
+                               (adapter/reset-lifecycle-state-for-tests!)
+                               (adapter/install-adapter! replacement)))]
+      (adapter/install-adapter! old)
+      (adapter/dispose-adapter!)
+      (is (identical? replacement (adapter/current-adapter-spec))
+          "the old generation's finally leaves the replacement seated")
+      (is (= ::replacement (adapter/current-adapter)))
+      (is (false? (adapter/adapter-disposed?))
+          "the replacement generation's successful install owns the breadcrumb"))))
+
+(deftest concurrent-adapter-destroy-has-one-cleanup-owner-and-atomic-state
+  (let [entered (promise)
+        release (promise)
+        calls   (atom 0)
+        old     (assoc plain-atom/adapter
+                       :dispose-adapter!
+                       (fn []
+                         (swap! calls inc)
+                         (deliver entered :entered)
+                         (when (= ::timeout (deref release 5000 ::timeout))
+                           (throw (ex-info "cleanup release timed out" {})))))
+        first   (do
+                  (adapter/install-adapter! old)
+                  (future
+                    (try
+                      (adapter/dispose-adapter!)
+                      :destroyed
+                      (catch Throwable e e))))]
+    (try
+      (is (= :entered (deref entered 5000 ::timeout))
+          "the first destroy owns cleanup and reaches the held phase")
+      (let [second (future (adapter/dispose-adapter!))]
+        (is (nil? (deref second 5000 ::timeout))
+            "a concurrent destroy observes the claimed generation and does no cleanup"))
+      (is (= 1 @calls) "exactly one cleanup owner ran")
+      (is (nil? (adapter/current-adapter-spec))
+          "the terminal claim removes the generation from public introspection")
+      (is (true? (adapter/adapter-disposed?))
+          "the disposed breadcrumb flips atomically with the terminal claim")
+      (let [delegation (try
+                         (adapter/make-state-container {})
+                         nil
+                         (catch clojure.lang.ExceptionInfo e e))]
+        (is (= :rf.error/adapter-disposed
+               (:rf.error/id (ex-data delegation)))
+            "delegation cannot enter cleanup's partly torn-down generation")
+        (is (= :install-a-fresh-adapter
+               (:recovery (ex-data delegation)))))
+      (is (= :rf.error/adapter-already-installed
+             (:rf.error/id
+              (ex-data
+               (try
+                 (adapter/install-adapter! plain-atom/adapter)
+                 nil
+                 (catch clojure.lang.ExceptionInfo e e)))))
+          "the internal exact-generation claim blocks replacement until cleanup settles")
+      (finally
+        (deliver release :release)))
+    (is (= :destroyed (deref first 5000 ::timeout)))
+    (is (nil? (adapter/current-adapter-spec)))
+    (is (true? (adapter/adapter-disposed?)))
+    (is (identical? plain-atom/adapter
+                    (adapter/install-adapter! plain-atom/adapter))
+        "a fresh install succeeds after the exact cleanup owner settles")
+    (is (false? (adapter/adapter-disposed?)))))
+
 (deftest ensure-default-frame-is-idempotent
   (testing "ensure-default-frame! creates :rf/default if absent; no-op if present"
     ;; Frame creation needs an adapter to allocate the app-db container.
@@ -508,7 +622,7 @@
                 (str where-sym " ex-data carries the canonical :rf.error/id discriminator"))
             (is (= where-sym (:where data))
                 (str where-sym " ex-data :where echoes the offending public surface symbol"))
-            (is (= :no-recovery (:recovery data))
-                (str where-sym " ex-data :recovery is :no-recovery"))
+            (is (= :install-a-fresh-adapter (:recovery data))
+                (str where-sym " ex-data :recovery names the fresh-install remedy"))
             (is (re-find #"destroy-adapter!" (str (:reason data)))
                 (str where-sym " ex-data :reason mentions the prior destroy-adapter!"))))))))

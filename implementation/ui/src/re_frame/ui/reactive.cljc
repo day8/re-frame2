@@ -94,25 +94,14 @@
   ViewCell notification and one React render for the whole batch —
   G-5/G-13) is wired with the bench in S2f, not here.
 
-  `flush!` — the SYNCHRONOUS forcing of pending notifications — is SCOPED
-  over that registry. The Q51 scope ruling, PINNED here:
+  SYNCHRONOUS forcing is scoped over that registry:
 
-    - `flush!` is PER-ROOT at the public boundary: it flushes the CALLING
-      root's pending commit work. The substrate primitive is a scoped
-      drain (`flush-scope!`), and the natural scope the substrate owns is
-      the FRAME — a dirty cell's pending work belongs to the frame(s) its
-      committed sites observe. Root scope COMPOSES over frame scope (a
-      root scopes ≥1 frame); the root→frames resolution lives in the
-      client root registry (where roots live — off this artefact's
-      surface), so the ROOT-spelled public `ui/flush!` / `flush-render!`
-      wires there (S2f). The substrate mechanism + the frame-scoped and
-      global spellings land HERE.
-    - `(flush-frame! frame-id)` — the frame arity — flushes every root
+    - `(flush-frame! frame-id)` — the internal frame scope — flushes every root
       observing that frame (each dirty cell whose committed deps include
       the frame).
     - the GLOBAL all-roots flush is the TEST-ONLY `ui.test/flush!`
-      spelling (`flush-pending!` here). There is no app-facing global
-      flush — an app forces its own root, never every root.
+      spelling (`flush-pending!` here). It is the sole public test flush;
+      there is no public production `re-frame.ui/flush!`.
 
   A scoped flush leaves out-of-scope cells pending — no epoch work leaks
   across roots. Flush is reentrancy-SAFE BY CONSTRUCTION: `flush-scope!`
@@ -121,10 +110,8 @@
   double-advance a cell. The DEV-tier `:rf.error/flush-in-open-epoch`
   signal — the DX guard naming a re-entrant flushSync-into-an-open-epoch
   misuse (03 §11; Spec 006 §Epoch finalization) — is REFERENCED, not
-  emitted, here: its typed throw lands with its Spec 009 catalogue row in
-  the S2f 009 batch (the catalogue↔throw co-edit ratchet couples them,
-  and the reentrancy it guards is only reachable once mounted Tier-3
-  roots land).
+  emitted by `ui.test/flush!`, before this registry is touched, with the
+  Spec 009 catalogue row carrying the active frame + frame epoch.
 
   ## The slice-scoped probe memo (S2d item 3 — 03 §3; Spec 006 §The
   slice-scoped probe memo)
@@ -1439,26 +1426,35 @@
   per-mount identity, so a replacement root under the same root-id is untouched.
 
   Ordering-robust and re-entrancy-safe by save/restore. If `unmount-thunk`
-  THROWS (React refused to unmount — it did NOT tear the tree down, so no
-  cleanup ran and nothing was collected), the window is restored and the throw
-  propagates WITHOUT tearing any cell down: the orphaned tree's cells stay live,
-  and the original host error is never masked (the ruled host-teardown
-  behaviour, rf2-vxgfnd.53). A throwing thunk reaps NOTHING — including the
-  registry sweep — because the root was not actually torn down. Returns the count
-  of cells torn down.
+  THROWS, the original host error still propagates, but an EXPLICIT
+  `root-incarnation` is a framework ownership token: every cell belonging to
+  that exact generation is force-dead and its leases are released before the
+  throw escapes. React may have consumed the host Root handle even though its
+  synchronous flush refused; retaining connected observations after the client
+  releases that handle would create unreachable framework ownership. The fresh
+  incarnation token keeps this fail-closed reap isolated from a later same-id
+  replacement. The one-arity form has no generation evidence and therefore can
+  reap only cells actually captured by the teardown window. Returns the count of
+  cells torn down on success; a host failure rethrows after the targeted reap.
 
   Two arities: `[unmount-thunk]` (no explicit incarnation — window + captured-cell
   incarnations only, the current `client/unmount!*` call) and
   `[root-incarnation unmount-thunk]` (the incarnation-aware path)."
   ([unmount-thunk] (teardown-root! nil unmount-thunk))
   ([root-incarnation unmount-thunk]
-   (let [prev      @teardown-collector
-         collected (do (reset! teardown-collector #{})
-                       (try
-                         (unmount-thunk)
-                         @teardown-collector
-                         (finally
-                           (reset! teardown-collector prev))))
+   (let [prev       @teardown-collector
+         host-error (volatile! nil)
+         captured   (volatile! #{})
+         _          (do
+                      (reset! teardown-collector #{})
+                      (try
+                        (unmount-thunk)
+                        (catch #?(:clj Throwable :cljs :default) e
+                          (vreset! host-error e))
+                        (finally
+                          (vreset! captured @teardown-collector)
+                          (reset! teardown-collector prev))))
+         collected  @captured
          ;; the incarnations whose hidden cells this teardown owns: the explicit
          ;; one plus every window-captured cell's own incarnation.
          incs      (cond-> (into #{} (keep cell-root) collected)
@@ -1469,10 +1465,17 @@
                          (comp (mapcat #(get @root-cells %))
                                (filter #(= :disconnected (lifecycle %))))
                          incs)
-         victims   (into collected hidden)]
+         victims   (if (and @host-error (some? root-incarnation))
+                     ;; The host handle is consumed/released even on this path.
+                     ;; Fail closed over the EXACT root generation, including
+                     ;; cells still connected because React ran no cleanup.
+                     (into collected (get @root-cells root-incarnation))
+                     (into collected hidden))]
      (doseq [cell victims]
        (teardown! cell))
-     (count victims))))
+     (if @host-error
+       (throw @host-error)
+       (count victims)))))
 
 ;; ---------------------------------------------------------------------------
 ;; The 8-step layout-commit reconciler (03 §3)

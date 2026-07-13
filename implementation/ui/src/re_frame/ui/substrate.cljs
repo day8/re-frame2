@@ -1,12 +1,15 @@
 (ns re-frame.ui.substrate
   "The compiled-view substrate's first-party React adapter machinery.
 
-  This namespace has two jobs and no view API of its own:
+  This namespace has three jobs and no view API of its own:
 
   1. build the watchable ten-function substrate adapter installed through
      `rf/init!`; and
   2. publish the React-context frame reader for both that adapter and the
-     plain-atom CLJS path used by headless/native-DOM conformance fixtures.
+     plain-atom CLJS path used by headless/native-DOM conformance fixtures;
+     and
+  3. compose adapter disposal with every public compiled client Root, whose
+     registry is intentionally separate from the generic spine registry.
 
   The watchable half is the production observation path retained when the
   UIx and Helix adapters are removed. It uses the core's React spine directly
@@ -97,9 +100,53 @@
            frame-id
            (adapter-context/normalize-children (.-children props)))))
 
-(def adapter
-  "The retained first-party React substrate adapter. Installed publicly as
-  `re-frame.ui/adapter`; its canonical discriminator is `:rf.adapter/ui`."
+(defonce ^:private spine-adapter
   (spine/make-react-adapter
    spine-fns
    {:kind :rf.adapter/ui :frame-provider frame-provider-component}))
+
+(defn- attach-secondary-cleanup!
+  [primary secondary]
+  (when (and primary secondary)
+    (try
+      (js/Object.defineProperty
+       primary "rfUiAdapterCleanupError"
+       #js {:value secondary :configurable true})
+      (catch :default _ nil)))
+  primary)
+
+(defn- dispose-adapter!
+  "Dispose public compiled roots first, then the generic React spine. Both
+  halves are attempted. A public-root teardown failure stays primary while a
+  spine failure is retained on `rfUiAdapterCleanupError`. Public Root admission
+  stays closed around the complete two-phase lifecycle, not merely the first
+  snapshot drain."
+  [with-root-admission-closed! drain-live-roots!]
+  (with-root-admission-closed!
+   (fn []
+     (let [root-error  (volatile! nil)
+           spine-error (volatile! nil)]
+       (try
+         (drain-live-roots!)
+         (catch :default e
+           (vreset! root-error e)))
+       (try
+         ((:dispose-adapter! spine-adapter))
+         (catch :default e
+           (vreset! spine-error e)))
+       (cond
+         @root-error
+         (throw (attach-secondary-cleanup! @root-error @spine-error))
+
+         @spine-error (throw @spine-error)
+         :else nil)))))
+
+(defn adapter-with-client-roots
+  "Build the retained first-party adapter around the client kernel's
+  all-public-roots admission fence + exact-snapshot drain. The injections keep
+  this namespace below the client/frames layer and avoid a substrate → client →
+  frames → substrate dependency cycle."
+  [with-root-admission-closed! drain-live-roots!]
+  (assoc spine-adapter
+         :dispose-adapter!
+         #(dispose-adapter! with-root-admission-closed! drain-live-roots!)))

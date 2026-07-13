@@ -2,9 +2,9 @@
   "The reactive substrate adapter contract. Per Spec 006.
 
   The runtime is substrate-agnostic; every host-specific reactivity concern
-  goes through these ten functions. The CLJS reference ships four adapter
-  artefacts: Reagent (browser), UIx (browser), Helix (browser), and
-  plain-atom (JVM / SSR / headless).
+  goes through these ten functions. The reference ships the first-party
+  re-frame.ui adapter plus the transition Reagent, UIx, and Helix browser
+  adapters, and plain-atom for JVM / SSR / headless use.
 
   Required functions (6):
     make-state-container, read-container, replace-container!,
@@ -19,14 +19,14 @@
   An adapter is a Clojure map with these keys plus a `:kind` discriminator
   keyword. Canonical framework members live under the reserved
   `:rf.adapter/*` namespace (`:rf.adapter/reagent` / `:rf.adapter/reagent-slim`
-  / `:rf.adapter/uix` / `:rf.adapter/helix` / `:rf.adapter/plain-atom` /
+  / `:rf.adapter/ui` / `:rf.adapter/uix` / `:rf.adapter/helix` / `:rf.adapter/plain-atom` /
   `:rf.adapter/ssr`); user-supplied adapters report as `:custom` when they
   don't pick a canonical kind. It is installed into the process via
   install-adapter! and introspected via current-adapter (keyword) and
   current-adapter-spec (the full map).
 
   There is no default-adapter registry and no ns-load side-effect.
-  Each adapter ns (re-frame.adapter.reagent / .uix / .helix,
+  Each adapter ns (`re-frame.ui`, re-frame.adapter.reagent / .uix / .helix,
   re-frame.substrate.plain-atom, re-frame.ssr) exports an `adapter`
   var (the spec map); consumers require the ns and pass the var
   explicitly via `(rf/init! reagent/adapter)`. Explicit > implicit
@@ -42,13 +42,12 @@
 ;; ---- adapter installation — process-owned (single adapter per process) ----
 ;;
 ;; The adapter SELECTION is a process-global fact: a re-frame2 process installs
-;; ONE adapter via `(rf/init! <adapter>)`. Two `defonce` cells carry the
-;; lifecycle state:
+;; ONE adapter via `(rf/init! <adapter>)`. One `defonce` cell carries the
+;; lifecycle state atomically:
 ;;
-;;   `installed-adapter` — the live adapter spec map, or nil when none is seated.
-;;   `adapter-disposed?` — the dispose breadcrumb. `true` iff the most recent
-;;                         lifecycle event was a successful `dispose-adapter!`
-;;                         with no subsequent install.
+;;   `:installed` — nil, or the exact generation token + adapter spec map.
+;;   `:disposed?` — the dispose breadcrumb. `true` from the exact generation's
+;;                  terminal claim until a fresh install.
 ;;
 ;; The breadcrumb distinguishes:
 ;;   (a) `no adapter installed yet` — fresh process, init! never ran;
@@ -57,22 +56,23 @@
 ;;       fixture or a hot-reload swap that hasn't reinstalled yet;
 ;;       the right diagnosis is `:rf.error/adapter-disposed`.
 ;;
-;; Both states leave the install slot empty so a fresh adapter can install via
-;; `install-adapter!`; the breadcrumb clears on the next successful install.
+;; Teardown marks its generation `:disposing?` before invoking adapter-owned
+;; cleanup, then clears ONLY that generation in a finally boundary. A cleanup
+;; failure therefore cannot leave a half-live adapter seated, while a stale
+;; finalizer can never clear a replacement generation. The breadcrumb clears
+;; atomically with the next successful install.
+
+(defn- fresh-adapter-generation []
+  #?(:clj (Object.) :cljs (js-obj)))
 
 (defonce
-  ^{:doc "The installed adapter spec map for this process, or nil when none is
-  seated. Owned by the `install-adapter!` / `dispose-adapter!` pair."}
-  installed-adapter
-  (atom nil))
-
-(defonce
-  ^{:doc "The adapter dispose breadcrumb. `true` iff the most recent lifecycle
-  event was a successful `dispose-adapter!` with no subsequent install — false
-  for a never-installed process and after a fresh install. Owned by the
+  ^{:doc "The process-owned adapter lifecycle state. `:installed` is nil or an
+  exact `{:adapter spec-map :generation opaque-token}` entry (temporarily also
+  `:disposing? true` after terminal teardown begins). `:disposed?` distinguishes
+  a never-installed process from a torn-down generation. Owned by the
   `install-adapter!` / `dispose-adapter!` pair."}
-  adapter-disposed?-state
-  (atom false))
+  adapter-lifecycle-state
+  (atom {:installed nil :disposed? false}))
 
 (defn install-adapter!
   "Install the adapter for this process. Once. A second call without an
@@ -81,21 +81,23 @@
   breadcrumb so subsequent delegation calls see a fresh adapter rather
   than `:rf.error/adapter-disposed`."
   [adapter]
-  (when-let [installed @installed-adapter]
-    (error/throw-error!
-      :rf.error/adapter-already-installed
-      'rf/init!
-      "A second install-adapter! was called without an intervening (rf/destroy-adapter!); the existing adapter remains installed (per Spec 006 §Single adapter per process)."
-      {:extra {:installed installed
-               :attempted adapter}}))
-  (reset! installed-adapter adapter)
-  (reset! adapter-disposed?-state false)
+  (let [entry {:adapter adapter :generation (fresh-adapter-generation)}]
+    (swap! adapter-lifecycle-state
+           (fn [{:keys [installed] :as state}]
+             (when installed
+               (error/throw-error!
+                :rf.error/adapter-already-installed
+                'rf/init!
+                "A second install-adapter! was called without an intervening (rf/destroy-adapter!); the existing adapter remains installed (per Spec 006 §Single adapter per process)."
+                {:extra {:installed (:adapter installed)
+                         :attempted adapter}}))
+             (assoc state :installed entry :disposed? false))))
   adapter)
 
 (defn current-adapter
   "Return the discriminator keyword identifying the installed adapter, or
   nil if none. Per Spec 006 §Adapter introspection: one of
-  `:rf.adapter/reagent`, `:rf.adapter/reagent-slim`, `:rf.adapter/uix`,
+  `:rf.adapter/reagent`, `:rf.adapter/reagent-slim`, `:rf.adapter/ui`, `:rf.adapter/uix`,
   `:rf.adapter/helix`, `:rf.adapter/plain-atom`, `:rf.adapter/ssr`, or
   `:custom` for user-supplied adapters that didn't pick a canonical kind.
 
@@ -103,8 +105,10 @@
   For \"give me the adapter spec map\" (fn handles, hot-swap, identity
   checks across install/dispose), use `current-adapter-spec`."
   []
-  (when-let [a @installed-adapter]
-    (:kind a :custom)))
+  (let [entry (:installed @adapter-lifecycle-state)]
+    (when-not (:disposing? entry)
+      (when-let [a (:adapter entry)]
+        (:kind a :custom)))))
 
 (defn current-adapter-spec
   "Return the installed adapter spec map, or nil if none. The map carries
@@ -117,31 +121,67 @@
   human-readable discriminator (predicate / branch code), use
   `current-adapter`."
   []
-  @installed-adapter)
+  (let [entry (:installed @adapter-lifecycle-state)]
+    (when-not (:disposing? entry)
+      (:adapter entry))))
+
+(defn- claim-installed-for-dispose!
+  "Atomically claim the current generation for one terminal teardown. Returns
+  its entry, or nil when the slot is empty/already being destroyed. Claiming
+  prevents a re-entrant destroy from invoking cleanup twice and atomically
+  closes public delegation through the disposed breadcrumb. The exact internal
+  slot remains claimed until adapter-owned cleanup reaches its finally boundary."
+  []
+  (loop []
+    (let [{:keys [installed] :as before} @adapter-lifecycle-state]
+      (cond
+        (or (nil? installed) (:disposing? installed)) nil
+        (compare-and-set! adapter-lifecycle-state
+                          before
+                          (-> before
+                              (assoc-in [:installed :disposing?] true)
+                              (assoc :disposed? true)))
+        installed
+        :else (recur)))))
 
 (defn dispose-adapter!
   "Tear down the installed adapter. Calls the adapter's :dispose-adapter!
-  fn (if present), clears the install slot so a new adapter can install,
-  and sets the disposed breadcrumb so subsequent delegation calls raise
+  fn (if present), then ALWAYS clears the install slot and sets the disposed
+  breadcrumb so a new adapter can install and subsequent delegation calls raise
   `:rf.error/adapter-disposed` instead of `:rf.error/no-adapter-installed`
-  (rf2-6wxys). Calling dispose with no adapter installed leaves the
-  breadcrumb untouched — it doesn't pretend a never-installed adapter
-  was disposed."
+  (rf2-6wxys). A throwing adapter cleanup is rethrown unchanged only AFTER
+  this process-owned lifecycle reaches its terminal state. Finalization clears
+  only the generation this call claimed: stale teardown can never erase a
+  replacement installation. One failed host cleanup cannot leave the single-use
+  install slot half seated. Calling dispose with no adapter installed leaves the
+  breadcrumb untouched — it doesn't pretend a never-installed adapter was
+  disposed."
   []
-  (when-let [adapter @installed-adapter]
-    (when-let [f (:dispose-adapter! adapter)]
-      (f))
-    (reset! installed-adapter nil)
-    (reset! adapter-disposed?-state true))
+  (when-let [{:keys [adapter generation]} (claim-installed-for-dispose!)]
+    (try
+      (when-let [f (:dispose-adapter! adapter)]
+        (f))
+      (finally
+        ;; Lifecycle finalization is process ownership, not adapter-owned
+        ;; cleanup. It must happen even when the host teardown reports failure,
+        ;; but an old generation must never clear a replacement generation.
+        (swap! adapter-lifecycle-state
+               (fn [state]
+                 (if (identical? generation
+                                 (get-in state [:installed :generation]))
+                   (assoc state :installed nil :disposed? true)
+                   state))))))
   nil)
 
 (defn adapter-disposed?
-  "Return true iff the most recent lifecycle event was a successful
-  `dispose-adapter!` and no `install-adapter!` has fired since. False
-  for `never installed` (fresh process) and after a fresh install.
+  "Return true iff the most recent lifecycle event was an attempted
+  `dispose-adapter!` of an installed adapter and no `install-adapter!` has
+  fired since. This remains true when adapter-owned cleanup threw: the
+  process slot still reached its terminal state. False for `never installed`
+  (fresh process) and after a fresh install.
   Read-only — the breadcrumb is owned by the install / dispose pair."
   []
-  @adapter-disposed?-state)
+  (:disposed? @adapter-lifecycle-state))
 
 (defn ^:no-doc reset-lifecycle-state-for-tests!
   "Test-only seam — resets the adapter slot and the disposed breadcrumb to a
@@ -150,8 +190,7 @@
   state between cases so the no-adapter-installed throw can be asserted
   independently of the adapter-disposed throw."
   []
-  (reset! installed-adapter nil)
-  (reset! adapter-disposed?-state false)
+  (reset! adapter-lifecycle-state {:installed nil :disposed? false})
   nil)
 
 ;; ---- delegation helpers ---------------------------------------------------
@@ -203,8 +242,9 @@
 
   Reads the process-global adapter SELECTION."
   [where-sym]
-  (or @installed-adapter
-      (if @adapter-disposed?-state
+  (let [{:keys [installed disposed?]} @adapter-lifecycle-state]
+    (or (when-not (:disposing? installed) (:adapter installed))
+      (if disposed?
         (error/throw-error!
           :rf.error/adapter-disposed
           where-sym
@@ -212,13 +252,14 @@
                " (rf/destroy-adapter!); the previously"
                " installed adapter was torn down."
                " Install a fresh adapter via"
-               " (rf/init! <adapter>) before calling."))
+               " (rf/init! <adapter>) before calling.")
+          {:recovery :install-a-fresh-adapter})
         (error/throw-error!
           :rf.error/no-adapter-installed
           where-sym
           (str where-sym " was called before (rf/init! ...);"
                " require an adapter ns and pass its `adapter` Var,"
-               " e.g. (rf/init! reagent/adapter).")))))
+               " e.g. (rf/init! reagent/adapter)."))))))
 
 (defn make-state-container
   "Build a fresh, writable substrate state container holding
@@ -598,7 +639,7 @@
 
 ;; ---- late-bind hook routing (rf2-0d35) ------------------------------------
 ;;
-;; Each CLJS adapter (reagent, reagent-slim, uix, helix) publishes ~7-9
+;; Each CLJS adapter (ui, reagent, reagent-slim, uix, helix) publishes ~5-9
 ;; late-bind hooks at ns-load time so consumers in core (subs, views,
 ;; interop) reach the installed adapter's substrate-specific impls
 ;; without a static :require. In test bundles that load multiple adapter

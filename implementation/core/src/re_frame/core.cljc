@@ -2485,9 +2485,11 @@
   install-adapter!     adapter/install-adapter!)
 
 (def ^{:doc "Tear down the installed adapter. Calls the adapter's
-  `:dispose-adapter!` fn (if present), clears the install slot so a
-  new adapter can install, and marks the adapter as disposed. Per
-  Spec 006 §Adapter lifecycle.
+  `:dispose-adapter!` fn (if present). Teardown is a one-way terminal
+  boundary: it clears only the exact generation it claimed, marks the
+  adapter disposed even when cleanup throws, then rethrows the primary
+  cleanup failure. A fresh adapter may install afterward; stale teardown
+  can never clear that replacement. Per Spec 006 §Adapter lifecycle.
 
   The `destroy-` verb places this fn on the lifecycle-boundary axis
   of the tear-down verb taxonomy (per Conventions §Tear-down verb
@@ -2497,7 +2499,7 @@
 
 (def ^{:doc "Return the discriminator keyword identifying the installed
   adapter, or `nil` if none. One of `:rf.adapter/reagent`,
-  `:rf.adapter/reagent-slim`, `:rf.adapter/uix`, `:rf.adapter/helix`,
+  `:rf.adapter/reagent-slim`, `:rf.adapter/ui`, `:rf.adapter/uix`, `:rf.adapter/helix`,
   `:rf.adapter/plain-atom`, `:rf.adapter/ssr`, or `:custom` for
   user-supplied adapters that didn't pick a canonical kind. Per Spec 006
   §Adapter introspection."}
@@ -2509,9 +2511,12 @@
   Spec 006 §Adapter introspection."}
   current-adapter-spec adapter/current-adapter-spec)
 
-(def ^{:doc "Return `true` iff the most recent lifecycle event was a
-  successful `dispose-adapter!` and no `install-adapter!` has fired
-  since. False otherwise. Per Spec 006 §Adapter lifecycle."}
+(def ^{:doc "Return `true` iff teardown of the most recent installed
+  adapter generation has been terminally claimed and no fresh
+  `install-adapter!` has fired since. Cleanup success is not implied:
+  the claim remains terminal when the primary cleanup failure is rethrown.
+  False for a never-installed process and after a fresh install. Per
+  Spec 006 §Adapter lifecycle."}
   adapter-disposed?    adapter/adapter-disposed?)
 
 (defn- bad-init-arg!

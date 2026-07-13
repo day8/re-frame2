@@ -421,6 +421,72 @@
         "the newer claim survives")
     (is (identical? newer (:root (client/live-root-entry :reg/id))))))
 
+(deftest adapter-disposal-snapshots-one-root-generation-and-never-chases-a-replacement
+  (let [c      (js-obj)
+        old    (fake-root :reg/generation)
+        newer  (fake-root :reg/generation)
+        calls  (atom [])
+        blocked (volatile! nil)]
+    (client/register-live-root!
+     {:root-id :reg/generation :provenance :authored} c old)
+    (with-redefs [client/unmount!*
+                  (fn [root]
+                    (swap! calls conj root)
+                    (client/release-root! :reg/generation root)
+                    ;; Public creation is forbidden during this exact disposal
+                    ;; generation, before React/createRoot could run.
+                    (vreset! blocked
+                             (thrown-error
+                              #(client/create-root*
+                                {:root-id :reg/public-late
+                                 :provenance :authored}
+                                (js-obj) nil)))
+                    ;; Model an internal/test bypass installing a later same-id
+                    ;; incarnation. Stale disposal must not refresh its snapshot
+                    ;; and kill ownership it never acquired.
+                    (client/register-live-root!
+                     {:root-id :reg/generation :provenance :authored} c newer))]
+      (client/dispose-live-roots!))
+    (is (= [old] @calls) "only the entry snapshot at disposal start is visited")
+    (is (= :rf.error/adapter-disposed (:id @blocked))
+        "public root creation fails before allocation while teardown is active")
+    (is (identical? newer (:root (client/live-root-entry :reg/generation)))
+        "the later same-id incarnation survives stale disposal")))
+
+(deftest adapter-disposal-retains-every-root-cleanup-failure
+  (let [ca     (js-obj)
+        cb     (js-obj)
+        a      (client/->Root (js-obj) ca :reg/dispose-a)
+        b      (client/->Root (js-obj) cb :reg/dispose-b)
+        ea     (js/Error. "dispose a failed")
+        eb     (js/Error. "dispose b failed")]
+    (set! (.-innerHTML ca) "<span>stale-a</span>")
+    (set! (.-innerHTML cb) "<span>stale-b</span>")
+    (unchecked-set ca "__reactContainer$fixture" #js {:old-root true})
+    (unchecked-set cb "__reactContainer$fixture" #js {:old-root true})
+    (client/register-live-root! {:root-id :reg/dispose-a :provenance :authored} ca a)
+    (client/register-live-root! {:root-id :reg/dispose-b :provenance :authored} cb b)
+    (let [caught
+          (with-redefs [client/unmount!*
+                        (fn [root]
+                          (client/release-root! (.-root-id root) root)
+                          (throw (if (identical? root a) ea eb)))]
+            (try (client/dispose-live-roots!) nil
+                 (catch :default e e)))
+          diagnostics (.-rfUiAdapterCleanupErrors caught)
+          retained    (if diagnostics (vec (array-seq diagnostics)) [])]
+      (is (contains? #{ea eb} caught) "one cleanup error remains primary")
+      (is (some? diagnostics) "secondary failures are attached, not swallowed")
+      (is (= #{ea eb} (conj (set retained) caught))
+          "the sibling cleanup error remains attached as diagnostic evidence")
+      (is (= #{} (client/live-root-ids))
+          "both exact claims were still released")
+      (is (= ["" ""] [(.-innerHTML ca) (.-innerHTML cb)])
+          "adapter failure fallback empties every failed root container")
+      (is (nil? (unchecked-get ca "__reactContainer$fixture"))
+          "the consumed React container marker is removed for same-container re-init")
+      (is (nil? (unchecked-get cb "__reactContainer$fixture"))))))
+
 (defn- root-with-consuming-unmount-throws-once
   "A Root whose host react-root models the REAL react-dom 19.2.0
   `ReactDOMRoot.unmount()` shape (rf2-vxgfnd.84): the handle is CONSUMED — its

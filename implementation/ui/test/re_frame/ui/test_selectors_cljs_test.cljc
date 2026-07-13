@@ -187,4 +187,13 @@
       "a structural tree handed to query points back at find")
   (is (= :rf.error/ui-test-tier-mismatch
          (err-id #(uit/query nil "button")))
-      "no mounted roots exist yet — query has no Tier-1 behaviour"))
+      "only with-root values carry mounted Tier-3 ownership"))
+
+#?(:clj
+   (deftest mounted-surface-is-an-honest-typed-error-on-the-jvm
+     (is (= :rf.error/ui-test-tier-mismatch
+            (err-id #(eval
+                      '(re-frame.ui.test/with-root
+                         [root [not-evaluated-on-the-jvm]]
+                         root))))
+         "with-root does not pretend a JVM DOM host exists")))

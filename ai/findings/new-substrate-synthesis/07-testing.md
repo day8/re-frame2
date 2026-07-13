@@ -27,10 +27,21 @@ suite + one smoke** (08 §5 Adapters) — two named suites, not one.
 | `(text node)` / `(attrs node)` | projections |
 | `(frame opts)` | mint a test frame (app-db seed, registrations from the loaded namespaces) |
 | `(dispatch! frame event)` | real dispatch + drain |
-| `(with-root [r root-form] …)` | Tier-3 mount with total teardown |
-| `(flush!)` | act + epoch drain + commit — the only flush idiom. **Q51 alignment (ruled, S2d / rf2-vxgfnd.10, 2026-07-12):** flush scope is **per-root** — `ui/flush!` (public, lands with the S2f root registry) flushes the calling root's pending commit work; a frame arity flushes the roots observing that frame; the **global all-roots drain is exactly this `ui.test/flush!` spelling, test-only**. `flush!` during an open epoch is the dev error `:rf.error/flush-in-open-epoch` (throw + 009 row land S2f per the catalogue↔throw ratchet) |
+| `(with-root [r root-form] …)` | CLJS Tier-3: return a Promise; await the initial real-React mount, the body value/Promise, and total teardown of the connected test-owned root/container on every exit. The Promise resolves to the awaited body value |
+| `(flush!)` / `(flush! thunk)` | CLJS: return a Promise; run the optional thunk inside React 19 `act`, then alternate framework drains and React commits to a fixed point — the sole public test flush. JVM: synchronously drain the headless ViewCell registry and return nil. It is global across test roots; there is no public production `ui/flush!`. The open-drain guard throws synchronously before Promise construction |
 | `(flush-presence!)` | advance presence transitions without wall-clock (02 §7) |
-| `(simulate! root gesture)` | Tier-3 DOM events, used only when DOM mechanics are the subject |
+
+At S2, Tier-3 tests drive framework state with `dispatch!`. DOM mechanics already owned
+by the host or a foreign component use platform properties and native events directly;
+compiled event-vector delivery through `dispatchEvent` becomes live with S3's committed
+handlers. No gesture DSL sits between a test and the browser.
+
+Every CLJS mounted-test Promise is awaited before assertions or another mounted
+operation begins. A forgotten await fails loudly on the next public `with-root`/`flush!`
+with `:rf.error/ui-test-overlapping-act`; it never creates overlapping React `act`
+scopes. Owner cleanup is still serialized so reporting that misuse cannot strand a
+root. If both the body and teardown fail, the body error stays primary and carries the
+cleanup error as diagnostic evidence.
 
 Naming is uniform everywhere. **The `.cljc` constraint is stated:** Tier-1 requires the
 events/subs a view touches to be `.cljc` — an authoring constraint the guide teaches,
@@ -71,7 +82,11 @@ bypass exactly at the call, both emitters agree, everything else still escapes �
 controlled-input synchrony: caret stability, IME composition, rapid typing under the
 sync door (02 §3) · interop set (foreign components, render props, refs, portals
 retaining frame context, error boundaries incl. reset-key + on-error timing, lazy
-suspension).
+suspension) · Promise boundary: awaited body result, body rejection, cleanup-only
+rejection, body+cleanup primary preservation, exact act-environment restoration,
+forgotten-await overlap before allocation, nested-root LIFO reclamation · recursive
+fixed point where a commit marks more framework work and one `flush!` Promise waits for
+the second drain/commit cycle.
 
 S-3 validated this matrix's ownership semantics against a stand-in derivation graph;
 **grafting the pure cold probe onto the real sub-cache (memo/trace/dispose machinery)
@@ -103,7 +118,7 @@ including the multi-root failure-isolation fixture.
 | G-8 input latency & correctness | **caret/IME correctness first** under the sync door; then event→commit within 10% of hand-written React p95; one commit per input; the real-browser matrix (Chromium/WebKit IME, caret-on-restore, paint timing) is a named open gate — S-5's evidence is jsdom-only |
 | G-9 list updates | keyed 1k rows: one entity change renders its row + true dependents; stable handler identity; no retained lazy seqs |
 | G-10 bundle | kernel ≤ 4 KB gz; counter ≤ React + 6 KB gz; relative targets vs UIx-adapter / slim; symbol-reachability evidence |
-| G-11 elision | exact absence of debug + absence rosters |
+| G-11 elision | exact absence of debug + absence rosters, including `re-frame.ui.test` and its direct React-`act` boundary from an advanced production bundle |
 | G-12 dependency isolation | no Reagent/UIx/Helix/slim at Maven/npm; no JVM renderer reachable from browser entries |
 | G-13 push falsification | the 500-view fan-out bench — exists to *falsify* the committed push economics (05 §3); its failure reopens the design, it does not toggle a fork |
 | G-14 compile budget | `defview` expansion p95; watch-loop rebuild delta on the dashboard fixture; guide-fixtures CI cost bounded |

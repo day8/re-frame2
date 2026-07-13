@@ -35,7 +35,7 @@
   `.cljc` ending `-cljs-test` rides `npm run test:cljs` / `test:ui` (node)
   AND `clojure -M:test` (JVM), so the scheduler is graft-checked on both."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-               :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+               :cljs [cljs.test :refer-macros [async deftest is testing use-fixtures]])
             [re-frame.core                  :as rf]
             [re-frame.frame                 :as frame]
             [re-frame.substrate.observation :as obs]
@@ -45,10 +45,16 @@
             [re-frame.ui.test               :as uit]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter})
-  (fn [f]
-    (reactive/reset-scheduler!)
-    (try (f) (finally (reactive/reset-scheduler!)))))
+  (test-support/make-reset-runtime-fixture
+   (cond-> {:adapter plain-atom/adapter}
+     #?(:clj false :cljs true) (assoc :async? true)))
+  #?(:clj
+     (fn [f]
+       (reactive/reset-scheduler!)
+       (try (f) (finally (reactive/reset-scheduler!))))
+     :cljs
+     {:before reactive/reset-scheduler!
+      :after  reactive/reset-scheduler!}))
 
 (def ^:private fid :rf/default)
 
@@ -254,11 +260,25 @@
     (doseq [c [c1 c2 c3]] (reactive/mark-dirty! c 1))
     (is (= 3 (reactive/pending-cell-count)))
     (testing "ui.test/flush! is the test-only GLOBAL all-roots spelling"
-      (uit/flush!)
-      (is (= 1 (reactive/revision c1)))
-      (is (= 1 (reactive/revision c2)))
-      (is (= 1 (reactive/revision c3)))
-      (is (= 0 (reactive/pending-cell-count))))))
+      #?(:clj
+         (do
+           (uit/flush!)
+           (is (= 1 (reactive/revision c1)))
+           (is (= 1 (reactive/revision c2)))
+           (is (= 1 (reactive/revision c3)))
+           (is (= 0 (reactive/pending-cell-count))))
+         :cljs
+         (async done
+           (-> (uit/flush!)
+               (.then (fn []
+                        (is (= 1 (reactive/revision c1)))
+                        (is (= 1 (reactive/revision c2)))
+                        (is (= 1 (reactive/revision c3)))
+                        (is (= 0 (reactive/pending-cell-count)))
+                        (done))
+                      (fn [e]
+                        (is false (str "flush! Promise rejected: " e))
+                        (done)))))))))
 
 ;; ===========================================================================
 ;; flush-frame! override-only guard (S2f) — an override-only cell observes NO

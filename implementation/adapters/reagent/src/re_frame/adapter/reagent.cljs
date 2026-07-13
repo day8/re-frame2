@@ -31,6 +31,10 @@
      :render-root   (fn [root tree] (rdc/render root tree))
      :hydrate-root  (fn [mount-point tree] (rdc/hydrate-root mount-point tree))
      :unmount-root  (fn [root] (rdc/unmount root))
+     ;; Cleanup owns this exact substrate dispatch even after the process
+     ;; lifecycle's terminal claim closes every public routed hook.
+     :disposable?   (fn [a] (satisfies? ratom/IDisposable a))
+     :dispose!      (fn [a] (ratom/dispose! a))
      ;; Drain Reagent synchronously after `f`; unlike its normal next-tick path,
      ;; this works in backgrounded and headless tabs.
      :flush-render! (fn [f] (f) (r/flush))}))

@@ -633,11 +633,29 @@ node)` is a *field* miss, never an attribute read — owned by
 [004B-UI-Tree-and-Conversion.md](004B-UI-Tree-and-Conversion.md) §Projections and the
 selector grammar in 004D.
 
-**Flush semantics (staged).** `ui.test/flush!` is the **only** test flush for compiled
-views (it drains the frame and advances the epoch); `dispatch!` / `simulate!` land with
-the S2 reactivity slice, `flush-presence!` (fake-clock transition advance, no wall-clock
-sleeps) with the S4 presence slice. Flushing inside an open epoch is
-`:rf.error/flush-in-open-epoch`.
+**Mounted semantics.** On CLJS, `with-root` returns a Promise. It owns a real React root
+in a connected test container; awaits the initial mount; invokes and awaits the body
+value or Promise; then awaits teardown of the root and container on every exit. Success
+resolves to the awaited body value. A body error remains primary if cleanup also fails,
+with the cleanup failure retained as diagnostic evidence. `query` delegates a native
+CSS string to that container's `querySelector`. At S2, `ui.test/dispatch!` drives
+framework state programmatically; ordinary DOM properties and native events exercise
+mechanics already owned by the host or a foreign component. Compiled event-vector
+delivery through native events rides the S3 committed-handler contract. There is no
+gesture DSL.
+
+`ui.test/flush!` is the **only** public test flush for compiled views. On CLJS,
+`(flush!)` and `(flush! thunk)` return Promises. The optional thunk runs inside the
+direct React 19 `act` boundary; framework drains and React commits then alternate to a
+fixed point, including work marked by a commit. Every returned Promise must settle
+before assertions or another mounted operation begins. A forgotten await makes the
+next public `with-root`/`flush!` fail synchronously with
+`:rf.error/ui-test-overlapping-act`; cleanup remains serialized so the diagnosed misuse
+does not strand a root. On the JVM, `(flush!)` synchronously drains the headless
+ViewCell registry and returns nil. There is no public production
+`re-frame.ui/flush!`. `flush-presence!` (fake-clock transition advance, no wall-clock
+sleeps) lands with S4 presence. Flushing inside an open event drain throws
+`:rf.error/flush-in-open-epoch` synchronously, before Promise construction or host work.
 
 **The `.cljc` authoring constraint.** A Tier-1 headless test renders on the JVM, so the
 events and subs the view under test touches **must be `.cljc`** (reader-conditional
