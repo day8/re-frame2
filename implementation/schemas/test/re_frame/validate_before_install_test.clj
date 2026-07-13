@@ -198,7 +198,7 @@
           records  (atom [])]
       (try
         (late-bind/set-fn! :schemas/validate-app-schema!
-                           (fn [_db _event-id _frame]
+                           (fn [_db _event-id _frame _continue?]
                              (throw (ex-info "validator machinery exploded" {}))))
         (rf/register-listener! :events ::throw-probe
           (fn [record] (swap! records conj record)))
@@ -240,9 +240,9 @@
           calls    (atom 0)]
       (try
         (late-bind/set-fn! :schemas/validate-app-schema!
-                           (fn [db event-id frame-id]
+                           (fn [db event-id frame-id continue?]
                              (swap! calls inc)
-                             (original db event-id frame-id)))
+                             (original db event-id frame-id continue?)))
         (with-trace-recorder! [traces]
           (rf/dispatch-sync [:n/ok])
           (is (= 1 @calls)
