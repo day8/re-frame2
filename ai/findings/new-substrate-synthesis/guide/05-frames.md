@@ -49,8 +49,9 @@ Frames are **isolated**. A page can mount several:
 
 Each subtree's `sub` and handlers bind to *its* frame and only its frame — there is no
 spelling for a cross-frame read in application code. Events in `:shop` cannot re-render
-`:assist`. (A root form mounting two views like this authors its `:root-id` — the
-derived default needs exactly one mounted view; [08](08-ssr.md).) Frames also pair naturally with server rendering — a page is N hydration
+`:assist`. (One detail worth knowing: a root form that mounts two views, as this one
+does, must author its `:root-id` — the derived default only exists when there is
+exactly one mounted view. [08](08-ssr.md) has the full identity story.) Frames also pair naturally with server rendering — a page is N hydration
 *roots* referencing whichever frames they need, several roots can share one frame, and
 each root fails or hydrates independently ([08](08-ssr.md)). And you can mount one app N
 times side-by-side (each instance its own frame universe) for comparison demos and tests.

@@ -36,9 +36,9 @@ construction.
   It catches render/lifecycle throws below it (not event-handler or async errors — those
   have their own paths), dispatches `:on-error` after the failing commit, renders the
   fallback, and retries when `:reset-key` changes. The fallback view receives `:error`
-  plus the boundary's declared props and cannot itself dispatch during render; on the
-  server there is no boundary recovery — a throw follows the server failure policy
-  ([08](08-ssr.md)) — boundaries are a client mechanism.
+  alongside the boundary's declared props, and it cannot dispatch during its own render.
+  On the server there is no boundary recovery at all: a throw follows the server failure
+  policy ([08](08-ssr.md)), because catching and retrying is a client mechanism.
 - Views call views by symbol: `[product-card {:product p}]`. Children arrive as
   `:children` — declaring that binding is what opts a view into accepting them (passing
   children to a view that declares none is a compile error). **`:key` is reserved**

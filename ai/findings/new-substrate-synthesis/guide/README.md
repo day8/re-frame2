@@ -20,16 +20,17 @@ example needs internals explained, that's an API bug, not a documentation proble
 | [10 — A worked app](10-worked-app.md) | The counter grown into a dashboard: state shape, tiles, narrow subs, a live tile, tests |
 
 **Stage honesty.** The library ships in stages (S1–S7). Everything unmarked on these
-pages is shipped on main today: the Stage-1 compiler slice — compiled templates, props,
-roots and mounting, `ui/raw` / `ui/html` / `ui/spread`, the Tier-1 test core — plus the
-landed Stage-2 reactive core — `sub`-driven repaints, Tier-1 `sub` reads, `frame-root`'s
-runtime ENSURE preflight, the `ui/adapter` you hand `rf/init!`, and the mounted Tier-3
-test surface (`with-root`, `query`, `flush!`). A compact marker like
-*(lands S3 — committed handlers)* flags a surface whose contract is final but whose
-implementation lands in a later stage; the spelling and semantics shown are the ruled
-contract either way. *(lands S2)* now marks only the S2 remainder still to land —
-`lease` and the `(frame)` ops map. Wave-2 names (`ui/element`, `ui/view`, `ui/portal`,
-`re-frame.ui.data/render`) are not v1 and only ever appear with that qualifier.
+pages is shipped on main today. That covers the Stage-1 compiler slice (compiled
+templates, props, roots and mounting, `ui/raw` / `ui/html` / `ui/spread`, the Tier-1
+test core) and the Stage-2 reactive core that has since landed: `sub`-driven repaints,
+Tier-1 `sub` reads, `frame-root`'s runtime ENSURE preflight, the `ui/adapter` you hand
+`rf/init!`, and the mounted Tier-3 test surface (`with-root`, `query`, `flush!`). A
+compact marker like *(lands S3 — committed handlers)* flags a surface whose contract is
+final but whose implementation lands in a later stage; the spelling and semantics shown
+are the ruled contract either way. The *(lands S2)* marker survives on just two
+stragglers — `lease` and the `(frame)` ops map. Wave-2 names (`ui/element`, `ui/view`,
+`ui/portal`, `re-frame.ui.data/render`) are not v1 and only ever appear with that
+qualifier.
 
 **Reading the examples.** Code on these pages assumes
 `(:require [re-frame.core :as rf] [re-frame.ui :as ui :refer [defview sub]])`, with the

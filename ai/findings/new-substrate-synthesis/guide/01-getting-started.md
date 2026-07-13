@@ -110,8 +110,9 @@ needs no DOM, no browser, no flake — it runs on the JVM in your watch loop:
 Two ground rules, both cheap: the events/subs a view touches must be `.cljc` (they run
 on the JVM here — standard re-frame discipline anyway), and attribute reads go through
 `ui.test/attrs`, never keyword lookup on the node. The full testing story is
-[09](09-testing.md). This test — `sub` site included — runs on main today: the Tier-1
-core is Stage 1 and the `sub` snapshot path shipped with the S2 reactive core.
+[09](09-testing.md). This test runs on main today, `sub` site included — the Tier-1
+harness shipped at Stage 1, and the snapshot path that lets a headless render resolve
+subscriptions arrived with the S2 reactive core.
 
 ## Hot reload
 
