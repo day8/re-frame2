@@ -55,11 +55,12 @@ real registrations, no React:
   on the JVM here — the standard re-frame discipline anyway). And Tier 1 renders the
   *structural subset*: `local` shows its initial value (calling its setter is a typed
   error pointing at Tier 3), effects don't run, refs are absent — state transitions and
-  host behavior are Tier-3 subjects by design.
+  host behavior are Tier-3 subjects by design. *(The `local` and `effect` forms
+  themselves land S3; the subset rule here is their ruled Tier-1 contract.)*
 - These run in your JVM watch loop in milliseconds and never flake on timing. They're
   also exactly how the library tests itself, so the shapes are first-class.
 - *(Stage note: the Tier-1 core — `render`, `find`, `find-all`, `text`, `attrs`,
-  `frame`, `dispatch!` — shipped at Stage 1. Tier-1 `sub` snapshots and the mounted
+  `frame` — shipped at Stage 1. `dispatch!`, Tier-1 `sub` snapshots, and the mounted
   Tier-3 `with-root` / native-CSS `query` / Promise-backed `flush!` surface shipped at
   Stage 2. `flush-presence!` lands at Stage 4.)*
 
@@ -130,11 +131,13 @@ genuinely DOM-shaped checks. Scenes mount by **view id** from the registry.
 
 ## What you can trust without testing it yourself
 
-The library's own CI pins, per release: ownership correctness under concurrent React
-(abandoned renders retain nothing; StrictMode settles to one owner; Activity hide/reveal
-releases and reacquires), JVM/browser emitter parity (generative, from your props
-schemas), dev/prod behavioral equivalence, bundle absence rosters, and the performance
-gates. Your tests get to assume the substrate; they only need to cover your app.
+The library's own CI builds toward a pinned release set, each gate wiring in with the
+stage that ships its feature: ownership correctness under concurrent React (abandoned
+renders retain nothing; StrictMode settles to one owner; Activity hide/reveal releases
+and reacquires), JVM/browser emitter parity (generative, from your props schemas),
+dev/prod behavioural equivalence, bundle absence rosters, and the performance gates.
+The S1/S2 slices — parity and the ownership fixtures — are wired today; the rest land
+with S3–S6. Your tests get to assume the substrate; they only need to cover your app.
 
 ## Rules of thumb
 

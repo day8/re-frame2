@@ -6,18 +6,23 @@ server output are **structurally equivalent** (verified by fingerprint and a gen
 parity suite), so they cannot drift apart.
 
 *(Stage note: the JVM emitter, structural parity, root identity, and the client host
-tier are Stage 1 — shipped, and Tier-1 tests ride them today. Hydration, root
-manifests, `render-static`, and the `client-only` phase flip land S5 — SSR roots.)*
+tier are Stage 1 — shipped, and Tier-1 tests ride them today; headless `sub` resolution
+rides the S2 snapshot path, also shipped. The host-fallback rules below are the ruled
+contract for features that land later — `local`, `effect`, `client-only`, and error
+boundaries at S3; presence at S4. Hydration, root manifests, `render-static`, and the
+`client-only` phase flip land S5 — SSR roots.)*
 
 ## What renders on the server
 
 Structure, props, subscriptions (via the pure snapshot path), branches, lists, event
-intent, and `ui/html` — full semantics. Host-bearing features have honest fallbacks:
-`local` contributes its initial value; effects don't run; refs are absent;
-`client-only` renders its declared fallback (`ui/portal` — wave-2 — will follow the same
-rule when it ships); presence renders as `:present`; and error boundaries don't catch
-here — a server-side throw follows the server failure policy (project the error, or
-fail the response), because catching and retrying is client recovery.
+intent, and `ui/html` — full semantics. Host-bearing features have honest fallbacks,
+each fixed now as the ruled contract and landing with its feature's stage: `local`
+contributes its initial value and effects don't run *(both land S3)*; refs are absent;
+`client-only` renders its declared fallback *(lands S3; `ui/portal` — wave-2 — will
+follow the same rule if it ever ships)*; presence renders as `:present` *(lands S4)*;
+and error boundaries don't catch here *(the component lands S3)* — a server-side throw
+follows the server failure policy (project the error, or fail the response), because
+catching and retrying is client recovery.
 Views that *are* their host behavior (a canvas chart) wrap the leaf in `client-only` and
 keep the shared markup outside.
 
@@ -36,6 +41,9 @@ state world. A page can have several of each, and they mix freely:
  [:div#shop-root]      ; root :page/shop   → view [shop-app],   frames :shop + :session
  [:div#assist-root]]   ; root :page/assist → view [assistant],  frames :assist + :session
 ```
+
+*(The rest of this section is the hydration contract — ruled now; it lands S5 with SSR
+roots.)*
 
 Each root ships a small manifest (its id, view, props, referenced frame payload ids,
 fingerprint). **Frame payloads install idempotently** — here both roots reference
@@ -107,6 +115,7 @@ A root with no client capabilities *can* ship as inert HTML — no payload, no h
 but only when you say so:
 
 ```clojure
+;; guide:no-fixture — illustrative fragment
 (ui/render-static [site-footer {…}])   ; host declares it; compiler proves it
 ```
 
@@ -131,7 +140,8 @@ an SSR path without a fallback is a build error.
 
 Handlers-as-data pays off here twice: the JVM tree retains event vectors as data, so
 headless tests assert intent server-side; and Xray's static interaction surface reads
-them without executing anything. On the client they become ordinary React handlers.
+them without executing anything. On the client they become ordinary React handlers
+*(the committed client wiring lands S3)*.
 (Pre-hydration interaction capture — queueing clicks before the bundle arrives — is a
 research track, not a shipped feature; the data property that would enable it is already
 here.)

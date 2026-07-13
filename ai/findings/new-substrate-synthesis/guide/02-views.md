@@ -69,6 +69,7 @@ Reagent users: home, minus the traps.
   definitions) uses the explicit interpreter artifact:
 
 ```clojure
+;; guide:no-fixture — wave-2, does not ship in v1
 (require '[re-frame.ui.data :as data])
 (data/render tree-from-server)     ; opt-in; its cost is visible and attributable
 ```

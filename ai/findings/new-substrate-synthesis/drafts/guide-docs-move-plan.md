@@ -1,11 +1,15 @@
 # DRAFT — Guide → docs move plan (S6, W2/W3): landing shape, transforms, PR sequencing
 
-> **Status: DRAFT · 2026-07-12.** The concrete migration plan for moving the re-frame.ui
-> user guide (11 files, ⟨guide/⟩ — completeness + correctness passed 2026-07-12) out of
-> the gitignored `ai/` tree into the repo's human-facing docs at S6, per
-> ⟨11 W2/W3⟩ and ⟨12 §3 S6 epic⟩. The fixture pipeline
-> (⟨drafts/guide-fixture-pipeline.md⟩) depends on this landing shape for its S6 phase;
-> §3 below is the handshake. Open items are tagged **[S6-CONFIRM]**.
+> **Status: DRAFT · 2026-07-12 · re-based 2026-07-13.** The concrete migration plan for
+> moving the re-frame.ui user guide (11 files, ⟨guide/⟩ — completeness + correctness
+> passed 2026-07-12) out of the synthesis tree into the repo's human-facing docs at S6,
+> per ⟨11 W2/W3⟩ and ⟨12 §3 S6 epic⟩. Note the tree's tracking state: the synthesis
+> subtree has been **force-tracked in git since #5800** (the surrounding `ai/` tree
+> stays local-only), so the pages are already in-repo and CI-readable — the S6 move is
+> about giving them their `docs/` home and reader-facing shape, not about making them
+> visible. The fixture pipeline (⟨drafts/guide-fixture-pipeline.md⟩) depends on this
+> landing shape for its S6 phase; §3 below is the handshake. Open items are tagged
+> **[S6-CONFIRM]**.
 
 ## 0. Facts the plan stands on
 
@@ -37,8 +41,9 @@
    one prose reference points outside ("design rationale lives one directory up",
    ⟨guide/README ¶1⟩); ~18 inline stage markers + 8 stage notes (correctness-pass
    re-census — the completeness pass added chapter-top notes) + the README
-   stage-honesty paragraph; **zero** `;; guide:*` fence markers exist yet; zero images
-   ⟨guide/ greps 2026-07-12⟩.
+   stage-honesty paragraph; the **five mandatory `;; guide:no-fixture` markers** exist
+   on the pages (added 2026-07-13 with the stage-truth reconciliation — the §2.4 set);
+   zero images ⟨guide/ greps 2026-07-12/13⟩.
 
 ## 1. Landing location + nav
 
@@ -128,7 +133,7 @@ input. Every transform below happens in it, once.
 |---|---|
 | Intra-guide chapter links (`[02](02-views.md)` — ~30 sites, all same-dir relative) | **Keep unchanged**; README→index rename doesn't affect them (no chapter links back to README) |
 | ⟨guide/README ¶1⟩ "design rationale lives one directory up" | **Remove the clause.** The synthesis suite does not move; docs never link `spec/` ⟨AUTHORING §2⟩. The sentence becomes "This guide teaches the library as a user." |
-| ⟨guide/README ¶1⟩ the CI-fixture promise | **Keep as-is at move time** — by S6 the promise is carried by the bridge fixtures (S1–S5 chapters all active per the stage forcer). The "except fences marked `guide:no-fixture`" amendment lands with the extractor PR, not the move ⟨guide-fixture-pipeline §2 README amendment⟩ |
+| ⟨guide/README ¶1⟩ the fixture-coverage statement | **Update to the move-time truth.** Since 2026-07-13 the README states exact coverage (guide 09's fixture today, growing per stage); by S6 all S1–S5 chapters are active per the stage forcer, so the sentence becomes the full every-example promise. The "except fences marked `guide:no-fixture`" amendment lands with the extractor PR, not the move ⟨guide-fixture-pipeline §2 README amendment⟩ |
 | ⟨10-migration doc⟩ links to `drafts/reagent-compat-boundary.md` (×3) | **Replace with inline prose.** The draft doesn't move; its normative content promotes spec-side (004A at S7), and docs never link `spec/`. The page inlines what the reader needs: the three co-mount granularities and the ownership/teardown one-liners it currently cites |
 | ⟨10-migration doc⟩ synthesis-suite citations ("08 §2", "12 §2", "02 §3 table", "06 §1", "guide 03") | **Rewrite or drop.** "02 §3 table" → link `04-events.md` (the decision table's guide home); "guide 03" → `03-state.md`; "06 §1 subset check" → `08-ssr.md`; stage-plumbing citations ("08 §2", "12 §2", delta numbers) → **drop** — program management is not reader content |
 | Provenance parentheticals: "Blessed-table verdict; qualifier added 2026-07-12" ⟨guide/02 L73–74⟩, "delta #2, ruled 2026-07-12; 12 §2" ⟨10-migration⟩, "(an Xray addition staged behind its integration review)" ⟨guide/06 L32⟩, the migration doc's **Status:** line | **Strip.** "No bead ids in prose. Pages state current truth" ⟨AUTHORING §Honesty⟩. The *facts* stay (wave-2 status, S7 freeze); the ruling ledger goes |
@@ -192,16 +197,17 @@ template → **docs/guide + skills** → CI → benchmarks ⟨12 §3 S6⟩), S1�
 
 ### 2.4 Fence markers: add the mandatory ones now, freeze the fences
 
-The pages carry **zero** `;; guide:*` markers today ⟨grep 2026-07-12⟩. The pipeline's
+The five mandatory markers are **already on the pages** (added 2026-07-13 with the
+stage-truth reconciliation), so the extractor PR touches zero pages. The pipeline's
 fence contract makes unmarked elisions and unmarked wave-2 fences an extractor *error*
-⟨guide-fixture-pipeline §2⟩. **The move PR adds the mandatory markers** so the
-extractor PR touches zero pages:
+⟨guide-fixture-pipeline §2⟩. **The move PR verifies the census** — any fence added
+since must carry its marker; the set as of 2026-07-13:
 
-| Fence | Marker added |
+| Fence | Marker |
 |---|---|
 | 01 `deps.edn` stub (`{…}`) | `;; guide:no-fixture — install stub, elided coordinates` |
 | 03 conditional-read one-liner (`… ✓`) | `;; guide:no-fixture — illustrative fragment` |
-| 05 `media-bridge` body (`…)`) | `;; guide:no-fixture — illustrative fragment` |
+| 05 `media-bridge` body (`…)`) | `;; guide:no-fixture — illustrative fragment, elided body` |
 | 08 `render-static` call (`{…}`) | `;; guide:no-fixture — illustrative fragment` |
 | 02 `data/render` | `;; guide:no-fixture — wave-2, does not ship in v1` |
 
@@ -312,8 +318,9 @@ scripts/ touches. Well inside single-worker sizing; no bundling.
    stranded-worker rule.
 2. CI: the `Docs required` aggregator green (docs.yml detect will light
    `docs_surface` on this diff).
-3. **No gitignored-tree references survive:** grep over `docs/ui/` for
-   `new-substrate-synthesis`, `findings/`, `drafts/`, `⟨`, `ai/` → zero hits.
+3. **No synthesis-tree references survive** (the tree is tracked but is not
+   reader-facing docs): grep over `docs/ui/` for `new-substrate-synthesis`,
+   `findings/`, `drafts/`, `⟨`, `ai/` → zero hits.
 4. **No shipped-stage markers survive:** grep `\(lands S[1-5]` and `Stage note` over
    `docs/ui/` → zero; wave-2 qualifiers preserved (grep `wave-2` ≥ 4 hits).
 5. **Fence bodies byte-identical** to the source pages modulo the added `;; guide:*`
