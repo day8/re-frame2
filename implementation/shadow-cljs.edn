@@ -147,6 +147,9 @@
                 ;; (npm run test:ui-g1); nothing under a production
                 ;; build or another test build :requires it.
                 "ui/bench"
+                ;; rf2-vxgfnd.12.3 — isolated G-13 browser push-economics
+                ;; fixture + advanced instrumentation-elision companion.
+                "ui/g13"
                 ;; rf2-3cfvt — adversarial-property SECURITY tier. A small
                 ;; cross-artefact test tree probing the three security
                 ;; boundaries the pin-and-assert regime missed: SSR escaping
@@ -768,6 +771,30 @@
    ;; The load-bearing pass/digest hook is inherited from :build-defaults.
    :compiler-options {:optimizations :advanced
                       :infer-externs :auto}}
+
+  ;; rf2-vxgfnd.12.3 — G-13 exact push-work browser gate. The development
+  ;; build retains gate-local evidence; its advanced companion compiles the
+  ;; SAME view fixture with all instrumentation closed and goog.DEBUG=false.
+  :ui-g13
+  {:target :browser
+   :output-dir "out/ui-g13"
+   :asset-path "."
+   :modules {:main {:entries [re-frame.ui.g13.dev]
+                    :init-fn re-frame.ui.g13.dev/-main}}
+   :compiler-options
+   {:closure-defines {re-frame.ui.g13.fixture/instrumentation? true}}}
+
+  :ui-g13-prod
+  {:target :browser
+   :output-dir "out/ui-g13-prod"
+   :asset-path "."
+   :modules {:main {:entries [re-frame.ui.g13.prod]
+                    :init-fn re-frame.ui.g13.prod/-main}}
+   :compiler-options
+   {:optimizations :advanced
+    :infer-externs :auto
+    :closure-defines {goog.DEBUG false
+                      re-frame.ui.g13.fixture/instrumentation? false}}}
 
   ;; rf2-2hrj8 — `:browser-test` is narrowed to DOM-dependent tests only.
   ;; The ns-regexp `-dom-cljs-test$` matches files whose namespace ends in

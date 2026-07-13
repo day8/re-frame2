@@ -1056,6 +1056,14 @@ test('the G-1 launcher script fires the gate it drives (rf2-vxgfnd.6)', () => {
   assert.equal(result.bundle_isolation, 'true');
 });
 
+test('the G-13 launcher script fires the gate it drives (rf2-vxgfnd.12.3)', () => {
+  const result = classify('implementation/scripts/run-ui-g13.cjs');
+  assert.equal(result.ui_gates, 'true');
+  assert.equal(result.cljs_node_test, 'true');
+  assert.equal(result.cljs_browser, 'true');
+  assert.equal(result.bundle_isolation, 'true');
+});
+
 test('the UI isolation checker fires the focused gate it implements', () => {
   const result = classify('implementation/scripts/check-ui-adapter-isolation.cjs');
   assert.equal(
@@ -1127,10 +1135,24 @@ test('cljs-ui-g1 is job-level gated on ui_gates and runs the gate script (rf2-vx
   assert.match(block, /npm run test:ui-g1/);
 });
 
+test('cljs-ui-g13 is job-level gated and runs the exact-count browser gate', () => {
+  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'cljs-ui-g13');
+  assert.match(block, /needs: detect_changed_surfaces/);
+  assert.match(
+    block,
+    /if: needs\.detect_changed_surfaces\.outputs\.ui_gates == 'true'/,
+  );
+  assert.match(block, /npm run test:ui-g13/);
+  assert.match(block, /playwright install --with-deps chromium/);
+  assert.match(block, /if: \$\{\{ always\(\) \}\}/);
+  assert.match(block, /implementation\/out\/ui-g13\.json/);
+});
+
 test('all-required-passed aggregator needs jvm-ui + cljs-ui-g1 (rf2-vxgfnd.6)', () => {
   const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'all-required-passed');
   assert.match(block, /- jvm-ui\r?\n/, 'aggregator must list jvm-ui in needs:');
   assert.match(block, /- cljs-ui-g1\r?\n/, 'aggregator must list cljs-ui-g1 in needs:');
+  assert.match(block, /- cljs-ui-g13\r?\n/, 'aggregator must list cljs-ui-g13 in needs:');
 });
 
 // rf2-vxgfnd.90 — re-frame.ui now ships REAL DOM tests
