@@ -1067,10 +1067,10 @@
     :producer-ns 're-frame.trace.tooling
     :design-bead "rf2-g1b2m"
     :description "Frame-destroy ring cleanup. `re-frame.frame/destroy-frame!` invokes this once the destroyed-trace has fired so the destroyed frame leaves no residual ring state in memory."}
-   {:key         :trace.tooling/set-frame-events-retained!
+   {:key         :trace.tooling/apply-frame-events-retained-policy!
     :producer-ns 're-frame.trace.tooling
-    :design-bead "rf2-g1b2m"
-    :description "Apply a per-frame `:rf.trace/events-retained` override. The frame engine (`re-frame.frame/upsert-frame!`) invokes this when the config carries the key; raises / lowers the ring's slot cap (one slot per event / pipeline run), trimming evictions in-place when lowering."}
+    :design-bead "rf2-4vism7"
+    :description "Publish one committed frame config's retention policy under its current-owner predicate. Explicit values resize and pin the frame ring; omission clears a prior override back to the process default. The frame engine serializes auxiliary publication, and the guarded ring update rejects a superseded successful upsert."}
    {:key         :live-frame/mark-projection-dirty!
     :producer-ns 're-frame.live-frame
     :design-bead "rf2-h1vqa4"
