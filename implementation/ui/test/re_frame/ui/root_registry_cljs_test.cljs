@@ -454,10 +454,10 @@
         "the later same-id incarnation survives stale disposal")))
 
 (deftest adapter-disposal-retains-every-root-cleanup-failure
-  (let [a      (fake-root :reg/dispose-a)
-        b      (fake-root :reg/dispose-b)
-        ca     (js-obj)
+  (let [ca     (js-obj)
         cb     (js-obj)
+        a      (client/->Root (js-obj) ca :reg/dispose-a)
+        b      (client/->Root (js-obj) cb :reg/dispose-b)
         ea     (js/Error. "dispose a failed")
         eb     (js/Error. "dispose b failed")]
     (set! (.-innerHTML ca) "<span>stale-a</span>")
