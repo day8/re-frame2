@@ -113,13 +113,40 @@
             (a static :<- / parametric input-fn sub is NOT expressible inline and
             stays namespace-authored)"
     (let [body (fn [db _] (:counter/value db))
-          d    (runnable {:reg-sub [[:counter/value body]]})]
+          meta {:schema        :counter/int
+                :doc           "Image-owned counter value."
+                ;; Authored metadata must never replace runnable ownership.
+                :handler-fn    ::hostile-handler
+                :input-kind    :parametric
+                :input-signals [[:hostile/input]]}
+          d    (runnable {:reg-sub [[:counter/value meta body]]})]
       (is (= :sub (:kind d)))
       (is (= :counter/value (:id d)))
       (is (= body (:impl d)))
-      (is (= body (:handler-fn d)) "the db-reader is the runnable :handler-fn")
-      (is (= :db (:input-kind d)) "inline subs are layer-1 db-readers ONLY")
-      (is (= [] (:input-signals d)) "a layer-1 db-reader has no input signals"))))
+      (is (= meta (:metadata d))
+          "the authored metadata remains nested for provenance/introspection")
+      (is (= :counter/int (:schema d))
+          "runtime metadata is also flat, matching reg-sub's runnable shape")
+      (is (= "Image-owned counter value." (:doc d)))
+      (is (= body (:handler-fn d))
+          "the runtime handler wins over a hostile metadata slot")
+      (is (= :db (:input-kind d))
+          "the fixed layer-1 input kind wins over hostile metadata")
+      (is (= [] (:input-signals d))
+          "the fixed empty signal list wins over hostile metadata")))
+  (testing "omitted metadata and an explicitly nil schema stay distinguishable"
+    (let [body     (fn [_ _] nil)
+          omitted (runnable {:reg-sub [[:counter/omitted body]]})
+          explicit (runnable {:reg-sub [[:counter/explicit
+                                         {:schema nil}
+                                         body]]})]
+      (is (not (contains? omitted :schema))
+          "omitting metadata does not invent a top-level schema slot")
+      (is (contains? explicit :schema)
+          "an explicitly nil schema remains present in the runnable metadata")
+      (is (nil? (:schema explicit)))
+      (is (= {:schema nil} (:metadata explicit))
+          "the exact authored nil metadata remains nested for inspection"))))
 
 (deftest inline-fx-lowers-to-the-runnable-fx-slot
   (testing "inline :reg-fx lowers via the LIVE :image/lower-inline-fx into the
