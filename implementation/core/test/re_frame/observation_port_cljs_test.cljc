@@ -473,6 +473,151 @@
       (is (= :rf.error/observation-malformed-target (error-id e))))))
 
 ;; ===========================================================================
+;; rf2-vxgfnd.183 — the CLOSED target + lease grammar at EVERY port boundary
+;;
+;; #5797 (rf2-vxgfnd.36) typed ONLY the unknown-`:kind` default arm. A
+;; KNOWN-discriminator target with a malformed `:query`, an absent / wrong-domain
+;; frame identity, or an INCOMPLETE `:story-override` still entered the accepted
+;; arm and reached a host op — leaking an untyped `(first query)` / frame-registry
+;; error the ViewCell cannot classify. Separately, `read` / `release!` deref the
+;; lease state with no validation, so `(read nil)` / `(release! nil)` threw a raw
+;; NPE (JVM) / untyped host error (CLJS) with `(:rf.error/id (ex-data e)) == nil`.
+;; These are the bead's three repro steps as RED-before-fix fixtures: each throws
+;; the TYPED id, never a bare host error.
+;; ===========================================================================
+
+(defn- caught
+  "Run `thunk`, returning the thrown error, or `::no-throw` when it returns —
+  so `error-id` of a non-throw is nil and the typed-id assertion fails loudly
+  (a bug that skipped the throw is caught, not silently passed)."
+  [thunk]
+  (try (thunk) ::no-throw
+       (catch #?(:clj Throwable :cljs :default) e e)))
+
+(deftest malformed-subscription-query-throws-typed-target
+  ;; Repro 1: a :subscription target whose :query is a non-vector / empty /
+  ;; non-keyword-headed vector enters the accepted arm and reaches `(first query)`
+  ;; — pre-fix a raw ISeq host error (`42`) or a mis-reported :rf.error/no-such-sub
+  ;; (`[]` / `[42]`). It must throw the typed target error BEFORE any host op.
+  (reg-items!)
+  (doseq [[label q] [[:non-vector  42]
+                     [:empty       []]
+                     [:non-kw-head [42]]
+                     [:string      "not-a-query"]
+                     [:list        '(:obs/items)]]]
+    (testing (str "probe on a malformed :query (" (name label) ")")
+      (is (= :rf.error/observation-malformed-target
+             (error-id (caught #(obs/probe {:kind :subscription :frame-id fid :query q}))))))
+    (testing (str "acquire! on a malformed :query (" (name label) ")")
+      (is (= :rf.error/observation-malformed-target
+             (error-id (caught #(obs/acquire! {:kind :subscription :frame-id fid :query q}
+                                              (fn [_])))))))))
+
+(deftest malformed-subscription-frame-identity-throws-typed-target
+  ;; Repro 1 (missing / invalid frame identity): an ABSENT, nil, or wrong-domain
+  ;; :frame-id must throw the typed target error, not fall through to
+  ;; `(frame/frame nil)` and mis-report :rf.error/frame-destroyed.
+  (reg-items!)
+  (doseq [[label t] [[:missing-frame-id     {:kind :subscription :query [:obs/items]}]
+                     [:nil-frame-id         {:kind :subscription :frame-id nil :query [:obs/items]}]
+                     [:non-keyword-frame-id {:kind :subscription :frame-id "app" :query [:obs/items]}]]]
+    (testing (str "probe (" (name label) ")")
+      (is (= :rf.error/observation-malformed-target
+             (error-id (caught #(obs/probe t))))))
+    (testing (str "acquire! (" (name label) ")")
+      (is (= :rf.error/observation-malformed-target
+             (error-id (caught #(obs/acquire! t (fn [_])))))))))
+
+(deftest non-map-target-throws-typed-target
+  ;; A non-map target (nil, a scalar, a vector, a set) is malformed — `(:kind …)`
+  ;; on a non-map is nil, which pre-fix hit the freshly-added default only for a
+  ;; MAP; the shared validator rejects non-maps up front too.
+  (reg-items!)
+  (doseq [t [nil 42 "target" [:kind :subscription] #{:kind :subscription}]]
+    (is (= :rf.error/observation-malformed-target
+           (error-id (caught #(obs/probe t))))
+        (str "probe on non-map " (pr-str t)))
+    (is (= :rf.error/observation-malformed-target
+           (error-id (caught #(obs/acquire! t (fn [_])))))
+        (str "acquire! on non-map " (pr-str t)))))
+
+(deftest incomplete-story-override-throws-typed-target
+  ;; Repro 2: an incomplete {:kind :story-override} was SILENTLY accepted and
+  ;; produced a nil-shaped observation / static lease (no throw at all). It could
+  ;; not have come from resolve-target, so it must throw the typed target error.
+  (reg-items!)
+  (doseq [[label t] [[:bare          {:kind :story-override}]
+                     [:query-only    {:kind :story-override :query [:obs/items]}]
+                     [:missing-token {:kind :story-override :query [:obs/items] :value 1 :version 0}]
+                     [:extra-key     {:kind :story-override :query [:obs/items] :value 1
+                                      :override-id :o :version 0 :surplus true}]]]
+    (testing (str "probe (" (name label) ")")
+      (is (= :rf.error/observation-malformed-target
+             (error-id (caught #(obs/probe t))))))
+    (testing (str "acquire! (" (name label) ")")
+      (is (= :rf.error/observation-malformed-target
+             (error-id (caught #(obs/acquire! t (fn [_])))))))))
+
+(deftest complete-story-override-with-nil-value-is-a-value-not-malformed
+  ;; Acceptance: presence checks distinguish a legitimate nil override value /
+  ;; token (KEY present) from a missing required key. A COMPLETE override with
+  ;; :value nil probes to nil evidence and acquires a static lease — no throw.
+  (reg-items!)
+  (let [t {:kind :story-override :query [:obs/items]
+           :value nil :override-id :ov :version 0}]
+    (is (nil? (:value (obs/probe t))) "nil override value probes to nil, no throw")
+    (let [lease (obs/acquire! t (fn [_]))]
+      (is (false? (obs/owned? lease)) "the override lease owns nothing")
+      (is (nil? (:value (obs/read lease))) "read yields the pinned nil value")
+      (is (true? (obs/current? lease t)) "the override lease is current against its target")
+      (obs/release! lease))))
+
+(deftest malformed-target-throws-do-not-fan-the-always-on-axis
+  ;; The malformed-target category is DIAGNOSTIC (a programmer defect,
+  ;; unreachable in correct generated code) — it must NOT fan the always-on
+  ;; error-emit axis (Spec 009).
+  (reg-items!)
+  (let [[[outcome e] records]
+        (with-error-records #(obs/acquire! {:kind :subscription :frame-id fid :query 42}
+                                           (fn [_])))]
+    (is (= :threw outcome))
+    (is (= :rf.error/observation-malformed-target (error-id e)))
+    (is (empty? records)
+        "diagnostic malformed-target does NOT fan the always-on axis")))
+
+(deftest read-and-release-reject-a-non-lease-typed
+  ;; Repro 3: (read nil) / (release! nil) threw a raw NPE (JVM) / untyped host
+  ;; error (CLJS) with (:rf.error/id (ex-data e)) == nil — the half-hardened
+  ;; boundary. nil, a map, and any arbitrary host object must now throw the typed
+  ;; :rf.error/observation-malformed-lease on both hosts.
+  (doseq [bad [nil {} {:lease-kind :node} "lease" 42 [:not :a :lease]]]
+    (testing (str "read on a non-lease " (pr-str bad))
+      (is (= :rf.error/observation-malformed-lease
+             (error-id (caught #(obs/read bad))))))
+    (testing (str "release! on a non-lease " (pr-str bad))
+      (is (= :rf.error/observation-malformed-lease
+             (error-id (caught #(obs/release! bad))))))))
+
+(deftest malformed-lease-throws-do-not-fan-the-always-on-axis
+  ;; The malformed-lease category is DIAGNOSTIC — it must NOT fan the always-on
+  ;; axis (Spec 009), unlike the sibling :rf.error/read-after-release.
+  (let [[[outcome e] records] (with-error-records #(obs/read nil))]
+    (is (= :threw outcome))
+    (is (= :rf.error/observation-malformed-lease (error-id e)))
+    (is (empty? records)
+        "diagnostic malformed-lease does NOT fan the always-on axis")))
+
+(deftest current?-on-a-non-lease-is-false-no-throw
+  ;; current? is a pure no-throw kept-check predicate: a non-lease reads FALSE
+  ;; rather than field-accessing lease-state and throwing (its ruled malformed-
+  ;; value contract). Pre-fix `@(lease-state nil)` threw a raw NPE.
+  (reg-items!)
+  (let [target (items-target)]
+    (doseq [bad [nil {} {:lease-kind :node} "lease" 42]]
+      (is (false? (obs/current? bad target))
+          (str "current? on a non-lease " (pr-str bad) " is false, never throws")))))
+
+;; ===========================================================================
 ;; rf2-vxgfnd.32 — first-owner disposal-hook install races node disposal
 ;;
 ;; PR #5710 enrols the first active owner (marking the node record :hooked?)
