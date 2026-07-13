@@ -360,6 +360,80 @@
      (trace/emit-error! category trace-tags))
    nil))
 
+;; ---- first-emission provenance (exact-once at containment drains) ---------
+;;
+;; Several fail-loud sites EMIT their category's canonical record (through
+;; [[emit-error-both!]] / [[dispatch-on-error!]]) and THEN throw the matching
+;; canonical typed error — e.g. the observation port's `read` on a released
+;; lease. A boundary that CATCHES such a throwable to keep draining siblings
+;; (a containment drain, e.g. the port's disposal-notification drain) cannot
+;; otherwise tell a throwable whose category is ALREADY visible from one that
+;; has never been fanned: re-dispatching every caught typed throwable
+;; double-emits the already-fanned ones — TWO always-on records for ONE
+;; runtime error, the second able to overwrite the source's correct
+;; frame/query attribution with the catching context's — while never
+;; re-dispatching silently loses the unfanned ones at a swallowing boundary
+;; (rf2-wbkjk9; Spec 009's one-runtime-error law).
+;;
+;; The repair is explicit provenance ON THE THROWABLE — never a global
+;; seen-error registry (process-global dedup state would suppress genuinely
+;; distinct recurrences of the same category and leak across frames/tests):
+;; an emit-then-throw site stamps [[fanned-at-source-key]] into the ex-data
+;; it throws (via the canonical builder's `:extra`), and a containment drain
+;; consults [[fanned-at-source?]] — already-fanned ⇒ exactly-once is ALREADY
+;; satisfied at the source with the source's own attribution, nothing more on
+;; either channel; unfanned ⇒ the drain owns the first (and only) emission.
+;;
+;; [[canonical-typed-error?]] is the drain-side companion: STRUCTURAL
+;; provenance that a caught throwable was built by the canonical thrown-error
+;; builder (`re-frame.error/thrown-ex-info` — the single chokepoint every
+;; framework throw routes through) under the RESERVED `rf.error` catalogue
+;; namespace. It replaces `:rf.error/id`-truthiness classification: an
+;; application ex-info carrying `{:rf.error/id :app/x}` (non-reserved
+;; namespace), a malformed id (non-keyword), or a bare imitation of a
+;; canonical id without the builder's required `:reason` sentence all
+;; classify FALSE — a drain wraps them in its own stable catalogued category
+;; instead of fanning them as though they were canonical framework
+;; categories. Framework emissions under the reserved namespace are pinned
+;; to catalogue rows at build time by the Spec 009 catalogue source-scan
+;; gate (`error-catalogue-channel-conformance-test`), so the reserved-shape
+;; check IS the runtime spelling of catalogue membership.
+
+(def fanned-at-source-key
+  "Ex-data slot carrying FIRST-EMISSION PROVENANCE (rf2-wbkjk9): `true` when
+  the throwing site had ALREADY fanned this failure's canonical record per
+  its category's channel contract before throwing (the emit-then-throw
+  idiom), so a downstream containment drain must NOT re-emit it on either
+  channel. Stamped by the throwing site via the canonical builder's `:extra`
+  (e.g. `re-frame.substrate.observation`'s fail-loud surfaces); consulted
+  through [[fanned-at-source?]]. Framework-internal — never part of the
+  public thrown-error shape contract."
+  ::fanned-at-source)
+
+(defn fanned-at-source?
+  "True when caught throwable `t` carries [[fanned-at-source-key]] — its
+  failure was already surfaced by its source's own emission, with the
+  source's own attribution, so exactly-once is already satisfied."
+  [t]
+  (true? (get (ex-data t) fanned-at-source-key)))
+
+(defn canonical-typed-error?
+  "True when caught throwable `t` carries the canonical framework
+  thrown-error shape (Spec 009 §The thrown-error shape) under the RESERVED
+  `rf.error` catalogue namespace: a keyword `:rf.error/id` whose namespace is
+  `\"rf.error\"` AND the builder's required `:reason` human sentence. This is
+  structural provenance of `re-frame.error/thrown-ex-info` — NOT an
+  id-truthiness test (rf2-wbkjk9): a non-reserved application id, a
+  malformed non-keyword id, or a bare canonical-id imitation without the
+  builder shape all classify false, so a containment drain wraps them
+  rather than letting them spoof a canonical category."
+  [t]
+  (let [data (ex-data t)
+        id   (:rf.error/id data)]
+    (and (keyword? id)
+         (= "rf.error" (namespace id))
+         (string? (:reason data)))))
+
 ;; ---- general non-event always-on record (EP-0008 union shape) -------------
 ;;
 ;; `dispatch-on-error!` (above) is the EVENT-centric always-on path: it takes
