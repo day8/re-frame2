@@ -6,6 +6,7 @@
   `rf/destroy-adapter!` drains adapter-owned React roots before re-init."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             ["react" :as react]
+            [re-frame.adapter.context :as adapter-context]
             [re-frame.core :as rf]
             [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.ui :as ui]))
@@ -23,15 +24,47 @@
         (rf/destroy-adapter!)
         (substrate-adapter/reset-lifecycle-state-for-tests!)))))
 
-(defn- render-label! [container label]
+(defn- render-element! [container element]
   (let [unmount (atom nil)]
     ((:flush-render! ui/adapter)
      #(reset! unmount
               ((:render ui/adapter)
-               (react/createElement "span" #js {:className "native-adapter-probe"} label)
+               element
                container
                {})))
     @unmount))
+
+(defn- render-label! [container label]
+  (render-element!
+   container
+   (react/createElement "span" #js {:className "native-adapter-probe"} label)))
+
+(defn- current-frame-probe []
+  (react/createElement
+   "span"
+   #js {:className "native-provider-frame"}
+   (str (adapter-context/function-component-current-frame))))
+
+(deftest registered-provider-mounts-and-establishes-the-frame-context
+  (if-not (browser?)
+    (is true ":node — browser-test exercises the mounted provider contract")
+    (let [frame-id  :rf.ui-adapter-test/provider-frame
+          container (js/document.createElement "div")]
+      (is (nil? (rf/init! ui/adapter)))
+      (rf/make-frame {:id frame-id :doc "native adapter provider proof"})
+      (let [provider ((:register-context-provider ui/adapter) frame-id)
+            unmount  (render-element!
+                      container
+                      (react/createElement
+                       provider
+                       #js {:frame frame-id}
+                       (react/createElement current-frame-probe nil)))]
+        (try
+          (is (= (str frame-id) (.-textContent container))
+              "the registered component really mounted and its descendant observed the requested frame through React context")
+          (finally
+            (unmount)
+            (rf/destroy-frame! frame-id)))))))
 
 (deftest render-dispose-and-reinit-own-the-react-root-lifecycle
   (if-not (browser?)
