@@ -15,7 +15,9 @@ Structure, props, subscriptions (via the pure snapshot path), branches, lists, e
 intent, and `ui/html` — full semantics. Host-bearing features have honest fallbacks:
 `local` contributes its initial value; effects don't run; refs are absent;
 `client-only` renders its declared fallback (`ui/portal` — wave-2 — will follow the same
-rule when it ships); presence renders as `:present`.
+rule when it ships); presence renders as `:present`; error boundaries don't catch — a
+server-side throw follows the server failure policy (project the error, or fail the
+response), because boundaries are a client recovery mechanism.
 Views that *are* their host behavior (a canvas chart) wrap the leaf in `client-only` and
 keep the shared markup outside.
 

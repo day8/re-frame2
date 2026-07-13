@@ -91,9 +91,10 @@ modals fade, rows collapse. `ui/presence` owns the gap between *no longer true* 
 *no longer visible*:
 
 ```clojure
-(ui/presence {:timeout-ms 300}
-  (for [t (sub [:toasts/visible])]
-    [toast-card {:key (:id t) :toast t}]))
+(ui/defview toast-tray []
+  (ui/presence {:timeout-ms 300}
+    (for [t (sub [:toasts/visible])]
+      [toast-card {:key (:id t) :toast t}])))
 
 (ui/defview toast-card [{:keys [toast]}]
   (let [phase (presence-phase)]          ; :mounting | :present | :unmounting

@@ -117,6 +117,8 @@ called after the view disconnects (it catches leaked listeners for you). Dispatc
 `lease` declares *interest*: while this view is mounted and visible, keep the resource
 alive. First lease in → the resource is ensured (fetch starts, or an in-flight one is
 joined); last lease out → it can wind down. **Lease never returns data and never fetches
-during render**; reading is always the passive `(sub [:rf/resource …])`. Rule of thumb:
+during render**; reading is always the passive `(sub [:rf/resource …])`. Like `sub`, a
+conditional `lease` is legal (`(when live? (lease …))` — a hidden tile holds nothing)
+and a `lease` inside a loop is a compile error — extract a keyed child view. Rule of thumb:
 loading that belongs to navigation or workflow rides route/event resource plans; `lease`
 is for liveness that genuinely follows visible UI — dashboard tiles, hover cards, modals.
