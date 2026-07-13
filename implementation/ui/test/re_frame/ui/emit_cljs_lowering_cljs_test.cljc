@@ -72,3 +72,18 @@
     (is (re-find #"^\(\{~\{\}:~\{\},~\{\}:~\{\}\}\)$"
                  (second props-form))
         "the narrow lowering is one ordered literal, not an assignment IIFE")))
+
+(deftest one-class-flag-with-static-base-is-a-binary-string-choice
+  (let [call       (first (jsx-calls
+                           (emitted '[:div.todo-item
+                                      {:class {:done done?}}])))
+        props-form (nth call 4)
+        class-form (nth props-form 3)]
+    (is (= '(if done? "todo-item done" "todo-item") class-form)
+        "one flag evaluates its condition once and needs no generic str")
+    (is (= 1 (count (filter #{'done?} (forms-of class-form))))))
+  (let [call       (first (jsx-calls
+                           (emitted '[:div {:class {:done done?}}])))
+        props-form (nth call 4)]
+    (is (some #{'re-frame.ui.rules/classes-str} (forms-of props-form))
+        "without a static base the general empty-class semantics remain")))

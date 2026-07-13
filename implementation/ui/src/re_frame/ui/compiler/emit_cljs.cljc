@@ -85,6 +85,14 @@
       (and (empty? flags) (nil? dyn))
       (when (seq base-str) base-str)
 
+      ;; The common one-flag/static-base case is exactly a binary string
+      ;; choice. Avoid generic `str`'s conversion of the false `when` arm;
+      ;; the condition is still evaluated once and the non-empty static base
+      ;; keeps both results canonical.
+      (and (seq base-str) (nil? dyn) (= 1 (count flags)))
+      (let [[n f] (first flags)]
+        `(if ~f ~(str base-str " " n) ~base-str))
+
       ;; literal flag maps over a non-empty static base (the `.sugar
       ;; {:class {:flag cond}}` idiom) compile STRAIGHT-LINE: the flag
       ;; order is compile-time-known (analyzer pre-sorts), the base
