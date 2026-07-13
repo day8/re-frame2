@@ -23,9 +23,18 @@ elif [ "${#explicit_paths[@]}" -gt 0 ]; then
   files="$(printf '%s\n' "${explicit_paths[@]}")"
 elif [ "${GITHUB_EVENT_NAME:-}" = "pull_request" ] && [ -n "${GITHUB_BASE_REF:-}" ]; then
   git fetch --no-tags --depth=100 origin "${GITHUB_BASE_REF}" >/dev/null 2>&1 || true
-  files="$(git diff --name-only "origin/${GITHUB_BASE_REF}...HEAD")"
+  # rf2-vxgfnd.137 — `--no-renames` is load-bearing, not cosmetic. Git rename
+  # detection collapses a rename to its DESTINATION path only, so a pure rename
+  # OUT of a classified surface (e.g. implementation/ui/** -> docs/**) would
+  # report only the unclassified destination and leave every gate for the
+  # DELETED endpoint false — a CI false-green (the deleted production UI code
+  # runs no browser/UI/JVM/node gate). Disabling rename detection makes Git emit
+  # both endpoints (old path as a deletion, new path as an addition), so the
+  # classifier below arms the gates for BOTH surfaces. Every rename is thus
+  # classified as delete + add; ordinary add/modify/delete are unaffected.
+  files="$(git diff --no-renames --name-only "origin/${GITHUB_BASE_REF}...HEAD")"
 else
-  files="$(git diff --name-only HEAD^ HEAD 2>/dev/null || git diff --name-only HEAD)"
+  files="$(git diff --no-renames --name-only HEAD^ HEAD 2>/dev/null || git diff --no-renames --name-only HEAD)"
 fi
 
 implementation_jvm=false

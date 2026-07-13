@@ -5,6 +5,7 @@
 const assert = require('assert/strict');
 const { execFileSync } = require('child_process');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 const IMPL_ROOT = path.resolve(__dirname, '..');
@@ -1230,6 +1231,209 @@ test('implementation/ui/* arms mounted advanced-prod + bundle isolation (rf2-vxg
 test('a docs/spec-only change does NOT arm cljs_browser (negative — scope discipline) (rf2-vxgfnd.90)', () => {
   assert.equal(classify('spec/006-ReactiveSubstrate.md').cljs_browser, 'false');
   assert.equal(classify('docs/core/intro.md').cljs_browser, 'false');
+});
+
+// rf2-vxgfnd.137 — Git-DERIVED discovery mode (the real CI path), not the
+// explicit-path classifier the matrix above exercises. The classify() helper
+// passes paths straight to the script, bypassing the `git diff` that PR/local
+// CI actually runs. Git rename detection collapses a pure rename to its
+// DESTINATION path only, so a rename OUT of a classified surface (e.g.
+// implementation/ui/** -> docs/**) reported just the unclassified destination
+// and left every gate for the DELETED production endpoint false — a CI
+// false-green (rf2-vxgfnd.90's guarantee that every first-party UI change runs
+// the browser/UI/JVM/node gates, silently violated). The fix runs
+// `git diff --no-renames` so BOTH endpoints (old = deletion, new = addition)
+// reach the classifier. These tests build REAL two-commit temporary repos and
+// invoke the script's local discovery branch (HEAD^ HEAD) with no explicit
+// paths, so they exercise the exact Git-derived path the matrix cannot.
+
+const SCRIPT_PATH = path.join(
+  REPO_ROOT,
+  '.github',
+  'scripts',
+  'report-changed-surfaces.sh',
+);
+
+// Run a git command against a scratch repo, with GIT_* inherited from a hook
+// context stripped so the temp repo is never confused with the real worktree.
+function gitIn(cwd, ...args) {
+  const env = { ...process.env };
+  for (const key of Object.keys(env)) {
+    if (key.startsWith('GIT_')) delete env[key];
+  }
+  return execFileSync('git', args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
+}
+
+function writeFileP(root, relPath, contents) {
+  const abs = path.join(root, relPath);
+  fs.mkdirSync(path.dirname(abs), { recursive: true });
+  fs.writeFileSync(abs, contents);
+}
+
+// Build a real two-commit repo via `buildHistory`, then invoke the script in
+// its Git-derived (local, HEAD^ HEAD) discovery mode with NO explicit paths and
+// return the parsed classifier outputs. GITHUB_* is cleared so the script takes
+// the local branch and prints to stdout.
+function classifyViaGitDiscovery(buildHistory) {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'rf2-changed-surfaces-'));
+  try {
+    gitIn(tmp, 'init', '-q');
+    gitIn(tmp, 'config', 'user.email', 'ci@example.com');
+    gitIn(tmp, 'config', 'user.name', 'CI');
+    gitIn(tmp, 'config', 'commit.gpgsign', 'false');
+    gitIn(tmp, 'config', 'core.autocrlf', 'false');
+
+    buildHistory({
+      root: tmp,
+      write: (relPath, contents) => writeFileP(tmp, relPath, contents),
+      git: (...args) => gitIn(tmp, ...args),
+      commit: (message) => {
+        gitIn(tmp, 'add', '-A');
+        gitIn(tmp, 'commit', '-q', '-m', message);
+      },
+    });
+
+    const env = { ...process.env };
+    delete env.GITHUB_OUTPUT;
+    delete env.GITHUB_EVENT_NAME;
+    delete env.GITHUB_BASE_REF;
+    for (const key of Object.keys(env)) {
+      if (key.startsWith('GIT_')) delete env[key];
+    }
+    const out = execFileSync('bash', [SCRIPT_PATH], {
+      cwd: tmp,
+      env,
+      encoding: 'utf8',
+    });
+    return Object.fromEntries(
+      out
+        .trim()
+        .split(/\r?\n/)
+        .filter(Boolean)
+        .map((line) => line.split('=')),
+    );
+  } finally {
+    try {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    } catch {
+      // Windows can transiently hold a lock on the scratch .git; the OS temp
+      // dir is reclaimed anyway. A cleanup failure must not fail the test.
+    }
+  }
+}
+
+// A pure rename (identical content) between two committed paths. Git detects it
+// at 100% similarity, so WITHOUT --no-renames only the destination is reported.
+function renameViaGitDiscovery(fromPath, toPath) {
+  return classifyViaGitDiscovery(({ root, write, git, commit }) => {
+    // A keeper file guarantees a non-empty first commit even when `fromPath`
+    // is the only other content, and keeps HEAD^ well-defined.
+    write('README.md', '# scratch\n');
+    write(fromPath, '(ns example.moved)\n;; identical content across the rename\n');
+    commit('seed');
+    // `git mv` does not create the destination directory; pre-create it.
+    fs.mkdirSync(path.dirname(path.join(root, toPath)), { recursive: true });
+    git('mv', fromPath, toPath);
+    commit('rename');
+  });
+}
+
+const UI_SOURCE = 'implementation/ui/src/re_frame/ui/reactive.cljc';
+const UI_GATE_KEYS = ['implementation_jvm', 'cljs_node_test', 'ui_gates', 'cljs_browser'];
+
+test('DISCOVERY: pure rename OUT of implementation/ui/** arms the full UI gate set (rf2-vxgfnd.137)', () => {
+  // The demonstrated false-green: renaming production UI code to an
+  // unclassified path. WITHOUT --no-renames git reports only the docs
+  // destination and every UI gate stays false; the deleted UI endpoint must
+  // still arm implementation_jvm / cljs_node_test / ui_gates / cljs_browser.
+  const result = renameViaGitDiscovery(UI_SOURCE, 'docs/moved-out-of-ui.cljc');
+  for (const key of UI_GATE_KEYS) {
+    assert.equal(
+      result[key],
+      'true',
+      `renaming ${UI_SOURCE} -> docs/** must arm ${key} (deleted UI endpoint); ` +
+        'restoring rename detection makes this fail',
+    );
+  }
+});
+
+test('DISCOVERY: reverse rename INTO implementation/ui/** arms the full UI gate set (rf2-vxgfnd.137)', () => {
+  const result = renameViaGitDiscovery('docs/incoming.cljc', UI_SOURCE);
+  for (const key of UI_GATE_KEYS) {
+    assert.equal(result[key], 'true', `renaming docs/** -> ${UI_SOURCE} must arm ${key}`);
+  }
+});
+
+test('DISCOVERY: within-UI rename arms the full UI gate set (rf2-vxgfnd.137)', () => {
+  const result = renameViaGitDiscovery(
+    UI_SOURCE,
+    'implementation/ui/src/re_frame/ui/reactive_renamed.cljc',
+  );
+  for (const key of UI_GATE_KEYS) {
+    assert.equal(result[key], 'true', `a within-UI rename must arm ${key}`);
+  }
+});
+
+test('DISCOVERY: docs->docs rename does NOT arm UI gates (no spurious firing) (rf2-vxgfnd.137)', () => {
+  // Both endpoints are unclassified — --no-renames must not manufacture a UI
+  // classification (guards against over-firing / mis-splitting a rename).
+  const result = renameViaGitDiscovery('docs/a.md', 'docs/b.md');
+  for (const key of UI_GATE_KEYS) {
+    assert.equal(result[key], 'false', `a docs->docs rename must NOT arm ${key}`);
+  }
+});
+
+// Ordinary add / modify / delete via the SAME Git-derived discovery mode stay
+// classified exactly as before — --no-renames only changes how renames surface.
+
+test('DISCOVERY: ordinary add of a UI file arms the UI gates (unchanged) (rf2-vxgfnd.137)', () => {
+  const result = classifyViaGitDiscovery(({ write, commit }) => {
+    write('README.md', '# scratch\n');
+    commit('seed');
+    write(UI_SOURCE, '(ns re-frame.ui.reactive)\n');
+    commit('add ui file');
+  });
+  for (const key of UI_GATE_KEYS) {
+    assert.equal(result[key], 'true', `an ordinary UI add must arm ${key}`);
+  }
+});
+
+test('DISCOVERY: ordinary modify of a UI file arms the UI gates (unchanged) (rf2-vxgfnd.137)', () => {
+  const result = classifyViaGitDiscovery(({ write, commit }) => {
+    write(UI_SOURCE, '(ns re-frame.ui.reactive)\n;; v1\n');
+    write('README.md', '# scratch\n');
+    commit('seed');
+    write(UI_SOURCE, '(ns re-frame.ui.reactive)\n;; v2 — edited\n');
+    commit('modify ui file');
+  });
+  for (const key of UI_GATE_KEYS) {
+    assert.equal(result[key], 'true', `an ordinary UI modify must arm ${key}`);
+  }
+});
+
+test('DISCOVERY: ordinary delete of a UI file arms the UI gates (unchanged) (rf2-vxgfnd.137)', () => {
+  const result = classifyViaGitDiscovery(({ write, git, commit }) => {
+    write(UI_SOURCE, '(ns re-frame.ui.reactive)\n');
+    write('README.md', '# scratch\n');
+    commit('seed');
+    git('rm', '-q', UI_SOURCE);
+    commit('delete ui file');
+  });
+  for (const key of UI_GATE_KEYS) {
+    assert.equal(result[key], 'true', `an ordinary UI delete must arm ${key}`);
+  }
+});
+
+test('DISCOVERY: ordinary docs-only modify does NOT arm UI gates (scope, unchanged) (rf2-vxgfnd.137)', () => {
+  const result = classifyViaGitDiscovery(({ write, commit }) => {
+    write('docs/core/intro.md', '# intro v1\n');
+    commit('seed');
+    write('docs/core/intro.md', '# intro v2\n');
+    commit('modify docs');
+  });
+  for (const key of UI_GATE_KEYS) {
+    assert.equal(result[key], 'false', `a docs-only modify must NOT arm ${key}`);
+  }
 });
 
 let failed = 0;
