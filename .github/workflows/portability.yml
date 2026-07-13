@@ -23,6 +23,11 @@ name: portability
 on:
   push:
     branches: [main]
+    # Beads checkpoints (.beads-only pushes) are no-op runs that occupy
+    # queue slots; skip them. Mixed code+beads pushes still run (a push is
+    # skipped only when ALL changed files match). PRs stay unfiltered.
+    paths-ignore:
+      - '.beads/**'
   pull_request:
     branches: [main]
   workflow_dispatch:
