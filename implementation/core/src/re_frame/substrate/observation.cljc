@@ -211,7 +211,10 @@
         're-frame.substrate.observation/assert-port-abi-version!
         reason
         {:extra {:expected expected
-                 :actual   port-abi-version}})))
+                 :actual   port-abi-version
+                 ;; First-emission provenance (rf2-wbkjk9): the record above
+                 ;; is the exactly-once emission.
+                 error-emit/fanned-at-source-key true}})))
   nil)
 
 ;; ---- registry epoch ---------------------------------------------------------
@@ -377,7 +380,14 @@
            extra))
   (error/throw-error! error-id where reason
                       {:extra (merge {:frame          frame-id
-                                      :rf.sub/query-v query-v}
+                                      :rf.sub/query-v query-v
+                                      ;; First-emission provenance (rf2-wbkjk9):
+                                      ;; the record above IS this failure's
+                                      ;; exactly-once emission — a containment
+                                      ;; drain catching this throw (an on-change
+                                      ;; that called a port op) must not re-fan
+                                      ;; it on either channel.
+                                      error-emit/fanned-at-source-key true}
                                      extra)}))
 
 (defn- throw-frame-destroyed!
@@ -460,7 +470,13 @@
       {:recovery :no-recovery
        :extra    {:frame          frame-id
                   :rf.sub/query-v query-v
-                  :cycle          (:cycle result)}})
+                  :cycle          (:cycle result)
+                  ;; First-emission provenance (rf2-wbkjk9): the build already
+                  ;; surfaced :rf.error/sub-cycle per its channel contract
+                  ;; (diagnostic trace); a containment drain must not
+                  ;; re-emit — and in particular must not PROMOTE the
+                  ;; diagnostic category onto the always-on axis.
+                  error-emit/fanned-at-source-key true}})
 
     (:input-fn-exception :input-fn-bad-return)
     (error/throw-error!
@@ -473,7 +489,11 @@
            (:reason result))
       {:recovery :no-recovery
        :extra    {:frame          frame-id
-                  :rf.sub/query-v query-v}})
+                  :rf.sub/query-v query-v
+                  ;; First-emission provenance (rf2-wbkjk9): the build ALREADY
+                  ;; fanned the always-on :rf.error/sub-input-fn-* record (one
+                  ;; record, one throw); a containment drain must not re-fan.
+                  error-emit/fanned-at-source-key true}})
 
     ;; :frame-destroyed and any unexpected classification — fan + throw typed.
     (throw-frame-destroyed! 're-frame.substrate.observation/acquire!
@@ -596,41 +616,51 @@
                    :registry-epoch @registry-epoch*})))))
 
 (defn- report-disposal-notify-escape!
-  "Fan an escaping former-owner `on-change` failure onto the ALWAYS-ON
-  error-emit axis (surface #4) so it is SEEN even when the drain boundary
-  swallows the propagated throw. The `:hmr` drain runs INSIDE the registrar
-  replacement hook, whose per-hook `try/catch` DROPS the throw (registrar
-  isolates replacement-hook failures — `re-frame.registrar`), and the
-  `:disposed` drain rides `interop/next-tick` (a JVM Future whose result is
-  never inspected); either boundary would otherwise make the escape invisible
-  exactly where it matters — so NEITHER a typed NOR an untyped `on-change`
-  failure may depend on the rethrow being observed.
+  "Surface an escaping former-owner `on-change` failure EXACTLY ONCE per
+  runtime error (Spec 009's one-runtime-error law) even though the drain
+  boundary swallows the propagated throw. The `:hmr` drain runs INSIDE the
+  registrar replacement hook, whose per-hook `try/catch` DROPS the throw
+  (registrar isolates replacement-hook failures — `re-frame.registrar`), and
+  the `:disposed` drain rides `interop/next-tick` (a JVM Future whose result
+  is never inspected); either boundary would otherwise make the escape
+  invisible exactly where it matters — so NEITHER a typed NOR an untyped
+  `on-change` failure may depend on the rethrow being observed.
 
-  BOTH escape kinds are surfaced, so a former-owner `on-change` bug is NEVER
-  silently lost at a disposal boundary (rf2-6ui49w) — only the catalogue id
-  differs:
+  Classification is by FIRST-EMISSION PROVENANCE plus the canonical
+  thrown-error SHAPE — never by `:rf.error/id` truthiness (rf2-wbkjk9), and
+  never a global seen-error registry:
 
-    - a TYPED re-frame escape (its `ex-data` carries a catalogued
-      `:rf.error/id`) is re-surfaced under its OWN id, so its identity is
-      preserved. The dev `:rf.error/reentrant-graph-op` assert — an `on-change`
-      mutating graph ownership mid-notification — is the motivating case: it is
-      a plain dev throw with no axis-1 fan of its own, so this IS its only
-      always-on appearance, and it exists TO BE SEEN (Spec 009).
-    - an UNTYPED escape (a raw consumer-callback bug from re-frame.ui's
-      `on-change` — a `TypeError` / `AssertionError` / host `RuntimeException`,
-      or a defect before any typed wrapping) is wrapped in the stable
-      catalogued `:rf.error/observation-on-change-failed`, carrying the original
-      throwable as the record's `:exception` cause.
-
-  Exactly ONE always-on record per escape: the typed-vs-untyped choice is the
-  SOLE id (a typed error is never ALSO fanned under the untyped wrapper), so
-  typed errors keep their catalogue identity and are not double-reported."
+    - ALREADY FANNED AT SOURCE (`error-emit/fanned-at-source?` — the port's
+      own emit-then-throw surfaces stamp it: `read` on a released lease,
+      probe/acquire fail-loud throws, the ABI guard, and the acquire-recovery
+      throws whose category the sub BUILD already surfaced): the source's
+      record IS the exactly-once emission, carrying the SOURCE's correct
+      frame/query attribution. Re-fanning here would double-report the one
+      runtime error and overwrite that attribution with the NOTIFYING owner's
+      context. Nothing more is emitted, on either channel.
+    - UNFANNED CANONICAL TYPED (`error-emit/canonical-typed-error?` without
+      the provenance stamp — a plain framework throw with no fan of its own):
+      re-surfaced exactly once under its OWN id, attributed to the notifying
+      former owner. The dev `:rf.error/reentrant-graph-op` assert — an
+      `on-change` mutating graph ownership mid-notification — is the
+      motivating case: this IS its only always-on appearance, and it exists
+      TO BE SEEN (Spec 009).
+    - EVERYTHING ELSE — untyped (a raw consumer-callback bug from
+      re-frame.ui's `on-change`: a `TypeError` / `AssertionError` / host
+      `RuntimeException`), a missing or MALFORMED `:rf.error/id`
+      (non-keyword), or an id outside the reserved `rf.error` namespace (an
+      application ex-info must not SPOOF a canonical framework category) —
+      is wrapped exactly once in the stable catalogued
+      `:rf.error/observation-on-change-failed`, carrying the original
+      throwable as the record's `:exception` cause."
   [lease exception]
-  (let [{:keys [frame-id query-v]} @(lease-state lease)
-        error-id (or (:rf.error/id (ex-data exception))
+  (when-not (error-emit/fanned-at-source? exception)
+    (let [{:keys [frame-id query-v]} @(lease-state lease)
+          error-id (if (error-emit/canonical-typed-error? exception)
+                     (:rf.error/id (ex-data exception))
                      :rf.error/observation-on-change-failed)]
-    (error-emit/dispatch-on-error!
-      error-id query-v (first query-v) frame-id exception 0 (interop/now-ms))))
+      (error-emit/dispatch-on-error!
+        error-id query-v (first query-v) frame-id exception 0 (interop/now-ms)))))
 
 (defn ^:no-doc drain-pending-disposals!
   "Drain the queued node-disposed notifications whose INTRINSIC cause is
@@ -651,15 +681,18 @@
   Each lease's notification is CONTAINED in its own `try/catch` so one owner's
   throwing `on-change` cannot starve its siblings (rf2-vxgfnd.28 — this was the
   one uncontained fan-out; it mirrors registrar's per-hook and subs.cache's
-  per-reaction dispose containment). Every sibling is notified; EVERY escape —
-  typed OR untyped — is fanned onto the always-on axis so it survives a
-  swallowing boundary (rf2-6ui49w: a typed escape keeps its catalogue id, an
-  untyped consumer-callback bug is wrapped in
-  `:rf.error/observation-on-change-failed`; see
+  per-reaction dispose containment). Every sibling is notified; EVERY escape is
+  surfaced EXACTLY ONCE so it survives a swallowing boundary without violating
+  Spec 009's one-runtime-error law (rf2-6ui49w + rf2-wbkjk9: an escape whose
+  source already fanned its record is left with its source's exactly-once
+  emission; an unfanned canonical typed escape keeps its catalogue id; an
+  untyped / malformed-id / non-catalogued-id consumer-callback bug is wrapped
+  in `:rf.error/observation-on-change-failed` — see
   [[report-disposal-notify-escape!]]); then the first escape is re-thrown AFTER
-  the whole drain for any DIRECT caller, but correctness never depends on the
-  registrar / next-tick boundary observing that rethrow — the always-on fan IS
-  the visibility. Never silent, never starving."
+  the whole drain for any DIRECT caller, with its identity/cause intact, but
+  correctness never depends on the registrar / next-tick boundary observing
+  that rethrow — the surfaced record IS the visibility. Never silent, never
+  starving, never double-reported."
   [cause]
   (let [[old _new] (swap-vals! pending-disposals
                                (fn [pending]
@@ -1449,7 +1482,14 @@
               're-frame.substrate.observation/read
               reason
               {:extra {:frame          (:frame-id st)
-                       :rf.sub/query-v (:query-v st)}})))
+                       :rf.sub/query-v (:query-v st)
+                       ;; First-emission provenance (rf2-wbkjk9): the record
+                       ;; above is the exactly-once emission, attributed to
+                       ;; THIS released lease's own frame/query — a
+                       ;; containment drain catching this throw (an on-change
+                       ;; reading a released lease) must not re-fan it under
+                       ;; the notifying owner's context.
+                       error-emit/fanned-at-source-key true}})))
         ;; Resolve the JVM WeakReference ONCE and hold the result strongly across
         ;; the canonicality check + deref. A GC between two lookups could clear
         ;; the second lookup even after the first proved the node canonical.

@@ -1692,6 +1692,192 @@
              "the abandoned lease was reclaimed once its node record's weak key died")))))
 
 ;; ===========================================================================
+;; rf2-wbkjk9 — exact-once first-emission provenance in the disposal-notify
+;; escape drain: no double emission, no category spoofing
+;;
+;; #5782 (rf2-6ui49w) made swallowed on-change failures visible, but
+;; report-disposal-notify-escape! re-dispatched EVERY throwable carrying a
+;; truthy :rf.error/id. Two defects:
+;;
+;;   1. DOUBLE EMISSION — a callback that calls an observation op which
+;;      emits-then-throws (obs/read on a released lease) got its category
+;;      fanned TWICE: once at the source (with the source's correct
+;;      frame/query attribution) and once by the drain (with the NOTIFYING
+;;      owner's context overwriting it). Two always-on records for one
+;;      runtime error — a Spec 009 one-runtime-error-law violation.
+;;   2. CATEGORY SPOOFING — an application ex-info carrying any truthy
+;;      :rf.error/id (`:app/not-catalogued`, a malformed non-keyword, or a
+;;      bare imitation of a canonical id) was re-dispatched as though it
+;;      were a catalogued framework category.
+;;
+;; The fix is explicit FIRST-EMISSION PROVENANCE on the throwable (the
+;; port's emit-then-throw sites stamp `error-emit/fanned-at-source-key`
+;; into the thrown ex-data) plus the canonical thrown-error SHAPE check
+;; (`error-emit/canonical-typed-error?`) — never :rf.error/id truthiness,
+;; never a global seen-error registry:
+;;
+;;   - already-fanned typed  → nothing more (the source's record IS the
+;;     exactly-once record, attribution intact);
+;;   - unfanned canonical typed → exactly once under its ORIGINAL id;
+;;   - untyped / malformed-id / non-catalogued id → exactly one stable
+;;     :rf.error/observation-on-change-failed wrapper.
+;;
+;; Red-before-fix: with the provenance/choke-point repair reverted, the
+;; released-lease fixtures below observe TWO read-after-release records
+;; (the second with stolen attribution) and the spoof fixtures observe the
+;; application id fanned as a framework category.
+;; ===========================================================================
+
+(defn- reg-other! []
+  (rf/reg-sub :obs/other (fn [db _] (:items db))))
+
+(defn- other-target []
+  (obs/resolve-target {:frame fid :query-v [:obs/other]}))
+
+(deftest hmr-drain-does-not-double-emit-an-already-fanned-typed-escape
+  (reg-items!)
+  (reg-other!)
+  (seed-items! [:a])
+  ;; A lease on a DIFFERENT sub, already released — reading it is the
+  ;; deterministic emit-then-throw composition: obs/read first fans
+  ;; :rf.error/read-after-release (with the RELEASED lease's own
+  ;; [:obs/other] attribution), then throws the marked typed error.
+  (let [released (obs/acquire! (other-target) (fn [_]))]
+    (obs/release! released)
+    (let [live (obs/acquire! (items-target) (fn [_n] (obs/read released)))]
+      ;; HMR re-registration of :obs/items drains the :hmr boundary; the
+      ;; live owner's on-change reads the released lease.
+      (let [[[outcome _] records] (with-error-records #(reg-items!))]
+        (is (= :ok outcome) "the registrar isolates the replacement hook")
+        (let [rar (filterv #(= :rf.error/read-after-release (:error %)) records)]
+          (testing "EXACTLY one always-on record for the one runtime error —
+                    the source's own emission; the drain does not re-fan an
+                    already-fanned typed escape (rf2-wbkjk9)"
+            (is (= 1 (count rar))))
+          (testing "the surviving record keeps the SOURCE's attribution (the
+                    released lease's own sub), never the notifying owner's
+                    [:obs/items] context"
+            (is (= :obs/other (:event-id (first rar))))
+            (is (= [:obs/other] (:event (first rar))))))
+        (testing "a typed escape is never ALSO wrapped"
+          (is (empty? (filterv #(= :rf.error/observation-on-change-failed (:error %))
+                               records)))))
+      (obs/release! live))))
+
+(deftest disposed-drain-classifies-mixed-escapes-exactly-once-each
+  (reg-items!)
+  (reg-other!)
+  (seed-items! [:a])
+  (with-redefs [interop/next-tick (fn [_f] nil)]
+    (let [released (obs/acquire! (other-target) (fn [_]))
+          _        (obs/release! released)
+          boom     (ex-info "untyped on-change boom" {::boom true})
+          notes    (atom [])
+          ;; Owner A — already-fanned typed: reads the released lease.
+          la (obs/acquire! (items-target) (fn [_n] (obs/read released)))
+          ;; Owner B — untyped consumer bug.
+          lb (obs/acquire! (items-target) (fn [_n] (throw boom)))
+          ;; Owner C — healthy sibling that MUST still be notified.
+          lc (obs/acquire! (items-target) (fn [n] (swap! notes conj n)))]
+      (is (= 3 (obs/active-owner-count (:reaction (entry [:obs/items])))))
+      (force-dispose-node! [:obs/items])
+      (let [[[outcome thrown] records]
+            (with-error-records #(obs/drain-pending-disposals! :disposed))]
+        (testing "the COMPLETE sibling drain ran despite two throwing owners"
+          (is (= 1 (count @notes)))
+          (is (= :disposed (:cause (first @notes)))))
+        (testing "the already-fanned typed escape appears EXACTLY once, with
+                  its source attribution"
+          (let [rar (filterv #(= :rf.error/read-after-release (:error %)) records)]
+            (is (= 1 (count rar)))
+            (is (= :obs/other (:event-id (first rar))))))
+        (testing "the untyped escape appears EXACTLY once, wrapped, carrying
+                  the original throwable"
+          (let [wrapped (filterv #(= :rf.error/observation-on-change-failed (:error %))
+                                 records)]
+            (is (= 1 (count wrapped)))
+            (is (identical? boom (:exception (first wrapped))))))
+        (testing "the FIRST escape is rethrown to the direct caller with
+                  identity/cause intact (owner-set order is unordered, so it
+                  is ONE of the two originals — never a re-wrap)"
+          (is (= :threw outcome))
+          (is (or (identical? boom thrown)
+                  (= :rf.error/read-after-release (error-id thrown))))))
+      (obs/release! la)
+      (obs/release! lb)
+      (obs/release! lc))))
+
+(deftest disposed-drain-surfaces-an-unfanned-typed-escape-exactly-once-under-its-own-id
+  (reg-items!)
+  (seed-items! [:a])
+  (with-redefs [interop/next-tick (fn [_f] nil)]
+    (let [bad (atom nil)
+          ;; The motivating unfanned canonical typed case: a forbidden
+          ;; reentrant release! from inside the fan-out throws the dev
+          ;; :rf.error/reentrant-graph-op assert — a plain typed throw with
+          ;; NO always-on fan of its own; the drain owns its first (and
+          ;; only) emission.
+          la  (obs/acquire! (items-target) (fn [_n] (obs/release! @bad)))]
+      (reset! bad la)
+      (force-dispose-node! [:obs/items])
+      (let [[[outcome thrown] records]
+            (with-error-records #(obs/drain-pending-disposals! :disposed))]
+        (let [rg (filterv #(= :rf.error/reentrant-graph-op (:error %)) records)]
+          (testing "visible EXACTLY once under its ORIGINAL id"
+            (is (= 1 (count rg))))
+          (testing "attributed to the notifying former owner's entry sub and
+                    carrying the escape as the record's cause"
+            (is (= :obs/items (:event-id (first rg))))
+            (is (identical? thrown (:exception (first rg))))))
+        (testing "a canonical typed escape is never wrapped"
+          (is (empty? (filterv #(= :rf.error/observation-on-change-failed (:error %))
+                               records))))
+        (is (= :threw outcome))
+        (is (= :rf.error/reentrant-graph-op (error-id thrown)))))))
+
+(deftest hmr-drain-wraps-spoofed-and-malformed-ids-instead-of-fanning-them
+  (reg-items!)
+  (seed-items! [:a])
+  (let [;; A non-catalogued APPLICATION id — must not ride the always-on
+        ;; axis as though it were a canonical framework category.
+        app-boom       (ex-info "app boom" {:rf.error/id :app/not-catalogued})
+        ;; A MALFORMED id (non-keyword) — same wrapper arm.
+        malformed-boom (ex-info "malformed boom" {:rf.error/id "not-a-keyword"})
+        ;; A bare IMITATION of a canonical id (reserved namespace but not
+        ;; the canonical thrown-error shape — no :reason sentence): id
+        ;; truthiness alone must not spoof the category.
+        imitation-boom (ex-info "imitation boom"
+                                {:rf.error/id :rf.error/handler-exception})
+        notes  (atom [])
+        la (obs/acquire! (items-target) (fn [_n] (throw app-boom)))
+        lb (obs/acquire! (items-target) (fn [_n] (throw malformed-boom)))
+        lc (obs/acquire! (items-target) (fn [_n] (throw imitation-boom)))
+        ld (obs/acquire! (items-target) (fn [n] (swap! notes conj n)))]
+    (let [[[outcome _] records] (with-error-records #(reg-items!))]
+      (is (= :ok outcome))
+      (testing "the healthy sibling was still notified"
+        (is (= 1 (count @notes)))
+        (is (= :hmr (:cause (first @notes)))))
+      (testing "no spoofed category reaches the always-on axis"
+        (is (empty? (filterv #(= :app/not-catalogued (:error %)) records)))
+        (is (empty? (filterv #(= "not-a-keyword" (:error %)) records)))
+        (is (empty? (filterv #(= :rf.error/handler-exception (:error %)) records))))
+      (testing "each throwable produced EXACTLY one stable wrapper record,
+                carrying its original throwable as the cause"
+        (let [wrapped (filterv #(= :rf.error/observation-on-change-failed (:error %))
+                               records)
+              causes  (set (map :exception wrapped))]
+          (is (= 3 (count wrapped)))
+          (is (contains? causes app-boom))
+          (is (contains? causes malformed-boom))
+          (is (contains? causes imitation-boom))
+          (is (every? #(= :obs/items (:event-id %)) wrapped)))))
+    (obs/release! la)
+    (obs/release! lb)
+    (obs/release! lc)
+    (obs/release! ld)))
+
+;; ===========================================================================
 ;; ABI guard
 ;; ===========================================================================
 
