@@ -1,10 +1,15 @@
 (ns re-frame.ui.digest-probe.base
   (:require [re-frame.ui :as ui]
             [re-frame.ui.client :as client]
+            ;; A loaded application source in the base module: the
+            ;; runtime-activation probe (counterexample 2) edits it to throw at
+            ;; top-level during a compile-valid hot reload.
+            [re-frame.ui.digest-probe.loaded :as loaded]
             [shadow.cljs.devtools.client.browser :as shadow-browser]))
 
 (ui/defview base-view []
-  [:main {:data-probe "base"} "digest probe"])
+  [:main {:data-probe "base"} "digest probe"
+   [loaded/loaded-view]])
 
 (defn init []
   ;; The carrier is a read-time O(1) value. Keep the accessor stable across

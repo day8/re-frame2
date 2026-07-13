@@ -23,7 +23,19 @@ const IMPL = path.join(__dirname, '..');
 const LAZY_SOURCE = path.join(
   IMPL, 'ui', 'test', 're_frame', 'ui', 'digest_probe', 'lazy.cljs',
 );
+const LOADED_SOURCE = path.join(
+  IMPL, 'ui', 'test', 're_frame', 'ui', 'digest_probe', 'loaded.cljs',
+);
 const OUT = path.join(IMPL, 'out', 'ui-digest-probe-lazy');
+const LAZY_JS = path.join(OUT, 'lazy.js');
+const CARRIER_JS = path.join(
+  OUT, 'cljs-runtime', 're_frame.ui.digest_carrier.js',
+);
+// Opt-in adversarial assertion of the still-open downstream-output invariant
+// (counterexample 1). Off by default so the gate stays green while the fix —
+// artifact generation/activation separation — is a hot-zone follow-up; set to
+// "1" to assert the fixed behaviour (red-before-fix).
+const ASSERT_DOWNSTREAM_OUTPUT = process.env.RF2_PROBE_ACTIVATION_TXN === '1';
 const TARGET = path.join(IMPL, 'target', 'ui-digest-probe');
 const FAIL_MARKER = path.join(TARGET, 'fail-after-compile');
 const ACCEPTED_FILE = path.join(TARGET, 'accepted-digest.txt');
@@ -179,9 +191,15 @@ async function readBrowserDigest(page) {
 }
 
 async function waitForDigestChange(page, prior, timeout = TIMEOUT) {
+  // Wait for a NEW fully-activated digest, not merely any change: a hot reload
+  // fences reads fail-closed (null) between before-load and after-load, so the
+  // stable post-promotion value is a bd1 digest that differs from `prior`.
   await page.waitForFunction(
-    (oldDigest) => typeof globalThis.__rf2ReadDigest === 'function' &&
-                   globalThis.__rf2ReadDigest() !== oldDigest,
+    (oldDigest) => {
+      if (typeof globalThis.__rf2ReadDigest !== 'function') return false;
+      const d = globalThis.__rf2ReadDigest();
+      return typeof d === 'string' && d.startsWith('bd1-') && d !== oldDigest;
+    },
     prior,
     { timeout },
   );
@@ -297,6 +315,7 @@ async function proveHooklessBuildFailsClosed(shadowRunner, browser, activePage, 
 
 async function main() {
   const original = fs.readFileSync(LAZY_SOURCE, 'utf8');
+  const loadedOriginal = fs.readFileSync(LOADED_SOURCE, 'utf8');
   if (!original.includes('digest-probe-v1')) {
     fail('lazy fixture is not at its checked-in v1 marker');
   }
@@ -391,6 +410,43 @@ async function main() {
       fail('late failed pass changed active runtime or accepted JVM witness');
     }
 
+    // Counterexample 1 — the downstream-OUTPUT invariant the active-runtime
+    // witness above does NOT cover. Shadow's browser target flushed candidate
+    // d3 to the stable module URLs BEFORE the intentional :flush failure, then
+    // rolled its functional build-state back to accepted d2. So `/base.js`'s
+    // carrier and `/lazy.js` on disk hold rejected candidate d3 while compiler
+    // authority is d2: a hard reload or a first lazy import would execute /
+    // advertise d3. The fix is artifact generation/activation separation —
+    // stable URLs/manifests must keep resolving to the accepted generation
+    // until the whole pipeline succeeds. That is a Shadow output/flush surface
+    // beyond this carrier's fence (hot-zone shadow-cljs.edn), so this probe
+    // DOCUMENTS the gap by default and only ASSERTS the fixed behaviour under
+    // RF2_PROBE_ACTIVATION_TXN=1 (red-before-fix).
+    const servedLazy = fs.existsSync(LAZY_JS)
+      ? fs.readFileSync(LAZY_JS, 'utf8') : '';
+    const servedCarrier = fs.existsSync(CARRIER_JS)
+      ? fs.readFileSync(CARRIER_JS, 'utf8') : '';
+    const lazyServesRejected = servedLazy.includes('digest-probe-v3');
+    // The accepted digest is d2; a stable carrier that no longer contains d2
+    // (its bytes moved to the rejected candidate d3) is servable-rejected.
+    const carrierServesRejected =
+      servedCarrier.length > 0 && !servedCarrier.includes(digest2);
+    if (lazyServesRejected || carrierServesRejected) {
+      const note =
+        `downstream-output gap: stable URLs serve rejected candidate d3 ` +
+        `after the failed :flush (lazy=${lazyServesRejected}, ` +
+        `carrier-not-d2=${carrierServesRejected}); accepted authority is d2 ` +
+        `(${digest2}). A hard reload / first lazy import would activate d3.`;
+      if (ASSERT_DOWNSTREAM_OUTPUT) {
+        fail(note);
+      }
+      console.log(`ui digest carrier: KNOWN GAP (rf2-vxgfnd.193 followup) — ${note}`);
+    } else {
+      console.log(
+        'ui digest carrier: downstream output stayed on the accepted generation',
+      );
+    }
+
     // Recovery success starts from Shadow's retained d2 state, not the failed
     // candidate or a macro ghost, then publishes one new byte-identical scalar.
     fs.rmSync(FAIL_MARKER, { force: true });
@@ -419,11 +475,94 @@ async function main() {
       fail('browser fetched the lazy module during the proof');
     }
 
+    // Counterexample 2 — the runtime-activation fence. A LOADED base-module
+    // source (loaded.cljs) is edited compile-valid but to throw at top-level
+    // BEFORE its view re-registers. The build compiles, Shadow hot-reloads, the
+    // carrier evaluates first and STAGES the candidate, then the throwing source
+    // stops the reload before after-load — so the candidate is never promoted.
+    // Digest reads must be fail-closed (nil), never the candidate. (Removing the
+    // before/after-load fence would publish the candidate on carrier evaluation,
+    // failing the null assertion below.)
+    const loadedV1 = fs.readFileSync(LOADED_SOURCE, 'utf8');
+    if (!loadedV1.includes('loaded-probe-v1') || !loadedV1.includes('(when false')) {
+      fail('loaded fixture is not at its checked-in inert v1 markers');
+    }
+    if (!(await page.evaluate(() => globalThis.__rf2LoadedExecuted === true))) {
+      fail('loaded base-module source did not execute on the initial page load');
+    }
+    // Shadow catches a reloaded-source top-level throw inside its reload driver
+    // (routing it to the load-failure path, which is exactly why after-load is
+    // skipped), so it surfaces on the console rather than as an uncaught
+    // pageerror. Capture both as informational witnesses; the hard signal is
+    // the fail-closed read below.
+    let sawThrow = null;
+    const onPageError = (error) => {
+      if (error.message.includes('counterexample-2 top-level throw')) sawThrow = error.message;
+    };
+    const onConsole = (msg) => {
+      const text = msg.text();
+      if (text.includes('counterexample-2 top-level throw') ||
+          (text.includes('digest_probe/loaded') && /fail|error/i.test(text))) {
+        sawThrow = sawThrow || text;
+      }
+    };
+    page.on('pageerror', onPageError);
+    page.on('console', onConsole);
+
+    const successC2 = shadow.successCount();
+    const throwing = replaceExactly(
+      replaceExactly(loadedV1, 'loaded-probe-v1', 'loaded-probe-v2'),
+      '(when false', '(when true',
+    );
+    fs.writeFileSync(LOADED_SOURCE, throwing);
+    await shadow.waitSuccess(successC2);   // compile-valid: the build completes
+    // The hot reload fences reads (before-load), the carrier stages the
+    // candidate, then loaded.cljs throws before registration — so after-load
+    // never promotes. A read fail-closing to null can ONLY happen when a hot
+    // reload started (before-load ran) and did not finish (after-load skipped):
+    // that is the runtime-activation fence holding. Reads must never advertise
+    // the staged candidate.
+    await page.waitForFunction(
+      () => typeof globalThis.__rf2ReadDigest === 'function' &&
+            globalThis.__rf2ReadDigest() === null,
+      null,
+      { timeout: TIMEOUT },
+    );
+    const stampedC2 = await page.evaluate(() => globalThis.__rf2ReadDigest());
+    if (stampedC2 !== null) {
+      fail(`runtime advertised an unactivated digest after a loaded throw: ${stampedC2}`);
+    }
     console.log(
-      `ui digest carrier: PASS (${digest1} -> ${digest2} -> failed/LKG -> ${digest3})`,
+      `ui digest carrier: loaded-source throw left reads fail-closed` +
+      (sawThrow ? ` (witnessed: ${String(sawThrow).slice(0, 80)})` : ''),
+    );
+    page.off('pageerror', onPageError);
+    page.off('console', onConsole);
+
+    // A successful retry re-activates: restore the clean loaded source, the
+    // reload runs after-load, and reads recover to a real bd1 digest.
+    const successC2b = shadow.successCount();
+    fs.writeFileSync(LOADED_SOURCE, loadedV1);
+    await shadow.waitSuccess(successC2b);
+    await page.waitForFunction(
+      () => typeof globalThis.__rf2ReadDigest === 'function' &&
+            typeof globalThis.__rf2ReadDigest() === 'string' &&
+            globalThis.__rf2ReadDigest().startsWith('bd1-'),
+      null,
+      { timeout: TIMEOUT },
+    );
+    const recoveredC2 = await page.evaluate(() => globalThis.__rf2ReadDigest());
+    if (!/^bd1-[0-9a-f]{16}$/.test(recoveredC2)) {
+      fail(`successful retry did not re-activate a real digest: ${recoveredC2}`);
+    }
+
+    console.log(
+      `ui digest carrier: PASS (${digest1} -> ${digest2} -> failed/LKG -> ${digest3}` +
+      ` -> loaded-throw/fail-closed -> ${recoveredC2})`,
     );
   } finally {
     fs.writeFileSync(LAZY_SOURCE, original);
+    fs.writeFileSync(LOADED_SOURCE, loadedOriginal);
     fs.rmSync(FAIL_MARKER, { force: true });
     if (browser) await browser.close();
     if (shadow) await terminateProcessTree(shadow.child, { timeoutMs: 5000 });
