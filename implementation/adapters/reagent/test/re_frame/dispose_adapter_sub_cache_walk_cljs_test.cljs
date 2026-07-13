@@ -187,6 +187,38 @@
           (is (= {} @(:sub-cache (frame/frame :walk/b)))
               "walk/b's cache was still cleared after the throwing walk/a entry"))))))
 
+(deftest claimed-generation-cleanup-keeps-public-delegation-terminal
+  (testing "cleanup disposes through its claimed generation while every public
+  and re-entrant lifecycle path already observes terminal disposal"
+    (rf/make-frame {:id :walk/claimed})
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 1}}))
+    (rf/reg-sub :n (fn [db _] (:n db)))
+    (rf/dispatch-sync [:seed] {:frame :walk/claimed})
+    (let [reaction (rf/subscribe [:n] {:frame :walk/claimed})
+          observed (atom nil)]
+      (is (= 1 @reaction))
+      (ratom/add-on-dispose!
+       reaction
+       (fn [& _]
+         (let [delegation-error
+               (try
+                 (adapter/make-state-container {})
+                 nil
+                 (catch :default e
+                   (:rf.error/id (ex-data e))))]
+           (reset! observed
+                   {:current-spec (adapter/current-adapter-spec)
+                    :delegation-error delegation-error
+                    :nested-destroy (adapter/dispose-adapter!)}))))
+
+      (adapter/dispose-adapter!)
+
+      (is (= {:current-spec nil
+              :delegation-error :rf.error/adapter-disposed
+              :nested-destroy nil}
+             @observed)
+          "the claimed disposer runs without reopening public admission or a second cleanup owner"))))
+
 (deftest dispose-adapter-walk-tolerates-an-empty-frames-registry
   (testing "dispose-adapter! on an installed Reagent adapter with no live
   frames is a no-op (no throw)"

@@ -44,6 +44,10 @@
      :render-root   (fn [root tree] (rdc/render root tree))
      :hydrate-root  (fn [mount-point tree] (rdc/hydrate-root mount-point tree))
      :unmount-root  (fn [root] (rdc/unmount root))
+     ;; Cleanup owns this exact substrate dispatch even after the process
+     ;; lifecycle's terminal claim closes every public routed hook.
+     :disposable?   (fn [a] (satisfies? ratom/IDisposable a))
+     :dispose!      (fn [a] (ratom/dispose! a))
      ;; This is the production synchronous commit primitive. The React
      ;; `flushSync` boundary is required because React 19 otherwise batches
      ;; forceUpdate; `reagent2.dom.client/flush-views!` is the separate test
