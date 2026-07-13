@@ -93,11 +93,11 @@ function emittedJsGolden() {
   // return unnoticed while calls elsewhere continue to satisfy the counts.
   const todoLiteralProps = countMatches(
     src,
-    /\(0,[$\w]+(?:\.[$\w]+)*\.jsxs\)\("li",\{className:"todo-item"/g,
+    /\(0,[$\w]+(?:\.[$\w]+)*\.jsxs\)\("li",\{className:[^,]+,"data-priority":/g,
   );
   const todoPropsIife = countMatches(
     src,
-    /function\(\)\{return\{className:"todo-item"/g,
+    /function\(\)\{return\{className:[^,]+,"data-priority":/g,
   );
 
   const MIN_DIRECT = 10;
