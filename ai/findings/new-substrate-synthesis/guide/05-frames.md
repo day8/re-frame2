@@ -5,9 +5,8 @@ history. Views live *inside* one. Two components manage that relationship, and t
 say which verb they perform.
 
 *(Stage note: the mount grammar and frame-plan extraction are Stage 1; runtime ENSURE
-preflight and provider scoping shipped with the S2 reactive core — all on main today.
-The `(frame)` ops map *(lands S2)* is the remaining S2 piece; `ui/dispatch-fn` and
-`effect` land S3.)*
+preflight, provider scoping, and the `(frame)` ops map shipped with the S2 reactive
+core — all on main today. `ui/dispatch-fn` and `effect` land S3.)*
 
 ## `frame-root` — ensure
 

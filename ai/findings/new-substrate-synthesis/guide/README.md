@@ -30,11 +30,12 @@ pages is shipped on main today. That covers the Stage-1 compiler slice (compiled
 templates, props, roots and mounting, `ui/raw` / `ui/html` / `ui/spread`, the Tier-1
 test core) and the Stage-2 reactive core that has since landed: `sub`-driven repaints,
 Tier-1 `sub` reads, `frame-root`'s runtime ENSURE preflight, the `ui/adapter` you hand
-`rf/init!`, and the mounted Tier-3 test surface (`with-root`, `query`, `flush!`). A
+`rf/init!`, the `(frame)` ops map, and the mounted Tier-3 test surface (`with-root`,
+`query`, `flush!`). A
 compact marker like *(lands S3 — committed handlers)* flags a surface whose contract is
 final but whose implementation lands in a later stage; the spelling and semantics shown
-are the ruled contract either way. The *(lands S2)* marker survives on just two
-stragglers — `lease` and the `(frame)` ops map. Wave-2 names (`ui/element`, `ui/view`,
+are the ruled contract either way. The *(lands S2)* marker survives on just one
+straggler — `lease`. Wave-2 names (`ui/element`, `ui/view`,
 `ui/portal`, `re-frame.ui.data/render`) are not v1 and only ever appear with that
 qualifier.
 

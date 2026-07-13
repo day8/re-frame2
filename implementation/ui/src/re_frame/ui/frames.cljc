@@ -154,7 +154,8 @@
   is explicit pin > dynamic binding > loud error, and `frame-provider`
   scopes by BINDING the dynamic tier around its subtree's construction
   (`jvm-provider-scope`)."
-  (:require [re-frame.error :as error]
+  (:require [re-frame.core :as rf-core]
+            [re-frame.error :as error]
             [re-frame.frame :as frame]
             [re-frame.late-bind :as late-bind]
             [re-frame.live-frame :as live-frame]
@@ -580,6 +581,135 @@
            (throw (error/ex-info-from-data payload)))))))
 
 ;; ---------------------------------------------------------------------------
+;; (frame) — the compiled operation-bundle body form (rf2-vxgfnd.184)
+;;
+;; The compiler lowers a defview body's `(frame)` to `(frame-ops)`: resolve
+;; the committed frame through THE ambient chain above (the same authority
+;; every frame-scoped UI form uses), then return the standard capture-frame
+;; bundle `{:frame :dispatch :dispatch-sync :subscribe}` locked to that
+;; frame — MINTED BY core's `make-capture-frame` (the one checked-in bundle
+;; constructor; no second frame abstraction). Two substrate-tier additions
+;; over the raw core hold:
+;;
+;;   - STABLE IDENTITY per live incarnation: the bundle is cached keyed by
+;;     the frame's incarnation token (`frame/frame-incarnation-token`), so
+;;     repeated `(frame)` reads across renders return the IDENTICAL bundle
+;;     (rf= memo-friendly) and a render performs no registry construction —
+;;     one map lookup. A destroyed/replaced frame mints a fresh bundle.
+;;   - INCARNATION-FENCED ops: each op checks the captured incarnation is
+;;     still live (`frame/frame-incarnation-live?`) before delegating, so a
+;;     bundle that outlives its frame fails loud with the canonical
+;;     `:rf.error/frame-destroyed` — a destroyed-then-recreated SAME-ID
+;;     frame can never be silently retargeted by a stale carried bundle
+;;     (core's id-locked `capture-frame` alone cannot distinguish that).
+;;
+;; Host-shared: on the JVM the same bundle is returned during a Tier-1
+;; structural render — core's dispatch/dispatch-sync/subscribe are host-
+;; neutral (the ui.test harness itself dispatches on the JVM), so `(frame)`
+;; is NOT a host-only op and never raises `:rf.error/jvm-host-op`.
+;; ---------------------------------------------------------------------------
+
+(defonce ^:private frame-ops-cache
+  ;; frame-id -> {:token <incarnation token> :bundle <ops map>}. Entries are
+  ;; PRUNED by the `:ui/on-frame-destroyed!` hook below; a token mismatch
+  ;; (hard reset, replaced incarnation) re-mints on the next read either way.
+  (atom {}))
+
+(defn reset-frame-ops-cache!
+  "Test/tool hygiene: forget every cached operation bundle. Correctness
+  never depends on this (stale entries fail the token identity check and
+  re-mint); it only releases the cached closures."
+  []
+  (reset! frame-ops-cache {}))
+
+(defn- throw-frame-ops-stale!
+  [frame-id op]
+  (error/throw-error!
+   :rf.error/frame-destroyed 're-frame.ui/frame
+   (str "a (frame) operation bundle captured for frame " (pr-str frame-id)
+        " outlived that frame's incarnation — the frame was destroyed"
+        " (or destroyed and re-created under the same id) after capture."
+        " Bundle ops are locked to the exact incarnation they captured and"
+        " never silently retarget; capture a fresh bundle from a mounted"
+        " view, or hold a frame across lifetimes explicitly with"
+        " rf/capture-frame")
+   {:extra {:frame frame-id :op op}}))
+
+(defn- fence-op-1
+  "Wrap a one-argument bundle op with the incarnation fence."
+  [frame-id token op-name op]
+  (fn [a]
+    (if (frame/frame-incarnation-live? frame-id token)
+      (op a)
+      (throw-frame-ops-stale! frame-id op-name))))
+
+(defn- fence-op-2
+  "Wrap a one-or-two-argument bundle op with the incarnation fence."
+  [frame-id token op-name op]
+  (fn
+    ([a]
+     (if (frame/frame-incarnation-live? frame-id token)
+       (op a)
+       (throw-frame-ops-stale! frame-id op-name)))
+    ([a b]
+     (if (frame/frame-incarnation-live? frame-id token)
+       (op a b)
+       (throw-frame-ops-stale! frame-id op-name)))))
+
+(defn- mint-frame-ops
+  "Build the incarnation-fenced `(frame)` bundle for one live incarnation of
+  `frame-id`. The ops are core's own `make-capture-frame` closures (the
+  stable dispatch/dispatch-sync/subscribe implementations, frame assoc'd
+  LAST so a per-call `:frame` opt cannot override the lock) wrapped in the
+  incarnation fence."
+  [frame-id token]
+  (let [base (rf-core/make-capture-frame frame-id nil)]
+    {:frame         frame-id
+     :dispatch      (fence-op-2 frame-id token :dispatch (:dispatch base))
+     :dispatch-sync (fence-op-2 frame-id token :dispatch-sync (:dispatch-sync base))
+     :subscribe     (fence-op-1 frame-id token :subscribe (:subscribe base))}))
+
+(defn frame-ops
+  "The runtime bridge `(frame)` lowers to (compiler-owned; the public
+  authoring form is `re-frame.ui/frame`). Resolve the committed frame via
+  the ambient chain (`resolve-frame` — explicit scope > dynamic binding >
+  React context > loud `:rf.error/no-frame-context`), require it live
+  (absent/closing raises the canonical `:rf.error/frame-destroyed`), and
+  return the frame-locked operation bundle
+
+      {:frame         <frame-id>
+       :dispatch      (fn ([event] [event opts]))
+       :dispatch-sync (fn ([event] [event opts]))
+       :subscribe     (fn [query-v])}
+
+  Identity is STABLE for one live frame incarnation (cached by incarnation
+  token); ops are incarnation-fenced so a stale bundle fails loud instead
+  of retargeting a same-id replacement frame."
+  []
+  (let [frame-id (resolve-frame :frame 're-frame.ui/frame)
+        token    (frame/frame-incarnation-token frame-id)]
+    (when (or (nil? token)
+              (frame/frame-incarnation-closing? frame-id token))
+      (error/throw-error!
+       :rf.error/frame-destroyed 're-frame.ui/frame
+       (str "(frame) resolved the ambient frame " (pr-str frame-id)
+            " but no live incarnation of it exists — the frame is absent,"
+            " destroyed, or closing. The scope named a frame that no longer"
+            " runs; create/ensure the frame before rendering views scoped"
+            " to it")
+       {:extra {:frame frame-id}}))
+    (let [entry (get @frame-ops-cache frame-id)]
+      (if (and entry (identical? token (:token entry)))
+        (:bundle entry)
+        (-> (swap! frame-ops-cache update frame-id
+                   (fn [e]
+                     (if (and e (identical? token (:token e)))
+                       e
+                       {:token token :bundle (mint-frame-ops frame-id token)})))
+            (get frame-id)
+            :bundle)))))
+
+;; ---------------------------------------------------------------------------
 ;; Scope element builders — the emitted halves
 ;; ---------------------------------------------------------------------------
 
@@ -661,4 +791,8 @@
 (late-bind/set-fn! :ui/on-frame-destroyed!
                    (fn [frame-id]
                      (swap! installed-plans dissoc frame-id)
+                     ;; the destroyed incarnation's cached (frame) bundle can
+                     ;; never be returned again (its token is dead) — prune it
+                     ;; so the closures don't linger for the id's lifetime
+                     (swap! frame-ops-cache dissoc frame-id)
                      (reactive/teardown-frame! frame-id)))

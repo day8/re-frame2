@@ -34,11 +34,16 @@
                      the shared React context. Creates nothing (roots
                      ensure, providers scope — the rf2-nyea0r split)
 
-  S2 adds the one boot adapter:
+  S2 adds the one boot adapter and the ops-bundle body form:
 
     adapter          pass to `(rf/init! ui/adapter)`; the watchable native
                      React observation substrate on CLJS and the same
                      observation contract over the headless atom host on JVM
+    frame            (frame) inside a compiled view body — the frame-locked
+                     operation bundle {:frame :dispatch :dispatch-sync
+                     :subscribe} (the standard capture-frame bundle) bound
+                     to the committed frame; identity stable per live frame
+                     incarnation, ops fail loud once that incarnation dies
 
   Anything not exported here does not exist: no reg-view family, no
   Form-1/2/3, no positional view args, no ratoms/cursors/reactions —
@@ -55,6 +60,12 @@
             [re-frame.ui.reactive :as reactive]
             #?@(:clj  [[re-frame.ui.compiler :as compiler]
                        [re-frame.ui.compiler.root :as root]
+                       ;; JVM: loads the frame machinery so compiled bodies'
+                       ;; lowered `(re-frame.ui.frames/frame-ops)` calls (and
+                       ;; the emitted jvm-provider/root scopes) resolve in any
+                       ;; consumer ns that requires only re-frame.ui — the
+                       ;; CLJS side reaches it through re-frame.ui.client
+                       [re-frame.ui.frames]
                        [re-frame.ui.tree :as tree]
                        [re-frame.substrate.plain-atom :as plain-atom]
                        [re-frame.ui.rules :as rules]]
@@ -280,6 +291,37 @@
         "lease form before the view's final template")
    {:recovery :use-leading-lease-declaration
     :extra {:descriptor-summary (error/diag-value-summary descriptor)}}))
+
+(defn frame
+  "(frame) is the compiler-owned ops-bundle body form: inside a compiled
+  view it returns the frame-locked operation bundle
+
+      {:frame         <frame-id>
+       :dispatch      (fn ([event] [event opts]))
+       :dispatch-sync (fn ([event] [event opts]))
+       :subscribe     (fn [query-v])}
+
+  — the standard capture-frame bundle, bound to the COMMITTED frame (the
+  same ambient resolution every frame-aware UI form uses; frame-provider /
+  frame-root scope it). Bundle identity is stable for one live frame
+  incarnation and its ops fail loud (`:rf.error/frame-destroyed`) once
+  that incarnation is destroyed or replaced — a carried bundle never
+  silently retargets. Accepted occurrences lower to the internal runtime
+  bridge on BOTH hosts; like `sub`, the form is finite and render-time
+  (loops, deferred callbacks, and root expressions are compile errors).
+
+  This var exists for symbol resolution only; a direct call (including
+  from a helper the view compiler cannot inspect) fails loudly. In plain
+  fns, tools, tests, and boot code hold a frame with `rf/capture-frame`
+  instead."
+  []
+  (error/throw-error!
+   :rf.error/ui-tree-malformed 're-frame.ui/frame
+   (str "(ui/frame) executed outside compiler lowering — it is a lexical "
+        "defview body form, not a callable frame helper. Author it inside "
+        "a compiled view body; outside views hold a frame with "
+        "rf/capture-frame")
+   nil))
 
 ;; ---------------------------------------------------------------------------
 ;; Interop compile forms — recognized by the analyzer in templates; the

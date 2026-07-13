@@ -179,7 +179,9 @@
             ;; S2c (rf2-vxgfnd.9) — the SCOPE-only frame-provider form
             frame-provider
             ;; S2 public boot substrate (12 §2 frozen row)
-            adapter}
+            adapter
+            ;; S2 ops-bundle body form (rf2-vxgfnd.184)
+            frame}
          (set (keys (ns-publics 're-frame.ui))))
       "no reg-view family, no Form-1/2/3 helpers, no h macro, no view
        lookup, no ratom/cursor/reaction — Spec 004 §Removed forms"))

@@ -101,6 +101,37 @@
   (is (= :rf.ui.compile/unsupported-form
          (reject-id '[:div {:title (lease {:a 1} {:b 2})}]))))
 
+(deftest frame-finite-sites
+  (is (= :rf.ui.compile/frame-in-loop
+         (reject-id '(for [x xs] [:li {:key x} (:frame (frame))])))
+      "(frame) is a finite render-time site — never per-row")
+  (is (= :rf.ui.compile/frame-in-loop
+         (reject-id '(for [x xs :let [h (frame)]] [:li {:key x} (str h)])))
+      "loop :let modifiers are row-scoped")
+  (is (= :rf.ui.compile/frame-in-loop
+         (reject-id '[:button {:on-click (fn [_] (do-send! (:dispatch (frame))))} "x"]))
+      "deferred callbacks cannot capture the frame at event time — hoist the read")
+  (is (= :rf.ui.compile/frame-in-loop
+         (reject-id '[:button {:on-click [::open (:frame (frame))]} "x"]))
+      "event-vector args evaluate at event time — deferred scope")
+  (is (= :rf.ui.compile/frame-in-loop
+         (reject-id '[:div {:ref (raw-fn (fn [_] (frame)))}]))
+      "raw-fn bodies are host-deferred")
+  (is (= :rf.ui.compile/frame-in-loop
+         (reject-id '[:div {:title (loop [x 0] (frame))}])))
+  (is (= :rf.ui.compile/unsupported-form
+         (reject-id '[:div {:title (frame :app)}]))
+      "(frame) takes no arguments — explicit targeting is frame-provider's job")
+  (is (= :rf.ui.compile/unsupported-form
+         (reject-id '(let [{:keys [x] :or {x (frame)}} value] [:div x])))
+      "binding patterns/defaults cannot own a lexical render site")
+  (is (nil? (reject-id '[:div {:title (-> (frame) :dispatch)}]))
+      "a DIRECT call below a transparent macro is indexed normally")
+  (is (= :rf.ui.compile/unsupported-form
+         (reject-id '[:div {:title (-> x frame)}]))
+      "a bare frame reference below a macro would become an unindexed
+       call after expansion — rejected before expansion can hide it"))
+
 (deftest loop-captured-handlers
   (is (= :rf.ui.compile/loop-capturing-handler
          (reject-id '(for [t ts] [:li {:key (:id t) :on-click [::open (:id t)]} "x"])))

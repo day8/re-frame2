@@ -36,6 +36,7 @@
 (def ^:private ui-spread-fqns #{'re-frame.ui/spread})
 (def ^:private sub-fqns       #{'re-frame.ui/sub})
 (def ^:private lease-fqns     #{'re-frame.ui/lease})
+(def ^:private frame-fqns     #{'re-frame.ui/frame})
 (def ^:private frame-root-fqns #{'re-frame.ui/frame-root})
 (def ^:private frame-provider-fqns #{'re-frame.ui/frame-provider})
 
@@ -83,6 +84,7 @@
 ;; ---------------------------------------------------------------------------
 
 (def ^:private runtime-sub-fqn 're-frame.ui.reactive/sub-read)
+(def ^:private runtime-frame-ops-fqn 're-frame.ui.frames/frame-ops)
 (def ^:private deferred-scope ::deferred-scope)
 (def ^:private transparent-macro-fqns
   "Closed macro set whose arguments are host-independent expression slots,
@@ -231,10 +233,10 @@
 (declare reactive-macro-reference-kind)
 
 (defn- reactive-call-kind
-  "Return :sub/:lease when `x` contains an unshadowed resolved reactive CALL.
-  Quoted data is never executable. This scanner is deliberately about calls,
-  not bare symbols, so a binding pattern may still introduce a local named
-  `sub` or `lease`."
+  "Return :sub/:lease/:frame when `x` contains an unshadowed resolved
+  reactive CALL. Quoted data is never executable. This scanner is
+  deliberately about calls, not bare symbols, so a binding pattern may
+  still introduce a local named `sub`, `lease`, or `frame`."
   [e x locals]
   (let [e* (update e :locals into locals)]
     (cond
@@ -246,6 +248,7 @@
                 (cond
                   (contains? sub-fqns (:fqn info)) :sub
                   (contains? lease-fqns (:fqn info)) :lease
+                  (contains? frame-fqns (:fqn info)) :frame
                   ;; Binding/default forms never pass through rewriting later.
                   ;; An unaudited macro can inject a reactive call even when its
                   ;; invocation carries no visible sub token, so reject it.
@@ -271,17 +274,18 @@
       (and (symbol? x) (not (contains? locals x)))
       (cond
         (env/resolves-to? e* x sub-fqns) :sub
-        (env/resolves-to? e* x lease-fqns) :lease)
+        (env/resolves-to? e* x lease-fqns) :lease
+        (env/resolves-to? e* x frame-fqns) :frame)
       (map? x) (or (some #(reactive-macro-reference-kind e % locals) (keys x))
                    (some #(reactive-macro-reference-kind e % locals) (vals x)))
       (coll? x) (some #(reactive-macro-reference-kind e % locals) x)
       :else nil)))
 
 (defn- bare-reactive-reference-kind
-  "Return :sub/:lease for an unquoted BARE reactive var reference. A direct
-  `(sub ...)`/`(lease ...)` head is not bare—the rewriter owns it—but a
-  threading step such as `(-> query sub)` would become an unindexed call only
-  after macro expansion and must fail loudly."
+  "Return :sub/:lease/:frame for an unquoted BARE reactive var reference. A
+  direct `(sub ...)`/`(lease ...)`/`(frame)` head is not bare—the rewriter
+  owns it—but a threading step such as `(-> query sub)` would become an
+  unindexed call only after macro expansion and must fail loudly."
   [e x locals]
   (let [e* (update e :locals into locals)]
     (cond
@@ -289,12 +293,14 @@
       (and (symbol? x) (not (contains? locals x)))
       (cond
         (env/resolves-to? e* x sub-fqns) :sub
-        (env/resolves-to? e* x lease-fqns) :lease)
+        (env/resolves-to? e* x lease-fqns) :lease
+        (env/resolves-to? e* x frame-fqns) :frame)
       (seq? x)
       (let [h (first x)
             direct? (and (symbol? h) (not (contains? locals h))
                          (or (env/resolves-to? e* h sub-fqns)
-                             (env/resolves-to? e* h lease-fqns)))]
+                             (env/resolves-to? e* h lease-fqns)
+                             (env/resolves-to? e* h frame-fqns)))]
         (some #(bare-reactive-reference-kind e % locals)
               (if direct? (rest x) x)))
       (map? x) (or (some #(bare-reactive-reference-kind e % locals) (keys x))
@@ -514,6 +520,32 @@
                                         "put direct lease forms before the view's one final "
                                         "template; conditional liveness is (lease (when p descriptor))")
                                    {:form f})))
+
+                    (and (symbol? head) (not (contains? locals head))
+                         (env/resolves-to? e* head frame-fqns))
+                    (do
+                      (when-not (= 1 (count f))
+                        (env/fail! e :rf.ui.compile/unsupported-form
+                                   (str "(frame) takes no arguments — it returns the "
+                                        "operation bundle locked to the committed frame; "
+                                        "to target a different frame, scope the subtree "
+                                        "with [frame-provider {:frame f} ...]")
+                                   {:form f}))
+                      (when (or (nil? (:self-id e))
+                                (:in-loop? e)
+                                (contains? locals deferred-scope))
+                        (env/fail! e :rf.ui.compile/frame-in-loop
+                                   (str "(frame) must be a finite render-time site in a "
+                                        "defview — it cannot run in a loop, deferred "
+                                        "callback, raw-fn/ref body, or root expression. "
+                                        "Hoist the read into the view body and let the "
+                                        "callback capture its committed ops bundle")
+                                   {:form f}))
+                      (let [sid (lexical-site-id e :frame f p)]
+                        (env/add-site! e :frame-ops {:sid sid
+                                                     :path (:path e)
+                                                     :expr-path (vec p)})
+                        (with-same-meta f (list runtime-frame-ops-fqn))))
 
                    (fn-form? f) (rw-fn f locals p)
                    (contains? #{'let 'let* 'loop 'loop*} head) (rw-let f locals p)
