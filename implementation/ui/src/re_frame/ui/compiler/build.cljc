@@ -37,6 +37,7 @@
   with a PURE transition. A slice:
 
     {:pass-open? bool
+     :authoritative-members #{ns ...} | nil
      :committed  {source {reg-id {k v}}}   ; last-known-good, per source
      :staged     {source {reg-id {k v}}}   ; the OPEN pass's re-declarations
      :touched    #{source}}                ; sources that re-ran this pass
@@ -55,9 +56,10 @@
 
   ## Pass boundaries (last-known-good publication)
 
-    (begin-build! [id])   a compile pass starts: open the pass and DISCARD
-                          any staging a failed prior pass left (a successful
-                          pass committed at its close, so there is none).
+    (begin-build! [id ms]) a compile pass starts: open the pass, capture the
+                           optional authoritative member set, and DISCARD any
+                           staging a failed prior pass left (a successful pass
+                           committed at its close, so there is none).
     (commit-build! [id])  the pass succeeded: every touched source REPLACES
                           its committed contribution with what it staged
                           (or is evicted if it staged nothing — a dropped
@@ -90,6 +92,7 @@
 ;; ---------------------------------------------------------------------------
 
 (def views       ::views)        ; view-id -> [template-fp hook-sig] (digest)
+(def ^:private view-declarations ::view-declarations) ; view-id -> [ns var]
 (def roots       ::roots)        ; Layer-1 root-site index
 (def plans       ::plans)        ; Layer-1 frame-plan index
 (def descriptors ::descriptors)  ; Root Descriptor index
@@ -102,7 +105,11 @@
 (def ^{:private true
        :doc "An empty per-build slice — the pure transition seed."}
   empty-slice
-  {:pass-open? false :committed {} :staged {} :touched #{}})
+  {:pass-open? false
+   :authoritative-members nil
+   :committed {}
+   :staged {}
+   :touched #{}})
 
 (defonce ^{:private true
            :doc "The ONE authority: build-id -> slice. Every registry, every
@@ -125,20 +132,46 @@
 ;; Ambient build identity
 ;; ---------------------------------------------------------------------------
 
+(defn- any-pass-open?
+  "Whether a lifecycle hook has an open compiler pass in this JVM. Used only
+  with a Shadow-shaped compiler env to reject an unresolved per-thread build
+  id while retaining the documented session fallback for plain CLJS compiler
+  and REPL contexts."
+  []
+  (boolean (some (comp true? :pass-open?) (vals @state))))
+
 #?(:clj
    (defn- shadow-build-id
      "The build id of the compile currently running on THIS thread, read from
      the CLJS compiler env: `cljs.env/*compiler*` (an atom) ->
-     `:shadow.build.cljs-bridge/state` -> `:shadow.build/build-id`. nil
-     outside a shadow compile. Pinned behind this one fn so a shadow upgrade
-     that moves the key breaks here, loudly and in one place."
+     `:shadow.build.cljs-bridge/state` -> `:shadow.build/build-id`. A compiler
+     env is recognized as Shadow-shaped only when that outer bridge marker is
+     present. While a hook-opened pass is live, a recognized bridge with a
+     missing build-id leaf fails loudly rather than using the process-global
+     session fallback. A plain/no-marker compiler env returns nil and uses the
+     documented session fallback. A future migration of the OUTER bridge
+     marker is therefore not independently diagnosable here."
      []
-     (try
-       (when-let [compiler-var (resolve 'cljs.env/*compiler*)]
-         (when-let [compiler-atom @compiler-var]
-           (get-in @compiler-atom
-                   [:shadow.build.cljs-bridge/state :shadow.build/build-id])))
-       (catch Throwable _ nil))))
+     (when-let [compiler-var (resolve 'cljs.env/*compiler*)]
+       (when-let [compiler-atom @compiler-var]
+         (let [compiler-state @compiler-atom
+               shadow-shaped? (contains? compiler-state
+                                         :shadow.build.cljs-bridge/state)
+               build-id (get-in compiler-state
+                                [:shadow.build.cljs-bridge/state
+                                 :shadow.build/build-id])]
+           (when (and shadow-shaped? (nil? build-id) (any-pass-open?))
+             (throw
+              (ex-info
+               (str "re-frame.ui compiler could not resolve shadow's build id "
+                    "while a build pass is open; refusing the session-build "
+                    "fallback because it can route this compilation into a "
+                    "different parallel build")
+               {::error ::shadow-build-id-unresolved
+                :recovery :check-shadow-compiler-env
+                :expected-path [:shadow.build.cljs-bridge/state
+                                :shadow.build/build-id]})))
+           build-id)))))
 
 (defn current-build-id
   "The build id a contribution belongs to: the explicit `*build-id*`
@@ -231,7 +264,7 @@
 
 (defn contribute!
   "Contribute `source`'s `k`->`v` to the plain registry `reg-id` in the
-  ambient build — one `swap!`, pure. The Layer-1 indexes use
+  ambient build — one `swap!`, pure. Collision-sensitive registries use
   `contribute-checked!` for their pre-write conflict check."
   [reg-id source k v]
   (swap! state update (current-build-id)
@@ -239,7 +272,7 @@
   nil)
 
 (defn contribute-checked!
-  "The atomic conflict-checked contribution for a Layer-1 index. Inside ONE
+  "An atomic conflict-checked registry contribution. Inside ONE
   `swap!`: look up `k` in the ambient build's EFFECTIVE map for `reg-id`,
   EXCLUDING `source`'s own rows (a source never conflicts with itself —
   same-source re-declaration replaces), and call `(conflict-fn existing)`. If
@@ -261,6 +294,74 @@
                      (write-slice slice reg-id source k v))))))
     @outcome))
 
+(defn contribute-view-checked!
+  "Atomically contribute one compiled view digest while enforcing declaration
+  identity. `source` (the namespace) remains the pass replacement/eviction
+  unit; `declaration` (`[ns-sym var-name]`) distinguishes an exact same-var
+  HMR/REPL replacement from a different defview claiming the same `view-id`.
+
+  During an open pass, the source's COMMITTED owner is deliberately ignored:
+  that namespace is being replaced wholesale, so its first current
+  declaration may reuse an id after a rename/removal. Its STAGED owner is not
+  ignored, so two distinct current declarations in the same namespace fail.
+  With no pass open, the committed owner is checked so a REPL declaration can
+  replace only itself. Other sources that remain authoritative members always
+  conflict (as do other sources when no prepare membership context exists).
+  The one exception is a COMMITTED owner whose source is absent from the open
+  pass's authoritative member set: it is ignored for admission, but remains
+  committed last-known-good until successful finish evicts it; abort leaves it
+  as last-known-good. Owner + digest writes occur in the SAME `swap!`,
+  preserving cross-namespace atomicity. Returns nil on success or
+  `{:conflict <existing-declaration>}` without writing on conflict."
+  [source declaration view-id digest]
+  (let [outcome (atom nil)]
+    (swap! state update (current-build-id)
+           (fn [slice]
+             (let [slice          (or slice empty-slice)
+                   other-views    (effective slice views source)
+                   other-owner    (get (effective slice view-declarations source)
+                                       view-id)
+                   source-owner   (if (:pass-open? slice)
+                                    (get-in slice
+                                            [:staged source view-declarations view-id])
+                                    (get-in slice
+                                            [:committed source view-declarations view-id]))
+                   ;; A prepare hook captures the already-resolved whole graph.
+                   ;; A committed owner absent from it is stale but remains
+                   ;; last-known-good until successful finish. It must not
+                   ;; block the current member that will replace it.
+                   owner-source   (when (vector? other-owner)
+                                    (first other-owner))
+                   stale-owner?   (and (:pass-open? slice)
+                                       (some? (:authoritative-members slice))
+                                       owner-source
+                                       (not (contains? (:authoritative-members slice)
+                                                       owner-source))
+                                       (= other-owner
+                                          (get-in slice
+                                                  [:committed owner-source
+                                                   view-declarations view-id]))
+                                       (nil? (get-in slice
+                                                     [:staged owner-source
+                                                      view-declarations view-id])))
+                   conflict       (cond
+                                    (and (contains? other-views view-id)
+                                         (not stale-owner?))
+                                    (or other-owner ::other-source)
+
+                                    (and source-owner
+                                         (not= source-owner declaration))
+                                    source-owner
+
+                                    :else nil)]
+               (if conflict
+                 (do (reset! outcome {:conflict conflict}) slice)
+                 (do (reset! outcome nil)
+                     (-> slice
+                         (write-slice view-declarations source view-id declaration)
+                         (write-slice views source view-id digest)))))))
+    @outcome))
+
 ;; ---------------------------------------------------------------------------
 ;; Pass boundaries
 ;; ---------------------------------------------------------------------------
@@ -269,13 +370,24 @@
   "Open a compile pass for `build-id` (the zero-arg form uses the sole
   default build). DISCARDS any staging a failed prior pass left — a
   successful pass commits at its close, so there is normally none — and marks
-  the pass open. Sets the session-build identity fallback so subsequent
-  contributions on the REPL / plain-JVM path route here."
-  ([] (begin-build! ::default))
-  ([build-id]
+  the pass open. `authoritative-members`, when supplied by the build hook from
+  Shadow's already-resolved graph, is open-pass conflict context: a committed
+  declaration owned by a nonmember cannot block its current replacement, but
+  stays last-known-good until successful finish. Sets the session-build
+  identity fallback so subsequent contributions on the REPL / plain-JVM path
+  route here."
+  ([] (begin-build! ::default nil))
+  ([build-id] (begin-build! build-id nil))
+  ([build-id authoritative-members]
    (reset! session-build build-id)
    (swap! state update build-id
-          (fn [s] (assoc (or s empty-slice) :pass-open? true :staged {} :touched #{})))
+          (fn [s]
+            (assoc (or s empty-slice)
+                   :pass-open? true
+                   :authoritative-members (when (some? authoritative-members)
+                                            (set authoritative-members))
+                   :staged {}
+                   :touched #{})))
    nil))
 
 (defn- commit-slice
@@ -289,7 +401,12 @@
                        (if (seq staged) (assoc c src staged) (dissoc c src))))
                    (:committed slice)
                    (:touched slice))]
-    (assoc slice :committed committed :staged {} :touched #{} :pass-open? false)))
+    (assoc slice
+           :committed committed
+           :staged {}
+           :touched #{}
+           :pass-open? false
+           :authoritative-members nil)))
 
 (defn commit-build!
   "Commit the open pass for `build-id`: every touched source's staged
@@ -342,7 +459,12 @@
   ([] (abort-build! (current-build-id)))
   ([build-id]
    (swap! state update build-id
-          (fn [s] (assoc (or s empty-slice) :staged {} :touched #{} :pass-open? false)))
+          (fn [s]
+            (assoc (or s empty-slice)
+                   :staged {}
+                   :touched #{}
+                   :pass-open? false
+                   :authoritative-members nil)))
    nil))
 
 (defn reset-build!
