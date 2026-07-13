@@ -42,8 +42,8 @@
   Tier-3 mounting is deliberately small: `with-root` owns one real React
   mount with total teardown, `query` delegates a native CSS selector to
   that root's container, programmatic `dispatch!` drives S2 framework
-  state, and `flush!` drains framework work to quiescence under React
-  `act`. Ordinary DOM APIs cover already-host-owned mechanics; compiled
+  state, and Promise-backed `flush!` drains framework work to quiescence
+  under awaited React `act`. Ordinary DOM APIs cover already-host-owned mechanics; compiled
   event-vector delivery through native events lands S3. There is no gesture
   DSL and no production `re-frame.ui/flush!` twin.
 
@@ -408,89 +408,190 @@
    {:got got :other-tier 'rf.ui.test/find}))
 
 #?(:cljs
-   (defn- get-act []
-     (or (when (exists? (.-act React)) (.-act React))
-         (try
-           (.-act (js/require "react-dom/test-utils"))
-           (catch :default _ nil)))))
+   (do
+     ;; React 19's supported test boundary is Promise-backed even when the
+     ;; callback happens to be synchronous. Keep one explicit in-flight token:
+     ;; a forgotten await must fail at the second call instead of creating
+     ;; overlapping act scopes whose commit/cleanup order React cannot promise.
+     (defonce ^:private active-act (atom nil))
 
-#?(:cljs
-   (defn- act!
-     "Run synchronous mounted-test work under React's supported test
-     boundary while preserving the caller's act-environment flag."
-     [thunk]
-     (let [act-fn (get-act)]
-       (when-not act-fn
-         (mounted-unavailable! 'rf.ui.test/flush! :react-act-unavailable))
-       (let [prior  (.-IS_REACT_ACT_ENVIRONMENT js/globalThis)
-             result (volatile! nil)]
+     (defn- promise-call
+       [thunk]
+       (try
+         (js/Promise.resolve (thunk))
+         (catch :default e
+           (js/Promise.reject e))))
+
+     (defn- overlapping-act!
+       [where active-where]
+       (error/throw-error!
+        :rf.error/ui-test-overlapping-act where
+        (str "a previous ui.test React act operation from "
+             (pr-str active-where) " is still pending — await each with-root/flush! "
+             "Promise before starting the next mounted-test operation")
+        {:recovery :await-the-prior-operation
+         :extra {:active-where active-where}}))
+
+     (defn- overlap-error
+       "Build the typed overlap error without losing the synchronous public
+       guard. Cleanup uses the returned value as its primary diagnostic while
+       it waits for the in-flight act to settle and reclaims its own root."
+       [where]
+       (when-let [{active-where :where} @active-act]
+         (try
+           (overlapping-act! where active-where)
+           (catch :default e e))))
+
+     (defn- guard-no-active-act!
+       [where]
+       (when-let [{active-where :where} @active-act]
+         (overlapping-act! where active-where)))
+
+     (defn- act!
+       "Run one mounted-test step through React 19's directly imported `act`.
+       Always returns a Promise and restores the caller's act-environment flag
+       only after React settles. Overlap is rejected synchronously."
+       [where thunk]
+       (let [token (js-obj)
+             prior (.-IS_REACT_ACT_ENVIRONMENT js/globalThis)]
+         (guard-no-active-act! where)
+         (reset! active-act {:token token :where where})
          (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
-         (try
-           (act-fn (fn [] (vreset! result (thunk))))
-           @result
-           (finally
-             (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) prior)))))))
+         (letfn [(finish! []
+                   (when (identical? token (:token @active-act))
+                     (reset! active-act nil))
+                   (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) prior))]
+           (let [settled
+                 (try
+                   (-> (js/Promise.resolve
+                        (React/act (fn [] (promise-call thunk))))
+                       (.then (fn [value]
+                                (finish!)
+                                value)
+                              (fn [e]
+                                (finish!)
+                                (throw e))))
+                   (catch :default e
+                     (finish!)
+                     (js/Promise.reject e)))]
+             ;; Publish the exact Promise while this token is still active.
+             ;; Internal teardown can then wait for (and sequence after) the
+             ;; operation it collided with instead of leaking its own Root.
+             (when (identical? token (:token @active-act))
+               (swap! active-act assoc :settled settled))
+             settled))))
 
-#?(:cljs
-   (defn- remember-first-error!
-     [slot thunk]
-     (try
-       (thunk)
-       (catch :default e
-         (when-not @slot (vreset! slot e))))))
+     (defn- act-when-idle!
+       "Internal teardown boundary. Wait through every act already in flight,
+       then claim the next act slot. Public overlap remains a synchronous
+       error; this queue exists only so reporting misuse cannot strand the
+       with-root allocation that discovered it."
+       [where thunk]
+       (if-let [{:keys [settled]} @active-act]
+         (-> (or settled (js/Promise.resolve nil))
+             (.then (fn [_] (act-when-idle! where thunk))
+                    (fn [_] (act-when-idle! where thunk))))
+         (act! where thunk)))
+
+     (defn- remember-first-error!
+       [slot e]
+       (when-not @slot (vreset! slot e))
+       nil)
+
+     (defn- cleanup-step!
+       [slot thunk]
+       (-> (promise-call thunk)
+           (.then (fn [_] nil)
+                  (fn [e]
+                    (remember-first-error! slot e)))))
+
+     (defn- attach-cleanup-diagnostic!
+       "Preserve the primary throwable while retaining a cleanup failure on
+       the ordinary JS Error/ExceptionInfo object for diagnostics."
+       [primary cleanup]
+       (when (and primary cleanup
+                  (or (object? primary) (fn? primary)))
+         (try
+           (js/Object.defineProperty
+            primary "rfUiTestCleanupError"
+            #js {:value cleanup :configurable true})
+           (catch :default _ nil)))
+       primary)))
 
 #?(:cljs
    (defn- with-root*
-     "Runtime owner for the `with-root` macro. The container is attached to
-     `document.body` so focus/selection/layout-sensitive DOM APIs see a real
-     connected tree. Every exit attempts host unmount, container removal,
-     and act-environment restoration; cleanup never masks the primary mount
-     or body failure."
+     "Promise-backed runtime owner for the `with-root` macro. Initial mount
+     settles under React 19 `act` before the body runs; the body may return a
+     value or Promise and is awaited. Every exit awaits host unmount and
+     container removal. Cleanup never masks a primary mount/body failure; a
+     second cleanup failure is attached as `rfUiTestCleanupError`."
      [create-f render-f body-f]
      (when-not (exists? js/document)
        (mounted-unavailable! 'rf.ui.test/with-root :no-dom-host))
+     ;; Fail before createElement/appendChild. A forgotten await must never
+     ;; allocate a container or claim a React root merely to report overlap.
+     (guard-no-active-act! 'rf.ui.test/with-root)
      (let [container     (js/document.createElement "div")
            host-root     (volatile! nil)
            mounted-root  (volatile! nil)
            result        (volatile! nil)
            primary-error (volatile! nil)
-           cleanup-error (volatile! nil)
-           prior-act-env (.-IS_REACT_ACT_ENVIRONMENT js/globalThis)]
+           cleanup-error (volatile! nil)]
        (.setAttribute container "data-rf-ui-test-root" "")
        (.appendChild js/document.body container)
-       (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
-       (try
-         ;; Capture the Root inside the callback: React can surface a render
-         ;; failure at the act boundary after the mount thunk returned.
-         (act! #(let [root (create-f container)]
-                  ;; Creation registers the host root before render. Capture
-                  ;; it first so a throwing initial render is still torn down.
-                  (vreset! host-root root)
-                  (render-f root)))
-         (vreset! mounted-root
-                  (MountedRoot. @host-root container (atom true)))
-         (vreset! result (body-f @mounted-root))
-         (catch :default e
-           (vreset! primary-error e))
-         (finally
+       (->
+        ;; Capture the Root inside the callback: React can surface a render
+        ;; failure at the awaited act boundary after the mount thunk returned.
+        (act! 'rf.ui.test/with-root
+              #(let [root (create-f container)]
+                 ;; Creation registers the host root before render. Capture
+                 ;; it first so a throwing initial render is still torn down.
+                 (vreset! host-root root)
+                 (render-f root)))
+        (.then
+         (fn []
+           ;; Only an ACTUALLY settled initial commit opens the body context.
+           (vreset! mounted-root
+                    (MountedRoot. @host-root container (atom true)))
+           (promise-call #(body-f @mounted-root))))
+        (.then (fn [value]
+                 (vreset! result value)
+                 nil)
+               (fn [e]
+                 (vreset! primary-error e)
+                 nil))
+        (.then
+         (fn []
            (when-let [^MountedRoot r @mounted-root]
              (reset! (.-live? r) false))
-           (when @host-root
-             (remember-first-error!
-              cleanup-error
-              #(act! (fn [] (ui/unmount! @host-root)))))
-           (remember-first-error! cleanup-error #(.remove container))
-           (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) prior-act-env)))
-       (cond
-         @primary-error (throw @primary-error)
-         @cleanup-error (throw @cleanup-error)
-         :else @result))))
+           ;; An un-awaited nested operation can still be inside act when the
+           ;; outer body returns. Preserve that misuse as the rejection, but
+           ;; wait/sequence the host unmount so the outer Root is reclaimed.
+           (when-let [e (overlap-error 'rf.ui.test/with-root)]
+             (remember-first-error! cleanup-error e))
+           (-> (if @host-root
+                 (cleanup-step!
+                  cleanup-error
+                  #(act-when-idle! 'rf.ui.test/with-root
+                                   (fn [] (ui/unmount! @host-root))))
+                 (js/Promise.resolve nil))
+               (.then (fn []
+                        (cleanup-step! cleanup-error #(.remove container)))))))
+        (.then
+         (fn []
+           (cond
+             @primary-error
+             (throw (attach-cleanup-diagnostic! @primary-error @cleanup-error))
+
+             @cleanup-error (throw @cleanup-error)
+             :else @result)))))))
 
 #?(:clj
    (defmacro with-root
-     "`(with-root [root root-form] body...)` — mount the literal root form
-     into a connected, test-owned DOM container, bind its opaque mounted
-     root, then tear down the React root and container on every exit.
+     "`(with-root [root root-form] body...)` — return a Promise that mounts
+     the literal root form into a connected test-owned DOM container, awaits
+     the initial commit, invokes/awaits the body with its opaque mounted root,
+     then awaits teardown of the React root and container on every exit.
 
      Browser/jsdom only. The root form is compiled by the same analyzer and
      emitter as `ui/render!`; each invocation mints a private runtime root
@@ -619,20 +720,7 @@
 ;; flush idiom")
 ;; ---------------------------------------------------------------------------
 
-(defn flush!
-  "`(flush!)` — the TEST-ONLY GLOBAL all-roots flush (07 §2's single flush
-  idiom): synchronously drain EVERY pending ViewCell notification, closing
-  the framework epoch so pending sub deltas advance their cells' revisions
-  before the test's next assertion.
-
-  It is the sole public test flush. There is no public `re-frame.ui/flush!`.
-  On CLJS each drain runs under React `act`; if the resulting commit marks
-  more framework work, the cycle repeats until both layers are quiescent.
-  Calling from inside an event drain fails before any notification or host
-  commit with `:rf.error/flush-in-open-epoch` and frame evidence.
-
-  On the JVM Tier-1 renders are one-shot, so this honestly drains the
-  host-agnostic registry without pretending a DOM exists. Returns nil."
+(defn- guard-open-drain!
   []
   ;; `*run-frame-state-before*` is bound around the current event-pipeline
   ;; run and survives a handler destroying its own frame. A live-registry scan
@@ -648,20 +736,57 @@
             "settle to drain quiescence before forcing the one read/render batch")
        {:recovery :no-recovery
         :extra {:frame frame-id
-                :frame-epoch (rframe/frame-commit-epoch frame-id)}})))
-  #?(:clj
+                :frame-epoch (rframe/frame-commit-epoch frame-id)}}))))
+
+#?(:clj
+   (defn flush!
+     "`(flush!)` — synchronously drain the host-agnostic ViewCell registry on
+     the JVM Tier-1 host. There is no React tree to settle. Returns nil."
+     []
+     (guard-open-drain!)
      (loop []
        (reactive/flush-pending!)
        (when (pos? (reactive/pending-cell-count))
          (recur)))
-     :cljs
-     (loop []
-       (if (exists? js/document)
-         (act! reactive/flush-pending!)
-         (reactive/flush-pending!))
-       (when (pos? (reactive/pending-cell-count))
-         (recur))))
-  nil)
+     nil)
+   :cljs
+   (do
+     (defn- flush-async!
+       [thunk]
+       (letfn [(cycle! [run-thunk]
+                 (-> (act! 'rf.ui.test/flush!
+                           (fn []
+                             (-> (promise-call run-thunk)
+                                 (.then (fn [_]
+                                          (reactive/flush-pending!)
+                                          nil)))))
+                     (.then (fn []
+                              (if (pos? (reactive/pending-cell-count))
+                                (cycle! (fn [] nil))
+                                nil)))))]
+         (cycle! thunk)))
+
+     (defn flush!
+       "The sole public compiled-view test flush.
+
+       `(flush!)` and `(flush! thunk)` return Promises on CLJS. The thunk
+       (when supplied) runs inside awaited React 19 `act`; then framework
+       notifications and React commits alternate to a fixed point. Await the
+       Promise before asserting or beginning another mounted operation.
+
+       The open-event-drain guard runs synchronously BEFORE Promise
+       construction and throws `:rf.error/flush-in-open-epoch`."
+       ([]
+        (guard-open-drain!)
+        (flush-async! (fn [] nil)))
+       ([thunk]
+        (guard-open-drain!)
+        (when-not (fn? thunk)
+          (bad-opts! 'rf.ui.test/flush!
+                     (str "the flush! thunk arity requires a function; got "
+                          (pr-str thunk))
+                     {:got thunk}))
+        (flush-async! thunk)))))
 
 ;; ---------------------------------------------------------------------------
 ;; render (S1: JVM structural render — root-identity-and-mount §9)
