@@ -39,12 +39,18 @@ real registrations, no React:
   `(ui.test/text node)`. Never keyword-look-up an attribute on a node: attrs and events
   live behind the projection, so `(:on-click node)` reads a node *field* that isn't
   there and silently misses.
-- Drive state with real events: `(ui.test/dispatch! frame [:cart/add 42])` — shipped
-  today: real dispatch plus a drain to fixed point — then re-render and
-  assert the button now reads "Remove" *(a re-render that reads `sub` sites rides S2's
-  snapshot path)*. Loading and error states are just app-db values
-  you install or events you dispatch. Stubbing a sub is the explicit option:
+- Drive state with real events: `(ui.test/dispatch! frame [:cart/add 42])` — real
+  dispatch plus a drain to fixed point — then re-render and assert the button now reads
+  "Remove". The whole loop, `sub` reads included, runs on main today. Loading and error
+  states are just app-db values you install or events you dispatch. Stubbing a sub is
+  the explicit option:
   `(ui.test/render [view] {:frame frame :sub-overrides {[:cart/locked?] true}})`.
+- `render` also takes a **literal root form** — the same grammar `mount` accepts:
+  `(ui.test/render [ui/frame-root {:id :shop :initial-events [[:shop/boot]]} [app]] {})`
+  runs the form's frame plans as preflight ENSURE against the test registrar, minting
+  the frames it declares. With a plan-bearing root form, `{:frame …}`/`{:app-db …}` are
+  rejected (the root form owns its frames — pass a bare view to control the frame), and
+  `{:props …}` belongs to the bare-view form only.
 - **Two Tier-1 ground rules.** The events/subs your view touches must be `.cljc` (they run
   on the JVM here — the standard re-frame discipline anyway). And Tier 1 renders the
   *structural subset*: `local` shows its initial value (calling its setter is a typed

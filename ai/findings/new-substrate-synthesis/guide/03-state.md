@@ -12,7 +12,7 @@ A view has four inputs, each with one spelling:
 There is no fifth. No ratoms, cursors, reactions, or external stores — state that matters
 lives in app-db where events, time-travel, Story, and Xray can see it.
 
-## Subscriptions: `sub` *(lands S2 — reactive subs)*
+## Subscriptions: `sub`
 
 ```clojure
 (ui/defview order-summary [{:keys [order-id]}]
