@@ -5,7 +5,7 @@
   frame's app-db on the AMBIENT React-context path — no explicit pin, no
   dynamic `with-frame` binding.
 
-    - .24 publishes the `:adapter/current-frame` reader (re-frame.ui.adapter),
+    - .24 publishes the `:adapter/current-frame` reader (re-frame.ui.substrate),
       so core's `require-current-frame!` — reached by the compiled sub-read
       (`reactive/sub-read` → `observation/resolve-target`) — sees the
       React-context tier under the plain-atom runtime.

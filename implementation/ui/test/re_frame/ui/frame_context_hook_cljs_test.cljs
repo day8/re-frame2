@@ -4,7 +4,7 @@
   headless plain-atom runtime Node can run:
 
     - the reader IS published once `re-frame.ui.frames` (hence
-      `re-frame.ui.adapter`) is on the classpath;
+      `re-frame.ui.substrate`) is on the classpath;
     - with the reader live, an ambient compiled sub-read with NO scope
       established still fails loud with `:rf.error/no-frame-context` (the
       fail-loud contract is PRESERVED — .24 is additive, not a default
@@ -22,7 +22,7 @@
             [re-frame.late-bind :as late-bind]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
-            [re-frame.ui.frames :as frames]      ;; loads re-frame.ui.adapter (the publish)
+            [re-frame.ui.frames :as frames]      ;; loads re-frame.ui.substrate (the publish)
             [re-frame.ui.reactive :as reactive]))
 
 ;; :ambient-frame nil — opt OUT of the fixture's default `:rf/default`
@@ -46,7 +46,7 @@
 
 (deftest reader-is-published-under-plain-atom
   (is (some? (late-bind/get-fn :adapter/current-frame))
-      "re-frame.ui.adapter routed the :adapter/current-frame reader")
+      "re-frame.ui.substrate routed the :adapter/current-frame reader")
   ;; with plain-atom installed and no scope established, the published reader
   ;; resolves nil — no :rf/default floor (EP-0002 carried invariant).
   (is (nil? (frame/resolve-current-frame))

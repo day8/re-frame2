@@ -13,14 +13,13 @@
 
   Browser-only bodies — the `-dom-cljs-test$` suffix opts this file into the
   `:browser-test` build; `:node-test` loads it too, where the DOM body gates on
-  `(browser?)` and no-ops. The UIx function-component spine is the watchable
-  substrate the other browser fixtures use; here it simply provides a real
-  React mount surface for a compiled `defview`."
+  `(browser?)` and no-ops. The first-party `re-frame.ui` adapter is the
+  watchable substrate the other browser fixtures use; here it provides the
+  production observation path beneath a real React mount."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             ["react" :as React]
             ["react-dom" :as react-dom]
             [re-frame.core :as rf]
-            [re-frame.adapter.uix :as uix-adapter]
             [re-frame.test-support :as test-support]
             [re-frame.ui :as ui :refer [defview frame-provider sub]]
             [re-frame.ui.client :as client]
@@ -74,7 +73,7 @@
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
-   {:adapter uix-adapter/adapter :ambient-frame nil})
+   {:adapter ui/adapter :ambient-frame nil})
   (fn [f]
     ;; Enable React's act environment for this ns's DOM tests, then RESTORE the
     ;; prior value so the fixture neither depends on nor leaks the shared-page

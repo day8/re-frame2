@@ -34,6 +34,12 @@
                      the shared React context. Creates nothing (roots
                      ensure, providers scope — the rf2-nyea0r split)
 
+  S2 adds the one boot adapter:
+
+    adapter          pass to `(rf/init! ui/adapter)`; the watchable native
+                     React observation substrate on CLJS and the same
+                     observation contract over the headless atom host on JVM
+
   Anything not exported here does not exist: no reg-view family, no
   Form-1/2/3, no positional view args, no ratoms/cursors/reactions —
   Spec 004 §Removed forms. local/effect and the committed-handler
@@ -48,11 +54,30 @@
             #?@(:clj  [[re-frame.ui.compiler :as compiler]
                        [re-frame.ui.compiler.root :as root]
                        [re-frame.ui.tree :as tree]
+                       [re-frame.substrate.plain-atom :as plain-atom]
                        [re-frame.ui.rules :as rules]]
                 :cljs [[re-frame.ui.client :as client]
+                       [re-frame.ui.substrate :as ui-substrate]
                        [re-frame.ui.eq :as eq]
                        [re-frame.ui.rules :as rules]
                        [re-frame.ui.runtime :as runtime]])))
+
+;; ---------------------------------------------------------------------------
+;; Process substrate
+;; ---------------------------------------------------------------------------
+
+(def adapter
+  "The first-party `re-frame.ui` substrate adapter. Pass it once at boot:
+
+      (rf/init! ui/adapter)
+
+  CLJS installs the retained watchable React substrate (`IDeref` +
+  `IWatchable` derived values), so observation-port movements drive ViewCells
+  without Reagent, UIx, or Helix. JVM uses the headless atom realization of
+  the same closed adapter contract. Both report the canonical discriminator
+  `:rf.adapter/ui`."
+  #?(:clj  (assoc plain-atom/adapter :kind :rf.adapter/ui)
+     :cljs ui-substrate/adapter))
 
 ;; ---------------------------------------------------------------------------
 ;; The component form

@@ -1056,6 +1056,28 @@ test('the G-1 launcher script fires the gate it drives (rf2-vxgfnd.6)', () => {
   assert.equal(result.bundle_isolation, 'true');
 });
 
+test('the UI isolation checker fires the focused gate it implements', () => {
+  const result = classify('implementation/scripts/check-ui-adapter-isolation.cjs');
+  assert.equal(
+    result.cljs_node_test,
+    'true',
+    'the checker-only PR must start the cljs job that owns the focused step',
+  );
+  assert.equal(
+    result.ui_gates,
+    'true',
+    'the checker-only PR must satisfy the focused step condition',
+  );
+
+  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'cljs');
+  assert.match(block, /name: re-frame\.ui focused adapter-artifact isolation/);
+  assert.match(
+    block,
+    /if: needs\.detect_changed_surfaces\.outputs\.ui_gates == 'true'/,
+  );
+  assert.match(block, /npm run test:ui-isolation/);
+});
+
 test('spec-only changes do not arm ui_gates (rf2-vxgfnd.6)', () => {
   assert.notEqual(classify('spec/Conventions.md').ui_gates, 'true');
 });

@@ -21,7 +21,6 @@
             ["react-dom" :as react-dom]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
-            [re-frame.adapter.uix :as uix-adapter]
             [re-frame.test-support :as test-support]
             [re-frame.ui :as ui :refer [defview frame-provider sub]]
             [re-frame.ui.client :as client]
@@ -34,7 +33,7 @@
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
-   {:adapter uix-adapter/adapter :ambient-frame nil})
+   {:adapter ui/adapter :ambient-frame nil})
   (fn [f]
     (reactive/reset-scheduler!)
     (client/reset-live-roots!)

@@ -435,6 +435,14 @@ else
         reagent_slim_bundle=true
         ui_gates=true
         ;;
+      implementation/scripts/check-ui-adapter-isolation.cjs)
+        # The checker IS the focused re-frame.ui dependency-closure gate.
+        # A checker-only PR must start the consolidated CLJS job that owns
+        # that focused step AND satisfy the step's ui_gates condition;
+        # otherwise the gate can silently edit itself out of CI.
+        cljs_node_test=true
+        ui_gates=true
+        ;;
       implementation/reply-conformance/*|implementation/derivation-conformance/*|implementation/event-conformance/*)
         # rf2-dxndhc — the three EP cross-conformance tiers
         # (reply-conformance / derivation-conformance / event-conformance)
