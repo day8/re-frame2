@@ -153,7 +153,7 @@ The fix is one line of ceremony at your root: register a frame and scope your tr
    [app-root]])
 ```
 
-Inside that tree, every bare `dispatch` / `subscribe` you already wrote works unchanged — the frame rides along ambiently. Only *rootless* calls need attention: async callbacks that lost their scope, and top-level boot code with no provider. Those are exactly the wrong-frame footguns v1 used to swallow silently. The skill rewrites bare top-level call sites into a root provider and flags async callbacks for an explicit capture (next).
+Inside that tree, a bare `dispatch` / `subscribe` resolves the frame ambiently — *once the view it runs in can read the provider*. A view registered with `reg-view` can; a plain (unregistered) Reagent fn that dispatches or subscribes cannot, and fails loud with `:rf.error/no-frame-context` ([Views render under a frame scope](#views-render-under-a-frame-scope), below, has the fix). Rootless calls need attention too: async callbacks that lost their scope, and top-level boot code with no provider — exactly the wrong-frame footguns v1 used to swallow silently. The skill rewrites bare top-level call sites into a root provider and flags async callbacks for an explicit capture (next).
 
 !!! note "No `:initial-db` key, and that's deliberate (EP-0027)"
 
@@ -186,7 +186,7 @@ You can also pass `(rf/capture-frame frame-id)` to capture a *named* frame rathe
 
 ### Views render under a frame scope
 
-Plain Reagent fns keep working when they render under an established frame scope. Inside a `frame-provider`, they inherit the frame ambiently like any other call. What no longer works is a plain fn that dispatches or subscribes with *no scope at all* — that fails loud with `:rf.error/no-frame-context` rather than the silent default-frame routing v1 allowed. [`reg-view`](glossary.md#view) adoption is opt-in modernisation, not a migration requirement; it injects frame-bound `dispatch` / `subscribe` and survives more boundaries cleanly. The requirement is simply that a frame scope exist above the view.
+A plain Reagent fn that only renders the props it's handed keeps working under any tree — it never touches a frame. What changes is a plain fn that *itself* dispatches or subscribes: it carries no `:contextType`, so it can't read the frame from an enclosing `frame-provider` (the provider hands its frame down through React context, and only a registered view is wired to receive it). The resolution falls through to nil and the bare call fails with `:rf.error/no-frame-context` — even with a provider right above it — rather than the silent default-frame routing v1 allowed. The clean fix is to register that view with [`reg-view`](glossary.md#view): it reads the provider's frame from React context and injects frame-bound `dispatch` / `subscribe` that survive callback boundaries. If you leave it a plain fn on purpose, carry the frame explicitly instead — `(rf/capture-frame frame-id)`, a `{:frame …}` opt on the call, or a captured frame api threaded down as a prop. Two moves that look like they'd help but re-raise the same error: wrapping the subtree in `with-frame` (its dynamic binding has unwound by the time React renders the descendant) and a no-arg `(rf/capture-frame)` from the unregistered fn (it repeats the lookup that already returned nil).
 
 ## Paths and cache identity: mostly good news, one habit to drop
 
