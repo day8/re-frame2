@@ -268,7 +268,7 @@
       (is (empty? (reactive/resource-reservations cell)))
       (is (empty? (reactive/resource-held cell))))))
 
-(deftest ensure-enqueue-escape-compensates-every-staged-owner
+(deftest ensure-enqueue-escape-compensates-exactly-the-attempted-prefix
   (register-feature! :feed/items)
   (let [cell (reactive/make-cell ::ensure-escape)
         calls (atom [])
@@ -289,13 +289,156 @@
                       :cljs cljs.core/ExceptionInfo)
                    (reactive/reconcile-resource-leases! cell cap)))
       (is (= [:rf.resource/ensure :rf.resource/ensure
-              :rf.resource/release-owner :rf.resource/release-owner
-              :rf.resource/release-owner]
+              :rf.resource/release-owner :rf.resource/release-owner]
              (mapv (comp first first) @calls))
-          "all staged owners are conservatively compensated, including the
-           possibly-enqueued throwing record and the not-yet-ensured tail")
+          "exactly the attempted prefix is compensated — the possibly-enqueued
+           throwing record included; the never-staged lexical tail was never
+           dispatched, so a reentrant cleanup can neither see nor leak it")
       (is (empty? (reactive/resource-reservations cell)))
       (is (empty? (reactive/resource-held cell))))))
+
+(deftest teardown-during-first-ensure-terminates-the-reconcile
+  ;; rf2-vxgfnd.124 blocker 2 — resource dispatch runs its trace listeners
+  ;; synchronously, so ensure(A) can tear the cell down mid-reconcile. The
+  ;; reconcile must observe the terminal lifecycle after the dispatch returns
+  ;; and stop: no release-B/ensure-B continuation, and no stale
+  ;; held/reservation republication onto the dead cell. Pre-fix the staged
+  ;; candidates were prepublished and the loop continued, producing
+  ;; ensure-A, release-A, release-B, ensure-B — leaking B forever.
+  (register-feature! :feed/items)
+  (let [cell  (reactive/make-cell ::ensure-teardown)
+        calls (atom [])
+        cap   (commit-leases!
+               cell [[::a {:resource :feed/items}]
+                     [::b {:resource :feed/items}]])]
+    (with-redefs [features/require-feature! (constantly true)
+                  router/dispatch!
+                  (dispatch-standin
+                   (fn [event opts]
+                     (swap! calls conj [event opts])
+                     (when (= :rf.resource/ensure (first event))
+                       (reactive/teardown! cell))))]
+      (reactive/reconcile-resource-leases! cell cap)
+      (is (= [:rf.resource/ensure :rf.resource/release-owner]
+             (mapv (comp first first) @calls))
+          "ensure-A, teardown's release-A — and nothing after")
+      (is (= (get-in (first @calls) [0 1 :owner])
+             (get-in (second @calls) [0 1 :owner]))
+          "teardown releases exactly the one staged/ensured owner")
+      (is (= :dead (reactive/lifecycle cell)))
+      (is (empty? (reactive/resource-reservations cell))
+          "the terminated reconcile publishes no reservation onto the dead cell")
+      (is (empty? (reactive/resource-held cell))
+          "the terminated reconcile publishes no held state onto the dead cell")
+      (is (zero? (reactive/resource-frame-incarnation-count cell fid))
+          "no dead frame pin lingers in the teardown index"))))
+
+(deftest reentrant-teardown-during-release-is-terminal-and-idempotent
+  ;; rf2-vxgfnd.124 blocker 3 — teardown! publishes :dead and clears every
+  ;; generic registry BEFORE dispatching resource cleanup, so a synchronous
+  ;; release listener re-entering teardown! observes the terminal state and
+  ;; no-ops. Pre-fix the nested call saw a still-connected cell and recursed
+  ;; without bound (the entry guard below fails the test deterministically
+  ;; instead of blowing the stack).
+  (register-feature! :feed/items)
+  (let [cell    (reactive/make-cell ::teardown-recursion)
+        calls   (atom [])
+        entries (atom 0)]
+    (with-redefs [features/require-feature! (constantly true)
+                  router/dispatch! (collecting-dispatch calls)]
+      (let [cap (commit-leases! cell [[::a {:resource :feed/items}]])]
+        (reactive/reconcile-resource-leases! cell cap)))
+    (reset! calls [])
+    (with-redefs [router/dispatch!
+                  (dispatch-standin
+                   (fn [event opts]
+                     (swap! calls conj [event opts])
+                     (when (= :rf.resource/release-owner (first event))
+                       (when (< 3 (swap! entries inc))
+                         (throw (ex-info "unbounded reentrant teardown" {})))
+                       (reactive/teardown! cell))))]
+      (reactive/teardown! cell)
+      (is (= [:rf.resource/release-owner]
+             (mapv (comp first first) @calls))
+          "one owner, one release — the nested teardown observes :dead and no-ops")
+      (is (= :dead (reactive/lifecycle cell)))
+      (reactive/teardown! cell)
+      (is (= 1 (count @calls))
+          "an explicit later teardown is a dispatch-free no-op"))))
+
+(deftest nested-teardown-during-disconnect-release-stays-terminal
+  ;; rf2-vxgfnd.124 blocker 4 — disconnect publishes :disconnected and parks
+  ;; the reusable reservations behind a unique cleanup token BEFORE
+  ;; dispatching releases. A release listener that tears the cell down must
+  ;; leave it :dead: the outer disconnect performs no unconditional lifecycle
+  ;; write after its reentrant cleanup and cannot restore reservations over
+  ;; the terminal state. Pre-fix the outer disconnect overwrote :dead with
+  ;; :disconnected and resurrected the reservation on a dead cell.
+  (register-feature! :feed/items)
+  (let [cell  (reactive/make-cell ::disconnect-overwrite)
+        calls (atom [])]
+    (with-redefs [features/require-feature! (constantly true)
+                  router/dispatch! (collecting-dispatch calls)]
+      (let [cap (commit-leases! cell [[::a {:resource :feed/items}]])]
+        (reactive/reconcile-resource-leases! cell cap)))
+    (reset! calls [])
+    (with-redefs [router/dispatch!
+                  (dispatch-standin
+                   (fn [event opts]
+                     (swap! calls conj [event opts])
+                     (when (= :rf.resource/release-owner (first event))
+                       (reactive/teardown! cell))))]
+      (reactive/disconnect-resources! cell))
+    (is (= [:rf.resource/release-owner]
+           (mapv (comp first first) @calls))
+        "the nested teardown finds no remaining held owner to re-release")
+    (is (= :dead (reactive/lifecycle cell))
+        "the outer disconnect never overwrites the nested terminal state")
+    (is (empty? (reactive/resource-reservations cell))
+        "no reservation is restored onto the dead cell")
+    (is (empty? (reactive/resource-held cell)))))
+
+(deftest capture-supersession-during-ensure-stops-the-stale-reconcile
+  ;; A synchronous listener committing a NEW capture mid-ensure replaces
+  ;; reconciliation authority. The superseded loop must stop after the
+  ;; in-flight dispatch (no stale ensure-B), and its compensation must skip
+  ;; any owner the newer passive already accounted for — releasing that owner
+  ;; again would double-release a lease the live capture rightfully holds.
+  (register-feature! :feed/items)
+  (let [cell  (reactive/make-cell ::supersession)
+        calls (atom [])
+        mints (atom 0)
+        fired (atom false)
+        cap1  (commit-leases!
+               cell [[::a {:resource :feed/items}]
+                     [::b {:resource :feed/items}]])]
+    (with-redefs [features/require-feature! (constantly true)
+                  lease-owner/mint! (fn [] [:lease (swap! mints inc)])
+                  router/dispatch!
+                  (dispatch-standin
+                   (fn [event opts]
+                     (swap! calls conj [event opts])
+                     (when (and (= :rf.resource/ensure (first event))
+                                (compare-and-set! fired false true))
+                       (let [cap2 (commit-leases!
+                                   cell [[::a {:resource :feed/items}]])]
+                         (reactive/reconcile-resource-leases! cell cap2)))))]
+      (reactive/reconcile-resource-leases! cell cap1)
+      (let [events   @calls
+            owner-of #(get-in % [0 1 :owner])]
+        (is (= [:rf.resource/ensure :rf.resource/ensure
+                :rf.resource/release-owner]
+               (mapv (comp first first) events))
+            "ensure-A1, nested ensure-A2, nested release-A1 — no stale ensure-B
+             and no compensating double release-A1 afterwards")
+        (is (= (owner-of (first events)) (owner-of (nth events 2)))
+            "the nested passive releases exactly the superseded staged owner")
+        (is (= [(owner-of (second events))]
+               (vec (keys (reactive/resource-held cell))))
+            "the newer capture's owner is the only held owner")
+        (is (= (owner-of (second events))
+               (-> (reactive/resource-reservations cell) (get ::a) :owner))
+            "the newer reservation is never clobbered by the stale loop")))))
 
 (deftest passive-reconcile-is-bound-to-the-exact-accepted-capture
   (register-feature! :feed/items :feed/new)
