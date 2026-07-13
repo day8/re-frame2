@@ -2557,7 +2557,8 @@ A frame owns two durable partitions held as one physical frame-state container (
    [:done      [:set :keyword]]                                               ;; user-ids that signalled :on-child-done
    [:failed    [:set :keyword]]                                               ;; user-ids that signalled :on-child-error
    [:resolved? :boolean]                                                      ;; latch flips once the join condition resolves
-   [:spec      :map]])                                                        ;; back-reference for the join intercept
+   [:spec      :map]                                                          ;; back-reference for the join intercept
+   [:rf/attempt {:optional true} :int]])                                      ;; opaque monotonic per-attempt token minted at seed by spawn-all-init-fx; stamped into each child's :rf/join-child so the fold gate binds every completion carrier to the exact join attempt (rf2-nvxehu; 005 §Exact-authority fold gate). Treat as opaque — int today, per-session accident-gating.
 
 (def Routing
   ;; The routing runtime's per-frame runtime-db state. :current is the live
