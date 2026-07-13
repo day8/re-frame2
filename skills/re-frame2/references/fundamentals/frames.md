@@ -153,7 +153,7 @@ User-supplied keys win on conflict with preset expansion.
 
 ## `frame-provider` and `frame-root` in views
 
-Two per-adapter React-context components, one verb each (the rf2-nyea0r split — **roots ensure; providers scope**) — choose by intent:
+Two per-adapter React-context components, one verb each — **roots ensure; providers scope** (per `spec/002-Frames.md` §`frame-provider` — the SCOPE-only component / §`frame-root` — the ENSURE component) — choose by intent:
 
 - **`frame-provider {:frame existing-id}`** — **SCOPE-only**. Wraps a Reagent / Helix / UIx subtree so descendants resolve `current-frame-id` to a frame that **already exists** (created elsewhere by `make-frame`, a tool runtime, or an enclosing boundary). It creates / refreshes / destroys nothing, and **fails loud if the frame is absent** (`:rf.error/frame-provider-frame-absent`):
 
