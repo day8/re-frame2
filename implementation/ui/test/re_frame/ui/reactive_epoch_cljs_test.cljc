@@ -68,9 +68,10 @@
   "Render (probe) `queries` under frame `id`, then commit — the cell ends
   observing `id`."
   [cell id queries]
-  (rf/with-frame id
-    (reactive/with-capture cell (fn [] (mapv reactive/sub-read queries))))
-  (reactive/commit! cell)
+  (let [[_ capture] (rf/with-frame id
+                      (reactive/with-capture
+                       cell (fn [] (mapv reactive/sub-read queries))))]
+    (reactive/commit! cell capture))
   cell)
 
 ;; ===========================================================================
@@ -171,10 +172,13 @@
     (seed! fid (into {} (map (fn [i] [i i])) (range n)))
     (let [cell (reactive/make-cell (keyword (str "g3-cell-" n)))]
       ;; ONE render body invocation drives all n sites (one ViewCell, one hook)
-      (rf/with-frame fid
-        (reactive/with-capture cell
-          (fn [] (swap! body-runs inc) (mapv reactive/sub-read queries))))
-      (reactive/commit! cell)
+      (let [[_ capture] (rf/with-frame fid
+                          (reactive/with-capture
+                           cell
+                           (fn []
+                             (swap! body-runs inc)
+                             (mapv reactive/sub-read queries))))]
+        (reactive/commit! cell capture))
       (is (= 1 @body-runs)
           (str n " sites → ONE body invocation (one shared ViewCell, not " n ")"))
       (is (= n (count (reactive/committed-target-keys cell)))
@@ -374,7 +378,7 @@
                  (reactive/with-capture cell
                    (fn [] [(reactive/sub-read [:s/a])
                            (reactive/sub-read [:s/b])])))]
-      (is (= [[:a 5] [:b 5]] out))
+      (is (= [[:a 5] [:b 5]] (first out)))
       (is (= 1 @parent-runs)
           "sibling cold probes in ONE render compute the shared parent ONCE
            via the slice-scoped memo threaded through sub-read")

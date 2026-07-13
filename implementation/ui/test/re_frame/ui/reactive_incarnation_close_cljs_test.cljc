@@ -66,8 +66,9 @@
         token-a (frame/frame-incarnation-token fid)
         cell    (reactive/make-cell ::v)]
     ;; render probes incarnation A (ownership-free)
-    (rf/with-frame fid
-      (reactive/with-capture cell (fn [] (reactive/sub-read [:ic/a]))))
+    (let [[_ capture] (rf/with-frame fid
+                        (reactive/with-capture
+                         cell (fn [] (reactive/sub-read [:ic/a]))))]
     ;; commit: step 4 acquires A's lease + step 5 reads it (A still live), THEN
     ;; the :post-acquire seam fully destroys A and recreates B under the same id
     ;; BEFORE the publish. The incarnation-safe revalidation must join THIS commit
@@ -77,7 +78,7 @@
                 (when (= :post-acquire phase)
                   (frame/destroy-frame! fid)     ;; A fully destroyed (marker cleared)
                   (make-frame! fid {:a 99})))]    ;; B — a DISTINCT incarnation, new state
-      (reactive/commit! cell))
+      (reactive/commit! cell capture)))
     (testing "precondition — B is a distinct incarnation under the reused id"
       (is (not (identical? token-a (frame/frame-incarnation-token fid)))
           "destroy + recreate minted a fresh incarnation token")
@@ -96,9 +97,10 @@
       ;; it isolates B's OWN read. The dead cell already left every registry.
       (reactive/reset-scheduler!)
       (let [cell-b (reactive/make-cell ::b)]
-        (rf/with-frame fid
-          (reactive/with-capture cell-b (fn [] (reactive/sub-read [:ic/a]))))
-        (reactive/commit! cell-b)
+        (let [[_ capture] (rf/with-frame fid
+                            (reactive/with-capture
+                             cell-b (fn [] (reactive/sub-read [:ic/a]))))]
+          (reactive/commit! cell-b capture))
         (is (= :connected (reactive/lifecycle cell-b)) "B's own cell connects")
         (is (= #{(tk fid [:ic/a])} (reactive/committed-target-keys cell-b))
             "B's cell owns B's node")
@@ -118,9 +120,10 @@
   (rf/reg-sub :ic/a (fn [db _] (:a db)))
   (let [fid  (make-frame! :ic/frame2 {:a 1})
         cell (reactive/make-cell ::v)]
-    (rf/with-frame fid
-      (reactive/with-capture cell (fn [] (reactive/sub-read [:ic/a]))))
-    (reactive/commit! cell)
+    (let [[_ capture] (rf/with-frame fid
+                        (reactive/with-capture
+                         cell (fn [] (reactive/sub-read [:ic/a]))))]
+      (reactive/commit! cell capture))
     (is (= :connected (reactive/lifecycle cell))
         "no supersede, no close ⇒ ordinary connected commit (incarnation check is false)")
     (is (= #{(tk fid [:ic/a])} (reactive/committed-target-keys cell)))))

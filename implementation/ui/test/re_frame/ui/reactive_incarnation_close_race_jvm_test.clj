@@ -97,9 +97,10 @@
         ;; Commit B's cell IN the window. The incarnation-scoped revalidation must
         ;; resolve against B's acquired token, NOT A's stale bare-id marker.
         (try
-          (rf/with-frame fid
-            (reactive/with-capture b-cell (fn [] (reactive/sub-read [:ic/a]))))
-          (reactive/commit! b-cell)
+          (let [[_ capture] (rf/with-frame fid
+                              (reactive/with-capture
+                               b-cell (fn [] (reactive/sub-read [:ic/a]))))]
+            (reactive/commit! b-cell capture))
           (catch Throwable e (reset! b-error e)))
         (.countDown b-done)
         (is (nil? (deref destroy 5000 ::timeout)) "A's destroy completes cleanly"))

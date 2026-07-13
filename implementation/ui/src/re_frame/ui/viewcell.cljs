@@ -15,11 +15,10 @@
       channel, distinct from the prop-driven one memo gates).
     - render RESOLVES + PROBES without ownership (via `reactive/with-capture`
       → `sub` → the observation port's `resolve-target`/`probe`); the
-      LAYOUT commit acquires the CAPTURED targets. Abandoned renders
-      (StrictMode double-render, time-sliced tear-off) acquire no ownership;
-      they retain only their one `:latest-capture` of values until the next
-      render overwrites it (at most one, never accumulating — see
-      `reactive/with-capture`).
+      LAYOUT commit acquires the CAPTURED targets. Each render's effect closes
+      over that render's exact immutable capture. Abandoned renders (StrictMode
+      double-render, time-sliced tear-off) acquire no ownership and publish no
+      speculative capture state to the ViewCell.
     - the reconcile layout effect runs after EVERY committed render and is
       idempotent (kept-check retains unchanged leases untouched); the
       lifecycle layout effect (empty deps) owns connect/disconnect, so
@@ -97,14 +96,15 @@
                                   (fn [] (reactive/get-snapshot cell))
                                   (fn [] 0))
       ;; render-phase: resolve + probe every executed site into a fresh
-      ;; ownership-free capture, stashed on the cell for the layout commit.
-      (let [element (reactive/with-capture cell thunk)]
+      ;; ownership-free capture. The selected Fiber's effect closes over this
+      ;; exact value; speculative sibling renders cannot replace it.
+      (let [[element capture] (reactive/with-capture cell thunk)]
         ;; reconcile — after EVERY committed render; no cleanup (leases are
         ;; owned by the cell and reconciled by the kept-check, never torn
         ;; down between renders — that would churn shared nodes).
         (react/useLayoutEffect
           (fn reconcile []
-            (reactive/commit! cell)
+            (reactive/commit! cell capture)
             js/undefined))
         ;; lifecycle — connect implicitly via the reconcile above; the cleanup
         ;; releases owners on React unmount AND Activity hide (indistinguishable

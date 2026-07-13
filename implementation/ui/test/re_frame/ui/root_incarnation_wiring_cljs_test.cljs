@@ -56,9 +56,10 @@
   [root-id fid queries]
   (let [cell (reactive/make-cell ::v)]
     (reactive/attach-root! cell (root-incarnation root-id))
-    (rf/with-frame fid
-      (reactive/with-capture cell (fn [] (mapv reactive/sub-read queries))))
-    (reactive/commit! cell)
+    (let [[_ capture] (rf/with-frame fid
+                        (reactive/with-capture
+                         cell (fn [] (mapv reactive/sub-read queries))))]
+      (reactive/commit! cell capture))
     cell))
 
 (deftest register-mints-a-fresh-incarnation-per-root
@@ -109,9 +110,10 @@
       ;; an unsettled same-commit reconnect is a StrictMode dev replay and must
       ;; NOT be proven a hide (rf2-vxgfnd.44).
       (reactive/settle-disconnect! cell)
-      (rf/with-frame :ri/frame
-        (reactive/with-capture cell (fn [] (reactive/sub-read [:ri/a]))))
-      (reactive/commit! cell)
+      (let [[_ capture] (rf/with-frame :ri/frame
+                          (reactive/with-capture
+                           cell (fn [] (reactive/sub-read [:ri/a]))))]
+        (reactive/commit! cell capture))
       (is (= :connected (reactive/lifecycle cell)))
       (is (= {:state :disconnected :reason :activity-hidden :proof :reconnect}
              (peek (reactive/intervals cell)))

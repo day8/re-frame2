@@ -48,9 +48,10 @@
   id)
 
 (defn- render+commit! [cell fid queries]
-  (rf/with-frame fid
-    (reactive/with-capture cell (fn [] (mapv reactive/sub-read queries))))
-  (reactive/commit! cell)
+  (let [[_ capture] (rf/with-frame fid
+                      (reactive/with-capture
+                       cell (fn [] (mapv reactive/sub-read queries))))]
+    (reactive/commit! cell capture))
   cell)
 
 ;; ===========================================================================
@@ -84,10 +85,10 @@
                    ;; Commit the fresh cell against the STILL-LIVE frame — it
                    ;; acquires a lease and enrols into the live-cell registry
                    ;; AFTER the sweep already snapshotted.
-                   (rf/with-frame fid
-                     (reactive/with-capture new-cell
-                       (fn [] (reactive/sub-read [:race/a]))))
-                   (reactive/commit! new-cell)
+                   (let [[_ capture] (rf/with-frame fid
+                                       (reactive/with-capture new-cell
+                                         (fn [] (reactive/sub-read [:race/a]))))]
+                     (reactive/commit! new-cell capture))
                    (.countDown committed))]
         ;; Drive the destroy on this thread — it blocks in the wrapped hook
         ;; until the racing commit releases `committed`, then resumes (flip +
@@ -134,10 +135,10 @@
       (let [race (future
                    (.await swept 5 TimeUnit/SECONDS)
                    ;; A commit onto the UNRELATED live frame B, mid-destroy of A.
-                   (rf/with-frame fb
-                     (reactive/with-capture cell-b
-                       (fn [] (reactive/sub-read [:race/a]))))
-                   (reactive/commit! cell-b)
+                   (let [[_ capture] (rf/with-frame fb
+                                       (reactive/with-capture cell-b
+                                         (fn [] (reactive/sub-read [:race/a]))))]
+                     (reactive/commit! cell-b capture))
                    (.countDown committed))]
         (frame/destroy-frame! fa)
         (deref race 5000 ::timeout))
@@ -146,9 +147,9 @@
             "a commit onto a disjoint live frame is untouched by frame A's
              teardown — frame-closing? is false for B, so no global serialization")
         (is (reactive/cell-observes-frame? cell-b fb))
-        (is (= 2 (rf/with-frame fb
-                   (reactive/with-capture cell-b
-                     (fn [] (reactive/sub-read [:race/a])))))
+        (is (= 2 (first (rf/with-frame fb
+                          (reactive/with-capture cell-b
+                            (fn [] (reactive/sub-read [:race/a]))))))
             "frame B reads live after A was destroyed"))
       (testing "frame A's own cell died with A"
         (is (= :dead (reactive/lifecycle cell-a))))

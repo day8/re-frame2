@@ -30,9 +30,10 @@
 
 (defn- connected-cell! [fid queries]
   (let [cell (reactive/make-cell ::v)]
-    (rf/with-frame fid
-      (reactive/with-capture cell (fn [] (mapv reactive/sub-read queries))))
-    (reactive/commit! cell)
+    (let [[_ capture] (rf/with-frame fid
+                        (reactive/with-capture
+                         cell (fn [] (mapv reactive/sub-read queries))))]
+      (reactive/commit! cell capture))
     cell))
 
 (defn- register!

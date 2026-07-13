@@ -52,15 +52,14 @@
 
 (defn- render!
   "Simulate one render pass: run the site probes into a fresh capture under
-  the ambient frame. Returns the cell."
+  the ambient frame. Returns `[render-value immutable-capture]`."
   [cell queries]
   (rf/with-frame fid
-    (reactive/with-capture cell (fn [] (mapv reactive/sub-read queries))))
-  cell)
+    (reactive/with-capture cell (fn [] (mapv reactive/sub-read queries)))))
 
 (defn- render+commit! [cell queries]
-  (render! cell queries)
-  (reactive/commit! cell)
+  (let [[_ capture] (render! cell queries)]
+    (reactive/commit! cell capture))
   cell)
 
 (defn- throws-id [thunk]
@@ -87,34 +86,28 @@
       (is (nil? (entry [:r/b]))
           "the 10k-abandoned-renders-retain-zero property holds at the cell"))))
 
-(deftest abandoned-render-retains-at-most-one-capture
-  ;; rf2-vxgfnd.44 (finding b) — an abandoned render acquires no OWNERSHIP
-  ;; (proven above), but it DOES stash its one `:latest-capture` of values, which
-  ;; lingers until the next render overwrites it. The honest bound is AT MOST ONE
-  ;; capture retained per cell — never accumulating. (`with-capture` cannot clear
-  ;; on abandon: StrictMode's effect replay re-commits the SAME capture with no
-  ;; intervening render, so the stash is REQUIRED, not a leak — hence the
-  ;; docstring is the fix, not a clear.)
+(deftest commit-is-bound-to-the-exact-render-capture
+  ;; rf2-vxgfnd.105 — React retains the selected render's effect closure. A
+  ;; later speculative render of the same cell must not replace that closure's
+  ;; commit input through shared ViewCell state.
   (rf/reg-sub :r/a (fn [db _] (:a db)))
   (rf/reg-sub :r/b (fn [db _] (:b db)))
   (seed! {:a 1 :b 2})
   (let [cell (reactive/make-cell ::v)]
-    (is (nil? (reactive/latest-capture cell)) "no capture before the first render")
-    ;; an abandoned render (never committed) stashes exactly its one capture
-    (render! cell [[:r/a]])
-    (let [cap1 (reactive/latest-capture cell)]
-      (is (some? cap1) "the abandoned render retained its capture")
-      (is (= [(tk [:r/a])] (:order cap1)) "the capture holds this render's site")
-      ;; the NEXT render OVERWRITES it — captures never accumulate
-      (render! cell [[:r/b]])
-      (let [cap2 (reactive/latest-capture cell)]
-        (is (not (identical? cap1 cap2)) "the next render replaced the capture")
-        (is (= [(tk [:r/b])] (:order cap2))
-            "exactly ONE capture retained — the latest; the prior is gone")))
-    ;; N further abandoned renders still leave exactly ONE capture, not N
-    (dotimes [_ 1000] (render! cell [[:r/a]]))
-    (is (= [(tk [:r/a])] (:order (reactive/latest-capture cell)))
-        "1000 abandoned renders retain ONE capture (the last) — never accumulate")))
+    (let [[a-value cap-a] (render! cell [[:r/a]])
+          [b-value cap-b] (render! cell [[:r/b]])]
+      (is (= [1] a-value))
+      (is (= [2] b-value))
+      (is (= [(tk [:r/a])] (:order cap-a))
+          "A remains immutable after the later speculative B capture")
+      (is (= [(tk [:r/b])] (:order cap-b)))
+      ;; Model React selecting A and abandoning B: only A's effect closure runs.
+      (reactive/commit! cell cap-a)
+      (is (= #{(tk [:r/a])} (reactive/committed-target-keys cell))
+          "the selected render commits its own capture, never the later B")
+      (is (= 1 (ref-count [:r/a])))
+      (is (nil? (entry [:r/b]))
+          "the abandoned capture materialises no node and owns nothing"))))
 
 ;; ===========================================================================
 ;; commit installs + reads; kept-check retains untouched
@@ -159,15 +152,15 @@
   (rf/reg-sub :r/b (fn [db _] (:b db)))
   (rf/reg-sub :r/c (fn [db _] (:c db)))
   (seed! {:a 1 :b 2 :c 3})
-  (let [cell (reactive/make-cell ::v)]
+  (let [cell (reactive/make-cell ::v)
+        [_ capture] (render! cell [[:r/a] [:r/b] [:r/c]])]
     ;; probe all three (all registered, all cold — no cache nodes yet)
-    (render! cell [[:r/a] [:r/b] [:r/c]])
     ;; make the THIRD acquire throw: unregister :r/c between render and commit
     (subs/clear-sub :r/c)
     (testing "the k-th acquisition failure rolls the staged leases back and
               leaves the prior (empty) committed set installed"
       (is (= :rf.error/no-such-sub
-             (throws-id #(reactive/commit! cell)))
+             (throws-id #(reactive/commit! cell capture)))
           "the acquisition's typed error propagates")
       (is (empty? (reactive/committed-target-keys cell))
           "no lease is installed — the reconcile aborted")
@@ -184,9 +177,10 @@
         lease0 (reactive/committed-lease cell (tk [:r/a]))]
     (is (= 1 (ref-count [:r/a])) ":a committed with one owner")
     ;; new render observes :a (retained) + :b (new) + :c (new); :c will throw
-    (render! cell [[:r/a] [:r/b] [:r/c]])
-    (subs/clear-sub :r/c)
-    (is (= :rf.error/no-such-sub (throws-id #(reactive/commit! cell))))
+    (let [[_ capture] (render! cell [[:r/a] [:r/b] [:r/c]])]
+      (subs/clear-sub :r/c)
+      (is (= :rf.error/no-such-sub
+             (throws-id #(reactive/commit! cell capture)))))
     (testing "the node shared with the prior committed set survives rollback"
       (is (= 1 (ref-count [:r/a])) ":a keeps its prior owner — never re-acquired, never released")
       (is (identical? lease0 (reactive/committed-lease cell (tk [:r/a]))))
@@ -201,11 +195,11 @@
 (deftest moved-evidence-advances-revision
   (rf/reg-sub :r/a (fn [db _] (:a db)))
   (seed! {:a 1})
-  (let [cell (reactive/make-cell ::v)]
-    (render! cell [[:r/a]])                 ;; probe observed value 1 (cold)
+  (let [cell (reactive/make-cell ::v)
+        [_ capture] (render! cell [[:r/a]])] ;; probe observed value 1 (cold)
     (is (= 0 (reactive/revision cell)))
     (seed! {:a 2})                          ;; move in the render→commit gap
-    (reactive/commit! cell)                 ;; acquire+read observes 2 ≠ 1
+    (reactive/commit! cell capture)         ;; acquire+read observes 2 ≠ 1
     (is (= 1 (reactive/revision cell))
         "movement between probe and acquire advances the revision (corrects before paint)")))
 
@@ -233,9 +227,9 @@
         lease0 (reactive/committed-lease cell (tk [:r/a]))]
     (is (= 0 (reactive/revision cell)) "precondition: committed, no revision yet")
     (is (= {(tk [:r/a]) 1} (reactive/committed-values cell)))
-    (render! cell [[:r/a]])                 ;; render B probes the live node (value 1)
-    (seed! {:a 2})                          ;; move in the render→commit gap
-    (reactive/commit! cell)                 ;; kept-check RETAINS the lease
+    (let [[_ capture] (render! cell [[:r/a]])] ;; render B probes value 1
+      (seed! {:a 2})                        ;; move in the render→commit gap
+      (reactive/commit! cell capture))      ;; kept-check RETAINS the lease
     (is (identical? lease0 (reactive/committed-lease cell (tk [:r/a])))
         "the site was RETAINED (same lease) — a kept, not staged/retargeted, site")
     (is (= 1 (reactive/revision cell))
@@ -248,9 +242,9 @@
   ;; retained site reads the same version/node-key across the render→commit gap.
   (rf/reg-sub :r/a (fn [db _] (:a db)))
   (seed! {:a 1})
-  (let [cell (render+commit! (reactive/make-cell ::v) [[:r/a]])]
-    (render! cell [[:r/a]])                 ;; render B — no seed between probe + commit
-    (reactive/commit! cell)
+  (let [cell (render+commit! (reactive/make-cell ::v) [[:r/a]])
+        [_ capture] (render! cell [[:r/a]])] ;; render B — no gap movement
+    (reactive/commit! cell capture)
     (is (= 0 (reactive/revision cell))
         "an unchanged retained site reads the same evidence ⇒ no false advance")))
 
@@ -272,25 +266,26 @@
     ;; render probes a LIVE node (hold a subscribe ref so the ownership-free
     ;; probe reads a canonical node — captures node-key K_A at version 0).
     (subs/subscribe [:re/v] {:frame :re/frame})
-    (rf/with-frame :re/frame
-      (reactive/with-capture cell (fn [] (reactive/sub-read [:re/v]))))
-    (is (= 0 (reactive/revision cell)) "precondition: no revision yet")
-    ;; reincarnate in the gap: identical construction + a single replace-app-db!
-    ;; makes node-version + frame/registry epochs COINCIDE with the destroyed
-    ;; incarnation's (dissoc restarts the commit epoch, fresh node ⟹ version 0,
-    ;; no :sub re-registration) — only the FRESH reaction's node-key differs.
-    (frame/destroy-frame! :re/frame)
-    (live-frame/make-frame {:id :re/frame})
-    (frame/replace-app-db! :re/frame {:v 1})
-    ;; commit acquires the FRESH node K_B; read K_B ≠ probe K_A ⟹ moved via the
-    ;; node-key axis alone (version+epoch tie) ⟹ corrective revision advance.
-    (reactive/commit! cell)
-    (is (= 1 (reactive/revision cell))
-        "same-id reincarnation classified MOVED via :node-key — a corrective
-         render before paint (version+epoch alone MISS it — the pre-fix break)")
-    (is (= :connected (reactive/lifecycle cell))
-        "resolved against the LIVE fresh incarnation it acquired — not torn down")
-    (frame/destroy-frame! :re/frame)))
+    (let [[_ capture] (rf/with-frame :re/frame
+                        (reactive/with-capture
+                         cell (fn [] (reactive/sub-read [:re/v]))))]
+      (is (= 0 (reactive/revision cell)) "precondition: no revision yet")
+      ;; reincarnate in the gap: identical construction + a single replace-app-db!
+      ;; makes node-version + frame/registry epochs COINCIDE with the destroyed
+      ;; incarnation's (dissoc restarts the commit epoch, fresh node ⟹ version 0,
+      ;; no :sub re-registration) — only the FRESH reaction's node-key differs.
+      (frame/destroy-frame! :re/frame)
+      (live-frame/make-frame {:id :re/frame})
+      (frame/replace-app-db! :re/frame {:v 1})
+      ;; commit acquires the FRESH node K_B; read K_B ≠ probe K_A ⟹ moved via the
+      ;; node-key axis alone (version+epoch tie) ⟹ corrective revision advance.
+      (reactive/commit! cell capture)
+      (is (= 1 (reactive/revision cell))
+          "same-id reincarnation classified MOVED via :node-key — a corrective
+           render before paint (version+epoch alone MISS it — the pre-fix break)")
+      (is (= :connected (reactive/lifecycle cell))
+          "resolved against the LIVE fresh incarnation it acquired — not torn down")
+      (frame/destroy-frame! :re/frame))))
 
 (deftest unchanged-live-node-across-commit-does-not-false-advance
   ;; The node-key fast-path guard (rf2-vxgfnd.14 AC #4, at the ui layer): a
@@ -302,9 +297,10 @@
   (frame/replace-app-db! :re/frame2 {:v 7})
   (let [cell (reactive/make-cell ::v)]
     (subs/subscribe [:re/v] {:frame :re/frame2})   ;; a live canonical node
-    (rf/with-frame :re/frame2
-      (reactive/with-capture cell (fn [] (reactive/sub-read [:re/v]))))
-    (reactive/commit! cell)                         ;; same live node at commit
+    (let [[_ capture] (rf/with-frame :re/frame2
+                        (reactive/with-capture
+                         cell (fn [] (reactive/sub-read [:re/v]))))]
+      (reactive/commit! cell capture))               ;; same live node at commit
     (is (= 0 (reactive/revision cell))
         "an unchanged live node reads the same node-key — no false movement")
     (frame/destroy-frame! :re/frame2)))
@@ -430,8 +426,9 @@
            (peek (reactive/intervals cell)))
         "an explicit host/root teardown proves the interval ended in unmount")
     (testing "a :dead cell fails loudly on re-commit — no resume"
-      (render! cell [[:r/a]])
-      (is (= :rf.error/frame-destroyed (throws-id #(reactive/commit! cell)))))))
+      (let [[_ capture] (render! cell [[:r/a]])]
+        (is (= :rf.error/frame-destroyed
+               (throws-id #(reactive/commit! cell capture))))))))
 
 (deftest teardown-from-connected-records-unmount
   (rf/reg-sub :r/a (fn [db _] (:a db)))
@@ -456,8 +453,9 @@
     ;; a fresh-but-rf=-equal value on the next render returns the committed
     ;; reference (identical?), so downstream memo sees no change
     (seed! {:coll [1 2 3]})    ;; equal value, different object identity
-    (let [ret (rf/with-frame fid
-                (reactive/with-capture cell (fn [] (reactive/sub-read [:r/coll]))))]
+    (let [[ret _] (rf/with-frame fid
+                    (reactive/with-capture
+                     cell (fn [] (reactive/sub-read [:r/coll]))))]
       (is (identical? committed ret)
           "an rf=-stable read returns the prior exact value (stabilized identity)"))))
 

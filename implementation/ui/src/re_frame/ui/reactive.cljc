@@ -32,9 +32,10 @@
   the layout commit acquires the CAPTURED targets. Abandoned renders
   (StrictMode double-render, time-sliced tear-off) acquire NO OWNERSHIP —
   the 10k-abandoned-renders-retain-zero-OWNERSHIP property is structural,
-  mirroring the port's S-3 §5 cold-probe exit criterion. (They do retain
-  their single `:latest-capture` of values until the next render overwrites
-  it — at most one, never accumulating; see `with-capture`.)
+  mirroring the port's S-3 §5 cold-probe exit criterion. Each finished render
+  returns its immutable capture beside the host element; an abandoned render's
+  pair becomes unreachable instead of publishing speculative state to the
+  ViewCell.
 
   ## The render capture
 
@@ -353,7 +354,6 @@
   ;;    :evidence  ev|nil        ; DEBUG-only bounded causal evidence for the
   ;;                             ;   pending window (see `fold-evidence`); nil
   ;;                             ;   in production (elided) + between flushes
-  ;;    :latest-capture cap|nil  ; last finished render capture (commit input)
   ;;    :listeners {k -> fn}     ; useSyncExternalStore subscribers
   ;;    :intervals [interval]}   ; lifecycle facts (dev/tool; 03 §4)
   )
@@ -382,7 +382,6 @@
             :revision       0
             :dirty?         false
             :evidence       nil
-            :latest-capture nil
             :listeners      {}
             :intervals      []}))))
 
@@ -447,12 +446,11 @@
   (get-in @view-generations [view-id :generation] 0))
 
 (defn advance-generation!
-  "Advance a LIVE `cell`'s view-body generation to `generation` — the same-shell
-  HMR seam (03 §10). A same-signature reload bumps a mounted cell's generation
-  so any in-flight capture rendered under the PRIOR body is stale-rejected at the
-  next commit (step 1); the next render runs the new body and the commit
-  reconciles the changed `sub` sites — STATE PRESERVED (the same cell, its
-  committed dependency set carried forward). Monotone: a no-op unless
+  "Advance a LIVE `cell`'s view-body generation to `generation` — the
+  changed-signature HMR/remount seam (03 §10). A generation bump makes any
+  in-flight capture rendered under the PRIOR body stale at the next commit
+  (step 1). Same-signature reloads preserve the generation and never call this
+  seam. Monotone: a no-op unless
   `generation` exceeds the cell's current generation. Returns the cell."
   [^ViewCell cell generation]
   (let [st (state cell)]
@@ -500,30 +498,25 @@
       v)))
 
 (defn with-capture
-  "Run `thunk` (a compiled view body) under a fresh ambient capture, stash the
-  finished capture on `cell` as the layout commit's input, and return the
-  thunk's value (the host element).
+  "Run `thunk` (a compiled view body) under a fresh ambient capture and return
+  `[host-element capture]`.
 
   Ownership-free: the render acquires NO ref-count, watch, or cache node, so an
   abandoned render (a thunk whose result the host discards — StrictMode
-  double-render, time-sliced tear-off) leaks ZERO ownership. It does, however,
-  RETAIN its capture: the finished capture (its targets + probe evidence +
-  values, possibly a large probed collection) is stashed on the cell as
-  `:latest-capture` and stays there until the NEXT render overwrites it. The
-  honest bound is therefore AT MOST ONE capture retained per cell — never
-  accumulating, never ownership — not zero. That retention is REQUIRED, not a
-  leak: the layout commit reads `:latest-capture` in a later effect, and
-  StrictMode's effect mount→cleanup→remount re-commits the SAME capture with no
-  intervening render, so clearing it here would break the reacquire
-  (rf2-vxgfnd.44)."
+  double-render, time-sliced tear-off) leaks ZERO ownership and publishes ZERO
+  shared capture state. React retains the pair only on the selected finished
+  Fiber: its layout-effect closure commits that exact render's capture. A later
+  speculative render therefore cannot replace the input of an earlier render
+  that React actually commits. StrictMode's effect mount→cleanup→remount reuses
+  the selected effect closure, so both mounts reconcile the same immutable
+  capture without a shared slot."
   [^ViewCell cell thunk]
   (let [cap  (volatile! (fresh-capture (:generation @(state cell))))
         prev @ambient]
     (reset! ambient {:cell cell :capture cap})
     (try
       (let [el (thunk)]
-        (swap! (state cell) assoc :latest-capture @cap)
-        el)
+        [el @cap])
       (finally
         (reset! ambient prev)))))
 
@@ -1568,8 +1561,9 @@
   nil)
 
 (defn commit!
-  "Run the 8-step layout commit for `cell` against its latest render
-  capture. Idempotent: an unchanged committed set + capture reconciles to a
+  "Run the 8-step layout commit for `cell` against the exact immutable
+  `capture` returned beside the committed host element by `with-capture`.
+  Idempotent: an unchanged committed set + capture reconciles to a
   no-op (kept-check retains every lease untouched), so StrictMode's
   release/reacquire replay is naturally balanced.
 
@@ -1596,16 +1590,11 @@
   8. If any evidence moved in the render→commit gap, advance the revision
      and notify — React corrects BEFORE paint.
 
-  Returns `cell` on a normal commit, `:stale` on a rejected generation, or
-  `:no-capture` when nothing has been rendered yet."
-  [^ViewCell cell]
+  Returns `cell` on a normal commit or `:stale` on a rejected generation."
+  [^ViewCell cell cap]
   (let [st  (state cell)
-        st0 @st
-        cap (:latest-capture st0)]
+        st0 @st]
     (cond
-      (nil? cap)
-      :no-capture
-
       ;; step 1 — stale generation
       (not= (:generation cap) (:generation st0))
       :stale
@@ -1791,14 +1780,6 @@
   "The installed lease for target key `tk` (tool/test read), or nil."
   [^ViewCell cell tk]
   (get (:committed @(state cell)) tk))
-
-(defn latest-capture
-  "The cell's last finished render capture — the layout commit's input, and the
-  single capture a cell retains between renders (tool/test read; nil before the
-  first render). See `with-capture`: a render retains AT MOST this one capture,
-  overwritten by the next render, never accumulating (rf2-vxgfnd.44)."
-  [^ViewCell cell]
-  (:latest-capture @(state cell)))
 
 (defn revision
   "The cell's current revision integer (tool/test read)."
