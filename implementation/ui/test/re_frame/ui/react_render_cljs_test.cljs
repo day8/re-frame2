@@ -12,9 +12,12 @@
             ["react-dom/server" :as rds]
             [re-frame.registrar :as registrar]
             [re-frame.ui :as ui :refer [defview]]
+            [re-frame.ui.reactive :as reactive]
             [re-frame.ui.runtime :as rt]))
 
 (defn- render [el] (rds/renderToStaticMarkup el))
+(defn- current-render [id] (:render-fn (reactive/view-descriptor id)))
+(defn- current-compare [id] (:compare-fn (reactive/view-descriptor id)))
 
 (defonce dispatches (atom []))
 
@@ -143,7 +146,7 @@
          (render (rt/jsx2 static-tree (js-obj)))))
   ;; the fully-static body hoists to a module constant: the render fn
   ;; returns the IDENTICAL element object across calls
-  (let [rf (.-type static-tree)]
+  (let [rf (current-render ::static-tree)]
     (is (identical? (rf (js-obj)) (rf (js-obj)))
         "static subtree is one hoisted module constant")))
 
@@ -277,7 +280,7 @@
                   :else [ch]))))))
 
 (deftest handler-vector-dispatches-and-splices
-  (let [el      ((.-type counter) (js-obj "n" 3 "locked?" false))
+  (let [el      ((current-render ::counter) (js-obj "n" 3 "locked?" false))
         onClick (find-prop el "onClick")
         onInput (find-prop el "onInput")]
     (is (fn? onClick))
@@ -289,7 +292,7 @@
         ":rf.ui/value splices the event's target.value at dispatch time")))
 
 (deftest checked-placeholder-splices
-  (let [el ((.-type todo-row) (js-obj "todo" {:id 9 :label "x" :done? false
+  (let [el ((current-render ::todo-row) (js-obj "todo" {:id 9 :label "x" :done? false
                                               :priority :low}))
         onChange (find-prop el "onChange")]
     (onChange (js-obj "target" (js-obj "checked" true)))
@@ -297,14 +300,14 @@
 
 (deftest capture-free-handlers-hoist-and-dedupe
   ;; same capture-free vector in two renders -> the same fn object
-  (let [el1 ((.-type counter) (js-obj "n" 1 "locked?" false))
-        el2 ((.-type counter) (js-obj "n" 2 "locked?" false))]
+  (let [el1 ((current-render ::counter) (js-obj "n" 1 "locked?" false))
+        el2 ((current-render ::counter) (js-obj "n" 2 "locked?" false))]
     (is (identical? (find-prop el1 "onClick") (find-prop el2 "onClick"))
         "capture-free literal event vectors hoist to one module callback")))
 
 (deftest unwired-dispatch-throws-loudly
   (rt/set-dispatch-hook! nil)
-  (let [el ((.-type counter) (js-obj "n" 1 "locked?" false))
+  (let [el ((current-render ::counter) (js-obj "n" 1 "locked?" false))
         onClick (find-prop el "onClick")]
     (is (thrown-with-msg? js/Error #"ui-dispatch-unwired"
                           (onClick (js-obj))))))
@@ -314,7 +317,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest memo-comparator-is-the-ruled-rf=
-  (let [cmp (.-compare todo-list)]
+  (let [cmp (current-compare ::todo-list)]
     (is (fn? cmp))
     ;; fresh-but-equal CLJS data => equal (no repaint)
     (is (true? (cmp (js-obj "title" "T" "todos" [{:id 1}])
@@ -342,7 +345,7 @@
                     (js-obj "todos" []))))))
 
 (deftest as-view-generic-comparator
-  (let [cmp (.-compare as-view)]
+  (let [cmp (current-compare ::as-view)]
     (is (true? (cmp (js-obj "a" 1 "b" [1 2]) (js-obj "a" 1 "b" [1 2]))))
     (is (false? (cmp (js-obj "a" 1) (js-obj "a" 1 "c" 3)))
         ":as views compare the UNION of slots (generic comparison)")))

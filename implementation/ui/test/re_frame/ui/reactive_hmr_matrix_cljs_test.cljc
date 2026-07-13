@@ -154,15 +154,16 @@
 (deftest stale-authoritative-body-revision-rejected-at-commit-step-1
   (rf/reg-sub :r/a (fn [db _] (:a db)))
   (seed! {:a 1})
-  (let [hs   (fp/hook-signature-hash {:locals [] :effects []})
-        _    (reactive/register-view-generation! ::v hs)
-        cell (render+commit! (reactive/make-cell ::v 0) [[:r/a]])
+  (let [vid  ::stale-revision-view
+        hs   (fp/hook-signature-hash {:locals [] :effects []})
+        _    (reactive/register-view-generation! vid hs)
+        cell (render+commit! (reactive/make-cell vid 0) [[:r/a]])
         lease0 (reactive/committed-lease cell (tk [:r/a]))]
     (is (= 1 (ref-count [:r/a])) "precondition: committed at generation 0")
     (testing "registration lands after render but before layout: the slot moved
               while the cell-local revision did not"
       (let [[_ capture] (render! cell [[:r/a]])]    ; capture at generation 0
-        (reactive/register-view-generation! ::v hs) ; same-sig body revision 1
+        (reactive/register-view-generation! vid hs) ; same-sig body revision 1
         (is (= 0 (reactive/generation cell))
             "mutation tooth: cell-local-only checking would accept this capture")
         (is (= :stale (reactive/commit! cell capture))
@@ -171,7 +172,7 @@
       (is (identical? lease0 (reactive/committed-lease cell (tk [:r/a]))))
       (is (= 1 (ref-count [:r/a])) "no acquire, no release on a stale rejection"))
     (testing "a fresh render under the new generation commits normally"
-      (reactive/advance-generation! cell (reactive/view-generation ::v))
+      (reactive/advance-generation! cell (reactive/view-generation vid))
       (render+commit! cell [[:r/a]])
       (is (identical? lease0 (reactive/committed-lease cell (tk [:r/a])))
           "the same live target retains its lease across the explicit generation seam"))))

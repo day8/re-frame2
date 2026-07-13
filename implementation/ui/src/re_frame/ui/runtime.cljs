@@ -66,7 +66,11 @@
                       (render-fn props)))
         outer-fn  (fn stable-view-shell [props]
                     (react/useSyncExternalStore subscribe snapshot snapshot)
-                    (jsx3 inner props (reactive/view-remount-generation id)))
+                    ;; React dev freezes the received props object. jsxDEV adds
+                    ;; key diagnostics to the object it receives, so give the
+                    ;; dev-only inner Fiber a shallow carrier of its own.
+                    (jsx3 inner (js/Object.assign (js-obj) props)
+                          (reactive/view-remount-generation id)))
         compare   (fn [prev next]
                     (let [compare-fn (:compare-fn
                                       (reactive/view-descriptor id))]

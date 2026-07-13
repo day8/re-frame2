@@ -44,7 +44,8 @@
   Note the probe does NOT need to assert anything at runtime; it exists
   to root the dead-code-elimination graph at every surface. The grep
   test is the assertion."
-  (:require [re-frame.core         :as rf]
+  (:require ["react" :as react]
+            [re-frame.core         :as rf]
  [re-frame.frame :as frame]
             [re-frame.registrar    :as registrar]
             [re-frame.schemas      :as schemas]
@@ -97,6 +98,7 @@
             ;; the shared validator's " :sub-override value failed schema "
             ;; reason string (reachable ONLY from the two gated override
             ;; consults) must NOT survive.
+            [re-frame.ui :as ui :refer [defview]]
             [re-frame.ui.reactive :as ui-reactive]))
 
 ;; ---- trace listener API ---------------------------------------------------
@@ -805,10 +807,25 @@
       (ui-reactive/sub-read [:rf.probe/ui-override]))
     (catch :default _ nil)))
 
+;; ---- rf2-8hf77d: compiled-view Fast Refresh shell DCE ---------------------
+;;
+;; This actual defview roots both emitter arms in the DEBUG=true control build.
+;; In production the explicit goog.DEBUG branch must collapse to the direct
+;; React.memo arm. The `:rf.ui.hmr/*` slot keys are therefore absent only when
+;; the slot, listener store, dynamic descriptor lookup, and extra inner Fiber
+;; machinery all became unreachable together.
+
+(defview hmr-shell-elision-probe []
+  [:span "production-direct-memo-probe"])
+
+(defn ^:export touch-ui-hmr-shell! []
+  (react/createElement hmr-shell-elision-probe nil))
+
 (defn ^:export run []
   (touch-direct-emit-diagnostics!)
   (touch-drain-depth!)
   (touch-ui-sub-overrides!)
+  (touch-ui-hmr-shell!)
   (touch-trace!)
   (touch-schemas!)
   (touch-registrar!)

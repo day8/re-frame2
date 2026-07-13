@@ -1154,7 +1154,10 @@
   (reset! teardown-collector nil)
   (reset! evidence-sink nil)
   (reset! last-sink-escape nil)
-  (reset! view-generations {})
+  ;; Do NOT clear `view-generations`: it now owns the stable component shells
+  ;; and descriptors created at namespace load. Clearing it would strand every
+  ;; already-defined defview Var on a shell whose dynamic descriptor vanished.
+  ;; Tests use qualified per-fixture view ids for HMR decisions.
   nil)
 
 (defn- on-change-fn
