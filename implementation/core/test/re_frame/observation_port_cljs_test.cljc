@@ -20,6 +20,7 @@
             [re-frame.error-emit            :as error-emit]
             [re-frame.frame                 :as frame]
             [re-frame.interop               :as interop]
+            [re-frame.source-coords         :as source-coords]
             [re-frame.subs                  :as subs]
             [re-frame.subs.cache            :as subs-cache]
             [re-frame.substrate.observation :as obs]
@@ -1876,6 +1877,176 @@
     (obs/release! lb)
     (obs/release! lc)
     (obs/release! ld)))
+
+;; ===========================================================================
+;; rf2-q3fmqm — drain-owned first emissions ride the shared TWO-CHANNEL
+;; fan-out (visible to Xray's trace listener) and resolve SUBSCRIPTION
+;; source coordinates
+;;
+;; The rf2-6ui49w emission called error-emit/dispatch-on-error! directly: it
+;; reached the always-on production axis but never the dev diagnostic trace
+;; — Xray installs a TRACE-tooling listener, not an always-on error
+;; listener, so a real HMR/disposed callback failure produced one always-on
+;; record and ZERO trace events (and the registrar swallows the drain's
+;; rethrow on :hmr, leaving no alternate diagnostic). The record also
+;; mis-resolved source coordinates: its :event-id slot carries the former
+;; owner's ENTRY SUB id, but error_emit.cljc did not classify the category
+;; subscription-owned, so lookup consulted [:event id] — a same-id EVENT
+;; registration could steal attribution, and a macro-registered sub with no
+;; colliding event got NO coordinate at all.
+;;
+;; The fix: when the drain owns the first emission (per rf2-wbkjk9's
+;; provenance — an already-fanned typed escape is NOT fanned again on
+;; either channel), it uses the shared emit-error-both! two-channel fan-out
+;; with category-specific trace tags, and error_emit classifies
+;; :rf.error/observation-on-change-failed among the sub-error categories so
+;; [:sub id] is the ONLY lookup realm. Red-before-fix: trace count zero,
+;; coordinate missing (macro sub) / stolen (event collision).
+;; ===========================================================================
+
+(defn- with-both-channels
+  "Run `thunk` capturing BOTH error channels: the always-on error-emit
+  records AND the dev diagnostic-trace `:op-type :error` events (the surface
+  Xray's trace collector consumes). Returns
+  `[result-or-thrown records trace-errors]`."
+  [thunk]
+  (let [records (atom [])
+        traces  (atom [])]
+    (error-emit/register-error-listener!
+      ::records (fn [record] (swap! records conj record)))
+    (rf/register-listener! :trace ::traces (fn [ev] (swap! traces conj ev)))
+    (try
+      (let [result (try [:ok (thunk)]
+                        (catch #?(:clj Throwable :cljs :default) e
+                          [:threw e]))]
+        [result @records (filterv #(= :error (:op-type %)) @traces)])
+      (finally
+        (rf/unregister-listener! :trace ::traces)
+        (error-emit/unregister-error-listener! ::records)))))
+
+(deftest hmr-drain-fans-the-wrapper-on-both-channels-with-the-sub-source-coordinate
+  (reg-items!)                       ;; MACRO-registered → coords under [:sub :obs/items]
+  (seed-items! [:a])
+  (let [boom (ex-info "untyped on-change boom" {::boom true})
+        la   (obs/acquire! (items-target) (fn [_n] (throw boom)))]
+    ;; A REAL HMR failure: the sub re-registration drains the :hmr boundary
+    ;; inside the registrar replacement hook (which swallows the rethrow), and
+    ;; the former owner's on-change throws the raw untyped bug.
+    (let [[[outcome _] records traces] (with-both-channels #(reg-items!))]
+      (is (= :ok outcome) "the registrar isolates the replacement hook")
+      (testing "exactly ONE always-on record — the production axis is unchanged"
+        (let [wrapped (filterv #(= :rf.error/observation-on-change-failed (:error %))
+                               records)]
+          (is (= 1 (count wrapped)))
+          (is (identical? boom (:exception (first wrapped))))
+          (testing "…and it resolves the EXACT macro-registered [:sub id]
+                    source coordinate (pre-fix: the slot was absent — lookup
+                    consulted [:event :obs/items])"
+            (let [coord (source-coords/error-coords-for :sub :obs/items)]
+              (is (some? coord) "the macro registration captured coords")
+              (is (= coord (:source-coord (first wrapped))))))))
+      (testing "exactly ONE dev diagnostic-trace event for the same logical
+                failure — Xray's trace collector sees it without registering
+                an always-on listener (pre-fix: zero trace events)"
+        (let [tev (filterv #(= :rf.error/observation-on-change-failed (:operation %))
+                           traces)]
+          (is (= 1 (count tev)))
+          (let [tags (:tags (first tev))]
+            (is (identical? boom (:exception tags))
+                "the trace tags carry the original throwable")
+            (is (= :hmr (:cause tags))
+                "the category-specific tags carry the disposal cause")
+            (is (= :obs/items (:rf.sub/id tags)))
+            (is (= [:obs/items] (:rf.sub/query-v tags)))
+            (is (= fid (:frame tags)))))))
+    (obs/release! la)))
+
+(deftest disposed-drain-fans-the-wrapper-on-both-channels
+  (reg-items!)
+  (seed-items! [:a])
+  (with-redefs [interop/next-tick (fn [_f] nil)]
+    (let [boom (ex-info "untyped on-change boom" {::boom true})
+          la   (obs/acquire! (items-target) (fn [_n] (throw boom)))]
+      (force-dispose-node! [:obs/items])
+      (let [[[outcome thrown] records traces]
+            (with-both-channels #(obs/drain-pending-disposals! :disposed))]
+        (is (= :threw outcome))
+        (is (identical? boom thrown))
+        (is (= 1 (count (filterv #(= :rf.error/observation-on-change-failed (:error %))
+                                 records)))
+            "exactly one always-on record at the :disposed boundary")
+        (let [tev (filterv #(= :rf.error/observation-on-change-failed (:operation %))
+                           traces)]
+          (is (= 1 (count tev)) "exactly one trace event at the :disposed boundary")
+          (is (= :disposed (:cause (:tags (first tev)))))))
+      (obs/release! la))))
+
+(deftest drain-two-channel-fanout-composes-with-first-emission-provenance
+  ;; An ALREADY-FANNED typed escape (the released-lease read) gains neither a
+  ;; second always-on record NOR a second trace event from the drain: the
+  ;; source's own emit-error-both! is the one two-channel emission.
+  (reg-items!)
+  (reg-other!)
+  (seed-items! [:a])
+  (let [released (obs/acquire! (other-target) (fn [_]))]
+    (obs/release! released)
+    (let [live (obs/acquire! (items-target) (fn [_n] (obs/read released)))]
+      (let [[[outcome _] records traces] (with-both-channels #(reg-items!))]
+        (is (= :ok outcome))
+        (is (= 1 (count (filterv #(= :rf.error/read-after-release (:error %)) records)))
+            "one always-on record — the source's")
+        (is (= 1 (count (filterv #(= :rf.error/read-after-release (:operation %)) traces)))
+            "one trace event — the source's; the drain adds none")
+        (is (empty? (filterv #(= :rf.error/observation-on-change-failed (:operation %))
+                             traces))
+            "no wrapper trace event for a typed escape"))
+      (obs/release! live))))
+
+(deftest disposed-drain-fans-an-unfanned-typed-escape-on-both-channels
+  ;; When the drain owns the first emission of a CANONICAL TYPED escape (the
+  ;; dev reentrant assert), the same two-channel fan-out applies: one
+  ;; always-on record AND one trace event under the ORIGINAL id.
+  (reg-items!)
+  (seed-items! [:a])
+  (with-redefs [interop/next-tick (fn [_f] nil)]
+    (let [bad (atom nil)
+          la  (obs/acquire! (items-target) (fn [_n] (obs/release! @bad)))]
+      (reset! bad la)
+      (force-dispose-node! [:obs/items])
+      (let [[[outcome _] records traces]
+            (with-both-channels #(obs/drain-pending-disposals! :disposed))]
+        (is (= :threw outcome))
+        (is (= 1 (count (filterv #(= :rf.error/reentrant-graph-op (:error %)) records))))
+        (let [tev (filterv #(= :rf.error/reentrant-graph-op (:operation %)) traces)]
+          (is (= 1 (count tev))
+              "the drain-owned first emission reaches the trace channel too")
+          (is (= :disposed (:cause (:tags (first tev))))))))))
+
+(deftest collision-event-registration-cannot-steal-sub-attribution
+  ;; PROGRAMMATIC sub registration (no [:sub id] coords) + MACRO event
+  ;; registration under the SAME keyword ([:event id] coords present). The
+  ;; record must OMIT :source-coord — never steal the event's coordinate.
+  (subs/reg-sub :obs/collide (fn [db _] (:items db)))
+  (rf/reg-event :obs/collide (fn [_cofx _event] {}))
+  (seed-items! [:a])
+  (is (nil? (source-coords/error-coords-for :sub :obs/collide))
+      "the programmatic sub registration captured NO coords")
+  (is (some? (source-coords/error-coords-for :event :obs/collide))
+      "the macro event registration DID capture coords under [:event id]")
+  (with-redefs [interop/next-tick (fn [_f] nil)]
+    (let [boom   (ex-info "untyped on-change boom" {::boom true})
+          target (obs/resolve-target {:frame fid :query-v [:obs/collide]})
+          la     (obs/acquire! target (fn [_n] (throw boom)))]
+      (force-dispose-node! [:obs/collide])
+      (let [[[_outcome _] records _traces]
+            (with-both-channels #(obs/drain-pending-disposals! :disposed))]
+        (let [wrapped (filterv #(= :rf.error/observation-on-change-failed (:error %))
+                               records)]
+          (is (= 1 (count wrapped)))
+          (is (not (contains? (first wrapped) :source-coord))
+              "a programmatic sub omits the slot; the same-id EVENT
+               registration's coordinate is NOT stolen")))
+      (obs/release! la))))
 
 ;; ===========================================================================
 ;; ABI guard

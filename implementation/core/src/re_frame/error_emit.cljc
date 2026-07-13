@@ -109,13 +109,19 @@
   "Categories whose `:event-id` slot carries a SUB id — their source
   coords live under `[:sub sub-id]` in the always-on registry, so
   `dispatch-on-error!` resolves them there rather than under the
-  `[:event …]` default. Covers the parametric input-fn failures and
-  the reactive sub-exception, so the always-on production error records
+  `[:event …]` default. Covers the parametric input-fn failures, the
+  reactive sub-exception, and the observation port's on-change-failure
+  wrapper (whose `:event-id` carries the former owner's ENTRY SUB id —
+  rf2-q3fmqm: `[:sub …]` is the ONLY lookup realm, so a macro-registered
+  sub resolves its exact coordinate and a same-id EVENT registration can
+  never steal attribution; a programmatic sub registration resolves nil
+  and the slot stays absent), so the always-on production error records
   carry the failing sub's `:source-coord`."
   #{:rf.error/sub-input-fn-exception
     :rf.error/sub-input-fn-bad-return
     :rf.error/sub-exception
-    :rf.error/no-such-sub})
+    :rf.error/no-such-sub
+    :rf.error/observation-on-change-failed})
 
 (defn- error-source-coord
   "Resolve the `{:ns :file :line}` source-coord for the failing `id` of an
