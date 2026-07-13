@@ -79,6 +79,17 @@
          (reject-id '[:div {:title (if-let [x maybe] (sub [:q x]) nil)}]))
       "opaque binder macros fail loudly instead of receiving an unsound rewrite")
   (is (= :rf.ui.compile/unsupported-form
+         (reject-id '[:div {:title (-> [:q] sub)}]))
+      "a macro cannot turn a bare resolved sub reference into an unindexed call")
+  (is (= :rf.ui.compile/unsupported-form
+         (reject-id '(let [{:keys [x] :or {x (sub [:q])}} value] [:div x]))))
+  (is (= :rf.ui.compile/unsupported-form
+         (reject-id '(for [{:keys [x] :or {x (sub [:q])}} xs]
+                       [:div {:key x} x]))))
+  (is (= :rf.ui.compile/unsupported-form
+         (reject-id '[:button {:on-click
+                               (fn [{:keys [x] :or {x (sub [:q])}}] x)}])))
+  (is (= :rf.ui.compile/unsupported-form
          (reject-id '[:div {:title (sub)}])))
   (is (= :rf.ui.compile/unsupported-form
          (reject-id '[:div {:title (sub [:a] [:b])}])))

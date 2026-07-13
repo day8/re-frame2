@@ -89,6 +89,26 @@
       (is (nil? (entry [:r/b]))
           "the 10k-abandoned-renders-retain-zero property holds at the cell"))))
 
+(deftest missing-or-duplicate-compiler-site-identity-fails-loudly
+  (rf/reg-sub :r/a (fn [db _] (:a db)))
+  (rf/reg-sub :r/b (fn [db _] (:b db)))
+  (seed! {:a 1 :b 2})
+  (let [cell (reactive/make-cell ::site-contract)]
+    (is (= :rf.error/ui-tree-malformed
+           (throws-id #(reactive/with-capture
+                         cell
+                         (fn [] (reactive/sub-read nil [:r/a])))))
+        "the explicit two-arity path cannot smuggle a missing sid")
+    (is (= :rf.error/ui-tree-malformed
+           (throws-id #(reactive/with-capture
+                         cell
+                         (fn [] [(reactive/sub-read ::same-site [:r/a])
+                                 (reactive/sub-read ::same-site [:r/b])]))))
+        "a colliding sid never renders one target while committing another")
+    (is (empty? (reactive/committed-sites cell)))
+    (is (nil? (entry [:r/a])))
+    (is (nil? (entry [:r/b])))))
+
 (deftest commit-is-bound-to-the-exact-render-capture
   ;; rf2-vxgfnd.105 — React retains the selected render's effect closure. A
   ;; later speculative render of the same cell must not replace that closure's

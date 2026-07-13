@@ -84,7 +84,13 @@
        (let [resolve* (requiring-resolve 'cljs.analyzer.api/resolve)
              info     (resolve* (:cljs-env env) sym)]
          (when (and info (not (:local info)) (:name info) (symbol? (:name info)))
-           {:fqn (:name info) :meta (:meta info)}))
+           ;; CLJS analyzer macro authority is a TOP-LEVEL `:macro` flag on
+           ;; the resolved info map (not reliably duplicated in `:meta`).
+           ;; Normalize it into the metadata shape shared with CLJ resolution
+           ;; so expression rewriting cannot traverse an opaque binder macro.
+           {:fqn (:name info)
+            :meta (cond-> (or (:meta info) {})
+                    (:macro info) (assoc :macro true))}))
        (catch Exception _ nil))))
 
 #?(:clj

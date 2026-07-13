@@ -84,13 +84,22 @@
 
 (def ^:private runtime-sub-fqn 're-frame.ui.reactive/sub-read)
 (def ^:private deferred-scope ::deferred-scope)
+(def ^:private transparent-macro-fqns
+  "Closed macro set whose arguments are host-independent expression slots,
+  with no user-authored binders. Preserve their spelling while recursively
+  lowering explicit sub/lease calls."
+  (into #{}
+        (mapcat (fn [s] [(symbol "clojure.core" (name s))
+                         (symbol "cljs.core" (name s))]))
+        '[or and when when-not cond -> ->> some-> some->> cond-> cond->>]))
 
 (defn- deferred-expr-root?
   "Expression roots whose value is evaluated by a later host callback, not by
   the view's render capture. `sub`/`lease` below these roots would be
   phase-divergent between the JVM data host and React."
   [expr-root]
-  (or (= :handler (first expr-root))
+  (or (and (= :handler (first expr-root))
+           (= :event-arg (nth expr-root 2 nil)))
       (some #{:raw-fn} expr-root)))
 
 (defn runtime-sub-form?
@@ -145,6 +154,83 @@
 (defn- map-path-token [x]
   (fingerprint/digest "ep1-" x))
 
+(defn- reactive-call-kind
+  "Return :sub/:lease when `x` contains an unshadowed resolved reactive CALL.
+  Quoted data is never executable. This scanner is deliberately about calls,
+  not bare symbols, so a binding pattern may still introduce a local named
+  `sub` or `lease`."
+  [e x locals]
+  (let [e* (update e :locals into locals)]
+    (cond
+      (and (seq? x) (= 'quote (first x))) nil
+      (seq? x)
+      (or (let [h (first x)]
+            (when (and (symbol? h) (not (contains? locals h)))
+              (cond
+                (env/resolves-to? e* h sub-fqns) :sub
+                (env/resolves-to? e* h lease-fqns) :lease)))
+          (some #(reactive-call-kind e % locals) (rest x)))
+      (map? x) (or (some #(reactive-call-kind e % locals) (keys x))
+                   (some #(reactive-call-kind e % locals) (vals x)))
+      (coll? x) (some #(reactive-call-kind e % locals) x)
+      :else nil)))
+
+(defn- reactive-macro-reference-kind
+  "Like `reactive-call-kind`, plus unquoted bare references. Opaque macros may
+  turn a bare `sub` argument into a call (`->` is the canonical example), so
+  only macro expansion could prove such a reference harmless."
+  [e x locals]
+  (let [e* (update e :locals into locals)]
+    (cond
+      (and (seq? x) (= 'quote (first x))) nil
+      (and (symbol? x) (not (contains? locals x)))
+      (cond
+        (env/resolves-to? e* x sub-fqns) :sub
+        (env/resolves-to? e* x lease-fqns) :lease)
+      (map? x) (or (some #(reactive-macro-reference-kind e % locals) (keys x))
+                   (some #(reactive-macro-reference-kind e % locals) (vals x)))
+      (coll? x) (some #(reactive-macro-reference-kind e % locals) x)
+      :else nil)))
+
+(defn- bare-reactive-reference-kind
+  "Return :sub/:lease for an unquoted BARE reactive var reference. A direct
+  `(sub ...)`/`(lease ...)` head is not bare—the rewriter owns it—but a
+  threading step such as `(-> query sub)` would become an unindexed call only
+  after macro expansion and must fail loudly."
+  [e x locals]
+  (let [e* (update e :locals into locals)]
+    (cond
+      (and (seq? x) (= 'quote (first x))) nil
+      (and (symbol? x) (not (contains? locals x)))
+      (cond
+        (env/resolves-to? e* x sub-fqns) :sub
+        (env/resolves-to? e* x lease-fqns) :lease)
+      (seq? x)
+      (let [h (first x)
+            direct? (and (symbol? h) (not (contains? locals h))
+                         (or (env/resolves-to? e* h sub-fqns)
+                             (env/resolves-to? e* h lease-fqns)))]
+        (some #(bare-reactive-reference-kind e % locals)
+              (if direct? (rest x) x)))
+      (map? x) (or (some #(bare-reactive-reference-kind e % locals) (keys x))
+                   (some #(bare-reactive-reference-kind e % locals) (vals x)))
+      (coll? x) (some #(bare-reactive-reference-kind e % locals) x)
+      :else nil)))
+
+(defn reject-reactive-binding!
+  "Reject executable sub/lease calls embedded in a binding pattern/default.
+  Destructuring forms are consumed by the host compiler, not expression
+  rewriting; allowing a call there would bypass lexical site ownership."
+  [e binding-form]
+  (when-let [kind (reactive-call-kind e binding-form #{})]
+    (env/fail! e :rf.ui.compile/unsupported-form
+               (str "(" (name kind) " ...) cannot appear in a binding pattern "
+                    "or destructuring :or default — that position cannot own "
+                    "a lexical render site. Hoist the read into the view body "
+                    "and bind/destructure its value there")
+               {:form binding-form :reactive-kind kind}))
+  binding-form)
+
 (defn rewrite-expr
   "Rewrite an opaque expression, lowering resolved unshadowed `(sub q)` calls
   to the serialized two-argument runtime shape and recording stable lexical
@@ -160,6 +246,7 @@
               (with-meta x (meta old)))
            (rw-fn-arity [arity locals p]
              (let [[argv & body] arity
+                   _ (reject-reactive-binding! (update e :locals into locals) argv)
                    body-locals (-> locals
                                    (into (env/binding-syms argv))
                                    (conj deferred-scope))]
@@ -177,6 +264,7 @@
                    rewritten
                    (if (vector? (first tail))
                      (let [[argv & body] tail
+                            _ (reject-reactive-binding! (update e :locals into locals*) argv)
                             body-locals (-> locals*
                                             (into (env/binding-syms argv))
                                             (conj deferred-scope))]
@@ -198,9 +286,11 @@
                               out []
                               scope locals]
                          (if-let [[pat init] (first pairs)]
-                           (recur (rest pairs) (inc i)
+                           (do
+                             (reject-reactive-binding! (update e :locals into scope) pat)
+                             (recur (rest pairs) (inc i)
                                   (conj out pat (rw init scope (conj p :binding i)))
-                                  (into scope (env/binding-syms pat)))
+                                  (into scope (env/binding-syms pat))))
                            [(with-same-meta bindings (vec out)) scope]))]
                    (with-same-meta
                      f
@@ -276,29 +366,10 @@
                                      (rw v locals (conj p :map-value t)))))
                           (empty m)
                           m)))
-           (contains-reactive-call? [x locals]
-             ;; An unresolved/unknown binder macro cannot be traversed safely.
-             ;; This conservative scan deliberately treats a macro-local name
-             ;; that shadows `sub` as reactive: only macro expansion could
-             ;; prove the shadow, so failing is preferable to mis-lowering it.
-             (let [e* (update e :locals into locals)]
-               (cond
-                 (and (seq? x) (= 'quote (first x))) false
-                 (seq? x)
-                 (or (let [h (first x)]
-                       (and (symbol? h)
-                            (not (contains? locals h))
-                            (or (env/resolves-to? e* h sub-fqns)
-                                (env/resolves-to? e* h lease-fqns))))
-                     (some #(contains-reactive-call? % locals) (rest x)))
-                 (map? x) (or (some #(contains-reactive-call? % locals) (keys x))
-                              (some #(contains-reactive-call? % locals) (vals x)))
-                 (coll? x) (some #(contains-reactive-call? % locals) x)
-                 :else false)))
-           (macro-call? [e* head locals]
-             (and (symbol? head)
-                  (not (contains? locals head))
-                  (true? (-> (env/resolve-sym e* head) :meta :macro))))
+           (macro-info [e* head locals]
+             (when (and (symbol? head) (not (contains? locals head)))
+               (let [info (env/resolve-sym e* head)]
+                 (when (true? (-> info :meta :macro)) info))))
            (rw [f locals p]
              (cond
                (and (seq? f) (= 'quote (first f))) f
@@ -364,8 +435,24 @@
                    (contains? #{'letfn 'letfn*} head) (rw-letfn f locals p)
                    (= 'try head) (rw-try f locals p)
 
-                   (macro-call? e* head locals)
-                   (if (contains-reactive-call? (rest f) locals)
+                   (and (macro-info e* head locals)
+                        (contains? transparent-macro-fqns
+                                   (:fqn (macro-info e* head locals))))
+                   (if-let [kind (bare-reactive-reference-kind e (rest f) locals)]
+                     (env/fail! e :rf.ui.compile/unsupported-form
+                                (str "bare " (name kind) " reference below macro "
+                                     head " would become an unindexed reactive "
+                                     "call after expansion. Write the explicit "
+                                     "(" (name kind) " query) call")
+                                {:form f :macro head})
+                     (with-same-meta
+                       f
+                       (apply list head
+                              (map-indexed #(rw %2 locals (conj p (inc %1)))
+                                           (rest f)))))
+
+                   (macro-info e* head locals)
+                   (if (reactive-macro-reference-kind e (rest f) locals)
                      (env/fail! e :rf.ui.compile/unsupported-form
                                 (str "(sub ...)/(lease ...) below macro " head
                                      " cannot be assigned a sound lexical site "
@@ -1200,6 +1287,7 @@
     (let [pairs (partition 2 bindings)
           [e* rewritten]
           (reduce (fn [[acc out] [i [pat init]]]
+                    (reject-reactive-binding! acc pat)
                     [(env/with-locals acc (env/binding-syms pat))
                      (conj out pat
                            (walk-expr acc [:let :binding i] init))])
@@ -1255,6 +1343,7 @@
                                  {:form form}))
                     (let [[scope* binds*]
                           (reduce (fn [[s xs] [j [pat init]]]
+                                    (reject-reactive-binding! s pat)
                                     [(env/with-loop s (env/binding-syms pat))
                                      (conj xs pat
                                            (walk-expr (assoc s :in-loop? true)
@@ -1277,7 +1366,8 @@
                              {:form form})
 
                   :else
-                  (let [r* (walk-expr (if first-coll?
+                  (let [_  (reject-reactive-binding! scope l)
+                        r* (walk-expr (if first-coll?
                                         scope
                                         (assoc scope :in-loop? true))
                                       [:for i :collection] r)]

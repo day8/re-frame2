@@ -179,7 +179,7 @@
                                        (keep :pattern (:entries hdr))))
                           (when (:as-sym hdr) [(:as-sym hdr)]))
         src     (source-coords form cljs?)
-        e       (-> (env/make-env {:host (if cljs? :cljs :clj)
+        e0      (-> (env/make-env {:host (if cljs? :cljs :clj)
                                     :cljs-env menv
                                     :ns-sym ns-sym
                                     :self vname
@@ -194,8 +194,9 @@
                                     :template-anchor
                                     (fingerprint/digest "sta1-" template)})
                     (assoc :self-children? children?
-                           :self-closed-keys closed-keys)
-                    (env/with-locals header-syms))
+                           :self-closed-keys closed-keys))
+        _       (ana/reject-reactive-binding! e0 argv)
+        e       (env/with-locals e0 header-syms)
         ast     (ana/analyze e template)
         _       (doseq [w @(:warnings e)]
                   (binding [*out* *err*]

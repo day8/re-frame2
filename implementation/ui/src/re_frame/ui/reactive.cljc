@@ -276,11 +276,18 @@
 (defn- record-site
   "Add one compiler-indexed lexical site to `cap`. Site identity—not target
   equality—is the ownership key, so two equal queries remain two owners. A
-  repeated execution of one sid in a render is a compiler-contract violation;
-  the first observation wins defensively."
+  repeated execution of one sid in a render is a compiler-contract violation
+  and fails loudly: rendering a later value while committing the first target
+  would otherwise create an incoherent dependency."
   [cap sid query target ev value]
   (if (contains? (:by-site cap) sid)
-    cap
+    (error/throw-error!
+      :rf.error/ui-tree-malformed
+      're-frame.ui.reactive/sub-read
+      (str "compiler lexical site id " (pr-str sid)
+           " executed more than once in one render capture — each finite "
+           "reactive occurrence must have a distinct stable id")
+      {:extra {:site-id sid :query query}})
     (-> cap
         (update :order conj sid)
         (assoc-in [:by-site sid] {:query query
@@ -639,6 +646,13 @@
      (sub-read nil query)))
   ([sid query]
    (let [{:keys [cell capture]} @ambient
+         _ (when (and (some? cell) (nil? sid))
+             (error/throw-error!
+               :rf.error/ui-tree-malformed
+               're-frame.ui.reactive/sub-read
+               (str "nil lexical site id reached an active ViewCell capture — "
+                    "compiled render reads must carry a non-nil site id")
+               {:extra {:query query}}))
          prior-record (when (some? cell)
                         (get (:committed @(state cell)) sid))
          prior-query  (:query prior-record)
@@ -1689,10 +1703,12 @@
 ;; token unchanged — the marker is the only signal there).
 
 (defn- committed-frame-incarnations
-  "Snapshot `{frame-id -> incarnation-token}` for every frame the committed map
-  `committed` observes — captured at ACQUIRE time so the frame-close revalidation
-  compares each frame's LIVE incarnation against the one this commit acquired from
-  (rf2-vxgfnd.88). A frame absent/destroyed reads nil. O(observed frames)."
+  "Post-acquire snapshot `{frame-id -> incarnation-token}` for every frame the
+  candidate committed map observes. `commit!` immediately validates every
+  candidate lease with `current?`; together those operations close the window
+  in which a lease acquired from A could otherwise be paired with a snapshot
+  of a replacement same-id incarnation B. A frame absent/destroyed reads nil.
+  O(observed frames)."
   [committed]
   (persistent!
     (reduce (fn [acc {:keys [target lease]}]
@@ -1729,7 +1745,9 @@
                      commit ACQUIRE the FRESH incarnation while the render probed
                      the destroyed one — the `:node-key` reincarnation
                      `evidence-moved?` must correct before paint (rf2-vxgfnd.93).
-    :post-acquire  — after stage-acquire + the evidence read, BEFORE the publish.
+    :post-stage-acquire — after leases are acquired, BEFORE the incarnation
+                     snapshot/current validation.
+    :post-acquire  — after validation + the evidence read, BEFORE the publish.
                      A full destroy of the ACQUIRED incarnation + a fresh same-id
                      incarnation here proves the frame-close revalidation joins the
                      commit to the acquired incarnation's teardown, not the
@@ -1853,11 +1871,28 @@
                                                                      [:query :target :value])
                                                         :lease lease)])))))
               staged-map (into {} staged)
-              ;; ACQUIRE-time incarnation snapshot for the frame-close
-              ;; revalidation (rf2-vxgfnd.88): the exact incarnation each lease
-              ;; was acquired from, so a same-id reincarnation before publish is
-              ;; caught by token identity, not merely the reused frame-id.
-              incarnations (committed-frame-incarnations (merge retained staged-map))
+              candidate (merge retained staged-map)
+              ;; A JVM fixture can destroy/recreate the just-acquired frame in
+              ;; the formerly-uncovered acquire→snapshot window.
+              _ (when-some [barrier *commit-barrier*]
+                  (barrier :post-stage-acquire cell))
+              incarnations (committed-frame-incarnations candidate)
+              candidate-current?
+              (every? (fn [[sid record]]
+                        (obs/current? (:lease record) (:target (new-by sid))))
+                      candidate)]
+          (if-not candidate-current?
+            (do
+              ;; One of the acquired/retained leases belonged to an incarnation
+              ;; that vanished before a trustworthy snapshot could be paired
+              ;; with it. Roll back only newly staged ownership, preserve the
+              ;; prior committed set, and synchronously invalidate so the host
+              ;; re-probes the current incarnation before paint.
+              (doseq [[_ record] (rseq staged)]
+                (obs/release! (:lease record)))
+              (advance-revision! cell)
+              cell)
+            (let [
               ;; step 5 — evidence comparison: read EACH acquired node (staged AND
               ;; retained) against the render's probe evidence, so movement in the
               ;; render→commit gap is caught before paint (invariant 5).
@@ -1881,7 +1916,7 @@
                                            (:evidence (new-by sid))))
               staged-moved?   (boolean (some moved-in? staged))
               retained-moved? (boolean (some moved-in? retained))
-              new-committed (merge retained staged-map)]
+              new-committed candidate]
           ;; :post-acquire test seam — a fixture may destroy the ACQUIRED
           ;; incarnation + recreate the id here to prove the revalidation below
           ;; joins this commit to the acquired incarnation's teardown, not the
@@ -1951,7 +1986,7 @@
             (when (or staged-moved?
                       (and retained-moved? (not (dirty? cell))))
               (advance-revision! cell)))
-          cell)))))
+              cell)))))))
 
 ;; ---- test/inspection reads --------------------------------------------------
 

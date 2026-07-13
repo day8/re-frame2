@@ -9,6 +9,7 @@
             [re-frame.ui.compiler :as compiler]
             [re-frame.ui.compiler.build :as build]
             [re-frame.ui.compiler.emit-cljs :as emit-cljs]
+            [re-frame.ui.compiler.emit-jvm :as emit-jvm]
             [re-frame.ui.compiler.header :as header]))
 
 (defn- expand-error
@@ -22,9 +23,10 @@
       (:rf.ui.compile/error (ex-data ex)))
     (catch Exception ex
       ;; macroexpansion wraps in CompilerException in some paths
-      (let [c (.getCause ex)]
-        (when (instance? clojure.lang.ExceptionInfo c)
-          (:rf.ui.compile/error (ex-data c)))))))
+      (or (:rf.ui.compile/error (ex-data ex))
+          (let [c (.getCause ex)]
+            (when (instance? clojure.lang.ExceptionInfo c)
+              (:rf.ui.compile/error (ex-data c))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Arities + options
@@ -51,6 +53,22 @@
   (is (= :rf.ui.compile/bad-defview-args
          (expand-error '(re-frame.ui/defview v ["not-a-binding"] [:div "x"])))
       "the one argument is a map-destructuring form or a symbol"))
+
+(deftest reactive-header-defaults-are-rejected-before-host-lowering
+  (is (= :rf.ui.compile/unsupported-form
+         (expand-error
+          '(re-frame.ui/defview reactive-header
+             [{:keys [sub] :or {sub (re-frame.ui/sub [:fallback])}}]
+             [:div sub])))
+      "a header default cannot bypass site indexing and select sub-free render")
+  (is (nil? (expand-error
+             '(re-frame.ui/defview ordinary-header
+                [{:keys [x] :or {x (str "fallback")}}]
+                [:div x])))
+      "ordinary pure defaults keep the documented header ergonomics")
+  (is (nil? (expand-error
+             '(re-frame.ui/defview shadowing-header [{:keys [sub]}] [:div sub])))
+      "the header local shadows re-frame.ui/sub only in the body"))
 
 (deftest options-map-is-closed
   (is (= :rf.ui.compile/unknown-option
@@ -206,6 +224,47 @@
       (is (re-find #"re-frame.ui.runtime/memo-view observed\$host_render"
                    sub-text)
           "production memoizes the specialized ViewCell host wrapper"))))
+
+(deftest both-host-forms-carry-only-the-compact-site-id-and-literals-hoist
+  (let [args (fn [vname query]
+               {:vname vname
+                :view-id (keyword "app.probe" (name vname))
+                :display-name (str "app.probe/" vname)
+                :docstring nil
+                :header (header/parse-header [])
+                :slots []
+                :ast {:op :expr
+                      :form (list 're-frame.ui.reactive/sub-read
+                                  "sid1-fixture" query)}
+                :manifest {:view-id (keyword "app.probe" (name vname))
+                           :hook-signature "hs1-fixed"
+                           :sites {:subs [{:sid "sid1-fixture"
+                                          :query query
+                                          :path [:child 0]
+                                          :expr-path [:expr]}]}}
+                :closed-keys nil
+                :children? false})
+        literal-cljs (pr-str (emit-cljs/emit-defview
+                              (args 'literal-site [:item/by-id 1])))
+        dynamic-cljs (pr-str (emit-cljs/emit-defview
+                              (args 'dynamic-site [:item/by-id 'id])))
+        jvm-text (pr-str (emit-jvm/emit-defview
+                          (args 'jvm-site [:item/by-id 1])))]
+    (is (re-find #"literal-site\$query\$0 \[:item/by-id 1\]" literal-cljs)
+        "literal queries are module constants, not per-render allocations")
+    (is (re-find #"sub-read \"sid1-fixture\" literal-site\$query\$0"
+                 literal-cljs))
+    (is (re-find #"sub-read \"sid1-fixture\" \[:item/by-id id\]"
+                 dynamic-cljs)
+        "parametric queries remain direct runtime expressions")
+    (is (re-find #"sub-read \"sid1-fixture\" \[:item/by-id 1\]" jvm-text)
+        "the JVM structural host receives the same compiler site id")
+    (is (str/includes? literal-cljs ":expr-path")
+        "source/structural diagnostics remain available in the dev manifest")
+    (is (= 1 (count (re-seq
+                     #"sub-read \"sid1-fixture\" literal-site\$query\$0"
+                     literal-cljs)))
+        "the hot call itself carries only scalar sid + query")))
 
 (deftest file-pass-registration-does-not-embed-a-per-view-digest
   (build/begin-build! ::file '#{app.file})
