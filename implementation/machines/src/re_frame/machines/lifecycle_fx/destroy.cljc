@@ -98,8 +98,10 @@
   `finalize-machine`. See Spec 005 §Destroy is silent-idempotent
   for the normative paragraph.
 
-  The tracked-slot signal the tracked form additionally consults is
-  resolved-actor-id agnostic and so stays local to that call site."
+  This is the ONE liveness probe every destroy shape consults
+  (rf2-s2bsmw). The tracked form pairs it with the exact-incarnation
+  predicate (`slot-owned-incarnation?`); tracked-slot PRESENCE is
+  ownership bookkeeping, never a liveness signal."
   [frame-id actor-id runtime-db]
   (and actor-id
        (or (some? (registrar/lookup :event actor-id))
@@ -317,33 +319,19 @@
   The liveness probe must distinguish *already-destroyed* (the actor was
   alive and the teardown projection ran) from *not-yet-materialised-snapshot*
   (the actor IS alive in this drain — a spawn + destroy back-to-back in the
-  same `:fx` vector, before the snapshot swap landed). `live?` is true iff
-  ANY of the following hold:
+  same `:fx` vector, before the snapshot swap landed). Liveness is the
+  shared `actor-live?` probe — registrar entry / snapshot / spawn-order,
+  identical for every shape (rf2-s2bsmw dropped the tracked form's
+  slot-presence override: a tracked slot naming a dead actor is STALE
+  OWNERSHIP BOOKKEEPING, pruned by `destroy-tracked!` without re-running
+  lifecycle teardown, never a liveness signal).
 
-    - **Registrar entry present** at `actor-id`. Normal spawned actors have no
-      per-instance entry, but teardown recognises stale or externally installed
-      entries.
-    - **Snapshot present** at `[:rf.runtime/machines :snapshots actor-id]`. Covers the
-      narrow window where a singleton's handler has been replaced
-      mid-drain but the snapshot still lives, plus belt-and-braces
-      for hand-crafted call sites.
-    - **Spawn-order entry present** for `actor-id` in the per-frame
-      spawn-order channel. `spawn-order/record!` runs unconditionally
-      on spawn; `spawn-order/forget!` runs unconditionally on destroy —
-      so the entry's presence/absence is the most reliable
-      \"alive-or-gone\" bit, covering the back-to-back spawn-then-destroy
-      window before the snapshot swap lands.
-    - **`slot-live?`** — the tracked-form belt-and-braces liveness hint (the
-      `[:rf.runtime/machines :spawned parent-id invoke-id]` slot's presence),
-      passed true ONLY by the tracked-`:spawn` shape; false for the keyword
-      and reap shapes.
-
-  A truly-already-destroyed actor has ALL of these gone — the unified
-  teardown projection, registrar cleanup, and `spawn-order/forget!`
+  A truly-already-destroyed actor has ALL the probe's signals gone — the
+  unified teardown projection, registrar cleanup, and `spawn-order/forget!`
   run atomically per `destroy-single-actor!` and `finalize-machine`.
   See Spec 005 §Destroy is silent-idempotent for the normative paragraph."
-  [frame-id actor-id reason parent-id invoke-id old-db slot-live?]
-  (when (or (actor-live? frame-id actor-id old-db) slot-live?)
+  [frame-id actor-id reason parent-id invoke-id old-db]
+  (when (actor-live? frame-id actor-id old-db)
     ;; Shared ordered teardown pipeline (see `teardown-live-actor!`). The
     ;; `:exit` cascade runs BEFORE the `:rf.machine/destroyed` trace:
     ;; per Spec 005 §Declarative `:spawn` §Composition with explicit `:entry`
@@ -455,7 +443,7 @@
       ;; teardown slot keys). `parent-id` / `invoke-id` / `child-id` were used
       ;; ABOVE only to READ + verify the join state.
       (destroy-resolved! frame-id actor-id :rf.machine/join-reaped
-                         nil nil old-db false))))
+                         nil nil old-db))))
 
 ;; ---- the closed map-form grammar (rf2-3phait) ------------------------------
 ;;
@@ -486,18 +474,73 @@
   (and (keyword? (:rf/parent-id args))
        (vector?  (:rf/invoke-id args))))
 
+(defn- slot-owned-incarnation?
+  "The exact-incarnation half of the tracked form's shared
+  liveness/incarnation predicate (rf2-s2bsmw). True iff the actor at
+  `actor-id` is the incarnation THIS `[:spawned parent-id invoke-id]` slot
+  owns: its snapshot's `:data` carries the framework-reserved
+  `:rf/parent-id` + `:rf/invoke-id` ownership stamps (written by
+  `stamp-framework-data` at spawn — the same reserved keys the
+  spawn-`:on-error` routing reads) matching the slot coordinates exactly.
+
+  A same-id REPLACEMENT actor spawned through another path (a hand-emitted
+  `:fixed-actor-id` re-spawn, a different parent) carries different — or
+  no — ownership stamps, so a STALE slot can never destroy it: exact
+  incarnation identity is respected. A snapshot-less-but-live edge (the
+  back-to-back spawn-then-destroy window where only the spawn-order signal
+  is up) has no stamps to contradict the slot, so it counts as owned —
+  the tracked destroy retains its pre-existing behaviour there."
+  [runtime-db actor-id parent-id invoke-id]
+  (let [snap (when runtime-db (get-in runtime-db (paths/snapshot-path actor-id)))]
+    (if (map? snap)
+      (let [d (:data snap)]
+        (and (= parent-id (:rf/parent-id d))
+             (= invoke-id (:rf/invoke-id d))))
+      true)))
+
+(defn- prune-tracked-slot!
+  "Stale ownership-slot cleanup, SEPARATED from actor lifecycle teardown
+  (rf2-s2bsmw): clear the `[:spawned parent-id invoke-id]` slot and the
+  parent snapshot's mirroring `[:data :rf/spawned <invoke-id>]` entry via
+  the unified projection (slot-only: nil actor-id), WITHOUT re-running exit
+  handlers, child cascades, timer/resource cleanup, terminal replies, or a
+  `:rf.machine/destroyed` trace — the actor the slot names is either
+  already dead for this incarnation (its own destroy ran the full pipeline
+  once) or a live replacement this slot does not own."
+  [frame-id parent-id invoke-id]
+  (frame/swap-runtime-db! frame-id
+                          (fn [runtime-db]
+                            (first (teardown/teardown-actor
+                                     runtime-db {:parent-id parent-id
+                                                 :invoke-id invoke-id}))))
+  nil)
+
 (defn- destroy-tracked!
   "The tracked single-`:spawn` exit-cascade form `{:rf/parent-id p
   :rf/invoke-id i}` (already shape-validated by `destroy-machine-fx`).
-  Resolves the actor id from the `[:spawned p i]` slot; the teardown is
-  `:explicit`.
+  Resolves the actor id from the `[:spawned p i]` slot; a live owned
+  child's teardown is `:explicit`.
 
   Slot-shape fence (rf2-3phait): the tracked form is admitted only when the
   resolved slot is an actor-id KEYWORD. A `:spawn-all` join-state MAP at the
   slot means the tracked form was mis-addressed — consuming it as an actor id
   would clear the join slot and orphan every live child — so it fails loud
   (`:cause :slot-shape-mismatch`) with zero mutation. A nil slot (already
-  cleared — a repeat exit) stays a silent no-op."
+  cleared — a repeat exit) stays a silent no-op.
+
+  Stale-slot fence (rf2-s2bsmw): slot presence is OWNERSHIP BOOKKEEPING,
+  never liveness. An imperative keyword destroy tears the actor down but
+  leaves the tracked slot naming the now-dead id (its teardown-args carry
+  no parent/invoke); the later declarative exit must therefore split on the
+  shared liveness/incarnation predicate (`actor-live?` +
+  `slot-owned-incarnation?`):
+
+    - dead for this incarnation → `prune-tracked-slot!` (slot + parent
+      mirror only; NO second exit cascade / teardown / destroyed trace —
+      Spec 005's silent-idempotent destroy law);
+    - live but a same-id REPLACEMENT this slot does not own → prune the
+      stale slot only, leaving the replacement untouched;
+    - live and owned → the normal exact-incarnation `:explicit` destroy."
   [frame-id args old-db]
   (let [parent-id (:rf/parent-id args)
         invoke-id (:rf/invoke-id args)
@@ -506,12 +549,15 @@
       (nil? slot-id)
       nil
 
-      (keyword? slot-id)
-      (destroy-resolved! frame-id slot-id :explicit parent-id invoke-id old-db
-                         true)
+      (not (keyword? slot-id))
+      (traces/emit-destroy-bad-arg! frame-id :slot-shape-mismatch args)
+
+      (and (actor-live? frame-id slot-id old-db)
+           (slot-owned-incarnation? old-db slot-id parent-id invoke-id))
+      (destroy-resolved! frame-id slot-id :explicit parent-id invoke-id old-db)
 
       :else
-      (traces/emit-destroy-bad-arg! frame-id :slot-shape-mismatch args))))
+      (prune-tracked-slot! frame-id parent-id invoke-id))))
 
 (defn destroy-machine-fx
   "fx handler for `:rf.machine/destroy`. Parses the CLOSED destroy grammar
@@ -543,7 +589,7 @@
       ;; Imperative form — the actor-id IS the arg; a live in-progress
       ;; teardown is ALWAYS an `:explicit` cancellation.
       (keyword? args)
-      (destroy-resolved! frame-id args :explicit nil nil old-db false)
+      (destroy-resolved! frame-id args :explicit nil nil old-db)
 
       (map? args)
       (let [shape (set (keys args))]
