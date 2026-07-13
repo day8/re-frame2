@@ -1024,6 +1024,116 @@
       (is (nil? (frame/frame frame-id))
           "destroy still completes after the claim-window barrier"))))
 
+(deftest on-destroy-cascade-is-isolated-from-preclaim-and-bound-work
+  (testing "only the cleanup seed and its queued descendants run after claim"
+    (let [frame-id        :destroy-claim/isolated-cleanup
+          ordinary-runs   (atom 0)
+          cleanup-runs    (atom 0)
+          child-runs      (atom 0)
+          effect-runs     (atom 0)
+          escaped-runs    (atom 0)
+          nested-sync-runs (atom 0)
+          captured-ticks  (atom [])]
+      (rf/make-frame {:id frame-id
+                      :on-destroy [:destroy-claim/cleanup]})
+      (rf/reg-event :destroy-claim/ordinary
+        (fn [{:keys [db]} _]
+          (swap! ordinary-runs inc)
+          {:db (assoc db :ordinary-ran? true)}))
+      (rf/reg-event :destroy-claim/escaped
+        (fn [{:keys [db]} _]
+          (swap! escaped-runs inc)
+          {:db (assoc db :escaped-ran? true)}))
+      (rf/reg-event :destroy-claim/nested-sync
+        (fn [{:keys [db]} _]
+          (swap! nested-sync-runs inc)
+          {:db (assoc db :nested-sync-ran? true)}))
+      (rf/reg-event :destroy-claim/cleanup-child
+        (fn [{:keys [db]} _]
+          (swap! child-runs inc)
+          {:db (assoc db :cleanup-child-ran? true)}))
+      (rf/reg-fx :destroy-claim/cleanup-effect
+        (fn [_ _] (swap! effect-runs inc)))
+      (rf/reg-event :destroy-claim/cleanup
+        (fn [{:keys [db]} _]
+          (swap! cleanup-runs inc)
+          ;; `next-tick` captures dynamic bindings with `bound-fn` on JVM.
+          ;; Force the callback to run while the claim is still live: actual
+          ;; host-thread identity must keep it out of the private cleanup queue.
+          (interop/next-tick
+            #(rf/dispatch [:destroy-claim/escaped] {:frame frame-id}))
+          (executor-barrier!)
+          ;; The internal teardown entry is narrow; it must not turn generic
+          ;; nested dispatch-sync into a legal handler operation.
+          (rf/dispatch-sync [:destroy-claim/nested-sync] {:frame frame-id})
+          {:db db
+           :fx [[:destroy-claim/cleanup-effect :payload]
+                [:dispatch [:destroy-claim/cleanup-child]]]}))
+
+      ;; Hold one ordinary event in the real router. It linearizes before the
+      ;; destroy claim but must never sit behind the cleanup seed.
+      (with-redefs [interop/next-tick
+                    (fn [f]
+                      (swap! captured-ticks conj f)
+                      nil)]
+        (rf/dispatch [:destroy-claim/ordinary] {:frame frame-id}))
+      (is (= 1 (count (:queue @(:router (frame/frame frame-id)))))
+          "ordinary pre-claim work is waiting on the real router")
+
+      (rf/destroy-frame! frame-id)
+      ;; Flush both the bound callback's real-router drain and the original
+      ;; pre-claim drain attempt. Neither may invoke application work.
+      (doseq [tick @captured-ticks] (tick))
+      (executor-barrier!)
+
+      (is (= 1 @cleanup-runs) ":on-destroy seed runs exactly once")
+      (is (= 1 @child-runs) "queued cleanup child runs on the isolated cascade")
+      (is (= 1 @effect-runs) "cleanup effects execute normally")
+      (is (zero? @ordinary-runs) "pre-claim ordinary work is discarded")
+      (is (zero? @escaped-runs)
+          "bound-fn executor work cannot inherit teardown authority")
+      (is (zero? @nested-sync-runs)
+          "generic nested dispatch-sync remains rejected during cleanup")
+      (is (nil? (frame/frame frame-id)) "teardown completes"))))
+
+(deftest destroy-from-active-handler-runs-cleanup-and-cuts-off-old-queue
+  (testing "self-destroy has one private cleanup cascade inside the active drain"
+    (let [frame-id      :destroy-claim/inside-handler
+          cleanup-runs  (atom 0)
+          ordinary-runs (atom 0)
+          captured-ticks (atom [])]
+      (rf/make-frame {:id frame-id
+                      :on-destroy [:destroy-claim/inside-cleanup]})
+      (rf/reg-event :destroy-claim/inside-cleanup
+        (fn [_ _]
+          (swap! cleanup-runs inc)
+          {}))
+      (rf/reg-event :destroy-claim/inside-ordinary
+        (fn [_ _]
+          (swap! ordinary-runs inc)
+          {}))
+      (rf/reg-event :destroy-claim/self-destroy
+        (fn [_ _]
+          (frame/destroy-frame! frame-id)
+          {}))
+
+      ;; Queue old work without letting its async drain start, then prepend a
+      ;; synchronous destroying event. The handler already owns the real
+      ;; router's drain serialization when destroy-frame! enters.
+      (with-redefs [interop/next-tick
+                    (fn [f]
+                      (swap! captured-ticks conj f)
+                      nil)]
+        (rf/dispatch [:destroy-claim/inside-ordinary] {:frame frame-id}))
+      (rf/dispatch-sync [:destroy-claim/self-destroy] {:frame frame-id})
+      (doseq [tick @captured-ticks] (tick))
+
+      (is (= 1 @cleanup-runs)
+          "the internal cleanup seed runs despite generic nested-sync rejection")
+      (is (zero? @ordinary-runs)
+          "the pre-existing queue is cut off by the handler's destroy claim")
+      (is (nil? (frame/frame frame-id)) "self-destroy completes exactly once"))))
+
 (deftest replace-container-on-destroyed-frame-does-not-npe
   ;; Tighter reproducer that hits the adapter guard directly via the
   ;; live runtime. The router's per-event :db commit reads the frame's

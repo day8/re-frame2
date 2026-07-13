@@ -103,6 +103,10 @@
    {:key         :router/dispatch-sync!
     :producer-ns 're-frame.router
     :description "Process an event synchronously, bypassing the drain queue."}
+   {:key         :router/run-frame-destroy-event!
+    :producer-ns 're-frame.router
+    :design-bead "rf2-f0otfl"
+    :description "Run a claimed frame incarnation's :on-destroy seed and synchronous same-frame descendants on an isolated, token-scoped teardown queue. This is private teardown authority, not generic dispatch-sync privilege; actual host-thread identity prevents JVM bound-fn propagation from authorising queued executor work."}
    {:key         :router/reschedule-drain!
     :producer-ns 're-frame.router
     :design-bead "rf2-x76af2.22"

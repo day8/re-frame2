@@ -25,8 +25,8 @@
         through the corpus-wide `register-error-listener!` substrate — the
         always-on axis, NOT gated by `interop/debug-enabled?`.
 
-    (b) the rf2-bxud9v defence-in-depth re-throw branch: if `dispatch-sync!`
-        ITSELF faults (not the user handler — a fault inside the dispatch
+    (b) the rf2-bxud9v defence-in-depth re-throw branch: if the private teardown
+        cascade faults (not the user handler — a fault inside the dispatch
         infrastructure), the dedicated category still fans out on the
         always-on axis. This branch never produced a router
         `:rf.error/handler-exception`, so before EP-0008 it had ZERO
@@ -123,31 +123,31 @@
           "no record when :on-destroy completes cleanly"))))
 
 ;; ===========================================================================
-;; (b) The rf2-bxud9v defence-in-depth re-throw branch — `dispatch-sync!`
-;; ITSELF faults. This branch never produced a router handler-exception, so
+;; (b) The rf2-bxud9v defence-in-depth re-throw branch — the internal teardown
+;; cascade ITSELF faults. This branch never produced a router handler-exception, so
 ;; the always-on emission here is its ONLY production observability.
 ;; ===========================================================================
 
-(deftest dispatch-sync-infra-fault-fans-out-on-always-on-axis
-  (testing "Per rf2-7b9r4l / rf2-bxud9v: if `dispatch-sync!` itself throws
+(deftest teardown-cascade-infra-fault-fans-out-on-always-on-axis
+  (testing "Per rf2-7b9r4l / rf2-bxud9v: if the teardown cascade itself throws
             (a fault inside the dispatch infrastructure, NOT the user
             handler), `fire-on-destroy-event!`'s defence-in-depth catch arm
             still fans a `:rf.error/on-destroy-handler-exception` record out
             on the always-on axis — the ONLY production coverage for this
             branch (it never produced a router :rf.error/handler-exception)."
     (let [seen     (atom [])
-          original (late-bind/get-fn :router/dispatch-sync!)]
+          original (late-bind/get-fn :router/run-frame-destroy-event!)]
       (rf/register-listener! :errors :test/recorder
                                    (fn [record] (swap! seen conj record)))
       (rf/make-frame {:id :ondestroy/infra-fault :on-destroy [:ondestroy/never-reached]})
-      ;; Make the dispatch-sync! infrastructure itself fault.
-      (late-bind/set-fn! :router/dispatch-sync!
+      ;; Make the private teardown dispatch infrastructure itself fault.
+      (late-bind/set-fn! :router/run-frame-destroy-event!
                          (fn [& _] (throw (ex-info "dispatch infra fault" {}))))
       (try
         (is (nil? (rf/destroy-frame! :ondestroy/infra-fault))
             "teardown does not propagate the infra fault")
         (finally
-          (late-bind/set-fn! :router/dispatch-sync! original)))
+          (late-bind/set-fn! :router/run-frame-destroy-event! original)))
       (let [reports (filter #(= :rf.error/on-destroy-handler-exception (:error %)) @seen)]
         (is (= 1 (count reports))
             "the defence-in-depth branch fanned out on the always-on axis")
