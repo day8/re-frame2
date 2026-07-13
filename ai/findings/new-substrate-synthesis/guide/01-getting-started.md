@@ -78,10 +78,12 @@ Three things carry the whole model:
    edits. No provider → `sub` raises `:rf.error/no-frame-context`; the runtime never
    guesses.
 
-> **Stage note.** The compiled template, the props model, and the mount grammar above
-> are shipped (Stage 1, on main today); the live reactive loop — `sub` re-rendering the
-> view, `frame-root`'s runtime ENSURE, the `ui/adapter` you hand `rf/init!` — *(lands
-> S2 — reactive subs)*. Same source either way: what you write today is the contract.
+> **Stage note.** The compiled template, the props model, and the mount grammar are
+> Stage 1; the reactive read loop — `sub` re-rendering the view, `frame-root`'s runtime
+> ENSURE, the `ui/adapter` you hand `rf/init!` — shipped with the S2 reactive core. All
+> of it is on main today. What's left is the button: committed dispatch from compiled
+> handler sites *(lands S3 — committed handlers)* — until then the vector is data you
+> can read and assert, and tests drive state with `ui.test/dispatch!`.
 
 One more default worth knowing: this single-root page needed no root identity — the
 root id derives from the mounted view. When a page mounts the same view twice, or you
@@ -108,8 +110,8 @@ needs no DOM, no browser, no flake — it runs on the JVM in your watch loop:
 Two ground rules, both cheap: the events/subs a view touches must be `.cljc` (they run
 on the JVM here — standard re-frame discipline anyway), and attribute reads go through
 `ui.test/attrs`, never keyword lookup on the node. The full testing story is
-[09](09-testing.md). *(The test harness core is Stage 1; a Tier-1 render that crosses a
-`sub` site — as this one does — lands S2. A subless view tests today.)*
+[09](09-testing.md). This test — `sub` site included — runs on main today: the Tier-1
+core is Stage 1 and the `sub` snapshot path shipped with the S2 reactive core.
 
 ## Hot reload
 

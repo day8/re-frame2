@@ -6,10 +6,11 @@ proves itself: the counter shows the loop; the dashboard shows the loop *scaling
 without new concepts. Nothing here is repo-specific; it's the shape of any consumer
 app.
 
-*(Stage note: everything compiles and Tier-1-renders under Stage 1, and `dispatch!` in
-tests is shipped today. The live loop — `sub`-driven repaints, the `ui/adapter`
-reactive wiring — lands S2; dispatch behaviour and the error boundary land S3. Markers
-below flag each.)*
+*(Stage note: everything on this page compiles, Tier-1-renders — `sub` reads
+included — and test-drives with `dispatch!` on main today; the live loop (`sub`-driven
+repaints, the `ui/adapter` reactive wiring) shipped with the S2 core. Committed
+dispatch from compiled handler sites, the error boundary, and `lease` liveness are
+still to land — markers below flag each.)*
 
 ## The state shape first
 
@@ -53,7 +54,7 @@ One namespace, `.cljc` (the JVM tests will thank you), dataflow before views:
 Note where the computation went: filtering and sorting live in `:metric/ids` —
 shared, cached, Xray-visible, JVM-testable. Views below do presentation only.
 
-## One tile, narrow reads *(lands S2 — reactive subs)*
+## One tile, narrow reads
 
 ```clojure
 (defview metric-tile [{:keys [id]}]
@@ -157,8 +158,7 @@ nothing re-seeds.
 ## Tests, headless
 
 The tile's whole contract — what it shows, what it dispatches — asserts on the JVM
-tree, no browser *(these renders cross `sub` sites, so they run fully once S2's Tier-1
-sub path lands; `dispatch!` itself is shipped today)*:
+tree, no browser; both tests run on main today (`sub` reads and `dispatch!` alike):
 
 ```clojure
 (ns dash.app-test

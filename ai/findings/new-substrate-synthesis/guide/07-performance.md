@@ -3,9 +3,10 @@
 The performance model is mostly a list of things you *don't* do. The compiler emits what a
 meticulous React engineer writes by hand — every view, every time.
 
-*(Stage note: the compiled output and memo comparators are Stage 1; the reactive
-economics below ride S2, and the CI gates that prove the production claims — bundle
-absence, size budget, output shape — wire in across S3–S6.)*
+*(Stage note: the compiled output and memo comparators are Stage 1, and the reactive
+economics below ride the S2 core — both on main today, with the push-economics gate
+(G-13) already wired. The CI gates that prove the production claims — bundle absence,
+size budget, output shape — wire in across S3–S6.)*
 
 ## What you never write
 
@@ -55,10 +56,10 @@ exists to confirm this, not to negotiate with it.
 ## What production builds contain
 
 No dev checks, no source coords, no causes/manifests/histories, no interpreter, no wrapper
-components — the runtime is ~4 KB gzipped over React, and each component carries only the
-machinery its source implies (a props-only view is a memoized function and direct element
-calls, full stop). These are CI gates — bundle scan, size budget, output-shape diff — not
-intentions.
+components — the kernel budget is ≤ 4 KB gzipped over React, and each component carries
+only the machinery its source implies (a props-only view is a memoized function and direct
+element calls, full stop). These are CI gates — bundle scan, size budget, output-shape
+diff — not intentions.
 
 ## Measuring
 

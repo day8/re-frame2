@@ -4,9 +4,10 @@ A frame is a running re-frame2 universe: app-db, subscriptions, event queue, epo
 history. Views live *inside* one. Two components manage that relationship, and their names
 say which verb they perform.
 
-*(Stage note: the mount grammar and frame-plan extraction compile today — Stage 1. The
-runtime on this page — ENSURE preflight, provider scoping, `(frame)` — lands S2;
-`ui/dispatch-fn` and `effect` land S3.)*
+*(Stage note: the mount grammar and frame-plan extraction are Stage 1; runtime ENSURE
+preflight and provider scoping shipped with the S2 reactive core — all on main today.
+The `(frame)` ops map *(lands S2)* is the remaining S2 piece; `ui/dispatch-fn` and
+`effect` land S3.)*
 
 ## `frame-root` — ensure
 

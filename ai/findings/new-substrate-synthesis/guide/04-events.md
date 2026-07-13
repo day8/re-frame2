@@ -127,7 +127,7 @@ testable:
            (-> tree (ui.test/find :select) ui.test/attrs :on-change)))))
 ```
 
-*(This render crosses `sub` sites, so it runs fully once S2's Tier-1 sub path lands.)*
+*(This test runs on main today — Tier-1 renders resolve `sub` sites against the frame.)*
 
 **When the door applies — honestly.** The compiler proves an element controlled by
 seeing a literal `:value`/`:checked` prop co-present with the vector-handler site —
