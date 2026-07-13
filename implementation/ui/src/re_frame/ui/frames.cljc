@@ -201,18 +201,37 @@
   "Publish `record` for `frame-id` only while the currently-live incarnation
   stays current. Returns true when published, nil otherwise.
 
-  The incarnation pin rejects a destroy/recreate that overtakes publication;
-  the frame's drain serialization orders this write against `destroy-frame!`'s
-  liveness flip. Therefore either the record lands first and the destroy hook
-  prunes it, or destruction wins and no dead-lifetime record is written."
+  The incarnation pin rejects a destroy/recreate that overtakes publication.
+  The incarnation-scoped closing check also covers `destroy-frame!`'s earlier
+  pre-liveness-flip window: its close marker is installed BEFORE the UI hook
+  prunes plan authority, while `frame/frame` still returns the dying record.
+
+  Both checks run under the frame's drain serialization. Revalidation after the
+  write covers a destroy that starts between the first check and the registry
+  swap: that tentative record is removed. Thus a record published before a
+  later destroy is pruned by its UI hook, while an already-started or overtaking
+  destroy leaves no dead-lifetime record. The incarnation-scoped predicate (not
+  bare `frame-closing?`) permits a fresh B while A is only finishing teardown."
   [frame-id record]
   (when-let [incarnation (frame/frame-incarnation-token frame-id)]
     (frame/call-serialized-with-drain!
      frame-id
      (fn []
-       (when (identical? incarnation (frame/frame-incarnation-token frame-id))
+       (when (and (identical? incarnation
+                              (frame/frame-incarnation-token frame-id))
+                  (not (frame/frame-incarnation-closing? frame-id incarnation)))
          (swap! installed-plans assoc frame-id record)
-         true)))))
+         (if (and (identical? incarnation
+                              (frame/frame-incarnation-token frame-id))
+                  (not (frame/frame-incarnation-closing? frame-id incarnation)))
+           true
+           (do
+             (swap! installed-plans
+                    (fn [plans]
+                      (if (= record (get plans frame-id))
+                        (dissoc plans frame-id)
+                        plans)))
+             nil)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Preflight ENSURE — the live plan executor
