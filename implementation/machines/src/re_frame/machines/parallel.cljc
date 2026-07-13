@@ -408,14 +408,27 @@
   in-region prefix-path. To keep the
   runtime-owned `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` slot unique
   per-region (and per-region `:after` epoch tracking distinct from sibling
-  regions), prepend the region name onto the `:rf/invoke-id`."
-  [region-name fx]
-  (let [[fx-id args] fx]
-    (cond
-      (and (map? args) (contains? args :rf/invoke-id))
-      [fx-id (update args :rf/invoke-id #(vec (cons region-name %)))]
+  regions), prepend the region name onto the `:rf/invoke-id`.
 
-      :else fx)))
+  A `:spawn-all` PER-CHILD spawn fx carries the same invocation path under
+  `:rf/spawn-all-id` (its join-slot key — deliberately NOT `:rf/invoke-id`,
+  which would make `spawn-fx` track the child in a per-child slot). It must
+  be region-prefixed IDENTICALLY, or the child-side join reads
+  (`spawn-all-invoke-rejected?`, the `:rf/join-child` membership record —
+  rf2-nvxehu) address a slot the region's `spawn-all-init-fx` never seeded."
+  [region-name fx]
+  (let [[fx-id args] fx
+        prefix-path  #(vec (cons region-name %))]
+    (if (and (map? args)
+             (or (contains? args :rf/invoke-id)
+                 (contains? args :rf/spawn-all-id)))
+      [fx-id (cond-> args
+               (contains? args :rf/invoke-id)
+               (update :rf/invoke-id prefix-path)
+
+               (contains? args :rf/spawn-all-id)
+               (update :rf/spawn-all-id prefix-path))]
+      fx)))
 
 ;; ---- initial-state entry cascade ------------------------------------------
 ;;

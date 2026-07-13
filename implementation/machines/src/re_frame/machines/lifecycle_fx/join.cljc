@@ -14,6 +14,12 @@
       children. Forged / unknown ids are rejected with the
       `:rf.error/machine-spawn-all-bad-child-id` error trace and a
       no-op fx (the join state is NOT mutated).
+   3b. Authenticates the carrier to the EXACT join attempt (rf2-nvxehu):
+      the `:rf/join-auth` metadata the member child's own handler boundary
+      stamped must match the current join's parent/invoke identity, logical
+      child id, exact current actor id, and exact attempt token. Unstamped
+      / superseded / duplicate carriers are suppressed stale
+      (`:rf.machine.spawn-all/stale-completion`) with zero mutation.
    4. Adds `<child-id>` to `:done` or `:failed`.
    5. If `:resolved?` is already true, this is a post-resolution
       late-completion (it fires NO further parent event — the
@@ -47,6 +53,163 @@
             [re-frame.trace :as trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
+
+;; The verified fold body is defined below the interceptor for reading
+;; order (gates first, fold second); forward-declared so the interceptor
+;; can reference it.
+(declare intercept-fold)
+
+;; ---------------------------------------------------------------------------
+;; Attempt authentication (rf2-nvxehu).
+;;
+;; A `:spawn-all` child's completion carrier is the PUBLIC event shape
+;; `[<parent-id> [<done-kw> <child-id> & extra]]` — it carries no actor or
+;; attempt identity, so after parent re-entry / child respawn a STALE carrier
+;; from a prior attempt is indistinguishable from a live one by value. The
+;; runtime therefore authenticates carriers through the existing PRIVATE
+;; lifecycle path: at spawn, each child's `:data` gets the framework-reserved
+;; `:rf/join-child` membership record (parent/invoke identity, logical child
+;; id, its own spawned instance address, the join's completion event
+;; keywords, and the opaque per-attempt token `spawn-all-init-fx` minted into
+;; the join state). When the child's own handler emits a matching completion
+;; dispatch, `stamp-join-completion-fx` (called at the handler-return
+;; boundary in `registration.cljc`) stamps that record onto the INNER event
+;; vector's METADATA under `:rf/join-auth` — the public event value is
+;; untouched, no application-facing surface is added, and only a dispatch
+;; that flowed through the member child's own boundary can carry the stamp.
+;;
+;; The interceptor's fold branch then requires the stamp to match
+;; runtime-owned join state EXACTLY — parent/invoke identity, logical child
+;; id, exact current actor id, exact attempt token — before a `:done` /
+;; `:failed` fold. Unstamped, superseded (prior attempt / wrong actor), and
+;; duplicate carriers are classified stale and perform ZERO mutation (no
+;; fold, no terminal publication, no resolution, no reap).
+;; ---------------------------------------------------------------------------
+
+(defn- join-completion-event?
+  "True iff `event` (a `[:dispatch …]` fx's event vector) IS this join
+  child's own completion carrier: exactly `[<parent-id> [<done-kw-or-
+  error-kw> <child-id> & extra]]` for the membership record `rec`. Only the
+  2-element outer shape is stampable — extra outer args are rebuilt by
+  `route-inner-event` at the parent (metadata would be lost) and no child
+  emits them for its own completion."
+  [event {:keys [parent-id child-id done-kw error-kw]}]
+  (and (vector? event)
+       (= 2 (count event))
+       (= parent-id (first event))
+       (let [inner (second event)]
+         (and (vector? inner)
+              (or (= done-kw (first inner))
+                  (= error-kw (first inner)))
+              (= child-id (second inner))))))
+
+(defn- stamp-completion-event
+  "Stamp the `:rf/join-auth` attempt-authentication metadata onto the INNER
+  event vector of a matching completion carrier. The stamped facts are the
+  exact-authority tuple the interceptor verifies: parent/invoke identity,
+  logical child id, the child's own spawned instance address, and the
+  opaque per-attempt token."
+  [event rec]
+  (let [inner (second event)
+        auth  (select-keys rec [:parent-id :invoke-id :child-id
+                                :spawned-id :attempt])]
+    (assoc event 1 (vary-meta inner assoc :rf/join-auth auth))))
+
+(defn- stamp-fx-entry
+  "Stamp one fx-vector entry when it dispatches this child's own completion
+  (`:dispatch` and `:dispatch-n` forms); every other entry rides through
+  untouched."
+  [fx-entry rec]
+  (if (and (vector? fx-entry) (>= (count fx-entry) 2))
+    (let [[fx-id arg] fx-entry]
+      (cond
+        (and (= :dispatch fx-id) (join-completion-event? arg rec))
+        (assoc fx-entry 1 (stamp-completion-event arg rec))
+
+        (and (= :dispatch-n fx-id) (sequential? arg))
+        (assoc fx-entry 1 (mapv #(if (join-completion-event? % rec)
+                                   (stamp-completion-event % rec)
+                                   %)
+                                arg))
+
+        :else fx-entry))
+    fx-entry))
+
+(defn stamp-join-completion-fx
+  "The child-boundary half of the exact-authority contract (rf2-nvxehu).
+  Given the effects map a `:spawn-all` child's handler is about to return
+  and the child's `:rf/join-child` membership record (nil for every
+  non-join-child actor — the common case, a no-op), stamp the
+  `:rf/join-auth` metadata onto each outbound completion carrier in `:fx`
+  targeting this child's own join. Called from the machine-handler return
+  boundary (`registration.cljc/commit-or-finalize`), so it covers action
+  fx, bootstrap-entry fx, and the finalize path uniformly — the existing
+  private lifecycle path, no new application-facing surface."
+  [effects join-child]
+  (if (and join-child
+           (map? effects)
+           (seq (:fx effects)))
+    (update effects :fx (fn [fxs] (mapv #(stamp-fx-entry % join-child) fxs)))
+    effects))
+
+(defn- join-auth-current?
+  "True iff the carrier's `:rf/join-auth` stamp matches the CURRENT join
+  attempt exactly: same parent/invoke identity, same logical child id, the
+  stamped actor is the actor CURRENTLY mapped to that child, and the
+  stamped attempt token equals the live join state's `:rf/attempt`. Every
+  clause is verified against runtime-owned state — nothing is trusted from
+  the carrier beyond equality with what the runtime already knows."
+  [auth parent-id invoke-id child-id join-state]
+  (and (map? auth)
+       (= parent-id (:parent-id auth))
+       (= invoke-id (:invoke-id auth))
+       (= child-id  (:child-id auth))
+       (some? (:attempt auth))
+       (= (:rf/attempt join-state) (:attempt auth))
+       (= (get-in join-state [:children child-id]) (:spawned-id auth))))
+
+(defn- suppress-stale-completion!
+  "Fail-closed suppression of a completion carrier that may NOT fold
+  (rf2-nvxehu): emit one `:rf.machine.spawn-all/stale-completion` trace
+  carrying the `:status :stale` / `:rf.reply/work-status :suppressed`
+  reply facts with the precise `stale-reason`
+  (`:rf.machine.spawn-all/attempt-unverified` — no runtime stamp;
+  `:rf.machine.spawn-all/attempt-superseded` — prior attempt / wrong
+  actor / mis-routed join; `:rf.machine.spawn-all/duplicate-completion` —
+  exact re-completion of an already-folded child), and return the no-op
+  effect map. ZERO mutation: no fold, no terminal publication, no
+  resolution, no reap. The post-resolution `:resolved?` branch keeps its
+  own `:rf.machine.spawn-all/late-completion` trace — this op covers the
+  PRE-resolution suppression classes."
+  [frame-id parent-id invoke-id join-state child-id kind completed-at
+   runtime-db stale-reason]
+  (let [spawned-id  (get-in join-state [:children child-id])
+        stale-reply (m-reply/stale-join-child-reply
+                      {:parent-id    parent-id
+                       :invoke-id    invoke-id
+                       :child-id     child-id
+                       :spawned-id   spawned-id
+                       :frame        frame-id
+                       :completed-at completed-at}
+                      kind stale-reason)
+        summary     (m-reply/trace-reply stale-reply {:frame frame-id})]
+    (trace/emit! :rf.machine :rf.machine.spawn-all/stale-completion
+                 (cond-> {:actor-id  parent-id
+                          :invoke-id invoke-id
+                          :child-id  child-id
+                          :kind      kind
+                          :frame     frame-id
+                          ;; reply-envelope vocabulary (Managed-Effects §9)
+                          :rf.reply/work-kind    (:rf.reply/work-kind summary)
+                          :rf.reply/status       (:status summary)
+                          :rf.reply/work-id      (:rf.reply/work-id summary)
+                          :rf.reply/work-status  (:rf.reply/work-status summary)
+                          :rf.reply/stale-reason (:rf.reply/stale-reason summary)
+                          :rf.reply/correlation  (:correlation summary)}
+                   (some? (:completed-at summary))
+                   (assoc :rf.reply/completed-at (:completed-at summary))))
+    {:rf.db/runtime runtime-db
+     :fx []}))
 
 (defn- find-active-spawn-all-in-tree
   "Helper for `find-active-spawn-alls`. Given a machine-like map with
@@ -543,45 +706,92 @@
               {:rf.db/runtime runtime-db :fx []})
 
           :else
-          ;; Read 'compute resolution; emit traces; build fx; write back':
-          ;; the body is now three named acts plus an assoc-in.
-          (let [join-state' (case kind
-                              :done   (update join-state :done   (fnil conj #{}) child-id)
-                              :failed (update join-state :failed (fnil conj #{}) child-id))
-                resolution   (compute-resolution spec join-state' kind)
-                join-state'' (assoc join-state' :resolved? (:resolved? resolution))]
-            ;; Surface a join that just became UNSATISFIABLE.
-            ;; When a child FAILS and the spec has no `:on-any-failed`, the
-            ;; failure folds into `:failed` without resolving; once enough
-            ;; children have failed that the success condition is unreachable
-            ;; the join hangs forever, silently. Emit a one-shot advisory on
-            ;; the fold that FIRST makes the join unsatisfiable (it was
-            ;; satisfiable before this fold, and this fold did not resolve) so
-            ;; the operator sees the dead join + the likely fix (declare
-            ;; `:on-any-failed`). Advisory severity: the request is not
-            ;; recovered, but the actor is not crashed — this is a config
-            ;; footgun nudge, the dev-advisory family (`:on-spawn-return-
-            ;; ignored`, the cofx lints), not an operation-recovery emit.
-            (when (and (not (:resolved? resolution))
-                       (join-unsatisfiable? spec join-state')
-                       (not (join-unsatisfiable? spec join-state)))
-              (trace/emit! :warning :rf.warning/spawn-all-join-unsatisfiable
-                           {:actor-id  parent-id
-                            :invoke-id invoke-id
-                            :join      (:join spec :all)
-                            :done      (:done   join-state')
-                            :failed    (:failed join-state')
-                            :total     (count (:children spec))
-                            :frame     frame-id
-                            :recovery  :join-hangs
-                            :reason    (str "A :spawn-all join can no longer be "
-                                            "satisfied — too many children have failed "
-                                            "and no :on-any-failed transition is declared, "
-                                            "so the join will hang forever. Declare "
-                                            ":on-any-failed to handle child failures.")}))
-            (emit-resolution-traces! frame-id parent-id invoke-id spec join-state''
-                                     child-id child-extra completed-at resolution)
-            (let [fx (build-resolution-fx frame-id parent-id invoke-id spec join-state''
-                                          child-id child-extra resolution)]
-              {:rf.db/runtime (assoc-in runtime-db (paths/spawned-path parent-id invoke-id) join-state'')
-               :fx fx})))))))
+          ;; Exact-authority fold gate (rf2-nvxehu). Before ANY fold, the
+          ;; carrier must prove it belongs to THIS join attempt: the
+          ;; `:rf/join-auth` metadata the member child's own handler
+          ;; boundary stamped (`stamp-join-completion-fx`) must match the
+          ;; current join's parent/invoke identity, logical child id, exact
+          ;; current actor id, and exact attempt token. An UNSTAMPED carrier
+          ;; (a hand-crafted dispatch that never flowed through the member
+          ;; child's boundary) and a SUPERSEDED one (a prior attempt's
+          ;; straggler after parent re-entry / child respawn — including a
+          ;; `:fixed-actor-id` respawn where the actor id alone cannot
+          ;; discriminate attempts) are classified stale and fold NOTHING;
+          ;; a DUPLICATE exact completion of an already-folded child is
+          ;; likewise suppressed so one child attempt can never publish two
+          ;; terminals (rf2-ir4t5v). All three suppressions are
+          ;; zero-mutation fail-closed drops with stable typed evidence
+          ;; (`:rf.reply/stale-reason` on the stale-completion trace).
+          (let [auth (:rf/join-auth (meta inner-event))]
+            (cond
+              (nil? auth)
+              (suppress-stale-completion!
+                frame-id parent-id invoke-id join-state child-id kind
+                completed-at runtime-db
+                :rf.machine.spawn-all/attempt-unverified)
+
+              (not (join-auth-current? auth parent-id invoke-id child-id join-state))
+              (suppress-stale-completion!
+                frame-id parent-id invoke-id join-state child-id kind
+                completed-at runtime-db
+                :rf.machine.spawn-all/attempt-superseded)
+
+              (or (contains? (:done   join-state) child-id)
+                  (contains? (:failed join-state) child-id))
+              (suppress-stale-completion!
+                frame-id parent-id invoke-id join-state child-id kind
+                completed-at runtime-db
+                :rf.machine.spawn-all/duplicate-completion)
+
+              :else
+              (intercept-fold frame-id parent-id invoke-id spec join-state
+                              child-id kind child-extra completed-at
+                              runtime-db))))))))
+
+(defn- intercept-fold
+  "The verified fold body of `intercept-spawn-all-event` — the carrier has
+  passed the live-join / child-ownership / exact-authority gates. Read
+  'compute resolution; emit traces; build fx; write back': three named
+  acts plus an assoc-in."
+  [frame-id parent-id invoke-id spec join-state child-id kind child-extra
+   completed-at runtime-db]
+  (let [join-state'  (case kind
+                       :done   (update join-state :done   (fnil conj #{}) child-id)
+                       :failed (update join-state :failed (fnil conj #{}) child-id))
+        resolution   (compute-resolution spec join-state' kind)
+        join-state'' (assoc join-state' :resolved? (:resolved? resolution))]
+    ;; Surface a join that just became UNSATISFIABLE.
+    ;; When a child FAILS and the spec has no `:on-any-failed`, the
+    ;; failure folds into `:failed` without resolving; once enough
+    ;; children have failed that the success condition is unreachable
+    ;; the join hangs forever, silently. Emit a one-shot advisory on
+    ;; the fold that FIRST makes the join unsatisfiable (it was
+    ;; satisfiable before this fold, and this fold did not resolve) so
+    ;; the operator sees the dead join + the likely fix (declare
+    ;; `:on-any-failed`). Advisory severity: the request is not
+    ;; recovered, but the actor is not crashed — this is a config
+    ;; footgun nudge, the dev-advisory family (`:on-spawn-return-
+    ;; ignored`, the cofx lints), not an operation-recovery emit.
+    (when (and (not (:resolved? resolution))
+               (join-unsatisfiable? spec join-state')
+               (not (join-unsatisfiable? spec join-state)))
+      (trace/emit! :warning :rf.warning/spawn-all-join-unsatisfiable
+                   {:actor-id  parent-id
+                    :invoke-id invoke-id
+                    :join      (:join spec :all)
+                    :done      (:done   join-state')
+                    :failed    (:failed join-state')
+                    :total     (count (:children spec))
+                    :frame     frame-id
+                    :recovery  :join-hangs
+                    :reason    (str "A :spawn-all join can no longer be "
+                                    "satisfied — too many children have failed "
+                                    "and no :on-any-failed transition is declared, "
+                                    "so the join will hang forever. Declare "
+                                    ":on-any-failed to handle child failures.")}))
+    (emit-resolution-traces! frame-id parent-id invoke-id spec join-state''
+                             child-id child-extra completed-at resolution)
+    (let [fx (build-resolution-fx frame-id parent-id invoke-id spec join-state''
+                                  child-id child-extra resolution)]
+      {:rf.db/runtime (assoc-in runtime-db (paths/spawned-path parent-id invoke-id) join-state'')
+       :fx fx})))

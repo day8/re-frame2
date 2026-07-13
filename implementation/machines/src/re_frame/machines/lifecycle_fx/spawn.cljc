@@ -204,14 +204,52 @@
   "Stamp framework-reserved keys into the spawned actor's
   initial `:data` so the actor knows its own address (`:rf/self-id`)
   and, for declarative-`:spawn` spawns, its parent's address +
-  invoke-id."
-  [spec spawned-id parent-id invoke-id]
+  invoke-id. `join-child` (a `:spawn-all` child's private join-membership
+  record — see `join-child-record`) rides under `:rf/join-child` when
+  present."
+  [spec spawned-id parent-id invoke-id join-child]
   (when spec
     (let [base-data (or (:data spec) {})
           data'     (cond-> (assoc base-data :rf/self-id spawned-id)
-                      parent-id (assoc :rf/parent-id parent-id)
-                      invoke-id (assoc :rf/invoke-id invoke-id))]
+                      parent-id  (assoc :rf/parent-id parent-id)
+                      invoke-id  (assoc :rf/invoke-id invoke-id)
+                      join-child (assoc :rf/join-child join-child))]
       (assoc spec :data data'))))
+
+(defn- join-child-record
+  "Build the PRIVATE join-membership record the runtime stamps into a
+  `:spawn-all` child's `:data` under `:rf/join-child` (rf2-nvxehu). It
+  carries the exact coordinates of the join ATTEMPT this child instance
+  belongs to — the parent/invoke identity, the logical child id, the
+  child's own spawned instance address, the join's completion event
+  keywords, and the opaque per-attempt token the seeding
+  `spawn-all-init-fx` minted into the join state. The child's
+  machine-handler boundary reads it to stamp outbound completion carriers
+  with the attempt authentication the parent's join interceptor verifies
+  (`join/stamp-join-completion-fx` / `intercept-spawn-all-event`), so a
+  stale completion from a PRIOR attempt / prior actor incarnation can
+  never fold into a successor join. Framework-reserved, never
+  application-facing.
+
+  Returns nil for non-`:spawn-all` spawns and for a rejected invoke (the
+  reject sentinel carries no `:children`).
+
+  Ordering note: `spawn-all-init-fx` is the FIRST fx in the entry vector,
+  ahead of every per-child `:rf.machine/spawn`, so the per-attempt token is
+  ALWAYS in runtime-db by the time this reads it (the same ordering
+  `spawn-all-invoke-rejected?` relies on)."
+  [runtime-db args spawned-id]
+  (when-let [invoke-id (:rf/spawn-all-id args)]
+    (let [parent-id  (:rf/parent-id args)
+          join-state (get-in runtime-db (paths/spawned-path parent-id invoke-id))]
+      (when (and (map? join-state) (contains? join-state :children))
+        {:parent-id  parent-id
+         :invoke-id  invoke-id
+         :child-id   (:rf/spawn-all-child-id args)
+         :spawned-id spawned-id
+         :done-kw    (get-in join-state [:spec :on-child-done])
+         :error-kw   (get-in join-state [:spec :on-child-error])
+         :attempt    (:rf/attempt join-state)}))))
 
 ;; The spawned actor's initial snapshot is built by
 ;; `parallel/build-initial-snapshot` — the single source of truth shared
@@ -426,7 +464,8 @@
           (and old-rt machine-id-for-alloc)
                         (allocate-actor-id-in-runtime-db old-rt machine-id-for-alloc)
           :else         [old-rt nil])
-        spec''     (stamp-framework-data spec' spawned-id parent-id invoke-id)
+        spec''     (stamp-framework-data spec' spawned-id parent-id invoke-id
+                                         (join-child-record old-rt args spawned-id))
         ;; Build the initial snapshot ONCE here so the schema-rejection
         ;; decision can gate every side effect below; `install-spawn!`
         ;; threads the same value rather than re-building it.
@@ -553,6 +592,22 @@
 
 ;; ---- :rf.machine/spawn-all-init -------------------------------------------
 
+(defonce ^:private join-attempt-counter
+  ;; Monotonic per-seed attempt-token source (rf2-nvxehu; mirrors
+  ;; `timer/after-attempt-counter`). Every LIVE `:spawn-all` seed mints one
+  ;; opaque token into the join state under `:rf/attempt`, and the same token
+  ;; is stamped into each child's private `:rf/join-child` membership record —
+  ;; so the parent's join interceptor can bind every completion carrier to the
+  ;; exact join ATTEMPT that spawned it. Actor ids alone cannot discriminate a
+  ;; re-entry respawn (`:fixed-actor-id` children reuse the SAME id across
+  ;; attempts; `actor-generation` is always 1 for them), hence the token.
+  ;; Uniqueness is per-session accident-gating (the machines security stance:
+  ;; trust the explicit invoker, gate accidents), not cryptographic.
+  (atom 0))
+
+(defn- next-join-attempt-token []
+  (swap! join-attempt-counter inc))
+
 (defn spawn-all-init-fx
   "fx handler for `:rf.machine/spawn-all-init`. Per Spec 005
   §Spawn-and-join via `:spawn-all`, on entry to a `:spawn-all`-bearing
@@ -560,11 +615,12 @@
   fxs) to seed the join state at `[:rf.runtime/machines :spawned <parent> <invoke-id>]` in
   the frame's runtime-db. The seed map shape is:
 
-    {:children {<child-id> <spawned-id>, ...}
-     :done      #{}
-     :failed    #{}
-     :resolved? false
-     :spec      <invoke-all-spec>}
+    {:children   {<child-id> <spawned-id>, ...}
+     :done       #{}
+     :failed     #{}
+     :resolved?  false
+     :spec       <invoke-all-spec>
+     :rf/attempt <opaque-attempt-token>}   ;; minted HERE per live seed (rf2-nvxehu)
 
   Subsequent `:on-child-done` / `:on-child-error` events arrive at the
   parent's `make-machine-handler` boundary and are intercepted by
@@ -631,7 +687,14 @@
                                   (paths/spawned-path parent-id invoke-id)
                                   spawn-all-reject-sentinel)
           nil)
-      (do
+      (let [;; Mint the opaque per-attempt token (rf2-nvxehu). One LIVE seed =
+            ;; one join ATTEMPT; the token rides the join state AND each
+            ;; child's `:rf/join-child` membership record (stamped by the
+            ;; per-child spawn fxs that run AFTER this fx in the same entry
+            ;; vector), binding every completion carrier to this exact
+            ;; attempt. The reject sentinel branch above mints NO token —
+            ;; a rejected invoke has no attempt to authenticate against.
+            join-state (assoc join-state :rf/attempt (next-join-attempt-token))]
         ;; Machine spawn-registry state is durable runtime-db state.
         (frame/swap-runtime-db! frame-id assoc-in
                                 (paths/spawned-path parent-id invoke-id) join-state)

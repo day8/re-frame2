@@ -395,13 +395,21 @@
   the reap against DURABLE join state before honouring it — the fix for the
   forgeable pre-auth `{:rf/actor-id … :rf/reason …}` shape (rf2-3lyqzu). The
   named `:spawn-all` join at `[:spawned p i]` MUST exist, OWN `child-id`,
-  and have folded `child-id` into `:done ∪ :failed`. The actor-id is then
-  RESOLVED from the live join state (`(get-in join-state [:children
-  child-id])`), never carried by the caller — so the reap can neither point
+  have folded `child-id` into `:done ∪ :failed`, AND have its `:resolved?`
+  latch flipped (rf2-nvxehu): reaping is a POST-RESOLUTION act, so a
+  completed child of a still-waiting `:all` join can never be reaped early
+  through the public reserved-fx boundary. Because the fold side binds every
+  `:done` / `:failed` entry to the exact current child attempt (the
+  `:rf/join-auth` gate in `join.cljc`), membership in `:done ∪ :failed` IS
+  proof the terminal belongs to this attempt. The actor-id is then RESOLVED
+  from the live join state (`(get-in join-state [:children child-id])`),
+  never carried by the caller — so the reap can neither point
   post-completion teardown at an arbitrary victim NOR suppress the
   cancellation of an in-progress (not-yet-completed) actor. An unverifiable
   reap FAILS LOUD (`:rf.error/machine-destroy-bad-arg`, `:cause
-  :unverified-reap`) and performs no teardown.
+  :unverified-reap` for a claim the join state cannot substantiate, `:cause
+  :unresolved-join` for a substantiated terminal ahead of the `:resolved?`
+  latch) and performs no teardown.
 
   Verification against join state is INDEPENDENT of the liveness guard in
   `destroy-resolved!`: the composed final-child case (a child that reached a
@@ -420,7 +428,23 @@
         completed? (and (some? actor-id)
                         (or (contains? (:done   join-state) child-id)
                             (contains? (:failed join-state) child-id)))]
-    (if completed?
+    (cond
+      ;; The join state cannot substantiate the claim at all — no live join,
+      ;; foreign child-id, or an in-progress (never-completed) child.
+      (not completed?)
+      (traces/emit-destroy-bad-arg! frame-id :unverified-reap args)
+
+      ;; Substantiated terminal, but the join attempt has NOT resolved
+      ;; (rf2-nvxehu): a non-decisive completed child of a still-waiting
+      ;; `:all` join may not be reaped early — the cancellation-suppressing
+      ;; reap is authorized only after this exact attempt's `:resolved?`
+      ;; latch flipped. (The internal resolution-cascade reaps always run
+      ;; against the post-resolution join state — the `:rf.db/runtime` write
+      ;; commits before the `:fx` drain — so genuine reaps see `true` here.)
+      (not (true? (:resolved? join-state)))
+      (traces/emit-destroy-bad-arg! frame-id :unresolved-join args)
+
+      :else
       ;; Tear down ONLY the child actor — pass NIL parent/invoke so
       ;; `teardown-actor` does NOT prune the `[:spawned parent invoke]` slot,
       ;; which for a `:spawn-all` holds the WHOLE join-state map (every
@@ -431,8 +455,7 @@
       ;; teardown slot keys). `parent-id` / `invoke-id` / `child-id` were used
       ;; ABOVE only to READ + verify the join state.
       (destroy-resolved! frame-id actor-id :rf.machine/join-reaped
-                         nil nil old-db false)
-      (traces/emit-destroy-bad-arg! frame-id :unverified-reap args))))
+                         nil nil old-db false))))
 
 ;; ---- the closed map-form grammar (rf2-3phait) ------------------------------
 ;;
