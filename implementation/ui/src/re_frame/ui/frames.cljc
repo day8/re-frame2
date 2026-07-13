@@ -23,8 +23,8 @@
   Per-plan disposition (document order; conflicts validated FIRST):
 
     - NO live frame         -> INSTALL: `make-frame` creates it
-      (create-if-absent), then record `{:config-fingerprint
-      :installed-by}` (root-OWNED authority).
+      (create-if-absent), then — only while that incarnation remains live —
+      record `{:config-fingerprint :installed-by}` (root-OWNED authority).
     - LIVE frame, NO install
       record (a boot `rf/make-frame`
       the plan registry never saw):
@@ -71,9 +71,12 @@
   A destroyed frame invalidates its install record — the
   `:ui/on-frame-destroyed!` hook PRUNES it (rf2-vxgfnd.30 (a)), so a boot
   re-create of the same id can no longer resurrect a dead-lifetime record
-  as a false conflict. A later plan for the same id is a genuinely new
-  frame lifetime — created fresh, `:initial-events` REPLAYED (the opt-in
-  destroy-then-reseat composition, rf2-lxwpob). A plan that throws mid-run
+  as a false conflict. Publication uses the same incarnation's lifecycle
+  gate, so an `:initial-events` handler that destroys its own frame cannot
+  re-add the dead lifetime's record after the hook prunes it. A later plan
+  for the same id is a genuinely new frame lifetime — created fresh,
+  `:initial-events` REPLAYED (the opt-in destroy-then-reseat composition,
+  rf2-lxwpob). A plan that throws mid-run
   labels the siblings it already wrote by PROVENANCE (rf2-vxgfnd.30 (b),
   rf2-vxgfnd.72): a sibling that this run FRESH-installed is tagged
   `:mount-incomplete` — its mount never completed and no root yet scopes
@@ -193,6 +196,23 @@
   []
   (reset! installed-plans {})
   nil)
+
+(defn- publish-plan-for-live-incarnation!
+  "Publish `record` for `frame-id` only while the currently-live incarnation
+  stays current. Returns true when published, nil otherwise.
+
+  The incarnation pin rejects a destroy/recreate that overtakes publication;
+  the frame's drain serialization orders this write against `destroy-frame!`'s
+  liveness flip. Therefore either the record lands first and the destroy hook
+  prunes it, or destruction wins and no dead-lifetime record is written."
+  [frame-id record]
+  (when-let [incarnation (frame/frame-incarnation-token frame-id)]
+    (frame/call-serialized-with-drain!
+     frame-id
+     (fn []
+       (when (identical? incarnation (frame/frame-incarnation-token frame-id))
+         (swap! installed-plans assoc frame-id record)
+         true)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Preflight ENSURE — the live plan executor
@@ -321,7 +341,8 @@
   `:rf.error/frame-payload-conflict` before ANY install). Phase 2
   installs/adopts/refreshes in document order: `make-frame` creates the
   frame if absent and drains `:initial-events` synchronously before
-  returning (EP-0027); a found-live same-fingerprint plan is a pure no-op
+  returning (EP-0027); its install record is published only if that
+  incarnation remains live; a found-live same-fingerprint plan is a pure no-op
   (no re-seed — the HMR guarantee); a live plan-less (boot-created) frame
   met by a CONFIG-LESS plan is ADOPTED under a non-owning record — its
   config/generation untouched, only the fingerprint recorded
@@ -397,28 +418,32 @@
           ;; never enter a root-owned refresh path (rf2-vxgfnd.56). The boot
           ;; frame was already LIVE, so a later throw is an attempt failure,
           ;; not a mount-incomplete over never-mounted state.
-          :adopt (do (swap! installed-plans assoc frame-id
-                            {:config-fingerprint config-fingerprint
-                             :adopted-by root-id
-                             :adopted true})
-                     (vswap! written conj [frame-id :live]))
+          :adopt (when (publish-plan-for-live-incarnation!
+                        frame-id
+                        {:config-fingerprint config-fingerprint
+                         :adopted-by root-id
+                         :adopted true})
+                   (vswap! written conj [frame-id :live]))
 
           ;; :install / :refresh — create-if-absent / surgical refresh;
           ;; :initial-events drain synchronously inside the engine, in
           ;; document order across plans. The record lands only AFTER a
-          ;; successful install, so a throwing plan leaves no install record
-          ;; (and the engine leaves no frame residue). An :install is FRESH
-          ;; (nothing scoped this id before); a :refresh acts on an
-          ;; ALREADY-LIVE installed root (its prior mount + render persist).
+          ;; successful install AND only while that incarnation is still live,
+          ;; so a throwing or self-destroying setup leaves no install record.
+          ;; An :install is FRESH (nothing scoped this id before); a :refresh
+          ;; acts on an ALREADY-LIVE installed root (its prior mount + render
+          ;; persist).
           (do
             (live-frame/make-frame (assoc (or config {}) :id frame-id))
-            (swap! installed-plans assoc frame-id
+            (when (publish-plan-for-live-incarnation!
+                   frame-id
                    {:config-fingerprint config-fingerprint
                     :installed-by root-id})
-            (vswap! written conj
-                    [frame-id (if (= :install (::action plan)) :fresh :live)]))))
-      ;; the whole run completed — every touched frame is backed by a
-      ;; completed mount, so drop any stale failed-run evidence.
+              (vswap! written conj
+                      [frame-id (if (= :install (::action plan)) :fresh :live)])))))
+      ;; The whole run completed. Drop stale failed-run evidence from records
+      ;; that survived; a self-destroying setup has neither a live frame nor a
+      ;; published record here, so the missing id is a no-op.
       (clear-run-incomplete-evidence! (map :frame-id decided))
       (catch #?(:clj Throwable :cljs :default) e
         ;; a plan threw mid-run: the siblings this run wrote stay live
