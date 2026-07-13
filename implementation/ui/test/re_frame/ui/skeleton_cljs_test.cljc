@@ -14,10 +14,19 @@
             [re-frame.ui :as ui]
             [re-frame.ui.compiler]
             [re-frame.ui.rules :as rules]
-            #?(:cljs [re-frame.ui.runtime])))
+            #?(:cljs [re-frame.ui.runtime]))
+  #?(:cljs (:require-macros
+            [re-frame.ui.build-probe :refer [ambient-shadow-build-id]])))
 
 (deftest ui-artefact-loads-with-real-surface
   (is (fn? ui/sub)
       "the re-frame.ui public surface loads on the cross-artefact classpath")
   (is (contains? rules/void-tags :br)
       "the conversion rule table is loaded"))
+
+#?(:cljs
+   (deftest real-shadow-compile-emits-an-expected-ambient-build-id
+     (let [build-id (ambient-shadow-build-id)]
+       (is (keyword? build-id))
+       (is (not= :re-frame.ui.compiler.build/default build-id)
+           "pinned-version smoke: the real Shadow compile emits a non-default ambient id"))))

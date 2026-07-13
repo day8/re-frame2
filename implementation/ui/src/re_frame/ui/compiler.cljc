@@ -22,11 +22,14 @@
 ;; The view digest is keyed PER build id in the one build-scoped authority
 ;; (`re-frame.ui.compiler.build`, rf2-df9873): a recompiled / edited /
 ;; renamed source replaces its whole prior contribution, and the independent
-;; builds one daemon compiles never share rows. `current-build-digest` reads
-;; the ambient build's COMMITTED (last-known-good) view aggregate, so the
-;; whole-build identity is finalized at df9873's successful commit / finish
-;; boundary and never a partial mid-pass value (compile-order independent —
-;; the triples sort by view-id).
+;; builds one daemon compiles never share rows. Distinct defview declarations
+;; with equal view ids are rejected atomically rather than merged (including
+;; two vars in one namespace), while the exact same var retains ordinary HMR
+;; replacement. Thus no compile order can choose a digest row or runtime
+;; registrar winner. `current-build-digest` reads the ambient build's COMMITTED
+;; (last-known-good) view aggregate, so the whole-build identity is finalized
+;; at df9873's successful commit / finish boundary and never a partial mid-pass
+;; value (compile-order independent — the triples sort by view-id).
 ;;
 ;; The compile-time custom-element declarations are a build-scoped registry
 ;; like the other four: WRITTEN here (macro expansion → `build/contribute!
@@ -231,7 +234,20 @@
                  :manifest manifest
                  :closed-keys closed-keys
                  :children? children?}]
-    (build/contribute! build/views ns-sym view-id [tf hs])
+    (when-let [{:keys [conflict]}
+               (build/contribute-view-checked!
+                ns-sym [ns-sym vname] view-id [tf hs])]
+      (fail :rf.ui.compile/bad-view-id
+            (str "defview " vname ": view id " (pr-str view-id)
+                 " is already owned by a different defview declaration. "
+                 "Explicit :id overrides must be unique across declarations; "
+                 "give this view a distinct qualified keyword (re-expanding "
+                 "the exact same var remains the HMR replacement path)")
+            {:view vname
+             :id view-id
+             :namespace ns-sym
+             :declaration [ns-sym vname]
+             :existing-declaration conflict}))
     (if cljs?
       (emit-cljs/emit-defview args)
       (emit-jvm/emit-defview args))))

@@ -28,6 +28,10 @@
 
     :compile-prepare  ->  begin-build!  — open the pass BEFORE the
                           (possibly parallel) source compilation stages;
+                          capture the AUTHORITATIVE member set from the
+                          already-resolved `:build-sources` graph so a deleted
+                          namespace's committed declaration cannot deadlock an
+                          id transfer before finish evicts it;
                           contributions made during the pass STAGE rather
                           than upsert. begin-build! also DISCARDS any
                           staging a prior FAILED pass left open — which is
@@ -71,7 +75,8 @@
   `:provides` (falling back to its `:ns`) are the namespace symbols that
   key the compiler registries (build.cljc keys per declaring ns). A
   deleted FILE is absent from `:build-sources`, so its ns drops out of
-  this set and `finish-build!` evicts its registrations."
+  this set. Prepare captures that absence for declaration conflict checks;
+  `finish-build!` performs the actual registration eviction."
   [{:keys [build-sources sources]}]
   (reduce
    (fn [acc resource-id]
@@ -94,7 +99,7 @@
     :as      build-state}]
   (case stage
     :compile-prepare
-    (build/begin-build! build-id)
+    (build/begin-build! build-id (member-nss build-state))
 
     :compile-finish
     ;; Only finalize a pass THIS hook opened — a finish with no matching

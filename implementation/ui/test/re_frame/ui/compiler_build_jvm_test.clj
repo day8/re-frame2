@@ -26,7 +26,8 @@
   REAL assembly path. `defview` and `ui/custom-element` run their real macro
   bodies under a bound `*ns*` so distinct declaring namespaces (the ledger's
   source key, rf2-df9873) are addressable."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [cljs.env :as cljs-env]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.ui.compiler :as compiler]
             [re-frame.ui.compiler.analyze :as ana]
             [re-frame.ui.compiler.build :as build]
@@ -52,6 +53,14 @@
   (binding [*ns* (create-ns ns-sym)]
     (compiler/defview* (with-meta (list 'defview vname [] template) {:line 1})
                        {} vname (list [] template))))
+
+(defn- declare-explicit-view!
+  "Run the real defview body with an explicit registry id."
+  [ns-sym vname view-id template line]
+  (binding [*ns* (create-ns ns-sym)]
+    (compiler/defview*
+     (with-meta (list 'defview vname {:id view-id} [] template) {:line line})
+     {} vname (list {:id view-id} [] template))))
 
 (defn- declare-element!
   "Run the real `ui/custom-element` macro body with `ns-sym` bound as the
@@ -224,6 +233,116 @@
   (is (= {:x 10 :y 2} (build/aggregate ::probe))
       "a REPL re-eval upserts the one key — :y is NOT evicted (no begin/commit cycle)")
   (is (false? (build/pass-open?)) "no pass was ever opened"))
+
+(deftest hook-open-shadow-compile-without-build-id-fails-loud
+  ;; Exact shadow-contract mutation: keep the bridge state that marks a real
+  ;; shadow compiler env, but remove :shadow.build/build-id as a shadow upgrade
+  ;; could. A hook-opened pass makes session fallback actively unsafe: another
+  ;; build may have opened most recently, so this contribution must stop here.
+  (build/begin-build! :node-test-ui)
+  (binding [cljs-env/*compiler*
+            (atom {:shadow.build.cljs-bridge/state {}})]
+    (let [ex (try
+               (build/current-build-id)
+               nil
+               (catch clojure.lang.ExceptionInfo ex ex))]
+      (is (some? ex)
+          "a shadow compiler env with no build id must not use session-build")
+      (is (= :re-frame.ui.compiler.build/shadow-build-id-unresolved
+             (:re-frame.ui.compiler.build/error (ex-data ex)))))))
+
+(deftest hook-open-plain-cljs-compiler-uses-session-fallback
+  ;; A bound cljs compiler atom is not necessarily shadow. An unrelated/open
+  ;; shadow slice must not turn the documented plain-compiler/REPL fallback
+  ;; into an error when THIS env carries no shadow bridge marker at all.
+  (build/begin-build! :plain-cljs)
+  (binding [cljs-env/*compiler* (atom {:cljs.analyzer/namespaces {}})]
+    (is (= :plain-cljs (build/current-build-id))
+        "a non-shadow compiler env uses the intended session build fallback")))
+
+(deftest explicit-view-id-collision-fails-in-either-compile-order
+  (doseq [[first-ns second-ns] [['app.alpha 'app.beta]
+                                ['app.beta 'app.alpha]]]
+    (build/reset-build!)
+    (build/begin-build! :app)
+    (binding [build/*build-id* :app]
+      (declare-explicit-view! first-ns 'first-view :shared/card [:div] 1)
+      (let [ex (try
+                 (declare-explicit-view! second-ns 'second-view
+                                         :shared/card [:section] 2)
+                 nil
+                 (catch clojure.lang.ExceptionInfo ex ex))]
+        (is (= :rf.ui.compile/bad-view-id
+               (:rf.ui.compile/error (ex-data ex)))
+            (str "cross-namespace explicit :id collision fails with "
+                 first-ns " compiled before " second-ns))
+        (is (= [first-ns 'first-view]
+               (:existing-declaration (ex-data ex))))
+        (is (= [second-ns 'second-view]
+               (:declaration (ex-data ex))))
+        (is (re-find #"different defview declaration" (ex-message ex)))
+        (is (= 1 (count (build/aggregate build/views :app)))
+            "the rejected declaration never overwrites the first row")))))
+
+(deftest same-namespace-distinct-vars-cannot-share-an-explicit-view-id
+  (doseq [[first-var second-var] [['alpha-view 'beta-view]
+                                  ['beta-view 'alpha-view]]]
+    (build/reset-build!)
+    (build/begin-build! :app)
+    (binding [build/*build-id* :app]
+      (declare-explicit-view! 'app.cards first-var :shared/card [:div] 1)
+      (let [ex (try
+                 (declare-explicit-view! 'app.cards second-var
+                                         :shared/card [:section] 2)
+                 nil
+                 (catch clojure.lang.ExceptionInfo ex ex))]
+        (is (= :rf.ui.compile/bad-view-id
+               (:rf.ui.compile/error (ex-data ex)))
+            (str "same-namespace distinct vars collide with " first-var
+                 " declared before " second-var))
+        (is (= ['app.cards first-var]
+               (:existing-declaration (ex-data ex))))
+        (is (= ['app.cards second-var]
+               (:declaration (ex-data ex))))
+        (is (= 1 (count (build/aggregate build/views :app)))
+            "the rejected same-namespace declaration does not overwrite")))))
+
+(deftest same-var-explicit-view-id-reexpansion-remains-legal
+  (build/begin-build! :app)
+  (binding [build/*build-id* :app]
+    (declare-explicit-view! 'app.cards 'card :shared/card [:div "v1"] 1)
+    (let [v1 (get (build/aggregate build/views :app) :shared/card)]
+      (is (some? (declare-explicit-view! 'app.cards 'card
+                                         :shared/card [:section "v2"] 1))
+          "the same declaration may replace itself during an open pass")
+      (is (not= v1 (get (build/aggregate build/views :app) :shared/card))
+          "same-var HMR publishes the replacement digest"))
+    (build/commit-build! :app)
+    (is (= 1 (count (build/aggregate build/views :app)))))
+  ;; No-pass REPL re-evaluation is the other same-var replacement path.
+  (build/reset-build!)
+  (binding [build/*build-id* :repl]
+    (declare-explicit-view! 'app.cards 'card :shared/card [:div "v1"] 1)
+    (let [v1 (get (build/aggregate build/views :repl) :shared/card)]
+      (is (some? (declare-explicit-view! 'app.cards 'card
+                                         :shared/card [:section "v2"] 1)))
+      (is (not= v1 (get (build/aggregate build/views :repl) :shared/card))))
+    (is (= 1 (count (build/aggregate build/views :repl))))))
+
+(deftest fresh-namespace-pass-may-replace-an-old-declaration-owner
+  ;; The source namespace remains the whole-pass replacement unit: a var rename
+  ;; between passes is not a simultaneous duplicate and may retain the stable
+  ;; explicit registry id.
+  (build/begin-build! :app)
+  (binding [build/*build-id* :app]
+    (declare-explicit-view! 'app.cards 'old-card :shared/card [:div "old"] 1))
+  (build/commit-build! :app)
+  (build/begin-build! :app)
+  (binding [build/*build-id* :app]
+    (is (some? (declare-explicit-view! 'app.cards 'renamed-card
+                                       :shared/card [:div "new"] 1))))
+  (build/commit-build! :app)
+  (is (= 1 (count (build/aggregate build/views :app)))))
 
 ;; ---------------------------------------------------------------------------
 ;; MULTI-BUILD ISOLATION — the headline regression (rf2-df9873)

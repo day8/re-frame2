@@ -17,6 +17,9 @@
     - NO FALSE EVICTION: an incremental recompile of ONE source keeps every
       other LIVE member's registration — macro silence (a cache hit) is not
       a deletion; authoritative `:build-sources` membership drives eviction.
+    - PRE-FINISH ID TRANSFER: a deleted/renamed namespace's committed view id
+      does not block the new authoritative member that claims it before finish;
+      if both namespaces remain members the duplicate still fails loud.
     - FAILED PASS keeps last-known-good: a compile that throws runs no
       `:compile-finish`; the doomed pass's partial staging is discarded at
       the next `:compile-prepare` (begin-build!'s discard-on-open), and the
@@ -27,6 +30,7 @@
       member set omits the REPL ns is a no-op — the `pass-open?` guard skips
       finish, so the REPL upsert survives."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
+            [re-frame.ui.compiler :as compiler]
             [re-frame.ui.compiler.build :as build]
             [re-frame.ui.compiler.build-hook :as build-hook]))
 
@@ -37,26 +41,30 @@
 ;; ---------------------------------------------------------------------------
 ;; Harness — drive the REAL `build-hook/hook` fn with synthetic shadow
 ;; build-states. A shadow build-state carries `:shadow.build/build-id`,
-;; `:shadow.build/stage`, and (at :compile-finish) `:build-sources` +
-;; `:sources`; the hook reads exactly those. Using the declaring ns-sym as
-;; its own opaque resource-id keeps the fixtures minimal.
+;; `:shadow.build/stage`, `:build-sources`, and `:sources` at BOTH lifecycle
+;; stages; Shadow resolves the graph before :compile-prepare, and the hook reads
+;; exactly those keys. Using the declaring ns-sym as its own opaque resource-id
+;; keeps the fixtures minimal.
 ;; ---------------------------------------------------------------------------
 
+(defn- graph-state
+  [build-id stage member-nss]
+  {:shadow.build/build-id build-id
+   :shadow.build/stage    stage
+   :build-sources         (vec member-nss)
+   :sources               (into {} (map (fn [n] [n {:ns n :provides #{n}}]))
+                                member-nss)})
+
 (defn- prepare!
-  "Fire the `:compile-prepare` hook for `build-id` (opens the pass)."
-  [build-id]
-  (build-hook/hook {:shadow.build/build-id build-id
-                    :shadow.build/stage    :compile-prepare}))
+  "Fire `:compile-prepare` with the already-resolved authoritative graph."
+  [build-id member-nss]
+  (build-hook/hook (graph-state build-id :compile-prepare member-nss)))
 
 (defn- finish!
   "Fire the `:compile-finish` hook for `build-id` with `member-nss` as the
   authoritative build graph (`:build-sources`) — commit + evict-deleted."
   [build-id member-nss]
-  (build-hook/hook {:shadow.build/build-id build-id
-                    :shadow.build/stage    :compile-finish
-                    :build-sources         (vec member-nss)
-                    :sources               (into {} (map (fn [n] [n {:ns n :provides #{n}}]))
-                                                 member-nss)}))
+  (build-hook/hook (graph-state build-id :compile-finish member-nss)))
 
 (defn- declare-view!
   "A source `ns-sym` contributing one view digest to the ambient build —
@@ -66,6 +74,15 @@
   (binding [build/*build-id* build-id]
     (build/contribute! build/views ns-sym view-id fp)))
 
+(defn- declare-explicit-view!
+  "Drive the real defview compiler contribution under the hook-opened pass."
+  [build-id ns-sym vname view-id template]
+  (binding [build/*build-id* build-id
+            *ns* (create-ns ns-sym)]
+    (compiler/defview*
+     (with-meta (list 'defview vname {:id view-id} [] template) {:line 1})
+     {} vname (list {:id view-id} [] template))))
+
 (defn- views-of [build-id]
   (build/aggregate build/views build-id))
 
@@ -74,8 +91,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest hook-returns-the-build-state-unchanged
-  (let [prep {:shadow.build/build-id :node-test-ui
-              :shadow.build/stage    :compile-prepare}]
+  (let [prep (graph-state :node-test-ui :compile-prepare '#{app.a})]
     (is (identical? prep (build-hook/hook prep))
         "the hook side-effects into the authority and returns the state it was given"))
   (let [fin {:shadow.build/build-id :node-test-ui
@@ -96,7 +112,7 @@
 (deftest hook-evicts-a-deleted-source-on-compile-finish
   (let [bid :node-test-ui]
     ;; pass 1: app.a and app.b both declare a view; both are graph members.
-    (prepare! bid)
+    (prepare! bid '#{app.a app.b})
     (declare-view! bid 'app.a :app.a/view :fp-a)
     (declare-view! bid 'app.b :app.b/view :fp-b)
     (finish! bid '#{app.a app.b})
@@ -105,7 +121,7 @@
 
     ;; pass 2: app.b's FILE is deleted → it is ABSENT from :build-sources and
     ;; never re-declares (macro silence). app.a recompiles unchanged.
-    (prepare! bid)
+    (prepare! bid '#{app.a})
     (declare-view! bid 'app.a :app.a/view :fp-a)
     (finish! bid '#{app.a})
     (is (= {:app.a/view :fp-a} (views-of bid))
@@ -117,14 +133,14 @@
 
 (deftest hook-incremental-recompile-keeps-untouched-live-members
   (let [bid :node-test-ui]
-    (prepare! bid)
+    (prepare! bid '#{app.a app.b})
     (declare-view! bid 'app.a :app.a/view :fp-a)
     (declare-view! bid 'app.b :app.b/view :fp-b)
     (finish! bid '#{app.a app.b})
 
     ;; incremental: ONLY app.a recompiles (app.b is a cache hit → no
     ;; re-macroexpansion), but app.b is STILL a graph member.
-    (prepare! bid)
+    (prepare! bid '#{app.a app.b})
     (declare-view! bid 'app.a :app.a/view :fp-a2)
     (finish! bid '#{app.a app.b})
     (is (= {:app.a/view :fp-a2 :app.b/view :fp-b} (views-of bid))
@@ -137,19 +153,19 @@
 (deftest hook-failed-pass-converges-to-last-known-good
   (let [bid :node-test-ui]
     ;; a good pass
-    (prepare! bid)
+    (prepare! bid '#{app.a})
     (declare-view! bid 'app.a :app.a/view :good)
     (finish! bid '#{app.a})
     (is (= {:app.a/view :good} (views-of bid)))
 
     ;; a DOOMED pass: prepare + a partial contribution, then compile-sources
     ;; throws so the hook's :compile-finish NEVER runs.
-    (prepare! bid)
+    (prepare! bid '#{app.a})
     (declare-view! bid 'app.a :app.a/view :bad)
     ;; ... exception; finish! deliberately NOT called ...
 
     ;; the NEXT pass's :compile-prepare discards the doomed staging.
-    (prepare! bid)
+    (prepare! bid '#{app.a})
     (declare-view! bid 'app.a :app.a/view :good)
     (finish! bid '#{app.a})
     (is (= {:app.a/view :good} (views-of bid))
@@ -159,11 +175,11 @@
   ;; The abort-build! primitive the out-of-band failure path would call:
   ;; discard staging, republish committed last-known-good, do not half-commit.
   (let [bid :node-test-ui]
-    (prepare! bid)
+    (prepare! bid '#{app.a})
     (declare-view! bid 'app.a :app.a/view :good)
     (finish! bid '#{app.a})
 
-    (prepare! bid)
+    (prepare! bid '#{app.a app.b})
     (declare-view! bid 'app.a :app.a/view :bad)
     (declare-view! bid 'app.b :app.b/view :partial)
     (is (= {:app.a/view :bad :app.b/view :partial} (views-of bid))
@@ -200,8 +216,8 @@
   ;; two builds' passes are open at once (the daemon compiles both); each
   ;; hook keys its own slice, and a deletion in one build never touches the
   ;; other's registrations.
-  (prepare! :node-test-ui)
-  (prepare! :ui-bench)
+  (prepare! :node-test-ui '#{app.a})
+  (prepare! :ui-bench '#{app.a})
   (declare-view! :node-test-ui 'app.a :app.a/view :fp-ui)
   (declare-view! :ui-bench     'app.a :app.a/view :fp-bench)
   (finish! :node-test-ui '#{app.a})
@@ -210,8 +226,59 @@
   (is (= {:app.a/view :fp-bench} (views-of :ui-bench)))
 
   ;; app.a's file is deleted from :node-test-ui only; :ui-bench keeps it.
-  (prepare! :node-test-ui)
+  (prepare! :node-test-ui '#{})
   (finish! :node-test-ui '#{})
   (is (= {} (views-of :node-test-ui)) "the deletion evicted app.a in :node-test-ui")
   (is (= {:app.a/view :fp-bench} (views-of :ui-bench))
       "the :ui-bench build is untouched — per-build isolation holds through the hook"))
+
+;; ---------------------------------------------------------------------------
+;; A deleted/renamed namespace may hand its stable explicit id to a new member
+;; BEFORE finish evicts the stale committed source. Prepare's resolved graph is
+;; the authority that distinguishes this from a live duplicate.
+;; ---------------------------------------------------------------------------
+
+(deftest hook-admits-id-transfer-from-a-nonmember-source
+  (let [bid :node-test-ui]
+    (prepare! bid '#{app.old})
+    (declare-explicit-view! bid 'app.old 'card :shared/card [:div "old"])
+    (finish! bid '#{app.old})
+
+    ;; The next resolved graph has replaced app.old with app.new. app.old is
+    ;; still committed until finish, but it is no longer authoritative.
+    (prepare! bid '#{app.new})
+    (is (some? (declare-explicit-view! bid 'app.new 'card
+                                       :shared/card [:div "new"])))
+    (let [new-digest (get (views-of bid) :shared/card)]
+      (finish! bid '#{app.new})
+      (is (= {:shared/card new-digest} (views-of bid))
+          "finish evicted app.old and committed only app.new's row"))))
+
+(deftest hook-live-member-collision-rejects-and-retry-converges
+  (let [bid :node-test-ui]
+    (prepare! bid '#{app.old})
+    (declare-explicit-view! bid 'app.old 'card :shared/card [:div "old"])
+    (finish! bid '#{app.old})
+    (let [last-known-good (build/committed-aggregate build/views bid)]
+      ;; Both sources remain authoritative: this is a genuine collision.
+      (prepare! bid '#{app.old app.new})
+      (let [ex (try
+                 (declare-explicit-view! bid 'app.new 'card
+                                         :shared/card [:div "new"])
+                 nil
+                 (catch clojure.lang.ExceptionInfo ex ex))]
+        (is (= :rf.ui.compile/bad-view-id
+               (:rf.ui.compile/error (ex-data ex)))))
+      (is (= last-known-good (build/committed-aggregate build/views bid))
+          "the rejected pass preserves committed last-known-good")
+
+      ;; No finish ran after rejection. The retry's prepare discards staging,
+      ;; and the now-authoritative replacement graph converges without reset.
+      (prepare! bid '#{app.new})
+      (is (some? (declare-explicit-view! bid 'app.new 'card
+                                         :shared/card [:div "new"])))
+      (let [new-digest (get (views-of bid) :shared/card)]
+        (finish! bid '#{app.new})
+        (is (= {:shared/card new-digest} (views-of bid)))
+        (is (not= last-known-good (build/committed-aggregate build/views bid))
+            "the retry advances from old last-known-good to app.new")))))
