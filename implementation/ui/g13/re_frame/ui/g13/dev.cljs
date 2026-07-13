@@ -44,25 +44,25 @@
 (defn- sample! [root frame v label]
   (let [{:keys [all hot cold]} (split-cells v)
         before (into {} (map (juxt identity reactive/revision)) all)
-        pre    (atom nil)
-        started (js/performance.now)]
+        pre    (atom nil)]
     (fixture/reset-counters!)
-    (-> (uit/flush!
-         (fn []
-           ;; dispatch! completes all eight write epochs synchronously. The
-           ;; read side has not run until flush!'s returned Promise advances.
-           (uit/dispatch! frame [::fixture/step fixture/queued-writes])
-           (reset! pre
-                   {:pending (reactive/pending-cell-count)
-                    :hot-dirty (count (filter reactive/dirty? hot))
-                    :cold-dirty (count (filter reactive/dirty? cold))
-                    :revision-delta (reduce + (deltas all before))
-                    :evidence-counts
-                    (mapv #(get (reactive/pending-evidence %) :count) hot)
-                    :counters (fixture/counter-snapshot)})))
-        (.then
-         (fn []
-           (let [hot-deltas  (deltas hot before)
+    (let [started (js/performance.now)]
+      (-> (uit/flush!
+           (fn []
+             ;; dispatch! completes all eight write epochs synchronously. The
+             ;; read side has not run until flush!'s returned Promise advances.
+             (uit/dispatch! frame [::fixture/step fixture/queued-writes])
+             (reset! pre
+                     {:pending (reactive/pending-cell-count)
+                      :hot-dirty (count (filter reactive/dirty? hot))
+                      :cold-dirty (count (filter reactive/dirty? cold))
+                      :revision-delta (reduce + (deltas all before))
+                      :evidence-counts
+                      (mapv #(get (reactive/pending-evidence %) :count) hot)
+                      :counters (fixture/counter-snapshot)})))
+          (.then
+           (fn []
+             (let [hot-deltas  (deltas hot before)
                  cold-deltas (deltas cold before)
                  counters    (fixture/counter-snapshot)
                  projection  {:enrolled (:pending @pre)
@@ -97,9 +97,14 @@
                           (uit/query root "[data-g13-kind='hot']")))
                       "DOM did not reflect the eighth queued write"
                       {:v v :label label})
+             (ensure! (= (str "cold-" (dec v))
+                         (.-textContent
+                          (uit/query root (str "[data-g13-index='" (dec v) "']"))))
+                      "cold DOM changed during a hot-only drain"
+                      {:v v :label label})
              {:label label
               :elapsed-ms (- (js/performance.now) started)
-              :projection projection}))))))
+              :projection projection})))))))
 
 (defn- percentile [xs p]
   (let [sorted (vec (sort xs))]

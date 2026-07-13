@@ -9,6 +9,7 @@
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const { isDeepStrictEqual } = require('util');
 const { chromium } = require('playwright');
 const {
   createHarnessCleanup,
@@ -86,12 +87,14 @@ function assertBundleElision() {
   if (release.status !== 'ok') {
     fail(`advanced companion bundle is ${release.status}, not inspectable`);
   }
-  for (const sentinel of SENTINELS) {
-    if (release.blob.includes(sentinel)) {
-      fail(`advanced companion leaked ${sentinel}`);
-    }
-  }
+  assertNoProductionSentinels(release.blob);
   return { devSentinelsPresent: SENTINELS, advancedSentinelsAbsent: SENTINELS };
+}
+
+function assertNoProductionSentinels(blob) {
+  for (const sentinel of SENTINELS) {
+    if (blob.includes(sentinel)) fail(`advanced companion leaked ${sentinel}`);
+  }
 }
 
 function expectedProjection() {
@@ -109,7 +112,7 @@ function expectedProjection() {
 }
 
 function sameJson(a, b) {
-  return JSON.stringify(a) === JSON.stringify(b);
+  return isDeepStrictEqual(a, b);
 }
 
 function assertDevResult(result) {
@@ -153,6 +156,34 @@ function assertDevResult(result) {
   }
 }
 
+function expectMutationFailure(label, thunk) {
+  try {
+    thunk();
+  } catch (_) {
+    return label;
+  }
+  fail(`mutation tooth was green: ${label}`);
+}
+
+function assertMutationTeeth(result) {
+  const mutations = [
+    ['per-write flushing', (r) => { r.results[0].cold.projection['revision-delta'] = 64; }],
+    ['V-wide enrollment', (r) => { r.results[0].cold.projection.enrolled = 100; }],
+    ['stable-parent fan-out', (r) => { r.results[0].cold.projection['cold-leaf'] = 92; }],
+    ['multiple root commits', (r) => { r.results[0].cold.projection['root-commits'] = 8; }],
+  ];
+  const red = mutations.map(([label, mutate]) => {
+    const changed = JSON.parse(JSON.stringify(result));
+    mutate(changed);
+    return expectMutationFailure(label, () => assertDevResult(changed));
+  });
+  const release = classifyReleaseBundle(PROD);
+  red.push(expectMutationFailure('production instrumentation leak', () => {
+    assertNoProductionSentinels(`${release.blob}\n${SENTINELS[0]}`);
+  }));
+  return red;
+}
+
 function writeReport(report) {
   fs.mkdirSync(OUT, { recursive: true });
   fs.writeFileSync(REPORT, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
@@ -179,6 +210,7 @@ async function main() {
   const cleanup = createHarnessCleanup();
   cleanup.installSignalHandlers();
   let browser;
+  let tearingDown = false;
   try {
     shadow('compile', 'ui-g13');
     shadow('release', 'ui-g13-prod');
@@ -191,10 +223,12 @@ async function main() {
     const httpServerBin = resolveBin('http-server/bin/http-server');
     const devServer = await startLocalHttpServer({
       cleanup, httpServerBin, root: DEV, port: devPort, cwd: IMPL,
+      suppressExitDiagnostic: () => tearingDown,
     });
     if (!devServer.ready) fail('development server did not prove owned readiness');
     const prodServer = await startLocalHttpServer({
       cleanup, httpServerBin, root: PROD, port: prodPort, cwd: IMPL,
+      suppressExitDiagnostic: () => tearingDown,
     });
     if (!prodServer.ready) fail('advanced server did not prove owned readiness');
 
@@ -215,6 +249,7 @@ async function main() {
     if (devState.error) fail(devState.error);
     if (pageErrors.length) fail(`development page errors:\n${pageErrors.join('\n')}`);
     assertDevResult(devState.result);
+    const mutationTeeth = assertMutationTeeth(devState.result);
 
     const prod = await browser.newPage();
     const prodErrors = [];
@@ -242,6 +277,7 @@ async function main() {
       status: 'pass',
       correctness: 'exact counts; one post-drain root commit',
       timing: 'evidence-only; no threshold',
+      mutationTeeth,
       development: devState.result,
       advanced: { bundles, dom: prodState },
     };
@@ -252,6 +288,7 @@ async function main() {
     writeReport({ gate: 'G-13', status: 'fail', error: error.stack || String(error) });
     throw error;
   } finally {
+    tearingDown = true;
     if (browser) await browser.close();
     await cleanup.cleanup();
   }
@@ -261,4 +298,3 @@ main().catch((error) => {
   console.error(error.stack || String(error));
   process.exitCode = 1;
 });
-
