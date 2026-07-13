@@ -48,9 +48,10 @@
     (is (= 2 (count leases)))
     (is (= 2 (count (set (map :sid leases)))))
     (is (every? #(= {:resource :feed/items} (:descriptor %)) leases))
-    (is (contains? (get-in (registrar/lookup :view ::two-lease-sites)
-                           [:rf.ui/manifest :capabilities])
-                   :lease))))
+    (is (not (contains? (get-in (registrar/lookup :view ::two-lease-sites)
+                                [:rf.ui/manifest :capabilities])
+                        :lease))
+        "reactive sites live under :sites; they do not grow capability bits")))
 
 (deftest body-grammar-is-a-closed-prefix
   (doseq [[form id]

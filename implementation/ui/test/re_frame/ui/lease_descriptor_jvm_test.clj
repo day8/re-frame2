@@ -1,6 +1,6 @@
 (ns re-frame.ui.lease-descriptor-jvm-test
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.ui.lease :as lease]))
+            [re-frame.ui.lease-descriptor :as lease]))
 
 (defn- error-id [f]
   (try

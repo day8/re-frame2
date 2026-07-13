@@ -132,7 +132,7 @@
     (reactive/with-capture cell thunk)))
 
 (defn- use-commit-and-lifecycle!
-  "Publish the selected render capture and own React visibility lifecycle."
+  "Publish an observation-only capture and own React visibility lifecycle."
   [cell root-incarnation capture]
   ;; Reconcile after every committed render. There is deliberately no cleanup:
   ;; retained observation/resource owners live on the cell, not on a render.
@@ -150,6 +150,20 @@
       (fn cleanup [] (reactive/disconnect! cell)))
     #js [root-incarnation]))
 
+(defn- use-resource-commit-and-lifecycle!
+  "Publish a lease-capable capture and own its specialized visibility cleanup."
+  [cell root-incarnation capture]
+  (react/useLayoutEffect
+    (fn reconcile []
+      (reactive/commit-resources! cell capture)
+      js/undefined))
+  (react/useLayoutEffect
+    (fn lifecycle []
+      (when (some? root-incarnation)
+        (reactive/attach-root! cell root-incarnation))
+      (fn cleanup [] (reactive/disconnect-resources! cell)))
+    #js [root-incarnation]))
+
 (defn- use-resource-reconcile!
   "Reconcile resource ownership after the layout commit accepted `capture`.
 
@@ -157,6 +171,9 @@
   desired plan; queued ensure/release events are write-side work for the next
   drain.  A stale/abandoned capture is rejected by `reactive`."
   [cell capture]
+  ;; Pure capability installation, not ownership: abandoned renders may set a
+  ;; function pointer but cannot mint, ensure, or publish a desired plan.
+  (reactive/enable-resource-lifecycle! cell)
   (react/useEffect
     (fn reconcile-resources []
       (reactive/reconcile-resource-leases! cell capture)
@@ -178,7 +195,7 @@
   [view-id thunk]
   (let [[cell root-incarnation] (use-cell view-id)
         [element capture]      (capture-plain cell thunk)]
-    (use-commit-and-lifecycle! cell root-incarnation capture)
+    (use-resource-commit-and-lifecycle! cell root-incarnation capture)
     (use-resource-reconcile! cell capture)
     element))
 
@@ -188,7 +205,7 @@
   (let [[cell root-incarnation] (use-cell view-id)
         overrides              (use-sub-revision! cell)
         [element capture]      (capture-with-overrides cell overrides thunk)]
-    (use-commit-and-lifecycle! cell root-incarnation capture)
+    (use-resource-commit-and-lifecycle! cell root-incarnation capture)
     (use-resource-reconcile! cell capture)
     element))
 
@@ -199,7 +216,7 @@
   (let [[cell root-incarnation] (use-cell view-id)
         overrides              (use-sub-revision! cell)
         [element capture]      (capture-with-overrides cell overrides thunk)]
-    (use-commit-and-lifecycle! cell root-incarnation capture)
+    (use-resource-commit-and-lifecycle! cell root-incarnation capture)
     (use-resource-reconcile! cell capture)
     element))
 

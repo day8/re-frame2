@@ -127,13 +127,17 @@
   unreachable garbage. The memo is an ECONOMY, never an authority — the commit
   evidence comparison (step 5) corrects any staleness before paint."
   (:require [re-frame.error :as error]
+            [re-frame.features :as features]
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.live-frame :as live-frame]
             [re-frame.registrar :as registrar]
+            [re-frame.resource-lease-owner :as lease-owner]
+            [re-frame.router :as router]
             [re-frame.substrate.observation :as obs]
             [re-frame.subs.override-schema :as override-schema]
-            [re-frame.ui.eq :as eq]))
+            [re-frame.ui.eq :as eq]
+            [re-frame.ui.lease-descriptor :as ui-lease]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -265,7 +269,9 @@
 
 (defn- fresh-capture
   [generation]
-  {:generation generation :order [] :by-site {}})
+  {:generation generation
+   :order []
+   :by-site {}})
 
 (defn- target-key
   [target]
@@ -368,6 +374,13 @@
   ;;                             ; disconnect for exact query/value reuse and
   ;;                             ; hidden-cell frame attribution; absence means
   ;;                             ; the site was conditional/dropped
+  ;;    :resources {...}        ; ABSENT on no-lease cells. Lease-capable
+  ;;                             ; wrappers install one lazy nested state map
+  ;;                             ; carrying desired/capture/reservations/held
+  ;;    :extra-frame-incarnations {frame-id #{token ...}}
+  ;;                             ; ABSENT on no-lease cells; generic frame
+  ;;                             ; teardown index maintained with :resources
+  ;;    :on-teardown fn         ; ABSENT on no-lease cells; capability cleanup
   ;;    :revision  int           ; get-snapshot returns this (useSyncExternalStore)
   ;;    :dirty?    bool          ; pending-notification flag (drain coalescing)
   ;;    :evidence  ev|nil        ; DEBUG-only bounded causal evidence for the
@@ -391,17 +404,18 @@
   ([view-id] (make-cell view-id 0))
   ([view-id generation]
    (->ViewCell
-     (atom {:view-id        view-id
-            :generation     generation
-            :lifecycle      :fresh
-            :root           nil
-            :disconnect-provisional? false
-            :committed      {}
-            :revision       0
-            :dirty?         false
-            :evidence       nil
-            :listeners      {}
-            :intervals      []}))))
+     (atom
+      (cond-> {:view-id        view-id
+               :generation     generation
+               :lifecycle      :fresh
+               :root           nil
+               :disconnect-provisional? false
+               :committed      {}
+               :revision       0
+               :dirty?         false
+               :evidence       nil
+               :listeners      {}
+               :intervals      []})))))
 
 ;; ---------------------------------------------------------------------------
 ;; Dev-only view slots — stable shell + exact body revision (03 §10)
@@ -705,6 +719,62 @@
          (vswap! capture record-site sid query* target ev v*)
          v*)
        v))))
+
+(defn- record-resource-site
+  "Record one active compiler-indexed resource declaration in `cap`.
+  Resource ownership is lexical-site keyed: equal descriptors at two sites
+  deliberately remain two independent owners."
+  [cap sid record]
+  (if (or (contains? (:resource-by-site cap) sid)
+          (contains? (:by-site cap) sid))
+    (error/throw-error!
+     :rf.error/ui-tree-malformed
+     're-frame.ui.reactive/lease-site
+     (str "compiler lexical site id " (pr-str sid)
+          " executed more than once in one render capture")
+     {:extra {:site-id sid
+              :descriptor-keys (-> record :descriptor
+                                   error/diag-value-summary :keys)
+              :resource-id (get-in record [:descriptor :resource])}})
+    (-> cap
+        (update :resource-order (fnil conj []) sid)
+        (assoc-in [:resource-by-site sid] record))))
+
+(defn lease-site
+  "Compiler-only render bridge for `(ui/lease descriptor)`.
+
+  Validates the closed descriptor before recording anything. `nil` is an
+  inactive declaration and records no desired ownership. An active site pins
+  the ambient frame's exact incarnation in the immutable render capture; it
+  never mints an owner or dispatches. Layout commit accepts/rejects that exact
+  capture, and the later passive resource reconciler alone changes ownership."
+  [sid descriptor]
+  (let [descriptor (ui-lease/validate-descriptor! descriptor)
+        {:keys [cell capture]} @ambient]
+    (when (or (nil? cell) (nil? capture) (nil? sid))
+      (error/throw-error!
+       :rf.error/ui-tree-malformed
+       're-frame.ui.reactive/lease-site
+       "compiled lease-site must execute once with a non-nil lexical id inside its ViewCell capture"
+       {:extra {:site-id sid
+                :descriptor-summary (error/diag-value-summary descriptor)}}))
+    (when (some? descriptor)
+      (let [frame-id    (frame/require-current-frame!
+                         :lease {:where 're-frame.ui/lease})
+            frame-token (frame/frame-incarnation-token frame-id)]
+        (when (or (nil? frame-token)
+                  (frame/frame-incarnation-closing? frame-id frame-token))
+          (error/throw-error!
+           :rf.error/frame-destroyed
+           're-frame.ui.reactive/lease-site
+           (str "resource lease site targeted absent or closing frame "
+                (pr-str frame-id))
+           {:extra {:frame frame-id :site-id sid}}))
+        (vswap! capture record-resource-site sid
+                {:descriptor descriptor
+                 :frame-id frame-id
+                 :frame-token frame-token})))
+    nil))
 
 (defn with-capture
   "Run `thunk` (a compiled view body) under a fresh ambient capture and return
@@ -1182,6 +1252,10 @@
 (defn- cell-frames
   "The set of frame-ids `cell`'s committed subscription sites observe.
 
+  Resource leases are liveness ownership, not read observation. Their exact
+  frame-incarnation index participates in teardown discovery only; it must not
+  put a resource-only frame into `flush-frame!` scope.
+
   Only records with a live lease are currently observed. A static Story-
   override target names NO frame (the pinned value IS the
   resolution — there is no node and no observed frame), so an OVERRIDE-ONLY
@@ -1207,12 +1281,20 @@
   "True when `cell`'s last published lexical site records name `frame-id`.
   Records survive an Activity disconnect with `:lease nil`, providing bounded
   exact query/value history plus frame attribution for hidden root-owned cells."
-  [^ViewCell cell frame-id]
-  (boolean
-    (some (fn [{:keys [target]}]
-            (and (= :subscription (:kind target))
-                 (= frame-id (:frame-id target))))
-          (vals (:committed @(state cell))))))
+  ([^ViewCell cell frame-id]
+   (cell-retained-frame? cell frame-id ::any-incarnation))
+  ([^ViewCell cell frame-id frame-token]
+   (let [st @(state cell)
+         observation?
+         (some (fn [{:keys [target]}]
+                 (and (= :subscription (:kind target))
+                      (= frame-id (:frame-id target))))
+               (vals (:committed st)))
+         extra-tokens (get (:extra-frame-incarnations st) frame-id)
+         extra? (and (seq extra-tokens)
+                     (or (= ::any-incarnation frame-token)
+                         (some #(identical? frame-token %) extra-tokens)))]
+     (boolean (or observation? extra?)))))
 
 (defn flush-frame!
   "The FRAME arity of `flush!` — flush every pending cell observing frame
@@ -1319,6 +1401,386 @@
       (record-evidence! cell payload))
     (enrol-dirty! cell)))
 
+;; ---- resource ownership family -------------------------------------------
+;;
+;; Resource leases share the ViewCell/exact render capture and lifecycle with
+;; observation leases, but deliberately do NOT participate in the observation
+;; port's acquire transaction. Layout accepts an ownership-free desired plan;
+;; one passive effect prevalidates the COMPLETE plan and queues ordinary
+;; resource events. There is no cross-frame handler rollback or sync dispatch.
+
+(defn- resource-frame-index
+  "Generic teardown index for every desired/reserved/held resource record.
+  Kept outside the base ViewCell shape: no-lease cells have no index key."
+  [{:keys [resource-desired resource-reservations resource-held]}]
+  (reduce (fn [out {:keys [frame-id frame-token]}]
+            (update out frame-id (fnil conj #{}) frame-token))
+          {}
+          (concat (vals (:by-site resource-desired))
+                  (vals resource-reservations)
+                  (vals resource-held))))
+
+(defn- install-resource-state
+  [m resources]
+  (assoc m
+         :resources resources
+         :extra-frame-incarnations (resource-frame-index resources)))
+
+(defn- resource-capture-current?
+  [st cap]
+  (let [resources (:resources st)]
+    (and (= :connected (:lifecycle st))
+         (= (:generation cap) (:generation st))
+         (identical? cap (:resource-capture resources)))))
+
+(defn- validate-resource-frame!
+  [{:keys [frame-id frame-token sid]}]
+  (when (or (not (identical? frame-token
+                             (frame/frame-incarnation-token frame-id)))
+            (frame/frame-incarnation-closing? frame-id frame-token))
+    (error/throw-error!
+     :rf.error/frame-destroyed
+     're-frame.ui/lease
+     (str "resource lease site " (pr-str sid)
+          " no longer targets the live frame incarnation it captured")
+     {:extra {:frame frame-id :site-id sid}})))
+
+(defn- resolved-registration
+  "Resolve `(kind,id)` through the desired frame's exact image generation."
+  [frame-id kind id]
+  (live-frame/call-with-frame-resolution
+   (live-frame/frame-resolution-target frame-id)
+   #(registrar/lookup kind id)))
+
+(defn- require-resource-registration!
+  [{:keys [descriptor frame-id]}]
+  (let [resource-id (:resource descriptor)]
+    (when-not (resolved-registration frame-id :resource resource-id)
+      (error/throw-error!
+       :rf.error/resource-not-registered
+       're-frame.ui/lease
+       (str "no resource is registered under " (pr-str resource-id)
+            " in frame " (pr-str frame-id)
+            " — call rf/reg-resource before leasing it")
+       {:recovery :fix-registration
+        :extra {:resource-id resource-id}}))))
+
+(defn- prevalidate-resource-plan!
+  "Validate the complete desired plan before minting or dispatching anything."
+  [{:keys [order by-site]} prior-held prior-held-order]
+  (let [records (mapv #(assoc (get by-site %) :sid %) order)
+        held-records (keep prior-held prior-held-order)]
+    (when (or (seq records) (seq held-records))
+      ;; The canonical optional-feature probe. This check is first so an absent
+      ;; artefact reports the copy-pasteable coordinate/require fix instead of
+      ;; a secondary registrar miss. A dev shell with zero current/prior lease
+      ;; sites is a true no-op: it keeps the fixed passive hook but does not
+      ;; require the optional feature merely by mounting.
+      (features/require-feature! :resources)
+      (doseq [record records]
+        (validate-resource-frame! record)
+        (ui-lease/validate-descriptor! (:descriptor record))
+        (require-resource-registration! record))
+      (doseq [record held-records]
+        (validate-resource-frame! record)))
+    records))
+
+(defn- same-resource-reservation?
+  [prior desired]
+  (and prior
+       (= (:frame-id prior) (:frame-id desired))
+       (identical? (:frame-token prior) (:frame-token desired))
+       (eq/rf= (:descriptor prior) (:descriptor desired))))
+
+(defn- ensure-event
+  [view-id {:keys [sid descriptor frame-id owner commit-id]}]
+  [:rf.resource/ensure
+   (cond-> {:resource (:resource descriptor)
+            :owner owner}
+     (contains? descriptor :scope)  (assoc :scope (:scope descriptor))
+     (contains? descriptor :params) (assoc :params (:params descriptor))
+     interop/debug-enabled?
+     (assoc :cause {:rf.ui/view view-id
+                    :rf.ui/commit commit-id
+                    :rf.ui/site sid
+                    :frame frame-id
+                    :owner owner}))])
+
+(defn- enqueue-ensure!
+  [view-id {:keys [frame-id] :as record}]
+  (router/dispatch! (ensure-event view-id record) {:frame frame-id}))
+
+(defn- enqueue-release!
+  [{:keys [frame-id owner]}]
+  (router/dispatch! [:rf.resource/release-owner {:owner owner}]
+                    {:frame frame-id}))
+
+(defn- attempt-resource-releases!
+  "Attempt every release in order. Never short-circuits; returns the first
+  escape and the records whose release could not be queued."
+  [records]
+  (reduce (fn [{:keys [error failed]} record]
+            (try
+              (enqueue-release! record)
+              {:error error :failed failed}
+              (catch #?(:clj Throwable :cljs :default) e
+                {:error (or error e) :failed (conj failed record)})))
+          {:error nil :failed []}
+          records))
+
+(defn- release-held-resources!
+  "Lifecycle cleanup: attempt every held release, then clear held ownership
+  regardless of a host/router escape. Reservations are retained only when
+  `retain-reservations?` (Activity/StrictMode disconnect). Returns the first
+  contained dispatch escape, if any."
+  [^ViewCell cell retain-reservations?]
+  (let [st      (state cell)
+        before @st
+        resources (:resources before)
+        held   (:resource-held resources)
+        records (keep held (:resource-held-order resources))
+        result  (attempt-resource-releases! records)]
+    (swap! st (fn [m]
+                (install-resource-state
+                 m
+                 (cond-> (assoc (:resources m)
+                                :resource-held {}
+                                :resource-held-order [])
+                   (not retain-reservations?)
+                   (assoc :resource-desired {:order [] :by-site {}}
+                          :resource-capture nil
+                          :resource-reservations {})))))
+    (:error result)))
+
+(def ^:private resource-lifecycle-ops
+  ;; This map and every function it reaches are referenced only by
+  ;; enable-resource-lifecycle!. A production view with no lease sites never
+  ;; reaches that installer, allowing Closure to erase the full resource
+  ;; ownership family (including release event ids and the neutral owner mint).
+  {:disconnect (fn [cell] (release-held-resources! cell true))
+   :teardown   (fn [cell] (release-held-resources! cell false))})
+
+(defn enable-resource-lifecycle!
+  "Install the resource cleanup family on a lease-capable ViewCell. Idempotent
+  and ownership-free: render may install these function pointers, but only the
+  accepted passive capture can mint/ensure an owner. Production sub-only cells
+  never call this function, preserving structural lease-free DCE."
+  [^ViewCell cell]
+  (swap! (state cell)
+         (fn [m]
+           (if (:resources m)
+             m
+             (let [resources
+                   (cond-> {:resource-desired {:order [] :by-site {}}
+                            :resource-capture nil
+                            :resource-reservations {}
+                            :resource-held {}
+                            :resource-held-order []
+                            :resource-lifecycle resource-lifecycle-ops}
+                     interop/debug-enabled? (assoc :resource-commit 0))]
+               (assoc (install-resource-state m resources)
+                      :on-teardown (:teardown resource-lifecycle-ops))))))
+  cell)
+
+(defn- run-resource-lifecycle!
+  [^ViewCell cell phase]
+  (when-let [f (get-in @(state cell) [:resources :resource-lifecycle phase])]
+    (f cell)))
+
+(defn reconcile-resource-leases!
+  "Passive-effect resource reconciliation for the exact layout-accepted
+  `capture`. Stale/abandoned effects are inert. The full desired set validates
+  before owner mint or dispatch; same-site `rf=` descriptors on the same frame
+  incarnation retain their exact owner. Every fresh ensure is queued in lexical
+  order before any old owner release is attempted."
+  [^ViewCell cell cap]
+  (let [st  (state cell)
+        st0 @st
+        resources0 (:resources st0)]
+    (when (resource-capture-current? st0 cap)
+      (let [desired (:resource-desired resources0)
+            records (prevalidate-resource-plan!
+                     desired
+                     (:resource-held resources0)
+                     (:resource-held-order resources0))]
+        ;; A feature hook/registrar lookup can synchronously run user tooling.
+        ;; Recheck selected-capture identity before any irreversible mint.
+        (when (resource-capture-current? @st cap)
+          (let [resources         (:resources @st)
+                prior-reservations (:resource-reservations resources)
+                prior-held        (:resource-held resources)
+                prior-held-order  (:resource-held-order resources)
+                commit-id         (:resource-commit resources)
+                reservations
+                (persistent!
+                 (reduce (fn [out {:keys [sid] :as desired-record}]
+                           (let [prior (get prior-reservations sid)
+                                 record
+                                 (cond->
+                                  (if (same-resource-reservation? prior desired-record)
+                                    ;; Preserve the exact prior descriptor
+                                    ;; object and owner on an rf=-equal render.
+                                    (assoc desired-record
+                                           :descriptor (:descriptor prior)
+                                           :owner (:owner prior))
+                                    (assoc desired-record
+                                           :owner (lease-owner/mint!)))
+                                   interop/debug-enabled?
+                                   (assoc :commit-id commit-id))]
+                             (assoc! out sid record)))
+                         (transient {})
+                         records))
+                desired-records (mapv reservations (:order desired))
+                desired-owners  (into #{} (map :owner) desired-records)
+                ensures         (filterv #(not (contains? prior-held (:owner %)))
+                                         desired-records)
+                releases        (into []
+                                      (comp (keep prior-held)
+                                            (remove #(contains? desired-owners
+                                                                (:owner %))))
+                                      prior-held-order)
+                staged-held     (reduce (fn [m record]
+                                          (assoc m (:owner record) record))
+                                        prior-held ensures)
+                staged-order    (into (vec prior-held-order)
+                                      (comp (map :owner)
+                                            (remove #(contains? prior-held %)))
+                                      ensures)
+                view-id         (:view-id @st)]
+            ;; Publish candidate cleanup reachability before the first enqueue.
+            (swap! st
+                   (fn [m]
+                     (install-resource-state
+                      m
+                      (assoc (:resources m)
+                             :resource-reservations reservations
+                             :resource-held staged-held
+                             :resource-held-order staged-order))))
+            (let [ensure-error
+                  (try
+                    (doseq [record ensures]
+                      (enqueue-ensure! view-id record))
+                    nil
+                    (catch #?(:clj Throwable :cljs :default) e e))]
+              (if ensure-error
+                (let [{failed-comp :failed}
+                      ;; Conservatively release every staged candidate. The
+                      ;; throwing dispatch may have enqueued before escaping;
+                      ;; release-owner is safe for a fresh owner that did not.
+                      (attempt-resource-releases! ensures)
+                      failed-by-owner
+                      (into {} (map (juxt :owner identity)) failed-comp)
+                      failed-order (mapv :owner failed-comp)]
+                  ;; Restore the prior authoritative state. A compensation
+                  ;; release that itself failed remains cleanup-reachable even
+                  ;; though its candidate reservation is abandoned.
+                  (swap! st
+                         (fn [m]
+                           (install-resource-state
+                            m
+                            (assoc (:resources m)
+                                   :resource-reservations prior-reservations
+                                   :resource-held (merge prior-held failed-by-owner)
+                                   :resource-held-order
+                                   (into (vec prior-held-order) failed-order)))))
+                  (throw ensure-error))
+                (let [release-result (attempt-resource-releases! releases)
+                      failed-release (:failed release-result)
+                      final-held (reduce (fn [m record]
+                                           (assoc m (:owner record) record))
+                                         (into {} (map (juxt :owner identity))
+                                               desired-records)
+                                         failed-release)
+                      final-order (into (mapv :owner desired-records)
+                                        (map :owner) failed-release)]
+                  (swap! st
+                         (fn [m]
+                           (install-resource-state
+                            m
+                            (assoc (:resources m)
+                                   :resource-reservations reservations
+                                   :resource-held final-held
+                                   :resource-held-order final-order))))
+                  (when-let [e (:error release-result)]
+                    (throw e))))))))))
+  nil)
+
+(defn resource-reservations
+  "Canonical site-keyed resource owner reservations (internal tool/test read)."
+  [^ViewCell cell]
+  (get-in @(state cell) [:resources :resource-reservations]))
+
+(defn resource-held
+  "Currently-held resource owners keyed by owner token (internal tool/test read)."
+  [^ViewCell cell]
+  (get-in @(state cell) [:resources :resource-held]))
+
+(defn resource-state-installed?
+  "True only for a ViewCell whose lease-capable wrapper installed lazy state
+  (internal structural-erasure inspection seam)."
+  [^ViewCell cell]
+  (contains? @(state cell) :resources))
+
+(defn resource-frame-incarnation-count
+  "Distinct retained incarnation tokens for `frame-id` in a lease-capable
+  cell's teardown index (internal compactness inspection seam)."
+  [^ViewCell cell frame-id]
+  (count (get (:extra-frame-incarnations @(state cell)) frame-id)))
+
+(def ^:private resource-evidence-sentinel
+  ;; Stable non-vacuity marker for the actual advanced DCE gate. Simple/dev
+  ;; output retains this private debug-plane binding; goog.DEBUG=false removes
+  ;; it together with resource-lease-evidence's body.
+  "RF2_UI_RESOURCE_LEASE_EVIDENCE_SENTINEL")
+
+(defn resource-lease-evidence
+  "Dev-only bounded Xray join rows for the accepted resource plan. Carries
+  view/commit/site/frame/owner identity and deliberately no descriptor, scope,
+  or params. Returns nil in production."
+  [^ViewCell cell]
+  (when interop/debug-enabled?
+    (let [_sentinel resource-evidence-sentinel
+          st @(state cell)
+          resources (:resources st)]
+      (into []
+            (keep (fn [sid]
+                    (when-let [{:keys [frame-id owner commit-id]}
+                               (get (:resource-reservations resources) sid)]
+                      {:rf.ui/view (:view-id st)
+                       :rf.ui/commit commit-id
+                       :rf.ui/site sid
+                       :frame frame-id
+                       :owner owner})))
+            (get-in resources [:resource-desired :order])))))
+
+(def ^:private conflicting-resource-incarnations
+  ::conflicting-resource-incarnations)
+
+(defn- resource-capture-incarnations
+  [cap]
+  (reduce (fn [out {:keys [frame-id frame-token]}]
+            (if (contains? out frame-id)
+              (if (identical? (get out frame-id) frame-token)
+                out
+                (reduced conflicting-resource-incarnations))
+              (assoc out frame-id frame-token)))
+          {}
+          (vals (:resource-by-site cap))))
+
+(defn- accept-resource-capture
+  [m cap]
+  (let [desired {:order (or (:resource-order cap) [])
+                 :by-site (or (:resource-by-site cap) {})}
+        resources
+        (cond-> (assoc (:resources m)
+                       :resource-desired desired
+                       ;; Exact identity closes selected-layout A vs abandoned
+                       ;; passive B: only this accepted capture may reconcile.
+                       :resource-capture cap)
+          interop/debug-enabled?
+          (update :resource-commit (fnil inc 0)))]
+    (install-resource-state m resources)))
+
 ;; ---- lifecycle (03 §4) ------------------------------------------------------
 ;;
 ;; Three OBSERVABLE runtime states. The fact emitted at cleanup is always
@@ -1393,10 +1855,14 @@
   [^ViewCell cell incarnation]
   (let [st  (state cell)
         old (:root @st)]
-    (when (and (some? old) (not (identical? old incarnation)))
-      (forget-root-cell! cell old))
-    (swap! st assoc :root incarnation)
-    (swap! root-cells update incarnation (fnil conj #{}) cell))
+    ;; A resource/frame pin can reject and tear down the cell in the preceding
+    ;; layout effect. The later lifecycle effect must not resurrect that dead
+    ;; cell into root ownership.
+    (when-not (= :dead (:lifecycle @st))
+      (when (and (some? old) (not (identical? old incarnation)))
+        (forget-root-cell! cell old))
+      (swap! st assoc :root incarnation)
+      (swap! root-cells update incarnation (fnil conj #{}) cell)))
   cell)
 
 (defn- detach-root!
@@ -1504,7 +1970,7 @@
     ;; sweep can find this cell while it observes a live committed dep set.
     (swap! live-cells conj cell)))
 
-(defn disconnect!
+(defn- disconnect*
   "Effects-cleanup transition (React unmount OR Activity hide —
   indistinguishable at this moment): release lease owners (hidden UI must
   not poll) and emit `:disconnected {:reason :unknown}`. The cell is
@@ -1519,10 +1985,12 @@
   indistinguishable here, 03 §4); the upgrade to `:unmounted` happens later, in
   `teardown-root!`. With the window unarmed (an Activity hide) nothing is
   captured and the cell stays reconnectable."
-  [^ViewCell cell]
+  [^ViewCell cell on-disconnect]
   (let [st (state cell)]
     (when (contains? #{:fresh :connected} (:lifecycle @st))
       (release-committed! cell)
+      (when on-disconnect
+        (on-disconnect cell))
       (discard-pending! cell)
       ;; Leave the live-cell registry: a disconnected cell holds no committed
       ;; deps, so it observes no frame — and an unmounted cell must not linger.
@@ -1544,6 +2012,19 @@
         (swap! teardown-collector conj cell)))
     cell))
 
+(defn disconnect!
+  "No-capability effects cleanup. Production views with only subscription
+  sites call this path, so resource lifecycle code remains unreachable."
+  [^ViewCell cell]
+  (disconnect* cell nil))
+
+(defn disconnect-resources!
+  "Lease-capable effects cleanup. Hidden UI must not poll: every held owner is
+  released while its reservation remains reusable for StrictMode/Activity
+  reconnect."
+  [^ViewCell cell]
+  (disconnect* cell #(run-resource-lifecycle! % :disconnect)))
+
 (defn teardown!
   "Explicit host/root teardown (root unmount, parent teardown, frame
   destroy): the frame/adapter/root is destroyed under this cell's handle —
@@ -1560,8 +2041,16 @@
         (swap! st update :intervals conj
                {:state :unmounted :reason :unmounted :proof :host-teardown}))
       (release-committed! cell)
+      ;; Final teardown drops both held ownership and reusable reservations.
+      ;; Dispatch escapes are contained here so one bad owner cannot prevent
+      ;; later cells or root-membership cleanup from becoming total.
+      (when-some [on-teardown (:on-teardown @st)]
+        (on-teardown cell))
       (discard-pending! cell)
-      (swap! st assoc :lifecycle :dead :committed {})
+      (swap! st assoc
+             :lifecycle :dead
+             :committed {})
+      (swap! st dissoc :on-teardown :extra-frame-incarnations)
       (swap! live-cells disj cell)
       ;; leave the root-incarnation registry — a dead cell is no longer
       ;; retained, so it must not linger as reapable ownership (rf2-vxgfnd.85).
@@ -1587,11 +2076,17 @@
   snapshots, so the per-cell `teardown!` de-enrol is safe. Returns the count
   torn down."
   [frame-id]
-  (let [connected (filter #(cell-observes-frame? % frame-id) @live-cells)
+  (let [frame-token (frame/frame-incarnation-token frame-id)
+        ;; Observation ownership retains its historical bare-id discovery;
+        ;; resource ownership additionally requires the exact render-captured
+        ;; incarnation so A's teardown cannot reap a same-id B reservation.
+        connected (filter #(cell-retained-frame? % frame-id frame-token)
+                          @live-cells)
         hidden    (into #{}
                         (comp (mapcat val)
                               (filter #(= :disconnected (lifecycle %)))
-                              (filter #(cell-retained-frame? % frame-id)))
+                              (filter #(cell-retained-frame?
+                                        % frame-id frame-token)))
                         @root-cells)
         victims   (into hidden connected)]
     (doseq [cell victims]
@@ -1741,20 +2236,17 @@
 
 (defn- committed-frame-incarnations
   "Post-acquire snapshot `{frame-id -> incarnation-token}` for every frame the
-  candidate committed map observes. `commit!` immediately validates every
-  candidate lease with `current?`; together those operations close the window
-  in which a lease acquired from A could otherwise be paired with a snapshot
-  of a replacement same-id incarnation B. A frame absent/destroyed reads nil.
-  O(observed frames)."
+  candidate observation map observes. Capability-specific callers may merge
+  additional render-time pins before the common close revalidation."
   [committed]
   (persistent!
-    (reduce (fn [acc {:keys [target lease]}]
-              (if (and lease (= :subscription (:kind target)))
-                (let [fid (:frame-id target)]
-                  (assoc! acc fid (frame/frame-incarnation-token fid)))
-                acc))
-            (transient {})
-            (vals committed))))
+   (reduce (fn [acc {:keys [target lease]}]
+             (if (and lease (= :subscription (:kind target)))
+               (let [fid (:frame-id target)]
+                 (assoc! acc fid (frame/frame-incarnation-token fid)))
+               acc))
+           (transient {})
+           (vals committed))))
 
 (defn- incarnation-superseded?
   "True when ANY frame in the acquire-time `incarnations` snapshot is no longer
@@ -1791,7 +2283,7 @@
                      replacement id (rf2-vxgfnd.88)."
   nil)
 
-(defn commit!
+(defn- commit*
   "Run the 8-step layout commit for `cell` against the exact immutable
   `capture` returned beside the committed host element by `with-capture`.
   Idempotent: an unchanged committed set + capture reconciles to a
@@ -1822,7 +2314,7 @@
      and notify — React corrects BEFORE paint.
 
   Returns `cell` on a normal commit or `:stale` on a rejected generation."
-  [^ViewCell cell cap]
+  [^ViewCell cell cap extra-incarnations accept-capture]
   (let [st  (state cell)
         st0 @st]
     (cond
@@ -1913,7 +2405,10 @@
               ;; the formerly-uncovered acquire→snapshot window.
               _ (when-some [barrier *commit-barrier*]
                   (barrier :post-stage-acquire cell))
-              incarnations (committed-frame-incarnations candidate)
+              observed-incarnations (committed-frame-incarnations candidate)
+              incarnations (if (seq extra-incarnations)
+                             (merge observed-incarnations extra-incarnations)
+                             observed-incarnations)
               candidate-current?
               (every? (fn [[sid record]]
                         (obs/current? (:lease record) (:target (new-by sid))))
@@ -1960,7 +2455,12 @@
           ;; replacement id (rf2-vxgfnd.88).
           (when-some [barrier *commit-barrier*] (barrier :post-acquire cell))
           ;; step 6 — publish exact per-site query/value + dependency set
-          (swap! st assoc :committed new-committed)
+          (swap! st
+                 (fn [m]
+                   (let [m* (assoc m :committed new-committed)]
+                     (if accept-capture
+                       (accept-capture m* cap)
+                       m*))))
           ;; step 7 — release dropped + retargeted prior leases
           (doseq [[_ record] to-release]
             (obs/release! (:lease record)))
@@ -2024,6 +2524,24 @@
                       (and retained-moved? (not (dirty? cell))))
               (advance-revision! cell)))
               cell)))))))
+
+(defn commit!
+  "Commit an observation-only capture without installing or copying resource
+  state. This is the production path for the 0/0 and 1/0 capability shapes."
+  [^ViewCell cell cap]
+  (commit* cell cap nil nil))
+
+(defn commit-resources!
+  "Commit a lease-capable capture with its exact render-time frame pins and
+  ownership-free desired plan. Owner minting remains passive."
+  [^ViewCell cell cap]
+  (let [incarnations (resource-capture-incarnations cap)]
+    (if (= conflicting-resource-incarnations incarnations)
+      ;; One render cannot coherently target two incarnations of the same frame
+      ;; id. Reject before generic commit publishes/connects; passive reconcile
+      ;; then sees a dead cell and cannot mint or dispatch.
+      (teardown! cell)
+      (commit* cell cap incarnations accept-resource-capture))))
 
 ;; ---- test/inspection reads --------------------------------------------------
 
