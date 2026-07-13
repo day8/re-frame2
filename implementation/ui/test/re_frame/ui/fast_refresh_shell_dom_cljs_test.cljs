@@ -73,7 +73,8 @@
             container (js/document.createElement "div")
             root      (ReactDOMClient/createRoot container)
             shell-1   (register! id (stateful-body "v1" probe)
-                                 (fn [_ _] true) hs "PreserveView")]
+                                 (fn [_ _] true) hs "PreserveView")
+            shells-1  (reactive/view-shells id)]
         (.appendChild (.-body js/document) container)
         (-> (act-promise
              #(.render root (React/createElement shell-1 #js {:value "p1"})))
@@ -98,6 +99,9 @@
                (testing "same signature updates in place"
                  (is (identical? shell-1 @shell-2)
                      "public shell identity is stable")
+                 (is (identical? (:inner shells-1)
+                                 (:inner (reactive/view-shells id)))
+                     "the inner component identity is stable too")
                  (is (= 1 (reactive/view-generation id))
                      "body revision advanced")
                  (is (= 0 (reactive/view-remount-generation id))
@@ -158,7 +162,8 @@
             container (js/document.createElement "div")
             root      (ReactDOMClient/createRoot container)
             shell-1   (register! id (effectful-body "v1" probe events false)
-                                 (fn [_ _] true) "hs1-one-hook" "RemountView")]
+                                 (fn [_ _] true) "hs1-one-hook" "RemountView")
+            shells-1  (reactive/view-shells id)]
         (.appendChild (.-body js/document) container)
         (set! (.-error js/console)
               (fn [& xs] (swap! warnings conj (mapv str xs))))
@@ -177,6 +182,9 @@
                (testing "only the stable inner Fiber remounts"
                  (is (identical? shell-1 @shell-2)
                      "the public shell survives an incompatible edit")
+                 (is (identical? (:inner shells-1)
+                                 (:inner (reactive/view-shells id)))
+                     "hook incompatibility changes the key, never Inner's type")
                  (is (= 1 (reactive/view-remount-generation id)))
                  (is (= [:cleanup-v1 :setup-v2] @events)
                      "one cleanup precedes one setup — always/never-key mutations fail")

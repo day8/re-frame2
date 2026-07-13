@@ -816,7 +816,11 @@
 ;; machinery all became unreachable together.
 
 (defview hmr-shell-elision-probe []
-  [:span "production-direct-memo-probe"])
+  ;; A real reactive compiled body roots ViewCell render + commit in both
+  ;; advanced builds. The element is never host-rendered by this grep probe, so
+  ;; no frame is needed at runtime.
+  [:span "production-direct-memo-probe"
+   (ui/sub [:rf.probe/ui-override])])
 
 (defn ^:export touch-ui-hmr-shell! []
   (react/createElement hmr-shell-elision-probe nil))

@@ -372,3 +372,48 @@
     (is (true? (:rf.ui/compiled? meta*)))
     (is (= "probe" (:doc meta*)))
     (is (= ::probe-view (get-in meta* [:rf.ui/manifest :view-id])))))
+
+(deftest hmr-slot-publication-is-atomic-and-identities-are-stable
+  (let [id      ::atomic-publication
+        render1 (fn [_props] nil)
+        render2 (fn [_props] nil)
+        cmp1    (fn [_ _] true)
+        cmp2    (fn [_ _] false)
+        shell1  (rt/register-view! id render1 cmp1 "AtomicView"
+                                   {:view-id id :hook-signature "hs1-a"})
+        pair1   (reactive/view-shells id)
+        seen    (atom [])
+        stop    (reactive/subscribe-view!
+                 id
+                 #(swap! seen conj
+                         {:body (reactive/view-generation id)
+                          :remount (reactive/view-remount-generation id)
+                          :descriptor (reactive/view-descriptor id)}))
+        shell2  (rt/register-view! id render2 cmp2 "AtomicView"
+                                   {:view-id id :hook-signature "hs1-b"})]
+    (stop)
+    (is (identical? shell1 shell2) "fresh-shell mutation is rejected")
+    (is (identical? (:inner pair1) (:inner (reactive/view-shells id))))
+    (is (= 1 (count @seen)) "one successful registration emits one notify")
+    (let [{:keys [body remount descriptor]} (first @seen)]
+      (is (= [1 1] [body remount]))
+      (is (identical? render2 (:render-fn descriptor)))
+      (is (identical? cmp2 (:compare-fn descriptor)))
+      (is (= "hs1-b" (get-in descriptor [:manifest :hook-signature]))
+          "listener observes descriptor and both revisions from one publication"))))
+
+(deftest failed-registrar-write-does-not-publish-a-body-revision
+  (let [id ::failed-publication
+        result (try
+                 (with-redefs [registrar/register!
+                               (fn [& _] (throw (js/Error. "registrar boom")))]
+                   (rt/register-view! id (fn [_props] nil) (fn [_ _] true)
+                                      "FailedView"
+                                      {:view-id id :hook-signature "hs1-a"}))
+                 :unexpected-success
+                 (catch :default _ :thrown))]
+    (is (= :thrown result))
+    (is (nil? (reactive/registered-view-revision id))
+        "only a successful registrar write advances body freshness")
+    (is (nil? (reactive/view-descriptor id))
+        "a failed registration cannot become the dynamic render authority")))

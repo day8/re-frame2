@@ -1677,8 +1677,9 @@
       ;; the cell has not rendered again yet. Direct/headless callers with no
       ;; registered slot retain the cell-local contract.
       (or (not= (:generation cap) (:generation st0))
-          (when-some [current (registered-view-revision (:view-id st0))]
-            (not= (:generation cap) current)))
+          (and interop/debug-enabled?
+               (when-some [current (registered-view-revision (:view-id st0))]
+                 (not= (:generation cap) current))))
       :stale
 
       :else
