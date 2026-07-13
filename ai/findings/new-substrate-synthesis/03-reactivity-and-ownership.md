@@ -142,8 +142,9 @@ is a boot error, never undefined behaviour.
 **Callback/reentrancy rules.** `on-change` is constant-work (mark-dirty with
 node-key/version/epoch/cause; it never computes — I-5). `acquire!`/`release!` from
 inside the owner-notification fan-out throw `:rf.error/reentrant-graph-op`;
-React-driven acquire/release (renders/commits *caused by* the epoch-close notify) are
-outside the fan-out and always legal (S-3-validated). Two conservative rules S-3 did
+React-driven acquire/release during the read/render commits *caused by* the
+drain-quiescence notification batch are outside the fan-out and always legal
+(S-3-validated). Two conservative rules S-3 did
 not exercise: `acquire!`/`release!` themselves never invoke `on-change` synchronously —
 no fan-out during acquire/release **[S2-CONFIRM]**; and HMR-disposal notifications
 (dispose canonical node → notify former owners once, cause `:hmr` — that ordering IS

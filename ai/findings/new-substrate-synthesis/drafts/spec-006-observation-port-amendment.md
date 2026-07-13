@@ -279,8 +279,9 @@ Spike-validated ⟨S-3 §5, µ⟩:
   never computes (invariant 6, I-5).
 - `acquire!`/`release!` called from **inside the owner-notification fan-out** throw
   `:rf.error/reentrant-graph-op` (dev-asserted). The rule is cheap because the fan-out
-  is separated from the cell flush: React-driven acquire/release — renders and commits
-  *caused by* the epoch-close notify — are outside the fan-out and always legal.
+  is separated from the cell flush: React-driven acquire/release during the read/render
+  commits *caused by* the drain-quiescence notification batch are outside the fan-out
+  and always legal.
 
 Conservative, not exercised by S-3 ⟨09 codex2 F1 — write the conservative rule⟩:
 
@@ -353,7 +354,7 @@ commit reconciler's evidence comparison (invariant 5) catches movement of
 corrects before paint. No third mechanism exists or is needed. A memo table that
 outlives its slice is a conformance bug (a leak fixture pins it).
 
-### Epoch finalization — the adapter-internal final phase
+### Drain-quiescence finalization — the adapter-internal final phase
 
 On the observation-port substrate, the invalidation algorithm's Phase 3
 ([§Invalidation algorithm](#invalidation-algorithm) — "notify subscribers") is realised

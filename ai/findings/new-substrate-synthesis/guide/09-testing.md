@@ -74,7 +74,8 @@ Stage-2 mounted surface, `with-root`, `query`, and `flush!`:
       (-> (ui.test/with-root
             [root [ui/frame-provider {:frame frame} [search-box]]]
             ;; with-root already awaited the initial mount. Put the write
-            ;; inside flush!'s act boundary and await its fixed point.
+            ;; inside flush!'s act boundary; the queued write side reaches
+            ;; drain quiescence before the read/render fixed point.
             (-> (ui.test/flush!
                   #(ui.test/dispatch! frame [:search/set-query "hats"]))
                 (.then (fn []

@@ -1,7 +1,7 @@
 # W1 prep — migrator rewrite-rule table (Reagent → `re-frame.ui`)
 
 **Status:** prep draft · 2026-07-13. Machine-actionable rule table for the W1 migrator (doc-10
-mechanical rewriter; build S3–4, used S5–6). The W1 worker starts here, not from re-derivation.
+mechanical rewriter; build + first repo consumer S6). The W1 worker starts here, not from re-derivation.
 
 **Sources (normative, in precedence order):** `ai/findings/new-substrate-synthesis/10-migration-from-reagent.md`
 (verdict table, M/D/R tiers) · `11-adoption-workstreams.md` W1 row (named transforms) ·

@@ -32,7 +32,7 @@ W11 refuses to re-own it:
 |---|---|
 | Bundle bytes, scaling slope, absolute size budgets | G-10 ⟨drafts/g10-bundle-baseline-methodology.md⟩ — the same one-time trio table on the bytes axis; W11 and G-10 share the S6 archive tag |
 | Server-render throughput (per-render µs vs hand-written JSX CLJS) | G-1 — shipped and CI-gated (`npm run test:ui-g1`) ⟨implementation/scripts/run-ui-bench.cjs; 07 §5 G-1⟩ |
-| The CI-gated push-economics falsification bench (500 views / 1 delta per epoch, own-substrate) | G-13, built by the S2 gate work as the S-2 spike's permanent successor ⟨07 §5 G-13; 08 §1 S-2⟩. W11 runs the *same shape comparatively* (§4 R-E) but the recurring gate is G-13's |
+| The CI-gated push-economics falsification bench (fixed affected-cell count C while mounted V varies, plus a multi-write single-drain arm; own-substrate) | G-13, built by the S2 gate work as the S-2 spike's permanent successor ⟨07 §5 G-13; 08 §1 S-2⟩. Exact validity counts are C ViewCell enroll/advances + C component-body renders + one root commit batch per drain. W11 runs that count shape comparatively (§4 R-E); any sustained one-delta timing arm is a distinct W11 extension, not the exact G-13 fixture |
 | Input **correctness** — caret stability, IME, one-commit-per-input, the real-browser Chromium/WebKit matrix | G-8 ⟨07 §5 G-8⟩. W11 measures input *latency* comparatively (§4 R-C) and defers every correctness assertion to G-8 |
 | Update-parity micro-gates vs hand-written React (`useSyncExternalStore` baselines, multi-read scaling, equality no-ops, epoch fan-in, keyed-list work counts) | G-2 / G-3 / G-4 / G-5 / G-9 ⟨07 §5⟩ — parity/work gates against *hand-written React*, not the trio; W11's scenarios are macro-composites of these micro-claims |
 | Memory / retention / disposal | G-6 ⟨07 §5⟩. W11 notes heap flatness as a cross-check only |
@@ -113,7 +113,7 @@ baselined; the trio variants written once at S6 and archived.
 - **Fairness note stated up front**: idiomatic Reagent (re-frame subscriptions →
   reactions) and idiomatic UIx/Helix (per-sub `use-subscribe` hooks) **also narrow to
   K** — this scenario is *not* an O(N)-vs-O(K) strawman. What it measures is the
-  constant factor: per-epoch protocol overhead + per-notified-view bridge cost, at
+  constant factor: per-event write-side protocol overhead + per-notified-view bridge cost, at
   matched K. Any implementation that made a trio member O(N) here would violate §6.1.
 - **Environment**: real Chromium primary (paint cost scales with K); a node/jsdom arm
   as cross-check for render counts and protocol-only wall (the S-2 harness shape).
@@ -195,33 +195,34 @@ baselined; the trio variants written once at S6 and archived.
 - **Metric**: per-transition p50/p95 (dispatch → painted); heap-growth flatness across
   the M transitions noted as a cross-check only (retention gating is G-6's).
 
-### R-E — sustained dispatch throughput (the G-13 shape, comparative)
+### R-E — G-13 push counts, with a sustained-throughput extension
 
-- **Claim**: the committed push economics ⟨05 §3⟩ at exactly the scale G-13 names —
-  500 mounted reactive views, 1 sub delta per epoch, 1,000 epochs, warmup 100
-  ⟨07 §5 G-13; s3 report §3 parameters⟩ — hold against the trio's real notification
-  machinery (Reagent's reaction graph; UIx/Helix per-sub `useSyncExternalStore`
-  subscriptions), in a real browser, where real DOM commit costs were predicted to
-  *widen* the push margin ⟨s3 report §6 risk 6⟩.
-- **Fixture**: the S2 G-13 bench fixture itself, re-skinned per substrate — W11 does
-  not invent a second 500-view fixture; it extends the G-13 harness with trio view
-  layers. (The S-2 spike's pull arm is *not* rebuilt — pull was falsified as a design
-  fork and closed ⟨08 §1 spike outcomes⟩; the comparison here is substrate vs trio,
-  all push-shaped in their own idiom.)
+- **Claim**: the committed push economics ⟨05 §3⟩ hold when G-13 keeps the affected
+  cell count C fixed while mounted V varies (V = 100 and 500), and when several queued
+  writes settle in one run-to-completion drain. Each arm must perform exactly C
+  ViewCell enroll/advance operations, C component-body renders, and one root commit
+  batch — work does not grow with unaffected V, and queued writes do not imply one
+  render or commit each ⟨07 §5 G-13⟩.
+- **Fixture**: re-skin the exact S2 G-13 V-scaling and multi-write/single-drain arms per
+  substrate. The S-2 spike's pull arm is *not* rebuilt — pull was falsified as a design
+  fork and closed ⟨08 §1 spike outcomes⟩; the comparison here is substrate vs trio, all
+  push-shaped in their own idiom. W11 may additionally retain the spike-derived
+  1,000-one-delta-drain run (warmup 100) for browser throughput distributions, but that
+  is a **distinct sustained-load extension**, not the exact G-13 fixture.
 - **Fairness**: each trio view layer is that framework's idiomatic narrow-subscription
-  shape at 500 views — Reagent: one Form-2 component per view over its own narrow
+  shape at each V — Reagent: one Form-2 component per view over its own narrow
   re-frame subscription (the reaction graph *is* its push machinery); UIx/Helix: one
   component per view with a per-sub `use-subscribe`-style hook over
   `useSyncExternalStore` — per the §6.1 idiom review; no variant hand-rolls a
-  coarse-grained store-read that would manufacture O(N) work. The component-renders-per-
-  drain
-  work count (must be 1 on every substrate) is the R-A-style validity precheck; a run
-  with differing counts is invalid until fixed or documented as idiom-inherent.
+  coarse-grained store-read that would manufacture O(N) work. The G-13 validity
+  precheck is exact: C cell enroll/advances, C component-body renders, and one root
+  commit batch per drain on every substrate. A run with different counts is invalid
+  until fixed or documented as idiom-inherent.
 - **Environment**: real Chromium primary for the reported table; the node arm *is*
   the G-13 CI gate and stays own-substrate-only.
-- **Metric**: µs per measured one-event drain p50/p95; component renders per drain (the
-  S-2 table's work
-  column ⟨s3 report §3⟩); dropped-frame rate over the sustained run.
+- **Metric**: exact cell-advance/body-render/root-commit counts for the G-13 arms;
+  p50/p95 µs per measured one-event drain and dropped-frame rate only for the distinct
+  sustained-load extension (the S-2 table's timing lineage ⟨s3 report §3⟩).
 
 ## 5. Environment, harness, and estimator
 
@@ -448,8 +449,10 @@ another venue.
 1. **S2 reactivity shipped** — ViewCell, `sub`, drain-quiescence batching, commit
    reconciliation ⟨12 §3 S2 epic⟩: prerequisite for R-A, R-D, R-E (and R-C's epoch
    half). Specifically the **S2 G-13 bench harness** (the S-2 spike's permanent
-   successor, 500 views / 1 delta per epoch): R-E extends it with trio view layers
-   rather than inventing a parallel fixture.
+   successor): fixed C while V varies, plus the multi-write/single-drain arm, with C
+   cell enroll/advances + C component bodies + one root commit batch expected. R-E
+   extends those exact arms with trio view layers rather than inventing a parallel
+   fixture; its sustained one-delta timing run is explicitly separate.
 2. **S3 events shipped** — data handlers + placeholder splice + the sync-input door
    (S-5 predicate), `local`, `dispatch-fn` ⟨12 §3 S3 epic⟩: prerequisite for R-C
    entirely and for R-B's row handlers.

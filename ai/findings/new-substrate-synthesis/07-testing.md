@@ -28,7 +28,7 @@ suite + one smoke** (08 §5 Adapters) — two named suites, not one.
 | `(frame opts)` | mint a test frame (app-db seed, registrations from the loaded namespaces) |
 | `(dispatch! frame event)` | real dispatch + drain |
 | `(with-root [r root-form] …)` | CLJS Tier-3: return a Promise; await the initial real-React mount, the body value/Promise, and total teardown of the connected test-owned root/container on every exit. The Promise resolves to the awaited body value |
-| `(flush!)` / `(flush! thunk)` | CLJS: return a Promise; run the optional thunk inside React 19 `act`, let its queued write side reach drain quiescence, then alternate framework drains and React commits to a fixed point — the sole public test flush. JVM: synchronously drain the headless ViewCell registry and return nil. It is global across test roots; there is no public production `ui/flush!`. The open-drain guard throws synchronously before Promise construction |
+| `(flush!)` / `(flush! thunk)` | CLJS: return a Promise; run the optional thunk inside React 19 `act`, let its queued write side reach drain quiescence, then alternate framework drains and React commits to a fixed point — the sole public test flush. JVM: synchronously drain the headless ViewCell registry and return nil. It is global across test roots; there is no public production `ui/flush!`. The open-drain guard throws `:rf.error/flush-in-open-epoch` synchronously before Promise construction; the boundary is the open drain, not an epoch/render bijection |
 | `(flush-presence!)` | advance presence transitions without wall-clock (02 §7) |
 
 At S2, Tier-3 tests drive framework state with `dispatch!`. DOM mechanics already owned
@@ -120,7 +120,7 @@ including the multi-root failure-isolation fixture.
 | G-10 bundle | kernel ≤ 4 KB gz; counter ≤ React + 6 KB gz; relative targets vs UIx-adapter / slim; symbol-reachability evidence |
 | G-11 elision | exact absence of debug + absence rosters, including `re-frame.ui.test` and its direct React-`act` boundary from an advanced production bundle |
 | G-12 dependency isolation | no Reagent/UIx/Helix/slim at Maven/npm; no JVM renderer reachable from browser entries |
-| G-13 push falsification | the 500-view fan-out bench — for C affected ViewCells, exactly C enroll/advance operations and C component-body renders, independent of total mounted V, while the single benchmark root performs exactly one commit batch per drain (never C commits); exists to *falsify* the committed push economics (05 §3), and failure reopens the design rather than toggling a fork |
+| G-13 push falsification | hold C affected ViewCells fixed while total mounted V varies (100 → 500), and include a multi-write/single-drain arm: exactly C enroll/advance operations + C component-body renders + one benchmark-root commit batch per drain (never C commits, never one render per queued write). This exists to *falsify* the committed push economics (05 §3); failure reopens the design rather than toggling a fork |
 | G-14 compile budget | `defview` expansion p95; watch-loop rebuild delta on the dashboard fixture; guide-fixtures CI cost bounded |
 
 Methodology: identical fixtures, distributions not best runs, pinned browsers,

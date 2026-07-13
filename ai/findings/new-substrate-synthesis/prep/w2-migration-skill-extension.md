@@ -58,8 +58,8 @@ rewrites (this path's corpus ids are assigned at the W2 graft; until then cite t
 page's rows via their W1 MIG anchors — W1 wins on mechanics), Type A
 announced-then-applied, Type B asked-first, smallest correct
 diff, the author runs compiles/tests/smokes. A
-dedicated migrator tool automates the Type A table below **[STAGED:5 — W1: build
-S3–4, used S5–6]**; until it ships, apply the rules by grep + hand-edit,
+dedicated migrator tool automates the Type A table below **[STAGED:6 — W1: build +
+first repo consumer S6]**; until it ships, apply the rules by grep + hand-edit,
 sweep-announced as usual.
 
 ## Co-mounting: both substrates in one app
