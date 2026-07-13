@@ -310,6 +310,122 @@
         (rf/unregister-listener! :trace ::event-tail-overlap)
         (late-bind/set-fn! :epoch/on-frame-destroyed original-epoch)))))
 
+(deftest predecessor-halted-destroy-evidence-survives-successor-epoch-claim
+  ;; rf2-vxgfnd.151 (red before fix). A is destroyed mid-drain and paused at its
+  ;; POST-DISSOC epoch hook. Same-id B is then created and SETTLES an ordinary
+  ;; event, claiming the id-keyed epoch stores (which drops A's buffer and
+  ;; observation ledger). When A resumes it must STILL publish its terminal
+  ;; halted-destroy evidence: the record was snapshotted BEFORE dissoc, and its
+  ;; publication is decoupled from winning the compare-cleanup. B's stores stay
+  ;; byte-identical.
+  ;;
+  ;; Before the fix the unfixed path read the buffer AFTER dissoc (B had already
+  ;; dropped it → no record) AND gated publication on winning the cleanup
+  ;; comparison (B owned → nil → no publication): zero A records, zero trailers.
+  (let [id             :destroy/halted-evidence-overlap
+        a-after-dissoc (CountDownLatch. 1)
+        release-a      (CountDownLatch. 1)
+        first-epoch?   (atom true)
+        a-records      (atom [])
+        traces         (atom [])
+        b-observer     ::b-halted-observer
+        original-epoch (late-bind/get-fn :epoch/on-frame-destroyed)]
+    (rf/reg-event :destroy/halted-a
+      (fn [_ _]
+        (frame/destroy-frame! id)
+        {:db {:owner :a-tail}}))
+    (rf/reg-event :destroy/halted-b-settle
+      (fn [{:keys [db]} _]
+        {:db (assoc db :owner :b)}))
+    (rf/make-frame {:id id})
+    ;; Capture A's terminal epoch record + its structural trailer pair.
+    (rf/register-listener! :epoch ::a-epoch-watch
+      (fn [r] (when (= :halted-destroy (:outcome r)) (swap! a-records conj r))))
+    (rf/register-listener! :trace ::halted-evidence-overlap
+      (fn [ev]
+        (when (and (= id (get-in ev [:tags :frame]))
+                   (contains? #{:rf.epoch/snapshotted :rf.epoch/outcome}
+                              (:operation ev)))
+          (swap! traces conj ev))))
+    (try
+      (late-bind/set-fn! :epoch/on-frame-destroyed
+        (fn [& args]
+          ;; The post-dissoc publish hook. Hold only A's first (halted) call.
+          (when (and (= id (first args))
+                     (compare-and-set! first-epoch? true false))
+            (.countDown a-after-dissoc)
+            (.await release-a 10 TimeUnit/SECONDS))
+          (when original-epoch (apply original-epoch args))))
+      (let [dispatch-a (future
+                         (rf/dispatch-sync [:destroy/halted-a] {:frame id}))]
+        (is (.await a-after-dissoc 10 TimeUnit/SECONDS)
+            "A is paused at its post-dissoc epoch hook (evidence already
+             snapshotted before dissoc)")
+        ;; Same-id B, with its own observer, SETTLES an ordinary event — its
+        ;; first captured event claims the id-keyed epoch stores, dropping A's
+        ;; buffer + observation ledger.
+        (rf/make-frame {:id id})
+        (epoch-state/put-listener! b-observer (fn [_] nil))
+        (rf/dispatch-sync [:destroy/halted-b-settle] {:frame id})
+        (let [token-b      (frame/frame-incarnation-token id)
+              b-history    (rf/epoch-history id)
+              b-buffer     (epoch-state/buffer-for id)
+              b-last-epoch (epoch-state/last-settled-epoch-id id)
+              b-db         (frame/frame-app-db-value id)]
+          (is (= 1 (count b-history))
+              "B settled one ordinary event and now owns the id-keyed stores")
+          (is (some? (get-in (epoch-state/observations-snapshot) [b-observer id]))
+              "B's observer is armed before A resumes")
+
+          ;; A resumes and reaches its terminal publish while B owns the stores.
+          (.countDown release-a)
+          (is (not= ::timeout (deref dispatch-a 5000 ::timeout))
+              "A's terminal recipe completes")
+          (executor-barrier!)
+
+          ;; A's terminal evidence is published DESPITE B owning the stores.
+          (is (= 1 (count @a-records))
+              "exactly one A :halted-destroy record reaches epoch listeners")
+          (is (= :destroy/halted-a (:event-id (first @a-records)))
+              "the terminal record is A's destroying event")
+          ;; B's ordinary settle also emits :ok trailers on the same frame id;
+          ;; scope to A's TERMINAL outcomes (B's are :ok, A's are
+          ;; :halted-destroy / :blocked).
+          (let [by-op (group-by :operation @traces)]
+            (is (= 1 (count (filter #(= :halted-destroy (get-in % [:tags :outcome]))
+                                    (get by-op :rf.epoch/snapshotted))))
+                "exactly one A :halted-destroy :rf.epoch/snapshotted is published")
+            (is (= 1 (count (filter #(= :blocked (get-in % [:tags :outcome]))
+                                    (get by-op :rf.epoch/outcome))))
+                "exactly one A blocked :rf.epoch/outcome is published"))
+
+          ;; B's stores are byte-identical: A's compare-cleanup no-op'd.
+          (is (identical? token-b (frame/frame-incarnation-token id))
+              "B remains the current incarnation")
+          (is (= {:owner :b} b-db)
+              "A's inert returned tail never mutated B's state")
+          (is (= {:owner :b} (frame/frame-app-db-value id))
+              "B's state is unchanged after A resumes")
+          (is (= b-history (rf/epoch-history id))
+              "B's history is untouched by A's terminal cleanup")
+          (is (= b-buffer (epoch-state/buffer-for id))
+              "B's capture buffer is untouched")
+          (is (= b-last-epoch (epoch-state/last-settled-epoch-id id))
+              "B's last-settled anchor is untouched")
+          (is (some? (get-in (epoch-state/observations-snapshot) [b-observer id]))
+              "B's listener observation survives A's terminal cleanup")
+
+          ;; B keeps settling normally.
+          (rf/dispatch-sync [:destroy/halted-b-settle] {:frame id})
+          (is (= 2 (count (rf/epoch-history id)))
+              "B settles subsequent events normally after A resumes")))
+      (finally
+        (.countDown release-a)
+        (epoch-state/drop-listener! b-observer)
+        (rf/unregister-listener! :epoch ::a-epoch-watch)
+        (rf/unregister-listener! :trace ::halted-evidence-overlap)
+        (late-bind/set-fn! :epoch/on-frame-destroyed original-epoch)))))
+
 (deftest owner-loss-unwinds-only-entered-authored-afters
   ;; Mutation tooth: removing execute-chain's continuation predicate would run
   ;; :never/before and the handler after :killer/before destroys A. Removing

@@ -3058,10 +3058,32 @@
 
   `owner-token` is the destroyed frame's stable incarnation identity. The epoch
   artefact uses it to compare-clean only this incarnation's id-keyed state if a
-  fresh same-id frame has already published between registry dissoc and step 11."
-  [id owner-token fs-before fs-after committed-at]
-  (safe-call-hook! :epoch/on-frame-destroyed
-                   id owner-token fs-before fs-after committed-at))
+  fresh same-id frame has already published between registry dissoc and step 11.
+
+  `terminal-evidence` is the bundle `snapshot-epoch-terminal-evidence!` captured
+  BEFORE dissoc (rf2-vxgfnd.151) — the epoch surface publishes A's terminal
+  facts from it rather than re-reading the now-shared id-keyed stores."
+  [id owner-token terminal-evidence]
+  (safe-call-hook! :epoch/on-frame-destroyed id owner-token terminal-evidence))
+
+(defn- snapshot-epoch-terminal-evidence!
+  "rf2-vxgfnd.151 — snapshot the destroyed incarnation's terminal halted-destroy
+  evidence (its `:halted-destroy` record + listener/silencing snapshot) while it
+  is still the sole owner of its id-keyed epoch stores, i.e. BEFORE
+  `dissoc-frame!`. A same-id successor can only be constructed after that dissoc,
+  so it can never claim (and drop) the buffer / observation ledger out from under
+  this snapshot. Returns the evidence bundle threaded to `notify-epoch-
+  listeners!` (or nil when no epoch layer participates / the frame was not
+  mid-drain). Guarded like the best-effort teardown steps: a throw here is
+  recorded on both Spec 009 channels and swallowed so teardown still completes."
+  [id fs-before fs-after committed-at]
+  (when-let [snap (late-bind/get-fn :epoch/snapshot-frame-destroyed)]
+    (try
+      (snap id fs-before fs-after committed-at)
+      (catch #?(:clj Throwable :cljs :default) ex
+        (record-teardown-failure! :epoch/snapshot-frame-destroyed
+                                  :safe-call-hook! ex)
+        nil))))
 
 (defn destroy-frame!
   "Tear down a frame. Per Spec 002 §Destroy, the ordered steps are:
@@ -3428,9 +3450,17 @@
         ;; the forget. The frame's resolved generation rides the record's
         ;; `:generation` slot, so dropping the record drops it too — no separate
         ;; forget hook is needed.
-        (dissoc-frame! id)
-        (notify-epoch-listeners! id expected-incarnation-token
-                                 run-fs-before fs-at-destroy run-time-ms)
+        ;; rf2-vxgfnd.151: snapshot A's terminal halted-destroy evidence while A
+        ;; is STILL the sole owner of its id-keyed epoch stores — before
+        ;; dissoc-frame!, after which a same-id successor B can be constructed
+        ;; and claim (dropping) those stores. The bundle is bound lexically to
+        ;; A's exact destroy recipe and published by the post-dissoc epoch hook
+        ;; regardless of whether A still owns the stores when it fires.
+        (let [terminal-evidence (snapshot-epoch-terminal-evidence!
+                                  id run-fs-before fs-at-destroy run-time-ms)]
+          (dissoc-frame! id)
+          (notify-epoch-listeners! id expected-incarnation-token
+                                   terminal-evidence))
         nil)
         (finally
           ;; EP-0008 R1 — FINALLY-shaped flush of the always-on

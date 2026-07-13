@@ -319,11 +319,14 @@
 ;; warn-once cache, so the compatibility hook bought nothing.)
 
 (def ^:private destroy-frame-hook-keys
-  "The destroy-frame! cleanup-hook keys. Each fires through
-  `frame/safe-call-hook!` (rf2-ggkay) inside the destroy cascade.
-  Mirrored here so the assertion visits each by name."
+  "The destroy-frame! cleanup-hook keys. `:ssr` / `:machines` fire through
+  `frame/safe-call-hook!` (rf2-ggkay) inside the destroy cascade; the two epoch
+  keys fire directly (`:epoch/snapshot-frame-destroyed` BEFORE dissoc,
+  `:epoch/on-frame-destroyed` AFTER — rf2-vxgfnd.151). Mirrored here so the
+  assertion visits each by name."
   [:ssr/on-frame-destroyed
    :machines/on-frame-destroyed!
+   :epoch/snapshot-frame-destroyed
    :epoch/on-frame-destroyed])
 
 (deftest destroy-frame-fires-every-cleanup-hook-exactly-once
@@ -351,31 +354,45 @@
 (deftest destroy-frame-cleanup-hooks-receive-frame-id
   (testing "cleanup hooks that take the destroyed frame's id receive it
             correctly — :ssr / :machines / :epoch all pass the id"
-    ;; :ssr / :machines take the destroyed id. :epoch/on-frame-destroyed
-    ;; takes (id owner-token db-before db-after committed-at): exact frame
-    ;; ownership plus rf2-9neiq's two
-    ;; snapshots for the :halted-destroy record) + rf2-bh56rc (the
-    ;; destroying event's causal :time-ms). Pin each arg shape so a future
-    ;; refactor that swaps positional → varargs (or drops the id) breaks
-    ;; loudly.
+    ;; :ssr / :machines take the destroyed id. rf2-vxgfnd.151 split the epoch
+    ;; teardown across two hooks: the PRE-dissoc :epoch/snapshot-frame-destroyed
+    ;; takes (id db-before db-after committed-at) — rf2-9neiq's two snapshots
+    ;; for the :halted-destroy record + rf2-bh56rc's destroying-event causal
+    ;; :time-ms — and the POST-dissoc :epoch/on-frame-destroyed takes
+    ;; (id owner-token terminal-evidence) — exact frame ownership plus the
+    ;; pre-dissoc bundle. Pin each arg shape so a future refactor that swaps
+    ;; positional → varargs (or drops the id) breaks loudly.
     (let [snapshot   @late-bind/hooks
-          captured-args (atom {})]
+          captured-args (atom {})
+          original-snap (late-bind/get-fn :epoch/snapshot-frame-destroyed)]
       (try
         (doseq [k [:ssr/on-frame-destroyed
                    :machines/on-frame-destroyed!]]
           (late-bind/set-fn! k (fn [id]
                                  (swap! captured-args assoc k id))))
-        ;; The epoch hook's five-arg shape — record the id, exact incarnation
-        ;; owner, and that the snapshot args + committed-at arrive (all nil
-        ;; here: an out-of-cascade destroy carries no pre-cascade snapshot
-        ;; and no in-flight causal token).
+        ;; The pre-dissoc snapshot hook's four-arg shape — record the id and
+        ;; that the two snapshot args + committed-at arrive (all nil here save
+        ;; fs-after: an out-of-cascade destroy carries no pre-cascade snapshot
+        ;; and no in-flight causal token). Delegate to the real hook so the
+        ;; downstream :epoch/on-frame-destroyed still receives a live bundle.
+        (late-bind/set-fn! :epoch/snapshot-frame-destroyed
+                           (fn [id db-before db-after committed-at]
+                             (swap! captured-args assoc
+                                    :epoch/snapshot-frame-destroyed id
+                                    :epoch/snapshot-args [db-before db-after]
+                                    :epoch/committed-at committed-at)
+                             (when original-snap
+                               (original-snap id db-before db-after committed-at))))
+        ;; The post-dissoc hook's three-arg shape — record the id, exact
+        ;; incarnation owner, and that the terminal-evidence bundle arrives.
         (late-bind/set-fn! :epoch/on-frame-destroyed
-                           (fn [id owner-token db-before db-after committed-at]
+                           (fn [id owner-token terminal-evidence]
                              (swap! captured-args assoc
                                     :epoch/on-frame-destroyed id
                                     :epoch/owner-token owner-token
-                                    :epoch/snapshot-args [db-before db-after]
-                                    :epoch/committed-at committed-at)))
+                                    :epoch/terminal-evidence-arrived?
+                                    (contains? @captured-args
+                                               :epoch/snapshot-frame-destroyed))))
         (rf/make-frame {:id :rf2-j9phb/arg-target})
         (frame/destroy-frame! :rf2-j9phb/arg-target)
 
@@ -386,20 +403,26 @@
                (get @captured-args :machines/on-frame-destroyed!))
             "machines hook receives the destroyed frame id")
         (is (= :rf2-j9phb/arg-target
+               (get @captured-args :epoch/snapshot-frame-destroyed))
+            "pre-dissoc snapshot hook receives the destroyed frame id")
+        (is (= :rf2-j9phb/arg-target
                (get @captured-args :epoch/on-frame-destroyed))
-            "epoch hook receives the destroyed frame id")
+            "post-dissoc epoch hook receives the destroyed frame id")
         (is (some? (get @captured-args :epoch/owner-token))
             "epoch hook receives the destroyed incarnation's stable owner token")
+        (is (true? (get @captured-args :epoch/terminal-evidence-arrived?))
+            "the post-dissoc hook runs AFTER the pre-dissoc snapshot hook —
+             the terminal-evidence bundle it publishes was captured first")
         ;; rf2-9neiq / rf2-3aizt1: for this OUT-OF-RUN destroy, fs-before
         ;; (the pre-run snapshot from frame/*run-frame-state-before*)
         ;; is nil (no in-flight run), while fs-after is the live
         ;; frame-state value read at destroy-time — the frame's initial empty
         ;; two-partition frame-state. EP-0001 (rf2-3aizt1, decision #2): the
-        ;; destroy hook now threads the whole frame-state (both partitions),
+        ;; snapshot hook now threads the whole frame-state (both partitions),
         ;; not app-db alone.
         (is (= [nil {:rf.db/app {} :rf.db/runtime {}}]
                (get @captured-args :epoch/snapshot-args))
-            "epoch hook receives (fs-before fs-after): nil pre-run
+            "snapshot hook receives (fs-before fs-after): nil pre-run
              (out-of-run destroy) + the destroy-time frame-state
              {:rf.db/app {} :rf.db/runtime {}} (rf2-9neiq / rf2-3aizt1)")
         ;; rf2-bh56rc: an out-of-run destroy has no in-flight causal
@@ -408,7 +431,7 @@
         ;; on this path, so the value is moot — the assertion pins the arg
         ;; shape, not a committed timestamp.)
         (is (contains? @captured-args :epoch/committed-at)
-            "epoch hook receives the terminal committed-at arg (rf2-bh56rc)")
+            "snapshot hook receives the terminal committed-at arg (rf2-bh56rc)")
         (is (nil? (get @captured-args :epoch/committed-at))
             "committed-at is nil for an out-of-cascade destroy (no token)")
         (finally

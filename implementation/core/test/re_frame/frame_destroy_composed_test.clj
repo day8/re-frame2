@@ -176,13 +176,14 @@
         (late-bind/set-fn! :flows/teardown-on-frame-destroy!
                            (fn [_id]
                              (swap! other-hooks-called conj :flows-ran)))
-        ;; rf2-9neiq: the :epoch/on-frame-destroyed hook takes
-        ;; (frame-id owner-token db-before db-after committed-at) — exact
-        ;; incarnation ownership plus the two snapshots
-        ;; destroy-frame! threads for the :halted-destroy record plus the
-        ;; destroying event's causal :time-ms (rf2-bh56rc).
+        ;; rf2-vxgfnd.151: the post-dissoc :epoch/on-frame-destroyed hook takes
+        ;; (frame-id owner-token terminal-evidence) — exact incarnation
+        ;; ownership plus the pre-dissoc terminal-evidence bundle
+        ;; :epoch/snapshot-frame-destroyed captured for the :halted-destroy
+        ;; record. (The two frame-state snapshots + causal :time-ms now reach
+        ;; the epoch layer via that pre-dissoc snapshot hook.)
         (late-bind/set-fn! :epoch/on-frame-destroyed
-                           (fn [_id _owner-token _db-before _db-after _committed-at]
+                           (fn [_id _owner-token _terminal-evidence]
                              (swap! other-hooks-called conj :epoch-ran)))
 
         ;; Destroy must not re-throw.

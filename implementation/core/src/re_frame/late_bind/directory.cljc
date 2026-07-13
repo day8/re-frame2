@@ -821,9 +821,13 @@
    {:key         :epoch/clear-epoch-listeners!
     :producer-ns 're-frame.epoch
     :description "Clear every registered epoch-settled callback (test isolation)."}
+   {:key         :epoch/snapshot-frame-destroyed
+    :producer-ns 're-frame.epoch
+    :design-bead "rf2-vxgfnd.151"
+    :description "Snapshot the destroyed incarnation's terminal halted-destroy evidence BEFORE dissoc-frame!, while it is still the sole owner of its id-keyed epoch stores. Invoked as (f frame-id fs-before fs-after committed-at): fs-before is the in-flight event's pre-run frame-state snapshot, fs-after the destroy-time frame-state value captured before teardown, committed-at the destroying event's causal time (each nil where no in-flight run supplied it). Returns the {:record :listener-snapshot :silenced-cbs} bundle threaded to :epoch/on-frame-destroyed — binding A's terminal record + silencing fan to A's exact incarnation before a same-id successor B (constructable only after dissoc) can claim and drop those stores."}
    {:key         :epoch/on-frame-destroyed
     :producer-ns 're-frame.epoch
-    :description "Tear down a frame's epoch state when the frame is destroyed. Invoked as (f frame-id owner-token fs-before fs-after committed-at): owner-token is the destroyed incarnation's stable identity and compare-guards the final post-dissoc cleanup against a fresh same-id replacement; fs-before is the in-flight event's pre-run frame-state snapshot, fs-after the destroy-time frame-state value captured before teardown, and committed-at the destroying event's causal time. The snapshots are the real :frame-state-before/:frame-state-after slots (and :db-* projections) a mid-drain :halted-destroy record carries. Snapshot/time values are nil where no in-flight run supplied them."}
+    :description "Publish a destroyed frame's terminal epoch evidence and drop its id-keyed stores AFTER dissoc-frame!. Invoked as (f frame-id owner-token terminal-evidence): owner-token is the destroyed incarnation's stable identity and compare-guards the id-keyed store DROP against a fresh same-id replacement (stale A can never erase B); terminal-evidence is the bundle :epoch/snapshot-frame-destroyed captured before dissoc. Publication of A's :halted-destroy record, its structural :rf.epoch/snapshotted+outcome trailers, and its silencing fan is INDEPENDENT of winning that compare-cleanup, so a same-id B claiming the stores cannot lose A's terminal evidence (rf2-vxgfnd.151). A direct-seam arity (f frame-id owner-token fs-before fs-after committed-at) snapshots at call time for tools / unit pins where no same-id successor races the stores."}
    {:key         :epoch/projected-record
     :producer-ns 're-frame.epoch
     :design-bead "rf2-mrsck"
