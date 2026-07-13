@@ -195,40 +195,49 @@
   (let [owner-token (or exact-owner-token
                         (frame/frame-incarnation-token frame-id))
         continue?  #(or (nil? exact-owner-token)
-                        (frame/frame-incarnation-live?
+                        (frame/event-continuation-live?
                           frame-id exact-owner-token))]
-    (when (and owner-token (continue?))
-      ;; Normal exact settlement claims A's supplied token. It must never
-      ;; re-resolve/claim same-id B after A was destroyed during harvest.
-      (state/claim-frame-owner! frame-id owner-token))
-    ;; Whole-frame snapshots are restore units; app-db slots are projections.
-    (when (continue?)
-      (let [base   (assembly/build-record frame-id frame-state-before frame-state-after
-                                          events committed-at outcome halt-reason)
-        ;; Pin the explicit trigger only when the buffer did not resolve one.
-        ;; already resolve one (the halting event never ran, so no
-        ;; `:event/run-start` was buffered). Omit rather than store nil.
-        record (cond-> base
-                 (and trigger-event (not (:event-id base)))
-                 (assoc :event-id      (first trigger-event)
-                        :trigger-event trigger-event))]
-        (state/record! record)
-        ;; Async render/sub emits use this anchor after the event has settled.
-        (state/set-last-settled-epoch! frame-id (:epoch-id record))
-        ;; The optional cascade aggregator is callback-bearing. Its result and
-        ;; every later trailer are inert after exact owner loss.
-        (when (continue?)
-          (when-let [capture (late-bind/get-fn-cached
-                               :trace.cascade/capture-for-epoch!)]
-            (try
-              (capture frame-id (:epoch-id record) (:event-id record) events)
-              (catch #?(:clj Throwable :cljs :default) _ nil))))
-        (when (continue?)
-          (assembly/emit-snapshotted+outcome!
-            frame-id (:epoch-id record) (:event-id record) outcome continue?))
-        (when (continue?)
-          (listeners/notify-listeners! record continue?))
-        (when (continue?) record)))))
+    ;; Claim rechecks liveness under the same owner lock used by terminal
+    ;; cleanup; a check-then-claim race cannot resurrect stale A ownership.
+    (when (and owner-token
+               (state/claim-frame-owner! frame-id owner-token continue?))
+      ;; Resolve the only callback-bearing assembly input before building. A
+      ;; digest hook that destroys A (whether it returns or throws) fences every
+      ;; state write below.
+      (when (continue?)
+        (let [schema-digest (assembly/current-schema-digest frame-id continue?)]
+          (when (continue?)
+            ;; Whole-frame snapshots are restore units; app-db slots are
+            ;; projections. The supplied digest keeps build-record data-only.
+            (let [base   (assembly/build-record
+                           frame-id frame-state-before frame-state-after events
+                           committed-at outcome halt-reason schema-digest)
+                  ;; Pin the explicit trigger only when the buffer did not
+                  ;; resolve one (a halting event that never reached run-start).
+                  record (cond-> base
+                           (and trigger-event (not (:event-id base)))
+                           (assoc :event-id      (first trigger-event)
+                                  :trigger-event trigger-event))
+                  ;; Record + async anchor publish as one exact-owner
+                  ;; transaction. Cleanup-before-commit and B-before-commit
+                  ;; reject; commit-before-cleanup is erased by cleanup.
+                  published? (and (continue?)
+                                  (state/commit-frame-owner-record!
+                                    frame-id owner-token record))]
+              ;; The optional cascade aggregator is callback-bearing. Its
+              ;; result and every later trailer are inert after owner loss.
+              (when (and published? (continue?))
+                (when-let [capture (late-bind/get-fn-cached
+                                     :trace.cascade/capture-for-epoch!)]
+                  (try
+                    (capture frame-id (:epoch-id record) (:event-id record) events)
+                    (catch #?(:clj Throwable :cljs :default) _ nil))))
+              (when (and published? (continue?))
+                (assembly/emit-snapshotted+outcome!
+                  frame-id (:epoch-id record) (:event-id record) outcome continue?))
+              (when (and published? (continue?))
+                (listeners/notify-listeners! record continue?))
+              (when (and published? (continue?)) record))))))))
 
 (defn settle!
   "Settle one dequeued event, not an entire drain.
@@ -257,7 +266,7 @@
     settling-dispatch-id {:keys [exact-owner-token]}]
    (when interop/debug-enabled?
      (if (and exact-owner-token
-              (not (frame/frame-incarnation-live?
+              (not (frame/event-continuation-live?
                      frame-id exact-owner-token)))
        ;; A's run-start was already harvested by A's synchronous destroy hook;
        ;; tail traces may now sit beside fresh same-id B work. Remove only A's

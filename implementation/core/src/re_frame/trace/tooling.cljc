@@ -685,12 +685,16 @@
   run has a `:dispatch-id` and a `:frame`; frameless emits skip the
   ring per the B3 ruling), then fan out to every registered listener.
   Listener throws are isolated. No-op in production."
-  [event]
+  [event continue?]
   (push-to-ring! event)
-  (doseq [[_ f] @listeners]
-    (try
-      (f event)
-      (catch #?(:clj Throwable :cljs :default) _ nil))))
+  (loop [entries (seq @listeners)]
+    (when (and entries (continue?))
+      (let [[_ f] (first entries)]
+        (try
+          (f event)
+          (catch #?(:clj Throwable :cljs :default) _ nil))
+        (when (continue?)
+          (recur (next entries)))))))
 
 (late-bind/set-fn! :trace.tooling/deliver! deliver-to-tooling!)
 

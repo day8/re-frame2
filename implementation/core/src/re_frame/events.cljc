@@ -689,14 +689,14 @@
           ;; commit target.  `execute-chain` still unwinds every already-entered
           ;; authored `:after`; the framework-owned outer flows interceptor
           ;; observes this marker and fences the remaining tail.
-          (if-not (frame/frame-incarnation-live? frame-id owner-token)
+          (if-not (frame/event-continuation-live? frame-id owner-token)
             (assoc ctx :rf/stale-incarnation? true)
             (let [new-ctx (commit-fx-effects ctx event effects)]
               ;; A trace/error listener reached by handler-return policing can
               ;; itself synchronously destroy A.  Recheck before the final
               ;; legacy-root diagnostic; loss makes the partially-produced
               ;; context inert just like direct loss in the handler body.
-              (if-not (frame/frame-incarnation-live? frame-id owner-token)
+              (if-not (frame/event-continuation-live? frame-id owner-token)
                 (assoc ctx :rf/stale-incarnation? true)
                 (do
                   ;; EP-0001: a `:db` effect carrying the retired

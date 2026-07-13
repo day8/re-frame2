@@ -619,9 +619,11 @@ The framework stamps each setup dispatch with the frame's id automatically — t
 **Teardown invocation order — normative.** `destroy-frame!` uses the exact-incarnation
 claim as its linearization point, then invokes the per-feature teardown hooks in the
 strict order below. The ordering is pattern contract — a conformant port MUST mirror it.
-An ordinary event that was already dequeued is not aborted in the middle of its pipeline
-run; it may finish. The claim governs every ordinary envelope that had not yet been
-dequeued.
+An authored callback already on the stack is not forcibly interrupted and may return;
+only already-entered authored interceptor `:after` callbacks may unwind. The returned
+context/output is inert after the claim: no commit, flow, effect, child dispatch,
+ordinary diagnostic/trailer, normal epoch settlement, or render may follow. The private
+exact-token teardown cascade described below is the sole executable exception.
 
 1. **Claim the exact incarnation and cut its ordinary queue.** Under that incarnation's
    drain lock, publish a token-scoped destroy claim and atomically remove every waiting
@@ -1697,9 +1699,11 @@ This is the dispatch semantics, not a mode. There is no opt-out. The guarantee g
 
 **Two terminal halts bound “to fixed point.”** The depth limit below drops work after its
 event boundary, and an exact-incarnation destroy claim is the ordinary-queue cutoff from
-[§Destroy](#destroy): an already-dequeued event may finish, but not-yet-dequeued ordinary
-work is discarded and no render is inserted into the interrupted drain. These are
-terminal lifecycle/safety boundaries, not opt-outs that allow an intermediate render.
+[§Destroy](#destroy): an authored callback already on the stack may return and only
+already-entered authored interceptor `:after` callbacks may unwind, but its returned
+context/output is inert. Not-yet-dequeued ordinary work is discarded and no render is
+inserted into the interrupted drain. These are terminal lifecycle/safety boundaries,
+not opt-outs that allow an intermediate render.
 
 ### Drain versus event — the epoch unit
 
@@ -2172,8 +2176,11 @@ This per-event drain is the canonical place every other piece of the runtime hoo
 2. **Re-entrant dispatch from a render.** A view fn calling `(rf/dispatch ...)` during render lands in the router queue. The current drain has already settled before render started (run-to-completion); the dispatched event is processed in the *next* drain cycle, after the host gives time back to the JS event loop. Calling `dispatch-sync` from inside any handler raises `:rf.error/dispatch-sync-in-handler` (per [§dispatch-sync](#dispatch-sync)).
 3. **`:dispatch` to self in a handler.** Round-trips the runtime queue as a **separate dequeued event** (its own epoch), running against the *post-commit* snapshot — from a plain handler it lands at the back (FIFO); from a *machine* handler it leap-frogs to the front (per [005 §Level 4](005-StateMachines.md#level-4--across-the-runtime)). Either way it is **different** from `:raise`, which runs pre-commit, FIFO, inside the same macrostep/epoch. The two are not interchangeable — see [005 §Drain semantics gotchas](005-StateMachines.md#drain-semantics-gotchas).
 4. **Frame disposal mid-drain.** The exact-incarnation destroy claim is the
-   ordinary-queue cutoff, earlier than lifecycle-dead publication. Work already dequeued
-   may finish. At claim, every waiting ordinary envelope is atomically removed; an
+   ordinary-queue cutoff, earlier than lifecycle-dead publication. An authored callback
+   already on the stack may return and already-entered authored interceptor `:after`
+   callbacks may unwind, but its returned context/output is inert: no framework-owned
+   commit, flow, effect, child dispatch, ordinary diagnostic/trailer, normal epoch
+   settlement, or render follows. At claim, every waiting ordinary envelope is atomically removed; an
    ordinary arrival in the claim-to-dead window may enqueue but is dropped by the next
    pre-dequeue ownership check before handler, effects, or child dispatch. Only the
    private token/frame/host-thread-scoped `:on-destroy` cascade may execute after claim

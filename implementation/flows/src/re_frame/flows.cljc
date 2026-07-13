@@ -30,7 +30,7 @@
 (defn- owner-live?
   [frame-id owner-token exact-owner?]
   (or (not exact-owner?)
-      (frame/frame-incarnation-live? frame-id owner-token)))
+      (frame/event-continuation-live? frame-id owner-token)))
 
 ;; ---- public-surface re-exports -------------------------------------------
 ;;

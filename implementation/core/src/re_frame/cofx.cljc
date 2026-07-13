@@ -1122,8 +1122,10 @@
          ;; NOT the registrar-lookup path below.
          (deliver-sub-source acc id (:rf.cofx/sub entry) failing-id frame-id
                              mint-policy continue?)
-         (let [meta (registrar/lookup :cofx id)]
-           (cond
+          (let [meta (registrar/lookup :cofx id)]
+            (if-not (continue?)
+              nil
+              (cond
              ;; A declared id with NO registration is the typo case (the
              ;; framework's own facts — e.g. the provided `:rf/time-ms` — are
              ;; registered, so a nil meta is always an unregistered id).
@@ -1180,7 +1182,7 @@
                  :delivered (assoc-in acc [:coeffects id] value)
                  :skipped   acc
                   :threw     (assoc acc :rf/skip-handler? true)
-                  :stale     nil)))))
+                  :stale     nil))))))
                   (catch #?(:clj Throwable :cljs :default) e
                     ;; All hard-error helpers emit synchronously and then
                     ;; throw. If that emit destroyed A, suppress the now-inert

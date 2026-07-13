@@ -9,8 +9,9 @@
   dispatched synchronously during a drain normally settles to fixed point
   before any further external event is processed for that frame, and before
   any view re-renders. A depth halt or successful exact-incarnation destroy
-  claim is terminal: the already-dequeued event finishes, no later ordinary
-  event begins, and no intermediate render is inserted."
+  claim is terminal: an authored callback already on the stack may return and
+  entered authored interceptor afters may unwind, but its returned framework
+  tail is inert; no later ordinary event or intermediate render begins."
   (:require [re-frame.frame :as frame]
             [re-frame.elision :as elision]
             [re-frame.live-frame :as live-frame]
@@ -62,6 +63,29 @@
 
 (defn- next-dispatch-id []
   (swap! dispatch-counter inc))
+
+(defn- call-while-exact-owner
+  "Invoke callback-bearing `f` only for the captured frame incarnation.
+
+  A callback may synchronously destroy A and either return or throw. In both
+  cases its result/error is inert once exact ownership is lost; a real error is
+  rethrown only while A remains current."
+  ([frame-id owner-token f]
+   (if-not (frame/event-continuation-live? frame-id owner-token)
+     ::stale-incarnation
+     (try
+       (let [result (f)]
+         (if (frame/event-continuation-live? frame-id owner-token)
+           result
+           ::stale-incarnation))
+       (catch #?(:clj Throwable :cljs :default) e
+         (if (frame/event-continuation-live? frame-id owner-token)
+           (throw e)
+           ::stale-incarnation)))))
+  ([frame-id owner-token allow-closing? f]
+   (frame/call-with-event-owner-token
+     frame-id owner-token allow-closing?
+     #(call-while-exact-owner frame-id owner-token f))))
 
 ;; ---- lexical-scope fx-override binding -------------------------
 ;;
@@ -203,7 +227,8 @@
                         directly) and under `goog.DEBUG=false` advanced
                         builds."
   [event opts]
-  (let [dispatch-id        (when interop/debug-enabled? (next-dispatch-id))
+  (when (trace/continuation-live?)
+   (let [dispatch-id        (when interop/debug-enabled? (next-dispatch-id))
         parent-dispatch-id (when interop/debug-enabled?
                              (some-> trace/*handler-scope* :dispatch-id))
         ;; Read the macro-stamped `:rf.trace/call-site`
@@ -232,14 +257,19 @@
         ;; they fall through to the generic unknown-dispatch-opt warning below,
         ;; which appends a did-you-mean naming the canonical replacement. See
         ;; `diag/validate-cofx!` and `diag/retired-draft-opt-hints`.
-        _                  (diag/validate-cofx! opts event)
+         _                  (when (trace/continuation-live?)
+                              (try
+                                (diag/validate-cofx! opts event)
+                                (catch #?(:clj Throwable :cljs :default) e
+                                  (when (trace/continuation-live?) (throw e)))))
         ;; EP-0017 §Dispatch Envelope Stamping: the
         ;; CAUSAL BOUNDARY — ensure `:rf.cofx` carries `:rf/time-ms`, the one
         ;; host-clock read durable writes fold. `ensure-cofx` owns the
         ;; preserve-supplied / fill-missing-`:rf/time-ms` shape contract (see the
         ;; section comment on the helper above). Stamped AFTER the cofx
         ;; validation check so an invalid dispatch never reads the clock.
-        cofx               (ensure-cofx (:rf.cofx opts))
+         cofx               (when (trace/continuation-live?)
+                              (ensure-cofx (:rf.cofx opts)))
         ;; Surface unrecognised opts keys (typically a typo'd
         ;; opt like `:fram` for `:frame`) rather than silently swallowing
         ;; them. Emitted HERE — BEFORE the frame resolution below — so a
@@ -253,8 +283,9 @@
         ;; (`dispatch!`, `dispatch-sync!`, the capture-frame ops) funnels
         ;; through here, so this is the single chokepoint for the check. The
         ;; dispatch proceeds unchanged regardless (warn-only).
-        _                  (when-let [unknown (diag/unknown-dispatch-opts opts)]
-                             (diag/emit-unknown-dispatch-opts-warning! unknown event))
+         _                  (when (trace/continuation-live?)
+                              (when-let [unknown (diag/unknown-dispatch-opts opts)]
+                                (diag/emit-unknown-dispatch-opts-warning! unknown event)))
         ;; Per rf2-70h9wn (Conventions §Event payloads SHOULD be
         ;; serialisable data): a dev-only advisory walk of the dispatched
         ;; event's payload for a host handle (fn / Promise / AbortController
@@ -263,9 +294,10 @@
         ;; this is a SHOULD, not the `:rf.cofx` structural-EDN MUST. Dev-only
         ;; — `interop/debug-enabled?` gates BOTH the walk and the emit, so
         ;; production DCEs the whole surface.
-        _                  (when interop/debug-enabled?
-                             (when-let [bad-path (diag/find-non-serialisable-payload-path event)]
-                               (diag/emit-non-serialisable-event-payload-warning! event bad-path)))
+         _                  (when (and (trace/continuation-live?)
+                                       interop/debug-enabled?)
+                              (when-let [bad-path (diag/find-non-serialisable-payload-path event)]
+                                (diag/emit-non-serialisable-event-payload-warning! event bad-path)))
         ;; EP-0002 §Dispatch And Router — the carried-invariant envelope
         ;; frame. Resolution order:
         ;;   1. explicit `{:frame …}` opt WINS (override). A caller who
@@ -302,12 +334,16 @@
         ;; and a child dispatch carrying the same id BOTH route the frame's
         ;; image. A keyword target (and the scope/hold-resolved frame) passes
         ;; through `frame-target->id` unchanged.
-        frame              (frame/frame-target->id
-                             (or (:frame opts)
-                                 (frame/require-current-frame!
-                                   :dispatch
-                                   {:where    're-frame.router/build-envelope
-                                    :event-id (first event)})))
+         frame              (when (trace/continuation-live?)
+                              (try
+                                (frame/frame-target->id
+                                  (or (:frame opts)
+                                      (frame/require-current-frame!
+                                        :dispatch
+                                        {:where    're-frame.router/build-envelope
+                                         :event-id (first event)})))
+                                (catch #?(:clj Throwable :cljs :default) e
+                                  (when (trace/continuation-live?) (throw e)))))
         ;; Per Spec 005 §Level 4: a dispatch emitted from a
         ;; machine's own processing (its `:action` / `:entry` / `:exit` /
         ;; transition handling, via `:fx [[:dispatch …]]` or an inter-
@@ -345,7 +381,8 @@
         ;; (`emit-dispatched-trace`). It is a debug/trace provenance lever, not a
         ;; correctness one — the trace stamp itself is debug-gated there.
         step-index         (:step-index opts)]
-    (cond-> {:event                  event
+    (when (trace/continuation-live?)
+      (cond-> {:event                  event
              :frame                  frame
              ;; Merge the lexical-scope `*fx-overrides*`
              ;; (bound by `rf/with-fx-overrides`) under the per-call opt so
@@ -402,7 +439,7 @@
       ;; envelope only when present (frame-init dispatches), so
       ;; `emit-dispatched-trace` can stamp it on the dispatched trace as the
       ;; second half of the EP-0027 §Provenance contract.
-      step-index         (assoc :step-index step-index))))
+      step-index         (assoc :step-index step-index))))))
 
 (defn- resolve-handler [event-id]
   (registrar/lookup :event event-id))
@@ -1082,7 +1119,7 @@
   (in-band `false` → reject), and keeps validating the frame's sibling
   schemas."
   [db-after runtime-db-after app-effect? rt-effect? event-id frame owner-token]
-  (let [live? #(frame/frame-incarnation-live? frame owner-token)
+  (let [live? #(frame/event-continuation-live? frame owner-token)
         emit-throw-reject!
         ;; Surface a validator-machinery throw AND reject (fail closed).
         ;; DCE-gated inside `trace/emit-error!`.
@@ -1214,15 +1251,19 @@
   ran (the snapshot keys are absent) or the flows artefact never loaded (the
   restore hooks are nil)."
   [ctx frame owner-token]
-  (when (and (frame/frame-incarnation-live? frame owner-token)
+  (when (and (frame/event-continuation-live? frame owner-token)
              (contains? ctx :rf/flow-last-inputs-before))
     (when-let [restore-li (late-bind/get-fn-cached :flows/restore-last-inputs!)]
-      (restore-li frame owner-token (:rf/flow-last-inputs-before ctx))))
-  (when (and (frame/frame-incarnation-live? frame owner-token)
+      (call-while-exact-owner
+        frame owner-token
+        #(restore-li frame owner-token (:rf/flow-last-inputs-before ctx)))))
+  (when (and (frame/event-continuation-live? frame owner-token)
              (contains? ctx :rf/flow-abandoned-paths-before))
     (when-let [restore-ap (late-bind/get-fn-cached :flows/restore-abandoned-paths!)]
-      (restore-ap frame owner-token
-                  (:rf/flow-abandoned-paths-before ctx)))))
+      (call-while-exact-owner
+        frame owner-token
+        #(restore-ap frame owner-token
+                     (:rf/flow-abandoned-paths-before ctx))))))
 
 (defn- commit-frame-effects!
   "Install the partitioned frame transition atomically (EP-0001,
@@ -1313,7 +1354,7 @@
   will now never land) and reports the `:rolled-back` outcome; the durable
   frame-state needs no restore because it was never touched."
   [effects event-id event frame frame-record owner-token ctx]
-  (if-not (frame/frame-incarnation-live? frame owner-token)
+  (if-not (frame/event-continuation-live? frame owner-token)
     ::stale-incarnation
     (let [app-effect?  (contains? effects :db)
         rt-effect?   (contains? effects :rf.db/runtime)
@@ -1353,7 +1394,7 @@
                          "A `{:db nil}` return is usually a BUG (a handler accidentally computed "
                          "nil); for a deliberate clear, return `{:db {}}` (which emits no "
                          "diagnostic).")}))
-    (if-not (frame/frame-incarnation-live? frame owner-token)
+    (if-not (frame/event-continuation-live? frame owner-token)
       ::stale-incarnation
       (if (or app-effect? rt-effect? class-effect?)
       (let [emit-event (privacy/redacted-event-from-ctx ctx)
@@ -1399,9 +1440,14 @@
             ;; rollback restore any more — a rejected candidate is simply
             ;; discarded before any write, so no pre-cascade elision
             ;; overlay is needed.)
-            live-runtime-db (when (or rt-effect? class-effect?)
-                              (get (frame/frame-record-state-value frame-record)
-                                   frame/runtime-partition-key))
+            live-runtime-result
+            (when (or rt-effect? class-effect?)
+              (call-while-exact-owner
+                frame owner-token
+                #(frame/frame-record-state-value frame-record)))
+            live-runtime-db
+            (when-not (= ::stale-incarnation live-runtime-result)
+              (get live-runtime-result frame/runtime-partition-key))
             ;; The reconciled runtime-db partition value (only when a
             ;; `:rf.db/runtime` effect landed). EP-0025: a classification
             ;; effect (`:sensitive` / `:large` / `:clear-sensitive` /
@@ -1453,10 +1499,12 @@
         ;; `false` from either REJECTS the whole candidate: nothing is
         ;; installed, no change trace fires, and the container keeps its
         ;; pre-handler value by construction.
-        (let [validation-result
-              (run-candidate-validation!
-                new-db new-runtime-db app-effect? rt-effect? event-id frame
-                owner-token)]
+        (if (= ::stale-incarnation live-runtime-result)
+          ::stale-incarnation
+          (let [validation-result
+                (run-candidate-validation!
+                  new-db new-runtime-db app-effect? rt-effect? event-id frame
+                  owner-token)]
           (cond
             (= ::stale-incarnation validation-result)
             ::stale-incarnation
@@ -1479,21 +1527,21 @@
                   (when app-changed?
                     (emit-db-event!
                       :rf.event/db-changed event-id emit-event frame))
-                  (if-not (frame/frame-incarnation-live? frame owner-token)
+                  (if-not (frame/event-continuation-live? frame owner-token)
                     ::stale-incarnation
                     (do
                       (when (and app-effect? (not app-changed?))
                         (emit-db-event!
                           :rf.event/db-noop event-id emit-event frame))
-                      (if-not (frame/frame-incarnation-live? frame owner-token)
+                      (if-not (frame/event-continuation-live? frame owner-token)
                         ::stale-incarnation
                         (do
                           (emit-frame-state-changed!
                             event-id emit-event frame changed)
-                          (if (frame/frame-incarnation-live?
+                          (if (frame/event-continuation-live?
                                 frame owner-token)
                             true
-                            ::stale-incarnation)))))))))))
+                             ::stale-incarnation))))))))))))
         true)))))
 
 (def ^:private flows-after-interceptor
@@ -1612,7 +1660,7 @@
           ;; the first framework-owned tail stage after the handler/user-after
           ;; chain. Fence here before any bare-id flow reads, side-table writes,
           ;; or pending-db trace can be attributed to B.
-          (if-not (frame/frame-incarnation-live? frame owner-token)
+          (if-not (frame/event-continuation-live? frame owner-token)
             (assoc ctx :rf/stale-incarnation? true)
             (let [
             effects     (:effects ctx)
@@ -1630,9 +1678,13 @@
             ;; touched app-db.
             has-runtime-effect? (contains? effects :rf.db/runtime)
             run-on-db   (late-bind/get-fn-cached :flows/run-flows-on-db)
+            ;; The chain-start coeffects were read from A's captured record.
+            ;; When the handler returned no partition effect, those values are
+            ;; the pending transition inputs; never re-resolve the bare id here
+            ;; and accidentally read same-id B.
             pending-db  (if has-db?
                           (:db effects)
-                          (when run-on-db (frame/frame-app-db-value frame)))
+                          (when run-on-db (get-in ctx [:coeffects :db])))
             ;; The pending runtime-db partition the flows read their qualified
             ;; inputs against: the handler's `:rf.db/runtime` effect when one
             ;; landed, else the current (unchanged) runtime-db. Only resolved
@@ -1642,7 +1694,7 @@
             pending-runtime-db (when run-on-db
                                  (if has-runtime-effect?
                                    (:rf.db/runtime effects)
-                                   (frame/frame-runtime-db-value frame)))
+                                   (get-in ctx [:coeffects :rf.db/runtime])))
             ;; Stamp `:rf.event/v` + `:rf.trace/event-id`
             ;; on the t1 / t2 trace events so they carry the same
             ;; per-event attribution every other `:op-type :rf.event`
@@ -1668,7 +1720,7 @@
                          :rf.event/db       pending-db}))
         ;; Trace listeners are synchronous callback boundaries.  A listener on
         ;; t1 may destroy A; do not enter the optional flow artefact afterward.
-        (if-not (frame/frame-incarnation-live? frame owner-token)
+        (if-not (frame/event-continuation-live? frame owner-token)
           (assoc ctx :rf/stale-incarnation? true)
           (if run-on-db
           (try
@@ -1694,28 +1746,37 @@
                   ;; snapshot is a persistent map (pointer-sized to stash); the
                   ;; hook is nil only when the flows artefact never loaded, in
                   ;; which case there are no rows and nothing to restore.
-                  snapshot-li (late-bind/get-fn-cached :flows/snapshot-last-inputs)
-                  li-before   (when snapshot-li
-                                (snapshot-li frame owner-token))
+                   snapshot-li (late-bind/get-fn-cached :flows/snapshot-last-inputs)
+                   li-before   (when snapshot-li
+                                 (call-while-exact-owner
+                                   frame owner-token
+                                   #(snapshot-li frame owner-token)))
                   ;; Snapshot the frame's pending abandoned-output-
                   ;; paths BEFORE the transform (it DRAINS/clears them and
                   ;; dissocs them from the pending `:db`). On a candidate
                   ;; rejection `commit-and-flow!` re-records this snapshot —
                   ;; the exact mirror of the `last-inputs` snapshot above, for
                   ;; the boundary `run-flows-on-db`'s own throw arm cannot see.
-                  snapshot-ap (late-bind/get-fn-cached :flows/snapshot-abandoned-paths)
-                  ap-before   (when snapshot-ap
-                                (snapshot-ap frame owner-token))
+                   snapshot-ap (late-bind/get-fn-cached :flows/snapshot-abandoned-paths)
+                   ap-before   (when snapshot-ap
+                                 (call-while-exact-owner
+                                   frame owner-token
+                                   #(snapshot-ap frame owner-token)))
                   ;; EP-0001 §535-551: hand the flow transform
                   ;; BOTH partitions of the pending frame-state. Bare `:inputs`
                   ;; resolve against `pending-db` (app-db); `[:rf.db/runtime …]`
                   ;; inputs resolve against `pending-runtime-db`. The returned
                   ;; value is the flow-augmented APP-DB (runtime-db is read-only
                   ;; for the pass).
-                  new-db (run-on-db frame pending-db pending-runtime-db
-                                    {:exact-owner-token owner-token})]
-              (if (or (= :rf.flow/stale-incarnation new-db)
-                      (not (frame/frame-incarnation-live?
+                   new-db (call-while-exact-owner
+                            frame owner-token
+                            #(run-on-db frame pending-db pending-runtime-db
+                                        {:exact-owner-token owner-token}))]
+               (if (or (= ::stale-incarnation li-before)
+                       (= ::stale-incarnation ap-before)
+                       (= ::stale-incarnation new-db)
+                       (= :rf.flow/stale-incarnation new-db)
+                      (not (frame/event-continuation-live?
                              frame owner-token)))
                 (assoc ctx :rf/stale-incarnation? true)
                 (do
@@ -1737,7 +1798,7 @@
                                 :rf.event/v        t2-event
                                  :frame             frame
                                  :rf.event/db       new-db})))
-              (if-not (frame/frame-incarnation-live? frame owner-token)
+              (if-not (frame/event-continuation-live? frame owner-token)
                 (assoc ctx :rf/stale-incarnation? true)
                 ;; Only publish a `:db` effect when flows actually changed
                 ;; the value OR the handler already had one.
@@ -1763,7 +1824,7 @@
               ;; discarded (no install, no db-changed). The t1 emit above
               ;; already fired with the handler-returned value; consumers
               ;; that pair t1 with an event abort see no t2.
-              (if-not (frame/frame-incarnation-live? frame owner-token)
+              (if-not (frame/event-continuation-live? frame owner-token)
                 (assoc ctx :rf/stale-incarnation? true)
                 (-> (update ctx :effects dissoc :db)
                     (assoc :rf/flow-error e)))))
@@ -1923,9 +1984,9 @@
                             fx-overrides
                             (fx/strip-rejected-overrides
                               fx-overrides frame event
-                              #(frame/frame-incarnation-live?
+                              #(frame/event-continuation-live?
                                  frame owner-token)))]
-      (if-not (frame/frame-incarnation-live? frame owner-token)
+      (if-not (frame/event-continuation-live? frame owner-token)
         ::stale-incarnation
         (let [result (fx/do-fx
                        frame fx-vec active-platform
@@ -2042,7 +2103,7 @@
   interceptor-overrides."
   [envelope frame frame-record handler-meta]
   (let [owner-token (frame/current-event-owner-token)
-        live?       #(frame/frame-incarnation-live? frame owner-token)
+        live?       #(frame/event-continuation-live? frame owner-token)
         {:keys [extra-interceptors fx-overrides icpt-overrides]}
         (apply-overrides envelope frame-record)
         prepended-chain (if (seq extra-interceptors)
@@ -2076,9 +2137,14 @@
         ;; redaction interceptor (when also installed) composes with. The
         ;; union here is the OUT-OF-CHAIN projection used by emit sites that
         ;; fire BEFORE the chain.
+        redaction-result (when (and (live?) (some? base-chain))
+                           (call-while-exact-owner
+                             frame owner-token
+                             #(privacy/collect-redaction-paths frame base-chain)))
         {redaction-paths :schema-paths
-         user-paths      :user-paths} (when (and (live?) (some? base-chain))
-                                       (privacy/collect-redaction-paths frame base-chain))
+         user-paths      :user-paths} (when-not (= ::stale-incarnation
+                                                  redaction-result)
+                                       redaction-result)
         redacted-chain  (if (seq redaction-paths)
                           (into [(privacy/schema-redaction-interceptor
                                    redaction-paths)]
@@ -2102,10 +2168,14 @@
         ;; :interceptors` still sees the user-authored chain with the
         ;; handler-wrapper at its tail.
         full-chain      (into [flows-after-interceptor] redacted-chain)
-        initial-ctx     (when (and (live?) (some? base-chain))
-                          (assemble-initial-ctx
-                            envelope frame frame-record handler-meta fx-overrides
-                            live?))
+        initial-result  (when (and (live?) (some? base-chain))
+                          (call-while-exact-owner
+                            frame owner-token
+                            #(assemble-initial-ctx
+                               envelope frame frame-record handler-meta
+                               fx-overrides live?)))
+        initial-ctx     (when-not (= ::stale-incarnation initial-result)
+                          initial-result)
         all-paths       (into (vec redaction-paths) user-paths)]
     (when (and (live?) (some? initial-ctx))
       {:full-chain   full-chain
@@ -2164,7 +2234,7 @@
       (interceptor/execute-chain
         full-chain ctx
         {:continue-before?
-         #(frame/frame-incarnation-live?
+         #(frame/event-continuation-live?
             (:rf.frame/id (:coeffects ctx))
             (frame/current-event-owner-token))}))))
 
@@ -2238,7 +2308,7 @@
   [final-ctx event-id event frame frame-record fx-overrides envelope start-ms]
   (let [owner-token (frame/current-event-owner-token)
         live?       #(and (not (:rf/stale-incarnation? final-ctx))
-                          (frame/frame-incarnation-live? frame owner-token))]
+                          (frame/event-continuation-live? frame owner-token))]
     ;; Exact loss is tested BEFORE final-effect policing: malformed values
     ;; returned by A (or inserted by an authored `:after` while unwinding) are
     ;; inert and must not emit diagnostics under replacement B.
@@ -2366,7 +2436,7 @@
   ;; projection AND the `trace/emit!` body below (the emit itself is
   ;; gated the same way internally).
   (let [owner-token (frame/current-event-owner-token)
-        live?       #(frame/frame-incarnation-live? frame owner-token)]
+        live?       #(frame/event-continuation-live? frame owner-token)]
     (if-not (live?)
       ::stale-incarnation
       (let [user-cofx    (when interop/debug-enabled?
@@ -2403,7 +2473,9 @@
         (let [end-ms     (interop/now-ms)
               elapsed-ms (elapsed-ms-from start-ms end-ms)]
           (when emit-event!
-            (emit-event! emit-event event-id frame end-ms outcome elapsed-ms))
+            (call-while-exact-owner
+              frame owner-token
+              #(emit-event! emit-event event-id frame end-ms outcome elapsed-ms)))
           (when (and (live?) route-handled!)
             ;; The effect keys the cascade produced (`final-ctx`'s
             ;; `:effects` map keys) ride the handled-event record's
@@ -2412,13 +2484,15 @@
             (let [effects     (some-> (:effects final-ctx) keys vec)
                   dispatch-id (some-> trace/*handler-scope* :dispatch-id)
                   correlation (when dispatch-id {:dispatch-id dispatch-id})]
-              (route-handled! event
-                              event-id
-                              frame
-                              outcome
-                              elapsed-ms
-                               effects
-                               correlation))))
+              (call-while-exact-owner
+                frame owner-token
+                #(route-handled! event
+                                 event-id
+                                 frame
+                                 outcome
+                                 elapsed-ms
+                                 effects
+                                 correlation)))))
           (if (live?) :ok ::stale-incarnation))))))))
 
 (defn- run-handler-pipeline!
@@ -2444,7 +2518,9 @@
   event record."
   [envelope event-id event frame frame-record handler-meta]
   (frame/call-with-event-owner-token
+    frame
     (:drain-lock frame-record)
+    (frame/current-event-owner-allows-closing?)
     (fn []
       (let [{:keys [full-chain initial-ctx fx-overrides emit-event
                 schema-sensitive? override-summary]}
@@ -2471,7 +2547,7 @@
         ;; meta `:sensitive?` annotation has been removed.
         scope-meta (cond-> handler-meta
                      schema-sensitive? (assoc :rf/sensitive? true))]
-    (when (frame/frame-incarnation-live?
+    (when (frame/event-continuation-live?
             frame (frame/current-event-owner-token))
       (trace/with-handler-scope
       (trace/handler-scope-from-meta :event event-id scope-meta)
@@ -2551,13 +2627,13 @@
                                      (assoc :rf.event/fx-overrides override-fx)
                                      (some? override-icpt)
                                      (assoc :rf.event/interceptor-overrides override-icpt)))
-            event-ok? (when (frame/frame-incarnation-live?
+            event-ok? (when (frame/event-continuation-live?
                               frame (frame/current-event-owner-token))
                         (validate-event! event-id event handler-meta frame
-                                         #(frame/frame-incarnation-live?
+                                         #(frame/event-continuation-live?
                                             frame
                                             (frame/current-event-owner-token))))
-            final-ctx (if (frame/frame-incarnation-live?
+            final-ctx (if (frame/event-continuation-live?
                             frame (frame/current-event-owner-token))
                         (run-chain event-id full-chain initial-ctx event-ok?)
                         (assoc initial-ctx :rf/stale-incarnation? true))
@@ -2609,32 +2685,30 @@
       (handle-frame-destroyed! event frame)
 
       :else
-      (let [handler-meta (or (resolve-handler event-id)
-                             ;; Per rf2-a2sn1 — the lazy actor-handler
-                             ;; resolver seam. A dynamically-spawned
-                             ;; machine actor carries NO per-instance
-                             ;; registrar entry; its liveness is derived
-                             ;; from its (revertible) app-db snapshot. On
-                             ;; a no-registrar-handler miss, consult the
-                             ;; machines-registered
-                             ;; `:machines/resolve-actor-handler-meta`
-                             ;; hook, which materialises the actor's
-                             ;; handler-meta from its snapshot's
-                             ;; `:rf/machine-type` — returning nil when no
-                             ;; live snapshot exists (genuine
-                             ;; `:no-such-handler`). Late-bound so core
-                             ;; carries NO static dependency on the
-                             ;; optional machines artefact; the hook is
-                             ;; absent (nil) when machines isn't loaded,
-                             ;; and resolution falls straight through to
-                             ;; the error path below — same shape as the
-                             ;; flows / schemas / epoch artefact seams.
-                                  (resolve-unhandled event frame))]
+      (let [owner-token (frame/current-event-owner-token)
+            registered  (call-while-exact-owner
+                          frame owner-token #(resolve-handler event-id))
+            handler-meta
+            (cond
+              (= ::stale-incarnation registered)
+              ::stale-incarnation
+
+              (some? registered)
+              registered
+
+              :else
+              ;; Per rf2-a2sn1 — the lazy actor-handler resolver seam. A
+              ;; dynamically-spawned machine actor carries no per-instance
+              ;; registrar entry. Resolution is callback-bearing and therefore
+              ;; has the same exact-owner fence as the primary registrar.
+              (call-while-exact-owner
+                frame owner-token #(resolve-unhandled event frame)))]
             ;; Both registered/image resolution and the late-bound machine
             ;; resolver are callback-bearing. Loss during resolution is a
             ;; silent terminal fence: no no-handler diagnostic or preparation
             ;; may be attributed to a same-id successor.
-        (when (frame/event-owner-live? frame)
+        (when (and (not= ::stale-incarnation handler-meta)
+                   (frame/event-owner-live? frame))
           (if (nil? handler-meta)
             (diag/handle-no-handler! event-id event frame)
             (run-handler-pipeline! envelope event-id event frame
@@ -2693,10 +2767,18 @@
       byte-identical (absence-is-default). Child dispatches re-enter
       `process-event!` for their frame and re-derive the binding, so the
       generation is preserved across the cascade automatically."
-  [envelope frame-record owner-token]
+  [envelope frame-record owner-token allow-closing?]
   (frame/call-with-event-owner-token
+    (:frame envelope)
     owner-token
+    allow-closing?
     (fn []
+      (trace/call-with-continuation-predicate
+        ;; Exact liveness fences normal event tail. The exact closing marker is
+        ;; the narrow terminal-recipe exemption: destroy-frame!'s own teardown
+        ;; traces remain observable until its finally releases A's claim.
+        #(frame/event-continuation-live? (:frame envelope) owner-token)
+        (fn []
       (trace/with-dispatch-id+call-site (:dispatch-id envelope) (:call-site envelope)
         (binding [frame/*current-frame* (:frame envelope)]
           ;; Preserve the read-time coalesced projection guarantee, but check
@@ -2722,7 +2804,7 @@
                 (if-let [generation (:generation active-record)]
                   (binding [registrar/*generation* generation]
                     (process-event* envelope active-record))
-                  (process-event* envelope active-record))))))))))
+                  (process-event* envelope active-record))))))))))))
 
 (def ^:private drain-depth-default
   ;; Deep enough for typical cascade depths. When exceeded, the runtime
@@ -2920,10 +3002,13 @@
   coeffects, not an ambient assembly-time host-clock read."
   [frame-id owner-token frame-state-before frame-state-after committed-at
    settling-dispatch-id]
-  (when-let [settle! (late-bind/get-fn-cached :epoch/settle!)]
-    (settle! frame-id frame-state-before frame-state-after committed-at
-             :ok nil settling-dispatch-id
-             {:exact-owner-token owner-token})))
+  (call-while-exact-owner
+    frame-id owner-token
+    (fn []
+      (when-let [settle! (late-bind/get-fn-cached :epoch/settle!)]
+        (settle! frame-id frame-state-before frame-state-after committed-at
+                 :ok nil settling-dispatch-id
+                 {:exact-owner-token owner-token})))))
 
 ;; ---- drain-loop! phases ---------------------------------------------------
 ;;
@@ -2996,9 +3081,10 @@
   carrying `:dropped-count` (per Spec 009 §`:rf.frame/drain-interrupted`
   and Spec-Schemas §DrainInterruptedTags).
 
-  In-flight events are not affected — they have already been dequeued
-  and `process-event!` ran them to completion before this check fires
-  (run-to-completion per Spec 002 §Rules rule 1). `:dropped-count` combines
+  An authored callback already on the stack may return and entered authored
+  interceptor afters may unwind, but the exact-incarnation continuation fence
+  makes its returned context/output inert before this check fires.
+  `:dropped-count` combines
   events removed atomically at claim time with any ordinary events found at
   this later check; the destroy-owned private cleanup queue is excluded.
 
@@ -3041,9 +3127,13 @@
                  (not destroy-claim-report-emitted?)
                  (assoc :destroy-claim-report-emitted? true)))))
     (when-some [dropped @report]
-      (trace/emit! :rf.frame :rf.frame/drain-interrupted
-                   {:frame         frame-id
-                    :dropped-count dropped}))))
+      ;; A stale drainer can reach this seam after A's registry slot has been
+      ;; reused by B. The lifecycle report is still globally observable, but
+      ;; it must never enter B's bare-id epoch buffer.
+      (trace/call-with-structural-delivery
+        #(trace/emit! :rf.frame :rf.frame/drain-interrupted
+                      {:frame         frame-id
+                       :dropped-count dropped})))))
 
 (defn- run-one-pass!
   "Process events from the queue to fixed point or until `drain-depth` is
@@ -3053,9 +3143,11 @@
   cleared the queue and the `:scheduled?` flag in either halt case).
 
   Per rf2-68kok / Spec 002 §Frame disposal mid-drain: the destruction-
-  ownership check fires BEFORE each dequeue, so an in-flight event runs to
-  completion (run-to-completion per Spec 002 §Rules rule 1) but no later
-  ordinary event begins. One
+  ownership check fires BEFORE each dequeue. An authored callback already on
+  the stack may return and entered authored interceptor afters may unwind, but
+  its returned context/output is inert immediately after exact ownership is
+  lost; no commit, flow, effect, child dispatch, ordinary diagnostic/trailer,
+  normal epoch settlement, or render follows. No later ordinary event begins. One
   `:rf.frame/drain-interrupted` lifecycle trace emitted carrying the
   dropped count.
 
@@ -3093,9 +3185,10 @@
       ;; remaining queue, emit one `:rf.frame/drain-interrupted`
       ;; lifecycle event, halt.
       ;;
-      ;; Per rf2-v0jwt / rf2-9neiq: the just-completed event already ran in
-      ;; full (run-to-completion) AND already settled its own per-event
-      ;; epoch (rf2-nj6p7) — that record is durable. The `:halted-destroy`
+      ;; Per rf2-v0jwt / rf2-9neiq: the authored callback may have returned
+      ;; and entered authored interceptor afters may have unwound, but the
+      ;; returned context and every normal framework tail are inert. The
+      ;; `:halted-destroy`
       ;; record for the interrupted drain is committed by the epoch destroy
       ;; hook (`on-frame-destroyed!`), which fired synchronously inside the
       ;; handler that called `destroy-frame!`, carrying the cascade buffer
@@ -3125,11 +3218,21 @@
         ;; the whole frame-state (both partitions — app-db + runtime-db), so
         ;; an epoch carries (and `restore-epoch!` rewinds to) machine snapshots
         ;; / the route slice / SSR metadata, not just app-db.
-        (let [owner-token (:drain-lock frame-record)
+        (let [owner-token    (:drain-lock frame-record)
+              allow-closing? (and (some? allowed-destroy-token)
+                                  (identical? owner-token
+                                              allowed-destroy-token))
+              continue?      #(frame/call-with-event-owner-token
+                                frame-id owner-token allow-closing?
+                                (fn []
+                                  (frame/event-continuation-live?
+                                    frame-id owner-token)))
               ;; The active drainer already owns A's record/router. Read A's
               ;; captured container directly; a callback-induced same-id B can
               ;; never become this dequeued envelope's preparation target.
-              fs-before   (frame/frame-record-state-value frame-record)
+              fs-before   (call-while-exact-owner
+                            frame-id owner-token allow-closing?
+                            #(frame/frame-record-state-value frame-record))
               ;; rf2-bh56rc: this event's causal `:rf/time-ms` — the
               ;; `:rf.cofx` `:rf/time-ms` stamped on the envelope at the
               ;; causal boundary (`build-envelope`). Threaded into the epoch
@@ -3146,21 +3249,27 @@
           ;; epoch hook fires. rf2-bh56rc: `*run-time-ms*` is bound the
           ;; same way so the mid-drain `:halted-destroy` record's
           ;; `:committed-at` is THIS event's causal time, not an ambient read.
-          (binding [frame/*run-frame-state-before* fs-before
-                    frame/*run-time-ms*            time-ms]
-            (when (frame/frame-incarnation-live? frame-id owner-token)
-              (process-event! envelope frame-record owner-token)))
-          (let [fs-after (when (frame/frame-incarnation-live?
-                                 frame-id owner-token)
-                           (frame/frame-state-value frame-id))]
-            ;; rf2-erczwd: thread the settling envelope's :dispatch-id so a
-            ;; rejected/aborted dispatch (no-handler / frame-destroyed) whose
-            ;; only buffered emit is its own dispatch-id-bearing error trace
-            ;; commits no fake :ok epoch — the scoped no-run-start harvest drops
-            ;; that trace, and settle!'s empty-buffer skip fires.
-            (settle-event-epoch! frame-id owner-token fs-before fs-after time-ms
-                                  (:dispatch-id envelope)))
-          (if-not (frame/frame-incarnation-live? frame-id owner-token)
+          (when-not (= ::stale-incarnation fs-before)
+            (binding [frame/*run-frame-state-before* fs-before
+                      frame/*run-time-ms*            time-ms]
+              (when (continue?)
+                (process-event! envelope frame-record owner-token
+                                allow-closing?))))
+          (when (and (not= ::stale-incarnation fs-before)
+                     (continue?))
+            (let [fs-after (call-while-exact-owner
+                             frame-id owner-token allow-closing?
+                             #(frame/frame-record-state-value frame-record))]
+              ;; The normal settle hook is framework-owned tail.  Once A is
+              ;; lost, the destroy hook alone owns A's halted snapshot; no
+              ;; settle lookup/callback may target a successor or absence.
+              (when (and (not= ::stale-incarnation fs-after)
+                         (continue?))
+                (frame/call-with-event-owner-token
+                  frame-id owner-token allow-closing?
+                  #(settle-event-epoch! frame-id owner-token fs-before fs-after
+                                        time-ms (:dispatch-id envelope))))))
+          (if-not (continue?)
             ;; Owner loss terminates A's router even if a fresh same-id B is
             ;; already live. B's lifecycle cannot make A's disposed predicate
             ;; look healthy or swallow A's dropped-count report.
@@ -3273,18 +3382,21 @@
   drain-loop!). On win, runs the drain body and releases.
 
   Per rf2-ynk7 §single-drainer invariant."
-  [frame-id]
-  (let [frame-record (frame/frame frame-id)]
-    (when frame-record
-      (let [drain-lock  (:drain-lock frame-record)
-            router      (:router frame-record)
-            drain-depth (get-in frame-record [:config :drain-depth] drain-depth-default)]
-        (when (compare-and-set! drain-lock false true)
-          (try
-            (drain-loop! frame-id frame-record router drain-lock drain-depth false)
-            (catch #?(:clj Throwable :cljs :default) t
-              (drain-emergency-release! router drain-lock)
-              (throw t))))))))
+  [frame-id frame-record]
+  (let [drain-lock  (:drain-lock frame-record)
+        router      (:router frame-record)
+        drain-depth (get-in frame-record [:config :drain-depth] drain-depth-default)]
+    (when (compare-and-set! drain-lock false true)
+      ;; Exact-target revalidation belongs INSIDE the acquired serialization
+      ;; boundary.  A scheduled callback for obsolete incarnation A must never
+      ;; re-resolve the bare id and become an eager drain of same-id B.
+      (if (frame/frame-incarnation-live? frame-id drain-lock)
+        (try
+          (drain-loop! frame-id frame-record router drain-lock drain-depth false)
+          (catch #?(:clj Throwable :cljs :default) t
+            (drain-emergency-release! router drain-lock)
+            (throw t)))
+        (reset! drain-lock false)))))
 
 (defn- drain-block!
   "Synchronous drain entry point (called from `dispatch-sync!`). Unlike
@@ -3304,12 +3416,10 @@
   `under-lock-fn` runs once, immediately after CAS-acquire, before the
   drain loop. Exceptions inside it propagate through the same emergency-
   release path as the drain loop body."
-  [frame-id under-lock-fn]
-  (let [frame-record (frame/frame frame-id)]
-    (when frame-record
-      (let [drain-lock  (:drain-lock frame-record)
-            router      (:router frame-record)
-            drain-depth (get-in frame-record [:config :drain-depth] drain-depth-default)]
+  [frame-id frame-record under-lock-fn]
+  (let [drain-lock  (:drain-lock frame-record)
+        router      (:router frame-record)
+        drain-depth (get-in frame-record [:config :drain-depth] drain-depth-default)]
         ;; Spin-CAS until we acquire. On JVM the active drainer holds
         ;; the lock for the duration of one drain pass — bounded by
         ;; drain-depth events at most — so the wait is bounded. CLJS
@@ -3318,12 +3428,16 @@
           (when-not (compare-and-set! drain-lock false true)
             #?(:clj (Thread/yield))
             (recur)))
-        (try
-          (under-lock-fn)
-          (drain-loop! frame-id frame-record router drain-lock drain-depth false)
-          (catch #?(:clj Throwable :cljs :default) t
-            (drain-emergency-release! router drain-lock)
-            (throw t)))))))
+    ;; The caller accepted THIS record.  Revalidate it only after acquiring its
+    ;; lock; never re-resolve by id after a wait in which A may become B.
+    (if (frame/frame-incarnation-live? frame-id drain-lock)
+      (try
+        (under-lock-fn)
+        (drain-loop! frame-id frame-record router drain-lock drain-depth false)
+        (catch #?(:clj Throwable :cljs :default) t
+          (drain-emergency-release! router drain-lock)
+          (throw t)))
+      (reset! drain-lock false))))
 
 (defn- drain-reentrant!
   "Reentrant synchronous-drain entry for a thread that ALREADY owns
@@ -3341,31 +3455,52 @@
   throw, clear `:scheduled?` / `:in-drain?` but LEAVE the lock held — the
   cold section's `finally` releases it — mirroring
   `drain-emergency-release!` minus the lock reset."
-  [frame-id under-lock-fn]
-  (let [frame-record (frame/frame frame-id)]
-    (when frame-record
-      (let [drain-lock  (:drain-lock frame-record)
-            router      (:router frame-record)
-            drain-depth (get-in frame-record [:config :drain-depth] drain-depth-default)]
-        (try
-          (under-lock-fn)
-          (drain-loop! frame-id frame-record router drain-lock drain-depth true)
-          (catch #?(:clj Throwable :cljs :default) t
-            (locking router
-              (swap! router assoc :scheduled? false :in-drain? nil))
-            (throw t)))))))
+  [frame-id frame-record under-lock-fn]
+  (let [drain-lock  (:drain-lock frame-record)
+        router      (:router frame-record)
+        drain-depth (get-in frame-record [:config :drain-depth] drain-depth-default)]
+    ;; The outer cold section owns THIS record's lock.  Same-id replacement
+    ;; invalidates the target; it does not retarget the synchronous dispatch.
+    (when (frame/frame-incarnation-live? frame-id drain-lock)
+      (try
+        (under-lock-fn)
+        (drain-loop! frame-id frame-record router drain-lock drain-depth true)
+        (catch #?(:clj Throwable :cljs :default) t
+          (locking router
+            (swap! router assoc :scheduled? false :in-drain? nil))
+          (throw t))))))
+
+(declare front-insert-machine-internal)
 
 (defn- ensure-drain-scheduled!
-  [frame-id router]
+  [frame-id frame-record router envelope continue?]
   (let [should-schedule?
         (locking router
-          (let [{:keys [scheduled?]} @router]
-            (if scheduled?
-              false
-              (do (swap! router assoc :scheduled? true)
-                  true))))]
+          ;; Target-liveness and enqueue linearize against destroy claim's
+          ;; queue cutoff under this same router monitor. `continue?` also
+          ;; fences the originating event for explicit cross-frame dispatch.
+          (when (and (continue?)
+                     (frame/frame-incarnation-live?
+                       frame-id (:drain-lock frame-record)))
+            (let [{:keys [scheduled?]} @router]
+              (swap! router
+                     (fn [state]
+                       (-> state
+                           (update :queue
+                                   (fn [queue]
+                                     (if (:rf.machine/internal? envelope)
+                                       (front-insert-machine-internal queue envelope)
+                                       (conj queue envelope))))
+                           (assoc :scheduled? true))))
+              (not scheduled?))))]
     (when should-schedule?
-      (interop/next-tick (fn [] (drain-try! frame-id))))))
+      (let [target-token (:drain-lock frame-record)]
+        (interop/next-tick
+          (fn []
+            ;; The scheduled callback belongs to the exact target record that
+            ;; accepted the envelope. Never let an obsolete A callback become
+            ;; an eager drain of a fresh same-id B.
+            (drain-try! frame-id frame-record)))))))
 
 (defn- emit-dispatched-trace!
   "Emit the :rf.event :rf.event/dispatched trace event for this envelope. Per
@@ -3397,8 +3532,11 @@
   (same machinery the error path uses). Without this, the Event lens
   redesign (rf2-zh2qc) and any consumer building click-to-source UX
   on the enqueue trace would lose the dispatch-site coord."
-  [envelope sync?]
-  (let [event        (:event envelope)
+  ([envelope sync?]
+   (emit-dispatched-trace! envelope sync? (constantly true)))
+  ([envelope sync? continue?]
+  (when (continue?)
+    (let [event        (:event envelope)
         event-id     (when (vector? event) (first event))
         ;; The `:rf.trace/no-emit?` gate reads the TARGET handler's meta from
         ;; the registrar. Dev-only (this whole emit DCEs under `goog.DEBUG=false`).
@@ -3417,13 +3555,21 @@
         ;; record read on the dev path; absence-is-default for a non-image
         ;; frame binds nothing and resolves through the registrar atom exactly
         ;; as the bare lookup did.
-        handler-meta (when event-id
-                       (live-frame/call-with-frame-resolution
-                         (live-frame/frame-resolution-target (:frame envelope))
-                         (fn [] (registrar/lookup :event event-id))))
-        no-emit?     (trace/no-emit?-from-meta handler-meta)]
-    (when-not no-emit?
+         handler-meta (when (and event-id (continue?))
+                        (try
+                          (live-frame/call-with-frame-resolution
+                            (live-frame/frame-resolution-target (:frame envelope))
+                            (fn [] (registrar/lookup :event event-id)))
+                          (catch #?(:clj Throwable :cljs :default) e
+                            ;; Resolution is callback-bearing. A destroy+throw
+                            ;; is inert; otherwise preserve the existing error.
+                            (when (continue?) (throw e)))))
+         no-emit?     (trace/no-emit?-from-meta handler-meta)]
+    (when (and (continue?) (not no-emit?))
       (trace/with-call-site (:call-site envelope)
+        (trace/call-with-continuation-predicate
+          continue?
+          (fn []
         (trace/emit! :rf.event :rf.event/dispatched
                      ;; Per rf2-jt854w (EP-0010 observability completion) /
                      ;; EP-0017 (rf2-alc1lf): stamp the envelope's flat
@@ -3489,6 +3635,7 @@
                        ;; not always-on durable data).
                        (:step-index envelope)
                        (assoc :rf.frame/init-step-index (:step-index envelope))))))))
+    (continue?)))))
 
 (defn- front-insert-machine-internal
   "Return `q` (a PersistentQueue of envelopes) with `envelope` spliced in
@@ -3589,11 +3736,29 @@
   §Canonical event-vector shape."
   ([event] (dispatch! event {}))
   ([event opts]
-   (let [envelope       (build-envelope event opts)
-         frame-id       (:frame envelope)
-         frame-record   (frame/frame frame-id)
-         cascade-router (frame-destroy-cascade-router frame-id)]
-     (cond
+   (let [owner-token    (frame/current-event-owner-token)
+         owner-frame-id (frame/current-event-owner-frame-id)
+         owner-live?    #(or (nil? owner-token)
+                             (and owner-frame-id
+                                  (frame/event-owner-live?
+                                    owner-frame-id)))]
+     ;; A callback is allowed to keep executing after it destroys A, but a
+     ;; dispatch it issues afterward is framework-owned tail and therefore
+     ;; inert before envelope/target resolution begins.
+     (when (owner-live?)
+       (when-let [envelope  (build-envelope event opts)]
+        (let [
+             frame-id       (:frame envelope)
+             frame-record   (when (owner-live?) (frame/frame frame-id))
+             target-token   (:drain-lock frame-record)
+             target-live?   #(and (owner-live?)
+                                  (frame/frame-incarnation-live?
+                                    frame-id target-token))
+             cascade-router (frame-destroy-cascade-router frame-id)]
+         (cond
+       (not (owner-live?))
+       nil
+
        (nil? frame-record)
        ;; Per rf2-2hvga (= B + recover-but-emit): dispatch into a
        ;; destroyed / unknown frame RECOVERS (no-op — the event is not
@@ -3609,22 +3774,19 @@
        cascade-router
        ;; Cleanup descendants stay on the private teardown queue. No scheduler
        ;; is involved, and no ordinary/racing envelope can join this cascade.
-       (do
-         (emit-dispatched-trace! envelope false)
-         (enqueue-envelope! cascade-router envelope))
-
-       ;; A successful destroy claim is the terminal cutoff for ordinary work.
-       ;; Test the exact record token: A's still-published record is rejected,
-       ;; while a same-id B that appears under A's stale marker remains usable.
-       (frame/frame-incarnation-closing? frame-id (:drain-lock frame-record))
-       (trace/with-call-site (:call-site envelope)
-         (emit-frame-destroyed! (first event) event frame-id))
+       (let [cascade-live? #(and (owner-live?)
+                                 (identical? cascade-router
+                                             (frame-destroy-cascade-router
+                                               frame-id)))]
+         (when (emit-dispatched-trace! envelope false cascade-live?)
+           (when (cascade-live?)
+             (enqueue-envelope! cascade-router envelope))))
 
        :else
        (let [router (:router frame-record)]
-         (emit-dispatched-trace! envelope false)
-         (enqueue-envelope! router envelope)
-         (ensure-drain-scheduled! (:frame envelope) router)))
+         (when (emit-dispatched-trace! envelope false target-live?)
+           (ensure-drain-scheduled! frame-id frame-record router envelope
+                                    target-live?)))))))
      nil)))
 
 (defn dispatch-sync!
@@ -3656,8 +3818,20 @@
   form stamps an `:rf.trace/call-site` onto `opts` at compile time)."
   ([event] (dispatch-sync! event {}))
   ([event opts]
-   (let [envelope     (build-envelope event opts)
-         frame-record (frame/frame (:frame envelope))
+   (let [owner-token    (frame/current-event-owner-token)
+         owner-frame-id (frame/current-event-owner-frame-id)
+         owner-live?    #(or (nil? owner-token)
+                             (and owner-frame-id
+                                  (frame/event-owner-live?
+                                    owner-frame-id)))]
+    (when (owner-live?)
+     (when-let [envelope (build-envelope event opts)]
+      (let [frame-record (when (owner-live?)
+                           (frame/frame (:frame envelope)))
+         target-token (:drain-lock frame-record)
+         target-live? #(and (owner-live?)
+                            (frame/frame-incarnation-live?
+                              (:frame envelope) target-token))
          ;; Read the call-site from the envelope (already gated in
          ;; build-envelope) so the synchronous error emits below can
          ;; carry it without referencing the keyword a second time.
@@ -3705,6 +3879,9 @@
              #?(:clj  (identical? holder (Thread/currentThread))
                 :cljs (true? holder))))]
      (cond
+       (not (owner-live?))
+       nil
+
        (nil? frame-record)
        ;; Per rf2-2hvga (= B + recover-but-emit): dispatch-sync into a
        ;; destroyed / unknown frame RECOVERS (no-op) AND emits the
@@ -3737,11 +3914,12 @@
          ;; that frame's cascade — warn but proceed. Dev-only: gated on
          ;; `interop/debug-enabled?` so production skips the registry
          ;; walk.
-         (when interop/debug-enabled?
+         (when (and (owner-live?) interop/debug-enabled?)
            (when-let [other-id (diag/other-frame-mid-drain (:frame envelope))]
              (diag/emit-cross-frame-warning! (:frame envelope) other-id event)))
-         (emit-dispatched-trace! envelope true)
-         (try
+         (when (emit-dispatched-trace! envelope true target-live?)
+          (when (target-live?)
+           (try
            ;; Per rf2-ynk7 §single-drainer invariant: dispatch-sync
            ;; needs the cascade settled before return AND the seed-
            ;; push at the FRONT of the queue must not interleave with
@@ -3770,11 +3948,12 @@
                                                     :scheduled?     true
                                                     :in-sync-drain? true))))]
              (if reentrant-cold?
-               (drain-reentrant! (:frame envelope) seed-push)
-               (drain-block!     (:frame envelope) seed-push)))
-           (finally
-             (swap! router assoc :in-sync-drain? false)))))
-     nil)))
+               (drain-reentrant! (:frame envelope) frame-record seed-push)
+               (drain-block!     (:frame envelope) frame-record seed-push)))
+            (finally
+              (swap! router assoc :in-sync-drain? false)))))))
+      nil)))
+    nil)))
 
 (defn- run-frame-destroy-event!
   "Run one claimed incarnation's `:on-destroy` event and its synchronous
@@ -3793,6 +3972,12 @@
   `:rf.error/dispatch-sync-in-handler`; when destroy was called by an active
   handler, its existing drainer marker is preserved."
   [frame-id expected-token event]
+  (frame/call-with-event-owner-token
+    frame-id expected-token true
+    (fn []
+      (trace/call-with-terminal-continuation-predicate
+        #(frame/frame-incarnation-closing? frame-id expected-token)
+        (fn []
   (frame/call-serialized-with-drain!
     frame-id
     (fn []
@@ -3815,18 +4000,24 @@
             (when-not already-drainer?
               (mark-drainer! real-router))
             (try
-              (emit-dispatched-trace! envelope true)
-              (binding [*frame-destroy-cascade*
-                        {:frame  frame-id
-                         :token  expected-token
-                         :router teardown-router
-                         :owner  #?(:clj  (Thread/currentThread)
-                                    :cljs true)}]
-                (run-one-pass! frame-id frame-record teardown-router drain-depth
-                               expected-token))
+              (let [authority? #(and (identical?
+                                       expected-token
+                                       (:drain-lock (frame/frame frame-id)))
+                                     (frame/frame-incarnation-closing?
+                                       frame-id expected-token))]
+                (when (emit-dispatched-trace! envelope true authority?)
+                  (when (authority?)
+                    (binding [*frame-destroy-cascade*
+                              {:frame  frame-id
+                               :token  expected-token
+                               :router teardown-router
+                               :owner  #?(:clj  (Thread/currentThread)
+                                          :cljs true)}]
+                      (run-one-pass! frame-id frame-record teardown-router
+                                     drain-depth expected-token)))))
               (finally
                 (when-not already-drainer?
-                  (clear-drainer! real-router)))))))))
+                  (clear-drainer! real-router)))))))))))))
   nil)
 
 ;; ---- late-bind hook registration ------------------------------------------
@@ -3854,5 +4045,6 @@
 ;; already pending is harmless. Mirrors `ensure-drain-scheduled!`'s scheduling
 ;; action.
 (late-bind/set-fn! :router/reschedule-drain!
-                   (fn reschedule-drain! [frame-id]
-                     (interop/next-tick (fn [] (drain-try! frame-id)))))
+                   (fn reschedule-drain! [frame-id frame-record]
+                     (interop/next-tick
+                       (fn [] (drain-try! frame-id frame-record)))))

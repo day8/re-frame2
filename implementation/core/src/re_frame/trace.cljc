@@ -68,6 +68,52 @@
   every handler-execution boundary. See Spec 009 §Handler-scope."
   nil)
 
+(def ^:dynamic ^:private *continuation-predicate* nil)
+(def ^:dynamic ^:private *epoch-capture-enabled?* true)
+(def ^:dynamic ^:private *frame-policy-enabled?* true)
+
+(defn ^:no-doc call-with-continuation-predicate
+  "Run `f` with an internal exact-owner predicate guarding the distinct
+  callback stages of trace projection, epoch capture, and tooling delivery.
+  nil/ordinary callers retain the historical always-continue behaviour."
+  [continue? f]
+  (let [parent *continuation-predicate*
+        combined #(and (or (nil? parent) (parent))
+                       (or (nil? continue?) (continue?)))]
+    (binding [*continuation-predicate* combined]
+      (f))))
+
+(defn ^:no-doc call-with-terminal-continuation-predicate
+  "Run the exact-token private teardown recipe under its own authority.
+
+  Unlike ordinary nesting, this intentionally replaces a now-false authored
+  event predicate: the destroy recipe is the sole approved closing-incarnation
+  exemption and cannot inherit the abandoned event tail's terminal fence."
+  [continue? f]
+  (binding [*continuation-predicate* continue?]
+    (f)))
+
+(defn- continuing? []
+  (or (nil? *continuation-predicate*)
+      (*continuation-predicate*)))
+
+(defn ^:no-doc continuation-live?
+  "Internal shared reading for composite always-on emitters participating in
+  the current exact-owner event pipeline. Ordinary callers read true."
+  []
+  (continuing?))
+
+(defn ^:no-doc call-with-structural-delivery
+  "Deliver a structural trace without bare-id epoch/policy attribution.
+
+  Used when an obsolete incarnation must report a lifecycle fact after its
+  registry slot may already belong to a same-id successor. The successor's
+  frame-no-emit policy cannot suppress the predecessor's required fact."
+  [f]
+  (binding [*epoch-capture-enabled?* false
+            *frame-policy-enabled?* false]
+    (f)))
+
 (defn trigger-handler-from-meta
   "Build a `:rf.trace/trigger-handler` value `{:kind :id :source-coord
   {:ns :file :line :column}}` from a registrar slot's `meta` map.
@@ -491,9 +537,16 @@
   ns is not loaded) — the lookup returns nil and the fan-out is
   skipped. Per Spec 009 §Listener invocation rules and rf2-qwm0a."
   [event]
-  (deliver-to-epoch-capture! event)
-  (when-let [deliver-tooling (late-bind/get-fn-cached :trace.tooling/deliver!)]
-    (deliver-tooling event)))
+  (when (and *epoch-capture-enabled?* (continuing?))
+    (deliver-to-epoch-capture! event))
+  ;; Epoch capture is a separate callback-bearing publication. If it destroys
+  ;; A, do not deliver the same stale event into tooling/rings/listeners.
+  (when (continuing?)
+    (when-let [deliver-tooling (late-bind/get-fn-cached :trace.tooling/deliver!)]
+      (try
+        (deliver-tooling event continuing?)
+        (catch #?(:clj Throwable :cljs :default) e
+          (when (continuing?) (throw e)))))))
 
 (defn- hoist-projected-sensitive
   "Hoist a classification-projection-stamped `[:tags :sensitive?]` up to
@@ -587,8 +640,17 @@
     ;; envelope is built — the inspector's own reactivity must not
     ;; flood the buffer it inspects.
     (when-not (or (true? (some-> *handler-scope* :no-emit?))
-                  (tagged-frame-trace-disabled? tags))
-      (deliver! (maybe-project-marks (build-event op operation tags))))))
+                  (and *frame-policy-enabled?*
+                       (tagged-frame-trace-disabled? tags)))
+      (let [event     (build-event op operation tags)
+            projected (when (continuing?)
+                        (try
+                          (maybe-project-marks event)
+                          (catch #?(:clj Throwable :cljs :default) e
+                            (when (continuing?) (throw e)))))]
+        ;; Classification projection is the first callback-bearing stage.
+        (when (continuing?)
+          (deliver! projected))))))
 
 (defn emit-error!
   "Emit a structured error trace event. `:operation` is the error
@@ -612,8 +674,16 @@
     ;; a trace-disabled (tool / inspector) frame too — symmetric with
     ;; `emit!`.
     (when-not (or (true? (some-> *handler-scope* :no-emit?))
-                  (tagged-frame-trace-disabled? tags))
-      (deliver! (maybe-project-marks (build-event :error error-operation tags))))))
+                  (and *frame-policy-enabled?*
+                       (tagged-frame-trace-disabled? tags)))
+      (let [event      (build-event :error error-operation tags)
+            projected (when (continuing?)
+                        (try
+                          (maybe-project-marks event)
+                          (catch #?(:clj Throwable :cljs :default) e
+                            (when (continuing?) (throw e)))))]
+        (when (continuing?)
+          (deliver! projected))))))
 
 ;; ---- late-bind hook registration ------------------------------------------
 ;; Published through `late-bind` so registrar can emit without requiring

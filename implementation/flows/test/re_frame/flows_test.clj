@@ -28,7 +28,8 @@
             [re-frame.flows.registry :as registry]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
-            [re-frame.trace]))
+            [re-frame.trace])
+  (:import [java.util.concurrent CountDownLatch TimeUnit]))
 
 ;; ---- per-test reset -------------------------------------------------------
 ;;
@@ -46,6 +47,40 @@
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+
+(deftest exact-owner-loss-in-first-derive-stops-the-flow-tail
+  ;; Mutation teeth: removing the post-derive owner check publishes :killer's
+  ;; output; removing the per-flow loop check invokes :later against same-id B;
+  ;; letting destroy+throw win over owner loss leaks an obsolete A exception.
+  (let [id         :flow/destroy-owner
+        later-runs (atom 0)
+        destroyed  (CountDownLatch. 1)
+        release    (CountDownLatch. 1)]
+    (rf/make-frame {:id id})
+    (rf/reg-flow :killer
+      {:frame id :inputs [[:seed]] :output-path [:derived]}
+      (fn [_]
+        (frame/destroy-frame! id)
+        (.countDown destroyed)
+        (.await release 10 TimeUnit/SECONDS)
+        (throw (ex-info "obsolete derive failure" {}))))
+    (rf/reg-flow :later
+      {:frame id :inputs [[:derived]] :output-path [:later]}
+      (fn [v] (swap! later-runs inc) v))
+    (rf/reg-event :flow/destroy-owner-event
+      (fn [_ _] {:db {:seed 1}}))
+    (let [dispatch-a (future
+                       (rf/dispatch-sync [:flow/destroy-owner-event]
+                                         {:frame id}))]
+      (is (.await destroyed 10 TimeUnit/SECONDS)
+          "A was destroyed while its derive remained on the stack")
+      (rf/make-frame {:id id})
+      (.countDown release)
+      (is (nil? (deref dispatch-a 5000 ::timeout))
+          "destroy+throw in A's derive is inert after exact-owner loss"))
+    (is (zero? @later-runs) "no later flow callback runs")
+    (is (= {} (frame/frame-app-db-value id))
+        "A's pending handler/flow transition never commits into B")))
 
 ;; ---------------------------------------------------------------------------
 ;; 1. reg-flow / clear-flow lifecycle (registry side)
