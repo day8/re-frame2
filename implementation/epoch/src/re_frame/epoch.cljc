@@ -191,6 +191,8 @@
   `:redact-fn`, happens only at off-box egress. `committed-at` is the causal
   token's `:rf/time-ms`, not an assembly-time clock read."
   [frame-id frame-state-before frame-state-after events committed-at outcome halt-reason trigger-event]
+  (when-let [owner-token (frame/frame-incarnation-token frame-id)]
+    (state/claim-frame-owner! frame-id owner-token))
   ;; Whole-frame snapshots are restore units; app-db slots are projections.
   (let [base   (assembly/build-record frame-id frame-state-before frame-state-after
                                       events committed-at outcome halt-reason)
@@ -327,6 +329,8 @@
   attribution anchor. With no application event in flight, `:committed-at`
   uses `epoch-now-ms`: a durable wall-clock value, not the elapsed-time clock."
   [frame-id fs-before fs-after]
+  (when-let [owner-token (frame/frame-incarnation-token frame-id)]
+    (state/claim-frame-owner! frame-id owner-token))
   (let [record (assoc (assembly/build-record frame-id fs-before fs-after []
                                              (interop/epoch-now-ms))
                       :event-id      :rf.epoch/db-replaced

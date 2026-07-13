@@ -13,6 +13,7 @@
 
   Buffer storage and low-level mutation live in `re-frame.epoch.state`."
   (:require [re-frame.epoch.state :as state]
+            [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]))
 
@@ -35,8 +36,9 @@
 ;; fail loudly rather than drift silently.
 ;;
 ;; `:rf.epoch.cb/silenced-on-frame-destroy` is a different op-type
-;; (`:rf.epoch.cb`) and emits AFTER the frame's ring buffer has been
-;; dropped, so it can never race a future cascade for that frame.
+;; (`:rf.epoch.cb`) but is likewise terminal/out-of-cascade evidence. It is
+;; skipped explicitly so it can neither enter a future incarnation's buffer nor
+;; claim that replacement's owner token during stale-A cleanup.
 (def skip-ops
   #{;; Event-settle emit, after harvest emptied the buffer.
     :rf.epoch/snapshotted
@@ -62,12 +64,22 @@
     ;; replace-frame-state! rejects loudly with this op + a false return
     ;; It fires out of cascade with a frame tag like its siblings.
     :rf.epoch/replace-history-disabled
+    ;; Frame-destroy listener-silencing is emitted by the exact-owner cleanup
+    ;; hook itself. It is terminal evidence, never input to a later epoch.
+    :rf.epoch.cb/silenced-on-frame-destroy
+    ;; Listener failure isolation runs during post-harvest fan-out. In
+    ;; particular, terminal destroy fan-out runs after exact-owner cleanup, so
+    ;; its diagnostic must not enter a fresh same-id incarnation's buffer.
+    :rf.epoch.cb/listener-exception
     ;; Projection-time redact-fn exception warning. Emitted by
     ;; `assembly/apply-redact-fn` at PROJECTION time (`projected-record`),
     ;; which runs outside any cascade; if left un-skipped, the
     ;; `:frame`-tagged emit could accrete into a cascade's harvested
     ;; record for this frame.
-    :rf.warning/epoch-redact-fn-exception})
+    :rf.warning/epoch-redact-fn-exception
+    ;; Restore quiesce hook isolation likewise fires after the synthetic
+    ;; replacement record has settled and must not seed the next cascade.
+    :rf.warning/restore-quiesce-hook-exception})
 
 ;; ---- render ops ------------------------------------------------------------
 ;;
@@ -180,6 +192,18 @@
           tags     (:tags event)
           frame-id (or (:frame tags)
                        (:frame event))]
+      ;; Any path below that can mutate epoch state first claims the id-keyed
+      ;; stores for the exact live frame incarnation. This serialises a fresh
+      ;; same-id B publication against stale A's final destroy hook.
+      (when (and frame-id
+                 (not (contains? skip-ops op))
+                 (or (:rf.trace/dispatch-id tags)
+                     (in-flight-cascade? frame-id)
+                     (contains? render-ops op)
+                     (contains? sub-run-ops op)
+                     (contains? unmount-ops op)))
+        (when-let [owner-token (frame/frame-incarnation-token frame-id)]
+          (state/claim-frame-owner! frame-id owner-token)))
       ;; Learn which subscriptions each view reads from the
       ;; `:reader-render-key` stamp the runtime sets on a `:rf.sub/run`
       ;; that recomputes SYNCHRONOUSLY inside a view's render (the mount /

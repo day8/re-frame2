@@ -2,6 +2,8 @@
   "Deterministic JVM barriers for incarnation-owned frame teardown."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.epoch]
+            [re-frame.epoch.state :as epoch-state]
             [re-frame.frame :as frame]
             [re-frame.late-bind :as late-bind]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -108,6 +110,7 @@
         first-epoch?    (atom true)
         b-installed?    (atom false)
         cleanup-runs    (atom 0)
+        b-observer      ::replacement-b-observer
         original-epoch  (late-bind/get-fn :epoch/on-frame-destroyed)
         original-ui     (late-bind/get-fn :ui/on-frame-destroyed!)]
     (rf/make-frame {:id id})
@@ -140,19 +143,55 @@
           (fn [_ _]
             (swap! cleanup-runs inc)
             {}))
+        (rf/reg-event :destroy/marker-overlap-epoch
+          (fn [{:keys [db]} _]
+            {:db (assoc db :replacement :b)}))
         (rf/make-frame {:id id
                         :on-destroy [:destroy/marker-overlap-cleanup]})
-        (let [token-b (frame/frame-incarnation-token id)]
+        ;; Give B real recorded history + listener observation before its
+        ;; destroy claims the incarnation.
+        (epoch-state/put-listener! b-observer (fn [_] nil))
+        (rf/dispatch-sync [:destroy/marker-overlap-epoch] {:frame id})
+        (let [token-b        (frame/frame-incarnation-token id)
+              b-buffer-event {:operation :destroy/replacement-b-buffer
+                              :tags {:frame id}}
+              b-render-key   ::replacement-b-render
+              b-sub-id       ::replacement-b-sub]
           (reset! b-installed? true)
           (let [destroy-b (future (frame/destroy-frame! id token-b))]
             (is (.await b-claimed 10 TimeUnit/SECONDS)
                 "fresh B replaces A's stale marker and claims its own destroy")
 
-            ;; A now reaches its terminal cleanup while B's distinct claim is
-            ;; active. Correct compare-remove leaves B's marker untouched.
-            (.countDown release-a)
-            (is (nil? (deref destroy-a 5000 ::timeout))
-                "A finishes while B remains paused under its own claim")
+            ;; B's cleanup event and drain check legitimately mutate/clear
+            ;; epoch state before the UI hook pause. Install the remaining
+            ;; B-owned fixtures only after that pause, then use B's resulting
+            ;; newest epoch as the preservation anchor. Nothing in A's stale
+            ;; step-11 cleanup may alter any of these four id-keyed stores.
+            (let [b-epoch-id   (:epoch-id (last (rf/epoch-history id)))
+                  b-generation (get-in (epoch-state/listeners-snapshot)
+                                       [b-observer :generation])]
+              (epoch-state/buffer-event! id b-buffer-event)
+              (epoch-state/record-render-deps! id b-render-key b-sub-id)
+              (epoch-state/record-observation! b-observer b-generation id)
+              (is (some? (get-in (epoch-state/observations-snapshot)
+                                 [b-observer id]))
+                  "B's listener observation fixture is armed before A resumes")
+
+              ;; A now reaches its terminal cleanup while B's distinct claim is
+              ;; active. Correct compare-remove leaves B's marker untouched.
+              (.countDown release-a)
+              (is (nil? (deref destroy-a 5000 ::timeout))
+                  "A finishes while B remains paused under its own claim")
+              (is (= b-epoch-id (:epoch-id (last (rf/epoch-history id))))
+                  "A's stale epoch cleanup preserves B's history")
+              (is (= [b-buffer-event] (epoch-state/buffer-for id))
+                  "A's stale epoch cleanup preserves B's in-flight buffer")
+              (is (= #{b-sub-id}
+                     (epoch-state/render-deps-for id b-render-key))
+                  "A's stale epoch cleanup preserves B's render attribution")
+              (is (some? (get-in (epoch-state/observations-snapshot)
+                                 [b-observer id]))
+                  "A's stale epoch cleanup preserves B's listener observation"))
             (let [duplicate-b (future (frame/destroy-frame! id token-b))]
               (is (nil? (deref duplicate-b 2000 ::timeout))
                   "A's finally did not erase B's marker; duplicate B is a prompt no-op"))
@@ -166,5 +205,6 @@
       (finally
         (.countDown release-a)
         (.countDown release-b)
+        (epoch-state/drop-listener! b-observer)
         (late-bind/set-fn! :epoch/on-frame-destroyed original-epoch)
         (late-bind/set-fn! :ui/on-frame-destroyed! original-ui)))))

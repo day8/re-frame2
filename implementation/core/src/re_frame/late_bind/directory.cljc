@@ -823,7 +823,7 @@
     :description "Clear every registered epoch-settled callback (test isolation)."}
    {:key         :epoch/on-frame-destroyed
     :producer-ns 're-frame.epoch
-    :description "Tear down a frame's epoch state when the frame is destroyed. Invoked as (f frame-id fs-before fs-after): fs-before is the in-flight event's pre-run frame-state snapshot (frame/*run-frame-state-before*), fs-after the destroy-time frame-state value captured before teardown — the real :frame-state-before/:frame-state-after slots (and their :db-* app-db projections) a mid-drain :halted-destroy epoch record carries per Spec-Schemas §:rf/epoch-record §Outcomes (rf2-9neiq / rf2-3aizt1). Both nil for an out-of-run destroy."}
+    :description "Tear down a frame's epoch state when the frame is destroyed. Invoked as (f frame-id owner-token fs-before fs-after committed-at): owner-token is the destroyed incarnation's stable identity and compare-guards the final post-dissoc cleanup against a fresh same-id replacement; fs-before is the in-flight event's pre-run frame-state snapshot, fs-after the destroy-time frame-state value captured before teardown, and committed-at the destroying event's causal time. The snapshots are the real :frame-state-before/:frame-state-after slots (and :db-* projections) a mid-drain :halted-destroy record carries. Snapshot/time values are nil where no in-flight run supplied them."}
    {:key         :epoch/projected-record
     :producer-ns 're-frame.epoch
     :design-bead "rf2-mrsck"

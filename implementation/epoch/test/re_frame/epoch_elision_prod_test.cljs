@@ -160,5 +160,5 @@
             observed-frames-by-cb bookkeeping side-effect is dead too.
             Frame-destroy paths that route through this hook do not
             crash."
-    (is (nil? (epoch.listeners/on-frame-destroyed! :rf/default nil nil nil))
+    (is (nil? (epoch.listeners/on-frame-destroyed! :rf/default nil nil nil nil))
         "on-frame-destroyed! returns nil under prod even for unknown frames")))
