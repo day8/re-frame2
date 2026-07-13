@@ -44,7 +44,8 @@
       dedicated category is the discriminator (it happened during
       destroy).
 
-    - DEFENCE-IN-DEPTH branch (`dispatch-sync!` itself faults, rf2-bxud9v):
+    - DEFENCE-IN-DEPTH branch (the private teardown cascade faults,
+      rf2-bxud9v):
       `fire-on-destroy-event!` calls `emit-on-destroy-handler-exception!`
       DIRECTLY (no capture), so the dedicated record DOES survive prod —
       and this branch never produced a router handler-exception, so the
@@ -280,9 +281,9 @@
     (is (nil? (frame/frame :prod.ondestroy/worker))
         "the frame is fully torn down (teardown continued past the throw)")))
 
-(deftest dispatch-sync-infra-fault-survives-prod
+(deftest teardown-cascade-infra-fault-survives-prod
   (testing "Per rf2-7b9r4l / rf2-bxud9v: under `:advanced` + `goog.DEBUG=
-            false`, if `dispatch-sync!` ITSELF faults (a fault inside the
+            false`, if the internal teardown cascade ITSELF faults (a fault inside the
             dispatch infrastructure, NOT the user handler),
             `fire-on-destroy-event!`'s defence-in-depth catch arm still fans
             a `:rf.error/on-destroy-handler-exception` record out on the
@@ -291,17 +292,17 @@
             its ONLY production observability — and this is the only test
             that proves it survives elision."
     (let [seen     (atom [])
-          original (late-bind/get-fn :router/dispatch-sync!)]
+          original (late-bind/get-fn :router/run-frame-destroy-event!)]
       (rf/register-listener! :errors :prod/recorder
                                    (fn [record] (swap! seen conj record)))
       (frame/upsert-frame! :prod.ondestroy/infra-fault {:on-destroy [:prod.ondestroy/never-reached]})
-      (late-bind/set-fn! :router/dispatch-sync!
+      (late-bind/set-fn! :router/run-frame-destroy-event!
                          (fn [& _] (throw (ex-info "dispatch infra fault" {}))))
       (try
         (is (nil? (rf/destroy-frame! :prod.ondestroy/infra-fault))
             "teardown does not propagate the infra fault under prod")
         (finally
-          (late-bind/set-fn! :router/dispatch-sync! original)))
+          (late-bind/set-fn! :router/run-frame-destroy-event! original)))
       (let [reports (filter #(= :rf.error/on-destroy-handler-exception (:error %)) @seen)]
         (is (= 1 (count reports))
             "the defence-in-depth branch fanned out on the always-on axis under prod")

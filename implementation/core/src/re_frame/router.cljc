@@ -2903,8 +2903,9 @@
 
 (defn- handle-drain-interrupted!
   "Per rf2-68kok / Spec 002 §Edge cases worth pinning §Frame disposal
-  mid-drain: the drain-loop detected the frame was destroyed before
-  the next dequeue. Drop the remaining queue ONCE, clear `:scheduled?`,
+  mid-drain: the drain-loop detected that destruction owns the frame before
+  the next dequeue (claim is the cutoff; lifecycle-dead may publish later).
+  Drop the remaining queue ONCE, clear `:scheduled?`,
   and emit a single `:rf.frame/drain-interrupted` lifecycle trace
   carrying `:dropped-count` (per Spec 009 §`:rf.frame/drain-interrupted`
   and Spec-Schemas §DrainInterruptedTags).
@@ -2932,8 +2933,15 @@
   listeners. The drain-loop's responsibility is the lifecycle trace + queue
   drop; the epoch record is the destroy hook's."
   [frame-id router]
-  (let [dropped (count (:queue @router))]
-    (swap! router assoc :queue interop/empty-queue :scheduled? false)
+  (let [{:keys [queue destroy-claim-dropped-count]} @router
+        ;; `claim-frame-destroy!` atomically cuts off the pre-claim queue
+        ;; before `:on-destroy` runs. Preserve that count here so the one
+        ;; interrupted-drain record still reports every discarded envelope,
+        ;; including work removed at the earlier linearization point.
+        dropped (+ (count queue) (or destroy-claim-dropped-count 0))]
+    (swap! router #(-> %
+                       (assoc :queue interop/empty-queue :scheduled? false)
+                       (dissoc :destroy-claim-dropped-count)))
     (trace/emit! :rf.frame :rf.frame/drain-interrupted
                  {:frame         frame-id
                   :dropped-count dropped})))
@@ -2941,12 +2949,12 @@
 (defn- run-one-pass!
   "Process events from the queue to fixed point or until `drain-depth` is
   exceeded. Returns `::settled` when the queue empties cleanly or
-  `::halt` when the depth limit is reached OR the frame was destroyed
+  `::halt` when the depth limit is reached OR destruction owns the frame
   mid-pass (the depth-exceeded / drain-interrupted handler has already
   cleared the queue and the `:scheduled?` flag in either halt case).
 
-  Per rf2-68kok / Spec 002 §Frame disposal mid-drain: the destroyed-
-  frame check fires BEFORE each dequeue, so an in-flight event runs to
+  Per rf2-68kok / Spec 002 §Frame disposal mid-drain: the destruction-
+  ownership check fires BEFORE each dequeue, so an in-flight event runs to
   completion (run-to-completion per Spec 002 §Rules rule 1) but events
   still in the queue at the check point are dropped, with one
   `:rf.frame/drain-interrupted` lifecycle trace emitted carrying the
@@ -2965,7 +2973,7 @@
   also bound to `frame/*run-frame-state-before*` around `process-event!`
   so a handler that destroys its own frame mid-drain can recover the
   pre-run snapshot for its `:halted-destroy` epoch record (rf2-9neiq)."
-  [frame-id router drain-depth]
+  [frame-id router drain-depth allowed-destroy-token]
   ;; rf2-fcbrjo: `tail-ring` accumulates the last K settled event-ids as the
   ;; drain runs — the CYCLE EVIDENCE the depth-halt attaches to the always-on
   ;; record. A bounded vector (drop the head past `cycle-evidence-depth`); ids
@@ -2979,7 +2987,7 @@
       (do (handle-depth-exceeded! frame-id router depth last-event tail-ring)
           ::halt)
 
-      ;; Per rf2-68kok: destroyed-frame check fires BEFORE the next
+      ;; Per rf2-68kok: destruction-ownership check fires BEFORE the next
       ;; dequeue. A handler in the just-completed event may have
       ;; called `destroy-frame!` on its own frame; the spec calls for
       ;; interrupting the drain at this exact seam — drop the
@@ -2996,7 +3004,14 @@
       ;; `:rf.frame/drain-interrupted` lifecycle trace. `restore-epoch!`
       ;; refuses non-:ok records, preserving the original "time-travel never
       ;; lands in a misleading state" invariant.
-      (frame/frame-disposed-for-drain? frame-id)
+      (and (frame/frame-disposed-for-drain? frame-id)
+           ;; The sole post-claim execution path is the internal teardown
+           ;; cascade. It presents the exact claimed incarnation token and
+           ;; drains an isolated local queue; ordinary drains always pass nil.
+           ;; If the marker no longer names this token, even that cascade halts.
+           (not (and (some? allowed-destroy-token)
+                     (frame/frame-incarnation-closing?
+                       frame-id allowed-destroy-token))))
       (do (handle-drain-interrupted! frame-id router)
           ::halt)
 
@@ -3120,7 +3135,7 @@
   (loop []
     (let [outcome (try
                     (mark-drainer! router)
-                    (run-one-pass! frame-id router drain-depth)
+                    (run-one-pass! frame-id router drain-depth nil)
                     (finally
                       (clear-drainer! router)))]
       (case outcome
@@ -3409,6 +3424,29 @@
     (swap! router update :queue front-insert-machine-internal envelope)
     (swap! router update :queue conj envelope)))
 
+;; Private authority for the synchronous `:on-destroy` event and the
+;; same-frame child dispatches it intentionally emits. The cascade drains an
+;; isolated router, never the dying frame's real queue. The value carries BOTH
+;; the incarnation claim token and the actual host thread that entered the
+;; cascade: JVM `bound-fn` may convey dynamic bindings to an executor, but it
+;; cannot make that executor thread identical to `:owner`. A callback that
+;; outlives teardown also loses authority when the claim is compare-removed.
+(def ^:dynamic ^:private *frame-destroy-cascade* nil)
+
+(defn- frame-destroy-cascade-router
+  "Return the isolated teardown router when this call is an authorised
+  same-frame child dispatch; nil for every ordinary dispatch."
+  [frame-id]
+  (when-let [{cascade-frame :frame
+              token         :token
+              router        :router
+              owner         :owner} *frame-destroy-cascade*]
+    (when (and (= cascade-frame frame-id)
+               #?(:clj  (identical? owner (Thread/currentThread))
+                  :cljs (true? owner))
+               (frame/frame-incarnation-closing? frame-id token))
+      router)))
+
 (defn dispatch!
   "Append the event to the target frame's router queue. Per Spec 002:
   FIFO at the runtime layer. The drain loop picks it up in this same
@@ -3437,8 +3475,10 @@
   §Canonical event-vector shape."
   ([event] (dispatch! event {}))
   ([event opts]
-   (let [envelope     (build-envelope event opts)
-         frame-record (frame/frame (:frame envelope))]
+   (let [envelope       (build-envelope event opts)
+         frame-id       (:frame envelope)
+         frame-record   (frame/frame frame-id)
+         cascade-router (frame-destroy-cascade-router frame-id)]
      (cond
        (nil? frame-record)
        ;; Per rf2-2hvga (= B + recover-but-emit): dispatch into a
@@ -3451,6 +3491,13 @@
        ;; dynamic call-site.
        (trace/with-call-site (:call-site envelope)
          (emit-frame-destroyed! (first event) event (:frame envelope)))
+
+       cascade-router
+       ;; Cleanup descendants stay on the private teardown queue. No scheduler
+       ;; is involved, and no ordinary/racing envelope can join this cascade.
+       (do
+         (emit-dispatched-trace! envelope false)
+         (enqueue-envelope! cascade-router envelope))
 
        :else
        (let [router (:router frame-record)]
@@ -3607,6 +3654,59 @@
              (swap! router assoc :in-sync-drain? false)))))
      nil)))
 
+(defn- run-frame-destroy-event!
+  "Run one claimed incarnation's `:on-destroy` event and its synchronous
+  same-frame queued descendants to fixed point.
+
+  This is deliberately NOT `dispatch-sync!` privilege. Destruction first cuts
+  off the frame's real queue, then this function creates an isolated queue for
+  the cleanup seed. `dispatch!` routes same-frame descendants to that local
+  queue only while all three authority checks hold: the exact claim token is
+  still current, the target frame matches, and the actual host thread is the
+  entering thread. Ordinary queued work can therefore neither run behind the
+  cleanup seed nor inherit authority through JVM `bound-fn` propagation.
+
+  The real router is marked as draining for an out-of-drain destroy so a generic
+  same-frame `dispatch-sync!` issued by cleanup remains the normal
+  `:rf.error/dispatch-sync-in-handler`; when destroy was called by an active
+  handler, its existing drainer marker is preserved."
+  [frame-id expected-token event]
+  (frame/call-serialized-with-drain!
+    frame-id
+    (fn []
+      (when-let [frame-record (frame/frame frame-id)]
+        (when (and (identical? expected-token (:drain-lock frame-record))
+                   (frame/frame-incarnation-closing? frame-id expected-token))
+          (let [real-router     (:router frame-record)
+                drain-depth    (get-in frame-record [:config :drain-depth]
+                                       drain-depth-default)
+                envelope       (build-envelope event {:frame frame-id})
+                teardown-router (atom {:queue            (conj interop/empty-queue
+                                                               envelope)
+                                       :scheduled?       true
+                                       :in-drain?        nil
+                                       :in-sync-drain?   false})
+                already-drainer?
+                #?(:clj  (identical? (:in-drain? @real-router)
+                                     (Thread/currentThread))
+                   :cljs (true? (:in-drain? @real-router)))]
+            (when-not already-drainer?
+              (mark-drainer! real-router))
+            (try
+              (emit-dispatched-trace! envelope true)
+              (binding [*frame-destroy-cascade*
+                        {:frame  frame-id
+                         :token  expected-token
+                         :router teardown-router
+                         :owner  #?(:clj  (Thread/currentThread)
+                                    :cljs true)}]
+                (run-one-pass! frame-id teardown-router drain-depth
+                               expected-token))
+              (finally
+                (when-not already-drainer?
+                  (clear-drainer! real-router)))))))))
+  nil)
+
 ;; ---- late-bind hook registration ------------------------------------------
 ;;
 ;; Other namespaces that load BEFORE this one (re-frame.frame for :initial-events
@@ -3618,6 +3718,7 @@
 
 (late-bind/set-fn! :router/dispatch!       dispatch!)
 (late-bind/set-fn! :router/dispatch-sync!  dispatch-sync!)
+(late-bind/set-fn! :router/run-frame-destroy-event! run-frame-destroy-event!)
 
 ;; Per rf2-x76af2.22 (a): re-kick a fresh async drain for `frame-id`.
 ;; `frame/call-serialized-with-drain!`'s COLD release calls this — through

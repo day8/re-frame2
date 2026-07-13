@@ -185,17 +185,14 @@
 ;; re-disposing the sub-cache — and likely throw on a half-torn-down
 ;; frame. Per Spec 002 §Destroy — re-entrant destroy is idempotent.
 ;;
-;; Keyed by the bare frame-id, with the value carrying the DESTROYING
-;; incarnation's token (its `:drain-lock`, captured at the top of
-;; `destroy-frame!` while the frame is still live). The bare id is what the
-;; re-entrant guard + `frame-closing?` consult; the token is what
+;; Keyed by the bare frame-id. Each value carries the DESTROYING incarnation's
+;; token (its `:drain-lock`, captured while still live):
+;; `{id {:token drain-lock}}`. The bare id is what `frame-closing?` consults;
+;; the token is what the duplicate guard and
 ;; `frame-incarnation-closing?` consults so a stale close marker of an
 ;; already-torn-down incarnation A cannot be mistaken for a fresh same-id
-;; REPLACEMENT incarnation B being in-flight — the JVM window between step-6
-;; `dissoc-frame!` and the terminal `finally` where A's marker is still set
-;; while B is already live under the reused id (rf2-vxgfnd.94; the reciprocal
-;; of rf2-vxgfnd.88's Failure-2). On CLJS the window is unreachable (destroy
-;; runs to completion single-threaded before any recreate).
+;; REPLACEMENT incarnation B being in-flight. A new B claim REPLACES A's stale
+;; marker; each destroy's terminal cleanup compare-removes only its own token.
 
 (defonce ^:private destroying-frames
   (atom {}))
@@ -637,25 +634,36 @@
 
 (defn frame-disposed-for-drain?
   "Per Spec 002 §Frame disposal mid-drain: predicate used by the
-  router's drain loop to interrupt a pass when the frame was destroyed
-  mid-cycle. True when EITHER:
+  router's drain loop to interrupt a pass once destruction owns the current
+  incarnation. True when ANY of:
 
-    (a) The frame record still exists but `:destroyed?` is flipped
+    (a) `destroy-frame!` has claimed this exact incarnation, even while its
+        live-container teardown is still running before the `:destroyed?`
+        flip. The claim is the queued-work cutoff: a cold serialization release
+        never re-kicks that queue, and an already-scheduled drain drops rather
+        than executes it. The intentional `:on-destroy` event uses a separate,
+        token-scoped internal cascade; ordinary drains have no exemption.
+    (b) The frame record still exists but `:destroyed?` is flipped
         (post-step-3 of `destroy-frame!`, before step-6 dissoc), OR
-    (b) The frame record is absent from the `frames` atom (post-step-6
+    (c) The frame record is absent from the `frames` atom (post-step-6
         of `destroy-frame!` — the dissoc step has run).
 
-  Returns false when `id` is registered and not destroyed. Calling for
-  a never-registered `id` returns true — that case is benign for the
-  drain-loop caller (a drain cannot run on a frame that was never
-  registered), but the predicate is named `*-for-drain?` to make the
-  intended seam explicit and avoid suggesting general
-  destroyed-vs-never-registered discrimination.
+  The claim test is INCARNATION-SCOPED: a stale destroy marker for incarnation A
+  does not dispose a fresh same-id incarnation B installed after A's registry
+  dissoc but before A's terminal marker cleanup. Returns false when `id` is
+  registered, live, and not claimed for destruction. Calling for a
+  never-registered `id` returns true — that case is benign for the drain-loop
+  caller (a drain cannot run on a frame that was never registered), but the
+  predicate is named `*-for-drain?` to make the intended seam explicit and avoid
+  suggesting general destroyed-vs-never-registered discrimination.
 
   Keyed by the bare frame-id."
   [id]
   (if-let [f (get @frames id)]
-    (true? (-> f :lifecycle :destroyed?))
+    (or (true? (-> f :lifecycle :destroyed?))
+        (let [token (get-in @destroying-frames [id :token])]
+          (and (some? token)
+               (identical? token (:drain-lock f)))))
     ;; Absent from the atom — destroy-frame!'s step 6 ran, OR the id
     ;; was never registered. The drain-loop caller only consults this
     ;; while a pass is already in flight, so the latter case cannot
@@ -702,8 +710,9 @@
   answers 'is this id anywhere in its close lifecycle' by BARE id,
   `frame-incarnation-closing?` answers 'is the destroy that is in flight for this
   id the one destroying the incarnation I acquired'. `destroying-frames` records
-  `{id -> destroying-incarnation-token}`, so this compares the caller's
-  acquire-time token against the token the marker carries by identity.
+  `{id {:token destroying-incarnation-token}}`, so this
+  compares the caller's acquire-time token against the token the marker carries
+  by identity.
 
   This is what closes rf2-vxgfnd.88's reciprocal Failure-2 (rf2-vxgfnd.94): in the
   JVM window between `destroy-frame!`'s step-6 `dissoc-frame!` and its terminal
@@ -717,8 +726,8 @@
 
   Keyed by the bare frame-id; the incarnation is disambiguated by the token value."
   [id token]
-  (let [closing (get @destroying-frames id)]
-    (and (some? closing) (identical? token closing))))
+  (let [closing-token (get-in @destroying-frames [id :token])]
+    (and (some? closing-token) (identical? token closing-token))))
 
 (defn frame-address
   "Resolve the ADDRESS key for `frame-id` — the key a per-frame SIDE-CHANNEL
@@ -1345,14 +1354,22 @@
             ;; still hold `:drain-lock`, so no drainer is popping) and release;
             ;; if non-empty, re-kick a fresh async `drain-try!` (via the
             ;; `:router/reschedule-drain!` late-bind seam — frame cannot
-            ;; `:require` router) so the stranded events drain. Releasing
-            ;; first lets the re-kicked `drain-try!` CAS-acquire the now-free
-            ;; lock.
+            ;; `:require` router) so the stranded events drain. The one
+            ;; exception is a thunk that just CLAIMED destruction of this exact
+            ;; incarnation: claim is the queued-work cutoff, so re-kicking here
+            ;; would manufacture work inside the claim -> lifecycle-dead
+            ;; window. An already-submitted drain that has not CAS-lost yet is
+            ;; fenced independently by `frame-disposed-for-drain?`; suppressing
+            ;; this fresh kick handles the already-lost/no-retry case without
+            ;; stranding any LIVE frame. Releasing first lets an allowed
+            ;; re-kicked `drain-try!` CAS-acquire the now-free lock.
             (let [router  (:router frame-record)
                   strand? (locking router
-                            (let [pending? (seq (:queue @router))]
+                            (let [pending? (seq (:queue @router))
+                                  closing? (frame-incarnation-closing?
+                                             frame-id drain-lock)]
                               (reset! drain-lock false)
-                              (boolean pending?)))]
+                              (boolean (and pending? (not closing?)))))]
               (when strand?
                 (when-let [reschedule! (late-bind/get-fn :router/reschedule-drain!)]
                   (reschedule! frame-id))))))))
@@ -2375,9 +2392,8 @@
 ;; matters — see destroy-frame!'s docstring for the authoritative recipe.
 
 ;; Frame id of the in-flight `destroy-frame!`, bound for the duration of
-;; the teardown so `safe-call-hook!` can stamp `:frame` on a hook-failure
-;; diagnostic regardless of the hook's arg shape (the cache-reset hooks
-;; take no frame arg).
+;; teardown so `safe-call-hook!` can stamp `:frame` on a hook-failure diagnostic
+;; regardless of the hook's arg shape (the cache-reset hooks take no frame arg).
 (def ^:dynamic *destroying-frame-id* nil)
 
 ;; Per-destroy accumulator of cleanup-hook failures, bound to a fresh atom
@@ -2532,7 +2548,8 @@
   `trace/emit-error!`.
 
   This is also the ONLY always-on coverage for the defence-in-depth re-throw
-  branch (`dispatch-sync!` itself faulting): that path never produces a router
+  branch (the private teardown cascade itself faulting): that path never
+  produces a router
   `:rf.error/handler-exception`, so the always-on emission here is its only
   production observability.
 
@@ -2576,8 +2593,8 @@
   torn down.
 
   Mechanism: the router catches handler throws and converts them to
-  `:rf.error/handler-exception` — `dispatch-sync!` does not re-throw. To
-  surface the throw as the dedicated `:rf.error/on-destroy-handler-
+  `:rf.error/handler-exception` — the internal teardown cascade does not
+  re-throw. To surface the throw as the dedicated `:rf.error/on-destroy-handler-
   exception` category (Mike's decision), we install a TRANSIENT listener
   on the ALWAYS-ON error-emit axis for the duration of the dispatch under a
   UNIQUE per-destroy key (a constant key would let a nested / overlapping
@@ -2597,23 +2614,24 @@
   emission below rides `:error-emit/dispatch-on-error`).
 
   We ALSO wrap the dispatch itself in try/catch as a defence-in-depth: if
-  `dispatch-sync!` ever re-throws (e.g. a fault inside the dispatch
+  the internal teardown cascade ever re-throws (e.g. a fault inside the dispatch
   infrastructure itself, not the user handler), we catch it here — and
   per EP-0008 the dedicated category rides the always-on axis so this
   defence-in-depth branch (which never produces a router
   `:rf.error/handler-exception`) is observable in production. The two
   paths are mutually exclusive (a router-converted handler throw never
-  re-throws out of `dispatch-sync!`; an infra fault re-throws and never
-  produces a router handler-exception record), and a `re-entered?` guard
+  re-throws out of the cascade; an infra fault re-throws and never
+  produces a router handler-exception record), and an `infra-fault?` guard
   makes the single-record contract explicit either way.
 
   This mirrors the swallow-then-continue shape of `safe-call-hook!` below
   but ALSO emits a structured error event (where `safe-call-hook!` is
   silent) — the user's `:on-destroy` is application code; its failure
   is a first-class diagnostic event."
-  [id f]
+  [id expected-token f]
   (when-let [on-destroy (-> f :config :on-destroy)]
-    (when-let [dispatch-sync (late-bind/get-fn :router/dispatch-sync!)]
+    (when-let [run-destroy-event (late-bind/get-fn
+                                   :router/run-frame-destroy-event!)]
       (let [captured     (atom nil)
             infra-fault? (atom false)
             ;; The always-on error-emit listener registry — the
@@ -2643,9 +2661,9 @@
           (register listener-k listener))
         (try
           (try
-            (dispatch-sync on-destroy {:frame id})
+            (run-destroy-event id expected-token on-destroy)
             (catch #?(:clj Throwable :cljs :default) ex
-              ;; Defence-in-depth: dispatch-sync! normally swallows
+              ;; Defence-in-depth: the router normally swallows
               ;; handler throws, but if the dispatch infrastructure
               ;; itself fails we still emit the dedicated category. This
               ;; branch never produces a router :rf.error/handler-exception,
@@ -2741,12 +2759,20 @@
 (defn- claim-frame-destroy!
   "Claim teardown authority for `expected-token`'s live incarnation of `id`.
 
-  The token check and `destroying-frames` publication run under the candidate
-  incarnation's drain lock. `call-serialized-with-drain!` may have captured A's
-  frame record before blocking and wake after A was replaced by B, so the thunk
-  revalidates the registry token after acquisition and retries against the
-  current record. A stale expected token therefore never claims B while holding
-  A's obsolete lock. Returns the claimed frame record, or nil."
+  The token check, `destroying-frames` publication, and pre-claim queue cutoff
+  run under the candidate incarnation's drain lock. The queue cutoff is atomic
+  on the router atom: every not-yet-dequeued envelope moves to the private
+  `:destroy-claim-dropped-count` evidence slot and the live queue becomes empty
+  before the lock releases. The later internal `:on-destroy` cascade therefore
+  cannot drain ordinary work behind its cleanup seed.
+
+  `call-serialized-with-drain!` may have captured A's frame record before
+  blocking and wake after A was replaced by B, so the thunk revalidates the
+  registry token after acquisition and retries against the current record. A
+  stale expected token therefore never claims B while holding A's obsolete
+  lock. An existing marker blocks only a duplicate claim for the SAME token; a
+  fresh same-id incarnation replaces a stale prior marker. Returns the claimed
+  frame record, or nil."
   [id expected-token]
   (loop []
     (when-let [candidate (frame id)]
@@ -2759,20 +2785,49 @@
                   id
                   (fn []
                     (when-let [current (frame id)]
-                      (cond
-                        (not (identical? candidate-token (:drain-lock current)))
-                        ::retry-destroy-claim
+                      (let [marker-token (get-in @destroying-frames [id :token])]
+                        (cond
+                          (not (identical? candidate-token (:drain-lock current)))
+                          ::retry-destroy-claim
 
-                        (contains? @destroying-frames id)
-                        nil
+                          (and (some? marker-token)
+                               (identical? candidate-token marker-token))
+                          nil
 
-                        :else
-                        (do
-                          (swap! destroying-frames assoc id candidate-token)
-                          current)))))]
+                          :else
+                          (let [router (:router current)]
+                            ;; Serialize claim publication + queue cutoff with
+                            ;; the router's scheduling/release monitor. A
+                            ;; submitter that linearized before this section is
+                            ;; included in the dropped queue; ordinary drains
+                            ;; after publication observe the claim and halt.
+                            (locking router
+                              (swap! destroying-frames assoc id
+                                     {:token candidate-token})
+                              (swap! router
+                                     (fn [{:keys [queue] :as state}]
+                                       (let [dropped (count queue)]
+                                         (cond-> (assoc state
+                                                        :queue interop/empty-queue
+                                                        :scheduled? false)
+                                           (pos? dropped)
+                                           (update :destroy-claim-dropped-count
+                                                   (fnil + 0) dropped)))))
+                              current)))))))]
             (if (= ::retry-destroy-claim claimed)
               (recur)
               claimed)))))))
+
+(defn- release-frame-destroy-claim!
+  "Compare-remove only `expected-token`'s claim. A stale incarnation A's
+  terminal `finally` must not erase a fresh same-id B claim that replaced A's
+  marker after A dissociated its frame record."
+  [id expected-token]
+  (swap! destroying-frames
+         (fn [claims]
+           (if (identical? expected-token (get-in claims [id :token]))
+             (dissoc claims id)
+             claims))))
 
 (defn- tear-down-sub-cache!
   "Dispose every cached subscription reaction for the destroyed frame.
@@ -2995,7 +3050,8 @@
   (when-let [f (claim-frame-destroy! id expected-incarnation-token)]
       ;; `claim-frame-destroy!` records the DESTROYING incarnation's token (the
       ;; live record's `:drain-lock`) under that SAME lock, after revalidating
-      ;; the expected token. `frame-incarnation-closing?` can therefore tell
+      ;; the expected token.
+      ;; `frame-incarnation-closing?` can therefore tell
       ;; this teardown apart from a fresh same-id replacement that goes live
       ;; under the reused id before this destroy's `finally` clears the marker
       ;; (rf2-vxgfnd.94). `contains?`/keys keep the bare-id semantics the
@@ -3028,7 +3084,7 @@
        (binding [*destroying-frame-id*    id
                  *teardown-hook-failures* hook-failures]
         (try
-        (fire-on-destroy-event! id f)
+        (fire-on-destroy-event! id expected-incarnation-token f)
         ;; Step 2 rides the SAME best-effort boundary as the later
         ;; `safe-call-hook!` steps (rf2-jt47s0). `notify-machine-destruction!`'s
         ;; `teardown!` hook call, its fallback `:rf.machine.lifecycle/destroyed`
@@ -3216,10 +3272,10 @@
                 (try
                   (emit-report id failures (interop/now-ms))
                   (catch #?(:clj Throwable :cljs :default) _ nil)))))
-          ;; Always clear the in-flight marker — even if a downstream step
-          ;; throws unexpectedly, future `destroy-frame!` calls for `id`
-          ;; (after a fresh construction) must not see a stale entry.
-          (swap! destroying-frames dissoc id)))))))))
+          ;; Compare-remove only this incarnation's in-flight marker. A fresh
+          ;; same-id incarnation may have replaced it after `dissoc-frame!`;
+          ;; stale A's finally must never erase B's claim.
+          (release-frame-destroy-claim! id expected-incarnation-token)))))))))
 
 ;; ---- reset-frame! — RETIRED (rf2-lxwpob) -----------------------------------
 ;;

@@ -9,13 +9,15 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
+            [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
             [re-frame.source-store :as source-store]
             [re-frame.flows :as flows]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]))
+            [re-frame.trace :as trace])
+  (:import [java.util.concurrent CountDownLatch TimeUnit]))
 
 (defn reset-runtime [test-fn]
   (registrar/clear-all!)
@@ -32,6 +34,15 @@
   (test-fn))
 
 (use-fixtures :each reset-runtime)
+
+(defn- executor-barrier!
+  "Wait until work already submitted through `interop/next-tick` has run.
+  The JVM executor is single-threaded FIFO; the timeout is only a hang guard."
+  []
+  (let [latch (CountDownLatch. 1)]
+    (interop/next-tick #(.countDown latch))
+    (is (.await latch 5 TimeUnit/SECONDS)
+        "the executor reached the deterministic barrier")))
 
 ;; ---- Spec 002 §Re-registration — surgical update -------------------------
 
@@ -934,6 +945,259 @@
       ;; (e) Frame stays gone.
       (is (nil? (frame/frame :rf2-dpny/worker))
           "the frame did not somehow re-materialise from the post-destroy drain"))))
+
+(deftest destroy-claim-prevents-cold-release-from-running-queued-handlers
+  (testing "the destroy claim is the queued-work cutoff, before lifecycle-dead publication"
+    (let [frame-id       :destroy-claim/cold-release
+          parent-runs    (atom 0)
+          child-runs     (atom 0)
+          user-effects   (atom 0)
+          captured-ticks (atom [])
+          gap-observation (atom nil)
+          original-hook  (late-bind/get-fn :ui/on-frame-destroyed!)]
+      (rf/make-frame {:id frame-id})
+      (rf/reg-fx :destroy-claim/effect
+        (fn [_ _] (swap! user-effects inc)))
+      (rf/reg-event :destroy-claim/child
+        (fn [{:keys [db]} _]
+          (swap! child-runs inc)
+          {:db (assoc db :child-ran? true)}))
+      (rf/reg-event :destroy-claim/queued
+        (fn [{:keys [db]} _]
+          (swap! parent-runs inc)
+          {:db (assoc db :queued-handler-ran? true)
+           :fx [[:destroy-claim/effect :payload]
+                [:dispatch [:destroy-claim/child]]]}))
+
+      ;; Queue two events while suppressing their first scheduled drain. The
+      ;; destroy claim must both suppress a replacement kick from its COLD
+      ;; serialized release and fence this not-yet-fired original attempt.
+      (with-redefs [interop/next-tick
+                    (fn [f]
+                      (swap! captured-ticks conj f)
+                      nil)]
+        (rf/dispatch [:destroy-claim/queued] {:frame frame-id})
+        (rf/dispatch [:destroy-claim/queued] {:frame frame-id}))
+      (is (= 1 (count @captured-ticks))
+          "the initial dispatch pair scheduled one drain attempt")
+      (is (= 2 (count (:queue @(:router (frame/frame frame-id)))))
+          "both events are queued before destroy starts")
+
+      ;; `:ui/on-frame-destroyed!` runs after claim-frame-destroy! has returned
+      ;; (and therefore after the cold lock release) but before
+      ;; mark-frame-destroyed!. Its FIFO executor barrier forces the captured
+      ;; drain to finish inside that exact claim -> lifecycle-dead window.
+      (try
+        (late-bind/set-fn!
+          :ui/on-frame-destroyed!
+          (fn [id]
+            (when original-hook
+              (original-hook id))
+            (when (= frame-id id)
+              ;; Submit the drain attempt captured at enqueue time only AFTER
+              ;; claim-frame-destroy! has released the cold lock. This covers
+              ;; the path where that attempt had not yet CAS-lost when claim
+              ;; completed; the claim predicate, not scheduling luck, must
+              ;; prevent it from invoking either queued handler.
+              ;; `next-tick` deliberately conveys dynamic bindings through
+              ;; `bound-fn`. Scheduling from this teardown hook therefore also
+              ;; proves that owner privilege is ACTUAL host-thread identity,
+              ;; not the conveyed `*destroying-frame-id*` value.
+              (interop/next-tick (first @captured-ticks))
+              (executor-barrier!)
+              (let [record (get @frame/frames frame-id)]
+                (reset! gap-observation
+                        {:destroyed? (-> record :lifecycle :destroyed?)
+                         :queued     (count (:queue @(:router record)))})))))
+        (rf/destroy-frame! frame-id)
+        (finally
+          (late-bind/set-fn! :ui/on-frame-destroyed! original-hook)))
+
+      (is (= 0 @parent-runs)
+          "queued handlers are no-op as soon as this incarnation's destroy is claimed")
+      (is (= 0 @user-effects)
+          "a dropped queued handler cannot emit user effects")
+      (is (= 0 @child-runs)
+          "a dropped queued handler cannot enqueue or run child dispatches")
+      (is (= {:destroyed? false :queued 0} @gap-observation)
+          "the queued drain was disposed while the frame was claimed but still lifecycle-live")
+      (is (nil? (frame/frame frame-id))
+          "destroy still completes after the claim-window barrier"))))
+
+(deftest post-claim-dispatch-is-rejected-before-lifecycle-dead-publication
+  (testing "ordinary work submitted after claim cannot run in the claim-to-dead gap"
+    (let [frame-id        :destroy-claim/post-claim-dispatch
+          parent-runs     (atom 0)
+          child-runs      (atom 0)
+          user-effects    (atom 0)
+          captured-ticks  (atom [])
+          gap-observation (atom nil)
+          original-hook   (late-bind/get-fn :ui/on-frame-destroyed!)]
+      (rf/make-frame {:id frame-id})
+      (rf/reg-fx :destroy-claim/post-claim-effect
+        (fn [_ _] (swap! user-effects inc)))
+      (rf/reg-event :destroy-claim/post-claim-child
+        (fn [{:keys [db]} _]
+          (swap! child-runs inc)
+          {:db (assoc db :post-claim-child-ran? true)}))
+      (rf/reg-event :destroy-claim/post-claim-parent
+        (fn [{:keys [db]} _]
+          (swap! parent-runs inc)
+          {:db (assoc db :post-claim-parent-ran? true)
+           :fx [[:destroy-claim/post-claim-effect :payload]
+                [:dispatch [:destroy-claim/post-claim-child]]]}))
+
+      (try
+        (late-bind/set-fn!
+          :ui/on-frame-destroyed!
+          (fn [id]
+            (when original-hook
+              (original-hook id))
+            (when (= frame-id id)
+              ;; This hook runs strictly AFTER `claim-frame-destroy!` returns
+              ;; and BEFORE `mark-frame-destroyed!` flips lifecycle liveness.
+              ;; Submit genuinely NEW ordinary work here, capture its scheduled
+              ;; drain, then force that drain through the real bound-fn executor
+              ;; before allowing teardown to advance.
+              (with-redefs [interop/next-tick
+                            (fn [f]
+                              (swap! captured-ticks conj f)
+                              nil)]
+                (rf/dispatch [:destroy-claim/post-claim-parent]
+                             {:frame frame-id}))
+              (is (= 1 (count @captured-ticks))
+                  "the post-claim submit schedules one real-router drain")
+              (is (= 1 (count (:queue @(:router (get @frame/frames frame-id)))))
+                  "the ordinary envelope was enqueued after the claim cutoff")
+              (interop/next-tick (first @captured-ticks))
+              (executor-barrier!)
+              (let [record (get @frame/frames frame-id)]
+                (reset! gap-observation
+                        {:destroyed? (-> record :lifecycle :destroyed?)
+                         :queued     (count (:queue @(:router record)))})))))
+        (rf/destroy-frame! frame-id)
+        (finally
+          (late-bind/set-fn! :ui/on-frame-destroyed! original-hook)))
+
+      (is (zero? @parent-runs)
+          "the post-claim ordinary handler never runs")
+      (is (zero? @user-effects)
+          "a rejected post-claim handler cannot emit user effects")
+      (is (zero? @child-runs)
+          "a rejected post-claim handler cannot enqueue or run children")
+      (is (= {:destroyed? false :queued 0} @gap-observation)
+          "the claim predicate emptied the real queue while lifecycle was still live")
+      (is (nil? (frame/frame frame-id)) "destroy completes after the gap proof"))))
+
+(deftest on-destroy-cascade-is-isolated-from-preclaim-and-bound-work
+  (testing "only the cleanup seed and its queued descendants run after claim"
+    (let [frame-id        :destroy-claim/isolated-cleanup
+          ordinary-runs   (atom 0)
+          cleanup-runs    (atom 0)
+          child-runs      (atom 0)
+          effect-runs     (atom 0)
+          escaped-runs    (atom 0)
+          nested-sync-runs (atom 0)
+          captured-ticks  (atom [])]
+      (rf/make-frame {:id frame-id
+                      :on-destroy [:destroy-claim/cleanup]})
+      (rf/reg-event :destroy-claim/ordinary
+        (fn [{:keys [db]} _]
+          (swap! ordinary-runs inc)
+          {:db (assoc db :ordinary-ran? true)}))
+      (rf/reg-event :destroy-claim/escaped
+        (fn [{:keys [db]} _]
+          (swap! escaped-runs inc)
+          {:db (assoc db :escaped-ran? true)}))
+      (rf/reg-event :destroy-claim/nested-sync
+        (fn [{:keys [db]} _]
+          (swap! nested-sync-runs inc)
+          {:db (assoc db :nested-sync-ran? true)}))
+      (rf/reg-event :destroy-claim/cleanup-child
+        (fn [{:keys [db]} _]
+          (swap! child-runs inc)
+          {:db (assoc db :cleanup-child-ran? true)}))
+      (rf/reg-fx :destroy-claim/cleanup-effect
+        (fn [_ _] (swap! effect-runs inc)))
+      (rf/reg-event :destroy-claim/cleanup
+        (fn [{:keys [db]} _]
+          (swap! cleanup-runs inc)
+          ;; `next-tick` captures dynamic bindings with `bound-fn` on JVM.
+          ;; Force the callback to run while the claim is still live: actual
+          ;; host-thread identity must keep it out of the private cleanup queue.
+          (interop/next-tick
+            #(rf/dispatch [:destroy-claim/escaped] {:frame frame-id}))
+          (executor-barrier!)
+          ;; The internal teardown entry is narrow; it must not turn generic
+          ;; nested dispatch-sync into a legal handler operation.
+          (rf/dispatch-sync [:destroy-claim/nested-sync] {:frame frame-id})
+          {:db db
+           :fx [[:destroy-claim/cleanup-effect :payload]
+                [:dispatch [:destroy-claim/cleanup-child]]]}))
+
+      ;; Hold one ordinary event in the real router. It linearizes before the
+      ;; destroy claim but must never sit behind the cleanup seed.
+      (with-redefs [interop/next-tick
+                    (fn [f]
+                      (swap! captured-ticks conj f)
+                      nil)]
+        (rf/dispatch [:destroy-claim/ordinary] {:frame frame-id}))
+      (is (= 1 (count (:queue @(:router (frame/frame frame-id)))))
+          "ordinary pre-claim work is waiting on the real router")
+
+      (rf/destroy-frame! frame-id)
+      ;; Flush both the bound callback's real-router drain and the original
+      ;; pre-claim drain attempt. Neither may invoke application work.
+      (doseq [tick @captured-ticks] (tick))
+      (executor-barrier!)
+
+      (is (= 1 @cleanup-runs) ":on-destroy seed runs exactly once")
+      (is (= 1 @child-runs) "queued cleanup child runs on the isolated cascade")
+      (is (= 1 @effect-runs) "cleanup effects execute normally")
+      (is (zero? @ordinary-runs) "pre-claim ordinary work is discarded")
+      (is (zero? @escaped-runs)
+          "bound-fn executor work cannot inherit teardown authority")
+      (is (zero? @nested-sync-runs)
+          "generic nested dispatch-sync remains rejected during cleanup")
+      (is (nil? (frame/frame frame-id)) "teardown completes"))))
+
+(deftest destroy-from-active-handler-runs-cleanup-and-cuts-off-old-queue
+  (testing "self-destroy has one private cleanup cascade inside the active drain"
+    (let [frame-id      :destroy-claim/inside-handler
+          cleanup-runs  (atom 0)
+          ordinary-runs (atom 0)
+          captured-ticks (atom [])]
+      (rf/make-frame {:id frame-id
+                      :on-destroy [:destroy-claim/inside-cleanup]})
+      (rf/reg-event :destroy-claim/inside-cleanup
+        (fn [_ _]
+          (swap! cleanup-runs inc)
+          {}))
+      (rf/reg-event :destroy-claim/inside-ordinary
+        (fn [_ _]
+          (swap! ordinary-runs inc)
+          {}))
+      (rf/reg-event :destroy-claim/self-destroy
+        (fn [_ _]
+          (frame/destroy-frame! frame-id)
+          {}))
+
+      ;; Queue old work without letting its async drain start, then prepend a
+      ;; synchronous destroying event. The handler already owns the real
+      ;; router's drain serialization when destroy-frame! enters.
+      (with-redefs [interop/next-tick
+                    (fn [f]
+                      (swap! captured-ticks conj f)
+                      nil)]
+        (rf/dispatch [:destroy-claim/inside-ordinary] {:frame frame-id}))
+      (rf/dispatch-sync [:destroy-claim/self-destroy] {:frame frame-id})
+      (doseq [tick @captured-ticks] (tick))
+
+      (is (= 1 @cleanup-runs)
+          "the internal cleanup seed runs despite generic nested-sync rejection")
+      (is (zero? @ordinary-runs)
+          "the pre-existing queue is cut off by the handler's destroy claim")
+      (is (nil? (frame/frame frame-id)) "self-destroy completes exactly once"))))
 
 (deftest replace-container-on-destroyed-frame-does-not-npe
   ;; Tighter reproducer that hits the adapter guard directly via the
