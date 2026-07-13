@@ -427,8 +427,9 @@ Props compare by value (`rf=`, per slot) to decide re-renders:
   re-render and assert; no flush call needed. On CLJS, Tier-3 `with-root`
   and both `(flush!)` / `(flush! thunk)` return Promises. `with-root` awaits
   initial mount, the body value/Promise, and total teardown; prefer the thunk
-  flush so the write runs inside direct React 19 `act`, then await the one
-  Promise through the framework/React fixed point. In `cljs.test`, use
+  flush so the write runs inside direct React 19 `act`, reaches drain
+  quiescence, and then awaits the one Promise through the framework/React
+  fixed point. In `cljs.test`, use
   `async done` and explicit `.then` success + rejection callbacks — never a
   bare returned Promise. Await before asserting or beginning another mounted
   operation; otherwise `:rf.error/ui-test-overlapping-act` fails loudly.

@@ -9,7 +9,7 @@ work.
 
 | # | Workstream | Scope highlights | Stage |
 |---|---|---|---|
-| W1 | **Migrator tool** | The doc-10 mechanical rewriter (Form-1→defview + call-site map-args, deref-drop, dispatch-lifting with body-proof, key-meta→prop, `[:>`→direct head), D-tier flagging. Repo migration is its first consumer; ships with the skill. | build Stage 3–4; used 5–6 |
+| W1 | **Migrator tool** | The doc-10 mechanical rewriter (Form-1→defview + call-site map-args, deref-drop, dispatch-lifting with body-proof, key-meta→prop, `[:>`→direct head), D-tier flagging. Repo migration is its first consumer; ships with the skill. | Stage 6 (build + first repo consumer) |
 | W2 | **Migration skill** | Extend `skills/re-frame-migration` with the Reagent→`re-frame.ui` path — generic to any consumer app (mechanism first; repo specifics as examples); teaches the D/R tiers the migrator flags. | Stage 5–6 |
 | W3 | **docs/guide rewrite** | `docs/core/*` view surfaces (views, frames, introduction counter, forms, secrets how-to), delete `use-uix-helix-or-slim.md`, glossary, `docs/api/*`, **playground rebuild + smoke**. Synthesis `guide/` is the seed. `mkdocs --strict` gates. | Stage 5–6 |
 | W4 | **Examples** | `core`/`capabilities`/`patterns`/`real-apps` migrate; `substrates/` **deleted** (its purpose was the trio). One RealWorld-resources vertical page at Stage 3; full app = Stage-6 gate; realworld-http follows as ordinary work. | 3 (slice), 5–6 |

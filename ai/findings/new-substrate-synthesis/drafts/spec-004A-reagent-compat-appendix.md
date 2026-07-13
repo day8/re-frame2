@@ -56,7 +56,8 @@ revisions is kept as **provenance only, never a normative home**.
   capability here is "rejected: freeze rule". ⟨reagent-compat-boundary §8;
   Conventions §Facade policy⟩
 - **No parity with `ui` features.** The compiled substrate's guarantees — memo by
-  default, the epoch/commit contract (one notification per cell per epoch,
+  default, the drain/commit contract (every queued write epoch executes, then at most
+  one notification per dirty cell in the post-quiescence batch),
   correct-before-paint), compiled HMR (stable shells, hook-signature analysis),
   Activity/presence semantics, the JVM structural subset — apply to `ui` cells only,
   never to frozen-tier components. This is stated honestly, not patched.

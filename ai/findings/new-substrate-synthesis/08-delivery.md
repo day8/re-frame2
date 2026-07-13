@@ -53,7 +53,7 @@ implementation).
    *Demand-bar table produced before this stage builds surface.*
 2. **re-frame2 ownership + HMR** — preflight ENSURE, ViewCell, observation targets,
    conditional subs, `rf=` stabilization, commit reconciliation, abandonment/disposal,
-   frame scope/provider, epoch coalescing, `flush!`, **the full HMR matrix (03 §10 —
+   frame scope/provider, drain-quiescence read/render batching, `flush!`, **the full HMR matrix (03 §10 —
    the guide sells hot reload on page one, so it ships with reactivity, not after
    SSR)**.
 3. **Committed host behavior + debugging as first consumer** — event vectors + scalar

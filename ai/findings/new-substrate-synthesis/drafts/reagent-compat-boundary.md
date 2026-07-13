@@ -71,7 +71,8 @@ components' own lifecycles) — so the inward door is speculative-render-safe un
 untouched: legacy components track their derefs and force-update through Reagent's own
 queue. One page therefore runs two render schedulers — Reagent's inside the embedded
 subtree, the `ui` commit machinery outside it. That is bounded by the boundary and
-stated honestly: the `ui` epoch/commit guarantees (one notification per epoch,
+stated honestly: the `ui` drain/commit guarantees (all queued writes executed, then at
+most one notification per dirty cell in one post-quiescence render batch with
 correct-before-paint) apply to `ui` cells only, never to embedded legacy components.
 ⟨03 §3, 08 §5 Adapters "no parity with `ui` features"⟩
 
@@ -163,9 +164,10 @@ foreign-boundary work; both doors exist before the repo migration needs them.
   rides the same shared-object confirmation as §2. ⟨rewrite Abstract pt 2, checked-in
   spec/006 §Frame-provider via React context⟩
 - **Ownership and scheduling.** The exported subtree participates fully in the `ui`
-  commit/epoch machinery of its frame: ViewCells attach at commit, one notification per
-  epoch, correct-before-paint. Multiple exported subtrees under one legacy root are
-  independent `ui` subtrees; epoch coalescing spans them normally. The legacy parent's
+  commit/drain machinery of its frame: ViewCells attach at commit, every queued write
+  epoch executes, and each dirty cell is notified once in the post-quiescence batch,
+  correct-before-paint. Multiple exported subtrees under one legacy root are independent
+  `ui` subtrees; drain batching spans them normally. The legacy parent's
   Reagent scheduling coexists outside them. ⟨03 §2–§3⟩
 
 **Props across the outward boundary.** The exported component reads props per the
