@@ -664,7 +664,7 @@
         (let [token (get-in @destroying-frames [id :token])]
           (and (some? token)
                (identical? token (:drain-lock f)))))
-    ;; Absent from the atom — destroy-frame!'s step 6 ran, OR the id
+    ;; Absent from the atom — destroy-frame!'s step 10 ran, OR the id
     ;; was never registered. The drain-loop caller only consults this
     ;; while a pass is already in flight, so the latter case cannot
     ;; arise from that seam.
@@ -2521,12 +2521,12 @@
   `safe-call-hook!` covers the optional late-bound cleanup hooks; this
   covers the ordered direct-call steps that would otherwise throw
   straight out of `destroy-frame!`'s `try` — notably
-  `notify-machine-destruction!` (step 2), whose `teardown!` hook call,
+  `notify-machine-destruction!` (step 3), whose `teardown!` hook call,
   fallback `:rf.machine.lifecycle/destroyed` trace emits, and
   trace-listener fan-out are all reachable throw sites (rf2-jt47s0). An
   unguarded throw there left the frame LIVE + HALF-TORN-DOWN
   (`:destroyed?` never flipped, sub-cache intact, record not dissoc'd) —
-  the `:on-destroy` (step 1) had already run, so a subsequent
+  the `:on-destroy` (step 2) had already run, so a subsequent
   `destroy-frame!` saw the still-live record and RE-RAN the whole recipe,
   re-firing the user `:on-destroy`. Guarding the step keeps teardown
   best-effort end-to-end. `step-key` labels the step in both channels."
@@ -2904,7 +2904,7 @@
 
   Both snapshots are captured BEFORE the frame is removed and passed
   explicitly so the epoch surface (which fires AFTER `dissoc-frame!`,
-  step 6) does not have to read a container that is already gone — reading it
+  step 10) does not have to read a container that is already gone — reading it
   there would yield nil-`:db-before` / nil-`:db-after` records.
 
   `committed-at` is the destroying event's causal `:rf/time-ms`
@@ -2918,15 +2918,15 @@
 (defn destroy-frame!
   "Tear down a frame. Per Spec 002 §Destroy, the ordered steps are:
 
-    0. claim-frame-destroy!         — claim the exact incarnation under its
+    1. claim-frame-destroy!         — claim the exact incarnation under its
                                       drain serialization, atomically cut the
                                       ordinary queue, and publish the cutoff
                                       before lifecycle-dead.
-    1. fire-on-destroy-event!       — run user :on-destroy and its same-frame
+    2. fire-on-destroy-event!       — run user :on-destroy and its same-frame
                                       descendants on the destroy-owned private
                                       queue while the claimed frame is still
                                       available to cleanup code.
-    2. notify-machine-destruction!  — per Spec 005 §Cross-Spec Interactions §1:
+    3. notify-machine-destruction!  — per Spec 005 §Cross-Spec Interactions §1:
                                       delegates to the machines artefact's
                                       `:machines/teardown-on-frame-destroy!`
                                       hook. That walks each
@@ -2942,7 +2942,7 @@
                                       Falls back to minimal HTTP-abort +
                                       trace when the machines artefact is
                                       absent.
-    2b. :ui/on-frame-destroyed!     — detach the compiled-view
+    4. :ui/on-frame-destroyed!      — detach the compiled-view
                                       (day8/re-frame2-ui) observers: every
                                       currently-connected ViewCell observing
                                       this frame transitions to :dead (03 §4)
@@ -2952,18 +2952,20 @@
                                       lifecycle rather than throwing
                                       :rf.error/frame-destroyed. No-op when
                                       the artefact is absent (rf2-vxgfnd.42).
-    3. mark-frame-destroyed!        — CAS-flip :lifecycle :destroyed? only
+    5. mark-frame-destroyed!        — CAS-flip :lifecycle :destroyed? only
                                       while the claimed incarnation token still
                                       matches, under that incarnation's
                                       :drain-lock.
-    4. tear-down-sub-cache!         — dispose every cached reaction
-                                      via the sub-cache-owned
+    6. reactive-state disposal      — dispose every cached reaction via the
+                                      sub-cache-owned
                                       `:subs.cache/dispose-all-for-
                                       frame-destroy!` hook, so each
                                       eviction emits `:rf.sub/dispose`
                                       with `:rf.sub/reason
-                                      :frame-destroy`.
-    *. cleanup hooks (best-effort, no-op when artefact absent):
+                                      :frame-destroy`; then dispose the app-db/
+                                      runtime-db partition projections whose
+                                      source watches the physical container.
+    7. cleanup hooks (best-effort, no-op when artefact absent):
          :elision/clear-warning-cache!      — reset schema-first elision
                                               warning cache.
          :ssr/on-frame-destroyed            — clear SSR side-channel
@@ -2991,13 +2993,18 @@
                                               (live fetch/future + sleeping
                                               backoff handles), reply-
                                               suppressed.
-    5. emit-frame-destroyed-trace!  — emit :frame/destroyed AFTER the
-                                      machine cascade.
-    6. dissoc-frame!                — remove from the `frames` atom. This IS
+         :fx/on-frame-destroyed!            — cancel + remove the frame's
+                                              pending :dispatch-later timers.
+    8. emit-frame-destroyed-trace!  — emit :frame/destroyed AFTER every
+                                      feature cleanup hook has completed.
+    9. trace-policy release         — clear the per-frame trace ring and the
+                                      frame-no-emit flag after the destroyed
+                                      trace has flowed.
+    10. dissoc-frame!               — remove from the `frames` atom. This IS
                                       the whole forget: the `frames` registry
                                       is the ONE store a seated frame lives in
                                       (rf2-h1vqa4 — no registrar row exists).
-    7. notify-epoch-listeners!      — fire the epoch hook so tools see
+    11. notify-epoch-listeners!     — fire the epoch hook so tools see
                                       :rf.epoch.cb/silenced-on-frame-destroy,
                                       threading the pre-run
                                       (`*run-frame-state-before*`) and
@@ -3067,14 +3074,14 @@
       ;; re-entrant guard + `frame-closing?` rely on.
       ;; Capture the DESTROY-TIME frame-state value AFTER the exact-incarnation
       ;; claim / ordinary-queue cutoff and BEFORE cleanup or lifecycle mutation.
-      ;; After `mark-frame-destroyed!` (step 3) flips :destroyed?,
-      ;; `frame-state-value` returns nil; after `dissoc-frame!` (step 6)
+      ;; After `mark-frame-destroyed!` (step 5) flips :destroyed?,
+      ;; `frame-state-value` returns nil; after `dissoc-frame!` (step 10)
       ;; the container is gone entirely. Reading it here yields the state
       ;; the partial run left the frame in at the moment destroy was
       ;; requested — the `:frame-state-after` slot the `:halted-destroy`
       ;; epoch record carries. The pre-run `:frame-state-before` rides the
       ;; router-bound `*run-frame-state-before*` dynamic var (nil outside a
-      ;; drain). Both are passed to `notify-epoch-listeners!` (step 7): the
+      ;; drain). Both are passed to `notify-epoch-listeners!` (step 11): the
       ;; whole frame-state, both partitions.
       (let [run-fs-before *run-frame-state-before*
             ;; The destroying event's causal `:time-ms`, bound by
@@ -3095,7 +3102,7 @@
                  *teardown-hook-failures* hook-failures]
         (try
         (fire-on-destroy-event! id expected-incarnation-token f)
-        ;; Step 2 rides the SAME best-effort boundary as the later
+        ;; Step 3 rides the SAME best-effort boundary as the later
         ;; `safe-call-hook!` steps (rf2-jt47s0). `notify-machine-destruction!`'s
         ;; `teardown!` hook call, its fallback `:rf.machine.lifecycle/destroyed`
         ;; trace emits, and the trace-listener fan-out are all reachable throw
@@ -3167,7 +3174,7 @@
         ;; per-request frame churn grows the flow registry unboundedly.
         ;; This hook does NOT scrub the frame's flow-output elision marks:
         ;; those live in the runtime-db partition INSIDE the
-        ;; `:frame-state` container, which `dissoc-frame!` (step 6 below)
+        ;; `:frame-state` container, which `dissoc-frame!` (step 10 below)
         ;; drops wholesale with the frame record — a per-flow scrub here
         ;; would be redundant work over about-to-be-GC'd state, and a reused
         ;; frame-id gets a fresh empty container so no stale flow-sourced

@@ -4,7 +4,8 @@
 
   The router maintains a per-frame FIFO queue. Dispatch appends to the
   back; the drain loop dequeues, runs the handler, applies effects, and
-  loops until the queue empties. Run-to-completion is locked: every event
+  loops until the queue empties or a terminal depth/destroy boundary halts it.
+  Run-to-completion is locked: every event
   dispatched synchronously during a drain normally settles to fixed point
   before any further external event is processed for that frame, and before
   any view re-renders. A depth halt or successful exact-incarnation destroy
@@ -2924,7 +2925,7 @@
   Per rf2-9neiq: this seam NO LONGER commits the `:halted-destroy` epoch
   record. That record is owned by a single site — the epoch destroy hook
   (`re-frame.epoch.listeners/on-frame-destroyed!`), invoked synchronously
-  from `frame/destroy-frame!` (step 8) the instant the handler destroyed
+  from `frame/destroy-frame!` (step 11) the instant the handler destroyed
   its own frame. That site carries the run's harvested buffer AND the
   pre-run / destroy-time frame-state snapshots (threaded via
   `frame/*run-frame-state-before*` + the destroy-time container read), so it

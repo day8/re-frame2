@@ -1848,7 +1848,7 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
                          (count @(:queue (:router frame))))]
           (reset! (:queue (:router frame)) (clojure.lang.PersistentQueue/EMPTY))
           (trace! :rf.frame/drain-interrupted
-                  {:frame (:id frame) :dropped dropped}))
+                  {:frame (:id frame) :dropped-count dropped}))
         (throw ::halt))
       ;; `>=` not `>`: `:drain-depth` is the MAX number of events a single
       ;; drain processes. The loop enters with `depth` = the
