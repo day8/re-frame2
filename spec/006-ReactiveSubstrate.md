@@ -1298,14 +1298,14 @@ mark of the drain, cannot run until the synchronous drain unwinds, so it fires s
 **after** drain quiescence — at the event loop's microtask checkpoint, which runs
 **before** the next paint — never between two queued events of the same drain, and always
 before a torn frame can show (rf2-vxgfnd.40). The headless (JVM/SSR) host has no async
-render loop and drains via the explicit `flush!` idiom. `flush-render!` (and the test flush built on it) closes the render batch
-**before** React renders; a re-entrant `flushSync`-style forcing into an open drain is a
-dev error carrying epoch evidence (`:rf.error/flush-in-open-epoch`, dev tier — catalogue
-row required per
-[009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) when the
-render-batch phase lands with the ViewCell layer, Stage 2b/2c). This phase is
-adapter-internal: it adds no public contract fn and does not alter `flush-render!`'s
-public signature or semantics.
+render loop and drains through the explicit test flush. `ui.test/flush!` drains the
+framework registry to quiescence under React `act`, then lets React settle the one
+read/render batch; it is the sole public test flush and has no public `re-frame.ui`
+twin. A call while an event drain is still open throws
+`:rf.error/flush-in-open-epoch` before notifications or host work, carrying the active
+`:frame` and `:frame-epoch` (per
+[009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)). The
+adapter's distinct production/tooling `flush-render!` contract is unchanged.
 
 ## What happens when a sub references an unknown sub
 

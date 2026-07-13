@@ -193,10 +193,11 @@ At layout commit, for the committed capture only:
    React corrects **before paint**.
 
 Notifications are constant-work (mark stale with target/version/epoch/cause — never
-execute a prop-dependent query, I-5). Epoch close flushes each dirty cell once;
-drain→React is microtask-aligned; `flush-render!`/`ui.test/flush!` close the framework
-epoch before React renders (re-entrant `flushSync` into an open epoch is a dev error
-with epoch evidence).
+execute a prop-dependent query, I-5). Every queued event completes its write side in
+the run-to-completion drain; only at drain quiescence are dirty cells advanced once and
+React given one read/render batch. The automatic path is microtask-aligned;
+`ui.test/flush!` forces the same quiescent boundary under `act`. Calling it from an open
+drain is a typed dev/test error with frame + epoch evidence.
 
 **The synchrony exception:** controlled-input sites drain synchronously within the DOM
 event (02 §3 — the one sanctioned sync door; caret/IME correctness over batching

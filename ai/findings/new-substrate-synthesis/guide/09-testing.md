@@ -56,7 +56,7 @@ real registrations, no React:
   `frame`, `dispatch!` — is Stage 1, shipped. `query` exists today only as the enforced
   Tier-3 counterpart — every call raises the typed tier error until mounted roots
   arrive. A Tier-1 render that crosses a `sub` site rides S2's snapshot path; the
-  Tier-3 mount surface — `with-root`, `flush!`, `simulate!` — lands S2;
+  Tier-3 mount surface — `with-root`, `query`, and `flush!` — lands S2;
   `flush-presence!` lands S4.)*
 
 ## Tier 2 — dataflow tests (unchanged re-frame2)
@@ -67,12 +67,15 @@ The view tier above assumes this tier exists — don't test business logic throu
 ## Tier 3 — mounted tests, when the DOM is the point
 
 For focus, IME, foreign widgets — the things only a real mount exercises *(this mounted
-surface — `with-root`, `flush!`, `simulate!` — lands S2)*:
+surface — `with-root`, `query`, and `flush!` — lands S2)*:
 
 ```clojure
 (ui.test/with-root [root [ui/frame-root {:id :t} [search-box]]]
   (ui.test/flush!)                            ; act + epoch drain + commit, deterministic
-  (ui.test/simulate! root {:input "hats"})
+  (let [input (ui.test/query root "input")]
+    (set! (.-value input) "hats")
+    (.dispatchEvent input
+                    (js/InputEvent. "input" #js {:bubbles true :data "hats"})))
   (ui.test/flush!)
   (is (= "hats" (.-value (ui.test/query root "input")))))
 ```
@@ -81,6 +84,8 @@ surface — `with-root`, `flush!`, `simulate!` — lands S2)*:
 synchronously. There is no second flush idiom, no `setTimeout` in tests, no "wait for the
 next tick" folklore. Mount teardown between cases is total — the substrate can be reset
 with zero retained instances (that's a library CI gate, so you can rely on it).
+DOM mechanics use ordinary platform APIs (`dispatchEvent`, `InputEvent`, `MouseEvent`,
+focus, selection); there is no library gesture language to learn or debug.
 
 (Presence transitions advance with `(ui.test/flush-presence!)` — no wall-clock sleeps.
 *Lands S4, with presence.*)

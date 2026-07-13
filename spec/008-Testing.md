@@ -633,11 +633,17 @@ node)` is a *field* miss, never an attribute read — owned by
 [004B-UI-Tree-and-Conversion.md](004B-UI-Tree-and-Conversion.md) §Projections and the
 selector grammar in 004D.
 
-**Flush semantics (staged).** `ui.test/flush!` is the **only** test flush for compiled
-views (it drains the frame and advances the epoch); `dispatch!` / `simulate!` land with
-the S2 reactivity slice, `flush-presence!` (fake-clock transition advance, no wall-clock
-sleeps) with the S4 presence slice. Flushing inside an open epoch is
-`:rf.error/flush-in-open-epoch`.
+**Mounted semantics.** `with-root` owns a real React root in a connected test container
+and tears down the root and container on every exit. `query` delegates a native CSS
+string to that container's `querySelector`. Tests drive DOM mechanics with ordinary DOM
+properties and `dispatchEvent`; there is no gesture DSL.
+
+`ui.test/flush!` is the **only** public test flush for compiled views. It drains all
+pending framework work to quiescence under React `act`, allowing each drain's complete
+write side to settle before one read/render batch; React commits are settled before it
+returns. There is no public production `re-frame.ui/flush!`. `flush-presence!`
+(fake-clock transition advance, no wall-clock sleeps) lands with S4 presence. Flushing
+inside an open event drain throws `:rf.error/flush-in-open-epoch` before any render.
 
 **The `.cljc` authoring constraint.** A Tier-1 headless test renders on the JVM, so the
 events and subs the view under test touches **must be `.cljc`** (reader-conditional

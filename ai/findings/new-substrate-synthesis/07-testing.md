@@ -27,10 +27,13 @@ suite + one smoke** (08 §5 Adapters) — two named suites, not one.
 | `(text node)` / `(attrs node)` | projections |
 | `(frame opts)` | mint a test frame (app-db seed, registrations from the loaded namespaces) |
 | `(dispatch! frame event)` | real dispatch + drain |
-| `(with-root [r root-form] …)` | Tier-3 mount with total teardown |
-| `(flush!)` | act + epoch drain + commit — the only flush idiom. **Q51 alignment (ruled, S2d / rf2-vxgfnd.10, 2026-07-12):** flush scope is **per-root** — `ui/flush!` (public, lands with the S2f root registry) flushes the calling root's pending commit work; a frame arity flushes the roots observing that frame; the **global all-roots drain is exactly this `ui.test/flush!` spelling, test-only**. `flush!` during an open epoch is the dev error `:rf.error/flush-in-open-epoch` (throw + 009 row land S2f per the catalogue↔throw ratchet) |
+| `(with-root [r root-form] …)` | Tier-3 real React mount in a connected test-owned container, with total teardown on every exit |
+| `(flush!)` | drain framework work to quiescence under React `act`, then settle the commit — the sole public test flush. It is global across test roots; there is no public production `ui/flush!`. `flush!` during an open event drain is the typed dev/test error `:rf.error/flush-in-open-epoch` |
 | `(flush-presence!)` | advance presence transitions without wall-clock (02 §7) |
-| `(simulate! root gesture)` | Tier-3 DOM events, used only when DOM mechanics are the subject |
+
+Tier-3 events use the platform directly: set DOM properties and call
+`dispatchEvent` with the native event type/options the behavior needs. No gesture DSL
+sits between a test and the browser.
 
 Naming is uniform everywhere. **The `.cljc` constraint is stated:** Tier-1 requires the
 events/subs a view touches to be `.cljc` — an authoring constraint the guide teaches,

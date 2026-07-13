@@ -94,25 +94,14 @@
   ViewCell notification and one React render for the whole batch —
   G-5/G-13) is wired with the bench in S2f, not here.
 
-  `flush!` — the SYNCHRONOUS forcing of pending notifications — is SCOPED
-  over that registry. The Q51 scope ruling, PINNED here:
+  SYNCHRONOUS forcing is scoped over that registry:
 
-    - `flush!` is PER-ROOT at the public boundary: it flushes the CALLING
-      root's pending commit work. The substrate primitive is a scoped
-      drain (`flush-scope!`), and the natural scope the substrate owns is
-      the FRAME — a dirty cell's pending work belongs to the frame(s) its
-      committed sites observe. Root scope COMPOSES over frame scope (a
-      root scopes ≥1 frame); the root→frames resolution lives in the
-      client root registry (where roots live — off this artefact's
-      surface), so the ROOT-spelled public `ui/flush!` / `flush-render!`
-      wires there (S2f). The substrate mechanism + the frame-scoped and
-      global spellings land HERE.
-    - `(flush-frame! frame-id)` — the frame arity — flushes every root
+    - `(flush-frame! frame-id)` — the internal frame scope — flushes every root
       observing that frame (each dirty cell whose committed deps include
       the frame).
     - the GLOBAL all-roots flush is the TEST-ONLY `ui.test/flush!`
-      spelling (`flush-pending!` here). There is no app-facing global
-      flush — an app forces its own root, never every root.
+      spelling (`flush-pending!` here). It is the sole public test flush;
+      there is no public production `re-frame.ui/flush!`.
 
   A scoped flush leaves out-of-scope cells pending — no epoch work leaks
   across roots. Flush is reentrancy-SAFE BY CONSTRUCTION: `flush-scope!`
@@ -121,10 +110,8 @@
   double-advance a cell. The DEV-tier `:rf.error/flush-in-open-epoch`
   signal — the DX guard naming a re-entrant flushSync-into-an-open-epoch
   misuse (03 §11; Spec 006 §Epoch finalization) — is REFERENCED, not
-  emitted, here: its typed throw lands with its Spec 009 catalogue row in
-  the S2f 009 batch (the catalogue↔throw co-edit ratchet couples them,
-  and the reentrancy it guards is only reachable once mounted Tier-3
-  roots land).
+  emitted by `ui.test/flush!`, before this registry is touched, with the
+  Spec 009 catalogue row carrying the active frame + frame epoch.
 
   ## The slice-scoped probe memo (S2d item 3 — 03 §3; Spec 006 §The
   slice-scoped probe memo)

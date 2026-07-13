@@ -426,7 +426,8 @@ Props compare by value (`rf=`, per slot) to decide re-renders:
 - `dispatch!` drives Tier-1 state: real dispatch + drain to fixed point —
   re-render and assert; no flush call needed. `flush!` (act + epoch drain +
   commit; this global spelling is test-only) belongs to the Tier-3 mounted
-  vocabulary with `with-root` + `query` (native CSS) + `simulate!`;
+  vocabulary with `with-root` + `query` (native CSS) + ordinary DOM
+  `dispatchEvent` calls;
   `flush-presence!` advances presence ⏳S4. Reach for Tier-3 only when DOM
   mechanics are the subject.
 - **The `.cljc` law:** Tier-1 requires the events/subs a view touches to be

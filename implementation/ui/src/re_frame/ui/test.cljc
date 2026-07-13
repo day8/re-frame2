@@ -39,10 +39,11 @@
   above. Handing a CSS string to `find`, a structural tree to `query`,
   or a DOM element to `attrs`/`text` is a typed error
   (`:rf.error/ui-test-tier-mismatch`) pointing at the other tier.
-  Tier-3 mounting (`with-root` / `simulate!`, and `flush!`'s React-`act`
-  half) lands with the mount/reactivity slices (S1c/S2) — `query` has no
-  live behaviour yet; `flush!`'s host-agnostic epoch-drain half is landed
-  (S2d, the global spelling of the Q51 flush scope ruling).
+  Tier-3 mounting is deliberately small: `with-root` owns one real React
+  mount with total teardown, `query` delegates a native CSS selector to
+  that root's container, ordinary DOM APIs dispatch events, and `flush!`
+  drains framework work to quiescence under React `act`. There is no
+  gesture DSL and no production `re-frame.ui/flush!` twin.
 
   ## JVM semantics under test (06 §1 subset)
 
@@ -66,7 +67,10 @@
             #?@(:clj [[re-frame.ui.compiler.emit-jvm :as emit-jvm]
                       [re-frame.ui.compiler.env :as env]
                       [re-frame.ui.compiler.root :as root]
-                      [re-frame.ui.tree :as tree]])))
+                      [re-frame.ui.tree :as tree]]
+                :cljs [["react" :as React]
+                       [re-frame.ui :as ui]
+                       [re-frame.ui.client :as client]])))
 
 ;; ---------------------------------------------------------------------------
 ;; Typed-error helpers (Spec 009 thrown-error shape; ids catalogued)
@@ -382,8 +386,145 @@
       (into [] (filter pred) (find-tree-seq 'rf.ui.test/find-all tree)))))
 
 ;; ---------------------------------------------------------------------------
-;; query — Tier 3 by contrast (no live behaviour until the mount slice)
+;; Mounted Tier 3 — one opaque root, one native query, total ownership
 ;; ---------------------------------------------------------------------------
+
+#?(:cljs (deftype ^:private MountedRoot [host-root container live?]))
+
+#?(:cljs
+   (defn- mounted-root? [x]
+     (instance? MountedRoot x)))
+
+(defn- mounted-unavailable!
+  [where got]
+  (tier-mismatch!
+   where
+   #?(:clj  (str "Tier-3 mounted tests require a browser/jsdom host — the "
+                 "JVM surface is Tier-1 structural render + find/find-all")
+      :cljs (str "Tier-3 mounted tests require a live DOM host and a root "
+                 "created by ui.test/with-root"))
+   {:got got :other-tier 'rf.ui.test/find}))
+
+#?(:cljs
+   (defn- get-act []
+     (or (when (exists? (.-act React)) (.-act React))
+         (try
+           (.-act (js/require "react-dom/test-utils"))
+           (catch :default _ nil)))))
+
+#?(:cljs
+   (defn- act!
+     "Run synchronous mounted-test work under React's supported test
+     boundary while preserving the caller's act-environment flag."
+     [thunk]
+     (let [act-fn (get-act)]
+       (when-not act-fn
+         (mounted-unavailable! 'rf.ui.test/flush! :react-act-unavailable))
+       (let [prior  (.-IS_REACT_ACT_ENVIRONMENT js/globalThis)
+             result (volatile! nil)]
+         (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
+         (try
+           (act-fn (fn [] (vreset! result (thunk))))
+           @result
+           (finally
+             (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) prior)))))))
+
+#?(:cljs
+   (defn- remember-first-error!
+     [slot thunk]
+     (try
+       (thunk)
+       (catch :default e
+         (when-not @slot (vreset! slot e))))))
+
+#?(:cljs
+   (defn- with-root*
+     "Runtime owner for the `with-root` macro. The container is attached to
+     `document.body` so focus/selection/layout-sensitive DOM APIs see a real
+     connected tree. Every exit attempts host unmount, container removal,
+     and act-environment restoration; cleanup never masks the primary mount
+     or body failure."
+     [create-f render-f body-f]
+     (when-not (exists? js/document)
+       (mounted-unavailable! 'rf.ui.test/with-root :no-dom-host))
+     (let [container     (js/document.createElement "div")
+           host-root     (volatile! nil)
+           mounted-root  (volatile! nil)
+           result        (volatile! nil)
+           primary-error (volatile! nil)
+           cleanup-error (volatile! nil)
+           prior-act-env (.-IS_REACT_ACT_ENVIRONMENT js/globalThis)]
+       (.setAttribute container "data-rf-ui-test-root" "")
+       (.appendChild js/document.body container)
+       (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
+       (try
+         ;; Capture the Root inside the callback: React can surface a render
+         ;; failure at the act boundary after the mount thunk returned.
+         (act! #(let [root (create-f container)]
+                  ;; Creation registers the host root before render. Capture
+                  ;; it first so a throwing initial render is still torn down.
+                  (vreset! host-root root)
+                  (render-f root)))
+         (vreset! mounted-root
+                  (MountedRoot. @host-root container (atom true)))
+         (vreset! result (body-f @mounted-root))
+         (catch :default e
+           (vreset! primary-error e))
+         (finally
+           (when-let [^MountedRoot r @mounted-root]
+             (reset! (.-live? r) false))
+           (when @host-root
+             (remember-first-error!
+              cleanup-error
+              #(act! (fn [] (ui/unmount! @host-root)))))
+           (remember-first-error! cleanup-error #(.remove container))
+           (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) prior-act-env)))
+       (cond
+         @primary-error (throw @primary-error)
+         @cleanup-error (throw @cleanup-error)
+         :else @result))))
+
+#?(:clj
+   (defmacro with-root
+     "`(with-root [root root-form] body...)` — mount the literal root form
+     into a connected, test-owned DOM container, bind its opaque mounted
+     root, then tear down the React root and container on every exit.
+
+     Browser/jsdom only. The root form is compiled by the same analyzer and
+     emitter as `ui/render!`; each invocation mints a private runtime root
+     identity, so concurrent calls through the same helper cannot collide
+     with each other or claim an application's authored roots."
+     [[binding root-form :as binding-form] & body]
+     (when-not (and (vector? binding-form)
+                    (= 2 (count binding-form))
+                    (symbol? binding))
+       (throw (IllegalArgumentException.
+               "ui.test/with-root requires [binding literal-root-form]")))
+     (if (some? (:ns &env))
+       (let [container (gensym "container")
+             root-sym  (gensym "root")
+             root-id   (gensym "root-id")
+             prefix    (gensym "prefix")
+             render    (root/render-form &form &env root-sym root-form)]
+         `(re-frame.ui.test/with-root*
+           (fn [~container]
+             (let [~root-id (keyword "rf.ui.test.root" (str (gensym "")))
+                   ~prefix  (str "rf2-ui-test-" (name ~root-id) "-")]
+               (re-frame.ui.client/create-root*
+                {:root-id ~root-id
+                 :provenance :authored
+                 :identifier-prefix ~prefix
+                 :site nil}
+                ~container
+                (re-frame.ui.client/root-options ~prefix nil nil nil))))
+           (fn [~root-sym] ~render)
+           (fn [~binding] ~@body)))
+       `(re-frame.error/throw-error!
+         :rf.error/ui-test-tier-mismatch 'rf.ui.test/with-root
+         (str "Tier-3 mounted tests require a browser/jsdom host — the "
+              "JVM surface is Tier-1 structural render + find/find-all")
+         {:recovery :use-the-other-tier
+          :extra {:got :jvm :other-tier 'rf.ui.test/find}}))))
 
 (defn query
   "`(query root css-selector)` — the Tier-3 LIVE-DOM counterpart of
@@ -392,11 +533,9 @@
   Tier-1 selector grammar — no rf= matching, no structural projections,
   no view-id selectors: CSS is the whole contract.
 
-  Tier-3 mounting lands with the mount/reactivity slices (S1c/S2), so
-  `query` has no live behaviour yet — every call raises the typed tier
-  error. It exists now so the tier split is enforced from day one:
-  a structural tree handed here points back at `find`."
-  [root _css-selector]
+  The root must be the live opaque value bound by `with-root`; the selector
+  must be a string. A miss returns nil, exactly like `querySelector`."
+  [root css-selector]
   (if (map? root)
     (tier-mismatch!
      'rf.ui.test/query
@@ -406,16 +545,21 @@
           "closed selector grammar (tag keyword, view id / defview var, "
           "attr map, pred fn)")
      {:got root :other-tier 'rf.ui.test/find})
-    (tier-mismatch!
-     'rf.ui.test/query
-     #?(:clj  (str "no mounted roots exist on the JVM — Tier-1 is the "
-                   "headless structural surface (ui.test/render + find); "
-                   "Tier-3 mounted tests (with-root + query) run on "
-                   "browser/jsdom CI and land with the mount slice")
-        :cljs (str "Tier-3 mounted queries land with the mount slice "
-                   "(with-root/flush!) — until then there is no mounted "
-                   "root for query to read"))
-     {:got root})))
+    #?(:clj
+       (mounted-unavailable! 'rf.ui.test/query root)
+       :cljs
+       (let [^MountedRoot root root]
+         (when-not (mounted-root? root)
+           (mounted-unavailable! 'rf.ui.test/query root))
+         (when-not @(.-live? root)
+           (mounted-unavailable! 'rf.ui.test/query :released-root))
+         (when-not (string? css-selector)
+           (bad-selector!
+            'rf.ui.test/query
+            (str "ui.test/query takes a native CSS selector STRING; got "
+                 (pr-str css-selector))
+            {:selector css-selector}))
+         (.querySelector (.-container root) css-selector)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Frames (07 §2 — `frame`, `dispatch!`)
@@ -479,19 +623,37 @@
   the framework epoch so pending sub deltas advance their cells' revisions
   before the test's next assertion.
 
-  This is the GLOBAL spelling of the Q51 scope ruling (03 §3; recorded in
-  `re-frame.ui.reactive`): app code forces PER-ROOT (`ui/flush!`, S2f) or
-  per-frame (`reactive/flush-frame!`); only the test surface flushes every
-  root at once. Returns nil.
+  It is the sole public test flush. There is no public `re-frame.ui/flush!`.
+  On CLJS each drain runs under React `act`; if the resulting commit marks
+  more framework work, the cycle repeats until both layers are quiescent.
+  Calling from inside an event drain fails before any notification or host
+  commit with `:rf.error/flush-in-open-epoch` and frame evidence.
 
-  Scope note — the epoch-drain half is host-agnostic and lands here; the
-  `act()`/`flushSync` wrapping that also settles React's own commit for a
-  MOUNTED Tier-3 root (`with-root`) rides the mount slice, since no mounted
-  root exists to settle until then. On the JVM Tier-1 surface renders are
-  one-shot (no mounted cells), so a `flush!` there drains an empty registry
-  — honest, not a stub."
+  On the JVM Tier-1 renders are one-shot, so this honestly drains the
+  host-agnostic registry without pretending a DOM exists. Returns nil."
   []
-  (reactive/flush-pending!)
+  (when-let [frame-id (some #(when (rframe/in-drain? %) %)
+                            (rframe/frame-ids))]
+    (error/throw-error!
+     :rf.error/flush-in-open-epoch 'rf.ui.test/flush!
+     (str "ui.test/flush! was called while frame " (pr-str frame-id)
+          " is still inside its event drain — let the queued write side "
+          "settle to drain quiescence before forcing the one read/render batch")
+     {:recovery :no-recovery
+      :extra {:frame frame-id
+              :frame-epoch (rframe/frame-commit-epoch frame-id)}}))
+  #?(:clj
+     (loop []
+       (reactive/flush-pending!)
+       (when (pos? (reactive/pending-cell-count))
+         (recur)))
+     :cljs
+     (loop []
+       (if (exists? js/document)
+         (act! reactive/flush-pending!)
+         (reactive/flush-pending!))
+       (when (pos? (reactive/pending-cell-count))
+         (recur))))
   nil)
 
 ;; ---------------------------------------------------------------------------
