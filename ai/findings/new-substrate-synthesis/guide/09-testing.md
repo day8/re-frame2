@@ -70,22 +70,23 @@ For focus, IME, foreign widgets — the things only a real mount exercises *(thi
 surface — `with-root`, `query`, and `flush!` — lands S2)*:
 
 ```clojure
-(ui.test/with-root [root [ui/frame-root {:id :t} [search-box]]]
-  (ui.test/flush!)                            ; act + epoch drain + commit, deterministic
-  (let [input (ui.test/query root "input")]
-    (set! (.-value input) "hats")
-    (.dispatchEvent input
-                    (js/InputEvent. "input" #js {:bubbles true :data "hats"})))
-  (ui.test/flush!)
-  (is (= "hats" (.-value (ui.test/query root "input")))))
+(let [frame (ui.test/frame {:app-db {:query ""}})]
+  (ui.test/with-root [root [ui/frame-provider {:frame frame} [search-box]]]
+    (ui.test/flush!)                          ; initial act + commit
+    (ui.test/dispatch! frame [:search/set-query "hats"])
+    (ui.test/flush!)                          ; one settled read/render batch
+    (is (= "hats" (.-value (ui.test/query root "input"))))))
 ```
 
 `ui.test/flush!` is **the** flush: it settles framework work, then commits React,
 synchronously. There is no second flush idiom, no `setTimeout` in tests, no "wait for the
 next tick" folklore. Mount teardown between cases is total — the substrate can be reset
 with zero retained instances (that's a library CI gate, so you can rely on it).
-DOM mechanics use ordinary platform APIs (`dispatchEvent`, `InputEvent`, `MouseEvent`,
-focus, selection); there is no library gesture language to learn or debug.
+At S2, drive framework state programmatically with `ui.test/dispatch!` as above. Native DOM
+mechanics that are already host-owned — focus, selection, and a foreign component's raw
+callback — use ordinary platform APIs; there is no library gesture language to learn or
+debug. Compiled event vectors remain inspectable as Tier-1 data, but dispatching a browser
+`InputEvent` through one becomes live only with S3's committed-handler wiring.
 
 (Presence transitions advance with `(ui.test/flush-presence!)` — no wall-clock sleeps.
 *Lands S4, with presence.*)

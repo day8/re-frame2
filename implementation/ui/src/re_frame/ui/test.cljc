@@ -41,9 +41,11 @@
   (`:rf.error/ui-test-tier-mismatch`) pointing at the other tier.
   Tier-3 mounting is deliberately small: `with-root` owns one real React
   mount with total teardown, `query` delegates a native CSS selector to
-  that root's container, ordinary DOM APIs dispatch events, and `flush!`
-  drains framework work to quiescence under React `act`. There is no
-  gesture DSL and no production `re-frame.ui/flush!` twin.
+  that root's container, programmatic `dispatch!` drives S2 framework
+  state, and `flush!` drains framework work to quiescence under React
+  `act`. Ordinary DOM APIs cover already-host-owned mechanics; compiled
+  event-vector delivery through native events lands S3. There is no gesture
+  DSL and no production `re-frame.ui/flush!` twin.
 
   ## JVM semantics under test (06 §1 subset)
 
@@ -632,16 +634,21 @@
   On the JVM Tier-1 renders are one-shot, so this honestly drains the
   host-agnostic registry without pretending a DOM exists. Returns nil."
   []
-  (when-let [frame-id (some #(when (rframe/in-drain? %) %)
-                            (rframe/frame-ids))]
-    (error/throw-error!
-     :rf.error/flush-in-open-epoch 'rf.ui.test/flush!
-     (str "ui.test/flush! was called while frame " (pr-str frame-id)
-          " is still inside its event drain — let the queued write side "
-          "settle to drain quiescence before forcing the one read/render batch")
-     {:recovery :no-recovery
-      :extra {:frame frame-id
-              :frame-epoch (rframe/frame-commit-epoch frame-id)}}))
+  ;; `*run-frame-state-before*` is bound around the current event-pipeline
+  ;; run and survives a handler destroying its own frame. A live-registry scan
+  ;; cannot: destroy removes the active frame before the handler returns, which
+  ;; used to let a destroy-self-then-flush call cross this guard and deliver
+  ;; read-side work inside the still-open run.
+  (when (some? rframe/*run-frame-state-before*)
+    (let [frame-id (rframe/frame-target->id rframe/*current-frame*)]
+      (error/throw-error!
+       :rf.error/flush-in-open-epoch 'rf.ui.test/flush!
+       (str "ui.test/flush! was called while frame " (pr-str frame-id)
+            " is still inside its event drain — let the queued write side "
+            "settle to drain quiescence before forcing the one read/render batch")
+       {:recovery :no-recovery
+        :extra {:frame frame-id
+                :frame-epoch (rframe/frame-commit-epoch frame-id)}})))
   #?(:clj
      (loop []
        (reactive/flush-pending!)

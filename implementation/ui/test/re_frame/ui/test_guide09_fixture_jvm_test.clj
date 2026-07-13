@@ -5,9 +5,11 @@
   2026-07-12 respelling — the intent assertion reads through the
   ui.test/attrs projection, never direct keyword lookup on the node.
 
-  The 'drive state with real events' prose loop is adapted to the S1
+  The 'drive state with real events' Tier-1 prose loop is adapted to the S1
   structural subset: sub reads land S2, so cart membership arrives as a
-  prop; the dispatch! → re-render → assert shape is the guide's."
+  prop; the dispatch! → re-render → assert shape is the guide's. The mounted
+  S2 example likewise drives state programmatically; compiled browser event
+  dispatch remains explicitly staged at S3."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.substrate.plain-atom :as plain-atom]
