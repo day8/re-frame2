@@ -69,6 +69,27 @@
   []
   (frame/make-anon-frame-record! {:initial-events [[:work/flow [:reset]]]}))
 
+(defn- synth-child-done!
+  "Synthesise one child's :on-child-done arrival, carrying the SAME
+   exact-authority stamp the member child's own handler boundary would
+   have stamped (rf2-nvxehu). The join interceptor authenticates every
+   completion carrier to the exact join attempt — parent/invoke identity,
+   logical child id, exact current actor id, exact per-attempt token — so
+   a bare hand-dispatched carrier is suppressed as :attempt-unverified.
+   A headless test that bypasses the live children (dispatch-sync fires
+   no :after timers) therefore reads the runtime-owned join state and
+   presents the equivalent `:rf/join-auth` metadata."
+  [f shard]
+  (let [js (join-state f)]
+    (rf/dispatch-sync
+      [:work/flow (with-meta [:work/child-done shard]
+                    {:rf/join-auth {:parent-id  :work/flow
+                                    :invoke-id  [:working]
+                                    :child-id   shard
+                                    :spawned-id (get-in js [:children shard])
+                                    :attempt    (:rf/attempt js)}})]
+      {:frame f})))
+
 ;; ============================================================================
 ;; (1) SPAWN CASCADE — :start spawns 3 children
 ;; ============================================================================
@@ -111,12 +132,13 @@
     ;; via :after-yield loops and dispatch :work/child-done on entry
     ;; to their terminal state. dispatch-sync doesn't fire :after
     ;; timers, so for the headless test we synthesise the
-    ;; child-done events directly. The runtime's intercept logic
-    ;; (intercept-invoke-all-event in re-frame.machines) treats
-    ;; them identically — the events arrive at the parent's
-    ;; handler boundary either way.
+    ;; child-done events directly — carrying the exact-authority
+    ;; stamp the member child's boundary would have stamped
+    ;; (rf2-nvxehu; see synth-child-done!). With the stamp, the
+    ;; runtime's join interceptor treats them identically to live
+    ;; child completions.
 
-    (rf/dispatch-sync [:work/flow [:work/child-done :s1]] {:frame f})
+    (synth-child-done! f :s1)
     ;; After the first :work/child-done, the join state's :done
     ;; carries :s1; the join condition (:all of 3) hasn't resolved
     ;; yet so :resolved? stays false and the parent is still :working.
@@ -126,7 +148,7 @@
       (is (= #{:s1}     (:done js)))
       (is (false?       (:resolved? js))))
 
-    (rf/dispatch-sync [:work/flow [:work/child-done :s2]] {:frame f})
+    (synth-child-done! f :s2)
     (is (= #{:s1 :s2} (:done (join-state f))))
     (is (= :working   (:state (snapshot f))))
 
@@ -135,7 +157,7 @@
     ;; this was the last child), and dispatches [:work/flow
     ;; [:work/all-done]]. The parent's :working :on table catches
     ;; :work/all-done → :complete (with :stamp-outcome action).
-    (rf/dispatch-sync [:work/flow [:work/child-done :s3]] {:frame f})
+    (synth-child-done! f :s3)
     (let [snap (snapshot f)]
       (is (= :complete (:state snap)))
       (is (= :complete (-> snap :data :outcome)))
