@@ -72,7 +72,8 @@ render-time evidence, corrects before paint. *(Deletes: interrupted-update corru
 zero-owner disposal races; render→commit tears.)*
 
 **I-3 · One React bridge per reactive view.** N reads are N observation targets but one
-`useSyncExternalStore`, one scalar snapshot, one notification per epoch.
+`useSyncExternalStore`, one scalar snapshot, and at most one notification in the
+post-quiescence render batch for a run-to-completion drain.
 
 **I-4 · Snapshots are cached scalars.** The cell snapshot is a revision integer; values
 live in derivation nodes and are read during render. Why one integer suffices: React's
@@ -83,8 +84,11 @@ guards newly-observed sites — two independent guards, no third needed.
 target/version/epoch evidence; prop-dependent queries run only in the view's own render.
 *(Deletes: zombie children.)*
 
-**I-6 · One notification per cell per epoch.** Exact coalescing at the transaction
-boundary; never debounce-by-time.
+**I-6 · One notification per dirty cell per drain.** Every queued write-side event
+executes and commits its own epoch record. Once that run-to-completion drain reaches
+quiescence, each dirty cell is notified exactly once for the read/render batch. A real
+host yield starts a distinct drain and therefore a distinct batch; this is exact
+pending-state coalescing, never debounce-by-time.
 
 **I-7 · Client markup is compiled, never interpreted.** Literal templates lower to
 `jsx`/`jsxs`; conversion is compile-time; static subtrees hoist. No walker, tag parser,

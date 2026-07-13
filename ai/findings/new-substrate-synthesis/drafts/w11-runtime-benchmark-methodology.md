@@ -75,7 +75,8 @@ ownership or hydration semantics to make a number" ⟨05 header⟩):
    small commit step… 'no store hook' ≠ 'free'" ⟨05 §1 honest costs⟩. This is a
    *disclosed cost*, and W11 measures it rather than hiding it. → R-D's capability
    grading.
-3. **Push economics** — one notification per cell per epoch, O(changed graph) + O(C)
+3. **Push economics** — every write epoch executes; after drain quiescence, one
+   notification per dirty cell, O(changed graph) + O(C)
    notify, never ΣKᵥ component renders ⟨05 §3⟩; S-2 confirmed the design in jsdom
    (pull 4.0–6.5× worse, gap growing with scale ⟨spikes/s3-ownership-report.md §3⟩)
    and predicted the margin *widens* in a real browser ⟨s3 report §6 risk 6⟩. → R-E.
@@ -102,7 +103,7 @@ baselined; the trio variants written once at S6 and archived.
 
 - **Claim**: one sub delta → exactly the K affected views repaint, at a lower
   constant cost per notified view than reaction bookkeeping (one hook per view, one
-  notification per epoch, scalar snapshot ⟨05 §2⟩).
+  notification per dirty cell per drain, scalar snapshot ⟨05 §2⟩).
 - **Fixture** `F-fanout`: N mounted views, each reading its own narrow sub
   (`[:cell/by-id i]`); one dispatch per operation updates K entities. Grid:
   N ∈ {100, 500}; K ∈ {1, 10, 100} at N = 500 and K ∈ {1, 10} at N = 100. Plus the
@@ -116,7 +117,8 @@ baselined; the trio variants written once at S6 and archived.
   matched K. Any implementation that made a trio member O(N) here would violate §6.1.
 - **Environment**: real Chromium primary (paint cost scales with K); a node/jsdom arm
   as cross-check for render counts and protocol-only wall (the S-2 harness shape).
-- **Metric**: per-epoch p50/p95 (dispatch → painted); renders per epoch (must equal K,
+- **Metric**: p50/p95 per measured one-event drain (dispatch → painted); component
+  renders per drain (must equal K,
   every substrate — a fairness *precheck*, in the spirit of G-1's byte-equality
   precheck: if work counts differ, the wall-clock ratio is measuring different work
   and the run is invalid ⟨implementation/ui/bench/re_frame/ui/bench/main.cljs
@@ -211,12 +213,14 @@ baselined; the trio variants written once at S6 and archived.
   re-frame subscription (the reaction graph *is* its push machinery); UIx/Helix: one
   component per view with a per-sub `use-subscribe`-style hook over
   `useSyncExternalStore` — per the §6.1 idiom review; no variant hand-rolls a
-  coarse-grained store-read that would manufacture O(N) work. The renders-per-epoch
+  coarse-grained store-read that would manufacture O(N) work. The component-renders-per-
+  drain
   work count (must be 1 on every substrate) is the R-A-style validity precheck; a run
   with differing counts is invalid until fixed or documented as idiom-inherent.
 - **Environment**: real Chromium primary for the reported table; the node arm *is*
   the G-13 CI gate and stays own-substrate-only.
-- **Metric**: µs/epoch p50/p95; component renders per epoch (the S-2 table's work
+- **Metric**: µs per measured one-event drain p50/p95; component renders per drain (the
+  S-2 table's work
   column ⟨s3 report §3⟩); dropped-frame rate over the sustained run.
 
 ## 5. Environment, harness, and estimator
@@ -441,7 +445,7 @@ bead also resolves every `[S6-CONFIRM]` in this draft at filing/run time (item 8
 react-peer ruling jointly with the G-10 bead — one ruling, both tables); none has
 another venue.
 
-1. **S2 reactivity shipped** — ViewCell, `sub`, epoch coalescing, commit
+1. **S2 reactivity shipped** — ViewCell, `sub`, drain-quiescence batching, commit
    reconciliation ⟨12 §3 S2 epic⟩: prerequisite for R-A, R-D, R-E (and R-C's epoch
    half). Specifically the **S2 G-13 bench harness** (the S-2 spike's permanent
    successor, 500 views / 1 delta per epoch): R-E extends it with trio view layers

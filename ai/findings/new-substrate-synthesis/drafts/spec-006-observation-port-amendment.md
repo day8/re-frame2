@@ -177,11 +177,15 @@ These are normative (R-2). Each names the bug class it deletes.
    movement in the render→commit gap advances the cell's revision and notifies, and the
    host corrects **before paint**. *(Deletes: painting a frame computed from stale
    reads.)*
-6. **One notification per cell per epoch.** Source-side notification is constant work —
-   mark the cell stale with target/version/epoch/cause evidence, never execute a
-   prop-dependent query (per I-5) — and epoch close flushes each dirty cell **exactly
-   once** (exact coalescing at the transaction boundary, never debounce-by-time; per
-   I-3/I-6). *(Deletes: zombie children; N-notifications-per-event fan-out.)*
+6. **One notification per dirty cell per drain — the boundary is quiescence, not epoch
+   close.** Source-side notification is constant work — mark the cell stale with
+   target/version/epoch/cause evidence, never execute a prop-dependent query (per I-5).
+   Every queued write-side event executes and commits its own epoch record; once the
+   run-to-completion drain reaches quiescence, each dirty cell flushes **exactly once**
+   for the read/render batch. A real host yield starts a distinct drain and therefore a
+   distinct batch. Coalescing keys on pending cell state, never the epoch tag and never
+   time. *(Deletes: zombie children; N-notifications-per-event fan-out; epoch-count
+   inference about render or commit count.)*
 
 ### The port operations (final)
 
@@ -354,12 +358,14 @@ outlives its slice is a conformance bug (a leak fixture pins it).
 On the observation-port substrate, the invalidation algorithm's Phase 3
 ([§Invalidation algorithm](#invalidation-algorithm) — "notify subscribers") is realised
 as constant-work stale-marking (invariant 6), and the commit sequence gains an
-**adapter-internal final phase — epoch close**: after the event drain settles
-derivations (Phases 1–2) and dirty cells are marked (Phase 3), the framework epoch
-closes and each dirty ViewCell is flushed **once** into the host scheduler. Drain→React
-scheduling is microtask-aligned. `flush-render!` (and the test flush built on it) closes
-the framework epoch **before** React renders; a re-entrant `flushSync`-style forcing
-into an open epoch is a dev error carrying epoch evidence
+**adapter-internal final phase — the drain-quiescence render batch**: a
+run-to-completion drain may settle several queued events, each committing its own epoch
+record after settling derivations (Phases 1–2) and marking dirty cells (Phase 3). Once
+the drain reaches quiescence, each dirty ViewCell is flushed **once** into the host
+scheduler and React performs one read/render batch for the drain. Drain→React scheduling
+is microtask-aligned. `flush-render!` (and the test flush built on it) settles the drain
+**before** React renders; a re-entrant `flushSync`-style forcing into an open drain is a
+dev error carrying epoch evidence
 (`:rf.error/flush-in-open-epoch`, dev tier — catalogue row required per
 [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) on
 promotion). This phase is adapter-internal: it adds no public contract fn and does not

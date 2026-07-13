@@ -22,7 +22,8 @@ nothing more (02 §5).
 
 Every lexical `(sub …)` is a compile-indexed site; all of a view's sites share **one
 ViewCell**: one `useSyncExternalStore`, one scalar revision snapshot, one notification
-per epoch (I-3/I-4/I-6). Conditional reads are legal; loops are rejected (finite sites).
+per run-to-completion drain after quiescence (I-3/I-4/I-6). Conditional reads are legal;
+loops are rejected (finite sites).
 Stabilization (I-8): literal queries are module constants; parametric sites reuse the
 prior query object while args are `rf=`; sites return the prior exact value when the new
 read is `rf=`.
@@ -88,8 +89,8 @@ context: headless tests pass overrides explicitly — `ui.test/render …
 **The six invariants are frozen:** render resolves and probes without ownership · commit
 acquires the exact captured target (the *identity*; the canonical *node* is re-resolved
 at acquire) · acquire-before-release prevents zero-owner churn · release is synchronous
-and idempotent · moved evidence corrects before paint · epoch close notifies each dirty
-cell once.
+and idempotent · moved evidence corrects before paint · drain quiescence notifies each
+dirty cell once for the post-quiescence render batch.
 
 **The seam, named.** The port is six functions in **`re-frame.substrate.observation`**
 (core artifact `day8/re-frame2`); its **sole consumer** is the `day8/re-frame2-ui` view
@@ -193,15 +194,16 @@ At layout commit, for the committed capture only:
    React corrects **before paint**.
 
 Notifications are constant-work (mark stale with target/version/epoch/cause — never
-execute a prop-dependent query, I-5). Every queued event completes its write side in
-the run-to-completion drain; only at drain quiescence are dirty cells advanced once and
-React given one read/render batch. The automatic path is microtask-aligned. On CLJS,
-`ui.test/flush!` returns a Promise and forces the same quiescent boundary under React 19
-`act`; its thunk arity runs the write inside that boundary, then alternates dirty-cell
-drains and React commits until neither side can expose more work. Calling it from an
-open drain throws synchronously, before Promise construction or host work, with frame +
-epoch evidence. On the JVM it drains the headless registry synchronously and returns
-nil.
+execute a prop-dependent query, I-5). Every queued write-side event executes and commits
+its own epoch record inside the run-to-completion drain; only when that drain reaches
+quiescence are dirty cells advanced once and React given one read/render batch. The
+automatic path is microtask-aligned, and a real host yield separates drains and therefore
+separates render batches. On CLJS, `ui.test/flush!` returns a Promise and forces the same
+quiescent boundary under React 19 `act`; its thunk arity runs the write inside that
+boundary, then alternates dirty-cell drains and React commits until neither side can
+expose more work. Calling it from an open drain throws synchronously, before Promise
+construction or host work, with frame + epoch evidence. On the JVM it drains the
+headless registry synchronously and returns nil.
 
 **The synchrony exception:** controlled-input sites drain synchronously within the DOM
 event (02 §3 — the one sanctioned sync door; caret/IME correctness over batching
