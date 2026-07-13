@@ -74,7 +74,10 @@ sites rejected at compile; initial events exactly once across abandoned render,
 StrictMode, HMR, error recovery · root/frame matrix: 1×1, 1×N, N×1, N×N, nested
 providers, out-of-order hydration, one failed root isolated · registration replacement
 leaves no pinned cell · HMR matrix (03 §10) — runs Stage 2 · adapter/frame disposal
-idempotent + total (10k-cycle leak checks) · late callbacks across unmount, Activity,
+idempotent + total — 10k-cycle stress is headless-only (abandoned renders + cold
+probes); the mounted StrictMode/Activity proof runs six bounded cycles
+(`mounted_s2_gates_dom_cljs_test.cljs`), returning every ownership surface to
+baseline · late callbacks across unmount, Activity,
 frame destroy, adapter disposal, HMR replacement, root teardown · presence: exit
 retention, re-entry interruption, reduced motion, hydration no-fabricated-enter, inert
 exits, terminal exactly-once cleanup, fake-clock completion · `ui/html`: escaping
@@ -110,7 +113,7 @@ including the multi-root failure-isolation fixture.
 |---|---|
 | G-1 direct-render parity | pure view within 10% of hand-written JSX CLJS (p50/p95), output inspected; µs-scale p95 is environment-dominated (S-1-measured), so the gate uses a noise-robust estimator (alternating interleaved rounds, median-of-rounds); the S-1 feasibility PASS was produced under the earlier best-round/min estimator, so a rerun under this revised estimator is a named open gate — plus an **emitted-JS golden test** pinning direct `jsx` calls (a CLJS-var-bound jsx fn silently reintroduces IFn dispatch under `:advanced`, ~5–8% — S-1's trap) |
 | G-2 AOT peer | ≥ UIx-AOT parity on pure views; reactive one-read ≤ 15% update-p95 over raw correct `useSyncExternalStore` |
-| G-3 multi-read scaling | the headless direct-notification fixture plus a mounted 1/4/8/16-site fixture prove one `useSyncExternalStore` listener and one body invocation per ViewCell, independent lexical-site leases, and at most one notification per dirty cell; 29 queued writes complete before one post-quiescence read/render batch |
+| G-3 multi-read scaling | the headless direct-notification fixture (`reactive_epoch_cljs_test.cljc` — `npm run test:ui` / `test:cljs`) plus a mounted 1/4/8/16-site fixture (`mounted_g3_cardinality_dom_cljs_test.cljs` — `npm run test:browser`) prove one `useSyncExternalStore` listener and one body invocation per ViewCell, independent lexical-site leases, and at most one notification per dirty cell; 29 queued writes complete before one post-quiescence read/render batch |
 | G-4 equality no-op | `rf=` results ⇒ zero revisions, zero **prop/sub-driven** renders, stable references |
 | G-5 drain fan-in | Eight queued write-side epochs in one run-to-completion drain all execute and settle to quiescence, followed by **one** read/render batch — coalescing never drops, merges, or skips writes. A real host yield separates drains and therefore produces a separate batch; epoch count alone is never evidence for render or commit count. |
 | G-6 abandonment/disposal | 10k headless abandoned renders and cold probes ⇒ baseline ownership/cache state; bounded real-browser StrictMode mount/unmount and Activity hide/reveal cycles ⇒ exact root/ViewCell/owner/cache/DOM/scheduler baselines |
