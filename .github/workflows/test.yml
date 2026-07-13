@@ -1556,6 +1556,14 @@ jobs:
           npx shadow-cljs compile node-test
           node out/node-test.js
 
+      # The consolidated build above intentionally loads every adapter's own
+      # tests, so it cannot prove the first-party UI artefact is isolated from
+      # the retiring adapter trio. Compile only the focused re-frame.ui closure
+      # and inspect Shadow's exact import manifest instead.
+      - name: re-frame.ui focused adapter-artifact isolation
+        if: needs.detect_changed_surfaces.outputs.ui_gates == 'true'
+        run: npm run test:ui-isolation
+
       # Per-namespace test-isolation gate (rf2-32siq3.44). The consolidated
       # node-test bundle shares ONE runtime, so a test ns whose fixture forgets
       # to install its own substrate adapter is masked: it passes whenever a

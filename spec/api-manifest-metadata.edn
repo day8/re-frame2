@@ -207,7 +207,7 @@
   ;;     the Spec-004 `export-surface-is-exactly-the-blessed-set` JVM conformance):
   ;;     defview / custom-element / sub / lease / raw / html / raw-fn / spread /
   ;;     mount / create-root / render! / hydrate-root / unmount! / frame-root /
-  ;;     frame-provider — all FIFTEEN live public vars, so re-frame.ui is now
+  ;;     frame-provider / adapter — all SIXTEEN live public vars, so re-frame.ui is now
   ;;     :FULLY-ROWED (BOTH directions checked — see the probe note below).
   ;;     `frame-root` (rf2-vxgfnd.71) is NAMESPACE-SPECIFIC — the compiled-view
   ;;     ENSURE root-form marker (a compile-marker `defn`, :kind :fn), rowed
@@ -251,7 +251,8 @@
   {:namespace "re-frame.ui" :var "hydrate-root"   :kind :macro :facade? false :tier :advanced    :owner "004" :status "Spec-004 S1" :runtime-verified? true}
   {:namespace "re-frame.ui" :var "unmount!"       :kind :fn    :facade? false :tier :advanced    :owner "004" :status "Spec-004 S1" :runtime-verified? true}
   {:namespace "re-frame.ui" :var "frame-root"     :kind :fn    :facade? false :tier :front-porch :owner "004" :status "Spec-004 S1" :runtime-verified? true}
-  {:namespace "re-frame.ui" :var "frame-provider" :kind :fn    :facade? false :tier :front-porch :owner "004" :status "Spec-004 S2" :runtime-verified? true}]
+  {:namespace "re-frame.ui" :var "frame-provider" :kind :fn    :facade? false :tier :front-porch :owner "004" :status "Spec-004 S2" :runtime-verified? true}
+  {:namespace "re-frame.ui" :var "adapter"        :kind :var   :facade? false :tier :front-porch :owner "006" :status "Spec-004 S2" :runtime-verified? true}]
 
  ;; --------------------------------------------------------------------------
  ;; API.md var-rows that are KNOWINGLY absent from the manifest. The
