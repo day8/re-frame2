@@ -9,6 +9,7 @@
   (case sym
     child-view {:fqn 'app.views/child-view
                 :meta {:rf.ui/view true :rf.ui/children? true}}
+    ForeignComp {:fqn 'app.interop/ForeignComp :meta {}}
     nil))
 
 (defn- emitted [form]
@@ -87,3 +88,20 @@
         props-form (nth call 4)]
     (is (some #{'re-frame.ui.rules/classes-str} (forms-of props-form))
         "without a static base the general empty-class semantics remain")))
+
+(deftest prototype-setter-key-is-computed-on-every-literal-props-surface
+  (doseq [[surface form]
+          [[:dom '[:div {:__proto__ value}]]
+           [:custom-element '[:proto-widget {:__proto__ value}]]
+           [:view '[child-view {:__proto__ value}]]
+           [:foreign '[ForeignComp {:__proto__ value}]]]]
+    (let [call       (first (jsx-calls (emitted form)))
+          props-form (nth call 4)]
+      (is (= 'js* (first props-form)) (name surface))
+      (is (= "({[~{}]:~{}})" (second props-form))
+          (str (name surface) " avoids object-literal prototype-setter grammar"))
+      (is (= (if (contains? #{:dom :custom-element} surface)
+               '("__proto__" (re-frame.ui.runtime/attr-val value))
+               '("__proto__" value))
+             (drop 2 props-form))
+          (str (name surface) " retains the authored own property and value")))))

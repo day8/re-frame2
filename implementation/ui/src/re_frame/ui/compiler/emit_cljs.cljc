@@ -174,11 +174,19 @@
   dynamic value order through an IIFE; here the literal's own left-to-right
   property evaluation provides that guarantee without the per-render call.
   Keys remain string expressions, so :advanced cannot rename React/custom
-  property spelling."
+  property spelling. JavaScript gives a colon-form `__proto__` definition
+  prototype-setter semantics, so that one magic key uses a computed property:
+  an ordinary own data property with the same evaluation order."
   [pairs]
   (let [pairs (vec pairs)]
     (list* 'js*
-           (str "({" (str/join "," (repeat (count pairs) "~{}:~{}")) "})")
+           (str "({"
+                (str/join "," (map (fn [[k _]]
+                                      (if (= "__proto__" k)
+                                        "[~{}]:~{}"
+                                        "~{}:~{}"))
+                                    pairs))
+                "})")
            (mapcat identity pairs))))
 
 (defn- jsx-runtime-call [multi? tag-form props-form key-info]
