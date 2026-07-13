@@ -7,6 +7,7 @@
             [re-frame.ui.compiler.build-hook :as build-hook]))
 
 (def ^:private carrier-rid [:cljs "re_frame/ui/digest_carrier.cljs"])
+(def ^:private client-rid [:cljs "re_frame/ui/client.cljs"])
 (def ^:private app-rid [:cljs "app/view.cljs"])
 
 (defn- shadow-state [build-id js]
@@ -133,6 +134,55 @@
                      (declare 'app.view :app/view ["tf1-new" "hs1-new"]))]
     (is (thrown? clojure.lang.ExceptionInfo (finish compiled)))
     (is (= {} (build/accepted-aggregate build/views input)))))
+
+(deftest zero-carrier-resource-preserves-the-last-accepted-snapshot
+  (let [good (-> (shadow-state :zero-carrier build-hook/digest-sentinel)
+                 prepare
+                 (declare 'app.view :app/view ["tf1-good" "hs1-good"])
+                 finish)
+        accepted (build/accepted-snapshot good)
+        zero-carrier-input
+        (-> good
+            ;; Keep a real UI-client graph member while removing the carrier
+            ;; resource itself. This distinguishes count zero from a non-UI
+            ;; build, which is correctly allowed to have no carrier.
+            (assoc :build-sources [client-rid app-rid])
+            (update :sources dissoc carrier-rid)
+            (assoc-in [:sources client-rid]
+                      {:ns 're-frame.ui.client
+                       :provides #{'re-frame.ui.client}
+                       :requires '#{re-frame.ui.digest-carrier}
+                       :type :cljs})
+            (update :output dissoc carrier-rid)
+            (assoc-in [:output client-rid]
+                      {:resource-id client-rid
+                       :js "re_frame.ui.client = {};"
+                       :cached true})
+            (assoc :build-modules
+                   [{:module-id :base :sources [client-rid]}
+                    {:module-id :lazy :sources [app-rid]
+                     :depends-on #{:base}}]))
+        compiled (-> zero-carrier-input
+                     prepare
+                     (declare 'app.view :app/view ["tf1-doomed" "hs1-doomed"]))
+        ex (try (finish compiled) nil
+                (catch clojure.lang.ExceptionInfo e e))]
+    (is (= :re-frame.ui.compiler.build-hook/carrier-output-invalid
+           (:re-frame.ui.compiler.build-hook/error (ex-data ex))))
+    (is (= "re-frame.ui expected exactly one compiled digest carrier output"
+           (ex-message ex)))
+    (is (= [] (:carrier-resource-ids (ex-data ex))))
+    (is (= 0 (:count (ex-data ex))))
+    (is (= accepted (build/accepted-snapshot zero-carrier-input))
+        "the incoming accepted value remains the last-known-good authority")
+    (is (= accepted (build/accepted-snapshot compiled))
+        "opening and populating scratch does not publish the candidate")
+    (is (= {:app/view ["tf1-good" "hs1-good"]}
+           (build/accepted-aggregate build/views compiled)))
+    (is (some? (get-in compiled [:compiler-env build/scratch-key]))
+        "the rejected candidate remains disposable scratch")
+    (is (nil? (get-in compiled [:output carrier-rid]))
+        "zero carrier output cannot be mistaken for an accepted publication")))
 
 (deftest interleaved-build-values-carry-isolated-digests
   (let [a (-> (shadow-state :a build-hook/digest-sentinel)

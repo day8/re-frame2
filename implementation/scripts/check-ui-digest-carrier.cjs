@@ -12,7 +12,10 @@ const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
 const {
+  createHarnessCleanup,
+  resolveServePort,
   spawnHarnessProcess,
+  startLocalHttpServer,
   terminateProcessTree,
 } = require('./lib/local-browser-harness.cjs');
 
@@ -25,8 +28,17 @@ const TARGET = path.join(IMPL, 'target', 'ui-digest-probe');
 const FAIL_MARKER = path.join(TARGET, 'fail-after-compile');
 const ACCEPTED_FILE = path.join(TARGET, 'accepted-digest.txt');
 const PREPARE_FILE = path.join(TARGET, 'prepare-snapshots.tsv');
+const HOOKLESS_CONFIG_ROOT = path.join(
+  IMPL, 'ui', 'test', 're_frame', 'ui', 'digest_probe', 'hookless',
+);
+const HOOKLESS_OUT = path.join(IMPL, 'out', 'ui-digest-probe-hookless');
+const HOOKLESS_CARRIER = path.join(
+  HOOKLESS_OUT, 'cljs-runtime', 're_frame.ui.digest_carrier.js',
+);
+const DIGEST_SENTINEL = '__RF2_UI_DIGEST_XX__';
 const URL = 'http://127.0.0.1:8059/index.html';
 const TIMEOUT = 90000;
+const HOOKLESS_ERROR_TIMEOUT = 15000;
 
 function fail(message) {
   throw new Error(`FAIL: ${message}`);
@@ -119,6 +131,42 @@ function watchShadow(shadowRunner) {
   };
 }
 
+function compileHooklessShadow(shadowRunner) {
+  const child = spawnHarnessProcess(process.execPath, [
+    shadowRunner, 'compile', 'ui-digest-probe-hookless',
+  ], {
+    cwd: HOOKLESS_CONFIG_ROOT,
+    env: process.env,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let transcript = '';
+  const capture = (chunk) => {
+    const text = chunk.toString();
+    transcript += text;
+    process.stdout.write(text);
+  };
+  child.stdout.on('data', capture);
+  child.stderr.on('data', capture);
+
+  const completed = new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`hookless Shadow compile timed out\n${transcript}`));
+    }, TIMEOUT);
+    child.once('error', (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.once('exit', (code, signal) => {
+      clearTimeout(timer);
+      if (code === 0) resolve(transcript);
+      else reject(new Error(
+        `hookless Shadow compile failed (code=${code}, signal=${signal})\n${transcript}`,
+      ));
+    });
+  });
+  return { child, completed };
+}
+
 async function readBrowserDigest(page) {
   await page.waitForFunction(
     () => typeof globalThis.__rf2ReadDigest === 'function' &&
@@ -158,6 +206,93 @@ function lastPrepareSnapshot() {
     fail(`test hook wrote invalid prepare snapshot ${JSON.stringify(lines.at(-1))}`);
   }
   return { version, digest };
+}
+
+async function proveHooklessBuildFailsClosed(shadowRunner, browser, activePage, lkg) {
+  const config = fs.readFileSync(
+    path.join(HOOKLESS_CONFIG_ROOT, 'shadow-cljs.edn'), 'utf8',
+  );
+  if (/:build-hooks\b/.test(config.replace(/;.*$/gm, ''))) {
+    fail('hookless fixture unexpectedly configures a build hook');
+  }
+
+  fs.rmSync(HOOKLESS_OUT, { recursive: true, force: true });
+  const cleanup = createHarnessCleanup();
+  let tearingDown = false;
+  let compile;
+  let page;
+  try {
+    compile = compileHooklessShadow(shadowRunner);
+    await compile.completed;
+
+    const carrier = fs.readFileSync(HOOKLESS_CARRIER, 'utf8');
+    if (!carrier.includes(DIGEST_SENTINEL) || /bd1-[0-9a-f]{16}/.test(carrier)) {
+      fail('hookless output unexpectedly published a compiler digest');
+    }
+
+    fs.writeFileSync(
+      path.join(HOOKLESS_OUT, 'index.html'),
+      '<!doctype html><meta charset="utf-8"><script src="/base.js"></script>',
+    );
+    const httpServerBin = require.resolve('http-server/bin/http-server', {
+      paths: [IMPL],
+    });
+    const port = await resolveServePort(8061);
+    const served = await startLocalHttpServer({
+      cleanup,
+      httpServerBin,
+      root: HOOKLESS_OUT,
+      port,
+      cwd: IMPL,
+      captureOutput: true,
+      readyTimeoutMs: 30000,
+      suppressExitDiagnostic: () => tearingDown,
+    });
+    if (!served.ready) fail('hookless output server did not become ready');
+
+    page = await browser.newPage();
+    const rejected = page.waitForEvent('pageerror', {
+      predicate: (error) => error.message.includes(
+        're-frame.ui build digest was not finalized',
+      ),
+      timeout: HOOKLESS_ERROR_TIMEOUT,
+    });
+    await page.goto(`http://127.0.0.1:${port}/index.html`, {
+      waitUntil: 'load', timeout: TIMEOUT,
+    });
+    const error = await rejected;
+    if (error.name !== 'Error' ||
+        !error.message.includes('Configure (re-frame.ui.compiler.build-hook/hook)')) {
+      fail(`hookless runtime produced the wrong diagnostic: ${error.name}: ${error.message}`);
+    }
+    // Script-loader mode reports the top-level throw as a pageerror, then the
+    // browser may continue loading later independent scripts. If base init ran,
+    // its diagnostic accessor must still expose the unfinalized sentinel —
+    // never a plausible accepted bd1 digest.
+    const unfinalized = await page.evaluate(
+      () => typeof globalThis.__rf2ReadDigest === 'function'
+        ? globalThis.__rf2ReadDigest()
+        : null,
+    );
+    if (unfinalized !== DIGEST_SENTINEL) {
+      fail(`hookless runtime exposed a digest after rejection: ${unfinalized}`);
+    }
+
+    const activeDigest = await activePage.evaluate(() => globalThis.__rf2ReadDigest());
+    const stillAccepted = acceptedSnapshot();
+    if (activeDigest !== lkg.digest ||
+        stillAccepted.digest !== lkg.digest ||
+        stillAccepted.version !== lkg.version) {
+      fail('hookless build disturbed the active runtime or accepted JVM snapshot');
+    }
+    console.log('ui digest carrier: hookless build rejected before publication (LKG preserved)');
+  } finally {
+    if (page) await page.close();
+    tearingDown = true;
+    await cleanup.cleanup();
+    if (compile) await terminateProcessTree(compile.child, { timeoutMs: 5000 });
+    fs.rmSync(HOOKLESS_OUT, { recursive: true, force: true });
+  }
 }
 
 async function main() {
@@ -205,6 +340,13 @@ async function main() {
     if (await page.evaluate(() => globalThis.__rf2LazyExecuted === true)) {
       fail('lazy module executed during initial base load');
     }
+
+    // A separate, real Shadow configuration deliberately omits every build
+    // hook while compiling the same client entry. Its raw sentinel must throw
+    // before base init; the active hooked build remains the LKG witness.
+    await proveHooklessBuildFailsClosed(
+      shadowRunner, browser, page, accepted1,
+    );
 
     // Warm successful pass: only the unexecuted lazy view changes. The
     // ^:dev/always carrier must be regenerated from its sentinel and reloaded.
