@@ -603,7 +603,20 @@ const DEV_ONLY_SENTINELS = [
   // (DEBUG=true) contains it via that consult. The fragment is the distinctive
   // middle of the reason string, unambiguous under a global grep.
   { source: 're-frame.subs.override-schema/validate-sub-override! (:sub-override schema-failure reason)',
-    sentinel: ' :sub-override value failed schema ' }
+    sentinel: ' :sub-override value failed schema ' },
+  // re-frame.ui Fast Refresh stable shell (rf2-8hf77d). The elision probe
+  // contains a real compiled defview, so DEBUG=true roots the stable shell's
+  // one slot. DEBUG=false must choose direct React.memo and make the whole slot
+  // graph unreachable: revision/remount store, listeners, dynamic descriptor
+  // lookup, and the keyed inner Fiber disappear together.
+  { source: 're-frame.ui Fast Refresh slot (body revision/listener store)',
+    sentinel: 'hmr-body-revision' },
+  { source: 're-frame.ui Fast Refresh slot (hook-incompatibility remount key)',
+    sentinel: 'hmr-remount-generation' },
+  { source: 're-frame.ui Fast Refresh slot (dynamic descriptor lookup)',
+    sentinel: 'hmr-descriptor' },
+  { source: 're-frame.ui Fast Refresh slot (stable inner extra Fiber)',
+    sentinel: 'hmr-inner' }
   // Note (rf2-7yqn39): the :rf.warning/plain-fn-under-non-default-frame-
   // once warning + its emit helper were RETIRED (EP-0002; superseded by
   // the always-on :rf.error/no-frame-context). There is no longer any

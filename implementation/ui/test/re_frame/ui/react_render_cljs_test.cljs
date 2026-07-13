@@ -12,9 +12,12 @@
             ["react-dom/server" :as rds]
             [re-frame.registrar :as registrar]
             [re-frame.ui :as ui :refer [defview]]
+            [re-frame.ui.reactive :as reactive]
             [re-frame.ui.runtime :as rt]))
 
 (defn- render [el] (rds/renderToStaticMarkup el))
+(defn- current-render [id] (:render-fn (reactive/view-descriptor id)))
+(defn- current-compare [id] (:compare-fn (reactive/view-descriptor id)))
 
 (defonce dispatches (atom []))
 
@@ -143,7 +146,7 @@
          (render (rt/jsx2 static-tree (js-obj)))))
   ;; the fully-static body hoists to a module constant: the render fn
   ;; returns the IDENTICAL element object across calls
-  (let [rf (.-type static-tree)]
+  (let [rf (current-render ::static-tree)]
     (is (identical? (rf (js-obj)) (rf (js-obj)))
         "static subtree is one hoisted module constant")))
 
@@ -229,7 +232,7 @@
 (defn- has-own? [o k]
   (.call (.-hasOwnProperty (.-prototype js/Object)) o k))
 
-(defn- captured-jsx-props [view value]
+(defn- captured-jsx-props [view-id value]
   (let [module   rt/jsx-runtime
         original (.-jsx module)
         captured (atom nil)]
@@ -238,19 +241,19 @@
             (fn [_type props & _]
               (reset! captured props)
               #js {}))
-      ((.-type view) (js-obj "v" value))
+      ((current-render view-id) (js-obj "v" value))
       @captured
       (finally
         (set! (.-jsx module) original)))))
 
 (deftest prototype-setter-key-remains-an-own-prop-on-every-jsx-surface
-  (doseq [[surface view]
-          [[:dom proto-dom]
-           [:custom-element proto-custom]
-           [:view proto-view]
-           [:foreign proto-foreign]]]
+  (doseq [[surface view-id]
+          [[:dom ::proto-dom]
+           [:custom-element ::proto-custom]
+           [:view ::proto-view]
+           [:foreign ::proto-foreign]]]
     (let [value (js-obj "surface" (name surface))
-          props (captured-jsx-props view value)]
+          props (captured-jsx-props view-id value)]
       (is (some? props) (name surface))
       (is (has-own? props "__proto__")
           (str (name surface) " has an own __proto__ data property"))
@@ -277,7 +280,7 @@
                   :else [ch]))))))
 
 (deftest handler-vector-dispatches-and-splices
-  (let [el      ((.-type counter) (js-obj "n" 3 "locked?" false))
+  (let [el      ((current-render ::counter) (js-obj "n" 3 "locked?" false))
         onClick (find-prop el "onClick")
         onInput (find-prop el "onInput")]
     (is (fn? onClick))
@@ -289,7 +292,7 @@
         ":rf.ui/value splices the event's target.value at dispatch time")))
 
 (deftest checked-placeholder-splices
-  (let [el ((.-type todo-row) (js-obj "todo" {:id 9 :label "x" :done? false
+  (let [el ((current-render ::todo-row) (js-obj "todo" {:id 9 :label "x" :done? false
                                               :priority :low}))
         onChange (find-prop el "onChange")]
     (onChange (js-obj "target" (js-obj "checked" true)))
@@ -297,14 +300,14 @@
 
 (deftest capture-free-handlers-hoist-and-dedupe
   ;; same capture-free vector in two renders -> the same fn object
-  (let [el1 ((.-type counter) (js-obj "n" 1 "locked?" false))
-        el2 ((.-type counter) (js-obj "n" 2 "locked?" false))]
+  (let [el1 ((current-render ::counter) (js-obj "n" 1 "locked?" false))
+        el2 ((current-render ::counter) (js-obj "n" 2 "locked?" false))]
     (is (identical? (find-prop el1 "onClick") (find-prop el2 "onClick"))
         "capture-free literal event vectors hoist to one module callback")))
 
 (deftest unwired-dispatch-throws-loudly
   (rt/set-dispatch-hook! nil)
-  (let [el ((.-type counter) (js-obj "n" 1 "locked?" false))
+  (let [el ((current-render ::counter) (js-obj "n" 1 "locked?" false))
         onClick (find-prop el "onClick")]
     (is (thrown-with-msg? js/Error #"ui-dispatch-unwired"
                           (onClick (js-obj))))))
@@ -314,7 +317,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest memo-comparator-is-the-ruled-rf=
-  (let [cmp (.-compare todo-list)]
+  (let [cmp (current-compare ::todo-list)]
     (is (fn? cmp))
     ;; fresh-but-equal CLJS data => equal (no repaint)
     (is (true? (cmp (js-obj "title" "T" "todos" [{:id 1}])
@@ -342,7 +345,7 @@
                     (js-obj "todos" []))))))
 
 (deftest as-view-generic-comparator
-  (let [cmp (.-compare as-view)]
+  (let [cmp (current-compare ::as-view)]
     (is (true? (cmp (js-obj "a" 1 "b" [1 2]) (js-obj "a" 1 "b" [1 2]))))
     (is (false? (cmp (js-obj "a" 1) (js-obj "a" 1 "c" 3)))
         ":as views compare the UNION of slots (generic comparison)")))
@@ -357,10 +360,163 @@
   ;; emitted code calls and assert the entry shape. That defview EMITS
   ;; this call under the goog.DEBUG gate is pinned as an emission-form
   ;; test on the JVM (defview-grammar-jvm-test), where it is order-free.
-  (rt/register-view! ::probe-view todo-list
-                     {:view-id ::probe-view :doc "probe"})
+  (rt/register-view! ::probe-view
+                     (fn [_props] nil)
+                     (fn [_prev _next] true)
+                     "probe-view"
+                     {:view-id ::probe-view
+                      :hook-signature "hs1-probe"
+                      :doc "probe"})
   (let [meta* (registrar/handler-meta :view ::probe-view)]
     (is (some? meta*) "register-view! writes the registrar :view kind")
     (is (true? (:rf.ui/compiled? meta*)))
     (is (= "probe" (:doc meta*)))
     (is (= ::probe-view (get-in meta* [:rf.ui/manifest :view-id])))))
+
+(deftest registrar-hooks-observe-one-coherent-view-publication
+  (let [id      ::registrar-hook-publication
+        seen    (atom [])
+        body    (fn [label]
+                  (fn [_props]
+                    (rt/jsx2 "output" (js-obj "children" label))))
+        render1 (body "v1")
+        render2 (body "v2")
+        cmp1    (fn [_ _] true)
+        cmp2    (fn [_ _] false)]
+    ;; Registration hooks are process-lived by registrar contract, so this
+    ;; one is permanently inert for every id except its unique fixture id.
+    (registrar/add-registration-hook!
+     (fn [{:keys [kind id now]}]
+       (when (and (= :view kind) (= ::registrar-hook-publication id))
+         (let [descriptor (reactive/view-descriptor id)]
+           (swap! seen conj
+                  (try
+                    {:body-revision (reactive/view-generation id)
+                     :manifest (:rf.ui/manifest now)
+                     :descriptor-manifest (:manifest descriptor)
+                     :render-fn (:render-fn descriptor)
+                     :compare-fn (:compare-fn descriptor)
+                     ;; Counterexample: the synchronous hook renders the
+                     ;; just-published shell. Preparing after register! makes
+                     ;; first load call nil and replacement render old code.
+                     :markup (render (rt/jsx2 (:handler-fn now) (js-obj)))}
+                    (catch :default e
+                      {:error e})))))))
+    (rt/register-view! id render1 cmp1 "HookPublication"
+                       {:view-id id :hook-signature "hs1-hook" :version 1})
+    (rt/register-view! id render2 cmp2 "HookPublication"
+                       {:view-id id :hook-signature "hs1-hook" :version 2})
+    (is (= 2 (count @seen)) "the hook ran on first registration and replacement")
+    (is (every? #(nil? (:error %)) @seen)
+        "the stable shell was renderable during both synchronous hooks")
+    (is (= [0 1] (mapv :body-revision @seen)))
+    (is (= ["<output>v1</output>" "<output>v2</output>"]
+           (mapv :markup @seen))
+        "first load sees a descriptor; reload sees the new body")
+    (is (= [1 2] (mapv #(get-in % [:manifest :version]) @seen)))
+    (is (= (mapv :manifest @seen) (mapv :descriptor-manifest @seen))
+        "registrar manifest and render authority move as one observation")
+    (is (identical? render1 (:render-fn (first @seen))))
+    (is (identical? render2 (:render-fn (second @seen))))
+    (is (identical? cmp1 (:compare-fn (first @seen))))
+    (is (identical? cmp2 (:compare-fn (second @seen))))))
+
+(deftest hmr-slot-publication-is-atomic-and-identities-are-stable
+  (let [id      ::atomic-publication
+        render1 (fn [_props] nil)
+        render2 (fn [_props] nil)
+        cmp1    (fn [_ _] true)
+        cmp2    (fn [_ _] false)
+        shell1  (rt/register-view! id render1 cmp1 "AtomicView"
+                                   {:view-id id :hook-signature "hs1-a"})
+        pair1   (reactive/view-shells id)
+        seen    (atom [])
+        stop    (reactive/subscribe-view!
+                 id
+                 #(swap! seen conj
+                         {:body (reactive/view-generation id)
+                          :remount (reactive/view-remount-generation id)
+                          :descriptor (reactive/view-descriptor id)}))
+        shell2  (rt/register-view! id render2 cmp2 "AtomicView"
+                                   {:view-id id :hook-signature "hs1-b"})]
+    (stop)
+    (is (identical? shell1 shell2) "fresh-shell mutation is rejected")
+    (is (identical? (:inner pair1) (:inner (reactive/view-shells id))))
+    (is (= 1 (count @seen)) "one successful registration emits one notify")
+    (let [{:keys [body remount descriptor]} (first @seen)]
+      (is (= [1 1] [body remount]))
+      (is (identical? render2 (:render-fn descriptor)))
+      (is (identical? cmp2 (:compare-fn descriptor)))
+      (is (= "hs1-b" (get-in descriptor [:manifest :hook-signature]))
+          "listener observes descriptor and both revisions from one publication"))))
+
+(deftest failed-registrar-write-does-not-publish-a-body-revision
+  (let [id ::failed-publication
+        result (try
+                 (with-redefs [registrar/register!
+                               (fn [& _] (throw (js/Error. "registrar boom")))]
+                   (rt/register-view! id (fn [_props] nil) (fn [_ _] true)
+                                      "FailedView"
+                                      {:view-id id :hook-signature "hs1-a"}))
+                 :unexpected-success
+                 (catch :default _ :thrown))]
+    (is (= :thrown result))
+    (is (nil? (reactive/registered-view-revision id))
+        "only a successful registrar write advances body freshness")
+    (is (nil? (reactive/view-descriptor id))
+        "a failed registration cannot become the dynamic render authority")))
+
+(deftest failed-replacement-rolls-back-the-entire-view-publication
+  (let [id      ::failed-replacement
+        render1 (fn [_props] nil)
+        cmp1    (fn [_ _] true)
+        shell1  (rt/register-view! id render1 cmp1 "RollbackV1"
+                                   {:view-id id
+                                    :hook-signature "hs1-a"
+                                    :version 1})
+        before  (reactive/view-descriptor id)
+        pair     (reactive/view-shells id)
+        seen     (atom [])
+        stop     (reactive/subscribe-view! id #(swap! seen conj :notified))
+        result   (try
+                   (with-redefs [registrar/register!
+                                 (fn [& _]
+                                   (is (= 1 (reactive/view-generation id))
+                                       "candidate is prepared for registrar hooks")
+                                   (is (= 2 (get-in (reactive/view-descriptor id)
+                                                    [:manifest :version])))
+                                   (throw (js/Error. "replacement boom")))]
+                     (rt/register-view! id (fn [_props] :v2) (fn [_ _] false)
+                                        "RollbackV2"
+                                        {:view-id id
+                                         :hook-signature "hs1-b"
+                                         :version 2}))
+                   :unexpected-success
+                   (catch :default _ :thrown))]
+    (stop)
+    (is (= :thrown result))
+    (is (= 0 (reactive/view-generation id)))
+    (is (= 0 (reactive/view-remount-generation id)))
+    (is (identical? before (reactive/view-descriptor id))
+        "render/comparator/manifest roll back to the last successful publication")
+    (is (identical? shell1 (:outer (reactive/view-shells id))))
+    (is (identical? (:inner pair) (:inner (reactive/view-shells id))))
+    (is (= "RollbackV1" (.-displayName shell1))
+        "failed candidate display names do not leak")
+    (is (empty? @seen) "a rolled-back candidate never notifies mounted shells")))
+
+(deftest scheduler-reset-never-strands-an-already-loaded-defview
+  (let [shell-before static-tree
+        descriptor-before (reactive/view-descriptor ::static-tree)]
+    (reactive/reset-scheduler!)
+    (is (identical? shell-before static-tree))
+    (is (identical? descriptor-before
+                    (reactive/view-descriptor ::static-tree)))
+    (is (= (str "<div class=\"panel\" id=\"about\" "
+                "style=\"padding:16px;border-top:1px solid #ccc\">"
+                "<h2 class=\"title\">About</h2>"
+                "<p>Static, <em>hoisted</em>.</p>"
+                "<footer aria-label=\"footer\" tabindex=\"0\">"
+                "(c) 2026 &lt;re-frame2&gt;</footer></div>")
+           (render (rt/jsx2 static-tree (js-obj))))
+        "fixture/scheduler cleanup leaves the defview's live authority intact")))

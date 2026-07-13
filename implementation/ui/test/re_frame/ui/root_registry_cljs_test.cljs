@@ -639,8 +639,13 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- reg-view! [id tf hs]
-  (runtime/register-view! id (fn [_])
-                          {:template-fingerprint tf :hook-signature hs}))
+  (runtime/register-view! id
+                          (fn [_props] nil)
+                          (fn [_prev _next] true)
+                          (str id)
+                          {:view-id id
+                           :template-fingerprint tf
+                           :hook-signature hs}))
 
 (deftest client-descriptor-projects-the-build-digest
   (let [published (client/current-build-digest)]

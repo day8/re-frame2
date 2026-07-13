@@ -423,17 +423,14 @@
         body       (emit-node ast st false)
         binds      (vec (header-bindings header))
         render-sym (symbol (str (name vname) "$render"))
-        ;; A view with reactive `(sub …)` sites gets a ViewCell: its render
-        ;; body runs under `re-frame.ui.viewcell/render` (one
-        ;; useSyncExternalStore, render-time probes, layout-commit
-        ;; ownership). Sub-free views are never wrapped — no per-view hook
-        ;; overhead, byte-identical S1 emission (I-15's dev fixed-hook
-        ;; skeleton is an S2e HMR refinement).
+        host-render-sym (symbol (str (name vname) "$host_render"))
+        ;; The raw body is descriptor data in DEV. Stable Inner supplies the
+        ;; fixed ViewCell hook skeleton to EVERY dev view, so adding the first
+        ;; sub is a same-signature edit. Production specializes: a sub-bearing
+        ;; view uses the host wrapper below; a sub-free view goes straight from
+        ;; React.memo to the raw body with zero ViewCell hooks.
         has-subs?  (boolean (seq (:subs (:sites manifest))))
         inner      (if (seq binds) `(let [~@binds] ~body) body)
-        render-body (if has-subs?
-                      `(re-frame.ui.viewcell/render ~view-id (fn [] ~inner))
-                      inner)
         var-meta   (cond-> {:rf.ui/view true
                             :rf.ui/view-id view-id
                             :rf.ui/children? children?}
@@ -442,12 +439,20 @@
     `(do
        ~@(:defs @st)
        (defn ~render-sym [~props-sym]
-         ~render-body)
+         ~inner)
+       ~@(when has-subs?
+           [`(defn ~host-render-sym [~props-sym]
+               (re-frame.ui.viewcell/render
+                ~view-id (fn [] (~render-sym ~props-sym))))])
        (def ~(vary-meta vname merge var-meta)
-         (re-frame.ui.runtime/memo-view
-          ~render-sym
-          ~(comparator-form header slots)
-          ~display-name))
-       (when ~(with-meta 'js/goog.DEBUG {:tag 'boolean})
-         (re-frame.ui.runtime/register-view! ~view-id ~vname (quote ~manifest)))
+         (let [compare# ~(comparator-form header slots)]
+           (if ~(with-meta 'js/goog.DEBUG {:tag 'boolean})
+             (re-frame.ui.runtime/register-view!
+              ~view-id ~render-sym compare# ~display-name (quote ~manifest))
+             ;; The production arm is deliberately direct React.memo. Closure
+             ;; folds away the sibling registration arm and with it every HMR
+             ;; slot/listener/dynamic-lookup/extra-Fiber helper.
+             (re-frame.ui.runtime/memo-view
+              ~(if has-subs? host-render-sym render-sym)
+              compare# ~display-name))))
        ~vname)))
