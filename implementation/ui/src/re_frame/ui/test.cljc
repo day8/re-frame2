@@ -414,6 +414,7 @@
      ;; a forgotten await must fail at the second call instead of creating
      ;; overlapping act scopes whose commit/cleanup order React cannot promise.
      (defonce ^:private active-act (atom nil))
+     (defonce ^:private cleanup-tail (atom (js/Promise.resolve nil)))
 
      (defn- promise-call
        [thunk]
@@ -437,25 +438,28 @@
        guard. Cleanup uses the returned value as its primary diagnostic while
        it waits for the in-flight act to settle and reclaims its own root."
        [where]
-       (when-let [{active-where :where} @active-act]
+       (when-let [{active-where :where origin :origin} @active-act]
+         ;; A private cleanup act is serialized by cleanup-tail. Another owner
+         ;; joining that queue is reclamation, not a second public misuse.
+         (when (= :public origin)
          (try
            (overlapping-act! where active-where)
-           (catch :default e e))))
+           (catch :default e e)))))
 
      (defn- guard-no-active-act!
        [where]
        (when-let [{active-where :where} @active-act]
          (overlapping-act! where active-where)))
 
-     (defn- act!
+     (defn- act-operation!
        "Run one mounted-test step through React 19's directly imported `act`.
        Always returns a Promise and restores the caller's act-environment flag
        only after React settles. Overlap is rejected synchronously."
-       [where thunk]
+       [where origin thunk]
        (let [token (js-obj)
              prior (.-IS_REACT_ACT_ENVIRONMENT js/globalThis)]
          (guard-no-active-act! where)
-         (reset! active-act {:token token :where where})
+         (reset! active-act {:token token :where where :origin origin})
          (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
          (letfn [(finish! []
                    (when (identical? token (:token @active-act))
@@ -481,6 +485,10 @@
                (swap! active-act assoc :settled settled))
              settled))))
 
+     (defn- act!
+       [where thunk]
+       (act-operation! where :public thunk))
+
      (defn- act-when-idle!
        "Internal teardown boundary. Wait through every act already in flight,
        then claim the next act slot. Public overlap remains a synchronous
@@ -491,7 +499,22 @@
          (-> (or settled (js/Promise.resolve nil))
              (.then (fn [_] (act-when-idle! where thunk))
                     (fn [_] (act-when-idle! where thunk))))
-         (act! where thunk)))
+         (act-operation! where :cleanup thunk)))
+
+     (defn- enqueue-cleanup-act!
+       "Serialize private owner reclamation. Each task runs after the previous
+       cleanup regardless of its outcome and after any public act then active.
+       The published tail always resolves, so one cleanup failure cannot poison
+       later owners; the task Promise itself preserves that owner's failure."
+       [where thunk]
+       (let [prior @cleanup-tail
+             task  (-> prior
+                       (.then (fn [_] (act-when-idle! where thunk))
+                              (fn [_] (act-when-idle! where thunk))))
+             tail  (-> task
+                       (.then (fn [_] nil) (fn [_] nil)))]
+         (reset! cleanup-tail tail)
+         task))
 
      (defn- remember-first-error!
        [slot e]
@@ -509,8 +532,7 @@
        "Preserve the primary throwable while retaining a cleanup failure on
        the ordinary JS Error/ExceptionInfo object for diagnostics."
        [primary cleanup]
-       (when (and primary cleanup
-                  (or (object? primary) (fn? primary)))
+       (when (and primary cleanup)
          (try
            (js/Object.defineProperty
             primary "rfUiTestCleanupError"
@@ -572,8 +594,8 @@
            (-> (if @host-root
                  (cleanup-step!
                   cleanup-error
-                  #(act-when-idle! 'rf.ui.test/with-root
-                                   (fn [] (ui/unmount! @host-root))))
+                  #(enqueue-cleanup-act! 'rf.ui.test/with-root
+                                         (fn [] (ui/unmount! @host-root))))
                  (js/Promise.resolve nil))
                (.then (fn []
                         (cleanup-step! cleanup-error #(.remove container)))))))

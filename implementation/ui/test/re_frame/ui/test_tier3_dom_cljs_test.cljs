@@ -85,6 +85,29 @@
      (str n)
      (ui/raw (React/createElement commit-probe #js {:evidence evidence}))]))
 
+(defn cascading-commit-probe [^js props]
+  (let [n        (.-n props)
+        f        (.-frame props)
+        evidence (.-evidence props)]
+    (React/useLayoutEffect
+     (fn []
+       (swap! evidence update :commits inc)
+       (when (and (= 1 n) (not (:cascaded? @evidence)))
+         (swap! evidence assoc :cascaded? true)
+         (uit/dispatch! f [::cascade-step]))
+       js/undefined)
+     #js [n])
+    nil))
+
+(defview cascading-fixed-point-fixture [{:keys [evidence frame]}]
+  (let [_ (swap! evidence update :renders inc)
+        n (ui/sub [::cascade-value])]
+    [:output {:data-role "cascade-fixed-point"}
+     (str n)
+     (ui/raw
+      (React/createElement cascading-commit-probe
+                           #js {:n n :frame frame :evidence evidence}))]))
+
 (defn- mounted-baseline []
   {:live-roots (client/live-root-ids)
    :cells      (reactive/root-cell-count)
@@ -156,6 +179,18 @@
                      (done))
                    (fn [e]
                      (reject-unexpectedly! done "async body rejected" e))))))))
+
+(deftest with-root-resolves-to-the-awaited-body-value
+  (when (browser?)
+    (async done
+      (-> (uit/with-root [_root [query-fixture]]
+            (js/Promise.resolve ::body-result))
+          (.then (fn [value]
+                   (is (= ::body-result value)
+                       "teardown does not replace the awaited body result")
+                   (done))
+                 (fn [e]
+                   (reject-unexpectedly! done "body-result root rejected" e)))))))
 
 (deftest nested-with-root-restores-each-ownership-scope
   (when (browser?)
@@ -229,10 +264,55 @@
                      (reject-unexpectedly! done "dual failure resolved" nil))
                    (fn [e]
                      (is (identical? primary e))
-                     (is (identical? cleanup (.-rfUiTestCleanupError e))
+                     (is (identical? cleanup
+                                     (unchecked-get e "rfUiTestCleanupError"))
                          "cleanup diagnostic rides the preserved primary error")
                      (is (= before (mounted-baseline)))
                      (done))))))))
+
+(deftest cleanup-only-failure-rejects-with-the-cleanup-error
+  (when (browser?)
+    (async done
+      (let [before  (mounted-baseline)
+            cleanup (js/Error. "cleanup-only failure")]
+        (-> (uit/with-root [_root [throwing-cleanup-fixture
+                                   {:cleanup-error cleanup}]]
+              ::body-succeeded)
+            (.then (fn [_]
+                     (reject-unexpectedly! done "cleanup-only failure resolved" nil))
+                   (fn [e]
+                     (is (identical? cleanup e)
+                         "without a body failure, cleanup is the primary rejection")
+                     (is (= before (mounted-baseline)))
+                     (done))))))))
+
+(deftest act-environment-is-restored-after-success-and-rejection
+  (when (browser?)
+    (async done
+      (let [prior   (.-IS_REACT_ACT_ENVIRONMENT js/globalThis)
+            primary (js/Error. "body rejection")]
+        (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
+        (-> (uit/with-root [_root [query-fixture]] nil)
+            (.then
+             (fn []
+               (is (false? (.-IS_REACT_ACT_ENVIRONMENT js/globalThis))
+                   "success restores the exact pre-existing false value")
+               (uit/with-root [_root [query-fixture]] (throw primary))))
+            (.then
+             (fn []
+               (throw (js/Error. "rejected body unexpectedly resolved")))
+             (fn [e]
+               (is (identical? primary e))
+               (is (false? (.-IS_REACT_ACT_ENVIRONMENT js/globalThis))
+                   "rejection restores the exact pre-existing false value")
+               nil))
+            (.then
+             (fn []
+               (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) prior)
+               (done))
+             (fn [e]
+               (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) prior)
+               (reject-unexpectedly! done "act-environment test rejected" e))))))))
 
 (deftest with-root-strictmode-teardown-releases-cells-and-observation-owners
   (when (browser?)
@@ -414,3 +494,34 @@
                    (fn [e]
                      (rf/destroy-frame! f)
                      (reject-unexpectedly! done "fixed-point test rejected" e))))))))
+
+(deftest flush-promise-recurses-when-the-first-commit-marks-more-work
+  (when (browser?)
+    (rf/reg-sub ::cascade-value (fn [db _] (:n db)))
+    (rf/reg-event ::cascade-step
+                  (fn [{:keys [db]} _]
+                    {:db (update db :n inc)}))
+    (let [f        (uit/frame {:app-db {:n 0}})
+          evidence (atom {:renders 0 :commits 0 :cascaded? false})]
+      (async done
+        (-> (uit/with-root [root [ui/frame-provider {:frame f}
+                                  [cascading-fixed-point-fixture
+                                   {:evidence evidence :frame f}]]]
+              (reset! evidence {:renders 0 :commits 0 :cascaded? false})
+              (-> (uit/flush! #(uit/dispatch! f [::cascade-step]))
+                  (.then (fn []
+                           (is (= "2" (.-textContent
+                                        (uit/query root
+                                                   "[data-role='cascade-fixed-point']"))))
+                           nil))))
+            (.then (fn []
+                     (is (= 2 (:n (rf/app-db-value f)))
+                         "the first layout commit synchronously queued a second write")
+                     (is (= {:renders 2 :commits 2 :cascaded? true} @evidence)
+                         "one returned Promise waited for both drain/commit cycles")
+                     (is (zero? (reactive/pending-cell-count)))
+                     (rf/destroy-frame! f)
+                     (done))
+                   (fn [e]
+                     (rf/destroy-frame! f)
+                     (reject-unexpectedly! done "recursive fixed-point rejected" e))))))))
