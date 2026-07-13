@@ -68,6 +68,12 @@
             (pr-str form)))
       (is (= :rf.ui.compile/unsupported-form
              (compile-error-id
+              #(analyze/analyze
+                e '[:div {:title
+                           (re-frame.ui.compiler-macro-resolution-jvm-test/user-binder)}])))
+          "an opaque zero-arg invocation cannot inject an invisible site")
+      (is (= :rf.ui.compile/unsupported-form
+             (compile-error-id
               #(analyze/reject-reactive-binding!
                 e '[{:keys [x] :or {x (-> [:q] sub)}}])))
           "real CLJS macro resolution fences a manufactured default call")

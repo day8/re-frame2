@@ -168,14 +168,18 @@
       (seq? x)
       (or (let [h (first x)]
             (when (and (symbol? h) (not (contains? locals h)))
-              (cond
-                (env/resolves-to? e* h sub-fqns) :sub
-                (env/resolves-to? e* h lease-fqns) :lease
-                ;; A macro can manufacture a call from a bare reactive var
-                ;; (`(-> query sub)`). Binding/default forms never pass through
-                ;; the rewriter later, so fence that escape here too.
-                (true? (-> (env/resolve-sym e* h) :meta :macro))
-                (reactive-macro-reference-kind e (rest x) locals))))
+              (let [info (env/resolve-sym e* h)]
+                (cond
+                  (contains? sub-fqns (:fqn info)) :sub
+                  (contains? lease-fqns (:fqn info)) :lease
+                  ;; Binding/default forms never pass through rewriting later.
+                  ;; An unaudited macro can inject a reactive call even when its
+                  ;; invocation carries no visible sub token, so reject it.
+                  (and (true? (-> info :meta :macro))
+                       (not (contains? transparent-macro-fqns (:fqn info))))
+                  :opaque-macro
+                  (true? (-> info :meta :macro))
+                  (reactive-macro-reference-kind e (rest x) locals)))))
           (some #(reactive-call-kind e % locals) (rest x)))
       (map? x) (or (some #(reactive-call-kind e % locals) (keys x))
                    (some #(reactive-call-kind e % locals) (vals x)))
@@ -231,10 +235,15 @@
   [e binding-form]
   (when-let [kind (reactive-call-kind e binding-form #{})]
     (env/fail! e :rf.ui.compile/unsupported-form
-               (str "(" (name kind) " ...) cannot appear in a binding pattern "
-                    "or destructuring :or default — that position cannot own "
-                    "a lexical render site. Hoist the read into the view body "
-                    "and bind/destructure its value there")
+               (if (= :opaque-macro kind)
+                 (str "an unaudited macro cannot appear in a binding pattern "
+                      "or destructuring :or default — macro expansion could "
+                      "inject a reactive call after lexical site analysis. "
+                      "Compute the default in the view body instead")
+                 (str "(" (name kind) " ...) cannot appear in a binding pattern "
+                      "or destructuring :or default — that position cannot own "
+                      "a lexical render site. Hoist the read into the view body "
+                      "and bind/destructure its value there"))
                {:form binding-form :reactive-kind kind}))
   binding-form)
 
@@ -459,15 +468,14 @@
                                            (rest f)))))
 
                    (macro-info e* head locals)
-                   (if (reactive-macro-reference-kind e (rest f) locals)
-                     (env/fail! e :rf.ui.compile/unsupported-form
-                                (str "(sub ...)/(lease ...) below macro " head
-                                     " cannot be assigned a sound lexical site "
-                                     "before macro expansion. Hoist the read into "
-                                     "a surrounding let, then pass the value to "
-                                     "the macro expression")
-                                {:form f :macro head})
-                     f)
+                   (env/fail! e :rf.ui.compile/unsupported-form
+                              (str "macro " head " is outside the compiler's "
+                                   "audited expression set and could inject, "
+                                   "duplicate, or defer a reactive call after "
+                                   "lexical site analysis. Rewrite it with "
+                                   "ordinary functions/control forms, or hoist "
+                                   "the computation around the view template")
+                              {:form f :macro head})
 
                    :else
                    (with-same-meta

@@ -24,7 +24,9 @@
             [re-frame.ui :as ui :refer [defview]]
             [re-frame.ui.reactive :as reactive]
             [re-frame.ui.sub-overrides :as sub-overrides]
-            [re-frame.ui.test :as uit]))
+            [re-frame.ui.test :as uit])
+  (:require-macros [re-frame.ui.hidden-sub-macros
+                    :refer [hidden-public-sub]]))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
@@ -37,10 +39,25 @@
 (defn prod-provider-tree []
   (sub-overrides/provider-element
    {[::prod-value] "forbidden-override"}
-   (React/createElement prod-sub-value nil)))
+   (React/createElement React/Fragment nil
+                        (React/createElement prod-sub-value nil)
+                        (React/createElement prod-sub-value nil))))
 
 (defview prod-mounted-tree []
   (ui/raw (React/createElement prod-provider-tree nil)))
+
+(defn hidden-ordinary-helper []
+  (ui/sub [:hidden/ordinary-helper]))
+
+(defn hidden-macro-helper []
+  (hidden-public-sub))
+
+(deftest advanced-production-hidden-reads-fail-instead-of-going-nonreactive
+  (doseq [helper [hidden-ordinary-helper hidden-macro-helper]]
+    (is (= :rf.error/ui-tree-malformed
+           (try (helper) nil
+                (catch :default e (:rf.error/id (ex-data e)))))
+        "advanced production preserves fail-loud public authoring semantics")))
 
 (deftest mounted-viewcell-provider-carriage-elides-in-production
   (rf/reg-sub ::prod-value (fn [db _] (:prod-value db)))
@@ -66,12 +83,27 @@
           (is (= "ordinary"
                  (.-textContent
                   (.querySelector container "[data-role='prod-sub-value']"))))
-          (let [cells (reactive/current-live-cells)]
-            (is (= 1 (count cells)))
-            (is (= #{sub-key}
-                   (reactive/committed-target-keys (first cells))))
-            (is (some? (get @(:sub-cache (frame/frame frame-id))
-                            [::prod-value])))))
+          (let [cells   (vec (reactive/current-live-cells))
+                records (mapv #(first (vals (reactive/committed-sites %))) cells)
+                sids    (mapv #(first (keys (reactive/committed-sites %))) cells)]
+            (is (= 2 (count cells)))
+            (is (= 2 (.-length
+                      (.querySelectorAll container
+                                         "[data-role='prod-sub-value']"))))
+            (is (every? #(= #{sub-key}
+                            (reactive/committed-target-keys %))
+                        cells))
+            (is (= 1 (count (distinct sids)))
+                "both view instances execute the same compiler lexical site")
+            (is (.startsWith (first sids) "sid1-")
+                "the advanced hot call retains the compact versioned sid")
+            (is (identical? (:query (first records))
+                            (:query (second records)))
+                "the literal query is one module constant, not rebuilt per render")
+            (is (= 2 (:ref-count
+                      (get @(:sub-cache (frame/frame frame-id))
+                           [::prod-value])))
+                "each lexical view instance remains an independent owner")))
         (catch :default e
           (is false (str "advanced mounted override-elision control rejected: " e)))
         (finally

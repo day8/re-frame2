@@ -248,16 +248,20 @@
 ;; ---------------------------------------------------------------------------
 
 (defn sub
-  "(sub [:query ...]) — returns the subscription's value at a compile-
-  indexed view site. In a live CLJS view the read is reactive: all of a
-  view's sites share one ViewCell (one `useSyncExternalStore`), the render
-  probes ownership-free, and the layout commit acquires the captured
-  target (`re-frame.ui.reactive` / `re-frame.ui.viewcell`). On the JVM
-  Tier-1 render it is a one-shot headless read honouring the explicit
-  override door (`ui.test/render {:sub-overrides …}`). Fail-loud rides the
-  observation port: `:rf.error/no-such-sub` / `:rf.error/frame-destroyed`."
+  "(sub [:query ...]) is a compiler-owned authoring form for a lexical view
+  site. Accepted template occurrences lower to the internal two-argument
+  site-bearing read on BOTH hosts. This var exists for symbol resolution only;
+  a direct call (including from a helper the view compiler cannot inspect)
+  fails loudly rather than becoming a nonreactive one-shot read. Pass values
+  into helpers, or make the helper a defview. Explicit headless probing belongs
+  to the test/observation seam."
   [query]
-  (reactive/sub-read query))
+  (error/throw-error!
+   :rf.error/ui-tree-malformed 're-frame.ui/sub
+   (str "(ui/sub " (pr-str query) ") executed outside compiler lowering — "
+        "ui/sub is a lexical defview form, not a callable subscription helper. "
+        "Pass the read value into the helper or extract a defview")
+   {:extra {:query query}}))
 
 (defn lease
   "(lease descriptor) — declares resource liveness at a view site.

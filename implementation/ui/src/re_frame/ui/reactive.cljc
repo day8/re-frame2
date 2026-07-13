@@ -519,20 +519,49 @@
   "Roll back a prepared descriptor after registrar failure.
 
   Rollback is conditional on transaction identity, so it cannot overwrite a
-  newer re-entrant registration. Listener subscriptions made while the
-  registrar call was in flight are retained; descriptor/revision/remount state
-  returns to the exact prior publication. Returns the current slot snapshot."
+  newer re-entrant registration. Revisions are globally monotone even across
+  failure: restore the prior descriptor at a fresh body revision and notify
+  once, making every render of the provisional descriptor stale. If the failed
+  candidate exposed a different hook shape, restoration advances remount
+  generation again. A failed first registration becomes an unavailable
+  tombstone at a fresh revision. Listener subscriptions made in flight are
+  retained. Returns the current slot snapshot."
   [{:keys [view-id publication-token before]}]
-  (let [slots
-        (swap! view-generations update view-id
-               (fn [slot]
-                 (if (identical? publication-token
-                                 (:hmr-publication-token slot))
-                   (assoc (or before {})
-                          :hmr-listeners
-                          (:hmr-listeners slot {}))
-                   slot)))]
-    (get slots view-id)))
+  (let [[old-slots slots]
+        (swap-vals!
+         view-generations update view-id
+         (fn [slot]
+           (if (identical? publication-token
+                           (:hmr-publication-token slot))
+             (let [prior (or before {})
+                   prior-registered? (boolean (:hmr-registered? prior))
+                   shape-observed?
+                   (or (not prior-registered?)
+                       (not= (:hmr-hook-signature prior)
+                             (:hmr-hook-signature slot)))
+                   restored
+                   (-> prior
+                       (assoc :hmr-listeners (:hmr-listeners slot {})
+                              :hmr-body-revision
+                              (inc (:hmr-body-revision slot))
+                              :hmr-remount-generation
+                              (cond-> (:hmr-remount-generation slot)
+                                shape-observed? inc)))]
+               (if prior-registered?
+                 restored
+                 (assoc restored
+                        :hmr-registered? false
+                        :hmr-hook-signature nil
+                        :hmr-descriptor nil)))
+             slot)))
+        current-before (get old-slots view-id)
+        rolled-back? (identical? publication-token
+                                  (:hmr-publication-token current-before))
+        restored (get slots view-id)]
+    (when rolled-back?
+      (doseq [listener (vals (:hmr-listeners restored))]
+        (listener)))
+    restored))
 
 (defn register-view-descriptor!
   "Publish one descriptor directly through the same prepare/commit path used

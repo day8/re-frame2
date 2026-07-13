@@ -23,6 +23,7 @@
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support         :as test-support]
             [re-frame.trace.tooling        :as trace-tooling]
+            [re-frame.ui                   :as ui]
             [re-frame.ui.reactive          :as reactive]))
 
 (def ^:private fid :rf/default)
@@ -64,6 +65,17 @@
       (fn [ev] (when (= :error (:op-type ev)) (swap! seen conj ev))))
     (try (thunk) (finally (trace-tooling/unregister-listener! lid)))
     @seen))
+
+(defn- hidden-public-sub-helper []
+  (ui/sub [:hidden/helper]))
+
+(deftest public-sub-cannot-hide-an-unmanifested-read-in-a-helper
+  (is (= :rf.error/ui-tree-malformed
+         (try (hidden-public-sub-helper) nil
+              (catch #?(:clj clojure.lang.ExceptionInfo
+                        :cljs cljs.core/ExceptionInfo) e
+                (:rf.error/id (ex-data e)))))
+      "unlowered public ui/sub is symmetrically fail-loud on JVM and CLJS"))
 
 ;; ---- the schema-validation fold-in (parity with the Reagent path) --------
 

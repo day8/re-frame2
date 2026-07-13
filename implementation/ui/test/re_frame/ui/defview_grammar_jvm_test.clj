@@ -28,6 +28,9 @@
             (when (instance? clojure.lang.ExceptionInfo c)
               (:rf.ui.compile/error (ex-data c))))))))
 
+(defmacro injected-sub []
+  '(re-frame.ui/sub [:injected]))
+
 ;; ---------------------------------------------------------------------------
 ;; Arities + options
 ;; ---------------------------------------------------------------------------
@@ -68,6 +71,13 @@
                :or {x (-> [:fallback] re-frame.ui/sub)}}]
              [:div x])))
       "a header macro cannot manufacture a one-arity read after site analysis")
+  (is (= :rf.ui.compile/unsupported-form
+         (expand-error
+          '(re-frame.ui/defview opaque-macro-header
+             [{:keys [x]
+               :or {x (re-frame.ui.defview-grammar-jvm-test/injected-sub)}}]
+             [:div x])))
+      "even an invocation with no visible sub token is fenced")
   (is (nil? (expand-error
              '(re-frame.ui/defview ordinary-header
                 [{:keys [x] :or {x (str "fallback")}}]
@@ -76,6 +86,13 @@
   (is (nil? (expand-error
              '(re-frame.ui/defview shadowing-header [{:keys [sub]}] [:div sub])))
       "the header local shadows re-frame.ui/sub only in the body"))
+
+(deftest an-opaque-macro-cannot-inject-an-unmanifested-template-site
+  (is (= :rf.ui.compile/unsupported-form
+         (expand-error
+          '(re-frame.ui/defview injected-template []
+             [:div (re-frame.ui.defview-grammar-jvm-test/injected-sub)])))
+      "sub-free production selection cannot be fooled by later macroexpansion"))
 
 (deftest options-map-is-closed
   (is (= :rf.ui.compile/unknown-option

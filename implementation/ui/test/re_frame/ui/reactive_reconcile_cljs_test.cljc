@@ -65,6 +65,17 @@
     (reactive/commit! cell capture))
   cell)
 
+(defn- render-sites! [cell sites]
+  (rf/with-frame fid
+    (reactive/with-capture
+     cell
+     (fn [] (mapv (fn [[sid q]] (reactive/sub-read sid q)) sites)))))
+
+(defn- render-sites+commit! [cell sites]
+  (let [[_ capture] (render-sites! cell sites)]
+    (reactive/commit! cell capture))
+  cell)
+
 (defn- throws-id [thunk]
   (try (thunk) nil
        (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
@@ -144,6 +155,87 @@
     (is (= #{(tk [:r/a])} (reactive/committed-target-keys cell)))
     (is (= 1 (ref-count [:r/a])) "one owner installed at commit")
     (is (= {(tk [:r/a]) 1} (reactive/committed-values cell)))))
+
+(deftest same-site-rf-equal-query-preserves-exact-object-before-resolution
+  (rf/reg-sub :r/p (fn [db [_ k]] (get db k)))
+  (seed! {:x 10})
+  (let [sid ::parametric-site
+        q1  (mapv identity [:r/p :x])
+        q2  (mapv identity [:r/p :x])
+        cell (render-sites+commit! (reactive/make-cell ::parametric)
+                                   [[sid q1]])
+        lease1 (:lease (reactive/committed-site cell sid))
+        resolve* obs/resolve-target
+        resolved-query (atom nil)
+        [_ capture]
+        (with-redefs [obs/resolve-target
+                      (fn [site-ctx]
+                        (reset! resolved-query (:query-v site-ctx))
+                        (resolve* site-ctx))]
+          (render-sites! cell [[sid q2]]))]
+    (is (= q1 q2))
+    (is (not (identical? q1 q2)) "the rerender really rebuilt the query")
+    (is (identical? q1 @resolved-query)
+        "stabilization happens before override/target resolution")
+    (is (identical? q1 (get-in (reactive/site-records capture) [sid :query])))
+    (reactive/commit! cell capture)
+    (is (identical? q1 (:query (reactive/committed-site cell sid))))
+    (is (identical? lease1 (:lease (reactive/committed-site cell sid)))
+        "rf=-equal rerender neither retargets nor churns ownership")
+    (dotimes [_ 10000]
+      (render-sites! cell [[sid (mapv identity [:r/p :x])]]))
+    (is (identical? q1 (:query (reactive/committed-site cell sid)))
+        "abandoned candidates never become the published preservation object")))
+
+(deftest equal-query-lexical-sites-are-distinct-owners
+  (rf/reg-sub :r/a (fn [db _] (:a db)))
+  (seed! {:a 1})
+  (let [q1 (mapv identity [:r/a])
+        q2 (mapv identity [:r/a])
+        cell (render-sites+commit! (reactive/make-cell ::equal-sites)
+                                   [[::site-a q1] [::site-b q2]])
+        a (reactive/committed-site cell ::site-a)
+        b (reactive/committed-site cell ::site-b)]
+    (is (= #{::site-a ::site-b} (set (keys (reactive/committed-sites cell)))))
+    (is (not (identical? (:lease a) (:lease b)))
+        "target equality never collapses lexical owner tokens")
+    (is (identical? q1 (:query a)))
+    (is (identical? q2 (:query b)))
+    (is (= 2 (ref-count [:r/a]))
+        "the shared cache node has one reference per lexical owner")
+    (let [lease-b (:lease b)
+          q2-next (mapv identity [:r/a])]
+      (render-sites+commit! cell [[::site-b q2-next]])
+      (is (= #{::site-b} (set (keys (reactive/committed-sites cell))))
+          "conditional disappearance removes only the absent sid")
+      (is (identical? lease-b
+                      (:lease (reactive/committed-site cell ::site-b))))
+      (is (identical? q2 (:query (reactive/committed-site cell ::site-b))))
+      (is (= 1 (ref-count [:r/a]))))))
+
+(deftest changed-query-at-one-site-acquires-before-releasing
+  (rf/reg-sub :r/p (fn [db [_ k]] (get db k)))
+  (seed! {:x 10 :y 20})
+  (let [sid ::retarget-site
+        cell (render-sites+commit! (reactive/make-cell ::retarget)
+                                   [[sid [:r/p :x]]])
+        acquire* obs/acquire!
+        release* obs/release!
+        operations (atom [])]
+    (with-redefs [obs/acquire!
+                  (fn [target on-change]
+                    (swap! operations conj [:acquire (:query target)])
+                    (acquire* target on-change))
+                  obs/release!
+                  (fn [lease]
+                    (swap! operations conj [:release])
+                    (release* lease))]
+      (render-sites+commit! cell [[sid [:r/p :y]]]))
+    (is (= [[:acquire [:r/p :y]] [:release]] @operations)
+        "retarget stages the new owner before dropping the prior owner")
+    (is (= [:r/p :y] (:query (reactive/committed-site cell sid))))
+    (is (nil? (entry [:r/p :x])))
+    (is (= 1 (ref-count [:r/p :y])))))
 
 (deftest recommit-retains-lease-untouched
   (rf/reg-sub :r/a (fn [db _] (:a db)))

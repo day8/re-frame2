@@ -450,25 +450,38 @@
       (is (= "hs1-b" (get-in descriptor [:manifest :hook-signature]))
           "listener observes descriptor and both revisions from one publication"))))
 
-(deftest failed-registrar-write-does-not-publish-a-body-revision
+(deftest failed-first-registration-publishes-unavailable-compensation
   (let [id ::failed-publication
+        seen (atom [])
+        stop (volatile! nil)
         result (try
                  (with-redefs [registrar/register!
-                               (fn [& _] (throw (js/Error. "registrar boom")))]
+                               (fn [& _]
+                                 (vreset! stop
+                                          (reactive/subscribe-view!
+                                           id
+                                           #(swap! seen conj
+                                                   [(reactive/view-generation id)
+                                                    (reactive/view-remount-generation id)
+                                                    (reactive/view-descriptor id)])))
+                                 (throw (js/Error. "registrar boom")))]
                    (rt/register-view! id (fn [_props] nil) (fn [_ _] true)
                                       "FailedView"
                                       {:view-id id :hook-signature "hs1-a"}))
                  :unexpected-success
                  (catch :default _ :thrown))]
+    (when @stop (@stop))
     (is (= :thrown result))
     (is (nil? (reactive/registered-view-revision id))
-        "only a successful registrar write advances body freshness")
+        "the failed first load is unavailable, never registered")
     (is (nil? (reactive/view-descriptor id))
-        "a failed registration cannot become the dynamic render authority")))
+        "a failed registration cannot become the dynamic render authority")
+    (is (= [[1 1 nil]] @seen)
+        "the provisional first-load shape is compensated by one fresh tombstone")))
 
 (deftest failed-replacement-rolls-back-the-entire-view-publication
   (let [id      ::failed-replacement
-        render1 (fn [_props] nil)
+        render1 (fn [_props] :v1)
         cmp1    (fn [_ _] true)
         shell1  (rt/register-view! id render1 cmp1 "RollbackV1"
                                    {:view-id id
@@ -477,7 +490,12 @@
         before  (reactive/view-descriptor id)
         pair     (reactive/view-shells id)
         seen     (atom [])
-        stop     (reactive/subscribe-view! id #(swap! seen conj :notified))
+        cell     (reactive/make-cell id 0)
+        provisional-capture (atom nil)
+        stop     (reactive/subscribe-view!
+                  id #(swap! seen conj
+                             [(reactive/view-generation id)
+                              (reactive/view-remount-generation id)]))
         result   (try
                    (with-redefs [registrar/register!
                                  (fn [& _]
@@ -485,6 +503,14 @@
                                        "candidate is prepared for registrar hooks")
                                    (is (= 2 (get-in (reactive/view-descriptor id)
                                                     [:manifest :version])))
+                                   ;; Model the synchronous registrar callback
+                                   ;; re-entering the stable shell before failure.
+                                   (reactive/advance-generation!
+                                    cell (reactive/view-generation id))
+                                   (reset! provisional-capture
+                                           (second
+                                            (reactive/with-capture
+                                             cell (fn [] :provisional))))
                                    (throw (js/Error. "replacement boom")))]
                      (rt/register-view! id (fn [_props] :v2) (fn [_ _] false)
                                         "RollbackV2"
@@ -495,15 +521,97 @@
                    (catch :default _ :thrown))]
     (stop)
     (is (= :thrown result))
-    (is (= 0 (reactive/view-generation id)))
-    (is (= 0 (reactive/view-remount-generation id)))
+    (is (= 2 (reactive/view-generation id))
+        "rollback never decrements past the observed provisional revision")
+    (is (= 2 (reactive/view-remount-generation id))
+        "changed candidate g+1 is restored to the old shape at fresh g+2")
     (is (identical? before (reactive/view-descriptor id))
-        "render/comparator/manifest roll back to the last successful publication")
+        "the fresh compensating publication restores the last good descriptor")
     (is (identical? shell1 (:outer (reactive/view-shells id))))
     (is (identical? (:inner pair) (:inner (reactive/view-shells id))))
     (is (= "RollbackV1" (.-displayName shell1))
         "failed candidate display names do not leak")
-    (is (empty? @seen) "a rolled-back candidate never notifies mounted shells")))
+    (is (= [[2 2]] @seen) "restoration notifies mounted shells exactly once")
+    (is (= :stale (reactive/commit! cell @provisional-capture))
+        "a capture of the provisional descriptor can never commit after rollback")
+    (is (= 1 (reactive/generation cell))
+        "the cell observed n+1 but was never forced backwards")
+    (reactive/advance-generation! cell (reactive/view-generation id))
+    (let [[value capture]
+          (reactive/with-capture
+           cell (fn [] ((:render-fn (reactive/view-descriptor id)) nil)))]
+      (is (= :v1 value))
+      (is (identical? cell (reactive/commit! cell capture)))
+      (is (= 2 (reactive/generation cell))
+          "the restored descriptor advances and commits; the cell is not stuck"))))
+
+(deftest rollback-same-hook-shape-advances-body-only-and-stale-token-is-a-no-op
+  (let [id ::rollback-same-shape
+        descriptor {:render-fn identity :compare-fn =
+                    :manifest {:hook-signature "hs1-a"}}
+        _ (reactive/register-view-descriptor! id "hs1-a" descriptor)
+        seen (atom 0)
+        stop (reactive/subscribe-view! id #(swap! seen inc))
+        publication
+        (reactive/prepare-view-descriptor! id "hs1-a" (assoc descriptor :v 1))]
+    (reactive/rollback-view-descriptor! publication)
+    (stop)
+    (is (= 2 (reactive/view-generation id))
+        "restoration is a fresh monotone body publication")
+    (is (= 0 (reactive/view-remount-generation id))
+        "same hook shape does not remount")
+    (is (identical? descriptor (reactive/view-descriptor id)))
+    (is (= 1 @seen)))
+  (let [id ::stale-rollback-token
+        descriptor {:render-fn identity :compare-fn =
+                    :manifest {:hook-signature "hs1-a"}}
+        _ (reactive/register-view-descriptor! id "hs1-a" descriptor)
+        stale (reactive/prepare-view-descriptor! id "hs1-a"
+                                                 (assoc descriptor :v :stale))
+        winner (reactive/prepare-view-descriptor! id "hs1-a"
+                                                  (assoc descriptor :v :winner))
+        _ (reactive/commit-view-descriptor! winner)
+        seen (atom 0)
+        stop (reactive/subscribe-view! id #(swap! seen inc))]
+    (reactive/rollback-view-descriptor! stale)
+    (stop)
+    (is (= 2 (reactive/view-generation id)))
+    (is (= :winner (:v (reactive/view-descriptor id))))
+    (is (= 0 @seen) "a stale rollback token is a complete no-op")))
+
+(deftest nested-failed-publications-restore-parent-transaction-authority
+  (let [id ::nested-rollback
+        d0 {:v 0} d1 {:v 1} d2 {:v 2}
+        _ (reactive/register-view-descriptor! id "hs0" d0)
+        cell (reactive/make-cell id 0)
+        p1 (reactive/prepare-view-descriptor! id "hs1" d1)
+        _ (reactive/advance-generation! cell 1)
+        [_ cap1] (reactive/with-capture cell (fn [] :p1))
+        p2 (reactive/prepare-view-descriptor! id "hs2" d2)
+        _ (reactive/advance-generation! cell 2)
+        [_ cap2] (reactive/with-capture cell (fn [] :p2))]
+    (reactive/rollback-view-descriptor! p2)
+    (is (= 1 (:v (reactive/view-descriptor id)))
+        "nested failure restores the parent provisional descriptor")
+    (is (= 3 (reactive/view-generation id)))
+    (reactive/rollback-view-descriptor! p1)
+    (is (= 0 (:v (reactive/view-descriptor id)))
+        "the still-authoritative parent can compensate to last-known-good")
+    (is (= 4 (reactive/view-generation id)))
+    (is (= 4 (reactive/view-remount-generation id)))
+    (is (= :stale (reactive/commit! cell cap1)))
+    (is (= :stale (reactive/commit! cell cap2))))
+  (let [id ::nested-child-fails-parent-succeeds
+        d0 {:v 0} d1 {:v 1} d2 {:v 2}
+        _ (reactive/register-view-descriptor! id "hs0" d0)
+        p1 (reactive/prepare-view-descriptor! id "hs1" d1)
+        p2 (reactive/prepare-view-descriptor! id "hs2" d2)]
+    (reactive/rollback-view-descriptor! p2)
+    (reactive/commit-view-descriptor! p1)
+    (is (= 1 (:v (reactive/view-descriptor id))))
+    (is (= 3 (reactive/registered-view-revision id))
+        "parent success commits the fresh compensating revision")
+    (is (= 3 (reactive/view-remount-generation id)))))
 
 (deftest scheduler-reset-never-strands-an-already-loaded-defview
   (let [shell-before static-tree
