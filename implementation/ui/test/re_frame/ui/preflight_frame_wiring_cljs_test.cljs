@@ -369,13 +369,16 @@
                            "cf1-bad2222222222222")]))
   (is (true? (:mount-incomplete (frames/installed-plan-entry :frame/ok)))
       "sanity: the failed mount tagged the surviving record")
-  ;; A retries WITHOUT the bad plan -> the mount completes -> the tag clears.
-  (frames/execute-frame-plans!
-   :root/a [(plan :frame/ok {:initial-events [[:test/set-db {:n 1}]]}
-                  "cf1-ok22222222222222")])
+  ;; A retries WITHOUT the bad plan AND its host render commits — evidence is
+  ;; cleared only at the host boundary (rf2-vxgfnd.139).
+  (frames/finalize-preflight-attempt!
+   (frames/execute-frame-plans!
+    :root/a [(plan :frame/ok {:initial-events [[:test/set-db {:n 1}]]}
+                   "cf1-ok22222222222222")]))
   (let [entry (frames/installed-plan-entry :frame/ok)]
     (is (nil? (:mount-incomplete entry))
-        "a completed run clears the stale :mount-incomplete tag")
+        "a committed run clears the stale :mount-incomplete tag")
+    (is (true? (:committed entry)) "…and records the committed root scope")
     (is (= :root/a (:installed-by entry)) "the ownership record is intact")))
 
 ;; ---- rf2-vxgfnd.72: a failed RE-preflight of an ALREADY-LIVE root --------
@@ -389,11 +392,16 @@
 
 (deftest failed-re-preflight-of-a-live-root-keeps-live-state-not-mount-incomplete
   (reg-events!)
-  ;; root A mounts :frame/live and COMPLETES — a genuinely live, scoped root.
-  (frames/execute-frame-plans!
-   :root/a [(plan :frame/live {:initial-events [[:test/set-db {:n 5}]]}
-                  "cf1-live1111111111")])
+  ;; root A mounts :frame/live and its host render COMMITS — a genuinely
+  ;; committed, scoped root (rf2-vxgfnd.139: a refresh's failure is a live-root
+  ;; attempt failure ONLY because the prior mount committed a host boundary).
+  (frames/finalize-preflight-attempt!
+   (frames/execute-frame-plans!
+    :root/a [(plan :frame/live {:initial-events [[:test/set-db {:n 5}]]}
+                   "cf1-live1111111111")]))
   (is (some? (frame/frame :frame/live)) "the frame is live after the first mount")
+  (is (true? (:committed (frames/installed-plan-entry :frame/live)))
+      "sanity: the committed host boundary recorded a committed root scope")
   (rf/dispatch-sync [:test/inc] {:frame :frame/live})
   (is (= 6 (:n (rf/app-db-value :frame/live)))
       "durable state = 6 (the last committed render's state)")
@@ -416,6 +424,8 @@
     (is (= :root/a (:installed-by entry)) "root A still OWNS + scopes the frame")
     (is (nil? (:mount-incomplete entry))
         "the live root is NOT falsely tagged :mount-incomplete (rf2-vxgfnd.72)")
+    (is (true? (:committed entry))
+        "the committed root scope is PRESERVED — the prior render persists (Q49)")
     (is (true? (:preflight-attempt-failed entry))
         "instead the record carries neutral failed-attempt evidence"))
   ;; a later cross-root config conflict on :frame/live must NOT claim the frame
@@ -435,10 +445,11 @@
 
 (deftest completed-retry-clears-the-preflight-attempt-failed-tag
   (reg-events!)
-  ;; A mounts + completes, then a re-preflight refresh fails on a later plan.
-  (frames/execute-frame-plans!
-   :root/a [(plan :frame/live {:initial-events [[:test/set-db {:n 1}]]}
-                  "cf1-r1aaaaaaaaaaaa")])
+  ;; A mounts + COMMITS, then a re-preflight refresh fails on a later plan.
+  (frames/finalize-preflight-attempt!
+   (frames/execute-frame-plans!
+    :root/a [(plan :frame/live {:initial-events [[:test/set-db {:n 1}]]}
+                   "cf1-r1aaaaaaaaaaaa")]))
   (err-id #(frames/execute-frame-plans!
             :root/a [(plan :frame/live {:initial-events [[:test/set-db {:n 2}]]}
                            "cf1-r2bbbbbbbbbbbb")
@@ -446,14 +457,153 @@
                            "cf1-badrrrrrrrrrr")]))
   (is (true? (:preflight-attempt-failed (frames/installed-plan-entry :frame/live)))
       "sanity: the failed re-preflight tagged the live record")
-  ;; A retries WITHOUT the bad plan -> the run completes -> the tag clears.
-  (frames/execute-frame-plans!
-   :root/a [(plan :frame/live {:initial-events [[:test/set-db {:n 2}]]}
-                  "cf1-r2bbbbbbbbbbbb")])
+  ;; A retries WITHOUT the bad plan AND its host render commits -> the tag clears.
+  (frames/finalize-preflight-attempt!
+   (frames/execute-frame-plans!
+    :root/a [(plan :frame/live {:initial-events [[:test/set-db {:n 2}]]}
+                   "cf1-r2bbbbbbbbbbbb")]))
   (let [entry (frames/installed-plan-entry :frame/live)]
     (is (nil? (:preflight-attempt-failed entry))
-        "a completed run clears the stale :preflight-attempt-failed tag")
+        "a committed run clears the stale :preflight-attempt-failed tag")
+    (is (true? (:committed entry)) "…and the committed root scope stays recorded")
     (is (= :root/a (:installed-by entry)) "the ownership record is intact")))
+
+;; ---- rf2-vxgfnd.139: liveness is a COMMITTED-ROOT fact, not a :refresh fact
+;; A never-committed fresh mount that is RETRIED (same root, changed config)
+;; must NOT be relabelled from the truthful :mount-incomplete to the
+;; :preflight-attempt-failed "still LIVE and scoped" evidence: an install record
+;; proves plan authority, not a committed React root. Counterexample 1.
+
+(deftest retry-after-uncommitted-fresh-mount-stays-mount-incomplete-not-live
+  (reg-events!)
+  ;; attempt 1: a fresh install of :frame/retry then a later plan throws — the
+  ;; mount never completed, so :frame/retry is :mount-incomplete (no root scopes).
+  (err-id #(frames/execute-frame-plans!
+            :root/a [(plan :frame/retry {:initial-events [[:test/set-db {:n 1}]]}
+                           "cf1-retryv1aaaaaaa")
+                     (plan :frame/bad {:initial-events [:not-a-vector]}
+                           "cf1-retrybad11111a")]))
+  (is (true? (:mount-incomplete (frames/installed-plan-entry :frame/retry)))
+      "sanity: the fresh mount that never completed is :mount-incomplete")
+  ;; attempt 2: the SAME root RETRIES with a CHANGED config and throws again.
+  ;; Because :installed-by equals root A this decides :refresh — but A never
+  ;; committed a root, so the evidence must stay :mount-incomplete, NOT flip to
+  ;; the live-root attempt-failed claim.
+  (err-id #(frames/execute-frame-plans!
+            :root/a [(plan :frame/retry {:initial-events [[:test/set-db {:n 2}]]}
+                           "cf1-retryv2bbbbbbb")
+                     (plan :frame/bad {:initial-events [:not-a-vector]}
+                           "cf1-retrybad22222b")]))
+  (let [entry (frames/installed-plan-entry :frame/retry)]
+    (is (true? (:mount-incomplete entry))
+        "a changed-config retry of a NEVER-committed mount stays :mount-incomplete")
+    (is (not (:preflight-attempt-failed entry))
+        "it never becomes the live-root 'attempt-failed' evidence (rf2-vxgfnd.139)"))
+  ;; a cross-root conflict must flag the never-committed mount, never claim a
+  ;; live scoping root with a prior render.
+  (let [msg (try (frames/execute-frame-plans!
+                  :root/c [(plan :frame/retry {} "cf1-retryccccccccc")])
+                 nil (catch cljs.core/ExceptionInfo e (ex-message e)))]
+    (is (some? msg) "the cross-root arrival still fails loud")
+    (is (some? (re-find #"no root actually scopes it" msg))
+        "the conflict flags the never-committed mount")
+    (is (nil? (re-find #"still LIVE and scoped by root" msg))
+        "it never claims a never-mounted root is still live + scoped")))
+
+(deftest committed-mount-then-failed-refresh-is-attempt-failed-not-mount-incomplete
+  ;; The SOUND counterpart of the counterexample above: once a mount's host
+  ;; boundary COMMITS (finalize), a later refresh that fails IS a live-root
+  ;; attempt failure — the committed scope persists. This is the distinction the
+  ;; runtime binds via :committed, not via the :refresh action.
+  (reg-events!)
+  (frames/finalize-preflight-attempt!
+   (frames/execute-frame-plans!
+    :root/a [(plan :frame/c {:initial-events [[:test/set-db {:n 1}]]}
+                   "cf1-committedv1aaa")]))
+  (is (true? (:committed (frames/installed-plan-entry :frame/c)))
+      "sanity: the host boundary committed a root scope")
+  ;; a refresh (changed config) whose later sibling throws
+  (err-id #(frames/execute-frame-plans!
+            :root/a [(plan :frame/c {:initial-events [[:test/set-db {:n 2}]]}
+                           "cf1-committedv2bbb")
+                     (plan :frame/bad {:initial-events [:not-a-vector]}
+                           "cf1-committedbad11")]))
+  (let [entry (frames/installed-plan-entry :frame/c)]
+    (is (nil? (:mount-incomplete entry))
+        "a COMMITTED root's failed refresh is never mount-incomplete")
+    (is (true? (:committed entry)) "the committed scope PERSISTS (Q49)")
+    (is (true? (:preflight-attempt-failed entry))
+        "only the failed refresh ATTEMPT is recorded")))
+
+(deftest execute-frame-plans-returns-a-receipt-bound-to-the-host-boundary
+  ;; The receipt threads plan bookkeeping to the client's host-commit boundary.
+  (reg-events!)
+  (let [receipt (frames/execute-frame-plans!
+                 :root/r [(plan :frame/rcpt {:initial-events [[:test/set-db {:n 1}]]}
+                                "cf1-receipt1111111")])]
+    (is (= :root/r (:root-id receipt)) "the receipt names the arriving root")
+    (is (= [:frame/rcpt] (mapv :frame-id (:writes receipt)))
+        "…and logs the frames this attempt wrote")
+    (is (= :fresh (:provenance (first (:writes receipt))))
+        "a fresh install has :fresh provenance")
+    ;; before finalize the fresh install is NOT yet a committed scope
+    (is (not (:committed (frames/installed-plan-entry :frame/rcpt)))
+        "plan completion alone does NOT commit a root scope")
+    (frames/finalize-preflight-attempt! receipt)
+    (is (true? (:committed (frames/installed-plan-entry :frame/rcpt)))
+        "the host-boundary finalize records the committed scope")))
+
+;; ---- rf2-vxgfnd.139 identity guards: the receipt rev has TEETH -------------
+;; These fail if the rev identity check is mutated away (mark/clear keyed on
+;; bare frame-id): a stale attempt would then clobber a newer record.
+
+(deftest stale-abort-receipt-cannot-mark-a-newer-committed-record
+  (reg-events!)
+  ;; A installs + commits F, then A refreshes + commits F AGAIN (a new rev).
+  (let [r1 (frames/execute-frame-plans!
+            :root/a [(plan :frame/f {:initial-events [[:test/set-db {:n 1}]]}
+                           "cf1-teeth1aaaaaaaa")])]
+    (frames/finalize-preflight-attempt! r1)
+    (frames/finalize-preflight-attempt!
+     (frames/execute-frame-plans!
+      :root/a [(plan :frame/f {:initial-events [[:test/set-db {:n 2}]]}
+                     "cf1-teeth2bbbbbbbb")]))
+    ;; the record is now at a NEWER rev than r1. A STALE abort of r1 must NOT
+    ;; mark the current committed record :mount-incomplete.
+    (frames/abort-preflight-attempt! r1)
+    (let [entry (frames/installed-plan-entry :frame/f)]
+      (is (true? (:committed entry)) "the newer committed record is untouched")
+      (is (nil? (:mount-incomplete entry))
+          "a stale abort receipt (older rev) cannot mark the newer record")
+      (is (nil? (:preflight-attempt-failed entry))
+          "…nor tag it attempt-failed"))))
+
+(deftest stale-finalize-receipt-cannot-clear-a-reincarnated-records-evidence
+  (reg-events!)
+  ;; A installs F (rev N).
+  (let [rA (frames/execute-frame-plans!
+            :root/a [(plan :frame/g {:initial-events [[:test/set-db {:n 1}]]}
+                           "cf1-reinc1aaaaaaaa")])]
+    ;; F is DESTROYED (record pruned) then re-created as a boot frame.
+    (frame/destroy-frame! :frame/g)
+    (is (nil? (frames/installed-plan-entry :frame/g)) "sanity: the record is pruned")
+    (rf/make-frame {:id :frame/g :doc "reincarnation"})
+    ;; root B adopts the reincarnation, then a later plan throws -> B's adopt
+    ;; record carries :preflight-attempt-failed at a NEW rev (M != N).
+    (err-id #(frames/execute-frame-plans!
+              :root/b [(plan :frame/g {} "cf1-reinc2bbbbbbbb")
+                       (plan :frame/badx {:initial-events [:not-a-vector]}
+                             "cf1-reincbad111111")]))
+    (is (true? (:preflight-attempt-failed (frames/installed-plan-entry :frame/g)))
+        "sanity: B's reincarnation adopt is attempt-failed")
+    ;; A STALE finalize of rA (rev N) must NOT clear B's evidence or commit it.
+    (frames/finalize-preflight-attempt! rA)
+    (let [entry (frames/installed-plan-entry :frame/g)]
+      (is (= :root/b (:adopted-by entry)) "the reincarnation's real adopter is intact")
+      (is (true? (:preflight-attempt-failed entry))
+          "a stale finalize receipt (dead lifetime's rev) cannot clear newer evidence")
+      (is (nil? (:committed entry))
+          "…nor falsely mark the reincarnation committed"))))
 
 (deftest failed-run-after-adopt-marks-attempt-failed-not-mount-incomplete
   (reg-events!)

@@ -398,13 +398,18 @@
   here — at preflight, before any React work (03 §8). Routes to the
   installed override hook when one is set, else the live executor. A
   throw propagates to the mount/render! caller (the Q49 ruling — see the
-  ns docstring)."
+  ns docstring).
+
+  Returns the live executor's preflight-attempt RECEIPT (rf2-vxgfnd.139) — the
+  caller passes it to `frames/finalize-preflight-attempt!` once the host render
+  commits, or `frames/abort-preflight-attempt!` if the post-preflight boundary
+  throws. nil when there are no static plans, or when a capture-hook override
+  returns a non-receipt (both are no-ops at the boundary)."
   [root-id plans-thunk]
   (when plans-thunk
     (let [plans (plans-thunk)
           f     (or @preflight-hook frames/execute-frame-plans!)]
-      (f root-id plans)))
-  nil)
+      (f root-id plans))))
 
 ;; ---------------------------------------------------------------------------
 ;; React root options
@@ -476,59 +481,85 @@
          (:identifier-prefix info) (:identifier-prefix existing))
         ;; re-preflight BEFORE the re-render: a failure leaves the live
         ;; root and its last committed render untouched (Q49).
-        (run-preflight! root-id plans-thunk)
-        ;; rf2-vxgfnd.69: run-preflight! drained :initial-events SYNCHRONOUSLY
-        ;; (arbitrary app code) that may have unmount!ed this root and mounted
-        ;; a replacement under the same id/container. Revalidate ownership of
-        ;; the CAPTURED handle before the re-render — a superseded root must
-        ;; never commit, and `.render`ing the stale handle would write into a
-        ;; root the replacement now owns. Mirrors the fresh-path re-check.
-        (require-live-root! root 're-frame.ui/mount)
-        (.render (.-react-root root)
-                 (viewcell/provide-root-incarnation
-                  (root-incarnation-of root-id) (element-thunk)))
-        root)
+        (let [receipt (run-preflight! root-id plans-thunk)]
+          (try
+            ;; rf2-vxgfnd.69: run-preflight! drained :initial-events SYNCHRONOUSLY
+            ;; (arbitrary app code) that may have unmount!ed this root and mounted
+            ;; a replacement under the same id/container. Revalidate ownership of
+            ;; the CAPTURED handle before the re-render — a superseded root must
+            ;; never commit, and `.render`ing the stale handle would write into a
+            ;; root the replacement now owns. Mirrors the fresh-path re-check.
+            (require-live-root! root 're-frame.ui/mount)
+            (.render (.-react-root root)
+                     (viewcell/provide-root-incarnation
+                      (root-incarnation-of root-id) (element-thunk)))
+            ;; rf2-vxgfnd.139: the host render COMMITTED — finalize the attempt's
+            ;; evidence (clear stale tags + mark committed). No rollback on this
+            ;; same-root path: the existing root stays registered.
+            (frames/finalize-preflight-attempt! receipt)
+            root
+            (catch :default e
+              ;; the re-render (or the post-preflight ownership fence) threw AFTER
+              ;; preflight completed. The existing live root + its last committed
+              ;; render are untouched (Q49); record only the FAILED ATTEMPT — an
+              ;; already-committed refresh stays :committed + :preflight-attempt-
+              ;; failed, never falsely mount-incomplete (rf2-vxgfnd.139).
+              (frames/abort-preflight-attempt! receipt)
+              (throw e)))))
       (do
         (check-root-claim! 're-frame.ui/mount info container)
         ;; preflight BEFORE any React work (Q49: container untouched on
         ;; failure) — and before registration, so a failed mount leaves
         ;; no registry entry either.
-        (run-preflight! root-id plans-thunk)
-        ;; RE-CHECK the claim AFTER preflight (rf2-vxgfnd.52). run-preflight!
-        ;; drains :initial-events SYNCHRONOUSLY — arbitrary app code that may
-        ;; itself mount a root for this id or into this container (re-entrancy),
-        ;; registering it while THIS mount is still unregistered. The
-        ;; pre-preflight claim is now stale; re-running it BEFORE createRoot and
-        ;; the UNCONDITIONAL register means a re-entrant mount that took
-        ;; ownership fails this mount loud (duplicate-root-id /
-        ;; root-container-in-use / duplicate-identifier-prefix) rather than
-        ;; createRoot-ing a container the inner root owns and clobbering its
-        ;; registry entry — which the failed-first-render rollback below would
-        ;; then match on THIS root and delete, orphaning the inner root's live
-        ;; React tree. No user code runs between this re-check and register
-        ;; (createRoot is React-internal, register is a swap!), so the window
-        ;; is closed.
-        (check-root-claim! 're-frame.ui/mount info container)
-        (let [react-root (rdc/createRoot container react-opts)
-              root       (Root. react-root container root-id)]
-          ;; register BEFORE any render (contract §7 Layer 3) — this MINTS the
-          ;; root incarnation the provider below scopes every ViewCell to.
-          (register-live-root! info container root)
+        (let [receipt (run-preflight! root-id plans-thunk)]
           (try
-            (.render react-root
-                     (viewcell/provide-root-incarnation
-                      (root-incarnation-of root-id) (element-thunk)))
-            root
+            ;; RE-CHECK the claim AFTER preflight (rf2-vxgfnd.52). run-preflight!
+            ;; drains :initial-events SYNCHRONOUSLY — arbitrary app code that may
+            ;; itself mount a root for this id or into this container (re-entrancy),
+            ;; registering it while THIS mount is still unregistered. The
+            ;; pre-preflight claim is now stale; re-running it BEFORE createRoot and
+            ;; the UNCONDITIONAL register means a re-entrant mount that took
+            ;; ownership fails this mount loud (duplicate-root-id /
+            ;; root-container-in-use / duplicate-identifier-prefix) rather than
+            ;; createRoot-ing a container the inner root owns and clobbering its
+            ;; registry entry — which the failed-first-render rollback below would
+            ;; then match on THIS root and delete, orphaning the inner root's live
+            ;; React tree. No user code runs between this re-check and register
+            ;; (createRoot is React-internal, register is a swap!), so the window
+            ;; is closed.
+            (check-root-claim! 're-frame.ui/mount info container)
+            (let [react-root (rdc/createRoot container react-opts)
+                  root       (Root. react-root container root-id)]
+              ;; register BEFORE any render (contract §7 Layer 3) — this MINTS the
+              ;; root incarnation the provider below scopes every ViewCell to.
+              (register-live-root! info container root)
+              (try
+                (.render react-root
+                         (viewcell/provide-root-incarnation
+                          (root-incarnation-of root-id) (element-thunk)))
+                ;; rf2-vxgfnd.139: the FIRST host render COMMITTED — bind the
+                ;; attempt's evidence to this boundary (clear + mark committed).
+                (frames/finalize-preflight-attempt! receipt)
+                root
+                (catch :default e
+                  ;; TOTAL rollback of a failed FIRST mount — the element thunk
+                  ;; or the synchronous host render threw. Release this exact
+                  ;; claim (identity-guarded: a stale handle never evicts a
+                  ;; newer root) and best-effort unmount the host root so a
+                  ;; retry starts clean, with no phantom live root and no host
+                  ;; root residue. Rethrow the ORIGINAL mount error even if the
+                  ;; host cleanup also throws (cleanup never masks it).
+                  (release-root! root-id root)
+                  (try (.unmount react-root) (catch :default _ nil))
+                  (throw e))))
             (catch :default e
-              ;; TOTAL rollback of a failed FIRST mount — the element thunk
-              ;; or the synchronous host render threw. Release this exact
-              ;; claim (identity-guarded: a stale handle never evicts a
-              ;; newer root) and best-effort unmount the host root so a
-              ;; retry starts clean, with no phantom live root and no host
-              ;; root residue. Rethrow the ORIGINAL mount error even if the
-              ;; host cleanup also throws (cleanup never masks it).
-              (release-root! root-id root)
-              (try (.unmount react-root) (catch :default _ nil))
+              ;; rf2-vxgfnd.139: preflight completed but the post-preflight
+              ;; boundary threw (the re-entrancy re-check, or the first-render
+              ;; rollback above rethrowing). A fresh install whose host mount
+              ;; never committed is :mount-incomplete — no root scopes it — never
+              ;; a phantom completed installer. Rev-guarded: a re-entrant root
+              ;; that took ownership of the same frame is untouched.
+              (frames/abort-preflight-attempt! receipt)
               (throw e))))))))
 
 (defn create-root*
@@ -564,31 +595,42 @@
   a replacement root."
   [^Root root element-thunk plans-thunk descriptor-base]
   (require-live-root! root 're-frame.ui/render!)
-  (let [rid (.-root-id root)]
-    (run-preflight! rid plans-thunk)
-    ;; rf2-vxgfnd.69: revalidate ownership AFTER the side-effecting preflight
-    ;; (which may have unmount!ed this root and mounted a replacement under
-    ;; the same id) and BEFORE the descriptor write / .render — a superseded
-    ;; handle fails loud, leaving the replacement root untouched.
-    (require-live-root! root 're-frame.ui/render!)
-    (when ^boolean js/goog.DEBUG
-      (when descriptor-base
-        (swap! live-roots
-               (fn [m]
-                 ;; identity-guarded to THIS exact Root (rf2-vxgfnd.69): never
-                 ;; write the descriptor onto a root that merely shares the id.
-                 (let [entry (get m rid)]
-                   (if (identical? (:root entry) root)
-                     (assoc m rid
-                            (assoc entry :descriptor
-                                   (assoc descriptor-base
-                                          :root-id rid
-                                          :root-id-provenance (:provenance entry))))
-                     m))))))
-    (.render (.-react-root root)
-             (viewcell/provide-root-incarnation
-              (root-incarnation-of rid) (element-thunk)))
-    root))
+  (let [rid     (.-root-id root)
+        receipt (run-preflight! rid plans-thunk)]
+    (try
+      ;; rf2-vxgfnd.69: revalidate ownership AFTER the side-effecting preflight
+      ;; (which may have unmount!ed this root and mounted a replacement under
+      ;; the same id) and BEFORE the descriptor write / .render — a superseded
+      ;; handle fails loud, leaving the replacement root untouched.
+      (require-live-root! root 're-frame.ui/render!)
+      (when ^boolean js/goog.DEBUG
+        (when descriptor-base
+          (swap! live-roots
+                 (fn [m]
+                   ;; identity-guarded to THIS exact Root (rf2-vxgfnd.69): never
+                   ;; write the descriptor onto a root that merely shares the id.
+                   (let [entry (get m rid)]
+                     (if (identical? (:root entry) root)
+                       (assoc m rid
+                              (assoc entry :descriptor
+                                     (assoc descriptor-base
+                                            :root-id rid
+                                            :root-id-provenance (:provenance entry))))
+                       m))))))
+      (.render (.-react-root root)
+               (viewcell/provide-root-incarnation
+                (root-incarnation-of rid) (element-thunk)))
+      ;; rf2-vxgfnd.139: the host render COMMITTED — finalize the attempt.
+      (frames/finalize-preflight-attempt! receipt)
+      root
+      (catch :default e
+        ;; the post-preflight ownership fence, element thunk, or host render
+        ;; threw AFTER preflight completed. A live root's failed re-render leaves
+        ;; its last committed render untouched (Q49); record only the failed
+        ;; ATTEMPT (rf2-vxgfnd.139) — rev-guarded, never falsely mount-incomplete
+        ;; on an already-committed root, never clobbering a superseding root.
+        (frames/abort-preflight-attempt! receipt)
+        (throw e)))))
 
 (defn hydrate-root*
   "Runtime half of `ui/hydrate-root`. Hydrating mounts read identity FROM
